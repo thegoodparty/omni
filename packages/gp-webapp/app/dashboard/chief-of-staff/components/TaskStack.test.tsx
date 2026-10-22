@@ -6,6 +6,7 @@ import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import {
   BUILD_CITIZENS_PANEL_MESSAGE,
   EXPLAIN_CIVIC_PANEL_MESSAGE,
+  START_MANAGED_CIVIC_PANEL_MESSAGE,
 } from '@goodparty_org/contracts'
 import TaskStack from './TaskStack'
 import { ONBOARDING_CARDS } from './onboardingCardsConfig'
@@ -20,6 +21,14 @@ const onboardingRef: { current: OnboardingCard[] | undefined } = {
 vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
   ...(await importOriginal<typeof import('helpers/analyticsHelper')>()),
   trackEvent: vi.fn(),
+}))
+
+const orgRef: {
+  current: { slug: string; district: { l2Name: string } | null }
+} = { current: { slug: 'eo-test', district: null } }
+vi.mock('@shared/organization-picker', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  useOrganization: () => orgRef.current,
 }))
 
 const dismissMock = vi.fn()
@@ -60,6 +69,7 @@ const withCards = (data: DashboardCard[]) => {
 }
 
 beforeEach(() => {
+  orgRef.current = { slug: 'eo-test', district: null }
   cardsRef.current = { data: [], isPending: false, isError: false }
   onboardingRef.current = []
   dismissMock.mockReset()
@@ -758,6 +768,77 @@ describe('<TaskStack>', () => {
     expect(
       screen.getByRole('button', { name: 'Build your panel' }),
     ).toHaveClass('w-full')
+  })
+
+  describe('the managed civic panel card', () => {
+    const managedCard = card({
+      id: 'managed-1',
+      type: 'civic_panel',
+      title: 'Know what your district thinks before you vote',
+      summary:
+        'Residents from every part of your district, matched by age, ' +
+        'gender and race. Free in early access.',
+      ctaLabel: 'Build my civic panel',
+      ctaHref: '/dashboard/contacts/citizens-panel',
+      sourceExternalId: 'managed-panel:office-1',
+    })
+
+    it('leads under Every group gets a seat, naming the place', () => {
+      orgRef.current = {
+        slug: 'eo-test',
+        district: { l2Name: 'Maplewood City Ward 2' },
+      }
+      onboardingRef.current = [{ key: 'priorities', status: 'active' }]
+      withCards([managedCard])
+      render(<TaskStack onOpenCard={vi.fn()} onDiscussCard={vi.fn()} />)
+
+      expect(
+        screen.getByRole('heading', { name: 'Every group gets a seat' }),
+      ).toBeInTheDocument()
+      expect(
+        screen.getByRole('heading', {
+          name: 'Know what Maplewood thinks before you vote',
+        }),
+      ).toBeInTheDocument()
+      expect(
+        screen.getByText(
+          'Residents from every part of Maplewood, matched by age, gender ' +
+            'and race. Free in early access.',
+        ),
+      ).toBeInTheDocument()
+      expect(screen.getByTestId('managed-panel-seats')).toHaveAttribute(
+        'role',
+        'img',
+      )
+      expect(screen.queryByText(/due/i)).toBeNull()
+    })
+
+    it('opens the Chief of Staff on the setup, with Ask about this and Skip', async () => {
+      const user = userEvent.setup()
+      const onDiscussCard = vi.fn()
+      withCards([managedCard])
+      render(<TaskStack onOpenCard={vi.fn()} onDiscussCard={onDiscussCard} />)
+
+      await user.click(
+        screen.getByRole('button', { name: 'Build my civic panel' }),
+      )
+      expect(onDiscussCard).toHaveBeenCalledWith(
+        START_MANAGED_CIVIC_PANEL_MESSAGE,
+      )
+
+      await user.click(screen.getByRole('button', { name: 'Ask about this' }))
+      expect(onDiscussCard).toHaveBeenLastCalledWith(
+        expect.stringContaining(
+          'Know what your district thinks before you vote',
+        ),
+      )
+      expect(screen.getByRole('button', { name: 'Skip' })).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /mark done/i })).toBeNull()
+      expect(
+        screen.queryByRole('button', { name: "What's a civic panel?" }),
+      ).toBeNull()
+      expect(screen.queryByRole('link')).toBeNull()
+    })
   })
 
   it('does not explain the system or use an em-dash', () => {

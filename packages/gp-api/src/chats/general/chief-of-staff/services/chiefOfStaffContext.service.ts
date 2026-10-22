@@ -15,6 +15,7 @@ import { UNSENT_OUTREACH_STATUSES } from '@/outreach/util/unsentOutreachStatuses
 import {
   ChatAnchorSchema,
   type ChatAnchor,
+  type ManagedCivicPanel,
   type PriorityReadStatus,
 } from '@goodparty_org/contracts'
 import { PrioritiesToolPort, PriorityRecord } from './prioritiesPort'
@@ -65,6 +66,10 @@ export interface ChiefOfStaffContext {
   // Undefined while it is off, so nothing about building a panel reaches the
   // prompt or the proposal tool.
   civicPanel?: CivicPanelBuildState
+  // The panel GoodParty builds for the office, null before the official
+  // approves it. Read per turn behind the same flag; undefined while it is
+  // off, or where the managed panel is not wired in.
+  managedPanel?: ManagedCivicPanel | null
   // The office's priority texts whose replies are in, and whether each has
   // been reported back on. Read per turn behind the same flag.
   reportBacks?: ReportBackSend[]

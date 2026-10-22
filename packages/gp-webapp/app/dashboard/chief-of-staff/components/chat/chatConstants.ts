@@ -1,4 +1,7 @@
-import { BUILD_CITIZENS_PANEL_MESSAGE } from '@goodparty_org/contracts'
+import {
+  BUILD_CITIZENS_PANEL_MESSAGE,
+  START_MANAGED_CIVIC_PANEL_MESSAGE,
+} from '@goodparty_org/contracts'
 import { humanizeToolName } from '../../../shared/agent-chat/toolLabels'
 /**
  * Hard-coded intro the Chief of Staff plays on first open (before any
@@ -57,19 +60,19 @@ export const NEXT_STEP_MESSAGES = {
 /**
  * The cards under the Chief of Staff's intro: priorities, hearing from
  * constituents, meetings, and Something else in the official's own words.
- * Any of them can be picked together. With serve-citizen-panels on, the middle card is
- * the civic panel: an office with no members builds its panel here, one with
- * members grows it, both on the same plan as the panel page. `panelMembers` is undefined until
- * the panel summary loads. The middle card waits out `panelLoading` so it never
- * shows one card and then swaps to another.
+ * Any of them can be picked together. With serve-citizen-panels on and no
+ * civic panel set up yet, the middle card is Build my civic panel, which
+ * starts GoodParty building it (the managed panel). `managedSetUp` is
+ * undefined until the enrollment loads; the middle card waits out
+ * `panelLoading` so it never shows one card and then swaps to another.
  */
 export const buildChiefOfStaffNextSteps = ({
   panelsEnabled,
-  panelMembers,
+  managedSetUp,
   panelLoading = false,
 }: {
   panelsEnabled: boolean
-  panelMembers?: number
+  managedSetUp?: boolean
   panelLoading?: boolean
 }): ChatSuggestion[] => [
   {
@@ -82,29 +85,21 @@ export const buildChiefOfStaffNextSteps = ({
   ...(panelLoading
     ? []
     : [
-        !panelsEnabled
+        panelsEnabled && managedSetUp === false
           ? {
+              label: 'Build my civic panel',
+              description:
+                'Residents from every part of your district, free in ' +
+                'early access.',
+              kickoff: START_MANAGED_CIVIC_PANEL_MESSAGE,
+              combinable: true,
+            }
+          : {
               label: 'Hear from your constituents',
               description: 'Ask the residents affected what they think.',
               message: NEXT_STEP_MESSAGES.outreach,
               combinable: true,
-            }
-          : panelMembers !== undefined && panelMembers > 0
-            ? {
-                label: 'Grow your civic panel',
-                description:
-                  'Reach more residents, so you hear from more of them.',
-                kickoff: BUILD_CITIZENS_PANEL_MESSAGE,
-                combinable: true,
-              }
-            : {
-                label: 'Build your civic panel',
-                description:
-                  'Hear from residents before you decide, not only the ' +
-                  'loudest voices.',
-                kickoff: BUILD_CITIZENS_PANEL_MESSAGE,
-                combinable: true,
-              },
+            },
       ]),
   {
     label: 'Get ready for your next meeting',
@@ -160,6 +155,7 @@ const TOOL_DISPLAY_NAMES: Record<string, string> = {
   list_precincts: 'Looking up precincts',
   [SAVED_FILTERS_TOOL]: 'Working on your lists',
   save_panel_weekly_time: 'Making your panel plan',
+  read_managed_panel: 'Checking your civic panel',
   constituent_data: 'Reviewing district data',
   query_constituent_data: 'Reviewing district data',
   describe_constituent_data: 'Reviewing district data',

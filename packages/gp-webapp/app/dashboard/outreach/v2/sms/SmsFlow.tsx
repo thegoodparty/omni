@@ -28,6 +28,7 @@ import {
   findCivicPanelJoinLine,
   findCivicPanelLeaveLine,
   isCivicPanelOnlyList,
+  MANAGED_CIVIC_PANEL_CONSENT_VERSION,
   mergeTagToken,
   PRICE_PER_TEXT,
   REPORT_BACK_PURPOSE,
@@ -35,7 +36,11 @@ import {
   type ServeSmsCreateResponse,
 } from '@goodparty_org/contracts'
 import { Button, Card } from '@styleguide'
-import { CircleCheckIcon, DownloadIcon } from '@styleguide/components/ui/icons'
+import {
+  CircleCheckIcon,
+  DownloadIcon,
+  MessagesSquareIcon,
+} from '@styleguide/components/ui/icons'
 import { clientRequest } from 'gpApi/typed-request'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import {
@@ -116,12 +121,16 @@ import { SmsComposeStep, type SmsRequiredPart } from './SmsComposeStep'
 import { SmsReviewStep } from './SmsReviewStep'
 import { PHONE_LIST_BUILD_POLL_LIMIT } from './smsPhoneListPollLimit'
 import { useServeCitizenPanelsFlag } from 'app/shared/experiments/serveCitizenPanelsFlag'
+import { MANAGED_PANEL_COPY } from 'app/dashboard/contacts/citizens-panel/managedPanelCopy'
 import {
   addGreetingBack,
   addIdentificationBack,
   addOptOutBack,
   addPaidForByBack,
+  composeManagedInvite,
   composeScript,
+  MANAGED_INVITE_LOCKED_LINES,
+  managedInviteBody,
   composeServeScript,
   paidForByLine,
   withCivicPanelJoin,
@@ -394,6 +403,12 @@ interface SmsFlowProps {
   resumeStartsOnWizard?: boolean
   // The label of the button that resumed the draft, for the Pro gate.
   resumeCta?: string
+  // Serve: the civic panel invite GoodParty sends in the official's name
+  // (the managed panel), with `initialScript` as its body. Only the message
+  // step: no audience, date, checkout or payment, and no Outreach row. Its
+  // button approves the invite (POST /v1/contacts/civic-panel/managed) and
+  // then calls `onSetUp`.
+  managedInvite?: { place: string | null; onSetUp: () => void }
 }
 
 const successDate = (d: Date) =>
@@ -602,7 +617,20 @@ export const SmsFlow = ({
   onDraftSaved,
   resumeStartsOnWizard = false,
   resumeCta,
+  managedInvite,
 }: SmsFlowProps) => {
+  const managed = managedInvite !== undefined && surface.isServe
+  const [managedConsent, setManagedConsent] = useState(false)
+  const [managedError, setManagedError] = useState(false)
+  const managedApprove = useMutation({
+    mutationFn: async (inviteMessage: string) => {
+      const { data } = await clientRequest(
+        'POST /v1/contacts/civic-panel/managed',
+        { inviteMessage, consentVersion: MANAGED_CIVIC_PANEL_CONSENT_VERSION },
+      )
+      return data
+    },
+  })
   const [campaign] = useCampaign()
   const [user] = useUser()
   const gate = useOutreachGate('sms')
@@ -803,11 +831,13 @@ export const SmsFlow = ({
     messageSettled: Boolean(initialScript),
   })
   const opensOnMessage = landing === 'message' && !resumeDraft
-  const stepOrder: StepId[] = isEventInvite(purpose)
-    ? baseStepOrder.flatMap((id) =>
-        id === 'purpose' ? ['purpose', 'details'] : [id],
-      )
-    : baseStepOrder
+  const stepOrder: StepId[] = managed
+    ? ['compose']
+    : isEventInvite(purpose)
+      ? baseStepOrder.flatMap((id) =>
+          id === 'purpose' ? ['purpose', 'details'] : [id],
+        )
+      : baseStepOrder
 
   // Reference equality against the Win singleton, not a purpose check:
   // recommended lists are Win-only (the endpoint 400s an eo- org outright),
@@ -908,6 +938,24 @@ export const SmsFlow = ({
     // built, so it opens on the one thing still missing.
     // An event invite still asks its details first, even with the audience
     // settled: the draft is written from them.
+    setManagedConsent(false)
+    setManagedError(false)
+    if (managed) {
+      draftRequestRef.current += 1
+      setStepId('compose')
+      setPurpose(BUILD_CITIZENS_PANEL_PURPOSE)
+      setTone('warm')
+      setMessage(initialScript ?? '')
+      seedUncheckedRef.current = null
+      setOwnWords(true)
+      asksToJoinCivicPanelRef.current = true
+      setAsksToJoinCivicPanelState(true)
+      setUndoText(null)
+      setToneDrafts({})
+      setComposeContinueAttempts(0)
+      resetDraftMutation()
+      return
+    }
     setStepId(
       resumeDraft
         ? 'schedule'
@@ -980,6 +1028,7 @@ export const SmsFlow = ({
     surface,
     landing,
     carriedPurpose,
+    managed,
   ])
 
   // A fresh text starts with the sender's profile photo attached. Win reads
@@ -1112,8 +1161,11 @@ export const SmsFlow = ({
   // Only the system footer is upgraded: a draft saved before verification has
   // no paid-for-by line, and scheduling's server-side compliance check will
   // demand it against the committee that exists by resume time.
-  const composedMessage =
-    resumed && savedDraft?.script ? upgradeFooter(savedDraft.script) : message
+  const composedMessage = managed
+    ? composeManagedInvite(message)
+    : resumed && savedDraft?.script
+      ? upgradeFooter(savedDraft.script)
+      : message
   const composedLength = composedMessage.length
   // Every message the flow writes (a draft, a seed, an undo) names the
   // committee it should. A message the candidate edits is left as they wrote
@@ -1139,9 +1191,10 @@ export const SmsFlow = ({
   }, [footerCommittee])
   // The message with nothing written between its required parts.
   const emptyMessage = composeMessage('', footerCommittee)
-  const hasWrittenBody =
-    message.replace(/\s+/g, '') !== '' &&
-    message.replace(/\s+/g, '') !== emptyMessage.replace(/\s+/g, '')
+  const hasWrittenBody = managed
+    ? message.trim() !== ''
+    : message.replace(/\s+/g, '') !== '' &&
+      message.replace(/\s+/g, '') !== emptyMessage.replace(/\s+/g, '')
   const rawStandards = checkSmsStandards(composedMessage, {
     candidateNames: identificationNames,
     committeeName,
@@ -1347,8 +1400,9 @@ export const SmsFlow = ({
           // the whole message back as is: gp-api locks the name, so a reply
           // cannot drop it, and repairing the identification here would put
           // an intro in front of the greeting.
-          const full =
-            currentDraft === undefined
+          const full = managed
+            ? managedInviteBody(generated)
+            : currentDraft === undefined
               ? composeMessage(
                   openWithSmsIdentification(
                     generated,
@@ -1465,7 +1519,32 @@ export const SmsFlow = ({
       return
     }
     if (!hasWrittenBody) return
-    requestDraft(purpose, tone, message, ownWords, message)
+    // The invite's locked lines go along, so the rewrite reads them, and
+    // come off again with the reply.
+    requestDraft(
+      purpose,
+      tone,
+      message,
+      ownWords,
+      managed ? composedMessage : message,
+    )
+  }
+
+  const handleManagedSetUp = () => {
+    const ready =
+      hasWrittenBody &&
+      standards.passed &&
+      bracketsToFill.length === 0 &&
+      composedLength <= SMS_COMPOSED_MAX_LENGTH
+    if (!ready) {
+      setComposeContinueAttempts((n) => n + 1)
+      return
+    }
+    setManagedError(false)
+    managedApprove.mutate(composedMessage, {
+      onSuccess: () => managedInvite?.onSetUp(),
+      onError: () => setManagedError(true),
+    })
   }
 
   // A required line the official deleted, put back where the flow writes it.
@@ -1970,7 +2049,9 @@ export const SmsFlow = ({
   }
 
   // A saved draft is the opposite of unsaved work: closing loses nothing.
-  const dirty = !scheduled && purpose !== null && savedDraft === null
+  const dirty = managed
+    ? message !== (initialScript ?? '') || managedConsent
+    : !scheduled && purpose !== null && savedDraft === null
 
   const reviewGateCta =
     gate.requirement !== null ? REVIEW_GATE_CTA[gate.requirement] : undefined
@@ -2116,8 +2197,14 @@ export const SmsFlow = ({
                       }
                     : null
 
-  const cta: FlowShellCta | null =
-    stepId === 'details' && !scheduled && !gateOpen
+  const cta: FlowShellCta | null = managed
+    ? {
+        label: MANAGED_PANEL_COPY.flow.submit,
+        onClick: handleManagedSetUp,
+        disabled: !managedConsent || draftMutation.isPending,
+        loading: managedApprove.isPending,
+      }
+    : stepId === 'details' && !scheduled && !gateOpen
       ? {
           label: 'Continue',
           onClick: handleEventDetailsContinue,
@@ -2157,20 +2244,27 @@ export const SmsFlow = ({
       open={open}
       onClose={onClose}
       title={
-        scheduled
-          ? 'Done'
-          : showGateChrome
-            ? gateChrome.overline
-            : stepId === 'schedule' && buildMode
-              ? NAME_ONLY_COPY.title
-              : stepId === 'review' && buildMode
-                ? 'Review and verify'
-                : stepId === 'review' && isFreeSend
-                  ? 'Review and send'
-                  : STEP_TITLES[stepId]
+        managed
+          ? MANAGED_PANEL_COPY.flow.title
+          : scheduled
+            ? 'Done'
+            : showGateChrome
+              ? gateChrome.overline
+              : stepId === 'schedule' && buildMode
+                ? NAME_ONLY_COPY.title
+                : stepId === 'review' && buildMode
+                  ? 'Review and verify'
+                  : stepId === 'review' && isFreeSend
+                    ? 'Review and send'
+                    : STEP_TITLES[stepId]
       }
       headerBadge={
-        showGateChrome ? (
+        managed ? (
+          <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-foreground">
+            <MessagesSquareIcon className="size-4" aria-hidden />
+            {MANAGED_PANEL_COPY.flow.header}
+          </span>
+        ) : showGateChrome ? (
           gateChrome.overline
         ) : (
           <ChannelBadge
@@ -2192,14 +2286,17 @@ export const SmsFlow = ({
             ? gateChrome.totalSteps
             : stepOrder.length
       }
+      backExits={managed}
       onBack={
-        // A resume has no reachable step behind it at all: purpose, audience
-        // and compose were settled when the draft was saved, and compose
-        // could never advance again (its Continue needs a local image file
-        // the saved row cannot supply).
-        !scheduled && !gateOpen && !resumed && stepIndex > 0
-          ? handleBack
-          : undefined
+        managed
+          ? onClose
+          : // A resume has no reachable step behind it at all: purpose, audience
+            // and compose were settled when the draft was saved, and compose
+            // could never advance again (its Continue needs a local image file
+            // the saved row cannot supply).
+            !scheduled && !gateOpen && !resumed && stepIndex > 0
+            ? handleBack
+            : undefined
       }
       cta={cta}
       // A React element is truthy even when it renders null, so the caller
@@ -2455,50 +2552,71 @@ export const SmsFlow = ({
           </>
         )
       ) : stepId === 'compose' ? (
-        <SmsComposeStep
-          isServe={surface.isServe}
-          tone={tone}
-          onToneChange={handleToneChange}
-          standardsFailures={standards.failures}
-          restrictedWords={findSmsRestrictedWords(composedMessage)}
-          unfilledBrackets={bracketsToFill}
-          identificationExample={introFor(tone)}
-          paidForByText={
-            footerCommittee ? paidForByLine(footerCommittee) : null
-          }
-          onAddRequiredBack={handleAddRequiredBack}
-          message={message}
-          onMessageChange={handleMessageChange}
-          mergeTagChannel={surface.isServe ? 'serve' : 'peerly'}
-          hasWrittenBody={hasWrittenBody}
-          composedLength={composedLength}
-          aiAction={aiAction}
-          onAiAction={handleAiAction}
-          isDrafting={draftMutation.isPending}
-          isDraftError={draftMutation.isError}
-          canUndo={undoText !== null}
-          onUndo={handleUndo}
-          imagePreviewUrl={imagePreviewUrl}
-          onImageChange={setImage}
-          imageError={imageError}
-          onImageError={setImageError}
-          continueAttempts={composeContinueAttempts}
-          civicPanelAsk={
-            surface.isServe &&
-            citizenPanelsEnabled &&
-            !isReportBack &&
-            !offersCivicPanelLeave
-              ? {
-                  checked: asksToJoin,
-                  locked: civicPanelAskLocked,
-                  onChange: (checked) => {
-                    setAsksToJoinCivicPanel(checked)
-                    loadMessage(withCivicPanelJoin(message, checked))
-                  },
-                }
-              : undefined
-          }
-        />
+        <>
+          <SmsComposeStep
+            isServe={surface.isServe}
+            tone={tone}
+            onToneChange={handleToneChange}
+            standardsFailures={standards.failures}
+            restrictedWords={findSmsRestrictedWords(composedMessage)}
+            unfilledBrackets={bracketsToFill}
+            identificationExample={introFor(tone)}
+            paidForByText={
+              footerCommittee ? paidForByLine(footerCommittee) : null
+            }
+            onAddRequiredBack={handleAddRequiredBack}
+            message={message}
+            onMessageChange={handleMessageChange}
+            mergeTagChannel={surface.isServe ? 'serve' : 'peerly'}
+            hasWrittenBody={hasWrittenBody}
+            composedLength={composedLength}
+            aiAction={aiAction}
+            onAiAction={handleAiAction}
+            isDrafting={draftMutation.isPending}
+            isDraftError={draftMutation.isError}
+            canUndo={undoText !== null}
+            onUndo={handleUndo}
+            imagePreviewUrl={imagePreviewUrl}
+            onImageChange={setImage}
+            imageError={imageError}
+            onImageError={setImageError}
+            continueAttempts={composeContinueAttempts}
+            {...(managed && {
+              managedInvite: {
+                title: MANAGED_PANEL_COPY.flow.title,
+                caption: MANAGED_PANEL_COPY.flow.caption(
+                  managedInvite?.place ?? null,
+                ),
+                lockedLines: MANAGED_INVITE_LOCKED_LINES,
+                consent: {
+                  label: MANAGED_PANEL_COPY.flow.consent,
+                  checked: managedConsent,
+                  onChange: setManagedConsent,
+                },
+              },
+            })}
+            civicPanelAsk={
+              surface.isServe &&
+              citizenPanelsEnabled &&
+              !isReportBack &&
+              !offersCivicPanelLeave
+                ? {
+                    checked: asksToJoin,
+                    locked: civicPanelAskLocked,
+                    onChange: (checked) => {
+                      setAsksToJoinCivicPanel(checked)
+                      loadMessage(withCivicPanelJoin(message, checked))
+                    },
+                  }
+                : undefined
+            }
+          />
+          {managed && managedError ? (
+            <p className="mt-4 text-sm text-destructive" role="alert">
+              {MANAGED_PANEL_COPY.flow.error}
+            </p>
+          ) : null}
+        </>
       ) : (
         <CheckoutSessionProvider
           key={draftOutreachId ?? 'pending'}

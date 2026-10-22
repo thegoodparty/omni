@@ -26,9 +26,14 @@ import { buildPresentOutreachProposalTool } from '../chat-tools/presentOutreachP
 import type { PriorityFlowOutreachService } from '../priority-flow/services/priorityFlowOutreach.service'
 import type { PriorityStatusService } from '@/priorities/services/priorityStatus.service'
 import type { CivicPanelBuildPlanService } from '@/contacts/services/civicPanelBuildPlan.service'
+import type { ManagedCivicPanelService } from '@/contacts/services/managedCivicPanel.service'
 import {
   BUILD_CITIZENS_PANEL_MESSAGE,
   EXPLAIN_CIVIC_PANEL_MESSAGE,
+  MANAGED_CIVIC_PANEL_BACKED_OUT_MESSAGE,
+  MANAGED_CIVIC_PANEL_SET_UP_MESSAGE,
+  START_MANAGED_CIVIC_PANEL_MESSAGE,
+  type ManagedCivicPanel,
 } from '@goodparty_org/contracts'
 import type { PriorityResultsService } from '@/priorities/services/priorityResults.service'
 
@@ -660,6 +665,144 @@ describe('ChiefOfStaffHandler', () => {
       expect(descriptionOf(tools.describe_filter_dimensions)).not.toContain(
         'present_outreach_proposal',
       )
+    })
+  })
+
+  describe('the civic panel GoodParty builds (managed)', () => {
+    const MANAGED_TOOLS = [
+      'offer_managed_panel_invite',
+      'present_managed_panel_invite',
+      'read_managed_panel',
+      'present_managed_panel',
+    ]
+    const PLAN_TOOLS = [
+      'ask_panel_weekly_time',
+      'save_panel_weekly_time',
+      'present_panel_next_step',
+    ]
+
+    const enrollment = {
+      id: 'mp-1',
+      status: 'building',
+      approvedAt: new Date('2026-10-22T18:00:00Z'),
+      progress: {
+        members: 0,
+        goalMembers: 275,
+        wavesSent: 0,
+        nextWaveAt: null,
+      },
+    } as unknown as ManagedCivicPanel
+
+    const buildManagedHandler = ({
+      panel,
+      panels = true,
+      hasPlan = false,
+    }: {
+      panel: ManagedCivicPanel | null
+      panels?: boolean
+      hasPlan?: boolean
+    }) => {
+      context.civicPanelBuildState = vi.fn(() =>
+        Promise.resolve({
+          members: 0,
+          inviteSent: false,
+          hasPlan,
+          goalMembers: 240,
+        }),
+      )
+      const read = vi.fn(() => Promise.resolve({ panel }))
+      const handler = new ChiefOfStaffHandler(
+        context,
+        buildBriefings(),
+        port,
+        NO_TABLES,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        {
+          isFeatureEnabled: vi.fn(() => Promise.resolve(panels)),
+        } as never,
+        undefined,
+        undefined,
+        {} as CivicPanelBuildPlanService,
+        { read } as unknown as ManagedCivicPanelService,
+      )
+      return { handler, read }
+    }
+
+    it('offers the managed panel in place of the plan before the office approves', async () => {
+      const { handler } = buildManagedHandler({ panel: null })
+      const ctx = await handler.loadContext('c1', USER_ID)
+      const names = Object.keys(handler.buildTools(ctx))
+      expect(names).toEqual(expect.arrayContaining(MANAGED_TOOLS))
+      for (const name of PLAN_TOOLS) expect(names).not.toContain(name)
+
+      const prompt = handler.buildSystemPrompt(ctx)
+      expect(prompt).toContain(
+        `MANAGED CIVIC PANEL (apply when the user's message is exactly "${START_MANAGED_CIVIC_PANEL_MESSAGE}"`,
+      )
+      expect(prompt).toContain(
+        'over about two weeks we text it to residents in waves',
+      )
+      expect(prompt).toContain(
+        'Between waves we invite more of whoever is missing',
+      )
+      expect(prompt).toContain('free in early access')
+      expect(prompt).toContain(
+        'call `offer_managed_panel_invite` with nothing after it',
+      )
+      expect(prompt).toContain('Then call `present_managed_panel_invite`')
+      expect(prompt).toContain(`On "${MANAGED_CIVIC_PANEL_BACKED_OUT_MESSAGE}"`)
+      expect(prompt).not.toContain(
+        "CIVIC PANEL (apply when the user's message is exactly " +
+          `"${BUILD_CITIZENS_PANEL_MESSAGE}"`,
+      )
+    })
+
+    it('says when the first invites go out once the office approves', async () => {
+      const { handler } = buildManagedHandler({ panel: enrollment })
+      const ctx = await handler.loadContext('c1', USER_ID)
+      const prompt = handler.buildSystemPrompt(ctx)
+      expect(prompt).toContain(
+        `On "${MANAGED_CIVIC_PANEL_SET_UP_MESSAGE}", call \`read_managed_panel\``,
+      )
+      expect(prompt).toContain(
+        '"Done. The first invites go out <firstSendDate>. I\'ll let you know when your panel is ready, around the week of <readyWeekOf>."',
+      )
+      expect(prompt).toContain('Never offer or show the invite again.')
+      expect(prompt).toContain('ask which priority they want to work on')
+
+      const tools = handler.buildTools(ctx)
+      const offer = tools.offer_managed_panel_invite as unknown as {
+        execute: () => unknown
+      }
+      expect(offer.execute()).toMatchObject({ error: expect.any(String) })
+    })
+
+    it('keeps the plan for an office already part way through one', async () => {
+      const { handler } = buildManagedHandler({ panel: null, hasPlan: true })
+      const ctx = await handler.loadContext('c1', USER_ID)
+      expect(Object.keys(handler.buildTools(ctx))).toEqual(
+        expect.arrayContaining([...MANAGED_TOOLS, ...PLAN_TOOLS]),
+      )
+    })
+
+    it('reads nothing with serve-citizen-panels off', async () => {
+      const { handler, read } = buildManagedHandler({
+        panel: null,
+        panels: false,
+      })
+      const ctx = await handler.loadContext('c1', USER_ID)
+      expect(read).not.toHaveBeenCalled()
+      expect(ctx.managedPanel).toBeUndefined()
+      const names = Object.keys(handler.buildTools(ctx))
+      for (const name of MANAGED_TOOLS) expect(names).not.toContain(name)
     })
   })
 

@@ -131,6 +131,8 @@ import type {
   CreateCivicPanelBuildPlanInput,
   UpdateCivicPanelBuildPlanInput,
   MarkCivicPanelBuildStepInput,
+  ApproveManagedCivicPanelInput,
+  ManagedCivicPanelResponse,
   PrepareCivicPanelBuildStepResponse,
 } from '@goodparty_org/contracts'
 import type { Race } from 'app/onboarding/[slug]/[step]/components/ballotOffices/types'
@@ -1596,6 +1598,16 @@ export type APIEndpoints = {
   'POST /v1/contacts/civic-panel/plan/steps/:id/mark': {
     Request: MarkCivicPanelBuildStepInput
     Response: CivicPanelBuildPlanResponse
+  }
+  // The panel GoodParty builds for the office. GET is { panel: null } before
+  // the official approves; POST approves the invite in their name.
+  'GET /v1/contacts/civic-panel/managed': {
+    Request: {}
+    Response: ManagedCivicPanelResponse
+  }
+  'POST /v1/contacts/civic-panel/managed': {
+    Request: ApproveManagedCivicPanelInput
+    Response: ManagedCivicPanelResponse
   }
   'GET /v1/contacts/:id': {
     Request: {}
