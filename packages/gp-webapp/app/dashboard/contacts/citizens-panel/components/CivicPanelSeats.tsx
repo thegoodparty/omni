@@ -23,7 +23,7 @@ import {
 
 // Darkest tint first. Each seat is outlined in its family's darkest tint so
 // the light ones still read on white.
-const SEAT_FILL: Record<SeatHue, [string, string, string]> = {
+export const SEAT_FILL: Record<SeatHue, [string, string, string]> = {
   red: ['fill-brand-red-500', 'fill-brand-red-400', 'fill-brand-red-300'],
   blue: ['fill-brand-blue-600', 'fill-brand-blue-500', 'fill-brand-blue-300'],
   lavender: [
@@ -32,7 +32,7 @@ const SEAT_FILL: Record<SeatHue, [string, string, string]> = {
     'fill-brand-lavender-600',
   ],
 }
-const SEAT_OUTLINE: Record<SeatHue, string> = {
+export const SEAT_OUTLINE: Record<SeatHue, string> = {
   red: 'stroke-brand-red-500',
   blue: 'stroke-brand-blue-600',
   lavender: 'stroke-brand-lavender-800',

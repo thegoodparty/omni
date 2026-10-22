@@ -3,6 +3,7 @@ import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import {
   BUILD_CITIZENS_PANEL_MESSAGE,
+  START_MANAGED_CIVIC_PANEL_MESSAGE,
   EXPLAIN_CIVIC_PANEL_MESSAGE,
   pickedNextStepsMessage,
 } from '@goodparty_org/contracts'
@@ -52,6 +53,7 @@ vi.mock('@shared/sentry', () => ({ reportErrorToSentry: vi.fn() }))
 // The civic panel summary decides the panel step; nothing else on this page
 // may call the API, so a completed get-started card would show up here.
 const panelSummary = { members: 0 }
+const managed: { panel: { status: string } | null } = { panel: null }
 const clientRequestMock = vi.fn()
 vi.mock('gpApi/typed-request', () => ({
   clientRequest: (...args: unknown[]) => clientRequestMock(...args),
@@ -128,7 +130,11 @@ beforeEach(() => {
     ]),
   )
   panelSummary.members = 0
+  managed.panel = null
   clientRequestMock.mockReset().mockImplementation(async (endpoint: string) => {
+    if (endpoint === 'GET /v1/contacts/civic-panel/managed') {
+      return { ok: true, status: 200, data: { panel: managed.panel } }
+    }
     if (endpoint === 'GET /v1/contacts/civic-panel') {
       return {
         ok: true,
@@ -276,7 +282,7 @@ describe('DashboardContent: Meet my Chief of Staff', () => {
     }
     for (const label of [
       'See what matters in your community',
-      'Build your civic panel',
+      'Build my civic panel',
       'Get ready for your next meeting',
       'Something else',
     ]) {
@@ -312,39 +318,42 @@ describe('DashboardContent: Meet my Chief of Staff', () => {
     },
   )
 
-  it('Build your civic panel alone builds it in this chat, as a hidden turn', async () => {
+  it('Build my civic panel alone starts the managed setup in this chat, as a hidden turn', async () => {
+    listMessagesMock.mockResolvedValue([
+      message('u1', 'user', START_MANAGED_CIVIC_PANEL_MESSAGE),
+      message('a1', 'assistant', REPLY),
+    ])
     vi.mocked(router.push!).mockClear()
     const user = await meet()
-    await pickAndStart(user, 'Build your civic panel')
+    await pickAndStart(user, 'Build my civic panel')
 
     await waitFor(() =>
       expect(streamMessageMock).toHaveBeenCalledWith(
-        expect.objectContaining({ content: BUILD_CITIZENS_PANEL_MESSAGE }),
+        expect.objectContaining({
+          content: START_MANAGED_CIVIC_PANEL_MESSAGE,
+        }),
       ),
     )
     expect(router.push).not.toHaveBeenCalled()
-    expect(screen.queryByText(BUILD_CITIZENS_PANEL_MESSAGE)).toBeNull()
+    expect(screen.queryByText(START_MANAGED_CIVIC_PANEL_MESSAGE)).toBeNull()
     expect(completedACard()).toBe(false)
   })
 
-  it('grows the panel instead once it has members, in the same chat', async () => {
+  it('offers hearing from constituents once GoodParty is building the panel', async () => {
+    managed.panel = { status: 'building' }
     panelSummary.members = 5
-    const user = await meet()
+    await meet()
 
-    await screen.findByRole('checkbox', { name: /Grow your civic panel/ })
-    expect(
-      screen.queryByRole('checkbox', { name: /Build your civic panel/ }),
-    ).toBeNull()
-    expect(
-      screen.queryByRole('checkbox', { name: /Ask your civic panel/ }),
-    ).toBeNull()
-    await pickAndStart(user, 'Grow your civic panel')
-    await waitFor(() =>
-      expect(streamMessageMock).toHaveBeenCalledWith(
-        expect.objectContaining({ content: BUILD_CITIZENS_PANEL_MESSAGE }),
-      ),
-    )
-    expect(screen.queryByText(BUILD_CITIZENS_PANEL_MESSAGE)).toBeNull()
+    await screen.findByRole('checkbox', {
+      name: /Hear from your constituents/,
+    })
+    for (const label of [
+      /Build my civic panel/,
+      /Build your civic panel/,
+      /Grow your civic panel/,
+    ]) {
+      expect(screen.queryByRole('checkbox', { name: label })).toBeNull()
+    }
   })
 
   it('Start waits for a pick, and the picks toggle', async () => {
@@ -377,7 +386,7 @@ describe('DashboardContent: Meet my Chief of Staff', () => {
   it('sends several picks as one message, in the order shown', async () => {
     const sent = pickedNextStepsMessage([
       'See what matters in your community',
-      'Build your civic panel',
+      'Build my civic panel',
       'Get ready for your next meeting',
     ])
     listMessagesMock.mockResolvedValue([
@@ -390,7 +399,7 @@ describe('DashboardContent: Meet my Chief of Staff', () => {
       user,
       'Get ready for your next meeting',
       'See what matters in your community',
-      'Build your civic panel',
+      'Build my civic panel',
     )
 
     await waitFor(() =>

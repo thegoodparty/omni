@@ -6,6 +6,9 @@ import { useQuery } from '@tanstack/react-query'
 import {
   BUILD_CITIZENS_PANEL_MESSAGE,
   EXPLAIN_CIVIC_PANEL_MESSAGE,
+  MANAGED_CIVIC_PANEL_BACKED_OUT_MESSAGE,
+  MANAGED_CIVIC_PANEL_SET_UP_MESSAGE,
+  START_MANAGED_CIVIC_PANEL_MESSAGE,
 } from '@goodparty_org/contracts'
 import { useUser } from '@shared/hooks/useUser'
 import { useOrganization } from '@shared/organization-picker'
@@ -14,7 +17,10 @@ import { Button } from '@styleguide'
 import { ArchiveIcon } from '@styleguide/components/ui/icons'
 import DashboardNavHeaderAction from '../../shared/DashboardNavHeaderAction'
 import { chiefOfStaffArchiveHref } from '../routes'
-import { civicPanelSummaryQueryOptions } from '../../contacts/citizens-panel/civicPanelSummary.query'
+import {
+  civicPanelSummaryQueryOptions,
+  managedCivicPanelQueryOptions,
+} from '../../contacts/citizens-panel/civicPanelSummary.query'
 import BriefingDispatchBanner from './BriefingDispatchBanner'
 import { ONBOARDING_CARDS } from './onboardingCardsConfig'
 import TaskStack from './TaskStack'
@@ -28,8 +34,15 @@ import {
 import { useBriefingDispatch } from '../data/use-briefing-dispatch'
 import type { OnboardingCardKey } from '../data/contracts'
 
-// The build card's turns, hidden again when their conversation is reopened.
-const HIDDEN_TURNS = [BUILD_CITIZENS_PANEL_MESSAGE, EXPLAIN_CIVIC_PANEL_MESSAGE]
+// The panel cards' turns, and the ones the invite review sends when it
+// closes, hidden again when their conversation is reopened.
+const HIDDEN_TURNS = [
+  BUILD_CITIZENS_PANEL_MESSAGE,
+  EXPLAIN_CIVIC_PANEL_MESSAGE,
+  START_MANAGED_CIVIC_PANEL_MESSAGE,
+  MANAGED_CIVIC_PANEL_SET_UP_MESSAGE,
+  MANAGED_CIVIC_PANEL_BACKED_OUT_MESSAGE,
+]
 // A kickoff answers in place of the intro, so the first-chat intro must not
 // type in over it. Module-level so its identity is stable.
 const NO_INTRO: string[] = []
@@ -63,11 +76,21 @@ export default function DashboardContent(): React.JSX.Element {
     useServeCitizenPanelsFlag(false)
   // The panel's members pick the civic panel step: build one, or ask it.
   const orgSlug = useOrganization()?.slug
-  const { data: panelSummary, isLoading: panelSummaryLoading } = useQuery({
+  const { data: panelSummary } = useQuery({
     ...civicPanelSummaryQueryOptions(orgSlug),
     enabled: panelsReady && panelsEnabled && Boolean(orgSlug),
   })
   const panelMembers = panelsEnabled ? panelSummary?.members : undefined
+  // Whether GoodParty is already building the panel picks the intro's
+  // middle step: set it up, or hear from constituents.
+  const { data: managedPanel, isLoading: managedLoading } = useQuery({
+    ...managedCivicPanelQueryOptions(orgSlug),
+    enabled: panelsReady && panelsEnabled && Boolean(orgSlug),
+  })
+  const managedSetUp =
+    managedPanel === undefined
+      ? undefined
+      : managedPanel !== null && managedPanel.status !== 'stopped'
 
   const openNewChat = () => {
     setPendingFile(undefined)
@@ -125,8 +148,8 @@ export default function DashboardContent(): React.JSX.Element {
       ? undefined
       : buildChiefOfStaffNextSteps({
           panelsEnabled: panelsReady && panelsEnabled,
-          panelMembers,
-          panelLoading: !panelsReady || (panelsEnabled && panelSummaryLoading),
+          managedSetUp,
+          panelLoading: !panelsReady || (panelsEnabled && managedLoading),
         })
 
   return (

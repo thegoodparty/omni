@@ -12,7 +12,11 @@ import {
 import { useRouter } from 'next/navigation'
 import { useQueryClient } from '@tanstack/react-query'
 import { Badge, Button, Checkbox, cn, Input, Label, toast } from '@styleguide'
-import { pickedNextStepsMessage } from '@goodparty_org/contracts'
+import {
+  MANAGED_CIVIC_PANEL_BACKED_OUT_MESSAGE,
+  MANAGED_CIVIC_PANEL_SET_UP_MESSAGE,
+  pickedNextStepsMessage,
+} from '@goodparty_org/contracts'
 import {
   ASSISTANT_BUBBLE,
   AssistantMarkdown,
@@ -69,6 +73,11 @@ import {
   civicPanelWidgetTools,
   SAVE_PANEL_WEEKLY_TIME_TOOL,
 } from './civicPanelWidgets'
+import {
+  managedPanelWidgetTools,
+  type ManagedPanelWidgetContext,
+} from './managedPanelWidgets'
+import { managedCivicPanelQueryOptions } from '../../../contacts/citizens-panel/civicPanelSummary.query'
 import { HISTORY_KEY, useChatHistory } from '../../data/use-chat-history'
 import {
   isToolRefusal,
@@ -274,7 +283,8 @@ const LIST_PROPOSAL_TOOL = 'present_list_proposal'
 
 type CosWidgetContext = CardWidgetContext &
   ClarifyWidgetContext &
-  ComposeHandoffWidgetContext
+  ComposeHandoffWidgetContext &
+  ManagedPanelWidgetContext
 
 // show_list_map is deliberately not here: its map renders after the turn's
 // prose, once per turn, and moving it would change where it appears.
@@ -283,6 +293,7 @@ const cosWidgets = createWidgetRegistry<CosWidgetContext>([
   clarifyWidgetTool,
   composeHandoffWidgetTool,
   ...civicPanelWidgetTools,
+  ...managedPanelWidgetTools,
 ])
 
 // Pulls the widget payload back out of a persisted turn. Returns null for
@@ -1260,6 +1271,28 @@ function ChiefOfStaffChatThread({
     setPendingBoundaryNote(listCreatedMessage(list))
   }, [])
 
+  // The invite review approves the panel browser -> API, so the agent hears
+  // whether the official set it up or backed out from one hidden turn, on
+  // the same queue.
+  const handleManagedPanelInviteClosed = useCallback(
+    (setUp: boolean) => {
+      if (setUp) {
+        void queryClient.invalidateQueries({
+          queryKey: managedCivicPanelQueryOptions(orgSlug).queryKey,
+        })
+        void queryClient.invalidateQueries({
+          queryKey: ['chief-of-staff', 'cards'],
+        })
+      }
+      setPendingBoundaryNote(
+        setUp
+          ? MANAGED_CIVIC_PANEL_SET_UP_MESSAGE
+          : MANAGED_CIVIC_PANEL_BACKED_OUT_MESSAGE,
+      )
+    },
+    [queryClient, orgSlug],
+  )
+
   // Queued rather than sent, because a boundary can be saved while a turn is
   // still streaming — the drawer is mounted by this component precisely so it
   // survives that — and `deliver` refuses a send with one in flight. Dropping
@@ -1672,6 +1705,7 @@ function ChiefOfStaffChatThread({
                   clarifyAnswer: clarifyAnswerById[m.id],
                   onClarifyAnswer: answerClarify,
                   onComposeHandoff: handleComposeHandoff,
+                  onManagedPanelInviteClosed: handleManagedPanelInviteClosed,
                 }}
                 onCitationClick={
                   attachmentsEnabled && conversationId
@@ -1729,6 +1763,7 @@ function ChiefOfStaffChatThread({
                 clarifyInteractive: false,
                 onClarifyAnswer: answerClarify,
                 onComposeHandoff: handleComposeHandoff,
+                onManagedPanelInviteClosed: handleManagedPanelInviteClosed,
               }}
               onCitationClick={
                 attachmentsEnabled && conversationId

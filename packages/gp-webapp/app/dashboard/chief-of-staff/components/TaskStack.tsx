@@ -12,6 +12,9 @@ import {
   isCivicPanelBuildCard,
   isCivicPanelStepCard,
   isGoodReadReportBackCard,
+  isManagedCivicPanelCard,
+  managedCivicPanelCardContent,
+  START_MANAGED_CIVIC_PANEL_MESSAGE,
 } from '@goodparty_org/contracts'
 import { format, parseISO } from 'date-fns'
 import {
@@ -44,6 +47,11 @@ import {
 } from './onboardingCardsConfig'
 import type { DashboardCardType, OnboardingCardKey } from '../data/contracts'
 import { civicPanelHref } from '../../contacts/citizens-panel/citizensPanelCopy'
+import {
+  MANAGED_PANEL_COPY,
+  useServePlace,
+} from '../../contacts/citizens-panel/managedPanelCopy'
+import { ManagedPanelSeats } from '../../contacts/citizens-panel/components/ManagedPanelSeats'
 
 // Same timing as the Campaign Manager's stack: the confetti bursts, then a
 // done card lifts off the top while a skipped one drops down and out.
@@ -80,11 +88,15 @@ type DeckCard = {
   peopleFirst: boolean
   // A report back on a priority with a good read: it leads the panel cards.
   leadsPanel: boolean
+  // The card that offers the civic panel GoodParty builds: its button opens
+  // the Chief of Staff on the setup, and the seats fill above it.
+  managedPanel: boolean
   // Tells the civic_panel cards apart in analytics.
   variant: CardVariant
 }
 
 type CardVariant =
+  | 'panel_managed'
   | 'panel_build'
   | 'panel_step'
   | 'priority_next_step'
@@ -94,6 +106,7 @@ type CardVariant =
 const cardVariant = (
   card: Parameters<typeof isCivicPanelBuildCard>[0],
 ): CardVariant => {
+  if (isManagedCivicPanelCard(card)) return 'panel_managed'
   if (isCivicPanelBuildCard(card)) return 'panel_build'
   if (isCivicPanelStepCard(card)) return 'panel_step'
   if (card.type === 'civic_panel') return 'priority_next_step'
@@ -157,6 +170,7 @@ const TaskStack = ({
   briefingInFlight?: boolean
 }): React.JSX.Element | null => {
   const cards = useDashboardCards('active')
+  const place = useServePlace()
   const { data: onboarding } = useOnboardingCards()
   const dismissCard = useDismissCard()
   const completeCard = useCompleteCard()
@@ -191,8 +205,11 @@ const TaskStack = ({
   const dashboardCards: DeckCard[] = (cards.data ?? []).map((card) => ({
     id: card.id,
     kind: card.type,
-    title: card.title,
-    summary: card.summary,
+    // gp-api stores the managed card's words without the place; the home
+    // names it.
+    ...(isManagedCivicPanelCard(card)
+      ? managedCivicPanelCardContent(place)
+      : { title: card.title, summary: card.summary }),
     dueDate: card.dueDate,
     ctaLabel: card.ctaLabel,
     ctaHref:
@@ -203,8 +220,12 @@ const TaskStack = ({
     // With a plan the build card links to it, so it starts no second build.
     buildsPanel:
       isCivicPanelBuildCard(card) && !civicPanelBuildCardOpensPlan(card),
-    peopleFirst: isCivicPanelBuildCard(card) || isCivicPanelStepCard(card),
+    peopleFirst:
+      isManagedCivicPanelCard(card) ||
+      isCivicPanelBuildCard(card) ||
+      isCivicPanelStepCard(card),
     leadsPanel: isGoodReadReportBackCard(card),
+    managedPanel: isManagedCivicPanelCard(card),
     variant: cardVariant(card),
   }))
   const onboardingCards: DeckCard[] = ONBOARDING_CARD_ORDER.filter((key) =>
@@ -221,6 +242,7 @@ const TaskStack = ({
     buildsPanel: false,
     peopleFirst: false,
     leadsPanel: false,
+    managedPanel: false,
     variant: 'other' as const,
   }))
   // A new official meets their Chief of Staff before anything else, then
@@ -318,7 +340,11 @@ const TaskStack = ({
   return (
     <section className="flex w-full flex-col gap-6">
       <h2 className="text-center text-2xl font-semibold text-foreground">
-        {front.peopleFirst ? BUILD_PANEL_HEADLINE : HEADLINES[front.kind]}
+        {front.managedPanel
+          ? MANAGED_PANEL_COPY.headline
+          : front.peopleFirst
+            ? BUILD_PANEL_HEADLINE
+            : HEADLINES[front.kind]}
       </h2>
       <div
         className={cn(
@@ -362,6 +388,7 @@ const TaskStack = ({
           )}
         >
           <div className="flex flex-col gap-1 px-6 py-5">
+            {front.managedPanel ? <ManagedPanelSeats className="mb-4" /> : null}
             {/* No overline: the title leads. See design-memory learned.md. */}
             <h3 className="font-opensans text-lg font-medium text-card-foreground">
               {front.title}
@@ -386,6 +413,18 @@ const TaskStack = ({
                       completeOnboarding.mutate('meet')
                     }
                     onOpenCard(front.onboardingKey)
+                  }}
+                >
+                  {front.ctaLabel}
+                </Button>
+              ) : onDiscussCard && front.managedPanel ? (
+                <Button
+                  type="button"
+                  size="medium"
+                  className={PRIMARY_ON_PHONE}
+                  onClick={() => {
+                    start()
+                    onDiscussCard(START_MANAGED_CIVIC_PANEL_MESSAGE)
                   }}
                 >
                   {front.ctaLabel}
@@ -448,10 +487,11 @@ const TaskStack = ({
                   </Button>
                 )}
                 {/* Get-started and civic panel cards already open a
-                    conversation from their own button. */}
+                    conversation from their own button, but the managed
+                    panel's button opens its setup, not a question. */}
                 {onDiscussCard &&
                   !front.onboardingKey &&
-                  front.kind !== 'civic_panel' && (
+                  (front.kind !== 'civic_panel' || front.managedPanel) && (
                     <Button
                       type="button"
                       variant="ghost"
