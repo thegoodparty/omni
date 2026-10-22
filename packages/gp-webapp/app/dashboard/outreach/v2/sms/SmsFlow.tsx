@@ -108,9 +108,9 @@ import {
   isEventInvite,
   useEventDetails,
 } from '../eventDetails'
-import { SMS_PURPOSE_INTRO_BODY, SmsPurposeStep } from './SmsPurposeStep'
+import { WIN_SMS_PURPOSE_INTRO_BODY, SmsPurposeStep } from './SmsPurposeStep'
 import {
-  NAME_ONLY_COPY,
+  WIN_SMS_NAME_ONLY_COPY,
   SmsScheduleStep,
   TIME_OPTIONS,
 } from './SmsScheduleStep'
@@ -229,6 +229,10 @@ const SERVE_SMS_AUDIENCE_COPY: OutreachAudienceCopy = {
 // carries a name suggestion.
 const WIN_SMS_NAME_FALLBACK = 'Text campaign'
 
+// Read on Win's hourly schedule step only; Serve's is ServeSmsScheduleStep.
+const WIN_SMS_RESUMED_LIST_GONE =
+  'The voter list for this text is no longer available.'
+
 // Win picks a date AND an hourly slot inside a 48-hour floor and a 9am-8pm
 // window, because Peerly enforces exactly that. Serve picks a date only and
 // sends at a fixed 11am local: a human works a CSV, so an hour is a promise
@@ -286,7 +290,7 @@ export interface SmsFlowSurface {
 const WIN_SMS_SURFACE: SmsFlowSurface = {
   isServe: false,
   purposes: SMS_PURPOSES,
-  purposeIntroBody: SMS_PURPOSE_INTRO_BODY,
+  purposeIntroBody: WIN_SMS_PURPOSE_INTRO_BODY,
   nameSuggestion: () => WIN_SMS_NAME_FALLBACK,
   audienceCopy: WIN_SMS_AUDIENCE_COPY,
   scheduleMode: 'winHourlySlots',
@@ -431,9 +435,23 @@ const sendTimeLabel = (d: Date, timeZone?: string) =>
 const cardBrandLabel = (brand: string) =>
   brand.charAt(0).toUpperCase() + brand.slice(1)
 
+const SMS_SUCCESS_COPY = {
+  win: {
+    reach: (count: string) =>
+      `Your text campaign will reach ${count} recipients`,
+    receiptLine: (count: string) => `SMS campaign, ${count} recipients`,
+  },
+  serve: {
+    reach: (count: string) =>
+      `Your text campaign will reach ${count} constituents`,
+    receiptLine: (count: string) => `SMS campaign, ${count} constituents`,
+  },
+}
+
 // Exported for its component test — the paid branch is unreachable through
 // the flow in jsdom (CheckoutPayment mounts real Stripe elements).
 export const SuccessScreen = ({
+  isServe,
   contactCount,
   sendAt,
   timeZone,
@@ -441,6 +459,7 @@ export const SuccessScreen = ({
   paid,
   onDone,
 }: {
+  isServe: boolean
   contactCount: number
   sendAt: Date | null
   timeZone?: string
@@ -462,6 +481,7 @@ export const SuccessScreen = ({
     retry: false,
   })
   const receipt = paid ? receiptQuery.data : undefined
+  const copy = SMS_SUCCESS_COPY[isServe ? 'serve' : 'win']
 
   return (
     <div className="space-y-6 py-8 text-center">
@@ -475,8 +495,7 @@ export const SuccessScreen = ({
           {paid ? 'Payment successful!' : 'Scheduled!'}
         </h2>
         <p className="text-muted-foreground">
-          Your sms campaign will reach {contactCount.toLocaleString()}{' '}
-          recipients
+          {copy.reach(contactCount.toLocaleString())}
           {sendAt
             ? ` starting ${sendDateLabel(sendAt, timeZone)} at ${sendTimeLabel(sendAt, timeZone)}.`
             : ' soon.'}
@@ -498,7 +517,7 @@ export const SuccessScreen = ({
             <dl className="space-y-1.5 text-sm">
               <div className="flex justify-between gap-4">
                 <dt className="text-muted-foreground">
-                  SMS campaign, {contactCount.toLocaleString()} recipients
+                  {copy.receiptLine(contactCount.toLocaleString())}
                 </dt>
                 <dd className="text-foreground">
                   ${receipt.amount.toFixed(2)}
@@ -1802,6 +1821,7 @@ export const SmsFlow = ({
             name: name.trim(),
             message: composedMessage,
             script: composedMessage,
+            // serve-vocabulary-allow: Win's Peerly job title, never on screen
             title: `P2P Outreach - Campaign ${campaign.id}`,
             // Offset-annotated time in the campaign's zone, not
             // toISOString(): the server slices the first 10 chars as the
@@ -2203,7 +2223,7 @@ export const SmsFlow = ({
             : showGateChrome
               ? gateChrome.overline
               : stepId === 'schedule' && buildMode
-                ? NAME_ONLY_COPY.title
+                ? WIN_SMS_NAME_ONLY_COPY.title
                 : stepId === 'review' && buildMode
                   ? 'Review and verify'
                   : stepId === 'review' && isFreeSend
@@ -2329,6 +2349,7 @@ export const SmsFlow = ({
       />
       {scheduled ? (
         <SuccessScreen
+          isServe={surface.isServe}
           contactCount={phoneList?.leadsLoaded ?? reachableCount ?? 0}
           sendAt={scheduledAt}
           timeZone={fixedMorningSchedule ? undefined : timeZone}
@@ -2487,7 +2508,7 @@ export const SmsFlow = ({
               too — the audience step is behind the candidate. */}
             {resumed && !audience.listsLoading && !selectedList && (
               <p className="mt-4 text-sm text-destructive">
-                The voter list for this text is no longer available.
+                {WIN_SMS_RESUMED_LIST_GONE}
               </p>
             )}
             {resumed && phoneListError && (

@@ -1223,6 +1223,7 @@ export default function CreateListFlow({
         createdFilterIdRef.current ??
         (joining ? (siblingTurfs?.[0]?.voterFileFilterId ?? null) : null)
       if (joining && filterId === null) {
+        // serve-vocabulary-allow: not shown, toCreateErrorMessage falls back
         throw new Error('campaign turfs not loaded')
       }
       if (filterId === null) {

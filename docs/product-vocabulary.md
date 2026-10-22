@@ -110,6 +110,11 @@ since the shared flows are full of Win copy that must not change. It looks at:
    counts as copy
 2. the initializer of any `SERVE_*` declaration, anywhere
 3. the value of any `serve:` key in a mode-keyed object, anywhere
+4. every string in a shared flow Serve opens (`SHARED_SERVE_FLOW_PATHS`: the
+   SMS, phone banking, social, poll and audience steps under `outreach/v2/`,
+   and the door-knocking create flow), except a `WIN_*` declaration or a
+   `win:` branch. Win-only copy in those files says so by living in one, or
+   carries an allow comment naming the Serve counterpart
 
 Comments, imports, object keys, route paths, enum values (`not_a_voter`),
 `className`s and strings being compared are not copy, and are not flagged.
@@ -156,8 +161,10 @@ copy.
 ### What it deliberately does not catch
 
 - Copy chosen by a bare `isServe ? a : b` ternary, and an unconditional string
-  shown identically to both surfaces. Use a mode-keyed object and it is
-  covered; the hook nudges on shared-surface edits either way.
+  shown identically to both surfaces, outside the shared flows of rule 4. Use
+  a mode-keyed object and it is covered; the hook nudges on shared-surface
+  edits either way. Inside those flows both are read as Serve copy, so the
+  Win half of a ternary fails until it moves into a `win:` branch.
 - **A whole component in a shared directory that only ever renders for one
   surface**, because the gating lives at the CALL SITE and the strings inside
   it are unconditional. `outreach/v2/FollowUpOutstandingSection.tsx` renders

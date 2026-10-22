@@ -19,8 +19,16 @@ import { TurfSummaryRow } from '../TurfSummaryRow'
 //
 // "Done" rather than "Close" because Close is the system's word for
 // dismissing a dialog and Done is the candidate's for finishing the job.
+const SUCCESS_TITLE = {
+  win: 'Your campaign is ready',
+  // Named by its channel on Serve, because an official reading "your
+  // campaign" bare reads about a run for office they do not have.
+  serve: 'Your door knocking campaign is ready',
+}
+
 type Props = {
-  // Which product's event names a row's Mark done reports under.
+  // Which product's title this screen reads, and which product's event names
+  // a row's Mark done reports under.
   isServe: boolean
   campaignName: string
   turfs: DoorKnockingTurf[]
@@ -77,7 +85,9 @@ export const CreateCampaignSuccess = ({
           </ConfettiBurst>
         </div>
         <div>
-          <h2 className="text-2xl font-semibold">Your campaign is ready</h2>
+          <h2 className="text-2xl font-semibold">
+            {SUCCESS_TITLE[isServe ? 'serve' : 'win']}
+          </h2>
           <p className="mt-1 text-base font-medium">{campaignName}</p>
           {/* The figures they just made, as one line. Per-turf counts are on
               each row below, so this is the total and nothing else. */}

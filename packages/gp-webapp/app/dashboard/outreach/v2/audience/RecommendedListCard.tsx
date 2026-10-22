@@ -1,3 +1,5 @@
+// serve-vocabulary-allow-file: recommended lists are Win-only, read from
+// GET /v1/campaigns/mine/recommended-lists, so a Serve flow never renders one.
 import { Card, cn } from '@styleguide'
 import type {
   RecommendedList,

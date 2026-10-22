@@ -423,7 +423,7 @@ describe('SmsFlow', () => {
     // the endpoint must never be called (it would 404 the free row).
     expect(
       screen.getByText(
-        /Your sms campaign will reach 1,200 recipients starting/,
+        /Your text campaign will reach 1,200 recipients starting/,
       ),
     ).toBeInTheDocument()
     expect(screen.queryByText('Receipt')).not.toBeInTheDocument()
@@ -2981,6 +2981,38 @@ describe('SmsFlow', () => {
   })
 })
 
+describe('SuccessScreen wording', () => {
+  // The line Serve read as "Your sms campaign will reach 10,000 recipients":
+  // lowercase sms on both products, and nobody a Serve official calls their
+  // own on the receiving end.
+  it.each([
+    { isServe: false, noun: 'recipients' },
+    { isServe: true, noun: 'constituents' },
+  ])(
+    'names the reach in $noun when isServe is $isServe',
+    ({ isServe, noun }) => {
+      render(
+        <SuccessScreen
+          isServe={isServe}
+          contactCount={10000}
+          sendAt={new Date('2026-09-08T11:00:00')}
+          outreachId={57}
+          paid={false}
+          onDone={vi.fn()}
+        />,
+      )
+
+      expect(
+        screen.getByText(
+          `Your text campaign will reach 10,000 ${noun} starting Tue, Sep 8, 2026 at 11:00 AM.`,
+        ),
+      ).toBeInTheDocument()
+      expect(screen.queryByText(/\bsms\b/)).toBeNull()
+      if (isServe) expect(screen.queryByText(/voters?|recipients/)).toBeNull()
+    },
+  )
+})
+
 describe('SuccessScreen receipt', () => {
   // The paid branch is unreachable through the flow in jsdom (CheckoutPayment
   // mounts real Stripe elements), so the receipt renders from a direct mount.
@@ -2998,6 +3030,7 @@ describe('SuccessScreen receipt', () => {
     const open = vi.spyOn(window, 'open').mockReturnValue(null)
     render(
       <SuccessScreen
+        isServe={false}
         contactCount={1200}
         sendAt={new Date('2026-09-08T10:00:00')}
         outreachId={55}
@@ -3029,4 +3062,32 @@ describe('SuccessScreen receipt', () => {
     )
     open.mockRestore()
   })
+
+  it('counts constituents on a Serve receipt', async () => {
+    api.mock('GET /v1/outreach/:id/receipt', {
+      status: 200,
+      data: {
+        amount: 42,
+        cardBrand: 'visa',
+        cardLast4: '4242',
+        receiptUrl: null,
+        paidAt: '2026-08-24T12:00:00.000Z',
+      },
+    })
+    render(
+      <SuccessScreen
+        isServe
+        contactCount={1200}
+        sendAt={new Date('2026-09-08T11:00:00')}
+        outreachId={58}
+        paid
+        onDone={vi.fn()}
+      />,
+    )
+
+    expect(
+      await screen.findByText('SMS campaign, 1,200 constituents'),
+    ).toBeInTheDocument()
+  })
+
 })

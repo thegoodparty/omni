@@ -1,5 +1,6 @@
 import { Button } from '@styleguide'
 import type { DoorKnockingAddressPreviewResponse } from '@goodparty_org/contracts'
+import { statusLabel } from '../statusPresentation'
 
 interface DoorsPanelProps {
   addressPreview: DoorKnockingAddressPreviewResponse | null
@@ -94,13 +95,13 @@ export const DoorsPanel = ({
             is that it is a snapshot, since a list saved tomorrow is evaluated
             again.
 
-            The exclusion keeps the same name on both rails: "not a voter"
-            is the flag a canvasser sets and the word they will look for, and a
-            Serve-only rewording would name a thing this panel is not
-            describing. */}
+            The exclusion is named by the label a canvasser sets, which is
+            the word they will look for: "not a voter" on Win, "not a
+            constituent" on Serve (`statusLabel`). */}
         <p className="text-xs text-muted-foreground">
           Everyone your filters target, as of now — people marked do-not-knock
-          or &ldquo;not a voter&rdquo; are already out.
+          or &ldquo;{statusLabel('not_a_voter', isServe).toLowerCase()}&rdquo;
+          are already out.
         </p>
         {/* No numbering: nothing has decided a visiting order yet, and the Aug
             14 walkthrough asked numerals out of the list view. */}

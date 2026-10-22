@@ -175,6 +175,14 @@ interface OutreachAudienceStepProps {
   builderCountErrorMessage: string | undefined
 }
 
+const AUDIENCE_STEP_NOUNS = {
+  win: { peopleNoun: 'voters', emptyPickerLabel: 'Choose a voter list' },
+  serve: {
+    peopleNoun: 'constituents',
+    emptyPickerLabel: 'Choose a constituent list',
+  },
+}
+
 const money = (n: number): string =>
   n.toLocaleString('en-US', {
     minimumFractionDigits: 2,
@@ -259,10 +267,8 @@ export const OutreachAudienceStep = ({
   // a surface's OutreachAudienceCopy covers the titles and bodies, but these
   // sit inside shared controls. Serve never says "voter", so they key off the
   // same flag that strips the Win-only filter fields below.
-  const peopleNoun = isElectedOfficial ? 'constituents' : 'voters'
-  const emptyPickerLabel = isElectedOfficial
-    ? 'Choose a constituent list'
-    : 'Choose a voter list'
+  const { peopleNoun, emptyPickerLabel } =
+    AUDIENCE_STEP_NOUNS[isElectedOfficial ? 'serve' : 'win']
 
   // The carried-in recommendation, applied once the picker can act on it:
   // its saved list selected when the picker has that row, the card itself

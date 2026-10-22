@@ -103,6 +103,11 @@ interface WhoStepProps {
 const doorCount = (households: number | null) =>
   households === null ? '' : `${households.toLocaleString()} doors`
 
+const EMPTY_PICKER_LABEL = {
+  win: 'Choose a voter list',
+  serve: 'Choose a constituent list',
+}
+
 // The design's group heading: 12px semibold uppercase in muted, with its own
 // tracking. Not `FILTER_GROUP_LABEL_CLASSNAME` — that is the CRM wizard's
 // sentence-case near-black label, and this step is the door-knocking design.
@@ -361,9 +366,7 @@ export const WhoStep = ({
                       // invites the choice.
                       recommendations.length > 0
                       ? 'View your lists here'
-                      : isServeOrg
-                        ? 'Choose a constituent list'
-                        : 'Choose a voter list'}
+                      : EMPTY_PICKER_LABEL[isServeOrg ? 'serve' : 'win']}
                 </span>
                 {showsPickerSelection ? (
                   active.sub ? (

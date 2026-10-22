@@ -232,11 +232,14 @@ export const identificationIntro = (
   fullName: string,
   office: string,
 ): string => {
+  // serve-vocabulary-allow: Win's line; Serve's is serveIdentificationIntro
   const name = fullName || 'your candidate'
   const role = office || 'local office'
+  // serve-vocabulary-allow: Win's line; Serve's is serveIdentificationIntro
   if (tone === 'direct') return `${name} here, candidate for ${role}.`
   if (tone === 'urgent') return `${name} here, running for ${role}.`
   if (tone === 'friendly') return `it's ${name}, running for ${role}.`
+  // serve-vocabulary-allow: Win's line; Serve's is serveIdentificationIntro
   return `this is ${name}, candidate for ${role}.`
 }
 

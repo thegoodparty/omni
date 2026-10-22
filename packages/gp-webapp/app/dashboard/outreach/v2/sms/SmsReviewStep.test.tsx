@@ -374,3 +374,26 @@ describe('SmsReviewStep follow-up', () => {
     expect(screen.queryByText(FOLLOW_UP_NOTE)).not.toBeInTheDocument()
   })
 })
+
+describe('SmsReviewStep wording', () => {
+  // "Review your campaign details" is the outreach campaign the official is
+  // sending, which docs/product-vocabulary.md keeps on Serve. What Serve must
+  // never read here is a Win noun.
+  it.each([{ isServe: false }, { isServe: true }])(
+    'reviews the campaign details when isServe is $isServe',
+    async ({ isServe }) => {
+      const { container } = renderStep({ isServe })
+
+      expect(
+        await screen.findByText(
+          'Review your campaign details and complete your payment.',
+        ),
+      ).toBeInTheDocument()
+      if (isServe) {
+        expect(container.textContent).not.toMatch(
+          /\b(?:voters?|elections?|candidates?|ballots?|recipients)\b/i,
+        )
+      }
+    },
+  )
+})

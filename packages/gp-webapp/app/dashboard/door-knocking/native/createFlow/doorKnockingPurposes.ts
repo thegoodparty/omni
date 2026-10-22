@@ -1,3 +1,5 @@
+// serve-vocabulary-allow-file: Win's door knocking goals. Serve's are
+// serveDoorKnockingPurposes.ts, and CreateListFlow picks one file by serveMode.
 import {
   OUTREACH_PURPOSE_VALUES,
   type OutreachPurpose,

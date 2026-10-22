@@ -78,7 +78,7 @@ const fmtDateTime = (d: Date) =>
 // Build mode's version of this step (design: the locked "when" step): a
 // candidate who cannot send yet names the campaign and nothing else, since a
 // draft carries no date.
-export const NAME_ONLY_COPY = {
+export const WIN_SMS_NAME_ONLY_COPY = {
   title: 'What do you want to call this campaign?',
   body: 'You pick the send date once your campaign is approved to send.',
 }
@@ -129,8 +129,8 @@ export const SmsScheduleStep = ({
       {nameOnly ? (
         <Intro
           channel="text"
-          title={NAME_ONLY_COPY.title}
-          body={NAME_ONLY_COPY.body}
+          title={WIN_SMS_NAME_ONLY_COPY.title}
+          body={WIN_SMS_NAME_ONLY_COPY.body}
         />
       ) : (
         <Intro

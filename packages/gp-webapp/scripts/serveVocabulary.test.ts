@@ -157,7 +157,24 @@ export const keyed = { voter: 'Someone you represent' }`,
   c: 'Any phone banking campaign',
   d: 'Name your campaign',
   e: 'Your text campaign goes out Monday',
+  f: 'Give your campaign a name to find it in your outreach history.',
+  g: 'Create campaign',
+  h: 'One-time charge for this campaign.',
 }`,
+        ),
+      ).toEqual([])
+    })
+
+    it('reads the campaign sense across a line break in JSX text', () => {
+      expect(
+        words(
+          SERVE_FILE,
+          `const El = () => (
+  <p>
+    Create another phone
+    banking campaign with this same list to call the rest.
+  </p>
+)`,
         ),
       ).toEqual([])
     })
@@ -226,6 +243,36 @@ export const kind = 'campaign'`,
 )`,
         ),
       ).toEqual([])
+    })
+
+    it('reads every string of a shared flow Serve opens as Serve copy', () => {
+      // CreateCampaignSuccess.tsx and SmsFlow.tsx: unconditional strings in
+      // a flow both products mount were nobody's copy, so they shipped to
+      // elected officials unread.
+      expect(
+        words(
+          'app/dashboard/door-knocking/native/createFlow/Probe.tsx',
+          `const El = () => <h2>Your campaign is ready</h2>
+export const caption = 'Lists include all voters with a mobile number.'`,
+        ),
+      ).toEqual(['campaign', 'voter'])
+    })
+
+    it('leaves the WIN_ and win: regions of a shared flow alone', () => {
+      expect(
+        words(
+          'app/dashboard/outreach/v2/sms/Probe.tsx',
+          `const WIN_SMS_RESUMED_LIST_GONE = 'The voter list is no longer available.'
+const TITLE = {
+  win: 'Your campaign is ready',
+  serve: 'Your door knocking campaign is ready',
+}
+const LABEL = {
+  win: 'Choose a voter list',
+  serve: 'Choose a voter list',
+}`,
+        ),
+      ).toEqual(['voter'])
     })
 
     it('flags the serve branch of a mode-keyed object', () => {

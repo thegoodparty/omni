@@ -8,7 +8,7 @@ import { SMS_PURPOSES, type SmsFlowPurpose } from './smsCompose.util'
 // Win's copy, kept as the default so a caller that passes no surface-owned
 // overrides renders exactly what it rendered before the flow was
 // parametrized.
-export const SMS_PURPOSE_INTRO_BODY =
+export const WIN_SMS_PURPOSE_INTRO_BODY =
   'This helps us generate the best message for your campaign.'
 
 interface SmsPurposeStepProps {
@@ -24,7 +24,7 @@ export const SmsPurposeStep = ({
   selected,
   onSelect,
   purposes = SMS_PURPOSES,
-  introBody = SMS_PURPOSE_INTRO_BODY,
+  introBody = WIN_SMS_PURPOSE_INTRO_BODY,
 }: SmsPurposeStepProps) => (
   <div className="space-y-6">
     <Intro channel="text" title="What do you want to do?" body={introBody} />

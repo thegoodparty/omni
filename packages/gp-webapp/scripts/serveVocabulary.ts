@@ -21,6 +21,8 @@
 //   1. a whole file under a Serve-only route (`SERVE_ONLY_DIRS`)
 //   2. a `SERVE_*` declaration's initializer, anywhere
 //   3. the value of a `serve:` key in a mode-keyed object, anywhere
+//   4. a whole file of a shared flow Serve opens (`SHARED_SERVE_FLOW_PATHS`),
+//      except a `WIN_*` declaration or a `win:` branch
 //
 // (2) and (3) are exactly the shapes `docs/product-vocabulary.md` tells you to
 // write, which is the point: the recommended pattern is the one this check can
@@ -111,6 +113,27 @@ export const SHARED_SERVE_ROUTES: Readonly<Record<string, string>> = {
     "Shared editor; publicProfileAccess.ts returns 'serve' | 'win'.",
 }
 
+// The outreach flows both products mount and Serve opens: from the
+// constituent outreach page, from a priority's cards (`proposalFlows.tsx`) and
+// from the door-knocking map. Every string in these files is read by an
+// elected official unless it sits in a `WIN_*` declaration or a `win:` branch,
+// so Win-only copy here has to say so by living in one. Rules 1-3 alone passed
+// "Your campaign is ready" and "Lists include all voters" in these flows,
+// because an unconditional string in a shared file was nobody's copy.
+// A trailing slash names a directory, anything else one file.
+export const SHARED_SERVE_FLOW_PATHS: readonly string[] = [
+  'app/dashboard/outreach/v2/sms/',
+  'app/dashboard/outreach/v2/phone-banking/',
+  'app/dashboard/outreach/v2/social/',
+  'app/dashboard/outreach/v2/poll/',
+  'app/dashboard/outreach/v2/audience/',
+  'app/dashboard/outreach/v2/OutreachFlowShell.tsx',
+  'app/dashboard/outreach/v2/PurposeStep.tsx',
+  'app/dashboard/outreach/v2/EventDetailsStep.tsx',
+  'app/dashboard/outreach/v2/CommunityInputQuestionStep.tsx',
+  'app/dashboard/door-knocking/native/createFlow/',
+]
+
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist', 'e2e-tests'])
 
 // Word-level bans. `\b` on both sides throughout, so "elected" survives
@@ -149,9 +172,13 @@ const OUTREACH_CAMPAIGN_SENSE: readonly RegExp[] = [
   // Modified by the channel that sends it.
   /\b(?:outreach|phone[\s-]?bank(?:ing)?|text(?:ing)?|sms|robocall|voicemail|social|email|door[\s-]?knock(?:ing)?|canvass(?:ing)?)\s+campaigns?\b/i,
   // The campaign as a record in the product: its name, its history, its row.
-  /\bcampaigns?\s+(?:name|names|history|details|list|title)\b/i,
+  /\bcampaigns?\s+(?:a\s+)?(?:name|names|history|details|list|title)\b/i,
   /\b(?:name|rename|title)\s+(?:your|this|the)\s+campaigns?\b/i,
   /\bcampaigns?\s+(?:you|they)\s+(?:sent|send|created|scheduled)\b/i,
+  // The press that makes one, and the one in front of the official in a flow:
+  // "Create campaign", "Schedule campaign", "One-time charge for this campaign".
+  /\b(?:create|creating|schedule|scheduling)\s+(?:another\s+)?campaigns?\b/i,
+  /\b(?:this|another|earlier)\s+campaigns?\b/i,
 ]
 
 // How wide a window around a `campaign` occurrence the sense patterns get to
@@ -232,15 +259,21 @@ const parse = (file: string, source: string): ts.SourceFile =>
     file.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
   )
 
-// `SERVE_*` declarations and `serve:` properties, as initializer spans.
-const markedServeRegions = (sourceFile: ts.SourceFile): Region[] => {
+// `SERVE_*` declarations and `serve:` properties, as initializer spans. With
+// `mode: 'win'`, the same for `WIN_*` and `win:`.
+const markedModeRegions = (
+  sourceFile: ts.SourceFile,
+  mode: 'serve' | 'win',
+): Region[] => {
   const regions: Region[] = []
+  const declarationPattern =
+    mode === 'serve' ? /^SERVE_[A-Z0-9_]+$/ : /^WIN_[A-Z0-9_]+$/
 
   const visit = (node: ts.Node): void => {
     if (
       ts.isVariableDeclaration(node) &&
       ts.isIdentifier(node.name) &&
-      /^SERVE_[A-Z0-9_]+$/.test(node.name.text) &&
+      declarationPattern.test(node.name.text) &&
       node.initializer
     ) {
       regions.push({
@@ -253,12 +286,12 @@ const markedServeRegions = (sourceFile: ts.SourceFile): Region[] => {
     if (
       ts.isPropertyAssignment(node) &&
       (ts.isIdentifier(node.name) || ts.isStringLiteral(node.name)) &&
-      node.name.text === 'serve'
+      node.name.text === mode
     ) {
       regions.push({
         start: node.initializer.getStart(sourceFile),
         end: node.initializer.getEnd(),
-        label: 'serve: branch of a mode-keyed object',
+        label: `${mode}: branch of a mode-keyed object`,
       })
     }
 
@@ -391,10 +424,11 @@ const collectCopyNodes = (sourceFile: ts.SourceFile): CopyNode[] => {
 
 // Is this occurrence of "campaign" the outreach kind?
 const isOutreachCampaignSense = (text: string, at: number): boolean => {
-  const window = text.slice(
-    Math.max(0, at - CAMPAIGN_SENSE_WINDOW),
-    at + CAMPAIGN_SENSE_WINDOW,
-  )
+  // JSX text keeps the line breaks the formatter put in it, and "phone\n
+  // banking campaign" is still a phone banking campaign.
+  const window = text
+    .slice(Math.max(0, at - CAMPAIGN_SENSE_WINDOW), at + CAMPAIGN_SENSE_WINDOW)
+    .replace(/\s+/g, ' ')
   return OUTREACH_CAMPAIGN_SENSE.some((pattern) => pattern.test(window))
 }
 
@@ -423,20 +457,35 @@ export const scanSource = (
   if (lines.slice(0, 40).some((line) => line.includes(FILE_ALLOW))) return []
 
   const isServeOnly = SERVE_ONLY_DIRS.some((dir) => file.startsWith(`${dir}/`))
+  const isSharedServeFlow = SHARED_SERVE_FLOW_PATHS.some((path) =>
+    path.endsWith('/') ? file.startsWith(path) : file === path,
+  )
   const sourceFile = parse(file, source)
 
   const regions: Region[] = isServeOnly
     ? [{ start: 0, end: source.length, label: 'Serve-only file' }]
-    : markedServeRegions(sourceFile)
+    : isSharedServeFlow
+      ? [
+          ...markedModeRegions(sourceFile, 'serve'),
+          {
+            start: 0,
+            end: source.length,
+            label: 'shared flow Serve opens, outside a WIN_ or win: region',
+          },
+        ]
+      : markedModeRegions(sourceFile, 'serve')
+  const winRegions: Region[] = isSharedServeFlow
+    ? markedModeRegions(sourceFile, 'win')
+    : []
 
   const violations: ServeVocabularyViolation[] = []
   const seen = new Set<string>()
 
   for (const node of collectCopyNodes(sourceFile)) {
     if (!looksLikeCopy(node.text)) continue
-    const region = regions.find(
-      (r) => node.start >= r.start && node.start < r.end,
-    )
+    const inside = (r: Region): boolean =>
+      node.start >= r.start && node.start < r.end
+    const region = winRegions.some(inside) ? undefined : regions.find(inside)
     const checks = region
       ? [...BANNED_WORD_PATTERNS, ...PANEL_NAME_PATTERNS]
       : PANEL_NAME_PATTERNS
