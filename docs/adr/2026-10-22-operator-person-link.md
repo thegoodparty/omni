@@ -3,7 +3,7 @@ title: An operator can link an unlinked gp-api user to a live civics person
 status: active
 decided_by: [agent]
 date: 2026-10-22
-code: ['#PR']
+code: ['#3124']
 scope:
   - packages/gp-api/src/personProfiles/**
 supersedes: []
