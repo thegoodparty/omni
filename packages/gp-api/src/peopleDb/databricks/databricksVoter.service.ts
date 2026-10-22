@@ -81,17 +81,20 @@ import {
   buildPoolCellsSql,
   buildRespondentCellsSql,
   buildTractGridCellsSql,
+  buildTractPlacesSql,
   mapAcsCounts,
   mapAnswerCells,
   mapDistrictCells,
   mapGridCells,
   mapRespondentCells,
   mapTractAdults,
+  mapTractPlaces,
   sampleWeightSql,
   type AnswerCell,
   type DistrictCell,
   type DistrictCells,
   type PersonAnswer,
+  type TractPlace,
   type WeightingInputs,
 } from './districtCensusSql.util'
 import {
@@ -611,6 +614,19 @@ export class DatabricksVoterService {
       buildTractGridCellsSql(district, tracts, cellDegrees),
     )
     return mapGridCells(result.rows)
+  }
+
+  async findTractPlaces(
+    districtId: string,
+    dataset: PeopleDataset,
+    tracts: string[],
+  ): Promise<TractPlace[]> {
+    if (tracts.length === 0) return []
+    const district = await this.resolveDistrict(districtId, dataset)
+    const result = await this.client.query(
+      buildTractPlacesSql(district, tracts),
+    )
+    return mapTractPlaces(result.rows)
   }
 
   // Sizing comes from the district's own totals: the pre-cut divisor needs to

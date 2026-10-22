@@ -905,7 +905,7 @@ or labelled. Every metric attribute is a closed set of literals.
 | Signal                                         | Where                                                | Reads                                                                                                                                                                                                           |
 | ---------------------------------------------- | ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `event: 'DoorKnockingSpend'` log line          | `doorKnockingCreate.service.ts` spend path           | `organizationSlug`, `turfId`, `waypoints` (stops), `credits` (both calls) — emitted before the ledger write and regardless of its outcome, so a lost ledger row cannot hide money the vendor has already billed |
-| `geoapify_credits_total{api}`                  | `vendors/geoapify/observability/geoapify.metrics.ts` | Credits billed, split `route_planner` / `routing`, no org label (Prometheus cardinality)                                                                                                                        |
+| `geoapify_credits_total{api}`                  | `vendors/geoapify/observability/geoapify.metrics.ts` | Credits billed, split `route_planner` / `routing` / `reverse_geocode` (the civic panel naming a census tract, once per tract), no org label (Prometheus cardinality)                                             |
 | `geoapify_vendor_call_count_total{api,result}` | same                                                 | `api="route_planner"` and `api="routing"` — call counts and failures, including a geometry fetch that was billed and returned nothing usable                                                                    |
 
 What pages: the global **route planner spend ceiling** alert (>10,000 credits /
@@ -1091,6 +1091,10 @@ Three things to know before trusting a tier:
 - **Rolling 24h, not calendar.** LogQL has no calendar alignment, so the window
   can span the tail of one metered day and the head of the next. That
   over-estimates, which is the safe direction here.
+- **Tract naming is not in the expression.** The civic panel's reverse
+  geocodes (one credit per census tract, once ever) count only in
+  `geoapify_credits_total{api="reverse_geocode"}`, not in
+  `DoorKnockingSpend`. A district costs tens of credits, once.
 
 All four read the same `DoorKnockingSpend` expression, differing only in
 threshold, so Loki's result cache serves tiers 2-4 from the work tier 1 does.

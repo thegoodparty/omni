@@ -32,6 +32,18 @@ type PlaceWords = (typeof COPY.seatPlaces)[CivicPanelPlaceKind]
 
 const LABEL_R = SEAT_R_OUT + SEAT_SIZE / 2 + LABEL_GAP
 
+// A tract's human name where it has one, else its number.
+const placeName = (place: SeatPlace, words: PlaceWords): string =>
+  place.label ?? words.name(place.name)
+
+// Names around the arc have no room to wrap, so a long one is cut short
+// there; the full name is its tooltip.
+const ARC_NAME_MAX = 14
+const arcName = (name: string): string =>
+  name.length > ARC_NAME_MAX
+    ? `${name.slice(0, ARC_NAME_MAX - 1).trimEnd()}…`
+    : name
+
 // Each place's name beside its seats, the first line's baseline at `y`.
 // Names over the top sit above their point; the sides are spread apart.
 const placeLabels = (chart: SeatChart) => {
@@ -126,6 +138,7 @@ const SeatArc = ({
                   textAnchor={anchor}
                   className="text-xs"
                 >
+                  <title>{placeName(place, words)}</title>
                   <tspan
                     x={x}
                     className={cn(
@@ -134,7 +147,7 @@ const SeatArc = ({
                         : 'fill-foreground font-medium',
                     )}
                   >
-                    {words.name(place.name)}
+                    {arcName(placeName(place, words))}
                   </tspan>
                   <tspan
                     x={x}
@@ -162,8 +175,11 @@ const PlaceRow = ({
   words: PlaceWords
 }) => (
   <li className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 sm:grid-cols-[8.75rem_minmax(0,1fr)_auto]">
-    <span className="truncate text-sm text-foreground">
-      {words.name(place.name)}
+    <span
+      className="truncate text-sm text-foreground"
+      title={placeName(place, words)}
+    >
+      {placeName(place, words)}
     </span>
     <span
       aria-hidden

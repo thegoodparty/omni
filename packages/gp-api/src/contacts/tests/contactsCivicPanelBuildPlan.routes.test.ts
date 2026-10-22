@@ -25,6 +25,7 @@ import {
   type CensusCompositionSource,
 } from '@/priorities/services/censusComposition'
 import type { PersonOutput } from '@/contacts/schemas/person.schema'
+import { CensusTractNameService } from '@/contacts/services/censusTractName.service'
 import {
   ACS_COUNT_KEYS,
   type AcsCountKey,
@@ -324,6 +325,12 @@ beforeEach(() => {
   stubAnswersNeeded(CITY)
   stubMix(null)
   stubPrecincts()
+  // Naming tracts reads the warehouse and Geoapify after a write's
+  // response; contactsCivicPanelTractNames.routes.test.ts covers it.
+  vi.spyOn(
+    service.app.get(CensusTractNameService),
+    'fillMissing',
+  ).mockResolvedValue()
 })
 
 const LARGE = { cell: 58_000, phone: 20_000, door: 60_000 }

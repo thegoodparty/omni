@@ -64,7 +64,13 @@ AGENTS.md, "Steering by census"); its door draws keep to one tract through
 the walkable-area read's `tract` (`tractSql`). The grid stands in
 for tract outlines until the warehouse publishes them
 (https://app.clickup.com/t/17tnw2b6k0u); `DistrictCensusComposition.shapeOfTracts`
-is the one place to swap.
+is the one place to swap. `buildTractPlacesSql` (op `tract-places`, read
+through `StatsService.findTractPlaces`) is what a tract's human name is
+worked out from: per tract, the mean of its residents' points rounded to
+three decimals, and the street most of them live on, by `COUNT(*)` over
+the parsed `Residence_Addresses_StreetName` and
+`Residence_Addresses_Designator`. Aggregates only; the civic panel stores
+the name (see the contacts AGENTS.md, "Tract names").
 
 Consumer-only rows are NULL in every voter-only column (party,
 `Voter_Status`, `StateVoterID`, vote history, `Voter_Independent_Affinity`,
@@ -252,7 +258,9 @@ Anything needing a street line reads `Residence_Addresses_AddressLine`, which
 holds the whole CASS-standardized line, directions included — the stop's
 frozen `displayAddress` and the door-knocking unit key both do. Do not compose
 a line from the parsed components (house number, the two direction columns,
-street name, designator).
+street name, designator). Naming a census tract is not a street line:
+`buildTractPlacesSql` counts residents per street name and designator to
+name the tract after its busiest street ("around Haywood Rd").
 
 The unit key used to compose the line from components, and wherever the
 directionals came back empty `1234 S Main St` and `1234 N Main St` in one ZIP keyed

@@ -197,6 +197,66 @@ describe('CivicPanelSeats by precinct', () => {
   })
 })
 
+describe('CivicPanelSeats with tract names', () => {
+  const NAMES = [
+    'West Asheville, around Haywood Rd',
+    'Biltmore Village',
+    'around Merrimon Ave',
+  ]
+  // The last tracts trail, and the three furthest behind have names but
+  // one: it keeps its number.
+  const named = (members: number, count?: number) =>
+    placesAt(members, count).map((place, i, all) => {
+      const fromEnd = all.length - 1 - i
+      const label = fromEnd === 1 ? undefined : NAMES[fromEnd]
+      return label ? { ...place, label } : place
+    })
+
+  it('names the tracts furthest behind, and keeps the number for one without a name', () => {
+    render(
+      <CivicPanelSeats
+        placeKind="tract"
+        places={named(120)}
+        members={120}
+        goal={GOAL}
+      />,
+    )
+    const list = screen.getByRole('list')
+    const row = within(list).getByText('West Asheville, around Haywood Rd')
+    expect(row).toHaveClass('truncate')
+    expect(row).toHaveAttribute('title', 'West Asheville, around Haywood Rd')
+    expect(within(list).getByText('Tract 14.02')).toBeInTheDocument()
+    expect(within(list).getByText('around Merrimon Ave')).toBeInTheDocument()
+  })
+
+  it('cuts a long name short around the arc, inside the frame, with the whole name as its tooltip', () => {
+    const { container } = render(
+      <CivicPanelSeats
+        placeKind="tract"
+        places={named(200, 12)}
+        members={200}
+        goal={GOAL}
+      />,
+    )
+    const [labeled] = container.querySelectorAll('svg')
+    const names = [...(labeled?.querySelectorAll('text') ?? [])].map(
+      (text) => text.querySelector('tspan')?.textContent,
+    )
+    expect(names).toContain('West Ashevill…')
+    expect(names).toContain('Tract 11.02')
+    const titles = [...(labeled?.querySelectorAll('text > title') ?? [])].map(
+      (title) => title.textContent,
+    )
+    expect(titles).toContain('West Asheville, around Haywood Rd')
+    const center = Number(
+      /translate\(([\d.]+)/.exec(
+        labeled?.querySelector('g')?.getAttribute('transform') ?? '',
+      )?.[1],
+    )
+    if (labeled) expectLabelsInside(labeled, center)
+  })
+})
+
 describe('CivicPanelBloom', () => {
   it('counts the groups at their share and labels each petal', () => {
     const { container } = render(<CivicPanelBloom groups={GROUPS} showNext />)

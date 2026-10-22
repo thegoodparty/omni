@@ -404,7 +404,10 @@ export const civicPanelStepAction = (
 // petals. `places` splits the district by census tract (each tract's share
 // of its adults), or by precinct (each precinct's share of the people on
 // file) when the district has no tract data; `placeKind` says which, and
-// `name` is the tract number ("9501.02") or the precinct as filed. Members
+// `name` is the tract number ("9501.02") or the precinct as filed, and
+// `label` a tract's human name once it has one ("West Asheville", "around
+// Haywood Rd"), distinct within the district; without it the page shows
+// the number. Members
 // with no known place sit out. `groups` is each major group by age band,
 // gender, and race when it may be named: its share of the district and of
 // the members whose value is known. Shares are fractions, 0.25 is 25%. The
@@ -416,6 +419,7 @@ export type CivicPanelPlaceKind = z.infer<typeof CivicPanelPlaceKindSchema>
 export const CivicPanelCompositionPlaceSchema = z.object({
   key: z.string(),
   name: z.string(),
+  label: z.string().optional(),
   districtShare: z.number(),
   members: z.number().int().nonnegative(),
 })

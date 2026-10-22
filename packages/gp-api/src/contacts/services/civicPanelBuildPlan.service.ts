@@ -65,6 +65,7 @@ import {
 } from '../utils/civicPanelSteering.util'
 import { VoterQueryService } from '@/peopleDb/services/voterQuery.service'
 import { ContactsService } from './contacts.service'
+import { CensusTractNameService } from './censusTractName.service'
 
 // Every list a step draws is never invited to the panel and not reached in
 // the rest window; the channel adds the reach it needs.
@@ -200,6 +201,7 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
     @Inject(CENSUS_COMPOSITION_SOURCE)
     private readonly census: CensusCompositionSource,
     private readonly voterQuery: VoterQueryService,
+    private readonly tractNames: CensusTractNameService,
   ) {
     super()
   }
@@ -300,7 +302,7 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
         },
       ],
     ])
-    return this.read(organization)
+    return this.read(organization, { nameTracts: true })
   }
 
   // A new answer to the weekly time question. Only waves made from now on
@@ -336,7 +338,7 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
         ],
       ])
     }
-    return this.read(organization)
+    return this.read(organization, { nameTracts: true })
   }
 
   // The official sets a step aside. Only a step of the current wave that
@@ -380,7 +382,7 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
         ])
       }
     }
-    return this.read(organization)
+    return this.read(organization, { nameTracts: true })
   }
 
   // The official ticks a call or door step done, or unticks it, over what
@@ -435,7 +437,7 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
         ],
       ])
     }
-    return this.read(organization)
+    return this.read(organization, { nameTracts: true })
   }
 
   // The plan as it stands. Reading it is what moves it: an active plan's
@@ -443,7 +445,10 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
   // are refreshed from the sends, call lists and walks, the plan closes once
   // the panel reaches its goal, and the next wave is made once the current
   // one is due.
-  async read(organization: Organization): Promise<CivicPanelBuildPlanResponse> {
+  async read(
+    organization: Organization,
+    { nameTracts = false }: { nameTracts?: boolean } = {},
+  ): Promise<CivicPanelBuildPlanResponse> {
     const office = await this.officeFor(organization)
     const memberIds = await this.memberIds(organization)
     const members = memberIds.size
@@ -478,10 +483,10 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
       orderBy: { createdAt: Prisma.SortOrder.desc },
       include: { steps: { select: STEP_SELECT } },
     })
-    const composition = await this.compositionFor(
+    const composition = await this.withTractNames(
       organization,
-      memberIds,
-      steering,
+      await this.compositionFor(organization, memberIds, steering),
+      nameTracts,
     )
     const progressToward = (goal: number) => ({
       members,
@@ -1124,6 +1129,36 @@ export class CivicPanelBuildPlanService extends createPrismaBase(
       }
     } catch {
       return fromCensus
+    }
+  }
+
+  // Each tract's human name where it has one. A plan write also names the
+  // tracts that have none, after its response: Geoapify is never called on
+  // a read, and never twice for a tract (CensusTractNameService).
+  private async withTractNames(
+    organization: Organization,
+    composition: CivicPanelComposition | null,
+    nameTracts: boolean,
+  ): Promise<CivicPanelComposition | null> {
+    if (composition?.placeKind !== 'tract') return composition
+    const tracts = composition.places.map((place) => place.key)
+    if (nameTracts) {
+      void this.contactsService
+        .resolveEligibleDistrict(organization)
+        .then((district) => this.tractNames.fillMissing(district, tracts))
+        .catch(() => undefined)
+    }
+    try {
+      const labels = await this.tractNames.labelsFor(tracts)
+      return {
+        ...composition,
+        places: composition.places.map((place) => {
+          const label = labels.get(place.key)
+          return label ? { ...place, label } : place
+        }),
+      }
+    } catch {
+      return composition
     }
   }
 
