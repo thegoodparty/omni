@@ -105,7 +105,7 @@ const removeEvery = (text: string, patterns: RegExp[]): string => {
 // The flow writes the one line a message should carry, so any other copy is
 // a duplicate.
 const JOIN_LINE_PATTERNS = [
-  /Reply JOIN to join my (?:civic|citizens['’]) panel[^\n]*?Empowered by GoodParty\.org\./i,
+  /Reply JOIN to join my (?:civic|citizens['’]) panel[^\n]*?(?:Sent with|Empowered by) GoodParty\.org\./i,
   /Reply JOIN to join my (?:civic|citizens['’]) panel[^\n]*?(?:[.!](?=\s|$)|(?=\n)|$)/i,
 ]
 const LEAVE_LINE_PATTERNS = [
