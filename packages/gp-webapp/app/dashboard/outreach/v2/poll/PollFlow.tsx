@@ -194,6 +194,10 @@ export const PollFlow = ({
   // Undo can put it back. Unlike SMS and Social, it is kept even when the
   // words replaced were the AI's own draft.
   const [undoText, setUndoText] = useState<string | null>(null)
+  // Set by a Continue press while it waits on the check. A check that
+  // leaving the field started must not disable Continue: the press that
+  // blurred the field lands after it, and would be swallowed.
+  const [continuing, setContinuing] = useState(false)
   // Bumped by anything that replaces the question, so an Improve answering
   // for words that are gone is dropped rather than written over them.
   const improveRequestRef = useRef(0)
@@ -448,7 +452,10 @@ export const PollFlow = ({
     // cannot go on until it is reworded; a check that failed lets it go, so
     // an outage never strands the official.
     const checked = question
-    const settled = await biasCheck.ensureChecked()
+    setContinuing(true)
+    const settled = await biasCheck
+      .ensureChecked()
+      .finally(() => setContinuing(false))
     // The field stays editable and Back stays live while the check runs; a
     // verdict on words that changed, or a step the official left, decides
     // nothing.
@@ -515,7 +522,7 @@ export const PollFlow = ({
                 disabled: drafting || biasCheck.improving || biasFlagged,
                 // A press that started the check shows it working rather than
                 // a button that looks switched off.
-                loading: biasCheck.status === 'checking',
+                loading: continuing,
               }
             : stepId === 'schedule'
               ? {

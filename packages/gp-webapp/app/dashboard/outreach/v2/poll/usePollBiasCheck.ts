@@ -40,6 +40,9 @@ export const usePollBiasCheck = (question: string) => {
   const [errorText, setErrorText] = useState<string | null>(null)
   const [improving, setImproving] = useState(false)
   const improveId = useRef(0)
+  // Only the newest check may write: an older one answering late would
+  // replace the verdict on the words now in the field.
+  const checkId = useRef(0)
   const inFlight = useRef<{ text: string; promise: Promise<Settled> } | null>(
     null,
   )
@@ -64,6 +67,7 @@ export const usePollBiasCheck = (question: string) => {
 
   const check = useCallback((): Promise<Settled> => {
     if (inFlight.current?.text === text) return inFlight.current.promise
+    const id = ++checkId.current
     setCheckingText(text)
     setErrorText(null)
     const promise = analyze(text)
@@ -73,8 +77,10 @@ export const usePollBiasCheck = (question: string) => {
           biasSpans: data.bias_spans,
           rewrittenText: data.rewritten_text,
         }
-        latest.current = answer
-        setResult(answer)
+        if (id === checkId.current) {
+          latest.current = answer
+          setResult(answer)
+        }
         if (data.bias_spans.length > 0) {
           trackEvent(EVENTS.createPoll.pollBiasDetectionShown)
           return 'flagged'
@@ -82,7 +88,7 @@ export const usePollBiasCheck = (question: string) => {
         return 'passed'
       })
       .catch((): Settled => {
-        setErrorText(text)
+        if (id === checkId.current) setErrorText(text)
         return 'error'
       })
       .finally(() => {
@@ -131,6 +137,7 @@ export const usePollBiasCheck = (question: string) => {
   const reset = useCallback(() => {
     inFlight.current = null
     latest.current = null
+    checkId.current += 1
     improveId.current += 1
     setImproving(false)
     setResult(null)

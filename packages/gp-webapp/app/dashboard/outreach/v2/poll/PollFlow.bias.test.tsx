@@ -467,4 +467,98 @@ describe('PollFlow bias check', () => {
       ),
     )
   })
+
+  it('moves on with one Continue press when leaving the field started the check', async () => {
+    const release = heldAnalyzer([])
+    await writeLeadingQuestion()
+
+    // The press blurs the field first, which starts the check.
+    fireEvent.focusOut(screen.getByRole('textbox', { name: 'Poll question' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    release()
+
+    expect(
+      await screen.findByRole('button', { name: /^Friday, September 4(?!\d)/ }),
+    ).toBeInTheDocument()
+  })
+
+  it('tells a flagged question to be edited when Improve cannot reword it', async () => {
+    mswServer.use(
+      http.post('*/v1/polls/analyze-bias', () =>
+        HttpResponse.json(
+          {
+            bias_spans: [{ start: 0, end: 5, reason: 'Leading phrasing' }],
+            grammar_spans: [],
+            rewritten_text: LEADING_QUESTION,
+          },
+          { status: 201 },
+        ),
+      ),
+    )
+    await writeLeadingQuestion()
+    fireEvent.focusOut(screen.getByRole('textbox', { name: 'Poll question' }))
+    await screen.findByText(SERVE_POLL_QUESTION_COPY.biasFlagged)
+
+    await userEvent.click(
+      screen.getByRole('button', { name: SERVE_POLL_QUESTION_COPY.improve }),
+    )
+
+    expect(
+      await screen.findByText(SERVE_POLL_QUESTION_COPY.improveStuck),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText(SERVE_POLL_QUESTION_COPY.improveUnchanged),
+    ).toBeNull()
+  })
+
+  it('keeps the verdict on the current words when an older check answers late', async () => {
+    const REWORDED = "Isn't the pothole crisis a total disaster for us all?"
+    let releaseOld: () => void = () => undefined
+    const oldReleased = new Promise<void>((resolve) => {
+      releaseOld = resolve
+    })
+    mswServer.use(
+      http.post('*/v1/polls/analyze-bias', async ({ request }) => {
+        const { pollText } = (await request.json()) as { pollText: string }
+        if (pollText === LEADING_QUESTION) {
+          await oldReleased
+          return HttpResponse.json(
+            { bias_spans: [], grammar_spans: [], rewritten_text: pollText },
+            { status: 201 },
+          )
+        }
+        return HttpResponse.json(
+          {
+            bias_spans: [{ start: 0, end: 5, reason: 'Leading phrasing' }],
+            grammar_spans: [],
+            rewritten_text: pollText,
+          },
+          { status: 201 },
+        )
+      }),
+    )
+    await writeLeadingQuestion()
+    const field = screen.getByRole('textbox', {
+      name: 'Poll question',
+    }) as HTMLElement & { editor: Editor }
+
+    fireEvent.focusOut(field)
+    act(() => {
+      field.editor.commands.setContent(REWORDED)
+    })
+    fireEvent.focusOut(field)
+    await screen.findByText(SERVE_POLL_QUESTION_COPY.biasFlagged)
+
+    releaseOld()
+
+    await waitFor(() =>
+      expect(
+        screen.queryByText(SERVE_POLL_QUESTION_COPY.checkingBias),
+      ).toBeNull(),
+    )
+    expect(
+      screen.getByText(SERVE_POLL_QUESTION_COPY.biasFlagged),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+  })
 })

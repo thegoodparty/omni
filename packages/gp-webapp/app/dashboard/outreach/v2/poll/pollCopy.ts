@@ -54,6 +54,8 @@ export const SERVE_POLL_QUESTION_COPY = {
   improveError:
     "We couldn't improve your question just now. Try again, or edit it yourself.",
   improveUnchanged: 'Your question already reads clearly and neutrally.',
+  improveStuck:
+    "We couldn't find a neutral rewording. Edit the phrases below to continue.",
   tryAgain: 'Try again',
   checkBias: 'Check for bias',
   checkingBias: 'Checking for bias…',

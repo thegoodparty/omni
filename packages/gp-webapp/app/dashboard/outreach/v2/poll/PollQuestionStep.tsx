@@ -155,7 +155,7 @@ export const PollQuestionStep = ({
           <FilterPill
             key={value}
             value={value}
-            disabled={drafting}
+            disabled={drafting || dictation.active}
             className="gap-1.5"
           >
             {POLL_TONE_ICONS[value]}
@@ -177,7 +177,7 @@ export const PollQuestionStep = ({
           size="small"
           className="h-auto shrink-0 gap-1.5 px-0 py-0 no-underline has-[>svg]:px-0"
           onClick={onRegenerate}
-          disabled={drafting || !canRegenerate}
+          disabled={drafting || dictation.active || !canRegenerate}
         >
           {drafting ? (
             <Loader2Icon className="size-4 animate-spin" />
@@ -287,7 +287,11 @@ export const PollQuestionStep = ({
               variant="ghost"
               size="small"
               className="text-muted-foreground"
-              disabled={busy || question.trim().length === 0}
+              // A rewrite landing mid-dictation would overwrite the words
+              // still being dictated, so the AI actions wait for the mic.
+              disabled={
+                busy || dictation.active || question.trim().length === 0
+              }
               onClick={onImprove}
             >
               {improving ? (
@@ -347,9 +351,22 @@ export const PollQuestionStep = ({
             )}
           </div>
         )}
+        {/* The analyzer can flag a question and still hand it back as it
+            was; "already reads clearly" beside "Bias detected" would
+            contradict itself, so a flagged one says to edit it instead. */}
         {improveResult === 'unchanged' && (
-          <p role="status" className="text-xs text-muted-foreground">
-            {SERVE_POLL_QUESTION_COPY.improveUnchanged}
+          <p
+            role="status"
+            className={cn(
+              'text-xs',
+              biasStatus === 'flagged'
+                ? 'text-destructive'
+                : 'text-muted-foreground',
+            )}
+          >
+            {biasStatus === 'flagged'
+              ? SERVE_POLL_QUESTION_COPY.improveStuck
+              : SERVE_POLL_QUESTION_COPY.improveUnchanged}
           </p>
         )}
         {dictation.status === 'error' && dictation.error !== null && (
