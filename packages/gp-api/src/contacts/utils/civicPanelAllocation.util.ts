@@ -1,4 +1,5 @@
 import {
+  answersNeeded,
   DEFAULT_TEXT_REPLY_RATE,
   MAJOR_GROUP_SHARE,
   MAX_LIST_SAMPLE_SIZE,
@@ -9,7 +10,10 @@ import {
 } from '@goodparty_org/contracts'
 import type { DistrictCell } from '@/peopleDb/databricks/districtCensusSql.util'
 import type { SampleWeights } from '@/peopleDb/schemas/people.schema'
-import { POOLED_VALUE } from '@/priorities/util/censusWeighting.util'
+import {
+  POOLED_VALUE,
+  raceNameable,
+} from '@/priorities/util/censusWeighting.util'
 import type { MrpFrameCell, MrpGroupEstimate } from '@/priorities/util/mrp.util'
 import type { RakingTargets } from '@/priorities/util/raking.util'
 import { asksFor, sizePanelWave } from './civicPanelBuild.util'
@@ -74,6 +78,22 @@ export const smallestMajorShare = (
     )
   })
   return shares.length === 0 ? null : Math.min(...shares)
+}
+
+// The answers a good read of the district needs: what round 1 is sized to
+// and the floor the read holds a priority to, from the one frame both read,
+// so the target an official is given and the read can never disagree. Race
+// counts as a dimension when the frame's people can name it.
+export const frameAnswersNeeded = (frame: MrpFrameCell[]): number => {
+  const dimensions: TargetedDimension[] = raceNameable(
+    frame.map((cell) => ({
+      count: cell.count,
+      race: cell.values.race ?? null,
+    })),
+  )
+    ? ['age', 'gender', 'tract', 'race']
+    : ['age', 'gender', 'tract']
+  return answersNeeded(smallestMajorShare(frame, dimensions))
 }
 
 const scoreOf = (group: MrpGroupEstimate): number =>

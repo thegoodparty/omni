@@ -34,6 +34,7 @@ import {
   ContactsService,
   type ContactsFilterResolutionInput,
 } from '@/contacts/services/contacts.service'
+import { frameAnswersNeeded } from '@/contacts/utils/civicPanelAllocation.util'
 import { doorTractFor } from '@/contacts/utils/civicPanelSteering.util'
 import { MIN_CONFIRMED_FOR_SYNTHESIS } from '@/constituentFeedback/services/feedbackReport.service'
 import type { PersonAnswer } from '@/peopleDb/databricks/districtCensusSql.util'
@@ -548,6 +549,7 @@ export class PriorityResultsService extends createPrismaBase(MODELS.Priority) {
     const read: MrpRead = {
       result: estimateMrp(inputs.answers, inputs.frame, {}),
       raceNameable: inputs.raceNameable,
+      answersNeeded: frameAnswersNeeded(inputs.frame),
     }
     for (const [stale, entry] of this.reads) {
       if (!isAfter(entry.expiresAt, now)) this.reads.delete(stale)

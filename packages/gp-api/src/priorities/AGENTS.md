@@ -66,6 +66,12 @@ reweighted to census sex by age and adults per tract, `util/censusFrame.util.ts`
 a margin the census cannot give keeps the voter file's, logged; bound in
 `CensusCompositionModule`; route tests stub it). `codedAnswers` reads
 `PriorityAnswer` over the same sends the page counts, one value per person.
+`MrpRead.answersNeeded` is the district's floor, `frameAnswersNeeded` of the
+same frame (`contacts/utils/civicPanelAllocation.util.ts`), the one function
+`districtAnswersNeeded` sizes round 1 and the panel from, so the read never
+calls a priority done before the target the official was given: under it the
+read is `notYetRepresentative` and `needed` is at least the floor
+(`docs/adr/2026-10-22-priority-read-total-answer-floor.md`).
 `answerGroups` gives the results page each major group but tracts, its
 share of the district against its share of the coded answers, unweighted.
 `mrpReadStatus` also returns `unheard`, the named groups with no coded answer

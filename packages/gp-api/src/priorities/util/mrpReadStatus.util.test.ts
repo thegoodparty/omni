@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { answersNeeded } from '@goodparty_org/contracts'
 import type { MrpGroupEstimate } from './mrp.util'
 import {
   holdingBackTracts,
@@ -22,10 +23,35 @@ const group = (
   high: 0.5 + width / 2,
 })
 
-const read = (groups: MrpGroupEstimate[], raceNameable = true): MrpRead => ({
+const read = (
+  groups: MrpGroupEstimate[],
+  raceNameable = true,
+  floor = 0,
+): MrpRead => ({
   result: { district: { mean: 0.5, low: 0.45, high: 0.55 }, groups },
   raceNameable,
+  answersNeeded: floor,
 })
+
+// Six age bands, two sexes and twelve tracts, the smallest holding 3% of the
+// district: twenty major groups, each with at least three of the 40
+// answers, every range tight.
+const TWENTY_GROUPS = (scale = 1): MrpGroupEstimate[] => [
+  ...[7, 7, 7, 7, 6, 6].map((answers, i) =>
+    group('age', `band${i}`, 1 / 6, answers * scale, 0.15),
+  ),
+  group('gender', 'male', 0.5, 20 * scale, 0.15),
+  group('gender', 'female', 0.5, 20 * scale, 0.15),
+  ...[4, 4, 4, 4, 3, 3, 3, 3, 3, 3, 3, 3].map((answers, i) =>
+    group(
+      'tract',
+      `tract${i}`,
+      i === 0 ? 0.03 : 0.97 / 11,
+      answers * scale,
+      0.15,
+    ),
+  ),
+]
 
 const AGES = (younger: number, older: number, width = 0.1) => [
   group('age', '18to64', 0.8, younger, width),
@@ -211,6 +237,46 @@ describe('mrpReadStatus', () => {
       ]),
     })
     expect(status.needed).toBe(11)
+  })
+
+  it('is not yet representative under the district floor, however the groups split', () => {
+    const floor = answersNeeded(0.03)
+    const status = mrpReadStatus({
+      answers: 40,
+      read: read(TWENTY_GROUPS(), false, floor),
+    })
+    expect(floor).toBe(100)
+    expect(status).toEqual({
+      answers: 40,
+      needed: 100,
+      groupsHeard: 20,
+      groupsTotal: 20,
+      good: false,
+      status: 'notYetRepresentative',
+      underrepresented: [],
+      unheard: [],
+    })
+  })
+
+  it('is representative at the floor once every group is heard and sure', () => {
+    const status = mrpReadStatus({
+      answers: 100,
+      read: read(TWENTY_GROUPS(2.5), false, 100),
+    })
+    expect(status).toMatchObject({
+      needed: 100,
+      good: true,
+      status: 'representative',
+    })
+  })
+
+  it('needs whichever is further off, the floor or the groups', () => {
+    expect(
+      mrpReadStatus({ answers: 14, read: read(AGES(12, 2), true, 15) }).needed,
+    ).toBe(15)
+    expect(
+      mrpReadStatus({ answers: 14, read: read(AGES(14, 0), true, 15) }).needed,
+    ).toBe(17)
   })
 
   it('says enough answers, never representative, when the district could not be read', () => {

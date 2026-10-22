@@ -194,7 +194,7 @@ export const ReadStatusRailBlock = ({
             {READ_STATUS_COPY.label(readStatus)}
           </span>
         </div>
-        {readStatus.checkOut && readStatus.underrepresented.length > 0 ? (
+        {readStatus.checkOut && READ_STATUS_COPY.namesGroups(readStatus) ? (
           <span className="text-sm text-foreground">
             {READ_STATUS_COPY.statusLine(readStatus)}
           </span>

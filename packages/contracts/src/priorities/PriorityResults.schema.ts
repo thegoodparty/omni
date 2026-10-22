@@ -146,10 +146,11 @@ export const DISTRICT_GRID_CELL_DEGREES = 0.004
 // answers pooled across texts, calls and doors, at least three from each
 // major group (3% or more of the district by age, neighborhood, race when it
 // can be named, and gender), and a model of the coded answers sure enough of
-// each. gp-api's mrpReadStatus decides `good`: representative, or
-// answersNeeded() met when the district could not be read.
-// `needed` is the answers so far plus those still missing for every major
-// group to have three: a floor, not a promise. `groupsHeard` of
+// each, and the district's answersNeeded heard in all. gp-api's
+// mrpReadStatus decides `good`: representative, or answersNeeded() met when
+// the district could not be read. `needed` is the larger of the district's
+// answersNeeded and the answers so far plus those still missing for every
+// major group to have three: a floor, not a promise. `groupsHeard` of
 // `groupsTotal` major groups have their three; both are 0 when the district
 // could not be read.
 export const PriorityReadStatusSchema = z.object({
