@@ -252,32 +252,85 @@ describe('OutreachSmsGenerationService — protected Improve', () => {
 
   it('sends markers instead of the locked text', async () => {
     const { service, jsonCompletion } = replyWith(
-      "Hi ⟦1⟧, it's ⟦2⟧! Please vote Nov 3.\n\n⟦3⟧ ⟦4⟧",
+      "Hi ⟦1⟧, it's ⟦2⟧! Please vote Nov 3.",
     )
     await improve(service)
     const { userPrompt, systemPrompt } = promptsOf(jsonCompletion)
-    expect(userPrompt).toContain('⟦3⟧')
+    expect(userPrompt).toContain('⟦2⟧')
     expect(userPrompt).not.toContain('Paid for by')
     expect(userPrompt).not.toContain('Reply STOP')
     expect(systemPrompt).toContain('Keep every marker exactly once')
   })
 
   it('returns the polish with the locked text put back', async () => {
-    const { service } = replyWith(
-      "Hi ⟦1⟧, it's ⟦2⟧! Please vote Nov 3.\n\n⟦3⟧ ⟦4⟧",
-    )
+    const { service } = replyWith("Hi ⟦1⟧, it's ⟦2⟧! Please vote Nov 3.")
     await expect(improve(service)).resolves.toBe(
       "Hi {first_name}, it's Sarah Chen! Please vote Nov 3.\n\nPaid for by Friends of Sarah Chen. Reply STOP to opt out.",
     )
   })
 
-  it('retries once when the reply drops a marker, then uses the good one', async () => {
+  // ENG-11297: the footer's markers were the model's to drop. It never sees
+  // them now, so it cannot.
+  it('holds the footer back from the model and puts it back verbatim', async () => {
     const { service, jsonCompletion } = replyWith(
-      "Hi ⟦1⟧, it's ⟦2⟧! Vote Nov 3.",
-      "Hi ⟦1⟧, it's ⟦2⟧! Vote Nov 3.\n\n⟦3⟧ ⟦4⟧",
+      "Hi ⟦1⟧, it's ⟦2⟧! Please vote Nov 3.\n",
     )
-    await expect(improve(service)).resolves.toContain('Reply STOP to opt out.')
+    const polished = await improve(service)
+    const { userPrompt } = promptsOf(jsonCompletion)
+    expect(userPrompt).not.toContain('⟦3⟧')
+    expect(userPrompt).not.toContain('⟦4⟧')
+    expect(polished).toBe(
+      "Hi {first_name}, it's Sarah Chen! Please vote Nov 3.\n\nPaid for by Friends of Sarah Chen. Reply STOP to opt out.",
+    )
+  })
+
+  it('keeps a body marker that ends the body in front of the model', async () => {
+    const { service, jsonCompletion } = buildService()
+    jsonCompletion.mockResolvedValueOnce({
+      object: { draft: "Hi ⟦1⟧, it's ⟦2⟧! Vote Nov 3, ⟦3⟧" },
+    })
+    const polished = await service.generateDraft(
+      {
+        purpose: 'custom',
+        tone: 'warm',
+        currentDraft:
+          "Hello {first_name}, it's Sarah Chen. Come vote Nov 3, {first_name}\n\nPaid for by Friends of Sarah Chen. Reply STOP to opt out.",
+      },
+      'Sarah Chen',
+      'City Council',
+      '7',
+      [],
+      WIN_PROTECTION,
+    )
+    const { userPrompt } = promptsOf(jsonCompletion)
+    expect(userPrompt).toContain('⟦3⟧')
+    expect(userPrompt).not.toContain('⟦4⟧')
+    expect(polished).toBe(
+      "Hi {first_name}, it's Sarah Chen! Vote Nov 3, {first_name}\n\nPaid for by Friends of Sarah Chen. Reply STOP to opt out.",
+    )
+  })
+
+  it('retries once when the reply drops a marker, telling the model which to keep', async () => {
+    const { service, jsonCompletion } = replyWith(
+      'Hi ⟦1⟧! Vote Nov 3.',
+      "Hi ⟦1⟧, it's ⟦2⟧! Vote Nov 3.",
+    )
+    await expect(improve(service)).resolves.toContain('Sarah Chen! Vote')
     expect(jsonCompletion).toHaveBeenCalledTimes(2)
+    const retry = jsonCompletion.mock.calls[1]?.[0].messages
+    expect(retry.at(-2)).toEqual({
+      role: 'assistant',
+      content: JSON.stringify({ draft: 'Hi ⟦1⟧! Vote Nov 3.' }),
+    })
+    expect(retry.at(-1).content).toContain('⟦1⟧ ⟦2⟧ each exactly once')
+  })
+
+  it('refuses a polish that writes its own paid-for-by line', async () => {
+    const { service } = replyWith(
+      "Hi ⟦1⟧, it's ⟦2⟧! Vote Nov 3. Paid for by Sarah.",
+      "Hi ⟦1⟧, it's ⟦2⟧! Vote Nov 3. Paid for by Sarah.",
+    )
+    await expect(improve(service)).rejects.toBeInstanceOf(BadGatewayException)
   })
 
   it('gives up with a 502 rather than return changed locked text', async () => {
@@ -287,8 +340,8 @@ describe('OutreachSmsGenerationService — protected Improve', () => {
 
   it('refuses a polish that breaks a rule the original passed', async () => {
     const { service } = replyWith(
-      "Hi ⟦1⟧, it's ⟦2⟧! Vote at bit.ly/vote.\n\n⟦3⟧ ⟦4⟧",
-      "Hi ⟦1⟧, it's ⟦2⟧! Vote at bit.ly/vote.\n\n⟦3⟧ ⟦4⟧",
+      "Hi ⟦1⟧, it's ⟦2⟧! Vote at bit.ly/vote.",
+      "Hi ⟦1⟧, it's ⟦2⟧! Vote at bit.ly/vote.",
     )
     await expect(improve(service)).rejects.toBeInstanceOf(BadGatewayException)
   })
@@ -320,8 +373,8 @@ describe('OutreachSmsGenerationService — protected Improve', () => {
   // a reply the response schema would then reject.
   it('treats a polish that restores past the length limit as a miss', async () => {
     const { service, jsonCompletion } = replyWith(
-      `Hi ⟦1⟧, it's ⟦2⟧! ${'Vote early. '.repeat(200)}\n\n⟦3⟧ ⟦4⟧`,
-      `Hi ⟦1⟧, it's ⟦2⟧! ${'Vote early. '.repeat(200)}\n\n⟦3⟧ ⟦4⟧`,
+      `Hi ⟦1⟧, it's ⟦2⟧! ${'Vote early. '.repeat(200)}`,
+      `Hi ⟦1⟧, it's ⟦2⟧! ${'Vote early. '.repeat(200)}`,
     )
     await expect(improve(service)).rejects.toBeInstanceOf(BadGatewayException)
     expect(jsonCompletion).toHaveBeenCalledTimes(2)
@@ -632,20 +685,30 @@ describe('OutreachSmsGenerationService — locked lines and style', () => {
     return { service, jsonCompletion }
   }
 
+  it('lets a Serve polish say "paid for by" in the body', async () => {
+    const { service } = replyWith(
+      'Hello ⟦1⟧, this is ⟦2⟧. The playground was paid for by a federal grant.',
+    )
+    await expect(improvePanel(service)).resolves.toContain(
+      'paid for by a federal grant',
+    )
+  })
+
   it('masks the JOIN line in a polish and puts it back once', async () => {
     const { service, jsonCompletion } = replyWith(
-      'Hello ⟦1⟧, this is ⟦2⟧, your mayor. I want to hear from you.\n\n⟦3⟧\n\n⟦4⟧',
+      'Hello ⟦1⟧, this is ⟦2⟧, your mayor. I want to hear from you.',
     )
     const polished = await improvePanel(service)
     expect(promptsOf(jsonCompletion).userPrompt).not.toContain('Reply JOIN')
+    expect(promptsOf(jsonCompletion).userPrompt).not.toContain('⟦3⟧')
     expect(polished.split(CIVIC_PANEL_JOIN_LINE)).toHaveLength(2)
     expect(polished.endsWith('Reply STOP to opt out.')).toBe(true)
   })
 
   it('refuses a polish that writes the JOIN or STOP line a second time', async () => {
     const { service, jsonCompletion } = replyWith(
-      `Hello ⟦1⟧, this is ⟦2⟧, your mayor. ${CIVIC_PANEL_JOIN_LINE}\n\n⟦3⟧\n\n⟦4⟧`,
-      'Hello ⟦1⟧, this is ⟦2⟧. Reply STOP.\n\n⟦3⟧\n\n⟦4⟧',
+      `Hello ⟦1⟧, this is ⟦2⟧, your mayor. ${CIVIC_PANEL_JOIN_LINE}`,
+      'Hello ⟦1⟧, this is ⟦2⟧. Reply STOP.',
     )
     await expect(improvePanel(service)).rejects.toBeInstanceOf(
       BadGatewayException,

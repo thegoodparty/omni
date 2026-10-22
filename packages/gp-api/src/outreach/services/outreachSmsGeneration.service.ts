@@ -270,6 +270,22 @@ export const WIN_SMS_VOICE: SmsVoiceConfig<SmsPurpose> = {
 const countOptOutLines = (message: string): number =>
   message.match(/reply\s+["'“”‘’]?stop\b/gi)?.length ?? 0
 
+const countPaidForBy = (message: string): number =>
+  message.match(/paid\s+for\s+by/gi)?.length ?? 0
+
+const FOOTER_RULES: readonly string[] = [
+  'paid_for_by',
+  'opt_out_line',
+  'civic_panel_join',
+  'civic_panel_leave',
+]
+
+// The last `count` markers of the masked message, with the whitespace around
+// them. A body marker that ends the body (a name, a merge tag) is not one of
+// them: only the footer's own parts are counted.
+const markerTail = (count: number): RegExp =>
+  new RegExp(`(?:\\s*⟦\\d+⟧){${count}}\\s*$`, 'u')
+
 const DraftSchema = z.object({
   draft: z.string().min(1).max(SMS_COMPOSED_MAX_LENGTH),
 })
@@ -392,10 +408,31 @@ export class OutreachSmsGenerationService {
         (rule) => !protection.ignoredRules.includes(rule),
       )
     const failingBefore = new Set(standards(currentDraft))
-    const { masked, locked } = maskProtectedParts(
-      currentDraft,
-      deriveSmsProtectedParts(currentDraft, protection),
+    const parts = deriveSmsProtectedParts(currentDraft, protection)
+    const { masked, locked } = maskProtectedParts(currentDraft, parts)
+    // The footer is held back and put back after the reply. A polish has
+    // nothing to change in it, and a reply that drops one of its markers
+    // fails the whole request (ENG-11297).
+    const footerTexts = new Set(
+      parts
+        .filter((part) => FOOTER_RULES.includes(part.rule))
+        .map((part) => part.text),
     )
+    let footerCount = 0
+    while (
+      footerCount < locked.length &&
+      footerTexts.has(locked[locked.length - 1 - footerCount] ?? '')
+    ) {
+      footerCount++
+    }
+    const footer =
+      footerCount > 0 ? (masked.match(markerTail(footerCount))?.[0] ?? '') : ''
+    const tail =
+      masked.slice(0, masked.length - footer.length).trim() === '' ? '' : footer
+    const body = masked.slice(0, masked.length - tail.length)
+    const bodyMarkers = locked
+      .slice(0, locked.length - (tail.match(/⟦\d+⟧/gu)?.length ?? 0))
+      .map((_, index) => `⟦${index + 1}⟧`)
     const messages: LlmMessage[] = [
       { role: 'system', content: voice.improveSystemPrompt },
       {
@@ -404,7 +441,7 @@ export class OutreachSmsGenerationService {
           ...context,
           `${voice.subjectFallback}'s SMS to polish:`,
           '"""',
-          masked,
+          body,
           '"""',
           // The message as sent, not as masked: the markers are shorter than
           // the text they hold, which is restored before anyone sees it.
@@ -421,11 +458,12 @@ export class OutreachSmsGenerationService {
       },
     ]
 
+    let conversation = messages
     for (let attempt = 1; attempt <= IMPROVE_ATTEMPTS; attempt++) {
       let reply: string
       try {
         const { object } = await this.llm.jsonCompletion({
-          messages,
+          messages: conversation,
           schema: DraftSchema,
           temperature: 0.8,
           maxTokens: 512,
@@ -436,9 +474,25 @@ export class OutreachSmsGenerationService {
         this.logger.error({ err }, 'SMS draft generation failed')
         throw new BadGatewayException('SMS draft generation failed')
       }
-      const restored = restoreProtectedParts(reply, locked)
+      const restored = restoreProtectedParts(reply.trimEnd() + tail, locked)
       if (restored === null) {
         this.logger.warn({ attempt }, 'SMS improve dropped a locked part')
+        // Re-asking the same prompt tends to repeat the same mistake, so the
+        // next try is told what it got wrong.
+        conversation = [
+          ...messages,
+          { role: 'assistant', content: JSON.stringify({ draft: reply }) },
+          {
+            role: 'user',
+            content:
+              bodyMarkers.length > 0
+                ? 'Your reply did not keep the markers. Return the whole ' +
+                  `message again with ${bodyMarkers.join(' ')} each ` +
+                  'exactly once, in that order, and no other markers.'
+                : 'Your reply added markers. Return the whole message ' +
+                  'again with no markers.',
+          },
+        ]
         continue
       }
       // The markers are shorter than the text they hold, so a reply within
@@ -448,11 +502,13 @@ export class OutreachSmsGenerationService {
         this.logger.warn({ attempt }, 'SMS improve came back over the limit')
         continue
       }
-      // A JOIN, LEAVE or opt-out line the model wrote beside its marker
+      // A JOIN, LEAVE, opt-out or paid-for-by line the model wrote itself
       // would text people the same line twice.
       if (
         countCivicPanelLines(restored) > countCivicPanelLines(currentDraft) ||
-        countOptOutLines(restored) > countOptOutLines(currentDraft)
+        countOptOutLines(restored) > countOptOutLines(currentDraft) ||
+        (!protection.ignoredRules.includes('paid_for_by') &&
+          countPaidForBy(restored) > countPaidForBy(currentDraft))
       ) {
         this.logger.warn({ attempt }, 'SMS improve repeated a locked line')
         continue
