@@ -142,6 +142,7 @@ gating is per-action inside the services (see Access control).
 | `PATCH /v1/contacts/:personId/civic-panel`                                                                                                     | Serve's civic panel membership (`{ value: 'member' \| 'left' }` → `{ civicPanel }`). Same gates and reasoning as the follow-up route: 400s for a non-`eo-` org, its own route so Win's two-status response is untouched. 404s with `serve-citizen-panels` off                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | `GET /v1/contacts/civic-panel`                                                                                                                 | Serve's civic panel as a whole (`CivicPanelSummaryService`): `{ members, reachedRecently, askableNow, lastOutreachAt }`. 400 for a non-`eo-` org, 404 with `serve-citizen-panels` off                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `GET/POST/PATCH /v1/contacts/civic-panel/plan` · `POST …/plan/steps/:id/prepare` · `POST …/plan/steps/:id/skip` · `POST …/plan/steps/:id/mark` | Serve's plan to build the panel across texts, calls and doors (`CivicPanelBuildPlanService`). 404 with the flag off, 400 for a non-`eo-` org. See "Building the panel across channels"                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `GET/POST/PATCH /v1/contacts/civic-panel/managed`                                                                                              | The civic panel GoodParty builds for the office (`ManagedCivicPanelService`): read with progress, approve, pause/resume/stop. 404 with the flag off, 400 for a non-`eo-` org. See "Managed civic panel"                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | `POST /v1/contacts/:personId/interactions`                                                                                                     | Manual interaction log. **No webapp caller** (UI removed in ENG-10711); the API stays                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `GET /v1/contact-engagement/:id/activities`                                                                                                    | Unified feed: interactions + polls + legacy outreach rows. Notes are deliberately excluded (ENG-10780) — they live only in the dedicated Notes section, never the feed                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | `GET /v1/contact-engagement/:id/priority-answers`                                                                                              | Serve only (Win and a missing office read empty): every `PriorityAnswer` for the person with its priority's title, newest first, from `ContactPriorityAnswersService`. The activity feed reads the same rows onto its text (by send), call and door (by interaction id) entries as `data.priorityAnswer`, Serve only, so a Win feed is unchanged                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
@@ -1195,6 +1196,42 @@ the dates it read, so of two racing reads only one reports a change.
 `Membership Changed` fires from `ContactStatusService.changeStatus` for every
 civic panel write, with the from and to status and the source. The browser
 fires `Civic Panel - Panel Viewed` and `Step Opened` itself.
+
+### Managed civic panel
+
+For offices in `serve-citizen-panels`, GoodParty builds the panel for them,
+replacing the do-it-yourself build plan above
+(`docs/adr/2026-10-22-managed-civic-panel-replaces-build-plan.md`). The
+official approves once, in their own name; GoodParty then sends free,
+texts-only waves of that one invite until members reach the district goal.
+Only the model and the routes exist so far: no wave, job, free send or UI
+reads them yet.
+
+`ManagedCivicPanel` is one row per office (`organizationSlug` unique), kept
+when stopped so `freeTextsUsed` still counts against `freeTextCap` (15,000)
+if it is approved again. `status` is `building`, `ready`, `paused` or
+`stopped`. `ManagedPanelWave` is one row per wave (`wave` unique per
+enrollment), with the drawn list (`voterFileFilterId`), the send
+(`outreachId`, unique), `steeredToward` as on a build step, `sentAt` and
+`replyWindowEndsAt`.
+
+The routes (`/v1/contacts/civic-panel/managed`, `ManagedCivicPanelService`,
+contracts in `people/ManagedCivicPanel.schema.ts`) are gated like every
+panel route: 404 with the flag off, 400 for a non-`eo-` org.
+
+- `GET` returns `{ panel }`, null before approval. `progress` is the
+  members (the standing `member` set, as the summary counts them),
+  `goalMembers`, `wavesSent` (waves with `sentAt`) and `nextWaveAt`: while
+  building, the latest sent wave's `replyWindowEndsAt`, else null.
+- `POST { inviteMessage, consentVersion }` approves. The invite must carry
+  the current `CIVIC_PANEL_JOIN_LINE`, no LEAVE line, and pass
+  `assertServeSmsLockedLines` (the STOP opt-out, one panel line), within
+  `SMS_COMPOSED_MAX_LENGTH`. It stores the approver and time, sets
+  `goalMembers` to the district's `panelGoalMembers` (the plan's source),
+  and starts `building`. Idempotent per office: an enrollment that is not
+  stopped comes back unchanged; a stopped one is approved again in place.
+- `PATCH { action }`: `pause` from building, `resume` from paused, `stop`
+  from building, paused or ready. Anything else is a 409; no enrollment is a 404. Each write is conditional on the status it leaves from.
 
 ### Saved-filter lifecycle
 
