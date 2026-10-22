@@ -19,8 +19,6 @@ const CHEYENNE_WARD_1 = 'Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb24vMTczMjcw'
 // A walkable box inside Ward 1, the shape a door card's `walkableArea` is.
 const AREA = { west: -104.821, south: 41.133, east: -104.818, north: 41.136 }
 
-type NextWindow = { next?: { router?: { push: (url: string) => void } } }
-
 // The transcript skeleton is up until the conversation has been created and
 // read, so its going away means the workspace mounted and its opening effect
 // ran: a route that never committed cannot get there.
@@ -32,8 +30,11 @@ const conversationOpened = (page: Page, timeout: number) =>
 // that return never finish. The card itself is an LLM's output, so this seeds
 // the priority and the card's saved list through the API and opens the exact
 // handoff URL the card's "Start the walk" builds (`openDoorKnocking` in
-// shared/agent-chat/cards/proposalFlows.tsx), pushed client-side the way the
-// card pushes it, so Done's `router.back()` is the same back navigation.
+// shared/agent-chat/cards/proposalFlows.tsx) on top of the priority, so Done's
+// `router.back()` returns to it. The card pushes that URL client-side; this
+// loads it as a document, which is also how the demo run arrived (a dev
+// deploy mid-session turned its push into a full load), and keeps the spec
+// off Next's internal router global.
 //
 // The card reading Sent is not asserted: that needs a persisted assistant
 // turn carrying the proposal, which only the model writes. What the card
@@ -113,13 +114,7 @@ test.describe('priority door card round trip', () => {
     await page.goto(priorityPath, { waitUntil: 'domcontentloaded' })
     await conversationOpened(page, 60_000)
 
-    await page.waitForFunction(() =>
-      Boolean((window as NextWindow).next?.router),
-    )
-    await page.evaluate((url) => {
-      ;(window as NextWindow).next?.router?.push(url)
-    }, handoff)
-    await page.waitForURL((url) => url.pathname === '/dashboard/door-knocking')
+    await page.goto(handoff, { waitUntil: 'domcontentloaded' })
 
     await expect(
       createFlowStepHeading(page, 'What do you want to do?'),
