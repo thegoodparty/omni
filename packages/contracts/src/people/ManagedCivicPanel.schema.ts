@@ -12,6 +12,8 @@ export const MANAGED_CIVIC_PANEL_STATUSES = [
   'ready',
   'paused',
   'stopped',
+  // Nobody is left to invite by text before the goal.
+  'exhausted',
 ] as const
 export const ManagedCivicPanelStatusSchema = z.enum(
   MANAGED_CIVIC_PANEL_STATUSES,

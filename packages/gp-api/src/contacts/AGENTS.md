@@ -1209,10 +1209,11 @@ no job or UI calls them yet.
 
 `ManagedCivicPanel` is one row per office (`organizationSlug` unique), kept
 when stopped so `freeTextsUsed` still counts against `freeTextCap` (15,000)
-if it is approved again. `status` is `building`, `ready`, `paused` or
-`stopped`. `ManagedPanelWave` is one row per wave (`wave` unique per
-enrollment), with the drawn list (`voterFileFilterId`), `steeredToward` as on
-a build step, `sentAt` and `replyWindowEndsAt`. Its send links the other way,
+if it is approved again. `status` is `building`, `ready`, `paused`,
+`stopped` or `exhausted`. `ManagedPanelWave` is one row per wave (`wave`
+unique per enrollment), with the drawn list (`voterFileFilterId`),
+`steeredToward` as on a build step, `sentAt`, `replyWindowEndsAt`,
+`closedAt` and `joinedMembers`. Its send links the other way,
 through `Outreach.managedPanelWaveId` (unique), so a free send's funding and
 its wave sit on one row a CHECK holds together.
 
@@ -1259,7 +1260,7 @@ panel route: 404 with the flag off, 400 for a non-`eo-` org.
   and starts `building`. Idempotent per office: an enrollment that is not
   stopped comes back unchanged; a stopped one is approved again in place.
 - `PATCH { action }`: `pause` from building, `resume` from paused, `stop`
-  from building, paused or ready. Anything else is a 409; no enrollment is a 404. Each write is conditional on the status it leaves from.
+  from building, paused, ready or exhausted. Anything else is a 409; no enrollment is a 404. Each write is conditional on the status it leaves from.
 
 **Drawing a wave** (`ManagedPanelWaveDrawService.drawNextWave`, no route).
 It draws a building enrollment's next wave and sends nothing. A wave not yet
@@ -1290,6 +1291,37 @@ drawing nothing, `goal_reached`, `out_of_free_texts`, `not_building`, or
 `nextManagedSendDate(now)` (`outreach/services/outreachServeSmsCreate.service.ts`):
 the third business day, the earliest `assertServeSmsSendDateAllowed`
 accepts, so staff get their full lead.
+
+**The wave job** (`src/managedPanelWaves/`, `ManagedPanelWaveJobService`,
+`managedPanelWaves` at 8:19 ET daily, dev and prod only, one pass per day
+under `CronLockService`). For each `building` enrollment whose approver has
+`serve-citizen-panels`, one step from what the rows say:
+
+- An unsent wave (`sentAt` null) is sent: its send is made if it has none,
+  claimed through `claimFree`, and the wave marked sent with
+  `replyWindowEndsAt` `MANAGED_WAVE_REPLY_DAYS` (5) days after the send date.
+- A sent wave inside its window waits. Past it, the wave is closed
+  (`closedAt`, and `joinedMembers`: the people its list drew who are members
+  now; JOIN replies make them members through the reply ingest).
+- With no open wave: members at the goal mark the panel `ready`
+  (`readyAt`); otherwise `drawNextWave` draws the next and it is sent.
+  `exhausted` from the draw, or a list that reaches nobody (the wave and its
+  list are dropped), marks the panel `exhausted`; `out_of_free_texts`
+  pauses it and posts a cap notice, as `claimFree` does for a wave over the
+  cap.
+
+The send is a Serve `text` row in `pending_payment` with `managedPanelWaveId`
+(unique, so a retry never makes two), the enrollment's `inviteMessage`
+re-checked as the approval checks it (`assertManagedPanelInvite`),
+`asksToJoinCivicPanel`, the wave's list, `textCount` counted as a draft is
+(`resolveListAudienceCount`), and `nextManagedSendDate`. It has no
+25-recipient floor: that floor is the checkout's, and a free send has none.
+An unclaimed draft from an earlier run gets today's send date and the
+current invite before it is claimed. A retry is safe at every point: a claim
+left `pending` is resumed by `claimFree`, and a send already past `pending`
+only gets its wave marked. Paused, stopped, ready and exhausted panels are
+not touched. Decision:
+`docs/adr/2026-10-22-managed-panel-wave-job-derives-each-step.md`.
 
 ### Saved-filter lifecycle
 

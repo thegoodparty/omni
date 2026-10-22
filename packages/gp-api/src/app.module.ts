@@ -29,6 +29,7 @@ import { HealthModule } from '@/health/health.module'
 import { BlockedStateInterceptor } from '@/observability/blockedState/blockedState.interceptor'
 import { OutreachModule } from '@/outreach/outreach.module'
 import { ManagedWaveFundingModule } from '@/managedWaveFunding/managedWaveFunding.module'
+import { ManagedPanelWavesModule } from '@/managedPanelWaves/managedPanelWaves.module'
 import { OutreachProposalModule } from '@/outreachProposal/outreachProposal.module'
 import { VoterOutreachActivityModule } from '@/voterOutreachActivity/voterOutreachActivity.module'
 import { OnboardingModule } from '@/onboarding/onboarding.module'
@@ -116,6 +117,8 @@ import { VendorMocksModule } from '@/vendorMocks/vendorMocks.module'
     // Registered at the root so the service boots with the app; nothing
     // that serves a request imports it.
     ManagedWaveFundingModule,
+    // The daily wave job, the one caller of the free claim.
+    ManagedPanelWavesModule,
     OutreachProposalModule,
     VoterOutreachActivityModule,
     SegmentModule,
