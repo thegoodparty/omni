@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import type { Editor } from '@tiptap/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
@@ -178,15 +178,17 @@ describe('PollFlow bias check', () => {
     })
   }
 
-  it('checks the question by itself once typing stops', async () => {
+  it('checks the question when the official leaves the field, not while typing', async () => {
     await writeLeadingQuestion()
 
     expect(
-      await screen.findByText(
-        SERVE_POLL_QUESTION_COPY.biasFlagged,
-        {},
-        { timeout: 4000 },
-      ),
+      screen.getByRole('button', { name: SERVE_POLL_QUESTION_COPY.checkBias }),
+    ).toBeInTheDocument()
+
+    fireEvent.focusOut(screen.getByRole('textbox', { name: 'Poll question' }))
+
+    expect(
+      await screen.findByText(SERVE_POLL_QUESTION_COPY.biasFlagged),
     ).toBeInTheDocument()
     expect(
       screen.getByText(SERVE_POLL_QUESTION_COPY.biasFlaggedNote),

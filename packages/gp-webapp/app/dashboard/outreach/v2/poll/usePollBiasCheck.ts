@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { clientFetch } from 'gpApi/clientFetch'
 import { apiRoutes } from 'gpApi/routes'
 import type {
@@ -18,8 +18,6 @@ export type BiasCheckStatus =
 // The analyzer has nothing to say about a fragment; the legacy editor used the
 // same floor.
 const CHECK_MIN_LENGTH = 21
-// How long typing has to pause before the question counts as finished.
-const CHECK_DEBOUNCE_MS = 2000
 
 interface CheckResult {
   text: string
@@ -38,7 +36,7 @@ const analyze = async (text: string): Promise<BiasAnalysisResponse> => {
   return response.data
 }
 
-export const usePollBiasCheck = (question: string, enabled: boolean) => {
+export const usePollBiasCheck = (question: string) => {
   const text = question.trim()
   const [result, setResult] = useState<CheckResult | null>(null)
   const [checkingText, setCheckingText] = useState<string | null>(null)
@@ -100,13 +98,12 @@ export const usePollBiasCheck = (question: string, enabled: boolean) => {
     return check()
   }, [status, check])
 
-  useEffect(() => {
-    if (!enabled || status !== 'idle') return
-    const timer = setTimeout(() => {
-      void check()
-    }, CHECK_DEBOUNCE_MS)
-    return () => clearTimeout(timer)
-  }, [enabled, status, check])
+  // Leaving the field is when the question counts as written, as it was in
+  // the legacy editor: a check per pause in typing would call the analyzer,
+  // a model, far more often for the same result.
+  const checkOnLeave = useCallback(() => {
+    if (status === 'idle') void check()
+  }, [status, check])
 
   const improve = useCallback(async (): Promise<string | null> => {
     trackEvent(EVENTS.createPoll.pollQuestionOptimized)
@@ -140,6 +137,7 @@ export const usePollBiasCheck = (question: string, enabled: boolean) => {
   return {
     status,
     check,
+    checkOnLeave,
     ensureChecked,
     improve,
     improving,

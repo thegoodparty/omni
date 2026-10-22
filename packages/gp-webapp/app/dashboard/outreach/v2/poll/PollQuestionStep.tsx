@@ -64,6 +64,7 @@ interface PollQuestionStepProps {
   biasStatus: BiasCheckStatus
   flaggedSpans: { phrase: string; reason: string }[]
   onCheckBias: () => void
+  onQuestionBlur: () => void
   onImprove: () => void
   improving: boolean
   improveError: boolean
@@ -115,6 +116,7 @@ export const PollQuestionStep = ({
   biasStatus,
   flaggedSpans,
   onCheckBias,
+  onQuestionBlur,
   onImprove,
   improving,
   improveError,
@@ -216,20 +218,29 @@ export const PollQuestionStep = ({
             <p className="text-base text-muted-foreground max-sm:pb-2 md:text-sm">
               {withSampleFirstName(intro)}
             </p>
-            <TokenField
-              value={question}
-              onChange={onQuestionChange}
-              // Read-only while a draft or a rewrite is on its way, so
-              // nothing typed is overwritten by it.
-              readOnly={busy}
-              placeholder={
-                drafting
-                  ? 'Writing your question…'
-                  : SERVE_POLL_QUESTION_COPY.questionPlaceholder
-              }
-              aria-label="Poll question"
-              variant="seamless"
-            />
+            {/* TokenField takes no onBlur; focusout bubbles to this wrapper,
+                and focus moving within it is not leaving the field. */}
+            <div
+              onBlur={(event) => {
+                if (event.currentTarget.contains(event.relatedTarget)) return
+                onQuestionBlur()
+              }}
+            >
+              <TokenField
+                value={question}
+                onChange={onQuestionChange}
+                // Read-only while a draft or a rewrite is on its way, so
+                // nothing typed is overwritten by it.
+                readOnly={busy}
+                placeholder={
+                  drafting
+                    ? 'Writing your question…'
+                    : SERVE_POLL_QUESTION_COPY.questionPlaceholder
+                }
+                aria-label="Poll question"
+                variant="seamless"
+              />
+            </div>
             {/* A beat more space above the opt-out than between the other
                 lines, and more again around the question on a phone, where
                 the wrapped lines otherwise run together, so the editable

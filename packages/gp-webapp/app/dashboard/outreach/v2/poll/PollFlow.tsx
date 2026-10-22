@@ -229,10 +229,7 @@ export const PollFlow = ({
     senderName,
     positionName,
   ).length
-  const biasCheck = usePollBiasCheck(
-    question,
-    open && stepId === 'question' && !drafting,
-  )
+  const biasCheck = usePollBiasCheck(question)
   const biasFlagged = biasCheck.status === 'flagged'
   const { reset: resetBiasCheck } = biasCheck
 
@@ -479,11 +476,10 @@ export const PollFlow = ({
             ? {
                 label: 'Continue',
                 onClick: handleQuestionContinue,
-                disabled:
-                  drafting ||
-                  biasCheck.improving ||
-                  biasCheck.status === 'checking' ||
-                  biasFlagged,
+                disabled: drafting || biasCheck.improving || biasFlagged,
+                // A press that started the check shows it working rather than
+                // a button that looks switched off.
+                loading: biasCheck.status === 'checking',
               }
             : stepId === 'schedule'
               ? {
@@ -614,6 +610,7 @@ export const PollFlow = ({
           biasStatus={biasCheck.status}
           flaggedSpans={biasCheck.flaggedSpans}
           onCheckBias={() => void biasCheck.check()}
+          onQuestionBlur={biasCheck.checkOnLeave}
           onImprove={() => void handleImprove()}
           improving={biasCheck.improving}
           improveError={improveError}
