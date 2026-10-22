@@ -140,123 +140,127 @@ test.describe('Win SMS send', () => {
     await page.getByRole('button', { name: /^Continue/ }).click()
 
     // ── 9. Compose step ───────────────────────────────────────────────────
-    // Wait for the AI draft to load (message field becomes non-empty).
-    await expect(page.getByRole('button', { name: /^Continue/ })).toBeVisible({
+    // Continue stays disabled while the AI draft is in flight. The step also
+    // blocks Continue until the message carries an image: a campaign with no
+    // profile photo attaches one here, the way a candidate would.
+    await expect(
+      page.getByText('What do you want to say?').first(),
+    ).toBeVisible({
       timeout: 30_000,
+    })
+    await page
+      .locator('input[type="file"]')
+      .setInputFiles('src/fixtures/heart.png')
+    await expect(page.getByAltText('Attachment preview')).toBeVisible({
+      timeout: 15_000,
     })
     await expect(page.getByRole('button', { name: /^Continue/ })).toBeEnabled({
       timeout: 60_000,
     })
     await page.getByRole('button', { name: /^Continue/ }).click()
 
-    // ── 10. Schedule step: name, date, time ──────────────────────────────
-    await expect(page.getByText('When do you want to send?')).toBeVisible({
+    // ── 10. Schedule step: date, time (the name is auto-filled) ──────────
+    await expect(page.getByText('When do you want to send it?')).toBeVisible({
       timeout: 30_000,
     })
 
-    // Pick a date 4 days from now (clear of the 48h floor and weekend edges).
+    // Arm the checkout-session capture before the review step mounts: the
+    // session is requested as soon as the draft lands. The one-time session
+    // response carries the Stripe session id the webhook delivery needs.
+    let sessionId = ''
+    page.on('response', async (res) => {
+      if (
+        res.request().method() !== 'POST' ||
+        !/\/payments\/purchase\/create-checkout-session/.test(res.url())
+      ) {
+        return
+      }
+      const body = (await res.json()) as { id?: string }
+      if (body.id) sessionId = body.id
+    })
+
+    // Pick a date 4 days out (clear of the 48h floor). The calendar opens on
+    // the current month and tags each day with the browser's
+    // toLocaleDateString (M/D/YYYY in en-US).
+    await page.getByRole('button', { name: 'Pick a date' }).click()
     const targetDay = addDays(new Date(), 4)
-    const targetIso = format(targetDay, 'yyyy-MM-dd')
     if (targetDay.getMonth() !== new Date().getMonth()) {
       await page.getByRole('button', { name: 'Go to the next month' }).click()
     }
-    await page.locator(`td[data-day="${targetIso}"] button`).click()
+    await page
+      .locator(`td[data-day="${format(targetDay, 'M/d/yyyy')}"] button`)
+      .click()
 
-    // Pick 10:00 AM time slot.
+    // Pick the 10:00 AM start from the time select.
+    await page.getByRole('combobox').filter({ hasText: 'Select time' }).click()
     await page.getByRole('option', { name: '10:00 AM' }).click()
-
-    // ── 11. Arm the checkout-session interceptor before advancing to Review ──
-    // The checkout-session request fires as the Review step mounts. Registering
-    // the route after "Review & pay" is visible races and misses it.
-    let sessionId = ''
-    await page.route(
-      /\/api\/v1\/payments\/purchase\/checkout-session/,
-      async (route) => {
-        const response = await route.fetch()
-        if (response.ok()) {
-          const body = (await response.json()) as { id?: string }
-          if (body.id) sessionId = body.id
-        }
-        await route.fulfill({ response })
-      },
-    )
 
     await page.getByRole('button', { name: 'Continue' }).click()
 
-    // ── 12. If the phone list is still building, finish it ────────────────
+    // ── 11. If the phone list is still building, finish it ────────────────
     // The audience step's Continue kicks off the Peerly build. runJob finishes
     // it synchronously in mock mode if the poll hasn't resolved yet.
     await withGatewayRetry('p2p.phoneListFinish', () =>
       runJob(client, 'p2p.phoneListFinish'),
     )
 
-    // ── 13. Review step: wait for payment form ────────────────────────────
-    await expect(page.getByText(/Review & pay/i)).toBeVisible({
-      timeout: 30_000,
-    })
+    // ── 12. Review step ───────────────────────────────────────────────────
+    // "Review & pay" for a charged send, "Review and send" when the Pro free
+    // texts offer covers the audience.
+    await expect(
+      page.getByRole('heading', { name: /Review (& pay|and send)/ }).first(),
+    ).toBeVisible({ timeout: 30_000 })
 
-    // Wait for the payment section to appear (checkout session resolved).
+    const scheduleButton = page.getByRole('button', {
+      name: 'Schedule campaign',
+    })
     const paymentFrame = page.frameLocator(
       'iframe[title="Secure payment input frame"]',
     )
-    await expect(paymentFrame.locator('#payment-numberInput')).toBeVisible({
-      timeout: 60_000,
-    })
+    const cardInput = paymentFrame.locator('#payment-numberInput')
+    await expect(scheduleButton.or(cardInput)).toBeVisible({ timeout: 60_000 })
 
-    // ── 14. Fill Stripe card and submit ───────────────────────────────────
-    await fillStripeCard(page)
+    if (await scheduleButton.isVisible()) {
+      // Free path: the offer covers the send, so there is no card to fill.
+      await scheduleButton.scrollIntoViewIfNeeded()
+      await expect(scheduleButton).toBeEnabled({ timeout: 15_000 })
+      await scheduleButton.click()
+    } else {
+      // ── 13. Fill Stripe card and submit ─────────────────────────────────
+      await fillStripeCard(page)
+      const completeButton = page.getByRole('button', {
+        name: 'Complete Purchase',
+      })
+      await expect(completeButton).toBeEnabled({ timeout: 15_000 })
+      await completeButton.scrollIntoViewIfNeeded()
+      await completeButton.click()
+    }
 
-    const completeButton = page.getByRole('button', {
-      name: 'Complete Purchase',
-    })
-    await expect(completeButton).toBeEnabled({ timeout: 15_000 })
-    await completeButton.scrollIntoViewIfNeeded()
+    // ── 14. Wait for the success screen ───────────────────────────────────
+    await expect(
+      page.getByRole('heading', { name: /Payment successful|Scheduled/ }),
+    ).toBeVisible({ timeout: 60_000 })
 
-    // Intercept the outreach create/completion requests to capture outreachId.
-    // The SmsFlow creates the outreach draft before the checkout session, so
-    // we read the id from the complete-checkout-session response.
-    let outreachId = 0
-    await page.route(
-      /\/api\/v1\/payments\/purchase\/complete-checkout-session/,
-      async (route) => {
-        const response = await route.fetch()
-        if (response.ok()) {
-          const body = (await response.json()) as { outreachId?: number }
-          if (body.outreachId) outreachId = body.outreachId
-        }
-        await route.fulfill({ response })
-      },
-    )
-
-    await completeButton.click()
-
-    // ── 15. Wait for the success screen ───────────────────────────────────
-    await expect(page.getByText(/Payment successful|Scheduled/)).toBeVisible({
-      timeout: 60_000,
-    })
-
-    // ── 16. Deliver the Stripe webhook to finalize the outreach ───────────
+    // ── 15. Deliver the Stripe webhook to finalize a charged outreach ─────
     if (sessionId) {
       await deliverStripeEvent(client, sessionId)
     }
 
-    // ── 17. CAS approve ───────────────────────────────────────────────────
-    // Resolve outreachId from API if the page interception missed it.
-    if (!outreachId) {
-      await eventually(
-        { that: 'outreach row exists for this campaign', maxTimeout: 15_000 },
-        async () => {
-          const { data } = await client.get<{
-            outreach: { id: number; status: string }[]
-          }>('/v1/outreach')
-          const row = data.outreach.find(
-            (o) => o.status === 'pending_payment' || o.status === 'paid',
+    // ── 16. CAS approve ───────────────────────────────────────────────────
+    // GET /v1/outreach returns the campaign's rows; the SMS send is the p2p one.
+    let outreachId = 0
+    await eventually(
+      { that: 'p2p outreach row exists for this campaign', maxTimeout: 15_000 },
+      async () => {
+        const { data } =
+          await client.get<{ id: number; outreachType: string }[]>(
+            '/v1/outreach',
           )
-          if (!row) throw new Error('Outreach row not found yet')
-          outreachId = row.id
-        },
-      )
-    }
+        const row = data.find((o) => o.outreachType === 'p2p')
+        if (!row) throw new Error('Outreach row not found yet')
+        outreachId = row.id
+      },
+    )
 
     expect(outreachId).toBeGreaterThan(0)
 
