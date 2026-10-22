@@ -621,6 +621,33 @@ describe('read_past_outreach send days', () => {
     })
   })
 
+  it('reads a walk that is out, with no day of its own, as sent the day it was made', async () => {
+    const flooding = await createPriority('Flooding')
+    const walk = await service.prisma.outreach.create({
+      data: {
+        organizationSlug: slug,
+        outreachType: OutreachType.nativeDoorKnocking,
+        status: OutreachStatus.in_progress,
+        doorKnockingTurfId: await turfIn(slug),
+        createdAt: new Date('2026-10-22T14:55:00.000Z'),
+        priorityId: flooding,
+      },
+    })
+
+    expect(await readFor(flooding)).toEqual({
+      priority: [
+        expect.objectContaining({
+          outreachId: walk.id,
+          scheduledFor: null,
+          sentOn: '2026-10-22',
+        }),
+      ],
+      office: [],
+    })
+    const [anchor] = await outreach.summarizeAnchors(flooding, ZONE)
+    expect(anchor?.line).toContain('sent 2026-10-22')
+  })
+
   it('says a scheduled text is not sent yet in the thread line', async () => {
     const flooding = await createPriority('Flooding')
     await paidText(flooding, OutreachStatus.in_progress, '2026-10-27')

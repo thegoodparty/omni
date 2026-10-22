@@ -44,8 +44,8 @@ export interface PastOutreachRow {
   audience: string
   channel: OutreachType
   status: string | null
-  // yyyy-MM-dd. scheduledFor is the day it is set to go out; sentOn is that
-  // day once it has gone, and null until then.
+  // yyyy-MM-dd. scheduledFor is the day it is set to go out; sentOn is the
+  // day it went, and null until then.
   scheduledFor: string | null
   sentOn: string | null
   recipients: number | null
@@ -467,8 +467,11 @@ const sendDays = (
   const today = formatInTimeZone(new Date(), timeZone, 'yyyy-MM-dd')
   return {
     scheduledFor,
+    // A send that is out with no day of its own (a walk) went out the day it
+    // was created, so sentOn is never null for a send that has gone.
     sentOn: outreachHasGoneOut({ status: row.status, scheduledFor }, today)
-      ? scheduledFor
+      ? (scheduledFor ??
+        formatInTimeZone(row.createdAt, timeZone, 'yyyy-MM-dd'))
       : null,
   }
 }
