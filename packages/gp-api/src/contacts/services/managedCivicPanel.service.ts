@@ -8,6 +8,7 @@ import {
 import {
   answersNeeded,
   CIVIC_PANEL_JOIN_LINE,
+  CIVIC_PANEL_JOIN_LINES,
   findCivicPanelJoinLine,
   findCivicPanelLeaveLine,
   panelGoalMembers,
@@ -227,11 +228,18 @@ const assertServeOrg = (organization: Organization): void => {
   }
 }
 
-// The build_citizens_panel text's locked lines: the current JOIN line, the
+// A draft written before the JOIN line's last rewrite still approves, but
+// never one that names the panel by its earlier name: every wave texts it.
+const APPROVABLE_JOIN_LINES: readonly string[] = CIVIC_PANEL_JOIN_LINES.filter(
+  (line) => line.includes('my civic panel'),
+)
+
+// The build_citizens_panel text's locked lines: a civic panel JOIN line, the
 // STOP opt-out, and no second panel line. Every wave sends these words, so
 // the reply reader must recognize the JOIN line.
 const assertInvite = (message: string): void => {
-  if (findCivicPanelJoinLine(message)?.text !== CIVIC_PANEL_JOIN_LINE) {
+  const joinLine = findCivicPanelJoinLine(message)?.text
+  if (joinLine === undefined || !APPROVABLE_JOIN_LINES.includes(joinLine)) {
     throw new BadRequestException(
       `Your invite is missing its join line. Add "${CIVIC_PANEL_JOIN_LINE}" and try again.`,
     )

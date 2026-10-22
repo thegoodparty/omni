@@ -641,12 +641,12 @@ texted LEAVE, or a texted STOP.
 
 A Serve text asks with a fixed, locked sentence (`CIVIC_PANEL_JOIN_LINE` in
 contracts: "Reply JOIN to join my civic panel. My office will text you
-about once a month to ask what you think before I decide. Empowered by
+about once a month to ask what you think before I decide. Sent with
 GoodParty.org.", in its own paragraph above the opt-out), and the create
 stamps `Outreach.asksToJoinCivicPanel` from the stored message. The create
 and the composer's lock recognize every wording in `CIVIC_PANEL_JOIN_LINES`
 (`findCivicPanelJoinLine`), because sends written before the line was
-rewritten carry the first one; the composer only writes the current line. The reply ingest
+rewritten carry an earlier one; the composer only writes the current line. The reply ingest
 (`OutreachTextIngestService.applyCivicPanelEvents`, `source: sms`, `sourceId`
 the reply's message id) writes `member` for a JOIN reply
 (`util/civicPanelJoin.util.ts`: the whole reply or a sentence of its own) on
@@ -1224,7 +1224,9 @@ panel route: 404 with the flag off, 400 for a non-`eo-` org.
   `goalMembers`, `wavesSent` (waves with `sentAt`) and `nextWaveAt`: while
   building, the latest sent wave's `replyWindowEndsAt`, else null.
 - `POST { inviteMessage, consentVersion }` approves. The invite must carry
-  the current `CIVIC_PANEL_JOIN_LINE`, no LEAVE line, and pass
+  a civic panel wording of the JOIN line (the current
+  `CIVIC_PANEL_JOIN_LINE`, or an earlier civic panel wording a draft may
+  already hold, never a citizens' panel one), no LEAVE line, and pass
   `assertServeSmsLockedLines` (the STOP opt-out, one panel line), within
   `SMS_COMPOSED_MAX_LENGTH`. It stores the approver and time, sets
   `goalMembers` to the district's `panelGoalMembers` (the plan's source),

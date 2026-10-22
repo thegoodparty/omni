@@ -289,7 +289,17 @@ describe('POST /v1/contacts/civic-panel/managed', () => {
     expect((await get(slug)).data.panel).toBeNull()
   })
 
-  it('400s an invite with an older wording of the JOIN line', async () => {
+  it('approves a draft carrying the earlier civic panel wording', async () => {
+    const slug = await seedOrg()
+    const inviteMessage = `Hi.\n\nReply JOIN to join my civic panel. My office will text you about once a month to ask what you think before I decide. Empowered by GoodParty.org.\n\nReply STOP to opt out.`
+
+    const res = await approve(slug, { inviteMessage, consentVersion: CONSENT })
+
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(res.data.panel).toMatchObject({ status: 'building', inviteMessage })
+  })
+
+  it('400s an invite with the citizens’ panel wording of the JOIN line', async () => {
     const slug = await seedOrg()
 
     const res = await approve(slug, {
