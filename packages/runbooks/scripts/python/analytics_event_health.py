@@ -698,7 +698,9 @@ def reconcile(
     okr_by_event = dict(okr_by_event or {})
     # The base event of every watched leg. okr_by_event is keyed by leg key, and a leg with
     # an exclusion keys as "Event[excluding ...]", so a bare-name match misses most legs.
-    okr_events = set(okr_by_event if okr_events is None else okr_events)
+    okr_events = (
+        {key.split("[", 1)[0] for key in okr_by_event} if okr_events is None else set(okr_events)
+    )
     seen_in_catalog = {row["event_type"] for row in catalog}
     records: list[dict] = []
 

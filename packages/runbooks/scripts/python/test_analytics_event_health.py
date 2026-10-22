@@ -2817,3 +2817,17 @@ def test_run_monitor_never_proposes_removing_a_qualified_legs_base_event(tmp_pat
     assert result["removal_proposals"] == []
     record = next(r for r in result["records"] if r["event_type"] == "Leg Event")
     assert record["okr_base"] is True
+
+
+def test_reconcile_derives_base_events_from_qualified_leg_keys_without_okr_events():
+    # event_state_assembler calls reconcile with leg-keyed okr_by_event and no okr_events.
+    today = date(2026, 8, 3)
+    catalog = [{"event_type": "Leg Event", "family": "win_onboarding", "govern_description": "",
+                "event_count_30d": 5, "last_seen_date": "2026-08-01",
+                "first_seen_date": "2026-07-25"}]
+    result = eh.reconcile(
+        catalog, weekly_rows=[], code={}, today=today, watched_families=["win_onboarding"],
+        okr_by_event={"Leg Event[excluding product=serve]": "win_activated_users"},
+    )
+    assert result["records"][0]["okr_base"] is True
+    assert [p["event_type"] for p in result["proposals"]] == ["Leg Event"]
