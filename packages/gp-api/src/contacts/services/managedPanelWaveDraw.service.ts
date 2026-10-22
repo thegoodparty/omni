@@ -28,7 +28,7 @@ const WAVE_SELECT = {
   wave: true,
   voterFileFilterId: true,
   steeredToward: true,
-  outreachId: true,
+  outreach: { select: { id: true } },
   sentAt: true,
   createdAt: true,
 } satisfies Prisma.ManagedPanelWaveSelect

@@ -29,6 +29,7 @@ import { FeaturesModule } from '@/features/features.module'
 import { HealthModule } from '@/health/health.module'
 import { BlockedStateInterceptor } from '@/observability/blockedState/blockedState.interceptor'
 import { OutreachModule } from '@/outreach/outreach.module'
+import { ManagedWaveFundingModule } from '@/managedWaveFunding/managedWaveFunding.module'
 import { OutreachProposalModule } from '@/outreachProposal/outreachProposal.module'
 import { VoterOutreachActivityModule } from '@/voterOutreachActivity/voterOutreachActivity.module'
 import { OnboardingModule } from '@/onboarding/onboarding.module'
@@ -113,6 +114,9 @@ import { VendorMocksModule } from '@/vendorMocks/vendorMocks.module'
     SubscribeModule,
     ScheduledMessagingModule,
     OutreachModule,
+    // Registered at the root so the service boots with the app; nothing
+    // that serves a request imports it.
+    ManagedWaveFundingModule,
     OutreachProposalModule,
     VoterOutreachActivityModule,
     SegmentModule,

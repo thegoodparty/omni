@@ -26,6 +26,11 @@ import {
   TEXT_DELIVERY_HANDOFF_PORT,
   TextDeliveryHandoffPort,
 } from '../interfaces/textDeliveryHandoff.interface'
+import {
+  fundedTextSendWhere,
+  OutreachTextSendFundingService,
+  type TextSendUnfundedReason,
+} from './outreachTextSendFunding.service'
 
 /**
  * The shared delivery layer's outbound half. Knows nothing about polls or
@@ -98,9 +103,11 @@ export interface RequestSendResult {
    * acks rather than redelivering. `not_sendable` is the spine refusing the
    * claim — canceled, unpaid, or already sent — and leaves the row where it
    * was. `send_failed` is a send that cannot be made at all (see the 4xx
-   * rule in `requestSend`) and leaves the row `failed`.
+   * rule in `requestSend`) and leaves the row `failed`. `unfunded` is a
+   * pending send with neither a paid checkout nor a live managed civic panel
+   * wave behind it; the row is left where it was and the alarm is raised.
    */
-  terminalReason?: 'not_sendable' | 'send_failed'
+  terminalReason?: 'not_sendable' | 'send_failed' | 'unfunded'
 }
 
 /**
@@ -246,8 +253,26 @@ export class OutreachTextDeliveryService extends createPrismaBase(
     private readonly s3Service: S3Service,
     @Inject(TEXT_DELIVERY_HANDOFF_PORT)
     private readonly handoffPort: TextDeliveryHandoffPort,
+    private readonly funding: OutreachTextSendFundingService,
   ) {
     super()
+  }
+
+  private async refuseUnfunded(
+    outreachId: number,
+    sendSeq: number,
+    reason: TextSendUnfundedReason,
+    sendKey: string,
+  ): Promise<RequestSendResult> {
+    await this.funding.reportRefusal(outreachId, sendSeq, reason)
+    return {
+      audienceResolved: false,
+      recipientCount: 0,
+      excludedOptedOutCount: 0,
+      excludedDuplicateCount: 0,
+      sendKey,
+      terminalReason: 'unfunded',
+    }
   }
 
   /**
@@ -341,16 +366,36 @@ export class OutreachTextDeliveryService extends createPrismaBase(
     // The claim IS the spine advance; there is no separate "claimed" state to
     // add. A redelivered message, or a message for a canceled / unpaid /
     // already-sent row, matches nothing and does no work.
+    //
+    // The funding gate runs first and is repeated inside the claim's filter,
+    // so a managed panel stopped between the two still matches nothing.
+    const funding = await this.funding.check(outreachId, sendSeq)
+    if (!funding.funded && funding.reason !== 'not_sendable') {
+      return this.refuseUnfunded(outreachId, sendSeq, funding.reason, sendKey)
+    }
     const claimed = await (sendSeq > FIRST_SEND_SEQ
       ? this.client.outreachPollExpansion.updateMany({
-          where: { outreachId, sendSeq, status: SENDABLE_STATUS },
+          where: {
+            outreachId,
+            sendSeq,
+            status: SENDABLE_STATUS,
+            stripeCheckoutSessionId: { not: null },
+          },
           data: { status: OutreachStatus.in_progress },
         })
       : this.client.outreach.updateMany({
-          where: { id: outreachId, status: SENDABLE_STATUS },
+          where: {
+            id: outreachId,
+            status: SENDABLE_STATUS,
+            AND: [fundedTextSendWhere()],
+          },
           data: { status: OutreachStatus.in_progress },
         }))
     if (claimed.count === 0) {
+      const recheck = await this.funding.check(outreachId, sendSeq)
+      if (!recheck.funded && recheck.reason !== 'not_sendable') {
+        return this.refuseUnfunded(outreachId, sendSeq, recheck.reason, sendKey)
+      }
       this.logger.warn(
         { outreachId, sendSeq },
         'Text send skipped: the outreach was not pending, so it is canceled, ' +

@@ -2,11 +2,15 @@ import { BadGatewayException, Injectable } from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
 import type { AgentPlan, RoutePlannerResult } from '@geoapify/route-planner-sdk'
 import { recordGeoapifyCall } from '../observability/geoapify.metrics'
-import { vendorBaseUrl } from 'src/shared/util/appEnvironment.util'
+import { vendorBaseUrl, VENDOR_MODE } from 'src/shared/util/appEnvironment.util'
 import {
   RoutePlannerResponseSchema,
   RoutingResponseSchema,
 } from '../schemas/geoapify.schema'
+
+// Mirrors CallHub's CALLHUB_MOCK_API_KEY pattern: the client sends this
+// constant in mock mode, and the mock controller accepts exactly it.
+export const GEOAPIFY_MOCK_API_KEY = 'mock-key'
 
 // The SDK's package.json says type:module, which makes Node parse its
 // "require" entry (CJS content, .js extension) as ESM — requiring it from
@@ -146,6 +150,7 @@ export class GeoapifyRoutePlannerService {
   // dark, and an import-time throw would block boot (and the whole test
   // suite) in environments where the key isn't provisioned yet.
   private apiKey(): string {
+    if (VENDOR_MODE === 'mock') return GEOAPIFY_MOCK_API_KEY
     const key = process.env.GEOAPIFY_API_KEY
     if (!key) {
       throw new BadGatewayException(

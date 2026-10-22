@@ -1,6 +1,7 @@
 import { ControllerName } from '../../src/generated/route-types'
 import { Alert } from './alerting/alerts.types'
 import { geoapifyBudgetAlerts } from './alerting/geoapify-budget-alerts'
+import { vendorDriftAlerts } from './alerting/vendor-drift-alerts'
 import { doorKnockingCredits } from './alerting/door-knocking-spend'
 
 /**
@@ -324,6 +325,36 @@ export const GLOBAL_ALERTS: Alert[] = [
       'Click *View in Grafana* and read `outreachId` and `organizationSlug` off the matched lines, then approve, edit or deny each poll from the gp-admin poll queue.',
     ].join('\n\n'),
   },
+  // The two managed civic panel free-send safety alarms. Both read
+  // managed_panel.funding_alarm.count, which gp-api seeds with a zero at boot
+  // so `increase()` sees the first event (see managedPanelFunding.metrics.ts).
+  // Each should never fire: a send skipping payment is a money event.
+  {
+    slug: 'serve-managed-panel-unfunded-send-refused',
+    name: '[Serve] Text send refused: neither paid nor a managed panel wave',
+    type: 'metric',
+    expr: 'sum(increase(managed_panel_funding_alarm_count_total{service_name="gp-api", deployment_environment_name="$ENV", kind="send_refused"}[10m])) or vector(0)',
+    threshold: 0,
+    for: '0m',
+    keepFiringFor: '1h',
+    message: [
+      'The text delivery layer refused a Serve send that had neither a paid Stripe checkout nor a live managed civic panel wave behind it. Nothing was handed off and no CSV was written, so no constituent was texted.',
+      'Click *View in Grafana*, then search the logs for "CRITICAL managed panel funding: unfunded text send refused" to read `outreachId`, `sendSeq` and `reason`. A Slack notice with the same ids went to #bot-tevyn-api. Find what moved the row to `pending` without payment: only the SERVE_TEXT purchase claim and ManagedWaveFundingService.claimFree may. `flag_off` or `enrollment_stopped` on a pilot wave means serve-citizen-panels was turned off for the approving official, or the panel was stopped, after the claim, which is expected; anything else is a bug to fix before more sends go out.',
+    ].join('\n\n'),
+  },
+  {
+    slug: 'serve-managed-panel-funding-mismatch',
+    name: '[Serve] Daily reconciliation found a send with no funding',
+    type: 'metric',
+    expr: 'sum(increase(managed_panel_funding_alarm_count_total{service_name="gp-api", deployment_environment_name="$ENV", kind="reconcile_mismatch"}[10m])) or vector(0)',
+    threshold: 0,
+    for: '0m',
+    keepFiringFor: '1h',
+    message: [
+      'The daily managed panel funding reconciliation found Serve text or poll sends that moved past checkout in the last day with neither a paid Stripe session nor a valid managed civic panel wave. These may already have been texted.',
+      'Click *View in Grafana*, then search the logs for "CRITICAL managed panel funding: send past pending with no funding" to read the `mismatches` list (outreachId, sendSeq, organizationSlug, status). The same list went to #bot-tevyn-api. Check each in the gp-admin outreach console and find how it skipped payment before anything else sends.',
+    ].join('\n\n'),
+  },
   // ------ Win Warnings ------ //
   {
     slug: 'win-peerly-warnings',
@@ -526,6 +557,7 @@ export const GLOBAL_ALERTS: Alert[] = [
   // written out four times so the four share one expression — see the file for
   // why that matters to the read cost.
   ...geoapifyBudgetAlerts,
+  ...vendorDriftAlerts,
   {
     slug: 'door-knocking-pack-build-failed',
     name: '[Win] Door-knocking pack build failed mid-response',
