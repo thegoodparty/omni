@@ -83,12 +83,19 @@ export default function DashboardContent(): React.JSX.Element {
   const panelMembers = panelsEnabled ? panelSummary?.members : undefined
   // Whether GoodParty is already building the panel picks the intro's
   // middle step: set it up, or hear from constituents.
-  const { data: managedPanel, isLoading: managedLoading } = useQuery({
+  const {
+    data: managedPanel,
+    isLoading: managedLoading,
+    isError: managedReadFailed,
+  } = useQuery({
     ...managedCivicPanelQueryOptions(orgSlug),
     enabled: panelsReady && panelsEnabled && Boolean(orgSlug),
   })
-  const managedSetUp =
-    managedPanel === undefined
+  // A failed read offers setup: approving is idempotent, so offering it to
+  // an office already enrolled does no harm.
+  const managedSetUp = managedReadFailed
+    ? false
+    : managedPanel === undefined
       ? undefined
       : managedPanel !== null && managedPanel.status !== 'stopped'
 

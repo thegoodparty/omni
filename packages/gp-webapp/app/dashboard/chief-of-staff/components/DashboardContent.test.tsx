@@ -339,6 +339,24 @@ describe('DashboardContent: Meet my Chief of Staff', () => {
     expect(completedACard()).toBe(false)
   })
 
+  it('still offers to build the panel when the enrollment cannot be read', async () => {
+    const answer = clientRequestMock.getMockImplementation()
+    clientRequestMock.mockImplementation(async (endpoint: string) => {
+      if (endpoint === 'GET /v1/contacts/civic-panel/managed') {
+        throw new Error('read failed')
+      }
+      return answer?.(endpoint)
+    })
+    await meet()
+
+    expect(
+      await screen.findByRole('checkbox', { name: /Build my civic panel/ }),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('checkbox', { name: /Hear from your constituents/ }),
+    ).toBeNull()
+  })
+
   it('offers hearing from constituents once GoodParty is building the panel', async () => {
     managed.panel = { status: 'building' }
     panelSummary.members = 5

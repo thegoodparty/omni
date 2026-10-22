@@ -571,8 +571,9 @@ export const composeManagedInvite = (body: string): string =>
 export const managedInviteBody = (invite: string): string =>
   withoutLockedLines(invite).trim()
 
-// What follows the editable body, shown locked under it.
-export const MANAGED_INVITE_LOCKED_LINES = `${CIVIC_PANEL_JOIN_LINE}\n\n${OPT_OUT_FOOTER}`
+// What follows the editable body, shown locked under it: the composed
+// invite with no body, so the preview and the send cannot drift.
+export const MANAGED_INVITE_LOCKED_LINES = composeManagedInvite('').trim()
 
 // --- Add it back ------------------------------------------------------------
 //
