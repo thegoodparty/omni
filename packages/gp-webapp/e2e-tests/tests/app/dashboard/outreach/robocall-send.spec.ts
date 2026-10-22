@@ -1,7 +1,6 @@
 import { readFileSync } from 'fs'
 import { join } from 'path'
 import { expect, test, type Page } from '@playwright/test'
-import { setFlagOverrides } from 'src/helpers/campaignStory.helper'
 import {
   blockSlowScripts,
   NavigationHelper,
@@ -24,7 +23,6 @@ import type { AxiosInstance } from 'axios'
 // pass compliance → authorize via Stripe → run staging/send/completion/capture
 // jobs → assert Outreach.status = 'completed' and robocall.settleState = 'captured'.
 //
-// Gated behind the `vendor-mocks-m2` feature flag (the dark-launch key for M2).
 // Skips when VENDOR_MODE !== 'mock' (dev always calls the real CallHub; previews
 // and local gp-api with VENDOR_MODE=mock are the targets).
 
@@ -206,8 +204,7 @@ test.describe('Robocall send — M2 mock pipeline', () => {
       'Robocall mock pipeline requires VENDOR_MODE=mock (preview / local only)',
     )
 
-    // ── 3. Gate the M2 feature flag and relay S3 audio uploads ───────────────
-    await setFlagOverrides(page, { 'vendor-mocks-m2': 'on' })
+    // ── 3. Relay S3 audio uploads ────────────────────────────────────────────
     await relayRobocallAudioUploads(page)
 
     // ── 4. Pre-create a voter file filter so the audience picker has a row ───
