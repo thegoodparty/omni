@@ -935,7 +935,7 @@ PRIORITY_RANK_MAX = 7
 # Cap how many event names a single changes-line spells out before summarizing (the
 # first run flags everything, which would otherwise dump the whole list).
 CHANGES_NAME_CAP = 15
-# Cap how many self-healing proposals to spell out as ready-to-paste rows.
+# Cap how many watchlist proposals or removals to spell out as rows.
 PROPOSAL_CAP = 15
 
 
@@ -1130,6 +1130,8 @@ def render_digest_section(result: Mapping[str, Any], changes: Mapping[str, list[
             lines.append(f"({len(proposals) - PROPOSAL_CAP} more — see the JSON report.)")
     unneeded = result.get("unneeded_proposal_count") or 0
     if unneeded:
+        if not proposals:
+            lines += ["", "### Watchlist proposals (OKR legs)", "", "No OKR leg to add."]
         lines += [
             "",
             f"{unneeded} new event(s) in watched families with no question; see the JSON report.",

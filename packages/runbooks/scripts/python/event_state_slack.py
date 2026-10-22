@@ -305,9 +305,8 @@ def build_anchor_blocks(queue: dict) -> list[dict]:
 
 
 def build_triage_invocation(result: dict, gap: dict | None) -> str | None:
-    """Copy-ready `/triage-instrumentation-gaps` line (DATA-2152). The skill reviews two
-    queues — new instrumentation gaps AND watchlist proposals — so the entry point renders
-    whenever either has work. It used to live inside the gaps thread block, which is
+    """Copy-ready `/triage-instrumentation-gaps` line (DATA-2152). The line renders whenever
+    new instrumentation gaps, watchlist proposals or watchlist removals have work. It used to live inside the gaps thread block, which is
     skipped entirely on a no-new-gaps run, hiding it exactly when the proposal queue is
     the whole backlog (the 2026-08-05 first-run regression). run_date prefers the gap
     payload, falling back to the health result, and is omitted only for older payloads
