@@ -28,8 +28,35 @@ runs:
       with:
         pulumi-version: ${{ inputs.pulumi-version }}
 
+    # One retry, only when an `error:` line is a network or throttling error.
+    # Those leave nothing half-applied that a rerun can't reconcile, and they
+    # failed whole releases on a single dropped connection. Never a plan,
+    # validation or lock error, and never an ECS "did not become stable"
+    # timeout: after a rollout that never finished, a second `pulumi up` sees
+    # nothing to change and exits 0, which would hide a stuck rollout.
     - name: Run Pulumi deploy
       id: deploy
       shell: bash
       working-directory: ${{ inputs.working-directory }}
-      run: ${{ inputs.command }}
+      env:
+        DEPLOY_COMMAND: ${{ inputs.command }}
+      run: |
+        transient='ECONNRESET|ETIMEDOUT|EAI_AGAIN|socket hang up|connection reset by peer|i/o timeout|TLS handshake timeout|Throttling|RequestLimitExceeded|TooManyRequests|Rate exceeded|StatusCode: 50[234]|status code 50[234]'
+        log="$RUNNER_TEMP/pulumi-deploy.log"
+        for attempt in 1 2; do
+          set +e
+          bash -eo pipefail -c "$DEPLOY_COMMAND" 2>&1 | tee "$log"
+          status=${PIPESTATUS[0]}
+          set -e
+          if [ "$status" -eq 0 ]; then
+            exit 0
+          fi
+          errors=$(grep -E '^\s*error:' "$log" || true)
+          if [ "$attempt" -eq 2 ] \
+            || ! grep -qE "$transient" <<< "$errors" \
+            || grep -qE 'tfSTABLE|currently locked' <<< "$errors"; then
+            exit "$status"
+          fi
+          echo "::warning::Pulumi deploy hit a network or throttling error. Retrying once in 30 seconds."
+          sleep 30
+        done
