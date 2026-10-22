@@ -441,6 +441,22 @@ describe('ManagedWaveFundingService.claimFree', () => {
     expect(sendMessage).not.toHaveBeenCalled()
   })
 
+  it('does not resume a claim once the panel is paused', async () => {
+    const { waveId } = await wave()
+    expect((await funding().claimFree(waveId)).claimed).toBe(true)
+    sendMessage.mockClear()
+    await setPanel({
+      status: ManagedCivicPanelStatus.paused,
+      pausedAt: new Date(),
+    })
+
+    expect(await funding().claimFree(waveId)).toEqual({
+      claimed: false,
+      reason: 'not_pending_payment',
+    })
+    expect(sendMessage).not.toHaveBeenCalled()
+  })
+
   it('does not resume a send that has moved past pending', async () => {
     const { waveId, outreachId } = await wave()
     expect((await funding().claimFree(waveId)).claimed).toBe(true)

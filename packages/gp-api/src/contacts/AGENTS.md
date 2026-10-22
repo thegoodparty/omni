@@ -1231,7 +1231,7 @@ does, stamps `fundedBy: goodparty_pilot` and `billableTextCount`, adds to
 notice naming the office to #bot-tevyn-api. An enqueue failure undoes all of
 it, under the same enrollment lock. Calling it again for a wave its own
 earlier claim left `pending` (a crash between commit and enqueue) re-enqueues
-it without counting its texts again. A wave over the cap pauses the panel,
+it without counting its texts again, but only while the panel is `building`. A wave over the cap pauses the panel,
 re-checked under the lock so a reverted sibling's texts are counted first,
 and posts a cap notice instead. The
 delivery layer checks the funding again before it hands a send off

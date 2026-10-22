@@ -166,7 +166,7 @@ export class ManagedWaveFundingService extends createPrismaBase(
           outreach.organizationSlug === enrollment.organizationSlug &&
           outreach.stripeCheckoutSessionId === null &&
           outreach.textCount !== null &&
-          enrollment.status !== ManagedCivicPanelStatus.stopped
+          enrollment.status === ManagedCivicPanelStatus.building
         ) {
           return {
             claimed: true as const,
