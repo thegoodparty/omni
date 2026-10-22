@@ -1067,7 +1067,7 @@ describe('ChiefOfStaffHandler', () => {
       expect(forOffice).toHaveBeenCalledWith(
         ORG,
         null,
-        expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+        expect.stringMatching(/^US\//),
         undefined,
       )
     })

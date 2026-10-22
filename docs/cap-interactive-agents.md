@@ -192,8 +192,8 @@ chat registers none. All tools are the `LlmStreamTool` shape defined in
   outreach hub from the surface's mode. Each row (and each
   `read_outreach_feedback` send) carries `status`, `scheduledFor` and
   `sentOn`, both days as yyyy-MM-dd; `sentOn` stays null until the send has
-  gone out by contracts' `outreachHasGoneOut`, read against the user's local
-  day (`localDay`, the day the prompt's date line shows). No column records a
+  gone out by contracts' `outreachHasGoneOut`, read in the user's zone
+  (`resolveSendWindowTimeZone`, the zone the prompt's date line is in). No column records a
   send's delivery, and a Serve text reads `in_progress` from the moment it is
   paid for, days before its day.
 - **`read_outreach_feedback`** — what came back in people's own words: text

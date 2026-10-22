@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common'
-import { format } from 'date-fns'
+import { formatInTimeZone } from 'date-fns-tz'
 import { outreachHasGoneOut, type ChatCardKind } from '@goodparty_org/contracts'
 import {
   Outreach,
@@ -96,11 +96,11 @@ export interface PriorityAnchorSummary {
 export class PriorityFlowOutreachService extends createPrismaBase(
   MODELS.Outreach,
 ) {
-  // `today` is the reader's local day (yyyy-MM-dd), the one their date line
-  // shows, so a send is never read as out before that line's day reaches it.
+  // `timeZone` is the reader's zone, the one their date line is in, so a send
+  // is never read as out before that line's day reaches it.
   async forPriority(
     priorityId: string,
-    today: string,
+    timeZone: string,
     channel?: OutreachType,
   ): Promise<PastOutreachRow[]> {
     const rows = await this.findMany({
@@ -111,13 +111,13 @@ export class PriorityFlowOutreachService extends createPrismaBase(
       orderBy: { createdAt: Prisma.SortOrder.desc },
       take: MAX_ROWS,
     })
-    return this.withReplyCounts(rows, 'priority', today)
+    return this.withReplyCounts(rows, 'priority', timeZone)
   }
 
   async forOffice(
     organizationSlug: string,
     priorityId: string | null,
-    today: string,
+    timeZone: string,
     channel?: OutreachType,
   ): Promise<PastOutreachRow[]> {
     const rows = await this.findMany({
@@ -138,14 +138,14 @@ export class PriorityFlowOutreachService extends createPrismaBase(
       orderBy: { createdAt: Prisma.SortOrder.desc },
       take: MAX_ROWS,
     })
-    return this.withReplyCounts(rows, 'office', today)
+    return this.withReplyCounts(rows, 'office', timeZone)
   }
 
   // A campaign's sends, by campaignId: an org can hold a Campaign and an
   // ElectedOffice at once, so its slug alone would mix in the office's sends.
   async forCampaign(
     campaignId: number,
-    today: string,
+    timeZone: string,
     channel?: OutreachType,
   ): Promise<PastOutreachRow[]> {
     const rows = await this.findMany({
@@ -156,7 +156,7 @@ export class PriorityFlowOutreachService extends createPrismaBase(
       orderBy: { createdAt: Prisma.SortOrder.desc },
       take: MAX_ROWS,
     })
-    return this.withReplyCounts(rows, 'office', today)
+    return this.withReplyCounts(rows, 'office', timeZone)
   }
 
   // Whether every one of these sends put out this side of this priority's
@@ -186,9 +186,9 @@ export class PriorityFlowOutreachService extends createPrismaBase(
 
   async summarizeAnchors(
     priorityId: string,
-    today: string,
+    timeZone: string,
   ): Promise<PriorityAnchorSummary[]> {
-    const rows = await this.forPriority(priorityId, today)
+    const rows = await this.forPriority(priorityId, timeZone)
     return rows.map((row) => ({
       kind: 'outreach_proposal' as const,
       ref: `outreach:${row.outreachId}`,
@@ -213,7 +213,7 @@ export class PriorityFlowOutreachService extends createPrismaBase(
   async feedbackFor(
     organizationSlug: string,
     scope: { priorityId?: string | null; outreachId?: number },
-    today: string,
+    timeZone: string,
   ): Promise<OutreachFeedback[]> {
     const rows = await this.findMany({
       where: {
@@ -229,13 +229,13 @@ export class PriorityFlowOutreachService extends createPrismaBase(
           ? RECENT_SENDS_WITHOUT_SCOPE
           : MAX_ROWS,
     })
-    return Promise.all(rows.map((row) => this.feedbackForSend(row, today)))
+    return Promise.all(rows.map((row) => this.feedbackForSend(row, timeZone)))
   }
 
   // A campaign's door and call notes, by campaignId like forCampaign.
   async feedbackForCampaign(
     campaignId: number,
-    today: string,
+    timeZone: string,
     outreachId?: number,
   ): Promise<OutreachFeedback[]> {
     const rows = await this.findMany({
@@ -248,12 +248,12 @@ export class PriorityFlowOutreachService extends createPrismaBase(
       orderBy: { createdAt: Prisma.SortOrder.desc },
       take: RECENT_SENDS_WITHOUT_SCOPE,
     })
-    return Promise.all(rows.map((row) => this.feedbackForSend(row, today)))
+    return Promise.all(rows.map((row) => this.feedbackForSend(row, timeZone)))
   }
 
   private async feedbackForSend(
     row: Outreach,
-    today: string,
+    timeZone: string,
   ): Promise<OutreachFeedback> {
     const verbatims =
       row.outreachType === OutreachType.text
@@ -292,7 +292,7 @@ export class PriorityFlowOutreachService extends createPrismaBase(
       outreachId: row.id,
       audience: row.name ?? row.audienceRequest ?? 'Unnamed audience',
       channel: row.outreachType,
-      ...sendDays(row, today),
+      ...sendDays(row, timeZone),
       heardFrom: verbatims.length,
       verbatims: verbatims.slice(0, MAX_VERBATIMS_PER_SEND),
       verbatimsLeftOut: Math.max(0, verbatims.length - MAX_VERBATIMS_PER_SEND),
@@ -402,7 +402,7 @@ export class PriorityFlowOutreachService extends createPrismaBase(
   private async withReplyCounts(
     rows: Outreach[],
     scope: 'priority' | 'office',
-    today: string,
+    timeZone: string,
   ): Promise<PastOutreachRow[]> {
     if (rows.length === 0) return []
     const replies = await this.client.contactInteractionText.groupBy({
@@ -427,7 +427,7 @@ export class PriorityFlowOutreachService extends createPrismaBase(
         audience: row.name ?? row.audienceRequest ?? 'Unnamed audience',
         channel: row.outreachType,
         status: row.status,
-        ...sendDays(row, today),
+        ...sendDays(row, timeZone),
         recipients,
         replies,
         replyRate:
@@ -455,11 +455,16 @@ const channelWhere = (channel?: OutreachType): Prisma.OutreachWhereInput =>
 // yyyy-MM-dd, never a bare "27 Oct", so the model cannot misplace the year.
 const sendDays = (
   row: Outreach,
-  today: string,
+  timeZone: string,
 ): { scheduledFor: string | null; sentOn: string | null } => {
+  // Both days in the office's zone: the server runs on UTC, which is already
+  // tomorrow for part of every US evening.
   const scheduledFor =
     row.scheduledLocalDate ??
-    (row.date === null ? null : format(row.date, 'yyyy-MM-dd'))
+    (row.date === null
+      ? null
+      : formatInTimeZone(row.date, timeZone, 'yyyy-MM-dd'))
+  const today = formatInTimeZone(new Date(), timeZone, 'yyyy-MM-dd')
   return {
     scheduledFor,
     sentOn: outreachHasGoneOut({ status: row.status, scheduledFor }, today)

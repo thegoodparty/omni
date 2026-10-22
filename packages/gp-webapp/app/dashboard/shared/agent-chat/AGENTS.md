@@ -231,7 +231,11 @@ there is the agent's to say, once, in its message; no card repeats it.
   `custom`) and the JOIN line locked on, the way the outreach page's panel
   deep link opens it.
   `PastOutreachCard` is one row per send, linking to its row's drawer on the
-  hub. It reads its mode from the provider like the proposal card: Win reads
+  hub. A Serve text is paid for, and found under its key, days before it goes
+  out, so until contracts' `outreachHasGoneOut` says it has gone (against the
+  viewer's day) the proposal card reads "Texting N constituents on <day>" and
+  the past outreach row "Scheduled for <day>"; both take the day from
+  `scheduledLocalDate`, the only place a Serve text keeps it. It reads its mode from the provider like the proposal card: Win reads
   the campaign's send (`GET /v1/outreach/:id`) and links to
   `/dashboard/outreach`, Serve reads the office's (`GET /v1/outreach/serve/:id`)
   and links to `/dashboard/constituent-outreach`. No compose, edit or send UI lives in a card: the flows own it.

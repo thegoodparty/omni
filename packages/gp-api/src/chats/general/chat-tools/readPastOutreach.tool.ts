@@ -21,8 +21,8 @@ export const buildReadPastOutreachTool = (deps: {
   outreach: PriorityFlowOutreachService
   priorityId: string | null
   organizationSlug: string
-  // The office's local day (yyyy-MM-dd), the day the prompt's date line shows.
-  today: string
+  // The office's zone, the one the prompt's date line is in.
+  timeZone: string
 }): LlmStreamTool<typeof readPastOutreachInput> => ({
   description:
     'Read what has already gone out from the office: audience, how many ' +
@@ -40,11 +40,15 @@ export const buildReadPastOutreachTool = (deps: {
     priority:
       deps.priorityId === null
         ? []
-        : await deps.outreach.forPriority(deps.priorityId, deps.today, channel),
+        : await deps.outreach.forPriority(
+            deps.priorityId,
+            deps.timeZone,
+            channel,
+          ),
     office: await deps.outreach.forOffice(
       deps.organizationSlug,
       deps.priorityId,
-      deps.today,
+      deps.timeZone,
       channel,
     ),
   }),
@@ -55,7 +59,7 @@ export const buildReadPastOutreachTool = (deps: {
 export const buildCampaignManagerReadPastOutreachTool = (deps: {
   outreach: PriorityFlowOutreachService
   campaignId: number
-  today: string
+  timeZone: string
 }): LlmStreamTool<typeof readPastOutreachInput> => ({
   description:
     "Read the campaign's recent outreach: audience, how many voters, " +
@@ -68,7 +72,7 @@ export const buildCampaignManagerReadPastOutreachTool = (deps: {
   execute: async ({ channel }): Promise<{ sends: PastOutreachRow[] }> => ({
     sends: await deps.outreach.forCampaign(
       deps.campaignId,
-      deps.today,
+      deps.timeZone,
       channel,
     ),
   }),

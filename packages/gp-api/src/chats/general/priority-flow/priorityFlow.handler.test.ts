@@ -443,7 +443,7 @@ describe('PriorityFlowHandler', () => {
       const ctx = await handler.loadContext('c1', USER_ID)
       const prompt = handler.buildSystemPrompt(ctx)
 
-      expect(summarizeAnchors).toHaveBeenCalledWith('pri-1', '2026-10-21')
+      expect(summarizeAnchors).toHaveBeenCalledWith('pri-1', 'US/Mountain')
       expect(prompt).toContain(
         'Today is Wednesday, October 21, 2026 (Mountain Time).',
       )

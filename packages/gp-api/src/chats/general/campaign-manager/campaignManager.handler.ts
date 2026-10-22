@@ -39,6 +39,7 @@ import {
   type LiveRace,
 } from './campaignManagerPrompt'
 import { localDay } from '../services/todayLine'
+import { resolveSendWindowTimeZone } from '@/vendors/peerly/utils/sendWindowTimeZone.util'
 import { selectTopDynamicTasks } from './selectTopDynamicTasks'
 import { CampaignStoryIntakeService } from './campaignStoryIntake.service'
 import type {
@@ -667,14 +668,14 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
       tools.read_past_outreach = buildCampaignManagerReadPastOutreachTool({
         outreach: this.pastOutreach,
         campaignId: ctx.campaignId,
-        today: localDay(ctx.state, ctx.now),
+        timeZone: resolveSendWindowTimeZone(ctx.state),
       })
       if (ctx.outreachFeedbackEnabled) {
         tools.read_outreach_feedback =
           buildCampaignManagerReadOutreachFeedbackTool({
             outreach: this.pastOutreach,
             campaignId: ctx.campaignId,
-            today: localDay(ctx.state, ctx.now),
+            timeZone: resolveSendWindowTimeZone(ctx.state),
           })
       }
       tools.present_past_outreach =
