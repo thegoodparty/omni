@@ -3,7 +3,7 @@ title: A priority read is never representative below the district's answersNeede
 status: active
 decided_by: [bryclevgp]
 date: 2026-10-22
-code: ['#2977']
+code: ['#3126', '#2977']
 scope:
   - packages/gp-api/src/priorities/util/mrpReadStatus.util.ts
   - packages/gp-api/src/contacts/utils/civicPanelAllocation.util.ts
