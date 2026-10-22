@@ -136,7 +136,15 @@ export class PersonIdBackfillService extends createPrismaBase(MODELS.User) {
       )
     }
 
-    await this.usersService.updateUser({ id: userId }, { personId })
+    try {
+      await this.usersService.updateUser({ id: userId }, { personId })
+    } catch (error) {
+      // The holder check above races with any concurrent link. The global
+      // filter would still 409 this, but with a generic message, and the
+      // operator reads this one verbatim in gp-admin.
+      if (!isUniqueConstraintError(error)) throw error
+      throw new ConflictException('That person was just linked to another user')
+    }
     this.logger.info(
       { userId, personId, linkedBy },
       'person_id linked by an operator',

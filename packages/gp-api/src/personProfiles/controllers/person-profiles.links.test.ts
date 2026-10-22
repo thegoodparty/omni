@@ -3,7 +3,8 @@ import { afterEach, describe, expect, it, vi, type MockInstance } from 'vitest'
 import { useTestService } from '@/test-service'
 import { PersonsService } from '@/electionDb/persons/persons.service'
 import { PersonMergesService } from '@/electionDb/personMerges/person-merges.service'
-import { UserRole } from '../../generated/prisma'
+import { UsersService } from '@/users/services/users.service'
+import { Prisma, UserRole } from '../../generated/prisma'
 import { PersonLookupService } from '../services/person-lookup.service'
 
 const service = useTestService()
@@ -160,6 +161,28 @@ describe('/v1/person-profiles/links', () => {
 
     expect(res.status).toBe(404)
     expect(await personIdOf(target.id)).toBeNull()
+  })
+
+  // Two operators linking the same person at once both pass the holder check;
+  // the loser's unique violation has to read as a 409 staff can act on.
+  it('reports a concurrent link to the same person as a conflict', async () => {
+    await promoteToAdmin()
+    const target = await createUser()
+    stubPerson(true)
+    const write = vi
+      .spyOn(service.app.get(UsersService), 'updateUser')
+      .mockRejectedValue(
+        new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
+          code: 'P2002',
+          clientVersion: 'test',
+        }),
+      )
+    spies.push(write)
+
+    const res = await link(target.id)
+
+    expect(res.status).toBe(409)
+    expect(res.data.message).toBe('That person was just linked to another user')
   })
 
   // The operator gets the surviving id back, so they can link to it instead.
