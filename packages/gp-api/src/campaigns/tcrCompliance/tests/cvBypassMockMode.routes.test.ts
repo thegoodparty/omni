@@ -21,7 +21,7 @@ import { CampaignTcrComplianceService } from '../services/campaignTcrCompliance.
 
 // The Peerly and Vercel mocks write records only on a non-prod deploy; the test
 // env isn't one. VENDOR_MODE resolves to mock in the test env, so
-// NON_PROD_LIVE_VENDOR_BYPASS is false and the real code path runs.
+// the real code path runs against the mocks.
 vi.mock('@/shared/util/appEnvironment.util', async (importOriginal) => {
   const actual =
     await importOriginal<typeof import('@/shared/util/appEnvironment.util')>()

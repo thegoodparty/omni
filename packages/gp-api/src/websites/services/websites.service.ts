@@ -10,10 +10,7 @@ import {
   VendorMockVendor,
   WebsiteStatus,
 } from '../../generated/prisma'
-import {
-  NON_PROD_LIVE_VENDOR_BYPASS,
-  VENDOR_MODE,
-} from '@/shared/util/appEnvironment.util'
+import { VENDOR_MODE } from '@/shared/util/appEnvironment.util'
 import { VendorMockRecordService } from '@/vendorMocks/vendorMockRecord.service'
 import { VercelService } from '@/vendors/vercel/services/vercel.service'
 import {
@@ -274,26 +271,6 @@ export class WebsitesService extends createPrismaBase(MODELS.Website) {
     }
 
     const url = `https://${website.domain.name}/`
-
-    // On dev, the candidate's vanity site isn't actually attached to the dev
-    // Vercel project — the domain DNS resolves to a generic GP placeholder
-    // page that lacks the privacy/terms/identity markers verify-live looks for.
-    // Short-circuit so the rest of the compliance flow (TCR submission) is
-    // testable in dev. Only in live mode: where vendors are mocked (preview,
-    // local) the mock-mode check below runs instead.
-    if (NON_PROD_LIVE_VENDOR_BYPASS) {
-      return {
-        verified: true,
-        url,
-        reason: null,
-        checks: {
-          http_200: true,
-          has_privacy_policy: true,
-          has_terms: true,
-          has_candidate_identity: true,
-        },
-      }
-    }
 
     if (VENDOR_MODE === 'mock') {
       return this.verifyLiveAgainstMocks(
