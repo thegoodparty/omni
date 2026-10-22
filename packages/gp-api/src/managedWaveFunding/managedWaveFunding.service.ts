@@ -241,6 +241,14 @@ export class ManagedWaveFundingService extends createPrismaBase(
     textCount: number,
   ): Promise<void> {
     await this.client.$transaction(async (tx) => {
+      const wave = await tx.managedPanelWave.findUnique({
+        where: { id: waveId },
+        select: { enrollmentId: true },
+      })
+      if (!wave) return
+      // Same lock order as the claim, so a claim on this enrollment waits
+      // for the whole revert rather than interleaving with it.
+      await tx.$queryRaw`SELECT id FROM managed_civic_panel WHERE id = ${wave.enrollmentId} FOR UPDATE`
       const reverted = await tx.outreach.updateMany({
         where: {
           id: outreachId,
@@ -256,7 +264,7 @@ export class ManagedWaveFundingService extends createPrismaBase(
       })
       if (reverted.count === 0) return
       await tx.managedCivicPanel.updateMany({
-        where: { waves: { some: { id: waveId } } },
+        where: { id: wave.enrollmentId },
         data: { freeTextsUsed: { decrement: textCount } },
       })
     })
