@@ -47,6 +47,28 @@ import {
   createMockCampaign,
 } from '@/shared/test-utils/mockData.util'
 
+// NON_PROD_LIVE_VENDOR_BYPASS is a module constant (non-prod AND live mode), so
+// a test can't flip it through process.env alone. Mirror its definition off the
+// per-test OTEL_SERVICE_ENVIRONMENT, and default to live mode: the bypass tests
+// below assert dev's live-mode behavior; the mock-mode tests set `appEnv.mode`.
+const appEnv = vi.hoisted(() => ({ mode: 'live' as 'live' | 'mock' }))
+vi.mock('@/shared/util/appEnvironment.util', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('@/shared/util/appEnvironment.util')>()
+  return {
+    ...actual,
+    get VENDOR_MODE() {
+      return appEnv.mode
+    },
+    get NON_PROD_LIVE_VENDOR_BYPASS() {
+      return (
+        process.env.OTEL_SERVICE_ENVIRONMENT !== 'prod' &&
+        appEnv.mode === 'live'
+      )
+    },
+  }
+})
+
 // Passes the dispatch gate's publishability check: genuine bio (over
 // MIN_BIO_LENGTH plain chars, not the template) + one genuine issue.
 const publishableContent = {
@@ -3318,6 +3340,35 @@ describe('CampaignTcrComplianceService - PIN submission non-prod bypass', () => 
     })
   })
 
+  it('retrieveCampaignVerifyToken does not accept any PIN in non-prod mock mode', async () => {
+    appEnv.mode = 'mock'
+    try {
+      await withEnv('preview', async () => {
+        await expect(
+          service.retrieveCampaignVerifyToken('any-pin', tcrCompliance),
+        ).rejects.toThrow(BadRequestException)
+        // peerlyIdentityId is null on the stub, so the real guard ran.
+      })
+    } finally {
+      appEnv.mode = 'live'
+    }
+  })
+
+  it('submitCampaignVerifyToken calls Peerly in non-prod mock mode', async () => {
+    mockPeerly.submitCampaignVerifyTokenToBrand.mockResolvedValueOnce({
+      brand: 'ok',
+    })
+    appEnv.mode = 'mock'
+    try {
+      await withEnv('preview', async () => {
+        await service.submitCampaignVerifyToken(tcrCompliance, 'token')
+        expect(mockPeerly.submitCampaignVerifyTokenToBrand).toHaveBeenCalled()
+      })
+    } finally {
+      appEnv.mode = 'live'
+    }
+  })
+
   it('retrieveCampaignVerifyToken calls Peerly when OTEL_SERVICE_ENVIRONMENT=prod', async () => {
     await withEnv('prod', async () => {
       await expect(
@@ -3646,6 +3697,23 @@ describe('CampaignTcrComplianceService - resendCampaignVerifyPin', () => {
         { triggered_by: 'admin' },
       )
     })
+  })
+
+  it('does not short-circuit in non-prod mock mode: the real resend path runs', async () => {
+    mockModel.findUnique.mockResolvedValueOnce({
+      id: 'tcr-1',
+      peerlyIdentityId: null,
+    })
+    appEnv.mode = 'mock'
+    try {
+      await withEnv('preview', async () => {
+        await expect(service.resendCampaignVerifyPin(campaign)).rejects.toThrow(
+          UnprocessableEntityException,
+        )
+      })
+    } finally {
+      appEnv.mode = 'live'
+    }
   })
 
   it('throws UnprocessableEntityException when no Peerly identity exists yet', async () => {

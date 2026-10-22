@@ -27,6 +27,20 @@ const GONE_OUT_STATUSES: OutreachStatus[] = [
   OutreachStatus.in_progress,
   OutreachStatus.completed,
 ]
+// The sends a note can be taken on. A Win text's replies come back as
+// timestamps, never words, so on a campaign it has nothing to read and would
+// read as nobody answering.
+const NOTE_CHANNELS: OutreachType[] = [
+  OutreachType.nativeDoorKnocking,
+  OutreachType.nativePhoneBanking,
+]
+// The model names a channel by whichever value reads right to it, usually
+// the legacy one, while walks and call lists are stored under the native
+// one. Filtering on the exact value dropped every native walk.
+const CHANNEL_FAMILIES: OutreachType[][] = [
+  [OutreachType.doorKnocking, OutreachType.nativeDoorKnocking],
+  [OutreachType.phoneBanking, OutreachType.nativePhoneBanking],
+]
 
 export interface PastOutreachRow {
   outreachId: number
@@ -89,7 +103,7 @@ export class PriorityFlowOutreachService extends createPrismaBase(
     const rows = await this.findMany({
       where: {
         priorityId,
-        ...(channel === undefined ? {} : { outreachType: channel }),
+        ...channelWhere(channel),
       },
       orderBy: { createdAt: Prisma.SortOrder.desc },
       take: MAX_ROWS,
@@ -115,7 +129,7 @@ export class PriorityFlowOutreachService extends createPrismaBase(
           : {
               OR: [{ priorityId: { not: priorityId } }, { priorityId: null }],
             }),
-        ...(channel === undefined ? {} : { outreachType: channel }),
+        ...channelWhere(channel),
       },
       orderBy: { createdAt: Prisma.SortOrder.desc },
       take: MAX_ROWS,
@@ -132,7 +146,7 @@ export class PriorityFlowOutreachService extends createPrismaBase(
     const rows = await this.findMany({
       where: {
         campaignId,
-        ...(channel === undefined ? {} : { outreachType: channel }),
+        ...channelWhere(channel),
       },
       orderBy: { createdAt: Prisma.SortOrder.desc },
       take: MAX_ROWS,
@@ -201,6 +215,24 @@ export class PriorityFlowOutreachService extends createPrismaBase(
         scope.outreachId === undefined && !scope.priorityId
           ? RECENT_SENDS_WITHOUT_SCOPE
           : MAX_ROWS,
+    })
+    return Promise.all(rows.map((row) => this.feedbackForSend(row)))
+  }
+
+  // A campaign's door and call notes, by campaignId like forCampaign.
+  async feedbackForCampaign(
+    campaignId: number,
+    outreachId?: number,
+  ): Promise<OutreachFeedback[]> {
+    const rows = await this.findMany({
+      where: {
+        campaignId,
+        outreachType: { in: NOTE_CHANNELS },
+        status: { notIn: UNSENT_STATUSES },
+        ...(outreachId === undefined ? {} : { id: outreachId }),
+      },
+      orderBy: { createdAt: Prisma.SortOrder.desc },
+      take: RECENT_SENDS_WITHOUT_SCOPE,
     })
     return Promise.all(rows.map((row) => this.feedbackForSend(row)))
   }
@@ -388,6 +420,17 @@ export class PriorityFlowOutreachService extends createPrismaBase(
     })
   }
 }
+
+const channelWhere = (channel?: OutreachType): Prisma.OutreachWhereInput =>
+  channel === undefined
+    ? {}
+    : {
+        outreachType: {
+          in: CHANNEL_FAMILIES.find((family) => family.includes(channel)) ?? [
+            channel,
+          ],
+        },
+      }
 
 // A Serve text has no `date`: it goes out at a fixed local hour on
 // scheduledLocalDate, so that day is when it went once it has gone.

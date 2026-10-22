@@ -38,6 +38,12 @@ routes on, so the page and its routes roll out together. The
 redirects to `/dashboard` before anything renders. No nav
 entry: the page is reached from the effort.
 
+The flag is the org's, not the person's: gp-api resolves `issue-capture`
+for the org's owner whoever is signed in, on its routes and in the variants
+every page reads (`docs/feature-flags.md`, Org-scoped flags). So a
+volunteer's walk and call forms show the capture step exactly when their
+candidate's do.
+
 ## The four states
 
 `WhatWeHeardPage` renders them in this order of precedence:
@@ -184,7 +190,13 @@ the effort it belongs to.
 
 The person record (`contacts/crm/person/ConstituentFeedbackSection.tsx`)
 lists each memo's issues, with where the person stands and what they want,
-and its accepted tags as badges under it.
+and its accepted tags as badges under it. A Serve resident's text reply to a
+priority's check is there too, as "By text": the person's own words, read
+for issues by gp-api's priority answer coding pass, with no name on it and
+no "Not yet reviewed", since nobody on the office's side wrote it and there
+is no step to review it. Each issue's `<li>` is `flex flex-col`: globals.css
+makes every dashboard `<li>` a flex row, which ran the stance and "Wants:"
+together.
 
 ## Analytics
 

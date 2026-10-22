@@ -23,7 +23,7 @@ nearest reference wrapper.
 | `cards/` | **The outreach cards** (proposal, past outreach, constituents, outside contact) and `cardWidgets.tsx`, their registry entries. Priorities and Chief of Staff both register them. Win's Campaign Manager mounts the Chief of Staff body, and its agent proposes any of the four channels (`present_outreach_proposal`) and offers lists to save (`present_list_proposal`, `ChatListProposal` in `mode` `win`). The proposal and past-outreach cards are mode-keyed (`CardMode`, `win` for the `campaign_assistant` scope): copy, links, and for past outreach the detail and results routes too; the other cards are Serve copy (`SERVE_*`). See "Cards" below. |
 | `clarifyWidget.tsx` / `composeHandoffWidget.tsx` | Registry entries for `ask_clarify_question` and `compose_handoff`. |
 | `MessageActionBar.tsx` | **The per-message bar.** Copy + thumbs up/down under one assistant turn, with the optional-note bubble a rating opens. Opt-in per surface (`showMessageActions`), and it renders the thumbs only when the client implements the feedback calls. |
-| `chatHelpers.ts` | `newClientMessageId`, `friendlyError`. |
+| `chatHelpers.ts` | `newClientMessageId`, `friendlyError`, and the server's cut-off marker (`CHAT_INTERRUPTED_BEFORE_OUTPUT_MARKER`, `isInterruptedTurn`) that a wrapper turns into a retry. |
 | `usePinnedAutoScroll.ts` | Stick-to-bottom scroll (releases on scroll-up). Optional — a chat inside a vaul drawer may roll its own scroll instead. |
 
 ## The recipe (what a wrapper owns)
@@ -302,13 +302,22 @@ products use this one mechanism: the Campaign Manager's starter cards
 (`CampaignManagerChatProvider`) and the Chief of Staff's next steps
 (`buildChiefOfStaffNextSteps` in `chief-of-staff/components/chat/chatConstants.ts`,
 passed by the Serve home's `DashboardContent` under the meet card's intro and
-on a new chat). A card does one of four things: `message` sends a question
-as the user's own turn, `writeIn` opens a box whose text is sent the same
-way (the clarify question's Or write your own, as Something else does), `kickoff` sends a hidden turn (a sentinel or app
+on a new chat). A card does one of three things: `message` sends a question
+as the user's own turn, `kickoff` sends a hidden turn (a sentinel or app
 message, as Build your civic panel sends `BUILD_CITIZENS_PANEL_MESSAGE`), and
 `onSelect` runs anything else (open a flow or a page). A card label with a `description` renders as a card, without
 one as a pill. Tapping a card never completes a get-started card; only that
 card's own button does.
+
+`combinable` cards are checkboxes with a Start button (the Chief of Staff's
+next steps). A combinable `writeIn` card (Something else) opens a box once
+picked, focused, and Start stays off until it has text. One step plus Start
+does exactly what that card alone did, hidden kickoff included; the write-in
+alone sends its text as the user's own turn. Anything more sends one visible
+turn, `pickedNextStepsMessage` (contracts): the step labels numbered in card
+order, the written item last, under `PICKED_NEXT_STEPS_LEAD`, which gp-api's
+prompt keys on to work through them one at a time. That turn stays in the
+transcript, and it is the only place the steps still to do live.
 
 `showSuggestionsAfterKickoff` moves the cards from the empty transcript to
 under the reply to `pendingKickoff`, until anything else is sent. The Serve

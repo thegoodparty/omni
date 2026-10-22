@@ -147,6 +147,11 @@ export class PurchaseService {
       // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
       ...(dto.metadata as Record<string, unknown>),
       ...metadata,
+      // The buyer createCustomCheckoutSession stamps on the session and
+      // fulfillment reads back, so a handler can refuse before payment what
+      // its fulfillment would refuse after. completeFreePurchase passes the
+      // same. Last, so a client-sent userId never stands in for it.
+      userId: String(user.id),
     })
 
     if (existingPayment) {
@@ -245,6 +250,10 @@ export class PurchaseService {
         // capture_method to read) from an immediate one. Undefined drops any
         // client-sent value, since the session metadata starts from dto's.
         winSmsHoldBilling: manualCapture ? 'true' : undefined,
+        // Fulfillment trusts this as the buyer. createCustomCheckoutSession
+        // writes the same value last; stamping it here too means the session
+        // never depends on that spread order to drop a client-sent userId.
+        userId: String(user.id),
       },
     }
 

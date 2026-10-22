@@ -1,7 +1,8 @@
-import { Injectable } from '@nestjs/common'
+import { Injectable, NotFoundException } from '@nestjs/common'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { isUniqueConstraintError } from '@/prisma/util/prismaErrors.util'
 import { ElectionsService } from '@/elections/services/elections.service'
+import { PersonMergesService } from '@/electionDb/personMerges/person-merges.service'
 import { UsersService } from '@/users/services/users.service'
 import { Prisma, User } from '../../generated/prisma'
 import { MarketingRevalidationService } from './marketing-revalidation.service'
@@ -33,6 +34,7 @@ export class PersonIdBackfillService extends createPrismaBase(MODELS.User) {
     private readonly elections: ElectionsService,
     private readonly usersService: UsersService,
     private readonly revalidation: MarketingRevalidationService,
+    private readonly personMerges: PersonMergesService,
   ) {
     super()
   }
@@ -124,12 +126,19 @@ export class PersonIdBackfillService extends createPrismaBase(MODELS.User) {
    * returns null both for "no link upstream" and for "the call failed" — it
    * swallows its own errors — so treating null as an unlink would tear down the
    * whole cohort's links the first time election-api has a bad minute.
+   *
+   * When the user lookup is empty, the stored id's merge record is the
+   * fallback. The data platform publishes no gp-api user for a person group
+   * holding two gp-api accounts (a duplicate signup), so a user whose id was
+   * retired into such a group would otherwise stay on the retired id for good.
    */
   async resyncLinkedUser(user: User): Promise<PersonIdDriftResult> {
     const from = user.personId
     if (!from) return this.recordDrift('unchanged')
 
-    const to = await this.elections.getPersonIdByGpApiUserId(user.id)
+    const to =
+      (await this.elections.getPersonIdByGpApiUserId(user.id)) ??
+      (await this.survivorOfRetired(from))
     if (!to) return this.recordDrift('unresolved')
     if (to === from) return this.recordDrift('unchanged')
 
@@ -170,6 +179,23 @@ export class PersonIdBackfillService extends createPrismaBase(MODELS.User) {
     await this.revalidation.revalidatePerson(from)
     await this.revalidation.revalidatePerson(to)
     return this.recordDrift('repointed')
+  }
+
+  // Null for a live id as well as for a failed read: either way there is no
+  // concrete destination, and the caller only ever acts on one.
+  private async survivorOfRetired(personId: string): Promise<string | null> {
+    try {
+      const merge = await this.personMerges.getPersonMerge(personId)
+      return merge.survivingId
+    } catch (error) {
+      if (!(error instanceof NotFoundException)) {
+        this.logger.warn(
+          { error, personId },
+          'person merge lookup failed; leaving the link unresolved',
+        )
+      }
+      return null
+    }
   }
 
   /**

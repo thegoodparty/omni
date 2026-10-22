@@ -499,7 +499,7 @@ const buildNumericFilter = (
 }
 
 // The whole id set is inlined rather than bound: the Statement Execution API
-// has no array parameter type. MAX_ID_FILTER_VALUES (100k per set, and
+// has no array parameter type. MAX_ID_FILTER_VALUES (200k per set, and
 // IdOverridesSchema allows that per side) is what bounds the size, and the
 // statement client enforces the API's 16 MiB ceiling on the result.
 //

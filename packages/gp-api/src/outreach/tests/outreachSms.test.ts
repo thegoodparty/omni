@@ -214,9 +214,9 @@ describe('POST /v1/outreach/sms/draft', () => {
     expect(jsonCompletion).toHaveBeenCalledTimes(2)
     for (const call of jsonCompletion.mock.calls) {
       const schema = call[0].schema
-      expect(schema.safeParse({ draft: 'x'.repeat(900) }).success).toBe(true)
-      expect(schema.safeParse({ draft: 'x'.repeat(1000) }).success).toBe(true)
-      expect(schema.safeParse({ draft: 'x'.repeat(1001) }).success).toBe(false)
+      expect(schema.safeParse({ draft: 'x'.repeat(1900) }).success).toBe(true)
+      expect(schema.safeParse({ draft: 'x'.repeat(2000) }).success).toBe(true)
+      expect(schema.safeParse({ draft: 'x'.repeat(2001) }).success).toBe(false)
     }
   })
 
@@ -263,7 +263,7 @@ describe('POST /v1/outreach/sms/draft', () => {
     const oversized = await postDraft({
       purpose: 'introduce_myself',
       tone: 'warm',
-      currentDraft: 'x'.repeat(1001),
+      currentDraft: 'x'.repeat(2001),
     })
     expect(oversized.status).toBe(HttpStatus.BAD_REQUEST)
 

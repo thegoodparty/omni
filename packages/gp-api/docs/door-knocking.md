@@ -1646,8 +1646,9 @@ campaign's own outreach rather than by the district — usually a rounding error
 against 611,000 rows.
 
 **Past `PACK_CONTACTS_MADE_MAX` the plane is omitted, not truncated.** The cap
-is `MAX_RESOLVED_ID_SET_SIZE` (100,000), deliberately the same number at which
-resolving a contacts-made filter for a real query gives up: above it the
+is 100,000, deliberately no larger than `MAX_RESOLVED_ID_SET_SIZE` (200,000
+since ENG-11424), the point at which resolving a contacts-made filter for a
+real query gives up: above the resolver's cap the
 filter cannot be applied at knock time either. Truncating would read the
 dropped people as "0 prior contacts", which is the bucket candidates select
 most and the one answer that must never be invented. Absent, the dim never

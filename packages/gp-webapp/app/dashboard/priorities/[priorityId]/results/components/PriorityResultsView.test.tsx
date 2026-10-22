@@ -54,25 +54,11 @@ const results = (
   ],
   summarizing: false,
   points: [{ lat: 35.595, lng: -82.551 }],
-  representation: {
-    respondentCount: 25,
-    groups: [
-      {
-        dimension: 'housing',
-        key: 'renters',
-        label: 'Rent their home',
-        respondentShare: 0.2,
-        districtShare: 0.4,
-      },
-      {
-        dimension: 'housing',
-        key: 'owners',
-        label: 'Own their home',
-        respondentShare: 0.8,
-        districtShare: 0.6,
-      },
-    ],
-  },
+  groups: [
+    { group: 'age65plus', districtShare: 0.2, answerShare: 0.1 },
+    { group: 'women', districtShare: 0.5, answerShare: 0.5 },
+    { group: 'men', districtShare: 0.5, answerShare: 0.5 },
+  ],
   ...overrides,
 })
 
@@ -92,7 +78,8 @@ describe('PriorityResultsView', () => {
           groupsTotal: 12,
           good: false,
           status: 'tooEarly',
-          underrepresented: [],
+          underrepresented: ['men', 'age65plus'],
+          unheard: ['men'],
           checkOut: true,
         },
       })
@@ -113,7 +100,7 @@ describe('PriorityResultsView', () => {
 
       expect(
         screen.getByText(
-          "Some groups haven't answered yet. We'll show what we heard once every group has.",
+          "We'll show what we heard once every group has enough answers.",
         ),
       ).toBeInTheDocument()
       expect(screen.queryByText('Top themes')).not.toBeInTheDocument()
@@ -124,6 +111,72 @@ describe('PriorityResultsView', () => {
       expect(
         screen.queryByText("Who you're hearing from"),
       ).not.toBeInTheDocument()
+    })
+
+    // The same line as the priority page's status strip, so the card says
+    // which groups are short and never that nobody answered.
+    it('names the groups with no answers apart from the ones that are short', () => {
+      renderView(early())
+
+      expect(
+        screen.getByText(
+          'Still need to hear from men, and a few more answers from people 65 and over',
+        ),
+      ).toBeInTheDocument()
+      expect(screen.queryByText(/haven't answered/)).not.toBeInTheDocument()
+      expect(screen.queryByText('Hear from more')).not.toBeInTheDocument()
+    })
+
+    it('asks for a few more answers when every group has some', () => {
+      renderView(
+        results({
+          readStatus: {
+            answers: 40,
+            needed: 46,
+            groupsHeard: 10,
+            groupsTotal: 12,
+            good: false,
+            status: 'notYetRepresentative',
+            underrepresented: ['age65plus', 'age55to64'],
+            unheard: [],
+            checkOut: true,
+          },
+        }),
+      )
+
+      expect(
+        screen.getByRole('heading', { name: 'A few groups need more answers' }),
+      ).toBeInTheDocument()
+      expect(
+        screen.getByText(
+          'Need a few more answers from people 65 and over and people 55 to 64',
+        ),
+      ).toBeInTheDocument()
+      expect(screen.queryByText(/Still need to hear from/)).toBeNull()
+    })
+
+    it('waits on enough answers when the district could not be read', () => {
+      renderView(
+        results({
+          readStatus: {
+            answers: 30,
+            needed: 100,
+            groupsHeard: 0,
+            groupsTotal: 0,
+            good: false,
+            status: 'tooEarly',
+            underrepresented: [],
+            checkOut: true,
+          },
+        }),
+      )
+
+      expect(
+        screen.getByText(
+          "We'll show what we heard once enough people have answered.",
+        ),
+      ).toBeInTheDocument()
+      expect(screen.queryByRole('progressbar')).not.toBeInTheDocument()
     })
 
     it('sends Get answers back to the priority to ask the agent', () => {
@@ -163,7 +216,7 @@ describe('PriorityResultsView', () => {
       ),
     ).toBeInTheDocument()
     expect(
-      screen.getByText('people in a few neighborhoods'),
+      screen.getByText('Still unsure what people in a few neighborhoods think'),
     ).toBeInTheDocument()
     // Every group heard but the model not sure yet: a full bar in the
     // warning tone, never the success one.
@@ -205,43 +258,64 @@ describe('PriorityResultsView', () => {
     ).not.toBeInTheDocument()
   })
 
-  it('says when there are no themes yet, and when new answers are being added', () => {
-    renderView(results({ themes: [], summarizing: true }))
+  it('says there are no themes yet when too few people have answered', () => {
+    renderView(results({ themes: [], summarizing: false }))
 
     expect(
       screen.getByText('Themes show up once at least 5 people have answered.'),
     ).toBeInTheDocument()
+  })
+
+  it('says the themes are on their way while the first summary runs', () => {
+    renderView(results({ themes: [], summarizing: true }))
+
+    expect(
+      screen.getByText(
+        "We're reading what people said. Themes show up here soon.",
+      ),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText(
+        'Themes show up once at least 5 people have answered.',
+      ),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByText('Updating with the latest answers.'),
+    ).not.toBeInTheDocument()
+  })
+
+  it('keeps the themes up while new answers are being added', () => {
+    renderView(results({ summarizing: true }))
+
+    expect(screen.getByText('Drains back up into homes')).toBeInTheDocument()
     expect(
       screen.getByText('Updating with the latest answers.'),
     ).toBeInTheDocument()
   })
 
-  it('reads over and under against the district', () => {
+  it("draws the read's groups as petals against the district", () => {
     renderView(results())
 
-    expect(screen.getAllByText('20 points under').length).toBeGreaterThan(0)
-    expect(screen.getAllByText('20 points over').length).toBeGreaterThan(0)
-  })
-
-  it('asks for more answers before comparing with the district', () => {
-    renderView(results({ representation: null }))
-
+    expect(screen.getByTestId('civic-panel-bloom')).toBeInTheDocument()
     expect(
-      screen.getByText(
-        'Hear from at least 10 people to compare them with your district.',
-      ),
-    ).toBeInTheDocument()
+      screen.getAllByRole('img', {
+        name: '2 of 3 groups have at least their share of answers.',
+      }).length,
+    ).toBeGreaterThan(0)
+    expect(screen.getAllByText('50% of its share').length).toBeGreaterThan(0)
+    expect(screen.queryByText(/Invite more/)).not.toBeInTheDocument()
+    expect(screen.queryByText('Rent their home')).not.toBeInTheDocument()
   })
 
   it('says when the district census figures are unavailable', () => {
-    renderView(results({ representation: { respondentCount: 25, groups: [] } }))
+    renderView(results({ groups: [] }))
 
     expect(
       screen.getByText(
         'Census figures for your district are not available yet. Email support@goodparty.org so we can look into it.',
       ),
     ).toBeInTheDocument()
-    expect(screen.queryByText('More than their share')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('civic-panel-bloom')).not.toBeInTheDocument()
   })
 
   it('records the view with the read status', () => {

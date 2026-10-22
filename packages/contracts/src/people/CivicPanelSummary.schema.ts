@@ -1,5 +1,4 @@
 import { z } from 'zod'
-import { PriorityRepresentationSchema } from '../priorities/PriorityResults.schema'
 import { zDate } from '../shared/Date.schema'
 
 // The built-in `segment` for the panel's members on the contacts list,
@@ -20,13 +19,3 @@ export const CivicPanelSummarySchema = z.object({
   lastOutreachAt: zDate().nullable(),
 })
 export type CivicPanelSummary = z.infer<typeof CivicPanelSummarySchema>
-
-// How the places panel members live compare with the whole district
-// (GET /v1/contacts/civic-panel/representation). Same math, threshold and
-// census source as a priority's results; null below the minimum.
-export const CivicPanelRepresentationSchema = z.object({
-  representation: PriorityRepresentationSchema.nullable(),
-})
-export type CivicPanelRepresentation = z.infer<
-  typeof CivicPanelRepresentationSchema
->

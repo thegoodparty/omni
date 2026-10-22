@@ -27,6 +27,17 @@ the `confirm` hub) and `net-new` (`office` then `term-dates`).
   `/post-auth-redirect?next=...&org=eo-<id>`; `org` names the office just
   finished so a user with several lands in it, not the first on the list.
 
+Every step change (and the end of loading) scrolls the window to the top, so
+each step, the pledge included, opens with its headline in view. The window is
+the only scroller around a step.
+
+The office picker (`ServeOfficePicker`) lists positions from upcoming races
+(`races-by-year`, `timeframe: 'future'`) and labels each row with its last
+general election from a second `timeframe: 'past'` lookup (`Last elected:
+Nov 8, 2022`), which tells apart cohort twins with the same name. Primaries
+and runoffs are not when an official was elected, so they never set the date.
+A failed past lookup drops the dates, never the list.
+
 Each story step has its own `Viewed` / `Completed` pair, named for what it
 tells the official (`SERVE_STORY_EVENTS`: You Represent, Hear From The Loudest
 Voices, Where Your Community Stands, Build And Grow Your List), and

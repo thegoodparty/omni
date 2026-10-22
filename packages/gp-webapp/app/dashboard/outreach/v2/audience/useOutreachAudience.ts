@@ -101,6 +101,9 @@ export type ProposedAudience = {
   // Kept to the parts of the district this priority's answers have barely
   // reached. gp-api draws the area when the list is saved.
   unreachedAreaOfPriorityId?: string
+  // A civic panel invite's audience: saved for the outreach and left out of
+  // the lists index, where the built-in Civic panel row is the panel's list.
+  civicPanelInvite?: true
 }
 
 export interface OutreachAudience {
@@ -278,6 +281,9 @@ export const useOutreachAudience = ({
   const [builderSample, setBuilderSample] = useState<ListSample | undefined>()
   const [builderUnreachedArea, setBuilderUnreachedArea] = useState<
     string | undefined
+  >()
+  const [builderCivicPanelInvite, setBuilderCivicPanelInvite] = useState<
+    true | undefined
   >()
   // Which carried-in variant the audience step has already applied. Held
   // here and not in the step because the step unmounts between steps, and
@@ -597,6 +603,7 @@ export const useOutreachAudience = ({
           ...(builderSample
             ? { ...(countOverlay ?? {}), sample: builderSample }
             : {}),
+          ...(builderCivicPanelInvite && { civicPanelInvite: true }),
           ...(builderUnreachedArea && {
             unreachedAreaOfPriorityId: builderUnreachedArea,
           }),
@@ -640,6 +647,7 @@ export const useOutreachAudience = ({
     setBuilderName(proposed?.name ?? '')
     setBuilderSample(proposed?.sample)
     setBuilderUnreachedArea(proposed?.unreachedAreaOfPriorityId)
+    setBuilderCivicPanelInvite(proposed?.civicPanelInvite)
     setRecommendedMeta(null)
     resetCreateMutation()
   }, [resetCreateMutation])
@@ -652,6 +660,7 @@ export const useOutreachAudience = ({
     setBuilderName(proposed.name)
     setBuilderSample(proposed.sample)
     setBuilderUnreachedArea(proposed.unreachedAreaOfPriorityId)
+    setBuilderCivicPanelInvite(proposed.civicPanelInvite)
   }, [])
 
   const reset = useCallback(() => {
@@ -682,6 +691,7 @@ export const useOutreachAudience = ({
     setBuilderName('')
     setBuilderSample(undefined)
     setBuilderUnreachedArea(undefined)
+    setBuilderCivicPanelInvite(undefined)
     setRecommendedMeta(null)
     resetCreateMutation()
     // Seeded here rather than beside the flow's own open effect, which calls

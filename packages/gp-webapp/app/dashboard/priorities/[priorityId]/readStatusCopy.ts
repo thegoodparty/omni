@@ -1,4 +1,5 @@
 import {
+  joinGroupNames,
   READ_REPRESENTATIVENESS_LABELS,
   underrepresentedGroupName,
   type PriorityReadStatus,
@@ -7,10 +8,31 @@ import {
 
 const NO_ONE_ASKED = 'No one asked yet'
 
-const groupList = (read: PriorityReadStatus): string =>
-  read.underrepresented
-    .map((group) => underrepresentedGroupName(group, read.status))
-    .join(' and ')
+const groupList = (
+  read: PriorityReadStatus,
+  groups: readonly UnderrepresentedGroup[],
+): string =>
+  joinGroupNames(
+    groups.map((group) => underrepresentedGroupName(group, read.status)),
+  )
+
+// A group nobody in has answered is still to hear from; one with a few
+// answers, or still too unsure, needs more of them.
+const shortLine = (read: PriorityReadStatus): string => {
+  const unheard = read.underrepresented.filter((group) =>
+    read.unheard?.includes(group),
+  )
+  const few = read.underrepresented.filter(
+    (group) => !read.unheard?.includes(group),
+  )
+  if (unheard.length === 0) {
+    return `Need a few more answers from ${groupList(read, few)}`
+  }
+  const still = `Still need to hear from ${groupList(read, unheard)}`
+  return few.length === 0
+    ? still
+    : `${still}, and a few more answers from ${groupList(read, few)}`
+}
 
 // Shared by the priority page and its results page, so a read reads the
 // same everywhere it shows.
@@ -46,22 +68,24 @@ export const READ_STATUS_COPY = {
     if (read.underrepresented.length === 0) {
       return READ_REPRESENTATIVENESS_LABELS[read.status]
     }
-    const groups = groupList(read)
-    if (read.status === 'tooEarly') return `Waiting to hear from ${groups}`
-    if (read.status === 'gettingClose')
-      return `Still unsure what ${groups} think`
-    return `Hear from more ${groups}`
+    if (read.status === 'gettingClose') {
+      return `Still unsure what ${groupList(read, read.underrepresented)} think`
+    }
+    return shortLine(read)
   },
-  missingGroups:
-    "Some groups haven't answered yet. We'll show what we heard once every group has.",
-  unsureGroups:
-    "We'll show what we heard once we're sure what every group thinks.",
+  // The results page's held card, under the status line: why what was
+  // heard is not shown yet, without claiming nobody answered.
+  heldBack: (read: PriorityReadStatus): string => {
+    if (read.groupsTotal === 0) {
+      return "We'll show what we heard once enough people have answered."
+    }
+    return read.status === 'gettingClose'
+      ? "We'll show what we heard once we're sure what every group thinks."
+      : "We'll show what we heard once every group has enough answers."
+  },
   // A follow-up text paid for with the first: when it goes and to whom.
   followUp: (texts: number, date: string): string =>
     `Follow-up text to ${texts.toLocaleString()} people on ${date}`,
-  hearFromMoreHeading: 'Hear from more',
-  groupName: (group: UnderrepresentedGroup, read: PriorityReadStatus): string =>
-    underrepresentedGroupName(group, read.status),
 } as const
 
 export const resultsHref = (priorityId: string): string =>

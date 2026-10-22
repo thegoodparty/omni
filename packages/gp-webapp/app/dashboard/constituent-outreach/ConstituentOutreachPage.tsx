@@ -53,6 +53,7 @@ const SERVE_PANEL_SEED_AUDIENCE: ProposedAudience = {
   precincts: [],
   name: 'Civic panel invite',
   sample: { size: PANEL_SEED_SAMPLE_SIZE },
+  civicPanelInvite: true,
 }
 
 interface ConstituentOutreachPageProps {

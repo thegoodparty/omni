@@ -5,6 +5,7 @@ import {
   type DashboardCardType,
 } from '../generated/enums'
 import { CIVIC_PANEL_PAGE_HREF } from '../people/CivicPanelBuildPlan.schema'
+import { GOOD_READ_STATUSES } from '../priorities/PriorityResults.schema'
 
 export {
   DASHBOARD_CARD_TYPE_VALUES,
@@ -74,6 +75,14 @@ export const isCivicPanelStepCard = (
 ): boolean =>
   card.type === 'civic_panel' &&
   card.sourceExternalId.startsWith(CIVIC_PANEL_STEP_CARD_PREFIX)
+
+// gp-api keys a report back card on the read status it was made for
+// (`sourceItemId`), so the deck can tell whether its priority has a good read.
+export const isGoodReadReportBackCard = (
+  card: Pick<DashboardCard, 'type' | 'sourceItemId'>,
+): boolean =>
+  card.type === 'report_back' &&
+  GOOD_READ_STATUSES.some((status) => status === card.sourceItemId)
 
 // The build card's button, with or without a plan: the home opens the chat
 // build flow for the build card (isCivicPanelBuildCard), never off this label.

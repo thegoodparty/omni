@@ -146,7 +146,7 @@ services and `S3Service.getFileBytesWithContentType`;
   clamps to the authorized amount, never overbills); a zero-connected run voids
   the hold and releases the fee, whether the hold is live or already gone; an already-`succeeded` PI reconciles to
   `captured` off `amount_received` without a second capture; a lapsed/`canceled`
-  hold → `uncollectable` + CRITICAL (no blind charge); NEVER-TWICE (a concurrent
+  hold → `uncollectable` + warn (no blind charge); NEVER-TWICE (a concurrent
   double-capture captures once via the claim CAS); a transient PI-read and a
   capture-call failure both revert to `settling` to retry; a data anomaly (missing
   intent) → `uncollectable` + CRITICAL; a non-settling draft is untouched; the

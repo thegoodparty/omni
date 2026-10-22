@@ -88,4 +88,18 @@ describe('buildChiefOfStaffNextSteps', () => {
       'Grow your civic panel',
     )
   })
+
+  it('lets every card combine, Something else as a write-in', () => {
+    for (const args of [
+      { panelsEnabled: false },
+      { panelsEnabled: true, panelMembers: 0 },
+      { panelsEnabled: true, panelMembers: 5 },
+    ]) {
+      const steps = buildChiefOfStaffNextSteps(args)
+      expect(steps.filter((s) => s.combinable)).toHaveLength(4)
+      expect(steps.filter((s) => s.writeIn)).toEqual([
+        expect.objectContaining({ label: 'Something else' }),
+      ])
+    }
+  })
 })

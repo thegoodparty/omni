@@ -44,6 +44,12 @@ Controllers do **not** live here. The HTTP surface these services back is in
 reads are `@PublicAccess()` + `ServiceReadGuard`, not `M2MOnly`: gp-marketing
 sends a JWT-format machine token, which `SessionGuard` only turns into
 `serviceReader`, never `m2mToken`, so `M2MOnly` would 403 it.
+Every `src/elections/` controller also runs
+`ServiceReadConcurrencyInterceptor`, which lets at most 30 machine-caller
+reads (`serviceReader` or `m2mToken`) run at once per gp-api task. The rest
+queue, and a read still waiting after 30s gets a 503. That leaves 20 of the 50
+election-db connections free for user-facing reads during a gp-marketing
+crawl. Human callers are not capped.
 Most of what the old service exposed has no HTTP surface at all any more — it
 is reached by direct injection from gp-api code.
 

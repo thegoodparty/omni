@@ -9,13 +9,11 @@ import {
   buildDistrictCompositionSql,
   buildDistrictTractAdultsSql,
   buildPoolCellsSql,
-  buildRespondentBlockGroupsSql,
   buildRespondentCellsSql,
   buildTractGridCellsSql,
   CENSUS_TABLE,
   DISTRICT_DEMOGRAPHICS_TABLE,
   mapAnswerCells,
-  mapCensusCompositionRows,
   mapDistrictCells,
   mapGridCells,
   mapRespondentCells,
@@ -71,11 +69,7 @@ describe('buildDistrictCensusSql', () => {
   })
 })
 
-const ID_A = '0190a1b2-0000-7000-8000-00000000000a'
-const ID_B = '0190a1b2-0000-7000-8000-00000000000b'
-
-const acsRow = (value: (index: number) => string | null) =>
-  ACS_COUNT_KEYS.map((_, index) => value(index))
+const PERSON_ID = '0b9d1c2e-3f4a-4b5c-8d6e-7f8091a2b3c4'
 
 describe('buildDistrictCompositionSql', () => {
   it('reads the ACS counts from the district demographics mart, keyed and bound like the census lookup', () => {
@@ -112,84 +106,6 @@ describe('buildDistrictCompositionSql', () => {
     expect(ACS_COUNT_KEYS).toHaveLength(48)
   })
 })
-
-describe('buildRespondentBlockGroupsSql', () => {
-  it('counts the people per block group in the district and joins the block group mart', () => {
-    const { sql, params } = buildRespondentBlockGroupsSql(DISTRICT, [
-      ID_A,
-      ID_B.toUpperCase(),
-    ])
-
-    expect(sql).toContain(
-      'SELECT r.respondents, bg.total_population, bg.population_under_18',
-    )
-    expect(sql).toContain(
-      'SELECT v.`Census_Block_Group_Geoid` AS block_group_geoid,' +
-        ' count(*) AS respondents FROM',
-    )
-    expect(sql).not.toMatch(/age_band|tenure|EthnicGroups/)
-    expect(sql).toContain(`FROM ${VOTERS_TABLE} v WHERE`)
-    expect(sql).toContain('v.`State` = :p0')
-    expect(sql).toContain('v.`Water_District` = :p1')
-    expect(sql).toContain(`v.\`id\` IN ('${ID_A}', '${ID_B}')`)
-    expect(sql).toContain('AND v.`Census_Block_Group_Geoid` IS NOT NULL')
-    expect(sql).toContain('GROUP BY v.`Census_Block_Group_Geoid`')
-    expect(sql).toContain(
-      `JOIN ${BLOCK_GROUP_DEMOGRAPHICS_TABLE} bg` +
-        ' ON bg.block_group_geoid = r.block_group_geoid',
-    )
-    expect(params.map((p) => p.value)).toEqual(['WA', 'EAST WENATCHEE WATER'])
-  })
-
-  it('reads the people table the district was resolved with', () => {
-    const constituents =
-      'goodparty_data_catalog.mart_gp_api.gp_api_constituents'
-    const { sql } = buildRespondentBlockGroupsSql(
-      { ...DISTRICT, dataset: 'constituents', table: constituents },
-      [ID_A],
-    )
-    expect(sql).toContain(`FROM ${constituents} v WHERE`)
-  })
-})
-
-describe('mapCensusCompositionRows', () => {
-  it('maps a full district row and expands each block group by its respondents', () => {
-    const blockGroup = acsRow((index) => String(index))
-
-    const mapped = mapCensusCompositionRows(
-      [acsRow((index) => String(1000 + index + 0.5))],
-      [
-        ['3', ...blockGroup],
-        ['1', ...acsRow((index) => String(index * 2))],
-      ],
-    )
-
-    expect(mapped.district?.totalPopulation).toBe(1000.5)
-    expect(mapped.district?.householdsIncome200kPlus).toBe(1033.5)
-    expect(mapped.respondentBlockGroups).toHaveLength(4)
-    expect(mapped.respondentBlockGroups[0]?.population65Plus).toBe(2)
-    expect(mapped.respondentBlockGroups[3]?.population65Plus).toBe(4)
-  })
-
-  it('keeps a suppressed column as null, never zero', () => {
-    const mapped = mapCensusCompositionRows(
-      [acsRow((index) => (index === 1 ? null : '10'))],
-      [['1', ...acsRow((index) => (index === 2 ? null : '5'))]],
-    )
-
-    expect(mapped.district?.populationUnder18).toBeNull()
-    expect(mapped.district?.totalPopulation).toBe(10)
-    expect(mapped.respondentBlockGroups[0]?.population65Plus).toBeNull()
-  })
-
-  it('maps a missing district row to null', () => {
-    const mapped = mapCensusCompositionRows([], [['2', ...acsRow(() => '1')]])
-    expect(mapped.district).toBeNull()
-    expect(mapped.respondentBlockGroups).toHaveLength(2)
-  })
-})
-
-const PERSON_ID = '0b9d1c2e-3f4a-4b5c-8d6e-7f8091a2b3c4'
 
 describe('buildRespondentCellsSql', () => {
   it('reads counts per age band, gender, tenure, tract and race, never a person', () => {

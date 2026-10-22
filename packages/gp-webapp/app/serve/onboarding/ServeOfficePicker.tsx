@@ -21,16 +21,10 @@ import { reportErrorToSentry } from '@shared/sentry'
 import type { Race } from 'app/onboarding/[slug]/[step]/components/ballotOffices/types'
 import type { SelectedOffice } from 'app/onboarding/components/onboardingTypes'
 
-// An elected official already holds the office — this is a *position* picker,
-// not a race picker. Conceptually we want the elections an incumbent already
-// won, but the Race table isn't yet backfilled with past elections for every
-// position, so filtering to 'past' returns nothing for many zips. Until the
-// data team finishes that ingest we query upcoming elections ('future', which
-// every covered position has) so the picker is never empty; flip back to 'past'
-// (or 'all') once past races are loaded. We still surface the most recent
-// *already-held* election as a "last election" date — the signal that tells
-// apart cohort twins sharing an identical name — which stays blank until a past
-// election is on file.
+// An elected official already holds the office, so this is a position picker,
+// not a race picker. The list comes from upcoming races, which every covered
+// position has. Past races only supply each row's "Last elected" date, the
+// signal that tells apart cohort twins sharing an identical name.
 const isZipValid = (value: string): boolean => /^\d{5}$/.test(value.trim())
 
 interface PositionRow {
@@ -39,7 +33,7 @@ interface PositionRow {
   level?: string
   city?: string
   state?: string
-  electionDate?: string
+  lastElectedDate?: string
 }
 
 const FUSE_OPTIONS: IFuseOptions<PositionRow> = {
@@ -65,10 +59,13 @@ const KNOWN_PILLS = [
 ] as const
 const OTHER_PILL = 'Other'
 
-const fetchPositions = async (zip: string): Promise<Race[]> => {
+const fetchRaces = async (
+  zip: string,
+  timeframe: 'future' | 'past',
+): Promise<Race[]> => {
   const resp = await clientFetch<Race[]>(
     apiRoutes.elections.racesByYear,
-    { zipcode: zip, timeframe: 'future' },
+    { zipcode: zip, timeframe },
     { revalidate: 3600 },
   )
   if (!resp.ok) {
@@ -79,42 +76,64 @@ const fetchPositions = async (zip: string): Promise<Race[]> => {
   return Array.isArray(resp.data) ? resp.data : []
 }
 
-// Collapse the race rows (one per position+election) into one row per position.
-// A position is never dropped. Each row carries the position's most recent
-// *already-held* general/primary election (future dates and runoffs excluded)
-// as its "last election" date — the signal that tells apart cohort twins
-// sharing an identical name. While the picker queries upcoming elections (see
-// fetchPositions), no past date is on file, so this stays blank.
-const dedupeToPositions = (races: Race[]): PositionRow[] => {
+interface PositionRaces {
+  upcoming: Race[]
+  past: Race[]
+}
+
+// A failed past lookup only costs the dates, so it never fails the picker.
+const fetchPositions = async (zip: string): Promise<PositionRaces> => {
+  const [upcoming, past] = await Promise.all([
+    fetchRaces(zip, 'future'),
+    fetchRaces(zip, 'past').catch((error: Error) => {
+      reportErrorToSentry(error, {
+        context: 'serveOnboarding.officePicker.fetchPastRaces',
+        zip,
+      })
+      return []
+    }),
+  ])
+  return { upcoming, past }
+}
+
+const racePositionId = (race: Race): string | undefined =>
+  race.brPositionId ?? race.position?.id
+
+// The latest past general per position. Primaries and runoffs are not when
+// an official was elected.
+const lastElectedByPosition = (past: Race[]): Map<string, string> => {
+  const byId = new Map<string, string>()
+  for (const race of past) {
+    if (race.isPrimary || race.isRunoff) continue
+    const positionId = racePositionId(race)
+    const day = race.election?.electionDay
+    if (!positionId || !day) continue
+    const current = byId.get(positionId)
+    if (!current || day > current) byId.set(positionId, day)
+  }
+  return byId
+}
+
+// Collapse the upcoming race rows (one per position+election) into one row
+// per position.
+const dedupeToPositions = ({
+  upcoming,
+  past,
+}: PositionRaces): PositionRow[] => {
+  const lastElected = lastElectedByPosition(past)
   const byId = new Map<string, PositionRow>()
-  const todayIso = new Date().toISOString().slice(0, 10)
 
-  for (const race of races) {
-    const positionId = race.brPositionId ?? race.position?.id
-    if (!positionId) continue
-
-    let row = byId.get(positionId)
-    if (!row) {
-      row = {
-        positionId,
-        positionName: race.position?.name ?? 'Office',
-        level: race.position?.level,
-        city: race.city ?? undefined,
-        state: race.position?.state ?? race.election?.state,
-      }
-      byId.set(positionId, row)
-    }
-
-    if (!race.isRunoff) {
-      const day = race.election?.electionDay
-      if (
-        day &&
-        day <= todayIso &&
-        (!row.electionDate || day > row.electionDate)
-      ) {
-        row.electionDate = day
-      }
-    }
+  for (const race of upcoming) {
+    const positionId = racePositionId(race)
+    if (!positionId || byId.has(positionId)) continue
+    byId.set(positionId, {
+      positionId,
+      positionName: race.position?.name ?? 'Office',
+      level: race.position?.level,
+      city: race.city ?? undefined,
+      state: race.position?.state ?? race.election?.state,
+      lastElectedDate: lastElected.get(positionId),
+    })
   }
 
   return [...byId.values()].sort((a, b) =>
@@ -188,7 +207,7 @@ export default function ServeOfficePicker({
   }, [query.error, submittedZip])
 
   const positions = useMemo(
-    () => dedupeToPositions(query.data ?? []),
+    () => dedupeToPositions(query.data ?? { upcoming: [], past: [] }),
     [query.data],
   )
 
@@ -341,8 +360,8 @@ export default function ServeOfficePicker({
                   description={
                     [
                       row.level,
-                      row.electionDate
-                        ? `Last elected: ${dateUsHelper(row.electionDate)}`
+                      row.lastElectedDate
+                        ? `Last elected: ${dateUsHelper(row.lastElectedDate)}`
                         : undefined,
                     ]
                       .filter(Boolean)

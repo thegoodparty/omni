@@ -126,7 +126,7 @@ the row surfaces in history as "Couldn't send".
 
 `POST /outreach/serve/sms` writes the row BEFORE checkout, for the same
 reason the p2p flow does and one more: the composed message can reach
-`SMS_COMPOSED_MAX_LENGTH` (1000) and a Stripe metadata VALUE caps at 500, so
+`SMS_COMPOSED_MAX_LENGTH` (2000) and a Stripe metadata VALUE caps at 500, so
 checkout cannot carry the content. It carries two ids instead.
 
 What the row is: `{ campaignId: null, organizationSlug }`, `outreachType:
@@ -219,7 +219,7 @@ campaign OR an organization, which is how an elected official pays.
 
 Checkout metadata carries two ids and nothing else (`outreachId`,
 `organizationSlug`) — the composed message can reach
-`SMS_COMPOSED_MAX_LENGTH` (1000) and a Stripe metadata VALUE caps at 500, so
+`SMS_COMPOSED_MAX_LENGTH` (2000) and a Stripe metadata VALUE caps at 500, so
 the poll pattern of carrying content through checkout cannot work here.
 `organizationSlug` is server-resolved on both call paths (merged from
 `@UseOrganization()` at session creation, read back off the session on the

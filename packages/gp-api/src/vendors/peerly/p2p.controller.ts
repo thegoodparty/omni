@@ -189,8 +189,12 @@ export class P2pController {
   ): Promise<
     CheckPhoneListStatusResponseDto | CheckPhoneListStatusAcceptedResponseDto
   > {
+    // A poll can simply be asked again, so a Peerly gateway error is a 202
+    // rather than a 502 that pages the route-errors alert.
     const statusResponse =
-      await this.peerlyPhoneListService.checkPhoneListStatus(token)
+      await this.peerlyPhoneListService.checkPhoneListStatus(token, {
+        gatewayErrorIsPending: true,
+      })
 
     if (!statusResponse) {
       res.status(HttpStatus.ACCEPTED)

@@ -1035,6 +1035,14 @@ describe('buildCampaignManagerSystemPrompt', () => {
         'present_past_outreach',
       ]),
     ).toContain('present_past_outreach')
+    expect(withRead).not.toContain('read_outreach_feedback')
+    const withNotes = buildCampaignManagerSystemPrompt(base, [
+      'read_past_outreach',
+      'read_outreach_feedback',
+    ])
+    expect(withNotes).toContain(
+      'When the candidate asks what voters said at the doors or on calls, call read_outreach_feedback',
+    )
   })
 
   it('asks choices as a card only where the clarify tool is registered', () => {
