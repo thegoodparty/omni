@@ -1,4 +1,5 @@
 import {
+  BUILD_CITIZENS_PANEL_PURPOSE,
   PROPOSAL_SENT_MARKER,
   MAX_LIST_SAMPLE_SIZE,
   SupportStatusRollupSchema,
@@ -99,10 +100,10 @@ export const proposedAudienceOf = (
     | 'proposalKey'
     | 'count'
     | 'sampleSize'
-    | 'panelSampleSize'
     | 'widensOutreachIds'
     | 'reportBackForOutreachId'
     | 'areaTarget'
+    | 'purpose'
   >,
   // The priority the card was offered on, which an unreached area belongs to.
   priorityId?: string,
@@ -127,6 +128,9 @@ export const proposedAudienceOf = (
     ...(sample && { sample }),
     ...(proposal.areaTarget === 'unreached' &&
       priorityId !== undefined && { unreachedAreaOfPriorityId: priorityId }),
+    ...(proposal.purpose === BUILD_CITIZENS_PANEL_PURPOSE && {
+      civicPanelInvite: true,
+    }),
   }
 }
 
@@ -219,7 +223,6 @@ export const proposalListSample = (proposal: {
   proposalKey: string
   count: number
   sampleSize?: number
-  panelSampleSize?: number
   widensOutreachIds?: number[]
   reportBackForOutreachId?: number
 }): ListSample | undefined => {
@@ -230,22 +233,6 @@ export const proposalListSample = (proposal: {
       size: Math.min(Math.max(proposal.count, 1), MAX_LIST_SAMPLE_SIZE),
       seedKey: proposal.proposalKey,
       recipientsOfOutreachId: proposal.reportBackForOutreachId,
-    }
-  }
-  // The panel and the fresh residents are two draws, so the list always
-  // freezes them: saved whole it would hold neither part at its size.
-  if (
-    proposal.panelSampleSize !== undefined &&
-    proposal.sampleSize !== undefined &&
-    proposal.panelSampleSize < proposal.sampleSize
-  ) {
-    return {
-      size: proposal.sampleSize,
-      panelSize: proposal.panelSampleSize,
-      seedKey: proposal.proposalKey,
-      ...(widens(proposal) && {
-        excludeOutreachIds: proposal.widensOutreachIds,
-      }),
     }
   }
   if (widens(proposal)) {

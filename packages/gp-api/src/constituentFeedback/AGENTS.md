@@ -16,6 +16,10 @@ With no signal, the phone records the memo instead and sends it later; the
 server transcribes it, extracts, and confirms it automatically (see Offline
 memos).
 
+A Serve resident's text reply to a priority's check is read for issues the
+same way, so it shows on their record beside the door and call memos (see
+Text replies).
+
 ## Key files
 
 | File                                                | Purpose                                              |
@@ -160,6 +164,24 @@ has not been rolled out to does not advertise itself. One flag,
 inert read here — the reads are the feature. `@UseOrganization()` and its role
 guard are the access check; the flag gates rollout, not access.
 
+That 404 carries `errorCode: ISSUE_CAPTURE_OFF` (`ISSUE_CAPTURE_OFF_ERROR_CODE`
+in contracts), and no other 404 here does. It is how a phone replaying memos
+it held with no signal tells "not now" from a refusal: it keeps a memo the
+flag turned away and drops one refused for a reason of its own. The flag
+checks fail closed, so an Amplitude that does not answer reads as off and
+gets the same code; neither a kill switch nor an outage deletes what a
+canvasser recorded.
+
+**The flag is the org's.** Every route asks it of the org's owner
+(`organization.ownerId`), whoever is asking, and so does the variants
+endpoint the webapp's knock and call forms read (`ORGANIZATION_FLAGS`,
+`src/features/README.md`). On Win, volunteers do most of the door knocking,
+and Amplitude buckets by user id: asked per person, a percentage rollout
+would leave a flagged campaign's volunteers mostly without capture and give
+it to some volunteers of an unflagged one. A volunteer of an org whose owner
+is off gets the same `ISSUE_CAPTURE_OFF` 404 as anyone else, so their phone
+keeps what it holds.
+
 ## Confirmation
 
 `confirmedAt` set means the memo is confirmed and counts: its words go to
@@ -181,10 +203,38 @@ issue rows, or for an offline memo the extraction itself. None when nothing
 was proposed or extraction failed. It exists only to
 measure extraction; nothing reads it but tests. It is kept apart from
 `issues` on purpose: the report (`summarize`, the memo list), the CSV export,
-the person record (`GET /?personId=`) and the Chief of Staff's
+the person record (`GET /?personId=`) and the assistants'
 `capturedNotes` (`priorityFlowOutreach.service.ts`) all read a memo's
 issues, and an empty list there means none of them can count or show a
 guess nobody checked.
+
+## Text replies
+
+`recordPriorityTextReplies`, called by the priority answer coding pass
+(`priorities/AGENTS.md`) for every respondent on a priority's text send: the
+person's `CONSTITUENT` replies, opt-outs left out, joined oldest first. One
+row per person per send on channel `text`, keyed by `clientKey`
+`priority-text:<outreachId>:<personId>` (`textReplyClientKey`), so a second
+read lands on the first row and unchanged words (a row already `extracted`
+with the same transcript) cost no model call. A `failed` extraction is read
+again on the next pass.
+
+- **Extraction is the memo's**, `ConstituentFeedbackExtractionService` with
+  `voice: 'own_reply'`: the same prompt with one paragraph saying the words
+  are the person's own, and "They were asked" with the check's question.
+- **`occurredAt`** is the person's last reply; **`actorUserId`** is the org's
+  owner, since a reply has no author on the office's side (the record shows
+  no name for it); **`captureMethod`** is `typed`.
+- **`outreachId` is null on purpose.** The send's report already counts its
+  replies as replies (`textRepliesWhere`), and every effort read (the report,
+  the export, synthesis, the assistants' notes) keys on that column, so
+  a set one would count the same words twice.
+- **Never confirmed.** Its issues are a model's reading nobody checked, so
+  `confirmedAt` stays null and nothing that counts confirmed memos sees it.
+  The abandoned-confirm sweep passes `text` rows by: there is no confirm step
+  to abandon, and confirming would strip the issues it exists to show.
+- **Not a capture route.** `POST /` takes `door_knock` and `phone_bank` only;
+  `text` is written by the coding pass alone.
 
 **The abandoned-confirm sweep.** A live memo that has a transcript, no
 `confirmedAt`, and no write for `ABANDONED_CONFIRM_AFTER_HOURS` (2) had its

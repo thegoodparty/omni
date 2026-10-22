@@ -42,7 +42,7 @@ dependencies = [
     "spacy>=3.8.7",
     "pillow>=10.0.0",
     "braintrust>=0.12.1",
-    "claude-agent-sdk==0.2.87",
+    "claude-agent-sdk==0.2.121",
     "slack-sdk>=3.39.0",
     "sqlglot>=30.4.3",
     "jsonschema>=4.26.0",
@@ -57,7 +57,7 @@ dev = [
 ]
 
 [tool.uv.workspace]
-members = ["shared", "serve/v1_pipeline", "hubspot_ddhq_match", "clickup_bot", "engineer_agent", "pmf_engine", "broker", "autopilot"]
+members = ["shared", "serve/v1_pipeline", "hubspot_ddhq_match", "pmf_engine", "broker", "autopilot"]
 
 [build-system]
 requires = ["hatchling"]
@@ -133,10 +133,6 @@ ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-# clickup_bot/tests/ and alert_filter/tests/ both ship a test_handler.py and
-# neither tests/ dir is a package, so the default "prepend" import mode aborts
-# collection on a basename clash the moment both are collected together.
-addopts = "--import-mode=importlib"
 
 [dependency-groups]
 dev = [

@@ -1,20 +1,26 @@
 import type { JudgeConfig } from './config'
-import type { ConditionHandling } from './handling'
+import {
+  armHandled,
+  type ArmHandling,
+  type ConditionHandling,
+} from './handling'
 import type { AgentScore, VerdictLabel } from './score'
 
 // A signal the quality delta cannot see, which may decide an agent's label on
 // its own. The pairwise dimensions compare two outputs without the agent's own
 // rules, so a probe that cut the system prompt in half read CAN'T SAY there,
-// while handling showed 5 regressions to 0.
+// while the case checks showed the base meeting them far more often.
 
 export type SignalDirection = 'WORSE' | 'BETTER'
 
 export interface HandlingSignal {
-  // Cases, not attempts: each case counts once, by its net change.
-  regressions: number
-  improvements: number
-  // One-sided sign-test tails: P(X >= regressions) and P(X >= improvements)
-  // for X ~ Binomial(regressions + improvements, 0.5).
+  // Handled runs, summed over cases: how many of the base's runs met their
+  // case's handledWhen, and how many of the candidate's.
+  baseHandled: number
+  candidateHandled: number
+  runs: number
+  // Exact one-sided tails of a within-case permutation test: P(a gap at
+  // least this far toward the base) and toward the candidate.
   pWorse: number
   pBetter: number
   says: SignalDirection | null
@@ -26,49 +32,100 @@ export interface RegressionSignals {
   handling?: HandlingSignal
 }
 
-// P(X >= k) for X ~ Binomial(n, 0.5), exactly.
-export const signTestTail = (k: number, n: number): number => {
-  if (k <= 0) return 1
-  if (k > n) return 0
-  let coefficient = 1
-  let tail = 0
-  for (let i = 0; i <= n; i += 1) {
-    if (i >= k) tail += coefficient
-    coefficient = (coefficient * (n - i)) / (i + 1)
-  }
-  return tail / 2 ** n
+const choose = (n: number, k: number): number => {
+  if (k < 0 || k > n) return 0
+  let result = 1
+  for (let i = 1; i <= k; i += 1) result = (result * (n - k + i)) / i
+  return result
 }
 
+// The distribution of (base handled - candidate handled) for one case when
+// the arm makes no difference: the case's handled runs fall on base and
+// candidate runs at random. Keyed by the difference.
+const caseNull = (
+  baseRuns: number,
+  candidateRuns: number,
+  handled: number,
+): Map<number, number> => {
+  const total = choose(baseRuns + candidateRuns, baseRuns)
+  const dist = new Map<number, number>()
+  for (let b = 0; b <= baseRuns; b += 1) {
+    const weight =
+      (choose(handled, b) *
+        choose(baseRuns + candidateRuns - handled, baseRuns - b)) /
+      total
+    if (weight === 0) continue
+    const gap = b - (handled - b)
+    dist.set(gap, (dist.get(gap) ?? 0) + weight)
+  }
+  return dist
+}
+
+const convolve = (
+  a: Map<number, number>,
+  b: Map<number, number>,
+): Map<number, number> => {
+  const out = new Map<number, number>()
+  for (const [x, px] of a) {
+    for (const [y, py] of b) out.set(x + y, (out.get(x + y) ?? 0) + px * py)
+  }
+  return out
+}
+
+// Every run counts, but only against runs of its own case. The attempts of
+// one case share an input, so they are compared to each other and never
+// pooled across cases: under no change, which arm a case's handled runs
+// landed on is a coin the permutation flips within that case. A case that
+// went from 3 of 3 to 0 of 3 weighs more than one that went to 2 of 3, and
+// a case both arms always pass or always fail adds nothing.
 export const handlingSignal = (
   handling: ConditionHandling,
   config: JudgeConfig,
 ): HandlingSignal => {
-  // One vote per case, not per attempt: the attempts of a case share an
-  // input and are correlated, so counting each would overstate the evidence.
-  // A case votes by its net settled change across its attempts.
-  const net = new Map<string, number>()
+  const byCase = new Map<string, { base: boolean[]; candidate: boolean[] }>()
   for (const h of handling.cases) {
-    const step =
-      h.class === 'regression' ? 1 : h.class === 'improvement' ? -1 : 0
-    net.set(h.caseId, (net.get(h.caseId) ?? 0) + step)
+    const graded = (arm: ArmHandling) =>
+      arm.primary !== undefined || arm.swapped !== undefined
+    if (!graded(h.base) || !graded(h.candidate)) continue
+    const entry = byCase.get(h.caseId) ?? { base: [], candidate: [] }
+    entry.base.push(armHandled(h.base))
+    entry.candidate.push(armHandled(h.candidate))
+    byCase.set(h.caseId, entry)
   }
-  const votes = [...net.values()]
-  const regressions = votes.filter((v) => v > 0).length
-  const improvements = votes.filter((v) => v < 0).length
-  const n = regressions + improvements
-  const pWorse = signTestTail(regressions, n)
-  const pBetter = signTestTail(improvements, n)
-  const { minChanges, alpha } = config.gates.handling
-  const enough = n >= minChanges
+  let baseHandled = 0
+  let candidateHandled = 0
+  let runs = 0
+  let nullDist = new Map<number, number>([[0, 1]])
+  for (const { base, candidate } of byCase.values()) {
+    const b = base.filter(Boolean).length
+    const c = candidate.filter(Boolean).length
+    baseHandled += b
+    candidateHandled += c
+    runs += base.length
+    nullDist = convolve(
+      nullDist,
+      caseNull(base.length, candidate.length, b + c),
+    )
+  }
+  const observed = baseHandled - candidateHandled
+  const tail = (keep: (gap: number) => boolean) =>
+    Math.min(
+      1,
+      [...nullDist].reduce((sum, [gap, p]) => (keep(gap) ? sum + p : sum), 0),
+    )
+  const pWorse = tail((gap) => gap >= observed)
+  const pBetter = tail((gap) => gap <= observed)
+  const { alpha } = config.gates.handling
   return {
-    regressions,
-    improvements,
+    baseHandled,
+    candidateHandled,
+    runs,
     pWorse,
     pBetter,
     says:
-      enough && pWorse <= alpha
+      observed > 0 && pWorse < alpha
         ? 'WORSE'
-        : enough && pBetter <= alpha
+        : observed < 0 && pBetter < alpha
           ? 'BETTER'
           : null,
   }

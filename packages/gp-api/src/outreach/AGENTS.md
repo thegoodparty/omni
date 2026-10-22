@@ -126,7 +126,7 @@ the row surfaces in history as "Couldn't send".
 
 `POST /outreach/serve/sms` writes the row BEFORE checkout, for the same
 reason the p2p flow does and one more: the composed message can reach
-`SMS_COMPOSED_MAX_LENGTH` (1000) and a Stripe metadata VALUE caps at 500, so
+`SMS_COMPOSED_MAX_LENGTH` (2000) and a Stripe metadata VALUE caps at 500, so
 checkout cannot carry the content. It carries two ids instead.
 
 What the row is: `{ campaignId: null, organizationSlug }`, `outreachType:
@@ -157,8 +157,8 @@ local, so B3/B4 must read a Serve row's day off `scheduledLocalDate`, not
   a report back) holds a follow-up beside the send being created: a second
   row in the same transaction with `roundOneOutreachId` pointing at the
   first, `scheduledLocalDate` `FOLLOW_UP_BUSINESS_DAYS` (10) business days
-  later, and `textCount` `min(roundTwoSize, pool - the first send's
-  count)`, the pool being the list's whole criteria (`sampleSize: null`, so
+  later, and `textCount` `min(roundTwoSize, 90% of (pool - the
+first send's count))` (`FOLLOW_UP_POOL_SHARE`, a buffer for opt-outs), the pool being the list's whole criteria (`sampleSize: null`, so
   never its sample) on cell phones less `roundTwoExclusions` (the
   priority's other sends' people and every opt-out). Under
   `MIN_TEXTS_PER_ROUND` (25) there is no follow-up and the response has no
@@ -219,7 +219,7 @@ campaign OR an organization, which is how an elected official pays.
 
 Checkout metadata carries two ids and nothing else (`outreachId`,
 `organizationSlug`) — the composed message can reach
-`SMS_COMPOSED_MAX_LENGTH` (1000) and a Stripe metadata VALUE caps at 500, so
+`SMS_COMPOSED_MAX_LENGTH` (2000) and a Stripe metadata VALUE caps at 500, so
 the poll pattern of carrying content through checkout cannot work here.
 `organizationSlug` is server-resolved on both call paths (merged from
 `@UseOrganization()` at session creation, read back off the session on the

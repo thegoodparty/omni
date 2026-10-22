@@ -4,6 +4,12 @@ import retry from 'p-retry'
 
 const token = process.env.SLACK_BOT_TOKEN
 
+// gp-api posts these from its SQS consumer, which handles one message at a
+// time, so a message lands behind whatever is queued ahead of it: ~4s on a
+// quiet queue, over 4 minutes behind a backlog on 2026-10-21. Four tries a
+// few seconds apart failed on the queue, not on the feature.
+const SLACK_MESSAGE_WAIT_MS = 3 * 60 * 1000
+
 const getSlackClient = () => {
   if (!token) {
     throw new Error('SLACK_BOT_TOKEN is not set')
@@ -35,8 +41,9 @@ export const waitForSlackMessage = async (params: {
     },
     {
       minTimeout: 1000,
-      maxTimeout: 3000,
-      retries: 3,
+      maxTimeout: 5000,
+      retries: 100,
+      maxRetryTime: SLACK_MESSAGE_WAIT_MS,
     },
   )
 }

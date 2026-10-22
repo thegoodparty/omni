@@ -84,6 +84,11 @@ export function createService({
     // A preview has no traffic worth draining, and the drain sat on the
     // critical path of every preview deploy.
     deregistrationDelay: select({ preview: 0, dev: 15, prod: 120 }),
+    // Round robin kept handing a task its full share while the hourly
+    // outreachInboundSweep cron parsed Peerly CSVs on its one thread, and on
+    // 2026-10-21 that task saturated while the others idled. Routing to the
+    // task with the fewest requests in flight sends traffic around a busy one.
+    loadBalancingAlgorithmType: 'least_outstanding_requests',
     healthCheck: {
       path: '/v1/health',
       // `interval * healthyThreshold` is on the critical path of every deploy:
@@ -290,10 +295,12 @@ export function createService({
     ],
   })
 
-  // Preview gets a full vCPU because its boot is on the critical path of every
-  // PR: migrations and Nest startup are CPU-bound, and at half a vCPU
-  // Nest alone took ~45s to come up. Dev stays at half.
-  const cpu = select({ preview: '1024', dev: '512', prod: '1024' })
+  // A full vCPU everywhere. Preview's boot is on the critical path of every
+  // PR, and at half a vCPU Nest alone took ~45s to come up. Dev's single task
+  // takes the release train's E2E (16 Playwright workers): at half a vCPU it
+  // ran at its CPU quota for the whole run, gp-api medians went from ~5ms to
+  // ~600ms, and webapp server renders hit Vercel's function timeout.
+  const cpu = '1024'
   const memory = isProd ? '4096' : '2048'
 
   const taskDefinition = new aws.ecs.TaskDefinition('taskDefinition', {

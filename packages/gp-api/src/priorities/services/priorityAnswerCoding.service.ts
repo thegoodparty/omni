@@ -18,6 +18,8 @@ import {
   Prisma,
   type Priority,
 } from '@/generated/prisma'
+import { ModuleRef } from '@nestjs/core'
+import { ConstituentFeedbackService } from '@/constituentFeedback/services/constituentFeedback.service'
 import { CronLockService } from '@/cron/services/cronLock.service'
 import { LlmService } from '@/llm/services/llm.service'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
@@ -66,6 +68,9 @@ type PendingAnswer = {
   sourceId: string
   text: string
   changedAt: Date
+  // A text reply's last message, which is when the person said it. Null on
+  // a door or call memo, whose own record already carries that.
+  repliedAt: Date | null
 }
 
 // Looser than PriorityAnswerCode on purpose: an off-vocabulary code drops
@@ -156,6 +161,7 @@ export class PriorityAnswerCodingService extends createPrismaBase(
   constructor(
     private readonly llm: LlmService,
     private readonly cronLock: CronLockService,
+    private readonly moduleRef: ModuleRef,
   ) {
     super()
   }
@@ -227,6 +233,17 @@ export class PriorityAnswerCodingService extends createPrismaBase(
       ...outreach,
       organizationSlug,
     })
+    const question = this.questionOf(outreach)
+    // Before the coded check below, so replies coded before this existed
+    // get their issues on the next pass too.
+    if (outreach.outreachType === OutreachType.text) {
+      await this.recordTextIssues({
+        organizationSlug,
+        outreachId,
+        question,
+        respondents,
+      })
+    }
     const pending = await this.pendingOf(
       organizationSlug,
       outreachId,
@@ -234,7 +251,6 @@ export class PriorityAnswerCodingService extends createPrismaBase(
     )
     if (pending.length === 0) return 0
 
-    const question = this.questionOf(outreach)
     if (question === null) {
       this.logger.warn(
         { outreachId, pending: pending.length },
@@ -307,13 +323,22 @@ export class PriorityAnswerCodingService extends createPrismaBase(
           NOT: { isOptOut: true },
         },
         orderBy: { sentAt: Prisma.SortOrder.asc },
-        select: { personId: true, content: true, updatedAt: true },
+        select: {
+          personId: true,
+          content: true,
+          updatedAt: true,
+          sentAt: true,
+        },
       })
-      const byPerson = new Map<string, { lines: string[]; changedAt: Date }>()
+      const byPerson = new Map<
+        string,
+        { lines: string[]; changedAt: Date; repliedAt: Date }
+      >()
       for (const reply of replies) {
         const held = byPerson.get(reply.personId) ?? {
           lines: [],
           changedAt: reply.updatedAt,
+          repliedAt: reply.sentAt,
         }
         const line = reply.content?.trim() ?? ''
         byPerson.set(reply.personId, {
@@ -321,20 +346,24 @@ export class PriorityAnswerCodingService extends createPrismaBase(
           changedAt: isAfter(reply.updatedAt, held.changedAt)
             ? reply.updatedAt
             : held.changedAt,
+          // Ordered by sentAt, so the last one read is the latest.
+          repliedAt: line === '' ? held.repliedAt : reply.sentAt,
         })
       }
-      return [...byPerson].flatMap(([personId, { lines, changedAt }]) =>
-        lines.length === 0
-          ? []
-          : [
-              {
-                personId,
-                source: PriorityAnswerSource.text,
-                sourceId: `${outreach.id}:${personId}`,
-                text: lines.join('\n'),
-                changedAt,
-              },
-            ],
+      return [...byPerson].flatMap(
+        ([personId, { lines, changedAt, repliedAt }]) =>
+          lines.length === 0
+            ? []
+            : [
+                {
+                  personId,
+                  source: PriorityAnswerSource.text,
+                  sourceId: `${outreach.id}:${personId}`,
+                  text: lines.join('\n'),
+                  changedAt,
+                  repliedAt,
+                },
+              ],
       )
     }
 
@@ -375,9 +404,39 @@ export class PriorityAnswerCodingService extends createPrismaBase(
               sourceId: row.id,
               text,
               changedAt: row.constituentFeedback.updatedAt,
+              repliedAt: null,
             },
           ]
     })
+  }
+
+  // A text reply goes through issue capture too, so its issue, where they
+  // stand and what they want land on the person's record beside the door
+  // and call memos. Its own failure is logged and never stops the coding:
+  // the yes or no is what the priority's read depends on.
+  private async recordTextIssues(input: {
+    organizationSlug: string
+    outreachId: number
+    question: string | null
+    respondents: PendingAnswer[]
+  }): Promise<void> {
+    try {
+      await this.moduleRef
+        .get(ConstituentFeedbackService, { strict: false })
+        .recordPriorityTextReplies({
+          organizationSlug: input.organizationSlug,
+          outreachId: input.outreachId,
+          question: input.question,
+          replies: input.respondents.flatMap(({ personId, text, repliedAt }) =>
+            repliedAt === null ? [] : [{ personId, text, repliedAt }],
+          ),
+        })
+    } catch (err) {
+      this.logger.error(
+        { err, outreachId: input.outreachId },
+        'Recording issues from priority text replies failed',
+      )
+    }
   }
 
   private async pendingOf(

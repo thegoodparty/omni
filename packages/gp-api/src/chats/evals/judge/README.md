@@ -55,12 +55,15 @@ refused, with the reason.
 (`regressionSignals.ts`, thresholds in `config.gates.handling`). The quality
 comparison cannot see an agent's own rules: a probe that cut `priority_flow`'s
 system prompt in half read CAN'T SAY there, at -0.06 [-0.28, 0.19]. The signal
-is a one-sided sign test over the settled regressions and improvements in
-**Condition handling**, one vote per case: a case's attempts share an input,
-so a case counts once, as a regression or an improvement by its net change
-across attempts. Unsettled and shared outcomes don't count. With at least 4
-changed cases and p <= 0.05 it says WORSE or BETTER. That probe had 5 cases
-regress and none improve, p = 0.031, so WORSE.
+counts handled runs: how many of each arm's runs met their case's
+`handledWhen`. Runs are compared only within their own case, because a case's
+attempts share an input: a one-sided permutation test shuffles which arm each
+case's handled runs fell on, so a case that went from 3 of 3 to 0 of 3 weighs
+more than one that went to 2 of 3, and a case both arms always pass or always
+fail adds nothing. Below p = 0.05 it says WORSE or BETTER. One case going from
+3 of 3 to 0 of 3 is exactly 0.05, so a single case never decides the label. A
+probe where every tool failed auth (base 16 of 24 handled runs, candidate 9)
+reads p = 0.008, WORSE; three no-change sweeps read p = 0.09 or higher.
 
 The label is WORSE when the quality verdict or the handling signal says WORSE.
 It is BETTER when one says BETTER and neither says WORSE. Otherwise it is the

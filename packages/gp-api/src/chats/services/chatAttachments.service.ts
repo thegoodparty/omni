@@ -36,10 +36,7 @@ import type {
 } from '@goodparty_org/contracts'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { parsePdfText } from '@/ocr/extractors/pdf.extractor'
-import {
-  isPublicAddress,
-  ssrfSafeLookup,
-} from '@/websites/services/websites.service'
+import { isPublicAddress, ssrfSafeLookup } from '@/websites/util/ssrf.util'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { QueueProducerService } from '@/queue/producer/queueProducer.service'
 import { MessageGroup, QueueType } from '@/queue/queue.types'

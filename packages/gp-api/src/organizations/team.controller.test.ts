@@ -1925,6 +1925,22 @@ describe('GET /v1/organizations/team/invites/mine', () => {
     expect(result.status).toBe(200)
     expect(result.data).toEqual({ invite: null })
   })
+
+  it('returns null instead of a 502 when Clerk is unavailable', async () => {
+    await service.prisma.user.create({
+      data: { email: 'mine-clerk-down@x.com', clerkId: 'user_mine_4' },
+    })
+    vi.spyOn(stubClerkInvitations(), 'getTeamInviteState').mockRejectedValue(
+      new BadGatewayException('Failed to fetch Clerk user'),
+    )
+
+    const result = await service.client.get(MINE_PATH, {
+      headers: authHeaderFor('user_mine_4'),
+    })
+
+    expect(result.status).toBe(200)
+    expect(result.data).toEqual({ invite: null })
+  })
 })
 
 describe('PATCH /v1/organizations/team/members/:userId', () => {

@@ -48,27 +48,6 @@ describe('proposalListSample', () => {
     ).toBeUndefined()
   })
 
-  it('draws the panel and the new residents as one frozen sample', () => {
-    expect(
-      proposalListSample({
-        proposalKey: KEY,
-        count: 18_400,
-        sampleSize: 84,
-        panelSampleSize: 42,
-      }),
-    ).toEqual({ size: 84, panelSize: 42, seedKey: KEY })
-    // Even when the send covers the whole audience, a live list would hold
-    // neither part at its size.
-    expect(
-      proposalListSample({
-        proposalKey: KEY,
-        count: 60,
-        sampleSize: 60,
-        panelSampleSize: 30,
-      }),
-    ).toEqual({ size: 60, panelSize: 30, seedKey: KEY })
-  })
-
   it('draws a widen even with no sample to size it, so the asked stay out', () => {
     expect(
       proposalListSample({

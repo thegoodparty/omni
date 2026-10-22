@@ -291,22 +291,13 @@ test('filed candidate upgrades to Pro and reaches the post-payment PIN state @de
   // 10. Dashboard post-payment state. The success-step exit refreshes the
   // shared campaign cache, but the webhook usually lands after that refresh,
   // so the already-rendered dashboard can still show the non-Pro state —
-  // reload now that `isPro` is proven server-side. Expect: PRO badge, the
-  // compliance card in the Get Pro banner's slot, and the banner gone. For a
-  // fresh submission the card shows the awaiting-PIN in-review state — the
-  // "Enter your PIN" box appears only once Peerly CampaignVerify approves,
-  // days later (the CV gate, ENG-10785) — never within this test's window.
+  // reload now that `isPro` is proven server-side. Expect the PRO badge. The
+  // compliance state itself lives in the flag-gated sidebar banner, which
+  // does not render with the flag off.
   await page.goto('/dashboard')
   await page.waitForURL('**/dashboard', { timeout: 30_000 })
 
   await expect(page.getByRole('img', { name: 'PRO' }).first()).toBeVisible({
     timeout: 30_000,
   })
-  await expect(
-    page.getByText('Your registration is being verified'),
-  ).toBeVisible({ timeout: 30_000 })
-  await expect(page.getByText('76% of candidates who use Pro win')).toHaveCount(
-    0,
-  )
 })
-

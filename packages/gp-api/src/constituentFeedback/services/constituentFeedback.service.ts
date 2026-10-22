@@ -237,6 +237,20 @@ const audioKeyFor = (organizationSlug: string, clientKey: string): string =>
 const NOT_ASSIGNED_MESSAGE: Record<ConstituentFeedbackChannel, string> = {
   door_knock: 'Stop target not found',
   phone_bank: 'Phone banking list not found',
+  text: 'Not found',
+}
+
+// One row per resident per priority text send, so reading the same replies
+// again lands on the row it wrote the first time.
+export const textReplyClientKey = (
+  outreachId: number,
+  personId: string,
+): string => `priority-text:${outreachId}:${personId}`
+
+export type PriorityTextReply = {
+  personId: string
+  text: string
+  repliedAt: Date
 }
 
 @Injectable()
@@ -782,6 +796,104 @@ export class ConstituentFeedbackService extends createPrismaBase(
     this.codePriorityAnswers(row.outreachId)
 
     return this.toRecord(row)
+  }
+
+  // A resident's text replies to a priority's check, read for issues the
+  // way a door or call memo is, so they show on the person's record beside
+  // those. The coded yes or no stays PriorityAnswer's; this is the issue,
+  // where they stand and what they want.
+  //
+  // The row has no outreachId on purpose. A text send's report already
+  // counts its replies as replies (`textRepliesWhere`), and every effort
+  // read keys on that column, so leaving it null keeps the same words from
+  // counting twice. Nor is it confirmed: its issues are a model's reading
+  // nobody checked, and the abandoned-confirm sweep passes text rows by.
+  //
+  // Idempotent: a resident whose words have not changed since their row was
+  // read costs no model call and writes nothing. Returns how many it wrote.
+  async recordPriorityTextReplies(input: {
+    organizationSlug: string
+    outreachId: number
+    question: string | null
+    replies: PriorityTextReply[]
+  }): Promise<number> {
+    if (input.replies.length === 0) return 0
+    const existing = await this.findMany({
+      where: {
+        organizationSlug: input.organizationSlug,
+        clientKey: {
+          in: input.replies.map((reply) =>
+            textReplyClientKey(input.outreachId, reply.personId),
+          ),
+        },
+      },
+      select: { clientKey: true, transcript: true, extractionStatus: true },
+    })
+    const held = new Map(existing.map((row) => [row.clientKey, row]))
+    const due = input.replies.flatMap((reply) => {
+      const transcript = clamp(
+        reply.text.trim(),
+        CONSTITUENT_FEEDBACK_TRANSCRIPT_MAX_LENGTH,
+      )
+      if (transcript === '') return []
+      const clientKey = textReplyClientKey(input.outreachId, reply.personId)
+      const row = held.get(clientKey)
+      const unchanged =
+        row !== undefined &&
+        row.transcript === transcript &&
+        row.extractionStatus !== ConstituentFeedbackExtractionStatus.failed
+      return unchanged ? [] : [{ ...reply, transcript, clientKey }]
+    })
+    if (due.length === 0) return 0
+
+    // The record needs an author and a reply has none on the office's side,
+    // so it is the owner's, as a triggered synthesis run is.
+    const { ownerId } = await this.client.organization.findUniqueOrThrow({
+      where: { slug: input.organizationSlug },
+      select: { ownerId: true },
+    })
+
+    let written = 0
+    for (const reply of due) {
+      const extracted = await this.extraction.extract({
+        transcript: reply.transcript,
+        effortQuestion: input.question,
+        userId: ownerId,
+        voice: 'own_reply',
+      })
+      const fields = {
+        transcript: reply.transcript,
+        occurredAt: reply.repliedAt,
+        effortQuestion: input.question,
+        confirmedAt: null,
+        confirmation: null,
+        ...this.extractionFields(extracted),
+      }
+      await this.client.$transaction(async (tx) => {
+        const saved = await tx.constituentFeedback.upsert({
+          where: {
+            organizationSlug_clientKey: {
+              organizationSlug: input.organizationSlug,
+              clientKey: reply.clientKey,
+            },
+          },
+          create: {
+            organizationSlug: input.organizationSlug,
+            clientKey: reply.clientKey,
+            personId: reply.personId,
+            actorUserId: ownerId,
+            channel: ConstituentFeedbackChannel.text,
+            captureMethod: ConstituentFeedbackCaptureMethod.typed,
+            outreachId: null,
+            ...fields,
+          },
+          update: fields,
+        })
+        await replaceIssues(tx, saved.id, proposedIssues(extracted))
+      })
+      written += 1
+    }
+    return written
   }
 
   async listForPerson(input: {

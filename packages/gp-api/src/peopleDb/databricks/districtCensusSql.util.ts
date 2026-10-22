@@ -187,30 +187,6 @@ const raceSql = (): string => {
   )
 }
 
-// One row per block group the given people live in, with how many of them
-// live there: block group figures and a count, never a person. Scoped to the
-// district like every other people read, so an id from elsewhere adds
-// nothing, and a person with no geocoded block group drops out.
-export const buildRespondentBlockGroupsSql = (
-  district: DbxDistrict,
-  personIds: string[],
-): DbxStatement => {
-  const bag = createBag()
-  const geoid = col(BLOCK_GROUP_GEOID_COLUMN)
-  const where = buildScopeSql(bag, {
-    district,
-    filters: filtersSchema.parse({ id: { in: personIds } }),
-  })
-  const sql =
-    `SELECT r.respondents, ${acsColumns('bg')} FROM (` +
-    `SELECT ${geoid} AS block_group_geoid, count(*) AS respondents` +
-    ` FROM ${district.table} v ${where} AND ${geoid} IS NOT NULL` +
-    ` GROUP BY ${geoid}` +
-    `) r JOIN ${BLOCK_GROUP_DEMOGRAPHICS_TABLE} bg` +
-    ' ON bg.block_group_geoid = r.block_group_geoid'
-  return { sql, params: bag.params }
-}
-
 const figure = (raw: string | null | undefined): number | null => {
   if (raw == null) return null
   const value = Number(raw)
@@ -258,27 +234,6 @@ const RespondentProfileSchema = z.object({
   race: z.enum(RACE_VALUES).nullable(),
   tract: z.string().nullable(),
 })
-export type CensusCompositionRows = {
-  // Null when the mart has no row for the district.
-  district: AcsCounts | null
-  // One entry per person placed in a block group, in no order.
-  respondentBlockGroups: AcsCounts[]
-}
-
-export const mapCensusCompositionRows = (
-  districtRows: ReadonlyArray<ReadonlyArray<string | null>>,
-  blockGroupRows: ReadonlyArray<ReadonlyArray<string | null>>,
-): CensusCompositionRows => {
-  const districtRow = districtRows[0]
-  return {
-    district: districtRow ? mapAcsCounts(districtRow) : null,
-    respondentBlockGroups: blockGroupRows.flatMap(([respondents, ...row]) => {
-      const counts = mapAcsCounts(row)
-      return Array.from({ length: Number(respondents ?? 0) }, () => counts)
-    }),
-  }
-}
-
 // How many of the given people share each age band, gender, tenure, tract
 // and race: counts per combination, never a person. Unknowns stay NULL.
 export const buildRespondentCellsSql = (
@@ -445,6 +400,9 @@ export interface DistrictCells {
   // Null when the mart has no row for the district.
   district: AcsCounts | null
   cells: DistrictCell[]
+  // Adults per tract from the block groups; empty when that read failed, so
+  // the frame keeps the voter file's tracts.
+  tractAdults: Map<string, number>
 }
 
 export interface WeightingInputs {

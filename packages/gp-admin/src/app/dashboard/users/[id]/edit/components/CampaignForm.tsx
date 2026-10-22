@@ -29,11 +29,8 @@ import {
   CampaignLaunchStatus,
   BallotReadyPositionLevel,
   ElectionLevel,
-} from '@goodparty_org/sdk'
-import type {
-  AdminOrganization,
-  CampaignWithLiveContext,
-} from '@goodparty_org/sdk'
+} from '@/shared/gpApi'
+import type { AdminOrganization, CampaignWithLiveContext } from '@/shared/gpApi'
 import {
   FORM_MODE,
   INPUT_TYPE,

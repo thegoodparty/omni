@@ -4,19 +4,16 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import {
-  MIN_RESPONDENTS_FOR_REPRESENTATION,
   answersNeeded,
   panelExpectedAnswers,
   panelGoalMembers,
   type CivicPanelBuildPlanResponse,
-  type CivicPanelRepresentation,
   type CivicPanelSummary,
 } from '@goodparty_org/contracts'
 import { Button } from '@styleguide'
 import { ArrowLeftIcon } from '@styleguide/components/ui/icons'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { PANEL_STATUS_PROPERTY } from 'app/dashboard/priorities/[priorityId]/readStatusProperty'
-import { RepresentationBars } from 'app/dashboard/priorities/[priorityId]/results/components/RepresentationBars'
 import {
   CITIZENS_PANEL_LIST_PATH,
   CIVIC_PANEL_ENTRY_PARAM,
@@ -26,18 +23,15 @@ import { CitizensPanelStats } from './CitizensPanelStats'
 import { CivicPanelBalanceSection } from './CivicPanelBalance'
 import { CivicPanelPlanStart } from './CivicPanelPlanStart'
 import { CivicPanelPlanSteps } from './CivicPanelPlanSteps'
-import { CivicPanelProgress } from './CivicPanelProgress'
+import { CivicPanelMilestones } from './CivicPanelMilestones'
 import { CivicPanelRail } from './CivicPanelRail'
+import { CivicPanelSeats } from './CivicPanelSeats'
 
 export const CitizensPanelView = ({
   summary,
-  representation,
   plan: initialPlan,
 }: {
   summary: CivicPanelSummary
-  // Null when the comparison could not be read; its own `representation` is
-  // null below the minimum number of members.
-  representation: CivicPanelRepresentation | null
   // Null when the plan could not be read; its own `plan` is null before the
   // official has made one.
   plan: CivicPanelBuildPlanResponse | null
@@ -92,7 +86,10 @@ export const CitizensPanelView = ({
         </h1>
       </div>
 
-      <CivicPanelProgress progress={progress} />
+      <CivicPanelMilestones
+        progress={progress}
+        composition={planState?.composition ?? null}
+      />
 
       <div className="flex flex-col gap-4 sm:gap-6 lg:flex-row lg:items-start">
         <div className="flex min-w-0 flex-1 flex-col gap-5">
@@ -111,59 +108,45 @@ export const CitizensPanelView = ({
           )}
 
           {planState?.balance ? (
-            <CivicPanelBalanceSection balance={planState.balance} />
+            <CivicPanelBalanceSection
+              balance={planState.balance}
+              groups={planState.composition?.groups ?? []}
+            />
           ) : null}
 
-          {hasMembers ? (
-            <>
-              <CitizensPanelStats summary={summary} />
-              <div className="flex flex-wrap gap-2">
-                <Button asChild variant="outline">
-                  <Link href={CITIZENS_PANEL_LIST_PATH}>{COPY.seeMembers}</Link>
-                </Button>
-              </div>
-              <section className="flex flex-col gap-3 rounded-xl border border-border bg-background p-5">
-                <div>
-                  <h2 className="text-base font-semibold text-foreground">
-                    {COPY.representationTitle}
-                  </h2>
-                  {representation?.representation && (
-                    <p className="mt-0.5 text-sm text-muted-foreground">
-                      {COPY.representationCaption}
-                    </p>
-                  )}
-                </div>
-                {representation === null ? (
-                  <p className="text-sm text-muted-foreground">
-                    {COPY.representationError}
-                  </p>
-                ) : representation.representation ? (
-                  <RepresentationBars
-                    representation={representation.representation}
-                    shares={COPY.shares}
-                  />
-                ) : (
-                  <p className="text-sm text-muted-foreground">
-                    {summary.members < MIN_RESPONDENTS_FOR_REPRESENTATION
-                      ? COPY.representationEmpty(
-                          MIN_RESPONDENTS_FOR_REPRESENTATION,
-                        )
-                      : COPY.representationUnmapped}
-                  </p>
-                )}
-              </section>
-            </>
+          {hasMembers &&
+          planState?.composition &&
+          planState.composition.places.length > 0 ? (
+            <CivicPanelSeats
+              placeKind={planState.composition.placeKind}
+              places={planState.composition.places}
+              members={progress.members}
+              goal={progress.goal}
+            />
           ) : null}
         </div>
 
-        {/* Beside the plan from lg, below it on a phone. Only a plan has a
-            weekly time to change. */}
-        {activePlan ? (
-          <aside className="w-full lg:w-[300px] lg:shrink-0">
-            <CivicPanelRail
-              hoursPerWeek={activePlan.hoursPerWeek}
-              onPlan={setPlanState}
-            />
+        {/* Beside the plan from lg, below it on a phone: the weekly time
+            (only a plan has one to change), then the members' numbers. */}
+        {activePlan || hasMembers ? (
+          <aside
+            className="flex w-full flex-col gap-4 lg:w-[300px] lg:shrink-0"
+            data-testid="civic-panel-aside"
+          >
+            {activePlan ? (
+              <CivicPanelRail
+                hoursPerWeek={activePlan.hoursPerWeek}
+                onPlan={setPlanState}
+              />
+            ) : null}
+            {hasMembers ? (
+              <>
+                <CitizensPanelStats summary={summary} />
+                <Button asChild variant="outline" className="self-start">
+                  <Link href={CITIZENS_PANEL_LIST_PATH}>{COPY.seeMembers}</Link>
+                </Button>
+              </>
+            ) : null}
           </aside>
         ) : null}
       </div>

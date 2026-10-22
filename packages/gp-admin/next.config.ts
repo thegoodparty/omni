@@ -26,7 +26,6 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: __dirname,
   },
-  transpilePackages: ['@goodparty_org/sdk'],
   images: {
     remotePatterns: [
       {

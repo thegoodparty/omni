@@ -45,7 +45,9 @@ A priority's read models its coded answers against the district
 `buildDistrictCellsSql` (op `district-cells`) counts the district's people
 per age band, gender, tract (the first 11 digits of
 `Census_Block_Group_Geoid`) and race (L2's `EthnicGroups_EthnicGroup1Desc`
-folded into the census categories), beside the district's ACS row, and
+folded into the census categories), beside the district's ACS row and its
+adults per tract (`buildDistrictTractAdultsSql`; a failed tract read gives an
+empty map and the frame keeps the voter file's tracts), and
 `buildAnswerCellsSql` (op `answer-cells`) sums the given people's answers in
 the same cells. Each person's yes share rides in on an inlined id list
 shared with others of the same value, so only sums come back.
@@ -171,40 +173,30 @@ own `warn`, naming the census lookup so the line is attributable to one of
 the two statements. The voter scan keeps `run()` and stays exactly as loud as
 every other voter read.
 
-## Census composition: the district's ACS row and the people's block groups
+## Census composition: the district's ACS row
 
-`findCensusComposition` (`StatsService`, op `census-composition`) feeds
-the priority results and civic panel comparisons
-(`src/priorities/services/censusComposition.ts`). It issues two statements
-from `districtCensusSql.util.ts`, against marts gp-data-platform#1203
-published:
+`buildDistrictCompositionSql` (`districtCensusSql.util.ts`) reads one row
+from `gp_api_district_census_demographics`, a mart gp-data-platform#1203
+published, keyed exactly like `buildDistrictCensusSql` (state, district
+type, district name; a State district reads the statewide row). ACS 2024
+5-year counts allocated from block groups by 2020 population share, so
+values are fractional and run about 2.4% under, like `district_population`.
+No MOEs, no medians. Adults by census sex and age band
+(`population_{male,female}_*`) are there for weighting;
+`priorities/util/censusSexAge.util.ts` turns them into shares, and
+`buildRespondentCellsSql` puts `Age_Int` in the same bands
+(`ADULT_AGE_BANDS`). Census sex is male/female, matching `Gender`'s
+`M`/`F`; a blank `Gender` (about 1% of voters) sits the dimension out.
+The weighting and district-cell reads (`findWeightingInputs`,
+`findDistrictCells`) select it beside their own statements.
 
-- `buildDistrictCompositionSql`: one row from
-  `gp_api_district_census_demographics`, keyed exactly like
-  `buildDistrictCensusSql` (state, district type, district name; a State
-  district reads the statewide row). ACS 2024 5-year counts allocated from
-  block groups by 2020 population share, so values are fractional and run
-  about 2.4% under, like `district_population`. No MOEs, no medians.
-  Adults by census sex and age band (`population_{male,female}_*`) are
-  there for weighting; `priorities/util/censusSexAge.util.ts` turns them
-  into shares, and `buildRespondentCellsSql` puts `Age_Int` in the same
-  bands (`ADULT_AGE_BANDS`). Census
-  sex is male/female, matching `Gender`'s `M`/`F`; a blank `Gender`
-  (about 1% of voters) sits the dimension out.
-- `buildRespondentBlockGroupsSql`: the given ids scoped to the district,
-  grouped by `Census_Block_Group_Geoid` and joined to
-  `gp_api_block_group_census_demographics`. It returns block group figures
-  and a head count per block group, never a person. A person with a null
-  geoid (about 4% of voters) or no block group row drops out.
+`ACS_COUNT_COLUMNS` is the hand-kept column list it selects. A suppressed
+figure maps to `null`, never `0`.
 
-`ACS_COUNT_COLUMNS` is the hand-kept column list both statements select.
-A suppressed figure maps to `null`, never `0`, and
-`representation.util.ts` drops a dimension with any `null` in it.
-
-Like the census lookup in `findStats`, both statements call the client
+Like the census lookup in `findStats`, these reads call the client
 directly rather than `run()`: the caller folds any failure, and a missing
-district row, into "comparison unavailable" on a 200, so an error-level
-line would be an alerting hazard.
+district row, into "unknown" on a 200, so an error-level line would be an
+alerting hazard.
 
 `Census_Block_Group_Geoid` is on `gp_api_voters` (and so
 `gp_api_constituents` and `gp_api_consumer_only_people`), keyed like the
@@ -298,6 +290,13 @@ The pack is the one read that does not use the inline path.
 which for a whole district is an unbounded materialization, so
 `DatabricksVoterPackService` reads CSV through external links and parses one
 chunk at a time into the encoder.
+
+The encoder still keeps every person (~65 bytes of heap each), so a pack is
+refused with `VoterPackTooLargeError` when the export reports more than
+`MAX_PACK_ROWS` (3M) rows, before any chunk is read. A statewide district on
+`constituents` is ~21.5M rows, and building one exhausted the heap of the
+gp-api task serving it. The door-knocking stream logs that refusal at `warn`,
+outside the paging build-failure event.
 
 ### The resident projection is wide, and that is deliberate
 

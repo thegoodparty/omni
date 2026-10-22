@@ -21,7 +21,6 @@ import {
   type UpdateFollowUpInput,
   CivicPanelStatusResponseSchema,
   CivicPanelSummarySchema,
-  CivicPanelRepresentationSchema,
   CivicPanelBuildPlanResponseSchema,
   CreateCivicPanelBuildPlanInputSchema,
   UpdateCivicPanelBuildPlanInputSchema,
@@ -173,16 +172,6 @@ export class ContactsController {
   ) {
     await this.assertCivicPanelsOn(user)
     return this.civicPanelSummary.summaryFor(organization)
-  }
-
-  @Get('civic-panel/representation')
-  @ResponseSchema(CivicPanelRepresentationSchema)
-  async getCivicPanelRepresentation(
-    @ReqOrganization() organization: Organization,
-    @ReqUser() user: User,
-  ) {
-    await this.assertCivicPanelsOn(user)
-    return this.civicPanelSummary.representationFor(organization)
   }
 
   @Get('civic-panel/plan')

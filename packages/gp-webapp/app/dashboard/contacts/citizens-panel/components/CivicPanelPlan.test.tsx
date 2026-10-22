@@ -143,10 +143,6 @@ const withPlan = (
   balance: null,
 })
 
-// How far the bar is filled, in percent.
-const filledShare = (top: HTMLElement) =>
-  top.querySelector('[data-slot="progress"]')?.getAttribute('data-filled')
-
 const NO_PLAN: CivicPanelBuildPlanResponse = {
   plan: null,
   next: null,
@@ -162,13 +158,7 @@ const NO_PLAN: CivicPanelBuildPlanResponse = {
 }
 
 const renderPage = (plan: CivicPanelBuildPlanResponse | null) =>
-  render(
-    <CitizensPanelView
-      summary={SUMMARY}
-      representation={{ representation: null }}
-      plan={plan}
-    />,
-  )
+  render(<CitizensPanelView summary={SUMMARY} plan={plan} />)
 
 const rowOf = (title: string) => {
   const row = screen.getByText(title).closest('li')
@@ -326,6 +316,45 @@ describe('the plan', () => {
     expect(screen.queryByText(/^(Up now|Earlier|Not started)$/)).toBeNull()
   })
 
+  it('lines every checkbox up with the first line of its title', () => {
+    renderPage(
+      withPlan(
+        [
+          TEXT,
+          CALLS,
+          step({
+            id: 'done-doors',
+            channel: 'door_knocking',
+            targetSize: 60,
+            status: 'done',
+            reached: 58,
+            joined: 6,
+          }),
+        ],
+        NEXT_CALLS,
+      ),
+    )
+
+    const rows = [
+      { title: 'Call 30 residents', line: 'leading-7', cell: 'h-7' },
+      { title: 'Text 3,150 residents', line: 'leading-6', cell: 'h-6' },
+      {
+        title: 'Knock on 60 doors in a walkable area',
+        line: 'leading-6',
+        cell: 'h-6',
+      },
+    ]
+    for (const { title, line, cell } of rows) {
+      const box = within(rowOf(title)).getByRole('checkbox')
+      const boxCell = box.closest('[data-slot="plan-step-checkbox"]')
+      const titleText = within(rowOf(title)).getByText(title)
+      expect(boxCell).toHaveClass(cell, 'items-center')
+      expect(titleText).toHaveClass(line)
+      expect(boxCell?.parentElement).toHaveClass('items-start')
+      expect(boxCell?.parentElement).toContainElement(titleText)
+    }
+  })
+
   it('names who a batch leans toward, never how', () => {
     renderPage(
       withPlan([
@@ -470,6 +499,7 @@ describe('the plan', () => {
     ).toHaveAttribute('href', '/dashboard/outreach/phone-banking/12')
     const titles = screen
       .getAllByRole('listitem')
+      .filter((item) => !item.closest('[data-testid="civic-panel-milestones"]'))
       .map((item) => item.querySelector('p, h3')?.textContent)
     expect(titles).toEqual([
       'Call 30 residents',
@@ -536,18 +566,24 @@ describe('the plan', () => {
     ).toBeDisabled()
   })
 
-  it('shows the groups covered at the top, above the plan', () => {
+  it("shows the panel's milestones at the top, above the plan", () => {
     renderPage(withPlan([TEXT, CALLS]))
 
-    const top = screen.getByTestId('civic-panel-progress')
-    expect(top).toHaveTextContent('60 members, in 3 of 12 groups')
+    const top = screen.getByTestId('civic-panel-milestones')
     expect(
-      within(top).getByText(
-        'Invite people from the groups still missing so every part of your district has a voice.',
-      ),
+      within(top).getByRole('heading', { name: 'Your panel is growing' }),
     ).toBeInTheDocument()
-    expect(top).not.toHaveTextContent(/answers/)
-    expect(filledShare(top)).toBe('25')
+    expect(within(top).getByText('60 residents have said yes.')).toBeVisible()
+    expect(
+      within(top)
+        .getAllByRole('listitem')
+        .map((item) => item.textContent),
+    ).toEqual([
+      'First yes, Done',
+      '30 members, Done',
+      'Halfway, Next',
+      'Full panel, Not yet',
+    ])
     expect(
       top.compareDocumentPosition(screen.getByText('Your plan')) &
         Node.DOCUMENT_POSITION_FOLLOWING,
@@ -555,12 +591,12 @@ describe('the plan', () => {
     expect(screen.queryByText(/representative/i)).toBeNull()
   })
 
-  it('shows an empty bar above the hours question before a plan', () => {
+  it('starts the milestones above the hours question before anyone joins', () => {
     renderPage(NO_PLAN)
 
-    const top = screen.getByTestId('civic-panel-progress')
-    expect(top).toHaveTextContent('0 members, in 0 of 12 groups')
-    expect(filledShare(top)).toBe('0')
+    const top = screen.getByTestId('civic-panel-milestones')
+    expect(top).toHaveTextContent('Your panel starts here')
+    expect(top).toHaveTextContent('Every resident who says yes takes a seat.')
     expect(
       top.compareDocumentPosition(
         screen.getByRole('heading', {
@@ -571,7 +607,7 @@ describe('the plan', () => {
     expect(screen.queryByTestId('civic-panel-rail')).toBeNull()
   })
 
-  it('fills the bar once every group is covered', () => {
+  it('shows the full panel once it reaches its goal, with a way to ask it', () => {
     renderPage({
       ...withPlan([TEXT]),
       progress: {
@@ -582,14 +618,26 @@ describe('the plan', () => {
         groupsCovered: 12,
         groupsTotal: 12,
       },
+      composition: {
+        placeKind: 'tract',
+        places: [],
+        groups: [
+          { group: 'women', districtShare: 0.52, memberShare: 0.52 },
+          { group: 'men', districtShare: 0.48, memberShare: 0.48 },
+        ],
+      },
     })
 
-    const top = screen.getByTestId('civic-panel-progress')
-    expect(top).toHaveTextContent('250 members, in 12 of 12 groups')
-    expect(top).toHaveTextContent(
-      'Every part of your district has a voice on your panel.',
-    )
-    expect(filledShare(top)).toBe('100')
+    const top = screen.getByTestId('civic-panel-milestones')
+    expect(
+      within(top).getByRole('heading', { name: 'Every seat is filled' }),
+    ).toBeInTheDocument()
+    expect(top).toHaveTextContent('250 residents said yes.')
+    // Counted the way the petals are, not the API's covered groups.
+    expect(top).toHaveTextContent('2 of 2 groups at their share')
+    expect(
+      within(top).getByRole('link', { name: 'Ask your panel a question' }),
+    ).toHaveAttribute('href', '/dashboard/priorities')
   })
 
   it('highlights the step a Next link opened', () => {

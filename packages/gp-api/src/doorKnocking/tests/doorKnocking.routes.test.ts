@@ -30,6 +30,9 @@ import { DoorKnockingNotesService } from '../services/doorKnockingNotes.service'
 import { DoorKnockingServeService } from '../services/doorKnockingServe.service'
 import { DoorKnockingStatsService } from '../services/doorKnockingStats.service'
 import { DoorKnockingTurfCountsService } from '../services/doorKnockingTurfCounts.service'
+import { DoorKnockingPackService } from '../services/doorKnockingPack.service'
+import { PACK_BUILD_FAILED_EVENT } from '../utils/packStream.util'
+import { VoterPackTooLargeError } from '@/peopleDb/services/voterPack.service'
 import {
   Campaign,
   OrganizationRole,
@@ -6456,6 +6459,39 @@ describe('door-knocking routes', () => {
       expect(() => unwrapPack(body)).toThrow('no pack frame')
       expect(body.readUInt32LE(PACK_STREAM_MAGIC_BYTES)).toBe(
         PACK_STREAM_FRAME_KINDS.error,
+      )
+    })
+
+    // A statewide district is refused the same way every time it is opened,
+    // so paging on it would page on a known limit, not an incident.
+    it('refuses a district over the pack limit without paging', async () => {
+      vi.spyOn(
+        service.app.get(DoorKnockingPeopleApiService),
+        'pack',
+      ).mockRejectedValue(new VoterPackTooLargeError(21_515_109))
+      const { logger } = service.app.get(DoorKnockingPackService)
+      const error = vi.spyOn(logger, 'error')
+      const warn = vi.spyOn(logger, 'warn')
+
+      const res = await service.client.get('/v1/door-knocking/pack', {
+        ...orgHeaders(),
+        responseType: 'arraybuffer',
+        validateStatus: () => true,
+      })
+
+      expect(res.status).toBe(200)
+      expect(
+        Buffer.from(res.data as ArrayBuffer).readUInt32LE(
+          PACK_STREAM_MAGIC_BYTES,
+        ),
+      ).toBe(PACK_STREAM_FRAME_KINDS.error)
+      expect(error).not.toHaveBeenCalledWith(
+        expect.objectContaining({ event: PACK_BUILD_FAILED_EVENT }),
+        expect.anything(),
+      )
+      expect(warn).toHaveBeenCalledWith(
+        expect.objectContaining({ rows: 21_515_109 }),
+        expect.any(String),
       )
     })
 

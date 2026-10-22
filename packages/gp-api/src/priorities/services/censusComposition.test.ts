@@ -1,73 +1,15 @@
 import { describe, expect, it, vi } from 'vitest'
-import { MIN_RESPONDENTS_FOR_REPRESENTATION } from '@goodparty_org/contracts'
 import {
   ACS_COUNT_KEYS,
   type AcsCounts,
+  type DistrictCells,
 } from '@/peopleDb/databricks/districtCensusSql.util'
 import { StatsService } from '@/peopleDb/services/stats.service'
-import {
-  DistrictCensusComposition,
-  representationFrom,
-} from './censusComposition'
+import type { MrpFrameCell } from '../util/mrp.util'
+import { DistrictCensusComposition } from './censusComposition'
 
 const counts = (value: number): AcsCounts =>
   Object.fromEntries(ACS_COUNT_KEYS.map((key) => [key, value])) as AcsCounts
-
-const INPUT = {
-  districtId: 'd-1',
-  dataset: 'voters' as const,
-  personIds: ['0190a1b2-0000-7000-8000-00000000000a'],
-}
-
-const build = (
-  findCensusComposition: StatsService['findCensusComposition'],
-) => {
-  const warn = vi.fn()
-  const source = new DistrictCensusComposition(
-    { findCensusComposition } as StatsService,
-    { setContext: vi.fn(), warn } as never,
-  )
-  return { source, warn }
-}
-
-describe('DistrictCensusComposition', () => {
-  it('passes the district row and placed people through', async () => {
-    const district = counts(100)
-    const placed = [counts(5), counts(5)]
-    const read = vi.fn().mockResolvedValue({
-      district,
-      respondentBlockGroups: placed,
-    })
-    const { source } = build(read)
-
-    expect(await source.compose(INPUT)).toEqual({
-      available: true,
-      district,
-      respondentBlockGroups: placed,
-    })
-    expect(read).toHaveBeenCalledWith('d-1', 'voters', INPUT.personIds)
-  })
-
-  it('reads a district with no census row as unavailable', async () => {
-    const { source } = build(
-      vi.fn().mockResolvedValue({
-        district: null,
-        respondentBlockGroups: [counts(5)],
-      }),
-    )
-
-    expect(await source.compose(INPUT)).toEqual({ available: false })
-  })
-
-  it('isolates a warehouse failure as unavailable, logged at warn', async () => {
-    const { source, warn } = build(
-      vi.fn().mockRejectedValue(new Error('warehouse timeout')),
-    )
-
-    expect(await source.compose(INPUT)).toEqual({ available: false })
-    expect(warn).toHaveBeenCalledOnce()
-  })
-})
 
 describe('DistrictCensusComposition.mrpInputs', () => {
   // Asian under 2% of the district, so it folds into other.
@@ -87,12 +29,24 @@ describe('DistrictCensusComposition.mrpInputs', () => {
   }
 
   const withCells = (
-    findDistrictCells: StatsService['findDistrictCells'],
+    findDistrictCells: (
+      ...args: Parameters<StatsService['findDistrictCells']>
+    ) => Promise<
+      Omit<DistrictCells, 'tractAdults'> &
+        Partial<Pick<DistrictCells, 'tractAdults'>>
+    >,
     findAnswerCells: StatsService['findAnswerCells'],
   ) => {
     const warn = vi.fn()
     const source = new DistrictCensusComposition(
-      { findDistrictCells, findAnswerCells } as StatsService,
+      {
+        findDistrictCells: (...args) =>
+          findDistrictCells(...args).then((read) => ({
+            tractAdults: new Map<string, number>(),
+            ...read,
+          })),
+        findAnswerCells,
+      } as StatsService,
       { setContext: vi.fn(), warn } as never,
     )
     return { source, warn }
@@ -157,6 +111,133 @@ describe('DistrictCensusComposition.mrpInputs', () => {
         },
       ],
       raceNameable: false,
+    })
+  })
+
+  describe('census age, sex and tract margins', () => {
+    const SEX_AGE = {
+      ...DISTRICT,
+      populationMale18To24: 100,
+      populationFemale18To24: 100,
+      populationMale25To34: 0,
+      populationFemale25To34: 0,
+      populationMale35To44: 0,
+      populationFemale35To44: 0,
+      populationMale45To54: 0,
+      populationFemale45To54: 0,
+      populationMale55To64: 0,
+      populationFemale55To64: 0,
+      populationMale65Plus: 300,
+      populationFemale65Plus: 300,
+      populationMale18Plus: 400,
+      populationFemale18Plus: 400,
+    }
+    // The voter file is 80% young; the census says a quarter.
+    const voterCell = (
+      ageBand: string,
+      gender: string,
+      tract: string,
+      count: number,
+    ) => ({ ageBand, gender, tract, race: null, count })
+    const VOTER_CELLS = [
+      voterCell('18to24', 'male', 'a', 20),
+      voterCell('18to24', 'female', 'a', 20),
+      voterCell('18to24', 'male', 'b', 20),
+      voterCell('18to24', 'female', 'b', 20),
+      voterCell('65plus', 'male', 'a', 5),
+      voterCell('65plus', 'female', 'a', 5),
+      voterCell('65plus', 'male', 'b', 5),
+      voterCell('65plus', 'female', 'b', 5),
+    ]
+    const total = (frame: MrpFrameCell[]) =>
+      frame.reduce((sum, c) => sum + c.count, 0)
+    const share = (frame: MrpFrameCell[], dimension: string, value: string) =>
+      total(frame.filter((c) => c.values[dimension] === value)) / total(frame)
+
+    it('poststratifies the frame to census sex by age and tract adults', async () => {
+      const { source, warn } = withCells(
+        vi.fn().mockResolvedValue({
+          district: SEX_AGE,
+          cells: VOTER_CELLS,
+          tractAdults: new Map([
+            ['a', 500],
+            ['b', 500],
+          ]),
+        }),
+        vi.fn().mockResolvedValue([]),
+      )
+
+      const inputs = await source.mrpInputs(MODEL_INPUT)
+
+      expect(share(inputs?.frame ?? [], 'age', '18to24')).toBeCloseTo(0.25)
+      expect(share(inputs?.frame ?? [], 'age', '65plus')).toBeCloseTo(0.75)
+      expect(share(inputs?.frame ?? [], 'tract', 'a')).toBeCloseTo(0.5)
+      expect(warn).not.toHaveBeenCalled()
+    })
+
+    it('keeps the voter file for suppressed margins and logs it', async () => {
+      const { source, warn } = withCells(
+        vi.fn().mockResolvedValue({
+          district: { ...SEX_AGE, populationMale65Plus: null },
+          cells: VOTER_CELLS,
+          tractAdults: new Map(),
+        }),
+        vi.fn().mockResolvedValue([]),
+      )
+
+      const inputs = await source.mrpInputs(MODEL_INPUT)
+
+      expect(share(inputs?.frame ?? [], 'age', '18to24')).toBeCloseTo(0.8)
+      expect(warn).toHaveBeenCalledWith(
+        { districtId: 'd-1', dimensions: ['age', 'tract'] },
+        expect.stringContaining('voter file'),
+      )
+    })
+
+    it('sits an answer out of a tract the frame does not hold', async () => {
+      const { source } = withCells(
+        vi.fn().mockResolvedValue({
+          district: SEX_AGE,
+          cells: VOTER_CELLS,
+          tractAdults: new Map([['a', 500]]),
+        }),
+        vi.fn().mockResolvedValue([
+          {
+            ageBand: '18to24',
+            gender: 'male',
+            tract: 'b',
+            race: null,
+            yes: 1,
+            count: 1,
+          },
+        ]),
+      )
+
+      const inputs = await source.mrpInputs(MODEL_INPUT)
+
+      expect(inputs?.answers[0]?.values).toMatchObject({
+        age: '18to24',
+        tract: null,
+      })
+    })
+
+    it('sizes major groups on the same frame', async () => {
+      // The census puts the younger band at 25%, so the smallest major
+      // group is a quarter of the district: 12 answers, not the 15 a voter
+      // file's 20% group would ask for.
+      const { source } = withCells(
+        vi.fn().mockResolvedValue({
+          district: SEX_AGE,
+          cells: VOTER_CELLS,
+          tractAdults: new Map([
+            ['a', 500],
+            ['b', 500],
+          ]),
+        }),
+        vi.fn(),
+      )
+
+      expect(await source.districtAnswersNeeded(MODEL_INPUT)).toBe(12)
     })
   })
 
@@ -290,44 +371,5 @@ describe('DistrictCensusComposition.mrpInputs', () => {
       expect(await source.districtAnswersNeeded(MODEL_INPUT)).toBeNull()
       expect(warn).toHaveBeenCalledOnce()
     })
-  })
-})
-
-describe('representationFrom', () => {
-  const placed = (n: number) => Array.from({ length: n }, () => counts(10))
-
-  it('shows unavailable census as a comparison with no rows', () => {
-    expect(representationFrom({ available: false }, 40)).toEqual({
-      respondentCount: 40,
-      groups: [],
-    })
-  })
-
-  it('withholds the comparison when too few people were placed', () => {
-    expect(
-      representationFrom(
-        {
-          available: true,
-          district: counts(10),
-          respondentBlockGroups: placed(MIN_RESPONDENTS_FOR_REPRESENTATION - 1),
-        },
-        50,
-      ),
-    ).toBeNull()
-  })
-
-  it('counts the people placed, not the people asked about', () => {
-    const representation = representationFrom(
-      {
-        available: true,
-        district: counts(10),
-        respondentBlockGroups: placed(MIN_RESPONDENTS_FOR_REPRESENTATION),
-      },
-      50,
-    )
-    expect(representation?.respondentCount).toBe(
-      MIN_RESPONDENTS_FOR_REPRESENTATION,
-    )
-    expect(representation?.groups.length).toBeGreaterThan(0)
   })
 })

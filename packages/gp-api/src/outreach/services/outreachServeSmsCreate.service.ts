@@ -54,7 +54,7 @@ import { OutreachReportBackService } from './outreachReportBack.service'
  * step.
  *
  * Draft-first is required, not preferred: a Stripe metadata VALUE caps at 500
- * characters and `SMS_COMPOSED_MAX_LENGTH` is 1000, so the poll pattern of
+ * characters and `SMS_COMPOSED_MAX_LENGTH` is 2000, so the poll pattern of
  * carrying the composed message through checkout metadata cannot work. The
  * row has to exist before checkout, and checkout then carries two ids.
  *
@@ -77,6 +77,10 @@ export const MIN_SERVE_SMS_RECIPIENTS = 25
 
 /** Serve sends at a fixed 11am local. Stated to the user, never chosen. */
 export const SERVE_SMS_SEND_HOUR_LOCAL = 11
+
+// A follow-up is sized to at most this share of the people left after the
+// first half, so a draw that finds some of them gone still fills it.
+export const FOLLOW_UP_POOL_SHARE = 0.9
 
 export const MIN_SERVE_SMS_LEAD_BUSINESS_DAYS = 2
 export const MAX_SERVE_SMS_SCHEDULE_DAYS = 30
@@ -242,13 +246,6 @@ export class OutreachServeSmsCreateService extends createPrismaBase(
         "A report back doesn't ask people to join your civic panel. Remove that line and try again.",
       )
     }
-    // One report back per send: a paid one closes it. Unpaid drafts are left
-    // alone, since re-entering the flow makes a fresh draft by design; the
-    // checkout refuses a second once one is paid.
-    const sent = await this.reportBack.sentReportBacks([outreachId])
-    if (sent.has(outreachId)) {
-      throw new BadRequestException('You already reported back on that text.')
-    }
     const target = await this.model.findFirst({
       where: {
         id: outreachId,
@@ -257,11 +254,25 @@ export class OutreachServeSmsCreateService extends createPrismaBase(
           electedOffice.id,
         ),
       },
-      select: { id: true },
+      select: { priorityId: true },
     })
-    if (!target) {
+    if (!target?.priorityId) {
       throw new BadRequestException(
         "That text can't be reported back on yet. Wait until its replies are in.",
+      )
+    }
+    // One report back each time the priority's read changes: a paid one
+    // closes it until then. Unpaid drafts are left alone, since re-entering
+    // the flow makes a fresh draft by design; the checkout refuses a second
+    // once one is paid.
+    if (
+      await this.reportBack.sentReportBack(
+        electedOffice.organizationSlug,
+        target.priorityId,
+      )
+    ) {
+      throw new BadRequestException(
+        "You already told people what you heard. We'll offer it again when what you've heard changes.",
       )
     }
   }
@@ -493,9 +504,11 @@ export class OutreachServeSmsCreateService extends createPrismaBase(
     }
   }
 
-  // A priority text's follow-up: paid for now at `roundTwoSize`, or what the
-  // pool holds past this send if fewer, and drawn on the last day staff can
-  // take it. The pool is the list's whole criteria (never its sample) on
+  // A priority text's follow-up: paid for now at `roundTwoSize`, or at most
+  // FOLLOW_UP_POOL_SHARE of what the pool holds past this send if fewer, and
+  // drawn on the last day staff can take it. The share leaves a buffer for
+  // people who opt out or are reached some other way before the draw, so the
+  // draw rarely finds fewer people than were paid for. The pool is the list's whole criteria (never its sample) on
   // cell phones, less everyone the priority's other sends reached, everyone
   // opted out, and the people this send goes to. Too few left for a text of
   // its own is no follow-up, and the purchase is this send alone.
@@ -525,7 +538,7 @@ export class OutreachServeSmsCreateService extends createPrismaBase(
     )
     const recipientCount = Math.min(
       input.roundTwoSize ?? 0,
-      pool - roundOneCount,
+      Math.floor((pool - roundOneCount) * FOLLOW_UP_POOL_SHARE),
     )
     if (recipientCount < MIN_TEXTS_PER_ROUND) return null
     return {

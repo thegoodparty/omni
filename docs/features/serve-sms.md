@@ -381,9 +381,8 @@ choice rather than something the test depends on.
 
 **This is gated on a pre-work PR to main, and the reason is that no PR will
 catch it.** `@dev-only` Playwright specs are grepped out of pull request runs
-entirely and run only post-merge on the release train
-(`gpbot-dev-test-triage.yml`: "These never run on PRs, so nothing saw them
-before the merge"; prior incident ENG-11106). The poll e2e is `@dev-only`, so
+entirely and run only post-merge on the release train, so nothing sees them
+before the merge (prior incident ENG-11106). The poll e2e is `@dev-only`, so
 removing the line fails nothing until the train runs.
 
 **Pre-work, shipped to main on its own before this line is removed: PR #2024.**
@@ -511,7 +510,7 @@ new purchase type, because the `TEXT` handler hard-requires a `campaignId` and
 
 Draft-first is required, not preferred: the poll pattern puts message content
 in Stripe checkout metadata, which caps values at 500 characters, and
-`SMS_COMPOSED_MAX_LENGTH` is 1000.
+`SMS_COMPOSED_MAX_LENGTH` is 2000.
 
 **Results.** `getSmsResults` with its campaign predicate parametrized to an org
 scope, the same way `findByScope` already handles Win and Serve. Plus a

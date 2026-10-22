@@ -959,4 +959,3 @@ describe('POST /v1/test-fixtures/vendor-mocks/outreach/:id/admin-actions', () =>
     expect(res.status).toBe(HttpStatus.BAD_REQUEST)
   })
 })
-

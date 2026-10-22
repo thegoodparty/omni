@@ -9,10 +9,12 @@ import {
   EXPLAIN_CIVIC_PANEL_MESSAGE,
   MAX_CHECK_RAISES,
   PANEL_MAX_HOURS_PER_WEEK,
+  PICKED_NEXT_STEPS_LEAD,
   PRIORITY_STEP_LABELS,
   READ_REPRESENTATIVENESS_LABELS,
   SAMPLE_TARGET_REPLIES,
   underrepresentedGroupName,
+  joinGroupNames,
   type ChatAnchor,
   type PriorityStepCheck,
   type PriorityStepContrast,
@@ -97,6 +99,16 @@ const relationshipBlock = (isFirstConversation: boolean): string =>
 - You have already met. Never introduce yourself, and never open as though the relationship is starting. (The exact decline line above is exempt: it is fixed text.)
 - Each session starts a fresh transcript, so an empty conversation above is not a new relationship. Treat it as the next time you sat down together.
 - Open on what is in front of them now, the way a colleague picks up mid-week.`
+
+// The intro's next steps can be picked together. The app sends them as one
+// turn, and that turn stays in the transcript, so the steps still to do are
+// read back from it on every later turn rather than kept anywhere else.
+const PICKED_NEXT_STEPS_BLOCK = `PICKED NEXT STEPS (apply when a user message starts with "${PICKED_NEXT_STEPS_LEAD}" followed by a numbered list; the app sends it when they pick more than one of the next steps under your introduction)
+- Work through the steps in the order listed, one at a time. Start the first now, exactly as if they had asked for it on its own, so a civic panel step follows the civic panel rules.
+- The last item may be in their own words (they picked Something else and wrote it). Treat it as a step like the others, in its place at the end.
+- Say in one short line that you will come back to the others, naming them. Do not start them in this reply.
+- The list stays in this conversation. When the current step is done, or they say to move on, start the next one on the list without being asked: name it in a line, then do it. Keep going until every step is done.
+- If they ask about something else in between, answer it, then offer to pick the list back up at the step you stopped on.`
 
 const NO_PRIORITIES_BLOCK = `PRIORITIES NOT ON FILE
 - The user has no priorities on file (see <priorities> below). Their priorities are what everything else gets framed against, so getting them on file matters.
@@ -292,7 +304,7 @@ const civicPanelBuildBlock = (
   ].every((name) => toolNames.includes(name))
   const pageLink = (label: string) => `[${label}](${CIVIC_PANEL_PAGE_HREF})`
   const explain =
-    '- Explain what a civic panel is, calling it their civic panel, in 2 or 3 short sentences: residents who said yes to being asked about once a month what they think, so the official hears from more of the community, not only the loudest voices. Skip this when you already explained the panel earlier in this conversation, and go straight to the next step.'
+    '- Explain what a civic panel is, calling it their civic panel, in 1 or 2 short sentences that say what it is for them, for example "A civic panel is residents from every part of your district who agreed to tell you what they think before you decide." Skip this when you already explained the panel earlier in this conversation, and go straight to the next step.'
   const atGoal = panel.members >= panel.goalMembers
   const askTime = [
     `- Then say in one short sentence that the plan mixes texts with their own calls and door knocking, which reach the residents a text misses, and call \`${ASK_PANEL_WEEKLY_TIME_TOOL}\` with nothing after it. The app shows the question, "How much time can you give each week?", and its answers, so never write the question or the answers yourself.`,
@@ -308,7 +320,7 @@ const civicPanelBuildBlock = (
         ]
       : atGoal
         ? [
-            `- Their civic panel already has ${people(panel.members)} people, its goal. Say so in one line, then that they can keep it fresh with a plan that keeps adding new members, leaning toward the groups with the fewest.`,
+            `- Their civic panel already has ${people(panel.members)} people, its goal. Say so in one line, then that they can keep it fresh with a plan that keeps inviting residents, leaning toward the groups with the fewest members who answered lately.`,
             ...askTime,
           ]
         : panel.members > 0
@@ -336,7 +348,11 @@ const civicPanelBuildBlock = (
       ? [
           '- Their first invite is out and they have no priorities on file. Finish the reply with one line asking which priorities they want to work on, and offer to record what they tell you. Say it once, after the card, and never hold the plan back for it.',
         ]
-      : []
+      : [
+          hasPriorities
+            ? "- They already have priorities on file. Never ask them to record priorities in this reply: end on the plan's next step, and you may add one line tying the panel to their first priority by name."
+            : "- Do not ask about priorities in this reply, even though none are on file: no invite has gone out yet. End on the plan's next step.",
+        ]
   return [
     `CIVIC PANEL (apply when the user's message is exactly "${BUILD_CITIZENS_PANEL_MESSAGE}", they ask to build or start their civic panel, or they answer or change how much time they can give it each week):`,
     `- "${BUILD_CITIZENS_PANEL_MESSAGE}" is sent by the app, not typed by them, so never quote it or reply to it as their words.`,
@@ -351,12 +367,11 @@ const civicPanelBuildBlock = (
 
 // Every civic panel reply, build or explain. "just" is banned product copy.
 // The panel page's status and its one group to invite next may be repeated
-// in its words (Bryan, 2026-10-18), a race group included (see
-// docs/decisions/2026-10-19-race-ethnicity-in-civic-panel.md); a promise
+// in its words (Bryan, 2026-10-18), a race group included; a promise
 // that the panel will match the community, any weight, quota or target, and
 // any one person's race may not.
 const CIVIC_PANEL_CLAIM_RULE =
-  '- Never use the word "just". You may say the status their panel page shows (the panelStatus a panel tool returns: Too few members yet, Missing some groups or Every group on your panel) and the group it says to invite next (inviteMoreNext), in those words. Never promise or imply the panel will look like, match, mirror or represent the district, the city or the community. Never mention weights, quotas or targets, and never say or guess any one person\'s race. To say why the panel is worth building, say that picking people at random means it is not only the people who already reach out.'
+  '- Never use the word "just". You may say the status their panel page shows (the panelStatus a panel tool returns: Too few members yet, Missing some groups or Every group on your panel) and the group it says to invite next (inviteMoreNext), in those words. Never promise or imply the panel will look like, match, mirror or represent the district, the city or the community. Never mention weights, quotas or targets, and never say or guess any one person\'s race. To say why the panel is worth building, say they hear from every part of their district before they decide, not only the people who already reach out. Never say how members are found, picked or invited: no random picks, samples or self-selection.'
 
 // What the agent does when the official presses What's a civic panel? on the
 // build card: it explains, and builds nothing unless they say yes.
@@ -444,7 +459,7 @@ const TOOL_DESCRIPTIONS: Record<string, string> = {
     'query aggregate, district-scoped constituent opinion (modeled issue-support scores) and demographics',
   describe_constituent_data:
     'list the recommended constituent breakdown dimensions before querying',
-  read_community_issues: 'fetch full detail for a community issue by id',
+  read_community_issues: 'list community issues, or fetch one by id',
   describe_filter_dimensions:
     'list the contact-filter dimensions and allowed values for this organization',
   count_contacts:
@@ -643,9 +658,11 @@ const formatRead = (read: PriorityReadStatus | undefined): string =>
       }, status: ${READ_REPRESENTATIVENESS_LABELS[read.status]}, hear more from: ${
         read.underrepresented.length === 0
           ? 'nobody in particular'
-          : read.underrepresented
-              .map((group) => underrepresentedGroupName(group, read.status))
-              .join(' and ')
+          : joinGroupNames(
+              read.underrepresented.map((group) =>
+                underrepresentedGroupName(group, read.status),
+              ),
+            )
       }, good read: ${read.good ? 'yes' : 'no'}`
 
 const formatPriority = (
@@ -674,7 +691,7 @@ const prioritiesBlock = (
 // Behind serve-citizen-panels, with each priority's read status in
 // <priorities>. Mirrors the priority flow's BEFORE A GOOD READ.
 const PRIORITY_READ_RULES = `A PRIORITY'S RESULTS BEFORE A GOOD READ (apply whenever you talk about what constituents said on a priority):
-- <priorities> says, for each priority, how many of the district's major groups have been heard from, a status (Waiting to hear from some groups, A few groups need more answers, Still unsure what some groups think, Every group heard or Enough people have answered), and which groups to hear from next. A major group is 3% or more of the district by age, neighborhood, race and gender, and heard means at least three answers. Every group heard is a good read: we are sure what each group thinks. Enough people have answered is a good read we could not check group by group: say they have enough answers but you could not check which groups they came from, and never say every group was heard. Good read: no means they do not have one yet.
+- <priorities> says, for each priority, how many of the district's major groups have been heard from, a status (Waiting to hear back,A few groups need more answers, Still unsure what some groups think, Every group heard or Enough people have answered), and which groups to hear from next. A major group is 3% or more of the district by age, neighborhood, race and gender, and heard means at least three answers. Every group heard is a good read: we are sure what each group thinks. Enough people have answered is a good read we could not check group by group: say they have enough answers but you could not check which groups they came from, and never say every group was heard. Good read: no means they do not have one yet.
 - Before a good read, do not share that priority's results: no themes, no splits, no quotes, nothing like "most said" or "people want". Nudge toward a good read instead, in one line, with the link to the priority, where they get more answers: the status and which groups to hear from next, in exactly those words, for example "You've heard from most groups on it, but not yet people 65 and over." Never give a count of answers.
 - Never mention weights, weighting, raking, models, quotas or confidence ranges.
 - If they ask directly what people have said so far, answer honestly in one or two sentences, with no quotes, and say it is too early to act on.`
@@ -723,6 +740,7 @@ export const buildChiefOfStaffSystemPrompt = (args: {
     HONEST_REPORTING_BLOCK,
     PROFESSIONAL_ADVICE_BLOCK,
     relationshipBlock(ctx.isFirstConversation),
+    PICKED_NEXT_STEPS_BLOCK,
     ...(ctx.priorities.length === 0 ? [NO_PRIORITIES_BLOCK] : []),
     ...(ctx.isFirstConversation ? [firstRunResearchBlock(hasWebSearch)] : []),
     todayLine(ctx.state),

@@ -77,10 +77,7 @@ export type SynthesisRun = z.infer<typeof SynthesisRunSchema>
 // Where an effort's conversations happened: a turf's envelope is door_knock,
 // a phone list's is phone_bank, and a Serve text send's is text, whose
 // members are the constituents' own replies rather than a canvasser's notes.
-export const FeedbackReportChannelSchema = z.enum([
-  ...ConstituentFeedbackChannelSchema.options,
-  'text',
-])
+export const FeedbackReportChannelSchema = ConstituentFeedbackChannelSchema
 export type FeedbackReportChannel = z.infer<typeof FeedbackReportChannelSchema>
 
 export const StanceCountsSchema = z.object({

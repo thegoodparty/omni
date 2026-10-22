@@ -407,6 +407,7 @@ describe('SmsFlow', () => {
         date: expect.stringMatching(/T10:00:00-0[45]:00$/),
       }),
       expect.anything(),
+      expect.any(Function),
     )
     expect(completeFreePurchase).toHaveBeenCalledWith(
       'TEXT',
@@ -978,7 +979,7 @@ describe('SmsFlow', () => {
       await waitFor(() => expect(box).toHaveTextContent(/Vote soon\./))
     })
 
-    // The polish endpoint takes a message within the 1000-character limit,
+    // The polish endpoint takes a message within the 2000-character limit,
     // so over it neither the AI button nor a tone pill sends one; the note
     // says to shorten it instead.
     it('sends no polish for a message over the length limit', async () => {
@@ -987,7 +988,7 @@ describe('SmsFlow', () => {
       act(() => {
         editor.commands.insertContentAt(
           endOf(editor, 'introduce_myself'),
-          ` ${'Vote early. '.repeat(80)}`,
+          ` ${'Vote early. '.repeat(180)}`,
         )
       })
 
@@ -995,7 +996,7 @@ describe('SmsFlow', () => {
         await screen.findByRole('button', { name: 'Improve with AI' }),
       ).toBeDisabled()
       expect(
-        screen.getByText(/Keep the whole message .* under 1000 characters/),
+        screen.getByText(/Keep the whole message .* under 2000 characters/),
       ).toBeInTheDocument()
 
       await userEvent.click(screen.getByRole('radio', { name: /Direct/ }))
@@ -1701,6 +1702,7 @@ describe('SmsFlow', () => {
         expect(vi.mocked(createOutreach)).toHaveBeenCalledWith(
           expect.objectContaining({ proposalKey, voterFileFilterId: 41 }),
           expect.anything(),
+          expect.any(Function),
         ),
       )
     })
@@ -1733,6 +1735,43 @@ describe('SmsFlow', () => {
       await waitFor(() =>
         expect(onProposalCreateFailed).toHaveBeenCalledTimes(1),
       )
+    })
+
+    it('says why the server refused the draft on the review step', async () => {
+      vi.mocked(createOutreach).mockClear()
+      vi.mocked(createOutreach).mockImplementationOnce(
+        async (_payload, _image, onRejected) => {
+          onRejected?.('Campaign is 10DLC-approved for internal testing only')
+          return null
+        },
+      )
+      openSeeded({
+        initialScript: 'Hello {first_name}, vote Tuesday.',
+        preselectedListId: 41,
+      })
+      await userEvent.click(
+        await screen.findByRole('button', { name: /Continue \(1,200\)/ }),
+      )
+      await screen.findByRole('textbox', { name: 'Message body' })
+      await attachImage()
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
+      )
+      await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+      await userEvent.click(await screen.findByText('Pick a date'))
+      await userEvent.click(
+        await screen.findByRole('button', { name: dayName(4) }),
+      )
+      await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+      expect(
+        await screen.findByText(/couldn.t set up your purchase/),
+      ).toBeInTheDocument()
+      expect(
+        screen.getByText(
+          'Campaign is 10DLC-approved for internal testing only',
+        ),
+      ).toBeInTheDocument()
     })
 
     // Words the product carried in or wrote are checked for the sender's
@@ -2423,6 +2462,7 @@ describe('SmsFlow', () => {
             phoneListId: 77,
           }),
           null,
+          expect.any(Function),
         ),
       )
       expect(
@@ -2505,6 +2545,7 @@ describe('SmsFlow', () => {
               'Reply STOP to opt out.',
           }),
           null,
+          expect.any(Function),
         ),
       )
     })

@@ -181,6 +181,11 @@ model VoterFileFilter {
   /// Whether the candidate edited the recommendation before submitting.
   /// Null (not false) when recommendedVariant is null.
   recommendedModified        Boolean?                           @map("recommended_modified")
+  /// Serve. Set on a list our code saved as a civic panel invite's
+  /// audience: a build plan step's draw, or the panel's first text. The
+  /// outreach that used it keeps it, but the lists index leaves it out, since
+  /// the office's one panel list is the built-in Civic panel row.
+  civicPanelInvite           Boolean                            @default(false) @map("civic_panel_invite")
 
   @@index([organizationSlug])
   @@map("voter_file_filter")

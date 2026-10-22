@@ -946,64 +946,6 @@ describe('DatabricksVoterService', () => {
     })
   })
 
-  describe('findCensusComposition', () => {
-    const PERSON_ID = '0190a1b2-0000-7000-8000-00000000000a'
-    const acs = (value: string | null) =>
-      Array.from({ length: 34 }, () => value)
-
-    it('reads the district row and the block groups the people live in', async () => {
-      stubDistrict('City_Ward', 'WARD 1')
-      query
-        .mockResolvedValueOnce({ columns: [], rows: [acs('100')] })
-        .mockResolvedValueOnce({ columns: [], rows: [['2', ...acs('7')]] })
-
-      const result = await service.findCensusComposition(
-        DISTRICT_ID,
-        'voters',
-        [PERSON_ID],
-      )
-
-      expect(query).toHaveBeenCalledTimes(2)
-      expect(query.mock.calls[0]?.[0].sql).toContain(
-        'gp_api_district_census_demographics',
-      )
-      expect(query.mock.calls[1]?.[0].sql).toContain(PERSON_ID)
-      expect(result.district?.totalPopulation).toBe(100)
-      expect(result.respondentBlockGroups).toHaveLength(2)
-    })
-
-    it('skips the block group read when there is nobody to place', async () => {
-      stubDistrict('City_Ward', 'WARD 1')
-      query.mockResolvedValueOnce({ columns: [], rows: [] })
-
-      const result = await service.findCensusComposition(
-        DISTRICT_ID,
-        'voters',
-        [],
-      )
-
-      expect(query).toHaveBeenCalledTimes(1)
-      expect(result).toEqual({
-        district: null,
-        respondentBlockGroups: [],
-      })
-    })
-
-    // The caller turns a failure into "unavailable" and answers 200, so
-    // nothing here may log at error the way `run()` does.
-    it('rejects with the raw failure and logs nothing at error', async () => {
-      stubDistrict('City_Ward', 'WARD 1')
-      query
-        .mockResolvedValueOnce({ columns: [], rows: [acs('1')] })
-        .mockRejectedValueOnce(new PeopleDbxUnavailableError('closed'))
-
-      await expect(
-        service.findCensusComposition(DISTRICT_ID, 'voters', [PERSON_ID]),
-      ).rejects.toBeInstanceOf(PeopleDbxUnavailableError)
-      expect(logger.error).not.toHaveBeenCalled()
-    })
-  })
-
   describe('findDistrictCells', () => {
     it('reads the district row and its people by cell', async () => {
       stubDistrict('City_Ward', 'WARD 1')
@@ -1016,8 +958,14 @@ describe('DatabricksVoterService', () => {
           columns: [],
           rows: [['65plus', 'female', '53017950100', 'black', '40']],
         })
+        .mockResolvedValueOnce({
+          columns: [],
+          rows: [['53017950100', '1200']],
+        })
 
       const result = await service.findDistrictCells(DISTRICT_ID, 'voters')
+
+      expect(result.tractAdults).toEqual(new Map([['53017950100', 1200]]))
 
       expect(query.mock.calls[1]?.[0].sql).toContain('count(*) AS people')
       expect(result.district?.totalPopulation).toBe(100)
@@ -1031,6 +979,28 @@ describe('DatabricksVoterService', () => {
         },
       ])
       expect(logger.error).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('findDistrictCells without tract adults', () => {
+    it('keeps the district and its people when the tract read fails', async () => {
+      stubDistrict('City_Ward', 'WARD 1')
+      query
+        .mockResolvedValueOnce({
+          columns: [],
+          rows: [Array.from({ length: 34 }, () => '100')],
+        })
+        .mockResolvedValueOnce({
+          columns: [],
+          rows: [['65plus', 'female', '53017950100', 'black', '40']],
+        })
+        .mockRejectedValueOnce(new Error('warehouse timeout'))
+
+      const result = await service.findDistrictCells(DISTRICT_ID, 'voters')
+
+      expect(result.tractAdults).toEqual(new Map())
+      expect(result.cells).toHaveLength(1)
+      expect(logger.warn).toHaveBeenCalledOnce()
     })
   })
 

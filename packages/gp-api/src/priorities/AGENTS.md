@@ -34,6 +34,18 @@ invisible, so it is not flag-gated.
 - **The model.** `LlmService.jsonCompletion`, 20 replies a call, each sent
   under its position in the batch, never a person id. A failed call or an
   off-vocabulary code leaves those replies uncoded for the next pass.
+- **Where it shows.** On the constituent's record (`contactEngagement/`): each coded text, call or knock in the activity feed names its priority and the answer, and `GET /v1/contact-engagement/:id/priority-answers` lists them all.
+- **A text reply's issues too.** On a text send, each pass first hands every
+  respondent's joined words to issue capture
+  (`ConstituentFeedbackService.recordPriorityTextReplies`, resolved lazily
+  through `ModuleRef`), before the coded check, so replies coded earlier get
+  theirs on the next pass. That writes a `ConstituentFeedback` row on channel
+  `text` with the issue, stance and outcome, so the reply shows in the
+  record's "What they told us" beside door and call memos. Idempotent on the
+  row's `clientKey` (`priority-text:<outreachId>:<personId>`): unchanged
+  words cost no model call. Its failure is logged and never stops the coding,
+  which the read depends on. See `constituentFeedback/AGENTS.md`, Text
+  replies.
 - **When.** Fire-and-forget after a committed results upload on a Serve text
   (`outreachResultsAdmin.service.ts`), and after a memo is captured or
   confirmed (`constituentFeedback.service.ts`). The backstop is the
@@ -49,11 +61,15 @@ of its coded answers (`util/mrp.util.ts`), mapped to the page's existing
 `PriorityReadStatus` by `util/mrpReadStatus.util.ts`. The rule, the major
 groups and `needed` are in the webapp's priority AGENTS.md ("A good read")
 and `docs/features/civic-panel-mrp.md`. The frame and the answer cells come
-from `CensusCompositionSource.mrpInputs` (bound in
+from `CensusCompositionSource.mrpInputs` (the voter file's district cells
+reweighted to census sex by age and adults per tract, `util/censusFrame.util.ts`;
+a margin the census cannot give keeps the voter file's, logged; bound in
 `CensusCompositionModule`; route tests stub it). `codedAnswers` reads
 `PriorityAnswer` over the same sends the page counts, one value per person.
-The representation bars compare who answered with the district, unweighted.
-`mrpReadStatus` also returns `groupsHeard` of `groupsTotal` (major groups with
+`answerGroups` gives the results page each major group but tracts, its
+share of the district against its share of the coded answers, unweighted.
+`mrpReadStatus` also returns `unheard`, the named groups with no coded answer
+at all (a tract with none makes `unreachedAreas` unheard), and `groupsHeard` of `groupsTotal` (major groups with
 at least three coded answers), which the webapp shows instead of an answer
 count. `unreachedAreaFor` takes its tracts from the same model
 (`holdingBackTracts`: major tracts short of three answers or too unsure), so
@@ -83,8 +99,14 @@ day a Serve text for that date could be booked).
   whose list is still undrawn, so a follow-up never puts a check out
   before it is drawn.
 - **Shown.** `readStatuses` carries the next paid, unsent follow-up per
-  priority as `followUp` (`scheduledLocalDate`, `texts`), for the priority
-  page and the agent's `<priority>` block.
+  priority as `followUp` (`scheduledLocalDate`, `texts`), `followUpSent` once
+  one has gone out, and `checkOut` once anything has gone to residents on
+  any channel, for the priority page and the agent's `<priority>` block. The
+  agent offers no text while a follow-up is scheduled or sent
+  (`checkFollowUpPart`): a short read is closed with calls and doors.
+- **Undrawn list.** It stays off the lists index (`findByOrganizationSlug`
+  and its siblings leave out `UNDRAWN_SAMPLE_WHERE`) and
+  `assertNotLocked` 409s an edit or delete of it, even by id.
 - **Nobody left.** A draw that finds no one cancels the send
   (`canceledBy: round_two_drew_nobody`), logged at error for a hand refund.
 - **Fit.** The priority's coded answers (`yes` 1, `no` 0, `mixed` 0.5,

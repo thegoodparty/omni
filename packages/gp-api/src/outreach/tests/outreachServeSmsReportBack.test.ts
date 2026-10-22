@@ -11,6 +11,7 @@ import {
   OutreachType,
   PrioritySource,
 } from '../../generated/prisma'
+import { OutreachReportBackService } from '../services/outreachReportBack.service'
 import { OutreachServeSmsPurchaseHandlerService } from '../services/outreachServeSmsPurchase.service'
 import { QueueProducerService } from '@/queue/producer/queueProducer.service'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
@@ -164,6 +165,118 @@ describe('a Serve text that reports back', () => {
         organizationSlug: slug,
       }),
     ).rejects.toThrow(/already went out/)
+  })
+
+  // One entry per priority, anchored on its latest text, counting everyone
+  // who answered on any channel once.
+  it('reads one entry per priority, counting each person who answered once', async () => {
+    const office = await service.prisma.electedOffice.findFirstOrThrow({
+      where: { organizationSlug: slug },
+    })
+    const laterId = (
+      await service.prisma.outreach.create({
+        data: {
+          organizationSlug: slug,
+          campaignId: null,
+          outreachType: OutreachType.text,
+          status: OutreachStatus.completed,
+          priorityId,
+        },
+      })
+    ).id
+    const [a, b] = [randomUUID(), randomUUID()]
+    for (const [outreachId, personId] of [
+      [askedId, a],
+      [laterId, a],
+      [laterId, b],
+    ] as const) {
+      await service.prisma.pollIndividualMessage.create({
+        data: {
+          id: randomUUID(),
+          personId,
+          sentAt: new Date(),
+          sender: 'CONSTITUENT',
+          isOptOut: false,
+          outreachId,
+        },
+      })
+    }
+
+    const sends = await service.app
+      .get(OutreachReportBackService)
+      .listForOffice(slug, office.id)
+
+    expect(sends).toHaveLength(1)
+    expect(sends[0]).toMatchObject({
+      outreachId: laterId,
+      priorityId,
+      audience: 'Everyone who answered about Downtown parking',
+      answered: 2,
+      canReach: 2,
+      reportBack: null,
+    })
+  })
+
+  it('counts only the answerers a text can reach as canReach', async () => {
+    const office = await service.prisma.electedOffice.findFirstOrThrow({
+      where: { organizationSlug: slug },
+    })
+    for (const personId of [randomUUID(), randomUUID()]) {
+      await service.prisma.pollIndividualMessage.create({
+        data: {
+          id: randomUUID(),
+          personId,
+          sentAt: new Date(),
+          sender: 'CONSTITUENT',
+          isOptOut: false,
+          outreachId: askedId,
+        },
+      })
+    }
+    const countByGroupWithin = vi
+      .spyOn(service.app.get(ContactsService), 'countByGroupWithin')
+      .mockResolvedValue([{ count: 1 }] as never)
+
+    const [send] = await service.app
+      .get(OutreachReportBackService)
+      .listForOffice(slug, office.id)
+
+    expect(countByGroupWithin).toHaveBeenCalledWith(
+      expect.anything(),
+      { hasCellPhone: true },
+      expect.any(Array),
+    )
+    expect(send).toMatchObject({ answered: 2, canReach: 1 })
+  })
+
+  // The priority's read changing makes a new card, which is a new reason to
+  // tell people what was heard.
+  it('lets another go out once the priority read changes', async () => {
+    const first = await create()
+    await service.prisma.outreach.update({
+      where: { id: first.data.outreachId },
+      data: { status: OutreachStatus.pending },
+    })
+    expect((await create()).status).toBe(HttpStatus.BAD_REQUEST)
+
+    const electedOffice = await service.prisma.electedOffice.findFirstOrThrow({
+      where: { organizationSlug: slug },
+    })
+    await service.prisma.dashboardCard.create({
+      data: {
+        electedOfficeId: electedOffice.id,
+        type: 'report_back',
+        sourceExternalId: priorityId,
+        sourceItemId: 'representative',
+        title: 'New read',
+        summary: 'New read',
+        ctaLabel: 'Report back',
+        ctaHref: '/x',
+        dueDate: new Date(),
+      },
+    })
+
+    expect((await create()).status).toBe(HttpStatus.CREATED)
   })
 
   // A new draft supersedes the unpaid one before it, so a stale draft left

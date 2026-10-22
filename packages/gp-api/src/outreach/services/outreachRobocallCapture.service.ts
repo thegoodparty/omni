@@ -287,10 +287,10 @@ export class OutreachRobocallCaptureService extends createPrismaBase(
         )
         return
       }
-      this.logger.error(
+      this.logger.warn(
         { outreachId, intentStatus: intent.status },
-        'CRITICAL robocall capture: hold not capturable at capture time; ' +
-          'parked uncollectable, delivered run uncharged',
+        'robocall capture: hold not capturable at capture time; ' +
+          'parked uncollectable for fresh-charge recovery',
       )
       await this.transitionFromCapturing(
         outreachId,

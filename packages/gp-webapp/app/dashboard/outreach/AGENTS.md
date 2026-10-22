@@ -15,7 +15,7 @@ candidate or ballot, and no "campaign" in the run-for-office sense (an
 outreach campaign is fine). Add a Serve-framed string by giving the component
 a mode-keyed copy object, never by renaming the Win one: Win copy must not
 change. `SERVE_PHONE_BANKING_AUDIENCE_COPY` in
-`v2/phone-banking/PhoneBankingFlow.tsx` is the shape. Full rule, the banned
+`v2/phone-banking/PhoneBankingFlow.tsx` is the shape. The history table's and drawer's own strings (titles, the name column, empty states, call results, archive errors) are `v2/outreachHistoryCopy.ts`. Full rule, the banned
 list, and the check that enforces it: **`docs/product-vocabulary.md`**.
 
 ## The outreach hub
@@ -92,11 +92,16 @@ carries `proposedAudience.sample`, and the save posts it as the list's
 `sample` along with the count overlay, so the list is the frozen draw of
 people this channel can reach rather than the live filter; the builder's
 count, and so "Continue (N)", reads the sample's size. A reset clears it with
-the other builder fields. A priority's text that asks the civic panel and
-new residents in one send (`panelSampleSize` inside `sampleSize`) posts the
-sample with `panelSize`, so the one list freezes both draws, and its
-`civicPanelAsk` opens the Serve `SmsFlow` with the JOIN ask ticked
+the other builder fields. A priority's text that asks the civic panel
+opens the Serve `SmsFlow` with the JOIN ask ticked
 (`initialAsksToJoinCivicPanel`), which the official can still untick.
+
+A priority text's follow-up (`roundOneOutreachId` set) reads **Draft** in the
+history until its recipients are picked and **Scheduled** after, never In
+review (`historyStatus.util.ts`, off its list's `sampledAt`), and its drawer
+says "Recipients picked <date>, from the groups you've heard least from". One
+canceled because its draw found nobody says "Nobody left to text, so this was
+canceled. We'll refund it."
 
 `SmsFlow` also takes `initialPurpose`, which opens past the purpose picker on
 that purpose the way a carried recommendation does; the Serve hub passes it
