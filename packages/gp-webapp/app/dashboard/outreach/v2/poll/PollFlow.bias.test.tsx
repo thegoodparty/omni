@@ -286,6 +286,78 @@ describe('PollFlow bias check', () => {
     )
   })
 
+  it('says so when Improve with AI finds nothing to change', async () => {
+    mswServer.use(
+      http.post('*/v1/polls/analyze-bias', () =>
+        HttpResponse.json(
+          {
+            bias_spans: [],
+            grammar_spans: [],
+            rewritten_text: LEADING_QUESTION,
+          },
+          { status: 201 },
+        ),
+      ),
+    )
+    await writeLeadingQuestion()
+
+    await userEvent.click(
+      screen.getByRole('button', { name: SERVE_POLL_QUESTION_COPY.improve }),
+    )
+
+    expect(
+      await screen.findByText(SERVE_POLL_QUESTION_COPY.improveUnchanged),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: SERVE_POLL_QUESTION_COPY.undo }),
+    ).toBeNull()
+  })
+
+  it('improves a question of any length and offers a retry when it fails', async () => {
+    let calls = 0
+    mswServer.use(
+      http.post('*/v1/polls/analyze-bias', () => {
+        calls += 1
+        return calls === 1
+          ? HttpResponse.json({ message: 'down' }, { status: 500 })
+          : HttpResponse.json(
+              {
+                bias_spans: [],
+                grammar_spans: [],
+                rewritten_text: 'What would you change about our parks?',
+              },
+              { status: 201 },
+            )
+      }),
+    )
+    openFlow()
+    await pickTopic('Write my own')
+    await userEvent.click(
+      await screen.findByRole('button', { name: /^Continue/ }),
+    )
+    const field = (await screen.findByRole('textbox', {
+      name: 'Poll question',
+    })) as HTMLElement & { editor: Editor }
+    act(() => {
+      field.editor.commands.setContent('parks?')
+    })
+
+    await userEvent.click(
+      screen.getByRole('button', { name: SERVE_POLL_QUESTION_COPY.improve }),
+    )
+    await userEvent.click(
+      await screen.findByRole('button', {
+        name: SERVE_POLL_QUESTION_COPY.tryAgain,
+      }),
+    )
+
+    await waitFor(() =>
+      expect(field.editor.getText()).toBe(
+        'What would you change about our parks?',
+      ),
+    )
+  })
+
   it('offers Undo after Improve with AI replaces the official own words', async () => {
     await writeLeadingQuestion()
     const field = screen.getByRole('textbox', {

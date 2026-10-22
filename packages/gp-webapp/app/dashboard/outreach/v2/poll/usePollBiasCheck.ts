@@ -1,4 +1,5 @@
 import { useCallback, useRef, useState } from 'react'
+import { POLL_QUESTION_MIN_LENGTH } from '@goodparty_org/contracts'
 import { clientFetch } from 'gpApi/clientFetch'
 import { apiRoutes } from 'gpApi/routes'
 import type {
@@ -14,10 +15,6 @@ export type BiasCheckStatus =
   | 'passed'
   | 'flagged'
   | 'error'
-
-// The analyzer has nothing to say about a fragment; the legacy editor used the
-// same floor.
-const CHECK_MIN_LENGTH = 21
 
 interface CheckResult {
   text: string
@@ -45,9 +42,14 @@ export const usePollBiasCheck = (question: string) => {
   const inFlight = useRef<{ text: string; promise: Promise<Settled> } | null>(
     null,
   )
+  // The last answer, read by Improve after awaiting a check already on its
+  // way, where the state from that render is not yet updated.
+  const latest = useRef<CheckResult | null>(null)
 
   const status: BiasCheckStatus =
-    text.length < CHECK_MIN_LENGTH
+    // Checked from the length Continue accepts, so nothing that can be sent
+    // goes unchecked.
+    text.length < POLL_QUESTION_MIN_LENGTH
       ? 'unavailable'
       : checkingText === text
         ? 'checking'
@@ -65,11 +67,13 @@ export const usePollBiasCheck = (question: string) => {
     setErrorText(null)
     const promise = analyze(text)
       .then((data): Settled => {
-        setResult({
+        const answer = {
           text,
           biasSpans: data.bias_spans,
           rewrittenText: data.rewritten_text,
-        })
+        }
+        latest.current = answer
+        setResult(answer)
         if (data.bias_spans.length > 0) {
           trackEvent(EVENTS.createPoll.pollBiasDetectionShown)
           return 'flagged'
@@ -109,7 +113,9 @@ export const usePollBiasCheck = (question: string) => {
     trackEvent(EVENTS.createPoll.pollQuestionOptimized)
     setImproving(true)
     try {
-      if (result?.text === text) return result.rewrittenText
+      // A check already asking about these words carries the rewrite too.
+      if (inFlight.current?.text === text) await inFlight.current.promise
+      if (latest.current?.text === text) return latest.current.rewrittenText
       const data = await analyze(text)
       return data.rewritten_text
     } catch {
@@ -117,10 +123,11 @@ export const usePollBiasCheck = (question: string) => {
     } finally {
       setImproving(false)
     }
-  }, [result, text])
+  }, [text])
 
   const reset = useCallback(() => {
     inFlight.current = null
+    latest.current = null
     setResult(null)
     setCheckingText(null)
     setErrorText(null)

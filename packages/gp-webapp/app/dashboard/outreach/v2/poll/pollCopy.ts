@@ -51,7 +51,10 @@ export const SERVE_POLL_QUESTION_COPY = {
   undo: 'Undo',
   improve: 'Improve with AI',
   improving: 'Improving…',
-  improveError: "We couldn't improve your question. Try again.",
+  improveError:
+    "We couldn't improve your question just now. Try again, or edit it yourself.",
+  improveUnchanged: 'Your question already reads clearly and neutrally.',
+  tryAgain: 'Try again',
   checkBias: 'Check for bias',
   checkingBias: 'Checking for bias…',
   biasPassed: 'No bias detected',

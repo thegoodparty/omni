@@ -197,7 +197,11 @@ export const PollFlow = ({
   const [drafting, setDrafting] = useState(false)
   const [draftError, setDraftError] = useState(false)
   const draftRequestRef = useRef(0)
-  const [improveError, setImproveError] = useState(false)
+  // What the last Improve came back with, when it did not replace the
+  // question: a failure, or a rewrite identical to it.
+  const [improveResult, setImproveResult] = useState<
+    'error' | 'unchanged' | null
+  >(null)
   const [imageUrl, setImageUrl] = useState<string | undefined>()
   const [questionContinueAttempts, setQuestionContinueAttempts] = useState(0)
   const [audienceKind, setAudienceKind] = useState<'sample' | 'list'>('sample')
@@ -252,6 +256,7 @@ export const PollFlow = ({
       setUndoText(prior.trim() && prior !== drafted ? prior : null)
       setQuestion(drafted)
       setDrafted(true)
+      setImproveResult(null)
     } catch {
       if (request === draftRequestRef.current) setDraftError(true)
     } finally {
@@ -270,7 +275,7 @@ export const PollFlow = ({
     setQuestion('')
     setDrafted(false)
     setUndoText(null)
-    setImproveError(false)
+    setImproveResult(null)
     // A list picked on an earlier pass must not ride into this poll.
     setAudienceKind('sample')
     resetAudience()
@@ -335,7 +340,7 @@ export const PollFlow = ({
     setUndoText(null)
     setDrafting(false)
     setDraftError(false)
-    setImproveError(false)
+    setImproveResult(null)
     resetBiasCheck()
     setImageUrl(undefined)
     setQuestionContinueAttempts(0)
@@ -377,11 +382,17 @@ export const PollFlow = ({
   }
 
   const handleImprove = async () => {
-    setImproveError(false)
+    setImproveResult(null)
     const prior = question
     const improved = await biasCheck.improve()
     if (!improved) {
-      setImproveError(true)
+      setImproveResult('error')
+      return
+    }
+    // The analyzer hands back a question it finds nothing to fix in as it
+    // was; say so rather than leave the press looking like it did nothing.
+    if (improved.trim() === prior.trim()) {
+      setImproveResult('unchanged')
       return
     }
     setUndoText(prior.trim() && prior !== improved ? prior : null)
@@ -391,7 +402,7 @@ export const PollFlow = ({
   const handleQuestionChange = (next: string) => {
     setQuestion(next)
     setUndoText(null)
-    setImproveError(false)
+    setImproveResult(null)
   }
 
   const handleUndo = () => {
@@ -613,7 +624,7 @@ export const PollFlow = ({
           onQuestionBlur={biasCheck.checkOnLeave}
           onImprove={() => void handleImprove()}
           improving={biasCheck.improving}
-          improveError={improveError}
+          improveResult={improveResult}
           imageUrl={imageUrl}
           onImageChange={setImageUrl}
           showValidation={questionContinueAttempts > 0}

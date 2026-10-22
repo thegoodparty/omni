@@ -67,7 +67,7 @@ interface PollQuestionStepProps {
   onQuestionBlur: () => void
   onImprove: () => void
   improving: boolean
-  improveError: boolean
+  improveResult: 'error' | 'unchanged' | null
   // Shown once an AI rewrite (Regenerate, a tone, Improve) has replaced
   // the question, until the next edit.
   canUndo: boolean
@@ -119,7 +119,7 @@ export const PollQuestionStep = ({
   onQuestionBlur,
   onImprove,
   improving,
-  improveError,
+  improveResult,
   canUndo,
   onUndo,
   imageUrl,
@@ -189,6 +189,17 @@ export const PollQuestionStep = ({
       </div>
 
       <div className="space-y-3">
+        {improveResult === 'error' && (
+          <Card className="items-start gap-3 border-destructive p-4">
+            <p role="alert" className="text-sm text-foreground">
+              {SERVE_POLL_QUESTION_COPY.improveError}
+            </p>
+            <Button type="button" size="small" onClick={onImprove}>
+              {SERVE_POLL_QUESTION_COPY.tryAgain}
+            </Button>
+          </Card>
+        )}
+
         <Card className={cn('gap-0 p-4', seamlessFieldHost)}>
           <PollImageDropzone
             imageUrl={imageUrl}
@@ -276,7 +287,7 @@ export const PollQuestionStep = ({
               variant="ghost"
               size="small"
               className="text-muted-foreground"
-              disabled={busy || biasStatus === 'unavailable'}
+              disabled={busy || question.trim().length === 0}
               onClick={onImprove}
             >
               {improving ? (
@@ -336,9 +347,9 @@ export const PollQuestionStep = ({
             )}
           </div>
         )}
-        {improveError && (
-          <p role="alert" className="text-xs text-destructive">
-            {SERVE_POLL_QUESTION_COPY.improveError}
+        {improveResult === 'unchanged' && (
+          <p role="status" className="text-xs text-muted-foreground">
+            {SERVE_POLL_QUESTION_COPY.improveUnchanged}
           </p>
         )}
         {dictation.status === 'error' && dictation.error !== null && (
