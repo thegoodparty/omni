@@ -202,7 +202,7 @@ describe('POST /v1/contacts/civic-panel/managed', () => {
 
     const res = await approve(slug)
 
-    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(res.status).toBe(HttpStatus.OK)
     expect(res.data.panel).toMatchObject({
       status: 'building',
       inviteMessage: INVITE,
@@ -237,6 +237,8 @@ describe('POST /v1/contacts/civic-panel/managed', () => {
       consentVersion: 'v2',
     })
 
+    expect(first.status).toBe(HttpStatus.OK)
+    expect(second.status).toBe(HttpStatus.OK)
     expect(second.data.panel?.id).toBe(first.data.panel?.id)
     expect(second.data.panel).toMatchObject({
       status: 'paused',

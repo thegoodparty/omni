@@ -272,6 +272,7 @@ export class ContactsController {
   }
 
   @Post('civic-panel/managed')
+  @HttpCode(HttpStatus.OK)
   @ResponseSchema(ManagedCivicPanelResponseSchema)
   async approveManagedCivicPanel(
     @Body(new ZodValidationPipe(ApproveManagedCivicPanelInputSchema))
