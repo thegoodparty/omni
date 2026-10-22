@@ -1,7 +1,6 @@
 import { join } from 'path'
 import { addDays, format } from 'date-fns'
 import { expect, test, type Page } from '@playwright/test'
-import { setFlagOverrides } from 'src/helpers/campaignStory.helper'
 import {
   blockSlowScripts,
   NavigationHelper,
@@ -93,9 +92,7 @@ test.describe('Win SMS send', () => {
     expect(fixture.stage).toBe('tcr_approved')
     expect(fixture.peerlyIdentityId).toBeTruthy()
 
-    // ── 4. Force vendor-mocks-m3 flag and open SMS window ──────────────────
-    await setFlagOverrides(page, { 'vendor-mocks-m3': 'on' })
-
+    // ── 4. Open SMS window ─────────────────────────────────────────────────
     // Move election date so texting window is open (19-day cutoff guard).
     await withGatewayRetry('PUT /v1/campaigns/mine', () =>
       client.put('/v1/campaigns/mine', {
