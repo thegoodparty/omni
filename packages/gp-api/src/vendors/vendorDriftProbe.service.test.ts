@@ -64,7 +64,7 @@ describe('VendorDriftProbeService', () => {
   }
   let slack: { message: ReturnType<typeof vi.fn> }
   let peerlyIdentity: {
-    getIdentities: ReturnType<typeof vi.fn>
+    fetchIdentitiesBodyForProbe: ReturnType<typeof vi.fn>
     getIdentityUseCases: ReturnType<typeof vi.fn>
   }
   let peerlyAccount: { fetchBalanceBodyForProbe: ReturnType<typeof vi.fn> }
@@ -90,7 +90,9 @@ describe('VendorDriftProbeService', () => {
     }
     slack = { message: vi.fn().mockResolvedValue('ok') }
     peerlyIdentity = {
-      getIdentities: vi.fn().mockResolvedValue([validIdentity]),
+      fetchIdentitiesBodyForProbe: vi
+        .fn()
+        .mockResolvedValue({ identities: [validIdentity] }),
       getIdentityUseCases: vi.fn().mockResolvedValue([
         {
           identity_id: 'id-1',
@@ -146,7 +148,7 @@ describe('VendorDriftProbeService', () => {
   })
 
   const calledEveryClient = () => {
-    expect(peerlyIdentity.getIdentities).toHaveBeenCalledTimes(1)
+    expect(peerlyIdentity.fetchIdentitiesBodyForProbe).toHaveBeenCalledTimes(1)
     expect(peerlyAccount.fetchBalanceBodyForProbe).toHaveBeenCalledTimes(1)
     expect(peerlyIdentity.getIdentityUseCases).toHaveBeenCalledWith(
       'approved-identity',
@@ -172,9 +174,9 @@ describe('VendorDriftProbeService', () => {
   })
 
   it('posts one summary naming vendor, endpoint and issue path when Peerly drifts, and still runs the rest', async () => {
-    peerlyIdentity.getIdentities.mockResolvedValue([
-      { ...validIdentity, identity_id: 12345, ein: '99-9999999' },
-    ])
+    peerlyIdentity.fetchIdentitiesBodyForProbe.mockResolvedValue({
+      identities: [{ ...validIdentity, identity_id: 12345, ein: '99-9999999' }],
+    })
 
     await service.runNightlyProbe()
 
@@ -304,7 +306,7 @@ describe('VendorDriftProbeService', () => {
     await service.runNightlyProbe()
 
     expect(cronLock.tryClaimDailyRun).not.toHaveBeenCalled()
-    expect(peerlyIdentity.getIdentities).not.toHaveBeenCalled()
+    expect(peerlyIdentity.fetchIdentitiesBodyForProbe).not.toHaveBeenCalled()
     expect(geoapify.fetchRoutingBodyForProbe).not.toHaveBeenCalled()
     expect(slack.message).not.toHaveBeenCalled()
   })
@@ -318,7 +320,7 @@ describe('VendorDriftProbeService', () => {
       'vendorDriftProbe',
       expect.any(Date),
     )
-    expect(peerlyIdentity.getIdentities).not.toHaveBeenCalled()
+    expect(peerlyIdentity.fetchIdentitiesBodyForProbe).not.toHaveBeenCalled()
     expect(slack.message).not.toHaveBeenCalled()
     expect(cronLock.markCompleted).not.toHaveBeenCalled()
   })

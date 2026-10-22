@@ -198,10 +198,10 @@ export class VendorDriftProbeService {
         vendor: 'peerly',
         endpoint: '/identities/listByAccount',
         run: async () => {
-          const identities = await this.peerlyIdentity.getIdentities()
+          const body = await this.peerlyIdentity.fetchIdentitiesBodyForProbe()
           this.enforce(
             peerlyGetIdentitiesResponseBodySchema,
-            { identities },
+            body,
             'peerly',
             '/identities/listByAccount',
           )

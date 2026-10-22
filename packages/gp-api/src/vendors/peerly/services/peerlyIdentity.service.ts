@@ -220,6 +220,17 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
     return result
   }
 
+  // The raw listByAccount body, for the nightly drift probe to parse in
+  // enforce mode. getIdentities returns only the extracted array, so a
+  // renamed or re-wrapped outer shape would never reach the probe.
+  async fetchIdentitiesBodyForProbe(): Promise<unknown> {
+    const response = await this.peerlyHttpService.get(
+      '/identities/listByAccount',
+      { params: { account_id: this.accountNumber } },
+    )
+    return response.data
+  }
+
   async getIdentityUseCases(peerlyIdentityId: string, campaign?: Campaign) {
     try {
       const response =
