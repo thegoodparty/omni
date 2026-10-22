@@ -317,7 +317,7 @@ record.
   `shared/typography/H1.tsx`. The DS `PageHeader` is unused.
 - **Proposal:** one header: title from the nav label, optional one-line
   description, back link on nested pages, primary action in the header slot.
-  See C-11.
+  See A-01.
 - **Status:** open · ClickUp: —
 
 ### G-15 Two titles on one page
@@ -380,7 +380,7 @@ record.
   `issue-capture/[outreachId]/theme/[themeId]` (ghost button),
   `profile/texting-compliance/*` (chevron),
   `ordinances/solve/[slug]/[step]` (none outside the error state).
-- **Proposal:** one back pattern, owned by the page header (C-11).
+- **Proposal:** one back pattern, owned by the page header (A-01).
 - **Status:** open · ClickUp: —
 
 ## Hide, lock, explain or disable
