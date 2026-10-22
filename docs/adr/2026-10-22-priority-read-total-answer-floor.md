@@ -1,7 +1,7 @@
 ---
 title: A priority read is never representative below the district's answersNeeded
 status: active
-decided_by: [bryclevgp]
+decided_by: [bryclevgp, samuelgoodparty]
 date: 2026-10-22
 code: ['#3126', '#2977']
 scope:
@@ -26,6 +26,9 @@ minimum of three and the 20-point range check stay. The floor is
 `districtAnswersNeeded` sizes round 1 and the civic panel from, so the
 target an official is given and the point the read calls a priority done
 cannot drift apart.
+
+Bryan (`bryclevgp`) and Samuel (`samuelgoodparty`) decided the floor on
+2026-10-22.
 
 ## Context
 
