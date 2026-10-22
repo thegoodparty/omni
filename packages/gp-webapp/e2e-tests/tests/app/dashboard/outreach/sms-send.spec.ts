@@ -199,9 +199,10 @@ test.describe('Win SMS send', () => {
       .locator(`button[data-day="${format(targetDay, 'M/d/yyyy')}"]`)
       .click()
 
-    // Pick the 10:00 AM start from the time select.
-    await page.getByRole('combobox').filter({ hasText: 'Select time' }).click()
-    await page.getByRole('option', { name: '10:00 AM' }).click()
+    // The send time defaults to 10:00 AM, inside the 9 AM to 8 PM window.
+    await expect(
+      page.getByRole('combobox').filter({ hasText: '10:00 AM' }),
+    ).toBeVisible()
 
     await page.getByRole('button', { name: 'Continue' }).click()
 
