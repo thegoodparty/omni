@@ -26,6 +26,7 @@ import {
 } from '../../generated/prisma'
 import { OutreachRobocallHoldService } from './outreachRobocallHold.service'
 import { OutreachNotificationService } from './outreachNotification.service'
+import { VENDOR_CRONS_ENABLED } from 'src/shared/util/appEnvironment.util'
 
 // Every 10 minutes, offset :04 so the sweep neither joins the top-of-hour herd
 // nor collides with the staging sweep (:07,:17,…) or the tcr sweep (:23).
@@ -209,9 +210,9 @@ export class OutreachRobocallSendService extends createPrismaBase(
   // campaign is launched/reconciled once. @Cron (not @Interval) so the schedule
   // survives deploys and every replica fires on the same instant.
   //
-  // Prod-only (docs/scheduled-jobs.md § Prod-only guard): this sweep DIALS REAL
-  // PHONES against a rate-limited vendor and spends the authorized hold, so it
-  // must never fire on dev/preview. The Pro/paywall gate is inherited: a draft
+  // VENDOR_CRONS_ENABLED (docs/scheduled-jobs.md § Vendor-cron gate): this sweep
+  // DIALS REAL PHONES on prod against a rate-limited vendor and spends the
+  // authorized hold, so it must never fire off prod unless vendors are mocked. The Pro/paywall gate is inherited: a draft
   // only reaches `authorized` + a staged campaign by passing the Pro-gated
   // authorize + staging path.
   @Cron(ROBOCALL_SEND_SWEEP_CRON, {
@@ -219,7 +220,7 @@ export class OutreachRobocallSendService extends createPrismaBase(
     timeZone: EASTERN_TIMEZONE,
   })
   async sweepRobocallSend(): Promise<void> {
-    if (process.env.OTEL_SERVICE_ENVIRONMENT !== 'prod') return
+    if (!VENDOR_CRONS_ENABLED) return
     return this.runSend()
   }
 

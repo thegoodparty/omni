@@ -9,6 +9,13 @@ import {
   OutreachStatus,
   P2pSmsSettleState,
 } from '../../generated/prisma'
+import { disableVendorCrons } from '@/shared/test-utils/vendorCronsGate.util'
+
+vi.mock('@/shared/util/appEnvironment.util', async (importOriginal) => {
+  const { withVendorCronsGate } =
+    await import('@/shared/test-utils/vendorCronsGate.util.js')
+  return withVendorCronsGate(await importOriginal<object>())
+})
 
 const service = useTestService()
 
@@ -185,6 +192,22 @@ describe('OutreachP2pSmsReconcileService.sweepStrandedRefunding', () => {
     )
   })
 
+  it('refunds on a non-prod deploy in mock mode (preview)', async () => {
+    process.env.OTEL_SERVICE_ENVIRONMENT = 'preview'
+    listRefundsSpy.mockResolvedValue([])
+    const outreachId = await createHold({
+      settleState: P2pSmsSettleState.refunding,
+      chargeIntentId: CHARGE_ID,
+    })
+    await backdateUpdatedAt(outreachId, 20)
+
+    await reconcile.sweepStrandedRefunding()
+
+    expect((await readSatellite(outreachId)).settleState).toBe(
+      P2pSmsSettleState.refunded,
+    )
+  })
+
   it('stamps refunded WITHOUT a second refund when Stripe already holds one', async () => {
     listRefundsSpy.mockResolvedValue([refund('succeeded')])
     const outreachId = await createHold({
@@ -284,8 +307,8 @@ describe('OutreachP2pSmsReconcileService.sweepStrandedRefunding', () => {
     )
   })
 
-  it('no-ops off prod', async () => {
-    process.env.OTEL_SERVICE_ENVIRONMENT = 'dev'
+  it('no-ops on a non-prod deploy in live mode', async () => {
+    disableVendorCrons()
     const outreachId = await createHold({
       settleState: P2pSmsSettleState.refunding,
       chargeIntentId: CHARGE_ID,
@@ -472,8 +495,8 @@ describe('OutreachP2pSmsReconcileService.sweepDeniedUnreleased', () => {
     )
   })
 
-  it('no-ops off prod', async () => {
-    process.env.OTEL_SERVICE_ENVIRONMENT = 'dev'
+  it('no-ops on a non-prod deploy in live mode', async () => {
+    disableVendorCrons()
     const outreachId = await createHold({
       settleState: P2pSmsSettleState.captured,
       chargeIntentId: CHARGE_ID,
@@ -619,8 +642,8 @@ describe('OutreachP2pSmsReconcileService.sweepStrandedAuthorized', () => {
     )
   })
 
-  it('no-ops off prod', async () => {
-    process.env.OTEL_SERVICE_ENVIRONMENT = 'dev'
+  it('no-ops on a non-prod deploy in live mode', async () => {
+    disableVendorCrons()
     await createHold({
       settleState: P2pSmsSettleState.authorized,
       spineStatus: OutreachStatus.pending_payment,

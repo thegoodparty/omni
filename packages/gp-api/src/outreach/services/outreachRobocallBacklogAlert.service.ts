@@ -57,7 +57,8 @@ export class OutreachRobocallBacklogAlertService extends createPrismaBase(
     super()
   }
 
-  // Prod-only: it reads the real send pipeline's queue and stamps a prod dedupe
+  // Deliberately prod-only, NOT VENDOR_CRONS_ENABLED: an alerting cron would page
+  // from mock environments. It reads the real send pipeline's queue and stamps a prod dedupe
   // column, so it must not fire on dev/preview. No CronLockService: the
   // single-owner `backlogAlertedAt IS NULL` CAS elects one alerter per run, so
   // two replicas racing both project the same queue but only ONE stamps and
