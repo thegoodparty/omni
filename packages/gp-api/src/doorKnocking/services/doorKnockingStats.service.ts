@@ -248,7 +248,10 @@ export class DoorKnockingStatsService extends createPrismaBase(
           SELECT COUNT(*)
           FROM latest_support ls
           JOIN latest_will_vote lw ON lw.person_id = ls.person_id
-          WHERE ls.support_answer = 'supporter' AND lw.will_vote = 'yes'
+          -- A supporter who has already voted is a banked vote, the most
+          -- committed voter there is.
+          WHERE ls.support_answer = 'supporter'
+            AND lw.will_vote IN ('yes', 'already_voted')
         )::int AS "committedVoters",
         (SELECT COUNT(*) FROM persuaded)::int AS "votersPersuaded",
         (SELECT COUNT(*) FROM turf)::int AS "uniqueTurfsCreated",

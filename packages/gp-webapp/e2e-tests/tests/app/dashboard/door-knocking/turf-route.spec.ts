@@ -119,10 +119,10 @@ test.describe('Win — turf route via Geoapify mock', () => {
       await stopLi.getByRole('button').nth(2).click()
     }
 
-    // 9. Record a knock: Answered → Engaged → support Yes → will vote Yes.
+    // 9. Record a knock: Answered → Engaged → will vote Yes → support Yes.
     await page.getByRole('radio', { name: 'Answered' }).click()
     await page.getByRole('radio', { name: 'Engaged' }).click()
-    // Support question appears after "Engaged"; "Will they vote?" after support.
+    // "Will they vote?" appears after "Engaged"; support after will-vote.
     await page.getByRole('radio', { name: 'Yes' }).first().click()
     await page.getByRole('radio', { name: 'Yes' }).last().click()
     await page.getByRole('button', { name: 'Save', exact: true }).click()

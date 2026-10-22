@@ -590,22 +590,22 @@ describe('<PhoneBankingCallerPage>', () => {
     await user.click(within(dialog).getByRole('radio', { name: 'Answered' }))
     expect(within(dialog).getByText('Did they engage?')).toBeInTheDocument()
     expect(
-      within(dialog).queryByText('Do they support you?'),
+      within(dialog).queryByText('Will they vote this election?'),
     ).not.toBeInTheDocument()
     expect(
       within(dialog).queryByRole('button', { name: 'Save' }),
     ).not.toBeInTheDocument()
 
     await user.click(within(dialog).getByRole('radio', { name: 'Engaged' }))
-    expect(within(dialog).getByText('Do they support you?')).toBeInTheDocument()
-    expect(
-      within(dialog).queryByText('Will they vote this election?'),
-    ).not.toBeInTheDocument()
-
-    await user.click(within(dialog).getByRole('radio', { name: 'Yes' }))
     expect(
       within(dialog).getByText('Will they vote this election?'),
     ).toBeInTheDocument()
+    expect(
+      within(dialog).queryByText('Do they support you?'),
+    ).not.toBeInTheDocument()
+
+    await user.click(within(dialog).getByRole('radio', { name: 'Yes' }))
+    expect(within(dialog).getByText('Do they support you?')).toBeInTheDocument()
     expect(
       within(dialog).queryByRole('button', { name: 'Save' }),
     ).not.toBeInTheDocument()
