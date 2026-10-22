@@ -1,3 +1,4 @@
+import { join } from 'path'
 import { addDays, format } from 'date-fns'
 import { expect, test, type Page } from '@playwright/test'
 import { setFlagOverrides } from 'src/helpers/campaignStory.helper'
@@ -26,6 +27,8 @@ import { authenticateTestUser } from 'tests/utils/api-registration'
 // against the Peerly, Vercel and Route53 mocks (no `internalTestingAt`, which
 // the P2P send gate blocks). It needs VENDOR_MODE=mock, so the test skips on a
 // live-mode deploy. Every call here is real gp-api traffic; nothing is stubbed.
+
+const HEADSHOT_FIXTURE = join(__dirname, '../../../../src/fixtures/heart.png')
 
 // ─── Stripe helper ─────────────────────────────────────────────────────────────
 // Fills the Stripe PaymentElement iframe with the test card. Matches the same
@@ -148,9 +151,7 @@ test.describe('Win SMS send', () => {
     ).toBeVisible({
       timeout: 30_000,
     })
-    await page
-      .locator('input[type="file"]')
-      .setInputFiles('src/fixtures/heart.png')
+    await page.locator('input[type="file"]').setInputFiles(HEADSHOT_FIXTURE)
     await expect(page.getByAltText('Attachment preview')).toBeVisible({
       timeout: 15_000,
     })
