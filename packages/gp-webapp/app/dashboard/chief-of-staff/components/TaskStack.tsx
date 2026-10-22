@@ -8,6 +8,7 @@ import {
   CIVIC_PANEL_PAGE_HREF,
   DASHBOARD_CARD_SNOOZE_DAYS,
   EXPLAIN_CIVIC_PANEL_MESSAGE,
+  civicPanelBuildCardOpensPlan,
   isCivicPanelBuildCard,
   isCivicPanelStepCard,
   isGoodReadReportBackCard,
@@ -199,7 +200,9 @@ const TaskStack = ({
         ? civicPanelHref('chief_of_staff_home')
         : card.ctaHref,
     onboardingKey: null,
-    buildsPanel: isCivicPanelBuildCard(card),
+    // With a plan the build card links to it, so it starts no second build.
+    buildsPanel:
+      isCivicPanelBuildCard(card) && !civicPanelBuildCardOpensPlan(card),
     peopleFirst: isCivicPanelBuildCard(card) || isCivicPanelStepCard(card),
     leadsPanel: isGoodReadReportBackCard(card),
     variant: cardVariant(card),

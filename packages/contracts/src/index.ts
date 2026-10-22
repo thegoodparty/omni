@@ -984,6 +984,8 @@ export {
   isCivicPanelStepCard,
   isGoodReadReportBackCard,
   CIVIC_PANEL_BUILD_CARD_CTA,
+  CIVIC_PANEL_BUILD_CARD_PLAN_CTA,
+  civicPanelBuildCardOpensPlan,
   CIVIC_PANEL_BUILD_CARD_HREF,
 } from './dashboard/DashboardCard.schema'
 

@@ -3143,7 +3143,9 @@ describe('<ChiefOfStaffChatBody> building the civic panel', () => {
     render(<ChiefOfStaffChatBody active conversationIdOverride="conv" />)
 
     expect(
-      await screen.findByText('How much time can you give each week?'),
+      await screen.findByText(
+        'How much time can you spend each week to connect with constituents by phone or in person?',
+      ),
     ).toBeInTheDocument()
     for (const label of [
       '1 hour a week',

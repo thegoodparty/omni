@@ -268,6 +268,13 @@ describe('POST /v1/test-fixtures/organizations/:slug/activity', () => {
       status: OutreachStatus.completed,
     })
     expect(inviteSend.message?.endsWith(CIVIC_PANEL_JOIN_LINE)).toBe(true)
+    // Saved the way the app saves an invite's draw, so Constituent lists
+    // hides it like every other system invite list.
+    expect(
+      await service.prisma.voterFileFilter.findUniqueOrThrow({
+        where: { id: inviteSend.voterFileFilterId ?? -1 },
+      }),
+    ).toMatchObject({ civicPanelInvite: true, sampleSize: 121 })
 
     const plan = await service.prisma.civicPanelBuildPlan.findFirstOrThrow({
       where: { organizationSlug: slug },

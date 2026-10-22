@@ -11,6 +11,7 @@ import {
   buildPoolCellsSql,
   buildRespondentCellsSql,
   buildTractGridCellsSql,
+  buildTractPlacesSql,
   CENSUS_TABLE,
   DISTRICT_DEMOGRAPHICS_TABLE,
   mapAnswerCells,
@@ -18,6 +19,7 @@ import {
   mapGridCells,
   mapRespondentCells,
   mapTractAdults,
+  mapTractPlaces,
   sampleWeightSql,
 } from './districtCensusSql.util'
 import { createBag, type DbxDistrict } from './databricksVoterSql.util'
@@ -343,6 +345,44 @@ describe('buildTractGridCellsSql', () => {
       '53017950200',
     ])
     expect(sql).not.toMatch(/FirstName|LastName|Phone|Address_Line/)
+  })
+})
+
+describe('buildTractPlacesSql', () => {
+  it('reads each tract mean point and top street, never an address line', () => {
+    const { sql, params } = buildTractPlacesSql(DISTRICT, ['53017950100'])
+    expect(sql).toContain('round(avg(lat), 3)')
+    expect(sql).toContain(
+      'PARTITION BY tract ORDER BY count(*) DESC, street, designator',
+    )
+    expect(sql).toContain('`Residence_Addresses_StreetName`')
+    expect(sql).toContain('`Residence_Addresses_Designator`')
+    expect(sql).toContain(`FROM ${VOTERS_TABLE} v`)
+    expect(params.map((p) => p.value)).toEqual([
+      'WA',
+      'EAST WENATCHEE WATER',
+      '53017950100',
+    ])
+    expect(sql).not.toMatch(/AddressLine|HouseNumber|FirstName|Phone/)
+  })
+})
+
+describe('mapTractPlaces', () => {
+  it('keeps a tract with no point or street', () => {
+    expect(
+      mapTractPlaces([
+        ['53017950100', '35.59', '-82.55', 'HAYWOOD', 'RD'],
+        ['53017950200', null, null, null, null],
+      ]),
+    ).toEqual([
+      {
+        tract: '53017950100',
+        point: { lat: 35.59, lng: -82.55 },
+        street: 'HAYWOOD',
+        designator: 'RD',
+      },
+      { tract: '53017950200', point: null, street: null, designator: null },
+    ])
   })
 })
 

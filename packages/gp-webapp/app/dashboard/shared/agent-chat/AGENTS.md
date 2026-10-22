@@ -335,7 +335,7 @@ registered on `ChiefOfStaffChatBody`'s registry:
 
 - **`ask_panel_weekly_time`** renders `ClarifyQuestionWidget` with the panel
   page's own question and answers (`citizensPanelCopy`: "How much time can
-  you give each week?", 1, 2, 3, or 4 or more hours a week, plus the usual
+  you spend each week to connect with constituents by phone or in person?", 1, 2, 3, or 4 or more hours a week, plus the usual
   write-your-own). `isQuestionTool` (`clarifyWidget.tsx`) counts it as a
   clarify question, so only the open one takes input, an answered one
   reloads checked, and prose asking it right above is dropped.

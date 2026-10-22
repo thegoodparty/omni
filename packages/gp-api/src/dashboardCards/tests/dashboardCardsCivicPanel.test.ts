@@ -97,6 +97,9 @@ const buildCard = {
   ctaHref: '/dashboard/contacts/citizens-panel',
 }
 
+// With an active plan the same card opens that plan, never a second build.
+const planCard = { ...buildCard, ctaLabel: 'See your plan' }
+
 describe('GET /v1/dashboard/cards: the civic panel build card', () => {
   it('starts an office on one build card, with a card per priority beside it', async () => {
     const eo = await seedElectedOffice('eo-civic-build-first')
@@ -345,9 +348,9 @@ const seedPlan = (
   })
 
 describe('GET /v1/dashboard/cards: the build card once there is a plan', () => {
-  // The home opens the build chat from it, which shows the plan's next step,
-  // so the card itself never names a step or counts members.
-  it('keeps its words and Build your panel with a plan', async () => {
+  // The card opens the plan on the panel page, which shows its next step, so
+  // the card itself never names a step or counts members.
+  it('keeps its words and opens the plan with See your plan', async () => {
     const orgSlug = 'eo-civic-build-plan-next'
     const eo = await seedElectedOffice(orgSlug)
     await seedPlan(eo.id, orgSlug)
@@ -356,7 +359,7 @@ describe('GET /v1/dashboard/cards: the build card once there is a plan', () => {
 
     expect(cards).toHaveLength(1)
     expect(cards[0]).toMatchObject({
-      ...buildCard,
+      ...planCard,
       sourceExternalId: `build:${eo.id}`,
       completedAt: null,
     })
@@ -365,7 +368,7 @@ describe('GET /v1/dashboard/cards: the build card once there is a plan', () => {
 
   // A text being worked is past checkout, which finishes the card, so the
   // steps a card can see worked first are a call list or a walk.
-  it('keeps its words while the official calls before texting', async () => {
+  it('keeps opening the plan while the official calls before texting', async () => {
     const orgSlug = 'eo-civic-build-plan-calling'
     const eo = await seedElectedOffice(orgSlug)
     const plan = await seedPlan(eo.id, orgSlug)
@@ -382,7 +385,7 @@ describe('GET /v1/dashboard/cards: the build card once there is a plan', () => {
 
     const [card] = await listCards(orgSlug)
 
-    expect(card).toMatchObject({ ...buildCard, completedAt: null })
+    expect(card).toMatchObject({ ...planCard, completedAt: null })
   })
 
   it("rewrites a card still showing the plan's step and member count", async () => {
@@ -403,7 +406,20 @@ describe('GET /v1/dashboard/cards: the build card once there is a plan', () => {
 
     const [card] = await listCards(orgSlug)
 
-    expect(card).toMatchObject(buildCard)
+    expect(card).toMatchObject(planCard)
+  })
+
+  it('opens the plan once one is made, on a card made before it', async () => {
+    const orgSlug = 'eo-civic-build-plan-later'
+    const eo = await seedElectedOffice(orgSlug)
+
+    const [before] = await listCards(orgSlug)
+    expect(before).toMatchObject(buildCard)
+
+    await seedPlan(eo.id, orgSlug)
+    const [after] = await listCards(orgSlug)
+
+    expect(after).toMatchObject({ ...planCard, id: before?.id })
   })
 
   it('goes back to the start words when the plan ran out of people', async () => {

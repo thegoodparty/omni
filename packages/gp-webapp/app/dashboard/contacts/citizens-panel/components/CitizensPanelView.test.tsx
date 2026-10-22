@@ -262,7 +262,7 @@ describe('CitizensPanelView', () => {
 
     expect(
       screen.getByRole('heading', {
-        name: 'How much time can you give each week?',
+        name: 'How much time can you spend each week to connect with constituents by phone or in person?',
       }),
     ).toBeInTheDocument()
     expect(
