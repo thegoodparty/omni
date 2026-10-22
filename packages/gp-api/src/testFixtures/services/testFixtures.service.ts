@@ -15,6 +15,7 @@ import { PaymentEventsService } from '@/payments/services/paymentEventsService'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
 import { UsersService } from '@/users/services/users.service'
 import { VENDOR_MODE } from '@/shared/util/appEnvironment.util'
+import { PinoLogger } from 'nestjs-pino'
 import { DomainsService } from '@/websites/services/domains.service'
 import { WebsitesService } from '@/websites/services/websites.service'
 import { isTestUser, newFixtureUserEmail } from '@/users/util/users.util'
@@ -142,7 +143,10 @@ export class TestFixturesService {
     private readonly moduleRef: ModuleRef,
     @Inject(CLERK_CLIENT_PROVIDER_TOKEN)
     private readonly clerkClient: ClerkClient,
-  ) {}
+    private readonly logger: PinoLogger,
+  ) {
+    this.logger.setContext(TestFixturesService.name)
+  }
 
   async createFixtureUser(
     input: CreateTestFixtureUserInput,
@@ -449,20 +453,24 @@ export class TestFixturesService {
 
   // The purchase call returns once the Vercel mock reports the order
   // completed, which it only does 30s after the buy. A short loop completes the
-  // campaign's pending orders until the purchase settles.
+  // campaign's pending orders until the purchase settles. A failed pass is
+  // retried rather than ending the loop: an abandoned loop would leave the
+  // purchase polling for an order nothing completes, and if the order never
+  // completes the purchase's own timeout is the error that explains it.
   private async purchaseWithImmediateVercelOrder(
     campaign: Parameters<DomainsService['purchaseDomainForCampaign']>[0],
     domain: string,
   ) {
     let settled = false
-    let completerError: Error | null = null
     const completer = (async () => {
       while (!settled) {
         try {
           await this.vendorMockRecord.completeVercelOrders(campaign.id)
         } catch (err) {
-          completerError = err instanceof Error ? err : new Error(String(err))
-          return
+          this.logger.warn(
+            { err, campaignId: campaign.id },
+            'Could not complete the mock Vercel order; retrying',
+          )
         }
         await sleep(VERCEL_ORDER_COMPLETE_INTERVAL_MS)
       }
@@ -478,7 +486,6 @@ export class TestFixturesService {
       settled = true
       await completer
     }
-    if (completerError) throw completerError
   }
 
   // The `tcr.complianceSweep` job body: the activation check for the
