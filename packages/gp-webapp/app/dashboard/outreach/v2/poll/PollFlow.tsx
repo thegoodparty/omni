@@ -19,7 +19,6 @@ import { CircleCheckIcon } from '@styleguide/components/ui/icons'
 import { useUser } from '@shared/hooks/useUser'
 import { usePositionName } from '@shared/hooks/usePositionName'
 import { useTotalConstituentsWithCellPhone } from 'app/dashboard/polls/shared/audience-selection'
-import type { BiasAnalysisState } from 'app/dashboard/polls/shared/components/poll-text-bias/PollTextBiasInput'
 import { CheckoutSessionProvider } from 'app/dashboard/purchase/components/CheckoutSessionProvider'
 import { PURCHASE_TYPES } from 'helpers/purchaseTypes'
 import { hasAnyVoterFileSelection } from 'app/dashboard/contacts/crm/shared/voterFileFilterTransform.util'
@@ -43,6 +42,7 @@ import {
   SERVE_POLL_SUCCESS_COPY,
 } from './pollCopy'
 import { draftPollQuestion, usePollCreate } from './usePollCreate'
+import { usePollBiasCheck } from './usePollBiasCheck'
 
 type StepId = 'topic' | 'audience' | 'question' | 'schedule' | 'review'
 
@@ -190,10 +190,14 @@ export const PollFlow = ({
   // Whether the question came from the draft endpoint, so a poll the official
   // wrote entirely themselves does not report a tone they never used.
   const [drafted, setDrafted] = useState(false)
+  // The question an AI rewrite (Regenerate, a tone, Improve) replaced, so
+  // Undo can put it back. Unlike SMS and Social, it is kept even when the
+  // words replaced were the AI's own draft.
+  const [undoText, setUndoText] = useState<string | null>(null)
   const [drafting, setDrafting] = useState(false)
   const [draftError, setDraftError] = useState(false)
   const draftRequestRef = useRef(0)
-  const [biasState, setBiasState] = useState<BiasAnalysisState | null>(null)
+  const [improveError, setImproveError] = useState(false)
   const [imageUrl, setImageUrl] = useState<string | undefined>()
   const [questionContinueAttempts, setQuestionContinueAttempts] = useState(0)
   const [audienceKind, setAudienceKind] = useState<'sample' | 'list'>('sample')
@@ -225,7 +229,12 @@ export const PollFlow = ({
     senderName,
     positionName,
   ).length
-  const biasFlagged = biasState?.hasBias === true
+  const biasCheck = usePollBiasCheck(
+    question,
+    open && stepId === 'question' && !drafting,
+  )
+  const biasFlagged = biasCheck.status === 'flagged'
+  const { reset: resetBiasCheck } = biasCheck
 
   const runDraft = async (
     nextTopic: PollTopic,
@@ -233,6 +242,7 @@ export const PollFlow = ({
     currentDraft: string | undefined,
   ) => {
     const request = ++draftRequestRef.current
+    const prior = question
     setDrafting(true)
     setDraftError(false)
     try {
@@ -242,9 +252,9 @@ export const PollFlow = ({
         ...(currentDraft && { currentDraft }),
       })
       if (request !== draftRequestRef.current) return
+      setUndoText(prior.trim() && prior !== drafted ? prior : null)
       setQuestion(drafted)
       setDrafted(true)
-      setBiasState(null)
     } catch {
       if (request === draftRequestRef.current) setDraftError(true)
     } finally {
@@ -262,7 +272,8 @@ export const PollFlow = ({
     setTone(DEFAULT_POLL_TONE)
     setQuestion('')
     setDrafted(false)
-    setBiasState(null)
+    setUndoText(null)
+    setImproveError(false)
     // A list picked on an earlier pass must not ride into this poll.
     setAudienceKind('sample')
     resetAudience()
@@ -324,9 +335,11 @@ export const PollFlow = ({
     setTone(DEFAULT_POLL_TONE)
     setQuestion('')
     setDrafted(false)
+    setUndoText(null)
     setDrafting(false)
     setDraftError(false)
-    setBiasState(null)
+    setImproveError(false)
+    resetBiasCheck()
     setImageUrl(undefined)
     setQuestionContinueAttempts(0)
     setAudienceKind('sample')
@@ -334,7 +347,7 @@ export const PollFlow = ({
     setScheduled(false)
     resetAudience()
     discardCreate()
-  }, [open, resetAudience, discardCreate])
+  }, [open, resetAudience, resetBiasCheck, discardCreate])
 
   const stepIndex = STEP_ORDER.indexOf(stepId)
 
@@ -366,11 +379,35 @@ export const PollFlow = ({
     }
   }
 
-  const handleQuestionContinue = () => {
+  const handleImprove = async () => {
+    setImproveError(false)
+    const prior = question
+    const improved = await biasCheck.improve()
+    if (!improved) {
+      setImproveError(true)
+      return
+    }
+    setUndoText(prior.trim() && prior !== improved ? prior : null)
+    setQuestion(improved)
+  }
+
+  const handleQuestionChange = (next: string) => {
+    setQuestion(next)
+    setUndoText(null)
+    setImproveError(false)
+  }
+
+  const handleUndo = () => {
+    if (undoText === null) return
+    // The words being restored win over a draft still on its way.
+    draftRequestRef.current += 1
+    setDrafting(false)
+    setQuestion(undoText)
+    setUndoText(null)
+  }
+
+  const handleQuestionContinue = async () => {
     const trimmed = question.trim().length
-    // Pressing Continue blurs the editor, which starts the bias check; moving
-    // on before it answers would drop the alert and send biasOverridden false.
-    if (biasState?.isAnalyzing) return
     const ready =
       !drafting &&
       trimmed >= POLL_QUESTION_MIN_LENGTH &&
@@ -380,6 +417,11 @@ export const PollFlow = ({
       setQuestionContinueAttempts((n) => n + 1)
       return
     }
+    // A question nobody has checked yet is checked now. A flagged question
+    // cannot go on until it is reworded; a check that failed lets it go, so
+    // an outage never strands the official.
+    const settled = await biasCheck.ensureChecked()
+    if (settled === 'flagged') return
     setStepId('schedule')
   }
 
@@ -437,7 +479,11 @@ export const PollFlow = ({
             ? {
                 label: 'Continue',
                 onClick: handleQuestionContinue,
-                disabled: drafting || biasState?.isAnalyzing === true,
+                disabled:
+                  drafting ||
+                  biasCheck.improving ||
+                  biasCheck.status === 'checking' ||
+                  biasFlagged,
               }
             : stepId === 'schedule'
               ? {
@@ -555,7 +601,9 @@ export const PollFlow = ({
           tone={tone}
           onToneChange={handleToneChange}
           question={question}
-          onQuestionChange={setQuestion}
+          onQuestionChange={handleQuestionChange}
+          canUndo={undoText !== null}
+          onUndo={handleUndo}
           intro={intro}
           suggestedFor={topic !== 'custom' || drafted ? audienceName : null}
           composedLength={composedLength}
@@ -563,10 +611,14 @@ export const PollFlow = ({
           canRegenerate={topic !== 'custom' || currentDraft() !== undefined}
           drafting={drafting}
           draftError={draftError}
-          onBiasChange={setBiasState}
-          biasFlagged={biasFlagged}
+          biasStatus={biasCheck.status}
+          flaggedSpans={biasCheck.flaggedSpans}
+          onCheckBias={() => void biasCheck.check()}
+          onImprove={() => void handleImprove()}
+          improving={biasCheck.improving}
+          improveError={improveError}
           imageUrl={imageUrl}
-          onImageUploaded={setImageUrl}
+          onImageChange={setImageUrl}
           showValidation={questionContinueAttempts > 0}
         />
       ) : stepId === 'schedule' ? (

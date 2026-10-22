@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, screen, waitFor } from '@testing-library/react'
+import { act, screen, waitFor } from '@testing-library/react'
+import type { Editor } from '@tiptap/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { http, HttpResponse } from 'msw'
@@ -12,10 +13,6 @@ const LEADING_QUESTION = "Isn't the pothole crisis the city's biggest failure?"
 vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
   ...(await importOriginal<typeof import('helpers/analyticsHelper')>()),
   trackEvent: vi.fn(),
-}))
-
-vi.mock('app/dashboard/polls/components/PollImageUpload', () => ({
-  PollImageUpload: () => <div>Image upload</div>,
 }))
 
 const createCheckoutSession = vi.fn(
@@ -173,45 +170,159 @@ describe('PollFlow bias check', () => {
     await userEvent.click(
       await screen.findByRole('button', { name: /^Continue/ }),
     )
-    await screen.findByText('Your question')
-    const editor = await waitFor(() => {
-      const found = document.querySelector<HTMLElement>('[contenteditable]')
-      if (!found) throw new Error('editor not rendered')
-      return found
+    const field = (await screen.findByRole('textbox', {
+      name: 'Poll question',
+    })) as HTMLElement & { editor: Editor }
+    act(() => {
+      field.editor.commands.setContent(LEADING_QUESTION)
     })
-    editor.focus()
-    editor.textContent = LEADING_QUESTION
-    fireEvent.input(editor)
-    return editor
   }
 
-  it('holds the official on the What step until the bias check reports, then shows the alert', async () => {
+  it('checks the question by itself once typing stops', async () => {
+    await writeLeadingQuestion()
+
+    expect(
+      await screen.findByText(
+        SERVE_POLL_QUESTION_COPY.biasFlagged,
+        {},
+        { timeout: 4000 },
+      ),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(SERVE_POLL_QUESTION_COPY.biasFlaggedNote),
+    ).toBeInTheDocument()
+  })
+
+  it('holds the official on the What step until the bias check reports, then shows the flag', async () => {
     await writeLeadingQuestion()
 
     await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
     expect(
-      await screen.findByText(SERVE_POLL_QUESTION_COPY.biasAlertTitle),
+      await screen.findByText(SERVE_POLL_QUESTION_COPY.biasFlaggedNote),
     ).toBeInTheDocument()
     expect(screen.getByText('Your question')).toBeInTheDocument()
     expect(createBodies).toHaveLength(0)
   })
 
-  it('sends biasOverridden when the official continues past the alert', async () => {
+  it('shows a pass when the analyzer finds nothing', async () => {
+    mswServer.use(
+      http.post('*/v1/polls/analyze-bias', () =>
+        HttpResponse.json(
+          { bias_spans: [], grammar_spans: [], rewritten_text: '' },
+          { status: 201 },
+        ),
+      ),
+    )
+    await writeLeadingQuestion()
+
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Check for bias' }),
+    )
+
+    expect(
+      await screen.findByText(SERVE_POLL_QUESTION_COPY.biasPassed),
+    ).toBeInTheDocument()
+  })
+
+  it('shows the status as a shield with a tooltip on a phone', async () => {
+    const matchMedia = window.matchMedia
+    window.matchMedia = ((query: string) => ({
+      matches: query === '(max-width: 639px)',
+      media: query,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+    })) as unknown as typeof window.matchMedia
+    try {
+      mswServer.use(
+        http.post('*/v1/polls/analyze-bias', () =>
+          HttpResponse.json(
+            { bias_spans: [], grammar_spans: [], rewritten_text: '' },
+            { status: 201 },
+          ),
+        ),
+      )
+      await writeLeadingQuestion()
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Check for bias' }),
+      )
+
+      const label = await screen.findByText(SERVE_POLL_QUESTION_COPY.biasPassed)
+      expect(label).toHaveClass('sr-only')
+      const status = label.closest<HTMLElement>('[role="status"]')!
+
+      // Focus stands in for the tap: the styleguide's own tooltip tests cover
+      // openOnClick, and the modal flow blocks user-event's pointer here.
+      act(() => status.focus())
+
+      expect(
+        (
+          await screen.findAllByText(
+            SERVE_POLL_QUESTION_COPY.biasTooltip.passed,
+          )
+        ).length,
+      ).toBeGreaterThan(0)
+    } finally {
+      window.matchMedia = matchMedia
+    }
+  })
+
+  it('rewrites the question with Improve with AI', async () => {
+    await writeLeadingQuestion()
+
+    await userEvent.click(
+      screen.getByRole('button', { name: SERVE_POLL_QUESTION_COPY.improve }),
+    )
+
+    const field = screen.getByRole('textbox', {
+      name: 'Poll question',
+    }) as HTMLElement & { editor: Editor }
+    await waitFor(() =>
+      expect(field.editor.getText()).toBe(
+        'How do you feel about road repairs?',
+      ),
+    )
+  })
+
+  it('offers Undo after Improve with AI replaces the official own words', async () => {
+    await writeLeadingQuestion()
+    const field = screen.getByRole('textbox', {
+      name: 'Poll question',
+    }) as HTMLElement & { editor: Editor }
+
+    await userEvent.click(
+      screen.getByRole('button', { name: SERVE_POLL_QUESTION_COPY.improve }),
+    )
+    await waitFor(() =>
+      expect(field.editor.getText()).toBe(
+        'How do you feel about road repairs?',
+      ),
+    )
+    await userEvent.click(
+      screen.getByRole('button', { name: SERVE_POLL_QUESTION_COPY.undo }),
+    )
+
+    expect(field.editor.getText()).toBe(LEADING_QUESTION)
+    expect(
+      screen.queryByRole('button', { name: SERVE_POLL_QUESTION_COPY.undo }),
+    ).toBeNull()
+  })
+
+  it('keeps Continue disabled while the question is flagged, until it is reworded', async () => {
     await writeLeadingQuestion()
     await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
-    await screen.findByText(SERVE_POLL_QUESTION_COPY.biasAlertTitle)
+    await screen.findByText(SERVE_POLL_QUESTION_COPY.biasFlaggedNote)
 
-    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
-    await userEvent.click(
-      await screen.findByRole('button', { name: /^Friday, September 4(?!\d)/ }),
-    )
-    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
 
-    await waitFor(() => expect(createBodies).toHaveLength(1))
-    expect(createBodies[0]).toMatchObject({
-      question: LEADING_QUESTION,
-      biasOverridden: true,
+    const field = screen.getByRole('textbox', {
+      name: 'Poll question',
+    }) as HTMLElement & { editor: Editor }
+    act(() => {
+      field.editor.commands.setContent('How do you feel about road repairs?')
     })
+
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled()
+    expect(createBodies).toHaveLength(0)
   })
 })
