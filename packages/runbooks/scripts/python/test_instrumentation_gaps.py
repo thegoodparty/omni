@@ -2274,3 +2274,20 @@ def test_run_sweep_blanks_a_hallucinated_question(tmp_path):
         watchlist_path=wl, sem_dir=sem)
     assert new_state["/dashboard"]["answers_question"] == ""
     assert new_state["/dashboard"]["value"] == "low"
+
+
+def test_nearby_event_refs_keeps_a_nested_registry_path_whole(tmp_path):
+    d = tmp_path / "packages/gp-webapp/app/x"
+    d.mkdir(parents=True)
+    (d / "C.tsx").write_text("trackEvent(EVENTS.Outreach.Flow.StepViewed)\n")
+    assert ig.nearby_event_refs(tmp_path, "packages/gp-webapp/app/x/C.tsx") == [
+        "EVENTS.Outreach.Flow.StepViewed"]
+
+
+def test_select_candidates_judges_fresh_gaps_before_standing_low_value_ones():
+    # A low gap stays `new` so it can turn needed, but it must not hold the judge window
+    # against surfaces that were never judged (the DATA-2539 silent-backlog failure).
+    gaps = [{"id": "a", "surface_type": "wizard_stage"},
+            {"id": "z", "surface_type": "wizard_stage"}]
+    prior = {"a": {"disposition": "new", "value": "low"}}
+    assert [g["id"] for g in ig.select_candidates(gaps, prior, limit=1)] == ["z"]

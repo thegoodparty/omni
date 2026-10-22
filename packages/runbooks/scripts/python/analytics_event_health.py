@@ -687,6 +687,7 @@ def reconcile(
     okr_by_event: Mapping[str, str] | None = None,
     watched_rows: Iterable[str] = (),
     kept_events: Iterable[str] = (),
+    okr_events: Iterable[str] | None = None,
 ) -> dict:
     """Reconcile the three axes into per-event records, status counts, a ranked flag list,
     and the watchlist proposal and removal queues."""
@@ -695,6 +696,9 @@ def reconcile(
     watchlist_events = set(watchlist_events)
     dismissed_events = set(dismissed_events)
     okr_by_event = dict(okr_by_event or {})
+    # The base event of every watched leg. okr_by_event is keyed by leg key, and a leg with
+    # an exclusion keys as "Event[excluding ...]", so a bare-name match misses most legs.
+    okr_events = set(okr_by_event if okr_events is None else okr_events)
     seen_in_catalog = {row["event_type"] for row in catalog}
     records: list[dict] = []
 
@@ -730,6 +734,7 @@ def reconcile(
                 "elevated": is_elevated(family, event_type, description, on_watchlist=on_watchlist),
                 "on_watchlist": on_watchlist,
                 "okr": okr_by_event.get(event_type),
+                "okr_base": event_type in okr_events,
                 "event_count_30d": cnt30,
                 "last_seen_date": last_seen,
                 "anomaly": anomaly,
@@ -756,6 +761,7 @@ def reconcile(
                     "elevated": elevated,
                     "on_watchlist": on_watchlist,
                     "okr": okr_by_event.get(event_type),
+                    "okr_base": event_type in okr_events,
                     "event_count_30d": 0,
                     "last_seen_date": None,
                     "anomaly": None,
@@ -806,12 +812,12 @@ def reconcile(
     )
     # DATA-2676: watches come from questions and OKR legs. A behavior's instrument already
     # enrolls itself, so only an unwatched OKR leg is worth a row; the rest is counted.
-    proposals = [p for p in eligible if p["event_type"] in okr_by_event]
+    proposals = [p for p in eligible if p["event_type"] in okr_events]
 
     # Stamp each record with the watchlist axis's verdict (DATA-2152): tracked (already
     # curated) beats dismissed (human rejected) beats proposed (an unwatched OKR leg);
     # everything else is untouched by the watchlist.
-    removals = propose_watchlist_removals(watched_rows, code, okr_by_event, kept_events)
+    removals = propose_watchlist_removals(watched_rows, code, okr_events, kept_events)
 
     proposed_types = {p["event_type"] for p in proposals}
     removal_types = {r["event_type"] for r in removals}
@@ -1351,6 +1357,7 @@ def _latched_leg_record(
         "elevated": True,
         "on_watchlist": False,
         "okr": latch["metric"],
+        "okr_base": True,
         # The catalog counts whole events, so the leg's own weekly rows are the only
         # honest source for the digest's count column.
         "event_count_30d": sum(n for week_start, n in weeks if week_start >= cutoff),
@@ -1440,6 +1447,7 @@ def run_monitor(
         # question's to drop, so only an events: row can be proposed for removal.
         watched_rows=load_watchlist(watchlist_path)[1],
         kept_events=load_watchlist_kept(watchlist_path),
+        okr_events={leg.event for leg in watched_legs},
     )
     # A read problem leaves the metrics it covers unmarked, and a partial read leaves
     # only the failed file's. Say so on any of them, or a red OKR item quietly reads

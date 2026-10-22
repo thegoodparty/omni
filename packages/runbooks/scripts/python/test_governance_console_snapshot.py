@@ -1077,3 +1077,12 @@ def test_a_low_value_gap_gets_no_recommendation_so_it_stays_rejudged():
 
 def test_a_gap_without_a_value_keeps_accept():
     assert gcs.recommend_gap({"judge_reason": "r"})[0] == "accept"
+
+
+def test_unwatch_is_not_offered_for_a_qualified_okr_legs_base_event():
+    report = {"flagged": [_record(event_type="W", rank=6, elevated=True, okr_base=True)],
+              "dismissed_causes": {}}
+
+    [item] = gcs.build_flag_queue(report)
+
+    assert "unwatch" not in item["verbs"]

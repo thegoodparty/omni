@@ -806,7 +806,8 @@ def build_flag_queue(report: Mapping, code: Mapping | None = None) -> list[dict]
         )
         verbs = _verbs(FLAG_VERBS, dismissable)
         if cause.partition("@")[0] in UNWATCHABLE_CAUSES and any(
-            r.get("on_watchlist") and not r.get("okr") for r in by_cause.get(cause, [])
+            r.get("on_watchlist") and not r.get("okr") and not r.get("okr_base")
+            for r in by_cause.get(cause, [])
         ):
             verbs = {**verbs, "unwatch": "Stop watching"}
         items.append({

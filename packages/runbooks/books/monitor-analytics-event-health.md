@@ -322,7 +322,9 @@ The gap judge also gets a **real questions** section (`load_real_questions`, DAT
 live behaviors' questions and every OKR metric with a watched leg, by id. It returns which
 one a gap answers (`answers_question`), and an id it invents is blanked. A gap no real
 question needs is stored with `value: low`, listed in no digest table, and never makes Slack
-news on its own; it is re-judged every run, so it turns `needed` once someone asks. Wizard
+news on its own; it is re-judged every run, so it turns `needed` once someone asks. The
+judge sees never-judged surfaces first and spends only the leftover budget re-judging low
+ones, so a pile of low gaps cannot starve new surfaces. Wizard
 stages are always `needed`, since every multi-step flow is instrumented. The judge also sees
 the `EVENTS.*` references next to each candidate and can answer `fix: extend` with the event
 and property to add, instead of a new event.

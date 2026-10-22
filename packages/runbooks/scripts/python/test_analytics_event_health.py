@@ -2787,3 +2787,33 @@ def test_run_monitor_first_run_treats_every_removal_as_new(tmp_path):
 def test_run_monitor_standing_removal_is_not_new(tmp_path):
     result, _ = _retired_row_env(tmp_path, {"flagged": {}, "removal_proposals": ["Old Step"]})
     assert result["new_removal_proposals"] == []
+
+
+# --- qualified OKR legs (DATA-2676 review) --------------------------------------
+
+_QUALIFIED = sa.Leg("Leg Event", None, None, (("product", ("serve",)),))
+
+
+def test_run_monitor_proposes_adding_a_qualified_legs_base_event(tmp_path):
+    # Most declared legs carry an exclusion, so their key is not the bare event name.
+    catalog = [{**_cat("Leg Event", "win_onboarding", "L.", cnt30=5),
+                "first_seen_date": TODAY - timedelta(days=10)}]
+    csv_path, wl_path, state_path = _monitor_env(
+        tmp_path, [], watchlist="watched_families: [win_onboarding]\nevents: []\n")
+    result, _ = eh.run_monitor(
+        _fake_query(catalog, []), today=TODAY, csv_path=csv_path,
+        watchlist_path=wl_path, state_path=state_path, anchors={_METRIC: [_QUALIFIED]})
+    assert [p["event_type"] for p in result["proposals"]] == ["Leg Event"]
+
+
+def test_run_monitor_never_proposes_removing_a_qualified_legs_base_event(tmp_path):
+    catalog = [_cat("Leg Event", "win_onboarding", "L.", cnt30=0)]
+    csv_path, wl_path, state_path = _monitor_env(
+        tmp_path, [{"event_type": "Leg Event", "retired_date": "2026-03-01"}],
+        watchlist='events:\n  - {event: "Leg Event", product: win, family: win_onboarding}\n')
+    result, _ = eh.run_monitor(
+        _fake_query(catalog, []), today=TODAY, csv_path=csv_path,
+        watchlist_path=wl_path, state_path=state_path, anchors={_METRIC: [_QUALIFIED]})
+    assert result["removal_proposals"] == []
+    record = next(r for r in result["records"] if r["event_type"] == "Leg Event")
+    assert record["okr_base"] is True

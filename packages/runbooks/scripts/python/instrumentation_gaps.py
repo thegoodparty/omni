@@ -532,7 +532,10 @@ def select_candidates(
         for g in gaps
         if prior_state.get(g["id"], {}).get("disposition") not in _TRIAGED
     ]
-    eligible.sort(key=lambda g: (rank_gap(g), g["id"]))
+    # A low-value gap stays `new` so it can turn needed, but it is re-judged only with the
+    # budget fresh surfaces leave, or it would starve them (DATA-2676).
+    eligible.sort(key=lambda g: (
+        prior_state.get(g["id"], {}).get("value") == "low", rank_gap(g), g["id"]))
     return eligible if limit is None else eligible[:limit]
 
 
@@ -600,7 +603,9 @@ def questions_prompt_section(questions: Sequence[Mapping]) -> str:
             "only if it answers one of these, by id.\n\n" + rows)
 
 
-_EVENT_REF = re.compile(r"\bEVENTS\.[A-Za-z_]\w*\.[A-Za-z_]\w*")
+# Two or more segments: registry groups nest (EVENTS.Outreach.Flow.StepViewed), and
+# stopping at two hands the judge a group name it would then recommend extending.
+_EVENT_REF = re.compile(r"\bEVENTS(?:\.[A-Za-z_]\w*){2,}")
 
 
 def nearby_event_refs(repo_root: Path, location: str, cap: int = 20) -> list[str]:
