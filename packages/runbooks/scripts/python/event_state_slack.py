@@ -180,9 +180,11 @@ def build_gap_summary_line(gap: dict) -> str:
                   else "this run")
         return f"🧭 Instrumentation gaps: judgment unavailable {window} ({pending} pending)"
     n = gap.get("new_count", 0)
+    low = gap.get("low_value_count", 0)
+    tail = f" (+{low} low value, not listed)" if low else ""
     if n == 0:
-        return "🧭 No new instrumentation gaps"
-    return f"🧭 {n} new instrumentation gap{'' if n == 1 else 's'}"
+        return f"🧭 No new instrumentation gaps{tail}"
+    return f"🧭 {n} new instrumentation gap{'' if n == 1 else 's'}{tail}"
 
 
 def build_gap_thread_blocks(gap: dict) -> list[dict]:
@@ -193,7 +195,9 @@ def build_gap_thread_blocks(gap: dict) -> list[dict]:
     if not new_gaps:
         return []
     rows = "\n".join(
-        f"• [{g.get('rank', 5)}] `{g['id']}` ({g['surface_type']}) — {g.get('dashboard_question') or '—'}"
+        f"• [{g.get('rank', 5)}] `{g['id']}` ({g['surface_type']}) — "
+        + (f"extend `{g.get('extend_event', '')}` with `{g.get('extend_property', '')}`"
+           if g.get("fix") == "extend" else (g.get("dashboard_question") or "—"))
         for g in new_gaps
     )
     body = f"*New instrumentation gaps*\n{rows}"
@@ -309,7 +313,8 @@ def build_triage_invocation(result: dict, gap: dict | None) -> str | None:
     payload, falling back to the health result, and is omitted only for older payloads
     that predate both — triage then runs untargeted (defaults to the latest run)."""
     proposals = result.get("proposals") or []
-    if not gap_has_news(gap) and not proposals:
+    removals = result.get("removal_proposals") or []
+    if not gap_has_news(gap) and not proposals and not removals:
         return None
     run_date = (gap or {}).get("run_date") or result.get("run_date")
     return f"🛠 Triage: `/triage-instrumentation-gaps{(' ' + str(run_date)) if run_date else ''}`"
@@ -340,6 +345,8 @@ def should_post(
     if _new_anomalies(result, prior_anomalous):
         return True
     if gap_has_news(gap):
+        return True
+    if result.get("new_removal_proposals"):
         return True
     return anchor_has_news(anchor_queue)
 
@@ -582,6 +589,10 @@ def _build_tiered_blocks(
         fyi_bits.append(f"{len(fyi)} informational change{'' if len(fyi) == 1 else 's'}")
     if proposals:
         fyi_bits.append(f"{len(proposals)} watchlist proposal{'' if len(proposals) == 1 else 's'}")
+    new_removals = result.get("new_removal_proposals") or []
+    if new_removals:
+        fyi_bits.append(
+            f"{len(new_removals)} watchlist removal{'' if len(new_removals) == 1 else 's'}")
     if gap_has_news(gap):
         n = gap.get("new_count", 0)
         fyi_bits.append(f"{n} new gap{'' if n == 1 else 's'}")
@@ -617,6 +628,17 @@ def _build_tiered_blocks(
         if len(proposals) > TRANSITION_CAP:
             rows += f"\n…and {len(proposals) - TRANSITION_CAP} more (see the sheet)"
         thread.append(_section(f"*Watchlist proposals*\n{rows}"))
+    removals = result.get("removal_proposals") or []
+    if removals:
+        fresh = [r for r in removals if r["event_type"] in set(new_removals)]
+        lines = [f"• `{r['event_type']}`  retired {r['retired_date']}"
+                 for r in fresh[:TRANSITION_CAP]]
+        if len(fresh) > TRANSITION_CAP:
+            lines.append(f"…and {len(fresh) - TRANSITION_CAP} more (see the JSON report)")
+        standing = len(removals) - len(fresh)
+        if standing:
+            lines.append(f"({standing} already proposed)")
+        thread.append(_section("*Watchlist removals*\n" + "\n".join(lines)))
     sc = result.get("status_counts") or {}
     if sc:
         breakdown = " · ".join(f"{k} {v}" for k, v in sorted(sc.items(), key=lambda x: -x[1]))

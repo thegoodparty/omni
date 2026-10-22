@@ -311,7 +311,7 @@ digest raising the item again.
 | --- | --- |
 | Flagged causes | a `cause:` row in `monitored_events.yaml` |
 | Instrumentation gaps | `instrumentation_gaps.json` |
-| Watchlist proposals | an `event:` row in `monitored_events.yaml` |
+| Watchlist proposals | an `events:` row added or removed, a `dismissed:` row, or a `kept:` row in `monitored_events.yaml` |
 | Registry vs semantic layer | a `metric:` row in `monitored_events.yaml` |
 | Surface relabels | `instrumentation_data/surface_drift.json`, applied to Amplitude through `event-metadata` |
 

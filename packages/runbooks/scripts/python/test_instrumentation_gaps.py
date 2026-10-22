@@ -1270,7 +1270,8 @@ def test_main_writes_slack_out_file(tmp_path, monkeypatch):
     assert rc == 0
     data = json.loads(out.read_text())
     assert data["status"] == "ok"
-    assert any(g["id"] == "/foo" for g in data["new_gaps"])
+    # The fake judge names no real question, so the gap is counted, not listed (DATA-2676).
+    assert data["new_gaps"] == [] and data["low_value_count"] == 1
 
 
 def test_render_seed_artifact_has_parseable_blocks():
@@ -1997,3 +1998,296 @@ def test_prior_rulings_are_not_regenerated_for_an_already_closed_entry():
         {"id": "a/B.tsx#form_submit#Beta", "location": "a/B.tsx", "surface_type": "form_submit"},
     ]
     assert ig.build_prior_rulings(state, surfaces, set(), date(2026, 9, 28)) == {}
+
+
+# --- real questions + extend-existing (DATA-2676) -------------------------------
+
+_SEM = """version: 2
+semantic_models:
+  - name: users
+    metrics: []
+metrics:
+  - name: live_metric
+    config:
+      meta:
+        anchored_on:
+          - event: "Live Event"
+  - name: old_metric
+    config:
+      meta:
+        anchored_on:
+          - event: "Old Event"
+            era: historical
+"""
+
+
+def _questions_env(tmp_path):
+    wl = tmp_path / "w.yaml"
+    wl.write_text(
+        "behaviors:\n"
+        "  - id: live_q\n"
+        "    question: How many export?\n"
+        "    surfaces: []\n"
+        "  - id: old_q\n"
+        "    question: Old question?\n"
+        "    superseded: [{event: X}]\n"
+        "    surfaces: []\n"
+    )
+    sem = tmp_path / "sem"
+    sem.mkdir()
+    (sem / "sem_analytics__users_win.yml").write_text(_SEM)
+    return wl, sem
+
+
+def test_load_real_questions_reads_live_behaviors_and_watched_metrics(tmp_path):
+    wl, sem = _questions_env(tmp_path)
+    qs = ig.load_real_questions(wl, sem)
+    assert [q["id"] for q in qs] == ["live_q", "metric:live_metric"]
+    assert qs[0]["question"] == "How many export?"
+    assert qs[1]["question"] == "OKR metric live_metric, counted from: Live Event"
+
+
+def test_load_real_questions_never_raises_on_missing_sources(tmp_path):
+    assert ig.load_real_questions(tmp_path / "none.yaml", tmp_path / "nosem") == []
+
+
+def test_questions_prompt_section_is_empty_without_questions():
+    assert ig.questions_prompt_section([]) == ""
+    section = ig.questions_prompt_section([{"id": "q1", "question": "Why?"}])
+    assert "q1" in section and "Why?" in section
+
+
+def test_judge_system_prompt_places_questions_before_the_instructions():
+    sp = ig.judge_system_prompt("RUBRIC", "", "Q-SECTION-MARKER")
+    assert sp.index("Q-SECTION-MARKER") < sp.index("Copy each id verbatim")
+    assert "answers_question" in sp
+
+
+def test_judge_verdict_defaults_keep_old_verdicts_valid():
+    old = {"results": [{"id": "a", "is_gap": True, "rubric_rule": "r",
+                        "dashboard_question": "q", "rank": 1, "reason": "x"}]}
+    [v] = ig.JudgeBatch.model_validate(old).model_dump()["results"]
+    assert v["answers_question"] == "" and v["fix"] == "new_event"
+    assert v["extend_event"] == "" and v["extend_property"] == ""
+
+
+def test_judge_verdict_rejects_an_unknown_fix():
+    import pydantic
+    bad = {"results": [{"id": "a", "is_gap": True, "rubric_rule": "r",
+                        "dashboard_question": "q", "rank": 1, "reason": "x", "fix": "other"}]}
+    with pytest.raises(pydantic.ValidationError):
+        ig.JudgeBatch.model_validate(bad)
+
+
+def test_nearby_event_refs_reads_sibling_files_and_caps(tmp_path):
+    d = tmp_path / "packages/gp-webapp/app/x"
+    d.mkdir(parents=True)
+    (d / "C.tsx").write_text("const C = () => <form />\n")
+    (d / "useThing.ts").write_text(
+        "trackEvent(EVENTS.Outreach.CampaignCompleted)\ntrackEvent(EVENTS.Outreach.A)\n")
+    assert ig.nearby_event_refs(tmp_path, "packages/gp-webapp/app/x/C.tsx") == [
+        "EVENTS.Outreach.A", "EVENTS.Outreach.CampaignCompleted"]
+    assert ig.nearby_event_refs(tmp_path, "packages/gp-webapp/app/x/C.tsx", cap=1) == [
+        "EVENTS.Outreach.A"]
+
+
+def test_build_judge_messages_carries_nearby_events():
+    msgs = ig.build_judge_messages([{"id": "a", "surface_type": "form_submit",
+                                     "location": "a.tsx", "nearby_events": ["EVENTS.X.Y"]}])
+    assert '"nearby_events": [' in msgs[0]["content"]
+
+
+def test_every_judge_prompt_call_site_passes_questions():
+    """Same guard as the gotchas one: a judgment path that drops the questions silently
+    marks every gap low value, which reads as a quiet week rather than a broken one."""
+    import ast
+    import inspect
+
+    watched = {"judge_system_prompt", "judge_all", "judge_candidates", "run_judgment"}
+    offenders = []
+    for node in ast.walk(ast.parse(inspect.getsource(ig))):
+        if not isinstance(node, ast.Call):
+            continue
+        name = getattr(node.func, "attr", getattr(node.func, "id", None))
+        if name not in watched:
+            continue
+        passes = any(k.arg == "questions" for k in node.keywords) or (
+            name == "judge_system_prompt" and len(node.args) >= 3)
+        if not passes:
+            offenders.append(f"{name}() at line {node.lineno}")
+    assert not offenders, "judge prompt built without the questions:\n  " + "\n  ".join(offenders)
+
+
+def _capture_system(seen):
+    class _Msgs:
+        def create(self, *, system, **kw):
+            seen["system"] = system
+            raise RuntimeError("stop after prompt assembly")
+
+    class _Client:
+        messages = _Msgs()
+
+    return lambda _k: _Client()
+
+
+def _one_page_repo(tmp_path):
+    rubric = tmp_path / "SKILL.md"
+    rubric.write_text("RUBRIC-BODY")
+    app = tmp_path / "packages/gp-webapp/app/dashboard"
+    app.mkdir(parents=True)
+    (app / "page.tsx").write_text("export default function P(){return null}")
+    return rubric
+
+
+def test_run_seed_threads_the_questions_into_the_prompt(tmp_path):
+    rubric = _one_page_repo(tmp_path)
+    wl, sem = _questions_env(tmp_path)
+    seen = {}
+    ig.run_seed(tmp_path, tmp_path / "none.yaml", tmp_path / "state.json",
+                date(2026, 7, 20), api_key="sk-ant-x", model="m", rubric_path=rubric,
+                client_factory=_capture_system(seen), watchlist_path=wl, sem_dir=sem)
+    assert "How many export?" in seen["system"]
+
+
+def test_run_sweep_threads_the_questions_into_the_prompt(tmp_path):
+    rubric = _one_page_repo(tmp_path)
+    wl, sem = _questions_env(tmp_path)
+    seen = {}
+    ig.run_sweep(tmp_path, tmp_path / "none.yaml", tmp_path / "state.json",
+                 date(2026, 7, 20), api_key="sk-ant-x", model="m", rubric_path=rubric,
+                 client_factory=_capture_system(seen), watchlist_path=wl, sem_dir=sem)
+    assert "OKR metric live_metric" in seen["system"]
+
+
+# --- gap value (DATA-2676) -------------------------------------------------------
+
+
+def _verdict(**over):
+    v = {"is_gap": True, "rubric_rule": "r", "dashboard_question": "q", "rank": 2,
+         "reason": "x", "answers_question": "", "fix": "new_event",
+         "extend_event": "", "extend_property": ""}
+    v.update(over)
+    return v
+
+
+_CAND = {"a#form_submit": {"surface_type": "form_submit", "location": "a.tsx"}}
+
+
+def test_merge_blanks_a_hallucinated_question_and_marks_it_low_value():
+    out = ig.merge_judged_state({}, {"a#form_submit": _verdict(answers_question="made_up")},
+                                _CAND, date(2026, 10, 21), question_ids={"real_q"})
+    entry = out["a#form_submit"]
+    assert entry["answers_question"] == "" and entry["value"] == "low"
+
+
+def test_merge_keeps_a_real_question_and_marks_it_needed():
+    out = ig.merge_judged_state({}, {"a#form_submit": _verdict(answers_question="real_q")},
+                                _CAND, date(2026, 10, 21), question_ids={"real_q"})
+    assert out["a#form_submit"]["value"] == "needed"
+
+
+def test_merge_keeps_every_wizard_stage_needed():
+    cand = {"w#wizard_stage": {"surface_type": "wizard_stage", "location": "w.tsx"}}
+    out = ig.merge_judged_state({}, {"w#wizard_stage": _verdict()}, cand,
+                                date(2026, 10, 21), question_ids=set())
+    assert out["w#wizard_stage"]["value"] == "needed"
+
+
+def test_merge_stores_the_extend_fix():
+    out = ig.merge_judged_state(
+        {}, {"a#form_submit": _verdict(fix="extend", extend_event="Outreach - Sent",
+                                       extend_property="launchSource")},
+        _CAND, date(2026, 10, 21), question_ids=set())
+    e = out["a#form_submit"]
+    assert (e["fix"], e["extend_event"], e["extend_property"]) == (
+        "extend", "Outreach - Sent", "launchSource")
+
+
+def test_rejudge_upgrades_low_to_needed_and_keeps_the_human_disposition():
+    first = ig.merge_judged_state({}, {"a#form_submit": _verdict()}, _CAND,
+                                  date(2026, 10, 21), question_ids={"real_q"})
+    first["a#form_submit"]["disposition"] = "open"
+    second = ig.merge_judged_state(first, {"a#form_submit": _verdict(answers_question="real_q")},
+                                   _CAND, date(2026, 10, 28), question_ids={"real_q"})
+    assert second["a#form_submit"]["value"] == "needed"
+    assert second["a#form_submit"]["disposition"] == "open"
+
+
+def _state_entry(gid, value, rank=1, run="2026-10-21", **over):
+    e = {"id": gid, "surface_type": "form_submit", "location": f"{gid}.tsx",
+         "disposition": "new", "first_seen": run, "last_seen": run, "rank": rank,
+         "value": value, "rubric_rule": "r", "dashboard_question": "q",
+         "fix": "new_event", "extend_event": "", "extend_property": ""}
+    e.update(over)
+    return e
+
+
+def test_new_this_run_puts_needed_gaps_first():
+    state = {"a": _state_entry("a", "low", rank=0), "b": _state_entry("b", "needed", rank=3)}
+    assert [e["id"] for e in ig.new_this_run(state, "2026-10-21")] == ["b", "a"]
+
+
+def test_slack_payload_lists_needed_and_counts_low():
+    state = {"a": _state_entry("a", "needed"), "b": _state_entry("b", "low"),
+             "c": _state_entry("c", "low")}
+    payload = ig.build_slack_payload(state, "2026-10-21", "ok", 0,
+                                     browse_url=None, feedback_url=None)
+    assert payload["new_count"] == 1 and payload["low_value_count"] == 2
+    assert [g["id"] for g in payload["new_gaps"]] == ["a"]
+
+
+def test_all_low_value_gaps_are_not_slack_news():
+    import event_state_slack as slk
+
+    state = {"b": _state_entry("b", "low"), "c": _state_entry("c", "low")}
+    payload = ig.build_slack_payload(state, "2026-10-21", "ok", 0,
+                                     browse_url=None, feedback_url=None)
+    assert slk.gap_has_news(payload) is False
+
+
+def test_render_gap_section_counts_low_value_and_shows_the_fix():
+    state = {"a": _state_entry("a", "needed", fix="extend", extend_event="E",
+                               extend_property="p"),
+             "b": _state_entry("b", "low"), "c": _state_entry("c", "low")}
+    out = ig.render_gap_section(state, "2026-10-21")
+    assert "| fix |" in out.replace("| fix | location |", "| fix |")
+    assert "extend `E` with `p`" in out
+    assert "| b |" not in out
+    assert "2 low-value gap(s) not listed (no question anyone asked needs them)." in out
+
+
+def test_run_sweep_blanks_a_hallucinated_question(tmp_path):
+    app = tmp_path / "packages/gp-webapp/app/dashboard"
+    app.mkdir(parents=True)
+    (app / "page.tsx").write_text("export default function P(){return null}")
+    wl, sem = _questions_env(tmp_path)
+
+    def fake_factory(_key):
+        return _FakeClient(payload={"results": [
+            {"id": "/dashboard", "is_gap": True, "rubric_rule": "route",
+             "dashboard_question": "q", "rank": 3, "reason": "r",
+             "answers_question": "invented"}]})
+
+    new_state, *_ = ig.run_sweep(
+        tmp_path, tmp_path / "none.yaml", tmp_path / "state.json", date(2026, 7, 20),
+        api_key="sk-ant-x", model="m", client_factory=fake_factory,
+        watchlist_path=wl, sem_dir=sem)
+    assert new_state["/dashboard"]["answers_question"] == ""
+    assert new_state["/dashboard"]["value"] == "low"
+
+
+def test_nearby_event_refs_keeps_a_nested_registry_path_whole(tmp_path):
+    d = tmp_path / "packages/gp-webapp/app/x"
+    d.mkdir(parents=True)
+    (d / "C.tsx").write_text("trackEvent(EVENTS.Outreach.Flow.StepViewed)\n")
+    assert ig.nearby_event_refs(tmp_path, "packages/gp-webapp/app/x/C.tsx") == [
+        "EVENTS.Outreach.Flow.StepViewed"]
+
+
+def test_select_candidates_judges_fresh_gaps_before_standing_low_value_ones():
+    # A low gap stays `new` so it can turn needed, but it must not hold the judge window
+    # against surfaces that were never judged (the DATA-2539 silent-backlog failure).
+    gaps = [{"id": "a", "surface_type": "wizard_stage"},
+            {"id": "z", "surface_type": "wizard_stage"}]
+    prior = {"a": {"disposition": "new", "value": "low"}}
+    assert [g["id"] for g in ig.select_candidates(gaps, prior, limit=1)] == ["z"]
