@@ -1,6 +1,5 @@
 import {
   CIVIC_PANEL_PAGE_HREF,
-  MAX_LIST_SAMPLE_SIZE,
   PANEL_CALL_ASSUMED_JOIN_RATE,
   PANEL_CALLS_PER_HOUR,
   PANEL_DOOR_ASSUMED_JOIN_RATE,
@@ -8,7 +7,6 @@ import {
   PANEL_DOORS_PER_AREA,
   PANEL_DOORS_PER_HOUR,
   PANEL_MAX_DOOR_AREAS,
-  PANEL_SEED_ASSUMED_JOIN_RATE,
   PANEL_TEXT_REPLY_BUSINESS_DAYS,
   PANEL_UNSTARTED_STEP_DAYS,
   PANEL_WEEKS_PER_WAVE,
@@ -19,6 +17,7 @@ import {
   type UnderrepresentedGroup,
 } from '@goodparty_org/contracts'
 import { addDays, format, isBefore, subBusinessDays } from 'date-fns'
+import { asksFor, textInviteSize } from './civicPanelInvite.util'
 
 export type PlannedStep = {
   channel: CivicPanelBuildChannel
@@ -35,12 +34,6 @@ export const CHANNEL_ORDER: CivicPanelBuildChannel[] = [
   'phone_banking',
   'door_knocking',
 ]
-
-// How many asks it takes to expect `joins` yeses. Rounded to six places
-// first so float noise (94.5 / 0.03 = 3150.0000000000005) never asks one
-// more person than the math says.
-export const asksFor = (joins: number, rate: number) =>
-  Math.ceil(Number((joins / rate).toFixed(6)))
 
 // One wave, sized to the members still missing. Doors and calls spend about
 // a month of the official's weekly time (doors take their share up to two
@@ -85,14 +78,7 @@ export const sizePanelWave = ({
           ),
         )
   const textGap = callGap - calls * PANEL_CALL_ASSUMED_JOIN_RATE
-  const texts =
-    wanted === null || textGap <= 0
-      ? 0
-      : Math.min(
-          asksFor(textGap, PANEL_SEED_ASSUMED_JOIN_RATE),
-          pools.text,
-          MAX_LIST_SAMPLE_SIZE,
-        )
+  const texts = wanted === null ? 0 : textInviteSize(textGap, pools.text)
   const areas = doors > PANEL_DOORS_PER_AREA ? 2 : 1
   const firstArea = Math.ceil(doors / areas)
   const steps: PlannedStep[] = [
