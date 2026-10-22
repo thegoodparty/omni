@@ -91,10 +91,63 @@ runs:
       shell: bash
       run: npm run build -w packages/nest-common
 
+    - name: Resolve Prisma version
+      id: prisma-version
+      if: inputs.prisma-generate-script != ''
+      shell: bash
+      run: echo "version=$(node -p "require('prisma/package.json').version")" >> "$GITHUB_OUTPUT"
+
+    # The schemas' musl binaryTarget (the engine the images run on) is only in
+    # the restored node_modules if whichever job saved that cache happened to
+    # run generate first. Otherwise every generate downloads it into
+    # ~/.cache/prisma, and one dropped connection crashes the CLI even though
+    # its downloader reports retries left. Keyed per script because the
+    # gp-api and election-api schemas name different musl targets.
+    - name: Restore Prisma engines
+      id: prisma-engines-cache
+      if: inputs.prisma-generate-script != ''
+      uses: actions/cache/restore@v4
+      with:
+        path: ~/.cache/prisma
+        key: prisma-engines-v1-${{ runner.os }}-${{ steps.prisma-version.outputs.version }}-${{ inputs.prisma-generate-script }}
+
+    # Retried for a cache miss, where the engine download still happens.
     - name: Generate Prisma client
       if: inputs.prisma-generate-script != ''
       shell: bash
-      run: npm run ${{ inputs.prisma-generate-script }}
+      env:
+        PRISMA_GENERATE_SCRIPT: ${{ inputs.prisma-generate-script }}
+      run: |
+        for attempt in 1 2 3; do
+          if npm run "$PRISMA_GENERATE_SCRIPT"; then
+            exit 0
+          fi
+          if [ "$attempt" -lt 3 ]; then
+            echo "::warning::prisma generate attempt $attempt failed; retrying"
+            sleep $((attempt * 15))
+          fi
+        done
+        echo "::error::prisma generate failed after 3 attempts"
+        exit 1
+
+    # When node_modules already carried the musl engine, generate never wrote
+    # it to ~/.cache/prisma, and saving that would pin an engine-less cache
+    # under an immutable key.
+    - name: Check Prisma engine cache
+      id: prisma-engines-check
+      if: inputs.prisma-generate-script != '' && steps.prisma-engines-cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        if compgen -G "$HOME/.cache/prisma/master/*/linux-musl*/*" > /dev/null; then
+          echo "complete=true" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Save Prisma engines
+      if: steps.prisma-engines-check.outputs.complete == 'true'
+      uses: actions/cache/save@v4
+      with:
+        path: ~/.cache/prisma
+        key: ${{ steps.prisma-engines-cache.outputs.cache-primary-key }}
 
     - name: Generate gp-api route types
       if: inputs.route-types == 'true'
