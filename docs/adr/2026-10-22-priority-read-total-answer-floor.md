@@ -30,6 +30,9 @@ cannot drift apart.
 Bryan (`bryclevgp`) and Samuel (`samuelgoodparty`) decided the floor on
 2026-10-22.
 
+Race counts in the floor whenever the census frame can name it, the same as
+the sizing target, even before the answers can (decided by `bryclevgp`).
+
 ## Context
 
 The read from #2977 counted only groups. Groups are marginals (age band,
