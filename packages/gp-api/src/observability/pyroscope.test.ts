@@ -22,4 +22,8 @@ describe('tokenFromOtlpAuthorization', () => {
     expect(tokenFromOtlpAuthorization('Bearer abc')).toBeUndefined()
     expect(tokenFromOtlpAuthorization(basic('no-separator'))).toBeUndefined()
   })
+
+  it('does not throw on a malformed percent escape', () => {
+    expect(() => tokenFromOtlpAuthorization('Basic %')).not.toThrow()
+  })
 })

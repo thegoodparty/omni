@@ -8,7 +8,12 @@ const PROFILES_USER = '1532096'
 export const tokenFromOtlpAuthorization = (
   authorization: string | undefined,
 ) => {
-  const value = authorization ? decodeURIComponent(authorization) : ''
+  let value = authorization ?? ''
+  try {
+    value = decodeURIComponent(value)
+  } catch {
+    // A malformed escape is left as is; the Basic prefix check below decides.
+  }
   if (!value.startsWith('Basic ')) return undefined
   const decoded = Buffer.from(value.slice('Basic '.length), 'base64').toString()
   const separator = decoded.indexOf(':')
@@ -40,6 +45,13 @@ export const startPyroscope = (authorization: string | undefined) => {
         wall: { collectCpuTime: true },
       })
       pyroscope.start()
+      // Flush the last window and release the profiler's timers so it
+      // cannot hold the task open after Nest shuts down.
+      process.once('SIGTERM', () => {
+        pyroscope
+          .stop()
+          .catch((err: unknown) => console.warn('Pyroscope stop failed', err))
+      })
     })
     .catch((err: unknown) => console.warn('Pyroscope failed to start', err))
 }
