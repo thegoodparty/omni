@@ -8,3 +8,38 @@ updates:
     schedule:
       interval: daily
     open-pull-requests-limit: 0
+  - package-ecosystem: docker
+    directory: /packages/election-api/deploy
+    schedule:
+      interval: daily
+    open-pull-requests-limit: 0
+  - package-ecosystem: docker
+    directory: /packages/gp-ai/autopilot
+    schedule:
+      interval: daily
+    open-pull-requests-limit: 0
+  - package-ecosystem: docker
+    directory: /packages/gp-ai/broker
+    schedule:
+      interval: daily
+    open-pull-requests-limit: 0
+  - package-ecosystem: docker
+    directory: /packages/gp-ai/hubspot_ddhq_match/deployment
+    schedule:
+      interval: daily
+    open-pull-requests-limit: 0
+  - package-ecosystem: docker
+    directory: /packages/gp-ai/pmf_engine
+    schedule:
+      interval: daily
+    open-pull-requests-limit: 0
+  - package-ecosystem: docker
+    directory: /packages/gp-ai/serve/v1_pipeline
+    schedule:
+      interval: daily
+    open-pull-requests-limit: 0
+  - package-ecosystem: docker
+    directory: /packages/gp-api/deploy
+    schedule:
+      interval: daily
+    open-pull-requests-limit: 0
