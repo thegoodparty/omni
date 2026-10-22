@@ -546,8 +546,9 @@ carries a `DO NOT MODIFY` comment in `segment.types.ts` and is pinned by
 
 `src/doorKnocking/` (turf CRUD + the create transaction; controller routes
 under `/v1/door-knocking`), `src/vendors/geoapify/` (Route Planner client —
-requires `GEOAPIFY_API_KEY`, validated lazily at call time so environments
-without it still boot), and the evaluation/residents contracts in
+requires `GEOAPIFY_API_KEY` in live mode, validated lazily at call time so
+environments without it still boot; in mock mode it sends a constant mock key
+and needs no real key), and the evaluation/residents contracts in
 `@goodparty_org/contracts`, served in-process by
 `src/peopleDb/services/voterDoorKnocking.service.ts`.
 

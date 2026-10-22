@@ -96,7 +96,7 @@ HTTP routes of its own.
 
 ## Config
 
-`CALLHUB_API_KEY` (required, asserted lazily), `CALLHUB_API_BASE_URL`
+`CALLHUB_API_KEY` (required in live mode, asserted lazily; mock mode uses a constant mock key), `CALLHUB_API_BASE_URL`
 (regional, defaults to the NA host — the generic host 403s),
 `CALLHUB_HTTP_TIMEOUT`, `CALLHUB_VB_CALLS_PER_MINUTE` (per-campaign `frequency`,
 default 120 — see the account-cap gotcha above).

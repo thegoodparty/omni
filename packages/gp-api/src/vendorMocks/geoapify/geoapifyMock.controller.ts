@@ -4,6 +4,7 @@ import {
   RoutePlannerRequestSchema,
   type RoutePlannerRequest,
 } from '@/vendors/geoapify/schemas/geoapify.schema'
+import { GEOAPIFY_MOCK_API_KEY } from '@/vendors/geoapify/services/geoapifyRoutePlanner.service'
 import {
   BadRequestException,
   Body,
@@ -303,13 +304,17 @@ export class GeoapifyMockController {
     }
   }
 
-  // Accepts any non-empty key when GEOAPIFY_API_KEY is unconfigured (test
-  // environments); in configured environments it must match the real key so
-  // only the GeoapifyRoutePlannerService (which supplies it) can reach this
-  // endpoint.
+  // In mock mode the service always sends GEOAPIFY_MOCK_API_KEY, even
+  // where GEOAPIFY_API_KEY is also set (PR previews). The fallback to any
+  // non-empty key when GEOAPIFY_API_KEY is unset is intentionally absent:
+  // mock routes are internet-facing on previews and must not accept
+  // arbitrary tokens.
   private assertApiKey(apiKey: string | undefined) {
     const expectedKey = process.env.GEOAPIFY_API_KEY
-    if (!apiKey || (expectedKey && apiKey !== expectedKey)) {
+    const accepted =
+      apiKey === GEOAPIFY_MOCK_API_KEY ||
+      (!!expectedKey && apiKey === expectedKey)
+    if (!accepted) {
       throw new BadRequestException('apiKey query param is required')
     }
   }
