@@ -5,7 +5,7 @@ any script that needs a dev user in a known product state.
 
 ## Endpoints (all 404 outside dev/preview)
 
-Three auth tiers. Most routes live in `TestFixturesController` and require
+Four auth tiers. Most routes live in `TestFixturesController` and require
 `AdminOrM2MGuard`. The vendor-mock routes live in
 `TestFixturesVendorMocksController` and require only a normal signed-in session
 plus campaign ownership — so Playwright E2E specs can call them using the test
@@ -13,19 +13,20 @@ user's own token without admin credentials. The judge chat-case routes live in
 `TestFixturesJudgeController` and require only a normal signed-in session,
 scoping every row to the caller (see below).
 
-| Route                                                 | Auth                 | Purpose                                                                                                   |
-| ----------------------------------------------------- | -------------------- | --------------------------------------------------------------------------------------------------------- |
-| `POST /v1/test-fixtures/users`                        | `AdminOrM2MGuard`    | Mint a `qa-<uuid>@goodparty.org` user in a state: `free-win`, `pro-win`, `serve`, `serve-won-race`        |
-| `DELETE /v1/test-fixtures/users`                      | `AdminOrM2MGuard`    | On-demand cleanup (DB + Clerk); the hourly `sweepTestUsers` cron is the safety net                        |
-| `POST /v1/test-fixtures/users/:id/session`            | `AdminOrM2MGuard`    | Re-mint the 1h session token for runs longer than an hour                                                 |
-| `POST /v1/test-fixtures/organizations/:slug/activity` | `AdminOrM2MGuard`    | Fill an existing org with weeks of outreach on every channel (see below)                                  |
-| `POST /v1/test-fixtures/vendor-mocks/actions`         | session + ownership  | Apply a mock action (`geoapify.route.fail`, `callhub.campaign.complete`) for a campaign                   |
-| `GET /v1/test-fixtures/vendor-mocks/records`          | session + ownership  | List a campaign's `VendorMockRecord` rows (incl. CallHub) and the deploy's `vendorMode`                   |
-| `POST /v1/test-fixtures/vendor-mocks/jobs/:name/run`  | session + isTestUser | Test-user run-job: triggers a robocall sweep by name (global — only the robocall E2E spec uses it)        |
-| `POST /v1/test-fixtures/vendor-mocks/time-travel`     | session + ownership  | Shift outreach timing for E2E: `robocall.send_due_now`, `robocall.dialed_48h_ago`, `sms.start_date_today` |
-| `POST /v1/test-fixtures/jobs/:name/run`               | `AdminOrM2MGuard`    | Run a named background job on demand (robocall.staging/send/completion/capture)                           |
-| `POST /v1/test-fixtures/judge-chat-cases`             | session              | Stage one Universal Judge chat case for the caller (see below)                                            |
-| `DELETE /v1/test-fixtures/judge-chat-cases/:slug`     | session              | Remove one, and only one the caller owns under a `judge-` slug                                            |
+| Route                                                        | Auth                         | Purpose                                                                                                                  |
+| ------------------------------------------------------------ | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `POST /v1/test-fixtures/users`                               | `AdminOrM2MGuard`            | Mint a `qa-<uuid>@goodparty.org` user in a state: `free-win`, `pro-win`, `pro-win-10dlc-mock`, `serve`, `serve-won-race` |
+| `DELETE /v1/test-fixtures/users`                             | `AdminOrM2MGuard`            | On-demand cleanup (DB + Clerk); the hourly `sweepTestUsers` cron is the safety net                                       |
+| `POST /v1/test-fixtures/users/:id/session`                   | `AdminOrM2MGuard`            | Re-mint the 1h session token for runs longer than an hour                                                                |
+| `POST /v1/test-fixtures/organizations/:slug/activity`        | `AdminOrM2MGuard`            | Fill an existing org with weeks of outreach on every channel (see below)                                                 |
+| `POST /v1/test-fixtures/users/:id/states/pro-win-10dlc-mock` | session + isTestUser, own id | Run the caller's real 10DLC registration against the vendor mocks to `tcr_approved` (see below)                          |
+| `POST /v1/test-fixtures/vendor-mocks/actions`                | session + ownership          | Apply a mock action (`geoapify.route.fail`, `callhub.campaign.complete`) for a campaign                                  |
+| `GET /v1/test-fixtures/vendor-mocks/records`                 | session + ownership          | List a campaign's `VendorMockRecord` rows (incl. CallHub) and the deploy's `vendorMode`                                  |
+| `POST /v1/test-fixtures/vendor-mocks/jobs/:name/run`         | session + isTestUser         | Test-user run-job: triggers a robocall sweep by name (global — only the robocall E2E spec uses it)                       |
+| `POST /v1/test-fixtures/vendor-mocks/time-travel`            | session + ownership          | Shift outreach timing for E2E: `robocall.send_due_now`, `robocall.dialed_48h_ago`, `sms.start_date_today`                |
+| `POST /v1/test-fixtures/jobs/:name/run`                      | `AdminOrM2MGuard`            | Run a named background job on demand (robocall.staging/send/completion/capture)                                          |
+| `POST /v1/test-fixtures/judge-chat-cases`                    | session                      | Stage one Universal Judge chat case for the caller (see below)                                                           |
+| `DELETE /v1/test-fixtures/judge-chat-cases/:slug`            | session                      | Remove one, and only one the caller owns under a `judge-` slug                                                           |
 
 The create/session responses carry credentials by contract (password, session
 token, a single-use Clerk `signInToken`, and a cookie triple) — **never log a
@@ -37,6 +38,31 @@ redeem `signInToken` on a public page
 `setActive`), then set the `organization-slug` cookie to select the org. The
 `sessionToken` / `token` cookie only authenticate direct gp-api calls — they
 do NOT log a browser into the webapp.
+
+## `pro-win-10dlc-mock`
+
+`TestFixturesService.setupProWin10DlcMock(userId)` plays the compliance_setup
+agent server-side, through the services behind the agent's routes and in its
+order: filing (`createAgentic`, while the campaign still reads non-Pro so no real
+agent run is queued), `setIsPro`, a publishable website, domain search and
+purchase, publish, `verifyLive`, the CV pre-submission override
+(`overrideCvValidation`, the same call as the `cv-validation/override` route),
+`submitToPeerlyForAgent`, `peerly.cv.approve`, the PIN (`123456`), `peerly.usecase.activate`
+and the activation check. It ends by asserting stage `tcr_approved` and a
+`peerlyIdentityId`, and takes about 4 seconds. `POST /users` also accepts the state.
+
+- The purchase call blocks until the Vercel mock completes the order (30s after
+  the buy), so a short loop calls `VendorMockRecordService.completeVercelOrders`
+  until the purchase settles.
+- It 400s unless `VENDOR_MODE=mock`: live mode would buy a real domain and file a
+  real Campaign Verify request. The route also 404s off a non-prod deploy and
+  only runs for the signed-in test user's own id.
+- `internalTestingAt` stays null on purpose. The P2P send gate
+  (`requirePeerlyIdentityId`) blocks internal-testing rows, and this user must pass it.
+- A user that already has a TCR record gets 409, unless it is already approved
+  by this fixture, which returns the existing result.
+- Only the campaign's own activation check runs (`tcr.complianceSweep`'s body),
+  not the global `tcr.usecaseSweep`.
 
 ## Shared state transitions
 

@@ -7,6 +7,7 @@ import {
 } from 'src/helpers/navigation.helper'
 import {
   adminAction,
+  applyProWin10DlcMock,
   deliverStripeEvent,
   mockRecords,
   runJob,
@@ -20,13 +21,11 @@ import { authenticateTestUser } from 'tests/utils/api-registration'
 // End-to-end coverage of the Win SMS P2P send flow against the vendor-mock
 // stack: compose → Stripe payment → deliver signed webhook → CAS approve.
 //
-// It needs a fully 10DLC-compliant Pro Win candidate (a `pro-win-10dlc-mock`
-// fixture state) that gp-api does not provide yet; the test is `test.fixme`
-// until M4 delivers the Peerly 10DLC mock, Route53, and Vercel mocks.
-//
-// @dev-only: requires the Peerly P2P mock (M3) and the 10DLC mocks (M4) which
-// only run on dev or local stacks with VENDOR_MODE=mock. The spec is tagged
-// @dev-only until M4 lands and removes the tag.
+// The candidate is a Pro Win user whose 10DLC registration is approved. The
+// `pro-win-10dlc-mock` fixture state runs the real registration server-side
+// against the Peerly, Vercel and Route53 mocks (no `internalTestingAt`, which
+// the P2P send gate blocks). It needs VENDOR_MODE=mock, so the test skips on a
+// live-mode deploy. Every call here is real gp-api traffic; nothing is stubbed.
 
 // ─── Stripe helper ─────────────────────────────────────────────────────────────
 // Fills the Stripe PaymentElement iframe with the test card. Matches the same
@@ -58,7 +57,7 @@ const fillStripeCard = async (page: Page): Promise<void> => {
 
 // ─── Spec ─────────────────────────────────────────────────────────────────────
 
-test.describe('Win SMS send @dev-only', () => {
+test.describe('Win SMS send', () => {
   test.use({ serviceWorkers: 'block' })
 
   test.beforeEach(async ({ page }) => {
@@ -68,17 +67,10 @@ test.describe('Win SMS send @dev-only', () => {
   test('happy path: compose → schedule → Stripe pay → CAS approve → outreach scheduled', async ({
     page,
   }) => {
-    // ENG-11434: the `pro-win-10dlc-mock` fixture (POST
-    // /v1/test-fixtures/users/:id/states/pro-win-10dlc-mock) does not exist in
-    // gp-api (404), and this spec needs a Pro 10DLC-compliant candidate. The
-    // fixture lands with M4; remove this fixme and provision the user through
-    // it then. Until then this spec must not gate the post-merge E2E check.
-    test.fixme(true, 'Blocked on the M4 pro-win-10dlc-mock fixture (ENG-11434)')
-
     test.setTimeout(8 * 60 * 1000)
 
-    // ── 1. Provision a 10DLC-approved Pro Win candidate ────────────────────
-    const { client } = await authenticateTestUser(page, {
+    // ── 1. Register a user and read its campaign ───────────────────────────
+    const { user, client } = await authenticateTestUser(page, {
       isolated: true,
     })
     const { data: mine } = await client.get<{ id: number }>(
@@ -90,8 +82,13 @@ test.describe('Win SMS send @dev-only', () => {
     const { vendorMode } = await mockRecords(client, campaignId)
     test.skip(
       vendorMode !== 'mock',
-      'Win SMS mock pipeline requires VENDOR_MODE=mock (dev / local only)',
+      'Win SMS mock pipeline requires VENDOR_MODE=mock (preview / local only)',
     )
+
+    // ── 3. Make it a 10DLC-approved Pro Win candidate ──────────────────────
+    const fixture = await applyProWin10DlcMock(client, user.id)
+    expect(fixture.stage).toBe('tcr_approved')
+    expect(fixture.peerlyIdentityId).toBeTruthy()
 
     // ── 4. Force vendor-mocks-m3 flag and open SMS window ──────────────────
     await setFlagOverrides(page, { 'vendor-mocks-m3': 'on' })

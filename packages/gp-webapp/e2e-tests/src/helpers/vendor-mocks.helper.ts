@@ -5,6 +5,7 @@ import type {
   DeliverStripeEventResponse,
   MockAction,
   MockRecordsResponse,
+  TestFixtureStateResponse,
 } from '@goodparty_org/contracts'
 
 /**
@@ -136,3 +137,18 @@ export const adminAction = async (
  */
 export const overrideCvValidation = (client: AxiosInstance) =>
   client.post<void>('/v1/test-fixtures/vendor-mocks/cv-validation/override')
+
+/**
+ * Runs the caller's real 10DLC registration server-side against the vendor
+ * mocks, leaving a Pro candidate at `tcr_approved` with a Peerly identity that
+ * passes the P2P send gate. Mock mode only; 400 when the deploy is in live mode.
+ */
+export const applyProWin10DlcMock = async (
+  client: AxiosInstance,
+  userId: number,
+): Promise<TestFixtureStateResponse> => {
+  const { data } = await client.post<TestFixtureStateResponse>(
+    `/v1/test-fixtures/users/${userId}/states/pro-win-10dlc-mock`,
+  )
+  return data
+}

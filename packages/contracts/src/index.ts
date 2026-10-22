@@ -1744,6 +1744,8 @@ export {
   type TestFixtureUserResponse,
   TestFixtureSessionResponseSchema,
   type TestFixtureSessionResponse,
+  TestFixtureStateResponseSchema,
+  type TestFixtureStateResponse,
   DeleteTestFixtureUsersResponseSchema,
   type DeleteTestFixtureUsersResponse,
   TEST_FIXTURE_ACTIVITY_MAX_PEOPLE,

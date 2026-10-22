@@ -1,6 +1,8 @@
 import { CvStatusPollService } from '@/campaigns/tcrCompliance/services/cvStatusPoll.service'
 import { CampaignTcrComplianceService } from '@/campaigns/tcrCompliance/services/campaignTcrCompliance.service'
 import { CampaignsService } from '@/campaigns/services/campaigns.service'
+import { CreateAgenticTcrComplianceDto } from '@/campaigns/tcrCompliance/schemas/createAgenticTcrComplianceDto.schema'
+import { ComplianceStateService } from '@/campaigns/tcrCompliance/services/complianceState.service'
 import { ElectionsService } from '@/elections/services/elections.service'
 import { OutreachCompletionService } from '@/outreach/services/outreachCompletion.service'
 import { OutreachResultsAdminService } from '@/outreach/services/outreachResultsAdmin.service'
@@ -13,6 +15,8 @@ import { PaymentEventsService } from '@/payments/services/paymentEventsService'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
 import { UsersService } from '@/users/services/users.service'
 import { VENDOR_MODE } from '@/shared/util/appEnvironment.util'
+import { DomainsService } from '@/websites/services/domains.service'
+import { WebsitesService } from '@/websites/services/websites.service'
 import { isTestUser, newFixtureUserEmail } from '@/users/util/users.util'
 import { CLERK_CLIENT_PROVIDER_TOKEN } from '@/vendors/clerk/providers/clerk-client.provider'
 import { clerkThrottle } from '@/vendors/clerk/util/clerkThrottle.util'
@@ -20,6 +24,8 @@ import { StripeService } from '@/vendors/stripe/services/stripe.service'
 import { VendorMockRecordService } from '@/vendorMocks/vendorMockRecord.service'
 import { ClerkClient } from '@clerk/backend'
 import {
+  ComplianceStage,
+  type TestFixtureStateResponse,
   type AdminOutreachActionResponse,
   type DeliverStripeEventResponse,
   type MockAction,
@@ -45,14 +51,23 @@ import {
 import { ModuleRef } from '@nestjs/core'
 import { randomUUID } from 'crypto'
 import {
+  addDays,
   addSeconds,
+  differenceInDays,
   differenceInMilliseconds,
+  format,
   formatISO,
   subHours,
   subMinutes,
 } from 'date-fns'
 import Stripe from 'stripe'
-import { User } from '@/generated/prisma'
+import {
+  Campaign,
+  DomainSource,
+  TcrComplianceStatus,
+  User,
+  WebsiteStatus,
+} from '@/generated/prisma'
 import {
   CreateTestFixtureUserInput,
   DeleteTestFixtureUsersInput,
@@ -66,6 +81,37 @@ import {
 } from './stateTransitions.service'
 
 const FIXTURE_TOKEN_TTL_SECONDS = 60 * 60
+
+// Default Campaign Verify PIN of the Peerly 10DLC mock.
+const MOCK_CV_PIN = '123456'
+// Texting closes 19 days before the election; keep the fixture well clear.
+const MIN_DAYS_TO_ELECTION = 60
+const FIXTURE_ELECTION_DAYS_OUT = 90
+const FIXTURE_DOMAIN_MAX_PRICE = 50
+// How often the purchase's in-flight Vercel order is completed, so the order
+// is done by (or right after) the purchase's first poll instead of 30s later.
+const VERCEL_ORDER_COMPLETE_INTERVAL_MS = 25
+
+const FIXTURE_BIO =
+  'I am running for City Council because our neighborhood deserves a ' +
+  'representative who shows up, listens, and follows through. For years ' +
+  'I have organized with neighbors on the issues that touch daily life: ' +
+  'safe streets, reliable services, affordable housing, and an open, ' +
+  'accountable local government. I will bring that same energy to the ' +
+  'council, fighting for transparent budgets, smart infrastructure ' +
+  'investment, and a city that works for working families rather than ' +
+  'the well-connected few. Together we can build a community we are all ' +
+  'proud to call home, today and for the generations that follow us.'
+const FIXTURE_ISSUE = {
+  title: 'Safe and affordable housing',
+  description:
+    'Expand affordable housing by streamlining permits, protecting renters ' +
+    'from unfair increases, and partnering with builders on starter homes.',
+}
+const FIXTURE_FILING_URL = 'https://sos.wyo.gov/filing/jane-for-council'
+const FIXTURE_EIN = '47-1234567'
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
 type ProvisionedUser = { user: User; clerkUserId: string; password: string }
 type MintedSession = { jwt: string; signInToken: string; expiresAt: string }
@@ -82,6 +128,9 @@ export class TestFixturesService {
     private readonly vendorMockRecord: VendorMockRecordService,
     private readonly cvStatusPoll: CvStatusPollService,
     private readonly tcrCompliance: CampaignTcrComplianceService,
+    private readonly complianceState: ComplianceStateService,
+    private readonly domains: DomainsService,
+    private readonly websites: WebsitesService,
     private readonly robocallStaging: OutreachRobocallStagingService,
     private readonly robocallSend: OutreachRobocallSendService,
     private readonly robocallCompletion: OutreachRobocallCompletionService,
@@ -98,6 +147,7 @@ export class TestFixturesService {
   async createFixtureUser(
     input: CreateTestFixtureUserInput,
   ): Promise<TestFixtureUserResponse> {
+    if (input.state === 'pro-win-10dlc-mock') this.assertMockVendorMode()
     const { user, clerkUserId, password } = await this.provisionUser(input)
 
     let campaignId: number | undefined
@@ -124,6 +174,8 @@ export class TestFixturesService {
 
       if (input.state === 'pro-win') {
         await this.campaigns.setIsPro(campaign.id, true, false)
+      } else if (input.state === 'pro-win-10dlc-mock') {
+        await this.setupProWin10DlcMock(user.id)
       } else if (input.state === 'serve-won-race') {
         const office = await this.transitions.promoteWonRace(user, campaign)
         electedOfficeId = office.id
@@ -156,6 +208,289 @@ export class TestFixturesService {
       cookies: this.buildCookies(user, session.jwt, orgSlug),
       expiresAt: session.expiresAt,
     }
+  }
+
+  // Drives a Pro Win user's real 10DLC registration to `tcr_approved` against
+  // the vendor mocks, server-side and through the same services the agent's
+  // routes call, in the agent's order: filing, domain search and purchase,
+  // publish, verify-live, submit to Peerly, CV approval, PIN, usecase
+  // activation, activation check. Mirrors ten-dlc-registration.spec.ts.
+  //
+  // internalTestingAt is never set: the P2P send gate (requirePeerlyIdentityId)
+  // blocks internal-testing rows by design, and this user must pass it.
+  async setupProWin10DlcMock(
+    userId: number,
+  ): Promise<TestFixtureStateResponse> {
+    // Live mode would submit real Campaign Verify requests and buy a real
+    // domain, so refuse before touching anything.
+    this.assertMockVendorMode()
+
+    const user = await this.users.findUser({ id: userId })
+    if (!user) throw new NotFoundException()
+    let campaign = await this.campaigns.findFirst({ where: { userId } })
+    if (!campaign) throw new NotFoundException('No campaign for this user')
+
+    const existing = await this.tcrCompliance.fetchByCampaignId(campaign.id)
+    if (existing) {
+      if (
+        existing.status === TcrComplianceStatus.approved &&
+        existing.peerlyIdentityId &&
+        !existing.internalTestingAt
+      ) {
+        return this.buildDlcStateResponse(user.id, campaign.id, existing)
+      }
+      throw new ConflictException(
+        'User already has a TCR compliance record; the fixture needs a fresh user',
+      )
+    }
+
+    // 1. Filing. The campaign still reads non-Pro here: createAgentic queues a
+    // real compliance_setup agent run for a Pro campaign with a fresh record,
+    // and this fixture plays that agent itself. Payment comes after, as in the
+    // wizard.
+    campaign = await this.ensureTextingWindowOpen(campaign)
+    const filing = CreateAgenticTcrComplianceDto.schema.parse({
+      ein: FIXTURE_EIN,
+      candidateName: `${user.firstName ?? 'QA'} ${user.lastName ?? 'Fixture'}`,
+      committeeName: 'Jane for Council',
+      filingUrl: FIXTURE_FILING_URL,
+      email: user.email,
+      phone: '(307) 555-1234',
+      officeLevel: 'local',
+      manualAddress: {
+        addressLine1: '1700 Pennsylvania Ave NW',
+        city: 'Cheyenne',
+        state: 'WY',
+        zip: '82001',
+      },
+    })
+    await this.tcrCompliance.createAgentic(
+      user,
+      { ...campaign, isPro: false },
+      filing,
+    )
+    const { campaign: proCampaign } = await this.campaigns.setIsPro(
+      campaign.id,
+      true,
+      false,
+    )
+    campaign = proCampaign
+
+    // 2. Website the agent would have prepared: genuine bio and issue.
+    await this.ensurePublishableWebsite(user, campaign.id)
+
+    // 3. Domain search and purchase. The purchase holds the request open until
+    // the Vercel mock completes the order (30s after it is placed), so complete
+    // the order as soon as it exists.
+    const campaignWithUser = { ...campaign, user }
+    const { candidates } = await this.domains.searchDomainsForCampaign(
+      campaignWithUser,
+      [`janeforcouncil${randomUUID().slice(0, 8)}`],
+      FIXTURE_DOMAIN_MAX_PRICE,
+    )
+    const [candidate] = candidates
+    if (!candidate) {
+      throw new BadGatewayException('Domain search returned no candidates')
+    }
+    await this.purchaseWithImmediateVercelOrder(
+      campaignWithUser,
+      candidate.domain,
+    )
+
+    // 4. Publish and verify the site is live.
+    await this.websites.update({
+      where: { campaignId: campaign.id },
+      data: { status: WebsiteStatus.published, hasEverBeenPublished: true },
+    })
+    const live = await this.websites.verifyLive(campaign.id)
+    if (!live.verified) {
+      throw new BadGatewayException(
+        `Mock website did not verify live: ${live.reason}`,
+      )
+    }
+
+    // 5. Submit to Peerly. The pre-submission gate fetches the filing URL live
+    // and asks an LLM, which a fixture candidate can't pass; stamp the same
+    // override staff's "override CV validation" step does.
+    await this.tcrCompliance.overrideCvValidation(campaign.id)
+    await this.tcrCompliance.submitToPeerlyForAgent(user, campaign)
+    await this.expectStage(campaign.id, ComplianceStage.awaiting_pin)
+
+    // 6. Campaign Verify approves, the candidate enters the PIN (the
+    // submit-cv-pin route's steps), then the usecase goes active and the
+    // activation check approves the registration.
+    await this.applyMockAction({
+      campaignId: campaign.id,
+      action: 'peerly.cv.approve',
+    })
+    const submitted = await this.requireTcrRecord(campaign.id)
+    const token = await this.tcrCompliance.retrieveCampaignVerifyToken(
+      MOCK_CV_PIN,
+      submitted,
+    )
+    if (!token) {
+      throw new BadGatewayException(
+        'Campaign verify token could not be retrieved',
+      )
+    }
+    await this.tcrCompliance.submitCampaignVerifyToken(submitted, token)
+    await this.tcrCompliance.model.update({
+      where: { id: submitted.id },
+      data: { status: TcrComplianceStatus.pending },
+    })
+    await this.applyMockAction({
+      campaignId: campaign.id,
+      action: 'peerly.usecase.activate',
+    })
+    await this.checkCampaignUsecaseActivation(campaign.id)
+
+    // 7. It must now pass the send gate: approved, with a real identity.
+    await this.expectStage(campaign.id, ComplianceStage.tcr_approved)
+    const approved = await this.requireTcrRecord(campaign.id)
+    if (
+      approved.status !== TcrComplianceStatus.approved ||
+      !approved.peerlyIdentityId ||
+      approved.internalTestingAt
+    ) {
+      throw new BadGatewayException(
+        `10DLC fixture ended in status ${approved.status} without an approved Peerly identity`,
+      )
+    }
+    return this.buildDlcStateResponse(user.id, campaign.id, approved)
+  }
+
+  private assertMockVendorMode() {
+    if (VENDOR_MODE !== 'mock') {
+      throw new BadRequestException(
+        'pro-win-10dlc-mock needs VENDOR_MODE=mock; it never runs against live vendors',
+      )
+    }
+  }
+
+  private buildDlcStateResponse(
+    userId: number,
+    campaignId: number,
+    record: { peerlyIdentityId: string | null },
+  ): TestFixtureStateResponse {
+    if (!record.peerlyIdentityId) {
+      throw new ConflictException('TCR compliance has no Peerly identity')
+    }
+    return {
+      state: 'pro-win-10dlc-mock',
+      userId,
+      campaignId,
+      stage: ComplianceStage.tcr_approved,
+      peerlyIdentityId: record.peerlyIdentityId,
+    }
+  }
+
+  private async requireTcrRecord(campaignId: number) {
+    const record = await this.tcrCompliance.fetchByCampaignId(campaignId)
+    if (!record) throw new NotFoundException('No TCR compliance record')
+    return record
+  }
+
+  private async expectStage(campaignId: number, expected: ComplianceStage) {
+    const stage = await this.complianceState.getStageForCampaign(campaignId)
+    if (stage !== expected) {
+      throw new BadGatewayException(
+        `10DLC fixture expected compliance stage ${expected}, got ${stage}`,
+      )
+    }
+  }
+
+  // Submitting past the SMS cutoff is refused, so give a campaign with no
+  // election date (or one close to it) a date well clear of the window.
+  private async ensureTextingWindowOpen(campaign: Campaign): Promise<Campaign> {
+    const electionDate = campaign.details?.electionDate
+    const daysOut = electionDate
+      ? differenceInDays(new Date(electionDate), new Date())
+      : null
+    if (daysOut !== null && daysOut >= MIN_DAYS_TO_ELECTION) return campaign
+    const updated = await this.campaigns.updateJsonFields(
+      campaign.id,
+      {
+        details: {
+          electionDate: format(
+            addDays(new Date(), FIXTURE_ELECTION_DAYS_OUT),
+            'yyyy-MM-dd',
+          ),
+        },
+      },
+      false,
+    )
+    return updated ?? campaign
+  }
+
+  private async ensurePublishableWebsite(user: User, campaignId: number) {
+    const campaign = await this.campaigns.findUniqueOrThrow({
+      where: { id: campaignId },
+      include: { campaignPositions: { include: { topIssue: true } } },
+    })
+    const website =
+      (await this.websites.findUnique({ where: { campaignId } })) ??
+      (await this.websites.createByCampaign(user, campaign))
+    const content = website.content ?? {}
+    await this.websites.update({
+      where: { campaignId },
+      data: {
+        content: {
+          ...content,
+          about: {
+            ...content.about,
+            bio: FIXTURE_BIO,
+            issues: [FIXTURE_ISSUE],
+          },
+          contact: { ...content.contact, email: user.email },
+        },
+      },
+    })
+  }
+
+  // The purchase call returns once the Vercel mock reports the order
+  // completed, which it only does 30s after the buy. A short loop completes the
+  // campaign's pending orders until the purchase settles.
+  private async purchaseWithImmediateVercelOrder(
+    campaign: Parameters<DomainsService['purchaseDomainForCampaign']>[0],
+    domain: string,
+  ) {
+    let settled = false
+    let completerError: Error | null = null
+    const completer = (async () => {
+      while (!settled) {
+        try {
+          await this.vendorMockRecord.completeVercelOrders(campaign.id)
+        } catch (err) {
+          completerError = err instanceof Error ? err : new Error(String(err))
+          return
+        }
+        await sleep(VERCEL_ORDER_COMPLETE_INTERVAL_MS)
+      }
+    })()
+    try {
+      await this.domains.purchaseDomainForCampaign(
+        campaign,
+        domain,
+        FIXTURE_DOMAIN_MAX_PRICE,
+        DomainSource.agentic,
+      )
+    } finally {
+      settled = true
+      await completer
+    }
+    if (completerError) throw completerError
+  }
+
+  // The `tcr.complianceSweep` job body: the activation check for the
+  // campaign's own pending record, never other users' rows.
+  private async checkCampaignUsecaseActivation(campaignId: number) {
+    const record = await this.tcrCompliance.model.findFirst({
+      where: { campaignId, status: TcrComplianceStatus.pending },
+    })
+    if (!record) {
+      throw new NotFoundException('No pending TCR compliance record')
+    }
+    await this.tcrCompliance.checkUsecaseActivation(record)
   }
 
   // Seeding samples voters from the org's district, and the default custom
@@ -452,13 +787,7 @@ export class TestFixturesService {
       'tcr.usecaseSweep': () => this.tcrCompliance.runUnsubmittedUsecaseSweep(),
       'tcr.complianceSweep': async () => {
         const campaign = await callerCampaign()
-        const record = await this.tcrCompliance.model.findFirst({
-          where: { campaignId: campaign.id, status: 'pending' },
-        })
-        if (!record) {
-          throw new NotFoundException('No pending TCR compliance record')
-        }
-        await this.tcrCompliance.checkUsecaseActivation(record)
+        await this.checkCampaignUsecaseActivation(campaign.id)
       },
     }
     const job = jobs[name]
