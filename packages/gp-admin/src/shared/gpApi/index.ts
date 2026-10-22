@@ -56,6 +56,8 @@ export type {
   TenDlcStatusSnapshot,
   UpdateCommitteeNameInput,
   UpdateCommitteeNameOutput,
+  LinkPersonProfileOwnerInput,
+  PersonProfileLink,
 } from '@goodparty_org/contracts'
 
 export {
