@@ -145,6 +145,13 @@ type LaunchOutcome = 'permanent' | 'shape' | 'transient'
 // this only governs whether the next row in the pass is attempted.
 type StartCampaignResult = 'throttled' | 'done'
 
+// Limits a fixture-driven pass to one campaign's runs. The prod cron never
+// passes it. A preview DB keeps every E2E run's leftovers, and an unscoped pass
+// lets someone else's stale run hold the serial gate or launch ahead of the
+// caller's.
+type RunScope = { campaignId: number }
+type RunScopeWhere = { outreach?: { campaignId: number } }
+
 // THE COMPLETION SEAM. `isDoneDialing` is the ONE thing the free-and-advance step
 // asks to decide a dialed run has finished dialing; the rest of the system does
 // not care HOW completion is known. `source` records which signal concluded it:
@@ -216,8 +223,11 @@ export class OutreachRobocallSendService extends createPrismaBase(
     return this.runSend()
   }
 
-  async runSend(): Promise<void> {
+  async runSend(scope?: RunScope): Promise<void> {
     const now = new Date()
+    const scoped: RunScopeWhere = scope
+      ? { outreach: { campaignId: scope.campaignId } }
+      : {}
 
     // FREE-AND-ADVANCE: for every dialed run whose ESTIMATED completion + buffer
     // has passed, ABORT its CallHub campaign to release the shared account pool
@@ -226,14 +236,14 @@ export class OutreachRobocallSendService extends createPrismaBase(
     // authorized estimate at dialedAt + 48h. Runs BEFORE the serial gate so a
     // run freed this pass no longer counts as in flight and the next queued run
     // can launch below.
-    await this.freeCompletedDialingRuns(now)
+    await this.freeCompletedDialingRuns(now, scoped)
 
     // DEADLOCK BACKSTOP: force-fail any run stuck in `dialing` past the deadlock
     // timeout, so a launch whose CallHub status read never resolves can't block
     // the serial queue forever (finding 2). Runs BEFORE the serial gate so a row
     // failed this pass no longer counts as in flight and the next queued run can
     // launch below — the whole point is to UNBLOCK the queue, not just next pass.
-    await this.forceFailDeadlockedDialing(now)
+    await this.forceFailDeadlockedDialing(now, scoped)
 
     // SERIAL GATE: at most ONE robocall dials at a time, because CallHub's
     // account calls/min pool is shared across running campaigns. A run is "in
@@ -244,7 +254,7 @@ export class OutreachRobocallSendService extends createPrismaBase(
     // row always blocks even though it may resolve back to authorized, and if the
     // gate ever lets two overlap the second simply `over_cps_limit`s and reverts
     // (startCampaign's throttle revert), losing no calls.
-    const inFlight = await this.hasRunInFlight()
+    const inFlight = await this.hasRunInFlight(scoped)
 
     const launchSpacingMs = robocallSendLaunchSpacingMs()
     // The serial model launches ONE run per pass: the single oldest-due run, and
@@ -259,6 +269,7 @@ export class OutreachRobocallSendService extends createPrismaBase(
         outreach: {
           outreachType: OutreachType.robocall,
           date: { lte: now },
+          ...scoped.outreach,
         },
       },
       select: { outreachId: true },
@@ -314,6 +325,7 @@ export class OutreachRobocallSendService extends createPrismaBase(
         settleState: RobocallSettleState.dialing,
         updatedAt: { lt: staleCutoff },
         callhubCampaignPkStr: { not: null },
+        ...scoped,
       },
       select: { outreachId: true, callhubCampaignPkStr: true },
     })
@@ -338,9 +350,10 @@ export class OutreachRobocallSendService extends createPrismaBase(
   // CallHub campaign no longer dials. The serial gate launches nothing while this
   // is true. Conservative by construction: a transient `dialing` row blocks the
   // queue for at most the stale window before recovery resolves it.
-  private async hasRunInFlight(): Promise<boolean> {
+  private async hasRunInFlight(scoped: RunScopeWhere): Promise<boolean> {
     const count = await this.model.count({
       where: {
+        ...scoped,
         OR: [
           { settleState: RobocallSettleState.dialing },
           { settleState: RobocallSettleState.dialed, poolFreedAt: null },
@@ -358,12 +371,16 @@ export class OutreachRobocallSendService extends createPrismaBase(
   // already-aborted campaign. The seam (`isDoneDialing`) is the ONLY completion
   // signal this step consults — it does not know or care whether that was the
   // estimate floor or a count speedup.
-  private async freeCompletedDialingRuns(now: Date): Promise<void> {
+  private async freeCompletedDialingRuns(
+    now: Date,
+    scoped: RunScopeWhere,
+  ): Promise<void> {
     const dialing = await this.model.findMany({
       where: {
         settleState: RobocallSettleState.dialed,
         poolFreedAt: null,
         callhubCampaignPkStr: { not: null },
+        ...scoped,
       },
       select: {
         outreachId: true,
@@ -481,12 +498,16 @@ export class OutreachRobocallSendService extends createPrismaBase(
   // queued send; the candidate is made whole, and the recorded orphan campaign is
   // ABORTed by the cleanup sweep. Per-record try/catch so one failure never aborts
   // the rest of the sweep.
-  private async forceFailDeadlockedDialing(now: Date): Promise<void> {
+  private async forceFailDeadlockedDialing(
+    now: Date,
+    scoped: RunScopeWhere,
+  ): Promise<void> {
     const deadlockCutoff = subMinutes(now, robocallDialingDeadlockMinutes())
     const deadlocked = await this.model.findMany({
       where: {
         settleState: RobocallSettleState.dialing,
         dialingStartedAt: { not: null, lt: deadlockCutoff },
+        ...scoped,
       },
       select: { outreachId: true },
     })
