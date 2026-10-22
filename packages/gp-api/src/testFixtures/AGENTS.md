@@ -13,20 +13,21 @@ user's own token without admin credentials. The judge chat-case routes live in
 `TestFixturesJudgeController` and require only a normal signed-in session,
 scoping every row to the caller (see below).
 
-| Route                                                        | Auth                         | Purpose                                                                                                                  |
-| ------------------------------------------------------------ | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `POST /v1/test-fixtures/users`                               | `AdminOrM2MGuard`            | Mint a `qa-<uuid>@goodparty.org` user in a state: `free-win`, `pro-win`, `pro-win-10dlc-mock`, `serve`, `serve-won-race` |
-| `DELETE /v1/test-fixtures/users`                             | `AdminOrM2MGuard`            | On-demand cleanup (DB + Clerk); the hourly `sweepTestUsers` cron is the safety net                                       |
-| `POST /v1/test-fixtures/users/:id/session`                   | `AdminOrM2MGuard`            | Re-mint the 1h session token for runs longer than an hour                                                                |
-| `POST /v1/test-fixtures/organizations/:slug/activity`        | `AdminOrM2MGuard`            | Fill an existing org with weeks of outreach on every channel (see below)                                                 |
-| `POST /v1/test-fixtures/users/:id/states/pro-win-10dlc-mock` | session + isTestUser, own id | Run the caller's real 10DLC registration against the vendor mocks to `tcr_approved` (see below)                          |
-| `POST /v1/test-fixtures/vendor-mocks/actions`                | session + ownership          | Apply a mock action (`geoapify.route.fail`, `callhub.campaign.complete`) for a campaign                                  |
-| `GET /v1/test-fixtures/vendor-mocks/records`                 | session + ownership          | List a campaign's `VendorMockRecord` rows (incl. CallHub) and the deploy's `vendorMode`                                  |
-| `POST /v1/test-fixtures/vendor-mocks/jobs/:name/run`         | session + isTestUser         | Test-user run-job: triggers a robocall sweep by name (global — only the robocall E2E spec uses it)                       |
-| `POST /v1/test-fixtures/vendor-mocks/time-travel`            | session + ownership          | Shift outreach timing for E2E: `robocall.send_due_now`, `robocall.dialed_48h_ago`, `sms.start_date_today`                |
-| `POST /v1/test-fixtures/jobs/:name/run`                      | `AdminOrM2MGuard`            | Run a named background job on demand (robocall.staging/send/completion/capture)                                          |
-| `POST /v1/test-fixtures/judge-chat-cases`                    | session                      | Stage one Universal Judge chat case for the caller (see below)                                                           |
-| `DELETE /v1/test-fixtures/judge-chat-cases/:slug`            | session                      | Remove one, and only one the caller owns under a `judge-` slug                                                           |
+| Route                                                            | Auth                         | Purpose                                                                                                                        |
+| ---------------------------------------------------------------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `POST /v1/test-fixtures/users`                                   | `AdminOrM2MGuard`            | Mint a `qa-<uuid>@goodparty.org` user in a state: `free-win`, `pro-win`, `pro-win-10dlc-mock`, `serve`, `serve-won-race`       |
+| `DELETE /v1/test-fixtures/users`                                 | `AdminOrM2MGuard`            | On-demand cleanup (DB + Clerk); the hourly `sweepTestUsers` cron is the safety net                                             |
+| `POST /v1/test-fixtures/users/:id/session`                       | `AdminOrM2MGuard`            | Re-mint the 1h session token for runs longer than an hour                                                                      |
+| `POST /v1/test-fixtures/organizations/:slug/activity`            | `AdminOrM2MGuard`            | Fill an existing org with weeks of outreach on every channel (see below)                                                       |
+| `POST /v1/test-fixtures/users/:id/states/pro-win-10dlc-mock`     | session + isTestUser, own id | Run the caller's real 10DLC registration against the vendor mocks to `tcr_approved` (see below)                                |
+| `POST /v1/test-fixtures/vendor-mocks/actions`                    | session + ownership          | Apply a mock action (`geoapify.route.fail`, `callhub.campaign.complete`) for a campaign                                        |
+| `GET /v1/test-fixtures/vendor-mocks/records`                     | session + ownership          | List a campaign's `VendorMockRecord` rows (incl. CallHub) and the deploy's `vendorMode`                                        |
+| `POST /v1/test-fixtures/vendor-mocks/jobs/:name/run`             | session + isTestUser         | Test-user run-job: triggers a robocall sweep by name (global — only the robocall E2E spec uses it)                             |
+| `POST /v1/test-fixtures/vendor-mocks/time-travel`                | session + ownership          | Shift outreach timing for E2E: `robocall.send_due_now`, `robocall.dialed_48h_ago`, `sms.start_date_today`                      |
+| `POST /v1/test-fixtures/vendor-mocks/outreach/:id/admin-actions` | session + outreach ownership | `cas.approve` or `results.upload` on an outreach the caller owns (Win campaign or Serve org); any account, not only test users |
+| `POST /v1/test-fixtures/jobs/:name/run`                          | `AdminOrM2MGuard`            | Run a named background job on demand (robocall.staging/send/completion/capture)                                                |
+| `POST /v1/test-fixtures/judge-chat-cases`                        | session                      | Stage one Universal Judge chat case for the caller (see below)                                                                 |
+| `DELETE /v1/test-fixtures/judge-chat-cases/:slug`                | session                      | Remove one, and only one the caller owns under a `judge-` slug                                                                 |
 
 The create/session responses carry credentials by contract (password, session
 token, a single-use Clerk `signInToken`, and a cookie triple) — **never log a

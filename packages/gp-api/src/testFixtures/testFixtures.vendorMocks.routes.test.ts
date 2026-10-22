@@ -915,6 +915,57 @@ describe('POST /v1/test-fixtures/vendor-mocks/outreach/:id/admin-actions', () =>
     expect(res.status).toBe(HttpStatus.BAD_REQUEST)
   })
 
+  it('lets a non-test user act on a serve outreach they own', async () => {
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { email: 'demo-official@goodparty.org' },
+    })
+    const slug = await seedServeOrg(service.user.id)
+    const outreach = await service.prisma.outreach.create({
+      data: {
+        outreachType: OutreachType.text,
+        organizationSlug: slug,
+        date: new Date(),
+      },
+    })
+
+    const res = await service.client.post(
+      `/v1/test-fixtures/vendor-mocks/outreach/${outreach.id}/admin-actions`,
+      { action: 'results.upload' },
+      { validateStatus: () => true },
+    )
+
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+  })
+
+  it("returns 403 for a non-test user on another user's campaign outreach", async () => {
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { email: 'demo-official@goodparty.org' },
+    })
+    const otherUser = await service.prisma.user.create({
+      data: {
+        email: `other-${Math.random().toString(36).slice(2)}@test.goodparty.org`,
+      },
+    })
+    const campaign = await seedCampaign(otherUser.id)
+    const outreach = await service.prisma.outreach.create({
+      data: {
+        outreachType: OutreachType.text,
+        campaignId: campaign.id,
+        date: new Date(),
+      },
+    })
+
+    const res = await service.client.post(
+      `/v1/test-fixtures/vendor-mocks/outreach/${outreach.id}/admin-actions`,
+      { action: 'results.upload' },
+      { validateStatus: () => true },
+    )
+
+    expect(res.status).toBe(HttpStatus.FORBIDDEN)
+  })
+
   it('returns 404 outside a non-prod deploy', async () => {
     envNonProd.value = false
     const slug = await seedServeOrg(service.user.id)
