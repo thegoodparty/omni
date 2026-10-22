@@ -318,13 +318,18 @@ export const PollQuestionStep = ({
               {SERVE_POLL_QUESTION_COPY.biasFlaggedNote}
             </p>
             {flaggedSpans.length > 0 && (
-              <ul className="space-y-0.5 text-muted-foreground">
+              <ul className="space-y-2 text-muted-foreground">
                 {flaggedSpans.map((span) => (
-                  <li key={`${span.phrase}-${span.reason}`}>
+                  // globals.css makes every dashboard <li> a flex row, which
+                  // set the phrase and its reason side by side as columns.
+                  <li
+                    key={`${span.phrase}-${span.reason}`}
+                    className="flex flex-col gap-0.5"
+                  >
                     <span className="font-medium text-foreground">
                       &ldquo;{span.phrase}&rdquo;
-                    </span>{' '}
-                    {span.reason}
+                    </span>
+                    <span>{span.reason}</span>
                   </li>
                 ))}
               </ul>
