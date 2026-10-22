@@ -46,8 +46,10 @@ model ManagedPanelWave {
   wave              Int
   voterFileFilterId Int?              @map("voter_file_filter_id")
   voterFileFilter   VoterFileFilter?  @relation(fields: [voterFileFilterId], references: [id], onDelete: SetNull)
-  outreachId        Int?              @unique @map("outreach_id")
-  outreach          Outreach?         @relation(fields: [outreachId], references: [id], onDelete: SetNull)
+  /// The send made from the wave. The link lives on Outreach
+  /// (`managedPanelWaveId`) so a free send's funding and its wave sit on one
+  /// row, where a CHECK can hold them together.
+  outreach          Outreach?
   /// The group the drawn list leaned toward (contracts'
   /// UnderrepresentedGroup), as on CivicPanelBuildStep. Null: no lean.
   steeredToward     String?           @map("steered_toward")
