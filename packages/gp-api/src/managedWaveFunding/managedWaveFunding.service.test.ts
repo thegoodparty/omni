@@ -128,6 +128,20 @@ const expectUntouched = async (
   expect((await panel()).freeTextsUsed).toBe(freeTextsUsed)
 }
 
+const pauseAtCap = (waveId: string): Promise<void> =>
+  Reflect.apply(Reflect.get(funding(), 'pauseAtCap'), funding(), [waveId])
+
+const revert = (
+  waveId: string,
+  outreachId: number,
+  textCount: number,
+): Promise<void> =>
+  Reflect.apply(Reflect.get(funding(), 'revert'), funding(), [
+    waveId,
+    outreachId,
+    textCount,
+  ])
+
 describe('ManagedWaveFundingService.claimFree', () => {
   it('claims a building, approved wave free and enqueues its send', async () => {
     const { waveId, outreachId } = await wave()
@@ -139,6 +153,7 @@ describe('ManagedWaveFundingService.claimFree', () => {
       outreachId,
       organizationSlug: slug,
       textCount: TEXT_COUNT,
+      resumed: false,
     })
     expect(
       await service.prisma.outreach.findUniqueOrThrow({
@@ -371,16 +386,75 @@ describe('ManagedWaveFundingService.claimFree', () => {
     ).toEqual({ claimed: false, reason: 'wave_not_found' })
   })
 
-  it('claims a wave only once', async () => {
+  it('re-enqueues its own stranded claim without counting it twice', async () => {
+    const { waveId, outreachId } = await wave()
+    expect((await funding().claimFree(waveId)).claimed).toBe(true)
+    // As if the process died after the claim committed, before the enqueue.
+    sendMessage.mockClear()
+
+    expect(await funding().claimFree(waveId)).toEqual({
+      claimed: true,
+      outreachId,
+      organizationSlug: slug,
+      textCount: TEXT_COUNT,
+      resumed: true,
+    })
+    expect(sendMessage).toHaveBeenCalledWith(
+      expect.anything(),
+      `${MessageGroup.outreachTextSend}-${outreachId}`,
+      {
+        throwOnError: true,
+        deduplicationId: `${QueueType.OUTREACH_TEXT_SEND}-${outreachId}-1`,
+      },
+    )
+    expect((await panel()).freeTextsUsed).toBe(TEXT_COUNT)
+  })
+
+  it('keeps a resumed claim when its enqueue fails again', async () => {
+    const { waveId, outreachId } = await wave()
+    expect((await funding().claimFree(waveId)).claimed).toBe(true)
+    sendMessage.mockRejectedValue(new Error('SQS down'))
+
+    await expect(funding().claimFree(waveId)).rejects.toThrow('SQS down')
+
+    expect(
+      await service.prisma.outreach.findUniqueOrThrow({
+        where: { id: outreachId },
+      }),
+    ).toMatchObject({
+      status: OutreachStatus.pending,
+      fundedBy: OutreachFunding.goodparty_pilot,
+    })
+    expect((await panel()).freeTextsUsed).toBe(TEXT_COUNT)
+  })
+
+  it('does not resume a claim once its official leaves the flag', async () => {
     const { waveId } = await wave()
     expect((await funding().claimFree(waveId)).claimed).toBe(true)
+    sendMessage.mockClear()
+    isFeatureEnabled.mockResolvedValue(false)
+
+    expect(await funding().claimFree(waveId)).toEqual({
+      claimed: false,
+      reason: 'flag_off',
+    })
+    expect(sendMessage).not.toHaveBeenCalled()
+  })
+
+  it('does not resume a send that has moved past pending', async () => {
+    const { waveId, outreachId } = await wave()
+    expect((await funding().claimFree(waveId)).claimed).toBe(true)
+    await service.prisma.outreach.update({
+      where: { id: outreachId },
+      data: { status: OutreachStatus.in_progress },
+    })
+    sendMessage.mockClear()
 
     expect(await funding().claimFree(waveId)).toEqual({
       claimed: false,
       reason: 'not_pending_payment',
     })
-    expect(sendMessage).toHaveBeenCalledTimes(1)
-    expect((await panel()).freeTextsUsed).toBe(TEXT_COUNT)
+    expect(sendMessage).not.toHaveBeenCalled()
   })
 
   it('lets only one of two racing waves take the last of the cap', async () => {
@@ -415,5 +489,55 @@ describe('ManagedWaveFundingService.claimFree', () => {
     })
     expect((await panel()).freeTextsUsed).toBe(0)
     expect(slackMessage).not.toHaveBeenCalled()
+  })
+})
+
+describe('pausing at the cap', () => {
+  it('does not pause when a reverted sibling has left room', async () => {
+    const { waveId } = await wave()
+
+    await pauseAtCap(waveId)
+
+    expect((await panel()).status).toBe(ManagedCivicPanelStatus.building)
+    expect(slackMessage).not.toHaveBeenCalled()
+  })
+
+  it('pauses when the wave still does not fit', async () => {
+    await setPanel({ freeTextsUsed: 15_000 })
+    const { waveId } = await wave()
+
+    await pauseAtCap(waveId)
+
+    expect((await panel()).status).toBe(ManagedCivicPanelStatus.paused)
+  })
+})
+
+describe('reverting a claim', () => {
+  it('waits for the enrollment lock before touching either row', async () => {
+    const { waveId, outreachId } = await wave()
+    expect((await funding().claimFree(waveId)).claimed).toBe(true)
+
+    let reverting: Promise<void> | undefined
+    await service.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM managed_civic_panel WHERE id = ${enrollmentId} FOR UPDATE`
+      reverting = revert(waveId, outreachId ?? 0, TEXT_COUNT)
+      await new Promise((resolve) => setTimeout(resolve, 300))
+      // Still blocked: a claim holding this lock sees the claim whole.
+      expect(
+        (
+          await service.prisma.outreach.findUniqueOrThrow({
+            where: { id: outreachId },
+          })
+        ).status,
+      ).toBe(OutreachStatus.pending)
+    })
+    await reverting
+
+    expect(
+      await service.prisma.outreach.findUniqueOrThrow({
+        where: { id: outreachId },
+      }),
+    ).toMatchObject({ status: OutreachStatus.pending_payment, fundedBy: null })
+    expect((await panel()).freeTextsUsed).toBe(0)
   })
 })

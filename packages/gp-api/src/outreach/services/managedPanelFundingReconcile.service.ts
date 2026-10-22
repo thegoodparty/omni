@@ -20,6 +20,9 @@ const RECONCILE_CRON = '47 6 * * *'
 export const MANAGED_PANEL_FUNDING_RECONCILE_JOB =
   'managedPanelFundingReconcile'
 const WINDOW_HOURS = 24
+// A claimed pilot wave is handed off within seconds of its enqueue; one still
+// `pending` this long lost its queue message and will never send on its own.
+const STUCK_PILOT_HOURS = 4
 
 // Prod is what the job protects, and dev is where a mismatch shows up first.
 // Not previews: every PR stack would post the same finding at once.
@@ -45,6 +48,9 @@ export type FundingMismatch = {
   sendSeq: number
   organizationSlug: string | null
   status: OutreachStatus
+  // unfunded: no paid checkout and no valid managed wave. stuck: a valid
+  // pilot wave claimed hours ago that never reached the delivery layer.
+  problem: 'unfunded' | 'stuck'
 }
 
 /**
@@ -118,6 +124,14 @@ export class ManagedPanelFundingReconcileService extends createPrismaBase(
         },
       },
     })
+    const stuckPilotSends = await this.model.findMany({
+      where: {
+        fundedBy: OutreachFunding.goodparty_pilot,
+        status: OutreachStatus.pending,
+        updatedAt: { lt: subHours(now, STUCK_PILOT_HOURS) },
+      },
+      select: { id: true, organizationSlug: true },
+    })
     const unpaidExpansions = await this.client.outreachPollExpansion.findMany({
       where: {
         status: { in: CLAIMED_STATUSES },
@@ -149,12 +163,21 @@ export class ManagedPanelFundingReconcileService extends createPrismaBase(
           sendSeq: 1,
           organizationSlug: row.organizationSlug,
           status: row.status ?? OutreachStatus.pending,
+          problem: 'unfunded' as const,
         })),
+      ...stuckPilotSends.map((row) => ({
+        outreachId: row.id,
+        sendSeq: 1,
+        organizationSlug: row.organizationSlug,
+        status: OutreachStatus.pending,
+        problem: 'stuck' as const,
+      })),
       ...unpaidExpansions.map((expansion) => ({
         outreachId: expansion.outreachId,
         sendSeq: expansion.sendSeq,
         organizationSlug: expansion.poll.outreach.organizationSlug,
         status: expansion.status,
+        problem: 'unfunded' as const,
       })),
     ]
 
@@ -182,7 +205,7 @@ export class ManagedPanelFundingReconcileService extends createPrismaBase(
               type: SlackMessageType.HEADER,
               text: {
                 type: SlackMessageType.PLAIN_TEXT,
-                text: 'Text sends with no funding found',
+                text: 'Text sends with no funding, or stuck pilot waves',
                 emoji: true,
               },
             },
@@ -191,13 +214,15 @@ export class ManagedPanelFundingReconcileService extends createPrismaBase(
               text: {
                 type: SlackMessageType.MRKDWN,
                 text: [
-                  `${mismatches.length} send(s) moved past checkout in the ` +
-                    'last day with neither a paid checkout nor a managed ' +
-                    'civic panel wave behind them:',
+                  'Unfunded: moved past checkout in the last day with ' +
+                    'neither a paid checkout nor a managed civic panel wave. ' +
+                    'Stuck: a pilot wave still waiting to send after ' +
+                    `${STUCK_PILOT_HOURS} hours; re-run its claim to enqueue it.`,
                   ...mismatches.map(
                     (m) =>
                       `• Outreach ${m.outreachId}, send ${m.sendSeq} ` +
-                      `(${m.organizationSlug ?? 'no org'}, ${m.status})`,
+                      `(${m.organizationSlug ?? 'no org'}, ${m.status}, ` +
+                      `${m.problem})`,
                   ),
                 ].join('\n'),
               },

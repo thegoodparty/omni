@@ -100,6 +100,7 @@ describe('ManagedPanelFundingReconcileService.reconcile', () => {
         sendSeq: 1,
         organizationSlug: slug,
         status: OutreachStatus.in_progress,
+        problem: 'unfunded',
       },
     ])
     expect(slackMessage).toHaveBeenCalledTimes(1)
@@ -149,6 +150,33 @@ describe('ManagedPanelFundingReconcileService.reconcile', () => {
     expect(mismatches).toEqual([
       expect.objectContaining({ outreachId: poll.id, sendSeq: 2 }),
     ])
+  })
+
+  it('flags a pilot wave stuck waiting to send', async () => {
+    const row = await freeWave()
+    await service.prisma.outreach.update({
+      where: { id: row.id },
+      data: { status: OutreachStatus.pending },
+    })
+    await service.prisma
+      .$executeRaw`UPDATE outreach SET "updatedAt" = now() - interval '5 hours' WHERE id = ${row.id}`
+
+    const mismatches = await reconciler().reconcile()
+
+    expect(mismatches).toEqual([
+      expect.objectContaining({ outreachId: row.id, problem: 'stuck' }),
+    ])
+    expect(slackMessage).toHaveBeenCalledTimes(1)
+  })
+
+  it('leaves a pilot wave that was only just claimed', async () => {
+    const row = await freeWave()
+    await service.prisma.outreach.update({
+      where: { id: row.id },
+      data: { status: OutreachStatus.pending },
+    })
+
+    expect(await reconciler().reconcile()).toEqual([])
   })
 
   it('looks back one day only', async () => {

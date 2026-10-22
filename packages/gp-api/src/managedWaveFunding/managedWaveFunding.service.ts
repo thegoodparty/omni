@@ -41,6 +41,9 @@ export type FreeClaimResult =
       outreachId: number
       organizationSlug: string
       textCount: number
+      // True when this call found its own earlier claim still `pending` and
+      // enqueued it again without spending more texts.
+      resumed: boolean
     }
   | { claimed: false; reason: FreeClaimRefusal }
 
@@ -84,7 +87,11 @@ export class ManagedWaveFundingService extends createPrismaBase(
     try {
       await this.enqueueSend(result.outreachId)
     } catch (error) {
-      await this.revert(waveId, result.outreachId, result.textCount)
+      // A resumed claim stays claimed, so the next attempt resumes it again
+      // rather than counting its texts a second time.
+      if (!result.resumed) {
+        await this.revert(waveId, result.outreachId, result.textCount)
+      }
       this.logger.error(
         { error, waveId, outreachId: result.outreachId },
         'Free managed wave could not be enqueued; claim reverted',
@@ -149,6 +156,26 @@ export class ManagedWaveFundingService extends createPrismaBase(
         })
 
         if (!outreach) throw new Refused('no_outreach')
+        // An earlier claim committed but its enqueue never happened (a crash
+        // between the two). Enqueue again: the deterministic dedupe id makes
+        // a repeat harmless, and its texts were already counted.
+        if (
+          outreach.status === OutreachStatus.pending &&
+          outreach.fundedBy === OutreachFunding.goodparty_pilot &&
+          outreach.managedPanelWaveId === waveId &&
+          outreach.organizationSlug === enrollment.organizationSlug &&
+          outreach.stripeCheckoutSessionId === null &&
+          outreach.textCount !== null &&
+          enrollment.status !== ManagedCivicPanelStatus.stopped
+        ) {
+          return {
+            claimed: true as const,
+            outreachId: outreach.id,
+            organizationSlug: enrollment.organizationSlug,
+            textCount: outreach.textCount,
+            resumed: true,
+          }
+        }
         if (
           outreach.campaignId !== null ||
           outreach.outreachType !== OutreachType.text
@@ -222,6 +249,7 @@ export class ManagedWaveFundingService extends createPrismaBase(
           outreachId: outreach.id,
           organizationSlug: enrollment.organizationSlug,
           textCount,
+          resumed: false,
         }
       })
     } catch (error) {
@@ -288,35 +316,44 @@ export class ManagedWaveFundingService extends createPrismaBase(
   // nothing keeps drawing waves that can never be claimed free. Staff decide
   // whether to raise the cap.
   private async pauseAtCap(waveId: string): Promise<void> {
-    const wave = await this.model.findUnique({
-      where: { id: waveId },
-      select: {
-        enrollment: {
-          select: {
-            id: true,
-            organizationSlug: true,
-            freeTextCap: true,
-            freeTextsUsed: true,
-          },
+    // Re-checked under the claim's lock: a sibling claim reverted since the
+    // refusal may have handed texts back, and then the wave fits after all.
+    const paused = await this.client.$transaction(async (tx) => {
+      const wave = await tx.managedPanelWave.findUnique({
+        where: { id: waveId },
+        select: {
+          enrollmentId: true,
+          outreach: { select: { textCount: true } },
         },
-      },
+      })
+      if (!wave) return null
+      await tx.$queryRaw`SELECT id FROM managed_civic_panel WHERE id = ${wave.enrollmentId} FOR UPDATE`
+      const enrollment = await tx.managedCivicPanel.findUniqueOrThrow({
+        where: { id: wave.enrollmentId },
+      })
+      const textCount = wave.outreach?.textCount ?? 0
+      if (
+        enrollment.status !== ManagedCivicPanelStatus.building ||
+        textCount <= enrollment.freeTextCap - enrollment.freeTextsUsed
+      ) {
+        return null
+      }
+      await tx.managedCivicPanel.update({
+        where: { id: enrollment.id },
+        data: { status: ManagedCivicPanelStatus.paused, pausedAt: new Date() },
+      })
+      return enrollment
     })
-    if (!wave) return
-    const { enrollment } = wave
-    const paused = await this.client.managedCivicPanel.updateMany({
-      where: { id: enrollment.id, status: ManagedCivicPanelStatus.building },
-      data: { status: ManagedCivicPanelStatus.paused, pausedAt: new Date() },
-    })
-    if (paused.count === 0) return
+    if (!paused) return
     this.logger.warn(
-      { waveId, organizationSlug: enrollment.organizationSlug },
+      { waveId, organizationSlug: paused.organizationSlug },
       'Managed civic panel paused at its free text cap',
     )
     await this.notify(
       'Managed civic panel paused at its free text cap',
-      enrollment.organizationSlug,
+      paused.organizationSlug,
       [
-        `*Free texts used*: ${enrollment.freeTextsUsed} of ${enrollment.freeTextCap}`,
+        `*Free texts used*: ${paused.freeTextsUsed} of ${paused.freeTextCap}`,
         `*Wave*: ${waveId} did not fit and was not sent`,
       ],
     )

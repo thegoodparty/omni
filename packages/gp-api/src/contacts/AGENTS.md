@@ -1229,7 +1229,11 @@ claims the send `pending_payment -> pending` the way the SERVE_TEXT purchase
 does, stamps `fundedBy: goodparty_pilot` and `billableTextCount`, adds to
 `freeTextsUsed`, enqueues `outreachTextSend`, and posts a "pilot wave queued"
 notice naming the office to #bot-tevyn-api. An enqueue failure undoes all of
-it. A wave over the cap pauses the panel and posts a cap notice instead. The
+it, under the same enrollment lock. Calling it again for a wave its own
+earlier claim left `pending` (a crash between commit and enqueue) re-enqueues
+it without counting its texts again. A wave over the cap pauses the panel,
+re-checked under the lock so a reverted sibling's texts are counted first,
+and posts a cap notice instead. The
 delivery layer checks the funding again before it hands a send off
 (`outreach/docs/text-delivery.md`, "The funding gate"), and a daily job
 reconciles every unpaid send. `serve-citizen-panels` is the only switch:
