@@ -7,7 +7,6 @@ import {
   Prisma,
 } from '../../generated/prisma'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
-import { isUniqueConstraintError } from '@/prisma/util/prismaErrors.util'
 import { ContactStatusService } from '@/contactInteraction/services/contactStatus.service'
 import { ContactInteractionTextService } from '@/contactInteraction/services/contactInteractionText.service'
 import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
@@ -139,8 +138,16 @@ export class ManagedPanelWaveDrawService extends createPrismaBase(
       null,
       personIds,
     )
-    try {
-      const created = await this.model.create({
+    // Serialized per enrollment, and re-checked under the lock: two draws
+    // that both passed the check above must not each add a wave.
+    const created = await this.client.$transaction(async (tx) => {
+      await this.lockEnrollment(tx, enrollmentId)
+      const unsent = await tx.managedPanelWave.findFirst({
+        where: { enrollmentId, sentAt: null },
+        select: { id: true },
+      })
+      if (unsent) return null
+      return tx.managedPanelWave.create({
         data: {
           enrollmentId,
           wave,
@@ -149,15 +156,20 @@ export class ManagedPanelWaveDrawService extends createPrismaBase(
         },
         select: WAVE_SELECT,
       })
+    })
+    if (created) {
       return { outcome: 'drawn', wave: created, size: personIds.length }
-    } catch (error) {
-      if (!isUniqueConstraintError(error)) throw error
-      // A second draw made this wave first; its list is the wave's.
-      await this.client.voterFileFilter.delete({ where: { id: list.id } })
-      const winner = await this.pendingWave(enrollmentId)
-      if (!winner) throw error
-      return winner
     }
+    // Another draw made the wave first; its list is the wave's.
+    await this.client.voterFileFilter.delete({ where: { id: list.id } })
+    const winner = await this.pendingWave(enrollmentId)
+    if (!winner) throw new Error('The managed panel wave could not be drawn')
+    return winner
+  }
+
+  private lockEnrollment(tx: Prisma.TransactionClient, enrollmentId: string) {
+    const lockKey = `managed_civic_panel:${enrollmentId}`
+    return tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`
   }
 
   private async pendingWave(

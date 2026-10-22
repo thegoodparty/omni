@@ -1238,8 +1238,9 @@ panel route: 404 with the flag off, 400 for a non-`eo-` org.
 **Drawing a wave** (`ManagedPanelWaveDrawService.drawNextWave`, no route).
 It draws a building enrollment's next wave and sends nothing. A wave not yet
 sent (`sentAt` null) comes back as `pending` instead of a new draw, so there
-is one unsent wave at a time; two racing draws meet on the
-`(enrollmentId, wave)` unique and the loser drops its list. Otherwise:
+is one unsent wave at a time. The insert runs under an advisory lock per
+enrollment that re-checks for an unsent wave, so of two overlapping draws
+one makes the wave and the other drops its list and returns it. Otherwise:
 
 - Size: the member gap (`goalMembers` minus the standing members) at the
   cold `PANEL_SEED_ASSUMED_JOIN_RATE`, capped at the reachable cell phones,

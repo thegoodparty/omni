@@ -15,6 +15,7 @@ import { VoterQueryService } from '@/peopleDb/services/voterQuery.service'
 import { StatsService } from '@/peopleDb/services/stats.service'
 import type { PersonOutput } from '@/contacts/schemas/person.schema'
 import { ManagedPanelWaveDrawService } from '@/contacts/services/managedPanelWaveDraw.service'
+import { ContactsService } from '@/contacts/services/contacts.service'
 import {
   ACS_COUNT_KEYS,
   type AcsCountKey,
@@ -350,6 +351,44 @@ describe('drawing a managed panel wave', () => {
     expect(
       await service.prisma.managedPanelWave.count({
         where: { enrollmentId: id },
+      }),
+    ).toBe(1)
+  })
+
+  it('makes one wave when a draw overlaps one that finished meanwhile', async () => {
+    const { slug, id } = await enroll()
+    // The second draw counts its pool only once the first has made its
+    // wave, so it passed the unsent check before that wave existed.
+    const { promise: gate, resolve: release } = Promise.withResolvers<void>()
+    let counts = 0
+    vi.spyOn(
+      service.app.get(ContactsService),
+      'countWithin',
+    ).mockImplementation(async () => {
+      counts += 1
+      if (counts > 1) await gate
+      return 58_000
+    })
+
+    const first = draw(id)
+    const second = draw(id)
+    await Promise.race([first, second])
+    release()
+    const [a, b] = await Promise.all([first, second])
+
+    expect(
+      await service.prisma.managedPanelWave.findMany({
+        where: { enrollmentId: id },
+        select: { wave: true },
+      }),
+    ).toEqual([{ wave: 1 }])
+    expect([a.outcome, b.outcome].sort()).toEqual(['drawn', 'pending'])
+    if (!('wave' in a) || !('wave' in b)) throw new Error('no wave')
+    expect(a.wave.id).toBe(b.wave.id)
+    // The losing draw's list is dropped.
+    expect(
+      await service.prisma.voterFileFilter.count({
+        where: { organizationSlug: slug, civicPanelInvite: true },
       }),
     ).toBe(1)
   })
