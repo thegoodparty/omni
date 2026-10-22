@@ -309,9 +309,9 @@ describe('SmsFlow (Serve surface)', () => {
     expect(calendarColumn).not.toHaveClass('items-center')
   })
 
-  // Staff need 3 business days to set up a priority's two-round text, so
-  // its calendar opens a day later than any other Serve text's.
-  it('closes days within 3 business days for a two-round priority text', async () => {
+  // The standard Serve gate already leaves staff 3 business days to set up
+  // both rounds, so a two-round priority text adds no day of its own.
+  it('gives a two-round priority text the standard Serve date gate', async () => {
     api.mock('POST /v1/outreach/serve/sms/draft', {
       status: 200,
       data: { draft: 'drafted body' },
@@ -341,11 +341,17 @@ describe('SmsFlow (Serve surface)', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
     await screen.findByText(/All messages are sent at 11am local time\./)
 
+    // Today (Tuesday the 1st, labeled Today) plus 2 business days stay
+    // closed; the 3rd business day is open.
+    for (const day of [
+      /Tuesday, September 1(?!\d)/,
+      /^Wednesday, September 2(?!\d)/,
+      /^Thursday, September 3(?!\d)/,
+    ]) {
+      expect(screen.getByRole('button', { name: day })).toBeDisabled()
+    }
     expect(
       screen.getByRole('button', { name: /^Friday, September 4(?!\d)/ }),
-    ).toBeDisabled()
-    expect(
-      screen.getByRole('button', { name: /^Monday, September 7(?!\d)/ }),
     ).toBeEnabled()
   })
 

@@ -72,11 +72,7 @@ the follow-up is held. The
 `priorityRoundTwoDraw` job (`41 7 * * *` ET, `CronLockService` daily slot)
 draws each one on the last day a Serve text for its date could still be
 booked, `ROUND_TWO_DRAW_LEAD_BUSINESS_DAYS` (3) business days before, so
-staff get the usual two clear days. The text flow's calendar holds the
-first round to the same lead: with `roundTwoSize` set, `SmsFlow` passes
-`minLeadBusinessDays: ROUND_TWO_DRAW_LEAD_BUSINESS_DAYS` to
-`ServeSmsScheduleStep`, so no day inside 3 business days can be picked.
-The draw
+staff get the usual two clear days. The draw
 fits the model to the priority's coded answers so far (`PriorityAnswer`:
 yes 1, no 0, mixed 0.5, not an answer left out), draws the steered 85%
 with `batchWeights` and the unsteered rest, then in one transaction claims
