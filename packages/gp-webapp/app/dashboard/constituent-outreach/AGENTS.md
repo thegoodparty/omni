@@ -128,7 +128,11 @@ generation services, the spine scoping — are in
   this issue" links here that way when the flag is on, and to the old
   `/dashboard/polls/create` when it is off); with the flag off it opens
   nothing. The poll results page highlights Outreach and its back link
-  returns here.
+  returns here. The question step checks the question for bias
+  (`usePollBiasCheck`, `POST /v1/polls/analyze-bias`) when the official leaves
+  the field or presses Continue, never per keystroke: the analyzer is a model.
+  A flagged question holds Continue until it is reworded, so the create's
+  `biasOverridden` is always false; a check that fails lets the step go.
 
 - **An SMS send is the one row this page refetches for, and that refetch
   must never throw.** Social and phone banking seed their new row from the
