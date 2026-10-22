@@ -418,10 +418,15 @@ describe('delivering an approved expansion', () => {
   const approvedExpansion = async (textCount: number) => {
     const { expansionId } = (await postExpansion(pollId, { size: textCount }))
       .data
+    // Paid through the real checkout claim, which is what the delivery
+    // layer's funding gate reads.
+    await stub(OutreachServeSmsPurchaseHandlerService).executePostPurchase(
+      `cs_test_${expansionId}`,
+      { outreachId: pollId, organizationSlug: orgSlug, expansionId },
+    )
     await service.prisma.outreachPollExpansion.update({
       where: { id: expansionId },
       data: {
-        status: OutreachStatus.pending,
         approvedAt: new Date(),
         approvedBy: 'staffer@goodparty.org',
       },
