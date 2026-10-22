@@ -174,7 +174,7 @@ export class ElectionsService {
     name?: string
     officeType?: string[]
     displayOfficeLevels?: string[]
-    timeframe?: 'future' | 'past'
+    timeframe?: 'future' | 'past' | 'all'
   }): Promise<RaceListItem[]> {
     const result = await this.zipToPosition.search(query)
     return RaceListItemArraySchema.parse(result)

@@ -112,6 +112,13 @@ describe('ZipToPositionService.search', () => {
     vi.useRealTimers()
   })
 
+  it('applies no election date bound when timeframe is all', async () => {
+    await service.search({ zip: '90210', timeframe: 'all' })
+
+    const arg = raceFindMany.mock.calls.at(-1)?.[0]
+    expect(arg.where.electionDate).toBeUndefined()
+  })
+
   it('filters Race to past elections when timeframe is past', async () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-05-12T12:00:00Z'))
