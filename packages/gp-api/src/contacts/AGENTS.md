@@ -1211,7 +1211,8 @@ no enrollment one card (`sourceExternalId` from contracts'
 `managedCivicPanelCardSourceId`, `managed-panel:<electedOfficeId>`), stored
 with the placeless words (`managedCivicPanelCardContent(null)`, Build my
 civic panel); the home draws it with the office's place. It has no Mark done,
-does not lapse, and is done once any enrollment exists. Its button, and the
+does not lapse, and is done while an enrollment that is not stopped exists
+(a stopped one opens it again; a skip stays a skip). Its button, and the
 intro's Build my civic panel, send the hidden
 `START_MANAGED_CIVIC_PANEL_MESSAGE`; the chat (`managedCivicPanel.tools.ts`,
 `managedCivicPanelBlock` in the Chief of Staff prompt) explains, offers the

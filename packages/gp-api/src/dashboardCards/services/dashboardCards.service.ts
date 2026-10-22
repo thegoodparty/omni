@@ -7,6 +7,7 @@ import {
   DashboardCard,
   DashboardCardType,
   ElectedOffice,
+  ManagedCivicPanelStatus,
   MeetingBriefing,
   OutreachType,
   Prisma,
@@ -461,7 +462,8 @@ export class DashboardCardsService extends createPrismaBase(
   }
 
   // The card that offers the managed panel: open until the office approves
-  // one, then done for good (a stopped enrollment keeps its row). No Mark done, and it does not lapse
+  // one, then done. A stopped enrollment can be approved again, so its card
+  // opens again, as the chat and the intro offer setup again. No Mark done, and it does not lapse
   // into missed while it is open. Old words are rewritten on the next read.
   private async syncManagedCivicPanelCard(
     tx: Prisma.TransactionClient,
@@ -476,8 +478,11 @@ export class DashboardCardsService extends createPrismaBase(
     const now = new Date()
     const content = MANAGED_CIVIC_PANEL_CARD_CONTENT
     const [enrollment, card] = await Promise.all([
-      tx.managedCivicPanel.findUnique({
-        where: { organizationSlug: electedOffice.organizationSlug },
+      tx.managedCivicPanel.findFirst({
+        where: {
+          organizationSlug: electedOffice.organizationSlug,
+          status: { not: ManagedCivicPanelStatus.stopped },
+        },
         select: { id: true },
       }),
       tx.dashboardCard.findFirst({ where }),
@@ -501,7 +506,17 @@ export class DashboardCardsService extends createPrismaBase(
       })
       return
     }
-    if (card.completedAt) return
+    if (card.completedAt) {
+      await tx.dashboardCard.update({
+        where: { id: card.id },
+        data: {
+          ...content,
+          completedAt: null,
+          dueDate: addDays(now, CIVIC_PANEL_CARD_DUE_DAYS),
+        },
+      })
+      return
+    }
     const stale = differsFrom(card, content)
     const lapsed = !card.dismissedAt && card.dueDate < now
     if (stale || lapsed) {

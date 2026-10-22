@@ -4,6 +4,7 @@ import {
   CivicPanelBuildChannel,
   CivicPanelBuildPlanStatus,
   DashboardCardType,
+  ManagedCivicPanelStatus,
   OutreachStatus,
   OutreachType,
   PrioritySource,
@@ -207,6 +208,22 @@ describe('GET /v1/dashboard/cards: the managed civic panel card', () => {
     const [done] = await listAll(orgSlug, 'done')
     expect(done).toMatchObject(managedCard)
     expect(done?.completedAt).not.toBeNull()
+  })
+
+  it('opens again once the office stops its panel', async () => {
+    const orgSlug = 'eo-civic-managed-stopped'
+    await seedElectedOffice(orgSlug)
+    await listAll(orgSlug)
+    await seedEnrollment(orgSlug)
+    expect(await listAll(orgSlug)).toHaveLength(0)
+
+    await service.prisma.managedCivicPanel.update({
+      where: { organizationSlug: orgSlug },
+      data: { status: ManagedCivicPanelStatus.stopped, stoppedAt: new Date() },
+    })
+
+    const [card] = await listAll(orgSlug)
+    expect(card).toMatchObject({ ...managedCard, completedAt: null })
   })
 
   it('makes no card for an office that approved before its first read', async () => {
