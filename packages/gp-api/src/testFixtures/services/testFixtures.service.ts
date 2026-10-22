@@ -763,8 +763,9 @@ export class TestFixturesService {
     }
   }
 
-  // `userId` is the calling test user. Campaign-scoped jobs (the 10DLC ones)
-  // need it so they never touch other users' records on a shared preview DB.
+  // `userId` is the calling test user. Campaign-scoped jobs (the 10DLC ones,
+  // and robocall.send when called with one) need it so they never touch other
+  // users' records on a shared preview DB.
   async runJob(name: string, userId?: number): Promise<RunJobResponse> {
     const callerCampaign = async () => {
       if (userId === undefined) {
@@ -776,7 +777,11 @@ export class TestFixturesService {
     }
     const jobs: Record<string, () => Promise<void>> = {
       'robocall.staging': () => this.robocallStaging.runStaging(),
-      'robocall.send': () => this.robocallSend.runSend(),
+      'robocall.send': async () => {
+        if (userId === undefined) return this.robocallSend.runSend()
+        const campaign = await callerCampaign()
+        await this.robocallSend.runSend({ campaignId: campaign.id })
+      },
       'robocall.completion': () => this.robocallCompletion.runCompletion(),
       'robocall.capture': () => this.robocallCapture.runCapture(),
       'p2p.phoneListFinish': () =>
