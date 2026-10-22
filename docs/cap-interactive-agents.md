@@ -201,9 +201,11 @@ chat registers none. All tools are the `LlmStreamTool` shape defined in
   Manager reads the campaign's door knocking and phone banking by
   `campaignId` behind `issue-capture` (`feedbackForCampaign`), since a Win
   text's replies come back as timestamps, never words. With no `outreachId`
-  or priority it reads the five most recent sends together, so the
-  description tells the model to find a named walk or list with
-  `read_past_outreach` and pass its id.
+  or priority it reads the five most recent sends together. A `channel`
+  narrows that to one family, as `read_past_outreach`'s does
+  (`channelWhere`), so a question about the doors reads only walks and one
+  about calls only call lists. For a named walk or list, the description
+  tells the model to find its id with `read_past_outreach` and pass it.
 - **Archived sends** (`Outreach.archivedAt`, the history drawer's archive)
   are left out of the office and campaign reads of both tools, so an old
   walk does not fill the recent window and get read as current. Two reads

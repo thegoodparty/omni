@@ -219,7 +219,11 @@ export class PriorityFlowOutreachService extends createPrismaBase(
   // (campaignId null) so a Win row on the same org never leaks in.
   async feedbackFor(
     organizationSlug: string,
-    scope: { priorityId?: string | null; outreachId?: number },
+    scope: {
+      priorityId?: string | null
+      outreachId?: number
+      channel?: OutreachType
+    },
   ): Promise<OutreachFeedback[]> {
     const unscoped = scope.outreachId === undefined && !scope.priorityId
     const rows = await this.findMany({
@@ -233,6 +237,7 @@ export class PriorityFlowOutreachService extends createPrismaBase(
         ...(unscoped ? { archivedAt: null } : {}),
         ...(scope.outreachId === undefined ? {} : { id: scope.outreachId }),
         ...(scope.priorityId ? { priorityId: scope.priorityId } : {}),
+        ...channelWhere(scope.channel),
       },
       include: WITH_AUDIENCE,
       orderBy: { createdAt: Prisma.SortOrder.desc },
@@ -245,11 +250,12 @@ export class PriorityFlowOutreachService extends createPrismaBase(
   async feedbackForCampaign(
     campaignId: number,
     outreachId?: number,
+    channel?: OutreachType,
   ): Promise<OutreachFeedback[]> {
     const rows = await this.findMany({
       where: {
         campaignId,
-        outreachType: { in: NOTE_CHANNELS },
+        AND: [{ outreachType: { in: NOTE_CHANNELS } }, channelWhere(channel)],
         status: { notIn: UNSENT_STATUSES },
         ...(outreachId === undefined
           ? { archivedAt: null }
