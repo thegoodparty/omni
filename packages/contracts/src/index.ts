@@ -1410,6 +1410,8 @@ export {
   SmsStandardsVerdictSchema,
   type SmsStandardsVerdict,
   checkSmsStandards,
+  SMS_RESTRICTED_WORDS,
+  findSmsRestrictedWords,
   deriveSmsProtectedParts,
   type SmsProtectedPart,
   SmsApprovalQueueItemSchema,
