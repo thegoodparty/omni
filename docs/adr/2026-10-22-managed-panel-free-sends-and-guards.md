@@ -3,7 +3,7 @@ title: Only a managed civic panel wave may skip payment, through one internal cl
 status: active
 decided_by: [bryclevgp]
 date: 2026-10-22
-code: ['#PR_NUMBER']
+code: ['#3154']
 scope:
   - packages/gp-api/src/managedWaveFunding/**
   - packages/gp-api/src/outreach/services/outreachTextSendFunding.service.ts
