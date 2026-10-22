@@ -2470,6 +2470,37 @@ describe('SmsFlow', () => {
       ).not.toBeInTheDocument()
     })
 
+    // A date picked in an earlier session must not rewrite the name a
+    // reopened draft comes back with, even when it ends with that date.
+    it('keeps a resumed name that ends with a date picked before reopening', async () => {
+      gateRef.set(CLEARED_GATE)
+      const flow = (open: boolean, resumeDraft: OutreachDetail) => (
+        <SmsFlow
+          source="outreach_page"
+          open={open}
+          onClose={vi.fn()}
+          onScheduled={vi.fn().mockResolvedValue(undefined)}
+          tcrCompliance={TCR_FIXTURE}
+          resumeDraft={resumeDraft}
+        />
+      )
+      const { rerender } = render(flow(true, draftDetail()))
+      await screen.findByText('When do you want to send it?')
+      await userEvent.click(screen.getByText('Pick a date'))
+      await userEvent.click(
+        await screen.findByRole('button', { name: dayName(4) }),
+      )
+
+      rerender(flow(false, draftDetail()))
+      const reopened = draftDetail({ id: 89, name: 'Likely voters, Sep 5' })
+      rerender(flow(true, reopened))
+
+      await screen.findByText('When do you want to send it?')
+      expect(screen.getByLabelText('Campaign name')).toHaveValue(
+        'Likely voters, Sep 5',
+      )
+    })
+
     // QA 2026-09-30: an unverified campaign has no committee yet. The line
     // still shows, naming a provisional committee, and the rule the server
     // would apply to it must not block the build.

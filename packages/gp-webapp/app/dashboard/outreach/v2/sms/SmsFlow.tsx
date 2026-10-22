@@ -694,6 +694,11 @@ export const SmsFlow = ({
   const [phoneListBuildFailed, setPhoneListBuildFailed] = useState(false)
 
   const [name, setName] = useState('')
+  // What the auto-name last wrote, and the date it ended with. Cleared with
+  // the name and date on open, so a reopened or resumed flow never rewrites
+  // a name off a date picked in an earlier session.
+  const lastAutoName = useRef('')
+  const lastDatePart = useRef('')
   const [nameEdited, setNameEdited] = useState(false)
   const [date, setDate] = useState<Date | undefined>(undefined)
   const [timeSlot, setTimeSlot] = useState('10')
@@ -946,6 +951,8 @@ export const SmsFlow = ({
     setPhoneListBuildFailed(false)
     setName(resumeDraft?.name ?? '')
     setNameEdited(Boolean(resumeDraft?.name))
+    lastAutoName.current = ''
+    lastDatePart.current = ''
     setDate(undefined)
     setTimeSlot('10')
     setCustomTime('10:00')
@@ -1250,8 +1257,6 @@ export const SmsFlow = ({
   // Auto-name from list + date until the user edits the name. An edited
   // name that still ends with the date we added keeps following the picker,
   // so the name never names a different day than the one picked.
-  const lastAutoName = useRef('')
-  const lastDatePart = useRef('')
   useEffect(() => {
     // Purpose-independent on Win (the surface ignores the argument and
     // returns the same fallback), purpose-keyed on Serve.
