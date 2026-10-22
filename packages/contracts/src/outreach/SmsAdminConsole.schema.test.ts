@@ -92,6 +92,7 @@ describe('checkSmsStandards restricted_word', () => {
     'I have fought for victims of domestic violence and sexual assault.',
     'SEXUAL assault survivors deserve better.',
     '(Stop2End)',
+    'Help us transfer power back to the people.',
   ])('fails a script the vendor refuses: %s', (line) => {
     const verdict = checkSmsStandards(
       compliant.replace('Read the plan', `${line} Read the plan`),
@@ -104,7 +105,7 @@ describe('checkSmsStandards restricted_word', () => {
 
   // Whole words only. Nothing shows the vendor refuses these, and a false
   // block stops a candidate who could have sent.
-  it.each(['asexual', 'sexuality', 'stop2ending'])(
+  it.each(['asexual', 'sexuality', 'stop2ending', 'transferred'])(
     'passes a word that only contains a restricted one: %s',
     (word) => {
       const verdict = checkSmsStandards(

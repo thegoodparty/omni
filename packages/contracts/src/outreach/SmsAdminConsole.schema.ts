@@ -114,12 +114,13 @@ const LINK_SHORTENER_PATTERN = new RegExp(
 // again to send the reworded text (2026-10-15, ENG-11310). The vendor does
 // not publish its list and has no endpoint to check a message before a job
 // exists, so this list holds only the words prod has seen it refuse, and the
-// vendor stays the backstop for the rest.
+// vendor stays the backstop for the rest. "transfer" was refused the same
+// way on 2026-10-22 (ENG-11439).
 //
 // Whole words, case-insensitive, matched as `findWords` matches a name:
 // "(Stop2End)" is caught, "sexuality" is not, because nothing shows the vendor
 // refuses it.
-export const SMS_RESTRICTED_WORDS = ['sexual', 'stop2end'] as const
+export const SMS_RESTRICTED_WORDS = ['sexual', 'stop2end', 'transfer'] as const
 
 // The restricted words a script contains, so a refusal can name them.
 export const findSmsRestrictedWords = (script: string): string[] =>
