@@ -41,7 +41,12 @@ export class OutreachRobocallCallhubCleanupService {
   })
   async sweepOrphanedCampaigns(): Promise<void> {
     if (!VENDOR_CRONS_ENABLED) return
+    await this.runSweep()
+  }
 
+  // The sweep body without the cron gate, so the test-fixtures run-job route
+  // can drive it on demand (the cron only fires on a 10-minute cadence).
+  async runSweep(): Promise<void> {
     const orphans = await this.orphans.findUnaborted()
     for (const orphan of orphans) {
       try {

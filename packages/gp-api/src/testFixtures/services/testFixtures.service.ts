@@ -6,6 +6,7 @@ import { ComplianceStateService } from '@/campaigns/tcrCompliance/services/compl
 import { ElectionsService } from '@/elections/services/elections.service'
 import { OutreachCompletionService } from '@/outreach/services/outreachCompletion.service'
 import { OutreachResultsAdminService } from '@/outreach/services/outreachResultsAdmin.service'
+import { OutreachRobocallCallhubCleanupService } from '@/outreach/services/outreachRobocallCallhubCleanup.service'
 import { OutreachRobocallCaptureService } from '@/outreach/services/outreachRobocallCapture.service'
 import { OutreachRobocallCompletionService } from '@/outreach/services/outreachRobocallCompletion.service'
 import { OutreachRobocallSendService } from '@/outreach/services/outreachRobocallSend.service'
@@ -137,6 +138,7 @@ export class TestFixturesService {
     private readonly robocallSend: OutreachRobocallSendService,
     private readonly robocallCompletion: OutreachRobocallCompletionService,
     private readonly robocallCapture: OutreachRobocallCaptureService,
+    private readonly robocallCallhubCleanup: OutreachRobocallCallhubCleanupService,
     private readonly outreachCompletion: OutreachCompletionService,
     private readonly smsAdmin: OutreachSmsAdminService,
     private readonly resultsAdmin: OutreachResultsAdminService,
@@ -807,6 +809,8 @@ export class TestFixturesService {
       },
       'robocall.completion': () => this.robocallCompletion.runCompletion(),
       'robocall.capture': () => this.robocallCapture.runCapture(),
+      // Aborts the PAUSED CallHub campaigns a cancel/failed send queued.
+      'robocall.callhubCleanup': () => this.robocallCallhubCleanup.runSweep(),
       'p2p.phoneListFinish': () =>
         this.vendorMockRecord.finishPeerlyPhoneLists(),
       'outreach.completion': () => this.outreachCompletion.runCompletion(),

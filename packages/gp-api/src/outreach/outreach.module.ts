@@ -302,6 +302,7 @@ import { OutreachP2pSmsFreeTextsService } from './services/outreachP2pSmsFreeTex
     OutreachRobocallSendService,
     OutreachRobocallCompletionService,
     OutreachRobocallCaptureService,
+    OutreachRobocallCallhubCleanupService,
     // Exported so TestFixturesModule can call admin actions as test fixtures.
     OutreachCompletionService,
     OutreachSmsAdminService,
