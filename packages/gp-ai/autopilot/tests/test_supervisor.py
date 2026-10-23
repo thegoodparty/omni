@@ -640,6 +640,24 @@ def test_flag_cleanup_ticket_files_without_a_key_when_unparseable(fake_clickup, 
     assert "no parseable" in capsys.readouterr().out
 
 
+@pytest.mark.parametrize("line", ["flag-key: none", "Flag-Key:  NONE  "])
+def test_parse_flag_key_returns_the_sentinel_for_none(line):
+    assert supervisor.parse_flag_key(f"Stories: s1.\n\n{line}\n") == supervisor.NO_FLAG_KEY
+    assert supervisor.parse_flag_key("flag-key: win-none-thing") == "win-none-thing"
+    assert supervisor.parse_flag_key("no key here") is None
+
+
+def test_flag_cleanup_ticket_not_filed_for_flag_key_none(fake_clickup):
+    fake_clickup.responses[f"/task/{EPIC_ID}"] = {"id": EPIC_ID, "name": "Mock modules", "list": {"id": "list-1"}}
+    fake_clickup.responses[f"/task/{EPIC_ID}/comment"] = {
+        "comments": [{"comment_text": "Stories: s1.\n\nflag-key: none\n\nTest infra only.", "date": "1000"}]
+    }
+    fake_clickup.responses["/list/list-1/task"] = {"id": "cleanup-1"}
+
+    assert supervisor.file_flag_cleanup_ticket(EPIC_ID) is None
+    assert [c for c in fake_clickup.calls if c[1] == "/list/list-1/task"] == []
+
+
 def test_flag_cleanup_ticket_files_without_a_key_when_comments_unreadable(fake_clickup):
     fake_clickup.responses[f"/task/{EPIC_ID}"] = {"id": EPIC_ID, "name": "Ship the thing", "list": {"id": "list-1"}}
 

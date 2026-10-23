@@ -294,7 +294,10 @@ has actually ramped the flag. That ticket's own description carries a
 machine-readable `flag-key: <key>` line, parsed at filing time from the
 epic's breakdown summary comment (`epic-create.md` step 5 now requires that
 exact line) — unparseable, the ticket is still filed, just without the line,
-and this pass silently skips it forever rather than guessing a key.
+and this pass silently skips it forever rather than guessing a key. An epic
+with no flag (test infra, its own runtime switch, docs; `epic-create.md`
+step 2's exception) records `flag-key: none` instead: close-out files no
+cleanup ticket for it, and this pass never treats `none` as a key.
 
 Every sweep tick, `sweep.check_flag_cleanup_ramps` finds every closed feature
 card whose flag-cleanup subtask is still sitting in `done` with a parseable

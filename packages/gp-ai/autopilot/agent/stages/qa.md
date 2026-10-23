@@ -65,6 +65,9 @@ Take one screenshot per criterion as you confirm it.
 
 ### 4. Flag-off: parity smoke
 
+If the epic's breakdown summary says `flag-key: none`, the epic has no flag:
+skip this step and go to the verdict.
+
 `EPIC_TASK_ID` may be empty — the dispatcher hasn't always threaded it
 through yet. If so, derive it yourself: `ClickUpClient.get_task(CLICKUP_TASK_ID)`
 and use its `parent` field as the epic id below. An unset `EPIC_TASK_ID` means

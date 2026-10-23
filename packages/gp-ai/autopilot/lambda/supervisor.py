@@ -791,11 +791,24 @@ def release_epic_close_out_claim(epic_task_id: str) -> None:
 FLAG_KEY_LINE_PATTERN = re.compile(r"^\s*flag-key:\s*(\S+)\s*$", re.IGNORECASE | re.MULTILINE)
 
 
+# `flag-key: none` is epic-create.md's sentinel for "this epic has no flag"
+# (test infra, its own runtime switch, docs, ...): no Amplitude flag exists,
+# so close-out files no cleanup ticket and sweep.py never treats it as a key.
+# A missing line is different and keeps its old behavior (ticket filed
+# without a key).
+NO_FLAG_KEY = "none"
+
+
 def parse_flag_key(text: str | None) -> str | None:
+    """The `flag-key:` value, `NO_FLAG_KEY` for the `none` sentinel (matched
+    case-insensitively, normalized to lowercase), or None when absent."""
     if not isinstance(text, str):
         return None
     match = FLAG_KEY_LINE_PATTERN.search(text)
-    return match.group(1) if match else None
+    if not match:
+        return None
+    key = match.group(1)
+    return NO_FLAG_KEY if key.lower() == NO_FLAG_KEY else key
 
 
 def parse_flag_key_from_comments(comments: list[dict]) -> str | None:
@@ -844,6 +857,9 @@ def file_flag_cleanup_ticket(epic_task_id: str) -> str | None:
         )
         comments = []
     flag_key = parse_flag_key_from_comments(comments)
+    if flag_key == NO_FLAG_KEY:
+        print(f"Epic {epic_task_id} declared 'flag-key: none'; no flag-cleanup ticket to file")
+        return None
     if flag_key is None:
         # Never guess: sweep.py's ramp-cleanup pass identifies a flag-cleanup
         # ticket BY this line, so one filed without it simply never gets
