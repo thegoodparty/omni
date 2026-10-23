@@ -685,6 +685,10 @@ export default function VoterMapCanvas({
         host.clientWidth / 2,
         host.clientHeight / 2,
       ])
+      // Ready is the camera being framed, not the style having loaded: the
+      // basemap's `load` waits on tiles, and a spec running where the tile CDN
+      // is unreachable would never see it though the map takes clicks fine.
+      host.dataset.mapReady = 'true'
       host.dataset.mapCenter = `${center.lng},${center.lat}`
       host.dataset.mapZoom = String(map.getZoom())
     }
@@ -708,7 +712,6 @@ export default function VoterMapCanvas({
         .querySelector('.maplibregl-ctrl-attrib')
         ?.classList.remove('maplibregl-compact-show')
       publishCamera()
-      host.dataset.mapReady = 'true'
     })
     map.on('moveend', publishCamera)
 

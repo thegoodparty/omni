@@ -71,6 +71,22 @@ const readMapView = async (page: Page): Promise<MapView> => {
   await expect(map).toHaveAttribute('data-map-ready', 'true', {
     timeout: 60_000,
   })
+  // `moveend` is the only thing that writes the camera, and a reframe can
+  // follow the first one (the flow fits the draw surface once it opens). Wait
+  // for two identical reads, so pixels are never aimed at a camera that is
+  // about to move.
+  const camera = async () =>
+    `${await map.getAttribute('data-map-center')}|${await map.getAttribute('data-map-zoom')}|${JSON.stringify(await map.boundingBox())}`
+  let previous = await camera()
+  await expect
+    .poll(async () => {
+      await page.waitForTimeout(400)
+      const current = await camera()
+      const settled = current === previous
+      previous = current
+      return settled
+    })
+    .toBe(true)
   const box = await map.boundingBox()
   if (!box) throw new Error('voter-map has no bounding box')
   const [lng, lat] = ((await map.getAttribute('data-map-center')) ?? '')
