@@ -19,7 +19,11 @@ does not lapse, and is done while an enrollment that is not stopped exists
 (a stopped one opens it again; a skip stays a skip). Its button, and the
 intro's Build my civic panel, send the hidden
 `START_MANAGED_CIVIC_PANEL_MESSAGE`; the chat (`managedCivicPanel.tools.ts`,
-`managedCivicPanelBlock` in the Chief of Staff prompt) explains, offers the
+`managedCivicPanelBlock` in the Chief of Staff prompt) explains with fixed
+words (`explain_managed_panel`: contracts' `managedCivicPanelExplanation`,
+and `managedCivicPanelHowItWorks` with the place, the seats and the census
+share of adults 65 or older from `ManagedCivicPanelService.explainerFacts`,
+falling back to a sentence without numbers), offers the
 invite (`offer_managed_panel_invite`), shows it
 (`present_managed_panel_invite`), and the webapp's text flow approves it
 (POST, with contracts' `MANAGED_CIVIC_PANEL_CONSENT_VERSION`). The flow's

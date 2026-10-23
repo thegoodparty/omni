@@ -260,8 +260,15 @@ describe('POST /v1/outreach/robocall/:outreachId/authorize', () => {
 
     // Fire-and-forget notice: wait for the background call to land, then confirm
     // the pending_payment -> pending transition fired it exactly once.
+    // Counted for this outreach only: an earlier test's notice can land after
+    // this test's mocks were cleared.
     await waitForCalls(notifySpy, 1)
-    expect(notifySpy).toHaveBeenCalledTimes(1)
+    const forThisOutreach = (
+      notifySpy.mock.calls as Parameters<
+        OutreachNotificationService['notifyRobocallScheduled']
+      >[]
+    ).filter(([, , outreach]) => outreach.id === outreachId)
+    expect(forThisOutreach).toHaveLength(1)
   })
 
   it('failSend voids the hold, sets send_failed + failed spine, emails once', async () => {
