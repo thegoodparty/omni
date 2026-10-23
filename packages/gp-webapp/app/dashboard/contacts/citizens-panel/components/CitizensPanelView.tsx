@@ -15,12 +15,30 @@ import {
   CITIZENS_PANEL_LIST_PATH,
   CIVIC_PANEL_ENTRY_PARAM,
   SERVE_CITIZENS_PANEL_COPY as COPY,
+  type CivicPanelStage,
 } from '../citizensPanelCopy'
+import {
+  longDay,
+  managedPanelNextInvitesAt,
+  useServePlace,
+} from '../managedPanelCopy'
 import { CitizensPanelStats } from './CitizensPanelStats'
-import { CivicPanelBalanceSection } from './CivicPanelBalance'
-import { CivicPanelMilestones } from './CivicPanelMilestones'
-import { CivicPanelSeats } from './CivicPanelSeats'
+import { CivicPanelChatDock, useCivicPanelChat } from './CivicPanelChatDock'
+import { CivicPanelHero } from './CivicPanelHero'
+import { CivicPanelFirstJoin, CivicPanelNext } from './CivicPanelNext'
 import { ManagedPanelControls } from './ManagedPanelControls'
+
+const stageOf = (
+  members: number,
+  goal: number,
+  managed: ManagedCivicPanel | null,
+): CivicPanelStage => {
+  if (managed?.status === 'exhausted') return 'exhausted'
+  if (managed?.status === 'ready' || (goal > 0 && members >= goal)) {
+    return 'ready'
+  }
+  return members === 0 ? 'start' : 'building'
+}
 
 export const CitizensPanelView = ({
   summary,
@@ -31,9 +49,17 @@ export const CitizensPanelView = ({
   // when it could not be read.
   managed?: ManagedCivicPanel | null
 }) => {
-  const hasMembers = summary.members > 0
   const { progress, balance, composition } = summary
-  const managedActive = managed !== null && managed.status !== 'stopped'
+  const active =
+    managed !== null && managed.status !== 'stopped' ? managed : null
+  const stage = stageOf(summary.members, progress.goal, active)
+  const place = useServePlace()
+  const chat = useCivicPanelChat()
+  // Only the first wave's day is "your first invites".
+  const firstInvites =
+    active && active.progress.wavesSent === 0
+      ? managedPanelNextInvitesAt(active)
+      : null
 
   const entry = useSearchParams()?.get(CIVIC_PANEL_ENTRY_PARAM) ?? 'direct'
   // Once per visit, on what the page was given.
@@ -52,57 +78,70 @@ export const CitizensPanelView = ({
   }, [])
 
   return (
-    <div className="mx-auto flex w-full max-w-[1180px] flex-col gap-4 p-4 sm:gap-6 lg:px-12 lg:py-8">
-      <div className="flex items-center gap-2.5 sm:gap-3">
-        <Link
-          href="/dashboard/contacts"
-          aria-label={COPY.backToContacts}
-          className="flex px-1 py-2.5 text-foreground sm:p-0"
-        >
-          <ArrowLeftIcon className="size-[22px]" aria-hidden />
-        </Link>
-        <h1 className="text-[22px] font-bold text-foreground sm:text-[28px]">
-          {COPY.title}
-        </h1>
-      </div>
-
-      <CivicPanelMilestones progress={progress} composition={composition} />
-
-      <div className="flex flex-col gap-4 sm:gap-6 lg:flex-row lg:items-start">
-        <div className="flex min-w-0 flex-1 flex-col gap-5">
-          {managedActive ? <ManagedPanelControls panel={managed} /> : null}
-
-          {balance ? (
-            <CivicPanelBalanceSection
-              balance={balance}
-              groups={composition?.groups ?? []}
-            />
-          ) : null}
-
-          {hasMembers && composition && composition.places.length > 0 ? (
-            <CivicPanelSeats
-              placeKind={composition.placeKind}
-              places={composition.places}
-              members={progress.members}
-              goal={progress.goal}
-            />
-          ) : null}
+    <>
+      {/* Clear of the pinned chat bar, with room to spare under the last
+          card. */}
+      <div className="mx-auto flex w-full max-w-[1180px] flex-col gap-4 px-4 pb-[calc(var(--chat-dock-height,5rem)+8rem)] pt-4 sm:gap-6 lg:px-12 lg:pt-8">
+        <div className="flex items-center gap-2.5 sm:gap-3">
+          <Link
+            href="/dashboard/contacts"
+            aria-label={COPY.backToContacts}
+            className="flex px-1 py-2.5 text-foreground sm:p-0"
+          >
+            <ArrowLeftIcon className="size-[22px]" aria-hidden />
+          </Link>
+          <h1 className="text-[22px] font-bold text-foreground sm:text-[28px]">
+            {COPY.title}
+          </h1>
         </div>
 
-        {/* Beside the panel from lg, below it on a phone: the members'
-            numbers. */}
-        {hasMembers ? (
+        <div className="flex flex-col gap-4 sm:gap-6 lg:flex-row lg:items-start">
+          <div className="flex min-w-0 flex-1 flex-col gap-4 sm:gap-6">
+            <CivicPanelHero
+              stage={stage}
+              members={summary.members}
+              goal={progress.goal}
+            />
+            {summary.members === 0 ? (
+              <CivicPanelFirstJoin
+                firstInvites={firstInvites ? longDay(firstInvites) : null}
+                place={place}
+              />
+            ) : stage !== 'ready' && composition ? (
+              <CivicPanelNext
+                composition={composition}
+                members={summary.members}
+                goal={progress.goal}
+                exhausted={stage === 'exhausted'}
+                place={place}
+              />
+            ) : null}
+          </div>
+
+          {/* Beside the panel from lg, below it on a phone: managing the
+              invites and the members' numbers. */}
           <aside
-            className="flex w-full flex-col gap-4 lg:w-[300px] lg:shrink-0"
+            className="flex w-full flex-col gap-4 lg:w-[320px] lg:shrink-0"
             data-testid="civic-panel-aside"
           >
-            <CitizensPanelStats summary={summary} />
-            <Button asChild variant="outline" className="self-start">
-              <Link href={CITIZENS_PANEL_LIST_PATH}>{COPY.seeMembers}</Link>
-            </Button>
+            {active ? <ManagedPanelControls panel={active} /> : null}
+            <CitizensPanelStats summary={summary} showReached={false} />
+            {summary.members > 0 ? (
+              <Button asChild variant="outline" className="self-start">
+                <Link href={CITIZENS_PANEL_LIST_PATH}>{COPY.seeMembers}</Link>
+              </Button>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => chat.ask(COPY.askAboutPanelMessage)}
+              className="self-start text-base font-semibold text-link hover:underline"
+            >
+              {COPY.askAboutPanel}
+            </button>
           </aside>
-        ) : null}
+        </div>
       </div>
-    </div>
+      <CivicPanelChatDock chat={chat} />
+    </>
   )
 }

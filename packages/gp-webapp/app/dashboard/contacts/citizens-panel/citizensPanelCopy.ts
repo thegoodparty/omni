@@ -4,6 +4,12 @@ import {
   type UnderrepresentedGroup,
 } from '@goodparty_org/contracts'
 
+// Where the panel stands, for the page's lead card. Paused reads as
+// building.
+export type CivicPanelStage = 'start' | 'building' | 'ready' | 'exhausted'
+
+const count = (n: number): string => n.toLocaleString('en-US')
+
 export const CITIZENS_PANEL_PATH = '/dashboard/contacts/citizens-panel'
 
 // Where the official came to the panel page from, for its Panel Viewed event.
@@ -25,8 +31,9 @@ export const SERVE_CITIZENS_PANEL_COPY = {
   members: 'Members',
   reachedRecently: 'Reached in the last 30 days',
   reachedRecentlyDetail: 'Texted, called or visited by your office.',
-  askableNow: 'Can be asked now',
-  seePanel: 'See your panel',
+  askableNow: 'Ready to ask',
+  askableNowDetail: 'Not texted in the last 30 days',
+  seePanel: 'See your civic panel',
   empty: 'Nobody has joined your civic panel yet.',
   loadError:
     "We couldn't load your civic panel. Refresh the page to try again.",
@@ -37,14 +44,14 @@ export const SERVE_CITIZENS_PANEL_COPY = {
   // The seats' places in the words of what the district was split by.
   seatPlaces: {
     tract: {
-      title: "Who's on your panel, by census tract",
+      title: "Who's on your civic panel, by census tract",
       name: (name: string) => `Tract ${name}`,
       one: 'tract',
       many: 'tracts',
       full: 'Every tract has its share of seats filled.',
     },
     precinct: {
-      title: "Who's on your panel, by precinct",
+      title: "Who's on your civic panel, by precinct",
       name: (name: string) => `Precinct ${name}`,
       one: 'precinct',
       many: 'precincts',
@@ -64,41 +71,16 @@ export const SERVE_CITIZENS_PANEL_COPY = {
     firstYes: () => 'First yes',
     canCompare: (at: number) => `${at} members`,
     halfway: () => 'Halfway',
-    full: () => 'Full panel',
+    full: () => 'Full civic panel',
   },
   milestoneState: {
     done: 'Done',
     next: 'Next',
     upcoming: 'Not yet',
   },
-  milestonesLabel: "Your panel's milestones",
-  cheerStart: 'Your panel starts here',
-  cheerStartLine: 'Every resident who says yes takes a seat.',
-  cheerStarted: 'Your panel has started',
-  cheerGrowing: 'Your panel is growing',
-  cheerHalfway: 'Halfway there',
-  cheerAlmost: 'Almost there',
-  saidYes: (members: number) =>
-    members === 1
-      ? '1 resident has said yes.'
-      : `${members.toLocaleString('en-US')} residents have said yes.`,
-  keepingPace: (members: number, pace: number, total: number, many: string) =>
-    `${members.toLocaleString('en-US')} residents have said yes, and ${pace} of ${total} ${many} are keeping pace.`,
-  seatsToGo: (seats: number, full: number, total: number, many: string) =>
-    `${seats} ${seats === 1 ? 'seat' : 'seats'} to go, and ${full} of ${total} ${many} are full.`,
-  membersToGo: (members: number) =>
-    `${members.toLocaleString('en-US')} more ${members === 1 ? 'resident' : 'residents'} to go.`,
-  fullTitle: 'Every seat is filled',
-  fullLine: (members: number, places: number, many: string) =>
-    `${members.toLocaleString('en-US')} residents from all ${places} ${many} said yes.`,
-  fullLineNoPlaces: (members: number) =>
-    `${members.toLocaleString('en-US')} residents said yes.`,
-  fullMembers: ' members',
-  fullPlaces: (places: number, many: string) => ` of ${places} ${many}`,
-  fullGroups: (total: number) => ` of ${total} groups at their share`,
-  askPanel: 'Ask your panel a question',
+  milestonesLabel: "Your civic panel's milestones",
   seatsCaption:
-    'Your district as 100 seats, filling as people join your panel.',
+    'Your district as 100 seats, filling as people join your civic panel.',
   seatsFilled: ' of 100 seats filled',
   seatsSummary: (filled: number, behind: number, one: string, many: string) =>
     behind > 0
@@ -106,7 +88,7 @@ export const SERVE_CITIZENS_PANEL_COPY = {
           behind === 1 ? `${one} is` : `${many} are`
         } behind the rest.`
       : `Your district as 100 seats. ${filled} of 100 seats filled.`,
-  legendMember: 'Someone from your panel',
+  legendMember: 'Someone from your civic panel',
   legendNotFilled: 'Not filled yet',
   legendBehind: 'Behind the rest',
   legendEmpty: 'Empty seat',
@@ -149,8 +131,51 @@ export const SERVE_CITIZENS_PANEL_COPY = {
     hispanic: 'Hispanic or Latino',
     asian: 'Asian',
   } satisfies Record<UnderrepresentedGroup, string>,
-  balanceTitle: 'How your panel compares with your district',
   balanceTooFew: (minimum: number) =>
-    `We'll compare your panel with your district once ${minimum} people join.`,
-  inviteMore: (group: string) => `Invite more ${group} next.`,
+    `We'll compare your civic panel with your district once ${minimum} people join.`,
+  // The page's lead card, by where the panel stands.
+  hero: {
+    start: {
+      title: 'Your civic panel starts here',
+      line: () => 'Every resident who says yes takes a seat.',
+    },
+    building: {
+      title: 'Your civic panel is filling up',
+      line: (members: number, goal: number) =>
+        `${count(members)} of ${count(goal)} residents have joined so far.`,
+    },
+    ready: {
+      title: 'Your civic panel is ready',
+      line: (members: number, goal: number) =>
+        `All ${count(Math.max(members, goal))} seats are filled. Ask them before your next vote.`,
+    },
+    exhausted: {
+      title: 'Every resident we can text has an invite',
+      line: (members: number, goal: number) =>
+        `${count(members)} of ${count(goal)} residents have joined your civic panel.`,
+    },
+  } satisfies Record<
+    CivicPanelStage,
+    { title: string; line: (members: number, goal: number) => string }
+  >,
+  // The hero's bar below lg, in place of the seats.
+  joinedOfGoal: (members: number, goal: number) =>
+    `${count(members)} of ${count(goal)} residents have joined`,
+  firstJoinTitle: 'Who joins first',
+  firstJoinLine: (firstInvites: string | null, place: string) =>
+    `${firstInvites ? `Your first invites go out ${firstInvites}. ` : ''}As residents reply, they take their seats here, and you'll see which parts of ${place} we still need to hear from.`,
+  nextTitle: "Who we're inviting next",
+  nextTitleExhausted: 'Groups still short',
+  nextLine: (place: string) =>
+    `These groups have fewer seats than their share of ${place}, so the next invites lean toward them.`,
+  nextLineExhausted: (place: string) =>
+    `Everyone we can text has been invited. These groups have fewer seats than their share of ${place}.`,
+  groupSeats: (have: number, need: number) =>
+    `${have} of ${need} ${need === 1 ? 'seat' : 'seats'}`,
+  seeEveryGroup: 'See every group',
+  // A tract with no human name yet, never its number.
+  unnamedTract: (place: string) => `A part of ${place}`,
+  yourDistrict: 'your district',
+  askAboutPanel: 'Ask about your civic panel',
+  askAboutPanelMessage: 'How is my civic panel doing?',
 } as const

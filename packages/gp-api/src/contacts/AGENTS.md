@@ -1043,8 +1043,12 @@ panel route: 404 with the flag off, 400 for a non-`eo-` org.
 
 - `GET` returns `{ panel }`, null before approval. `progress` is the
   members (the standing `member` set, as the summary counts them),
-  `goalMembers`, `wavesSent` (waves with `sentAt`) and `nextWaveAt`: while
-  building, the latest sent wave's `replyWindowEndsAt`, else null.
+  `goalMembers`, `wavesSent` (waves with `sentAt`), `nextWaveAt`: while
+  building, the latest sent wave's `replyWindowEndsAt`, else null, and
+  `firstSendDate` / `readyWeekOf` (yyyy-MM-dd, `managedPanelSchedule` in
+  `utils/managedPanelSchedule.util.ts`): `nextManagedSendDate` from the
+  approval and the Monday of the week two weeks of waves later, the same
+  days `read_managed_panel` tells the official.
 - `POST { inviteMessage, consentVersion }` approves. The invite must carry
   a civic panel wording of the JOIN line (the current
   `CIVIC_PANEL_JOIN_LINE`, or an earlier civic panel wording a draft may

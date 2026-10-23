@@ -26,6 +26,7 @@ import {
   type AcsCounts,
 } from '@/peopleDb/databricks/districtCensusSql.util'
 import { CensusTractNameService } from '../services/censusTractName.service'
+import { managedPanelSchedule } from '../utils/managedPanelSchedule.util'
 
 const service = useTestService()
 
@@ -173,6 +174,7 @@ describe('GET /v1/contacts/civic-panel/managed', () => {
       goalMembers: panel.goalMembers,
       wavesSent: 2,
       nextWaveAt: windowEnds.toISOString(),
+      ...managedPanelSchedule(panel.approvedAt),
     })
   })
 

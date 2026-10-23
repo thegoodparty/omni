@@ -1,18 +1,15 @@
-import { addDays, format, parseISO, startOfWeek } from 'date-fns'
+import { format, parseISO } from 'date-fns'
 import { z } from 'zod'
 import type { ManagedCivicPanel } from '@goodparty_org/contracts'
 import type { Organization } from '../../../../generated/prisma'
 import type { LlmStreamTool } from '@/llm/services/llm.service'
 import type { ManagedCivicPanelService } from '@/contacts/services/managedCivicPanel.service'
-import { nextManagedSendDate } from '@/outreach/services/outreachServeSmsCreate.service'
+import { managedPanelSchedule } from '@/contacts/utils/managedPanelSchedule.util'
 
 export const OFFER_MANAGED_PANEL_INVITE_TOOL = 'offer_managed_panel_invite'
 export const PRESENT_MANAGED_PANEL_INVITE_TOOL = 'present_managed_panel_invite'
 export const READ_MANAGED_PANEL_TOOL = 'read_managed_panel'
 export const PRESENT_MANAGED_PANEL_TOOL = 'present_managed_panel'
-
-// The waves run over about two weeks from the first send.
-const BUILD_DAYS = 14
 
 // GoodParty builds the panel for the office (the managed panel): the
 // official approves one invite and GoodParty texts it in waves. The offer,
@@ -23,16 +20,12 @@ const BUILD_DAYS = 14
 const noInput = z.object({})
 
 // When the first invites go out and the week the panel should be ready,
-// from the day it was approved: the earliest day a Serve text can be sent,
-// and about two weeks of waves after it.
+// in the words the agent says them.
 export const managedPanelTimeline = (approvedAt: Date) => {
-  const firstSend = parseISO(nextManagedSendDate(approvedAt))
-  const readyWeek = startOfWeek(addDays(firstSend, BUILD_DAYS), {
-    weekStartsOn: 1,
-  })
+  const { firstSendDate, readyWeekOf } = managedPanelSchedule(approvedAt)
   return {
-    firstSendDate: format(firstSend, 'EEEE, MMMM d'),
-    readyWeekOf: format(readyWeek, 'MMMM d'),
+    firstSendDate: format(parseISO(firstSendDate), 'EEEE, MMMM d'),
+    readyWeekOf: format(parseISO(readyWeekOf), 'MMMM d'),
   }
 }
 
