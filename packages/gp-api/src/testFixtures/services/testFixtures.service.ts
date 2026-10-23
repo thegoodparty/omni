@@ -737,6 +737,15 @@ export class TestFixturesService {
     return this.getMockRecords(campaignId)
   }
 
+  async getMockRecordsByOrganization(
+    organizationSlug: string,
+  ): Promise<MockRecordsResponse> {
+    return {
+      vendorMode: VENDOR_MODE,
+      records: await this.vendorMockRecord.findByOrganization(organizationSlug),
+    }
+  }
+
   async getMockRecords(campaignId: number): Promise<MockRecordsResponse> {
     const [campaignRecords, callhubRecords, peerlyJobRecords] =
       await Promise.all([
