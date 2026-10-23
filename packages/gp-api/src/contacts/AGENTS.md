@@ -892,10 +892,13 @@ lengths from them and shows only seats and "X% of its share".
 Bryan, 2026-10-22). A tract place carries `label`, its human name, once it
 has one; without it the page shows the number. Names live in
 `census_tract_name`, one row per 11-digit GEOID, kept forever (see
-`docs/adr/2026-10-22-census-tract-names-stored-once.md`). Every summary read
-looks them up (one Postgres read); a read that finds a tract with no row
-also names the missing ones after its response, so only a district's first
-read pays for Geoapify. Naming reads each tract's mean resident point and
+`docs/adr/2026-10-23-census-tract-names-filled-on-managed-approval.md`).
+Every summary read looks them up (one Postgres read). Names are filled in
+the background when an office approves its managed civic panel (first
+approval or re-approval after stop, not a repeat), for every tract in the
+district's census tract list, so they are usually ready before the official
+first opens the panel page. As a backstop, a summary read that finds a tract
+with no row names the missing ones after its response. Naming reads each tract's mean resident point and
 top street in one aggregate (peopleDb `findTractPlaces`), writes the street
 name ("around Haywood Rd", source `street`, else `none`) to claim the row,
 then reverse geocodes the point (`GeoapifyReverseGeocodeService`, one

@@ -13,8 +13,8 @@ const GEOCODE_CONCURRENCY = 4
 
 // A census tract's human name for the civic panel's seats. Each tract is
 // named once, ever, and the name kept in census_tract_name: reads only look
-// it up, and only fillMissing, run after a civic panel summary read's
-// response, calls Geoapify.
+// it up, and only fillMissing, run on a managed panel approval and after a
+// civic panel summary read's response, calls Geoapify.
 @Injectable()
 export class CensusTractNameService extends createPrismaBase(
   MODELS.CensusTractName,
