@@ -455,21 +455,19 @@ test.describe('10DLC registration — M4 vendor mocks', () => {
     await runJob(client, 'cvStatusPoll.scanFresh')
 
     await page.goto('/dashboard/profile/texting-compliance/enter-pin')
-    // The page has no rejected-specific state: REJECTED falls into the
-    // in-progress notice, which is the only thing it can show without a PIN.
-    await expect(
-      page.getByText('Your registration is being verified'),
-    ).toBeVisible({ timeout: 30_000 })
+    // The scan marks the registration rejected, and the page has no rejected
+    // state of its own: it falls back to the generic "step isn't available".
+    await expect(page.getByText('This step isn’t available yet.')).toBeVisible({
+      timeout: 30_000,
+    })
     await expect(page.getByRole('textbox', { name: 'Digit 1' })).toHaveCount(0)
     await expect(page.getByRole('button', { name: 'Submit' })).toHaveCount(0)
 
-    const state = await getComplianceState(client)
-    expect(state.peerlyCvStatus).toBe('REJECTED')
-    expect(state.stage).not.toBe('tcr_approved')
+    expect((await getComplianceState(client)).stage).toBe('tcr_rejected')
     const { data: tcr } = await client.get<TcrComplianceMine>(
       '/v1/campaigns/tcr-compliance/mine',
     )
-    expect(tcr.status).not.toBe('approved')
+    expect(tcr.status).toBe('rejected')
   })
 
   test('retries a failed domain order and offers no taken domain', async ({
