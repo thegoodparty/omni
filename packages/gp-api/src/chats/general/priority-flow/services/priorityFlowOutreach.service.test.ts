@@ -446,6 +446,35 @@ describe('PriorityFlowOutreachService.feedbackForCampaign', () => {
       idsOf(await outreach.feedbackForCampaign(campaign.id, older.id)),
     ).toEqual([older.id])
   })
+
+  it('reads only the doors or only the calls when given a channel', async () => {
+    const campaign = await createCampaign(slug)
+    const walk = await service.prisma.outreach.create({
+      data: {
+        campaignId: campaign.id,
+        organizationSlug: slug,
+        outreachType: OutreachType.nativeDoorKnocking,
+        status: OutreachStatus.in_progress,
+        name: 'Central Park listening walk',
+        doorKnockingTurfId: await turfIn(slug),
+      },
+    })
+    const calls = await service.prisma.outreach.create({
+      data: {
+        campaignId: campaign.id,
+        organizationSlug: slug,
+        outreachType: OutreachType.nativePhoneBanking,
+        status: OutreachStatus.in_progress,
+        name: 'Listening calls',
+      },
+    })
+    const byChannel = async (channel: OutreachType) =>
+      idsOf(await outreach.feedbackForCampaign(campaign.id, undefined, channel))
+
+    expect(await byChannel(OutreachType.doorKnocking)).toEqual([walk.id])
+    expect(await byChannel(OutreachType.nativePhoneBanking)).toEqual([calls.id])
+    expect(await byChannel(OutreachType.text)).toEqual([])
+  })
 })
 
 describe('PriorityFlowOutreachService.feedbackFor', () => {
@@ -533,6 +562,33 @@ describe('PriorityFlowOutreachService.feedbackFor', () => {
     expect(asked).toMatchObject([
       { outreachId: shelved.id, name: 'spring newsletter' },
     ])
+  })
+
+  it("reads only the office's calls when given phone banking", async () => {
+    const calls = await service.prisma.outreach.create({
+      data: {
+        organizationSlug: slug,
+        outreachType: OutreachType.nativePhoneBanking,
+        status: OutreachStatus.in_progress,
+        name: 'Neighborhood priorities calls',
+      },
+    })
+    await service.prisma.outreach.create({
+      data: {
+        organizationSlug: slug,
+        outreachType: OutreachType.nativeDoorKnocking,
+        status: OutreachStatus.in_progress,
+        name: 'Neighborhood listening walk',
+        doorKnockingTurfId: await turfIn(slug),
+      },
+    })
+    await send('newsletter', null)
+
+    const sends = await outreach.feedbackFor(slug, {
+      channel: OutreachType.phoneBanking,
+    })
+
+    expect(idsOf(sends)).toEqual([calls.id])
   })
 })
 

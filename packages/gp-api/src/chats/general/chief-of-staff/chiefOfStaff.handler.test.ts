@@ -1312,6 +1312,12 @@ describe('ChiefOfStaffHandler', () => {
         priorityId: null,
         outreachId: 7,
       })
+      await read.execute({ channel: 'phoneBanking' })
+      expect(feedbackFor).toHaveBeenLastCalledWith(ORG, {
+        priorityId: null,
+        outreachId: undefined,
+        channel: 'phoneBanking',
+      })
       expect(descriptionOf(read)).toContain('with read_past_outreach')
       expect(descriptionOf(tools.read_past_outreach)).toContain(
         'text replies only',

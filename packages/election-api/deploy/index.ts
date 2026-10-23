@@ -45,91 +45,119 @@ export = async () => {
   const { username, password, database } = extractDbCredentials(
     secret.DATABASE_URL,
   )
-  const rdsCluster = new aws.rds.Cluster('rdsCluster', {
-    clusterIdentifier: select({
-      dev: 'election-api-db-develop',
-      prod: 'election-api-db-prod',
-    }),
-    engine: aws.rds.EngineType.AuroraPostgresql,
-    engineMode: aws.rds.EngineMode.Provisioned,
-    engineVersion: '16.8',
-    databaseName: database,
-    masterUsername: username,
-    masterPassword: pulumi.secret(password),
-    dbSubnetGroupName: select({
-      dev: 'api-rds-subnet-group',
-      prod: 'api-master-rds-subnet-group',
-    }),
-    vpcSecurityGroupIds: [
-      select({
-        dev: 'sg-0b834a3f7b64950d0',
-        prod: 'sg-03783e4adbbee87dc',
-      }),
-    ],
-    storageEncrypted: true,
-    serverlessv2ScalingConfiguration: {
-      minCapacity: environment === 'prod' ? 1 : 0.5,
-      maxCapacity: 64,
-    },
-    backupRetentionPeriod: select({ dev: 7, prod: 14 }),
-    deletionProtection: true,
-    skipFinalSnapshot: false,
-    finalSnapshotIdentifier: `election-api-db-${stage}-final-snapshot`,
-  })
+  // The election database moves to gp-api's stack by import. Retained, so
+  // removing these from this stack later only drops them from its state.
+  const retained: pulumi.CustomResourceOptions = { retainOnDelete: true }
 
-  const rdsInstance = new aws.rds.ClusterInstance('rdsInstance', {
-    identifier: select({
-      dev: 'tf-20250328152646832200000003',
-      prod: 'tf-20250422023552728500000001',
-    }),
-    clusterIdentifier: rdsCluster.id,
-    instanceClass: 'db.serverless',
-    engine: aws.rds.EngineType.AuroraPostgresql,
-    engineVersion: rdsCluster.engineVersion,
-  })
+  const rdsCluster = new aws.rds.Cluster(
+    'rdsCluster',
+    {
+      clusterIdentifier: select({
+        dev: 'election-api-db-develop',
+        prod: 'election-api-db-prod',
+      }),
+      engine: aws.rds.EngineType.AuroraPostgresql,
+      engineMode: aws.rds.EngineMode.Provisioned,
+      engineVersion: '16.8',
+      databaseName: database,
+      masterUsername: username,
+      masterPassword: pulumi.secret(password),
+      dbSubnetGroupName: select({
+        dev: 'api-rds-subnet-group',
+        prod: 'api-master-rds-subnet-group',
+      }),
+      vpcSecurityGroupIds: [
+        select({
+          dev: 'sg-0b834a3f7b64950d0',
+          prod: 'sg-03783e4adbbee87dc',
+        }),
+      ],
+      storageEncrypted: true,
+      serverlessv2ScalingConfiguration: {
+        minCapacity: environment === 'prod' ? 1 : 0.5,
+        maxCapacity: 64,
+      },
+      backupRetentionPeriod: select({ dev: 7, prod: 14 }),
+      deletionProtection: true,
+      skipFinalSnapshot: false,
+      finalSnapshotIdentifier: `election-api-db-${stage}-final-snapshot`,
+    },
+    retained,
+  )
+
+  const rdsInstance = new aws.rds.ClusterInstance(
+    'rdsInstance',
+    {
+      identifier: select({
+        dev: 'tf-20250328152646832200000003',
+        prod: 'tf-20250422023552728500000001',
+      }),
+      clusterIdentifier: rdsCluster.id,
+      instanceClass: 'db.serverless',
+      engine: aws.rds.EngineType.AuroraPostgresql,
+      engineVersion: rdsCluster.engineVersion,
+    },
+    retained,
+  )
 
   // RDS keeps its event history for 14 days. Copying the cluster's events to
   // a log group keeps them for a year and lets Grafana's CloudWatch data
   // source show them next to the service's own errors.
-  const rdsEventsLogGroup = new aws.cloudwatch.LogGroup('rdsEventsLogGroup', {
-    name: pulumi.interpolate`/aws/events/rds/${rdsCluster.clusterIdentifier}`,
-    retentionInDays: 365,
-  })
+  const rdsEventsLogGroup = new aws.cloudwatch.LogGroup(
+    'rdsEventsLogGroup',
+    {
+      name: pulumi.interpolate`/aws/events/rds/${rdsCluster.clusterIdentifier}`,
+      retentionInDays: 365,
+    },
+    retained,
+  )
 
-  new aws.cloudwatch.LogResourcePolicy('rdsEventsLogPolicy', {
-    policyName: pulumi.interpolate`eventbridge-to-${rdsCluster.clusterIdentifier}-events`,
-    policyDocument: pulumi.jsonStringify({
-      Version: '2012-10-17',
-      Statement: [
-        {
-          Effect: 'Allow',
-          Principal: {
-            Service: ['events.amazonaws.com', 'delivery.logs.amazonaws.com'],
+  new aws.cloudwatch.LogResourcePolicy(
+    'rdsEventsLogPolicy',
+    {
+      policyName: pulumi.interpolate`eventbridge-to-${rdsCluster.clusterIdentifier}-events`,
+      policyDocument: pulumi.jsonStringify({
+        Version: '2012-10-17',
+        Statement: [
+          {
+            Effect: 'Allow',
+            Principal: {
+              Service: ['events.amazonaws.com', 'delivery.logs.amazonaws.com'],
+            },
+            Action: ['logs:CreateLogStream', 'logs:PutLogEvents'],
+            Resource: pulumi.interpolate`${rdsEventsLogGroup.arn}:*`,
           },
-          Action: ['logs:CreateLogStream', 'logs:PutLogEvents'],
-          Resource: pulumi.interpolate`${rdsEventsLogGroup.arn}:*`,
-        },
-      ],
-    }),
-  })
-
-  const rdsEventsRule = new aws.cloudwatch.EventRule('rdsEventsRule', {
-    description: pulumi.interpolate`RDS events for ${rdsCluster.clusterIdentifier}`,
-    eventPattern: pulumi.jsonStringify({
-      source: ['aws.rds'],
-      detail: {
-        SourceIdentifier: [
-          rdsCluster.clusterIdentifier,
-          rdsInstance.identifier,
         ],
-      },
-    }),
-  })
+      }),
+    },
+    retained,
+  )
 
-  new aws.cloudwatch.EventTarget('rdsEventsTarget', {
-    rule: rdsEventsRule.name,
-    arn: rdsEventsLogGroup.arn,
-  })
+  const rdsEventsRule = new aws.cloudwatch.EventRule(
+    'rdsEventsRule',
+    {
+      description: pulumi.interpolate`RDS events for ${rdsCluster.clusterIdentifier}`,
+      eventPattern: pulumi.jsonStringify({
+        source: ['aws.rds'],
+        detail: {
+          SourceIdentifier: [
+            rdsCluster.clusterIdentifier,
+            rdsInstance.identifier,
+          ],
+        },
+      }),
+    },
+    retained,
+  )
+
+  new aws.cloudwatch.EventTarget(
+    'rdsEventsTarget',
+    {
+      rule: rdsEventsRule.name,
+      arn: rdsEventsLogGroup.arn,
+    },
+    retained,
+  )
 
   createService({
     environment,
