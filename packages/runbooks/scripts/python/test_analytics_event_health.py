@@ -2867,3 +2867,65 @@ def test_main_posts_a_removal_once_and_is_quiet_on_the_next_identical_run(monkey
 
     assert first > 0, "the first run must post the new removal"
     assert len(posts) == first, "an unchanged removal must not post again"
+
+
+# --- label_findings ----------------------------------------------------------
+
+
+def _lab(event_type, family="other", first_seen=date(2026, 6, 10), cnt30=10, product=None, conflict=False):
+    return {
+        "event_type": event_type,
+        "family": family,
+        "first_seen_date": first_seen,
+        "event_count_30d": cnt30,
+        "govern_product": product,
+        "product_label_conflict": conflict,
+    }
+
+
+def test_label_findings_flags_new_unlabeled_other():
+    out = eh.label_findings([_lab("New Thing")], TODAY)
+    assert out == [
+        {
+            "event_type": "New Thing",
+            "kind": "no_product_label",
+            "family": "other",
+            "first_seen_date": date(2026, 6, 10),
+        }
+    ]
+
+
+def test_label_findings_skips_dismissed_system_and_old():
+    catalog = [
+        _lab("Dismissed Thing"),
+        _lab("page", family="amplitude_autotrack"),
+        _lab("Old Thing", first_seen=TODAY - timedelta(days=eh.PROPOSAL_WINDOW_DAYS + 1)),
+        _lab("Quiet Thing", cnt30=0),
+        _lab("Labeled Thing", product="win"),
+        _lab("Placed Thing", family="win_onboarding"),
+    ]
+    assert eh.label_findings(catalog, TODAY, dismissed_events=["Dismissed Thing"]) == []
+
+
+def test_label_findings_flags_conflict():
+    old = date(2024, 1, 1)
+    catalog = [
+        _lab("Old Conflict", family="win_onboarding", first_seen=old, cnt30=0, product="win", conflict=True),
+        _lab("Dismissed Conflict", conflict=True),
+    ]
+    out = eh.label_findings(catalog, TODAY, dismissed_events=["Dismissed Conflict"])
+    assert [(r["event_type"], r["kind"]) for r in out] == [("Old Conflict", "product_label_conflict")]
+
+
+def test_digest_renders_labels_section():
+    findings = eh.label_findings([_lab("New Thing"), _lab("Mixed", conflict=True)], TODAY)
+    out = _digest([], label_findings=findings)
+    assert "### Labels" in out
+    assert "New Thing" in out and "no_product_label" in out
+    assert "Mixed" in out and "product_label_conflict" in out
+    assert "### Labels" not in _digest([])
+
+
+def test_catalog_sql_reads_label_columns():
+    assert "govern_product" in eh.CATALOG_SQL
+    assert "product_label_conflict" in eh.CATALOG_SQL
