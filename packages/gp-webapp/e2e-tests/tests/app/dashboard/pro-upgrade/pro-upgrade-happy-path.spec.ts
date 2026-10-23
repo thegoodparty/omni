@@ -10,11 +10,10 @@ import { deliverStripeEvent } from 'src/helpers/vendor-mocks.helper'
 // funnel through an embedded Stripe subscription to Pro, and its TCR record
 // reaches the post-payment PIN state (ENG-10475).
 //
-// @dev-only: the filing-details step requires a Google Places address
-// suggestion (.pac-item). Google Places does not load on *.vercel.app PR
-// previews — the Maps JS SDK is domain-restricted to goodparty.org and
-// dev.goodparty.org — so the .pac-item dropdown never appears and the step
-// cannot proceed. The Stripe deliverStripeEvent change (M3-5) is kept.
+// The filing-details step takes a hand-typed address (the street input's
+// Google Places autocomplete is a helper, never a gate), so the spec fills
+// the structured fields and never depends on Google Places, which does not
+// load on *.vercel.app PR previews. Runs on every PR.
 //
 // The Stripe `checkout.session.completed` event is delivered in-process via
 // deliverStripeEvent, which calls POST /v1/test-fixtures/vendor-mocks/stripe/events
@@ -51,7 +50,7 @@ test.beforeEach(async ({ page }) => {
   await blockSlowScripts(page)
 })
 
-test('filed candidate upgrades to Pro and reaches the post-payment PIN state @dev-only', async ({
+test('filed candidate upgrades to Pro and reaches the post-payment PIN state', async ({
   page,
 }) => {
   // deliverStripeEvent delivers the webhook in-process, so the isPro flip is
@@ -108,40 +107,21 @@ test('filed candidate upgrades to Pro and reaches the post-payment PIN state @de
   await page.getByPlaceholder('jane@gmail.com').fill(user.email)
   await page.getByPlaceholder('(555) 555-5555').fill('(307) 555-1234')
 
-  // Filing address is required: the agentic TCR/Peerly submit resolves a postal
-  // address from this place_id, so the step blocks Continue until a real Google
-  // Places suggestion is selected. Type a known address, wait for Google's
-  // `.pac-item` dropdown (appended to <body>), and pick the first suggestion —
-  // ArrowDown+Enter so react-google-autocomplete fires onPlaceSelected.
-  const addressInput = page.getByPlaceholder(
-    'Start typing to search, or enter it yourself',
-  )
-  await addressInput.click()
-  await addressInput.pressSequentially('1700 Pennsylvania Ave NW, Washington', {
-    delay: 80,
+  // Filing address is required: the agentic TCR/Peerly submit needs a postal
+  // address. Fill the structured fields by hand rather than picking a Google
+  // Places suggestion (.pac-item never loads on *.vercel.app previews); an
+  // edited field submits as structured components.
+  await page
+    .getByPlaceholder('Start typing to search, or enter it yourself')
+    .fill('1700 Pennsylvania Ave NW')
+  await page.getByLabel('City').fill('Cheyenne')
+  await page.getByRole('combobox').filter({ hasText: 'State' }).click()
+  await page.getByRole('option', { name: 'WY' }).click()
+  await page.getByPlaceholder('12345').fill('82001')
+  await page.getByRole('button', { name: 'Continue' }).click()
+  await page.waitForURL(/\/dashboard\/pro-upgrade\/candidate-profile/, {
+    timeout: 60_000,
   })
-  const suggestion = page.locator('.pac-item').first()
-  await expect(suggestion).toBeVisible({ timeout: 15_000 })
-  await addressInput.press('ArrowDown')
-  await addressInput.press('Enter')
-
-  // onPlaceSelected resolves the place details asynchronously and only then
-  // writes the place (with its place_id) into form state; until that lands,
-  // Continue fails validation and silently no-ops (its error banner clears
-  // itself once the write arrives). There is no stable DOM signal for the
-  // write — arrowing through suggestions already rewrites the input text — so
-  // retry Continue until the wizard actually advances. Re-clicks during a real
-  // submit are no-ops (the form's submittingRef/loading guard).
-  await expect(async () => {
-    if (!/\/dashboard\/pro-upgrade\/candidate-profile/.test(page.url())) {
-      await page
-        .getByRole('button', { name: 'Continue' })
-        .click({ timeout: 5_000 })
-    }
-    await page.waitForURL(/\/dashboard\/pro-upgrade\/candidate-profile/, {
-      timeout: 15_000,
-    })
-  }).toPass({ timeout: 90_000 })
 
   // 7. Candidate profile — ≥200-char bio (Quill editor) + one policy priority
   // with a ≥100-char focus.
