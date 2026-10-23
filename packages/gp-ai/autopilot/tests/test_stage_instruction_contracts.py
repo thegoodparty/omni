@@ -276,6 +276,14 @@ def test_resume_handles_a_status_note_park_without_waiting_for_a_reply():
     )
 
 
+def test_resume_fixes_a_red_merge_pending_pr_and_reparks_with_await_merge():
+    text = _read("resume")
+
+    assert "can't merge as-is" in text, "must recognize the sweep's red-PR comment that triggers this resume"
+    assert "git merge origin/main" in text, "a conflict is fixed by merging main, never rebase or force-push"
+    assert "feedback await-merge" in text, "after fixing, the story must re-park with await-merge"
+
+
 def test_resume_applies_the_story_option_rule():
     flat = " ".join(_read("resume").split())
     assert "most consistent with the ticket's acceptance criteria" in flat, (
