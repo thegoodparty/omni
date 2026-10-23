@@ -47,9 +47,10 @@ the SERVE_TEXT purchase claim stamps the session on texts, polls, round 2
 follow-ups and expansions, and a Serve text never prices at zero, so the
 free-purchase path never reaches one. `ManagedPanelFundingReconcileService`
 (06:47 Eastern, dev and prod) re-checks every Serve send that moved past
-`pending_payment` in the last day, and every pilot wave still `pending`
-four hours after its claim, and raises `serve-managed-panel-funding-mismatch`
-on any it cannot account for.
+`pending_payment` and was created in the last week (so one left alone keeps
+paging daily), and every pilot wave still `pending` four hours after its
+claim, and raises `serve-managed-panel-funding-mismatch` on any it cannot
+account for.
 
 **Claim before handoff, not a check after it.** `requestSend` CASes the spine
 `pending → in_progress` FIRST. A read would not close the window: a user can

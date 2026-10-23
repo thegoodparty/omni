@@ -351,7 +351,7 @@ export const GLOBAL_ALERTS: Alert[] = [
     for: '0m',
     keepFiringFor: '1h',
     message: [
-      'The daily managed panel funding reconciliation found Serve text or poll sends that moved past checkout in the last day with neither a paid Stripe session nor a valid managed civic panel wave. These may already have been texted.',
+      'The daily managed panel funding reconciliation found Serve text or poll sends created in the last week that moved past checkout with neither a paid Stripe session nor a valid managed civic panel wave. These may already have been texted. It repeats daily until each is resolved, for up to a week.',
       'Click *View in Grafana*, then search the logs for "CRITICAL managed panel funding: send past pending with no funding" to read the `mismatches` list (outreachId, sendSeq, organizationSlug, status). The same list went to #bot-tevyn-api. Check each in the gp-admin outreach console and find how it skipped payment before anything else sends.',
     ].join('\n\n'),
   },
