@@ -73,7 +73,7 @@ export const peerlyIdentityUseCaseSchema = z.object({
   identity_id: z.string(),
   account_id: z.string(),
   usecase: z.string(),
-  tcr_campaign_id: z.string(),
+  tcr_campaign_id: z.string().nullish(),
   submitted: z.number(),
   activated: z.number(),
 })
