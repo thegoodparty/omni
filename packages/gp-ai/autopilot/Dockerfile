@@ -63,6 +63,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     xz-utils \
     procps \
+    jq \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Node.js via official binary (avoids python3 dependency issues)

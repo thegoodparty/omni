@@ -917,6 +917,24 @@ def test_story_within_ttl_does_not_alert(fake_clickup, fake_ecs):
     assert fake_clickup.slack_posts == []
 
 
+def test_in_progress_ttl_clears_a_full_story_deadline_run():
+    assert supervisor.STATUS_TTL_SECONDS[router.STATUS_IN_PROGRESS] == 3 * 60 * 60
+    assert (
+        supervisor.STATUS_TTL_SECONDS[router.STATUS_IN_PROGRESS]
+        > router.STAGE_CEILINGS[router.STAGE_STORY].deadline_seconds
+    )
+
+
+def test_story_in_progress_for_two_and_a_half_hours_does_not_alert(fake_clickup, fake_ecs):
+    register_epic(fake_clickup, ["s1"], {"s1": story_task("s1", router.STATUS_IN_PROGRESS)})
+    since = str(int((time.time() - 2.5 * 60 * 60) * 1000))
+    fake_clickup.responses["/task/s1/time_in_status"] = {"current_status": {"since": since}}
+
+    supervisor.run_supervisor_tick(EPIC_ID)
+
+    assert fake_clickup.slack_posts == []
+
+
 def test_feedback_needed_story_never_counted_stalled(fake_clickup, fake_ecs):
     register_epic(fake_clickup, ["s1"], {"s1": story_task("s1", router.STATUS_FEEDBACK_NEEDED)})
     # Even a very old since would trip in_progress/qa TTLs; feedback needed

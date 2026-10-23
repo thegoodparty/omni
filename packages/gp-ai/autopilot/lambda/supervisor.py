@@ -599,12 +599,12 @@ def max_concurrent_stories() -> int:
 # Per-status TTLs for stories. STATUS_FEEDBACK_NEEDED is deliberately
 # absent: waiting on a human is not a stall. STATUS_APPROVED_TDD (the story
 # queue) and STATUS_DONE are absent too: nothing is "in flight" there.
-# "in progress"'s 2h covers the whole dispatch-to-merge window — the story
+# "in progress"'s 3h covers the whole dispatch-to-merge window — the story
 # stage's first act on kickoff is moving the card there, so a dispatch that
 # never starts surfaces as a story sitting in the queue while its own claim
 # expires, not as a distinct status.
 STATUS_TTL_SECONDS: dict[str, int] = {
-    router.STATUS_IN_PROGRESS: 2 * 60 * 60,
+    router.STATUS_IN_PROGRESS: 3 * 60 * 60,
     router.STATUS_QA: 60 * 60,
     # Stories never reach executing in the pipeline (it is the feature card's
     # post-approval column), but a manual drag can put one there — and it
