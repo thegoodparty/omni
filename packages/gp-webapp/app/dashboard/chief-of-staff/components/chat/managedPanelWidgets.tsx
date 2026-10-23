@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
+  MANAGED_CIVIC_PANEL_HOW_IT_WORKS,
   SHOW_MANAGED_CIVIC_PANEL_INVITE,
   type ChatClarifyQuestion,
 } from '@goodparty_org/contracts'
@@ -48,16 +49,29 @@ export const MANAGED_PANEL_OFFER_QUESTION: ChatClarifyQuestion = {
   question: MANAGED_PANEL_COPY.offerQuestion,
   options: [
     { label: SHOW_MANAGED_CIVIC_PANEL_INVITE },
-    { label: MANAGED_PANEL_COPY.whoGetsTexted },
+    { label: MANAGED_CIVIC_PANEL_HOW_IT_WORKS },
     { label: MANAGED_PANEL_COPY.notNow },
   ],
   multiSelect: false,
 }
 
-// Every tool here takes no args, so the call itself is the widget. A
-// refused call persists null args and renders nothing.
-const isCall = (args: unknown): boolean =>
+// Offered again once How does it work? is answered, without it.
+export const MANAGED_PANEL_OFFER_AFTER_HOW_IT_WORKS: ChatClarifyQuestion = {
+  ...MANAGED_PANEL_OFFER_QUESTION,
+  questionId: 'managed_civic_panel_offer_after_how_it_works',
+  options: [
+    { label: SHOW_MANAGED_CIVIC_PANEL_INVITE },
+    { label: MANAGED_PANEL_COPY.notNow },
+  ],
+}
+
+// The call itself is the widget. A refused call persists null args and
+// renders nothing.
+const isCall = (args: unknown): args is object =>
   args !== null && typeof args === 'object'
+
+const isAfterHowItWorks = (args: object): boolean =>
+  'afterHowItWorks' in args && args.afterHowItWorks === true
 
 // The invite in the official's name: its first name, their office.
 const useManagedInviteDraft = (): string => {
@@ -166,7 +180,12 @@ export const ManagedPanelCard = () => {
 export const managedPanelWidgetTools = [
   defineWidgetTool({
     toolName: MANAGED_PANEL_OFFER_TOOL,
-    parse: (args) => (isCall(args) ? MANAGED_PANEL_OFFER_QUESTION : null),
+    parse: (args) =>
+      isCall(args)
+        ? isAfterHowItWorks(args)
+          ? MANAGED_PANEL_OFFER_AFTER_HOW_IT_WORKS
+          : MANAGED_PANEL_OFFER_QUESTION
+        : null,
     render: (
       question,
       {

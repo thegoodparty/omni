@@ -5,6 +5,12 @@ An elected official's priorities: the record, the agent's seven-step status
 the results page's read of who answered the outreach sent on one
 (`services/priorityResults.service.ts`).
 
+`nextAction` is shown to the official (the priority rail's "Next" line, the
+home Next steps cards), so it is one sentence to them as "you".
+`PriorityStatusService.applyUpdate` drops it to null and logs a warning when it
+names the official (first or last name) or uses a step id as a name ("so
+define can be settled", `listen_problem`).
+
 ## Answer coding
 
 `services/priorityAnswerCoding.service.ts`. Replies stay free text; an AI

@@ -8,7 +8,9 @@ import { authenticateTestUser } from 'tests/utils/api-registration'
 import { eventually } from 'tests/utils/eventually'
 import { waitForDashboardReady } from 'src/helpers/dashboard'
 import { setFlagOverrides } from 'src/helpers/campaignStory.helper'
+import { uniqueEin } from 'src/helpers/pro-upgrade.helper'
 import { deliverStripeEvent } from 'src/helpers/vendor-mocks.helper'
+import { withGatewayRetry } from 'tests/utils/headless-user'
 
 // Purchase-only (outreach-pro-gating-v2) happy path: a filed candidate walks
 // guidance → status → EIN → the filing-details form (campaign verification's
@@ -81,7 +83,8 @@ test('filed candidate submits filing details before payment and lands on the sub
 
   // 3. EIN — shape-valid, sanity-passing (47 is an IRS-issued prefix).
   await page.waitForURL(/\/dashboard\/pro-upgrade\/ein/)
-  await page.getByPlaceholder('12-3456789').fill('47-1234567')
+  const ein = uniqueEin()
+  await page.getByPlaceholder('12-3456789').fill(ein)
   await page.getByRole('button', { name: 'Continue' }).click()
 
   // 4. Filing details — campaign verification's form, before payment. The
@@ -136,7 +139,7 @@ test('filed candidate submits filing details before payment and lands on the sub
   const einInput = page.getByLabel('EIN', { exact: true })
   if (await einInput.count()) {
     // The EIN field rendered, so fill it inline.
-    await einInput.fill('47-1234567')
+    await einInput.fill(ein)
   }
 
   await page.getByPlaceholder('Jane Smith').fill('Jane Smith')
@@ -207,25 +210,36 @@ test('filed candidate submits filing details before payment and lands on the sub
   await page.waitForTimeout(500)
   await stripeFrame.locator('#payment-postalCodeInput').fill('82001')
   await page.waitForTimeout(500)
-  const saveCheckbox = stripeFrame.getByLabel(
-    'Save my information for faster checkout',
-  )
-  if (await saveCheckbox.isChecked().catch(() => false)) {
-    await saveCheckbox.uncheck()
+  // Stripe Link's save-my-info box demands a phone number and keeps the
+  // submit disabled while checked. It is absent on some runner geolocations,
+  // where the longer form also pushes the submit below the fold.
+  const linkOptIn = stripeFrame.locator('#payment-linkOptInInput')
+  if (await linkOptIn.count()) {
+    await expect(async () => {
+      if (await linkOptIn.isChecked()) {
+        await linkOptIn.click({ timeout: 5_000 })
+      }
+      await expect(linkOptIn).not.toBeChecked({ timeout: 2_000 })
+    }).toPass({ timeout: 15_000 })
   }
   await page.waitForTimeout(1_000)
 
   const completeButton = page.getByRole('button', { name: 'Complete upgrade' })
   await expect(completeButton).toBeEnabled({ timeout: 30_000 })
+  await completeButton.scrollIntoViewIfNeeded()
   await completeButton.click()
 
   // Deliver checkout.session.completed in-process: the real handler flips
   // isPro and runs the deferred compliance kickoff, no Stripe inbound needed.
+  // On dev Stripe's own webhook can land at the same moment, and the handler
+  // is idempotent, so a transient write conflict (503) is safe to retry.
   await page.waitForURL(/\/dashboard\/pro-upgrade\/success/, {
     timeout: 60_000,
   })
   expect(sessionId).toBeTruthy()
-  await deliverStripeEvent(client, sessionId!)
+  await withGatewayRetry('POST stripe/events', () =>
+    deliverStripeEvent(client, sessionId!),
+  )
 
   // 6. Success — the submitted confirmation, never the Start-verification
   // handoff: the filing is already on record.

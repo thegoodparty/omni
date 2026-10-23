@@ -10,90 +10,76 @@ Moved to [`../../../docs/contacts-key-files.md`](../../../docs/contacts-key-file
 
 ## The civic panel page (`citizens-panel/`)
 
-GoodParty builds the panel (the managed panel, `ManagedPanelControls` with
-its Pause, Resume and Stop); officials cannot build one themselves. The page
-shows where it stands, from `GET /v1/contacts/civic-panel` (read
-server-side by `page.tsx`; `progress`, `balance` and `composition` ride on
-the summary). Behind `serve-citizen-panels`; copy in `citizensPanelCopy.ts`.
+GoodParty builds the panel (the managed panel); officials cannot build one
+themselves. The page shows the panel filling up, from
+`GET /v1/contacts/civic-panel` and `GET /v1/contacts/civic-panel/managed`
+(both read server-side by `page.tsx`; `progress`, `balance` and
+`composition` ride on the summary). Behind `serve-citizen-panels`; copy in
+`citizensPanelCopy.ts` (page) and `managedPanelCopy.ts` (Invites card,
+`useServePlace`, cased by contracts' `cityNameCase`). Two
+columns from `lg`, the rail under the main column on a phone; the page
+pads `var(--chat-dock-height)` plus 8rem so the last card clears the bar.
 
+- **Stage** (`stageOf` in `CitizensPanelView`): `exhausted` or `ready`
+  from the managed status (ready also once members reach the goal
+  without one), else `start` at 0 members, else `building`. Paused reads
+  as building.
+- **Hero** (`CivicPanelHero`): the stage's title and line
+  (`COPY.hero`), the goal as 100 seats (`SeatArc` from `CivicPanelSeats`,
+  `quiet`, on `plainSeats`: filled is members over goal, in arc order, in
+  bands of the brand's three families) from `lg`, below it a `Progress`
+  bar under "{members} of {goal} residents have joined" (CSS breakpoints,
+  both always rendered), then the four milestones, First
+  yes, `PANEL_MIN_MEMBERS_FOR_BALANCE` members, Halfway and Full civic panel
+  (`milestones`, from `progress.goal`, never a fixed number).
+- **Who joins first** (`CivicPanelFirstJoin`) at 0 members: the first
+  wave's day (`firstSendDate`, only while `wavesSent` is 0; without a
+  managed panel the sentence is dropped) and what the page will show.
+- **Who we're inviting next** (`CivicPanelNext`, "Groups still short" when
+  exhausted) with members, a composition and the panel not ready: the 4
+  rows of `shortGroups` (`panelCharts.ts`) furthest below their share, age,
+  gender and race groups and places alike, in the hero's seat units
+  (a group's share of 100 seats beside `memberShare` times the fill; a
+  place's `buildSeats` count beside its filled), each "{have} of {need}
+  seats" with a bar; See every group expands the rest in place. A tract
+  shows its `label` or "A part of {place}", never its number. This is the
+  page's one answer to who's next, and it never tells the official to
+  invite: GoodParty sends the invites.
+- **Rail**: the Invites card (`ManagedPanelControls`, only with a managed
+  panel that is not stopped): one status line, while building Next invites
+  (`managedPanelNextInvitesAt`: `nextWaveAt`, else `firstSendDate` before
+  the first wave) and Ready around (`readyWeekOf`, dropped once that week
+  has passed), Pause / Resume and Stop my civic panel (with its confirm)
+  through `PATCH /v1/contacts/civic-panel/managed`. Then Members and Ready
+  to ask (`CitizensPanelStats showReached={false}`), See members once
+  anyone joined, and Ask about your civic panel, which opens the Chief of
+  Staff chat with "How is my civic panel doing?".
+- **Chat**: `CivicPanelChatDock` pins the shared `FooterChatBar` and
+  `ChiefOfStaffChatSurface` (`analyticsSurface` `civic_panel_dock`), the
+  same dock as Ordinances and Community Issues; `useCivicPanelChat` lets
+  the rail open it on a question.
 - **Analytics.** The page fires `Civic Panel - Panel Viewed` once per visit
   (members, goal, expected answers, `howCloseStatus` from the summary's
   `balance`, snake case or null while hidden, and `entry` from the `?from=`
   every in-app link adds through `civicPanelHref`: chief_of_staff_home,
   chief_of_staff_chat, contacts, outreach, else direct). Every join or leave
   is server truth and fires from gp-api (contacts AGENTS.md).
-
-- **Milestones, at the top** (`CivicPanelMilestones`): a card with a title and one line for where the panel stands
-  (Your panel starts here, Your panel has started, Your panel is growing,
-  Halfway there, Almost there), then four milestones, First yes,
-  `PANEL_MIN_MEMBERS_FOR_BALANCE` members, Halfway and Full panel, each done,
-  next or not yet. Halfway and full come from the API's `progress.goal`,
-  never a fixed number. The line names how many places keep pace (not
-  behind) or, from 80% of the goal, the seats to go, from the summary's
-  `composition`; without one it is the members alone. Past the goal with
-  every seat filled it turns into the full panel: "Every seat is filled",
-  the members, places and `groupsCovered` of `groupsTotal` groups, and "Ask
-  your panel a question" to the Priorities page, where a question to the
-  panel starts. No answer count anywhere on the page. The full panel's group
-  figure is the petals' own count ("N of M groups at their share", from
-  `buildBloom` on `composition.groups`), never the API's `groupsCovered` of
-  `groupsTotal`, which also counts tracts and so would disagree with the
-  petals; without groups there is no figure. The Constituents page's
-  `CitizensPanelSection` draws the same `CivicPanelSeats` above its numbers,
-  from the same summary read.
-- **How your panel compares with your district** (`CivicPanelBalance.tsx`,
-  from the summary's `balance`; hidden when it is null): the
-  panel's own status and dot (`CIVIC_PANEL_BALANCE_STATUS_LABELS`: Too few
-  members yet, Missing some groups, Every group on your panel; never the
-  priority's labels), then one line, "Invite more {group} next." from
-  `inviteMore`, or for Too few members yet "We'll compare your panel with
-  your district once 30 people join." Past the goal the API also sends
-  `groupsNeedingFresh` (groups short of members who answered in the last 90
-  days) and the status reads "Every group on your panel · 3 groups need fresh
-  voices", with "Invite more {group} next." naming the thinnest, or "Every
-  group has fresh voices" once none are short. Never a share, weight or target. Once the
-  panel can be compared, the section also draws each group as a petal
-  (`CivicPanelBloom`, from the summary's `composition.groups`): its length is
-  members share over district share, capped at twice, a ring at even, over
-  in primary, under in warning, within a fifth of even neutral, "N of M at
-  their share" in the middle and "About its share" or "X% of its share" by
-  each petal (a list under it on a phone). **The page names one next step**:
-  the status line's "Invite more {group} next.", from the API's
-  `inviteMore`, which is the group the next draw leans toward
-  (`PanelSteering.leansToward`). Neither chart names anyone to invite: the
-  petals add only "Every group has its share." when the status names nobody
-  and no petal is under, and the seats list who is behind without a next
-  line. Only this page shows the status.
-- **The aside** (beside the panel from `lg`, below it on a phone, with any
-  member): the members, reached and can be asked now figures and See
-  members.
-- The seats sit under the balance (`CivicPanelSeats`, from the summary's
-  `composition.places`, hidden without one): the goal as 100 seats in six
-  rows, split by each place's district share (largest remainder), census
-  tracts or, where the district has no tract data, precincts, named by
-  `placeKind` ("Tract 9501.02", "Precinct 01.1"). A tract with a human
-  name shows it instead (the place's `label` from gp-api: "West Asheville",
-  "around Haywood Rd"), in the seats' labels and the Furthest behind and
-  Most empty seats rows alike. Rows truncate with the whole name as a
-  tooltip; around the arc a name is cut to 14 characters, the whole name
-  in its `<title>`. A place's members fill
-  seats only up to its share of the goal. Filled seats take the brand's
-  red, blue and lavender: each place one family, cycled in arc order so
-  neighbors differ, its seats three tints of it outlined in the darkest
-  (`seatHue`, `seatTint`, fixed by position so server and client agree).
-  From 30 members a place is behind
-  when its progress is under half the panel's, outlined in warning and
-  listed under "Furthest behind" (up to 5, with "N of M tracts are behind
-  the rest."); under 30 the wait
-  line shows. From 80% of the goal every empty seat is outlined: with 12 or
-  fewer places each is named around the arc (a list on a phone), with more
-  the five with the most empty seats are listed. All filled reads "Every
-  tract has its share of seats filled." Geometry and allocation are pure,
-  in `components/panelCharts.ts`. Both charts are SVG scaled by viewBox, so
-  they fit a 375px phone. Every drawn coordinate goes through `roundCoord`
-  or `polar` (hundredths): a float's last digit can print differently on
-  the server and in the browser, which React reports as a hydration
-  mismatch.
+- **The full seats chart** (`CivicPanelSeats`) is the Constituents page
+  section's (`CitizensPanelSection`), not this page's: the goal as 100
+  seats in six rows, split by each place's district share (largest
+  remainder), census tracts or, where the district has no tract data,
+  precincts, named by `placeKind` ("Tract 9501.02", "Precinct 01.1") or a
+  tract's human `label`. A place's members fill seats only up to its share,
+  each place one brand family cycled in arc order (`seatHue`, `seatTint`,
+  fixed by position so server and client agree). From 30 members a place
+  is behind when its progress is under half the panel's, outlined in
+  warning and listed under "Furthest behind"; from 80% of the goal every
+  empty seat is outlined and named or listed. The petals
+  (`CivicPanelBloom`) are drawn by the priority results page. Geometry and
+  allocation are pure, in `components/panelCharts.ts`. Every drawn
+  coordinate goes through `roundCoord` or `polar` (hundredths): a float's
+  last digit can print differently on the server and in the browser,
+  which React reports as a hydration mismatch.
 
 ## Patterns
 

@@ -11,15 +11,19 @@ import { useOrganization } from '@shared/organization-picker'
 import { managedCivicPanelQueryOptions } from '../civicPanelSummary.query'
 import {
   MANAGED_PANEL_COPY,
-  managedPanelNextInvites,
+  managedPanelNextInvitesAt,
+  managedPanelReadyWeek,
+  monthDay,
+  shortDay,
 } from '../managedPanelCopy'
 
 const COPY = MANAGED_PANEL_COPY.controls
 
 type Action = UpdateManagedCivicPanelInput['action']
 
-// The panel GoodParty builds for the office: where its invites stand, and
-// the official's say over them. Pause holds the next invites, Resume lets
+// The panel GoodParty builds for the office: where its invites stand, when
+// the next go out and when it should be ready, and the official's say over
+// them. Pause holds the next invites, Resume lets
 // them go again, and Stop ends the panel. A stopped panel shows nothing
 // here: the home offers it again.
 export const ManagedPanelControls = ({
@@ -51,32 +55,44 @@ export const ManagedPanelControls = ({
   const { status } = panel
   const canPause = status === 'building'
   const canResume = status === 'paused'
+  const nextInvites = managedPanelNextInvitesAt(panel)
+  const readyWeek = managedPanelReadyWeek(panel)
+  const dates = [
+    nextInvites
+      ? { label: COPY.nextInvites, value: shortDay(nextInvites) }
+      : null,
+    readyWeek
+      ? { label: COPY.readyAround, value: COPY.weekOf(monthDay(readyWeek)) }
+      : null,
+  ].filter((row) => row !== null)
 
   return (
     <Card
-      className="flex flex-col gap-4 rounded-2xl border-components-input-border p-5"
+      className="flex flex-col gap-4 rounded-xl border-border p-5"
       data-testid="managed-panel-controls"
     >
       <div className="flex flex-col gap-1">
-        <h2 className="font-opensans text-lg font-medium text-card-foreground">
-          {COPY.title}
-        </h2>
-        <p className="text-sm text-muted-foreground">
-          {COPY.status(
-            status,
-            managedPanelNextInvites(panel.progress.nextWaveAt),
-          )}
-        </p>
-        <p className="text-sm text-muted-foreground">
-          {MANAGED_PANEL_COPY.panelCardStatus(
-            status,
-            panel.progress.members,
-            panel.progress.goalMembers,
-          )}
-        </p>
+        <h2 className="text-lg font-semibold text-foreground">{COPY.title}</h2>
+        <p className="text-base text-muted-foreground">{COPY.status(status)}</p>
       </div>
 
-      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+      {dates.length > 0 ? (
+        <dl className="flex flex-col">
+          {dates.map((row) => (
+            <div
+              key={row.label}
+              className="flex items-baseline justify-between gap-3 border-t border-border py-2.5 first:border-t-0"
+            >
+              <dt className="text-base text-muted-foreground">{row.label}</dt>
+              <dd className="text-base font-semibold text-foreground">
+                {row.value}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      ) : null}
+
+      <div className="flex flex-col gap-2">
         {canPause ? (
           <Button
             type="button"

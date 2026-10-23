@@ -64,7 +64,7 @@ export const vendorDriftAlerts: Alert[] = [
     summaryDetail: '`{{ $labels.vendor }}` `{{ $labels.endpoint }}`',
     message: [
       'A live vendor response failed its shared schema in the last 60 minutes. `vendor` and `endpoint` on this alert say which call; `endpoint` is a path template, not a concrete URL.',
-      'The vendor changed a response shape, or the schema was wrong. The schema is `src/vendors/<vendor>/schemas/` in gp-api. Find the offending fields in Loki, where `parseVendorResponse` logs the failing field paths as `issuePaths`: `{service_name="gp-api", deployment_environment_name="$ENV"} |= "Vendor response did not match schema"`, narrowed to the vendor named above. Fix the schema (and the mock that mirrors it) rather than loosening validation.',
+      'The vendor changed a response shape, or the schema was wrong. The schema is `src/vendors/<vendor>/schemas/` in gp-api. Find the offending fields in Loki, where `parseVendorResponse` logs the failing field paths as `issuePaths` and, per field, the Zod code and expected vs received type as `issues`: `{service_name="gp-api", deployment_environment_name="$ENV"} |= "Vendor response did not match schema"`, narrowed to the vendor named above. Fix the schema (and the mock that mirrors it): keep fields gp-api reads strict, and make a field nothing reads nullish rather than guessing its type.',
       'The counter only exists after a first mismatch, so a quiet rule means no mismatch, not a broken one.',
     ].join('\n\n'),
   },

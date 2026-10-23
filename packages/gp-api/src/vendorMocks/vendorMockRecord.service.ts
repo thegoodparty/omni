@@ -11,6 +11,10 @@ import {
 
 const MAX_REQUESTS = 10
 const ROUTE_FAIL_KIND = 'route_fail'
+const CALLHUB_CREATE_FAIL_KIND = 'create_fail'
+// Staging names a CallHub broadcast `Robocall <slug> #<outreachId>`; the create
+// request carries no other link back to the campaign.
+const ROBOCALL_BROADCAST_NAME = /^Robocall .+ #(\d+)$/
 const VERCEL_ORDER_KIND = 'domain_order'
 const VERCEL_ORDER_FAIL_KIND = 'order_fail'
 export const VERCEL_ORDER_COMPLETION_DELAY_SECONDS = 30
@@ -75,6 +79,16 @@ export class VendorMockRecordService extends createPrismaBase(
 
   async findByCampaign(campaignId: number) {
     return this.model.findMany({ where: { campaignId } })
+  }
+
+  // Serve has no Campaign, so its Geoapify records carry no campaignId; the
+  // mock stamps the organization slug on `state` instead.
+  async findByOrganization(organizationSlug: string) {
+    return this.model.findMany({
+      where: {
+        state: { path: ['organizationSlug'], equals: organizationSlug },
+      },
+    })
   }
 
   // Returns the vb_campaign mock records for a campaign's robocalls.
@@ -222,6 +236,45 @@ export class VendorMockRecordService extends createPrismaBase(
       data: { state: { routeFail: false } },
     })
     return count > 0
+  }
+
+  // One row per campaign, so an armed failure only ever reaches that
+  // campaign's next CallHub broadcast create, never another test's.
+  async armCallhubCreateFail(campaignId: number) {
+    return this.upsert(
+      VendorMockVendor.callhub,
+      CALLHUB_CREATE_FAIL_KIND,
+      String(campaignId),
+      { createFail: true },
+      campaignId,
+    )
+  }
+
+  // Conditional update so two concurrent creates can't both consume it.
+  async consumeCallhubCreateFail(campaignId: number) {
+    this.assertNonProdDeploy()
+    const { count } = await this.model.updateMany({
+      where: {
+        vendor: VendorMockVendor.callhub,
+        kind: CALLHUB_CREATE_FAIL_KIND,
+        externalId: String(campaignId),
+        state: { path: ['createFail'], equals: true },
+      },
+      data: { state: { createFail: false } },
+    })
+    return count > 0
+  }
+
+  // The campaign a CallHub broadcast was staged for, read off the name the
+  // staging service gives it. Undefined for any other name.
+  async campaignIdForRobocallBroadcast(name: string) {
+    const outreachId = Number(ROBOCALL_BROADCAST_NAME.exec(name)?.[1])
+    if (!Number.isSafeInteger(outreachId)) return undefined
+    const outreach = await this.client.outreach.findUnique({
+      where: { id: outreachId },
+      select: { campaignId: true },
+    })
+    return outreach?.campaignId ?? undefined
   }
 
   // The campaign that owns a candidate domain, via its website. Undefined
