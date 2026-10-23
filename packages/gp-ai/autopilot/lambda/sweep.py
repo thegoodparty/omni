@@ -105,6 +105,13 @@ DEAD_LETTER_ALERT_STAGE = "dead-letter-alert"
 # a given park comment, not a per-run transition with a natural deadline.
 DEAD_LETTER_ALERT_TTL_SECONDS = 30 * 24 * 60 * 60
 
+# Durable once-per-head claim for red-PR resumes (see _resume_red_pr). The
+# resume dispatch's own claim expires with the resume's deadline, which would
+# let a still-red head be resumed again an hour later, so this second claim
+# outlives any realistic PR instead.
+RED_PR_CLAIM_STAGE = "red-pr-resume"
+RED_PR_CLAIM_TTL_SECONDS = 30 * 24 * 60 * 60
+
 # The delegate reviewer's GitHub login, as scripts/delegate-review-wait.sh
 # reads it. Its CHANGES_REQUESTED review on a PR's head commit counts as red.
 DELEGATE_REVIEWER_LOGIN = "delegate-reviewer[bot]"
@@ -664,6 +671,10 @@ def _resume_red_pr(task: dict, park: Any, pr_number: int, pull_request: dict) ->
         return False
 
     head_sha = pull_request["head"]["sha"]
+    # Long-lived claim first: a resume that re-parks on the same still-red
+    # head must not earn another one when the dispatch claim below expires.
+    if dispatch.claim_transition(task_id, RED_PR_CLAIM_STAGE, f"{pr_number}-{head_sha}", RED_PR_CLAIM_TTL_SECONDS):
+        return False
     ceiling = router.STAGE_CEILINGS[router.STAGE_RESUME]
     envelope = dispatch.StageEnvelope(
         stage=router.STAGE_RESUME,

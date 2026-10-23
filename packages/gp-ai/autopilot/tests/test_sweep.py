@@ -1083,6 +1083,23 @@ def test_failed_check_resumes_the_story_once_per_head_sha(
     assert f"red-pr-42-{HEAD_SHA}" in " ".join(dispatch.get_dynamodb_client().items)
 
 
+def test_same_red_head_is_not_resumed_again_after_the_dispatch_claim_expires(
+    red_pr_story, fake_clickup, fake_ecs, fake_pull_requests, fake_github
+):
+    fake_pull_requests[42] = open_pr()
+    fake_github.check_runs = [check("lint", conclusion="failure")]
+    sweep.handle_sweep({"autopilot_sweep": True})
+    # Expire the resume dispatch's own (deadline-sized) claim, as an hour
+    # later would; the durable per-head claim must still hold.
+    items = dispatch.get_dynamodb_client().items
+    for pk in [k for k in items if "red-pr-42-" in k]:
+        del items[pk]
+
+    sweep.handle_sweep({"autopilot_sweep": True})
+
+    assert len(resumes(fake_ecs)) == 1
+
+
 def test_a_new_red_head_gets_one_more_resume(red_pr_story, fake_clickup, fake_ecs, fake_pull_requests, fake_github):
     fake_github.check_runs = [check("lint", conclusion="timed_out")]
     fake_pull_requests[42] = open_pr()
