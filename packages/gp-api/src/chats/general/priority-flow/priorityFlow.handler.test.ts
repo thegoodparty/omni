@@ -1127,6 +1127,9 @@ describe('PriorityFlowHandler', () => {
     expect(prompt).toContain(
       "A settled step's summary is what was agreed, and it only changes when the step goes back.",
     )
+    expect(prompt).toContain(
+      'A step you send back stays back for the rest of that turn. Never settle your own new version',
+    )
   })
 
   it('says each thing once, never around a tool call or over a card', () => {

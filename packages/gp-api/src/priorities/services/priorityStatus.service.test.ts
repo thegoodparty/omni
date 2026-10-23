@@ -1087,7 +1087,12 @@ describe('update_priority_status sends a settled step back rather than rewriting
     })
 
     expect(result).toHaveProperty('error')
-    expect(JSON.stringify(result)).toContain('set it to stale')
+    expect(result).toMatchObject({
+      error: expect.stringContaining(
+        'Nothing was recorded. These did not move: What we know.',
+      ),
+    })
+    expect(JSON.stringify(result)).toContain('set to stale')
     const status = await statusService.read(id)
     expect(stepOf(status, 'define')).toMatchObject({
       state: 'settled',
@@ -1115,6 +1120,48 @@ describe('update_priority_status sends a settled step back rather than rewriting
     expect(result).not.toHaveProperty('error')
     expect(stepOf(await statusService.read(id), 'define')).toMatchObject({
       state: 'stale',
+      summary: 'The real problem is 26 vacancies backfilled at overtime',
+    })
+  })
+
+  it('keeps a step sent back this turn from settling again until a later turn', async () => {
+    const id = await createPriority()
+    await settleStation(id)
+    const thisTurn = toolFor(id)
+    await thisTurn.execute({
+      steps: [
+        {
+          id: 'define',
+          state: 'stale',
+          caveat: 'The chief says overtime, not the station, drives the cost',
+        },
+        { id: 'evidence', state: 'active' },
+      ],
+      nextAction: 'Ask for the overtime total',
+    })
+    const rewrite = {
+      steps: [
+        {
+          id: 'define' as const,
+          state: 'settled' as const,
+          summary: 'The real problem is 26 vacancies backfilled at overtime',
+        },
+      ],
+      nextAction: 'Ask for the overtime total',
+    }
+
+    const sameTurn = await thisTurn.execute(rewrite)
+    expect(sameTurn).toMatchObject({
+      error: expect.stringContaining(
+        'Nothing was recorded. These did not move: The problem.',
+      ),
+    })
+    expect(stepOf(await statusService.read(id), 'define').state).toBe('stale')
+
+    const nextTurn = await toolFor(id).execute(rewrite)
+    expect(nextTurn).not.toHaveProperty('error')
+    expect(stepOf(await statusService.read(id), 'define')).toMatchObject({
+      state: 'settled',
       summary: 'The real problem is 26 vacancies backfilled at overtime',
     })
   })

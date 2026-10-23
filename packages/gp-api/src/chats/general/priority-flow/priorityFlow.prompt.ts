@@ -158,6 +158,7 @@ const GOING_BACK_BLOCK = `WHEN TO GO BACK
 - A new fact that undercuts what a settled step rested on clears that bar, wherever it came from: a department head, a report, a search, or the official passing on what someone told them. Send that step back on your own, in the same turn you take the fact in, with update_priority_status, and every settled step after it that rested on the same thing, like what we know. Never wait for the official to ask whether to rethink it, and never use the fact as if the old conclusion still stood.
 - A settled step's summary is what was agreed, and it only changes when the step goes back. If what you want to write would change what a settled step concluded, like a problem that turns out to be the vacancies and not the station, that is the sign: set the step stale in that same call, with what changed in caveat. Rewriting it while it stays settled is refused.
 - When you do go back, say plainly what changed and why it matters before you ask anything else, and put the same thing in caveat. Active if you are working it now, stale if it is in doubt but you are not on it yet.
+- A step you send back stays back for the rest of that turn. Never settle your own new version: offer it with ask_clarify_question, and settle it on their answer.
 - Going back makes that step the active one, so settle or park whatever was active first.`
 
 const ASKING_BLOCK = `WHEN YOU NEED A DECISION FROM THEM

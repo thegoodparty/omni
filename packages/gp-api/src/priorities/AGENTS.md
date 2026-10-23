@@ -15,6 +15,10 @@ back (stale or active, with a caveat), so the official sees it move; on the
 demo run the agent instead rewrote "The problem" in place. A revised check is
 the one exception, because constituents changed the conclusion.
 
+A step sent back stays back for the rest of that turn (`buildStatusTool`
+tracks it): settling it again waits for a later turn, so the official agrees
+the new version instead of the agent settling its own rewrite.
+
 ## Answer coding
 
 `services/priorityAnswerCoding.service.ts`. Replies stay free text; an AI

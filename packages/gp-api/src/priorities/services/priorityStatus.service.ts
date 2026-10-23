@@ -138,13 +138,13 @@ const refusalFor = (
   if (rewritesSettled !== undefined) {
     const label = PRIORITY_STEP_LABELS[rewritesSettled.id]
     return (
-      `${label} is done, so what it concluded stays as agreed. If what you ` +
-      'just learned undercuts that conclusion, send it back in this same ' +
-      'call: set it to stale, with a caveat saying what changed, and do the ' +
-      'same for every done step after it that rested on it. Then tell the ' +
-      `official plainly what changed and that ${label.toLowerCase()} needs ` +
-      'another look. If the conclusion still holds, leave the step as it ' +
-      'is and put the new fact on the step you are working on.'
+      `${label} is done as the official agreed it, so it is not rewritten ` +
+      'in place. If what you just learned changes that, it needs another ' +
+      'look: send it back in this same call, set to stale with a caveat ' +
+      'saying what changed, along with every done step after it that ' +
+      'rested on it, and tell the official what changed. If it still ' +
+      'holds, leave it as it is and put the new fact on the step you are ' +
+      'working on.'
     )
   }
   const offGate = update.steps.find(
@@ -671,6 +671,10 @@ export class PriorityStatusService extends createPrismaBase(MODELS.Priority) {
     priorityId: string,
     turn: StatusTurn = NO_TURN,
   ): Record<string, LlmTool> {
+    // Steps this turn moved off settled. On the preview the agent sent the
+    // problem back and settled its own rewrite a few calls later, so the
+    // official never had a say in the new version.
+    const sentBack = new Set<PriorityStepId>()
     const updateStatus: LlmStreamTool<typeof UpdatePriorityStatusInputSchema> =
       {
         description:
@@ -686,13 +690,40 @@ export class PriorityStatusService extends createPrismaBase(MODELS.Priority) {
           'refused, unless constituents revised its check. Send a settled ' +
           'step back to active or stale when new information meaningfully ' +
           'invalidates what that step concluded and resolving it needs ' +
-          'more conversation, and say what changed in caveat. A detail added, a number confirmed, or the topic coming ' +
-          'up again is not enough. Always ' +
+          'more conversation, and say what changed in caveat. A step sent ' +
+          'back stays back for the rest of the turn. A detail added, a ' +
+          'number confirmed, or the topic coming up again is not enough. ' +
+          'Always ' +
           'pass nextAction: one short sentence the official could act on ' +
           'today.',
         inputSchema: UpdatePriorityStatusInputSchema,
         execute: async (input) => {
           const current = await this.read(priorityId)
+          const resettled = input.steps.find(
+            (patch) =>
+              patch.state === STEP_STATE.settled && sentBack.has(patch.id),
+          )
+          if (resettled !== undefined) {
+            const label = PRIORITY_STEP_LABELS[resettled.id]
+            return refusalResult(
+              current,
+              input,
+              `${label} went back this turn and waits on the official ` +
+                'agreeing the new version, so it cannot be done yet. Offer ' +
+                'the new version with ask_clarify_question, settle it on ' +
+                'their answer, and keep working on the step you are on.',
+            )
+          }
+          // Recorded before the refusals, so a send-back the agent meant in a
+          // call refused for another step still holds for the turn.
+          input.steps
+            .filter(
+              (patch) =>
+                patch.state !== STEP_STATE.settled &&
+                current.steps.find((step) => step.id === patch.id)?.state ===
+                  STEP_STATE.settled,
+            )
+            .forEach((patch) => sentBack.add(patch.id))
           const refusal = refusalFor(current, input, turn)
           if (refusal !== null) return refusalResult(current, input, refusal)
           const result = await this.applyUpdate(

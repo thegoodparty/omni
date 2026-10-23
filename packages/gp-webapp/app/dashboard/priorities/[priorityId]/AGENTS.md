@@ -96,7 +96,8 @@ used a fire chief's overtime figure as evidence and left "The problem"
 settled until the official asked to rethink it. On the preview it did the
 same by rewriting the settled step's summary in place, so the server now
 refuses that (`refusalFor` in gp-api's `priorityStatus.service.ts`) and tells
-the agent to set the step stale instead. Judge case
+the agent to set the step stale instead. A step sent back also stays back until a later
+turn, so the official agrees the new version. Judge case
 `new-fact-reframes-settled-problem` guards it.
 
 `statusChanges` carries where each step came from, so the marker copy can say
