@@ -298,9 +298,9 @@ describe('races merged in the database', () => {
       where: { slug: 'ca/la' },
       include: { Races: true, children: { include: { Races: true } } },
     })
-    expect(sortRaces(place?.Races as never)).toEqual(
-      sortRaces(getDedupedRacesBySlug(old.Races)),
-    )
+    expect(
+      sortRaces((place as { Races?: { slug: string }[] })?.Races as never),
+    ).toEqual(sortRaces(getDedupedRacesBySlug(old.Races)))
     const child = place?.children?.[0] as { Races?: { slug: string }[] }
     expect(sortRaces(child?.Races)).toEqual(
       sortRaces(getDedupedRacesBySlug(old.children[0]?.Races ?? [])),
@@ -322,6 +322,6 @@ describe('races merged in the database', () => {
     expect(sortRaces(parent?.Races as never)).toEqual(
       sortRaces(getDedupedRacesBySlug(oldParent)),
     )
-    expect(place?.Races).toHaveLength(1)
+    expect((place as { Races?: unknown[] })?.Races).toHaveLength(1)
   })
 })
