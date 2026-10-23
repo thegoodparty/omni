@@ -89,7 +89,7 @@ A Serve (`eo-`) org also gets the whole civic panel loop:
 
 - **Civic panel** (`/dashboard/contacts/citizens-panel`): 60 to 100
   members, from door and call yeses plus JOIN replies to a panel invite
-  text, and a build plan at 2 hours a week whose first text step reads done.
+  text.
 - **Priority** (`/dashboard/priorities`): "Safer streets near schools", with
   a text ask to panel members, other residents and a few doors' worth of
   residents from each of the district's major census tracts. Every resident

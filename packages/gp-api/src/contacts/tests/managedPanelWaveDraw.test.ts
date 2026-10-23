@@ -4,7 +4,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MAX_LIST_SAMPLE_SIZE } from '@goodparty_org/contracts'
 import { useTestService } from '@/test-service'
 import {
-  CivicPanelBuildChannel,
   CivicPanelStatus,
   ContactStatusField,
   ContactStatusSource,
@@ -164,15 +163,6 @@ const enroll = async (
 const draw = (enrollmentId: string) =>
   service.app.get(ManagedPanelWaveDrawService).drawNextWave(enrollmentId)
 
-const savedList = (personIds: string[], slug: string) =>
-  service.prisma.voterFileFilter.create({
-    data: {
-      organizationSlug: slug,
-      civicPanelInvite: true,
-      sampleMembers: { create: personIds.map((personId) => ({ personId })) },
-    },
-  })
-
 const sampleIds = async (voterFileFilterId: number | null) =>
   (
     await service.prisma.voterFileFilterSampleMember.findMany({
@@ -279,7 +269,7 @@ describe('drawing a managed panel wave', () => {
     expect(sample.mock.calls[0]?.[0].weights).toBeUndefined()
   })
 
-  it('leaves out members, earlier waves, plan steps and opt-outs', async () => {
+  it('leaves out members, earlier waves and opt-outs', async () => {
     const { slug, id } = await enroll()
     const [member] = await joinPanel(slug, 1)
     const optedOut = randomUUID()
@@ -290,27 +280,6 @@ describe('drawing a managed panel wave', () => {
         occurredAt: subDays(new Date(), 90),
         optedOutAt: subDays(new Date(), 90),
         manual: true,
-      },
-    })
-    const office = await service.prisma.electedOffice.create({
-      data: { organizationSlug: slug, userId: service.user.id },
-    })
-    const planDrew = randomUUID()
-    const planList = await savedList([planDrew], slug)
-    await service.prisma.civicPanelBuildPlan.create({
-      data: {
-        electedOfficeId: office.id,
-        organizationSlug: slug,
-        goalMembers: 240,
-        hoursPerWeek: 1,
-        steps: {
-          create: {
-            wave: 1,
-            channel: CivicPanelBuildChannel.text,
-            targetSize: 1,
-            voterFileFilterId: planList.id,
-          },
-        },
       },
     })
     const first = await draw(id)
@@ -326,7 +295,7 @@ describe('drawing a managed panel wave', () => {
     const [request] = sample.mock.calls[0] ?? []
     expect(filterKeys(request as FilterArg)).toContain('hasCellPhone')
     expect(notInIds(request as FilterArg)).toEqual(
-      expect.arrayContaining([member, optedOut, planDrew, ...firstIds]),
+      expect.arrayContaining([member, optedOut, ...firstIds]),
     )
     const list = await service.prisma.voterFileFilter.findUniqueOrThrow({
       where: { id: second.wave.voterFileFilterId ?? -1 },

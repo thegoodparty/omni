@@ -95,14 +95,11 @@ follow-up and civic panel answers. Never wire this into Test mode.
 An `eo-` org then gets the civic panel loop, all through production
 services so the rows match what a real office writes:
 
-- **Build plan**: `CivicPanelBuildPlanService.create` at 2 hours a week. A
-  rerun's `ConflictException` (plan already there) is swallowed.
 - **Panel invite text**: carries `CIVIC_PANEL_JOIN_LINE` and
-  `asksToJoinCivicPanel`, goes to residents not on the panel and not opted
-  out, and its list is set on the plan's first text step. Every sixth one
-  replies JOIN through `OutreachTextIngestService.ingestReplies`, which
-  writes the `civic_panel` events. The plan is read afterward, which is
-  what links the step to the send and reads it done.
+  `asksToJoinCivicPanel`, and goes to residents not on the panel and not
+  opted out. Every sixth one replies JOIN through
+  `OutreachTextIngestService.ingestReplies`, which writes the `civic_panel`
+  events.
 - **Priority ask**: `PrioritiesService.create`, then a text with
   `priorityId` set, `campaignId` null, to panel members first, then other
   residents, then residents from each of the read's major tracts. The

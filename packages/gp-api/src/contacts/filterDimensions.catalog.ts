@@ -283,9 +283,8 @@ export const FILTER_DIMENSIONS: readonly FilterDimension[] = [
   {
     // The standing civic panel status. Values OR together. Member: joined
     // (by replying JOIN, at a door, on a call, or on their contact card) and
-    // has not left. Left: was a member and left. Never invited: no send ever
-    // asked them, nobody asked at a door or on a call, and they were never
-    // on it. Serve-only, `observed` for the same reason as follow-up.
+    // has not left. Left: was a member and left. Serve-only, `observed` for
+    // the same reason as follow-up.
     key: 'civicPanel',
     label: 'Civic panel',
     kind: 'boolean-group',
@@ -294,7 +293,6 @@ export const FILTER_DIMENSIONS: readonly FilterDimension[] = [
     values: [
       { key: 'civicPanelMember', label: 'On your civic panel' },
       { key: 'civicPanelLeft', label: 'Left' },
-      { key: 'civicPanelNeverInvited', label: 'Never invited' },
     ],
   },
   {

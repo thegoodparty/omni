@@ -56,7 +56,6 @@ const isTrue = (value: unknown): value is true => value === true
 const CIVIC_PANEL_STATUS_PHRASES: Array<[string, string]> = [
   [CIVIC_PANEL_FILTER_KEY, 'On your civic panel'],
   ['civicPanelLeft', 'Left your civic panel'],
-  ['civicPanelNeverInvited', 'Never invited to your civic panel'],
 ]
 
 const CIVIC_PANEL_JOINED_BY_PHRASES: Array<[string, string]> = [

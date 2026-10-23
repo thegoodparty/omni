@@ -28,7 +28,6 @@ const CREATE_SOURCES: OutreachFlowSource[] = [
 const LAUNCH_SOURCES: OutreachLaunchSource[] = [
   'expand_panel',
   'priorities',
-  'civic_panel',
   'chief_of_staff',
   'campaign_manager',
 ]
@@ -142,8 +141,8 @@ export default async function Page({
     // The campaign-plan task whose button opened the flow, so the task is
     // marked done once the walk is created. Dropped unless both halves parse.
     trackerTaskId: parseTrackerOrigin(trackerTaskId, phase)?.trackerTaskId,
-    // A civic panel plan's door step: the purpose it already answered, and
-    // the walkable area it drew, which becomes the turf's boundary. A Serve
+    // A link's purpose and walkable area, which becomes the turf's
+    // boundary. A Serve
     // purpose the flow does not know, or an area that is not a box, is
     // dropped, and the flow asks as usual.
     initialPurpose: SERVE_DOOR_KNOCKING_PURPOSE_VALUES.find(

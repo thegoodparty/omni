@@ -2075,20 +2075,20 @@ describe('CreateListFlow preselected list', () => {
     expect(audiencePicker()).not.toHaveTextContent('Super voters')
   })
 
-  // A civic panel plan's door step settles the purpose and its frozen list,
-  // so the flow goes straight on to the talking points, drafted for it.
-  it('lands a plan step on the talking points, with the list and the invite', async () => {
+  // A link that settles the purpose and its list goes straight on to the
+  // talking points, drafted for it.
+  it('lands a carried list and purpose on the talking points', async () => {
     const draftBodies: unknown[] = []
     api.mock('POST /v1/outreach/serve/door-knocking/draft', ({ body }) => {
       draftBodies.push(body)
-      return { status: 200, data: { draft: '• Ask them to join' } }
+      return { status: 200, data: { draft: '• Explain the vote' } }
     })
     const onStepChange = vi.fn()
     const props = {
       ...baseProps,
       savedLists,
       preselectedListId: 9,
-      initialPurpose: 'build_citizens_panel' as const,
+      initialPurpose: 'explain_decision' as const,
       onStepChange,
     }
 
@@ -2105,10 +2105,10 @@ describe('CreateListFlow preselected list', () => {
       </DoorKnockingSurfaceProvider>,
     )
     await waitFor(() => expect(draftBodies).toHaveLength(1))
-    expect(draftBodies[0]).toMatchObject({ purpose: 'build_citizens_panel' })
+    expect(draftBodies[0]).toMatchObject({ purpose: 'explain_decision' })
   })
 
-  it('stays on the who step with the invite when the plan list is not yours', async () => {
+  it('stays on the who step when the carried list is not yours', async () => {
     const onStepChange = vi.fn()
     render(
       <DoorKnockingSurfaceProvider value={true}>
@@ -2116,7 +2116,7 @@ describe('CreateListFlow preselected list', () => {
           {...baseProps}
           savedLists={savedLists}
           preselectedListId={12_345}
-          initialPurpose="build_citizens_panel"
+          initialPurpose="explain_decision"
           onStepChange={onStepChange}
           step="filters"
         />

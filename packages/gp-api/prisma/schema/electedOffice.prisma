@@ -50,7 +50,6 @@ model ElectedOffice {
   onboardingCardDismissals OnboardingCardDismissal[]
   onboardingCardCompletions OnboardingCardCompletion[]
   ordinances               Ordinance[]
-  civicPanelBuildPlans     CivicPanelBuildPlan[]
 
   @@index([userId])
   @@index([campaignId])

@@ -7,8 +7,6 @@ import {
   type Person,
 } from '@goodparty_org/contracts'
 import {
-  CivicPanelBuildChannel,
-  CivicPanelBuildPlanStatus,
   CivicPanelStatus,
   ConstituentFeedbackChannel,
   ContactStatusField,
@@ -98,8 +96,6 @@ describe('POST /v1/test-fixtures/organizations/:slug/activity', () => {
     const llm = vi
       .spyOn(service.app.get(LlmService), 'jsonCompletion')
       .mockRejectedValue(new Error('No model in this suite'))
-    // What the panel plan sizes its first wave from.
-    const pools = vi.spyOn(contacts, 'countWithin').mockResolvedValue(5_000)
     const stats = service.app.get(StatsService)
     const weighting = vi
       .spyOn(stats, 'findWeightingInputs')
@@ -108,7 +104,6 @@ describe('POST /v1/test-fixtures/organizations/:slug/activity', () => {
       engine.mockRestore()
       sample.mockRestore()
       llm.mockRestore()
-      pools.mockRestore()
       weighting.mockRestore()
     })
   })
@@ -275,20 +270,6 @@ describe('POST /v1/test-fixtures/organizations/:slug/activity', () => {
         where: { id: inviteSend.voterFileFilterId ?? -1 },
       }),
     ).toMatchObject({ civicPanelInvite: true, sampleSize: 121 })
-
-    const plan = await service.prisma.civicPanelBuildPlan.findFirstOrThrow({
-      where: { organizationSlug: slug },
-      include: { steps: true },
-    })
-    expect(plan).toMatchObject({
-      status: CivicPanelBuildPlanStatus.active,
-      hoursPerWeek: 2,
-    })
-    const textStep = plan.steps.find(
-      (step) => step.channel === CivicPanelBuildChannel.text,
-    )
-    expect(textStep).toMatchObject({ wave: 1, outreachId: invite.outreachId })
-    expect(textStep?.completedAt).not.toBeNull()
 
     const askSend = await service.prisma.outreach.findUniqueOrThrow({
       where: { id: ask.outreachId },

@@ -725,11 +725,11 @@ export const EVENTS = {
     // The front card of the home's task stack. `cardType` is the card's kind
     // (onboarding, briefing, agenda_item, community_issue, civic_panel,
     // report_back), `cardVariant` tells the civic panel cards apart
-    // (panel_build, panel_step, priority_next_step), `stackSize` how many
-    // cards were in the stack when the official acted.
+    // (panel_managed, panel_managed_progress, priority_next_step),
+    // `stackSize` how many cards were in the stack when the official acted.
     TaskCompleted: 'Chief Of Staff - Task Completed',
     // Every other choice on that card: `action` is start (its main button),
-    // ask (open the chat about it), explain (What's a civic panel?) or skip,
+    // ask (open the chat about it) or skip,
     // with `skipChoice` snooze or dismiss.
     TaskActionTaken: 'Chief Of Staff - Task Action Taken',
   },
@@ -826,9 +826,6 @@ export const EVENTS = {
   },
   CivicPanel: {
     PanelViewed: 'Civic Panel - Panel Viewed',
-    // A plan step opened in its text, call or door flow, from the panel page
-    // or the Chief of Staff chat. Its start and completion are server truth.
-    StepOpened: 'Civic Panel - Step Opened',
   },
   Ordinances: {
     ClarifyViewed: 'Ordinances - Clarify Viewed',

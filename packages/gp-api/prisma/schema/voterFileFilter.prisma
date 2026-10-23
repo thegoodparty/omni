@@ -172,7 +172,6 @@ model VoterFileFilter {
   sampleSize                 Int?                               @map("sample_size")
   sampledAt                  DateTime?                          @map("sampled_at")
   sampleMembers              VoterFileFilterSampleMember[]
-  civicPanelBuildStep        CivicPanelBuildStep?
   managedPanelWaves          ManagedPanelWave[]
   /// Registry key of the recommendation this list was created from; null
   /// means user-built. Set once at create time, never re-derived.
@@ -183,7 +182,7 @@ model VoterFileFilter {
   /// Null (not false) when recommendedVariant is null.
   recommendedModified        Boolean?                           @map("recommended_modified")
   /// Serve. Set on a list our code saved as a civic panel invite's
-  /// audience: a build plan step's draw, or the panel's first text. The
+  /// audience: a managed panel wave's draw, or the panel's first text. The
   /// outreach that used it keeps it, but the lists index leaves it out, since
   /// the office's one panel list is the built-in Civic panel row.
   civicPanelInvite           Boolean                            @default(false) @map("civic_panel_invite")

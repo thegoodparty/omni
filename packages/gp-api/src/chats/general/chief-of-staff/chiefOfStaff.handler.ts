@@ -1,5 +1,4 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common'
-import { answersNeeded, panelGoalMembers } from '@goodparty_org/contracts'
 import { ChatScope } from '../../../generated/prisma'
 import type { LlmTool } from '@/llm/services/llm.service'
 import type { DatabricksProvider } from '@/llm/tools/queryDatabricks.tool'
@@ -63,8 +62,6 @@ import { buildReadPastOutreachTool } from '../chat-tools/readPastOutreach.tool'
 import { buildReadOutreachFeedbackTool } from '../chat-tools/readOutreachFeedback.tool'
 import { FeaturesService } from '@/features/services/features.service'
 import { OutreachReportBackService } from '@/outreach/services/outreachReportBack.service'
-import { CivicPanelBuildPlanService } from '@/contacts/services/civicPanelBuildPlan.service'
-import { buildCivicPanelPlanTools } from './services/civicPanelPlan.tools'
 import { ManagedCivicPanelService } from '@/contacts/services/managedCivicPanel.service'
 import {
   buildManagedCivicPanelTools,
@@ -144,8 +141,6 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
     @Optional()
     private readonly priorityResults?: PriorityResultsService,
     @Optional()
-    private readonly civicPanelPlans?: CivicPanelBuildPlanService,
-    @Optional()
     private readonly managedPanels?: ManagedCivicPanelService,
   ) {}
 
@@ -178,18 +173,6 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
           feature: SERVE_CITIZEN_PANELS_FLAG,
         })
       : false
-    const civicPanel = outreachFeedbackEnabled
-      ? await this.contextService.civicPanelBuildState(
-          ctx.organizationSlug,
-          panelGoalMembers(
-            this.priorityResults
-              ? await this.priorityResults.districtAnswersNeeded(
-                  ctx.organization,
-                )
-              : answersNeeded(),
-          ),
-        )
-      : undefined
     const managedPanel = outreachFeedbackEnabled
       ? await this.readManagedPanel(ctx.organization)
       : undefined
@@ -212,7 +195,6 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
         ...ctx,
         peopleDataset,
         outreachFeedbackEnabled,
-        civicPanel,
         managedPanel,
         reportBacks,
         priorityReads,
@@ -227,7 +209,6 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
     return {
       ...ctx,
       outreachFeedbackEnabled,
-      civicPanel,
       managedPanel,
       reportBacks,
       priorityReads,
@@ -455,26 +436,6 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
         }),
       )
     }
-    const managed =
-      ctx.managedPanel !== undefined && Boolean(this.managedPanels)
-
-    // The panel is built from the same plan as the panel page, behind
-    // serve-citizen-panels (civicPanel is only read with it on).
-    if (
-      ctx.civicPanel &&
-      this.civicPanelPlans &&
-      (!managed || ctx.civicPanel.hasPlan)
-    ) {
-      Object.assign(
-        tools,
-        buildCivicPanelPlanTools({
-          plans: this.civicPanelPlans,
-          organization: ctx.organization,
-          hasPlan: ctx.civicPanel.hasPlan,
-        }),
-      )
-    }
-
     tools.compose_handoff = buildComposeHandoffTool('serve_social')
 
     return tools

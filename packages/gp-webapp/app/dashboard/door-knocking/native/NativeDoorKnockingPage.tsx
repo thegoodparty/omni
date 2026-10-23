@@ -144,8 +144,8 @@ interface NativeDoorKnockingPageProps {
   proposalLink?: ProposalLink
   // Where the `?create=1` link was pressed.
   createSource?: OutreachFlowSource
-  // A civic panel plan's door step: the purpose it answered, handed to the
-  // create flow, and the walkable area it drew, loaded as the turf's boundary
+  // A link's purpose, handed to the create flow, and its walkable area,
+  // loaded as the turf's boundary
   // on the first arrival at the draw step. Spent once, like `?listId=`.
   initialPurpose?: ServeDoorKnockingPurpose
   prefillArea?: PolygonRing

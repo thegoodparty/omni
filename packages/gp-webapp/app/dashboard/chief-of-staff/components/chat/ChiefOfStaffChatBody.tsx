@@ -70,10 +70,6 @@ import {
 } from './chatConstants'
 import ChatHistoryPopover from './ChatHistoryPopover'
 import {
-  civicPanelWidgetTools,
-  SAVE_PANEL_WEEKLY_TIME_TOOL,
-} from './civicPanelWidgets'
-import {
   managedPanelWidgetTools,
   type ManagedPanelWidgetContext,
 } from './managedPanelWidgets'
@@ -292,7 +288,6 @@ const cosWidgets = createWidgetRegistry<CosWidgetContext>([
   ...cardWidgetTools,
   clarifyWidgetTool,
   composeHandoffWidgetTool,
-  ...civicPanelWidgetTools,
   ...managedPanelWidgetTools,
 ])
 
@@ -587,19 +582,6 @@ function ChiefOfStaffChatThread({
           // its own key dropped or it keeps drawing the pre-edit set.
           void queryClient.invalidateQueries({
             queryKey: ['list-people', orgSlug],
-          })
-        }
-        // A saved weekly time made or changed the panel's plan, which the
-        // home's panel card and the next step card both follow.
-        if (
-          event.type === 'tool_result' &&
-          event.toolName === SAVE_PANEL_WEEKLY_TIME_TOOL
-        ) {
-          void queryClient.invalidateQueries({
-            queryKey: ['civic-panel-plan', orgSlug],
-          })
-          void queryClient.invalidateQueries({
-            queryKey: ['chief-of-staff', 'cards'],
           })
         }
         return false

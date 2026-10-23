@@ -37,6 +37,9 @@ const EXCLUDED_SCHEMA_FIELDS = new Set([
   // the Homeowner/Renter/Unknown collapse (ENG-10947), but no longer
   // offered as its own catalog option.
   'homeownerLikely',
+  // The managed civic panel's wave draw criteria: set by gp-api, never
+  // offered for an official or the assistant to pick.
+  'civicPanelNeverInvited',
 ])
 
 const valueKeysOf = (key: string): string[] => {

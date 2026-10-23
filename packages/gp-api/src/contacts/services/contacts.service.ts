@@ -2207,8 +2207,8 @@ export class ContactsService {
       excludeOutreachIds?: number[]
       panelSize?: number
       recipientsOfOutreachId?: number
-      // Server-side only: people to leave out by id, such as who the civic
-      // panel build plan already drew. Passing it always freezes the draw.
+      // Server-side only: people to leave out by id, such as who an earlier
+      // managed civic panel wave already drew. Passing it always freezes the draw.
       excludePersonIds?: string[]
       // Server-side only: draw only from these people, such as who a
       // boundary gp-api drew encloses.

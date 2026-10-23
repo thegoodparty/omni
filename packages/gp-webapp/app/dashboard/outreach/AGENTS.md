@@ -66,8 +66,7 @@ with the purpose and the list done behind it: every step in the stepper,
 Back to the list (picked in the picker) and then the purpose, Continue
 onward as usual. Where a flow opens is `v2/landingStep.ts`'s
 `outreachLandingStep`: the message when the audience is settled and so is
-the message, written or to be drafted for a settled purpose (a civic panel
-plan step: purpose and frozen list, the draft generating on arrival); the
+the message, written or to be drafted for a settled purpose; the
 audience step when only the message (or the purpose) is; otherwise the
 purpose. An event invite with no message still asks its details first. A
 card's message is always there, so a card whose
@@ -104,20 +103,12 @@ canceled because its draw found nobody says "Nobody left to text, so this was
 canceled. We'll refund it."
 
 `SmsFlow` also takes `initialPurpose`, which opens past the purpose picker on
-that purpose the way a carried recommendation does; the Serve hub passes it
-for its `?compose=text&purpose=build_citizens_panel` link
-(`constituent-outreach/AGENTS.md`), and a chat proposal card for its
-`purpose` (the Chief of Staff's panel invite). With `initialScript` too, the
-seeded words are kept on that purpose rather than opening on `custom`. On Serve, `build_citizens_panel` is
-offered only behind `serve-citizen-panels`, and picking it ticks the compose
-step's "Ask them to join your civic panel" and disables the box
-(`civicPanelAsk.locked`): a panel text is its ask, so every message it
-composes carries the JOIN line, and Continue holds while the line is
-missing. Serve phone banking and door
-knocking carry the same slug as "Invite to your civic panel"
-(`servePhoneBankingPurposes.ts`, `serveDoorKnockingPurposes.ts`), offered
-behind the same flag; its script or talking points are a short invite whose
-ask is the join question the caller or canvasser records.
+that purpose the way a carried recommendation does; a chat proposal card
+passes its `purpose`. With `initialScript` too, the seeded words are kept on
+that purpose rather than opening on `custom`. The civic panel invite
+(`build_citizens_panel`) is never offered in the purpose picker, on texts,
+phone banking or door knocking: the invite only goes out in the managed
+panel's waves, through the `managedInvite` mode below.
 
 `SmsFlow` also has a `managedInvite` mode (Serve only, `{ place, onSetUp }`)
 for the invite GoodParty texts in the official's name to build their civic
