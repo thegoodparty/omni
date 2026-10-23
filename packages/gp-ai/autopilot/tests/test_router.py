@@ -623,7 +623,7 @@ def test_derive_card_type_defaults_to_feature_card():
 
 def test_stage_ceilings_match_ticket_defaults():
     assert router.STAGE_CEILINGS[router.STAGE_EPIC_CREATE] == router.StageCeiling(10.0, 30 * 60)
-    assert router.STAGE_CEILINGS[router.STAGE_STORY] == router.StageCeiling(15.0, 45 * 60)
+    assert router.STAGE_CEILINGS[router.STAGE_STORY] == router.StageCeiling(15.0, 90 * 60)
     assert router.STAGE_CEILINGS[router.STAGE_QA] == router.StageCeiling(8.0, 45 * 60)
     # resume inherits story's ceiling by design (the ticket carves out no
     # separate budget for it) — a change to either side must break this.
@@ -762,3 +762,116 @@ def test_merge_pending_pr_number_none_for_deploy_pending():
 
 def test_merge_pending_pr_number_none_when_pr_number_missing():
     assert router.merge_pending_pr_number("Merge pending: not sure which PR, check the thread.") is None
+
+
+# ---------------------------------------------------------------------------
+# Auto-resume allowlist (ENG-11459)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "Deploy pending: commit abc123 isn't live on dev yet. Comment here once it deploys to resume.",
+        "deploy pending: lowercase works too",
+        "This run ended while the card was still in 'in progress' — most likely waiting on something.",
+        "This run ended in an error (Deadline exceeded (1800s)) without parking, leaving the card in 'qa'.",
+        "  Deploy pending: leading whitespace is stripped",
+    ],
+)
+def test_is_auto_resumable_park_true_for_mechanical_status_notes(question):
+    assert router.is_auto_resumable_park(question) is True
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "QA failed: 2 findings, see the report.",
+        "Merge pending: PR #1 armed but not merged yet.",
+        "Two options: (a) remove the test or (b) add a mock action. Which one?",
+        "Should this endpoint require an admin role?",
+        "",
+    ],
+)
+def test_is_auto_resumable_park_false_for_everything_else(question):
+    assert router.is_auto_resumable_park(question) is False
+
+
+def test_allowlist_stays_in_sync_with_the_agent_side_stranded_run_text():
+    # The Lambda cannot import the agent package, so router keeps its own copy
+    # of the stranded-run prefix; this fails if feedback.py's text drifts.
+    from autopilot.agent.feedback import STRANDED_RUN_SUCCESS_PREFIX
+
+    assert STRANDED_RUN_SUCCESS_PREFIX.lower() in router.AUTO_RESUMABLE_PARK_PREFIXES
+    assert router.is_auto_resumable_park(f"{STRANDED_RUN_SUCCESS_PREFIX} 'qa' — most likely ...")
+
+
+# ---------------------------------------------------------------------------
+# Run-summary history (ENG-11464)
+# ---------------------------------------------------------------------------
+
+
+def _summary(stage, outcome, date, comment_id="s"):
+    return {
+        "id": comment_id,
+        "comment_text": f"[autopilot:run-summary stage={stage} outcome={outcome}]\n\nbody",
+        "date": date,
+    }
+
+
+def test_run_summaries_newest_first_and_ignores_other_comments():
+    comments = [
+        _summary("story", "error", "1000"),
+        {"id": "h", "comment_text": "a human note", "date": "1500"},
+        _summary("story", "success", "3000"),
+        {"id": "p", "comment_text": "[autopilot:parked stage=story]\n\n1. q", "date": "2500"},
+        _summary("qa", "deadline_exceeded", "2000"),
+    ]
+
+    assert [s["outcome"] for s in router.run_summaries(comments)] == ["success", "deadline_exceeded", "error"]
+    assert router.run_summaries([]) == []
+
+
+def test_repeated_failure_same_stage_and_outcome():
+    comments = [_summary("story", "deadline_exceeded", "1000"), _summary("story", "deadline_exceeded", "2000")]
+
+    assert router.repeated_failure(comments) == {
+        "stage": "story",
+        "outcome": "deadline_exceeded",
+        "cost_usd": None,
+        "date_ms": 2000,
+    }
+
+
+@pytest.mark.parametrize(
+    "older,newer",
+    [
+        (("story", "deadline_exceeded"), ("story", "success")),
+        (("story", "deadline_exceeded"), ("story", "feedback_parked")),
+        (("story", "error"), ("story", "deadline_exceeded")),
+        (("story", "success"), ("story", "success")),
+        (("story", "feedback_parked"), ("story", "feedback_parked")),
+    ],
+)
+def test_repeated_failure_none_otherwise(older, newer):
+    comments = [_summary(*older, "1000"), _summary(*newer, "2000")]
+
+    assert router.repeated_failure(comments) is None
+
+
+def test_repeated_failure_ignores_stage_so_a_resume_after_a_story_run_counts():
+    comments = [_summary("story", "error", "1000"), _summary("resume", "error", "2000")]
+
+    assert router.repeated_failure(comments)["stage"] == "resume"
+
+
+def test_repeated_failure_none_when_the_failures_predate_the_park():
+    comments = [_summary("story", "error", "1000"), _summary("story", "error", "2000")]
+
+    assert router.repeated_failure(comments, since_ms=3000) is None
+    assert router.repeated_failure(comments, since_ms=2000) is not None
+
+
+def test_repeated_failure_none_with_fewer_than_two_summaries():
+    assert router.repeated_failure([_summary("story", "error", "1000")]) is None
+    assert router.repeated_failure([]) is None

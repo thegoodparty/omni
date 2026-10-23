@@ -23,6 +23,8 @@ export const buildReadOutreachFeedbackTool = (deps: {
   outreach: PriorityFlowOutreachService
   priorityId: string | null
   organizationSlug: string
+  // The office's zone, the one the prompt's date line is in.
+  timeZone: string
   // Behind serve-citizen-panels the priority flow passes its read. Before a
   // good read the words and themes stay out of the result, because a model
   // handed them lists them whatever its prompt says.
@@ -37,19 +39,28 @@ export const buildReadOutreachFeedbackTool = (deps: {
           'name the status and the groups to hear from next instead.',
         inputSchema: readOutreachFeedbackInput,
         execute: async ({ outreachId, channel }): Promise<HeldBackFeedback> => {
-          const sends = await deps.outreach.feedbackFor(deps.organizationSlug, {
-            priorityId: deps.priorityId,
-            outreachId,
-            channel,
-          })
+          const sends = await deps.outreach.feedbackFor(
+            deps.organizationSlug,
+            { priorityId: deps.priorityId, outreachId, channel },
+            deps.timeZone,
+          )
           return {
             heldBack: HELD_BACK_NOTE,
             sends: sends.map(
-              ({ outreachId, name, audience, channel, sentOn, heardFrom }) => ({
+              ({
                 outreachId,
                 name,
                 audience,
                 channel,
+                scheduledFor,
+                sentOn,
+                heardFrom,
+              }) => ({
+                outreachId,
+                name,
+                audience,
+                channel,
+                scheduledFor,
                 sentOn,
                 heardFrom,
               }),
@@ -66,7 +77,13 @@ export interface HeldBackFeedback {
   heldBack: string
   sends: Pick<
     OutreachFeedback,
-    'outreachId' | 'name' | 'audience' | 'channel' | 'sentOn' | 'heardFrom'
+    | 'outreachId'
+    | 'name'
+    | 'audience'
+    | 'channel'
+    | 'scheduledFor'
+    | 'sentOn'
+    | 'heardFrom'
   >[]
 }
 
@@ -74,6 +91,7 @@ const readEverything = (deps: {
   outreach: PriorityFlowOutreachService
   priorityId: string | null
   organizationSlug: string
+  timeZone: string
 }): LlmStreamTool<typeof readOutreachFeedbackInput> => ({
   description:
     'Read what came back from the office’s sends in people’s own words: ' +
@@ -110,11 +128,11 @@ const readEverything = (deps: {
             deps.organizationSlug,
             deps.priorityId,
           ),
-    sends: await deps.outreach.feedbackFor(deps.organizationSlug, {
-      priorityId: deps.priorityId,
-      outreachId,
-      channel,
-    }),
+    sends: await deps.outreach.feedbackFor(
+      deps.organizationSlug,
+      { priorityId: deps.priorityId, outreachId, channel },
+      deps.timeZone,
+    ),
   }),
 })
 
@@ -123,6 +141,7 @@ const readEverything = (deps: {
 export const buildCampaignManagerReadOutreachFeedbackTool = (deps: {
   outreach: PriorityFlowOutreachService
   campaignId: number
+  timeZone: string
 }): LlmStreamTool<typeof readOutreachFeedbackInput> => ({
   description:
     'Read what voters told the campaign at the door or on a call: each ' +
@@ -147,6 +166,7 @@ export const buildCampaignManagerReadOutreachFeedbackTool = (deps: {
   }): Promise<{ sends: OutreachFeedback[] }> => ({
     sends: await deps.outreach.feedbackForCampaign(
       deps.campaignId,
+      deps.timeZone,
       outreachId,
       channel,
     ),

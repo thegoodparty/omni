@@ -25,15 +25,23 @@ Move `CLICKUP_TASK_ID` to `in progress` via
 
 ### 2. Branch and implement
 
-Work in the omni checkout already cloned into your workspace. Cut a fresh
-branch for this story alone — never reuse or extend a branch from another
-run. Follow the repo's own conventions rather than inventing your own: read
+Work in the omni checkout already cloned into your workspace. First check
+whether an earlier run of this story already opened a PR — a deadline kill can
+leave one that nobody recorded:
+
+    gh pr list --state open --search "<TICKET-ID or CLICKUP_TASK_ID> in:title,body,head"
+
+If one exists for this story, check out its branch and continue that PR; never
+open a second one. Only if there is none, cut a fresh branch for this story
+alone — never reuse or extend a branch from another story. Follow the repo's own conventions rather than inventing your own: read
 the nearest `AGENTS.md` to what you're touching before writing code, route
 any shape that crosses a service boundary through `@goodparty_org/contracts`,
 and name new tests `*.test.ts` run under Vitest.
 
 **Every new runtime code path this story adds must be gated behind the
-epic's feature flag** (the key from the epic's breakdown summary). If this
+epic's feature flag** (the key from the epic's breakdown summary). If the
+summary says `flag-key: none`, the epic has no flag: skip this gate and
+ship the code ungated. Otherwise, if this
 story is itself the flag-wiring story, that gate IS the implementation; every
 other story checks the flag rather than reintroducing it.
 

@@ -857,3 +857,121 @@ def test_park_if_stranded_guard_failure_never_masks_the_run_result(tmp_path):
     )
 
     assert returned == {"status": "success"}
+
+
+# ---------------------------------------------------------------------------
+# Stranded park preserves work (ENG-11168 / ENG-11166)
+# ---------------------------------------------------------------------------
+
+
+def _git(cwd, *args):
+    import subprocess
+
+    return subprocess.run(["git", "-C", str(cwd), *args], check=True, capture_output=True, text=True).stdout.strip()
+
+
+def _repo_with_unpushed_commit(tmp_path):
+    origin = tmp_path / "origin.git"
+    work = tmp_path / "work"
+    _git(tmp_path, "init", "--bare", "-b", "main", str(origin))
+    _git(tmp_path, "clone", str(origin), str(work))
+    _git(work, "config", "user.email", "t@example.com")
+    _git(work, "config", "user.name", "t")
+    (work / "a.txt").write_text("a")
+    _git(work, "add", ".")
+    _git(work, "commit", "-m", "base")
+    _git(work, "push", "origin", "HEAD:main")
+    _git(work, "fetch", "origin")
+    _git(work, "checkout", "-b", "story-branch")
+    (work / "b.txt").write_text("b")
+    _git(work, "add", ".")
+    _git(work, "commit", "-m", "work")
+    return origin, work
+
+
+def test_preserve_work_pushes_unpushed_commits_and_names_the_branch(tmp_path, monkeypatch):
+    origin, work = _repo_with_unpushed_commit(tmp_path)
+    # No gh in tests: the PR lookup fails soft and leaves pr_url None.
+    monkeypatch.setenv("PATH", "/usr/bin:/bin")
+
+    preserved = feedback.preserve_work(str(work))
+
+    assert preserved["branch"] == "story-branch"
+    assert "story-branch" in _git(origin, "branch", "--list")
+
+
+def test_preserve_work_does_nothing_on_main_or_without_a_repo(tmp_path):
+    _, work = _repo_with_unpushed_commit(tmp_path)
+    _git(work, "checkout", "main")
+
+    assert feedback.preserve_work(str(work)) is None
+    assert feedback.preserve_work(None) is None
+    assert feedback.preserve_work(str(tmp_path / "missing")) is None
+
+
+def test_stranded_park_names_the_branch_and_open_pr(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        feedback,
+        "preserve_work",
+        lambda repo_dir: {"branch": "story-branch", "pr_url": "https://github.com/o/r/pull/7"},
+    )
+    clickup = FakeClickUpClient(task_status="in progress")
+
+    park_if_stranded(
+        {"status": "error", "error": "Deadline exceeded (2700s)"},
+        "story",
+        TASK_ID,
+        clickup_client_factory=factory_for(clickup),
+        slack_client_factory=factory_for(FakeSlackClient()),
+        env=ENV,
+        workspace_dir=str(tmp_path),
+        repo_dir="/repo",
+    )
+
+    comments = [w[2] for w in clickup.writes if w[0] == "comment"]
+    assert "story-branch" in comments[0]
+    assert "https://github.com/o/r/pull/7" in comments[0]
+    assert "adopt that PR" in comments[0]
+
+
+def test_preserve_work_treats_an_empty_pr_lookup_as_no_pr(tmp_path, monkeypatch):
+    _, work = _repo_with_unpushed_commit(tmp_path)
+    real_run = feedback.subprocess.run
+
+    def fake_run(cmd, *args, **kwargs):
+        if cmd[0] == "gh":
+            return feedback.subprocess.CompletedProcess(cmd, 0, stdout="null\n", stderr="")
+        return real_run(cmd, *args, **kwargs)
+
+    monkeypatch.setattr(feedback.subprocess, "run", fake_run)
+
+    assert feedback.preserve_work(str(work))["pr_url"] is None
+
+
+@pytest.mark.parametrize(
+    "result",
+    [{"status": "success"}, {"status": "error", "error": "Deadline exceeded (1800s)"}],
+    ids=["success", "error"],
+)
+def test_stranded_run_question_stays_on_the_sweeps_auto_resume_allowlist(tmp_path, result):
+    # The sweep auto-resumes only allowlisted question prefixes
+    # (router.AUTO_RESUMABLE_PARK_PREFIXES, a copy: the Lambda cannot import
+    # this package). Fails if either stranded-run text drifts from it.
+    import autopilot_conductor_router as router
+
+    clickup = FakeClickUpClient(task_status="in progress")
+
+    park_if_stranded(
+        result,
+        "story",
+        TASK_ID,
+        clickup_client_factory=factory_for(clickup),
+        slack_client_factory=factory_for(FakeSlackClient()),
+        env=ENV,
+        workspace_dir=str(tmp_path),
+    )
+
+    parked_text = next(text for (kind, _, text) in clickup.writes if kind == "comment")
+    parked = router.latest_park([{"id": "c1", "comment_text": parked_text, "date": "1"}])
+    assert parked is not None
+    assert router.is_auto_resumable_park(parked.question), parked.question

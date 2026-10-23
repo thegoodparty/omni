@@ -92,6 +92,74 @@ describe('VendorMockRecordService', () => {
     })
   })
 
+  describe('findCallhubForCampaign', () => {
+    const seedRobocall = async (pk: string | null) => {
+      const slug = `campaign-${service.user.id}-${Math.random()}`
+      await service.prisma.organization.create({
+        data: { slug, ownerId: service.user.id, positionId: 'pos-1' },
+      })
+      const campaign = await service.prisma.campaign.create({
+        data: {
+          organizationSlug: slug,
+          userId: service.user.id,
+          slug,
+          isPro: true,
+          details: {},
+          data: {},
+          aiContent: {},
+        },
+      })
+      const outreach = await service.prisma.outreach.create({
+        data: {
+          campaignId: campaign.id,
+          organizationSlug: slug,
+          outreachType: 'robocall',
+          status: 'pending',
+          date: new Date(),
+        },
+      })
+      await service.prisma.outreachRobocall.create({
+        data: {
+          outreachId: outreach.id,
+          audioKey: `robocall/${slug}.mp3`,
+          callbackNumber: '+15125550123',
+          billableCount: 3,
+          amountInCents: 100,
+          settleState: 'staging',
+          callhubCampaignPkStr: pk,
+        },
+      })
+      return campaign.id
+    }
+
+    it('returns the vb_campaign together with the phonebook it was created against', async () => {
+      const callhub = VendorMockVendor.callhub
+      await svc.upsert(callhub, 'phonebook', 'pb-1', { count: 3 })
+      await svc.upsert(callhub, 'phonebook', 'pb-other', { count: 9 })
+      await svc.upsert(callhub, 'vb_campaign', 'vb-1', {
+        status: 2,
+        phonebooks: ['pb-1'],
+      })
+      const campaignId = await seedRobocall('vb-1')
+
+      const records = await svc.findCallhubForCampaign(campaignId)
+      expect(records.map((r) => `${r.kind}:${r.externalId}`).sort()).toEqual([
+        'phonebook:pb-1',
+        'vb_campaign:vb-1',
+      ])
+    })
+
+    it('returns only the vb_campaign when it recorded no phonebooks', async () => {
+      await svc.upsert(VendorMockVendor.callhub, 'vb_campaign', 'vb-2', {
+        status: 2,
+      })
+      const campaignId = await seedRobocall('vb-2')
+
+      const records = await svc.findCallhubForCampaign(campaignId)
+      expect(records.map((r) => r.externalId)).toEqual(['vb-2'])
+    })
+  })
+
   describe('setFlag', () => {
     it('merges into state without overwriting other keys', async () => {
       const externalId = 'ext-flag'

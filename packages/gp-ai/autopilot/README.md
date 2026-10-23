@@ -62,6 +62,11 @@ GitHub Actions ───┘   (also: sweep.py) ──────┴─→ super
     auto-merge armed" instead of waiting out the merge and the release train
     in a paid Fargate run.
 - `agent/` — the stage runner that acts on routed events (Claude Agent SDK).
+  A run that ends "successfully" with its card still stranded (a text-only
+  turn while background tasks were pending) gets ONE continuation turn
+  (`main._run_session`) before the stranded-run guard parks it; the guard
+  pushes any unpushed commits and names the branch and open PR in the park, and
+  story/resume adopt an existing open PR instead of opening a duplicate.
 
 Deliberately isolated from `clickup_bot/`: the webhook and sweep mechanics
 were copied, not imported, so the two Lambdas can deploy independently. In
@@ -304,7 +309,10 @@ has actually ramped the flag. That ticket's own description carries a
 machine-readable `flag-key: <key>` line, parsed at filing time from the
 epic's breakdown summary comment (`epic-create.md` step 5 now requires that
 exact line) — unparseable, the ticket is still filed, just without the line,
-and this pass silently skips it forever rather than guessing a key.
+and this pass silently skips it forever rather than guessing a key. An epic
+with no flag (test infra, its own runtime switch, docs; `epic-create.md`
+step 2's exception) records `flag-key: none` instead: close-out files no
+cleanup ticket for it, and this pass never treats `none` as a key.
 
 Every sweep tick, `sweep.check_flag_cleanup_ramps` finds every closed feature
 card whose flag-cleanup subtask is still sitting in `done` with a parseable
@@ -385,7 +393,7 @@ hits them, and where it ends if nothing does:
 3. **Stall alerts are the backstop for what the sweep can't re-drive** — never
    an auto-retry, always exactly one Slack post. `supervisor.STATUS_TTL_SECONDS`
    sets the ceiling per status a story can sit in before it counts as stalled:
-   `STATUS_IN_PROGRESS` 2h, `STATUS_QA` 1h, `STATUS_EXECUTING` 30min (a manual
+   `STATUS_IN_PROGRESS` 3h, `STATUS_QA` 1h, `STATUS_EXECUTING` 30min (a manual
    drag only — stories don't reach it in the normal pipeline). `feedback
    needed` carries no TTL: waiting on a human isn't a stall. Claimed once via
    `supervisor.try_claim_stall_alert` (an epic-scoped claim) for stories inside
@@ -407,14 +415,28 @@ hits them, and where it ends if nothing does:
    resume must never race this free check for the same park.
 
 5. **Auto-resume** (`sweep.auto_resume_actionable_parks`) retries a parked
-   story whose park is a status note or a stranded run, not a question — see
-   its own docstring for the exact skip list (QA-failed parks, any park with a
-   reply already posted, merge-pending parks). Deduped per park instance on
-   the park comment's own id, so a fresh re-park always earns exactly one more
-   try. Bounded by `AUTO_RESUME_MAX_PARKS` (10) — a count of park markers on
-   the thread, not a relapse streak, because a healthy story legitimately
-   accrues several along the way (merge-pending, deploy-pending, a stranded
-   run).
+   story only when the park is a mechanical status note, never a real
+   question. An allowlist (`router.is_auto_resumable_park`) of question
+   prefixes decides: `Deploy pending:` (qa.md) and the two stranded-run texts
+   `feedback.park_if_stranded` writes. Anything else (a free-form agent
+   question, `QA failed:`, `Merge pending:`) is skipped and waits for a human
+   reply, which resumes through the normal comment route. The stranded-run
+   prefix is kept in sync with `agent/feedback.py` by a test. Also skipped: any
+   park with a reply already posted, and merge-pending parks (resolved by the
+   sweep itself). Deduped per park instance on the park comment's own id, so a
+   fresh re-park always earns exactly one more try. Bounded by
+   `AUTO_RESUME_MAX_PARKS` (10), a count of park markers on the thread, not a
+   relapse streak, because a healthy story legitimately accrues several along
+   the way (merge-pending, deploy-pending, a stranded run).
+
+   Before dispatching, the sweep also checks the thread's last two run
+   summaries (`router.repeated_failure`): if both ended in the same failure outcome (`deadline_exceeded`, `budget_exhausted` or
+   `error`), the cause is likely environmental, so it escalates through the
+   dead-letter path below ("two consecutive <stage> runs ended <outcome>")
+   instead of a third lap. A park, a success, or two different failures
+   between them reset the streak, and the newest failing run must have reported
+   after the current park (so a human re-parking after removing the tag is not
+   re-escalated by stale history). Human-initiated resumes are unaffected.
 
 6. **Dead-letter tag: what happens when the retry budget runs out.**
    Hitting `AUTO_RESUME_MAX_PARKS` on a story does not retry again — it ends

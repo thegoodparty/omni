@@ -21,7 +21,7 @@ export const RESULTS_COPY = {
       .filter(Boolean)
       .join(' · ') || null,
   themesTitle: 'Top themes',
-  themesCaption: 'Across every text, call and door on this priority.',
+  themesCaption: 'Across every answer on this priority.',
   themesEmpty: 'Themes show up once at least 5 people have answered.',
   themesUpdating: 'Updating with the latest answers.',
   themesProcessing: "We're reading what people said. Themes show up here soon.",

@@ -20,7 +20,7 @@ import {
 } from '../services/claimConfidence'
 import { sanitizeUntrustedContent } from '@/ai/util/sanitizePromptInput.util'
 import type { PriorityFlowContext } from './services/priorityFlowContext.service'
-import { todayLine } from '../services/todayLine'
+import { localDay, todayLine } from '../services/todayLine'
 import { OUTREACH_MESSAGE_RULES } from '../chat-tools/presentOutreachProposal.tool'
 import { buildSampleSizingRules } from '../chat-tools/outreachSampling.prompt'
 
@@ -166,6 +166,7 @@ const ASKING_BLOCK = `WHEN YOU NEED A DECISION FROM THEM
 const STATUS_TOOL_BLOCK = `KEEPING THE STATUS HONEST
 - Call update_priority_status when a step genuinely changes state, or when what it settled materially changes. Every call is a decision you made on purpose, not a habit at the end of a turn.
 - Do not call it to restate something already stored, and do not call it to show progress on a step that has not changed state.
+- When it returns an error, nothing moved. Tell the official what the step waits on in their terms, like "the plan waits on what residents say", never how the app or a system works.
 - Summaries are in the official's words, not yours. Write what they decided, not what you concluded.
 - nextAction is always ONE short sentence they could act on today. "Call the public works director and ask what the backlog actually is" is right. "Continue gathering evidence" is not. Leave it empty only when every step is settled.`
 
@@ -235,7 +236,7 @@ ${panelFirst ? PANEL_FIRST_NO_ANSWER_RULE : NO_ANSWER_RULE}
 - While a check is out, the listen step that collects it waits. Leave it open with a caveat saying who you are waiting on, never settle it as if the listening happened, and keep working what can be worked: research, draft options, sketch the path. Nothing past that listening step is done until it closes, so never settle a later step.
 - A deferred check comes back at most ${MAX_CHECK_RAISES} times, and only at these moments: before method settles, and before plan settles. Each time is one or two lines naming what they said they would do. Recording deferred again is how you say they put it off again. Reminders the official got elsewhere count too: the raised count in <status> is the total. Once it has been raised ${MAX_CHECK_RAISES} times, let it go.
 - A card already in this thread for a step and side stays that card. Never present it again unless they ask to change who it reaches or what it says. When they say to send it, point them to its button.
-- A side whose <status> line says Sent already went out. Never present it again and never ask whether to send it: those people have been asked. Wait for what they say${has('read_outreach_feedback') ? ', and read it yourself with read_outreach_feedback rather than asking the official' : ''}. A send finished outside this conversation, like a walk drawn on its own page, first shows up as that Sent: whenever a side shows Sent and nothing in this conversation mentions it yet, say in one line that it is out, once.
+- A side whose <status> line says Set up on is already sent or scheduled to send. That day is when it was set up, not when anyone got it; read_past_outreach says when it goes out. Never present it again and never ask whether to send it: those people are being asked. Wait for what they say${has('read_outreach_feedback') ? ', and read it yourself with read_outreach_feedback rather than asking the official' : ''}. A send finished outside this conversation, like a walk drawn on its own page, first shows up as that Set up on: whenever a side shows Set up on and nothing in this conversation mentions it yet, say in one line that it is set up, once.
 - A message that starts with ${PROPOSAL_SENT_MARKER} comes from the app, not the official: they just sent that outreach from its card, and the side it puts out is already recorded. Acknowledge it in one short line, record nothing for it, and carry on with the work.
 - When answers come back, the step held or it did not. Record confirmed or revised. If revised, rewrite the summary and send any later step it undermines back to stale. A revised step is the flow working.
 - Never imply backing the official does not have. If a step turns on what people think and nobody has been heard from, say so once in its summary.`
@@ -488,7 +489,17 @@ const priorityBlock = (ctx: PriorityFlowContext): string =>
     '</priority>',
   ].join('\n')
 
-const checkLine = (step: PriorityStep): string => {
+// The day a side's send was set up, in the office's zone. Never the raw
+// instant, which read as the day it was delivered.
+const setUpOn = (sentAt: string, state: string | null | undefined): string => {
+  const at = new Date(sentAt)
+  return Number.isNaN(at.getTime()) ? sentAt : localDay(state, at)
+}
+
+const checkLine = (
+  step: PriorityStep,
+  state: string | null | undefined,
+): string => {
   const check = step.check
   if (check === undefined) return ''
   const parts = [
@@ -503,7 +514,9 @@ const checkLine = (step: PriorityStep): string => {
     check.state === 'deferred'
       ? `Raised ${check.raised} of ${MAX_CHECK_RAISES} times.`
       : null,
-    check.sentAt === undefined ? null : `Sent: ${check.sentAt}.`,
+    check.sentAt === undefined
+      ? null
+      : `Set up on ${setUpOn(check.sentAt, state)}.`,
     check.heard === undefined ? null : `Heard: ${optional(check.heard)}.`,
     check.contrast === undefined
       ? 'Least affected: not offered yet.'
@@ -520,7 +533,7 @@ const checkLine = (step: PriorityStep): string => {
             : `Timing: ${optional(check.contrast.when)}.`,
           check.contrast.sentAt === undefined
             ? null
-            : `Sent: ${check.contrast.sentAt}.`,
+            : `Set up on ${setUpOn(check.contrast.sentAt, state)}.`,
           check.contrast.heard === undefined
             ? null
             : `Heard: ${optional(check.contrast.heard)}.`,
@@ -541,7 +554,7 @@ const statusBlock = (ctx: PriorityFlowContext): string =>
           : optional(step.summary)
       const caveat =
         step.caveat === undefined ? '' : ` Caveat: ${optional(step.caveat)}`
-      return `${step.id} (${PRIORITY_STEP_LABELS[step.id]}): ${step.state}. ${summary}${caveat}${checkLine(step)}`
+      return `${step.id} (${PRIORITY_STEP_LABELS[step.id]}): ${step.state}. ${summary}${caveat}${checkLine(step, ctx.state)}`
     }),
     '</status>',
   ].join('\n')

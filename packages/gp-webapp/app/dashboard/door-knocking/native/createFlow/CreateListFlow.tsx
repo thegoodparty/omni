@@ -284,6 +284,9 @@ interface CreateListFlowProps {
   // (`preselectedListId`) the flow lands on the talking points, drafted for
   // it, the way a text from a chat card lands on its message.
   initialPurpose?: ServeDoorKnockingPurpose
+  // The question a priority card carried for the community input purpose,
+  // so that purpose arrives answered rather than asking it again.
+  initialQuestion?: string
   // Which saved list the who step is currently attached to. The draft is
   // booleans, and a list's support-status, activity and precinct clauses are
   // not, so the surface above cannot assemble the address-preview request from
@@ -441,6 +444,7 @@ export default function CreateListFlow({
   preselectedRecommendedVariant,
   onRecommendedPreselectApplied,
   initialPurpose,
+  initialQuestion,
   onSelectedListChange,
   siblingTurfs,
   campaignOutreachId,
@@ -507,14 +511,22 @@ export default function CreateListFlow({
       : preselectedRecommendedVariant !== undefined && !serveMode
         ? purposeForRecommendedVariant(preselectedRecommendedVariant)
         : null
+  // A carried purpose that asks a question opens on it unless the question
+  // came with it: a blank one would 400 at the create.
+  const carriedQuestion =
+    carriedPurpose && purposeAsksQuestion(carriedPurpose)
+      ? (initialQuestion?.trim() ?? '')
+      : ''
   const [preDrawStage, setPreDrawStage] = useState<PreDrawStage>(
     carriedPurpose
       ? isEventInvite(carriedPurpose)
         ? 'details'
-        : 'who'
+        : purposeAsksQuestion(carriedPurpose) && carriedQuestion === ''
+          ? 'question'
+          : 'who'
       : 'purpose',
   )
-  const [question, setQuestion] = useState('')
+  const [question, setQuestion] = useState(carriedQuestion)
   const [purpose, setPurpose] = useState<CreateFlowPurpose | null>(
     carriedPurpose,
   )
@@ -750,13 +762,15 @@ export default function CreateListFlow({
     selectList(preselectedListId)
     onPreselectApplied?.()
     // With the purpose answered too, the talking points are next. A purpose
-    // that asks something first (an event's details, a question) still asks.
+    // that asks something first (an event's details, a question) still asks,
+    // unless the question came with it.
     const landing = outreachLandingStep({
       purposeSettled:
         initialPurpose !== undefined &&
         serveMode &&
         !isEventInvite(initialPurpose) &&
-        !purposeAsksQuestion(initialPurpose),
+        (!purposeAsksQuestion(initialPurpose) ||
+          Boolean(initialQuestion?.trim())),
       audienceSettled: true,
       messageSettled: false,
     })
@@ -767,6 +781,7 @@ export default function CreateListFlow({
     selectList,
     onPreselectApplied,
     initialPurpose,
+    initialQuestion,
     serveMode,
     onStepChange,
   ])

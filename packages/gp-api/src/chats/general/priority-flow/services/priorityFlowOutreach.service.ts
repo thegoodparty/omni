@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common'
-import { format, parseISO } from 'date-fns'
-import type { ChatCardKind } from '@goodparty_org/contracts'
+import { formatInTimeZone } from 'date-fns-tz'
+import { outreachHasGoneOut, type ChatCardKind } from '@goodparty_org/contracts'
 import {
   Outreach,
   OutreachStatus,
@@ -22,10 +22,6 @@ const UNSENT_STATUSES: OutreachStatus[] = [
   OutreachStatus.pending_payment,
   OutreachStatus.draft,
   OutreachStatus.canceled,
-]
-const GONE_OUT_STATUSES: OutreachStatus[] = [
-  OutreachStatus.in_progress,
-  OutreachStatus.completed,
 ]
 // The sends a note can be taken on. A Win text's replies come back as
 // timestamps, never words, so on a campaign it has nothing to read and would
@@ -57,8 +53,11 @@ export interface PastOutreachRow {
   audience: string
   channel: OutreachType
   status: string | null
-  recipients: number | null
+  // yyyy-MM-dd. scheduledFor is the day it is set to go out; sentOn is the
+  // day it went, and null until then.
+  scheduledFor: string | null
   sentOn: string | null
+  recipients: number | null
   replies: number
   // Replies over recipients, so a sample is sized on what this office's
   // texts actually bring back. Null until something has gone out.
@@ -79,6 +78,7 @@ export interface OutreachFeedback {
   name: string | null
   audience: string
   channel: OutreachType
+  scheduledFor: string | null
   sentOn: string | null
   heardFrom: number
   verbatims: OutreachVerbatim[]
@@ -107,9 +107,12 @@ export class PriorityFlowOutreachService extends createPrismaBase(
   MODELS.Outreach,
 ) {
   // Archived sends stay in: every send on a priority is evidence for its
-  // check, and the people it asked must not be asked again.
+  // check, and the people it asked must not be asked again. `timeZone` is
+  // the reader's zone, the one their date line is in, so a send is never
+  // read as out before that line's day reaches it.
   async forPriority(
     priorityId: string,
+    timeZone: string,
     channel?: OutreachType,
   ): Promise<PastOutreachRow[]> {
     const rows = await this.findMany({
@@ -121,12 +124,13 @@ export class PriorityFlowOutreachService extends createPrismaBase(
       orderBy: { createdAt: Prisma.SortOrder.desc },
       take: MAX_ROWS,
     })
-    return this.withReplyCounts(rows, 'priority')
+    return this.withReplyCounts(rows, 'priority', timeZone)
   }
 
   async forOffice(
     organizationSlug: string,
     priorityId: string | null,
+    timeZone: string,
     channel?: OutreachType,
   ): Promise<PastOutreachRow[]> {
     const rows = await this.findMany({
@@ -151,13 +155,14 @@ export class PriorityFlowOutreachService extends createPrismaBase(
       orderBy: { createdAt: Prisma.SortOrder.desc },
       take: MAX_ROWS,
     })
-    return this.withReplyCounts(rows, 'office')
+    return this.withReplyCounts(rows, 'office', timeZone)
   }
 
   // A campaign's sends, by campaignId: an org can hold a Campaign and an
   // ElectedOffice at once, so its slug alone would mix in the office's sends.
   async forCampaign(
     campaignId: number,
+    timeZone: string,
     channel?: OutreachType,
   ): Promise<PastOutreachRow[]> {
     const rows = await this.findMany({
@@ -170,7 +175,7 @@ export class PriorityFlowOutreachService extends createPrismaBase(
       orderBy: { createdAt: Prisma.SortOrder.desc },
       take: MAX_ROWS,
     })
-    return this.withReplyCounts(rows, 'office')
+    return this.withReplyCounts(rows, 'office', timeZone)
   }
 
   // Whether every one of these sends put out this side of this priority's
@@ -198,15 +203,22 @@ export class PriorityFlowOutreachService extends createPrismaBase(
     return matching === ids.length
   }
 
-  async summarizeAnchors(priorityId: string): Promise<PriorityAnchorSummary[]> {
-    const rows = await this.forPriority(priorityId)
+  async summarizeAnchors(
+    priorityId: string,
+    timeZone: string,
+  ): Promise<PriorityAnchorSummary[]> {
+    const rows = await this.forPriority(priorityId, timeZone)
     return rows.map((row) => ({
       kind: 'outreach_proposal' as const,
       ref: `outreach:${row.outreachId}`,
       line: [
         row.name ?? row.audience,
         row.recipients === null ? null : `${row.recipients} recipients`,
-        row.sentOn === null ? `not sent yet` : `sent ${row.sentOn}`,
+        row.sentOn !== null
+          ? `sent ${row.sentOn}`
+          : row.scheduledFor === null
+            ? 'not sent yet'
+            : `scheduled for ${row.scheduledFor}, not sent yet`,
         `${row.replies} replies`,
       ]
         .filter((part): part is string => part !== null)
@@ -224,6 +236,7 @@ export class PriorityFlowOutreachService extends createPrismaBase(
       outreachId?: number
       channel?: OutreachType
     },
+    timeZone: string,
   ): Promise<OutreachFeedback[]> {
     const unscoped = scope.outreachId === undefined && !scope.priorityId
     const rows = await this.findMany({
@@ -243,12 +256,13 @@ export class PriorityFlowOutreachService extends createPrismaBase(
       orderBy: { createdAt: Prisma.SortOrder.desc },
       take: unscoped ? RECENT_SENDS_WITHOUT_SCOPE : MAX_ROWS,
     })
-    return Promise.all(rows.map((row) => this.feedbackForSend(row)))
+    return Promise.all(rows.map((row) => this.feedbackForSend(row, timeZone)))
   }
 
   // A campaign's door and call notes, by campaignId like forCampaign.
   async feedbackForCampaign(
     campaignId: number,
+    timeZone: string,
     outreachId?: number,
     channel?: OutreachType,
   ): Promise<OutreachFeedback[]> {
@@ -265,10 +279,13 @@ export class PriorityFlowOutreachService extends createPrismaBase(
       orderBy: { createdAt: Prisma.SortOrder.desc },
       take: RECENT_SENDS_WITHOUT_SCOPE,
     })
-    return Promise.all(rows.map((row) => this.feedbackForSend(row)))
+    return Promise.all(rows.map((row) => this.feedbackForSend(row, timeZone)))
   }
 
-  private async feedbackForSend(row: OutreachRow): Promise<OutreachFeedback> {
+  private async feedbackForSend(
+    row: OutreachRow,
+    timeZone: string,
+  ): Promise<OutreachFeedback> {
     const verbatims =
       row.outreachType === OutreachType.text
         ? await this.textReplies(row.id)
@@ -307,7 +324,7 @@ export class PriorityFlowOutreachService extends createPrismaBase(
       name: row.name,
       audience: audienceOf(row),
       channel: row.outreachType,
-      sentOn: sentOn(row),
+      ...sendDays(row, timeZone),
       heardFrom: verbatims.length,
       verbatims: verbatims.slice(0, MAX_VERBATIMS_PER_SEND),
       verbatimsLeftOut: Math.max(0, verbatims.length - MAX_VERBATIMS_PER_SEND),
@@ -417,6 +434,7 @@ export class PriorityFlowOutreachService extends createPrismaBase(
   private async withReplyCounts(
     rows: OutreachRow[],
     scope: 'priority' | 'office',
+    timeZone: string,
   ): Promise<PastOutreachRow[]> {
     if (rows.length === 0) return []
     const replies = await this.client.contactInteractionText.groupBy({
@@ -442,8 +460,8 @@ export class PriorityFlowOutreachService extends createPrismaBase(
         audience: audienceOf(row),
         channel: row.outreachType,
         status: row.status,
+        ...sendDays(row, timeZone),
         recipients,
-        sentOn: sentOn(row),
         replies,
         replyRate:
           recipients === null || recipients === 0
@@ -469,17 +487,29 @@ const audienceOf = (row: OutreachRow): string =>
   row.voterFileFilter?.name ?? row.audienceRequest ?? 'Unnamed audience'
 
 // A Serve text has no `date`: it goes out at a fixed local hour on
-// scheduledLocalDate, so that day is when it went once it has gone.
-const sentOn = (row: Outreach): string | null => {
-  if (row.date !== null) return format(row.date, 'd MMM')
-  if (
-    row.scheduledLocalDate === null ||
-    row.status === null ||
-    !GONE_OUT_STATUSES.includes(row.status)
-  ) {
-    return null
+// scheduledLocalDate, so that day is when it went once it has gone. Full
+// yyyy-MM-dd, never a bare "27 Oct", so the model cannot misplace the year.
+const sendDays = (
+  row: Outreach,
+  timeZone: string,
+): { scheduledFor: string | null; sentOn: string | null } => {
+  // Both days in the office's zone: the server runs on UTC, which is already
+  // tomorrow for part of every US evening.
+  const scheduledFor =
+    row.scheduledLocalDate ??
+    (row.date === null
+      ? null
+      : formatInTimeZone(row.date, timeZone, 'yyyy-MM-dd'))
+  const today = formatInTimeZone(new Date(), timeZone, 'yyyy-MM-dd')
+  return {
+    scheduledFor,
+    // A send that is out with no day of its own (a walk) went out the day it
+    // was created, so sentOn is never null for a send that has gone.
+    sentOn: outreachHasGoneOut({ status: row.status, scheduledFor }, today)
+      ? (scheduledFor ??
+        formatInTimeZone(row.createdAt, timeZone, 'yyyy-MM-dd'))
+      : null,
   }
-  return format(parseISO(row.scheduledLocalDate), 'd MMM')
 }
 
 // The one rule for how many people a theme covers, shared by a send's

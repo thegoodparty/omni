@@ -265,20 +265,26 @@ def _awaiting_merge_stories() -> list[dict]:
 
 def auto_resume_actionable_parks(cap: int, parked_stories: list[dict]) -> int:
     """Dispatches ONE resume per park instance for parks that are obvious
-    work, not questions: a status note (merge/deploy pending), or a
-    stranded-run park — states where the story's own PR carries whatever
+    work, not questions: a status note ("Deploy pending") or a stranded-run
+    park — an ALLOWLIST (router.is_auto_resumable_park), states where the story's own PR carries whatever
     needs doing (failing checks, delegate blockers, a completed merge) and
     asking a human "may I fix my own PR?" just stalls the epic (the first
     live epic stalled three stories this way). Skipped, and left to a human:
 
-    - "QA failed" parks — deciding whether findings mean a code fix, an
-      answer, or a cancellation is the human call resume.md's intent check
-      exists for.
+    - Any park not on that allowlist: a real question (auto-resuming builds
+      a guess a human's answer may discard), or "QA failed" — deciding
+      whether findings mean a code fix, an answer, or a cancellation is the
+      human call resume.md's intent check exists for. A human reply still
+      resumes through the comment-resume route.
+    - Merge-pending parks: resolve_merge_pending_parks owns them.
     - Any park with a comment after it: a reply already dispatched (or will
       dispatch) the comment-resume route; racing it would double-dispatch.
     - Threads carrying AUTO_RESUME_MAX_PARKS or more park markers: a story
       relapsing that often needs a human, and each park already pinged Slack
       (see _escalate_dead_letter) instead of another auto-resume lap.
+    - Stories whose last two run summaries ended in the same failure outcome (router.repeated_failure: deadline_exceeded,
+      budget_exhausted or error): escalated via _escalate_dead_letter instead
+      of dispatching, since a third lap would fail the same way.
     - Any story already carrying the `dead-letter` tag (router.has_dead_letter_tag):
       once a story hits the park cap it stays a human's until they remove the
       tag, at which point a genuinely new park (see _escalate_dead_letter)
@@ -312,7 +318,9 @@ def auto_resume_actionable_parks(cap: int, parked_stories: list[dict]) -> int:
         park = router.latest_park(comments)
         if park is None or park.comment_id is None:
             continue
-        if park.question.lower().startswith("qa failed"):
+        if not router.is_auto_resumable_park(park.question):
+            # A real question, "QA failed", or any other non-mechanical park:
+            # only a human reply (the comment-resume route) wakes it.
             continue
         if router.merge_pending_pr_number(park.question) is not None:
             # resolve_merge_pending_parks (run earlier this same tick) owns
@@ -340,6 +348,18 @@ def auto_resume_actionable_parks(cap: int, parked_stories: list[dict]) -> int:
                 "leaving it for a human instead of another auto-resume lap"
             )
             _escalate_dead_letter(task_id, park)
+            continue
+        failure = router.repeated_failure(comments, since_ms=park.date_ms)
+        if failure is not None:
+            # Two identical failures in a row mean the cause is environmental
+            # (e.g. an oversized AGENTS.md blowing the context): a third lap
+            # would fail the same way, so ask a human instead.
+            print(f"Story {task_id}: two consecutive {failure['stage']} runs ended {failure['outcome']}; escalating")
+            _escalate_dead_letter(
+                task_id,
+                park,
+                f"stopped auto-resuming after two consecutive {failure['stage']} runs ended {failure['outcome']}",
+            )
             continue
 
         ceiling = router.STAGE_CEILINGS[router.STAGE_RESUME]
@@ -384,10 +404,12 @@ def _release_dead_letter_claim(task_id: str, comment_id: str) -> None:
         )
 
 
-def _escalate_dead_letter(task_id: str, park: Any) -> None:
+def _escalate_dead_letter(task_id: str, park: Any, cause: str | None = None) -> None:
     """Tags a story that just hit the park cap `dead-letter` and posts ONE
     Slack escalation ("automation exhausted, needs a human") — see the
-    README's retry-budget section for the full contract.
+    README's retry-budget section for the full contract. `cause` replaces the
+    park-cap wording when the escalation has another cause (two consecutive
+    identical run failures); claim, tag and alert behave the same either way.
 
     Ordering is CLAIM, then tag, then alert — not tag-first. The claim is
     what makes the tag write itself happen at most once per park cycle: a
@@ -428,8 +450,9 @@ def _escalate_dead_letter(task_id: str, park: Any) -> None:
         return
 
     supervisor.post_slack_message(
-        f":skull: Autopilot story {supervisor.clickup_task_url(task_id)} hit its park cap "
-        f"({AUTO_RESUME_MAX_PARKS} parks) and is now tagged `{router.DEAD_LETTER_TAG_NAME}` — automation is "
+        f":skull: Autopilot story {supervisor.clickup_task_url(task_id)} "
+        f"{cause or f'hit its park cap ({AUTO_RESUME_MAX_PARKS} parks)'} and is now tagged "
+        f"`{router.DEAD_LETTER_TAG_NAME}` — automation is "
         "exhausted, this one needs a human. Remove the tag once you've got it; a fresh park cycle after that "
         "can escalate again."
     )
@@ -970,7 +993,7 @@ def _flag_cleanup_candidates(closed_epics: list[dict]) -> list[dict]:
             if not isinstance(description, str):
                 description = full_task.get("description")
             flag_key = supervisor.parse_flag_key(description)
-            if flag_key is None:
+            if flag_key is None or flag_key == supervisor.NO_FLAG_KEY:
                 continue
             candidates.append({"epic_task_id": epic_task_id, "cleanup_task_id": sub_id, "flag_key": flag_key})
     return candidates

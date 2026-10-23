@@ -90,13 +90,33 @@ export class VendorMockRecordService extends createPrismaBase(
       .map((r) => r.callhubCampaignPkStr)
       .filter((pk): pk is string => pk !== null)
     if (pkStrs.length === 0) return []
-    return this.model.findMany({
+    const campaigns = await this.model.findMany({
       where: {
         vendor: VendorMockVendor.callhub,
         kind: 'vb_campaign',
         externalId: { in: pkStrs },
       },
     })
+    // Include the phonebooks those campaigns were created against.
+    const phonebookIds = campaigns.flatMap((c) => {
+      const state = c.state
+      if (typeof state !== 'object' || state === null || Array.isArray(state)) {
+        return []
+      }
+      const phonebooks: unknown = Object.entries(state).find(
+        ([key]) => key === 'phonebooks',
+      )?.[1]
+      return Array.isArray(phonebooks) ? phonebooks.map(String) : []
+    })
+    if (phonebookIds.length === 0) return campaigns
+    const phonebooks = await this.model.findMany({
+      where: {
+        vendor: VendorMockVendor.callhub,
+        kind: 'phonebook',
+        externalId: { in: phonebookIds },
+      },
+    })
+    return [...campaigns, ...phonebooks]
   }
 
   // Peerly p2p jobs carry no campaignId (the mock controller is global), so

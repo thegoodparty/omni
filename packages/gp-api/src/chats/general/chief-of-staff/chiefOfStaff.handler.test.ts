@@ -815,7 +815,12 @@ describe('ChiefOfStaffHandler', () => {
       }
       expect(await read.execute({})).toEqual({ priority: [], office: [] })
       expect(forPriority).not.toHaveBeenCalled()
-      expect(forOffice).toHaveBeenCalledWith(ORG, null, undefined)
+      expect(forOffice).toHaveBeenCalledWith(
+        ORG,
+        null,
+        expect.stringMatching(/^US\//),
+        undefined,
+      )
     })
 
     it('reads outreach feedback only with serve-citizen-panels on for the user', async () => {
@@ -893,16 +898,17 @@ describe('ChiefOfStaffHandler', () => {
         priorityThemes: [],
         sends: [],
       })
-      expect(feedbackFor).toHaveBeenCalledWith(ORG, {
-        priorityId: null,
-        outreachId: 7,
-      })
+      expect(feedbackFor).toHaveBeenCalledWith(
+        ORG,
+        { priorityId: null, outreachId: 7 },
+        expect.stringMatching(/^US\//),
+      )
       await read.execute({ channel: 'phoneBanking' })
-      expect(feedbackFor).toHaveBeenLastCalledWith(ORG, {
-        priorityId: null,
-        outreachId: undefined,
-        channel: 'phoneBanking',
-      })
+      expect(feedbackFor).toHaveBeenLastCalledWith(
+        ORG,
+        { priorityId: null, outreachId: undefined, channel: 'phoneBanking' },
+        expect.stringMatching(/^US\//),
+      )
       expect(descriptionOf(read)).toContain('with read_past_outreach')
       expect(descriptionOf(tools.read_past_outreach)).toContain(
         'text replies only',

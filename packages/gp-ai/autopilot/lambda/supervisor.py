@@ -607,12 +607,12 @@ def max_concurrent_stories() -> int:
 # absent: waiting on a human is not a stall. So is STATUS_AWAITING_MERGE:
 # waiting on CI and the merge queue is not a stall either. STATUS_APPROVED_TDD (the story
 # queue) and STATUS_DONE are absent too: nothing is "in flight" there.
-# "in progress"'s 2h covers the whole dispatch-to-merge window — the story
+# "in progress"'s 3h covers the whole dispatch-to-merge window — the story
 # stage's first act on kickoff is moving the card there, so a dispatch that
 # never starts surfaces as a story sitting in the queue while its own claim
 # expires, not as a distinct status.
 STATUS_TTL_SECONDS: dict[str, int] = {
-    router.STATUS_IN_PROGRESS: 2 * 60 * 60,
+    router.STATUS_IN_PROGRESS: 3 * 60 * 60,
     router.STATUS_QA: 60 * 60,
     # Stories never reach executing in the pipeline (it is the feature card's
     # post-approval column), but a manual drag can put one there — and it
@@ -823,11 +823,24 @@ def release_epic_close_out_claim(epic_task_id: str) -> None:
 FLAG_KEY_LINE_PATTERN = re.compile(r"^\s*flag-key:\s*(\S+)\s*$", re.IGNORECASE | re.MULTILINE)
 
 
+# `flag-key: none` is epic-create.md's sentinel for "this epic has no flag"
+# (test infra, its own runtime switch, docs, ...): no Amplitude flag exists,
+# so close-out files no cleanup ticket and sweep.py never treats it as a key.
+# A missing line is different and keeps its old behavior (ticket filed
+# without a key).
+NO_FLAG_KEY = "none"
+
+
 def parse_flag_key(text: str | None) -> str | None:
+    """The `flag-key:` value, `NO_FLAG_KEY` for the `none` sentinel (matched
+    case-insensitively, normalized to lowercase), or None when absent."""
     if not isinstance(text, str):
         return None
     match = FLAG_KEY_LINE_PATTERN.search(text)
-    return match.group(1) if match else None
+    if not match:
+        return None
+    key = match.group(1)
+    return NO_FLAG_KEY if key.lower() == NO_FLAG_KEY else key
 
 
 def parse_flag_key_from_comments(comments: list[dict]) -> str | None:
@@ -853,7 +866,15 @@ def parse_flag_key_from_comments(comments: list[dict]) -> str | None:
     return best
 
 
+class CommentsUnreadableError(Exception):
+    """The epic's comments (which carry `flag-key:`) could not be read, so
+    whether a cleanup ticket is owed is unknown. Retryable: close_out_epic
+    releases its claim on it."""
+
+
 def file_flag_cleanup_ticket(epic_task_id: str) -> str | None:
+    """Raises CommentsUnreadableError when the epic's comments can't be read;
+    every other failure logs and returns None."""
     try:
         epic = get_task(epic_task_id)
     except Exception as e:
@@ -874,8 +895,14 @@ def file_flag_cleanup_ticket(epic_task_id: str) -> str | None:
         print(
             f"ERROR: failed to read comments for epic {epic_task_id} before filing its flag-cleanup ticket: {type(e).__name__}"
         )
-        comments = []
+        # Can't tell a `flag-key: none` epic from a flagged one without the
+        # comments, so file nothing: close_out_epic releases its claim and a
+        # later tick retries.
+        raise CommentsUnreadableError(epic_task_id) from e
     flag_key = parse_flag_key_from_comments(comments)
+    if flag_key == NO_FLAG_KEY:
+        print(f"Epic {epic_task_id} declared 'flag-key: none'; no flag-cleanup ticket to file")
+        return None
     if flag_key is None:
         # Never guess: sweep.py's ramp-cleanup pass identifies a flag-cleanup
         # ticket BY this line, so one filed without it simply never gets
@@ -957,7 +984,15 @@ def close_out_epic(epic_task_id: str) -> None:
         print(f"ERROR: failed to move epic {epic_task_id} to done: {type(e).__name__}")
         release_epic_close_out_claim(epic_task_id)
         return
-    cleanup_task_id = file_flag_cleanup_ticket(epic_task_id)
+    try:
+        cleanup_task_id = file_flag_cleanup_ticket(epic_task_id)
+    except CommentsUnreadableError:
+        # Whether a cleanup ticket is owed is unknown, so neither file one
+        # nor announce completion. The epic is already done (the move is
+        # idempotent); release the claim so a later tick retries close-out
+        # and reads the comments then.
+        release_epic_close_out_claim(epic_task_id)
+        return
     post_close_out_summary(epic_task_id, cleanup_task_id)
 
 
