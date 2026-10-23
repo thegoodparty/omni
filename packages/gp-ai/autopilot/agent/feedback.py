@@ -321,6 +321,12 @@ def park_for_feedback(
 # stranding ENG-11132) leaves it exactly where it began.
 IN_PROGRESS_STATUS = "in progress"
 QA_STATUS = "qa"
+# The leading text of the success-ended stranded-run question park_if_stranded
+# writes. The conductor Lambda cannot import this package, so lambda/router.py
+# keeps a copy in its auto-resume allowlist (router.AUTO_RESUMABLE_PARK_PREFIXES);
+# a router test asserts the copy equals this constant. Change them together.
+STRANDED_RUN_SUCCESS_PREFIX = "This run ended while the card was still in"
+
 STRANDED_STATUSES: dict[str, frozenset[str]] = {
     "qa": frozenset({IN_PROGRESS_STATUS, QA_STATUS}),
 }
@@ -373,7 +379,7 @@ def park_if_stranded(
         )
         if result.get("status") == "success":
             question = (
-                f"This run ended while the card was still in '{current_normalized}' — most likely "
+                f"{STRANDED_RUN_SUCCESS_PREFIX} '{current_normalized}' — most likely "
                 "waiting on something in a background watcher that died with the run, or ending "
                 "without finishing its handoff. Check the PR/deploy state, then comment here (or "
                 "move the card back) to resume."
