@@ -771,16 +771,105 @@ describe('POST /v1/test-fixtures/vendor-mocks/time-travel', () => {
     expect(res.status).toBe(HttpStatus.NOT_FOUND)
   })
 
-  it('returns 400 for sms.start_date_today (not yet implemented)', async () => {
-    const { outreach } = await seedOutreach(service.user.id)
+  describe.each([
+    ['sms.start_date_today', 0],
+    ['sms.start_date_passed', 1],
+  ])('%s', (action, daysAgo) => {
+    const seedSmsOutreach = async (userId: number, jobId: string) => {
+      const campaign = await seedCampaign(userId)
+      const outreach = await service.prisma.outreach.create({
+        data: {
+          outreachType: OutreachType.p2p,
+          campaignId: campaign.id,
+          projectId: jobId,
+          date: new Date('2026-01-01T12:00:00Z'),
+        },
+      })
+      return { campaign, outreach }
+    }
 
-    const res = await service.client.post(
-      '/v1/test-fixtures/vendor-mocks/time-travel',
-      { outreachId: outreach.id, action: 'sms.start_date_today' },
-      { validateStatus: () => true },
-    )
+    it("moves the mock Peerly job's start_date and exposes it in records", async () => {
+      const jobId = `job-${Math.random().toString(36).slice(2)}`
+      await seedRecord(VendorMockVendor.peerly, 'p2p_job', jobId, {
+        id: jobId,
+        start_date: '2026-01-01',
+        templates: [{ text: 'hello' }],
+      })
+      const { campaign, outreach } = await seedSmsOutreach(
+        service.user.id,
+        jobId,
+      )
+      const expected = new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000)
+        .toISOString()
+        .slice(0, 10)
 
-    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+      const res = await service.client.post(
+        '/v1/test-fixtures/vendor-mocks/time-travel',
+        { outreachId: outreach.id, action },
+        { validateStatus: () => true },
+      )
+
+      expect(res.status).toBe(HttpStatus.CREATED)
+      const records = await service.client.get(
+        '/v1/test-fixtures/vendor-mocks/records',
+        { params: { campaignId: campaign.id } },
+      )
+      expect(records.data.records).toEqual([
+        expect.objectContaining({
+          kind: 'p2p_job',
+          externalId: jobId,
+          state: expect.objectContaining({
+            start_date: expected,
+            templates: [{ text: 'hello' }],
+          }),
+        }),
+      ])
+    })
+
+    it('returns 404 when the outreach has no mock Peerly job', async () => {
+      const { outreach } = await seedSmsOutreach(service.user.id, 'no-record')
+
+      const res = await service.client.post(
+        '/v1/test-fixtures/vendor-mocks/time-travel',
+        { outreachId: outreach.id, action },
+        { validateStatus: () => true },
+      )
+
+      expect(res.status).toBe(HttpStatus.NOT_FOUND)
+    })
+
+    it('returns 403 for a different campaign owner', async () => {
+      const otherUser = await service.prisma.user.create({
+        data: {
+          email: `other-${Math.random().toString(36).slice(2)}@test.goodparty.org`,
+          name: 'Other',
+          firstName: 'Other',
+          lastName: 'User',
+        },
+      })
+      const { outreach } = await seedSmsOutreach(otherUser.id, 'job-x')
+
+      const res = await service.client.post(
+        '/v1/test-fixtures/vendor-mocks/time-travel',
+        { outreachId: outreach.id, action },
+        { validateStatus: () => true },
+      )
+
+      expect(res.status).toBe(HttpStatus.FORBIDDEN)
+    })
+
+    it('returns 404 outside a non-prod deploy', async () => {
+      const { outreach } = await seedSmsOutreach(service.user.id, 'job-y')
+      envNonProd.value = false
+
+      const res = await service.client.post(
+        '/v1/test-fixtures/vendor-mocks/time-travel',
+        { outreachId: outreach.id, action },
+        { validateStatus: () => true },
+      )
+
+      expect(res.status).toBe(HttpStatus.NOT_FOUND)
+    })
   })
 
   it('returns 404 outside a non-prod deploy', async () => {
