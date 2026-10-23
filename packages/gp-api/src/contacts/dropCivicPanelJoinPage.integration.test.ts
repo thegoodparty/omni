@@ -38,7 +38,10 @@ const restoreJoinerTable = () =>
 
 const SLUG = 'eo-drop-join-page'
 
-const seedStatus = async (personId: string) => {
+const seedStatus = async (
+  personId: string,
+  source: 'sms' | 'share_page' = 'sms',
+) => {
   await service.prisma.contactCurrentStatus.create({
     data: {
       organizationSlug: SLUG,
@@ -53,7 +56,7 @@ const seedStatus = async (personId: string) => {
       personId,
       field: 'civic_panel',
       toValue: 'member',
-      source: 'sms',
+      source,
     },
   })
 }
@@ -67,23 +70,31 @@ const statusRows = async (personId: string) =>
   }))
 
 describe('20261024000000_drop_civic_panel_join_page', () => {
-  it('takes a joiner outside the voter file off the panel, and keeps everyone else', async () => {
+  it('takes joiners outside the voter file and everyone who joined from the page off the panel, and keeps everyone else', async () => {
     await service.prisma.organization.create({
       data: { slug: SLUG, ownerId: service.user.id },
     })
     await restoreJoinerTable()
     const joinerId = randomUUID()
     const voterId = randomUUID()
+    const pageJoinerId = randomUUID()
     await run([
       `INSERT INTO "civic_panel_joiner" ("id", "updated_at", "organization_slug", "phone", "person_id", "matched", "source")
        VALUES ('${joinerId}', now(), '${SLUG}', '3035550199', '${joinerId}', false, 'text')`,
     ])
     await seedStatus(joinerId)
     await seedStatus(voterId)
+    await seedStatus(pageJoinerId, 'share_page')
 
     await run(statements('20261024000000_drop_civic_panel_join_page'))
 
     expect(await statusRows(joinerId)).toBe(0)
     expect(await statusRows(voterId)).toBe(2)
+    expect(await statusRows(pageJoinerId)).toBe(0)
+    expect(
+      await service.prisma.contactStatusEvent.count({
+        where: { source: 'share_page' },
+      }),
+    ).toBe(0)
   })
 })
