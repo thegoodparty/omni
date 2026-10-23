@@ -358,7 +358,7 @@ export class GeneralChatsService {
         }),
         ...(finalizing && {
           finalizeText: (text, turn) =>
-            finalizing.finalizeAssistantText(text, turn),
+            finalizing.finalizeAssistantText(text, turn, ctx),
         }),
       })
 
