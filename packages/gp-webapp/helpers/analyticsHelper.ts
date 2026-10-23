@@ -378,11 +378,6 @@ export const EVENTS = {
     // Outreach.DlcCompliance.RegistrationSubmitted / PinVerificationCompleted);
     // the "viewed" steps below were the gap.
     Compliance: {
-      BannerViewed: 'Pro Upgrade - Banner Viewed',
-      BannerGetPro: 'Pro Upgrade - Banner: Click Get Pro',
-      TextingSetupBannerViewed: 'Pro Upgrade - Texting Setup Banner Viewed',
-      TextingSetupBannerStart:
-        'Pro Upgrade - Texting Setup Banner: Click Start',
       LockedItemClicked: 'Pro Upgrade - Locked Item: Click',
       // The funnel's first step: carries `source`, `channel` and `cta`.
       FlowStarted: 'Pro Upgrade - Flow Started',
@@ -422,6 +417,7 @@ export const EVENTS = {
       BannerClicked: 'Pro Upgrade - Banner Clicked',
       VerificationBannerClicked: '10DLC - Verification Banner Clicked',
       PinBannerClicked: '10DLC - PIN Banner Clicked',
+      ScheduleBannerClicked: '10DLC - Schedule Banner Clicked',
     },
     // outreach-pro-gating-v2 campaign verification flow (Pro upgrade and
     // campaign verification 2.0).
@@ -729,11 +725,11 @@ export const EVENTS = {
     // The front card of the home's task stack. `cardType` is the card's kind
     // (onboarding, briefing, agenda_item, community_issue, civic_panel,
     // report_back), `cardVariant` tells the civic panel cards apart
-    // (panel_build, panel_step, priority_next_step), `stackSize` how many
-    // cards were in the stack when the official acted.
+    // (panel_managed, panel_managed_progress, priority_next_step),
+    // `stackSize` how many cards were in the stack when the official acted.
     TaskCompleted: 'Chief Of Staff - Task Completed',
     // Every other choice on that card: `action` is start (its main button),
-    // ask (open the chat about it), explain (What's a civic panel?) or skip,
+    // ask (open the chat about it) or skip,
     // with `skipChoice` snooze or dismiss.
     TaskActionTaken: 'Chief Of Staff - Task Action Taken',
   },
@@ -830,9 +826,6 @@ export const EVENTS = {
   },
   CivicPanel: {
     PanelViewed: 'Civic Panel - Panel Viewed',
-    // A plan step opened in its text, call or door flow, from the panel page
-    // or the Chief of Staff chat. Its start and completion are server truth.
-    StepOpened: 'Civic Panel - Step Opened',
   },
   Ordinances: {
     ClarifyViewed: 'Ordinances - Clarify Viewed',

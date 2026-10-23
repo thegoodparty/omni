@@ -184,9 +184,34 @@ chat registers none. All tools are the `LlmStreamTool` shape defined in
   counts (`PriorityFlowOutreachService`), and a card of chosen sends. Chief of
   Staff reads an office's by `organizationSlug` with `campaignId` null, per
   office and per priority; Campaign Manager reads a campaign's by `campaignId` (`forCampaign`), never
-  by slug, since an org can hold a campaign and an office at once. The card
-  picks its detail route, results route and outreach hub from the surface's
-  mode.
+  by slug, since an org can hold a campaign and an office at once. A
+  `channel` reads its family (`channelWhere`): door knocking or phone banking
+  by either name returns the legacy rows and the native walks and call lists,
+  because the model asks for `doorKnocking` and a walk is stored as
+  `nativeDoorKnocking`. The card picks its detail route, results route and
+  outreach hub from the surface's mode. Each row carries `name` (the walk,
+  call list or send's own name, `Outreach.name`) apart from `audience` (the
+  list it was cut from), so the model can match an effort the person names.
+  `replies` counts text replies only; a walk or list always shows none, and
+  the descriptions send the model to `read_outreach_feedback` for those.
+- **`read_outreach_feedback`** — what came back in people's own words: text
+  replies, door and call notes with their issues, and each send's themes
+  (`PriorityFlowOutreachService`). Chief of Staff and the priority flow read
+  the office's sends behind `serve-citizen-panels` (`feedbackFor`); Campaign
+  Manager reads the campaign's door knocking and phone banking by
+  `campaignId` behind `issue-capture` (`feedbackForCampaign`), since a Win
+  text's replies come back as timestamps, never words. With no `outreachId`
+  or priority it reads the five most recent sends together. A `channel`
+  narrows that to one family, as `read_past_outreach`'s does
+  (`channelWhere`), so a question about the doors reads only walks and one
+  about calls only call lists. For a named walk or list, the description
+  tells the model to find its id with `read_past_outreach` and pass it.
+- **Archived sends** (`Outreach.archivedAt`, the history drawer's archive)
+  are left out of the office and campaign reads of both tools, so an old
+  walk does not fill the recent window and get read as current. Two reads
+  keep them: an explicit `outreachId`, and a priority's own sends
+  (`forPriority`, `feedbackFor` with a priority), which are all evidence for
+  its check and whose people must not be asked again.
 - **`describe_filter_dimensions` / `count_contacts`** — aggregate-only CRM reads
   shared by Campaign Manager (Win) and Chief of Staff (Serve), built in
   `src/chats/general/crm-tools/`. `describe` returns the mode-filtered
@@ -216,23 +241,11 @@ chat registers none. All tools are the `LlmStreamTool` shape defined in
   multi-select card, and the answer comes back as an ordinary user turn. Both
   prompts carry the same `CLARIFY_QUESTION_RULES` (`chat-tools/`), so a choice
   never goes out as prose on one assistant and as a card on the other.
-- **`ask_panel_weekly_time` / `save_panel_weekly_time` / `present_panel_next_step`**
-  — Chief of Staff only, behind `serve-citizen-panels`
-  (`chief-of-staff/services/civicPanelPlan.tools.ts`). The chat builds the
-  civic panel on the same plan as the panel page
-  (`CivicPanelBuildPlanService`): the weekly time question and the next step
-  card take no args and are drawn by the webapp from fixed words; `save`
-  creates the plan (POST's path) or changes its time (PATCH's), and a 409 it
-  cannot resolve comes back as `planMade: false` with the reason. Ask refuses
-  once a plan exists, so the question is never asked twice. See the contacts
-  AGENTS.md, "Building the panel starts on the Chief of Staff home".
 - **`size_round_one`** — priority chat only, behind `serve-citizen-panels`
-  (`chat-tools/sizeRoundOne.tool.ts`). Counts who doors, calls and a text
-  can reach, group by group, picks the doors' one walkable area, and returns
-  the three cards of a check's first round already sized; the agent
-  presents them with `present_outreach_proposal` as given, and the handler
-  refuses a door card's `walkableArea` the tool did not return that turn. See the contacts AGENTS.md, "Round
-  1 sizing".
+  (`chat-tools/sizeRoundOne.tool.ts`). Counts who a text can reach, group by
+  group, and returns the one text card of a check's first round already
+  sized; the agent presents it with `present_outreach_proposal` as given.
+  See the contacts AGENTS.md, "Round 1 sizing".
 - **`web_search`** — Anthropic native `webSearch_20250305`, `maxUses: 5`.
 
 The **ordinance flow** scope (`src/chats/general/ordinance-flow/`) registers
@@ -244,7 +257,10 @@ markdown) / `save_existing_law` / `brave_search` on the current_law step.
 `brave_search` (Brave Web Search, gated on `BRAVE_API_KEY`) returns fetchable
 result URLs so the model can find a server-rendered copy of a chapter when
 `fetch_url` comes back blank — Municode and other browser-rendered code sites
-do this. Its handler raises `maxSteps` to 8 — a current_law turn chains
+do this. When no copy can be read either, the step saves no existing-law
+record: it leaves a `save_note` saying the chapter could not be read and what
+would complete it, presents no summary card, and still offers the next step.
+Its handler raises `maxSteps` to 8 — a current_law turn chains
 `get_code_source` + several `fetch_url` calls + `save_existing_law`, and the
 default 5 cuts research off mid-chain.
 

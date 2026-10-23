@@ -569,7 +569,7 @@ jobs:
                 # directory name reaches `--agents=` unchanged. Both are valid
                 # snake_case, so the allowlist below passes them through: a
                 # directory named `all` turns this one-agent request into the
-                # ~$829 sweep of every agent that every other guard in this file
+                # ~$831 sweep of every agent that every other guard in this file
                 # exists to prevent, and one named `auto` makes the CLI throw.
                 # Rejected here rather than filtered out, because silently
                 # judging nothing would hide a directory nobody can ever judge.
@@ -766,7 +766,7 @@ jobs:
       # GUARD 3 of 3, and the first thing that happens on any path that could
       # spend: what this is about to cost, per agent, before a single model call.
       #
-      # An accidental `all` is the failure this exists for. It is roughly $829
+      # An accidental `all` is the failure this exists for. It is roughly $831
       # against single dollars for the normal one-agent case, and the difference
       # between those two is one word in a PR comment. So the number goes in
       # front of a person, in the job summary and on the PR, and the live sweep
@@ -2052,7 +2052,19 @@ jobs:
           npm ci --prefer-offline --no-audit --no-fund
           npm run build -w packages/contracts
           npm run build -w packages/nest-common
-          npm run generate:prisma:gp-api
+          # Same retry as the action's generate: a base arm on another Prisma
+          # version misses the engine cache it restored and downloads.
+          for attempt in 1 2 3; do
+            if npm run generate:prisma:gp-api; then
+              break
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              echo "::error::prisma generate failed after 3 attempts"
+              exit 1
+            fi
+            echo "::warning::prisma generate attempt $attempt failed; retrying"
+            sleep $((attempt * 15))
+          done
           (cd "$WORKSPACE" && npx tsx scripts/generate-route-types.ts)
 
       # HTTP ARMS ONLY. Mints the one Clerk session both arms present to the

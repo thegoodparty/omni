@@ -337,18 +337,18 @@ describe('VoterFileStep — civic panel history groups', () => {
       />,
     )
 
-  it('offers member, left and never invited, which select together', async () => {
+  it('offers member and left, which select together', async () => {
     const onFiltersChange = vi.fn()
     const user = userEvent.setup()
     renderServe({ civicPanelMember: true }, onFiltersChange)
 
-    await user.click(screen.getByText('Never invited'))
+    expect(screen.queryByText('Never invited')).toBeNull()
+    await user.click(screen.getByText('Left'))
 
     expect(onFiltersChange).toHaveBeenCalledWith(
       expect.objectContaining({
         civicPanelMember: true,
-        civicPanelLeft: false,
-        civicPanelNeverInvited: true,
+        civicPanelLeft: true,
       }),
     )
   })

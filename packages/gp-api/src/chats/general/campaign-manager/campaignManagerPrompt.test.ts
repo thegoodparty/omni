@@ -919,11 +919,11 @@ describe('buildCampaignManagerSystemPrompt', () => {
     expect(prompt).toContain('size a random sample with size_outreach_sample')
     expect(prompt).toContain('When the text asks voters something')
     expect(prompt).toContain(
-      'Texting all 58,520 is about $2,048. 2,767 picked at random is ' +
+      'Texting all 58,520 is about $2,048. Texting 2,767 of them is ' +
         'about $97 and should bring back about 83 replies.',
     )
     expect(prompt).toContain(
-      "I'd text 2,767 of the 58,520, picked at random. About 83 replies " +
+      "I'd text 2,767 of the 58,520. About 83 replies " +
         'is enough to tell how voters feel about it.',
     )
     expect(prompt).toContain('never work out a sample or a cost yourself')
@@ -1035,6 +1035,14 @@ describe('buildCampaignManagerSystemPrompt', () => {
         'present_past_outreach',
       ]),
     ).toContain('present_past_outreach')
+    expect(withRead).not.toContain('read_outreach_feedback')
+    const withNotes = buildCampaignManagerSystemPrompt(base, [
+      'read_past_outreach',
+      'read_outreach_feedback',
+    ])
+    expect(withNotes).toContain(
+      'When the candidate asks what voters said at the doors or on calls, call read_outreach_feedback',
+    )
   })
 
   it('asks choices as a card only where the clarify tool is registered', () => {

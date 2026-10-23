@@ -141,7 +141,7 @@ describe('SuccessStep', () => {
     // Reproduces the bug: the candidate lands here with a stale cached campaign
     // (isPro=false) while the Stripe webhook is still in flight. The first fetch
     // is still not-Pro; a later poll catches the flip. The shared cache must end
-    // up Pro so the dashboard's ProUpgradeBanner hides on arrival.
+    // up Pro so the sidebar's Pro pitch is gone on arrival.
     testQueryClient.setQueryData(CAMPAIGN_QUERY_KEY, campaign(false))
     api.mockOrdered('GET /v1/campaigns/mine', [
       { status: 200, data: campaign(false) },

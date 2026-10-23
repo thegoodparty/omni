@@ -199,7 +199,7 @@ export class OutreachServeSmsController {
   }
 
   // Draft-first create. The row exists BEFORE checkout because the composed
-  // message can reach SMS_COMPOSED_MAX_LENGTH (1000) and a Stripe metadata
+  // message can reach SMS_COMPOSED_MAX_LENGTH (2000) and a Stripe metadata
   // value caps at 500, so the poll pattern of carrying content through
   // checkout metadata cannot work here — checkout carries two ids instead.
   //

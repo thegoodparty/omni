@@ -1,7 +1,7 @@
 import Link from 'next/link'
 import {
   PANEL_MIN_MEMBERS_FOR_BALANCE,
-  type CivicPanelBuildProgress,
+  type CivicPanelProgress,
   type CivicPanelComposition,
 } from '@goodparty_org/contracts'
 import { Button } from '@styleguide'
@@ -9,6 +9,7 @@ import { cn } from '@styleguide/lib/utils'
 import { CheckIcon, CircleCheckIcon } from '@styleguide/components/ui/icons'
 import { SERVE_CITIZENS_PANEL_COPY as COPY } from '../citizensPanelCopy'
 import {
+  buildBloom,
   buildSeats,
   milestones,
   NEAR_FULL_AT,
@@ -85,7 +86,7 @@ export const CivicPanelMilestones = ({
   progress,
   composition,
 }: {
-  progress: CivicPanelBuildProgress
+  progress: CivicPanelProgress
   composition: CivicPanelComposition | null
 }) => {
   const { members, goal } = progress
@@ -105,6 +106,11 @@ export const CivicPanelMilestones = ({
   const full = members >= goal && (!chart || chart.stage === 'full')
   if (full) {
     const placeCount = chart?.places.length ?? 0
+    // Counted the way the petals below count, so the two never disagree.
+    const bloom =
+      composition && composition.groups.length > 0
+        ? buildBloom(composition.groups)
+        : null
     return (
       <Card className="py-8">
         <CircleCheckIcon aria-hidden className="size-14 text-primary" />
@@ -133,12 +139,12 @@ export const CivicPanelMilestones = ({
               {COPY.fullPlaces(placeCount, words.many)}
             </span>
           ) : null}
-          {progress.groupsTotal > 0 ? (
+          {bloom ? (
             <span>
               <span className="font-semibold text-foreground">
-                {progress.groupsCovered}
+                {bloom.atShare}
               </span>
-              {COPY.fullGroups(progress.groupsTotal)}
+              {COPY.fullGroups(bloom.petals.length)}
             </span>
           ) : null}
         </div>

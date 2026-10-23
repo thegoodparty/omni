@@ -23,6 +23,8 @@ import {
   PriorityAnswerCode,
   PriorityAnswerSource,
   PrioritySource,
+  SynthesisRunStatus,
+  SynthesisScope,
 } from '@/generated/prisma'
 import { ContactsService } from '@/contacts/services/contacts.service'
 import { StatsService } from '@/peopleDb/services/stats.service'
@@ -59,11 +61,6 @@ const readStatus = (id = priorityId) =>
     headers(),
   )
 
-const blockGroup = Object.fromEntries(
-  ACS_COUNT_KEYS.map((key) => [key, 100]),
-) as AcsCounts
-
-let compose: MockInstance<CensusCompositionSource['compose']>
 let mrpInputs: MockInstance<CensusCompositionSource['mrpInputs']>
 
 // A district of 800 people 35 to 44 and 200 aged 65 and over. Whoever is
@@ -210,16 +207,6 @@ beforeEach(async () => {
     service.app.get(ContactsService),
     'resolveEligibleDistrict',
   ).mockResolvedValue({ districtId: 'd-1', dataset: 'voters' })
-  compose = vi
-    .spyOn(
-      service.app.get<CensusCompositionSource>(CENSUS_COMPOSITION_SOURCE),
-      'compose',
-    )
-    .mockImplementation(async ({ personIds }) => ({
-      available: true,
-      district: blockGroup,
-      respondentBlockGroups: personIds.map(() => blockGroup),
-    }))
   mrpInputs = vi
     .spyOn(
       service.app.get<CensusCompositionSource>(CENSUS_COMPOSITION_SOURCE),
@@ -258,13 +245,6 @@ describe('GET /v1/priorities/:id/results', () => {
       expect(Math.round(lat * 1000) / 1000).toBe(lat)
       expect(Math.round(lng * 1000) / 1000).toBe(lng)
     }
-    expect(compose.mock.calls[0]?.[0]).toEqual({
-      districtId: 'd-1',
-      dataset: 'voters',
-      personIds: expect.arrayContaining(respondents),
-    })
-    expect(res.data.representation?.respondentCount).toBe(12)
-    expect(res.data.representation?.groups.length).toBeGreaterThan(0)
     // Nobody's answer is coded yet: no group has been heard.
     expect(res.data.readStatus).toEqual({
       answers: 12,
@@ -275,18 +255,19 @@ describe('GET /v1/priorities/:id/results', () => {
       good: false,
       status: 'tooEarly',
       underrepresented: ['age35to44', 'age65plus'],
+      unheard: ['age35to44', 'age65plus'],
     })
   })
 
   it('reads the status off the model of the coded answers', async () => {
-    await createCodedSend(12, 4)
+    await createCodedSend(16, 4)
 
     const res = await results()
 
     expect(res.data.readStatus).toMatchObject({
-      answers: 12,
+      answers: 16,
       checkOut: true,
-      needed: 12,
+      needed: 16,
       good: false,
       status: 'gettingClose',
     })
@@ -297,29 +278,33 @@ describe('GET /v1/priorities/:id/results', () => {
     })
   })
 
-  it('compares who answered with the district unweighted', async () => {
+  it("compares the read's groups in the answers with the district", async () => {
     await createCodedSend(12, 4)
 
     const res = await results()
 
-    // Every block group is the district's own mix, so unweighted the
-    // respondents read exactly as the district does.
-    for (const group of res.data.representation?.groups ?? []) {
-      expect(group.respondentShare).toBeCloseTo(group.districtShare)
-    }
+    expect(res.data.groups).toEqual([
+      {
+        group: 'age35to44',
+        districtShare: expect.closeTo(0.8),
+        answerShare: expect.closeTo(8 / 12),
+      },
+      {
+        group: 'age65plus',
+        districtShare: expect.closeTo(0.2),
+        answerShare: expect.closeTo(4 / 12),
+      },
+    ])
   })
 
-  it('shows unavailable census as a comparison with no rows, not an error', async () => {
-    compose.mockResolvedValue({ available: false })
-    await createTextSend(12, 0)
+  it('has no groups to compare when the district cannot be read, not an error', async () => {
+    mrpInputs.mockResolvedValue(null)
+    await createCodedSend(12, 4)
 
     const res = await results()
 
     expect(res.status).toBe(HttpStatus.OK)
-    expect(res.data.representation).toEqual({
-      respondentCount: 12,
-      groups: [],
-    })
+    expect(res.data.groups).toEqual([])
   })
 
   it('does not count a reply that was only STOP as hearing from someone', async () => {
@@ -376,13 +361,56 @@ describe('GET /v1/priorities/:id/results', () => {
     expect(res.data.respondents.byChannel.text).toBe(5)
   })
 
-  it('withholds the comparison below the minimum number of respondents', async () => {
-    await createTextSend(4, 2)
+  describe('summarizing', () => {
+    const run = (status: SynthesisRunStatus) =>
+      service.prisma.feedbackSynthesisRun.create({
+        data: {
+          organizationSlug: eoOrgSlug,
+          scope: SynthesisScope.priority,
+          priorityId,
+          status,
+          conversations: 5,
+          memos: 5,
+          confirmed: 5,
+          engine: 'test',
+        },
+      })
 
-    const res = await results()
+    it('reads as summarizing before the first run, once enough people answered', async () => {
+      await createTextSend(5, 0)
 
-    expect(res.data.respondents.total).toBe(4)
-    expect(res.data.representation).toBeNull()
+      const res = await results()
+
+      expect(res.data.themes).toEqual([])
+      expect(res.data.summarizing).toBe(true)
+    })
+
+    it('is not summarizing with too few answers for themes', async () => {
+      await createTextSend(4, 0)
+
+      expect((await results()).data.summarizing).toBe(false)
+    })
+
+    it('reads as summarizing while a run is in flight', async () => {
+      await createTextSend(5, 0)
+      await run(SynthesisRunStatus.running)
+
+      expect((await results()).data.summarizing).toBe(true)
+    })
+
+    it('stops summarizing once a run failed, so it never waits forever', async () => {
+      await createTextSend(5, 0)
+      await run(SynthesisRunStatus.failed)
+
+      expect((await results()).data.summarizing).toBe(false)
+    })
+
+    it('stops summarizing once a run completed', async () => {
+      await createTextSend(5, 0)
+      await run(SynthesisRunStatus.completed)
+
+      expect((await results()).data.summarizing).toBe(false)
+    })
   })
 
   it("leaves out sends that are another priority's, unpaid or canceled", async () => {
@@ -463,13 +491,16 @@ describe('GET /v1/priorities/:id/read-status', () => {
     expect(res.data).toEqual({
       answers: 8,
       checkOut: true,
-      needed: 11,
+      // The district's floor: three from the older fifth takes 15.
+      needed: 15,
       groupsHeard: 1,
       groupsTotal: 2,
       good: false,
       status: 'tooEarly',
       // Eight answers still leave the model unsure of the younger band.
       underrepresented: ['age65plus', 'age35to44'],
+      // Only the older band has no answer at all.
+      unheard: ['age65plus'],
     })
   })
 
@@ -481,22 +512,23 @@ describe('GET /v1/priorities/:id/read-status', () => {
     expect(res.data).toEqual({
       answers: 10,
       checkOut: true,
-      needed: 11,
+      needed: 15,
       groupsHeard: 1,
       groupsTotal: 2,
       good: false,
       status: 'notYetRepresentative',
       underrepresented: ['age65plus', 'age35to44'],
+      unheard: [],
     })
   })
 
   it('is getting close while the model is unsure of a group', async () => {
-    await createCodedSend(12, 4)
+    await createCodedSend(16, 4)
 
     const res = await readStatus()
 
     expect(res.data).toMatchObject({
-      needed: 12,
+      needed: 16,
       good: false,
       status: 'gettingClose',
     })
@@ -517,6 +549,7 @@ describe('GET /v1/priorities/:id/read-status', () => {
       good: true,
       status: 'representative',
       underrepresented: [],
+      unheard: [],
     })
   })
 
@@ -641,6 +674,7 @@ describe('GET /v1/priorities/:id/read-status', () => {
       good: true,
       status: 'enoughAnswers',
       underrepresented: [],
+      unheard: [],
     })
   })
 
@@ -659,6 +693,7 @@ describe('GET /v1/priorities/:id/read-status', () => {
       good: false,
       status: 'tooEarly',
       underrepresented: [],
+      unheard: [],
     })
   })
 
@@ -677,7 +712,7 @@ describe('GET /v1/priorities/:id/read-status', () => {
 
   it('does not keep a read that failed', async () => {
     mrpInputs.mockResolvedValueOnce(null)
-    await createCodedSend(12, 4)
+    await createCodedSend(16, 4)
 
     expect((await readStatus()).data.status).toBe('tooEarly')
     expect((await readStatus()).data.status).toBe('gettingClose')
@@ -698,6 +733,83 @@ describe('GET /v1/priorities/:id/read-status', () => {
     const res = await readStatus()
 
     expect(res.status).toBe(HttpStatus.NOT_FOUND)
+  })
+})
+
+describe('GET /v1/priorities/:id/read-status under the district floor', () => {
+  // Six age bands, two sexes and twelve tracts: twenty major groups, the
+  // smallest tract 3% of the district, so the district needs 100 answers.
+  const AGE_BANDS = ['18to24', '25to34', '35to44', '45to54', '55to64', '65plus']
+  const GENDERS = ['male', 'female']
+  const TRACTS = Array.from({ length: 12 }, (_, i) => `370210${1000 + i}`)
+  const FLOOR_FRAME: MrpInputs['frame'] = TRACTS.flatMap((tract, t) =>
+    AGE_BANDS.flatMap((age) =>
+      GENDERS.map((gender) => ({
+        count: t === 0 ? 33 : 97,
+        values: { age, gender, tract },
+      })),
+    ),
+  )
+  // Answers spread evenly: every group gets at least three of 40.
+  const valuesOf = (i: number) => ({
+    age: AGE_BANDS[i % AGE_BANDS.length]!,
+    gender: GENDERS[Math.floor(i / AGE_BANDS.length) % GENDERS.length]!,
+    tract: TRACTS[i % TRACTS.length]!,
+  })
+
+  // The no answers placed first, so where they land never rests on the
+  // order the answers are read in.
+  beforeEach(() => {
+    mrpInputs.mockImplementation(async ({ answers }) => ({
+      frame: FLOOR_FRAME,
+      answers: [...answers]
+        .sort((a, b) => a.yes - b.yes)
+        .map((answer, i) => ({
+          yes: answer.yes,
+          answers: 1,
+          values: valuesOf(i),
+        })),
+      raceNameable: false,
+    }))
+  })
+
+  const answer = async (count: number, no: number) => {
+    const { outreach, respondents } = await createTextSend(count, 0)
+    await code(outreach.id, respondents.slice(no))
+    await code(outreach.id, respondents.slice(0, no), PriorityAnswerCode.no)
+  }
+
+  // Every group has its three and the model is sure of each, so only the
+  // total holds it back.
+  it('reads 40 answers over twenty groups as not yet representative', async () => {
+    await answer(40, 2)
+
+    const res = await readStatus()
+
+    expect(res.data).toMatchObject({
+      answers: 40,
+      needed: 100,
+      groupsHeard: 20,
+      groupsTotal: 20,
+      good: false,
+      status: 'notYetRepresentative',
+      underrepresented: [],
+    })
+  })
+
+  it('reads as representative at the floor, nine in ten saying yes', async () => {
+    await answer(100, 10)
+
+    const res = await readStatus()
+
+    expect(res.data).toMatchObject({
+      answers: 100,
+      needed: 100,
+      groupsHeard: 20,
+      groupsTotal: 20,
+      good: true,
+      status: 'representative',
+    })
   })
 })
 
@@ -747,6 +859,21 @@ describe('GET /v1/priorities/:id/read-status against census sex by age', () => {
       ],
     )
   }
+
+  it('asks for the answers round 1 is sized to, from the same frame', async () => {
+    stubWarehouse([voterCell('35to44', 600), voterCell('65plus', 400)])
+    await createCodedSend(1, 0)
+
+    const res = await readStatus()
+
+    const target = await service.app
+      .get<CensusCompositionSource>(CENSUS_COMPOSITION_SOURCE)
+      .districtAnswersNeeded({ districtId: 'd-1', dataset: 'voters' })
+    // The 65 and over are 40%: three answers from them takes 8 in all,
+    // more than the 6 the groups alone are missing.
+    expect(target).toBe(8)
+    expect(res.data).toMatchObject({ needed: target, good: false })
+  })
 
   it('names a group the census holds as major though the voter file is thin on it', async () => {
     // 2% of the voter file is 65 and over: under the 3% rule on its own.

@@ -30,7 +30,33 @@ import {
   withCivicPanelLeave,
   withCivicPanelLines,
   composeServeScript,
+  composeManagedInvite,
+  MANAGED_INVITE_LOCKED_LINES,
+  managedInviteBody,
+  managedInviteDraft,
 } from './smsCompose.util'
+
+describe('the managed civic panel invite', () => {
+  const body = managedInviteDraft({
+    firstName: 'Carla',
+    office: 'Maplewood City Council Member',
+  })
+
+  it('previews exactly the locked tail the composed invite sends', () => {
+    const sent = composeManagedInvite(body)
+    expect(sent.endsWith(`\n\n${MANAGED_INVITE_LOCKED_LINES}`)).toBe(true)
+    expect(sent.slice(0, -MANAGED_INVITE_LOCKED_LINES.length).trim()).toBe(body)
+    expect(MANAGED_INVITE_LOCKED_LINES).toBe(
+      `${CIVIC_PANEL_JOIN_LINE}\n\n${OPT_OUT_FOOTER}`,
+    )
+  })
+
+  it('keeps a body that echoes the locked lines from sending them twice', () => {
+    const echoed = `${body} ${CIVIC_PANEL_JOIN_LINE} ${OPT_OUT_FOOTER}`
+    expect(composeManagedInvite(echoed)).toBe(composeManagedInvite(body))
+    expect(managedInviteBody(composeManagedInvite(body))).toBe(body)
+  })
+})
 
 // The identification sentence is the one piece of Serve copy that could not
 // be a reworded Win string: Win says the sender is running for an office,

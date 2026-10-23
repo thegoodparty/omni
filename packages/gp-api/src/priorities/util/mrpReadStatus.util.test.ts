@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { answersNeeded } from '@goodparty_org/contracts'
 import type { MrpGroupEstimate } from './mrp.util'
 import {
   holdingBackTracts,
@@ -22,10 +23,35 @@ const group = (
   high: 0.5 + width / 2,
 })
 
-const read = (groups: MrpGroupEstimate[], raceNameable = true): MrpRead => ({
+const read = (
+  groups: MrpGroupEstimate[],
+  raceNameable = true,
+  floor = 0,
+): MrpRead => ({
   result: { district: { mean: 0.5, low: 0.45, high: 0.55 }, groups },
   raceNameable,
+  answersNeeded: floor,
 })
+
+// Six age bands, two sexes and twelve tracts, the smallest holding 3% of the
+// district: twenty major groups, each with at least three of the 40
+// answers, every range tight.
+const TWENTY_GROUPS = (scale = 1): MrpGroupEstimate[] => [
+  ...[7, 7, 7, 7, 6, 6].map((answers, i) =>
+    group('age', `band${i}`, 1 / 6, answers * scale, 0.15),
+  ),
+  group('gender', 'male', 0.5, 20 * scale, 0.15),
+  group('gender', 'female', 0.5, 20 * scale, 0.15),
+  ...[4, 4, 4, 4, 3, 3, 3, 3, 3, 3, 3, 3].map((answers, i) =>
+    group(
+      'tract',
+      `tract${i}`,
+      i === 0 ? 0.03 : 0.97 / 11,
+      answers * scale,
+      0.15,
+    ),
+  ),
+]
 
 const AGES = (younger: number, older: number, width = 0.1) => [
   group('age', '18to64', 0.8, younger, width),
@@ -63,6 +89,7 @@ describe('mrpReadStatus', () => {
       good: false,
       status: 'tooEarly',
       underrepresented: ['age65plus'],
+      unheard: ['age65plus'],
     })
   })
 
@@ -76,6 +103,7 @@ describe('mrpReadStatus', () => {
       needed: 15,
       good: false,
       underrepresented: ['age65plus'],
+      unheard: [],
     })
   })
 
@@ -95,6 +123,7 @@ describe('mrpReadStatus', () => {
       good: false,
       status: 'gettingClose',
       underrepresented: ['age65plus'],
+      unheard: [],
     })
   })
 
@@ -111,6 +140,7 @@ describe('mrpReadStatus', () => {
       good: true,
       status: 'representative',
       underrepresented: [],
+      unheard: [],
     })
   })
 
@@ -161,7 +191,37 @@ describe('mrpReadStatus', () => {
     expect(status).toMatchObject({
       status: 'tooEarly',
       underrepresented: ['unreachedAreas', 'age65plus'],
+      unheard: ['unreachedAreas'],
     })
+  })
+
+  it('says which named groups have no answer at all, apart from those with a few', () => {
+    const status = mrpReadStatus({
+      answers: 14,
+      read: read([
+        ...AGES(12, 2),
+        group('gender', 'male', 0.5, 0),
+        group('gender', 'female', 0.5, 14),
+      ]),
+    })
+    expect(status).toMatchObject({
+      status: 'tooEarly',
+      underrepresented: ['men', 'age65plus'],
+      unheard: ['men'],
+    })
+  })
+
+  it('counts the parts of the district as unheard when any one has no answer', () => {
+    const status = mrpReadStatus({
+      answers: 12,
+      read: read([
+        ...AGES(9, 3),
+        group('tract', '53017950100', 0.5, 9),
+        group('tract', '53017950200', 0.3, 2),
+        group('tract', '53017950300', 0.2, 0),
+      ]),
+    })
+    expect(status.unheard).toEqual(['unreachedAreas'])
   })
 
   it('needs the answers the dimension furthest short is missing', () => {
@@ -179,6 +239,46 @@ describe('mrpReadStatus', () => {
     expect(status.needed).toBe(11)
   })
 
+  it('is not yet representative under the district floor, however the groups split', () => {
+    const floor = answersNeeded(0.03)
+    const status = mrpReadStatus({
+      answers: 40,
+      read: read(TWENTY_GROUPS(), false, floor),
+    })
+    expect(floor).toBe(100)
+    expect(status).toEqual({
+      answers: 40,
+      needed: 100,
+      groupsHeard: 20,
+      groupsTotal: 20,
+      good: false,
+      status: 'notYetRepresentative',
+      underrepresented: [],
+      unheard: [],
+    })
+  })
+
+  it('is representative at the floor once every group is heard and sure', () => {
+    const status = mrpReadStatus({
+      answers: 100,
+      read: read(TWENTY_GROUPS(2.5), false, 100),
+    })
+    expect(status).toMatchObject({
+      needed: 100,
+      good: true,
+      status: 'representative',
+    })
+  })
+
+  it('needs whichever is further off, the floor or the groups', () => {
+    expect(
+      mrpReadStatus({ answers: 14, read: read(AGES(12, 2), true, 15) }).needed,
+    ).toBe(15)
+    expect(
+      mrpReadStatus({ answers: 14, read: read(AGES(14, 0), true, 15) }).needed,
+    ).toBe(17)
+  })
+
   it('says enough answers, never representative, when the district could not be read', () => {
     expect(mrpReadStatus({ answers: 100, read: null })).toEqual({
       answers: 100,
@@ -188,6 +288,7 @@ describe('mrpReadStatus', () => {
       good: true,
       status: 'enoughAnswers',
       underrepresented: [],
+      unheard: [],
     })
     expect(mrpReadStatus({ answers: 12, read: null })).toMatchObject({
       needed: 100,

@@ -458,3 +458,42 @@ describe('ListsIndex — pro gating on saved-list rows', () => {
     expect(screen.queryByText('Unavailable')).not.toBeInTheDocument()
   })
 })
+
+// The panel's one list is the built-in Civic panel row. The audiences our
+// code saved for its invites stay with the outreach that used them, out of
+// the index, while a list the official saved shows as ever.
+describe('ListsIndex — civic panel invite audiences', () => {
+  it('leaves out the lists saved for a civic panel invite', () => {
+    setContext({
+      isWinContext: false,
+      customSegments: [
+        { id: 1, name: 'Civic panel invite', civicPanelInvite: true },
+        { id: 2, name: 'Civic panel calls, batch 2', civicPanelInvite: true },
+        { id: 3, name: 'Seniors downtown', civicPanelInvite: false },
+      ],
+    })
+
+    render(<ListsIndex />)
+
+    expect(screen.getByText('Seniors downtown')).toBeInTheDocument()
+    expect(screen.queryByText('Civic panel invite')).not.toBeInTheDocument()
+    expect(
+      screen.queryByText('Civic panel calls, batch 2'),
+    ).not.toBeInTheDocument()
+  })
+
+  it('reads as empty when every saved list is an invite audience', () => {
+    setContext({
+      isWinContext: false,
+      customSegments: [
+        { id: 1, name: 'Civic panel invite', civicPanelInvite: true },
+      ],
+    })
+
+    render(<ListsIndex />)
+
+    expect(
+      screen.getByText(/haven.t created any lists yet/i),
+    ).toBeInTheDocument()
+  })
+})

@@ -45,10 +45,9 @@ makes those tests pass here and fail there.
 
 In CI (`.github/workflows/gp-api.yml`) the same work is split for speed: a
 `Checks` job runs lint, typecheck, and `prisma migrate diff ... --exit-code`
-against a shadow DB; a `Test` job fans the vitest suite across 4 shards
-(`--shard=N/4`, no coverage), one runner each, because each runner's 4 cores
-are saturated by its own workers plus Postgres. More shards finish faster but
-each one holds a runner, and the org is capped at 60 concurrent jobs. And an empty `Validate` gate
+against a shadow DB; a `Test` job fans the vitest suite across 6 shards
+(`--shard=N/6`, no coverage), one runner each, because each runner's 4 cores
+are saturated by its own workers plus Postgres; and an empty `Validate` gate
 `needs` both so the branch-protection-required `Validate` check is green only
 when all of them pass.
 The local `npm run verify` is unchanged — it runs the whole suite in one pass.

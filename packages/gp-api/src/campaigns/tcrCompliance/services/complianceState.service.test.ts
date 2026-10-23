@@ -24,10 +24,8 @@ import {
   deriveComplianceStage,
 } from './complianceState.service'
 
-// NON_PROD_LIVE_VENDOR_BYPASS is a module constant (non-prod AND live mode), so
-// a test can't flip it through process.env alone. Mirror its definition off the
-// per-test OTEL_SERVICE_ENVIRONMENT, and default to live mode: the bypass tests
-// below assert dev's live-mode behavior; the mock-mode tests set `appEnv.mode`.
+// VENDOR_MODE is a module constant, so a test can't flip it through
+// process.env. Default to live mode; the mock-mode tests set `appEnv.mode`.
 const appEnv = vi.hoisted(() => ({ mode: 'live' as 'live' | 'mock' }))
 vi.mock('@/shared/util/appEnvironment.util', async (importOriginal) => {
   const actual =
@@ -36,12 +34,6 @@ vi.mock('@/shared/util/appEnvironment.util', async (importOriginal) => {
     ...actual,
     get VENDOR_MODE() {
       return appEnv.mode
-    },
-    get NON_PROD_LIVE_VENDOR_BYPASS() {
-      return (
-        process.env.OTEL_SERVICE_ENVIRONMENT !== 'prod' &&
-        appEnv.mode === 'live'
-      )
     },
   }
 })
@@ -527,17 +519,6 @@ describe('ComplianceStateService - findStateForCampaign', () => {
     expect(result.stage).toBe(ComplianceStage.awaiting_pin)
     expect(result.peerlyCvStatus).toBeNull()
     expect(result.pinDelivery).toBeNull()
-  })
-
-  it('short-circuits to APPROVED with null PIN delivery in non-prod live mode', async () => {
-    vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'dev')
-    mockFindUniqueOrThrow.mockResolvedValue(awaitingPinCampaign())
-
-    const result = await service.findStateForCampaign(42)
-
-    expect(result.peerlyCvStatus).toBe(PeerlyCvVerificationStatus.APPROVED)
-    expect(result.pinDelivery).toBeNull()
-    expect(mockRetrieveCv).not.toHaveBeenCalled()
   })
 
   it('reports the CV status from Peerly, not a hardcoded APPROVED, in non-prod mock mode', async () => {

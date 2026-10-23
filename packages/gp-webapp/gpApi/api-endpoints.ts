@@ -127,12 +127,9 @@ import type {
   PriorityReadStatus,
   CivicPanelSummary,
   CIVIC_PANEL_SEGMENT,
-  CivicPanelRepresentation,
-  CivicPanelBuildPlanResponse,
-  CreateCivicPanelBuildPlanInput,
-  UpdateCivicPanelBuildPlanInput,
-  MarkCivicPanelBuildStepInput,
-  PrepareCivicPanelBuildStepResponse,
+  ApproveManagedCivicPanelInput,
+  ManagedCivicPanelResponse,
+  UpdateManagedCivicPanelInput,
 } from '@goodparty_org/contracts'
 import type { Race } from 'app/onboarding/[slug]/[step]/components/ballotOffices/types'
 import type {
@@ -1566,41 +1563,25 @@ export type APIEndpoints = {
     Request: UpdateCivicPanelInput
     Response: CivicPanelStatusResponse
   }
-  // Serve's civic panel as a whole. Both 404 with serve-citizen-panels
-  // off and 400 for a Win org.
+  // Serve's civic panel as a whole. 404s with serve-citizen-panels off and
+  // 400s for a Win org.
   'GET /v1/contacts/civic-panel': {
     Request: {}
     Response: CivicPanelSummary
   }
-  'GET /v1/contacts/civic-panel/representation': {
+  // The panel GoodParty builds for the office. GET is { panel: null } before
+  // the official approves; POST approves the invite in their name.
+  'GET /v1/contacts/civic-panel/managed': {
     Request: {}
-    Response: CivicPanelRepresentation
+    Response: ManagedCivicPanelResponse
   }
-  // The plan that builds the panel across texts, calls and doors. Reading
-  // it is what moves it on (links, dates, the next wave).
-  'GET /v1/contacts/civic-panel/plan': {
-    Request: {}
-    Response: CivicPanelBuildPlanResponse
+  'POST /v1/contacts/civic-panel/managed': {
+    Request: ApproveManagedCivicPanelInput
+    Response: ManagedCivicPanelResponse
   }
-  'POST /v1/contacts/civic-panel/plan': {
-    Request: CreateCivicPanelBuildPlanInput
-    Response: CivicPanelBuildPlanResponse
-  }
-  'PATCH /v1/contacts/civic-panel/plan': {
-    Request: UpdateCivicPanelBuildPlanInput
-    Response: CivicPanelBuildPlanResponse
-  }
-  'POST /v1/contacts/civic-panel/plan/steps/:id/prepare': {
-    Request: {}
-    Response: PrepareCivicPanelBuildStepResponse
-  }
-  'POST /v1/contacts/civic-panel/plan/steps/:id/skip': {
-    Request: {}
-    Response: CivicPanelBuildPlanResponse
-  }
-  'POST /v1/contacts/civic-panel/plan/steps/:id/mark': {
-    Request: MarkCivicPanelBuildStepInput
-    Response: CivicPanelBuildPlanResponse
+  'PATCH /v1/contacts/civic-panel/managed': {
+    Request: UpdateManagedCivicPanelInput
+    Response: ManagedCivicPanelResponse
   }
   'GET /v1/contacts/:id': {
     Request: {}

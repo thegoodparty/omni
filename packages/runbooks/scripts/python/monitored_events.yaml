@@ -3,10 +3,11 @@
 # Curated set of key Win + Serve events to monitor for flatlines / hard drops.
 # Seeded from dbt.int__amplitude_event_taxonomy (watched families) on 2026-06-16.
 #
-# This list is intentionally a curated SUBSET of each family. The monitor is
-# self-healing: analytics_event_health.py surfaces newly-instrumented events in
-# the watched families (see watched_families below) so they can be promoted here
-# after a human confirms them in code.
+# This list is intentionally a curated SUBSET of each family. Watches come from
+# questions (behaviors below, whose instruments enroll themselves) and OKR legs, so
+# analytics_event_health.py proposes adding only an unwatched OKR leg in a watched
+# family, and proposes removing a row whose event is retired in code (DATA-2676).
+# A human applies both through /triage-instrumentation-gaps.
 #
 # Row schema:
 #   event:       exact Amplitude event_type (what we count in amplitude_events)
@@ -750,7 +751,10 @@ behaviors:
         instrumented_by: "Exposure"
     review: {interval_days: 90, last_reviewed: 2026-09-16, reviewed_by: tristan@goodparty.org}
 
-# Proposals a human reviewed and rejected (DATA-2152). The self-healing proposal queue
+# Removal proposals a human rejected go under a top-level `kept:` list, same row shape
+# ({event, reason, date}); the monitor then stops proposing that row's removal.
+#
+# Proposals a human reviewed and rejected (DATA-2152). The addition proposal queue
 # skips these permanently — a dismissed event never re-proposes (it would otherwise keep
 # surfacing every run while it is still inside the 90-day first-seen proposal window). Set
 # via the /triage-instrumentation-gaps skill; hand-editable. The `date` is informational

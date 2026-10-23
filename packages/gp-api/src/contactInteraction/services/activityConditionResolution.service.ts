@@ -30,7 +30,7 @@ const KNOWN_SUPPORT_STATUS_VALUES = SupportStatusRollupSchema.options.filter(
 // against the same `id` transport (e.g. the opt-out scrub in
 // p2pPhoneListUpload.service.ts) check against the same cap instead of
 // duplicating the literal.
-export const MAX_RESOLVED_ID_SET_SIZE = 100_000
+export const MAX_RESOLVED_ID_SET_SIZE = 200_000
 
 export type IdFilterResolution =
   | { kind: 'none' }

@@ -349,8 +349,8 @@ export interface CreateListSurfaceProps {
   // The same pair for a recommendation carried in on `?recommended=`.
   preselectedRecommendedVariant?: RecommendedListVariant
   onRecommendedPreselectApplied?: () => void
-  // The purpose a civic panel plan's door step answered, opening the flow
-  // past the purpose picker on it.
+  // The purpose a link carried, opening the flow past the purpose picker
+  // on it.
   initialPurpose?: ServeDoorKnockingPurpose
   // The agent surface that opened the flow. Threaded straight through.
   launchSource?: OutreachLaunchSource

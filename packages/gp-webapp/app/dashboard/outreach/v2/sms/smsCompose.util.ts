@@ -105,7 +105,7 @@ const removeEvery = (text: string, patterns: RegExp[]): string => {
 // The flow writes the one line a message should carry, so any other copy is
 // a duplicate.
 const JOIN_LINE_PATTERNS = [
-  /Reply JOIN to join my (?:civic|citizens['’]) panel[^\n]*?Empowered by GoodParty\.org\./i,
+  /Reply JOIN to join my (?:civic|citizens['’]) panel[^\n]*?(?:Sent with|Empowered by) GoodParty\.org\./i,
   /Reply JOIN to join my (?:civic|citizens['’]) panel[^\n]*?(?:[.!](?=\s|$)|(?=\n)|$)/i,
 ]
 const LEAVE_LINE_PATTERNS = [
@@ -540,6 +540,41 @@ export const withCivicPanelLines = (
     ? withCivicPanelLeave(script, true)
     : withCivicPanelJoin(withCivicPanelLeave(script, false), lines.join)
 
+// --- The managed civic panel invite ----------------------------------------
+//
+// GoodParty texts one invite in the official's name until their panel is
+// built. They edit only its body; the JOIN line and the opt-out are locked
+// under it, so the composed invite always ends on exactly those two lines.
+
+// The draft body, greeting included. `office` has been through
+// `grammarizeOfficeName` ("Maplewood City Council Member").
+export const managedInviteDraft = ({
+  firstName,
+  office,
+}: {
+  firstName: string
+  office: string
+}): string =>
+  `Hi {{first_name}}, this is ${firstName || SERVE_SMS_IDENTIFICATION_FALLBACK.name}, ` +
+  `your ${office || SERVE_SMS_IDENTIFICATION_FALLBACK.office}. I'm putting ` +
+  'together a group of residents I check with before big votes. Want in?'
+
+// The invite as sent: the body, then the JOIN line and the opt-out. A body
+// that echoes either locked line loses it, so neither is ever sent twice.
+export const composeManagedInvite = (body: string): string =>
+  withCivicPanelJoin(
+    `${withoutLockedLines(body).trim()}\n\n${OPT_OUT_FOOTER}`,
+    true,
+  )
+
+// The editable body of an invite an AI rewrite handed back whole.
+export const managedInviteBody = (invite: string): string =>
+  withoutLockedLines(invite).trim()
+
+// What follows the editable body, shown locked under it: the composed
+// invite with no body, so the preview and the send cannot drift.
+export const MANAGED_INVITE_LOCKED_LINES = composeManagedInvite('').trim()
+
 // --- Add it back ------------------------------------------------------------
 //
 // A required line the official deleted is put back where the flow writes it,
@@ -588,6 +623,25 @@ export const IMAGE_ACCEPT = 'image/jpeg,image/png,image/gif'
 
 const PROFILE_PHOTO_MAX_EDGE = 1024
 const PROFILE_PHOTO_QUALITIES = [0.85, 0.7, 0.5]
+
+// A photo from Android's photo picker is a handle Chrome re-reads only when
+// the review step uploads it, and that late read can fail: the create then
+// dies in the browser and nothing reaches gp-api. Copying the bytes at pick
+// time uploads from memory, and an unreadable photo fails while the
+// candidate can still choose it again. Rejects when the file can't be read.
+export const inMemoryCopy = (file: File): Promise<File> =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      if (reader.result instanceof ArrayBuffer) {
+        resolve(new File([reader.result], file.name, { type: file.type }))
+      } else {
+        reject(new Error('Image read returned no bytes'))
+      }
+    }
+    reader.onerror = () => reject(reader.error)
+    reader.readAsArrayBuffer(file)
+  })
 
 // The profile photo the SMS image starts from. Avatars are stored at up to
 // 5 MB, ten times what an MMS attachment allows, so anything over the cap or

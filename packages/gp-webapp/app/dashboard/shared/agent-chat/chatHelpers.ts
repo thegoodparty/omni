@@ -1,4 +1,14 @@
+import type { ChatMessageDto } from './chatClient'
 import type { ChatErrorCode } from './chatTypes'
+
+// Mirrors CHAT_INTERRUPTED_BEFORE_OUTPUT_MARKER in gp-api's
+// chats/services/chatStream.service.ts: the assistant body persisted when a
+// turn was cut off before any text arrived. Surfaces offer a retry for it.
+export const CHAT_INTERRUPTED_BEFORE_OUTPUT_MARKER =
+  '__chat:interrupted_before_output__'
+
+export const isInterruptedTurn = (m: ChatMessageDto): boolean =>
+  m.role === 'assistant' && m.content === CHAT_INTERRUPTED_BEFORE_OUTPUT_MARKER
 
 // Stable per-message id, sent with each turn and preserved across retries so
 // the server can dedupe. Prefers crypto.randomUUID, with a plain fallback.

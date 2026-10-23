@@ -89,29 +89,34 @@ A Serve (`eo-`) org also gets the whole civic panel loop:
 
 - **Civic panel** (`/dashboard/contacts/citizens-panel`): 60 to 100
   members, from door and call yeses plus JOIN replies to a panel invite
-  text, and a build plan at 2 hours a week whose first text step reads done.
+  text.
 - **Priority** (`/dashboard/priorities`): "Safer streets near schools", with
-  a text ask to panel members and other residents. Every resident asked
-  replies and gets a coded answer, so the priority reads as every group
-  heard and its results page (`/dashboard/priorities/<id>/results`) opens
-  with themes.
+  a text ask to panel members, other residents and a few doors' worth of
+  residents from each of the district's major census tracts. Every resident
+  asked replies and gets a coded answer, so the priority reads as every
+  group heard and its results page (`/dashboard/priorities/<id>/results`)
+  opens with themes.
 
 Set how the priority reads with `--answers <n>` (how many residents answer,
 each with a coded answer) and `--split even` (answers split half yes, half
 no, instead of nine in ten yes), on `--org` or `--fixture`:
 
 ```bash
-npm run seed:activity -- --org <slug> --answers 0     # Waiting to hear from some groups
+npm run seed:activity -- --org <slug> --answers 0     # Waiting to hear back
 npm run seed:activity -- --org <slug> --answers 40    # A few groups need more answers
 npm run seed:activity -- --org <slug> --split even    # Still unsure what some groups think
 ```
 
 With no flags every resident asked answers, and the priority reads as Every
-group heard. Which counts land on which state depends on how many groups
-the district has: the counts above are what a district of about 20 groups
-(six age bands, two genders and a dozen neighborhoods) gives, and a district
-with fewer groups needs fewer answers. Run it again and it adds another round
-of outreach and a second priority; the plan is reused.
+group heard. The seed takes the read's groups from the same census frame
+the read uses (age band, sex, major tracts, and race where it can be
+named), so a capped `--answers` gives every group its answers before anyone
+else. Which counts land on which state depends on how many groups the
+district has: the counts above are what a district of about 20 groups (six
+age bands, two sexes and a dozen tracts) gives, and a district with fewer
+groups needs fewer answers. `--split even` hears every group, men included,
+but half yes and half no is too unsure to read as heard. Run it again and it
+adds another round of outreach and a second priority; the plan is reused.
 
 The default sample is 250 residents.
 

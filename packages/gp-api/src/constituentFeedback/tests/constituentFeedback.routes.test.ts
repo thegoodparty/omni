@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import {
   CONSTITUENT_FEEDBACK_DESIRED_OUTCOME_MAX_LENGTH,
   CONSTITUENT_FEEDBACK_ISSUE_LABEL_MAX_LENGTH,
+  ISSUE_CAPTURE_OFF_ERROR_CODE,
   Person,
 } from '@goodparty_org/contracts'
 import { useTestService } from '@/test-service'
@@ -113,6 +114,20 @@ const onlyFlagOn = (flag: string) => {
 
 const flagsAskedFor = (spy: ReturnType<typeof onlyFlagOn>) =>
   spy.mock.calls.map(([params]) => params.feature)
+
+// issue-capture on for this one user and off for everyone else, so a test
+// can tell whose value a request was gated on.
+const issueCaptureOnlyFor = (userId: number) => {
+  const spy = vi
+    .spyOn(service.app.get(FeaturesService), 'isFeatureEnabled')
+    .mockImplementation(
+      async ({ user, feature }) =>
+        feature === 'issue-capture' &&
+        (typeof user === 'number' ? user : user.id) === userId,
+    )
+  onTestFinished(() => spy.mockRestore())
+  return spy
+}
 
 const createVolunteer = async (slug: string) => {
   const label = `cf-volunteer-${randomUUID()}`
@@ -1005,12 +1020,14 @@ describe('constituent feedback routes', () => {
       expect(flagsAskedFor(flags)).toEqual(['issue-capture'])
     })
 
-    it('404s a Serve org when issue-capture is off', async () => {
+    // The code is what tells a phone holding the memo to keep it.
+    it('404s a Serve org, naming the flag, when issue-capture is off', async () => {
       onlyFlagOn('some-other-flag')
 
       const res = await capture('Rosa wants weekly compost pickup.')
 
       expect(res.status).toBe(404)
+      expect(res.data.errorCode).toBe(ISSUE_CAPTURE_OFF_ERROR_CODE)
     })
   })
 
@@ -1207,6 +1224,7 @@ describe('constituent feedback routes', () => {
       expect(rows).toHaveLength(0)
     })
 
+    // A refusal the phone drops, unlike the flag's.
     it('refuses a knock this org never recorded', async () => {
       const seeded = await seedKnock(eoSlug, 'Mine')
 
@@ -1216,6 +1234,7 @@ describe('constituent feedback routes', () => {
       })
 
       expect(res.status).toBe(404)
+      expect(res.data).not.toHaveProperty('errorCode')
     })
 
     // A turf with no question still captures: the memo is the record worth
@@ -1482,6 +1501,59 @@ describe('constituent feedback routes', () => {
         )
 
         expect(res.status).toBe(404)
+      })
+
+      // The rollout is the org's. Amplitude buckets by user id, so a flag
+      // asked of the volunteer would split a candidate from the people
+      // walking their turfs.
+      it('admits a volunteer on an org whose owner has issue-capture', async () => {
+        const volunteer = await createVolunteer(winSlug)
+        const flags = issueCaptureOnlyFor(service.user.id)
+        const seeded = await seedKnock(winSlug, null)
+        await assign(winSlug, seeded.outreachId, volunteer.user.id)
+
+        const res = await service.client.post(
+          '/v1/constituent-feedback',
+          knockMemoBody(seeded),
+          volunteer.config,
+        )
+        expect(res.status).toBe(201)
+        const confirmed = await service.client.patch(
+          `/v1/constituent-feedback/${res.data.id}/confirm`,
+          CONFIRMED,
+          volunteer.config,
+        )
+        expect(confirmed.status).toBe(200)
+
+        expect(flags.mock.calls.map(([params]) => params.user)).toEqual([
+          service.user.id,
+          service.user.id,
+        ])
+      })
+
+      it('404s a volunteer on an org whose owner lacks issue-capture', async () => {
+        const volunteer = await createVolunteer(winSlug)
+        issueCaptureOnlyFor(volunteer.user.id)
+        const seeded = await seedKnock(winSlug, null)
+        await assign(winSlug, seeded.outreachId, volunteer.user.id)
+
+        const res = await service.client.post(
+          '/v1/constituent-feedback',
+          knockMemoBody(seeded),
+          volunteer.config,
+        )
+        const uploadUrl = await service.client.post(
+          '/v1/constituent-feedback/audio-upload-url',
+          { clientKey: randomUUID(), contentType: 'audio/webm;codecs=opus' },
+          volunteer.config,
+        )
+
+        expect(res.status).toBe(404)
+        expect(uploadUrl.status).toBe(404)
+        const rows = await service.prisma.constituentFeedback.findMany({
+          where: { organizationSlug: winSlug },
+        })
+        expect(rows).toHaveLength(0)
       })
     })
   })

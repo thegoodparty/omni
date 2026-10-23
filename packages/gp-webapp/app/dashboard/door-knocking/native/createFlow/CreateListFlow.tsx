@@ -36,7 +36,6 @@ import {
 } from 'app/dashboard/outreach/v2/eventDetails'
 import { purposeForRecommendedVariant } from 'app/dashboard/outreach/v2/audience/recommendedListMapping.util'
 import { CommunityInputQuestionStep } from 'app/dashboard/outreach/v2/CommunityInputQuestionStep'
-import { useServeCitizenPanelsFlag } from 'app/shared/experiments/serveCitizenPanelsFlag'
 import { Intro } from 'app/dashboard/outreach/v2/social/Intro'
 import {
   builderFiltersFromRecommendation,
@@ -281,7 +280,7 @@ interface CreateListFlowProps {
   // its card would; reported the same way the list above is.
   preselectedRecommendedVariant?: RecommendedListVariant
   onRecommendedPreselectApplied?: () => void
-  // The purpose a civic panel plan's door step answered. With its list
+  // The purpose a link carried. With its list
   // (`preselectedListId`) the flow lands on the talking points, drafted for
   // it, the way a text from a chat card lands on its message.
   initialPurpose?: ServeDoorKnockingPurpose
@@ -527,13 +526,10 @@ export default function CreateListFlow({
   // The goal cards and the name they suggest are the surface's answer: Serve
   // carries its own vocabulary (no election mechanics), and door knocking has
   // ONE route for both rails, so this is the only place the two can differ.
-  // The civic panel invite is offered behind the panel's flag, as on texts.
-  const { enabled: citizenPanelsEnabled } = useServeCitizenPanelsFlag(false)
+  // The civic panel invite only goes out in the managed panel's texts.
   const purposes = (
     serveMode ? SERVE_DOOR_KNOCKING_PURPOSES : DOOR_KNOCKING_PURPOSES
-  ).filter(
-    ({ id }) => citizenPanelsEnabled || id !== BUILD_CITIZENS_PANEL_PURPOSE,
-  )
+  ).filter(({ id }) => id !== BUILD_CITIZENS_PANEL_PURPOSE)
   const purposeNameSuggestion = serveMode
     ? serveDoorKnockingPurposeNameSuggestion
     : doorKnockingPurposeNameSuggestion

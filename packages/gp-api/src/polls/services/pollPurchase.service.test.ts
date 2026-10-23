@@ -2,13 +2,13 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
-  NotFoundException,
 } from '@nestjs/common'
 import { Test, TestingModule } from '@nestjs/testing'
 import { PinoLogger } from 'nestjs-pino'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ElectedOfficeService } from 'src/electedOffice/services/electedOffice.service'
 import { UsersService } from 'src/users/services/users.service'
+import { StripeService } from 'src/vendors/stripe/services/stripe.service'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { PollPurchaseHandlerService } from './pollPurchase.service'
 import { PollsService } from './polls.service'
@@ -27,6 +27,10 @@ describe('PollPurchaseHandlerService', () => {
     findMany: ReturnType<typeof vi.fn>
   }
   let usersService: { findUser: ReturnType<typeof vi.fn> }
+  let stripeService: {
+    retrieveCheckoutSession: ReturnType<typeof vi.fn>
+    refundPaymentIntent: ReturnType<typeof vi.fn>
+  }
 
   beforeEach(async () => {
     pollsService = {
@@ -36,6 +40,10 @@ describe('PollPurchaseHandlerService', () => {
     }
     electedOfficeService = { findFirst: vi.fn(), findMany: vi.fn() }
     usersService = { findUser: vi.fn() }
+    stripeService = {
+      retrieveCheckoutSession: vi.fn(),
+      refundPaymentIntent: vi.fn(),
+    }
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -43,6 +51,7 @@ describe('PollPurchaseHandlerService', () => {
         { provide: PollsService, useValue: pollsService },
         { provide: ElectedOfficeService, useValue: electedOfficeService },
         { provide: UsersService, useValue: usersService },
+        { provide: StripeService, useValue: stripeService },
         { provide: PinoLogger, useValue: createMockLogger() },
       ],
     }).compile()
@@ -92,12 +101,12 @@ describe('PollPurchaseHandlerService', () => {
       expect(pollsService.expandPoll).not.toHaveBeenCalled()
     })
 
-    it('throws NotFoundException when the poll does not exist', async () => {
+    it('rejects permanently when the poll does not exist', async () => {
       pollsService.findUnique.mockResolvedValue(null)
 
       await expect(
         service.handlePollPostPurchase('sess_1', rawMetadata),
-      ).rejects.toThrow(NotFoundException)
+      ).rejects.toThrow(BadRequestException)
       expect(pollsService.expandPoll).not.toHaveBeenCalled()
     })
 
@@ -128,6 +137,24 @@ describe('PollPurchaseHandlerService', () => {
       expect(pollsService.expandPoll).toHaveBeenCalledWith(
         expect.objectContaining({ pollId: POLL_ID }),
       )
+    })
+
+    it('stays retryable without refunding when the refused poll is gone on re-read', async () => {
+      // Deleted between expandPoll's refusal and the re-read: whether this
+      // checkout expanded it first can no longer be told, so no refund.
+      pollsService.findUnique
+        .mockResolvedValueOnce({ id: POLL_ID, electedOfficeId: 'eo-1' })
+        .mockResolvedValueOnce(null)
+      pollsService.expandPoll.mockRejectedValue(
+        new BadRequestException('Poll already expanded by this checkout'),
+      )
+
+      const error = await service
+        .handlePollPostPurchase('sess_1', rawMetadata)
+        .catch((e: unknown) => e)
+
+      expect(error).toBeInstanceOf(ConflictException)
+      expect(stripeService.refundPaymentIntent).not.toHaveBeenCalled()
     })
 
     it('throws ForbiddenException when the poll has no elected office', async () => {

@@ -86,10 +86,18 @@ export class PollsService extends createPrismaBase(MODELS.Poll) {
     pollId: string
     additionalRecipientCount: number
     scheduledDate: Date
+    checkoutSessionId: string
   }) {
     const result = await this.optimisticLockingUpdate(
       { where: { id: params.pollId } },
       (poll) => {
+        // Checked before the status so one checkout can never expand a poll
+        // twice, even once the expansion it paid for has completed.
+        if (poll.expansionCheckoutSessionId === params.checkoutSessionId) {
+          throw new BadRequestException(
+            'Poll already expanded by this checkout',
+          )
+        }
         if (derivePollStatus(poll) !== APIPollStatus.COMPLETED) {
           throw new BadRequestException('Poll is not completed')
         }
@@ -102,6 +110,7 @@ export class PollsService extends createPrismaBase(MODELS.Poll) {
           ),
           targetAudienceSize:
             poll.targetAudienceSize + params.additionalRecipientCount,
+          expansionCheckoutSessionId: params.checkoutSessionId,
         }
       },
     )

@@ -30,6 +30,8 @@ import {
   OPT_OUT_RECONCILE_CONCURRENCY,
   OPT_OUT_RECONCILE_INTERVAL_HOURS,
   OPT_OUT_RECONCILE_WINDOW_DAYS,
+  OUTREACH_INBOUND_SWEEP_JOB,
+  OUTREACH_OPT_OUT_RECONCILE_JOB,
   OutreachInboundSweepService,
 } from './outreachInboundSweep.service'
 
@@ -695,7 +697,18 @@ describe('OutreachInboundSweepService — cron lock and deploy gate', () => {
 
     expect(fetchInboundCdrRows).not.toHaveBeenCalled()
     expect(fetchQuestionResponseRows).not.toHaveBeenCalled()
-    expect(await service.prisma.cronRun.count()).toBe(0)
+    // Scoped to these two jobs: the suite's app runs every other @Cron on
+    // real timers, and one that claims an hourly slot (the poll-review sweep
+    // at :33) can land a row mid-test.
+    expect(
+      await service.prisma.cronRun.count({
+        where: {
+          jobName: {
+            in: [OUTREACH_INBOUND_SWEEP_JOB, OUTREACH_OPT_OUT_RECONCILE_JOB],
+          },
+        },
+      }),
+    ).toBe(0)
   })
 })
 

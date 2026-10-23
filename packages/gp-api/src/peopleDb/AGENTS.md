@@ -64,7 +64,13 @@ AGENTS.md, "Steering by census"); its door draws keep to one tract through
 the walkable-area read's `tract` (`tractSql`). The grid stands in
 for tract outlines until the warehouse publishes them
 (https://app.clickup.com/t/17tnw2b6k0u); `DistrictCensusComposition.shapeOfTracts`
-is the one place to swap.
+is the one place to swap. `buildTractPlacesSql` (op `tract-places`, read
+through `StatsService.findTractPlaces`) is what a tract's human name is
+worked out from: per tract, the mean of its residents' points rounded to
+three decimals, and the street most of them live on, by `COUNT(*)` over
+the parsed `Residence_Addresses_StreetName` and
+`Residence_Addresses_Designator`. Aggregates only; the civic panel stores
+the name (see the contacts AGENTS.md, "Tract names").
 
 Consumer-only rows are NULL in every voter-only column (party,
 `Voter_Status`, `StateVoterID`, vote history, `Voter_Independent_Affinity`,
@@ -173,40 +179,30 @@ own `warn`, naming the census lookup so the line is attributable to one of
 the two statements. The voter scan keeps `run()` and stays exactly as loud as
 every other voter read.
 
-## Census composition: the district's ACS row and the people's block groups
+## Census composition: the district's ACS row
 
-`findCensusComposition` (`StatsService`, op `census-composition`) feeds
-the priority results and civic panel comparisons
-(`src/priorities/services/censusComposition.ts`). It issues two statements
-from `districtCensusSql.util.ts`, against marts gp-data-platform#1203
-published:
+`buildDistrictCompositionSql` (`districtCensusSql.util.ts`) reads one row
+from `gp_api_district_census_demographics`, a mart gp-data-platform#1203
+published, keyed exactly like `buildDistrictCensusSql` (state, district
+type, district name; a State district reads the statewide row). ACS 2024
+5-year counts allocated from block groups by 2020 population share, so
+values are fractional and run about 2.4% under, like `district_population`.
+No MOEs, no medians. Adults by census sex and age band
+(`population_{male,female}_*`) are there for weighting;
+`priorities/util/censusSexAge.util.ts` turns them into shares, and
+`buildRespondentCellsSql` puts `Age_Int` in the same bands
+(`ADULT_AGE_BANDS`). Census sex is male/female, matching `Gender`'s
+`M`/`F`; a blank `Gender` (about 1% of voters) sits the dimension out.
+The weighting and district-cell reads (`findWeightingInputs`,
+`findDistrictCells`) select it beside their own statements.
 
-- `buildDistrictCompositionSql`: one row from
-  `gp_api_district_census_demographics`, keyed exactly like
-  `buildDistrictCensusSql` (state, district type, district name; a State
-  district reads the statewide row). ACS 2024 5-year counts allocated from
-  block groups by 2020 population share, so values are fractional and run
-  about 2.4% under, like `district_population`. No MOEs, no medians.
-  Adults by census sex and age band (`population_{male,female}_*`) are
-  there for weighting; `priorities/util/censusSexAge.util.ts` turns them
-  into shares, and `buildRespondentCellsSql` puts `Age_Int` in the same
-  bands (`ADULT_AGE_BANDS`). Census
-  sex is male/female, matching `Gender`'s `M`/`F`; a blank `Gender`
-  (about 1% of voters) sits the dimension out.
-- `buildRespondentBlockGroupsSql`: the given ids scoped to the district,
-  grouped by `Census_Block_Group_Geoid` and joined to
-  `gp_api_block_group_census_demographics`. It returns block group figures
-  and a head count per block group, never a person. A person with a null
-  geoid (about 4% of voters) or no block group row drops out.
+`ACS_COUNT_COLUMNS` is the hand-kept column list it selects. A suppressed
+figure maps to `null`, never `0`.
 
-`ACS_COUNT_COLUMNS` is the hand-kept column list both statements select.
-A suppressed figure maps to `null`, never `0`, and
-`representation.util.ts` drops a dimension with any `null` in it.
-
-Like the census lookup in `findStats`, both statements call the client
+Like the census lookup in `findStats`, these reads call the client
 directly rather than `run()`: the caller folds any failure, and a missing
-district row, into "comparison unavailable" on a 200, so an error-level
-line would be an alerting hazard.
+district row, into "unknown" on a 200, so an error-level line would be an
+alerting hazard.
 
 `Census_Block_Group_Geoid` is on `gp_api_voters` (and so
 `gp_api_constituents` and `gp_api_consumer_only_people`), keyed like the
@@ -262,7 +258,9 @@ Anything needing a street line reads `Residence_Addresses_AddressLine`, which
 holds the whole CASS-standardized line, directions included — the stop's
 frozen `displayAddress` and the door-knocking unit key both do. Do not compose
 a line from the parsed components (house number, the two direction columns,
-street name, designator).
+street name, designator). Naming a census tract is not a street line:
+`buildTractPlacesSql` counts residents per street name and designator to
+name the tract after its busiest street ("around Haywood Rd").
 
 The unit key used to compose the line from components, and wherever the
 directionals came back empty `1234 S Main St` and `1234 N Main St` in one ZIP keyed
@@ -300,6 +298,13 @@ The pack is the one read that does not use the inline path.
 which for a whole district is an unbounded materialization, so
 `DatabricksVoterPackService` reads CSV through external links and parses one
 chunk at a time into the encoder.
+
+The encoder still keeps every person (~65 bytes of heap each), so a pack is
+refused with `VoterPackTooLargeError` when the export reports more than
+`MAX_PACK_ROWS` (3M) rows, before any chunk is read. A statewide district on
+`constituents` is ~21.5M rows, and building one exhausted the heap of the
+gp-api task serving it. The door-knocking stream logs that refusal at `warn`,
+outside the paging build-failure event.
 
 ### The resident projection is wide, and that is deliberate
 
@@ -340,8 +345,9 @@ when the extra row comes back. A truncated roster sends a canvasser to the wrong
 doors, which is worse than an error. Any change that silently caps, paginates or
 drops residents here is a correctness regression, not a performance win.
 
-The civic panel's door step does not go through either. `walkableArea()`
-(`buildWalkableAreaSql`) picks its doors in the warehouse over every
+The walkable-area pick (the test seed's tract draws, through
+`ContactsService.walkableAreaWithin`) does not go through either.
+`walkableArea()` (`buildWalkableAreaSql`) picks its doors in the warehouse over every
 eligible rooftop household in scope (or one tract): households into 200m
 cells, the densest 3x3 block of cells as the seed, the `households` nearest
 that block's center. Only the picked doors come back, as a position and

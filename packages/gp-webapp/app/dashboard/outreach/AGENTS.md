@@ -66,8 +66,7 @@ with the purpose and the list done behind it: every step in the stepper,
 Back to the list (picked in the picker) and then the purpose, Continue
 onward as usual. Where a flow opens is `v2/landingStep.ts`'s
 `outreachLandingStep`: the message when the audience is settled and so is
-the message, written or to be drafted for a settled purpose (a civic panel
-plan step: purpose and frozen list, the draft generating on arrival); the
+the message, written or to be drafted for a settled purpose; the
 audience step when only the message (or the purpose) is; otherwise the
 purpose. An event invite with no message still asks its details first. A
 card's message is always there, so a card whose
@@ -104,20 +103,25 @@ canceled because its draw found nobody says "Nobody left to text, so this was
 canceled. We'll refund it."
 
 `SmsFlow` also takes `initialPurpose`, which opens past the purpose picker on
-that purpose the way a carried recommendation does; the Serve hub passes it
-for its `?compose=text&purpose=build_citizens_panel` link
-(`constituent-outreach/AGENTS.md`), and a chat proposal card for its
-`purpose` (the Chief of Staff's panel invite). With `initialScript` too, the
-seeded words are kept on that purpose rather than opening on `custom`. On Serve, `build_citizens_panel` is
-offered only behind `serve-citizen-panels`, and picking it ticks the compose
-step's "Ask them to join your civic panel" and disables the box
-(`civicPanelAsk.locked`): a panel text is its ask, so every message it
-composes carries the JOIN line, and Continue holds while the line is
-missing. Serve phone banking and door
-knocking carry the same slug as "Invite to your civic panel"
-(`servePhoneBankingPurposes.ts`, `serveDoorKnockingPurposes.ts`), offered
-behind the same flag; its script or talking points are a short invite whose
-ask is the join question the caller or canvasser records.
+that purpose the way a carried recommendation does; a chat proposal card
+passes its `purpose`. With `initialScript` too, the seeded words are kept on
+that purpose rather than opening on `custom`. The civic panel invite
+(`build_citizens_panel`) is never offered in the purpose picker, on texts,
+phone banking or door knocking: the invite only goes out in the managed
+panel's waves, through the `managedInvite` mode below.
+
+`SmsFlow` also has a `managedInvite` mode (Serve only, `{ place, onSetUp }`)
+for the invite GoodParty texts in the official's name to build their civic
+panel. It is the message step alone, its own header (Civic panel invite),
+title and caption, with Back leaving the flow: no purpose, audience, date,
+image, checkout or payment, and it never creates an Outreach row. The
+editable body is `initialScript` (the first name merge tag a chip at its
+start); the JOIN line and the opt-out sit locked under it
+(`composeManagedInvite`, `MANAGED_INVITE_LOCKED_LINES`), and Improve sends the
+whole invite and keeps only the body of the reply (`managedInviteBody`). Set
+up my civic panel waits for the approval checkbox, then posts
+`/v1/contacts/civic-panel/managed` with contracts'
+`MANAGED_CIVIC_PANEL_CONSENT_VERSION` and calls `onSetUp`.
 
 A Serve text whose picked list is civic panel members only (contracts'
 `isCivicPanelOnlyList` on the list's criteria, behind `serve-citizen-panels`)
@@ -336,7 +340,8 @@ reached the candidate and Sentry as that one generic line (2026-10-06).
 - Status labels in `constants.tsx` are mirrored on gp-api — keep them in sync if either side changes.
 - **`OutreachType` is hand-rolled in four places** (`gpApi/types/outreach.types.ts`, `hooks/OutreachContext.tsx`, `constants.tsx`'s `OutreachTypeKey`/`OUTREACH_TYPES`, and `util/getEffectiveOutreachType.ts`'s `VALID_OUTREACH_TYPES`) instead of importing the contracts `OutreachType` enum. Consolidating onto the contracts enum is a real cleanup, deliberately deferred rather than folded into a feature ticket — file it separately if you're touching this area again.
 - **`nativeDoorKnocking` is in three of those four, and its absence from the fourth is deliberate.** `VALID_OUTREACH_TYPES` is named like a type registry but is really the allowlist of types a **task** may open a create-flow for, and the knock transaction is the only writer of a `nativeDoorKnocking` envelope — `createOutreachSchema` rejects the type from clients outright. Adding it there would let `TasksList` open a flow modal for a channel that has no create flow. Don't "fix" the inconsistency without renaming the constant to match what it actually gates.
-- **Card copy and default campaign names are two records per channel, and the custom purpose is excluded from the second one.** A purpose card's label answers "what do you want to do"; a name suggestion is the title the campaign carries in outreach history forever. Sharing one record means the next copy correction silently renames campaigns (#1385), and it means "Write my own message" / "Write my own script" — a purpose with no subject to name — becomes a campaign name verbatim. The audit as of #1385 plus this change: **social, phone banking, Serve social, and Serve phone banking** auto-fill from the purpose, so each reads its own `*_PURPOSE_NAME_SUGGESTIONS` (`SOCIAL_PURPOSE_NAME_SUGGESTIONS` / `PHONE_BANKING_PURPOSE_NAME_SUGGESTIONS` / `SERVE_SOCIAL_PURPOSE_NAME_SUGGESTIONS` / `SERVE_PHONE_BANKING_PURPOSE_NAME_SUGGESTIONS`) and all four flows skip the fill for `custom`, leaving the field empty and the CTA disabled until the candidate types one. **Robocall is not affected and needs no guard**: `goToSchedule` names the campaign off the selected _list_ (`"<list> robocall"`), never the purpose, so `ROBOCALL_PURPOSE_LABELS` only ever feeds cards. A channel (or surface) that starts naming campaigns off its purpose has to add its own suggestions record; `socialPurposes.test.ts` / `phoneBankingPurposes.test.ts` / `serveSocialPurposes.test.ts` / `servePhoneBankingPurposes.test.ts` / `serveSmsPurposes.test.ts` each assert no purpose shares a string across the two records, which is what keeps them from collapsing back into one. **SMS is the partial case**: its auto-name is list-and-date driven (`"<list> — SMS, Sep 4"`), so the purpose only ever supplies the fallback used before a list is picked — `SERVE_SMS_PURPOSE_NAME_SUGGESTIONS` on Serve, the flat `'Text campaign'` on Win. `custom` therefore does not leave the field empty here; it falls back to that same neutral string, which is why the record keeps a `custom` entry rather than omitting it.
+- **Card copy and default campaign names are two records per channel, and the custom purpose is excluded from the second one.** A purpose card's label answers "what do you want to do"; a name suggestion is the title the campaign carries in outreach history forever. Sharing one record means the next copy correction silently renames campaigns (#1385), and it means "Write my own message" / "Write my own script" — a purpose with no subject to name — becomes a campaign name verbatim. The audit as of #1385 plus this change: **social, phone banking, Serve social, and Serve phone banking** auto-fill from the purpose, so each reads its own `*_PURPOSE_NAME_SUGGESTIONS` (`SOCIAL_PURPOSE_NAME_SUGGESTIONS` / `PHONE_BANKING_PURPOSE_NAME_SUGGESTIONS` / `SERVE_SOCIAL_PURPOSE_NAME_SUGGESTIONS` / `SERVE_PHONE_BANKING_PURPOSE_NAME_SUGGESTIONS`) and all four flows skip the fill for `custom`, leaving the field empty and the CTA disabled until the candidate types one. **Robocall is not affected and needs no guard**: `goToSchedule` names the campaign off the selected _list_ (`"<list> robocall"`), never the purpose, so `ROBOCALL_PURPOSE_LABELS` only ever feeds cards. A channel (or surface) that starts naming campaigns off its purpose has to add its own suggestions record; `socialPurposes.test.ts` / `phoneBankingPurposes.test.ts` / `serveSocialPurposes.test.ts` / `servePhoneBankingPurposes.test.ts` / `serveSmsPurposes.test.ts` each assert no purpose shares a string across the two records, which is what keeps them from collapsing back into one. **SMS is the partial case**: its auto-name is list-and-date driven (`"<list>, Sep 4"`, no em dash), and a name the user edited keeps following the send date while it still ends with the date the flow added, so the purpose only ever supplies the fallback used before a list is picked — `SERVE_SMS_PURPOSE_NAME_SUGGESTIONS` on Serve, the flat `'Text campaign'` on Win. `custom` therefore does not leave the field empty here; it falls back to that same neutral string, which is why the record keeps a `custom` entry rather than omitting it.
+- **Every newly scheduled Serve text gets the 3-business-day ops lead.** Ops schedules each Serve send by hand, so `ServeSmsScheduleStep` closes today and the next 2 business days (`getDisabledState`) on every Serve path: plain texts, civic panel invite steps and later panel waves, and a priority's two-round text. The two rounds are bought and scheduled at once, so they share the first send's gate and round 2 adds no day. gp-api enforces the same rule on every Serve text and poll create (`assertServeSmsSendDateAllowed`). See `docs/features/serve-sms.md`, "Send timing".
 - **A missing `CHANNEL_META` key degrades silently, and `getChannelLabel` is why.** It falls back to capitalizing the raw type, so an unmapped channel renders as a plausible-looking `NativeDoorKnocking` in a grey badge rather than throwing. `CHANNEL_META` is typed `Record<OutreachType, ChannelMeta>`, so widening the union is what forces the entry to exist — keep that typing.
 
 ### Door knocking in the outreach surfaces

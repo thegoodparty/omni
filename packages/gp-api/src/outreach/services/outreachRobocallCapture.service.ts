@@ -14,6 +14,7 @@ import {
 } from '../../generated/prisma'
 import { RobocallOrphanedHoldService } from './robocallOrphanedHold.service'
 import { OutreachNotificationService } from './outreachNotification.service'
+import { VENDOR_CRONS_ENABLED } from 'src/shared/util/appEnvironment.util'
 
 // Capture runs after completion (:09,:19,…) records the count, so it sits three
 // minutes later on a slot free of the other robocall crons (send :04, staging
@@ -62,13 +63,14 @@ export class OutreachRobocallCaptureService extends createPrismaBase(
   // the `settling → capturing` claim, so two replicas racing both SELECT the
   // same candidates but only ONE wins each row's claim. @Cron (not @Interval) so
   // the schedule survives deploys and every replica fires on the same instant.
-  // Prod-only (a real charge; Stripe is stubbed on dev/preview).
+  // VENDOR_CRONS_ENABLED (a real charge on prod, a Stripe test-mode charge where
+  // vendors are mocked).
   @Cron(ROBOCALL_CAPTURE_SWEEP_CRON, {
     name: ROBOCALL_CAPTURE_SWEEP_JOB,
     timeZone: EASTERN_TIMEZONE,
   })
   async sweepCaptures(): Promise<void> {
-    if (process.env.OTEL_SERVICE_ENVIRONMENT !== 'prod') return
+    if (!VENDOR_CRONS_ENABLED) return
     return this.runCapture()
   }
 
@@ -287,10 +289,10 @@ export class OutreachRobocallCaptureService extends createPrismaBase(
         )
         return
       }
-      this.logger.error(
+      this.logger.warn(
         { outreachId, intentStatus: intent.status },
-        'CRITICAL robocall capture: hold not capturable at capture time; ' +
-          'parked uncollectable, delivered run uncharged',
+        'robocall capture: hold not capturable at capture time; ' +
+          'parked uncollectable for fresh-charge recovery',
       )
       await this.transitionFromCapturing(
         outreachId,

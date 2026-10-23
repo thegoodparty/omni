@@ -1,0 +1,71 @@
+enum ManagedCivicPanelStatus {
+  building
+  ready
+  paused
+  stopped
+  // Nobody is left to invite by text before the goal.
+  exhausted
+}
+
+/// An office's civic panel that GoodParty builds for it, once the official
+/// approves it in the Chief of Staff. One row per office, kept when stopped
+/// so the free texts already used still count against `freeTextCap` if it is
+/// approved again.
+model ManagedCivicPanel {
+  id               String                  @id @default(uuid(7))
+  createdAt        DateTime                @default(now()) @map("created_at")
+  updatedAt        DateTime                @updatedAt @map("updated_at")
+  organizationSlug String                  @unique @map("organization_slug")
+  organization     Organization            @relation(fields: [organizationSlug], references: [slug], onDelete: Cascade)
+  status           ManagedCivicPanelStatus @default(building)
+  /// The invite text exactly as the official approved it; every wave sends
+  /// these words.
+  inviteMessage    String                  @map("invite_message")
+  consentVersion   String                  @map("consent_version")
+  approvedAt       DateTime                @map("approved_at")
+  /// SetNull so the approval record survives the approver's deletion.
+  approvedByUserId Int?                    @map("approved_by_user_id")
+  approvedBy       User?                   @relation(fields: [approvedByUserId], references: [id], onDelete: SetNull)
+  goalMembers      Int                     @map("goal_members")
+  freeTextCap      Int                     @default(15000) @map("free_text_cap")
+  freeTextsUsed    Int                     @default(0) @map("free_texts_used")
+  readyAt          DateTime?               @map("ready_at")
+  pausedAt         DateTime?               @map("paused_at")
+  stoppedAt        DateTime?               @map("stopped_at")
+  /// Set when the wave job claims the "your panel is ready" email, so it
+  /// goes once each time the panel reaches its goal.
+  readyEmailSentAt DateTime?               @map("ready_email_sent_at")
+  waves            ManagedPanelWave[]
+
+  @@map("managed_civic_panel")
+}
+
+/// One texts-only wave of a managed panel. The list it drew and the send
+/// made from it are filled in as the wave goes out.
+model ManagedPanelWave {
+  id                String            @id @default(uuid(7))
+  createdAt         DateTime          @default(now()) @map("created_at")
+  updatedAt         DateTime          @updatedAt @map("updated_at")
+  enrollmentId      String            @map("enrollment_id")
+  enrollment        ManagedCivicPanel @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  wave              Int
+  voterFileFilterId Int?              @map("voter_file_filter_id")
+  voterFileFilter   VoterFileFilter?  @relation(fields: [voterFileFilterId], references: [id], onDelete: SetNull)
+  /// The send made from the wave. The link lives on Outreach
+  /// (`managedPanelWaveId`) so a free send's funding and its wave sit on one
+  /// row, where a CHECK can hold them together.
+  outreach          Outreach?
+  /// The group the drawn list leaned toward (contracts'
+  /// UnderrepresentedGroup). Null: no lean.
+  steeredToward     String?           @map("steered_toward")
+  sentAt            DateTime?         @map("sent_at")
+  replyWindowEndsAt DateTime?         @map("reply_window_ends_at")
+  /// Set once the reply window has passed; a wave is open until then.
+  closedAt          DateTime?         @map("closed_at")
+  /// The residents the wave's list drew who were members when it closed.
+  joinedMembers     Int?              @map("joined_members")
+
+  @@unique([enrollmentId, wave])
+  @@index([voterFileFilterId])
+  @@map("managed_panel_wave")
+}

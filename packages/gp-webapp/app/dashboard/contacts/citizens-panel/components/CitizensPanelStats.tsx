@@ -1,11 +1,7 @@
-import Link from 'next/link'
 import type { CivicPanelSummary } from '@goodparty_org/contracts'
-import { Button, Card } from '@styleguide'
+import { Card } from '@styleguide'
 import { numberFormatter } from 'helpers/numberHelper'
-import {
-  civicPanelHref,
-  SERVE_CITIZENS_PANEL_COPY as COPY,
-} from '../citizensPanelCopy'
+import { SERVE_CITIZENS_PANEL_COPY as COPY } from '../citizensPanelCopy'
 
 const Row = ({
   label,
@@ -45,12 +41,6 @@ export const CitizensPanelStats = ({
 
 export const CitizensPanelEmpty = () => (
   <Card className="w-full items-start gap-3 rounded-lg p-4">
-    <p className="text-sm">
-      {COPY.empty}{' '}
-      <span className="text-muted-foreground">{COPY.emptyAction}</span>
-    </p>
-    <Button asChild size="small" variant="outline">
-      <Link href={civicPanelHref('contacts')}>{COPY.buildPanel}</Link>
-    </Button>
+    <p className="text-sm">{COPY.empty}</p>
   </Card>
 )

@@ -257,3 +257,34 @@
   runs: 5
   severity_if_failed: blocker
   notes: "The refusal this exists for is 'I can't read the geographic boundary from my side, so I can't create a new list scoped to that exact drawn shape.' First half true, second half wrong — the list IS the shape. Trace oracle because the tell is whether `get` was called with the id in the message; the prose alone can sound right off a stale number."
+
+# The intro's next steps picked together. Prompt 1 is verbatim what
+# `pickedNextStepsMessage` (contracts) builds from two of the intro cards plus
+# Something else, so this case runs the real turn. Change one and change the
+# other.
+- id: MT-11
+  title: Several picked next steps are worked through in order, and the rest are carried
+  prompts:
+    - "Let's work through these, one at a time:\n1. See what matters in your community\n2. Get ready for your next meeting\n3. Help me plan a town hall on the budget"
+    - "Thanks, that's enough on issues for now."
+    - 'Okay, what else did we have?'
+    - "Good, that's the meeting covered."
+  turn_expectations:
+    - 'Starts on step 1 only: what residents are raising and what to make a priority, the same as if that card were picked alone. Says in one short line that it will come back to the meeting and the town hall. Does not start either in this reply.'
+    - 'Moves on without being asked what is next: names getting ready for the next meeting and starts it (reads briefings or meetings if the tools are there, or says plainly there is nothing on file and asks the one question that unblocks it).'
+    - 'Names the meeting step as the current one (picking it up if turn 2 did not finish it) and still carries the town hall as the last item.'
+    - 'Moves to the town hall item, their own words, and starts it. Does not invent a fourth picked step.'
+  required_behavior:
+    - 'Turn 1 works on the first listed step and names the others as coming next'
+    - 'Turn 2 starts the second step unprompted, without the user restating it'
+    - 'Turn 4 starts the written-in town hall item as the last step'
+    - 'Order is the order listed, never reshuffled'
+  forbidden_behavior:
+    - 'Turn 1 works on several steps at once or skips ahead'
+    - 'Turn 2 asks what they want to do next instead of picking up the meeting step'
+    - 'Forgets a step, drops the written-in item, or claims a step was picked that was not'
+    - "Quotes the app's opening line back at them"
+  oracle: rubric
+  runs: 5
+  severity_if_failed: medium
+  notes: 'The remaining steps live only in the turn-1 message, which stays in the transcript; there is no other state. A miss in turn 2 means the model is not reading its own transcript for the list.'

@@ -16,7 +16,7 @@ Freshness is one pipeline run plus the wait for the next, a few minutes.
 | Piece                                                                     | Where                                                                                               | Applied by              |
 | ------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- | ----------------------- |
 | `rds.logical_replication=1` cluster parameter group                       | `deploy/index.ts` (`logicalReplication`)                                                            | Pulumi, on merge        |
-| Publication, `databricks_lakeflow` role, replica identity, trigger        | `prisma/schema/migrations/20261021120000_add_databricks_lakeflow_publication`                       | `prisma migrate deploy` |
+| Publication, `databricks_lakeflow` role, replica identity, trigger        | `prisma/schema/migrations/20261025120000_add_databricks_lakeflow_publication`                       | `prisma migrate deploy` |
 | Role password, replication slot                                           | steps 3 and 7                                                                                       | DB admin                |
 | Unity Catalog connection `gp_api_<env>_lakeflow`                          | `create-connection.sh`                                                                              | Databricks admin        |
 | Service principal, schemas, secret scopes, grants, gateway, pipeline, job | [thegoodparty/gp-terraform-dataplatform](https://github.com/thegoodparty/gp-terraform-dataplatform) | Terraform               |

@@ -68,14 +68,13 @@ export const ANY_PHONE_FIELD = {
 export const CIVIC_PANEL_FILTER_KEY = 'civicPanelMember'
 
 // The status options OR together. Left is someone who was on the panel and
-// left; never invited is nobody the office ever asked to join.
+// left.
 export const CIVIC_PANEL_FIELD = {
   key: 'civic_panel',
   label: 'Civic panel',
   options: [
     { key: CIVIC_PANEL_FILTER_KEY, label: 'On your civic panel' },
     { key: 'civicPanelLeft', label: 'Left' },
-    { key: 'civicPanelNeverInvited', label: 'Never invited' },
   ],
 }
 

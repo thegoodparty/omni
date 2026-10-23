@@ -3,6 +3,7 @@
 import {
   useCallback,
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -10,7 +11,12 @@ import {
 } from 'react'
 import { useRouter } from 'next/navigation'
 import { useQueryClient } from '@tanstack/react-query'
-import { Badge, Button, Input, toast } from '@styleguide'
+import { Badge, Button, Checkbox, cn, Input, Label, toast } from '@styleguide'
+import {
+  MANAGED_CIVIC_PANEL_BACKED_OUT_MESSAGE,
+  MANAGED_CIVIC_PANEL_SET_UP_MESSAGE,
+  pickedNextStepsMessage,
+} from '@goodparty_org/contracts'
 import {
   ASSISTANT_BUBBLE,
   AssistantMarkdown,
@@ -64,9 +70,10 @@ import {
 } from './chatConstants'
 import ChatHistoryPopover from './ChatHistoryPopover'
 import {
-  civicPanelWidgetTools,
-  SAVE_PANEL_WEEKLY_TIME_TOOL,
-} from './civicPanelWidgets'
+  managedPanelWidgetTools,
+  type ManagedPanelWidgetContext,
+} from './managedPanelWidgets'
+import { managedCivicPanelQueryOptions } from '../../../contacts/citizens-panel/civicPanelSummary.query'
 import { HISTORY_KEY, useChatHistory } from '../../data/use-chat-history'
 import {
   isToolRefusal,
@@ -272,7 +279,8 @@ const LIST_PROPOSAL_TOOL = 'present_list_proposal'
 
 type CosWidgetContext = CardWidgetContext &
   ClarifyWidgetContext &
-  ComposeHandoffWidgetContext
+  ComposeHandoffWidgetContext &
+  ManagedPanelWidgetContext
 
 // show_list_map is deliberately not here: its map renders after the turn's
 // prose, once per turn, and moving it would change where it appears.
@@ -280,7 +288,7 @@ const cosWidgets = createWidgetRegistry<CosWidgetContext>([
   ...cardWidgetTools,
   clarifyWidgetTool,
   composeHandoffWidgetTool,
-  ...civicPanelWidgetTools,
+  ...managedPanelWidgetTools,
 ])
 
 // Pulls the widget payload back out of a persisted turn. Returns null for
@@ -574,19 +582,6 @@ function ChiefOfStaffChatThread({
           // its own key dropped or it keeps drawing the pre-edit set.
           void queryClient.invalidateQueries({
             queryKey: ['list-people', orgSlug],
-          })
-        }
-        // A saved weekly time made or changed the panel's plan, which the
-        // home's panel card and the next step card both follow.
-        if (
-          event.type === 'tool_result' &&
-          event.toolName === SAVE_PANEL_WEEKLY_TIME_TOOL
-        ) {
-          void queryClient.invalidateQueries({
-            queryKey: ['civic-panel-plan', orgSlug],
-          })
-          void queryClient.invalidateQueries({
-            queryKey: ['chief-of-staff', 'cards'],
           })
         }
         return false
@@ -1258,6 +1253,28 @@ function ChiefOfStaffChatThread({
     setPendingBoundaryNote(listCreatedMessage(list))
   }, [])
 
+  // The invite review approves the panel browser -> API, so the agent hears
+  // whether the official set it up or backed out from one hidden turn, on
+  // the same queue.
+  const handleManagedPanelInviteClosed = useCallback(
+    (setUp: boolean) => {
+      if (setUp) {
+        void queryClient.invalidateQueries({
+          queryKey: managedCivicPanelQueryOptions(orgSlug).queryKey,
+        })
+        void queryClient.invalidateQueries({
+          queryKey: ['chief-of-staff', 'cards'],
+        })
+      }
+      setPendingBoundaryNote(
+        setUp
+          ? MANAGED_CIVIC_PANEL_SET_UP_MESSAGE
+          : MANAGED_CIVIC_PANEL_BACKED_OUT_MESSAGE,
+      )
+    },
+    [queryClient, orgSlug],
+  )
+
   // Queued rather than sent, because a boundary can be saved while a turn is
   // still streaming — the drawer is mounted by this component precisely so it
   // survives that — and `deliver` refuses a send with one in flight. Dropping
@@ -1280,17 +1297,12 @@ function ChiefOfStaffChatThread({
     [deliver],
   )
 
-  // A write-in card answers the intro's question the way "Or write your own"
-  // answers a clarify question, so it is sent as one.
-  const [writingOwn, setWritingOwn] = useState(false)
+  // Labels of the combinable cards picked so far. Sent in card order, not
+  // click order, so the steps run in the order the official sees them.
+  const [picked, setPicked] = useState<string[]>([])
+  // What the official types under a picked write-in card (Something else).
   const [ownText, setOwnText] = useState('')
-  const submitOwn = useCallback((): void => {
-    const text = ownText.trim()
-    if (!text || busy) return
-    setOwnText('')
-    setWritingOwn(false)
-    void answerClarify(text)
-  }, [ownText, busy, answerClarify])
+  const nextStepIdPrefix = useId()
 
   const onSend = useCallback((): void => {
     const text = composer.trim()
@@ -1386,10 +1398,6 @@ function ChiefOfStaffChatThread({
   // the chip's own `onSelect`.
   const onSuggestionClick = useCallback(
     (s: ChatSuggestion) => {
-      if (s.writeIn) {
-        setWritingOwn(true)
-        return
-      }
       if (s.kickoff) {
         void deliver(s.kickoff, { hidden: true })
         return
@@ -1526,6 +1534,47 @@ function ChiefOfStaffChatThread({
     [suggestions, sendContent],
   )
 
+  const pickedCards = effectiveSuggestions.filter(
+    (s) => s.combinable && picked.includes(s.label),
+  )
+  const pickedSteps = pickedCards.filter((s) => !s.writeIn)
+  const writingOwn = pickedCards.some((s) => s.writeIn)
+  const ownItem = writingOwn ? ownText.trim() : ''
+  const canStart = pickedCards.length > 0 && (!writingOwn || ownItem !== '')
+
+  // One step alone does exactly what clicking that card alone did, and their
+  // own words alone go as their own message. Anything more goes as a single
+  // visible turn listing the steps in card order, their own item last, which
+  // the agent works through in that order.
+  const startPicked = useCallback((): void => {
+    if (!canStart || busy) return
+    const [first] = pickedSteps
+    setPicked([])
+    setOwnText('')
+    if (first && pickedSteps.length === 1 && !ownItem) {
+      onSuggestionClick(first)
+      return
+    }
+    if (!first) {
+      void answerClarify(ownItem)
+      return
+    }
+    void sendContent(
+      pickedNextStepsMessage([
+        ...pickedSteps.map((s) => s.label),
+        ...(ownItem ? [ownItem] : []),
+      ]),
+    )
+  }, [
+    canStart,
+    busy,
+    pickedSteps,
+    ownItem,
+    onSuggestionClick,
+    answerClarify,
+    sendContent,
+  ])
+
   const showIntro =
     (opener !== undefined || isFirstChat) &&
     visibleMessages.length === 0 &&
@@ -1558,6 +1607,7 @@ function ChiefOfStaffChatThread({
   const suggestionsAsCards = effectiveSuggestions.some((s) =>
     Boolean(s.description),
   )
+  const multiSelect = effectiveSuggestions.some((s) => s.combinable)
 
   return (
     // vaul disables text selection on the drawer and pointer-captures on
@@ -1637,6 +1687,7 @@ function ChiefOfStaffChatThread({
                   clarifyAnswer: clarifyAnswerById[m.id],
                   onClarifyAnswer: answerClarify,
                   onComposeHandoff: handleComposeHandoff,
+                  onManagedPanelInviteClosed: handleManagedPanelInviteClosed,
                 }}
                 onCitationClick={
                   attachmentsEnabled && conversationId
@@ -1694,6 +1745,7 @@ function ChiefOfStaffChatThread({
                 clarifyInteractive: false,
                 onClarifyAnswer: answerClarify,
                 onComposeHandoff: handleComposeHandoff,
+                onManagedPanelInviteClosed: handleManagedPanelInviteClosed,
               }}
               onCitationClick={
                 attachmentsEnabled && conversationId
@@ -1744,37 +1796,65 @@ function ChiefOfStaffChatThread({
 
       {showStarters && (
         <div
+          role={multiSelect ? 'group' : undefined}
+          aria-label={multiSelect ? 'Next steps' : undefined}
           className={
             suggestionsAsCards
               ? 'mx-auto flex w-full max-w-[608px] flex-col gap-2 px-3 pb-1 pt-2'
               : 'mx-auto flex w-full max-w-[608px] flex-wrap gap-2 px-3 pb-1 pt-2'
           }
         >
-          {effectiveSuggestions.map((s) =>
-            s.writeIn && writingOwn ? (
-              <div key={s.label} className="flex items-center gap-2">
-                <Input
-                  value={ownText}
-                  onChange={(e) => setOwnText(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault()
-                      submitOwn()
-                    }
-                  }}
-                  placeholder="Type your answer..."
-                  aria-label={s.label}
-                  disabled={busy}
-                  autoFocus
-                />
-                <Button
-                  type="button"
-                  size="small"
-                  onClick={submitOwn}
-                  disabled={busy || ownText.trim().length === 0}
+          {effectiveSuggestions.map((s, i) =>
+            s.combinable ? (
+              <div key={s.label} className="flex flex-col gap-2">
+                <Label
+                  htmlFor={`${nextStepIdPrefix}-${i}`}
+                  className={cn(
+                    'flex w-full cursor-pointer items-start gap-3 rounded-xl border border-border bg-card px-4 py-3 text-left transition-colors hover:bg-grayscale-50',
+                    'has-[[data-state=checked]]:border-primary has-[[data-state=checked]]:bg-primary/5',
+                    busy && 'pointer-events-none opacity-50',
+                  )}
                 >
-                  Send
-                </Button>
+                  <Checkbox
+                    id={`${nextStepIdPrefix}-${i}`}
+                    checked={picked.includes(s.label)}
+                    onCheckedChange={(state) =>
+                      setPicked((prev) =>
+                        state === true
+                          ? [...prev.filter((l) => l !== s.label), s.label]
+                          : prev.filter((l) => l !== s.label),
+                      )
+                    }
+                    disabled={busy}
+                    className="mt-0.5 shrink-0"
+                  />
+                  <span className="min-w-0">
+                    <span className="block text-sm font-semibold text-foreground">
+                      {s.label}
+                    </span>
+                    {s.description && (
+                      <span className="mt-0.5 block text-sm font-normal text-muted-foreground">
+                        {s.description}
+                      </span>
+                    )}
+                  </span>
+                </Label>
+                {s.writeIn && picked.includes(s.label) && (
+                  <Input
+                    value={ownText}
+                    onChange={(e) => setOwnText(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault()
+                        startPicked()
+                      }
+                    }}
+                    placeholder="Type your own..."
+                    aria-label="Write your own"
+                    disabled={busy}
+                    autoFocus
+                  />
+                )}
               </div>
             ) : suggestionsAsCards ? (
               <button
@@ -1810,6 +1890,17 @@ function ChiefOfStaffChatThread({
                 </button>
               </Badge>
             ),
+          )}
+          {multiSelect && (
+            <Button
+              type="button"
+              size="small"
+              className="self-start"
+              onClick={startPicked}
+              disabled={busy || !canStart}
+            >
+              Start
+            </Button>
           )}
         </div>
       )}

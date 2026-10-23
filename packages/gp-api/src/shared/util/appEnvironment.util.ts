@@ -126,16 +126,22 @@ if (IS_PROD_DEPLOY && VENDOR_MODE === 'mock') {
   throw new Error('VENDOR_MODE=mock is not permitted on a prod deploy')
 }
 
-// The non-prod fake-success shortcuts in the 10DLC flow (accept any PIN, skip
-// submit_cv, report CV APPROVED, resend-PIN no-op, verify-live always passes)
-// exist because dev is still in live mode: without them a dev tester would
-// submit real Campaign Verify requests to Peerly with dev credentials. Where
-// the vendors are mocked (preview, local) the real code runs against the
-// mocks instead, so the shortcuts apply only to a non-prod deploy in live mode.
-// WHY narrowed rather than deleted: M5 moves dev onto mocks and then deletes
-// these bypasses, and this constant, outright.
-export const NON_PROD_LIVE_VENDOR_BYPASS =
-  !IS_PROD_DEPLOY && VENDOR_MODE === 'live'
+// Crons that touch a vendor (robocall, P2P reconcile, CV status poll) run
+// where the vendor is the real one on prod, or a mock anywhere else. A
+// non-prod deploy still in live mode (VENDOR_MODE=live rollback) stays off so
+// it never spends real vendor budget. Alerting and Slack-posting crons do NOT
+// use this: they stay prod-only (see docs/scheduled-jobs.md).
+//
+// Pure so the three cases can be tested without module-reset gymnastics.
+export const resolveVendorCronsEnabled = (
+  isProdDeploy: boolean,
+  vendorMode: 'live' | 'mock',
+): boolean => isProdDeploy || vendorMode === 'mock'
+
+export const VENDOR_CRONS_ENABLED = resolveVendorCronsEnabled(
+  IS_PROD_DEPLOY,
+  VENDOR_MODE,
+)
 
 // The organization rides in the mock's path, never in a live URL, so the mock
 // can keep one caller's fixture state (a seeded failure, its request records)

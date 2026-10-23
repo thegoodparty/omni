@@ -2,17 +2,23 @@ import { HttpStatus } from '@nestjs/common'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   OfficeLevel,
+  OutreachStatus,
   OutreachType,
+  RobocallSettleState,
   TcrComplianceStatus,
   UserRole,
   VendorMockVendor,
 } from '@/generated/prisma'
+import { OutreachRobocallSendService } from '@/outreach/services/outreachRobocallSend.service'
 import { PeerlyIdentityService } from '@/vendors/peerly/services/peerlyIdentity.service'
 import { PEERLY_USECASE } from '@/vendors/peerly/services/peerly.const'
 import { PeerlyCvVerificationStatus } from '@/vendors/peerly/peerly.types'
 import { useTestService } from '@/test-service'
 
-const { envNonProd } = vi.hoisted(() => ({ envNonProd: { value: true } }))
+const { envNonProd, vendorMode } = vi.hoisted(() => ({
+  envNonProd: { value: true },
+  vendorMode: { value: 'mock' },
+}))
 vi.mock('@/shared/util/appEnvironment.util', async (importOriginal) => {
   const actual =
     await importOriginal<typeof import('@/shared/util/appEnvironment.util')>()
@@ -20,6 +26,9 @@ vi.mock('@/shared/util/appEnvironment.util', async (importOriginal) => {
     ...actual,
     get IS_NON_PROD_DEPLOY() {
       return envNonProd.value
+    },
+    get VENDOR_MODE() {
+      return vendorMode.value
     },
   }
 })
@@ -460,6 +469,81 @@ describe('POST /v1/test-fixtures/vendor-mocks/jobs/:name/run', () => {
   })
 })
 
+describe('POST /v1/test-fixtures/vendor-mocks/jobs/robocall.send/run', () => {
+  beforeEach(async () => {
+    envNonProd.value = true
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { email: 'qa-00000000-0000-0000-0000-000000000000@goodparty.org' },
+    })
+  })
+
+  const spies: { mockRestore: () => void }[] = []
+  afterEach(() => {
+    spies.splice(0).forEach((spy) => spy.mockRestore())
+  })
+
+  const seedRobocall = async (
+    campaignId: number,
+    date: Date,
+    data: Record<string, unknown>,
+  ) => {
+    const outreach = await service.prisma.outreach.create({
+      data: { outreachType: OutreachType.robocall, campaignId, date },
+    })
+    await service.prisma.outreachRobocall.create({
+      data: {
+        outreachId: outreach.id,
+        audioKey: `audio-${outreach.id}`,
+        callbackNumber: '+15551234567',
+        callhubCampaignPkStr: `pk-${outreach.id}`,
+        ...data,
+      },
+    })
+    return outreach
+  }
+
+  it("launches the caller's due run past another user's leftovers", async () => {
+    const other = await service.prisma.user.create({
+      data: {
+        email: `other-${Date.now()}@example.com`,
+        clerkId: `user_other_${Date.now()}`,
+        firstName: 'Other',
+        lastName: 'User',
+      },
+    })
+    const otherCampaign = await seedCampaign(other.id)
+    const longAgo = new Date(Date.now() - 24 * 60 * 60 * 1000)
+    await seedRobocall(otherCampaign.id, longAgo, {
+      settleState: RobocallSettleState.dialed,
+      dialedAt: new Date(),
+      billableCount: 100,
+    })
+    await seedRobocall(otherCampaign.id, longAgo, {
+      settleState: RobocallSettleState.authorized,
+    })
+    const campaign = await seedCampaign(service.user.id)
+    const mine = await seedRobocall(
+      campaign.id,
+      new Date(Date.now() - 60 * 1000),
+      { settleState: RobocallSettleState.authorized },
+    )
+    const startCampaign = vi
+      .spyOn(service.app.get(OutreachRobocallSendService), 'startCampaign')
+      .mockResolvedValue('done')
+    spies.push(startCampaign)
+
+    const res = await service.client.post(
+      '/v1/test-fixtures/vendor-mocks/jobs/robocall.send/run',
+      {},
+      { validateStatus: () => true },
+    )
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(startCampaign.mock.calls).toEqual([[mine.id]])
+  })
+})
+
 describe('POST /v1/test-fixtures/vendor-mocks/jobs/:name/run (10DLC jobs)', () => {
   const runJob = (name: string) =>
     service.client.post(
@@ -710,5 +794,296 @@ describe('POST /v1/test-fixtures/vendor-mocks/time-travel', () => {
     )
 
     expect(res.status).toBe(HttpStatus.NOT_FOUND)
+  })
+})
+
+describe('POST /v1/test-fixtures/vendor-mocks/cv-validation/override', () => {
+  const OVERRIDE_ROUTE = '/v1/test-fixtures/vendor-mocks/cv-validation/override'
+
+  const seedTcr = (campaignId: number) =>
+    service.prisma.tcrCompliance.create({
+      data: {
+        campaignId,
+        ein: '12-3456789',
+        postalAddress: '1 Main St',
+        committeeName: 'Fixture Committee',
+        websiteDomain: 'example.com',
+        filingUrl: 'https://example.com/filing',
+        phone: '5555555555',
+        email: 'fixture@example.com',
+        officeLevel: OfficeLevel.local,
+      },
+    })
+
+  const overriddenAt = async (campaignId: number) =>
+    (
+      await service.prisma.tcrCompliance.findUniqueOrThrow({
+        where: { campaignId },
+      })
+    ).cvValidationOverriddenAt
+
+  beforeEach(async () => {
+    envNonProd.value = true
+    vendorMode.value = 'mock'
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { email: 'qa-00000000-0000-0000-0000-000000000000@goodparty.org' },
+    })
+  })
+
+  it("stamps the caller's own TcrCompliance record in mock mode", async () => {
+    const campaign = await seedCampaign(service.user.id)
+    await seedTcr(campaign.id)
+
+    const res = await service.client.post(
+      OVERRIDE_ROUTE,
+      {},
+      { validateStatus: () => true },
+    )
+
+    expect(res.status).toBe(HttpStatus.NO_CONTENT)
+    expect(await overriddenAt(campaign.id)).toBeInstanceOf(Date)
+  })
+
+  it("leaves another user's campaign untouched", async () => {
+    const campaign = await seedCampaign(service.user.id)
+    await seedTcr(campaign.id)
+    const otherUser = await service.prisma.user.create({
+      data: { email: `other-${Math.random()}@test.goodparty.org` },
+    })
+    const other = await seedCampaign(otherUser.id)
+    await seedTcr(other.id)
+
+    await service.client.post(
+      OVERRIDE_ROUTE,
+      {},
+      { validateStatus: () => true },
+    )
+
+    expect(await overriddenAt(campaign.id)).toBeInstanceOf(Date)
+    expect(await overriddenAt(other.id)).toBeNull()
+  })
+
+  it('403s for a non-test user and writes nothing', async () => {
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { email: 'real@example.com' },
+    })
+    const campaign = await seedCampaign(service.user.id)
+    await seedTcr(campaign.id)
+
+    const res = await service.client.post(
+      OVERRIDE_ROUTE,
+      {},
+      { validateStatus: () => true },
+    )
+
+    expect(res.status).toBe(HttpStatus.FORBIDDEN)
+    expect(await overriddenAt(campaign.id)).toBeNull()
+  })
+
+  it('404s in live mode and writes nothing', async () => {
+    vendorMode.value = 'live'
+    const campaign = await seedCampaign(service.user.id)
+    await seedTcr(campaign.id)
+
+    const res = await service.client.post(
+      OVERRIDE_ROUTE,
+      {},
+      { validateStatus: () => true },
+    )
+
+    expect(res.status).toBe(HttpStatus.NOT_FOUND)
+    expect(await overriddenAt(campaign.id)).toBeNull()
+  })
+
+  it('404s on a prod deploy', async () => {
+    envNonProd.value = false
+    const campaign = await seedCampaign(service.user.id)
+    await seedTcr(campaign.id)
+
+    const res = await service.client.post(
+      OVERRIDE_ROUTE,
+      {},
+      { validateStatus: () => true },
+    )
+
+    expect(res.status).toBe(HttpStatus.NOT_FOUND)
+    expect(await overriddenAt(campaign.id)).toBeNull()
+  })
+})
+
+describe('POST /v1/test-fixtures/vendor-mocks/outreach/:id/admin-actions', () => {
+  beforeEach(async () => {
+    envNonProd.value = true
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: {
+        email: 'qa-00000000-0000-0000-0000-000000000000@goodparty.org',
+      },
+    })
+  })
+
+  const seedServeOrg = async (userId: number) => {
+    const slug = `eo-test-${Math.random().toString(36).slice(2)}`
+    await service.prisma.organization.create({
+      data: { slug, ownerId: userId },
+    })
+    return slug
+  }
+
+  it('returns 403 when the serve outreach belongs to another org owner', async () => {
+    const otherUser = await service.prisma.user.create({
+      data: {
+        email: `other-${Math.random().toString(36).slice(2)}@test.goodparty.org`,
+        name: 'Other',
+        firstName: 'Other',
+        lastName: 'User',
+      },
+    })
+    const slug = await seedServeOrg(otherUser.id)
+    const outreach = await service.prisma.outreach.create({
+      data: {
+        outreachType: OutreachType.text,
+        organizationSlug: slug,
+        date: new Date(),
+      },
+    })
+
+    const res = await service.client.post(
+      `/v1/test-fixtures/vendor-mocks/outreach/${outreach.id}/admin-actions`,
+      { action: 'results.upload' },
+      { validateStatus: () => true },
+    )
+
+    expect(res.status).toBe(HttpStatus.FORBIDDEN)
+  })
+
+  it('returns 404 for a non-existent outreach', async () => {
+    const res = await service.client.post(
+      '/v1/test-fixtures/vendor-mocks/outreach/999999/admin-actions',
+      { action: 'results.upload' },
+      { validateStatus: () => true },
+    )
+
+    expect(res.status).toBe(HttpStatus.NOT_FOUND)
+  })
+
+  it('passes ownership check for a serve outreach owned by the caller', async () => {
+    const slug = await seedServeOrg(service.user.id)
+    const outreach = await service.prisma.outreach.create({
+      data: {
+        outreachType: OutreachType.text,
+        organizationSlug: slug,
+        date: new Date(),
+      },
+    })
+
+    // results.upload requires a CSV string payload; passing a
+    // non-string exercises the ownership guard (which must pass)
+    // and then surfaces a 400 from the action itself, proving the
+    // 404-on-serve-outreach bug is fixed.
+    const res = await service.client.post(
+      `/v1/test-fixtures/vendor-mocks/outreach/${outreach.id}/admin-actions`,
+      { action: 'results.upload' },
+      { validateStatus: () => true },
+    )
+
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+  })
+
+  it('lets a non-test user act on a serve outreach they own', async () => {
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { email: 'demo-official@goodparty.org' },
+    })
+    const slug = await seedServeOrg(service.user.id)
+    const outreach = await service.prisma.outreach.create({
+      data: {
+        outreachType: OutreachType.text,
+        organizationSlug: slug,
+        date: new Date(),
+      },
+    })
+
+    const res = await service.client.post(
+      `/v1/test-fixtures/vendor-mocks/outreach/${outreach.id}/admin-actions`,
+      { action: 'results.upload' },
+      { validateStatus: () => true },
+    )
+
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+  })
+
+  it("returns 403 for a non-test user on another user's campaign outreach", async () => {
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { email: 'demo-official@goodparty.org' },
+    })
+    const otherUser = await service.prisma.user.create({
+      data: {
+        email: `other-${Math.random().toString(36).slice(2)}@test.goodparty.org`,
+      },
+    })
+    const campaign = await seedCampaign(otherUser.id)
+    const outreach = await service.prisma.outreach.create({
+      data: {
+        outreachType: OutreachType.text,
+        campaignId: campaign.id,
+        date: new Date(),
+      },
+    })
+
+    const res = await service.client.post(
+      `/v1/test-fixtures/vendor-mocks/outreach/${outreach.id}/admin-actions`,
+      { action: 'results.upload' },
+      { validateStatus: () => true },
+    )
+
+    expect(res.status).toBe(HttpStatus.FORBIDDEN)
+  })
+
+  it('returns 404 outside a non-prod deploy', async () => {
+    envNonProd.value = false
+    const slug = await seedServeOrg(service.user.id)
+    const outreach = await service.prisma.outreach.create({
+      data: {
+        outreachType: OutreachType.text,
+        organizationSlug: slug,
+        date: new Date(),
+      },
+    })
+
+    const res = await service.client.post(
+      `/v1/test-fixtures/vendor-mocks/outreach/${outreach.id}/admin-actions`,
+      { action: 'results.upload' },
+      { validateStatus: () => true },
+    )
+
+    expect(res.status).toBe(HttpStatus.NOT_FOUND)
+  })
+
+  it('returns 400 when {{recipient:N}} placeholders exceed recipients', async () => {
+    const slug = await seedServeOrg(service.user.id)
+    const outreach = await service.prisma.outreach.create({
+      data: {
+        outreachType: OutreachType.text,
+        organizationSlug: slug,
+        status: OutreachStatus.in_progress,
+        date: new Date(),
+      },
+    })
+    // No OutreachTextRecipient rows — placeholder resolution must fail.
+
+    const res = await service.client.post(
+      `/v1/test-fixtures/vendor-mocks/outreach/${outreach.id}/admin-actions`,
+      {
+        action: 'results.upload',
+        payload: 'phone,message,direction\n{{recipient:0}},Hi,INBOUND',
+      },
+      { validateStatus: () => true },
+    )
+
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
   })
 })

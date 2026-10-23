@@ -25,8 +25,8 @@ import type { AxiosInstance } from 'axios'
 // jobs → assert Outreach.status = 'completed' and robocall.settleState = 'captured'.
 //
 // Gated behind the `vendor-mocks-m2` feature flag (the dark-launch key for M2).
-// Skips when VENDOR_MODE !== 'mock' (dev always calls the real CallHub; previews
-// and local gp-api with VENDOR_MODE=mock are the targets).
+// Skips when VENDOR_MODE !== 'mock' (only if dev is rolled back with
+// VENDOR_MODE=live; previews, dev and local gp-api run the mock).
 
 const AUDIO_FIXTURE = join(__dirname, '../../../../src/fixtures/test-audio.wav')
 const AUDIO_BUFFER = readFileSync(AUDIO_FIXTURE)
@@ -203,7 +203,7 @@ test.describe('Robocall send — M2 mock pipeline', () => {
     const { vendorMode } = await mockRecords(client, campaignId)
     test.skip(
       vendorMode !== 'mock',
-      'Robocall mock pipeline requires VENDOR_MODE=mock (preview / local only)',
+      'Robocall mock pipeline requires VENDOR_MODE=mock (skipped when VENDOR_MODE=live)',
     )
 
     // ── 3. Gate the M2 feature flag and relay S3 audio uploads ───────────────

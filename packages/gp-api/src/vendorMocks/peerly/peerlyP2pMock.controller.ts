@@ -43,7 +43,13 @@ export class PeerlyP2pMockController {
     const exp = getUnixTime(addSeconds(new Date(), 3600))
     return {
       token: signHs256Jwt({ exp, accountNumber: 'mock-peerly' }),
-      user: { username: 'mock-peerly', user_id: 1 },
+      // request_canvassers derives the requester's initials from these.
+      user: {
+        username: 'mock-peerly',
+        user_id: 1,
+        first_name: 'Mock',
+        last_name: 'Peerly',
+      },
     }
   }
 

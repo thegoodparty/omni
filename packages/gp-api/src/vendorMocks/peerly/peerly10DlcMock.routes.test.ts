@@ -286,6 +286,25 @@ describe('Peerly 10DLC mock: identity, profile and brand (M4-3)', () => {
     ).toBeNull()
   })
 
+  it('reports the profile vertical only once a brand is submitted', async () => {
+    const peerly = useMockAsPeerly()
+    const seeded = await seedCampaignWithTcr()
+    const identity = await createIdentity(peerly, seeded)
+
+    const beforeBrand = await peerly.submitIdentityProfile(
+      identity.identity_id,
+      seeded.campaign,
+    )
+    await submitBrand(peerly, identity.identity_id, seeded)
+    const afterBrand = await peerly.getIdentityProfile(
+      identity.identity_id,
+      seeded.campaign,
+    )
+
+    expect(beforeBrand?.profile?.vertical).toBeUndefined()
+    expect(afterBrand?.profile?.vertical).toBe('POLITICAL')
+  })
+
   it('lists identities created by earlier attempts so the client can reuse them', async () => {
     const peerly = useMockAsPeerly()
     const seeded = await seedCampaignWithTcr()
@@ -816,7 +835,13 @@ describe('Peerly 10DLC mock: CV request, PIN and use cases (M4-4)', () => {
       { headers },
     )
     expect(peerlyIdentityUseCaseResponseBodySchema.parse(pending.data)).toEqual(
-      [expect.objectContaining({ usecase: 'POLITICAL', activated: 0 })],
+      [
+        expect.objectContaining({
+          usecase: 'POLITICAL',
+          activated: 0,
+          tcr_campaign_id: null,
+        }),
+      ],
     )
 
     const activate = await applyAction(campaign.id, 'peerly.usecase.activate')

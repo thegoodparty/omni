@@ -6,18 +6,18 @@ HTTP routes of its own.
 
 ## Key files
 
-| File | Role |
-|------|------|
-| `callhub.module.ts` | Registers + exports every service below |
-| `config/callhubBaseConfig.ts` | Base URL + key; key asserted at first use, not import |
-| `services/callhubHttp.service.ts` | Token auth + retry (429/idempotent-5xx); callers Zod-parse |
-| `services/callhubErrorHandling.service.ts` | Maps any CallHub failure to `BadGatewayException` (502) |
-| `services/callhubNumbers.service.ts` | Rent/list the caller-ID number (`phone_number`) |
-| `services/callhubMedia.service.ts` | Multipart audio upload → `media_file_id` |
-| `services/callhubPhonebook.service.ts` | Create phonebook + poll loaded count |
-| `services/callhubBulkImport.service.ts` | Async CSV contact load (no job id) |
-| `services/callhubCampaign.service.ts` | Create + schedule a voice broadcast; `launchVoiceBroadcast` (START) dials it; `abortVoiceBroadcast` (ABORT, status 3) retires a PAUSED one so it never dials |
-| `services/callhubDnc.service.ts` | DNC list lookup |
+| File                                       | Role                                                                                                                                                         |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `callhub.module.ts`                        | Registers + exports every service below                                                                                                                      |
+| `config/callhubBaseConfig.ts`              | Base URL + key; key asserted at first use, not import                                                                                                        |
+| `services/callhubHttp.service.ts`          | Token auth + retry (429/idempotent-5xx); callers Zod-parse                                                                                                   |
+| `services/callhubErrorHandling.service.ts` | Maps any CallHub failure to `BadGatewayException` (502)                                                                                                      |
+| `services/callhubNumbers.service.ts`       | Rent/list the caller-ID number (`phone_number`)                                                                                                              |
+| `services/callhubMedia.service.ts`         | Multipart audio upload → `media_file_id`                                                                                                                     |
+| `services/callhubPhonebook.service.ts`     | Create phonebook + poll loaded count                                                                                                                         |
+| `services/callhubBulkImport.service.ts`    | Async CSV contact load (no job id)                                                                                                                           |
+| `services/callhubCampaign.service.ts`      | Create + schedule a voice broadcast; `launchVoiceBroadcast` (START) dials it; `abortVoiceBroadcast` (ABORT, status 3) retires a PAUSED one so it never dials |
+| `services/callhubDnc.service.ts`           | DNC list lookup                                                                                                                                              |
 
 ## Gotchas
 
@@ -96,7 +96,7 @@ HTTP routes of its own.
 
 ## Config
 
-`CALLHUB_API_KEY` (required, asserted lazily), `CALLHUB_API_BASE_URL`
+`CALLHUB_API_KEY` (required in live mode, asserted lazily; mock mode uses a constant mock key), `CALLHUB_API_BASE_URL`
 (regional, defaults to the NA host — the generic host 403s),
 `CALLHUB_HTTP_TIMEOUT`, `CALLHUB_VB_CALLS_PER_MINUTE` (per-campaign `frequency`,
 default 120 — see the account-cap gotcha above).

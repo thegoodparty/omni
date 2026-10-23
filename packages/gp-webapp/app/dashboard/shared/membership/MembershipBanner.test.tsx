@@ -108,7 +108,7 @@ describe('resolveMembershipAction', () => {
       null,
     )
     expect(resolveMembershipAction(membership({ texting: 'cleared' }))).toBe(
-      null,
+      'schedule',
     )
     expect(
       resolveMembershipAction(
@@ -158,7 +158,7 @@ describe('MembershipBanner', () => {
   it('does not expose the flag when the surface is hidden', () => {
     for (const state of [
       membership({ isElectedOffice: true }),
-      membership({ texting: 'cleared' }),
+      membership({ texting: 'closed' }),
     ]) {
       setup({ state })
 
@@ -297,11 +297,24 @@ describe('MembershipBanner', () => {
     ).toBeInTheDocument()
   })
 
-  it('renders nothing once a Pro campaign is cleared to text', () => {
+  it('sends a Pro campaign cleared to text to schedule its text', async () => {
+    const user = userEvent.setup()
     setup({ state: membership({ texting: 'cleared' }) })
 
-    expect(screen.queryByRole('button')).toBeNull()
-    expect(trackEvent).not.toHaveBeenCalled()
+    expect(
+      screen.getByText(MEMBERSHIP_COPY.banner.cleared.body),
+    ).toBeInTheDocument()
+    expect(screen.getByText(MEMBERSHIP_COPY.banner.cleared.cta)).toBeVisible()
+
+    await user.click(screen.getByRole('button'))
+
+    expect(router.push).toHaveBeenCalledWith(
+      '/dashboard/outreach?compose=text&source=navigation',
+    )
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.ProUpgrade.Membership.ScheduleBannerClicked,
+      { path: '/' },
+    )
   })
 
   it('keeps the upsell for a lapsed Pro campaign whose texting is still cleared', () => {
@@ -351,10 +364,12 @@ describe('MembershipBanner', () => {
       ).toBeInTheDocument()
     })
 
-    it('renders nothing for the approved preset (texting=cleared, Pro campaign)', () => {
+    it('renders the schedule banner for the approved preset (texting=cleared, Pro campaign)', () => {
       setup({ state: membership({ texting: 'cleared' }) })
 
-      expect(screen.queryByRole('button')).toBeNull()
+      expect(
+        screen.getByText(MEMBERSHIP_COPY.banner.cleared.body),
+      ).toBeInTheDocument()
     })
 
     it('renders the verification banner for rejected and error presets (needs_verification)', () => {

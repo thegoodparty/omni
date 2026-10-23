@@ -19,6 +19,13 @@ import {
 import { PeerlyIdentityService } from '../../../vendors/peerly/services/peerlyIdentity.service'
 import { CampaignTcrComplianceService } from './campaignTcrCompliance.service'
 import { CvStatusPollService } from './cvStatusPoll.service'
+import { disableVendorCrons } from '@/shared/test-utils/vendorCronsGate.util'
+
+vi.mock('@/shared/util/appEnvironment.util', async (importOriginal) => {
+  const { withVendorCronsGate } =
+    await import('@/shared/test-utils/vendorCronsGate.util.js')
+  return withVendorCronsGate(await importOriginal<object>())
+})
 
 // The scan sleeps RETRIEVE_CV_SPACING_MS (1 minute in prod) between records;
 // real timers would hang every multi-record test.
@@ -100,12 +107,20 @@ describe('CvStatusPollService', () => {
   })
 
   describe('triggerScan', () => {
-    it('does nothing outside prod so dev/qa never call Peerly', async () => {
-      vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'dev')
+    it('does nothing on a non-prod deploy in live mode so it never calls Peerly', async () => {
+      disableVendorCrons()
 
       await service.triggerScan()
 
       expect(mockQueue.sendMessage).not.toHaveBeenCalled()
+    })
+
+    it('enqueues on a non-prod deploy in mock mode (preview)', async () => {
+      vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'preview')
+
+      await service.triggerScan()
+
+      expect(mockQueue.sendMessage).toHaveBeenCalledTimes(1)
     })
 
     it('enqueues once with a slot-keyed FIFO deduplicationId in prod', async () => {
@@ -140,12 +155,20 @@ describe('CvStatusPollService', () => {
   })
 
   describe('triggerFreshScan', () => {
-    it('does nothing outside prod so dev/qa never call Peerly', async () => {
-      vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'dev')
+    it('does nothing on a non-prod deploy in live mode so it never calls Peerly', async () => {
+      disableVendorCrons()
 
       await service.triggerFreshScan()
 
       expect(mockQueue.sendMessage).not.toHaveBeenCalled()
+    })
+
+    it('enqueues on a non-prod deploy in mock mode (preview)', async () => {
+      vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'preview')
+
+      await service.triggerFreshScan()
+
+      expect(mockQueue.sendMessage).toHaveBeenCalledTimes(1)
     })
 
     it('enqueues once with a minute-keyed FIFO deduplicationId in prod', async () => {

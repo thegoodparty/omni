@@ -9,7 +9,6 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common'
 import { Cron, Interval } from '@nestjs/schedule'
-import { NON_PROD_LIVE_VENDOR_BYPASS } from '@/shared/util/appEnvironment.util'
 import {
   differenceInHours,
   formatISO,
@@ -161,7 +160,7 @@ const manualFilingAddressColumns = (
       }
     : {}
 
-const NON_PROD_BYPASS_CV_TOKEN = 'non-prod-bypass-cv-token'
+const INTERNAL_TESTING_CV_TOKEN = 'non-prod-bypass-cv-token'
 
 // Unset in every environment today — Ops has not yet created the PIN-sent
 // single-send email asset in HubSpot (ENG-11034). Read live rather than
@@ -2734,24 +2733,6 @@ export class CampaignTcrComplianceService extends createPrismaBase(
         'PIN resend is not available for test organizations',
       )
     }
-    // Non-prod live-mode deploys (dev) short-circuit the Peerly submission
-    // (see websites.service.ts verifyLive), so there is no real CV request to
-    // resend a PIN for; succeed without calling Peerly so testers can walk
-    // the admin flow (mirrors retrieveCampaignVerifyToken's bypass). In mock
-    // mode the real path runs against the Peerly mock.
-    if (NON_PROD_LIVE_VENDOR_BYPASS) {
-      this.logger.info(
-        `Non-prod environment detected. Skipping Peerly CV PIN resend for ` +
-          `campaign ${campaign.id}.`,
-      )
-      this.trackCompliancePinResent(
-        campaign,
-        tcrCompliance.peerlyIdentityId,
-        null,
-      )
-      return
-    }
-
     if (!tcrCompliance.peerlyIdentityId) {
       throw new UnprocessableEntityException(
         'The Campaign Verify request has not been submitted yet, so there ' +
@@ -2836,18 +2817,10 @@ export class CampaignTcrComplianceService extends createPrismaBase(
     pin: string,
     { peerlyIdentityId, internalTestingAt }: TcrCompliance,
   ) {
-    // In non-prod live-mode deploys (dev), TCR submission to Peerly is
-    // short-circuited (see websites.service.ts verifyLive), so there is no
-    // real Peerly identity / PIN to verify against. Accept any PIN so testers
-    // can exercise the rest of the compliance flow. In mock mode the real
-    // path runs against the Peerly mock, which rejects a wrong PIN.
-    if (NON_PROD_LIVE_VENDOR_BYPASS) {
-      return NON_PROD_BYPASS_CV_TOKEN
-    }
     // Test-org rows have no real Peerly identity; return the bypass token so
     // the submit-cv-pin flow can complete without touching Peerly.
     if (internalTestingAt) {
-      return NON_PROD_BYPASS_CV_TOKEN
+      return INTERNAL_TESTING_CV_TOKEN
     }
     if (!peerlyIdentityId) {
       throw new BadRequestException(
@@ -2943,7 +2916,7 @@ export class CampaignTcrComplianceService extends createPrismaBase(
   ) {
     // Synthetic rows hold the bypass token, never a real Peerly PIN; posting
     // it to the brand would send a fake token to the vendor.
-    if (NON_PROD_LIVE_VENDOR_BYPASS || tcrCompliance.internalTestingAt) {
+    if (tcrCompliance.internalTestingAt) {
       return undefined
     }
     return this.peerlyIdentityService.submitCampaignVerifyTokenToBrand(

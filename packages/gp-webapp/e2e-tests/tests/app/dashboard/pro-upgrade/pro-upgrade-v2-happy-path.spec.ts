@@ -236,17 +236,14 @@ test('filed candidate submits filing details before payment and lands on the sub
   await expect(doneButton).toBeEnabled({ timeout: 60_000 })
   await doneButton.click()
 
-  // 7. Dashboard post-payment state: PRO badge, the in-review compliance card,
-  // and the membership banner's in-review message — never needs-verification.
+  // 7. Dashboard post-payment state: PRO badge and the membership banner's
+  // in-review message — never needs-verification.
   await page.waitForURL('**/dashboard', { timeout: 30_000 })
   await page.goto('/dashboard')
   await waitForDashboardReady(page)
   await expect(page.getByRole('img', { name: 'PRO' }).first()).toBeVisible({
     timeout: 30_000,
   })
-  await expect(
-    page.getByText('Your registration is being verified'),
-  ).toBeVisible({ timeout: 30_000 })
   await expect(page.getByText('Verification is in review')).toBeVisible({
     timeout: 30_000,
   })

@@ -24,6 +24,7 @@ import {
   ThinkingRow,
   UserBubble,
 } from '../../shared/agent-chat/chatUI'
+import { isInterruptedTurn } from '../../shared/agent-chat/chatHelpers'
 import { segmentsTextLength } from '../../shared/agent-chat/streaming'
 import {
   TurnBlocks,
@@ -116,6 +117,13 @@ const kickoffFor = (step: string): string => KICKOFFS[step] ?? CLARIFY_KICKOFF
 // opener resurfaces as a visible user message after the text changes.
 const KICKOFF_TEXTS = new Set([CLARIFY_KICKOFF, ...Object.values(KICKOFFS)])
 
+// A step reopened while its reply is still being written shows only the turn
+// that asked for it: the browser's cancel stops at the web app's proxy, so the
+// server keeps generating and saves the reply when it finishes. Poll for that
+// reply before offering a retry; a research step can run a few minutes.
+const PENDING_REPLY_POLL_MS = 3000
+const PENDING_REPLY_MAX_POLLS = 60
+
 type Phase = 'loading' | 'ready' | 'error'
 
 const parseClarify = (value: unknown): OrdinanceClarifyQuestion | null => {
@@ -201,6 +209,16 @@ export default function OrdinanceFlowChat({
     analyticsLabel: 'ordinance-flow-chat',
   })
   const [streamError, setStreamError] = useState<string | null>(null)
+  // The cut-off marker whose retry is in flight, so its notice stays hidden
+  // through the settle window; cleared when the turn settles.
+  const [retryingMarkerId, setRetryingMarkerId] = useState<string | null>(null)
+  // The user turn found unanswered when the step loaded, and whether the wait
+  // for its reply ran out. Only a reload sets it; turns sent from this page
+  // are the engine's to wait on.
+  const [pendingReply, setPendingReply] = useState<{
+    userMessageId: string
+    timedOut: boolean
+  } | null>(null)
   // Synchronous double-submit guard for answerClarify: setSending/setAnswers
   // are async, so a fast double-tap could otherwise fire two persists and two
   // streams before the first re-render locks the widget.
@@ -229,12 +247,14 @@ export default function OrdinanceFlowChat({
       setLiveOffer(null)
       setLiveWidgets([])
       setGeneratingTool(null)
+      setPendingReply(null)
     },
     onTurnSettle: () => {
       setLiveClarify(null)
       setLiveOffer(null)
       setLiveWidgets([])
       setGeneratingTool(null)
+      setRetryingMarkerId(null)
     },
     onError: (message) => setStreamError(message),
     onEvent: (event, { textLength }) => {
@@ -384,6 +404,12 @@ export default function OrdinanceFlowChat({
           (ordinance.clarifyAnswers ?? []).map(toRecordedAnswer),
         )
         setMessages(history)
+        const lastLoaded = history[history.length - 1]
+        setPendingReply(
+          lastLoaded !== undefined && lastLoaded.role === 'user'
+            ? { userMessageId: lastLoaded.id, timedOut: false }
+            : null,
+        )
         setPhase('ready')
         // Only in-progress rows resume by step; drafted ones open their
         // document. Best effort: a failed save never blocks the step.
@@ -414,6 +440,35 @@ export default function OrdinanceFlowChat({
       cancelled = true
     }
   }, [slug, stepValue, retryNonce])
+
+  useEffect(() => {
+    if (!pendingReply || pendingReply.timedOut || !conversationId) return
+    const { userMessageId } = pendingReply
+    let polls = 0
+    let cancelled = false
+    const timer = setInterval(() => {
+      polls += 1
+      if (polls > PENDING_REPLY_MAX_POLLS) {
+        clearInterval(timer)
+        setPendingReply({ userMessageId, timedOut: true })
+        return
+      }
+      void ordinanceFlowChatApi
+        .listMessages(conversationId)
+        .then((history) => {
+          if (cancelled) return
+          if (history[history.length - 1]?.id === userMessageId) return
+          clearInterval(timer)
+          setMessages(history)
+          setPendingReply(null)
+        })
+        .catch(() => undefined)
+    }, PENDING_REPLY_POLL_MS)
+    return () => {
+      cancelled = true
+      clearInterval(timer)
+    }
+  }, [pendingReply, conversationId, setMessages])
 
   const { scrollRef, onScroll } = usePinnedAutoScroll([
     messages,
@@ -532,10 +587,63 @@ export default function OrdinanceFlowChat({
       )
     if (turn) hiddenIds.add(turn.id)
   })
+  // Only a trailing cut-off marker is actionable; a later turn superseded an
+  // earlier one. The resend is the user turn right before the marker, or the
+  // step opener when the marker is the conversation's first message. An
+  // unanswered turn whose wait ran out is resent as is.
+  const lastIndex = messages.length - 1
+  const lastMessage = messages[lastIndex]
+  const interruptedId =
+    lastMessage !== undefined && isInterruptedTurn(lastMessage)
+      ? lastMessage.id
+      : null
+  const priorTurn = lastIndex > 0 ? messages[lastIndex - 1] : undefined
+  const awaitingReply =
+    pendingReply !== null && !pendingReply.timedOut && !sending
+  const retryContentFor = (): string | null => {
+    if (
+      pendingReply?.timedOut &&
+      lastMessage?.role === 'user' &&
+      lastMessage.id === pendingReply.userMessageId
+    ) {
+      return lastMessage.content
+    }
+    if (interruptedId === null) return null
+    if (priorTurn === undefined) return kickoffFor(step)
+    return priorTurn.role === 'user' ? priorTurn.content : null
+  }
+  const retryContent = retryContentFor()
+  const retryInFlight =
+    retryingMarkerId !== null && retryingMarkerId === interruptedId
+  const showInterrupted = retryContent !== null && !sending && !retryInFlight
+  const retryInterrupted = (): void => {
+    if (!conversationId || sending || retryContent === null) return
+    // The marker row stays in local state: the engine's commit poll treats any
+    // assistant row it did not already know as the finished turn, so dropping
+    // the marker would end that poll on the old row. Hidden so the transcript
+    // keeps its single copy of the turn.
+    setRetryingMarkerId(interruptedId)
+    void send(retryContent, { hidden: true })
+  }
+  // The server persists a resent turn again, so hide the copy that repeats
+  // the user turn before it, across the marker it replaced if there was one,
+  // and keep the original.
+  const isRetryEcho = (i: number): boolean => {
+    const m = messages[i]
+    if (m?.role !== 'user') return false
+    const before = messages[i - 1]
+    const original =
+      before !== undefined && isInterruptedTurn(before)
+        ? messages[i - 2]
+        : before
+    return original?.role === 'user' && original.content === m.content
+  }
   const visibleMessages = messages.filter(
-    (m) =>
+    (m, i) =>
       !(m.role === 'user' && KICKOFF_TEXTS.has(m.content)) &&
-      !hiddenIds.has(m.id),
+      !hiddenIds.has(m.id) &&
+      !isInterruptedTurn(m) &&
+      !isRetryEcho(i),
   )
   // Only the most recent clarify question is interactive; earlier ones render
   // read-only in place.
@@ -623,10 +731,15 @@ export default function OrdinanceFlowChat({
               ),
             )}
 
+            {showInterrupted ? (
+              <InterruptedTurn onRetry={retryInterrupted} />
+            ) : null}
+
             {(visibleSegments.length > 0 ||
               showClarify ||
               showWidgets ||
-              working) && (
+              working ||
+              awaitingReply) && (
               <AssistantRow>
                 {turnBlocks.length > 0 ? (
                   <TurnBlocks
@@ -642,7 +755,9 @@ export default function OrdinanceFlowChat({
                     onAnswer={() => undefined}
                   />
                 ) : null}
-                {working ? <ThinkingRow label={workingLabel} /> : null}
+                {working || awaitingReply ? (
+                  <ThinkingRow label={workingLabel} />
+                ) : null}
               </AssistantRow>
             )}
 
@@ -699,6 +814,28 @@ function NextStepButton({
         aria-hidden
       />
     </Button>
+  )
+}
+
+function InterruptedTurn({
+  onRetry,
+}: {
+  onRetry: () => void
+}): React.JSX.Element {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-card px-4 py-3 text-sm">
+      <span className="text-muted-foreground">
+        The last reply was cut off before it finished.
+      </span>
+      <Button
+        type="button"
+        variant="outline"
+        onClick={onRetry}
+        className="rounded-full"
+      >
+        Try again
+      </Button>
+    </div>
   )
 }
 

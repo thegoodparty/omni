@@ -11,7 +11,6 @@ import {
 import { useRouter } from 'next/navigation'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  BUILD_CITIZENS_PANEL_PURPOSE,
   PHONE_BANKING_NAME_MAX_LENGTH,
   REPORT_BACK_PURPOSE,
   type ChatCard,
@@ -54,10 +53,8 @@ import {
 import {
   proposalListName,
   proposedAudienceOf,
-  walkableAreaPolygon,
   type CardMode,
 } from './proposalPresentation'
-import { walkableAreaParam } from 'app/dashboard/door-knocking/native/walkableAreaParam'
 
 type OutreachProposal = Extract<ChatCard, { kind: 'outreach_proposal' }>
 
@@ -298,9 +295,6 @@ export const ProposalFlowsProvider = ({
       // The map page takes a saved list and nothing else, so this is the
       // latest point the list can be saved: the official has started.
       const audience = proposedAudienceOf(proposal, opened.priorityId)
-      const area = proposal.walkableArea
-        ? walkableAreaPolygon(proposal.walkableArea)
-        : null
       const key = proposal.proposalKey
       // A second press while the first is saving would save a second list.
       if (savingLists.current.has(key)) return
@@ -319,7 +313,6 @@ export const ProposalFlowsProvider = ({
                 ...(audience.unreachedAreaOfPriorityId && {
                   unreachedAreaOfPriorityId: audience.unreachedAreaOfPriorityId,
                 }),
-                ...(area && { geoPoly: area }),
               },
             )
             return data.id
@@ -343,8 +336,6 @@ export const ProposalFlowsProvider = ({
         ...linkOf(opened),
         launchSource: opened.launchSource,
       })
-      const areaParam = area ? walkableAreaParam(area) : null
-      if (areaParam) params.set('area', areaParam)
       router.push(`/dashboard/door-knocking?${params.toString()}`)
     },
     [router, errorSnackbar],
@@ -352,8 +343,6 @@ export const ProposalFlowsProvider = ({
 
   // Saves the card's audience as a list once, the way the builder would have
   // after the official confirmed it, so the flow can open on the message.
-  // The panel invite always goes to its seeded draw of the district, never a
-  // list a card named.
   const saveProposalList = useCallback(
     (
       proposal: OutreachProposal,
@@ -363,10 +352,7 @@ export const ProposalFlowsProvider = ({
       const inFlight = savingLists.current.get(key)
       if (inFlight) return inFlight
       const run = (async () => {
-        const buildsPanel = proposal.purpose === BUILD_CITIZENS_PANEL_PURPOSE
-        if (!buildsPanel && proposal.savedFilterId) {
-          return proposal.savedFilterId
-        }
+        if (proposal.savedFilterId) return proposal.savedFilterId
         const known = savedLists.current.get(key) ?? readStoredList(key)
         if (known !== null) {
           const { data } = await clientRequest(

@@ -38,16 +38,43 @@ export const SERVE_POLL_QUESTION_COPY = {
   questionLabel: 'Your question',
   questionPlaceholder: 'What matters most to you about our community?',
   regenerate: 'Regenerate',
-  introLabel: 'Starts with',
-  footerLabel: 'Ends with',
-  imageLabel: 'Add an image (optional)',
+  imageTitle: 'Add an image to your poll',
+  imageHint: 'Optional. Recipients see it in the text.',
+  imageUploading: 'Uploading your image…',
+  imageTypeError: 'Use a PNG or JPG image.',
+  imageUploadError: "We couldn't upload your image. Try again.",
   count: (chars: number, segments: number) =>
-    `${chars} characters, ${segments} ${segments === 1 ? 'text' : 'texts'}`,
+    `${chars} chars · ${segments} SMS`,
   tooShort: 'Write at least 10 characters to continue.',
   tooLong: 'Shorten your question to continue.',
   draftError: "We couldn't write a new question. Try again.",
-  biasAlertTitle: 'This question may lead people toward an answer',
-  biasAlertBody: 'Choose Optimize message to reword it, or continue as it is.',
+  undo: 'Undo',
+  improve: 'Improve with AI',
+  improving: 'Improving…',
+  improveError:
+    "We couldn't improve your question just now. Try again, or edit it yourself.",
+  improveUnchanged: 'Your question already reads clearly and neutrally.',
+  improveStuck:
+    "We couldn't find a neutral rewording. Edit the phrases below to continue.",
+  tryAgain: 'Try again',
+  checkBias: 'Check for bias',
+  checkingBias: 'Checking for bias…',
+  biasPassed: 'No bias detected',
+  biasFlagged: 'Bias detected',
+  biasCheckError: "Couldn't check. Try again",
+  // The phone toolbar shows the status as an icon; these say what it means.
+  biasTooltip: {
+    idle: 'Check your question for wording that leads people toward an answer.',
+    checking: 'Checking your question for bias…',
+    passed:
+      "No bias detected. Your question doesn't lead people toward an answer.",
+    flagged: 'Bias detected. This question may lead people toward an answer.',
+    error: "We couldn't check your question for bias. Tap to try again.",
+  },
+  biasFlaggedNote:
+    'This question may lead people toward an answer. Improve it with AI or reword it to continue.',
+  dictationError: (error: string) =>
+    `Dictation didn't start: ${error}. Check your microphone permission and try again.`,
 }
 
 export const SERVE_POLL_REVIEW_COPY = {

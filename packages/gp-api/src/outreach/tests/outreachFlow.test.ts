@@ -350,6 +350,26 @@ describe('Outreach submission flow — single API call contract', () => {
       expect(outreachRows.length).toBe(0)
     })
 
+    // Peerly refuses this word only at job creation, which runs after
+    // payment (ENG-11310). The draft must not be created, so no checkout can
+    // start for it.
+    it('a script with a word Peerly refuses is rejected before checkout', async () => {
+      const res = await submitOutreach({
+        outreachType: OutreachType.p2p,
+        script:
+          'Hello {first_name}, this is Johnny Goodparty. I fought for survivors of sexual assault. Paid for by Friends of Johnny. Reply STOP to opt out.',
+        phoneListId: 3180213,
+        date: new Date(Date.now() + 7 * 86400_000).toISOString(),
+        draft: true,
+      })
+      expect(res.status).toBe(400)
+      expect(JSON.stringify(res.data)).toContain('remove \\"sexual\\"')
+      const outreachRows = await service.prisma.outreach.findMany({
+        where: { campaignId: campaign.id },
+      })
+      expect(outreachRows.length).toBe(0)
+    })
+
     it('invalid image MIME (HEIC) → 400, no DB row, FAILURE Slack with step=validation', async () => {
       const res = await submitOutreach({
         outreachType: OutreachType.p2p,

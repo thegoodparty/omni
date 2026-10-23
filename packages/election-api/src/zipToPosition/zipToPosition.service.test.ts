@@ -94,7 +94,7 @@ describe('ZipToPositionService.search', () => {
         where: expect.objectContaining({
           electionDate: {
             gte: new Date('2026-05-12T00:00:00Z'),
-            lte: new Date('2028-05-12T00:00:00Z'),
+            lte: new Date('2029-05-12T00:00:00Z'),
           },
         }),
       }),
@@ -102,7 +102,7 @@ describe('ZipToPositionService.search', () => {
     vi.useRealTimers()
   })
 
-  // Feb 29 + 2 years is not a real date, so setUTCFullYear rolls it to Mar 1.
+  // Feb 29 + 3 years is not a real date, so setUTCFullYear rolls it to Mar 1.
   // A one-day-wider horizon is harmless; pinning it here keeps the rollover
   // from looking like a bug to the next reader.
   it('rolls a leap-day horizon forward to March 1', async () => {
@@ -116,7 +116,7 @@ describe('ZipToPositionService.search', () => {
         where: expect.objectContaining({
           electionDate: {
             gte: new Date('2028-02-29T00:00:00Z'),
-            lte: new Date('2030-03-01T00:00:00Z'),
+            lte: new Date('2031-03-01T00:00:00Z'),
           },
         }),
       }),
@@ -272,7 +272,7 @@ describe('ZipToPositionService.getZipCodesByBrPositionId', () => {
     expect(findMany).not.toHaveBeenCalled()
   })
 
-  it('queries ZipToPosition by positionId, future elections, threshold, non-null zip', async () => {
+  it('queries ZipToPosition by positionId, threshold, non-null zip', async () => {
     findUnique.mockResolvedValue({ id: 'position-uuid-1' })
 
     await service.getZipCodesByBrPositionId('br-pos-1')
@@ -284,7 +284,6 @@ describe('ZipToPositionService.getZipCodesByBrPositionId', () => {
     expect(findMany).toHaveBeenCalledWith({
       where: {
         positionId: 'position-uuid-1',
-        electionDate: { gte: new Date('2026-05-12T00:00:00Z') },
         OR: [
           { pctDistrictzipToZip: null },
           { pctDistrictzipToZip: { gte: 0.005 } },
@@ -428,7 +427,7 @@ describe.skipIf(process.env.CI === 'true')(
 
       // Future races so the default (future) timeframe returns them, dated
       // relative to now rather than a literal: search bounds `future` at a
-      // 2-year horizon, so a far-future literal would fall outside it and a
+      // 3-year horizon, so a far-future literal would fall outside it and a
       // near-future literal would rot into the past. The Beverly Hills race
       // carries placeId so search resolves its city.
       const upcomingElection = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)

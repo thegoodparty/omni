@@ -4,7 +4,6 @@ import {
   forwardRef,
   Inject,
   Injectable,
-  InternalServerErrorException,
   ServiceUnavailableException,
 } from '@nestjs/common'
 import { resolveEnvVar } from '../../shared/env/env'
@@ -859,9 +858,11 @@ export class PaymentEventsService {
       id: campaign.userId as number,
     })
     if (!user) {
-      throw new InternalServerErrorException(
-        `No user found with given campaign user id => ${campaign.userId}`,
+      this.logger.warn(
+        { subscriptionId, campaignId: campaign.id, userId: campaign.userId },
+        '[WEBHOOK] Canceled subscription belongs to a campaign whose user no longer exists — consistent with account deletion; nothing left to un-Pro',
       )
+      return
     }
     const { metaData } = user
     if (metaData?.isDeleted) {

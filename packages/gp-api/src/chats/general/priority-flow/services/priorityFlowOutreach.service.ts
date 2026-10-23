@@ -27,10 +27,33 @@ const GONE_OUT_STATUSES: OutreachStatus[] = [
   OutreachStatus.in_progress,
   OutreachStatus.completed,
 ]
+// The sends a note can be taken on. A Win text's replies come back as
+// timestamps, never words, so on a campaign it has nothing to read and would
+// read as nobody answering.
+const NOTE_CHANNELS: OutreachType[] = [
+  OutreachType.nativeDoorKnocking,
+  OutreachType.nativePhoneBanking,
+]
+// The model names a channel by whichever value reads right to it, usually
+// the legacy one, while walks and call lists are stored under the native
+// one. Filtering on the exact value dropped every native walk.
+const CHANNEL_FAMILIES: OutreachType[][] = [
+  [OutreachType.doorKnocking, OutreachType.nativeDoorKnocking],
+  [OutreachType.phoneBanking, OutreachType.nativePhoneBanking],
+]
+// A walk, call list or send is named on the row; who it went to is the list
+// it was cut from. The model matches an effort the person names on the first.
+const WITH_AUDIENCE = {
+  voterFileFilter: { select: { name: true } },
+} satisfies Prisma.OutreachInclude
+type OutreachRow = Prisma.OutreachGetPayload<{
+  include: typeof WITH_AUDIENCE
+}>
 
 export interface PastOutreachRow {
   outreachId: number
   scope: 'priority' | 'office'
+  name: string | null
   audience: string
   channel: OutreachType
   status: string | null
@@ -53,6 +76,7 @@ export interface OutreachVerbatim {
 
 export interface OutreachFeedback {
   outreachId: number
+  name: string | null
   audience: string
   channel: OutreachType
   sentOn: string | null
@@ -82,6 +106,8 @@ export interface PriorityAnchorSummary {
 export class PriorityFlowOutreachService extends createPrismaBase(
   MODELS.Outreach,
 ) {
+  // Archived sends stay in: every send on a priority is evidence for its
+  // check, and the people it asked must not be asked again.
   async forPriority(
     priorityId: string,
     channel?: OutreachType,
@@ -89,8 +115,9 @@ export class PriorityFlowOutreachService extends createPrismaBase(
     const rows = await this.findMany({
       where: {
         priorityId,
-        ...(channel === undefined ? {} : { outreachType: channel }),
+        ...channelWhere(channel),
       },
+      include: WITH_AUDIENCE,
       orderBy: { createdAt: Prisma.SortOrder.desc },
       take: MAX_ROWS,
     })
@@ -115,8 +142,12 @@ export class PriorityFlowOutreachService extends createPrismaBase(
           : {
               OR: [{ priorityId: { not: priorityId } }, { priorityId: null }],
             }),
-        ...(channel === undefined ? {} : { outreachType: channel }),
+        // Archiving takes a send off the history drawer. Left in, older
+        // walks and lists fill the window and get read as current.
+        archivedAt: null,
+        ...channelWhere(channel),
       },
+      include: WITH_AUDIENCE,
       orderBy: { createdAt: Prisma.SortOrder.desc },
       take: MAX_ROWS,
     })
@@ -132,8 +163,10 @@ export class PriorityFlowOutreachService extends createPrismaBase(
     const rows = await this.findMany({
       where: {
         campaignId,
-        ...(channel === undefined ? {} : { outreachType: channel }),
+        archivedAt: null,
+        ...channelWhere(channel),
       },
+      include: WITH_AUDIENCE,
       orderBy: { createdAt: Prisma.SortOrder.desc },
       take: MAX_ROWS,
     })
@@ -171,7 +204,7 @@ export class PriorityFlowOutreachService extends createPrismaBase(
       kind: 'outreach_proposal' as const,
       ref: `outreach:${row.outreachId}`,
       line: [
-        row.audience,
+        row.name ?? row.audience,
         row.recipients === null ? null : `${row.recipients} recipients`,
         row.sentOn === null ? `not sent yet` : `sent ${row.sentOn}`,
         `${row.replies} replies`,
@@ -186,26 +219,56 @@ export class PriorityFlowOutreachService extends createPrismaBase(
   // (campaignId null) so a Win row on the same org never leaks in.
   async feedbackFor(
     organizationSlug: string,
-    scope: { priorityId?: string | null; outreachId?: number },
+    scope: {
+      priorityId?: string | null
+      outreachId?: number
+      channel?: OutreachType
+    },
   ): Promise<OutreachFeedback[]> {
+    const unscoped = scope.outreachId === undefined && !scope.priorityId
     const rows = await this.findMany({
       where: {
         organizationSlug,
         campaignId: null,
         status: { notIn: UNSENT_STATUSES },
+        // Archived sends drop out of the recent read only, as in forOffice:
+        // one asked for by id is read whatever its state, and a priority's
+        // are all evidence for it, as in forPriority.
+        ...(unscoped ? { archivedAt: null } : {}),
         ...(scope.outreachId === undefined ? {} : { id: scope.outreachId }),
         ...(scope.priorityId ? { priorityId: scope.priorityId } : {}),
+        ...channelWhere(scope.channel),
       },
+      include: WITH_AUDIENCE,
       orderBy: { createdAt: Prisma.SortOrder.desc },
-      take:
-        scope.outreachId === undefined && !scope.priorityId
-          ? RECENT_SENDS_WITHOUT_SCOPE
-          : MAX_ROWS,
+      take: unscoped ? RECENT_SENDS_WITHOUT_SCOPE : MAX_ROWS,
     })
     return Promise.all(rows.map((row) => this.feedbackForSend(row)))
   }
 
-  private async feedbackForSend(row: Outreach): Promise<OutreachFeedback> {
+  // A campaign's door and call notes, by campaignId like forCampaign.
+  async feedbackForCampaign(
+    campaignId: number,
+    outreachId?: number,
+    channel?: OutreachType,
+  ): Promise<OutreachFeedback[]> {
+    const rows = await this.findMany({
+      where: {
+        campaignId,
+        AND: [{ outreachType: { in: NOTE_CHANNELS } }, channelWhere(channel)],
+        status: { notIn: UNSENT_STATUSES },
+        ...(outreachId === undefined
+          ? { archivedAt: null }
+          : { id: outreachId }),
+      },
+      include: WITH_AUDIENCE,
+      orderBy: { createdAt: Prisma.SortOrder.desc },
+      take: RECENT_SENDS_WITHOUT_SCOPE,
+    })
+    return Promise.all(rows.map((row) => this.feedbackForSend(row)))
+  }
+
+  private async feedbackForSend(row: OutreachRow): Promise<OutreachFeedback> {
     const verbatims =
       row.outreachType === OutreachType.text
         ? await this.textReplies(row.id)
@@ -241,7 +304,8 @@ export class PriorityFlowOutreachService extends createPrismaBase(
     })
     return {
       outreachId: row.id,
-      audience: row.name ?? row.audienceRequest ?? 'Unnamed audience',
+      name: row.name,
+      audience: audienceOf(row),
       channel: row.outreachType,
       sentOn: sentOn(row),
       heardFrom: verbatims.length,
@@ -351,7 +415,7 @@ export class PriorityFlowOutreachService extends createPrismaBase(
   }
 
   private async withReplyCounts(
-    rows: Outreach[],
+    rows: OutreachRow[],
     scope: 'priority' | 'office',
   ): Promise<PastOutreachRow[]> {
     if (rows.length === 0) return []
@@ -374,7 +438,8 @@ export class PriorityFlowOutreachService extends createPrismaBase(
       return {
         outreachId: row.id,
         scope,
-        audience: row.name ?? row.audienceRequest ?? 'Unnamed audience',
+        name: row.name,
+        audience: audienceOf(row),
         channel: row.outreachType,
         status: row.status,
         recipients,
@@ -388,6 +453,20 @@ export class PriorityFlowOutreachService extends createPrismaBase(
     })
   }
 }
+
+const channelWhere = (channel?: OutreachType): Prisma.OutreachWhereInput =>
+  channel === undefined
+    ? {}
+    : {
+        outreachType: {
+          in: CHANNEL_FAMILIES.find((family) => family.includes(channel)) ?? [
+            channel,
+          ],
+        },
+      }
+
+const audienceOf = (row: OutreachRow): string =>
+  row.voterFileFilter?.name ?? row.audienceRequest ?? 'Unnamed audience'
 
 // A Serve text has no `date`: it goes out at a fixed local hour on
 // scheduledLocalDate, so that day is when it went once it has gone.
