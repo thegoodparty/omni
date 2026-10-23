@@ -15,7 +15,9 @@ runs:
       id: version
       shell: bash
       working-directory: ${{ inputs.working-directory }}
-      run: echo "version=$(node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+      run: |
+        echo "version=$(node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+        echo "image=$ImageOS" >> "$GITHUB_OUTPUT"
 
     # The browser download takes seconds. What stalls is apt pulling the
     # system packages (fonts, libglib, libnss3) from Azure's Ubuntu mirror,
@@ -29,7 +31,7 @@ runs:
         path: |
           ~/.cache/ms-playwright
           ~/.cache/playwright-apt
-        key: playwright-v1-${{ runner.os }}-${{ env.ImageOS }}-${{ steps.version.outputs.version }}
+        key: playwright-v1-${{ runner.os }}-${{ steps.version.outputs.image }}-${{ steps.version.outputs.version }}
 
     - name: Seed apt archive from cache
       if: steps.cache.outputs.cache-hit == 'true'
