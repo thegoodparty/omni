@@ -61,11 +61,14 @@ export const createElectionDb = (environment: 'dev' | 'prod') => {
       protect: true,
       // AWS applies minor engine upgrades on its own; Pulumi must not try to
       // roll them back. The write-forwarding flags are provider defaults the
-      // cluster has never set.
+      // cluster has never set. skipFinalSnapshot exists only in Pulumi state
+      // and an import reads it as true; the follow-up that drops `import`
+      // sets it to false with a final snapshot name.
       ignoreChanges: [
         'engineVersion',
         'enableGlobalWriteForwarding',
         'enableLocalWriteForwarding',
+        'skipFinalSnapshot',
       ],
     },
   )
