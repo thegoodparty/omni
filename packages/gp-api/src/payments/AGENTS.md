@@ -337,8 +337,12 @@ primary_result = 'lost';` and
 **"Cancelled Pro but Stripe kept billing" (ENG-10657 shape).** The
 portal-cancel → `customer.subscription.deleted` → de-Pro path works; suspect
 (a) two app users for one person with the sub on the other account, or
-(b) admin console `isPro: false` (adminCampaigns.service), which does NOT
-cancel the Stripe subscription (open gap, 86ajenb0v). Also: a passed election
+(b) the paying campaign was deleted through `DELETE /v1/admin/campaigns/:id`
+before ENG-11454, which took `details.subscriptionId` with it. ENG-11454 was
+both: the sub was bought from another account in the household, whose campaign
+no longer exists, so no campaign anywhere carries the id and only Stripe can
+stop it. The admin `isPro: false` toggle cancels Stripe before it de-Pros
+(ENG-10660), so it is not a suspect. Also: a passed election
 with `wonGeneral` null force-redirects every dashboard route to
 `/dashboard/election-result`, hiding Profile → Manage Subscription;
 `ActiveProSubscriptionAlert` on the election-result pages (PR #677) is the
