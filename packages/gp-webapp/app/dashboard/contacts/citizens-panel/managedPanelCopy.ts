@@ -1,22 +1,17 @@
 import {
   cityFromDistrictName,
+  cityNameCase,
   type ManagedCivicPanel,
   type ManagedCivicPanelStatus,
 } from '@goodparty_org/contracts'
 import { useOrganization } from '@shared/organization-picker'
-
-// L2 files some district names in capitals ("ASHEVILLE").
-const titleCase = (name: string): string =>
-  name === name.toUpperCase()
-    ? name.toLowerCase().replace(/(^|[\s-])\p{L}/gu, (c) => c.toUpperCase())
-    : name
 
 // The place the office serves, the way Serve copy names it ("Maplewood"),
 // or null where the district is not known.
 export const useServePlace = (): string | null => {
   const l2Name = useOrganization()?.district?.l2Name
   const city = l2Name ? cityFromDistrictName(l2Name) : null
-  return city ? titleCase(city) : null
+  return city ? cityNameCase(city) : null
 }
 
 const residentsOf = (place: string | null): string =>

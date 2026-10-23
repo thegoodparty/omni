@@ -253,8 +253,9 @@ describe('ProposalFlowsProvider', () => {
   })
 
   // The walk is drawn on its own page, so the card's link rides the URL to
-  // that page's create, which puts the check out on the server.
-  it('carries the card’s link to door knocking, saving the list at the click', async () => {
+  // that page's create, which puts the check out on the server. A priority's
+  // walk asks the check's question, so the goal and the question ride too.
+  it('carries the card’s link, goal and question to door knocking, saving the list at the click', async () => {
     api.mock('POST /v1/voters/voter-file/filter', {
       status: 200,
       data: { id: 77, name: 'Flood block renters' },
@@ -287,7 +288,35 @@ describe('ProposalFlowsProvider', () => {
       stepId: 'method',
       side: 'main',
       launchSource: 'priorities',
+      purpose: 'community_input',
+      question: SCRIPT,
     })
+  })
+
+  // The question has the create's own limit, so a longer door message is
+  // cut to it rather than opening a walk that cannot be created.
+  it('cuts a door message longer than a question can be', async () => {
+    router.push?.mockClear()
+    api.mock('POST /v1/voters/voter-file/filter', {
+      status: 200,
+      data: { id: 80, name: 'Flood block renters' },
+    })
+
+    render(
+      <ProposalFlowsProvider>
+        <Opener
+          card={proposal({ channel: 'doorKnocking', message: 'a'.repeat(400) })}
+        />
+      </ProposalFlowsProvider>,
+    )
+    await user.click(screen.getByRole('button', { name: 'Start' }))
+
+    await waitFor(() => expect(router.push).toHaveBeenCalled())
+    const url = new URL(
+      String(router.push?.mock.calls[0]?.[0]),
+      'https://app.test',
+    )
+    expect(url.searchParams.get('question')).toBe('a'.repeat(300))
   })
 
   it('saves the walk’s list once when the card is pressed twice', async () => {

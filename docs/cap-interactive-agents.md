@@ -194,6 +194,12 @@ chat registers none. All tools are the `LlmStreamTool` shape defined in
   list it was cut from), so the model can match an effort the person names.
   `replies` counts text replies only; a walk or list always shows none, and
   the descriptions send the model to `read_outreach_feedback` for those.
+  Each row (and each `read_outreach_feedback` send) also carries `status`,
+  `scheduledFor` and `sentOn`, both days as yyyy-MM-dd; `sentOn` stays null
+  until the send has gone out by contracts' `outreachHasGoneOut`, read in the
+  user's zone (`resolveSendWindowTimeZone`, the zone the prompt's date line is
+  in). No column records a send's delivery, and a Serve text reads
+  `in_progress` from the moment it is paid for, days before its day.
 - **`read_outreach_feedback`** — what came back in people's own words: text
   replies, door and call notes with their issues, and each send's themes
   (`PriorityFlowOutreachService`). Chief of Staff and the priority flow read

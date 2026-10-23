@@ -56,6 +56,7 @@ import {
   SERVE_IN_OFFICE_OPTIONS,
   SERVE_PARTY_OPTIONS,
   SERVE_CITIZEN_PANELS_PLEDGE_BUTTON,
+  SERVE_PRIORITIES_LIST_COPY,
   SERVE_CITIZEN_PANELS_STEP_COPY,
   SERVE_CITIZEN_PANELS_WELCOME_VALUE_PROPS,
   SERVE_PLEDGE_COMMITMENTS,
@@ -149,6 +150,7 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
     OnboardingPriorityOption[] | null
   >(null)
   const [priorityLoadFailed, setPriorityLoadFailed] = useState(false)
+  const [communityIssuesFailed, setCommunityIssuesFailed] = useState(false)
   const [selectedPriorityKeys, setSelectedPriorityKeys] = useState<Set<string>>(
     new Set(),
   )
@@ -438,7 +440,8 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
     if (
       step !== 'priorities' ||
       !priorityOptionsLoaded ||
-      hasCommunityOptions
+      hasCommunityOptions ||
+      communityIssuesFailed
     ) {
       return
     }
@@ -481,7 +484,7 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
       cancelled = true
       clearTimeout(timer)
     }
-  }, [step, priorityOptionsLoaded, hasCommunityOptions])
+  }, [step, priorityOptionsLoaded, hasCommunityOptions, communityIssuesFailed])
 
   // One-shot guards for the two selection screens whose "Viewed" event fires on
   // Continue (with the chosen card title) rather than on view, so re-advancing
@@ -585,18 +588,21 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
   // is never sent here, so the completion guard stays untouched.
   // Writes quick starter issues for the office, then starts the full community
   // issues research, so the priorities step can offer real local issues. Kept
-  // as a promise so that step can wait on it. A failed start stays in the ref
-  // so later steps never refire it; only the priorities step's Try again
-  // starts one fresh attempt.
+  // as a promise so that step can wait on it. A failed start is retried once
+  // on its own; one that fails again stays in the ref so later steps never
+  // refire it, and only the priorities step's Try again starts a fresh one.
   const communityIssuesStartRef = useRef<Promise<void> | null>(null)
   const communityIssuesFailedRef = useRef(false)
   const startCommunityIssues = (): Promise<void> => {
     if (communityIssuesStartRef.current) return communityIssuesStartRef.current
-    const started = clientRequest('POST /v1/community-issues/onboarding', {})
+    const post = () => clientRequest('POST /v1/community-issues/onboarding', {})
+    const started = post()
+      .catch(post)
       .then(() => undefined)
       .catch((err: Error) => {
         reportErrorToSentry(err, { context: 'serveOnboarding.communityIssues' })
         communityIssuesFailedRef.current = true
+        setCommunityIssuesFailed(true)
       })
     communityIssuesStartRef.current = started
     return started
@@ -717,6 +723,8 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
     if (communityIssuesFailedRef.current) {
       communityIssuesFailedRef.current = false
       communityIssuesStartRef.current = null
+      setCommunityIssuesFailed(false)
+      setPriorityOptions(null)
     }
     setPriorityLoadFailed(false)
   }
@@ -1234,6 +1242,7 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
               <PrioritiesStep
                 options={priorityOptions}
                 loadFailed={priorityLoadFailed}
+                searchFailed={communityIssuesFailed}
                 onRetry={retryPriorities}
                 selectedKeys={selectedPriorityKeys}
                 onToggle={togglePriority}
@@ -1646,6 +1655,7 @@ const PRIORITY_KIND_ORDER: OnboardingPriorityOption['kind'][] = [
 const PrioritiesStep = ({
   options,
   loadFailed,
+  searchFailed,
   onRetry,
   selectedKeys,
   onToggle,
@@ -1658,6 +1668,7 @@ const PrioritiesStep = ({
 }: {
   options: OnboardingPriorityOption[] | null
   loadFailed: boolean
+  searchFailed: boolean
   onRetry: () => void
   selectedKeys: Set<string>
   onToggle: (key: string) => void
@@ -1687,11 +1698,20 @@ const PrioritiesStep = ({
         </div>
       ) : (
         <div className="mt-8 space-y-3">
-          {options.length === 0 && (
-            <p className="text-sm text-muted-foreground">
-              We couldn’t find issues for your area yet. Add one under Other, or
-              skip this for now.
-            </p>
+          {searchFailed &&
+          !options.some((option) => option.kind === 'community') ? (
+            <div className="flex flex-col items-start gap-3 text-sm text-muted-foreground">
+              <p>{SERVE_PRIORITIES_LIST_COPY.searchFailed}</p>
+              <Button type="button" variant="outline" onClick={onRetry}>
+                {SERVE_PRIORITIES_LIST_COPY.retry}
+              </Button>
+            </div>
+          ) : (
+            options.length === 0 && (
+              <p className="text-sm text-muted-foreground">
+                {SERVE_PRIORITIES_LIST_COPY.empty}
+              </p>
+            )
           )}
           {PRIORITY_KIND_ORDER.flatMap((kind) =>
             options

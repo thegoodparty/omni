@@ -80,6 +80,7 @@ import {
   PriorityFlowContextService,
 } from './services/priorityFlowContext.service'
 import { PriorityFlowOutreachService } from './services/priorityFlowOutreach.service'
+import { resolveSendWindowTimeZone } from '@/vendors/peerly/utils/sendWindowTimeZone.util'
 import { buildPriorityFlowSystemPrompt } from './priorityFlow.prompt'
 import { voterFilterBaseSchema } from '@/shared/schemas/voterFilterBase.schema'
 
@@ -248,9 +249,16 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
             ])
           ).get(ctx.priorityId)
         : undefined
+    // Read in the office's own zone, so the thread never calls a send out
+    // that the prompt's date line has not reached yet.
+    const anchorSummaries = await this.outreach.summarizeAnchors(
+      ctx.priorityId,
+      resolveSendWindowTimeZone(resolved?.state),
+    )
     if (!resolved) {
       return {
         ...ctx,
+        anchorSummaries,
         peopleDataset,
         outreachFeedbackEnabled,
         civicPanelMembers,
@@ -260,6 +268,7 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
     }
     return {
       ...ctx,
+      anchorSummaries,
       outreachFeedbackEnabled,
       civicPanelMembers,
       reportBacks,
@@ -498,6 +507,7 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
         outreach: this.outreach,
         priorityId: ctx.priorityId,
         organizationSlug: ctx.organizationSlug,
+        timeZone: resolveSendWindowTimeZone(ctx.state),
       }),
     }
 
@@ -513,6 +523,7 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
         outreach: this.outreach,
         priorityId: ctx.priorityId,
         organizationSlug: ctx.organizationSlug,
+        timeZone: resolveSendWindowTimeZone(ctx.state),
         goodRead: ctx.readStatus?.good,
       })
       if (this.reportBack) {

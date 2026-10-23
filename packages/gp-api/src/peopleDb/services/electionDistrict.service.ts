@@ -40,12 +40,12 @@ const districtIdSchema = z.guid()
  * district lookup was the last thing keeping that cluster on the path.
  */
 @Injectable()
-export class ElectionApiDistrictService {
+export class ElectionDistrictService {
   constructor(
     private readonly districtsService: DistrictsService,
     private readonly logger: PinoLogger,
   ) {
-    this.logger.setContext(ElectionApiDistrictService.name)
+    this.logger.setContext(ElectionDistrictService.name)
   }
 
   async findDistrictById(id: string): Promise<DistrictById> {

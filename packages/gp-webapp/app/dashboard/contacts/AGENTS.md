@@ -16,7 +16,7 @@ themselves. The page shows the panel filling up, from
 (both read server-side by `page.tsx`; `progress`, `balance` and
 `composition` ride on the summary). Behind `serve-citizen-panels`; copy in
 `citizensPanelCopy.ts` (page) and `managedPanelCopy.ts` (Invites card,
-`useServePlace`, which title-cases an L2 name filed in capitals). Two
+`useServePlace`, cased by contracts' `cityNameCase`). Two
 columns from `lg`, the rail under the main column on a phone; the page
 pads `var(--chat-dock-height)` plus 8rem so the last card clears the bar.
 

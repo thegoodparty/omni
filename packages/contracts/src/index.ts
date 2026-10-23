@@ -553,7 +553,7 @@ export {
   OrganizationWithStatusSchema,
   type OrganizationWithStatus,
 } from './campaigns/Organization.schema'
-export { cityFromDistrictName } from './campaigns/DistrictCity'
+export { cityFromDistrictName, cityNameCase } from './campaigns/DistrictCity'
 
 export {
   ElectedOfficeSchema,
@@ -1122,6 +1122,7 @@ export {
   MAJOR_GROUP_SHARE,
   answersNeeded,
 } from './outreach/AnswersNeeded.const'
+export { outreachHasGoneOut } from './outreach/OutreachGoneOut'
 export {
   OUTREACH_PURPOSE_VALUES,
   OutreachPurposeSchema,
@@ -1738,6 +1739,12 @@ export {
   TestFixtureActivityEffortSchema,
   SeedTestFixtureActivityResponseSchema,
   type SeedTestFixtureActivityResponse,
+  TestFixtureRaceQuerySchema,
+  type TestFixtureRaceQuery,
+  ApplyTestFixtureElectionRequestSchema,
+  type ApplyTestFixtureElectionRequest,
+  ApplyTestFixtureElectionResponseSchema,
+  type ApplyTestFixtureElectionResponse,
 } from './testFixtures/testFixtures.schema'
 
 export {

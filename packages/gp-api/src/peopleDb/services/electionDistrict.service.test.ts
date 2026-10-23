@@ -1,16 +1,16 @@
 import { BadGatewayException, NotFoundException } from '@nestjs/common'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { ElectionApiDistrictService } from './electionApiDistrict.service'
+import { ElectionDistrictService } from './electionDistrict.service'
 
 const DISTRICT_ID = '0e5bafca-93a9-86a5-2522-f373979720df'
 
-describe('ElectionApiDistrictService', () => {
+describe('ElectionDistrictService', () => {
   let findUnique: ReturnType<typeof vi.fn>
-  let service: ElectionApiDistrictService
+  let service: ElectionDistrictService
 
   beforeEach(() => {
     findUnique = vi.fn()
-    service = new ElectionApiDistrictService(
+    service = new ElectionDistrictService(
       { findUnique } as never,
       {
         setContext: vi.fn(),

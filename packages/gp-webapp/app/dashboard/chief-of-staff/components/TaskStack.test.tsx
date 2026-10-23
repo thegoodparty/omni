@@ -394,7 +394,7 @@ describe('<TaskStack>', () => {
       id: 'step',
       type: 'civic_panel',
       title: 'Your civic panel is filling up',
-      ctaLabel: 'See your panel',
+      ctaLabel: 'See your civic panel',
       ctaHref: '/dashboard/contacts/citizens-panel',
       sourceExternalId: 'managed-panel-progress:eo-1',
       sourceItemId: 'building',
@@ -544,6 +544,22 @@ describe('<TaskStack>', () => {
       expect(screen.queryByText(/due/i)).toBeNull()
     })
 
+    it('title-cases a place that arrives in all caps', () => {
+      orgRef.current = {
+        slug: 'eo-test',
+        district: { l2Name: 'WINSTON-SALEM CITY WARD 2' },
+      }
+      onboardingRef.current = [{ key: 'priorities', status: 'active' }]
+      withCards([managedCard])
+      render(<TaskStack onOpenCard={vi.fn()} onDiscussCard={vi.fn()} />)
+
+      expect(
+        screen.getByRole('heading', {
+          name: 'Know what Winston-Salem thinks before you vote',
+        }),
+      ).toBeInTheDocument()
+    })
+
     it('opens the Chief of Staff on the setup, with Ask about this and Skip', async () => {
       const user = userEvent.setup()
       const onDiscussCard = vi.fn()
@@ -583,7 +599,7 @@ describe('<TaskStack>', () => {
         title: 'Your civic panel is filling up',
         summary:
           '12 of 250 residents have joined. More invites go out Tuesday, November 3.',
-        ctaLabel: 'See your panel',
+        ctaLabel: 'See your civic panel',
         ctaHref: '/dashboard/contacts/citizens-panel',
         sourceExternalId: 'managed-panel-progress:office-1',
         sourceItemId: phase,
@@ -604,7 +620,7 @@ describe('<TaskStack>', () => {
         ),
       ).toBeInTheDocument()
       expect(
-        screen.getByRole('link', { name: 'See your panel' }),
+        screen.getByRole('link', { name: 'See your civic panel' }),
       ).toHaveAttribute(
         'href',
         expect.stringContaining('/dashboard/contacts/citizens-panel'),
@@ -650,7 +666,7 @@ describe('<TaskStack>', () => {
         screen.getByRole('heading', { name: 'Your civic panel is ready' }),
       ).toBeInTheDocument()
       expect(
-        screen.getByRole('link', { name: 'See your panel' }),
+        screen.getByRole('link', { name: 'See your civic panel' }),
       ).toBeInTheDocument()
     })
   })

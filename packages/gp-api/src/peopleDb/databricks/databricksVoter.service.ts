@@ -7,7 +7,7 @@ import {
   NotFoundException,
 } from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
-import { ElectionApiDistrictService } from '../services/electionApiDistrict.service'
+import { ElectionDistrictService } from '../services/electionDistrict.service'
 import {
   PeopleAggregatesResponse,
   PeopleAggregatesResponseSchema,
@@ -192,7 +192,7 @@ export class DatabricksVoterService {
   constructor(
     private readonly logger: PinoLogger,
     private readonly client: PeopleDbxStatementClient,
-    private readonly districtService: ElectionApiDistrictService,
+    private readonly districtService: ElectionDistrictService,
   ) {
     this.logger.setContext(DatabricksVoterService.name)
   }
