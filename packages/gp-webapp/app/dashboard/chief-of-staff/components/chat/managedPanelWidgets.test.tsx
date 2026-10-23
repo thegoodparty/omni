@@ -227,6 +227,8 @@ describe('the managed civic panel in the Chief of Staff chat', () => {
             goalMembers: 275,
             wavesSent: 0,
             nextWaveAt: null,
+            firstSendDate: '2026-10-27',
+            readyWeekOf: '2026-11-09',
           },
         },
       },

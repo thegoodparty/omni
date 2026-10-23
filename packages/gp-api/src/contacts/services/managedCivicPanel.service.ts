@@ -37,6 +37,7 @@ import {
 import { adultAgeBandShares } from '@/priorities/util/censusSexAge.util'
 import { ContactsService } from './contacts.service'
 import { CensusTractNameService } from './censusTractName.service'
+import { managedPanelSchedule } from '../utils/managedPanelSchedule.util'
 
 type Row = Prisma.ManagedCivicPanelGetPayload<{
   include: { waves: { select: { sentAt: true; replyWindowEndsAt: true } } }
@@ -287,6 +288,7 @@ export class ManagedCivicPanelService extends createPrismaBase(
           row.status === ManagedCivicPanelStatus.building
             ? (latest?.replyWindowEndsAt ?? null)
             : null,
+        ...managedPanelSchedule(row.approvedAt),
       },
     }
   }

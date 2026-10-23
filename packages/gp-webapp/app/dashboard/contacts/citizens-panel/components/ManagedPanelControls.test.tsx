@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type {
@@ -14,7 +14,10 @@ vi.mock('@shared/organization-picker', async (importOriginal) => ({
   useOrganization: () => ({ slug: 'eo-test', district: null }),
 }))
 
-const panel = (status: ManagedCivicPanelStatus): ManagedCivicPanel => ({
+const panel = (
+  status: ManagedCivicPanelStatus,
+  progress: Partial<ManagedCivicPanel['progress']> = {},
+): ManagedCivicPanel => ({
   id: 'mp-1',
   status,
   inviteMessage: 'Hi.',
@@ -34,6 +37,9 @@ const panel = (status: ManagedCivicPanelStatus): ManagedCivicPanel => ({
     goalMembers: 250,
     wavesSent: 1,
     nextWaveAt: new Date(2026, 10, 3),
+    firstSendDate: '2026-10-27',
+    readyWeekOf: '2026-11-09',
+    ...progress,
   },
 })
 
@@ -52,17 +58,49 @@ const mockPatch = () => {
   return actions
 }
 
+beforeEach(() => {
+  vi.useFakeTimers({ now: new Date(2026, 9, 23), toFake: ['Date'] })
+})
+afterEach(() => {
+  vi.useRealTimers()
+})
+
 describe('ManagedPanelControls', () => {
+  it('says when the next invites go out and when the panel should be ready', () => {
+    render(<ManagedPanelControls panel={panel('building')} />)
+
+    expect(screen.getByRole('heading', { name: 'Invites' })).toBeInTheDocument()
+    expect(
+      screen.getByText("We're sending invites in your name."),
+    ).toBeInTheDocument()
+    expect(screen.getByText('Next invites')).toBeInTheDocument()
+    expect(screen.getByText('Tue, Nov 3')).toBeInTheDocument()
+    expect(screen.getByText('Ready around')).toBeInTheDocument()
+    expect(screen.getByText('Week of Nov 9')).toBeInTheDocument()
+  })
+
+  it('names the first send day before any wave has gone', () => {
+    render(
+      <ManagedPanelControls
+        panel={panel('building', { wavesSent: 0, nextWaveAt: null })}
+      />,
+    )
+
+    expect(screen.getByText('Tue, Oct 27')).toBeInTheDocument()
+  })
+
+  it('drops a ready week that has passed', () => {
+    vi.setSystemTime(new Date(2026, 10, 20))
+    render(<ManagedPanelControls panel={panel('building')} />)
+
+    expect(screen.queryByText('Ready around')).toBeNull()
+  })
+
   it('pauses a building panel through the PATCH route', async () => {
     const user = userEvent.setup()
     const actions = mockPatch()
     render(<ManagedPanelControls panel={panel('building')} />)
 
-    expect(
-      screen.getByText(
-        "We're sending invites. The next ones go out Tuesday, November 3.",
-      ),
-    ).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Pause invites' }))
 
     await waitFor(() => expect(actions).toEqual(['pause']))
@@ -74,6 +112,7 @@ describe('ManagedPanelControls', () => {
     expect(
       screen.getByRole('button', { name: 'Resume invites' }),
     ).toBeInTheDocument()
+    expect(screen.queryByText('Next invites')).toBeNull()
   })
 
   it('stops the panel only once the official confirms', async () => {
@@ -108,11 +147,10 @@ describe('ManagedPanelControls', () => {
     render(<ManagedPanelControls panel={panel('exhausted')} />)
 
     expect(
-      screen.getByText('Every resident we can text has an invite.'),
+      screen.getByText("We've invited everyone we can reach by text."),
     ).toBeInTheDocument()
     expect(screen.queryByTestId('managed-panel-join-link')).toBeNull()
     expect(screen.queryByText(/link/i)).toBeNull()
-    expect(screen.getByText('Needs more residents, 12 of 250 members'))
     expect(screen.queryByRole('button', { name: 'Pause invites' })).toBeNull()
   })
 

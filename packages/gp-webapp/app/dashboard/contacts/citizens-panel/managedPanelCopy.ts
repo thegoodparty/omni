@@ -1,6 +1,7 @@
 import {
   cityFromDistrictName,
   cityNameCase,
+  type ManagedCivicPanel,
   type ManagedCivicPanelStatus,
 } from '@goodparty_org/contracts'
 import { useOrganization } from '@shared/organization-picker'
@@ -45,24 +46,24 @@ export const MANAGED_PANEL_COPY = {
   },
   // The progress cards on the Serve home: their headline over the deck.
   progressHeadline: 'Your civic panel',
-  // The panel page's controls for the panel GoodParty builds.
+  // The panel page's Invites card for the panel GoodParty builds.
   controls: {
-    title: 'Your civic panel invites',
-    status: (
-      status: ManagedCivicPanelStatus,
-      nextInvites: string | null,
-    ): string => {
+    title: 'Invites',
+    status: (status: ManagedCivicPanelStatus): string => {
       if (status === 'paused') {
         return 'Invites are paused. Nobody new gets one until you resume.'
       }
-      if (status === 'ready') return 'Your civic panel is ready.'
-      if (status === 'exhausted') {
-        return 'Every resident we can text has an invite.'
+      if (status === 'ready') {
+        return 'Your civic panel is full. No new invites are going out.'
       }
-      return nextInvites
-        ? `We're sending invites. The next ones go out ${nextInvites}.`
-        : "We're sending invites in your name."
+      if (status === 'exhausted') {
+        return "We've invited everyone we can reach by text."
+      }
+      return "We're sending invites in your name."
     },
+    nextInvites: 'Next invites',
+    readyAround: 'Ready around',
+    weekOf: (day: string) => `Week of ${day}`,
     pause: 'Pause invites',
     resume: 'Resume invites',
     stop: 'Stop my civic panel',
@@ -84,14 +85,49 @@ export const MANAGED_PANEL_COPY = {
   },
 } as const
 
-// "Tuesday, November 3", the day the next invites go out.
-export const managedPanelNextInvites = (
-  nextWaveAt: Date | string | null,
-): string | null =>
-  nextWaveAt
-    ? new Date(nextWaveAt).toLocaleDateString('en-US', {
-        weekday: 'long',
-        month: 'long',
-        day: 'numeric',
-      })
-    : null
+// A yyyy-MM-dd day as the calendar day it names, wherever the reader is.
+const calendarDay = (day: string): Date => new Date(`${day}T00:00:00`)
+
+// The day the next invites go out: the next wave once one has gone, else
+// the first. Null when none is due (paused, ready, exhausted).
+export const managedPanelNextInvitesAt = (
+  panel: ManagedCivicPanel,
+): Date | null => {
+  if (panel.status !== 'building') return null
+  const { nextWaveAt, wavesSent, firstSendDate } = panel.progress
+  if (nextWaveAt) return new Date(nextWaveAt)
+  return wavesSent === 0 ? calendarDay(firstSendDate) : null
+}
+
+// The Monday of the week the panel should be ready, while that week is
+// still ahead or under way.
+export const managedPanelReadyWeek = (
+  panel: ManagedCivicPanel,
+  now: Date = new Date(),
+): Date | null => {
+  if (panel.status !== 'building') return null
+  const monday = calendarDay(panel.progress.readyWeekOf)
+  const weekEnds = new Date(monday)
+  weekEnds.setDate(weekEnds.getDate() + 7)
+  return weekEnds > now ? monday : null
+}
+
+// "Wednesday, November 4".
+export const longDay = (date: Date): string =>
+  date.toLocaleDateString('en-US', {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+  })
+
+// "Wed, Nov 4".
+export const shortDay = (date: Date): string =>
+  date.toLocaleDateString('en-US', {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+  })
+
+// "Nov 9".
+export const monthDay = (date: Date): string =>
+  date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
