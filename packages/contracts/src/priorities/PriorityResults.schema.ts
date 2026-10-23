@@ -158,6 +158,10 @@ export const PriorityReadStatusSchema = z.object({
   needed: z.number().int().positive(),
   groupsHeard: z.number().int().nonnegative().default(0),
   groupsTotal: z.number().int().nonnegative().default(0),
+  // Of the groups not yet heard, how many belong to the groups named in
+  // `underrepresented`: the ones the read needs answers from next. Absent
+  // from reads served before it existed.
+  groupsNext: z.number().int().nonnegative().optional(),
   good: z.boolean(),
   status: ReadRepresentativenessSchema,
   // The one or two groups holding the read back, the one to hear from

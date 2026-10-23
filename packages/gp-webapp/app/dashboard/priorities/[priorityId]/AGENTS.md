@@ -250,7 +250,7 @@ group in the district has answered on it, pooled across texts, calls and
 doors, and a model of the coded answers is sure enough of each. gp-api
 decides it in one place, `mrpReadStatus`
 (`gp-api/src/priorities/util/mrpReadStatus.util.ts`), returning
-`{ answers, needed, groupsHeard, groupsTotal, good, status, underrepresented, unheard }`. A major group holds
+`{ answers, needed, groupsHeard, groupsTotal, groupsNext, good, status, underrepresented, unheard }`. A major group holds
 3% or more of the district on age band, tract, gender, or race when
 `raceNameable` holds (10 coded answers with a known race, 70% of all); the
 pooled `other` never counts.
@@ -272,7 +272,10 @@ modeled ethnicity folded as the panel's steering folds it; it shapes
 the model either way and counts as a group only when nameable. Scales are
 the model's defaults; nothing learns them from past priorities yet.
 `groupsHeard` of `groupsTotal` are the major groups with at least 3 coded
-answers; both are 0 when the district could not be read. `answers` is the
+answers; both are 0 when the district could not be read. `groupsNext` is
+how many of the rest belong to a group named in `underrepresented` (every
+short tract, once `unreachedAreas` is named); absent on older reads, read
+as 0. `answers` is the
 people heard (the results page's count); `needed` is the larger of the
 district's floor (`answersNeeded` of its smallest major group, the target
 round 1 is sized to) and `answers` plus the fewest more that could give
@@ -320,10 +323,21 @@ a model**: only the status, the groups and actions.
   button (`READ_STATUS_COPY.canGetAnswers`). The text links to the results page; the button is the one action.
 - **Desktop**: a 56px bar across the chat and the rail holds back and the
   title, so there is no title in the scroll with the flag on. The rail opens
-  with the status label and dot, the status line naming the groups, "9 of 12
-  groups heard" with a bar, Get answers, a quiet "What we heard" link, then
-  "Where this stands". With a good read the rail has See what we heard and
+  with the status label and dot, the groups seats (below), "9 of 12 groups
+  heard" with a key (Heard, Needs answers next, Not yet), the status line
+  naming the groups, Get answers, a quiet "What we heard" link, then "Where
+  this stands". With a good read the rail has See what we heard and
   no second link to the same page.
+- **The groups seats** (`components/GroupSeats.tsx`) are the civic panel's
+  100-seat arc (`seatSpots` and `allocate` from `citizens-panel/components/
+  panelCharts.ts`, reused, never changed for this), split evenly between
+  `groupsTotal` groups, left to right: `groupsHeard` filled primary blue,
+  `groupsNext` in an orange ring, the rest in a light grey ring. A read only
+  counts groups, so the seats are ordered by state, not by which group is
+  which. They show from `lg` up only; below it the rail block and the
+  results held card keep the groups bar, and the phone strip its thin bar.
+  The switch is CSS (`hidden lg:block` / `lg:hidden`), never a width check,
+  so nothing jumps on load.
 - **Get answers** queues one hidden `GET_ANSWERS_MESSAGE` turn (contracts,
   `GET_ANSWERS_MARKER`) behind any turn in flight, filtered from the
   transcript like the other app turns. It is a detour that returns: the agent
@@ -373,10 +387,11 @@ against the district. The response also carries reach and answers per send; the 
 does not list sends, since the tiles already give those counts.
 
 Before a good read it shows the answered tiles, then a card with the status,
-the strip's own status line naming which groups have no answers and which
-are short (`READ_STATUS_COPY.statusLine`), the groups bar, and one line
-(`READ_STATUS_COPY.heldBack`) holding back the themes, the map and who
-you're hearing from, with a Get answers button. It never says nobody
+the groups seats, larger and centered, with their key and "9 of 12 groups
+heard." (the groups bar instead below `lg`), one line (`READ_STATUS_COPY.heldBack`) holding back the themes, the
+map and who you're hearing from, "Still need: men and people 65 and over."
+(`READ_STATUS_COPY.stillNeed`; the status line instead while the read is
+getting close), and a Get answers button. It never says nobody
 answered. After, it shows everything below.
 
 - **Behind `serve-citizen-panels`.** The link renders only with the flag on,
