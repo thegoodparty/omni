@@ -35,6 +35,25 @@ export const setActorRole = (
   actorRole = value
 }
 
+export type ActiveProduct = 'win' | 'serve'
+
+// Serve when the org has an elected office, else Win. No org yet gives null.
+export const toActiveProduct = (
+  org: { electedOfficeId?: string | null } | undefined,
+): ActiveProduct | null => {
+  if (!org) return null
+  return org.electedOfficeId ? 'serve' : 'win'
+}
+
+// Named differently from `product` on purpose: the governed outreach metrics
+// exclude on `product`, so filling it on every event would change them.
+let activeProduct: ActiveProduct | null | undefined
+export const setActiveProduct = (
+  value: ActiveProduct | null | undefined,
+): void => {
+  activeProduct = value
+}
+
 const UTM_KEYS = [
   'utm_source',
   'utm_medium',
@@ -1124,6 +1143,7 @@ export const trackEvent = (
       impersonation: isImpersonating,
       actorUserId: actorUserId ?? null,
       actorRole: actorRole ?? null,
+      activeProduct: activeProduct ?? null,
     }
     // Return the segmentTrackEvent promise so callers that need the event to
     // flush before a page unload (e.g. a redirect) can await it.
