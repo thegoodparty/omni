@@ -519,7 +519,7 @@ export class Peerly10DlcMockController {
         identity_id: id,
         account_id: identity.state.account_id,
         usecase: PEERLY_USECASE,
-        tcr_campaign_id: `mock-tcr-${id}`,
+        tcr_campaign_id: active ? `mock-tcr-${id}` : null,
         submitted: 1,
         activated: active ? 1 : 0,
       },
