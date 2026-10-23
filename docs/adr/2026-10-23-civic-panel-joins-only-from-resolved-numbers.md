@@ -3,7 +3,7 @@ title: A texted civic panel JOIN counts only from a number the send or the voter
 status: active
 decided_by: [bryclevgp]
 date: 2026-10-23
-code: ['#PR']
+code: ['#3172']
 scope:
   - packages/gp-api/src/outreach/services/outreachTextIngest.service.ts
   - packages/gp-api/prisma/schema/managedCivicPanel.prisma
