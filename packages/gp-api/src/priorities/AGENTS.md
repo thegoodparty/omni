@@ -7,17 +7,19 @@ the results page's read of who answered the outreach sent on one
 
 ## Status writes
 
-`services/priorityStatus.service.ts` is the only writer of `status`, and
-`refusalFor` turns down a call it should not take, with an error the agent
-can act on. One of them: a call that rewrites a settled step's summary and
-leaves it settled. A fact that changes what a step concluded sends the step
-back (stale or active, with a caveat), so the official sees it move; on the
-demo run the agent instead rewrote "The problem" in place. A revised check is
-the one exception, because constituents changed the conclusion.
+`services/priorityStatus.service.ts` is the only writer of `status`.
+`refusalFor` turns down a call it should not take, and `refusalResult` wraps
+the reason: "Nothing was recorded", the steps that did not move, and why, in
+words the agent can pass on to the official. A refused call writes nothing,
+and the chat nulls its args, so the rail and its markers never move on it.
 
-A step sent back stays back for the rest of that turn (`buildStatusTool`
-tracks it): settling it again waits for a later turn, so the official agrees
-the new version instead of the agent settling its own rewrite.
+Two refusals keep a step that goes back honest. A call that rewrites a settled
+step's summary and leaves it settled is refused: a fact that changes what a
+step concluded sends it back (stale or active, with a caveat), so the official
+sees it move. A revised check is the exception, because constituents changed
+the conclusion. And a step sent back stays back for the rest of that turn
+(`buildStatusTool` tracks it), so the official agrees the new version instead
+of the agent settling its own rewrite.
 
 ## Answer coding
 
