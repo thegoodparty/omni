@@ -5,6 +5,7 @@ const typescriptEslint = require('@typescript-eslint/eslint-plugin')
 const react = require('eslint-plugin-react')
 const unusedImports = require('eslint-plugin-unused-imports')
 const stylistic = require('@stylistic/eslint-plugin')
+const { builtinRules } = require('eslint/use-at-your-own-risk')
 
 const { FlatCompat } = require('@eslint/eslintrc')
 
@@ -194,6 +195,11 @@ module.exports = [
     // e2e-tests/src/helpers/testIdentifiers.helper.ts. A deliberately invalid
     // input a validation spec asserts on, or a value a vendor mock always
     // returns, takes an eslint-disable-next-line naming why.
+    //
+    // Its own name for the core no-restricted-syntax rule: flat config replaces
+    // a rule's options per block rather than merging them, so sharing the core
+    // name with another e2e guard would switch that guard off, and one disable
+    // comment would silence both.
     files: ['e2e-tests/**/*.ts'],
     ignores: [
       // Owned by in-flight PRs that are reworking these files (release-train
@@ -202,8 +208,15 @@ module.exports = [
       'e2e-tests/tests/app/dashboard/pro-upgrade/**',
       'e2e-tests/src/helpers/pro-upgrade.helper.ts',
     ],
+    plugins: {
+      'e2e-ids': {
+        rules: {
+          'no-literal-identifiers': builtinRules.get('no-restricted-syntax'),
+        },
+      },
+    },
     rules: {
-      'no-restricted-syntax': [
+      'e2e-ids/no-literal-identifiers': [
         'error',
         ...[
           ['EIN', '^\\d{2}-\\d{7}$'],
