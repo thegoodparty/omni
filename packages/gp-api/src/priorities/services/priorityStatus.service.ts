@@ -163,10 +163,11 @@ const refusalFor = (
   if (closesUnheard !== undefined) {
     const gate = PRIORITY_LISTEN_GATES[closesUnheard.id]!
     return (
-      `${PRIORITY_STEP_LABELS[closesUnheard.id]} stays open until ` +
-      `constituents have answered the check on ${PRIORITY_STEP_LABELS[gate]}` +
-      ', or the official decides not to ask. Leave it open with a caveat ' +
-      'naming who you are waiting on, and keep working.'
+      `${PRIORITY_STEP_LABELS[closesUnheard.id]} waits on what ` +
+      `constituents say about ${PRIORITY_STEP_LABELS[gate]}, and they have ` +
+      'not answered yet. It stays open until they do, or the official ' +
+      'decides not to ask. Leave it open with a caveat naming who you are ' +
+      'waiting on, and keep working.'
     )
   }
   const afterUpdate = current.steps.map((step) => ({
@@ -182,13 +183,37 @@ const refusalFor = (
   if (settlesPastListening !== undefined) {
     const listen = openListenBefore(afterUpdate, settlesPastListening.id)!
     return (
-      `You can work on ${PRIORITY_STEP_LABELS[settlesPastListening.id]} ` +
-      `now, but it cannot be done until ${PRIORITY_STEP_LABELS[listen]} ` +
-      'closes, because it rests on what people have not said yet. Keep it ' +
-      'active, and say plainly what it is waiting on.'
+      `${PRIORITY_STEP_LABELS[settlesPastListening.id]} waits on what ` +
+      'constituents say, and they have not answered yet, so it cannot be ' +
+      `done until ${PRIORITY_STEP_LABELS[listen]} closes. You can keep ` +
+      'working on it: keep it active, and say plainly what it is waiting on.'
     )
   }
   return null
+}
+
+// A refused call writes nothing, and the model has to know that, so the
+// result says which steps stayed where they were and how to tell the
+// official. Left to itself it explained the refusal as "the system".
+const refusalResult = (
+  current: PriorityStatus,
+  update: UpdatePriorityStatusInput,
+  reason: string,
+): { error: string } => {
+  const moves = update.steps.filter(
+    (patch) =>
+      current.steps.find((step) => step.id === patch.id)?.state !== patch.state,
+  )
+  const unmoved = (moves.length > 0 ? moves : update.steps).map(
+    (patch) => PRIORITY_STEP_LABELS[patch.id],
+  )
+  return {
+    error:
+      `Nothing was recorded. These did not move: ${unmoved.join(', ')}. ` +
+      `${reason} When you tell the official, say it in their terms, like ` +
+      '"the plan waits on what residents say", never how the app or a ' +
+      'system works.',
+  }
 }
 
 // A gate settled in this call with no check yet: the tool result reminds the
@@ -638,8 +663,9 @@ export class PriorityStatusService extends createPrismaBase(MODELS.Priority) {
           'today.',
         inputSchema: UpdatePriorityStatusInputSchema,
         execute: async (input) => {
-          const refusal = refusalFor(await this.read(priorityId), input, turn)
-          if (refusal !== null) return { error: refusal }
+          const current = await this.read(priorityId)
+          const refusal = refusalFor(current, input, turn)
+          if (refusal !== null) return refusalResult(current, input, refusal)
           const result = await this.applyUpdate(
             priorityId,
             input,

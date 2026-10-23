@@ -16,7 +16,7 @@ they see the whole path rather than only the step they are on.
 | `components/StatusChangeMarker.tsx` | The quiet inline line a status move leaves in the conversation                      |
 | `components/ReadStatus.tsx`         | The good read strip (phone) and rail block (desktop), behind `serve-citizen-panels` |
 | `readStatusCopy.ts`                 | Good read copy and links, shared with `results/`                                    |
-| `data/statusUpdates.ts`             | The `update_priority_status` merge, mirrored from the server, plus the marker copy  |
+| `data/statusUpdates.ts`             | The `update_priority_status` merge, mirrored from the server, and the marker diff   |
 | `data/statusReplay.ts`              | Replays the transcript's status calls so a reloaded thread shows the same markers   |
 | `data/chat-api.ts`                  | `createAgentChatClient('priority_flow', ...)`                                       |
 | `data/toolLabels.ts`                | Which tools show a pill, and what it says                                           |
@@ -60,19 +60,25 @@ so the workspace shows "Thinking..." and polls `listMessages` until it lands,
 on the shared engine's doneless commit-poll budget. It never sends a second
 kickoff, which would leave two in the thread.
 
-## The rail moves in three passes, and the last one is the truth
+## The rail moves on what the server stored, never on what the agent asked
 
-1. **`tool_call update_priority_status`** — `applyStatusUpdate` runs the
-   server's own merge locally and the rail moves mid-turn, while the agent is
-   still talking. This is most of the feel.
-2. **`tool_result`** — the tool returns the merged status it wrote, so any
-   drift in the optimistic guess is corrected a beat later.
-3. **`onTurnSettle`** — `fetchPriorityStatus` reads what was actually
-   persisted. An interrupted turn cannot leave the rail claiming a move the
-   server never stored.
+1. **`tool_result update_priority_status`** — the tool returns the merged
+   status it wrote, and the rail moves mid-turn, while the agent is still
+   talking. The marker is `statusChanges(before, stored)`: only what really
+   moved. The `tool_call` moves nothing. The server refuses a call outright
+   (`{ error }`, nothing written), and drawing from the call put "Done with"
+   markers in the chat for steps the rail then showed not started.
+2. **`onTurnSettle`** — `fetchPriorityStatus` reads what was actually
+   persisted, which also picks up a send putting a check out.
 
 The live status is held in a ref as well as state (`statusRef`), because two
-status calls can land in one tick and the second has to merge onto the first.
+status results can land in one tick and the second's marker is measured from
+the first.
+
+A refusal says which steps did not move and why, in words the agent can pass
+on (`refusalResult` in gp-api's `PriorityStatusService`), and the prompt
+(`STATUS_TOOL_BLOCK`) has it tell the official what the step waits on, never
+how the system works.
 
 ## A step going backwards is the feature
 
@@ -82,11 +88,15 @@ conversation marker says so out loud — `Back to your options`, `What we know
 needs another look`. Hiding a backwards move makes the rail look broken, which
 is worse than the move itself.
 
-`applyStatusUpdate` returns the changes it made, so the marker copy can say
+`statusChanges` carries where each step came from, so the marker copy can say
 "backwards". A stored patch only says what a step became, so
 `replayStatusMarkers` rebuilds the prior state by replaying every status call
-in the transcript from an empty status. That is why a reloaded thread reads the
-same as it did live.
+in the transcript from an empty status, and diffs each step the same way the
+live turn does. The transcript keeps a call's args, not its result, but gp-api
+nulls a refused call's args, so every call left to replay is one the server
+applied through the same merge. That is why a reloaded thread reads the same
+as it did live. Transcripts saved before that nulling can still replay a
+refused move.
 
 ## Cards are compact, and a card's detail opens over the page
 
