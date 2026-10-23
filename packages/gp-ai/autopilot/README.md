@@ -61,6 +61,11 @@ GitHub Actions ───┘   (also: sweep.py) ──────┴─→ super
     auto-merge armed" instead of waiting out the merge and the release train
     in a paid Fargate run.
 - `agent/` — the stage runner that acts on routed events (Claude Agent SDK).
+  A run that ends "successfully" with its card still stranded (a text-only
+  turn while background tasks were pending) gets ONE continuation turn
+  (`main._run_session`) before the stranded-run guard parks it; the guard
+  pushes any unpushed commits and names the branch and open PR in the park, and
+  story/resume adopt an existing open PR instead of opening a duplicate.
 
 Deliberately isolated from `clickup_bot/`: the webhook and sweep mechanics
 were copied, not imported, so the two Lambdas can deploy independently. In

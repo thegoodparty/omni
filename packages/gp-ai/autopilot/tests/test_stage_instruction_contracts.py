@@ -231,3 +231,15 @@ def test_resume_handles_a_status_note_park_without_waiting_for_a_reply():
     assert "remaining handoff steps" in text.lower(), (
         "a resolved status-note park must continue the stage's handoff, not wait on the thread"
     )
+
+
+# ---------------------------------------------------------------------------
+# Existing-PR adoption (ENG-11166)
+# ---------------------------------------------------------------------------
+
+
+def test_story_and_resume_adopt_an_existing_open_pr_instead_of_opening_a_duplicate():
+    for stage in ("story", "resume"):
+        text = _read(stage)
+        assert "gh pr list" in text, f"{stage} must search for an existing open PR for the story"
+        assert "second" in text or "duplicate" in text.lower(), f"{stage} must forbid opening a duplicate PR"
