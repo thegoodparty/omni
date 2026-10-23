@@ -68,8 +68,6 @@ export const ManagedCivicPanelSchema = z.object({
   readyAt: zDate().nullable(),
   pausedAt: zDate().nullable(),
   stoppedAt: zDate().nullable(),
-  // The public join page is `civicPanelJoinPath(shareCode)`.
-  shareCode: z.string(),
   createdAt: zDate(),
   updatedAt: zDate(),
   progress: ManagedCivicPanelProgressSchema,
@@ -114,47 +112,6 @@ export const MANAGED_CIVIC_PANEL_BACKED_OUT_MESSAGE =
 
 // The hidden turn the Serve home sends from the card shown once every
 // resident a text can reach has been invited and the panel is short of its
-// goal: the Chief of Staff says so and offers the join link.
+// goal: the Chief of Staff says so, with how many residents joined.
 export const MANAGED_CIVIC_PANEL_EXHAUSTED_MARKER = '[Civic panel invites done]'
 export const MANAGED_CIVIC_PANEL_EXHAUSTED_MESSAGE = `${MANAGED_CIVIC_PANEL_EXHAUSTED_MARKER} Help me fill the rest of my civic panel.`
-
-// The office's public join page, where a resident joins the civic panel
-// without an account. The code is random and names no person.
-export const CIVIC_PANEL_JOIN_PAGE_PREFIX = '/civic-panel'
-export const civicPanelJoinPath = (shareCode: string): string =>
-  `${CIVIC_PANEL_JOIN_PAGE_PREFIX}/${encodeURIComponent(shareCode)}`
-
-export const CivicPanelShareCodeSchema = z.string().regex(/^[A-Za-z0-9_-]{12}$/)
-
-// What the join page shows about the office. `open` is false once the
-// office stopped its panel, or the panel is not offered to it.
-export const CivicPanelJoinPageSchema = z.object({
-  officialName: z.string().nullable(),
-  officeName: z.string().nullable(),
-  place: z.string().nullable(),
-  open: z.boolean(),
-})
-export type CivicPanelJoinPage = z.infer<typeof CivicPanelJoinPageSchema>
-
-// The words a resident agrees to on the join page. Stored with nothing
-// personal; change the version whenever the words change.
-export const CIVIC_PANEL_JOIN_CONSENT =
-  'I agree to get texts from this office through GoodParty.org, about once a month. Reply STOP to stop.'
-
-export const JoinCivicPanelInputSchema = z
-  .object({
-    firstName: z.string().trim().min(1).max(100),
-    lastName: z.string().trim().min(1).max(100),
-    // Any US shape; gp-api folds it to 10 digits.
-    phone: z.string().trim().min(10).max(20),
-    consent: z.literal(true),
-  })
-  .strict()
-export type JoinCivicPanelInput = z.infer<typeof JoinCivicPanelInputSchema>
-
-// The same answer whoever joins, so the page never tells anyone whether a
-// number is already on a panel or in the voter file.
-export const JoinCivicPanelResponseSchema = z.object({ received: z.boolean() })
-export type JoinCivicPanelResponse = z.infer<
-  typeof JoinCivicPanelResponseSchema
->
