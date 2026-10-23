@@ -680,6 +680,50 @@ jobs:
   # there and nothing else can move dev mid-run), then run the Playwright suite
   # against dev.goodparty.org sharded across runners. No e2e-wait poll: the dev
   # deploys are `needs`, so they are already done.
+  #
+  # The suite is split into two lanes. The gate (e2e-shard -> E2E) holds prod.
+  # The quarantine lane (e2e-quarantine) runs known-red tests from
+  # e2e-tests/quarantine.json and specs new to main in the last 3 days against
+  # the same deploy, reports, and holds nothing. Before it, one red spec held
+  # every service until its fix merged: 88 hours on Sep 9 and again on Oct 16,
+  # with a fix PR open within the hour the second time. And four new specs in
+  # two weeks passed their PR and then failed their first runs on dev.
+
+  # Computes the lanes once for the whole run. Every shard and the quarantine
+  # job read this one list, the gate as --test-list-invert and the quarantine
+  # lane as --test-list, so the two are disjoint and cover the suite between
+  # them by construction. Computing it per job could disagree at the 3-day
+  # boundary and drop a spec from both.
+  e2e-lanes:
+    name: E2E lanes
+    needs: await-checks
+    if: >-
+      always() && needs.await-checks.result == 'success'
+      && needs.await-checks.outputs.force != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      quarantine: ${{ steps.plan.outputs.quarantine }}
+      test-list: ${{ steps.plan.outputs.test-list }}
+    steps:
+      # Probation compares the spec tree with the newest first-parent commit at
+      # least 3 days older than this one, so that commit must be in the clone.
+      # 500 covers 3 days at the busiest pace main has seen (86 merges a day);
+      # too shallow a clone puts nothing on probation and says so.
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.await-checks.outputs.sha }}
+          fetch-depth: 500
+          persist-credentials: false
+      - uses: ./.github/actions/setup-node-workspace
+        with:
+          app: gp-webapp
+      - name: Plan the gate and quarantine lanes
+        id: plan
+        working-directory: packages/gp-webapp
+        run: >-
+          npx tsx scripts/e2e-lanes.ts plan
+          --out "$RUNNER_TEMP/e2e-test-list.txt" --probation-days 3 --verify
 
   verify-dev:
     name: Verify dev serving
@@ -713,14 +757,25 @@ jobs:
     # blocked, so prod is all-or-nothing across these services. prototypes and
     # styleguide are single-env and not promoted, so their dev failures are not
     # in this barrier and cannot block prod.
+    #
+    # e2e-lanes is the one need allowed to fail: without it every test gates,
+    # which is how the train ran before the lanes existed. So the deploy
+    # barrier is spelled out instead of left to the implicit success().
     needs:
       [
         await-checks,
+        e2e-lanes,
         verify-dev,
         dev-election-api,
         dev-candidate-sites,
         dev-gp-ai,
       ]
+    if: >-
+      !cancelled() && needs.await-checks.result == 'success'
+      && needs.verify-dev.result == 'success'
+      && needs.dev-election-api.result == 'success'
+      && needs.dev-candidate-sites.result == 'success'
+      && needs.dev-gp-ai.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
@@ -732,8 +787,10 @@ jobs:
       id-token: write
     env:
       # The Clerk throttle splits its budget across every worker of the run
-      # (tests/utils/throttle-requests-with-retry.ts), so it needs the count.
-      E2E_SHARD_TOTAL: ${{ strategy.job-total }}
+      # (tests/utils/throttle-requests-with-retry.ts), so it needs the count of
+      # every runner hitting dev at once: these shards, plus the quarantine
+      # job when it runs. KEEP the 7 in step with the matrix above.
+      E2E_SHARD_TOTAL: ${{ needs.e2e-lanes.outputs.quarantine == 'true' && '7' || strategy.job-total }}
       BASE_URL: https://dev.goodparty.org
     steps:
       - uses: actions/checkout@v5
@@ -765,12 +822,23 @@ jobs:
             echo "Playwright install attempt $attempt failed"
           done
           exit 1
+      # The gate lane: everything the quarantine lane does not run.
       - name: Run Playwright tests
         working-directory: packages/gp-webapp/e2e-tests
-        run: >-
-          npx playwright test --config="$PWD/playwright.config.ts" tests/
-          --shard=${{ matrix.shard }}/${{ strategy.job-total }} --reporter=blob
+        run: |
+          lane=()
+          if [ "$LANES_RESULT" != "success" ]; then
+            echo "::warning::E2E lanes did not produce a plan ($LANES_RESULT), so every test gates this run, quarantined and new ones included."
+          elif [ -n "$TEST_LIST" ]; then
+            printf '%s\n' "$TEST_LIST" > "$RUNNER_TEMP/e2e-test-list.txt"
+            lane=(--test-list-invert "$RUNNER_TEMP/e2e-test-list.txt")
+          fi
+          npx playwright test --config="$PWD/playwright.config.ts" tests/ \
+            --shard=${{ matrix.shard }}/${{ strategy.job-total }} --reporter=blob \
+            "${lane[@]}"
         env:
+          LANES_RESULT: ${{ needs.e2e-lanes.result }}
+          TEST_LIST: ${{ needs.e2e-lanes.outputs.test-list }}
           TEST_RUN_NAME: 'E2E Tests - dev'
           CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
           CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
@@ -792,7 +860,9 @@ jobs:
 
   e2e:
     name: E2E
-    needs: [await-checks, e2e-shard]
+    # e2e-lanes only feeds the summary. The verdict is e2e-shard's alone, so
+    # nothing the quarantine lane does can turn this job red.
+    needs: [await-checks, e2e-lanes, e2e-shard]
     if: >-
       always() && needs.await-checks.result == 'success'
       && needs.await-checks.outputs.force != 'true'
@@ -937,6 +1007,8 @@ jobs:
           FAILED: ${{ steps.results.outputs.failed }}
           FAILED_TESTS: ${{ steps.results.outputs.failed_tests }}
           TEST_OUTCOME: ${{ needs.e2e-shard.result }}
+          QUARANTINE: ${{ needs.e2e-lanes.outputs.quarantine }}
+        working-directory: packages/gp-webapp/e2e-tests
         run: |
           status="✅"
           if [ "${FAILED:-0}" != "0" ] || [ "$TEST_OUTCOME" != "success" ]; then
@@ -961,6 +1033,14 @@ jobs:
               done <<< "$FAILED_TESTS"
               echo ""
             fi
+            if [ -f test-results/results.json ]; then
+              npx tsx "$GITHUB_WORKSPACE/packages/gp-webapp/scripts/e2e-lanes.ts" retries "$PWD/test-results/results.json" || true
+              echo ""
+            fi
+            if [ "$QUARANTINE" = "true" ]; then
+              echo "_Quarantined and new specs are not in this gate. See **E2E lanes** and **E2E quarantine**._"
+              echo ""
+            fi
             if [ -n "$REPORT_URL" ]; then
               echo "[View HTML report]($REPORT_URL)"
             else
@@ -972,6 +1052,159 @@ jobs:
         run: |
           echo "::error::E2E shards result: ${{ needs.e2e-shard.result }}"
           exit 1
+
+  # The quarantine lane. Report-only by construction: no prod job and not the
+  # E2E gate lists it in `needs`, and the test step is continue-on-error, so
+  # the job is green whatever the tests do and a red quarantined spec never
+  # reads as a red train. Its results are for the spec's owner, and they are
+  # how an entry earns its removal: green here, then delete the entry.
+  # Runs beside the shards, not after them, so it never lengthens the run.
+  e2e-quarantine:
+    name: E2E quarantine
+    needs:
+      [
+        await-checks,
+        e2e-lanes,
+        verify-dev,
+        dev-election-api,
+        dev-candidate-sites,
+        dev-gp-ai,
+      ]
+    if: >-
+      !cancelled() && needs.await-checks.result == 'success'
+      && needs.e2e-lanes.outputs.quarantine == 'true'
+      && needs.verify-dev.result == 'success'
+      && needs.dev-election-api.result == 'success'
+      && needs.dev-candidate-sites.result == 'success'
+      && needs.dev-gp-ai.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      # The six gate shards plus this job; see e2e-shard's E2E_SHARD_TOTAL.
+      E2E_SHARD_TOTAL: '7'
+      BASE_URL: https://dev.goodparty.org
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.await-checks.outputs.sha }}
+          persist-credentials: false
+      - uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: arn:aws:iam::333022194791:role/web-app-e2e-tests
+          aws-region: us-west-2
+      - uses: ./.github/actions/setup-node-workspace
+        with:
+          app: gp-webapp
+      - name: Install Playwright browsers
+        working-directory: packages/gp-webapp/e2e-tests
+        # Same apt hardening as e2e-shard's install step.
+        timeout-minutes: 20
+        run: |
+          printf 'Acquire::http::Timeout "60";\nAcquire::https::Timeout "60";\nAcquire::Retries "5";\nDPkg::Lock::Timeout "300";\n' | sudo tee /etc/apt/apt.conf.d/99-ci-timeouts > /dev/null
+          for attempt in 1 2 3; do
+            npx playwright install --with-deps chromium && exit 0
+            echo "Playwright install attempt $attempt failed"
+          done
+          exit 1
+      # One runner, the config's own reporters: html to playwright-report/
+      # and json to test-results/results.json, so there is no blob to merge.
+      - name: Run quarantined and new specs
+        id: run
+        continue-on-error: true
+        working-directory: packages/gp-webapp/e2e-tests
+        run: |
+          printf '%s\n' "$TEST_LIST" > "$RUNNER_TEMP/e2e-test-list.txt"
+          npx playwright test --config="$PWD/playwright.config.ts" tests/ \
+            --test-list "$RUNNER_TEMP/e2e-test-list.txt"
+        env:
+          TEST_LIST: ${{ needs.e2e-lanes.outputs.test-list }}
+          TEST_RUN_NAME: 'E2E Tests - dev quarantine'
+          CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
+          CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SERVE_ANALYZE_S3_BUCKET: serve-analyze-data-dev
+          E2E_SQS_QUEUE_NAME: develop-Queue.fifo
+      - name: Upload Playwright report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: gp-webapp-playwright-quarantine-report-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            packages/gp-webapp/e2e-tests/playwright-report
+            packages/gp-webapp/e2e-tests/test-results
+          retention-days: 30
+      # Its own prefix, so nothing reading the gate's reports under
+      # gp-webapp/main/ mistakes a quarantined failure for a gate failure.
+      - name: Publish report to S3
+        if: ${{ !cancelled() }}
+        id: report
+        continue-on-error: true
+        working-directory: packages/gp-webapp/e2e-tests
+        run: |
+          REPORT_PATH="gp-webapp/quarantine/main/${{ github.run_id }}/${{ github.run_attempt }}"
+          if [ -d playwright-report ]; then
+            aws s3 sync playwright-report/ \
+              "s3://gp-playwright-reports/${REPORT_PATH}/" \
+              --no-progress
+            echo "url=https://gp-playwright-reports.s3.us-west-2.amazonaws.com/${REPORT_PATH}/index.html" >> "$GITHUB_OUTPUT"
+          else
+            echo "playwright-report/ not found; skipping S3 upload"
+            echo "url=" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Write E2E quarantine summary
+        if: ${{ !cancelled() }}
+        working-directory: packages/gp-webapp/e2e-tests
+        env:
+          REPORT_URL: ${{ steps.report.outputs.url }}
+          OUTCOME: ${{ steps.run.outcome }}
+        run: |
+          RESULTS=test-results/results.json
+          {
+            if [ "$OUTCOME" = "success" ]; then
+              echo "## ✅ gp-webapp E2E quarantine (dev, non-blocking)"
+            else
+              echo "## ⚠️ gp-webapp E2E quarantine (dev, non-blocking)"
+            fi
+            echo ""
+            echo "These tests did not gate prod. A quarantined entry that passes here can be removed from \`e2e-tests/quarantine.json\`."
+            echo ""
+            if [ -f "$RESULTS" ]; then
+              echo "| Result | Count |"
+              echo "|--------|-------|"
+              echo "| ✅ Passed | $(jq '[.. | .specs? // empty | .[] | select(.ok == true)] | length' "$RESULTS") |"
+              echo "| ❌ Failed | $(jq '[.. | .specs? // empty | .[] | select(.ok == false)] | length' "$RESULTS") |"
+              echo ""
+              FAILED_TESTS=$(jq -r '
+                def titles($anc):
+                  ($anc + [.title]) as $here
+                  | (.suites[]? | titles($here)),
+                    (.specs[]? | select(.ok == false) | ($here + [.title]) | join(" › "));
+                [.suites[]? | titles([])] | .[]
+              ' "$RESULTS")
+              if [ -n "$FAILED_TESTS" ]; then
+                echo "**Failed:**"
+                echo ""
+                while IFS= read -r failed_test; do
+                  [ -n "$failed_test" ] && echo "- \`${failed_test}\`"
+                done <<< "$FAILED_TESTS"
+                echo ""
+              fi
+              npx tsx "$GITHUB_WORKSPACE/packages/gp-webapp/scripts/e2e-lanes.ts" retries "$PWD/$RESULTS" || true
+              echo ""
+            else
+              echo "_No results.json: the run did not produce results (outcome: ${OUTCOME})._"
+              echo ""
+            fi
+            if [ -n "$REPORT_URL" ]; then
+              echo "[View HTML report]($REPORT_URL)"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$OUTCOME" != "success" ]; then
+            echo "::warning title=E2E quarantine::Quarantined or new specs failed on dev. They did not gate prod; see the E2E quarantine summary."
+          fi
 
   # ── Prod stage ──────────────────────────────────────────────────────────
   # Promote the SAME SHA to prod. Runs when the E2E passed and promotion is not

@@ -35,7 +35,7 @@ End-to-end tests using Playwright. Runs against a deployed environment (local ap
   - **A feature-flagged surface.** Force the flag deterministically via the off-prod override cookie — see the "Flag-gated surfaces" pattern below. Never depend on live Amplitude targeting.
   - **An outbound call the preview's backend makes** (including a live LLM round-trip) — see the inbound-vs-outbound line above.
   - **The _consequences_ of an inbound webhook.** The inbound delivery earns the tag; what the handler then writes does not, and the two are separable. gp-api's route-test harness (`useTestService`, real Nest app + real Postgres, runs in the ordinary vitest suite and therefore on PRs) can generate a valid `stripe-signature` with the same `STRIPE_WEBSOCKET_SECRET` the app verifies against, so a correctly-shaped event goes through the real `POST /v1/payments/events` — parse, dispatch, handler, database — with no Stripe and no test-only endpoint. `src/payments/paymentEvents.cancellation.routes.test.ts` covers Pro cancellation that way. It also reaches effects a browser cannot see at all: the `PRO PLAN CANCELLATION` Slack notification, whose month-long absence in production was the whole incident, is a spy there and is invisible from Playwright. So reach for a gp-api route test before tagging a spec, and reserve the tag for the leg that genuinely needs the delivery (driving Stripe's own hosted UI, or asserting that Stripe really calls us).
-  - **Flakiness. Never.** A flaky test must be made reliable (stabilize the wait/assertion), not hidden on `main`. Tagging a flaky or red test `@dev-only` only moves the red from PRs (where you'd fix it) to the post-merge `main` run (where it rots and trains everyone to ignore the gate). If it's broken, fix it or `test.fixme()` it (visible, not silently green).
+  - **Flakiness. Never.** A flaky test must be made reliable (stabilize the wait/assertion), not hidden on `main`. Tagging a flaky or red test `@dev-only` only moves the red from PRs (where you'd fix it) to the post-merge `main` run (where it rots and trains everyone to ignore the gate). If it's red on the release train, quarantine it while the fix lands (see "Quarantine and probation" below): it keeps running, with a ticket, an owner and an expiry. Don't reach for `test.fixme()`, which stops it running at all.
 
 - **Authenticated flows** use Clerk via `@clerk/testing/playwright`. `clerkSetup()` runs once in `global-setup.ts`; per-test sign-in helpers live in `src/helpers/clerk.helper.ts`.
 - **`authenticateTestUser(page, options?)`** (`tests/utils/api-registration.ts`) is the one-call way to get a logged-in user. Use it in a `beforeEach` (or at the top of a test) when the scenario needs an authenticated candidate. It:
@@ -72,6 +72,31 @@ End-to-end tests using Playwright. Runs against a deployed environment (local ap
 
 - **Prefer a stable `data-testid` over copy or DOM structure** for any element a test drives repeatedly (e.g. `campaign-story-card-<id>`). UI copy and component structure churn on `main` and silently break selectors; a `data-testid` is a deliberate, durable contract. Add one to the component (styleguide primitives forward it) when the alternative selector would be brittle — it's a legitimate, behavior-free change to make a flow testable.
 - **Mirroring**: a feature dir under `app/` should have a matching dir under `tests/app/`. Add tests in the matching dir, not at the top of `tests/`.
+
+## Quarantine and probation
+
+The suite runs in two lanes, cut by `../scripts/e2e-lanes.ts` into one Playwright test list. The **gate** (`E2E Shard (n)` -> `E2E`) blocks merges and prod. **E2E quarantine** runs the rest against the same deploy and never blocks: its job stays green and its results go to the run summary and to `gp-playwright-reports` under `gp-webapp/quarantine/`. The gate runs the list with `--test-list-invert` and the quarantine lane with `--test-list`, so every test is in exactly one lane.
+
+- **When to quarantine.** The same spec is red on the release train twice in a row, or the train has been red on it for more than 60 minutes with no approved fix PR. One spec should not hold every service's promotion while its fix waits for review (Oct 16 to 19: a fix PR was open within the hour and merged 3 days later).
+- **How.** A one-entry PR to `e2e-tests/quarantine.json`:
+
+  ```json
+  {
+    "spec": "app/dashboard/outreach/outreach-hub.spec.ts",
+    "test": "outreach hub — sms tile upgrade-at-entry › non-Pro, gate v2 off: Text tile redirects straight to pro-upgrade",
+    "ticket": "ENG-12345",
+    "owner": "jdoe",
+    "reason": "Red on every train since the SMS cutoff moved",
+    "added": "2026-10-23",
+    "expires": "2026-10-30"
+  }
+  ```
+
+  `spec` is relative to `tests/`. `test` is optional (leave it out to quarantine the whole file) and is the title path below the file, joined with ` › `: copy the failed line from the E2E summary and drop the file. A describe title alone takes that whole block. `expires` is 5 working days out (at most 14 days after `added`). gp-webapp's Checks job validates the list (`npm run check:e2e-quarantine`): a malformed entry or a missing spec fails it, an expired entry only warns, so the date passing never turns an unrelated PR red.
+- **Graduation.** Fix the test, watch **E2E quarantine** pass it on the train, then remove the entry in a PR. An expired entry stays quarantined but is flagged on every run (Checks warning, **E2E lanes** summary) until someone fixes it or renews it with a reason on the ticket.
+- **Probation for new specs.** On the release train only, a spec file that did not exist on `main` 3 days before the commit under test runs in the quarantine lane automatically. It graduates into the gate on the first train 3 days after it landed, with no step from anyone. **E2E lanes** lists each one and when it starts gating. A moved but unchanged spec is not new. PRs have no probation: a PR that adds a spec gates on it, so its author sees it fail.
+- **On PRs**, quarantined tests leave the PR gate too, so a spec known to be red does not block unrelated PRs. They run in the PR's own **E2E quarantine** job against its preview, which is how a fix PR sees its spec go green.
+- If the lanes job itself fails, every test gates, as before the lanes existed.
 
 ## Running
 
