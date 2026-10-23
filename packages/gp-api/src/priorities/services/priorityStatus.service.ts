@@ -129,7 +129,6 @@ const refusalFor = (
       stored?.state === STEP_STATE.settled &&
       patch.state === STEP_STATE.settled &&
       patch.summary !== undefined &&
-      stored.summary.trim() !== '' &&
       patch.summary.trim() !== stored.summary.trim() &&
       patch.check?.state !== 'revised' &&
       patch.check?.contrast?.state !== 'revised'

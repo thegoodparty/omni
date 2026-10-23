@@ -1166,6 +1166,28 @@ describe('update_priority_status sends a settled step back rather than rewriting
     })
   })
 
+  it('refuses writing a summary onto a step settled without one', async () => {
+    const id = await createPriority()
+    await statusService.applyUpdate(id, {
+      steps: [{ id: 'define', state: 'settled' }],
+      nextAction: 'Call the fire chief',
+    })
+
+    const result = await toolFor(id).execute({
+      steps: [
+        {
+          id: 'define',
+          state: 'settled',
+          summary: 'The real problem is 26 vacancies backfilled at overtime',
+        },
+      ],
+      nextAction: 'Ask for the overtime total',
+    })
+
+    expect(result).toHaveProperty('error')
+    expect(stepOf(await statusService.read(id), 'define').summary).toBe('')
+  })
+
   it('lets a settled step restate its summary and lets a revised check rewrite it', async () => {
     const id = await createPriority()
     await settleStation(id)
