@@ -33,7 +33,7 @@ const SERVE_CIVIC_PANEL_ACTIVITY_COPY: {
     door_knock: 'Joined at the door',
     phone_banking: 'Joined on a call',
     manual: 'Added by you',
-    share_page: 'Joined from your link',
+    share_page: 'Joined',
   },
   left: {
     sms: 'Left by text',

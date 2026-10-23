@@ -13,7 +13,6 @@ import {
   MANAGED_PANEL_COPY,
   managedPanelNextInvites,
 } from '../managedPanelCopy'
-import { ManagedPanelJoinLink } from './ManagedPanelJoinLink'
 
 const COPY = MANAGED_PANEL_COPY.controls
 
@@ -76,8 +75,6 @@ export const ManagedPanelControls = ({
           )}
         </p>
       </div>
-
-      <ManagedPanelJoinLink shareCode={panel.shareCode} />
 
       <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
         {canPause ? (

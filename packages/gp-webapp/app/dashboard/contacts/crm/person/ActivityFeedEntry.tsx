@@ -90,7 +90,6 @@ const SOURCE_SUBJECTS: Partial<Record<ContactStatusSource, string>> = {
   sms: 'A text reply',
   door_knock: 'A door knock',
   phone_banking: 'A call',
-  share_page: 'Your join link',
 }
 
 // No per-outreach detail route exists in this app (app/dashboard/outreach has

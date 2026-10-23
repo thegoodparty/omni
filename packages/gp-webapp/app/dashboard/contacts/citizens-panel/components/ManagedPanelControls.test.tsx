@@ -27,7 +27,6 @@ const panel = (status: ManagedCivicPanelStatus): ManagedCivicPanel => ({
   readyAt: null,
   pausedAt: null,
   stoppedAt: null,
-  shareCode: 'a1b2c3d4e5f6',
   createdAt: new Date('2026-10-22T18:00:00Z'),
   updatedAt: new Date('2026-10-22T18:00:00Z'),
   progress: {
@@ -105,15 +104,14 @@ describe('ManagedPanelControls', () => {
     )
   })
 
-  it('offers the join link once invites run out, with no pause', () => {
+  it('says every resident we can text has an invite, with no link and no pause', () => {
     render(<ManagedPanelControls panel={panel('exhausted')} />)
 
     expect(
-      screen.getByText(
-        'Everyone we can text has an invite. Share your join link to reach more residents.',
-      ),
+      screen.getByText('Every resident we can text has an invite.'),
     ).toBeInTheDocument()
-    expect(screen.getByText(/\/civic-panel\/a1b2c3d4e5f6$/)).toBeInTheDocument()
+    expect(screen.queryByTestId('managed-panel-join-link')).toBeNull()
+    expect(screen.queryByText(/link/i)).toBeNull()
     expect(screen.getByText('Needs more residents, 12 of 250 members'))
     expect(screen.queryByRole('button', { name: 'Pause invites' })).toBeNull()
   })
