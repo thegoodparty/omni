@@ -98,6 +98,14 @@ that no longer exists — the outcomes that prove cancellation moot
 reaches the abort. Deleting a user therefore has two possible outcomes,
 billing stopped or nothing happened, never data gone with billing live.
 
+`DELETE /v1/admin/campaigns/:id` (`AdminCampaignsService.delete`) follows the
+same ordering for one campaign. It deleted the row without touching Stripe
+until ENG-11454, which is how a Pro subscription bought on 2025-10-22 billed
+for a year with no campaign behind it. Its `customer.subscription.deleted`
+webhook then lands as an unmatched cancellation whose account is still live,
+so it logs the "cancellation was never applied" error once; that line is
+expected after an admin campaign delete.
+
 `POST /payments/purchase/checkout-session` is guarded (ENG-10771, PR #992 —
 each guard exists because a customer was double-billed without it):
 
