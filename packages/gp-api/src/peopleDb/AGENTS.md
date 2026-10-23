@@ -394,7 +394,7 @@ signatures rather than callers reaching into `databricks/` directly.
 | `services/stats.service.ts`                     | District aggregate stats from the voter rows; census composition                                           |
 | `databricks/districtCensusSql.util.ts`          | Census mart SQL: population, ACS composition, people's block groups, model cells                           |
 | `services/peopleDataset.service.ts`             | Which people table an organization reads (`PeopleDataset`)                                                 |
-| `services/electionApiDistrict.service.ts`       | District resolution/scoping, from `src/electionDb/`                                                        |
+| `services/electionDistrict.service.ts`       | District resolution/scoping, from `src/electionDb/`                                                        |
 | `services/voterDoorKnocking.service.ts`         | Door-knocking cap guards + roster shaping                                                                  |
 | `services/voterPack.service.ts`                 | Encoded voter-pack build/read                                                                              |
 | `services/voterRecommendedLists.service.ts`     | Recommended-list counts + door precinct ranking                                                            |

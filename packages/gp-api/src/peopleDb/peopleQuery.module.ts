@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common'
 import { DistrictsModule } from '@/electionDb/districts/districts.module'
-import { ElectionApiDistrictService } from './services/electionApiDistrict.service'
+import { ElectionDistrictService } from './services/electionDistrict.service'
 import { StatsService } from './services/stats.service'
 import { VoterQueryService } from './services/voterQuery.service'
 import { VoterDownloadService } from './services/voterDownload.service'
@@ -22,7 +22,7 @@ import { PeopleDatasetService } from './services/peopleDataset.service'
     DatabricksVoterService,
     DatabricksVoterDownloadService,
     DatabricksVoterPackService,
-    ElectionApiDistrictService,
+    ElectionDistrictService,
     StatsService,
     VoterQueryService,
     VoterDownloadService,

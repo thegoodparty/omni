@@ -174,7 +174,7 @@ export class OrganizationsService extends createPrismaBase(
     return await Promise.all(
       sortOrganizations(orgs, new Date()).map(async (org) => {
         const friendly = await this.makeFriendly(org, {
-          tolerateElectionApiFailure: true,
+          tolerateElectionDbFailure: true,
         })
         return {
           ...friendly,
@@ -695,14 +695,14 @@ export class OrganizationsService extends createPrismaBase(
       campaign: Campaign | null
       electedOffice: ElectedOffice | null
     },
-    options?: { tolerateElectionApiFailure?: boolean },
+    options?: { tolerateElectionDbFailure?: boolean },
   ): Promise<FriendlyOrganization> {
     const lookup = async <T>(fetch: () => Promise<T | null>) => {
       try {
         return { value: await fetch(), failed: false }
       } catch (error) {
         if (
-          options?.tolerateElectionApiFailure &&
+          options?.tolerateElectionDbFailure &&
           error instanceof BadGatewayException
         ) {
           this.logger.warn(
