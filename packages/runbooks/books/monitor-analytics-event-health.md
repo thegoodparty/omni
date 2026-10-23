@@ -201,7 +201,8 @@ The digest's **Labels** section lists events whose Govern product label (`win`, 
   the `event-metadata` skill, or correct the name if the tag is right.
 
 If an event should stay as it is, add it to `dismissed:` in `monitored_events.yaml` and
-the finding stops. Dismissing silences both kinds for that event.
+the finding stops. Dismissing silences both kinds for that event. The `dismissed:` list is
+shared with watchlist proposals, so dismissing an event for one also hides it from the other.
 
 ## Stage 4 — metadata remediation (description backfill)
 
