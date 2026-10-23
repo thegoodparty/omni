@@ -10,6 +10,7 @@ import {
   NavigationHelper,
 } from 'src/helpers/navigation.helper'
 import { eventually } from 'tests/utils/eventually'
+import { applyElectionPreset } from 'tests/utils/headless-user'
 
 // E2E coverage for the "Run for a new office" branch of the follow-on flow
 // (ENG-10389 task 11; ENG-10539 dropped the intent screen). Unlike same-office,
@@ -63,13 +64,14 @@ test('new-office follow-on: office picker shown, new active org', async ({
 
   // "I won my race" launches the campaign with a still-future electionDate, so
   // it reads "active" and canStartCampaign stays false (the actions are hidden).
-  // Backdate it (the production state once the election has happened) so
-  // eligibility opens up. PUT /v1/campaigns/mine merges details and resolves the
-  // campaign from x-organization-slug, so point the header at the won campaign.
+  // Declare the won race as passed (the production state once the election has
+  // happened) so eligibility opens up.
   client.defaults.headers['x-organization-slug'] = wonCampaignOrg.slug
-  await client.put('/v1/campaigns/mine', {
-    details: { electionDate: '2020-11-03' },
-  })
+  await applyElectionPreset(
+    client,
+    Number(wonCampaignOrg.slug.replace('campaign-', '')),
+    'passed_won',
+  )
 
   // 1–2: reload so the picker's eligibility query refetches, then open the
   // switcher and start the new-office flow.
