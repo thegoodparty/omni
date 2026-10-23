@@ -3,7 +3,7 @@ title: Census tract names are filled when a managed civic panel is approved, and
 status: active
 decided_by: [bryclevgp]
 date: 2026-10-23
-code: ['#TBD']
+code: ['#3196']
 scope:
   - packages/gp-api/src/contacts/services/censusTractName.service.ts
   - packages/gp-api/src/contacts/services/civicPanelSummary.service.ts
