@@ -33,6 +33,7 @@ import {
   type CensusCompositionSource,
 } from '@/priorities/services/censusComposition'
 import { ContactsService } from './contacts.service'
+import { CensusTractNameService } from './censusTractName.service'
 
 type Row = Prisma.ManagedCivicPanelGetPayload<{
   include: { waves: { select: { sentAt: true; replyWindowEndsAt: true } } }
@@ -69,6 +70,7 @@ export class ManagedCivicPanelService extends createPrismaBase(
     private readonly contactStatusService: ContactStatusService,
     @Inject(CENSUS_COMPOSITION_SOURCE)
     private readonly census: CensusCompositionSource,
+    private readonly tractNames: CensusTractNameService,
   ) {
     super()
   }
@@ -110,7 +112,7 @@ export class ManagedCivicPanelService extends createPrismaBase(
     }
     if (existing) {
       // Conditional on stopped, so of two racing re-approvals one writes.
-      await this.model.updateMany({
+      const { count } = await this.model.updateMany({
         where: {
           organizationSlug: organization.slug,
           status: ManagedCivicPanelStatus.stopped,
@@ -123,16 +125,34 @@ export class ManagedCivicPanelService extends createPrismaBase(
           stoppedAt: null,
         },
       })
+      if (count > 0) this.nameDistrictTracts(organization)
       return this.read(organization)
     }
     try {
       await this.model.create({
         data: { ...approval, organizationSlug: organization.slug },
       })
+      this.nameDistrictTracts(organization)
     } catch (err) {
       if (!isUniqueConstraintError(err)) throw err
     }
     return this.read(organization)
+  }
+
+  // Names every tract in the district in the background, so the panel page
+  // shows names, not numbers, by the time the official first opens it. The
+  // summary read still fills any it missed.
+  private nameDistrictTracts(organization: Organization): void {
+    void (async () => {
+      const district =
+        await this.contactsService.resolveEligibleDistrict(organization)
+      const inputs = await this.census.weightingInputs({
+        ...district,
+        personIds: [],
+      })
+      const tracts = [...(inputs?.census.tractAdults.keys() ?? [])]
+      if (tracts.length > 0) await this.tractNames.fillMissing(district, tracts)
+    })().catch(() => undefined)
   }
 
   async update(
