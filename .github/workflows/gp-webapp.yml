@@ -489,9 +489,11 @@ jobs:
         # wait for the dpkg lock so a retry does not fail on a leftover apt.
         # Each attempt gets 6 minutes: a stalled browser download otherwise holds
         # the first attempt until the step times out, and the retries never run.
+        # A killed attempt can leave its apt holding the dpkg lock, so the lock
+        # wait stays well inside one attempt.
         timeout-minutes: 20
         run: |
-          printf 'Acquire::http::Timeout "60";\nAcquire::https::Timeout "60";\nAcquire::Retries "5";\nDPkg::Lock::Timeout "300";\n' | sudo tee /etc/apt/apt.conf.d/99-ci-timeouts > /dev/null
+          printf 'Acquire::http::Timeout "60";\nAcquire::https::Timeout "60";\nAcquire::Retries "5";\nDPkg::Lock::Timeout "120";\n' | sudo tee /etc/apt/apt.conf.d/99-ci-timeouts > /dev/null
           for attempt in 1 2 3; do
             timeout 360 npx playwright install --with-deps chromium && exit 0
             echo "Playwright install attempt $attempt failed"
