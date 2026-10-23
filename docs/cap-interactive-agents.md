@@ -267,7 +267,10 @@ markdown) / `save_existing_law` / `brave_search` on the current_law step.
 `brave_search` (Brave Web Search, gated on `BRAVE_API_KEY`) returns fetchable
 result URLs so the model can find a server-rendered copy of a chapter when
 `fetch_url` comes back blank — Municode and other browser-rendered code sites
-do this. Its handler raises `maxSteps` to 8 — a current_law turn chains
+do this. When no copy can be read either, the step saves no existing-law
+record: it leaves a `save_note` saying the chapter could not be read and what
+would complete it, presents no summary card, and still offers the next step.
+Its handler raises `maxSteps` to 8 — a current_law turn chains
 `get_code_source` + several `fetch_url` calls + `save_existing_law`, and the
 default 5 cuts research off mid-chain.
 
