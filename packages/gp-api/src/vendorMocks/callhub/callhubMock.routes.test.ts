@@ -221,6 +221,20 @@ describe('vb_campaign lifecycle', () => {
     expect(getRes2.status).toBe(HttpStatus.OK)
     expect(getRes2.data.status).toBe(1)
   })
+
+  it('keeps the phonebook ids the campaign was created with', async () => {
+    const createRes = await service.client.post(
+      `${BASE}/v1/vb_campaign`,
+      { name: 'with-phonebook', phonebooks: ['pb-abc'] },
+      AUTH,
+    )
+    const pk = createRes.data.pk_str as string
+
+    const record = await service.prisma.vendorMockRecord.findFirstOrThrow({
+      where: { kind: 'vb_campaign', externalId: pk },
+    })
+    expect(record.state).toMatchObject({ phonebooks: ['pb-abc'] })
+  })
 })
 
 describe('export_data', () => {

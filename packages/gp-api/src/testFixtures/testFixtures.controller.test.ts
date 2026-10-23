@@ -75,6 +75,7 @@ describe('TestFixturesController', () => {
     'robocall.send',
     'robocall.completion',
     'robocall.capture',
+    'robocall.callhubCleanup',
   ])('delegates runJob(%s) on a non-prod deploy', async (name) => {
     const result = await controller.runJob(name)
     expect(result).toEqual({
