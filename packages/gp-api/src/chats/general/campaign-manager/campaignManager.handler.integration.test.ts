@@ -242,7 +242,13 @@ describe('CampaignManagerHandler door notes (integration)', () => {
         scope: ChatScope.campaign_assistant,
       },
     })
-    return { walk, walkWithNote, conversationId: conversation.id, userId }
+    return {
+      walk,
+      walkWithNote,
+      slug,
+      conversationId: conversation.id,
+      userId,
+    }
   }
 
   it('finds the walk by door knocking and reads what voters said', async () => {
@@ -308,6 +314,57 @@ describe('CampaignManagerHandler door notes (integration)', () => {
       {
         outreachId: older.id,
         verbatims: [{ said: 'Asked about the park lights.' }],
+      },
+    ])
+  })
+
+  it('reads only the doors when asked about the doors', async () => {
+    const handler = service.app.get(CampaignManagerHandler)
+    const { walk, slug, conversationId, userId } = await campaignWithWalk()
+    const calls = await service.prisma.outreach.create({
+      data: {
+        campaignId: walk.campaignId,
+        organizationSlug: slug,
+        outreachType: OutreachType.nativePhoneBanking,
+        status: OutreachStatus.in_progress,
+        name: 'Listening calls',
+      },
+    })
+    await service.prisma.constituentFeedback.create({
+      data: {
+        organizationSlug: slug,
+        personId: uuidv7(),
+        occurredAt: new Date(),
+        actorUserId: userId,
+        channel: ConstituentFeedbackChannel.phone_bank,
+        transcript: 'Wants the bus to run later.',
+        captureMethod: ConstituentFeedbackCaptureMethod.dictation,
+        clientKey: uuidv7(),
+        outreachId: calls.id,
+        confirmedAt: new Date(),
+      },
+    })
+
+    const tools = handler.buildTools(
+      await handler.loadContext(conversationId, userId),
+    )
+    const read = async (channel: OutreachType) =>
+      (
+        (await runTool(tools.read_outreach_feedback, { channel })) as {
+          sends: OutreachFeedback[]
+        }
+      ).sends
+
+    expect(await read(OutreachType.doorKnocking)).toMatchObject([
+      {
+        outreachId: walk.id,
+        verbatims: [{ said: 'Wants the crosswalk on Oak fixed.' }],
+      },
+    ])
+    expect(await read(OutreachType.phoneBanking)).toMatchObject([
+      {
+        outreachId: calls.id,
+        verbatims: [{ said: 'Wants the bus to run later.' }],
       },
     ])
   })

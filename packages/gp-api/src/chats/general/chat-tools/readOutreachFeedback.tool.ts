@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { OutreachTypeSchema } from '@goodparty_org/contracts'
 import type { LlmStreamTool } from '@/llm/services/llm.service'
 import {
   OutreachFeedback,
@@ -12,6 +13,10 @@ const readOutreachFeedbackInput = z.object({
     .int()
     .optional()
     .describe('One send, from read_past_outreach. Omit for every send.'),
+  channel: OutreachTypeSchema.optional().describe(
+    'Limit to one channel: doorKnocking for the doors, phoneBanking for ' +
+      'calls, text for texts. Omit to read every channel.',
+  ),
 })
 
 export const buildReadOutreachFeedbackTool = (deps: {
@@ -31,10 +36,11 @@ export const buildReadOutreachFeedbackTool = (deps: {
           'yet, so it gives no replies, notes or themes, and you share none: ' +
           'name the status and the groups to hear from next instead.',
         inputSchema: readOutreachFeedbackInput,
-        execute: async ({ outreachId }): Promise<HeldBackFeedback> => {
+        execute: async ({ outreachId, channel }): Promise<HeldBackFeedback> => {
           const sends = await deps.outreach.feedbackFor(deps.organizationSlug, {
             priorityId: deps.priorityId,
             outreachId,
+            channel,
           })
           return {
             heldBack: HELD_BACK_NOTE,
@@ -77,9 +83,10 @@ const readEverything = (deps: {
     'read_past_outreach counts text replies only. ' +
     (deps.priorityId === null
       ? 'Without an outreachId it reads the office’s most recent sends, ' +
-        'every walk, list and text together. When the official names one, ' +
-        'or asks about one channel, find each outreachId by name or ' +
-        'channel with read_past_outreach and read only those. '
+        'every walk, list and text together. When the official asks about ' +
+        'the doors or the calls, pass that channel. When they name a walk, ' +
+        'call list or send, find its outreachId by name with ' +
+        'read_past_outreach and read only that one. '
       : 'Without an outreachId it reads every send for this priority, and ' +
         'priorityThemes are the themes across all of them, texts, calls ' +
         'and doors together; lead with those. ') +
@@ -91,6 +98,7 @@ const readEverything = (deps: {
   inputSchema: readOutreachFeedbackInput,
   execute: async ({
     outreachId,
+    channel,
   }): Promise<{
     priorityThemes: PooledTheme[]
     sends: OutreachFeedback[]
@@ -105,6 +113,7 @@ const readEverything = (deps: {
     sends: await deps.outreach.feedbackFor(deps.organizationSlug, {
       priorityId: deps.priorityId,
       outreachId,
+      channel,
     }),
   }),
 })
@@ -122,16 +131,24 @@ export const buildCampaignManagerReadOutreachFeedbackTool = (deps: {
     'knocking and phone banking results are; read_past_outreach counts ' +
     "text replies only. Without an outreachId it reads the campaign's most " +
     'recent door knocking and phone banking, every walk and list together. ' +
-    'When the candidate names one, or asks about one channel, find each ' +
-    'outreachId by name or channel with read_past_outreach and read only ' +
-    'those. Texts are not here: their replies come back as counts, never ' +
+    'When the candidate asks about the doors or the calls, pass that ' +
+    'channel. When they name a walk or call list, find its outreachId by ' +
+    'name with read_past_outreach and read only that one. Texts are not ' +
+    'here: their replies come back as counts, never ' +
     'words. Call it before you say anything about what voters said, ' +
     'and never ask the candidate what voters said: read it here. Quote ' +
     'voters’ words when they make the point, and say how many voters a ' +
     'theme covers. A note that is not confirmed is a volunteer’s account ' +
     'the candidate has not reviewed yet.',
   inputSchema: readOutreachFeedbackInput,
-  execute: async ({ outreachId }): Promise<{ sends: OutreachFeedback[] }> => ({
-    sends: await deps.outreach.feedbackForCampaign(deps.campaignId, outreachId),
+  execute: async ({
+    outreachId,
+    channel,
+  }): Promise<{ sends: OutreachFeedback[] }> => ({
+    sends: await deps.outreach.feedbackForCampaign(
+      deps.campaignId,
+      outreachId,
+      channel,
+    ),
   }),
 })
