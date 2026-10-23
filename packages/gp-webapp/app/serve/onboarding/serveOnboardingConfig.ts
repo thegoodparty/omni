@@ -10,7 +10,7 @@ import {
 } from 'lucide-react'
 import {
   CalendarCheckIcon,
-  ListChecksIcon,
+  ClockIcon,
   MegaphoneIcon,
   UsersRoundIcon,
 } from '@styleguide/components/ui/icons'
@@ -362,17 +362,17 @@ export const SERVE_STEP_COPY: Record<
   },
 }
 
-// With serve-citizen-panels on, the welcome and pledge reframe onboarding
-// around hearing from the community instead of the chief of staff.
+// With serve-citizen-panels on, the welcome leads with the chief of staff's
+// three promises (time, smarts, connection) and the pledge with hearing from
+// the community.
 export const SERVE_CITIZEN_PANELS_STEP_COPY: Pick<
   Record<ServeStepId, ServeStepCopy>,
   'welcome' | 'pledge'
 > = {
   welcome: {
-    title:
-      'Hear from everyone in your community, not only the people who show up',
+    title: 'Meet your chief of staff',
     description:
-      "Tell us what office you hold and where, and we'll take it from there.",
+      'It saves you time, makes you smarter, and keeps you connected to everyone you represent.',
   },
   pledge: {
     title: 'Take our pledge to get started',
@@ -472,24 +472,24 @@ export const SERVE_WELCOME_VALUE_PROPS: ServeValueProp[] = [
 
 export const SERVE_CITIZEN_PANELS_WELCOME_VALUE_PROPS: ServeValueProp[] = [
   {
-    icon: UsersRoundIcon,
-    title: 'Ask residents before you vote',
-    desc: "We'll help you ask a mix of residents what they think, so you know before you vote.",
-  },
-  {
-    icon: MegaphoneIcon,
-    title: 'Know what your community is talking about',
-    desc: 'We keep an eye on local news and meetings, and tell you what residents care about most.',
-  },
-  {
-    icon: ListChecksIcon,
-    title: 'Follow through on the issues you were elected to solve',
-    desc: 'Get a plan for each priority, craft solutions that work, and report back on what you did.',
+    icon: ClockIcon,
+    title: 'Get hours back every week',
+    desc: 'We do the research, draft ordinances, and dig into the budget for you.',
   },
   {
     icon: CalendarCheckIcon,
-    title: 'Be ready for your next meeting',
-    desc: "Get a briefing before each meeting on what's on the agenda and what to ask.",
+    title: 'Walk into every meeting ready',
+    desc: "Get a briefing on what's on the agenda and what to ask.",
+  },
+  {
+    icon: UsersRoundIcon,
+    title: 'Hear from everyone you represent',
+    desc: 'Reach a mix of residents by text, phone and door, not just the loudest few.',
+  },
+  {
+    icon: MegaphoneIcon,
+    title: 'Show residents what you did',
+    desc: 'Report back on your decisions so people know they were heard.',
   },
 ]
 
