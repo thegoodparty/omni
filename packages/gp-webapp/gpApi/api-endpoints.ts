@@ -133,6 +133,10 @@ import type {
   MarkCivicPanelBuildStepInput,
   ApproveManagedCivicPanelInput,
   ManagedCivicPanelResponse,
+  UpdateManagedCivicPanelInput,
+  CivicPanelJoinPage,
+  JoinCivicPanelInput,
+  JoinCivicPanelResponse,
   PrepareCivicPanelBuildStepResponse,
 } from '@goodparty_org/contracts'
 import type { Race } from 'app/onboarding/[slug]/[step]/components/ballotOffices/types'
@@ -1608,6 +1612,18 @@ export type APIEndpoints = {
   'POST /v1/contacts/civic-panel/managed': {
     Request: ApproveManagedCivicPanelInput
     Response: ManagedCivicPanelResponse
+  }
+  'PATCH /v1/contacts/civic-panel/managed': {
+    Request: UpdateManagedCivicPanelInput
+    Response: ManagedCivicPanelResponse
+  }
+  'GET /v1/civic-panel/join/:code': {
+    Request: {}
+    Response: CivicPanelJoinPage
+  }
+  'POST /v1/civic-panel/join/:code': {
+    Request: JoinCivicPanelInput
+    Response: JoinCivicPanelResponse
   }
   'GET /v1/contacts/:id': {
     Request: {}

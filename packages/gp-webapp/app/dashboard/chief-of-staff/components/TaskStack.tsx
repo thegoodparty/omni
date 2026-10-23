@@ -14,7 +14,10 @@ import {
   isGoodReadReportBackCard,
   isManagedCivicPanelCard,
   managedCivicPanelCardContent,
+  managedPanelProgressPhase,
+  MANAGED_CIVIC_PANEL_EXHAUSTED_MESSAGE,
   START_MANAGED_CIVIC_PANEL_MESSAGE,
+  type ManagedPanelProgressPhase,
 } from '@goodparty_org/contracts'
 import { format, parseISO } from 'date-fns'
 import {
@@ -91,12 +94,17 @@ type DeckCard = {
   // The card that offers the civic panel GoodParty builds: its button opens
   // the Chief of Staff on the setup, and the seats fill above it.
   managedPanel: boolean
+  // The approved managed panel's card: filling up, ready, or out of
+  // residents to text, whose button opens the Chief of Staff on the join
+  // link.
+  managedProgress: ManagedPanelProgressPhase | null
   // Tells the civic_panel cards apart in analytics.
   variant: CardVariant
 }
 
 type CardVariant =
   | 'panel_managed'
+  | 'panel_managed_progress'
   | 'panel_build'
   | 'panel_step'
   | 'priority_next_step'
@@ -104,9 +112,10 @@ type CardVariant =
   | 'other'
 
 const cardVariant = (
-  card: Parameters<typeof isCivicPanelBuildCard>[0],
+  card: Parameters<typeof managedPanelProgressPhase>[0],
 ): CardVariant => {
   if (isManagedCivicPanelCard(card)) return 'panel_managed'
+  if (managedPanelProgressPhase(card)) return 'panel_managed_progress'
   if (isCivicPanelBuildCard(card)) return 'panel_build'
   if (isCivicPanelStepCard(card)) return 'panel_step'
   if (card.type === 'civic_panel') return 'priority_next_step'
@@ -222,10 +231,12 @@ const TaskStack = ({
       isCivicPanelBuildCard(card) && !civicPanelBuildCardOpensPlan(card),
     peopleFirst:
       isManagedCivicPanelCard(card) ||
+      managedPanelProgressPhase(card) !== null ||
       isCivicPanelBuildCard(card) ||
       isCivicPanelStepCard(card),
     leadsPanel: isGoodReadReportBackCard(card),
     managedPanel: isManagedCivicPanelCard(card),
+    managedProgress: managedPanelProgressPhase(card),
     variant: cardVariant(card),
   }))
   const onboardingCards: DeckCard[] = ONBOARDING_CARD_ORDER.filter((key) =>
@@ -243,6 +254,7 @@ const TaskStack = ({
     peopleFirst: false,
     leadsPanel: false,
     managedPanel: false,
+    managedProgress: null,
     variant: 'other' as const,
   }))
   // A new official meets their Chief of Staff before anything else, then
@@ -342,9 +354,11 @@ const TaskStack = ({
       <h2 className="text-center text-2xl font-semibold text-foreground">
         {front.managedPanel
           ? MANAGED_PANEL_COPY.headline
-          : front.peopleFirst
-            ? BUILD_PANEL_HEADLINE
-            : HEADLINES[front.kind]}
+          : front.managedProgress
+            ? MANAGED_PANEL_COPY.progressHeadline
+            : front.peopleFirst
+              ? BUILD_PANEL_HEADLINE
+              : HEADLINES[front.kind]}
       </h2>
       <div
         className={cn(
@@ -429,6 +443,18 @@ const TaskStack = ({
                 >
                   {front.ctaLabel}
                 </Button>
+              ) : onDiscussCard && front.managedProgress === 'exhausted' ? (
+                <Button
+                  type="button"
+                  size="medium"
+                  className={PRIMARY_ON_PHONE}
+                  onClick={() => {
+                    start()
+                    onDiscussCard(MANAGED_CIVIC_PANEL_EXHAUSTED_MESSAGE)
+                  }}
+                >
+                  {front.ctaLabel}
+                </Button>
               ) : onDiscussCard && front.buildsPanel ? (
                 <Button
                   type="button"
@@ -491,7 +517,9 @@ const TaskStack = ({
                     panel's button opens its setup, not a question. */}
                 {onDiscussCard &&
                   !front.onboardingKey &&
-                  (front.kind !== 'civic_panel' || front.managedPanel) && (
+                  (front.kind !== 'civic_panel' ||
+                    front.managedPanel ||
+                    front.managedProgress !== null) && (
                     <Button
                       type="button"
                       variant="ghost"

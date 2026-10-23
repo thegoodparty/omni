@@ -34,8 +34,69 @@ export const MANAGED_PANEL_COPY = {
   ): string => {
     if (status === 'ready') return `Ready, ${members} members`
     if (status === 'stopped') return 'Stopped'
-    const label = status === 'paused' ? 'Paused' : 'Building'
+    const label =
+      status === 'paused'
+        ? 'Paused'
+        : status === 'exhausted'
+          ? 'Needs more residents'
+          : 'Building'
     return `${label}, ${members} of ${goal} members`
+  },
+  // The progress cards on the Serve home: their headline over the deck.
+  progressHeadline: 'Your civic panel',
+  // The panel page's controls for the panel GoodParty builds.
+  controls: {
+    title: 'Your civic panel invites',
+    status: (
+      status: ManagedCivicPanelStatus,
+      nextInvites: string | null,
+    ): string => {
+      if (status === 'paused') {
+        return 'Invites are paused. Nobody new gets one until you resume.'
+      }
+      if (status === 'ready') return 'Your civic panel is ready.'
+      if (status === 'exhausted') {
+        return 'Everyone we can text has an invite. Share your join link to reach more residents.'
+      }
+      return nextInvites
+        ? `We're sending invites. The next ones go out ${nextInvites}.`
+        : "We're sending invites in your name."
+    },
+    pause: 'Pause invites',
+    resume: 'Resume invites',
+    stop: 'Stop my civic panel',
+    stopTitle: 'Stop building your civic panel?',
+    stopCaption:
+      "We won't send any more invites. Everyone who joined stays on your panel.",
+    stopConfirm: 'Stop my civic panel',
+    stopCancel: 'Keep building',
+    error: "We couldn't change your civic panel. Try again.",
+  },
+  joinLink: {
+    title: 'Your join link',
+    caption:
+      'Anyone in your district can join your civic panel from this link.',
+    copy: 'Copy link',
+    copied: 'Copied',
+  },
+  // The public join page a resident opens from the official's link.
+  joinPage: {
+    title: (officialName: string | null) =>
+      officialName
+        ? `Want a say before ${officialName} decides?`
+        : 'Want a say before your local leaders decide?',
+    caption: (officeName: string | null, place: string | null) =>
+      `Join the civic panel${officeName ? ` for ${officeName}` : ''}${place ? ` in ${place}` : ''} and get a text about once a month asking what you think.`,
+    firstName: 'First name',
+    lastName: 'Last name',
+    phone: 'Cell phone',
+    submit: 'Join the civic panel',
+    doneTitle: "You're on the list",
+    doneCaption: "We'll text you when there's something to weigh in on.",
+    closedTitle: "This civic panel isn't taking new members",
+    closedCaption:
+      'Check back with your local office for other ways to be heard.',
+    error: "We couldn't save that. Check your number and try again.",
   },
   flow: {
     header: 'Civic panel invite',
@@ -47,3 +108,15 @@ export const MANAGED_PANEL_COPY = {
     error: "We couldn't set up your civic panel. Try again.",
   },
 } as const
+
+// "Tuesday, November 3", the day the next invites go out.
+export const managedPanelNextInvites = (
+  nextWaveAt: Date | string | null,
+): string | null =>
+  nextWaveAt
+    ? new Date(nextWaveAt).toLocaleDateString('en-US', {
+        weekday: 'long',
+        month: 'long',
+        day: 'numeric',
+      })
+    : null

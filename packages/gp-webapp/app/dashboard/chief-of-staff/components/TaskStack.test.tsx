@@ -6,6 +6,7 @@ import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import {
   BUILD_CITIZENS_PANEL_MESSAGE,
   EXPLAIN_CIVIC_PANEL_MESSAGE,
+  MANAGED_CIVIC_PANEL_EXHAUSTED_MESSAGE,
   START_MANAGED_CIVIC_PANEL_MESSAGE,
 } from '@goodparty_org/contracts'
 import TaskStack from './TaskStack'
@@ -838,6 +839,87 @@ describe('<TaskStack>', () => {
         screen.queryByRole('button', { name: "What's a civic panel?" }),
       ).toBeNull()
       expect(screen.queryByRole('link')).toBeNull()
+    })
+  })
+
+  describe('the managed civic panel progress card', () => {
+    const progressCard = (
+      phase: 'building' | 'ready' | 'exhausted',
+      overrides: Partial<DashboardCard> = {},
+    ) =>
+      card({
+        id: `progress-${phase}`,
+        type: 'civic_panel',
+        title: 'Your civic panel is filling up',
+        summary:
+          '12 of 250 residents have joined. More invites go out Tuesday, November 3.',
+        ctaLabel: 'See your panel',
+        ctaHref: '/dashboard/contacts/citizens-panel',
+        sourceExternalId: 'managed-panel-progress:office-1',
+        sourceItemId: phase,
+        ...overrides,
+      })
+
+    it('leads under Your civic panel and opens the panel page', () => {
+      onboardingRef.current = [{ key: 'priorities', status: 'active' }]
+      withCards([card({ id: 'other' }), progressCard('building')])
+      render(<TaskStack onOpenCard={vi.fn()} onDiscussCard={vi.fn()} />)
+
+      expect(
+        screen.getByRole('heading', { name: 'Your civic panel' }),
+      ).toBeInTheDocument()
+      expect(
+        screen.getByText(
+          '12 of 250 residents have joined. More invites go out Tuesday, November 3.',
+        ),
+      ).toBeInTheDocument()
+      expect(
+        screen.getByRole('link', { name: 'See your panel' }),
+      ).toHaveAttribute(
+        'href',
+        expect.stringContaining('/dashboard/contacts/citizens-panel'),
+      )
+      expect(screen.queryByRole('button', { name: /mark done/i })).toBeNull()
+      expect(screen.queryByText(/due/i)).toBeNull()
+    })
+
+    it('opens the Chief of Staff on the join link once invites run out', async () => {
+      const user = userEvent.setup()
+      const onDiscussCard = vi.fn()
+      withCards([
+        progressCard('exhausted', {
+          title: 'Fill the last seats on your civic panel',
+          ctaLabel: 'Get your join link',
+        }),
+      ])
+      render(<TaskStack onOpenCard={vi.fn()} onDiscussCard={onDiscussCard} />)
+
+      await user.click(
+        screen.getByRole('button', { name: 'Get your join link' }),
+      )
+
+      expect(onDiscussCard).toHaveBeenCalledWith(
+        MANAGED_CIVIC_PANEL_EXHAUSTED_MESSAGE,
+      )
+      expect(screen.queryByRole('link')).toBeNull()
+    })
+
+    it('links the ready card to the panel page', () => {
+      withCards([
+        progressCard('ready', {
+          title: 'Your civic panel is ready',
+          summary:
+            '250 residents said yes. Ask them what they think before your next vote.',
+        }),
+      ])
+      render(<TaskStack onOpenCard={vi.fn()} onDiscussCard={vi.fn()} />)
+
+      expect(
+        screen.getByRole('heading', { name: 'Your civic panel is ready' }),
+      ).toBeInTheDocument()
+      expect(
+        screen.getByRole('link', { name: 'See your panel' }),
+      ).toBeInTheDocument()
     })
   })
 

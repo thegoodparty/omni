@@ -27,6 +27,9 @@ import { isUniqueConstraintError } from '@/prisma/util/prismaErrors.util'
 import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
 import { SERVE_CITIZEN_PANELS_FLAG } from '@/shared/util/serveCitizenPanelsFlag.util'
 import { SlackService } from '@/vendors/slack/services/slack.service'
+import { EmailService } from '@/email/email.service'
+import { APP_ROOT } from '@/shared/util/appEnvironment.util'
+import { CIVIC_PANEL_PAGE_HREF } from '@goodparty_org/contracts'
 import {
   SlackChannel,
   SlackMessageType,
@@ -85,6 +88,7 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
     private readonly serveSms: OutreachServeSmsCreateService,
     private readonly contactStatus: ContactStatusService,
     private readonly slack: SlackService,
+    private readonly email: EmailService,
   ) {
     super()
   }
@@ -123,6 +127,7 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
         )
       }
     }
+    await this.sendReadyEmails()
   }
 
   async advance(enrollmentId: string, now: Date): Promise<WaveStep> {
@@ -372,6 +377,84 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
     return status
   }
 
+  // One email to the official for each time their panel reaches its goal.
+  // Read off the rows rather than sent from the step that marked it ready,
+  // so a send that failed is tried again on the next run.
+  async sendReadyEmails(): Promise<void> {
+    const ready = await this.model.findMany({
+      where: {
+        status: ManagedCivicPanelStatus.ready,
+        readyEmailSentAt: null,
+        approvedByUserId: { not: null },
+      },
+      select: { id: true, organizationSlug: true, approvedByUserId: true },
+    })
+    for (const enrollment of ready) {
+      try {
+        await this.sendReadyEmail(enrollment)
+      } catch (err) {
+        this.logger.error(
+          { err, enrollmentId: enrollment.id },
+          'Managed panel ready email failed; retried on the next run',
+        )
+      }
+    }
+  }
+
+  // Claimed before it is sent, so two runs never both send it, and handed
+  // back if the send fails.
+  private async sendReadyEmail(enrollment: {
+    id: string
+    organizationSlug: string
+    approvedByUserId: number | null
+  }): Promise<void> {
+    const userId = enrollment.approvedByUserId
+    if (
+      userId === null ||
+      !(await this.features.isFeatureEnabled({
+        user: userId,
+        feature: SERVE_CITIZEN_PANELS_FLAG,
+      }))
+    ) {
+      return
+    }
+    const { count } = await this.model.updateMany({
+      where: {
+        id: enrollment.id,
+        status: ManagedCivicPanelStatus.ready,
+        readyEmailSentAt: null,
+      },
+      data: { readyEmailSentAt: new Date() },
+    })
+    if (count === 0) return
+    const [user, members] = await Promise.all([
+      this.client.user.findUniqueOrThrow({
+        where: { id: userId },
+        select: { email: true, firstName: true },
+      }),
+      this.memberIds(enrollment.organizationSlug),
+    ])
+    const message = managedPanelReadyEmail(user.firstName, members.length)
+    try {
+      await this.email.sendEmail({
+        to: user.email,
+        subject: 'Your civic panel is ready',
+        message,
+        html: message.replace(/\n/g, '<br />'),
+      })
+    } catch (err) {
+      await this.model.updateMany({
+        where: { id: enrollment.id },
+        data: { readyEmailSentAt: null },
+      })
+      throw err
+    }
+    this.logger.info(
+      { enrollmentId: enrollment.id },
+      'Managed panel ready email sent',
+    )
+  }
+
   // Every free text is spent and the goal is not met: pause, as claimFree
   // does for a wave over the cap, so staff decide whether to raise it.
   private async pauseOutOfTexts(
@@ -419,3 +502,20 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
     return 'paused_at_cap'
   }
 }
+
+// The ready email's words. Serve copy: residents, never voters.
+export const managedPanelReadyEmail = (
+  firstName: string | null,
+  members: number,
+): string =>
+  [
+    firstName?.trim() ? `Hi ${firstName.trim()},` : 'Hi,',
+    '',
+    `Your civic panel is ready. ${members} residents from across your district said yes to hearing from you.`,
+    '',
+    'Ask them what they think before your next vote.',
+    '',
+    `See your panel: ${APP_ROOT}${CIVIC_PANEL_PAGE_HREF}`,
+    '',
+    'GoodParty.org',
+  ].join('\n')

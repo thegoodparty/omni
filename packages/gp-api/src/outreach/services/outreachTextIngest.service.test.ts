@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ContactInteractionTextService } from '@/contactInteraction/services/contactInteractionText.service'
 import { ContactStatusService } from '@/contactInteraction/services/contactStatus.service'
 import { ContactsService } from '@/contacts/services/contacts.service'
+import { CivicPanelJoinService } from '@/contacts/services/civicPanelJoin.service'
 import { PrismaService } from '@/prisma/prisma.service'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { useTestService } from '@/test-service'
@@ -38,6 +39,7 @@ const resolvePeopleDataset = vi.fn()
 let ingest: OutreachTextIngestService
 let outreach: Outreach
 let textInteractions: ContactInteractionTextService
+let ingestLogger: PinoLogger
 
 const row = (
   phone: string,
@@ -98,6 +100,7 @@ beforeEach(async () => {
   })
 
   textInteractions = service.app.get(ContactInteractionTextService)
+  ingestLogger = createMockLogger()
 
   const module = await Test.createTestingModule({
     providers: [
@@ -116,7 +119,11 @@ beforeEach(async () => {
           resolvePeopleDataset,
         },
       },
-      { provide: PinoLogger, useValue: createMockLogger() },
+      {
+        provide: CivicPanelJoinService,
+        useValue: service.app.get(CivicPanelJoinService),
+      },
+      { provide: PinoLogger, useValue: ingestLogger },
     ],
   }).compile()
   await module.init()
@@ -869,5 +876,103 @@ describe('OutreachTextIngestService civic panel', () => {
         where: { field: 'civic_panel' },
       }),
     ).toBe(0)
+  })
+
+  // Someone the invite reached second hand, with a number the voter file
+  // does not hold.
+  const STRANGER = '(303) 555-0199'
+  const STRANGER_DIGITS = '3035550199'
+
+  const joinerFor = (phone: string) =>
+    service.prisma.civicPanelJoiner.findUnique({
+      where: {
+        organizationSlug_phone: { organizationSlug: EO_SLUG, phone },
+      },
+    })
+
+  const members = () =>
+    service.prisma.contactCurrentStatus.count({
+      where: {
+        organizationSlug: EO_SLUG,
+        field: 'civic_panel',
+        value: 'member',
+      },
+    })
+
+  it('puts a JOIN from a number outside the voter file on the panel once', async () => {
+    await seedServeSend(true)
+
+    await upload([row(STRANGER, 'JOIN')])
+    await upload([row(STRANGER, 'JOIN')])
+
+    const joiner = await joinerFor(STRANGER_DIGITS)
+    expect(joiner).toMatchObject({ matched: false, source: 'text' })
+    expect(joiner?.personId).toBe(joiner?.id)
+    expect(await panelStatus(joiner?.personId ?? '')).toBe('member')
+    expect(await members()).toBe(1)
+  })
+
+  it('takes that joiner off the panel when they later text STOP', async () => {
+    await seedServeSend(true)
+    await upload([row(STRANGER, 'JOIN', new Date('2026-08-11T15:00:00Z'))])
+
+    await upload([row(STRANGER, 'STOP', new Date('2026-08-11T16:00:00Z'))])
+
+    const joiner = await joinerFor(STRANGER_DIGITS)
+    expect(await panelStatus(joiner?.personId ?? '')).toBe('left')
+  })
+
+  it('counts a JOIN once when the number already joined from the page', async () => {
+    await seedServeSend(true)
+    await service.prisma.civicPanelJoiner.create({
+      data: {
+        organizationSlug: EO_SLUG,
+        phone: STRANGER_DIGITS,
+        personId: 'person-voter',
+        matched: true,
+        source: 'share_page',
+      },
+    })
+    await seedMember('person-voter')
+
+    await upload([row(STRANGER, 'JOIN')])
+
+    expect(await members()).toBe(1)
+    expect(findPersonByPhone).not.toHaveBeenCalled()
+  })
+
+  it('makes no joiner for an unmatched JOIN on a send that did not ask', async () => {
+    await seedServeSend(false)
+
+    await upload([row(STRANGER, 'JOIN')])
+
+    expect(await joinerFor(STRANGER_DIGITS)).toBeNull()
+  })
+
+  it('writes no joiner on a dry run, but counts the reply', async () => {
+    await seedServeSend(true)
+
+    const result = await ingest.ingestReplies({
+      outreachId: panelOutreach.id,
+      sourceLabel: 'staff_upload',
+      rows: [row(STRANGER, 'JOIN')],
+      dryRun: true,
+    })
+
+    expect(result).toMatchObject({ matched: 1, unmatched: 0 })
+    expect(await joinerFor(STRANGER_DIGITS)).toBeNull()
+  })
+
+  it('never logs the joiner number', async () => {
+    await seedServeSend(true)
+
+    await upload([row(STRANGER, 'JOIN')])
+
+    const logged = JSON.stringify(
+      [ingestLogger.info, ingestLogger.warn, ingestLogger.error].map(
+        (fn) => vi.mocked(fn).mock.calls,
+      ),
+    )
+    expect(logged).not.toContain(STRANGER_DIGITS)
   })
 })

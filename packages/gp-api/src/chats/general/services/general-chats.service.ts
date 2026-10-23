@@ -8,6 +8,7 @@ import {
 import {
   BUILD_CITIZENS_PANEL_MESSAGE,
   EXPLAIN_CIVIC_PANEL_MESSAGE,
+  MANAGED_CIVIC_PANEL_EXHAUSTED_MESSAGE,
   START_MANAGED_CIVIC_PANEL_MESSAGE,
   type ChatMessageFeedback as ChatMessageFeedbackDTO,
 } from '@goodparty_org/contracts'
@@ -73,6 +74,7 @@ export interface SendMessageArgs {
 const BUILD_CITIZENS_PANEL_TITLE = 'Build your civic panel'
 const EXPLAIN_CIVIC_PANEL_TITLE = "What's a civic panel?"
 const START_MANAGED_CIVIC_PANEL_TITLE = 'Build my civic panel'
+const MANAGED_CIVIC_PANEL_EXHAUSTED_TITLE = 'Fill the rest of my civic panel'
 
 const toTitle = (message: string): string => {
   if (message === BUILD_CITIZENS_PANEL_MESSAGE)
@@ -80,6 +82,8 @@ const toTitle = (message: string): string => {
   if (message === EXPLAIN_CIVIC_PANEL_MESSAGE) return EXPLAIN_CIVIC_PANEL_TITLE
   if (message === START_MANAGED_CIVIC_PANEL_MESSAGE)
     return START_MANAGED_CIVIC_PANEL_TITLE
+  if (message === MANAGED_CIVIC_PANEL_EXHAUSTED_MESSAGE)
+    return MANAGED_CIVIC_PANEL_EXHAUSTED_TITLE
   const trimmed = message.trim().replace(/\s+/g, ' ')
   return trimmed.length <= TITLE_MAX_LENGTH
     ? trimmed

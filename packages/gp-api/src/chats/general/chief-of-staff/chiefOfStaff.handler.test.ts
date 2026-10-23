@@ -31,6 +31,7 @@ import {
   BUILD_CITIZENS_PANEL_MESSAGE,
   EXPLAIN_CIVIC_PANEL_MESSAGE,
   MANAGED_CIVIC_PANEL_BACKED_OUT_MESSAGE,
+  MANAGED_CIVIC_PANEL_EXHAUSTED_MESSAGE,
   MANAGED_CIVIC_PANEL_SET_UP_MESSAGE,
   START_MANAGED_CIVIC_PANEL_MESSAGE,
   type ManagedCivicPanel,
@@ -783,6 +784,23 @@ describe('ChiefOfStaffHandler', () => {
         execute: () => unknown
       }
       expect(offer.execute()).toMatchObject({ error: expect.any(String) })
+    })
+
+    it('knows each state once the office approves, and offers the join link when invites run out', async () => {
+      const { handler } = buildManagedHandler({ panel: enrollment })
+      const ctx = await handler.loadContext('c1', USER_ID)
+      const prompt = handler.buildSystemPrompt(ctx)
+      for (const status of ['building', 'paused', 'ready', 'exhausted']) {
+        expect(prompt).toContain(`  - ${status}: `)
+      }
+      expect(prompt).toContain('press Resume on their civic panel page')
+      expect(prompt).toContain(
+        `On "${MANAGED_CIVIC_PANEL_EXHAUSTED_MESSAGE}", call \`read_managed_panel\``,
+      )
+      expect(prompt).toContain('anyone who got the invite can still reply JOIN')
+      expect(Object.keys(handler.buildTools(ctx))).toContain(
+        'present_managed_panel_join_link',
+      )
     })
 
     it('keeps the plan for an office already part way through one', async () => {

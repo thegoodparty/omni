@@ -12,3 +12,6 @@ sends, closes and finishes each building panel's waves. What each step does:
   job makes the unpaid draft; `claimFree` alone makes it free.
 - **Every step re-reads the rows.** No step trusts what an earlier run meant
   to do, so a pass that died partway is finished by the next one.
+- **The ready email is read off the rows too.** `sendReadyEmails` runs after
+  the steps and mails every `ready` panel with `readyEmailSentAt` null,
+  claiming the stamp first and handing it back on a failed send.

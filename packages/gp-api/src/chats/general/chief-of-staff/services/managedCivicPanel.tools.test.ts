@@ -14,6 +14,7 @@ const panel = (overrides: Partial<ManagedCivicPanel> = {}) =>
   ({
     status: 'building',
     approvedAt: new Date('2026-10-22T18:00:00Z'),
+    readyAt: null,
     progress: {
       members: 4,
       goalMembers: 275,
@@ -81,7 +82,29 @@ describe('the managed civic panel tools', () => {
       firstSendDate: 'Tuesday, October 27',
       readyWeekOf: 'November 9',
       nextSendDate: 'Tuesday, November 3',
+      readyDate: null,
     })
+    expect(
+      await toolsFor(panel({ status: 'exhausted', readyAt: null }), true).run(
+        'read_managed_panel',
+      ),
+    ).toMatchObject({ status: 'exhausted' })
+  })
+
+  it('shows the join link while the panel takes members', async () => {
+    expect(
+      await toolsFor(panel({ status: 'exhausted' }), true).run(
+        'present_managed_panel_join_link',
+      ),
+    ).toEqual({ shown: true })
+    expect(
+      await toolsFor(panel({ status: 'stopped' }), false).run(
+        'present_managed_panel_join_link',
+      ),
+    ).toMatchObject({ error: expect.any(String) })
+    expect(
+      await toolsFor(null, false).run('present_managed_panel_join_link'),
+    ).toMatchObject({ error: expect.any(String) })
   })
 
   it('shows the panel card only once there is a panel', async () => {

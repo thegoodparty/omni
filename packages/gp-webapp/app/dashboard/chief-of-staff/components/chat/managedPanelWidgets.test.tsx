@@ -193,6 +193,7 @@ describe('the managed civic panel in the Chief of Staff chat', () => {
           readyAt: null,
           pausedAt: null,
           stoppedAt: null,
+          shareCode: 'a1b2c3d4e5f6',
           createdAt: new Date('2026-10-22T18:00:00Z'),
           updatedAt: new Date('2026-10-22T18:00:00Z'),
           progress: {

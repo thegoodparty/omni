@@ -5,6 +5,7 @@ import { v5 as uuidv5 } from 'uuid'
 import { ContactInteractionTextService } from '@/contactInteraction/services/contactInteractionText.service'
 import { ContactStatusService } from '@/contactInteraction/services/contactStatus.service'
 import { ContactsService } from '@/contacts/services/contacts.service'
+import { CivicPanelJoinService } from '@/contacts/services/civicPanelJoin.service'
 import {
   CivicPanelStatus,
   ContactStatusField,
@@ -102,6 +103,7 @@ export class OutreachTextIngestService extends createPrismaBase(
     private readonly textInteractions: ContactInteractionTextService,
     private readonly contactsService: ContactsService,
     private readonly contactStatus: ContactStatusService,
+    private readonly civicPanelJoins: CivicPanelJoinService,
   ) {
     super()
   }
@@ -159,6 +161,13 @@ export class OutreachTextIngestService extends createPrismaBase(
       outreachId,
       organizationSlug,
       [...new Set([...groups.values()].map((group) => group.phoneDigits))],
+    )
+    await this.resolveUnmatchedJoins(
+      organizationSlug,
+      outreach.asksToJoinCivicPanel,
+      groups,
+      phoneToPersonId,
+      dryRun,
     )
 
     // The message rows carry the office for the constituent timeline's
@@ -413,6 +422,51 @@ export class OutreachTextIngestService extends createPrismaBase(
   }
 
   /**
+   * Step 2b. A JOIN to a send that asked, from a number no recipient, joiner
+   * or voter holds (someone the invite was forwarded to, outside the voter
+   * file), still joins: the texter becomes a joiner of their own, and step
+   * 5b makes them a member the way it does everyone else. A dry run writes
+   * nothing and only counts them.
+   */
+  private async resolveUnmatchedJoins(
+    organizationSlug: string | null,
+    asksToJoinCivicPanel: boolean,
+    groups: Map<string, ReplyGroup>,
+    phoneToPersonId: Map<string, string>,
+    dryRun: boolean,
+  ): Promise<void> {
+    if (!organizationSlug?.startsWith('eo-') || !asksToJoinCivicPanel) return
+    const joiners = new Set<string>()
+    for (const group of groups.values()) {
+      if (phoneToPersonId.has(group.phoneDigits)) continue
+      const joins = group.rows.some(
+        (row) =>
+          isCivicPanelJoinMessage(row.content) &&
+          !isOptOutMessage(row.content) &&
+          !isCivicPanelLeaveMessage(row.content),
+      )
+      if (joins) joiners.add(group.phoneDigits)
+    }
+    for (const phone of joiners) {
+      phoneToPersonId.set(
+        phone,
+        dryRun
+          ? `unmatched-join:${phone}`
+          : await this.civicPanelJoins.unmatchedTextJoiner(
+              organizationSlug,
+              phone,
+            ),
+      )
+    }
+    if (joiners.size > 0) {
+      this.logger.info(
+        { organizationSlug, unmatchedJoins: joiners.size, dryRun },
+        'Civic panel JOIN from numbers outside the voter file',
+      )
+    }
+  }
+
+  /**
    * Step 6. Only on an ingest that actually recorded something: an upload
    * whose every row failed to match is a mis-parse or the wrong file, and
    * the CAS is one-way, so completing on zero rows would leave the send
@@ -522,6 +576,18 @@ export class OutreachTextIngestService extends createPrismaBase(
       const key = phoneDigitsKey(recipient.phone)
       if (key && wanted.has(key) && !phoneToPersonId.has(key)) {
         phoneToPersonId.set(key, recipient.personId)
+      }
+    }
+
+    // Someone who joined the panel from its page or a texted JOIN, outside
+    // the voter file, is found by the number they joined with.
+    if (organizationSlug?.startsWith('eo-')) {
+      const joiners = await this.civicPanelJoins.personIdsByPhone(
+        organizationSlug,
+        phoneDigits.filter((digits) => !phoneToPersonId.has(digits)),
+      )
+      for (const [digits, personId] of joiners) {
+        phoneToPersonId.set(digits, personId)
       }
     }
 
