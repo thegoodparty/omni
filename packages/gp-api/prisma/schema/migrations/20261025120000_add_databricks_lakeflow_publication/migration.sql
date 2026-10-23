@@ -41,8 +41,17 @@ END
 $$;
 
 -- Every table, including ones created later. On Aurora the master user
--- (rds_superuser) may create a FOR ALL TABLES publication.
-CREATE PUBLICATION databricks_lakeflow FOR ALL TABLES;
+-- (rds_superuser) may create a FOR ALL TABLES publication. Each step is safe
+-- to repeat, because this was first applied by hand before the PR merged.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication WHERE pubname = 'databricks_lakeflow'
+  ) THEN
+    CREATE PUBLICATION databricks_lakeflow FOR ALL TABLES;
+  END IF;
+END
+$$;
 
 -- Roles are cluster-wide, and the shared preview cluster runs this migration
 -- once per PR database, sometimes concurrently.
@@ -68,7 +77,7 @@ GRANT SELECT ON ALL TABLES IN SCHEMA public TO databricks_lakeflow;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public
   GRANT SELECT ON TABLES TO databricks_lakeflow;
 
-CREATE FUNCTION public.databricks_lakeflow_replica_identity_full()
+CREATE OR REPLACE FUNCTION public.databricks_lakeflow_replica_identity_full()
   RETURNS event_trigger
   LANGUAGE plpgsql
 AS $$
@@ -93,6 +102,8 @@ BEGIN
   END LOOP;
 END
 $$;
+
+DROP EVENT TRIGGER IF EXISTS databricks_lakeflow_replica_identity_full;
 
 CREATE EVENT TRIGGER databricks_lakeflow_replica_identity_full
   ON ddl_command_end
