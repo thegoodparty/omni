@@ -207,16 +207,6 @@ export {
   MANAGED_CIVIC_PANEL_BACKED_OUT_MESSAGE,
   MANAGED_CIVIC_PANEL_EXHAUSTED_MARKER,
   MANAGED_CIVIC_PANEL_EXHAUSTED_MESSAGE,
-  CIVIC_PANEL_JOIN_PAGE_PREFIX,
-  civicPanelJoinPath,
-  CivicPanelShareCodeSchema,
-  CivicPanelJoinPageSchema,
-  type CivicPanelJoinPage,
-  CIVIC_PANEL_JOIN_CONSENT,
-  JoinCivicPanelInputSchema,
-  type JoinCivicPanelInput,
-  JoinCivicPanelResponseSchema,
-  type JoinCivicPanelResponse,
 } from './people/ManagedCivicPanel.schema'
 export {
   isCivicPanelOnlyList,

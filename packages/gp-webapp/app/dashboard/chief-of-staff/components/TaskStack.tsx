@@ -95,8 +95,8 @@ type DeckCard = {
   // the Chief of Staff on the setup, and the seats fill above it.
   managedPanel: boolean
   // The approved managed panel's card: filling up, ready, or out of
-  // residents to text, whose button opens the Chief of Staff on the join
-  // link.
+  // residents to text, whose button opens the Chief of Staff on where it
+  // stands.
   managedProgress: ManagedPanelProgressPhase | null
   // Tells the civic_panel cards apart in analytics.
   variant: CardVariant

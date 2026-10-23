@@ -6,6 +6,7 @@ import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import {
   BUILD_CITIZENS_PANEL_MESSAGE,
   EXPLAIN_CIVIC_PANEL_MESSAGE,
+  MANAGED_CIVIC_PANEL_EXHAUSTED_CARD_CTA,
   MANAGED_CIVIC_PANEL_EXHAUSTED_MESSAGE,
   START_MANAGED_CIVIC_PANEL_MESSAGE,
 } from '@goodparty_org/contracts'
@@ -883,19 +884,21 @@ describe('<TaskStack>', () => {
       expect(screen.queryByText(/due/i)).toBeNull()
     })
 
-    it('opens the Chief of Staff on the join link once invites run out', async () => {
+    it('opens the Chief of Staff on where the panel stands once invites run out', async () => {
       const user = userEvent.setup()
       const onDiscussCard = vi.fn()
       withCards([
         progressCard('exhausted', {
-          title: 'Fill the last seats on your civic panel',
-          ctaLabel: 'Get your join link',
+          title: 'Every resident we can text has an invite',
+          summary: '12 of 250 residents have joined your civic panel.',
+          ctaLabel: MANAGED_CIVIC_PANEL_EXHAUSTED_CARD_CTA,
         }),
       ])
       render(<TaskStack onOpenCard={vi.fn()} onDiscussCard={onDiscussCard} />)
 
+      expect(screen.queryByText(/join link/i)).toBeNull()
       await user.click(
-        screen.getByRole('button', { name: 'Get your join link' }),
+        screen.getByRole('button', { name: 'See where it stands' }),
       )
 
       expect(onDiscussCard).toHaveBeenCalledWith(

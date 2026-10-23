@@ -119,12 +119,8 @@ Serve send sets a member to `left` the same way without opting them out. A
 text to a panel-only list (contracts' `isCivicPanelOnlyList`) carries
 `CIVIC_PANEL_LEAVE_LINE` instead of the JOIN line and is created with
 `offersCivicPanelLeave`; the create 400s both lines together, and the LEAVE
-line on any other list. Win sends never write it. A reply phone is looked
-up among the office's civic panel joiners after the recipient map and before
-the People DB, and a JOIN to a send that asks from a number none of them
-holds makes the texter a joiner of their own before the reply rows are
-written (none on a dry run). Detail in `src/contacts/AGENTS.md`, "Serve's
-civic panel" and "Joining from a link or a text".
+line on any other list. Win sends never write it. Detail in
+`src/contacts/AGENTS.md`, "Serve's civic panel".
 
 **Serve SMS has one purpose the other channels do not.** The draft schema
 takes contracts' `SERVE_SMS_PURPOSE_VALUES`: the shared Serve list plus
