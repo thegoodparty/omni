@@ -27,6 +27,7 @@ import {
   MANAGED_PANEL_COPY,
   useServePlace,
 } from '../../../contacts/citizens-panel/managedPanelCopy'
+import { ManagedPanelJoinLink } from '../../../contacts/citizens-panel/components/ManagedPanelJoinLink'
 import { SERVE_SMS_SURFACE, SmsFlow } from '../../../outreach/v2/sms/SmsFlow'
 import {
   composeManagedInvite,
@@ -36,6 +37,7 @@ import {
 
 export const MANAGED_PANEL_INVITE_TOOL = 'present_managed_panel_invite'
 export const MANAGED_PANEL_TOOL = 'present_managed_panel'
+export const MANAGED_PANEL_JOIN_LINK_TOOL = 'present_managed_panel_join_link'
 
 // What the invite review tells the conversation when it closes.
 export type ManagedPanelWidgetContext = {
@@ -163,6 +165,29 @@ export const ManagedPanelCard = () => {
   )
 }
 
+// The office's join link to copy and share, read live.
+export const ManagedPanelJoinLinkCard = () => {
+  const orgSlug = useOrganization()?.slug
+  const {
+    data: panel,
+    isPending,
+    isError,
+  } = useQuery({
+    ...managedCivicPanelQueryOptions(orgSlug),
+    enabled: Boolean(orgSlug),
+  })
+  if (isPending) return <CompactCardLoading />
+  if (isError || !isSetUp(panel?.status) || !panel) {
+    return <CompactCardUnavailable />
+  }
+  return (
+    <ManagedPanelJoinLink
+      shareCode={panel.shareCode}
+      className={cn(OPTION_CARD_CLASS, 'w-full max-w-md')}
+    />
+  )
+}
+
 export const managedPanelWidgetTools = [
   defineWidgetTool({
     toolName: MANAGED_PANEL_OFFER_TOOL,
@@ -196,5 +221,10 @@ export const managedPanelWidgetTools = [
     toolName: MANAGED_PANEL_TOOL,
     parse: (args) => (isCall(args) ? {} : null),
     render: () => <ManagedPanelCard />,
+  }),
+  defineWidgetTool({
+    toolName: MANAGED_PANEL_JOIN_LINK_TOOL,
+    parse: (args) => (isCall(args) ? {} : null),
+    render: () => <ManagedPanelJoinLinkCard />,
   }),
 ]

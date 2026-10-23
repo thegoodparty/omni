@@ -378,8 +378,17 @@ tools are widgets in `chief-of-staff/components/chat/managedPanelWidgets.tsx`:
   `MANAGED_CIVIC_PANEL_BACKED_OUT_MESSAGE`. The Serve home hides all three
   turns on reload.
 - **`present_managed_panel`** renders the enrollment, read live, as a
-  `CompactCardLink` (Your civic panel, Building, N of goal members) to the
-  panel page.
+  `CompactCardLink` (Your civic panel, its status from
+  `MANAGED_PANEL_COPY.panelCardStatus`, N of goal members) to the panel
+  page.
+- **`present_managed_panel_join_link`** renders `ManagedPanelJoinLink`, the
+  public join page's URL (`APP_SHARE_BASE` plus contracts'
+  `civicPanelJoinPath(shareCode)`) with Copy link, the same component the
+  panel page's `ManagedPanelControls` shows.
+
+The home's exhausted progress card sends the hidden
+`MANAGED_CIVIC_PANEL_EXHAUSTED_MESSAGE`, which the Serve home hides on
+reload like the other panel turns.
 
 ## Analytics — one event per message sent
 

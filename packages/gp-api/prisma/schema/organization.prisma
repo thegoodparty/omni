@@ -33,6 +33,7 @@ model Organization {
   feedbackSynthesisRuns             FeedbackSynthesisRun[]
   civicPanelBuildPlans              CivicPanelBuildPlan[]
   managedCivicPanel                 ManagedCivicPanel?
+  civicPanelJoiners                 CivicPanelJoiner[]
   priorityAnswers                   PriorityAnswer[]
   testModeCreatedAt                 DateTime?                        @map("test_mode_created_at")
 

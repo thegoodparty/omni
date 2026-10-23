@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common'
 import { ModuleRef } from '@nestjs/core'
 import { formatInTimeZone, fromZonedTime } from 'date-fns-tz'
-import { addDays, endOfWeek, startOfWeek } from 'date-fns'
+import { addDays, endOfWeek, format, startOfWeek } from 'date-fns'
 import {
   CommunityIssue,
   DashboardCard,
@@ -23,6 +23,11 @@ import {
   MANAGED_CIVIC_PANEL_CARD_CTA,
   managedCivicPanelCardContent,
   managedCivicPanelCardSourceId,
+  managedCivicPanelProgressCardSourceId,
+  MANAGED_CIVIC_PANEL_EXHAUSTED_CARD_CTA,
+  MANAGED_CIVIC_PANEL_PROGRESS_CARD_CTA,
+  type ManagedCivicPanel,
+  type ManagedPanelProgressPhase,
   civicPanelBuildCardSourceId,
   civicPanelOpenStepDetail,
   civicPanelStepAction,
@@ -48,6 +53,7 @@ import {
   REPORT_BACK_DUE_DAYS,
 } from '@/outreach/services/outreachReportBack.service'
 import { CivicPanelBuildPlanService } from '@/contacts/services/civicPanelBuildPlan.service'
+import { ManagedCivicPanelService } from '@/contacts/services/managedCivicPanel.service'
 import { UNSENT_OUTREACH_STATUSES } from '@/outreach/util/unsentOutreachStatuses.util'
 
 // Community issues have no natural deadline; give their cards a fixed window so
@@ -159,6 +165,71 @@ export const MANAGED_CIVIC_PANEL_CARD_CONTENT: CardWords = {
   ...managedCivicPanelCardContent(null),
   ctaLabel: MANAGED_CIVIC_PANEL_CARD_CTA,
   ctaHref: CIVIC_PANEL_PAGE_HREF,
+}
+
+// How long the ready card stays on the home after the panel is ready.
+export const MANAGED_PANEL_READY_CARD_DAYS = 14
+
+// Which progress card an approved managed panel gets: a paused panel is
+// still building. None once it is stopped, or its ready card has had its
+// two weeks.
+export const managedPanelPhase = (
+  panel: Pick<ManagedCivicPanel, 'status' | 'readyAt'>,
+  now: Date,
+): ManagedPanelProgressPhase | null => {
+  switch (panel.status) {
+    case 'building':
+    case 'paused':
+      return 'building'
+    case 'exhausted':
+      return 'exhausted'
+    case 'ready':
+      return panel.readyAt &&
+        addDays(panel.readyAt, MANAGED_PANEL_READY_CARD_DAYS) > now
+        ? 'ready'
+        : null
+    case 'stopped':
+      return null
+  }
+}
+
+// The progress card's words. It shows the panel itself, so the count and
+// the next send date are the item, the way a meeting card shows its date.
+export const managedPanelProgressCardContent = (
+  panel: Pick<ManagedCivicPanel, 'status' | 'progress'>,
+): CardWords => {
+  const { members, goalMembers, nextWaveAt } = panel.progress
+  const joined = `${members} of ${goalMembers} residents have joined`
+  const see = {
+    ctaLabel: MANAGED_CIVIC_PANEL_PROGRESS_CARD_CTA,
+    ctaHref: CIVIC_PANEL_PAGE_HREF,
+  }
+  if (panel.status === 'ready') {
+    return {
+      title: 'Your civic panel is ready',
+      summary: `${members} residents said yes. Ask them what they think before your next vote.`,
+      ...see,
+    }
+  }
+  if (panel.status === 'exhausted') {
+    return {
+      title: 'Fill the last seats on your civic panel',
+      summary:
+        'Everyone we can text has an invite. Share your join link to reach more residents.',
+      ctaLabel: MANAGED_CIVIC_PANEL_EXHAUSTED_CARD_CTA,
+      ctaHref: CIVIC_PANEL_PAGE_HREF,
+    }
+  }
+  return {
+    title: 'Your civic panel is filling up',
+    summary:
+      panel.status === 'paused'
+        ? `${joined}. Invites are paused.`
+        : nextWaveAt
+          ? `${joined}. More invites go out ${format(nextWaveAt, 'EEEE, MMMM d')}.`
+          : `${joined} so far.`,
+    ...see,
+  }
 }
 
 const differsFrom = (card: CardWords, words: CardWords): boolean =>
@@ -409,6 +480,7 @@ export class DashboardCardsService extends createPrismaBase(
     // Read before the lock: it reads the people db, and reading the plan is
     // what moves it, so the card and the panel page agree.
     const panel = await this.readCivicPanelPlan(electedOffice)
+    const managed = await this.readManagedCivicPanel(electedOffice)
     await this.client.$transaction(async (tx) => {
       // The home page and the archive read the list at once, and the build
       // card's null sourceItemId leaves the unique key unable to stop a
@@ -416,6 +488,7 @@ export class DashboardCardsService extends createPrismaBase(
       const lockKey = `civic_panel_cards:${electedOffice.id}`
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`
       await this.syncManagedCivicPanelCard(tx, electedOffice)
+      await this.syncManagedPanelProgressCard(tx, electedOffice.id, managed)
       // GoodParty builds the panel now, so the do-it-yourself build card
       // only stays for an office with a plan under way or finished; its
       // start words would begin a new one. An unreadable plan leaves it as
@@ -458,6 +531,80 @@ export class DashboardCardsService extends createPrismaBase(
         'dashboard card sync: civic panel plan read failed',
       )
       return null
+    }
+  }
+
+  // Undefined when the enrollment could not be read; its card then stays as
+  // it is.
+  private async readManagedCivicPanel(
+    electedOffice: Pick<ElectedOffice, 'organizationSlug'>,
+  ): Promise<ManagedCivicPanel | null | undefined> {
+    try {
+      const organization = await this.client.organization.findUniqueOrThrow({
+        where: { slug: electedOffice.organizationSlug },
+      })
+      // Looked up for the same module cycle as the plan.
+      const panels = this.moduleRef.get(ManagedCivicPanelService, {
+        strict: false,
+      })
+      return (await panels.read(organization)).panel
+    } catch (err) {
+      this.logger.warn(
+        { err, organizationSlug: electedOffice.organizationSlug },
+        'dashboard card sync: managed civic panel read failed',
+      )
+      return undefined
+    }
+  }
+
+  // The approved managed panel's one card at a time, keyed by its phase:
+  // filling up (paused too), ready, or every resident a text can reach
+  // invited. A card of another phase that is still open is deleted, so a
+  // card set aside while building never hides the ready one. No Mark done;
+  // the building and exhausted cards do not lapse, and the ready card goes
+  // two weeks after the panel is ready.
+  private async syncManagedPanelProgressCard(
+    tx: Prisma.TransactionClient,
+    electedOfficeId: string,
+    panel: ManagedCivicPanel | null | undefined,
+  ): Promise<void> {
+    if (panel === undefined) return
+    const now = new Date()
+    const phase = panel ? managedPanelPhase(panel, now) : null
+    const sourceExternalId =
+      managedCivicPanelProgressCardSourceId(electedOfficeId)
+    await tx.dashboardCard.deleteMany({
+      where: {
+        electedOfficeId,
+        type: DashboardCardType.civic_panel,
+        sourceExternalId,
+        completedAt: null,
+        ...(phase && { NOT: { sourceItemId: phase } }),
+      },
+    })
+    if (!panel || !phase) return
+    const content = managedPanelProgressCardContent(panel)
+    const dueDate =
+      phase === 'ready' && panel.readyAt
+        ? addDays(panel.readyAt, MANAGED_PANEL_READY_CARD_DAYS)
+        : addDays(now, CIVIC_PANEL_CARD_DUE_DAYS)
+    const where = {
+      electedOfficeId,
+      type: DashboardCardType.civic_panel,
+      sourceExternalId,
+      sourceItemId: phase,
+    }
+    const card = await tx.dashboardCard.findFirst({ where })
+    if (!card) {
+      await tx.dashboardCard.create({ data: { ...where, ...content, dueDate } })
+      return
+    }
+    const lapsed = phase !== 'ready' && !card.dismissedAt && card.dueDate < now
+    if (differsFrom(card, content) || lapsed) {
+      await tx.dashboardCard.update({
+        where: { id: card.id },
+        data: { ...content, ...(lapsed && { dueDate }) },
+      })
     }
   }
 
@@ -716,6 +863,7 @@ export class DashboardCardsService extends createPrismaBase(
             ...openIds,
             civicPanelBuildCardSourceId(electedOfficeId),
             managedCivicPanelCardSourceId(electedOfficeId),
+            managedCivicPanelProgressCardSourceId(electedOfficeId),
           ],
         },
         NOT: {

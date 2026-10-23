@@ -61,6 +61,7 @@ const seedText = (
   })
 
 const MANAGED_PREFIX = 'managed-panel:'
+const PROGRESS_PREFIX = 'managed-panel-progress:'
 
 const listAll = async (orgSlug: string, bucket = 'active') => {
   const res = await service.client.get<DashboardCardsResponse>(
@@ -72,10 +73,13 @@ const listAll = async (orgSlug: string, bucket = 'active') => {
 }
 
 // Every card but the managed panel's, which leads every office without an
-// enrollment and has its own tests below.
+// enrollment, and its progress card once it has one. Both have their own
+// tests below.
 const listCards = async (orgSlug: string, bucket = 'active') =>
   (await listAll(orgSlug, bucket)).filter(
-    (card) => !card.sourceExternalId.startsWith(MANAGED_PREFIX),
+    (card) =>
+      !card.sourceExternalId.startsWith(MANAGED_PREFIX) &&
+      !card.sourceExternalId.startsWith(PROGRESS_PREFIX),
   )
 
 const panelRows = (electedOfficeId: string) =>
@@ -83,7 +87,10 @@ const panelRows = (electedOfficeId: string) =>
     where: {
       electedOfficeId,
       type: DashboardCardType.civic_panel,
-      NOT: { sourceExternalId: { startsWith: MANAGED_PREFIX } },
+      NOT: [
+        { sourceExternalId: { startsWith: MANAGED_PREFIX } },
+        { sourceExternalId: { startsWith: PROGRESS_PREFIX } },
+      ],
     },
     orderBy: { title: 'asc' },
   })
@@ -204,7 +211,7 @@ describe('GET /v1/dashboard/cards: the managed civic panel card', () => {
     await listAll(orgSlug)
     await seedEnrollment(orgSlug)
 
-    expect(await listAll(orgSlug)).toHaveLength(0)
+    expect(await listCards(orgSlug)).toHaveLength(0)
     const [done] = await listAll(orgSlug, 'done')
     expect(done).toMatchObject(managedCard)
     expect(done?.completedAt).not.toBeNull()
@@ -215,7 +222,7 @@ describe('GET /v1/dashboard/cards: the managed civic panel card', () => {
     await seedElectedOffice(orgSlug)
     await listAll(orgSlug)
     await seedEnrollment(orgSlug)
-    expect(await listAll(orgSlug)).toHaveLength(0)
+    expect(await listCards(orgSlug)).toHaveLength(0)
 
     await service.prisma.managedCivicPanel.update({
       where: { organizationSlug: orgSlug },
@@ -231,7 +238,7 @@ describe('GET /v1/dashboard/cards: the managed civic panel card', () => {
     const eo = await seedElectedOffice(orgSlug)
     await seedEnrollment(orgSlug)
 
-    expect(await listAll(orgSlug)).toHaveLength(0)
+    expect(await listCards(orgSlug)).toHaveLength(0)
     expect(await managedRows(eo.id)).toHaveLength(0)
   })
 
@@ -916,7 +923,7 @@ describe('The managed panel card, with the priorities and the usual cards under 
     expect(titles(await listAll(orgSlug))).toEqual(ALL)
 
     await seedEnrollment(orgSlug)
-    expect(titles(await listAll(orgSlug))).toEqual(WITHOUT_MANAGED)
+    expect(titles(await listCards(orgSlug))).toEqual(WITHOUT_MANAGED)
     expect(titles(await listAll(orgSlug, 'done'))).toEqual([managedCard.title])
   })
 
@@ -960,7 +967,7 @@ describe('The managed panel card, with the priorities and the usual cards under 
     await act(orgSlug, managed.id, 'snooze')
     await seedEnrollment(orgSlug)
 
-    expect(titles(await listAll(orgSlug))).toEqual(WITHOUT_MANAGED)
+    expect(titles(await listCards(orgSlug))).toEqual(WITHOUT_MANAGED)
 
     const [row] = await managedRows(eo.id)
     expect(row?.completedAt).not.toBeNull()
@@ -1027,5 +1034,154 @@ describe('GET /v1/dashboard/cards with serve-citizen-panels off', () => {
       user: expect.objectContaining({ id: service.user.id }),
       feature: 'serve-citizen-panels',
     })
+  })
+})
+
+describe('GET /v1/dashboard/cards: the managed panel progress card', () => {
+  const progressCards = async (orgSlug: string, bucket = 'active') =>
+    (await listAll(orgSlug, bucket)).filter((card) =>
+      card.sourceExternalId.startsWith(PROGRESS_PREFIX),
+    )
+
+  const setPanel = (
+    organizationSlug: string,
+    data: { status: ManagedCivicPanelStatus; readyAt?: Date | null },
+  ) =>
+    service.prisma.managedCivicPanel.update({
+      where: { organizationSlug },
+      data,
+    })
+
+  const joinMembers = (organizationSlug: string, count: number) =>
+    service.prisma.contactCurrentStatus.createMany({
+      data: Array.from({ length: count }, (_, i) => ({
+        organizationSlug,
+        personId: `member-${i}`,
+        field: 'civic_panel' as const,
+        value: 'member',
+      })),
+    })
+
+  it('shows members of the goal and the next invites while it builds', async () => {
+    const orgSlug = 'eo-progress-building'
+    await seedElectedOffice(orgSlug)
+    const enrollment = await seedEnrollment(orgSlug)
+    await joinMembers(orgSlug, 12)
+    await service.prisma.managedPanelWave.create({
+      data: {
+        enrollmentId: enrollment.id,
+        wave: 1,
+        sentAt: new Date(),
+        replyWindowEndsAt: new Date(2026, 10, 3),
+      },
+    })
+
+    const [card] = await progressCards(orgSlug)
+
+    expect(card).toMatchObject({
+      title: 'Your civic panel is filling up',
+      summary:
+        '12 of 100 residents have joined. More invites go out Tuesday, November 3.',
+      ctaLabel: 'See your panel',
+      ctaHref: '/dashboard/contacts/citizens-panel',
+      sourceItemId: 'building',
+    })
+    expect(card?.summary.split(' ').length).toBeLessThanOrEqual(20)
+    expect(await progressCards(orgSlug)).toHaveLength(1)
+  })
+
+  it('says invites are paused on a paused panel', async () => {
+    const orgSlug = 'eo-progress-paused'
+    await seedElectedOffice(orgSlug)
+    await seedEnrollment(orgSlug)
+    await setPanel(orgSlug, { status: ManagedCivicPanelStatus.paused })
+
+    const [card] = await progressCards(orgSlug)
+
+    expect(card?.summary).toBe(
+      '0 of 100 residents have joined. Invites are paused.',
+    )
+  })
+
+  it('becomes the ready card, even after the building card was set aside', async () => {
+    const orgSlug = 'eo-progress-ready'
+    const eo = await seedElectedOffice(orgSlug)
+    await seedEnrollment(orgSlug)
+    const [building] = await progressCards(orgSlug)
+    if (!building) throw new Error('no building card')
+    await act(orgSlug, building.id, 'dismiss')
+    await joinMembers(orgSlug, 100)
+    await setPanel(orgSlug, {
+      status: ManagedCivicPanelStatus.ready,
+      readyAt: new Date(),
+    })
+
+    const cards = await progressCards(orgSlug)
+
+    expect(cards).toHaveLength(1)
+    expect(cards[0]).toMatchObject({
+      title: 'Your civic panel is ready',
+      summary:
+        '100 residents said yes. Ask them what they think before your next vote.',
+      sourceItemId: 'ready',
+    })
+    expect(
+      await service.prisma.dashboardCard.count({
+        where: { electedOfficeId: eo.id, sourceItemId: 'building' },
+      }),
+    ).toBe(0)
+  })
+
+  it('takes the ready card away two weeks after the panel was ready', async () => {
+    const orgSlug = 'eo-progress-ready-old'
+    await seedElectedOffice(orgSlug)
+    await seedEnrollment(orgSlug)
+    await setPanel(orgSlug, {
+      status: ManagedCivicPanelStatus.ready,
+      readyAt: subDays(new Date(), 15),
+    })
+
+    expect(await progressCards(orgSlug)).toHaveLength(0)
+  })
+
+  it('offers the join link once everyone a text can reach was invited', async () => {
+    const orgSlug = 'eo-progress-exhausted'
+    await seedElectedOffice(orgSlug)
+    await seedEnrollment(orgSlug)
+    await setPanel(orgSlug, { status: ManagedCivicPanelStatus.exhausted })
+
+    const [card] = await progressCards(orgSlug)
+
+    expect(card).toMatchObject({
+      title: 'Fill the last seats on your civic panel',
+      ctaLabel: 'Get your join link',
+      sourceItemId: 'exhausted',
+    })
+    expect(card?.summary.split(' ').length).toBeLessThanOrEqual(20)
+  })
+
+  it('goes once the office stops its panel', async () => {
+    const orgSlug = 'eo-progress-stopped'
+    await seedElectedOffice(orgSlug)
+    await seedEnrollment(orgSlug)
+    expect(await progressCards(orgSlug)).toHaveLength(1)
+
+    await setPanel(orgSlug, { status: ManagedCivicPanelStatus.stopped })
+
+    expect(await progressCards(orgSlug)).toHaveLength(0)
+  })
+
+  it('is never made or listed with serve-citizen-panels off', async () => {
+    const orgSlug = 'eo-progress-flag-off'
+    const eo = await seedElectedOffice(orgSlug)
+    await seedEnrollment(orgSlug)
+    isFeatureEnabled.mockResolvedValue(false)
+
+    expect(await progressCards(orgSlug)).toHaveLength(0)
+    expect(
+      await service.prisma.dashboardCard.count({
+        where: { electedOfficeId: eo.id },
+      }),
+    ).toBe(0)
   })
 })

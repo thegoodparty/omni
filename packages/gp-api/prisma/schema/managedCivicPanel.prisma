@@ -32,6 +32,12 @@ model ManagedCivicPanel {
   readyAt          DateTime?               @map("ready_at")
   pausedAt         DateTime?               @map("paused_at")
   stoppedAt        DateTime?               @map("stopped_at")
+  /// Set when the wave job claims the "your panel is ready" email, so it
+  /// goes once each time the panel reaches its goal.
+  readyEmailSentAt DateTime?               @map("ready_email_sent_at")
+  /// The public join page's address, `/civic-panel/<shareCode>`. Random, so
+  /// offices can't be listed by guessing; it names no person.
+  shareCode        String                  @unique @default(nanoid(12)) @map("share_code")
   waves            ManagedPanelWave[]
 
   @@map("managed_civic_panel")
@@ -65,4 +71,35 @@ model ManagedPanelWave {
   @@unique([enrollmentId, wave])
   @@index([voterFileFilterId])
   @@map("managed_panel_wave")
+}
+
+enum CivicPanelJoinSource {
+  share_page
+  // A texted JOIN from a number no voter record or send recipient holds.
+  text
+}
+
+/// A resident who joined an office's civic panel from its join page, or by
+/// texting JOIN from a number the voter file does not hold. `personId` is the
+/// voter-file person the phone matched, or this row's own id when it matched
+/// nobody, so the panel stays one `civic_panel` status set either way. See
+/// the contacts AGENTS.md, "Joining from a link or a text".
+model CivicPanelJoiner {
+  id               String               @id @default(uuid(7))
+  createdAt        DateTime             @default(now()) @map("created_at")
+  updatedAt        DateTime             @updatedAt @map("updated_at")
+  organizationSlug String               @map("organization_slug")
+  organization     Organization         @relation(fields: [organizationSlug], references: [slug], onDelete: Cascade)
+  /// Bare 10 digits, the key every phone shape folds to.
+  phone            String
+  personId         String               @map("person_id")
+  /// Whether `personId` is a voter-file person.
+  matched          Boolean
+  firstName        String?              @map("first_name")
+  lastName         String?              @map("last_name")
+  source           CivicPanelJoinSource
+
+  @@unique([organizationSlug, phone])
+  @@index([organizationSlug, personId])
+  @@map("civic_panel_joiner")
 }

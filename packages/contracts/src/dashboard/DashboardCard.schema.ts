@@ -128,6 +128,39 @@ export const managedCivicPanelCardContent = (place: string | null) => {
   }
 }
 
+const MANAGED_CIVIC_PANEL_PROGRESS_CARD_PREFIX = 'managed-panel-progress:'
+
+// The office's card for the managed panel once it is approved: where it
+// stands while it builds, that it is ready, or that every resident a text
+// can reach has been invited. `sourceItemId` is the phase, so a card set
+// aside in one phase does not hide the next.
+export const managedCivicPanelProgressCardSourceId = (
+  electedOfficeId: string,
+): string => `${MANAGED_CIVIC_PANEL_PROGRESS_CARD_PREFIX}${electedOfficeId}`
+
+export const MANAGED_PANEL_PROGRESS_PHASES = [
+  'building',
+  'ready',
+  'exhausted',
+] as const
+export type ManagedPanelProgressPhase =
+  (typeof MANAGED_PANEL_PROGRESS_PHASES)[number]
+
+export const managedPanelProgressPhase = (
+  card: Pick<DashboardCard, 'type' | 'sourceExternalId' | 'sourceItemId'>,
+): ManagedPanelProgressPhase | null =>
+  card.type === 'civic_panel' &&
+  card.sourceExternalId.startsWith(MANAGED_CIVIC_PANEL_PROGRESS_CARD_PREFIX)
+    ? (MANAGED_PANEL_PROGRESS_PHASES.find(
+        (phase) => phase === card.sourceItemId,
+      ) ?? null)
+    : null
+
+// The exhausted card's button: the home opens the Chief of Staff on the
+// join link rather than following the card's link.
+export const MANAGED_CIVIC_PANEL_EXHAUSTED_CARD_CTA = 'Get your join link'
+export const MANAGED_CIVIC_PANEL_PROGRESS_CARD_CTA = 'See your panel'
+
 export const DashboardCardsResponseSchema = z.object({
   bucket: DashboardCardBucketSchema,
   cards: z.array(DashboardCardSchema),

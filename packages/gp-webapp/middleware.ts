@@ -68,6 +68,9 @@ const isPublicRoute = createRouteMatcher([
   // redirect_url where nothing can redeem it. The ticket is redeemed
   // client-side on the page (same pattern as /serve/welcome).
   '/team-invite(.*)',
+  // An office's civic panel join page: residents join from the link the
+  // official shares, with no account. Its code names no person.
+  '/civic-panel(.*)',
   // Machine endpoint: gated by its own REVALIDATE_SECRET (see
   // app/api/revalidate/route.ts), not a Clerk user session.
   '/api/revalidate',

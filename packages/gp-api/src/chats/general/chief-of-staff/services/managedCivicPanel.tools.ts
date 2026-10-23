@@ -10,6 +10,8 @@ export const OFFER_MANAGED_PANEL_INVITE_TOOL = 'offer_managed_panel_invite'
 export const PRESENT_MANAGED_PANEL_INVITE_TOOL = 'present_managed_panel_invite'
 export const READ_MANAGED_PANEL_TOOL = 'read_managed_panel'
 export const PRESENT_MANAGED_PANEL_TOOL = 'present_managed_panel'
+export const PRESENT_MANAGED_PANEL_JOIN_LINK_TOOL =
+  'present_managed_panel_join_link'
 
 // The waves run over about two weeks from the first send.
 const BUILD_DAYS = 14
@@ -81,9 +83,12 @@ export const buildManagedCivicPanelTools = ({
   const read: LlmStreamTool<typeof noInput> = {
     description:
       'Read where their civic panel stands: not_set_up, or its status ' +
-      '(building, ready, paused or stopped), its members and member goal, ' +
-      'the day the first invites go out, the week it should be ready, and ' +
-      'when the next invites go out.',
+      '(building: invites going out; paused: no invites go out until they ' +
+      'resume it; ready: it reached its goal; exhausted: everyone a text ' +
+      'can reach has been invited and it is short of its goal; stopped), ' +
+      'its members and member goal, the day the first invites go out, the ' +
+      'week it should be ready, when the next invites go out, and the day ' +
+      'it was ready.',
     inputSchema: noInput,
     execute: async () => {
       const { panel } = await panels.read(organization)
@@ -96,7 +101,28 @@ export const buildManagedCivicPanelTools = ({
         wavesSent: panel.progress.wavesSent,
         ...managedPanelTimeline(panel.approvedAt),
         nextSendDate: nextWaveAt ? format(nextWaveAt, 'EEEE, MMMM d') : null,
+        readyDate: panel.readyAt ? format(panel.readyAt, 'MMMM d') : null,
       }
+    },
+  }
+
+  const presentJoinLink: LlmStreamTool<typeof noInput> = {
+    description:
+      'Show their civic panel join link as a card they can copy and share. ' +
+      'Anyone in their district can join the panel from it, no account ' +
+      'needed. The card shows the link, so never write it out. Only once ' +
+      'they set up their civic panel.',
+    inputSchema: noInput,
+    execute: async () => {
+      const { panel } = await panels.read(organization)
+      if (!isManagedPanelSetUp(panel)) {
+        return {
+          error:
+            'They have no civic panel taking members. Offer the invite with ' +
+            `${OFFER_MANAGED_PANEL_INVITE_TOOL} instead.`,
+        }
+      }
+      return { shown: true }
     },
   }
 
@@ -124,5 +150,6 @@ export const buildManagedCivicPanelTools = ({
     [PRESENT_MANAGED_PANEL_INVITE_TOOL]: presentInvite,
     [READ_MANAGED_PANEL_TOOL]: read,
     [PRESENT_MANAGED_PANEL_TOOL]: present,
+    [PRESENT_MANAGED_PANEL_JOIN_LINK_TOOL]: presentJoinLink,
   }
 }

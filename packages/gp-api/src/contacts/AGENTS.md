@@ -1226,8 +1226,28 @@ close sends a hidden `MANAGED_CIVIC_PANEL_SET_UP_MESSAGE` or
 ready, two weeks of waves later) and shows `present_managed_panel`. The
 do-it-yourself build card and the plan tools stay only for an office with a
 plan active or completed: the sync deletes an open build card otherwise, and
-the chat registers the plan tools only with a plan. The wave draw and
-the free-send claim below exist, but no job calls them yet.
+the chat registers the plan tools only with a plan.
+
+**Once approved, one progress card.** The same sync gives an approved
+office one card at a time (`syncManagedPanelProgressCard`,
+`sourceExternalId` from contracts' `managedCivicPanelProgressCardSourceId`,
+`managed-panel-progress:<electedOfficeId>`, `sourceItemId` the phase from
+`managedPanelPhase`): `building` (building or paused: "Your civic panel is
+filling up", members of the goal and the next send date, or "Invites are
+paused"), `ready` (for `MANAGED_PANEL_READY_CARD_DAYS`, 14, after
+`readyAt`), and `exhausted` ("Fill the last seats on your civic panel",
+button `MANAGED_CIVIC_PANEL_EXHAUSTED_CARD_CTA`, which the home turns into
+the hidden `MANAGED_CIVIC_PANEL_EXHAUSTED_MESSAGE` so the Chief of Staff
+says so and shows the join link). Stopped, or no enrollment: none. An open
+card of another phase is deleted, so a building card set aside never hides
+the ready one; words are rewritten on read; no Mark done; building and
+exhausted do not lapse. The read goes through `ManagedCivicPanelService`
+(by `ModuleRef`, before the lock) and a failed read leaves the card alone.
+The Chief of Staff (`managedCivicPanelBlock`, `read_managed_panel`,
+`present_managed_panel_join_link`) answers in each status's words. The
+civic panel page shows `ManagedPanelControls`: the status, members of the
+goal, the join link, Pause, Resume and Stop (with a confirm), each the
+`PATCH` below.
 
 `ManagedCivicPanel` is one row per office (`organizationSlug` unique), kept
 when stopped so `freeTextsUsed` still counts against `freeTextCap` (15,000)
@@ -1331,6 +1351,12 @@ under `CronLockService`). For each `building` enrollment whose approver has
   list are dropped), marks the panel `exhausted`; `out_of_free_texts`
   pauses it and posts a cap notice, as `claimFree` does for a wave over the
   cap.
+- After the step loop, every `ready` enrollment with `readyEmailSentAt`
+  null whose approver still has the flag gets one "Your civic panel is
+  ready" email (`EmailService.sendEmail`, Mailgun) to the approver. The
+  stamp is claimed before the send and handed back if it fails, so the
+  next run retries and two runs never both send. A stopped panel approved
+  again clears it.
 
 The send is a Serve `text` row in `pending_payment` with `managedPanelWaveId`
 (unique, so a retry never makes two), the enrollment's `inviteMessage`
@@ -1344,6 +1370,41 @@ left `pending` is resumed by `claimFree`, and a send already past `pending`
 only gets its wave marked. Paused, stopped, ready and exhausted panels are
 not touched. Decision:
 `docs/adr/2026-10-22-managed-panel-wave-job-derives-each-step.md`.
+
+### Joining from a link or a text
+
+Two ways onto a panel come from outside a send, and both end in the one
+`civic_panel = member` write every other way makes
+(`ContactStatusService.changeStatus`), so a person is counted once however
+they join. `CivicPanelJoinService` owns both; `CivicPanelJoiner` rows keep
+the phone (bare 10 digits, unique per office) and who it is.
+
+- **The join page.** Each enrollment has a random `shareCode` (Prisma
+  `nanoid(12)`); `/civic-panel/<shareCode>` in the webapp is public
+  (`middleware.ts`). `GET`/`POST /v1/civic-panel/join/:code`
+  (`CivicPanelJoinController`, `@PublicAccess`, no org header) 404 when the
+  code is unknown or the approver lacks `serve-citizen-panels`; `GET` says
+  `open: false` and `POST` 404s once stopped. `POST { firstName, lastName,
+  phone, consent: true }` is rate limited per IP
+  (`CivicPanelJoinRateLimitGuard`). The phone is matched to an existing
+  joiner first, then the voter file (`findPersonByPhone`); unmatched, the
+  joiner's own id is its `personId`. The member write is `source:
+  share_page` with no `sourceId`, so a repeat is a `member -> member`
+  no-op, and it is skipped for anyone who opted out. The answer is always
+  `{ received: true }`, so the page never says whether a number matched,
+  was already a member or opted out. Nothing personal is logged or put in
+  a URL.
+- **A texted JOIN** to a send that asks, from a number no recipient, joiner
+  or voter holds (`OutreachTextIngestService.resolveUnmatchedJoins`), makes
+  an unmatched joiner (`source: text`), and the ingest's own step then makes
+  them a member exactly as for a recipient. The ingest also looks phones up
+  among joiners before the People DB, so a later STOP or LEAVE from a joiner
+  reaches them. A dry run writes no joiner.
+
+An unmatched joiner counts toward `goalMembers` and every member count, but
+the voter file has no row for their id, so they are on no list and have no
+record to open. Decision:
+`docs/adr/2026-10-23-civic-panel-joiners-outside-the-voter-file.md`.
 
 ### Saved-filter lifecycle
 

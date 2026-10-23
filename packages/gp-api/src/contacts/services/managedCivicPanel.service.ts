@@ -115,7 +115,13 @@ export class ManagedCivicPanelService extends createPrismaBase(
           organizationSlug: organization.slug,
           status: ManagedCivicPanelStatus.stopped,
         },
-        data: { ...approval, readyAt: null, pausedAt: null, stoppedAt: null },
+        data: {
+          ...approval,
+          readyAt: null,
+          readyEmailSentAt: null,
+          pausedAt: null,
+          stoppedAt: null,
+        },
       })
       return this.read(organization)
     }
@@ -190,6 +196,7 @@ export class ManagedCivicPanelService extends createPrismaBase(
       readyAt: row.readyAt,
       pausedAt: row.pausedAt,
       stoppedAt: row.stoppedAt,
+      shareCode: row.shareCode,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
       progress: {

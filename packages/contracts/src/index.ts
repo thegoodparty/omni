@@ -205,6 +205,18 @@ export {
   SHOW_MANAGED_CIVIC_PANEL_INVITE,
   MANAGED_CIVIC_PANEL_SET_UP_MESSAGE,
   MANAGED_CIVIC_PANEL_BACKED_OUT_MESSAGE,
+  MANAGED_CIVIC_PANEL_EXHAUSTED_MARKER,
+  MANAGED_CIVIC_PANEL_EXHAUSTED_MESSAGE,
+  CIVIC_PANEL_JOIN_PAGE_PREFIX,
+  civicPanelJoinPath,
+  CivicPanelShareCodeSchema,
+  CivicPanelJoinPageSchema,
+  type CivicPanelJoinPage,
+  CIVIC_PANEL_JOIN_CONSENT,
+  JoinCivicPanelInputSchema,
+  type JoinCivicPanelInput,
+  JoinCivicPanelResponseSchema,
+  type JoinCivicPanelResponse,
 } from './people/ManagedCivicPanel.schema'
 export {
   isCivicPanelOnlyList,
@@ -1014,6 +1026,12 @@ export {
   isManagedCivicPanelCard,
   MANAGED_CIVIC_PANEL_CARD_CTA,
   managedCivicPanelCardContent,
+  managedCivicPanelProgressCardSourceId,
+  MANAGED_PANEL_PROGRESS_PHASES,
+  type ManagedPanelProgressPhase,
+  managedPanelProgressPhase,
+  MANAGED_CIVIC_PANEL_EXHAUSTED_CARD_CTA,
+  MANAGED_CIVIC_PANEL_PROGRESS_CARD_CTA,
 } from './dashboard/DashboardCard.schema'
 
 export {
