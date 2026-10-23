@@ -89,11 +89,13 @@ const readMapView = async (page: Page): Promise<MapView> => {
     .toBe(true)
   const box = await map.boundingBox()
   if (!box) throw new Error('voter-map has no bounding box')
-  const [lng, lat] = ((await map.getAttribute('data-map-center')) ?? '')
+  const [lng = NaN, lat = NaN] = (
+    (await map.getAttribute('data-map-center')) ?? ''
+  )
     .split(',')
     .map(Number)
   const zoom = Number(await map.getAttribute('data-map-zoom'))
-  if (lng === undefined || lat === undefined || !Number.isFinite(zoom)) {
+  if (![lng, lat, zoom].every(Number.isFinite)) {
     throw new Error('voter-map is ready but publishes no camera')
   }
   return { box, center: [lng, lat], zoom }
