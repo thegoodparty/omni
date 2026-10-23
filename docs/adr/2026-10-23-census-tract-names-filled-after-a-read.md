@@ -3,7 +3,7 @@ title: Census tract names are stored once, and filled after the civic panel summ
 status: active
 decided_by: [agent]
 date: 2026-10-23
-code: ['#3175']
+code: ['#3183']
 scope:
   - packages/gp-api/src/contacts/services/censusTractName.service.ts
   - packages/gp-api/src/contacts/services/civicPanelSummary.service.ts

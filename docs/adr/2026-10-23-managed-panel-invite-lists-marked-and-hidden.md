@@ -3,7 +3,7 @@ title: Managed civic panel wave lists are saved lists marked civicPanelInvite an
 status: active
 decided_by: [agent]
 date: 2026-10-23
-code: ['#3175']
+code: ['#3183']
 scope:
   - packages/gp-api/prisma/schema/voterFileFilter.prisma
   - packages/gp-api/src/contacts/services/managedPanelWaveDraw.service.ts

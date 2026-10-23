@@ -3,7 +3,7 @@ title: The civic panel's standing is read live on GET /civic-panel
 status: active
 decided_by: [bryclevgp]
 date: 2026-10-23
-code: ['#3175']
+code: ['#3183']
 scope:
   - packages/gp-api/src/contacts/services/civicPanelSummary.service.ts
   - packages/contracts/src/people/CivicPanelSummary.schema.ts

@@ -3,7 +3,7 @@ title: A priority's first round is one text, sized by size_round_one
 status: active
 decided_by: [bryclevgp]
 date: 2026-10-23
-code: ['#3175']
+code: ['#3183']
 scope:
   - packages/gp-api/src/chats/general/chat-tools/sizeRoundOne.tool.ts
   - packages/gp-api/src/contacts/utils/civicPanelAllocation.util.ts
