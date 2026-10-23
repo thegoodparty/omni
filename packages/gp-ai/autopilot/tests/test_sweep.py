@@ -1100,6 +1100,27 @@ def test_same_red_head_is_not_resumed_again_after_the_dispatch_claim_expires(
     assert len(resumes(fake_ecs)) == 1
 
 
+def test_failed_launch_releases_the_long_claim_so_the_head_can_retry(
+    red_pr_story, fake_clickup, fake_ecs, fake_pull_requests, fake_github, monkeypatch
+):
+    fake_pull_requests[42] = open_pr()
+    fake_github.check_runs = [check("lint", conclusion="failure")]
+    real_launch = dispatch.launch_fargate_stage
+    monkeypatch.setattr(dispatch, "launch_fargate_stage", lambda envelope: {"launched": False, "error": "ECS"})
+    sweep.handle_sweep({"autopilot_sweep": True})
+
+    items = dispatch.get_dynamodb_client().items
+    assert not any("red-pr-resume" in k for k in items)
+    assert "story-9" not in fake_clickup.posted_comments
+
+    # Once the dispatch's own claim has expired, the head is retried.
+    for pk in [k for k in items if "red-pr-42-" in k]:
+        del items[pk]
+    monkeypatch.setattr(dispatch, "launch_fargate_stage", real_launch)
+    sweep.handle_sweep({"autopilot_sweep": True})
+    assert len(resumes(fake_ecs)) == 1
+
+
 def test_a_new_red_head_gets_one_more_resume(red_pr_story, fake_clickup, fake_ecs, fake_pull_requests, fake_github):
     fake_github.check_runs = [check("lint", conclusion="timed_out")]
     fake_pull_requests[42] = open_pr()

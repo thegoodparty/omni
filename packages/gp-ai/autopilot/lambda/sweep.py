@@ -675,6 +675,20 @@ def pr_red_reason(pr_number: int, pull_request: dict) -> str | None | bool:
     return None
 
 
+def _release_red_pr_claim(task_id: str, pr_number: int, head_sha: str) -> None:
+    """Deletes the exact long-lived claim _resume_red_pr just won."""
+    table_name = os.environ.get("AUTOPILOT_DEDUP_TABLE")
+    if not table_name:
+        return
+    try:
+        dispatch.get_dynamodb_client().delete_item(
+            TableName=table_name,
+            Key={"pk": {"S": dispatch.claim_pk(task_id, RED_PR_CLAIM_STAGE, f"{pr_number}-{head_sha}")}},
+        )
+    except Exception as e:
+        print(f"ERROR: releasing red-PR claim for {task_id} PR #{pr_number} failed: {type(e).__name__}")
+
+
 def _resume_red_pr(task: dict, park: Any, pr_number: int, pull_request: dict) -> bool:
     """If the open PR behind a merge-pending park is red, dispatches ONE
     resume of the parked stage and posts a card comment saying why. Keyed on
@@ -710,6 +724,10 @@ def _resume_red_pr(task: dict, park: Any, pr_number: int, pull_request: dict) ->
     )
     result = dispatch.dispatch_stage(task_id, router.STAGE_RESUME, f"red-pr-{pr_number}-{head_sha}", envelope)
     if not result.get("dispatched"):
+        # Nothing launched, so the long claim has no run to protect: release
+        # it. (The dispatch's own claim still holds for its deadline, so a
+        # failed launch retries after that, not on the very next tick.)
+        _release_red_pr_claim(task_id, pr_number, head_sha)
         return False
     print(f"Resumed {task_id} (stage {park.stage!r}) for red PR #{pr_number} at {head_sha[:7]}: {reason}")
     try:
