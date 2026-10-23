@@ -99,6 +99,54 @@ export class VendorMockRecordService extends createPrismaBase(
     })
   }
 
+  // Peerly p2p jobs carry no campaignId (the mock controller is global), so
+  // they are resolved through the campaign's outreach rows, whose projectId is
+  // the Peerly job id.
+  async findPeerlyP2pJobsForCampaign(campaignId: number) {
+    const outreaches = await this.client.outreach.findMany({
+      where: { campaignId, projectId: { not: null } },
+      select: { projectId: true },
+    })
+    const jobIds = outreaches
+      .map((o) => o.projectId)
+      .filter((id): id is string => id !== null)
+    if (jobIds.length === 0) return []
+    return this.model.findMany({
+      where: {
+        vendor: VendorMockVendor.peerly,
+        kind: 'p2p_job',
+        externalId: { in: jobIds },
+      },
+    })
+  }
+
+  // Moves a mocked Peerly p2p job's send day (`start_date`), which is what the
+  // outreach completion sweep reads. Returns false when the job has no record.
+  async setPeerlyP2pJobStartDate(jobId: string, startDate: string) {
+    this.assertNonProdDeploy()
+    const record = await this.model.findUnique({
+      where: {
+        vendor_kind_externalId: {
+          vendor: VendorMockVendor.peerly,
+          kind: 'p2p_job',
+          externalId: jobId,
+        },
+      },
+    })
+    if (!record) return false
+    const state =
+      typeof record.state === 'object' &&
+      record.state !== null &&
+      !Array.isArray(record.state)
+        ? record.state
+        : {}
+    await this.model.update({
+      where: { id: record.id },
+      data: { state: { ...state, start_date: startDate } },
+    })
+    return true
+  }
+
   // Sets the mocked CallHub voice-broadcast status to END for the campaign's
   // most recent staged or dialing/dialed robocall run.
   async completeCallhubCampaign(campaignId: number) {
