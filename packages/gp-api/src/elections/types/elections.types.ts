@@ -199,7 +199,7 @@ export type CampaignStrategyContextResponse = {
   civics_win_number: number | null
   contacts_needed_estimate: number | null
   // The electorate `projected_turnout` was drawn for. Nothing on this path
-  // reads it yet — `RaceContextFromApi` is where the recommended-lists
+  // reads it yet — `ElectionRaceContext` is where the recommended-lists
   // engine picks it up — but it is on the response, and an untyped field is
   // how the next reader concludes it isn't. Optional for the same reason as
   // the prediction bounds below: an older election-api omits it.

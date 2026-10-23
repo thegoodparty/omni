@@ -7,7 +7,7 @@ import {
 import { ExperimentRunStatus } from '../../generated/prisma'
 import { fingerprintStory } from '@/campaignStory/services/campaignStoryState.service'
 import { CampaignStrategyService } from './campaignStrategy.service'
-import { ElectionApiRaceNotFoundError } from './electionApi.service'
+import { RaceContextNotFoundError } from './raceContext.service'
 
 // A real StoryState, because the align now hashes the answers to decide
 // whether the plan is stale: a partial mock cannot be fingerprinted, and
@@ -523,9 +523,7 @@ describe('CampaignStrategyService', () => {
   })
 
   it('reports failed (not 500) when election-api has no data for the race', async () => {
-    params.build.mockRejectedValue(
-      new ElectionApiRaceNotFoundError('br-general'),
-    )
+    params.build.mockRejectedValue(new RaceContextNotFoundError('br-general'))
 
     const res = await service.getOrGenerateStrategicLandscape(campaign())
 

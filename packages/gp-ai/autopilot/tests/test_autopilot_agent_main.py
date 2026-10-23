@@ -22,6 +22,13 @@ from autopilot.agent.main import (
 from autopilot.agent.metrics import run_summary
 
 
+@pytest.fixture(autouse=True)
+def _no_handoff_nudge_by_default(monkeypatch):
+    # The nudge check reads the real ClickUp card; tests that exercise it
+    # override this.
+    monkeypatch.setattr(agent_main, "_stranded_status_for_nudge", lambda config: None)
+
+
 def _configured(monkeypatch, **env):
     monkeypatch.setenv("AUTOPILOT_STAGE", "story")
     monkeypatch.setenv("CLICKUP_TASK_ID", "TEST-1")
@@ -205,3 +212,98 @@ def test_a_comment_post_failure_never_masks_an_already_failed_run(monkeypatch):
     post_run_summary_comment(summary, "T-1", clickup_client_factory=lambda: client)  # must not raise
 
     assert result["status"] == "error"
+
+
+# ---------------------------------------------------------------------------
+# Handoff nudge (ENG-11168)
+# ---------------------------------------------------------------------------
+
+
+def _scripted_stream(monkeypatch, results):
+    """Replaces the stream with one that returns `results` in order and
+    records the (prompt, options) of each call."""
+    calls = []
+
+    async def scripted(config, prompt, options):
+        calls.append((prompt, options))
+        return results[len(calls) - 1]
+
+    monkeypatch.setattr(agent_main, "_consume_agent_stream", scripted)
+    return calls
+
+
+async def test_a_success_stranded_in_progress_gets_one_continuation_nudge(monkeypatch):
+    config = _configured(monkeypatch, AGENT_DEADLINE_SECONDS="30")
+    monkeypatch.setattr(agent_main, "_stranded_status_for_nudge", lambda config: "in progress")
+    calls = _scripted_stream(
+        monkeypatch,
+        [
+            {"status": "success", "task_id": "TEST-1", "cost_usd": 2.0, "num_turns": 10, "session_id": "sess-1"},
+            {"status": "success", "task_id": "TEST-1", "cost_usd": 1.0, "num_turns": 4, "session_id": "sess-1"},
+        ],
+    )
+
+    result = await run_agent(config)
+
+    assert len(calls) == 2
+    assert "in progress" in calls[1][0]
+    assert "background" in calls[1][0]
+    assert calls[1][1].resume == "sess-1"
+    assert calls[1][1].max_budget_usd == pytest.approx(config.max_budget_usd - 2.0)
+    assert result["handoff_nudged"] is True
+    assert result["cost_usd"] == pytest.approx(3.0)
+    assert result["num_turns"] == 14
+
+
+async def test_a_handed_off_success_is_not_nudged(monkeypatch):
+    config = _configured(monkeypatch, AGENT_DEADLINE_SECONDS="30")
+    calls = _scripted_stream(monkeypatch, [{"status": "success", "cost_usd": 1.0, "session_id": "sess-1"}])
+
+    result = await run_agent(config)
+
+    assert len(calls) == 1
+    assert "handoff_nudged" not in result
+
+
+async def test_an_errored_run_is_not_nudged(monkeypatch):
+    config = _configured(monkeypatch, AGENT_DEADLINE_SECONDS="30")
+    monkeypatch.setattr(agent_main, "_stranded_status_for_nudge", lambda config: "in progress")
+    calls = _scripted_stream(monkeypatch, [{"status": "error", "error": "boom", "session_id": "sess-1"}])
+
+    await run_agent(config)
+
+    assert len(calls) == 1
+
+
+async def test_no_nudge_when_the_budget_is_spent(monkeypatch):
+    config = _configured(monkeypatch, AGENT_DEADLINE_SECONDS="30")
+    monkeypatch.setattr(agent_main, "_stranded_status_for_nudge", lambda config: "in progress")
+    calls = _scripted_stream(
+        monkeypatch,
+        [{"status": "success", "cost_usd": config.max_budget_usd - 0.1, "session_id": "sess-1"}],
+    )
+
+    await run_agent(config)
+
+    assert len(calls) == 1
+
+
+async def test_the_nudge_is_sent_only_once_even_if_still_stranded(monkeypatch):
+    config = _configured(monkeypatch, AGENT_DEADLINE_SECONDS="30")
+    monkeypatch.setattr(agent_main, "_stranded_status_for_nudge", lambda config: "in progress")
+    calls = _scripted_stream(
+        monkeypatch,
+        [
+            {"status": "success", "cost_usd": 1.0, "session_id": "sess-1"},
+            {"status": "success", "cost_usd": 1.0, "session_id": "sess-1"},
+        ],
+    )
+
+    await run_agent(config)
+
+    assert len(calls) == 2
+
+
+def test_base_prompt_forbids_ending_a_turn_with_background_work_pending():
+    assert "background" in agent_main.BASE_PROMPT
+    assert "blocking call" in agent_main.BASE_PROMPT

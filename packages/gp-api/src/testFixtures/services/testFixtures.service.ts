@@ -6,6 +6,7 @@ import { ComplianceStateService } from '@/campaigns/tcrCompliance/services/compl
 import { ElectionsService } from '@/elections/services/elections.service'
 import { OutreachCompletionService } from '@/outreach/services/outreachCompletion.service'
 import { OutreachResultsAdminService } from '@/outreach/services/outreachResultsAdmin.service'
+import { OutreachRobocallCallhubCleanupService } from '@/outreach/services/outreachRobocallCallhubCleanup.service'
 import { OutreachRobocallCaptureService } from '@/outreach/services/outreachRobocallCapture.service'
 import { OutreachRobocallCompletionService } from '@/outreach/services/outreachRobocallCompletion.service'
 import { OutreachRobocallSendService } from '@/outreach/services/outreachRobocallSend.service'
@@ -25,7 +26,9 @@ import { StripeService } from '@/vendors/stripe/services/stripe.service'
 import { VendorMockRecordService } from '@/vendorMocks/vendorMockRecord.service'
 import { ClerkClient } from '@clerk/backend'
 import {
+  type ApplyTestFixtureElectionResponse,
   ComplianceStage,
+  type TestModeElectionPreset,
   type TestFixtureStateResponse,
   type AdminOutreachActionResponse,
   type DeliverStripeEventResponse,
@@ -137,6 +140,7 @@ export class TestFixturesService {
     private readonly robocallSend: OutreachRobocallSendService,
     private readonly robocallCompletion: OutreachRobocallCompletionService,
     private readonly robocallCapture: OutreachRobocallCaptureService,
+    private readonly robocallCallhubCleanup: OutreachRobocallCallhubCleanupService,
     private readonly outreachCompletion: OutreachCompletionService,
     private readonly smsAdmin: OutreachSmsAdminService,
     private readonly resultsAdmin: OutreachResultsAdminService,
@@ -518,6 +522,37 @@ export class TestFixturesService {
     return position.id
   }
 
+  // The caller's own campaign only; 404 rather than 403 so ids can't be
+  // probed. `passed_won` never creates an office: it needs the one the
+  // election-result flow already linked.
+  async applyElectionPreset(
+    userId: number,
+    campaignId: number,
+    preset: TestModeElectionPreset,
+  ): Promise<ApplyTestFixtureElectionResponse> {
+    const campaign = await this.campaigns.findFirst({
+      where: { id: campaignId, userId },
+    })
+    if (!campaign) {
+      throw new NotFoundException()
+    }
+    if (preset === 'passed_won') {
+      const office = await this.campaigns.client.electedOffice.findFirst({
+        where: { campaignId },
+      })
+      if (!office) {
+        throw new ConflictException(
+          'passed_won needs the elected office the election-result flow links',
+        )
+      }
+    }
+    const electionDate = await this.transitions.applyElectionPreset(
+      campaignId,
+      preset,
+    )
+    return { campaignId, preset, electionDate }
+  }
+
   async deleteFixtureUsers(
     input: DeleteTestFixtureUsersInput,
   ): Promise<DeleteTestFixtureUsersResponse> {
@@ -807,6 +842,8 @@ export class TestFixturesService {
       },
       'robocall.completion': () => this.robocallCompletion.runCompletion(),
       'robocall.capture': () => this.robocallCapture.runCapture(),
+      // Aborts the PAUSED CallHub campaigns a cancel/failed send queued.
+      'robocall.callhubCleanup': () => this.robocallCallhubCleanup.runSweep(),
       'p2p.phoneListFinish': () =>
         this.vendorMockRecord.finishPeerlyPhoneLists(),
       'outreach.completion': () => this.outreachCompletion.runCompletion(),

@@ -2108,6 +2108,66 @@ describe('CreateListFlow preselected list', () => {
     expect(draftBodies[0]).toMatchObject({ purpose: 'explain_decision' })
   })
 
+  // A priority card's walk arrives with its goal and the check's question,
+  // so it lands on the talking points drafted from that question rather
+  // than on an empty goal picker.
+  it('lands a priority card on the talking points, with its goal and question', async () => {
+    const draftBodies: unknown[] = []
+    api.mock('POST /v1/outreach/serve/door-knocking/draft', ({ body }) => {
+      draftBodies.push(body)
+      return { status: 200, data: { draft: '\u2022 Ask about the drains' } }
+    })
+    const onStepChange = vi.fn()
+    const props = {
+      ...baseProps,
+      savedLists,
+      preselectedListId: 9,
+      initialPurpose: 'community_input' as const,
+      initialQuestion: 'Is flooding on your block the problem to fix first?',
+      onStepChange,
+    }
+
+    const { rerender } = render(
+      <DoorKnockingSurfaceProvider value={true}>
+        <CreateListFlow {...props} step="filters" />
+      </DoorKnockingSurfaceProvider>,
+    )
+
+    await waitFor(() => expect(onStepChange).toHaveBeenCalledWith('points'))
+    rerender(
+      <DoorKnockingSurfaceProvider value={true}>
+        <CreateListFlow {...props} step="points" />
+      </DoorKnockingSurfaceProvider>,
+    )
+    await waitFor(() => expect(draftBodies).toHaveLength(1))
+    expect(draftBodies[0]).toMatchObject({
+      purpose: 'community_input',
+      communityInputQuestion:
+        'Is flooding on your block the problem to fix first?',
+    })
+  })
+
+  // Without its question the goal still has to ask for one: a blank question
+  // is refused at the create.
+  it('asks the question when the goal arrives without one', async () => {
+    const onStepChange = vi.fn()
+    render(
+      <DoorKnockingSurfaceProvider value={true}>
+        <CreateListFlow
+          {...baseProps}
+          savedLists={savedLists}
+          preselectedListId={9}
+          initialPurpose="community_input"
+          onStepChange={onStepChange}
+          step="filters"
+        />
+      </DoorKnockingSurfaceProvider>,
+    )
+
+    expect(await screen.findByLabelText('The question')).toHaveValue('')
+    expect(onStepChange).not.toHaveBeenCalledWith('points')
+  })
+
   it('stays on the who step when the carried list is not yours', async () => {
     const onStepChange = vi.fn()
     render(

@@ -2,9 +2,9 @@ import * as aws from '@pulumi/aws'
 import * as pulumi from '@pulumi/pulumi'
 
 // The election Aurora cluster, adopted from the election-api stack by import
-// (election-api consolidation, phase 7). Nothing here is recreated: every
-// physical name below is the one election-api's stack created, and the tags
-// keep its Project tag so the import matches AWS exactly.
+// (election-api consolidation, phase 7). Every physical name below is the one
+// election-api's stack created, and the tags keep its Project tag, so nothing
+// here is recreated or renamed.
 //
 // The master password is not managed here. The cluster keeps the one it has,
 // and gp-api reads it from ELECTION_DATABASE_URL in its own secret.
@@ -16,6 +16,7 @@ const physical = {
     securityGroup: 'sg-0b834a3f7b64950d0',
     minCapacity: 0.5,
     backupRetentionPeriod: 7,
+    finalSnapshot: 'election-api-db-develop-final-snapshot',
     eventsRule: 'rdsEventsRule-5cba80c',
     eventsTarget: 'rdsEventsTarget-b3a95d7',
   },
@@ -26,6 +27,7 @@ const physical = {
     securityGroup: 'sg-03783e4adbbee87dc',
     minCapacity: 1,
     backupRetentionPeriod: 14,
+    finalSnapshot: 'election-api-db-master-final-snapshot',
     eventsRule: 'rdsEventsRule-4235df3',
     eventsTarget: 'rdsEventsTarget-8ef39c3',
   },
@@ -54,21 +56,19 @@ export const createElectionDb = (environment: 'dev' | 'prod') => {
       },
       backupRetentionPeriod: p.backupRetentionPeriod,
       deletionProtection: true,
+      skipFinalSnapshot: false,
+      finalSnapshotIdentifier: p.finalSnapshot,
       tags,
     },
     {
-      import: p.cluster,
       protect: true,
       // AWS applies minor engine upgrades on its own; Pulumi must not try to
       // roll them back. The write-forwarding flags are provider defaults the
-      // cluster has never set. skipFinalSnapshot exists only in Pulumi state
-      // and an import reads it as true; the follow-up that drops `import`
-      // sets it to false with a final snapshot name.
+      // cluster has never set.
       ignoreChanges: [
         'engineVersion',
         'enableGlobalWriteForwarding',
         'enableLocalWriteForwarding',
-        'skipFinalSnapshot',
       ],
     },
   )
@@ -84,7 +84,6 @@ export const createElectionDb = (environment: 'dev' | 'prod') => {
       tags,
     },
     {
-      import: p.instance,
       protect: true,
       ignoreChanges: ['engineVersion', 'forceDestroy'],
     },
@@ -93,56 +92,44 @@ export const createElectionDb = (environment: 'dev' | 'prod') => {
   // RDS keeps its event history for 14 days. Copying the cluster's events to
   // a log group keeps them for a year and lets Grafana's CloudWatch data
   // source show them next to the service's own errors.
-  const logGroup = new aws.cloudwatch.LogGroup(
-    'electionDbEventsLogGroup',
-    { name: logGroupName, retentionInDays: 365, tags },
-    { import: logGroupName },
-  )
+  const logGroup = new aws.cloudwatch.LogGroup('electionDbEventsLogGroup', {
+    name: logGroupName,
+    retentionInDays: 365,
+    tags,
+  })
 
-  new aws.cloudwatch.LogResourcePolicy(
-    'electionDbEventsLogPolicy',
-    {
-      policyName: `eventbridge-to-${p.cluster}-events`,
-      policyDocument: pulumi.jsonStringify({
-        Version: '2012-10-17',
-        Statement: [
-          {
-            Effect: 'Allow',
-            Principal: {
-              Service: ['events.amazonaws.com', 'delivery.logs.amazonaws.com'],
-            },
-            Action: ['logs:CreateLogStream', 'logs:PutLogEvents'],
-            Resource: pulumi.interpolate`${logGroup.arn}:*`,
+  new aws.cloudwatch.LogResourcePolicy('electionDbEventsLogPolicy', {
+    policyName: `eventbridge-to-${p.cluster}-events`,
+    policyDocument: pulumi.jsonStringify({
+      Version: '2012-10-17',
+      Statement: [
+        {
+          Effect: 'Allow',
+          Principal: {
+            Service: ['events.amazonaws.com', 'delivery.logs.amazonaws.com'],
           },
-        ],
-      }),
-    },
-    { import: `eventbridge-to-${p.cluster}-events` },
-  )
+          Action: ['logs:CreateLogStream', 'logs:PutLogEvents'],
+          Resource: pulumi.interpolate`${logGroup.arn}:*`,
+        },
+      ],
+    }),
+  })
 
-  const rule = new aws.cloudwatch.EventRule(
-    'electionDbEventsRule',
-    {
-      name: p.eventsRule,
-      description: `RDS events for ${p.cluster}`,
-      eventPattern: JSON.stringify({
-        source: ['aws.rds'],
-        detail: { SourceIdentifier: [p.cluster, p.instance] },
-      }),
-      tags,
-    },
-    { import: p.eventsRule },
-  )
+  const rule = new aws.cloudwatch.EventRule('electionDbEventsRule', {
+    name: p.eventsRule,
+    description: `RDS events for ${p.cluster}`,
+    eventPattern: JSON.stringify({
+      source: ['aws.rds'],
+      detail: { SourceIdentifier: [p.cluster, p.instance] },
+    }),
+    tags,
+  })
 
-  new aws.cloudwatch.EventTarget(
-    'electionDbEventsTarget',
-    {
-      rule: rule.name,
-      targetId: p.eventsTarget,
-      arn: logGroup.arn,
-    },
-    { import: `${p.eventsRule}/${p.eventsTarget}` },
-  )
+  new aws.cloudwatch.EventTarget('electionDbEventsTarget', {
+    rule: rule.name,
+    targetId: p.eventsTarget,
+    arn: logGroup.arn,
+  })
 
   return { cluster, instance }
 }

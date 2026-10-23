@@ -36,6 +36,7 @@ import argparse
 import json
 import os
 import re
+import subprocess
 import sys
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from pathlib import Path
@@ -386,10 +387,88 @@ def await_merge(
 # stranding ENG-11132) leaves it exactly where it began.
 IN_PROGRESS_STATUS = "in progress"
 QA_STATUS = "qa"
+# The leading text of the success-ended stranded-run question park_if_stranded
+# writes. The conductor Lambda cannot import this package, so lambda/router.py
+# keeps a copy in its auto-resume allowlist (router.AUTO_RESUMABLE_PARK_PREFIXES);
+# a router test asserts the copy equals this constant. Change them together.
+STRANDED_RUN_SUCCESS_PREFIX = "This run ended while the card was still in"
+
 STRANDED_STATUSES: dict[str, frozenset[str]] = {
     "qa": frozenset({IN_PROGRESS_STATUS, QA_STATUS}),
 }
 DEFAULT_STRANDED_STATUSES = frozenset({IN_PROGRESS_STATUS})
+
+
+def stranded_card_status(
+    stage: str,
+    task_id: str,
+    *,
+    clickup_client_factory: Callable[[], Any] = ClickUpClient,
+) -> str | None:
+    """The card's normalized status if it is one a run of `stage` must never
+    end in (see STRANDED_STATUSES), else None. Shared by park_if_stranded and
+    main's handoff nudge so both agree on what "stranded" means."""
+    with clickup_client_factory() as clickup:
+        current = clickup.get_task(task_id).get_status_name()
+    normalized = current.strip().lower()
+    return normalized if normalized in STRANDED_STATUSES.get(stage, DEFAULT_STRANDED_STATUSES) else None
+
+
+def _git(repo_dir: str, *args: str, timeout: float = 120) -> str:
+    done = subprocess.run(["git", "-C", repo_dir, *args], capture_output=True, text=True, timeout=timeout, check=True)
+    return done.stdout.strip()
+
+
+def preserve_work(repo_dir: str | None) -> dict | None:
+    """Best-effort rescue of a stranded run's work before the container dies:
+    push the current branch if it carries commits not on origin/main, and look
+    up any open PR from it. Returns {"branch", "pr_url"} (pr_url may be None),
+    or None when there is nothing to preserve (on main, no commits ahead, no
+    repo) or git/gh fails. Never raises — it only decorates a park, and the
+    park must happen regardless.
+
+    The branch name is whatever the run checked out; the story stage cuts it
+    fresh per story, so naming it in the park is what lets a resume adopt it
+    instead of re-implementing (ENG-11166).
+    """
+    if not repo_dir:
+        return None
+    try:
+        branch = _git(repo_dir, "rev-parse", "--abbrev-ref", "HEAD")
+        if branch in ("HEAD", "main"):
+            return None
+        if int(_git(repo_dir, "rev-list", "--count", "origin/main..HEAD") or 0) == 0:
+            return None
+        # Idempotent: a no-op when the branch is already pushed and current.
+        _git(repo_dir, "push", "-u", "origin", f"HEAD:refs/heads/{branch}")
+    except Exception as e:
+        logger.error(f"Could not preserve unpushed work in {repo_dir}: {type(e).__name__}: {e}")
+        return None
+    pr_url = None
+    try:
+        listed = subprocess.run(
+            ["gh", "pr", "list", "--head", branch, "--state", "open", "--json", "url", "--jq", ".[0].url // empty"],
+            cwd=repo_dir,
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=True,
+        )
+        pr_url = listed.stdout.strip() or None
+        if pr_url == "null":
+            pr_url = None
+    except Exception as e:
+        logger.error(f"Could not look up an open PR for branch {branch}: {type(e).__name__}: {e}")
+    return {"branch": branch, "pr_url": pr_url}
+
+
+def _preserved_work_note(preserved: dict | None) -> str:
+    if not preserved:
+        return ""
+    note = f" Its commits are pushed on branch `{preserved['branch']}`"
+    if preserved.get("pr_url"):
+        return f"{note}, with open PR {preserved['pr_url']} — adopt that PR rather than opening a new one."
+    return f"{note} (no open PR yet) — continue from that branch rather than starting over."
 
 
 def park_if_stranded(
@@ -401,6 +480,7 @@ def park_if_stranded(
     slack_client_factory: Callable[[], Any] = SlackClient,
     env: Mapping[str, str] | None = None,
     workspace_dir: str | None = None,
+    repo_dir: str | None = None,
 ) -> dict:
     """The harness's stranded-run guard: if a run ends — success OR error —
     with its card still in a status the conductor cannot route out of and no
@@ -416,16 +496,18 @@ def park_if_stranded(
     run's real outcome must not be masked by a failure of its safety net (a
     park that got as far as the comment + status move has still rescued the
     card, even if the Slack ping or sentinel step then failed).
+
+    `repo_dir` is the omni checkout. When given, any commits the run left
+    unpushed are pushed first and the park names the branch and any open PR,
+    so the work survives the container and a resume adopts it rather than
+    opening a duplicate.
     """
     if not isinstance(result, dict) or result.get("parked_stage"):
         return result
 
     try:
-        with clickup_client_factory() as clickup:
-            current = clickup.get_task(task_id).get_status_name()
-        stranded = STRANDED_STATUSES.get(stage, DEFAULT_STRANDED_STATUSES)
-        current_normalized = current.strip().lower()
-        if current_normalized not in stranded:
+        current_normalized = stranded_card_status(stage, task_id, clickup_client_factory=clickup_client_factory)
+        if current_normalized is None:
             return result
         ended_how = (
             "successfully"
@@ -438,7 +520,7 @@ def park_if_stranded(
         )
         if result.get("status") == "success":
             question = (
-                f"This run ended while the card was still in '{current_normalized}' — most likely "
+                f"{STRANDED_RUN_SUCCESS_PREFIX} '{current_normalized}' — most likely "
                 "waiting on something in a background watcher that died with the run, or ending "
                 "without finishing its handoff. Check the PR/deploy state, then comment here (or "
                 "move the card back) to resume."
@@ -449,6 +531,7 @@ def park_if_stranded(
                 f"'{current_normalized}'. Its work is abandoned mid-flight — comment here (or move "
                 "the card back) to re-run the stage from the top."
             )
+        question += _preserved_work_note(preserve_work(repo_dir))
         park_result = park_for_feedback(
             task_id,
             stage,

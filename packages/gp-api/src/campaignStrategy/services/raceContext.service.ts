@@ -5,7 +5,10 @@ import {
 } from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
 import { z } from 'zod'
-import { ApiCandidate, RaceContextFromApi } from '../types/electionApi.types'
+import {
+  ElectionCandidate,
+  ElectionRaceContext,
+} from '../types/raceContext.types'
 import { ElectionCode } from '@/elections/types/elections.types'
 import { CampaignStrategyContextResponse } from '@/electionDb/campaignStrategyContext/campaign-strategy-context.schema'
 import { CampaignStrategyContextService } from '@/electionDb/campaignStrategyContext/campaign-strategy-context.service'
@@ -20,10 +23,10 @@ type StrategyContext =
 // case. Callers in CampaignStrategyService use this to break the infinite-poll
 // loop by persisting a "no data" marker instead of retrying generation every
 // 3 seconds.
-export class ElectionApiRaceNotFoundError extends Error {
+export class RaceContextNotFoundError extends Error {
   constructor(public readonly brHashId: string) {
     super(`No Race row for brHashId=${brHashId}`)
-    this.name = 'ElectionApiRaceNotFoundError'
+    this.name = 'RaceContextNotFoundError'
   }
 }
 
@@ -69,7 +72,7 @@ const ApiResponseSchema = z.object({
 type ApiResponse = z.infer<typeof ApiResponseSchema>
 type ApiCandidateRaw = z.infer<typeof ApiCandidateSchema>
 
-const toCandidate = (c: ApiCandidateRaw): ApiCandidate => ({
+const toCandidate = (c: ApiCandidateRaw): ElectionCandidate => ({
   gpCandidateId: c.gp_candidate_id,
   firstName: c.first_name,
   lastName: c.last_name,
@@ -87,11 +90,11 @@ const toCandidate = (c: ApiCandidateRaw): ApiCandidate => ({
 // keep the two fields consistent.
 const TEST_CANDIDATE_EMAIL_MARKER = '@goodparty'
 
-const isTestCandidate = (c: ApiCandidate): boolean =>
+const isTestCandidate = (c: ElectionCandidate): boolean =>
   c.email !== null &&
   c.email.toLowerCase().includes(TEST_CANDIDATE_EMAIL_MARKER)
 
-const toRaceContext = (data: ApiResponse): RaceContextFromApi => {
+const toRaceContext = (data: ApiResponse): ElectionRaceContext => {
   const candidates = data.candidates
     .map(toCandidate)
     .filter((c) => !isTestCandidate(c))
@@ -150,12 +153,12 @@ const toStrategyContext = (data: ApiResponse): StrategyContext => {
 }
 
 @Injectable()
-export class ElectionApiService {
+export class RaceContextService {
   constructor(
     private readonly logger: PinoLogger,
     private readonly campaignStrategyContext: CampaignStrategyContextService,
   ) {
-    this.logger.setContext(ElectionApiService.name)
+    this.logger.setContext(RaceContextService.name)
   }
 
   private async fetchRaw(brHashId: string): Promise<ApiResponse> {
@@ -172,7 +175,7 @@ export class ElectionApiService {
           { brHashId },
           'no Race row for brHashId; caller should mark race as unavailable',
         )
-        throw new ElectionApiRaceNotFoundError(brHashId)
+        throw new RaceContextNotFoundError(brHashId)
       }
       this.logger.error(
         {
@@ -200,7 +203,7 @@ export class ElectionApiService {
     return parsed.data
   }
 
-  async getRaceContext(brHashId: string): Promise<RaceContextFromApi> {
+  async getRaceContext(brHashId: string): Promise<ElectionRaceContext> {
     return toRaceContext(await this.fetchRaw(brHashId))
   }
 

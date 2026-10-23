@@ -43,7 +43,10 @@ def test_epic_create_covers_its_load_bearing_directives():
     assert "AmplitudeFlagClient" in text or "create_feature_flag" in text, "must create the feature flag"
     assert "idempotent" in text.lower(), "must note the flag create is idempotent (never a second flag)"
     assert "flag-wiring story" in text, "must require the first story to be the flag-wiring story"
-    assert "no runtime surface" in text, "must state the no-runtime-surface exception to the flag rule"
+    assert "no user-facing runtime surface" in text, "must state the no-runtime-surface exception to the flag rule"
+    assert "flag-key: none" in text, "must record the `flag-key: none` sentinel when skipping the flag"
+    assert "VENDOR_MODE" in text, "must name a TDD's own runtime switch as a reason to skip the flag"
+    assert "no forced star" in text, "must not force a flag-wiring dependency star without a flag"
 
     assert "subtask" in text.lower(), "must break the TDD into subtasks of the feature card"
     assert "dependency" in text.lower(), "must wire ClickUp dependency links between stories"
@@ -83,6 +86,7 @@ def test_story_covers_its_load_bearing_directives():
     assert "@goodparty_org/contracts" in text, "must route cross-service shapes through contracts"
     assert "*.test.ts" in text and "Vitest" in text, "must name new tests *.test.ts under Vitest"
     assert "gated behind" in text.lower(), "every new runtime path must be gated behind the epic flag"
+    assert "flag-key: none" in text, "gate applies only when the epic has a flag"
 
     assert "verify" in text.lower(), "must run the affected package's verify"
     assert "Never open a PR on a red verify" in text or "never open a pr on a red verify" in text.lower(), (
@@ -149,6 +153,35 @@ def test_story_covers_its_load_bearing_directives():
 # ---------------------------------------------------------------------------
 
 
+def test_qa_honors_scope_decisions_and_skips_browser_for_no_ui_stories():
+    text = _read("qa")
+    lower = text.lower()
+
+    # Step 1: the comment thread supersedes the ticket body, and the verdict
+    # states the effective ACs (ENG-11383 / ENG-11384 false-positive fails).
+    assert "effective ac" in lower, "must build an effective AC list"
+    assert "full ClickUp comment thread" in text, "must read the whole comment thread, not just the ticket body"
+    assert "supersedes the ticket body" in text, "human scope decisions must supersede the ticket body"
+    assert "de-scoped" in lower, "must call out de-scoped ACs in the verdict"
+    assert "never a QA failure" in text, "a de-scoped AC must never be reported as a failure"
+    assert "top of the verdict comment" in text, "the effective AC list leads the verdict comment"
+    assert text.index("effective acceptance criteria") < text.index("Wait for deploy"), (
+        "the comment-thread step must come before the deploy wait"
+    )
+
+    # Step 2: no-UI classification via the merged PR's changed files.
+    assert "Merge pending: PR #" in text, "must find the merged PR from the park comment text"
+    assert "gh pr view <n> --json files" in text, "must classify by the merged PR's changed files"
+    for ui_path in ("packages/gp-webapp/", "packages/gp-admin/", "packages/candidate-sites/"):
+        assert ui_path in text, f"{ui_path} must count as UI"
+    assert "gh pr checks <n>" in text, "no-UI stories verify against the PR's CI checks"
+    assert "Vitest" in text, "must not accept 'tests passed' as evidence without reading the code path"
+    assert "Read the code path" in text, "no-UI verification must read the code path each AC describes"
+    assert text.index("Classify") < text.index("Wait for deploy"), "classification must come before the deploy wait"
+    # Unclassifiable stories fall back to today's browser flow.
+    assert "treat the story as having UI" in text, "an unfindable PR must fall back to the browser walk"
+
+
 def test_qa_covers_its_load_bearing_directives():
     text = _read("qa")
 
@@ -186,6 +219,7 @@ def test_qa_covers_its_load_bearing_directives():
     assert "one screenshot" in text.lower(), "must take one screenshot per acceptance criterion"
 
     assert "Flag-off" in text or "flag-off" in text.lower(), "must run the flag-off parity smoke"
+    assert "flag-key: none" in text, "must skip the flag-off smoke when the epic has no flag"
     assert "don't assume" in text.lower(), "must read the flag override mechanism rather than assume one"
     assert "follow-up comment" in text.lower(), (
         "must read the flag-wiring story's own follow-up comment, not just the breakdown summary"
@@ -241,3 +275,15 @@ def test_resume_fixes_a_red_merge_pending_pr_and_reparks_with_await_merge():
     assert "can't merge as-is" in text, "must recognize the sweep's red-PR comment that triggers this resume"
     assert "git merge origin/main" in text, "a conflict is fixed by merging main, never rebase or force-push"
     assert "feedback await-merge" in text, "after fixing, the story must re-park with await-merge"
+
+
+# ---------------------------------------------------------------------------
+# Existing-PR adoption (ENG-11166)
+# ---------------------------------------------------------------------------
+
+
+def test_story_and_resume_adopt_an_existing_open_pr_instead_of_opening_a_duplicate():
+    for stage in ("story", "resume"):
+        text = _read(stage)
+        assert "gh pr list" in text, f"{stage} must search for an existing open PR for the story"
+        assert "second" in text or "duplicate" in text.lower(), f"{stage} must forbid opening a duplicate PR"
