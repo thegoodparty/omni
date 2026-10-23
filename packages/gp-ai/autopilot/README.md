@@ -375,7 +375,7 @@ hits them, and where it ends if nothing does:
 3. **Stall alerts are the backstop for what the sweep can't re-drive** — never
    an auto-retry, always exactly one Slack post. `supervisor.STATUS_TTL_SECONDS`
    sets the ceiling per status a story can sit in before it counts as stalled:
-   `STATUS_IN_PROGRESS` 2h, `STATUS_QA` 1h, `STATUS_EXECUTING` 30min (a manual
+   `STATUS_IN_PROGRESS` 3h, `STATUS_QA` 1h, `STATUS_EXECUTING` 30min (a manual
    drag only — stories don't reach it in the normal pipeline). `feedback
    needed` carries no TTL: waiting on a human isn't a stall. Claimed once via
    `supervisor.try_claim_stall_alert` (an epic-scoped claim) for stories inside
