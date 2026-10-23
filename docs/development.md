@@ -125,12 +125,6 @@ that initializes the `ai-rules` git submodule — if `ls ai-rules/` is empty, ru
 `git submodule update --init --recursive ai-rules`), then copy each app's
 `.env.example` / `.env.local` template before starting it.
 
-**Fast tier — UI-only work.** If the change doesn't touch gp-api or real data,
-skip this whole stack: `npm run dev -w packages/prototypes` boots
-`packages/prototypes` on `:4002` with zero env by design (no backend, no DB,
-no secrets). Use it for UI/UX iteration and hand off to the full stack only
-once the change needs real data or an endpoint.
-
 ## Run the core loop
 
 ```bash

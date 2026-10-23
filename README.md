@@ -32,8 +32,7 @@ npm run setup
 One command from fresh clone to a running, seeded local stack — no manual
 env setup. New machine? Start at
 [`docs/machine-setup.md`](./docs/machine-setup.md) (one-time prerequisites
-with check-first commands), then the two commands above. Full path, flags,
-and the UI-only fast tier (`packages/prototypes`, zero env):
+with check-first commands), then the two commands above. Full path and flags:
 [`docs/development.md`](./docs/development.md).
 
 ## Documentation

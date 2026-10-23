@@ -717,7 +717,7 @@ the one that matters. The events table is `dbt.stg_airbyte_source__amplitude_api
      origin/main -- dbt
    git grep -n "like '<old prefix>" origin/main -- dbt/project/macros   # pattern classifiers
    # omni
-   git grep -n -e '<old>' origin/main -- packages/runbooks packages/prototypes
+   git grep -n -e '<old>' origin/main -- packages/runbooks
    ```
    Macro-derived readers pick up a new leg on their own. Anything that names the event
    literally, keys on one of its properties, or pins the leg list in a test does not.
