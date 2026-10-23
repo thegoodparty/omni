@@ -10,6 +10,7 @@ import { Module } from '@nestjs/common'
 import { ActivitySeedModule } from './activitySeed.module'
 import { TestFixturesController } from './testFixtures.controller'
 import { TestFixturesJudgeController } from './testFixturesJudge.controller'
+import { TestFixturesScenariosController } from './testFixturesScenarios.controller'
 import { TestFixturesStatesController } from './testFixturesStates.controller'
 import { TestFixturesVendorMocksController } from './testFixturesVendorMocks.controller'
 import { JudgeChatFixtureService } from './services/judgeChatFixture.service'
@@ -31,6 +32,7 @@ import { StateTransitionsModule } from './stateTransitions.module'
   controllers: [
     TestFixturesController,
     TestFixturesJudgeController,
+    TestFixturesScenariosController,
     TestFixturesStatesController,
     TestFixturesVendorMocksController,
   ],

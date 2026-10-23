@@ -1738,6 +1738,12 @@ export {
   TestFixtureActivityEffortSchema,
   SeedTestFixtureActivityResponseSchema,
   type SeedTestFixtureActivityResponse,
+  TestFixtureRaceQuerySchema,
+  type TestFixtureRaceQuery,
+  ApplyTestFixtureElectionRequestSchema,
+  type ApplyTestFixtureElectionRequest,
+  ApplyTestFixtureElectionResponseSchema,
+  type ApplyTestFixtureElectionResponse,
 } from './testFixtures/testFixtures.schema'
 
 export {
