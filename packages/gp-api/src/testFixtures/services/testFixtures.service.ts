@@ -58,6 +58,7 @@ import {
   differenceInMilliseconds,
   format,
   formatISO,
+  subDays,
   subHours,
   subMinutes,
 } from 'date-fns'
@@ -700,13 +701,15 @@ export class TestFixturesService {
   }
 
   async getMockRecords(campaignId: number): Promise<MockRecordsResponse> {
-    const [campaignRecords, callhubRecords] = await Promise.all([
-      this.vendorMockRecord.findByCampaign(campaignId),
-      this.vendorMockRecord.findCallhubForCampaign(campaignId),
-    ])
+    const [campaignRecords, callhubRecords, peerlyJobRecords] =
+      await Promise.all([
+        this.vendorMockRecord.findByCampaign(campaignId),
+        this.vendorMockRecord.findCallhubForCampaign(campaignId),
+        this.vendorMockRecord.findPeerlyP2pJobsForCampaign(campaignId),
+      ])
     return {
       vendorMode: VENDOR_MODE,
-      records: [...campaignRecords, ...callhubRecords],
+      records: [...campaignRecords, ...callhubRecords, ...peerlyJobRecords],
     }
   }
 
@@ -751,8 +754,28 @@ export class TestFixturesService {
       })
       dialedAt = backdated
       poolFreedAt = outreach.robocall.poolFreedAt !== null ? backdated : null
-    } else if (body.action === 'sms.start_date_today') {
-      throw new BadRequestException('Not implemented until M3')
+    } else if (
+      body.action === 'sms.start_date_today' ||
+      body.action === 'sms.start_date_passed'
+    ) {
+      // The completion sweep reads the Peerly job's start_date: today (UTC)
+      // reads in_progress, a past day reads completed.
+      if (!outreach.projectId)
+        throw new NotFoundException('No Peerly job for this outreach')
+      const startDay =
+        body.action === 'sms.start_date_today'
+          ? new Date()
+          : subDays(new Date(), 1)
+      const found = await this.vendorMockRecord.setPeerlyP2pJobStartDate(
+        outreach.projectId,
+        startDay.toISOString().slice(0, 10),
+      )
+      if (!found) throw new NotFoundException('No mock Peerly job record')
+      await this.campaigns.client.outreach.update({
+        where: { id: outreach.id },
+        data: { date: startDay },
+      })
+      date = startDay
     }
 
     return {

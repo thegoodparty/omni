@@ -1,6 +1,6 @@
 ---
 title: Census tract names are stored once, and filled after the civic panel summary read
-status: active
+status: superseded
 decided_by: [agent]
 date: 2026-10-23
 code: ['#3183']
@@ -12,7 +12,7 @@ scope:
   - packages/gp-api/prisma/schema/censusTractName.prisma
 supersedes:
   - 2026-10-22-census-tract-names-stored-once.md
-superseded_by:
+superseded_by: 2026-10-23-census-tract-names-filled-on-managed-approval.md
 ---
 
 # Census tract names are stored once, and filled after the civic panel summary read
