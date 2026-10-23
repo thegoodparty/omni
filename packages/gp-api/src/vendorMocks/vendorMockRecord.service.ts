@@ -11,6 +11,7 @@ import {
 
 const MAX_REQUESTS = 10
 const ROUTE_FAIL_KIND = 'route_fail'
+const PHONE_LIST_FAIL_KIND = 'phone_list_fail'
 const VERCEL_ORDER_KIND = 'domain_order'
 const VERCEL_ORDER_FAIL_KIND = 'order_fail'
 export const VERCEL_ORDER_COMPLETION_DELAY_SECONDS = 30
@@ -362,6 +363,33 @@ export class VendorMockRecordService extends createPrismaBase(
       where: { vendor_kind_externalId: { vendor, kind, externalId } },
       data: { state: nextState },
     })
+  }
+
+  // One row per campaign, so a seeded failure only reaches that campaign's
+  // next Peerly phone-list upload.
+  async armPhoneListFail(campaignId: number) {
+    return this.upsert(
+      VendorMockVendor.peerly,
+      PHONE_LIST_FAIL_KIND,
+      String(campaignId),
+      { phoneListFail: true },
+      campaignId,
+    )
+  }
+
+  // Conditional update so two concurrent uploads can't both consume it.
+  async consumePhoneListFail(campaignId: number) {
+    this.assertNonProdDeploy()
+    const { count } = await this.model.updateMany({
+      where: {
+        vendor: VendorMockVendor.peerly,
+        kind: PHONE_LIST_FAIL_KIND,
+        externalId: String(campaignId),
+        state: { path: ['phoneListFail'], equals: true },
+      },
+      data: { state: { phoneListFail: false } },
+    })
+    return count > 0
   }
 
   // Sets balance to 0 for the Peerly mock by creating a sentinel record.

@@ -22,6 +22,7 @@ export const MockActionSchema = z.object({
     'peerly.cv.approve',
     'peerly.cv.reject',
     'peerly.cv.setPin',
+    'peerly.phonelist.fail',
     'peerly.usecase.activate',
     'vercel.order.fail',
   ]),
