@@ -1,6 +1,8 @@
 import { HttpStatus } from '@nestjs/common'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
+import { OutreachType } from '@/generated/prisma'
+import { VendorMockRecordService } from '../vendorMockRecord.service'
 
 const { mockMode } = vi.hoisted(() => ({ mockMode: { value: 'mock' } }))
 vi.mock('@/shared/util/appEnvironment.util', async (importOriginal) => {
@@ -234,6 +236,86 @@ describe('vb_campaign lifecycle', () => {
       where: { kind: 'vb_campaign', externalId: pk },
     })
     expect(record.state).toMatchObject({ phonebooks: ['pb-abc'] })
+  })
+})
+
+describe('callhub.campaign.fail', () => {
+  beforeEach(() => {
+    mockMode.value = 'mock'
+  })
+
+  const seedRobocall = async () => {
+    const slug = `mock-org-${Math.random().toString(36).slice(2)}`
+    await service.prisma.organization.create({
+      data: { slug, ownerId: service.user.id },
+    })
+    const campaign = await service.prisma.campaign.create({
+      data: { userId: service.user.id, slug, organizationSlug: slug },
+    })
+    const outreach = await service.prisma.outreach.create({
+      data: {
+        outreachType: OutreachType.robocall,
+        campaignId: campaign.id,
+        date: new Date(),
+      },
+    })
+    return { campaign, name: `Robocall ${slug} #${outreach.id}` }
+  }
+
+  it("fails the armed campaign's next create once with CallHub's error shape, then succeeds", async () => {
+    const { campaign, name } = await seedRobocall()
+    await service.app
+      .get(VendorMockRecordService)
+      .armCallhubCreateFail(campaign.id)
+
+    const failRes = await service.client.post(
+      `${BASE}/v1/vb_campaign`,
+      { name },
+      AUTH,
+    )
+    expect(failRes.status).toBe(HttpStatus.SERVICE_UNAVAILABLE)
+    expect(failRes.data.detail).toEqual(expect.any(String))
+    expect(
+      await service.prisma.vendorMockRecord.count({
+        where: { kind: 'vb_campaign' },
+      }),
+    ).toBe(0)
+
+    const okRes = await service.client.post(
+      `${BASE}/v1/vb_campaign`,
+      { name },
+      AUTH,
+    )
+    expect(okRes.status).toBe(HttpStatus.CREATED)
+    expect(okRes.data.pk_str).toBeTruthy()
+  })
+
+  it("never fails a create that isn't the armed campaign's", async () => {
+    const armed = await seedRobocall()
+    const other = await seedRobocall()
+    await service.app
+      .get(VendorMockRecordService)
+      .armCallhubCreateFail(armed.campaign.id)
+
+    const otherRes = await service.client.post(
+      `${BASE}/v1/vb_campaign`,
+      { name: other.name },
+      AUTH,
+    )
+    const unrelatedRes = await service.client.post(
+      `${BASE}/v1/vb_campaign`,
+      { name: 'my-campaign' },
+      AUTH,
+    )
+    const armedRes = await service.client.post(
+      `${BASE}/v1/vb_campaign`,
+      { name: armed.name },
+      AUTH,
+    )
+
+    expect(otherRes.status).toBe(HttpStatus.CREATED)
+    expect(unrelatedRes.status).toBe(HttpStatus.CREATED)
+    expect(armedRes.status).toBe(HttpStatus.SERVICE_UNAVAILABLE)
   })
 })
 

@@ -669,6 +669,8 @@ export class TestFixturesService {
       await this.vendorMockRecord.armRouteFail(campaignId)
     } else if (action === 'callhub.campaign.complete') {
       await this.vendorMockRecord.completeCallhubCampaign(campaignId)
+    } else if (action === 'callhub.campaign.fail') {
+      await this.vendorMockRecord.armCallhubCreateFail(campaignId)
     } else if (action === 'peerly.balance.empty') {
       await this.vendorMockRecord.emptyPeerlyBalance(campaignId)
     } else if (action === 'peerly.cv.approve') {

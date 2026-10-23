@@ -9,6 +9,7 @@ import {
 import { setupProCampaignUser } from 'src/helpers/organizations'
 import {
   callhubAction,
+  mockAction,
   mockRecords,
   runJob,
   timeTravel,
@@ -160,6 +161,28 @@ const expectPhonebookCount = async (
   expect([1, audienceSize]).toContain(state?.count)
 }
 
+// Staging only claims runs due within [now - 30 min, now + 6 h], and the flow
+// schedules a day out, so bring the send to now - 1 min first.
+const makeRobocallDue = async (
+  client: AxiosInstance,
+  outreachId: number,
+): Promise<void> => {
+  await withGatewayRetry('robocall.send_due_now', () =>
+    timeTravel(client, outreachId, 'robocall.send_due_now'),
+  )
+}
+
+const getRobocallSettleState = async (
+  client: AxiosInstance,
+  outreachId: number,
+): Promise<{ status: string; settleState?: string }> => {
+  const { data } = await client.get<{
+    status: string
+    robocall?: { settleState?: string }
+  }>(`/v1/outreach/${outreachId}`)
+  return { status: data.status, settleState: data.robocall?.settleState }
+}
+
 // Time-travels the send to now, runs the staging sweep, and asserts the
 // CallHub broadcast was created PAUSED. Stops short of dialing, which is the
 // window in which a candidate can still cancel.
@@ -168,12 +191,7 @@ const stageRobocall = async (
   campaignId: number,
   outreachId: number,
 ): Promise<void> => {
-  // Staging only claims runs due within [now - 30 min, now + 6 h], and the
-  // flow schedules a week out, so bring the send to now - 1 min first.
-  await withGatewayRetry('robocall.send_due_now', () =>
-    timeTravel(client, outreachId, 'robocall.send_due_now'),
-  )
-
+  await makeRobocallDue(client, outreachId)
   await withGatewayRetry('robocall.staging', () =>
     runJob(client, 'robocall.staging'),
   )
@@ -542,5 +560,66 @@ test.describe('Robocall send — M2 mock pipeline', () => {
     await expect(
       page.getByRole('button', { name: 'Cancel campaign' }),
     ).toHaveCount(0)
+  })
+  test('failure: CallHub broadcast create fails, staging reverts to authorized and recovers on the next sweep', async ({
+    page,
+  }) => {
+    test.setTimeout(6 * 60 * 1000)
+
+    const { client, campaignId } = await setupRobocallCampaign(page)
+    const { outreachId } = await composeAndAuthorizeRobocall(page, client)
+
+    // ── Arm one CallHub create failure, then run the first sweep ─────────────
+    await withGatewayRetry('callhub.campaign.fail', () =>
+      mockAction(client, campaignId, 'callhub.campaign.fail'),
+    )
+    await makeRobocallDue(client, outreachId)
+    await withGatewayRetry('robocall.staging', () =>
+      runJob(client, 'robocall.staging'),
+    )
+
+    // ── Staging reverted: still authorized, no CallHub broadcast ─────────────
+    // The sweep catches the vendor error per record, so the job itself still
+    // succeeds and the draft goes back to `authorized` with no pk_str.
+    await eventually(
+      {
+        that: 'robocall.settleState reverted to authorized',
+        minTimeout: 500,
+        maxTimeout: 15_000,
+        retries: 15,
+      },
+      async () => {
+        expect(await getRobocallSettleState(client, outreachId)).toEqual({
+          status: 'pending',
+          settleState: 'authorized',
+        })
+      },
+    )
+    const { records: afterFail } = await mockRecords(client, campaignId)
+    expect(
+      afterFail.filter(
+        (r) => r.vendor === 'callhub' && r.kind === 'vb_campaign',
+      ),
+    ).toHaveLength(0)
+
+    // ── The candidate sees nothing wrong ─────────────────────────────────────
+    await page.goto('/dashboard/outreach', { waitUntil: 'domcontentloaded' })
+    await NavigationHelper.dismissOverlays(page)
+    const row = page.locator(`#outreach-row-${outreachId}`)
+    await expect(row).toBeVisible({ timeout: 30_000 })
+    await expect(row).toContainText('Scheduled')
+    await expect(row).not.toContainText(/fail|error|unavailable/i)
+
+    // ── Next sweep: the failure was one-shot, so staging recovers ────────────
+    await withGatewayRetry('robocall.staging', () =>
+      runJob(client, 'robocall.staging'),
+    )
+    await expectVbCampaignStatus(client, campaignId, VB_STATUS.PAUSE)
+    // A staged run is `authorized` with its CallHub handle committed; the
+    // broadcast existing (PAUSED, found via that handle) is the staged proof.
+    expect(await getRobocallSettleState(client, outreachId)).toEqual({
+      status: 'pending',
+      settleState: 'authorized',
+    })
   })
 })
