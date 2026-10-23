@@ -23,7 +23,6 @@ export const MANAGED_PANEL_COPY = {
   seatsLabel: (filled: number) =>
     `${filled} of 100 seats filled, one for every group in your district`,
   offerQuestion: 'Want to see the invite?',
-  whoGetsTexted: 'Who gets texted?',
   notNow: 'Not now',
   inviteCardTitle: 'Your civic panel invite',
   inviteCardSubtitle: (place: string | null) => `Text to ${residentsOf(place)}`,
