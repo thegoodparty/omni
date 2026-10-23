@@ -786,7 +786,7 @@ describe('ChiefOfStaffHandler', () => {
       expect(offer.execute()).toMatchObject({ error: expect.any(String) })
     })
 
-    it('knows each state once the office approves, and offers the join link when invites run out', async () => {
+    it('knows each state once the office approves, and offers no link when invites run out', async () => {
       const { handler } = buildManagedHandler({ panel: enrollment })
       const ctx = await handler.loadContext('c1', USER_ID)
       const prompt = handler.buildSystemPrompt(ctx)
@@ -797,8 +797,13 @@ describe('ChiefOfStaffHandler', () => {
       expect(prompt).toContain(
         `On "${MANAGED_CIVIC_PANEL_EXHAUSTED_MESSAGE}", call \`read_managed_panel\``,
       )
-      expect(prompt).toContain('anyone who got the invite can still reply JOIN')
-      expect(Object.keys(handler.buildTools(ctx))).toContain(
+      const exhausted = prompt
+        .split('\n')
+        .find((line) => line.startsWith('  - exhausted: '))
+      expect(exhausted).toContain('every resident we can text has been invited')
+      expect(exhausted).not.toMatch(/link|page/i)
+      expect(prompt).not.toMatch(/join (link|page)/i)
+      expect(Object.keys(handler.buildTools(ctx))).not.toContain(
         'present_managed_panel_join_link',
       )
     })

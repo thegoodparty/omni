@@ -42,7 +42,6 @@ import {
   isManagedPanelSetUp,
   OFFER_MANAGED_PANEL_INVITE_TOOL,
   PRESENT_MANAGED_PANEL_INVITE_TOOL,
-  PRESENT_MANAGED_PANEL_JOIN_LINK_TOOL,
   PRESENT_MANAGED_PANEL_TOOL,
   READ_MANAGED_PANEL_TOOL,
 } from './managedCivicPanel.tools'
@@ -453,17 +452,17 @@ const managedCivicPanelBlock = (
     '  - building: how many residents have joined of the goal, and the day the next invites go out when there is one.',
     '  - paused: no new invites go out until they press Resume on their civic panel page; everyone who joined stays on it.',
     '  - ready: it reached its goal, with how many residents joined. Offer to ask the panel about one of their priorities.',
-    `  - exhausted: we have texted every resident we can reach, and it is short of its goal. Say how many joined of the goal, then call \`${PRESENT_MANAGED_PANEL_JOIN_LINK_TOOL}\` and say in one line that anyone in their district can join from the link, and anyone who got the invite can still reply JOIN, including a neighbor they forward it to.`,
-    `- When they ask for a way to share the panel or a join link, call \`${PRESENT_MANAGED_PANEL_JOIN_LINK_TOOL}\`. It works in every status but stopped.`,
+    '  - exhausted: every resident we can text has been invited, and it is short of its goal. Say so plainly, with how many residents joined of the goal.',
+    '- Residents join only by replying JOIN to the invite text. Never offer another way to join, or anything to share.',
     '- Pausing, resuming and stopping are on their civic panel page. A stopped panel sends nothing more, and they can set it up again from their home.',
     appTurn(
       MANAGED_CIVIC_PANEL_EXHAUSTED_MESSAGE,
-      'they press Get your join link on their home',
+      'they press See where it stands on the card that says every resident we can text has an invite',
     ),
     `- On "${MANAGED_CIVIC_PANEL_EXHAUSTED_MESSAGE}", call \`${READ_MANAGED_PANEL_TOOL}\` and answer as the exhausted status above says, in plain words.`,
   ]
   return [
-    `MANAGED CIVIC PANEL (apply when the user's message is exactly "${START_MANAGED_CIVIC_PANEL_MESSAGE}", "${MANAGED_CIVIC_PANEL_SET_UP_MESSAGE}", "${MANAGED_CIVIC_PANEL_BACKED_OUT_MESSAGE}" or "${MANAGED_CIVIC_PANEL_EXHAUSTED_MESSAGE}", they pick "${SHOW_MANAGED_CIVIC_PANEL_INVITE}", or they ask about building, setting up, sharing, pausing or stopping their civic panel, or where it stands):`,
+    `MANAGED CIVIC PANEL (apply when the user's message is exactly "${START_MANAGED_CIVIC_PANEL_MESSAGE}", "${MANAGED_CIVIC_PANEL_SET_UP_MESSAGE}", "${MANAGED_CIVIC_PANEL_BACKED_OUT_MESSAGE}" or "${MANAGED_CIVIC_PANEL_EXHAUSTED_MESSAGE}", they pick "${SHOW_MANAGED_CIVIC_PANEL_INVITE}", or they ask about building, setting up, pausing or stopping their civic panel, or where it stands):`,
     '- GoodParty builds their civic panel for them: they approve one invite, in their name, and we text it to residents, and handle every reply. Never offer to plan texts, calls or door knocking for it, never ask how much time they have, and never propose an invite text or a list of your own.',
     ...(setUp ? after : before),
     '- Plain, warm, short sentences. No em dashes, no exclamation points. Residents or constituents, never voters. Never use the word "just".',
@@ -571,8 +570,6 @@ const TOOL_DESCRIPTIONS: Record<string, string> = {
   [READ_MANAGED_PANEL_TOOL]:
     'read where their civic panel stands and when its invites go out',
   [PRESENT_MANAGED_PANEL_TOOL]: 'show their civic panel as a card',
-  [PRESENT_MANAGED_PANEL_JOIN_LINK_TOOL]:
-    'show their civic panel join link as a card to share',
   present_constituents:
     'show people from the user’s own contact records as a card',
   present_outside_contact:

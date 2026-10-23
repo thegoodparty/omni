@@ -91,22 +91,6 @@ describe('the managed civic panel tools', () => {
     ).toMatchObject({ status: 'exhausted' })
   })
 
-  it('shows the join link while the panel takes members', async () => {
-    expect(
-      await toolsFor(panel({ status: 'exhausted' }), true).run(
-        'present_managed_panel_join_link',
-      ),
-    ).toEqual({ shown: true })
-    expect(
-      await toolsFor(panel({ status: 'stopped' }), false).run(
-        'present_managed_panel_join_link',
-      ),
-    ).toMatchObject({ error: expect.any(String) })
-    expect(
-      await toolsFor(null, false).run('present_managed_panel_join_link'),
-    ).toMatchObject({ error: expect.any(String) })
-  })
-
   it('shows the panel card only once there is a panel', async () => {
     expect(await toolsFor(panel(), true).run('present_managed_panel')).toEqual({
       shown: true,

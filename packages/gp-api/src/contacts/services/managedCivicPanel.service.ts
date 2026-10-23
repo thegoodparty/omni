@@ -196,7 +196,6 @@ export class ManagedCivicPanelService extends createPrismaBase(
       readyAt: row.readyAt,
       pausedAt: row.pausedAt,
       stoppedAt: row.stoppedAt,
-      shareCode: row.shareCode,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
       progress: {

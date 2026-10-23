@@ -10,14 +10,11 @@ import { PeopleQueryModule } from '@/peopleDb/peopleQuery.module'
 import { ContactInteractionsController } from './contactInteractions.controller'
 import { ContactNotesController } from './contactNotes.controller'
 import { ContactsController } from './contacts.controller'
-import { CivicPanelJoinController } from './civicPanelJoin.controller'
-import { CivicPanelJoinRateLimitGuard } from './guards/civicPanelJoinRateLimit.guard'
 import { CensusCompositionModule } from '@/priorities/censusComposition.module'
 import { ContactsService } from './services/contacts.service'
 import { IndependentAffinityColumnService } from './services/independentAffinityColumn.service'
 import { CivicPanelSummaryService } from './services/civicPanelSummary.service'
 import { CivicPanelBuildPlanService } from './services/civicPanelBuildPlan.service'
-import { CivicPanelJoinService } from './services/civicPanelJoin.service'
 import { ManagedCivicPanelService } from './services/managedCivicPanel.service'
 import { ManagedPanelWaveDrawService } from './services/managedPanelWaveDraw.service'
 import { CensusTractNameService } from './services/censusTractName.service'
@@ -42,14 +39,11 @@ import { GeoapifyModule } from '@/vendors/geoapify/geoapify.module'
     ContactsController,
     ContactNotesController,
     ContactInteractionsController,
-    CivicPanelJoinController,
   ],
   providers: [
     ContactsService,
     CivicPanelSummaryService,
     CivicPanelBuildPlanService,
-    CivicPanelJoinService,
-    CivicPanelJoinRateLimitGuard,
     ManagedCivicPanelService,
     ManagedPanelWaveDrawService,
     CensusTractNameService,
@@ -58,7 +52,6 @@ import { GeoapifyModule } from '@/vendors/geoapify/geoapify.module'
   exports: [
     ContactsService,
     CivicPanelBuildPlanService,
-    CivicPanelJoinService,
     ManagedCivicPanelService,
     ManagedPanelWaveDrawService,
     IndependentAffinityColumnService,
