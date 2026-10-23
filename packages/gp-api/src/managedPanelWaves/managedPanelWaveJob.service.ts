@@ -515,7 +515,7 @@ export const managedPanelReadyEmail = (
     '',
     'Ask them what they think before your next vote.',
     '',
-    `See your panel: ${APP_ROOT}${CIVIC_PANEL_PAGE_HREF}`,
+    `See your civic panel: ${APP_ROOT}${CIVIC_PANEL_PAGE_HREF}`,
     '',
     'GoodParty.org',
   ].join('\n')

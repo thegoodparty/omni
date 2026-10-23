@@ -553,7 +553,7 @@ export {
   OrganizationWithStatusSchema,
   type OrganizationWithStatus,
 } from './campaigns/Organization.schema'
-export { cityFromDistrictName } from './campaigns/DistrictCity'
+export { cityFromDistrictName, cityNameCase } from './campaigns/DistrictCity'
 
 export {
   ElectedOfficeSchema,
