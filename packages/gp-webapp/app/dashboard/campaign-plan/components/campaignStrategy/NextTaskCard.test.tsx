@@ -87,7 +87,7 @@ describe('NextTaskCard texting cutoff', () => {
     expect(screen.queryByRole('link', { name: 'Send a text' })).toBeNull()
     const button = screen.getByRole('button', { name: 'Send a text' })
     expect(button).toBeDisabled()
-    expect(screen.getByRole('button', { name: /mark done/i })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Skip' })).toBeEnabled()
 
     await userEvent.hover(button.parentElement as HTMLElement)
     expect(
@@ -108,5 +108,30 @@ describe('NextTaskCard texting cutoff', () => {
     expect(
       screen.getByRole('link', { name: 'Set up a robocall' }),
     ).toHaveAttribute('href', expect.stringContaining('compose=robocall'))
+  })
+})
+
+describe('NextTaskCard outreach Mark done', () => {
+  it('moves an outreach task’s Mark done under Skip', async () => {
+    mockTasks.current = [sendTask('text')]
+    render(<NextTaskCard surface="plan" heading="Your next step" />)
+
+    expect(screen.queryByRole('button', { name: /mark done/i })).toBeNull()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Skip' }))
+    expect(
+      await screen.findByRole('menuitem', { name: 'Mark done' }),
+    ).toBeInTheDocument()
+  })
+
+  it('keeps Mark done beside the button of a task with its own link', () => {
+    mockTasks.current = [
+      { ...sendTask('text'), flowType: null, link: 'https://example.com' },
+    ]
+    render(<NextTaskCard surface="plan" heading="Your next step" />)
+
+    expect(
+      screen.getByRole('button', { name: /mark done/i }),
+    ).toBeInTheDocument()
   })
 })
