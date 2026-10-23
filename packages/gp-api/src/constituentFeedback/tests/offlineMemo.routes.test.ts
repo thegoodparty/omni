@@ -74,8 +74,8 @@ const assign = (slug: string, outreachId: number, assigneeUserId: number) =>
     data: { organizationSlug: slug, outreachId, assigneeUserId },
   })
 
-// Distinct cron slots far from the wall clock, so the scheduler's own
-// per-minute firing never holds the claim a test pass needs.
+// Distinct cron slots far from the wall clock, so no claim keyed on the
+// current minute can hold the one a test pass needs.
 const FIRST_SLOT = new Date('2026-01-01T00:00:00.000Z')
 const NEXT_SLOT = new Date('2026-01-01T00:01:00.000Z')
 const THIRD_SLOT = new Date('2026-01-01T00:02:00.000Z')
