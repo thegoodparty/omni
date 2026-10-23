@@ -16,7 +16,6 @@ const physical = {
     securityGroup: 'sg-0b834a3f7b64950d0',
     minCapacity: 0.5,
     backupRetentionPeriod: 7,
-    finalSnapshot: 'election-api-db-develop-final-snapshot',
     eventsRule: 'rdsEventsRule-5cba80c',
     eventsTarget: 'rdsEventsTarget-b3a95d7',
   },
@@ -27,7 +26,6 @@ const physical = {
     securityGroup: 'sg-03783e4adbbee87dc',
     minCapacity: 1,
     backupRetentionPeriod: 14,
-    finalSnapshot: 'election-api-db-master-final-snapshot',
     eventsRule: 'rdsEventsRule-4235df3',
     eventsTarget: 'rdsEventsTarget-8ef39c3',
   },
@@ -44,7 +42,7 @@ export const createElectionDb = (environment: 'dev' | 'prod') => {
       clusterIdentifier: p.cluster,
       engine: aws.rds.EngineType.AuroraPostgresql,
       engineMode: aws.rds.EngineMode.Provisioned,
-      engineVersion: '16.8',
+      engineVersion: '16.11',
       databaseName: 'gpdb',
       masterUsername: 'gpuser',
       dbSubnetGroupName: p.subnetGroup,
@@ -56,11 +54,20 @@ export const createElectionDb = (environment: 'dev' | 'prod') => {
       },
       backupRetentionPeriod: p.backupRetentionPeriod,
       deletionProtection: true,
-      skipFinalSnapshot: false,
-      finalSnapshotIdentifier: p.finalSnapshot,
       tags,
     },
-    { import: p.cluster, protect: true },
+    {
+      import: p.cluster,
+      protect: true,
+      // AWS applies minor engine upgrades on its own; Pulumi must not try to
+      // roll them back. The write-forwarding flags are provider defaults the
+      // cluster has never set.
+      ignoreChanges: [
+        'engineVersion',
+        'enableGlobalWriteForwarding',
+        'enableLocalWriteForwarding',
+      ],
+    },
   )
 
   const instance = new aws.rds.ClusterInstance(
@@ -73,7 +80,11 @@ export const createElectionDb = (environment: 'dev' | 'prod') => {
       engineVersion: cluster.engineVersion,
       tags,
     },
-    { import: p.instance, protect: true },
+    {
+      import: p.instance,
+      protect: true,
+      ignoreChanges: ['engineVersion', 'forceDestroy'],
+    },
   )
 
   // RDS keeps its event history for 14 days. Copying the cluster's events to
