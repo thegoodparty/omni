@@ -29,6 +29,7 @@ scoping every row to the caller (see below).
 | `POST /v1/test-fixtures/vendor-mocks/jobs/:name/run`             | session + isTestUser         | Test-user run-job: triggers a sweep by name; `robocall.send` and the 10DLC jobs act on the caller's campaign only              |
 | `POST /v1/test-fixtures/vendor-mocks/time-travel`                | session + ownership          | Shift outreach timing for E2E: `robocall.send_due_now`, `robocall.dialed_48h_ago`, `sms.start_date_today`                      |
 | `POST /v1/test-fixtures/vendor-mocks/outreach/:id/admin-actions` | session + outreach ownership | `cas.approve` or `results.upload` on an outreach the caller owns (Win campaign or Serve org); any account, not only test users |
+| `POST /v1/test-fixtures/polls/results`                           | session + isTestUser, own EO | Seed a completed poll: one issue, one person's sent and replied messages (see below)                                           |
 | `POST /v1/test-fixtures/jobs/:name/run`                          | `AdminOrM2MGuard`            | Run a named background job on demand (robocall.staging/send/completion/capture/callhubCleanup)                                 |
 | `POST /v1/test-fixtures/judge-chat-cases`                        | session                      | Stage one Universal Judge chat case for the caller (see below)                                                                 |
 | `DELETE /v1/test-fixtures/judge-chat-cases/:slug`                | session                      | Remove one, and only one the caller owns under a `judge-` slug                                                                 |
@@ -68,6 +69,18 @@ and the activation check. It ends by asserting stage `tcr_approved` and a
   by this fixture, which returns the existing result.
 - Only the campaign's own activation check runs (`tcr.complianceSweep`'s body),
   not the global `tcr.usecaseSweep`.
+
+## Seeded poll results
+
+`PollResultsSeedService` (`services/pollResultsSeed.service.ts`, its own
+`PollResultsSeedModule` and `TestFixturesPollResultsController`) writes, in
+one transaction, the rows the `pollAnalysisComplete` consumer leaves for one
+respondent: a completed `Poll`, one `PollIssue`, and the office's outbound
+`PollIndividualMessage` plus the person's reply linked to that issue. The
+office comes from `x-organization-slug` through `UseElectedOffice`, so a
+caller can only seed its own. It exists so the Constituents overlay's Top
+Issues and poll activity run on PR previews, which never run the analysis
+pipeline (`e2e-tests/tests/app/polls/poll-respondent-overlay.spec.ts`).
 
 ## Shared state transitions
 

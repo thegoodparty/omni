@@ -1774,6 +1774,13 @@ export {
 } from './testFixtures/vendorMocks'
 
 export {
+  SeedPollResultsRequestSchema,
+  type SeedPollResultsRequest,
+  SeedPollResultsResponseSchema,
+  type SeedPollResultsResponse,
+} from './testFixtures/pollResults'
+
+export {
   DEV_ENV_PACKAGE_VALUES,
   DevEnvPackageSchema,
   type DevEnvPackage,
