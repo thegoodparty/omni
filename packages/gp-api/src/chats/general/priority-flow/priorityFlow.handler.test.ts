@@ -88,7 +88,9 @@ describe('PriorityFlowHandler', () => {
       load: vi.fn(() => Promise.resolve(baseCtx())),
       assertPriorityOwnership: vi.fn(() => Promise.resolve()),
     } as unknown as PriorityFlowContextService
-    outreach = {} as unknown as PriorityFlowOutreachService
+    outreach = {
+      summarizeAnchors: vi.fn(() => Promise.resolve([])),
+    } as unknown as PriorityFlowOutreachService
     priorityStatus = {
       buildStatusTool: vi.fn(() => ({
         update_priority_status: {
@@ -386,6 +388,68 @@ describe('PriorityFlowHandler', () => {
     expect(tool && 'description' in tool && tool.description).toContain(
       'FROM serve_agent_constituents',
     )
+  })
+
+  it("prints a side's set-up day in the office's zone, not the raw instant", () => {
+    const status = emptyPriorityStatus()
+    // 11:11 pm Pacific on Oct 21 is already Oct 22 in UTC.
+    const prompt = build().buildSystemPrompt({
+      ...baseCtx(),
+      state: 'CA',
+      status: {
+        ...status,
+        steps: status.steps.map((step) =>
+          step.id === 'define'
+            ? {
+                ...step,
+                check: {
+                  state: 'out' as const,
+                  who: 'Renters',
+                  question: 'Is it the drains?',
+                  raised: 0,
+                  sentAt: '2026-10-22T06:11:00.000Z',
+                },
+              }
+            : step,
+        ),
+      },
+    })
+    expect(prompt).toContain('Set up on 2026-10-21.')
+    expect(prompt).not.toContain('2026-10-22T06:11')
+  })
+
+  it("loads today and the thread's send days in the resolved office's zone", async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    // 1:00 am Eastern on Oct 22 is still Oct 21 in Wyoming.
+    vi.setSystemTime(new Date('2026-10-22T05:00:00.000Z'))
+    try {
+      const summarizeAnchors = vi.fn(() =>
+        Promise.resolve([
+          {
+            kind: 'outreach_proposal' as const,
+            ref: 'outreach:3834',
+            line: 'Riverside renters, 5000 recipients, scheduled for 2026-10-27, not sent yet, 0 replies',
+          },
+        ]),
+      )
+      outreach.summarizeAnchors = summarizeAnchors
+      const handler = build({
+        resolveByOrgSlug: vi.fn(() =>
+          Promise.resolve({ l2DistrictName: 'Ward 1', state: 'WY' }),
+        ),
+        toMandatoryFilters: vi.fn(() => []),
+      })
+      const ctx = await handler.loadContext('c1', USER_ID)
+      const prompt = handler.buildSystemPrompt(ctx)
+
+      expect(summarizeAnchors).toHaveBeenCalledWith('pri-1', 'US/Mountain')
+      expect(prompt).toContain(
+        'Today is Wednesday, October 21, 2026 (Mountain Time).',
+      )
+      expect(prompt).toContain('scheduled for 2026-10-27, not sent yet')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it("tells the assistant what day it is, in the office state's zone", () => {
@@ -1014,13 +1078,16 @@ describe('PriorityFlowHandler', () => {
       },
     })
     expect(prompt).toContain(
-      'Check: out. Who: Renters. Question: Is it the drains? Sent: 2026-09-30T12:00:00Z.',
+      'Check: out. Who: Renters. Question: Is it the drains? Set up on 2026-09-30.',
     )
     expect(prompt).toContain(
       'a side sent from its card is recorded as out on its own',
     )
     expect(prompt).toContain('Never present it again')
-    expect(prompt).toContain('say in one line that it is out, once')
+    expect(prompt).toContain('already sent or scheduled to send')
+    expect(prompt).toContain('not when anyone got it')
+    expect(prompt).not.toContain('Sent:')
+    expect(prompt).toContain('say in one line that it is set up, once')
     expect(prompt).toContain(`starts with ${PROPOSAL_SENT_MARKER}`)
     expect(prompt).toContain('stepId (the step the check is on) and side main')
     expect(prompt).toContain('with the same stepId and side contrast')

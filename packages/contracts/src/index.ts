@@ -1122,6 +1122,7 @@ export {
   MAJOR_GROUP_SHARE,
   answersNeeded,
 } from './outreach/AnswersNeeded.const'
+export { outreachHasGoneOut } from './outreach/OutreachGoneOut'
 export {
   OUTREACH_PURPOSE_VALUES,
   OutreachPurposeSchema,
