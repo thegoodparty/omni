@@ -32,7 +32,7 @@ export const SERVE_CITIZENS_PANEL_COPY = {
   reachedRecently: 'Reached in the last 30 days',
   reachedRecentlyDetail: 'Texted, called or visited by your office.',
   askableNow: 'Ready to ask',
-  askableNowDetail: 'Not texted in the last 30 days',
+  askableNowDetail: 'Not contacted in the last 30 days',
   seePanel: 'See your civic panel',
   empty: 'Nobody has joined your civic panel yet.',
   loadError:
@@ -146,8 +146,12 @@ export const SERVE_CITIZENS_PANEL_COPY = {
     },
     ready: {
       title: 'Your civic panel is ready',
+      // A managed panel stays ready as members leave, so it only claims
+      // every seat while they still fill the goal.
       line: (members: number, goal: number) =>
-        `All ${count(Math.max(members, goal))} seats are filled. Ask them before your next vote.`,
+        members >= goal
+          ? `All ${count(goal)} seats are filled. Ask them before your next vote.`
+          : `${count(members)} ${members === 1 ? 'resident is' : 'residents are'} on your civic panel. Ask them before your next vote.`,
     },
     exhausted: {
       title: 'Every resident we can text has an invite',

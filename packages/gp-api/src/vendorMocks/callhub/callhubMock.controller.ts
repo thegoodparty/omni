@@ -201,11 +201,18 @@ export class CallhubMockController {
     this.assertAuth(auth)
     const externalId = randomUUID()
     const name = body['name'] ?? 'mock-campaign'
+    // Keep the phonebook ids so the records route can surface the audience
+    // a campaign was staged against (the campaign body carries no org link).
+    const phonebooks: unknown = body['phonebooks']
     await this.vendorMockRecord.upsert(
       VendorMockVendor.callhub,
       'vb_campaign',
       externalId,
-      { status: 2, name },
+      {
+        status: 2,
+        name,
+        phonebooks: Array.isArray(phonebooks) ? phonebooks.map(String) : [],
+      },
     )
     return { pk_str: externalId, name }
   }

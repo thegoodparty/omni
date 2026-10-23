@@ -82,9 +82,8 @@ import {
 import { replayStatusMarkers, segmentKey } from '../data/statusReplay'
 import {
   STATUS_TOOL,
-  applyStatusUpdate,
   parseStatusToolResult,
-  parseStatusUpdate,
+  statusChanges,
   type StepChange,
 } from '../data/statusUpdates'
 import { priorityToolLabel } from '../data/toolLabels'
@@ -230,9 +229,9 @@ const PriorityWorkspaceBody = ({
     parsePriorityStatus(initialStatus),
   )
   const [nextAction, setNextAction] = useState<string | null>(initialNextAction)
-  // The live status, readable synchronously. Two status tool calls can land in
-  // one tick, and the second has to merge onto the first rather than onto the
-  // last rendered value.
+  // The live status, readable synchronously. Two status tool results can land
+  // in one tick, and the second's marker has to be measured from the first
+  // rather than from the last rendered value.
   const statusRef = useRef<PriorityStatus>(status)
   const commitStatus = useCallback(
     (next: PriorityStatus, action: string | null): void => {
@@ -259,10 +258,10 @@ const PriorityWorkspaceBody = ({
     analyticsLabel: 'priority-chat',
   })
 
-  // The rail's source of truth once a turn is over. Applied optimistically
-  // from the tool call, corrected by the tool result, and finally reconciled
-  // against what the server actually stored — so an interrupted turn cannot
-  // leave the rail claiming a move that was never written.
+  // The rail's source of truth once a turn is over. Moved by each status
+  // tool result as it lands, then reconciled against what the server actually
+  // stored, which also catches anything written outside the turn (a send
+  // putting a check out).
   const reconcile = useCallback(async (): Promise<void> => {
     if (panelsOn) {
       void fetchPriorityReadStatus(priorityId).then((read) => {
@@ -317,29 +316,27 @@ const PriorityWorkspaceBody = ({
         setAfterFinding(FINDING_TOOLS.includes(event.toolName))
       }
       if (event.type === 'done') setStreamDone(true)
+      // The call is only what the agent asked for. The server can refuse it,
+      // so the rail and the marker wait for the result it stored.
       if (event.type === 'tool_call' && event.toolName === STATUS_TOOL) {
-        const update = parseStatusUpdate(event.args)
-        if (!update) return true
-        // The rail moves now, while the agent is still talking. That is most
-        // of the feel, and the tool result a beat later corrects any drift.
-        const applied = applyStatusUpdate(statusRef.current, update)
-        commitStatus(applied.status, applied.nextAction)
-        if (applied.changes.length > 0) {
+        return true
+      }
+      if (event.type === 'tool_result' && event.toolName === STATUS_TOOL) {
+        const settled = parseStatusToolResult(event.result)
+        if (!settled) return true
+        const changes = statusChanges(statusRef.current, settled.status)
+        commitStatus(settled.status, settled.nextAction)
+        if (changes.length > 0) {
           const at = textLength()
           setLiveWidgets((prev) => [
             ...prev,
             {
               key: `status-${event.toolCallId ?? prev.length}`,
-              instance: statusMarker(applied.changes),
+              instance: statusMarker(changes),
               appearAfter: at,
             },
           ])
         }
-        return true
-      }
-      if (event.type === 'tool_result' && event.toolName === STATUS_TOOL) {
-        const settled = parseStatusToolResult(event.result)
-        if (settled) commitStatus(settled.status, settled.nextAction)
         return true
       }
       if (event.type === 'tool_call' && priorityWidgets.has(event.toolName)) {

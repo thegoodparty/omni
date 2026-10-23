@@ -379,7 +379,17 @@ describe('CivicPanelHero', () => {
     ).toBeTruthy()
   })
 
-  it('counts the members over the goal once it is ready', () => {
+  it('never claims seats a ready panel lost', () => {
+    render(<CivicPanelHero stage="ready" members={230} goal={GOAL} />)
+    expect(
+      screen.getByText(
+        '230 residents are on your civic panel. Ask them before your next vote.',
+      ),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/seats are filled/)).not.toBeInTheDocument()
+  })
+
+  it('says every seat is filled once it is ready at its goal', () => {
     const { container } = render(
       <CivicPanelHero stage="ready" members={260} goal={GOAL} />,
     )
@@ -388,7 +398,7 @@ describe('CivicPanelHero', () => {
     ).toBeInTheDocument()
     expect(
       screen.getByText(
-        'All 260 seats are filled. Ask them before your next vote.',
+        'All 240 seats are filled. Ask them before your next vote.',
       ),
     ).toBeInTheDocument()
     expect(filledSeats(container)).toBe(100)

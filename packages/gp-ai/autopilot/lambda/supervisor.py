@@ -8,10 +8,13 @@ of three things:
 
   - dispatch every currently-unblocked story (ClickUp dependency links first,
     then board order) up to `AUTOPILOT_MAX_CONCURRENT_STORIES` in flight at
-    once (default 2, read from the env at tick time — see
+    once (default 4, read from the env at tick time — see
     max_concurrent_stories) — a story sitting in "feedback needed" is a
     human's turn, not a candidate, and a story with any unmet dependency link
-    never launches regardless of how much cap headroom exists
+    never launches regardless of how much cap headroom exists. A dependency
+    is met once its story has MERGED (status qa or done), not only once it is
+    done: its code is on main from the merge on, so a dependent can branch
+    from it while the dependency's QA run is still going
   - do nothing further, because the cap is already saturated
   - close the epic out, because every story is done
 
@@ -24,7 +27,7 @@ their own claim at once. The claim's TTL always exceeds the story stage's
 own deadline (plus dispatch's grace window), so it can never expire out from
 under a story that is still legitimately running. In-flight count for the
 cap is board status (statuses in progress/qa/executing) UNION stories
-holding a live claim — never board status alone, since the window between a
+holding a live (unexpired) claim — never board status alone, since the window between a
 dispatch and the stage runner's own first ClickUp status write would
 otherwise look like nothing is running.
 
@@ -80,8 +83,11 @@ MAX_CONCURRENT_STORIES_ENV = "AUTOPILOT_MAX_CONCURRENT_STORIES"
 # the whole backlog at once, so a single dependency mistake or a bad story
 # doesn't burn the entire epic's Fargate budget in one wave. Read at tick
 # time (see max_concurrent_stories), not module load, so a live rollout can
-# change it without a redeploy.
-DEFAULT_MAX_CONCURRENT_STORIES = 2
+# change it without a redeploy. 4 rather than 2 because a dependency edge
+# now only costs a merge, not a merge plus the release train plus QA (see
+# select_unblocked_stories), so a dependent chain needs the headroom to
+# overlap its stories instead of running them one at a time.
+DEFAULT_MAX_CONCURRENT_STORIES = 4
 
 
 def _load_sibling_module(stem: str) -> Any:
@@ -304,23 +310,29 @@ def select_unblocked_stories(stories: list[Story], excluded_ids: frozenset[str],
     active per-story claim; see excluded_ids) — sorted most-unblocking-first
     and truncated to `limit` (the caller's remaining concurrency headroom).
     The dependency gate is unconditional: a story with any unmet dependency
-    link is never a candidate, whatever the cap allows."""
+    link is never a candidate, whatever the cap allows.
+
+    A dependency is satisfied once its story has merged: status qa (a story
+    only enters qa after its PR merged) or done. Its code is on main, so a
+    dependent can branch from it without waiting for the release train and
+    the QA run. A dependency parked in feedback needed (e.g. "Merge pending")
+    or still in progress has not merged and stays unmet."""
     if limit <= 0:
         return []
 
-    done_ids = {s.task_id for s in stories if s.is_done}
+    merged_ids = {s.task_id for s in stories if s.status in (router.STATUS_QA, router.STATUS_DONE)}
     candidates = [
         s
         for s in stories
-        if s.status == router.STATUS_APPROVED_TDD and s.depends_on <= done_ids and s.task_id not in excluded_ids
+        if s.status == router.STATUS_APPROVED_TDD and s.depends_on <= merged_ids and s.task_id not in excluded_ids
     ]
     if not candidates:
         return []
 
-    not_done = [s for s in stories if not s.is_done]
+    not_merged = [s for s in stories if s.task_id not in merged_ids]
     # "Dependency links first": prefer a candidate that unblocks the most
-    # other not-yet-done work, board order (orderindex) only as the tiebreak.
-    blocks_count = {c.task_id: sum(1 for s in not_done if c.task_id in s.depends_on) for c in candidates}
+    # other not-yet-merged work, board order (orderindex) only as the tiebreak.
+    blocks_count = {c.task_id: sum(1 for s in not_merged if c.task_id in s.depends_on) for c in candidates}
     ordered = sorted(candidates, key=lambda c: (-blocks_count[c.task_id], _order_key(c.order_index)))
     return ordered[:limit]
 
@@ -413,12 +425,24 @@ def get_story_claim_item(story_task_id: str) -> dict | None:
 
 
 def is_dispatch_claim(claim_item: dict | None) -> bool:
-    """True only for a claim written by claim_story_in_flight (an actual
+    """True only for a LIVE claim written by claim_story_in_flight (an actual
     dispatch) — false for one written only by try_claim_story_stall_alert
     (a story ClickUp shows in flight, e.g. a manual drag, with no dispatch
     claim of our own). Distinguishing the two is what lets a real dispatch
-    overwrite a stale alert-only claim below."""
-    return claim_item is not None and claim_item.get("dispatched", {}).get("BOOL") is True
+    overwrite a stale alert-only claim below.
+
+    An expired claim is absent: DynamoDB TTL reaps rows lazily (minutes, up
+    to ~48h), so the row can outlive expires_at. Same predicate as
+    claim_story_in_flight's condition (`#exp < :now`), so the read and write
+    sides agree; a missing or unparseable expires_at is not expired there
+    either (the comparison is false), so it counts as live here."""
+    if claim_item is None or claim_item.get("dispatched", {}).get("BOOL") is not True:
+        return False
+    try:
+        expires_at = float(claim_item["expires_at"]["N"])
+    except (KeyError, TypeError, ValueError):
+        return True
+    return not expires_at < time.time()
 
 
 def claim_story_in_flight(epic_task_id: str, story_task_id: str, ttl_seconds: float) -> str | None:
@@ -575,12 +599,12 @@ def max_concurrent_stories() -> int:
 # Per-status TTLs for stories. STATUS_FEEDBACK_NEEDED is deliberately
 # absent: waiting on a human is not a stall. STATUS_APPROVED_TDD (the story
 # queue) and STATUS_DONE are absent too: nothing is "in flight" there.
-# "in progress"'s 2h covers the whole dispatch-to-merge window — the story
+# "in progress"'s 3h covers the whole dispatch-to-merge window — the story
 # stage's first act on kickoff is moving the card there, so a dispatch that
 # never starts surfaces as a story sitting in the queue while its own claim
 # expires, not as a distinct status.
 STATUS_TTL_SECONDS: dict[str, int] = {
-    router.STATUS_IN_PROGRESS: 2 * 60 * 60,
+    router.STATUS_IN_PROGRESS: 3 * 60 * 60,
     router.STATUS_QA: 60 * 60,
     # Stories never reach executing in the pipeline (it is the feature card's
     # post-approval column), but a manual drag can put one there — and it
@@ -791,11 +815,24 @@ def release_epic_close_out_claim(epic_task_id: str) -> None:
 FLAG_KEY_LINE_PATTERN = re.compile(r"^\s*flag-key:\s*(\S+)\s*$", re.IGNORECASE | re.MULTILINE)
 
 
+# `flag-key: none` is epic-create.md's sentinel for "this epic has no flag"
+# (test infra, its own runtime switch, docs, ...): no Amplitude flag exists,
+# so close-out files no cleanup ticket and sweep.py never treats it as a key.
+# A missing line is different and keeps its old behavior (ticket filed
+# without a key).
+NO_FLAG_KEY = "none"
+
+
 def parse_flag_key(text: str | None) -> str | None:
+    """The `flag-key:` value, `NO_FLAG_KEY` for the `none` sentinel (matched
+    case-insensitively, normalized to lowercase), or None when absent."""
     if not isinstance(text, str):
         return None
     match = FLAG_KEY_LINE_PATTERN.search(text)
-    return match.group(1) if match else None
+    if not match:
+        return None
+    key = match.group(1)
+    return NO_FLAG_KEY if key.lower() == NO_FLAG_KEY else key
 
 
 def parse_flag_key_from_comments(comments: list[dict]) -> str | None:
@@ -821,7 +858,15 @@ def parse_flag_key_from_comments(comments: list[dict]) -> str | None:
     return best
 
 
+class CommentsUnreadableError(Exception):
+    """The epic's comments (which carry `flag-key:`) could not be read, so
+    whether a cleanup ticket is owed is unknown. Retryable: close_out_epic
+    releases its claim on it."""
+
+
 def file_flag_cleanup_ticket(epic_task_id: str) -> str | None:
+    """Raises CommentsUnreadableError when the epic's comments can't be read;
+    every other failure logs and returns None."""
     try:
         epic = get_task(epic_task_id)
     except Exception as e:
@@ -842,8 +887,14 @@ def file_flag_cleanup_ticket(epic_task_id: str) -> str | None:
         print(
             f"ERROR: failed to read comments for epic {epic_task_id} before filing its flag-cleanup ticket: {type(e).__name__}"
         )
-        comments = []
+        # Can't tell a `flag-key: none` epic from a flagged one without the
+        # comments, so file nothing: close_out_epic releases its claim and a
+        # later tick retries.
+        raise CommentsUnreadableError(epic_task_id) from e
     flag_key = parse_flag_key_from_comments(comments)
+    if flag_key == NO_FLAG_KEY:
+        print(f"Epic {epic_task_id} declared 'flag-key: none'; no flag-cleanup ticket to file")
+        return None
     if flag_key is None:
         # Never guess: sweep.py's ramp-cleanup pass identifies a flag-cleanup
         # ticket BY this line, so one filed without it simply never gets
@@ -925,7 +976,15 @@ def close_out_epic(epic_task_id: str) -> None:
         print(f"ERROR: failed to move epic {epic_task_id} to done: {type(e).__name__}")
         release_epic_close_out_claim(epic_task_id)
         return
-    cleanup_task_id = file_flag_cleanup_ticket(epic_task_id)
+    try:
+        cleanup_task_id = file_flag_cleanup_ticket(epic_task_id)
+    except CommentsUnreadableError:
+        # Whether a cleanup ticket is owed is unknown, so neither file one
+        # nor announce completion. The epic is already done (the move is
+        # idempotent); release the claim so a later tick retries close-out
+        # and reads the comments then.
+        release_epic_close_out_claim(epic_task_id)
+        return
     post_close_out_summary(epic_task_id, cleanup_task_id)
 
 

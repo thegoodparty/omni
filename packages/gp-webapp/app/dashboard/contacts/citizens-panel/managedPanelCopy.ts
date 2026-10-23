@@ -60,7 +60,7 @@ export const MANAGED_PANEL_COPY = {
         return 'Invites are paused. Nobody new gets one until you resume.'
       }
       if (status === 'ready') {
-        return 'Your civic panel is full. We keep it fresh as people come and go.'
+        return 'Your civic panel is full. No new invites are going out.'
       }
       if (status === 'exhausted') {
         return "We've invited everyone we can reach by text."

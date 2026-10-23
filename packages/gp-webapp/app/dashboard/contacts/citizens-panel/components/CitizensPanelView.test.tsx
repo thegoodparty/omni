@@ -268,7 +268,7 @@ describe('CitizensPanelView', () => {
     expect(screen.queryByTestId('civic-panel-next')).not.toBeInTheDocument()
     expect(
       screen.getByText(
-        'Your civic panel is full. We keep it fresh as people come and go.',
+        'Your civic panel is full. No new invites are going out.',
       ),
     ).toBeInTheDocument()
   })
@@ -285,7 +285,7 @@ describe('CitizensPanelView', () => {
     expect(within(aside).getByText('Members')).toBeInTheDocument()
     expect(within(aside).getByText('Ready to ask')).toBeInTheDocument()
     expect(
-      within(aside).getByText('Not texted in the last 30 days'),
+      within(aside).getByText('Not contacted in the last 30 days'),
     ).toBeInTheDocument()
     expect(
       within(aside).queryByText('Reached in the last 30 days'),

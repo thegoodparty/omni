@@ -221,6 +221,41 @@ def test_select_unblocked_stories_skips_stories_still_blocked():
     assert [s.task_id for s in supervisor.select_unblocked_stories(stories, frozenset(), 5)] == ["s2"]
 
 
+def test_select_unblocked_stories_dependency_in_qa_is_satisfied():
+    # qa means the dependency's PR merged, so its code is on main.
+    stories = [
+        supervisor.Story("s1", router.STATUS_QA, "1", frozenset()),
+        supervisor.Story("s2", router.STATUS_APPROVED_TDD, "2", frozenset({"s1"})),
+    ]
+
+    assert [s.task_id for s in supervisor.select_unblocked_stories(stories, frozenset(), 5)] == ["s2"]
+
+
+def test_select_unblocked_stories_dependency_not_merged_is_unmet():
+    for status in (router.STATUS_FEEDBACK_NEEDED, router.STATUS_IN_PROGRESS):
+        stories = [
+            supervisor.Story("s1", status, "1", frozenset()),
+            supervisor.Story("s2", router.STATUS_APPROVED_TDD, "2", frozenset({"s1"})),
+        ]
+
+        assert supervisor.select_unblocked_stories(stories, frozenset(), 5) == [], status
+
+
+def test_select_unblocked_stories_merged_story_does_not_count_toward_blocks_count():
+    # s2 blocks only s4, which is already merged (qa), so s2 unblocks nothing
+    # pending; s3 blocks the still-queued s5 and must sort ahead of s2 even
+    # though s2 has the lower board position.
+    stories = [
+        supervisor.Story("s2", router.STATUS_APPROVED_TDD, "2", frozenset()),
+        supervisor.Story("s3", router.STATUS_APPROVED_TDD, "3", frozenset()),
+        supervisor.Story("s4", router.STATUS_QA, "4", frozenset({"s2"})),
+        supervisor.Story("s5", router.STATUS_APPROVED_TDD, "5", frozenset({"s3", "s9"})),
+        supervisor.Story("s9", router.STATUS_IN_PROGRESS, "9", frozenset()),
+    ]
+
+    assert [s.task_id for s in supervisor.select_unblocked_stories(stories, frozenset(), 1)] == ["s3"]
+
+
 def test_select_unblocked_stories_none_when_all_remaining_are_feedback_needed():
     stories = [
         supervisor.Story("s1", router.STATUS_DONE, "1", frozenset()),
@@ -317,8 +352,13 @@ def dispatched_task_ids(fake_ecs):
     ]
 
 
-def test_max_concurrent_stories_defaults_to_two(monkeypatch):
+def test_max_concurrent_stories_defaults_to_four(monkeypatch):
     monkeypatch.delenv(supervisor.MAX_CONCURRENT_STORIES_ENV, raising=False)
+    assert supervisor.max_concurrent_stories() == 4
+
+
+def test_max_concurrent_stories_honors_an_override_of_two(monkeypatch):
+    set_cap(monkeypatch, 2)
     assert supervisor.max_concurrent_stories() == 2
 
 
@@ -508,6 +548,56 @@ def test_story_alert_only_claim_does_not_block_a_real_dispatch(fake_dynamodb):
     assert claim["dispatched"]["BOOL"] is True
 
 
+def test_expired_dispatch_claim_is_not_a_dispatch_claim(fake_dynamodb):
+    claim_item = {"dispatched": {"BOOL": True}, "expires_at": {"N": str(int(time.time()) - 1)}}
+    assert supervisor.is_dispatch_claim(claim_item) is False
+    live_item = {"dispatched": {"BOOL": True}, "expires_at": {"N": str(int(time.time()) + 3600)}}
+    assert supervisor.is_dispatch_claim(live_item) is True
+    # Alert-only claim (no dispatched attr) is unchanged: never a dispatch claim.
+    assert supervisor.is_dispatch_claim({"expires_at": {"N": str(int(time.time()) + 3600)}}) is False
+    assert supervisor.is_dispatch_claim(None) is False
+
+
+def test_expired_claim_row_neither_counts_against_cap_nor_blocks_redispatch(
+    fake_clickup, fake_ecs, fake_dynamodb, monkeypatch
+):
+    # DynamoDB TTL has not reaped s1's expired claim row yet. s1 is back in
+    # the queue (re-queued after a crash) and must be dispatched, and the
+    # stale row must not eat the single slot s2 would otherwise need.
+    set_cap(monkeypatch, 1)
+    fake_dynamodb.items[supervisor.story_claim_pk("s1")] = {
+        "pk": {"S": supervisor.story_claim_pk("s1")},
+        "dispatched": {"BOOL": True},
+        "expires_at": {"N": str(int(time.time()) - 60)},
+    }
+    register_epic(
+        fake_clickup,
+        ["s1", "s2"],
+        {
+            "s1": story_task("s1", router.STATUS_APPROVED_TDD),
+            "s2": story_task("s2", router.STATUS_DONE, order_index="2"),
+        },
+    )
+
+    supervisor.run_supervisor_tick(EPIC_ID)
+
+    assert dispatched_task_ids(fake_ecs) == ["s1"]
+
+
+def test_live_claim_row_still_blocks_redispatch(fake_clickup, fake_ecs, fake_dynamodb, monkeypatch):
+    set_cap(monkeypatch, 4)
+    fake_dynamodb.items[supervisor.story_claim_pk("s1")] = {
+        "pk": {"S": supervisor.story_claim_pk("s1")},
+        "dispatched": {"BOOL": True},
+        "expires_at": {"N": str(int(time.time()) + 3600)},
+    }
+    register_epic(fake_clickup, ["s1"], {"s1": story_task("s1", router.STATUS_APPROVED_TDD)})
+
+    supervisor.run_supervisor_tick(EPIC_ID)
+
+    assert fake_ecs.run_task_calls == []
+
+
 def test_concurrent_completion_order_a_then_b_advances(fake_clickup, fake_ecs, monkeypatch):
     # s3 depends on BOTH s1 and s2, dispatched together under the cap —
     # s1 finishing first must not by itself unblock s3.
@@ -640,7 +730,25 @@ def test_flag_cleanup_ticket_files_without_a_key_when_unparseable(fake_clickup, 
     assert "no parseable" in capsys.readouterr().out
 
 
-def test_flag_cleanup_ticket_files_without_a_key_when_comments_unreadable(fake_clickup):
+@pytest.mark.parametrize("line", ["flag-key: none", "Flag-Key:  NONE  "])
+def test_parse_flag_key_returns_the_sentinel_for_none(line):
+    assert supervisor.parse_flag_key(f"Stories: s1.\n\n{line}\n") == supervisor.NO_FLAG_KEY
+    assert supervisor.parse_flag_key("flag-key: win-none-thing") == "win-none-thing"
+    assert supervisor.parse_flag_key("no key here") is None
+
+
+def test_flag_cleanup_ticket_not_filed_for_flag_key_none(fake_clickup):
+    fake_clickup.responses[f"/task/{EPIC_ID}"] = {"id": EPIC_ID, "name": "Mock modules", "list": {"id": "list-1"}}
+    fake_clickup.responses[f"/task/{EPIC_ID}/comment"] = {
+        "comments": [{"comment_text": "Stories: s1.\n\nflag-key: none\n\nTest infra only.", "date": "1000"}]
+    }
+    fake_clickup.responses["/list/list-1/task"] = {"id": "cleanup-1"}
+
+    assert supervisor.file_flag_cleanup_ticket(EPIC_ID) is None
+    assert [c for c in fake_clickup.calls if c[1] == "/list/list-1/task"] == []
+
+
+def test_flag_cleanup_ticket_raises_when_comments_unreadable(fake_clickup):
     fake_clickup.responses[f"/task/{EPIC_ID}"] = {"id": EPIC_ID, "name": "Ship the thing", "list": {"id": "list-1"}}
 
     def failing_comments(method, endpoint, data):
@@ -649,11 +757,9 @@ def test_flag_cleanup_ticket_files_without_a_key_when_comments_unreadable(fake_c
     fake_clickup.responses[f"/task/{EPIC_ID}/comment"] = failing_comments
     fake_clickup.responses["/list/list-1/task"] = {"id": "cleanup-1"}
 
-    cleanup_task_id = supervisor.file_flag_cleanup_ticket(EPIC_ID)
-
-    assert cleanup_task_id == "cleanup-1"
-    create_calls = [c for c in fake_clickup.calls if c[1] == "/list/list-1/task"]
-    assert "flag-key:" not in create_calls[0][2]["description"]
+    with pytest.raises(supervisor.CommentsUnreadableError):
+        supervisor.file_flag_cleanup_ticket(EPIC_ID)
+    assert [c for c in fake_clickup.calls if c[1] == "/list/list-1/task"] == []
 
 
 # ---------------------------------------------------------------------------
@@ -687,6 +793,23 @@ def test_all_done_closes_out_epic(fake_clickup, fake_ecs):
     assert cleanup_calls[0][2]["status"] == router.STATUS_DONE
     assert len(fake_clickup.slack_posts) == 1
     assert "cleanup-1" in fake_clickup.slack_posts[0]["text"] or "complete" in fake_clickup.slack_posts[0]["text"]
+
+
+def test_story_in_qa_does_not_close_out_epic(fake_clickup, fake_ecs):
+    # qa unblocks dependents, but the epic only closes once every story is done.
+    register_epic(
+        fake_clickup,
+        ["s1", "s2"],
+        {
+            "s1": story_task("s1", router.STATUS_DONE),
+            "s2": story_task("s2", router.STATUS_QA, order_index="2"),
+        },
+    )
+
+    supervisor.run_supervisor_tick(EPIC_ID)
+
+    assert fake_ecs.run_task_calls == []
+    assert [c for c in fake_clickup.calls if c[0] == "PUT" and c[1] == f"/task/{EPIC_ID}"] == []
 
 
 def test_redelivered_story_done_event_does_not_double_close_out(fake_clickup, fake_ecs):
@@ -769,6 +892,58 @@ def test_close_out_retries_after_a_failed_move(fake_clickup, fake_ecs):
     assert len(fake_clickup.slack_posts) == 1
 
 
+def test_close_out_retries_when_epic_comments_are_unreadable(fake_clickup, fake_ecs, capsys):
+    # The comments carry `flag-key:`, so unreadable comments mean "unknown",
+    # not "no key": file nothing, post no summary, release the claim, and let
+    # the next tick read them. A `none` epic must then file no ticket either.
+    register_epic(fake_clickup, ["s1"], {"s1": story_task("s1", router.STATUS_DONE)})
+    fake_clickup.responses[f"/task/{EPIC_ID}"] = {"id": EPIC_ID, "name": "Mock modules", "list": {"id": "list-1"}}
+    fake_clickup.responses["/list/list-1/task"] = {"id": "cleanup-1"}
+    attempts = []
+
+    def flaky_comments(method, endpoint, data):
+        attempts.append(1)
+        if len(attempts) == 1:
+            raise RuntimeError("ClickUp unavailable")
+        return {"comments": [{"comment_text": "flag-key: none", "date": "1000"}]}
+
+    fake_clickup.responses[f"/task/{EPIC_ID}/comment"] = flaky_comments
+
+    supervisor.run_supervisor_tick(EPIC_ID)  # comments unreadable
+
+    assert [c for c in fake_clickup.calls if c[1] == "/list/list-1/task"] == []
+    assert fake_clickup.slack_posts == []
+
+    supervisor.run_supervisor_tick(EPIC_ID)  # claim released: retries, reads none
+
+    assert len(attempts) == 2
+    assert [c for c in fake_clickup.calls if c[1] == "/list/list-1/task"] == []
+    assert len(fake_clickup.slack_posts) == 1
+
+
+def test_close_out_retry_files_the_ticket_for_a_real_key(fake_clickup, fake_ecs):
+    register_epic(fake_clickup, ["s1"], {"s1": story_task("s1", router.STATUS_DONE)})
+    fake_clickup.responses[f"/task/{EPIC_ID}"] = {"id": EPIC_ID, "name": "Epic", "list": {"id": "list-1"}}
+    fake_clickup.responses["/list/list-1/task"] = {"id": "cleanup-1"}
+    attempts = []
+
+    def flaky_comments(method, endpoint, data):
+        attempts.append(1)
+        if len(attempts) == 1:
+            raise RuntimeError("ClickUp unavailable")
+        return {"comments": [{"comment_text": "flag-key: win-thing", "date": "1000"}]}
+
+    fake_clickup.responses[f"/task/{EPIC_ID}/comment"] = flaky_comments
+
+    supervisor.run_supervisor_tick(EPIC_ID)
+    supervisor.run_supervisor_tick(EPIC_ID)
+
+    cleanup_calls = [c for c in fake_clickup.calls if c[1] == "/list/list-1/task"]
+    assert len(cleanup_calls) == 1
+    assert "flag-key: win-thing" in cleanup_calls[0][2]["description"]
+    assert len(fake_clickup.slack_posts) == 1
+
+
 # ---------------------------------------------------------------------------
 # Stall detection
 # ---------------------------------------------------------------------------
@@ -804,6 +979,24 @@ def test_story_within_ttl_does_not_alert(fake_clickup, fake_ecs):
     register_epic(fake_clickup, ["s1"], {"s1": story_task("s1", router.STATUS_IN_PROGRESS)})
     fresh_since = str(int(time.time() * 1000))
     fake_clickup.responses["/task/s1/time_in_status"] = {"current_status": {"since": fresh_since}}
+
+    supervisor.run_supervisor_tick(EPIC_ID)
+
+    assert fake_clickup.slack_posts == []
+
+
+def test_in_progress_ttl_clears_a_full_story_deadline_run():
+    assert supervisor.STATUS_TTL_SECONDS[router.STATUS_IN_PROGRESS] == 3 * 60 * 60
+    assert (
+        supervisor.STATUS_TTL_SECONDS[router.STATUS_IN_PROGRESS]
+        > router.STAGE_CEILINGS[router.STAGE_STORY].deadline_seconds
+    )
+
+
+def test_story_in_progress_for_two_and_a_half_hours_does_not_alert(fake_clickup, fake_ecs):
+    register_epic(fake_clickup, ["s1"], {"s1": story_task("s1", router.STATUS_IN_PROGRESS)})
+    since = str(int((time.time() - 2.5 * 60 * 60) * 1000))
+    fake_clickup.responses["/task/s1/time_in_status"] = {"current_status": {"since": since}}
 
     supervisor.run_supervisor_tick(EPIC_ID)
 

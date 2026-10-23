@@ -674,6 +674,49 @@ describe('update_priority_status holds the check to being offered', () => {
     expect(stepOf(await statusService.read(id), 'options').state).toBe('active')
   })
 
+  // The dev plan turn: options out with residents, and the agent tried to
+  // close everything up to the plan in one call.
+  it('refuses the whole move, names what did not move, and stores nothing', async () => {
+    const id = await createPriority()
+    await statusService.applyUpdate(id, {
+      steps: [
+        { ...settleDefine, check: { state: 'declined' } },
+        { id: 'evidence', state: 'settled', summary: 'Rents up' },
+        { id: 'listen_problem', state: 'settled', summary: 'Heard' },
+        {
+          id: 'options',
+          state: 'active',
+          check: { state: 'out', who: 'Renters', question: 'Which one?' },
+        },
+      ],
+      nextAction: 'Wait for the texts',
+    })
+    const before = await readRow(id)
+
+    const result = await toolFor(id, () => false).execute({
+      steps: [
+        { id: 'listen_problem', state: 'stale', caveat: 'More to hear' },
+        { id: 'options', state: 'settled', summary: 'Two options' },
+        { id: 'listen_options', state: 'settled', summary: 'Backed one' },
+        { id: 'method', state: 'settled', summary: 'Budget line' },
+        { id: 'plan', state: 'active' },
+      ],
+      nextAction: 'Draft the plan',
+    })
+
+    expect(result).toEqual({ error: expect.any(String) })
+    const error = (result as { error: string }).error
+    expect(error).toContain(
+      'Nothing was recorded. These did not move: Who to hear from, Your ' +
+        'options, What people back, The path, The plan.',
+    )
+    expect(error).toContain(
+      'What people back waits on what constituents say about Your options',
+    )
+    expect(error).toContain('never how the app or a system works')
+    expect(await readRow(id)).toEqual(before)
+  })
+
   it('keeps the listening step open while the check is out', async () => {
     const id = await createPriority()
     await statusService.applyUpdate(id, {
