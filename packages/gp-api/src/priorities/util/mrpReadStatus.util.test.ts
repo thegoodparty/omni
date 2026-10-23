@@ -86,6 +86,7 @@ describe('mrpReadStatus', () => {
       needed: 15,
       groupsHeard: 1,
       groupsTotal: 2,
+      groupsNext: 1,
       good: false,
       status: 'tooEarly',
       underrepresented: ['age65plus'],
@@ -120,6 +121,7 @@ describe('mrpReadStatus', () => {
       needed: 40,
       groupsHeard: 2,
       groupsTotal: 2,
+      groupsNext: 0,
       good: false,
       status: 'gettingClose',
       underrepresented: ['age65plus'],
@@ -137,6 +139,7 @@ describe('mrpReadStatus', () => {
       needed: 60,
       groupsHeard: 2,
       groupsTotal: 2,
+      groupsNext: 0,
       good: true,
       status: 'representative',
       underrepresented: [],
@@ -211,6 +214,24 @@ describe('mrpReadStatus', () => {
     })
   })
 
+  it('counts each group short of voices among those named as needed next', () => {
+    const status = mrpReadStatus({
+      answers: 12,
+      read: read([
+        ...AGES(10, 2),
+        group('tract', '53017950100', 0.5, 9),
+        group('tract', '53017950200', 0.3, 2),
+        group('tract', '53017950300', 0.2, 1),
+      ]),
+    })
+    expect(status).toMatchObject({
+      groupsHeard: 2,
+      groupsTotal: 5,
+      groupsNext: 3,
+    })
+    expect(status.underrepresented).toHaveLength(2)
+  })
+
   it('counts the parts of the district as unheard when any one has no answer', () => {
     const status = mrpReadStatus({
       answers: 12,
@@ -251,6 +272,7 @@ describe('mrpReadStatus', () => {
       needed: 100,
       groupsHeard: 20,
       groupsTotal: 20,
+      groupsNext: 0,
       good: false,
       status: 'notYetRepresentative',
       underrepresented: [],
@@ -285,6 +307,7 @@ describe('mrpReadStatus', () => {
       needed: 100,
       groupsHeard: 0,
       groupsTotal: 0,
+      groupsNext: 0,
       good: true,
       status: 'enoughAnswers',
       underrepresented: [],

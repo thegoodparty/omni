@@ -16,7 +16,7 @@ they see the whole path rather than only the step they are on.
 | `components/StatusChangeMarker.tsx` | The quiet inline line a status move leaves in the conversation                      |
 | `components/ReadStatus.tsx`         | The good read strip (phone) and rail block (desktop), behind `serve-citizen-panels` |
 | `readStatusCopy.ts`                 | Good read copy and links, shared with `results/`                                    |
-| `data/statusUpdates.ts`             | The `update_priority_status` merge, mirrored from the server, plus the marker copy  |
+| `data/statusUpdates.ts`             | The `update_priority_status` merge, mirrored from the server, and the marker diff   |
 | `data/statusReplay.ts`              | Replays the transcript's status calls so a reloaded thread shows the same markers   |
 | `data/chat-api.ts`                  | `createAgentChatClient('priority_flow', ...)`                                       |
 | `data/toolLabels.ts`                | Which tools show a pill, and what it says                                           |
@@ -60,19 +60,25 @@ so the workspace shows "Thinking..." and polls `listMessages` until it lands,
 on the shared engine's doneless commit-poll budget. It never sends a second
 kickoff, which would leave two in the thread.
 
-## The rail moves in three passes, and the last one is the truth
+## The rail moves on what the server stored, never on what the agent asked
 
-1. **`tool_call update_priority_status`** — `applyStatusUpdate` runs the
-   server's own merge locally and the rail moves mid-turn, while the agent is
-   still talking. This is most of the feel.
-2. **`tool_result`** — the tool returns the merged status it wrote, so any
-   drift in the optimistic guess is corrected a beat later.
-3. **`onTurnSettle`** — `fetchPriorityStatus` reads what was actually
-   persisted. An interrupted turn cannot leave the rail claiming a move the
-   server never stored.
+1. **`tool_result update_priority_status`** — the tool returns the merged
+   status it wrote, and the rail moves mid-turn, while the agent is still
+   talking. The marker is `statusChanges(before, stored)`: only what really
+   moved. The `tool_call` moves nothing. The server refuses a call outright
+   (`{ error }`, nothing written), and drawing from the call put "Done with"
+   markers in the chat for steps the rail then showed not started.
+2. **`onTurnSettle`** — `fetchPriorityStatus` reads what was actually
+   persisted, which also picks up a send putting a check out.
 
 The live status is held in a ref as well as state (`statusRef`), because two
-status calls can land in one tick and the second has to merge onto the first.
+status results can land in one tick and the second's marker is measured from
+the first.
+
+A refusal says which steps did not move and why, in words the agent can pass
+on (`refusalResult` in gp-api's `PriorityStatusService`), and the prompt
+(`STATUS_TOOL_BLOCK`) has it tell the official what the step waits on, never
+how the system works.
 
 ## A step going backwards is the feature
 
@@ -82,11 +88,15 @@ conversation marker says so out loud — `Back to your options`, `What we know
 needs another look`. Hiding a backwards move makes the rail look broken, which
 is worse than the move itself.
 
-`applyStatusUpdate` returns the changes it made, so the marker copy can say
+`statusChanges` carries where each step came from, so the marker copy can say
 "backwards". A stored patch only says what a step became, so
 `replayStatusMarkers` rebuilds the prior state by replaying every status call
-in the transcript from an empty status. That is why a reloaded thread reads the
-same as it did live.
+in the transcript from an empty status, and diffs each step the same way the
+live turn does. The transcript keeps a call's args, not its result, but gp-api
+nulls a refused call's args, so every call left to replay is one the server
+applied through the same merge. That is why a reloaded thread reads the same
+as it did live. Transcripts saved before that nulling can still replay a
+refused move.
 
 ## Cards are compact, and a card's detail opens over the page
 
@@ -120,7 +130,9 @@ into a texting campaign. When a check is warranted, the agent picks who by the a
 `gp-api/.../priority-flow/priorityFlow.prompt.ts`, from Samuel's Serve lists
 runbook), counts the group without saving it, writes the one question, and offers it as
 work already done through `present_outreach_proposal` on whichever channel
-those people answer on, door knocking included. A check has two sides,
+those people answer on, door knocking included. Starting a door card opens
+the walk on the community input goal with the card's message as the
+question (`proposalFlows.tsx`), the way a text opens on its message. A check has two sides,
 both always offered: the most affected, and the least affected (exposure
 inverted, same gates), each on its own card. Behind `serve-citizen-panels`
 every card is side `main`: the round goes to residents across the district.
@@ -250,7 +262,7 @@ group in the district has answered on it, pooled across texts, calls and
 doors, and a model of the coded answers is sure enough of each. gp-api
 decides it in one place, `mrpReadStatus`
 (`gp-api/src/priorities/util/mrpReadStatus.util.ts`), returning
-`{ answers, needed, groupsHeard, groupsTotal, good, status, underrepresented, unheard }`. A major group holds
+`{ answers, needed, groupsHeard, groupsTotal, groupsNext, good, status, underrepresented, unheard }`. A major group holds
 3% or more of the district on age band, tract, gender, or race when
 `raceNameable` holds (10 coded answers with a known race, 70% of all); the
 pooled `other` never counts.
@@ -272,7 +284,10 @@ modeled ethnicity folded as the panel's steering folds it; it shapes
 the model either way and counts as a group only when nameable. Scales are
 the model's defaults; nothing learns them from past priorities yet.
 `groupsHeard` of `groupsTotal` are the major groups with at least 3 coded
-answers; both are 0 when the district could not be read. `answers` is the
+answers; both are 0 when the district could not be read. `groupsNext` is
+how many of the rest belong to a group named in `underrepresented` (every
+short tract, once `unreachedAreas` is named); absent on older reads, read
+as 0. `answers` is the
 people heard (the results page's count); `needed` is the larger of the
 district's floor (`answersNeeded` of its smallest major group, the target
 round 1 is sized to) and `answers` plus the fewest more that could give
@@ -320,10 +335,21 @@ a model**: only the status, the groups and actions.
   button (`READ_STATUS_COPY.canGetAnswers`). The text links to the results page; the button is the one action.
 - **Desktop**: a 56px bar across the chat and the rail holds back and the
   title, so there is no title in the scroll with the flag on. The rail opens
-  with the status label and dot, the status line naming the groups, "9 of 12
-  groups heard" with a bar, Get answers, a quiet "What we heard" link, then
-  "Where this stands". With a good read the rail has See what we heard and
+  with the status label and dot, the groups seats (below), "9 of 12 groups
+  heard" with a key (Heard, Needs answers next, Not yet), the status line
+  naming the groups, Get answers, a quiet "What we heard" link, then "Where
+  this stands". With a good read the rail has See what we heard and
   no second link to the same page.
+- **The groups seats** (`components/GroupSeats.tsx`) are the civic panel's
+  100-seat arc (`seatSpots` and `allocate` from `citizens-panel/components/
+  panelCharts.ts`, reused, never changed for this), split evenly between
+  `groupsTotal` groups, left to right: `groupsHeard` filled primary blue,
+  `groupsNext` in an orange ring, the rest in a light grey ring. A read only
+  counts groups, so the seats are ordered by state, not by which group is
+  which. They show from `lg` up only; below it the rail block and the
+  results held card keep the groups bar, and the phone strip its thin bar.
+  The switch is CSS (`hidden lg:block` / `lg:hidden`), never a width check,
+  so nothing jumps on load.
 - **Get answers** queues one hidden `GET_ANSWERS_MESSAGE` turn (contracts,
   `GET_ANSWERS_MARKER`) behind any turn in flight, filtered from the
   transcript like the other app turns. It is a detour that returns: the agent
@@ -373,10 +399,11 @@ against the district. The response also carries reach and answers per send; the 
 does not list sends, since the tiles already give those counts.
 
 Before a good read it shows the answered tiles, then a card with the status,
-the strip's own status line naming which groups have no answers and which
-are short (`READ_STATUS_COPY.statusLine`), the groups bar, and one line
-(`READ_STATUS_COPY.heldBack`) holding back the themes, the map and who
-you're hearing from, with a Get answers button. It never says nobody
+the groups seats, larger and centered, with their key and "9 of 12 groups
+heard." (the groups bar instead below `lg`), one line (`READ_STATUS_COPY.heldBack`) holding back the themes, the
+map and who you're hearing from, "Still need: men and people 65 and over."
+(`READ_STATUS_COPY.stillNeed`; the status line instead while the read is
+getting close), and a Get answers button. It never says nobody
 answered. After, it shows everything below.
 
 - **Behind `serve-citizen-panels`.** The link renders only with the flag on,

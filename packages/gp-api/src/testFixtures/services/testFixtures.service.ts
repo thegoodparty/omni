@@ -26,7 +26,9 @@ import { StripeService } from '@/vendors/stripe/services/stripe.service'
 import { VendorMockRecordService } from '@/vendorMocks/vendorMockRecord.service'
 import { ClerkClient } from '@clerk/backend'
 import {
+  type ApplyTestFixtureElectionResponse,
   ComplianceStage,
+  type TestModeElectionPreset,
   type TestFixtureStateResponse,
   type AdminOutreachActionResponse,
   type DeliverStripeEventResponse,
@@ -518,6 +520,37 @@ export class TestFixturesService {
       )
     }
     return position.id
+  }
+
+  // The caller's own campaign only; 404 rather than 403 so ids can't be
+  // probed. `passed_won` never creates an office: it needs the one the
+  // election-result flow already linked.
+  async applyElectionPreset(
+    userId: number,
+    campaignId: number,
+    preset: TestModeElectionPreset,
+  ): Promise<ApplyTestFixtureElectionResponse> {
+    const campaign = await this.campaigns.findFirst({
+      where: { id: campaignId, userId },
+    })
+    if (!campaign) {
+      throw new NotFoundException()
+    }
+    if (preset === 'passed_won') {
+      const office = await this.campaigns.client.electedOffice.findFirst({
+        where: { campaignId },
+      })
+      if (!office) {
+        throw new ConflictException(
+          'passed_won needs the elected office the election-result flow links',
+        )
+      }
+    }
+    const electionDate = await this.transitions.applyElectionPreset(
+      campaignId,
+      preset,
+    )
+    return { campaignId, preset, electionDate }
   }
 
   async deleteFixtureUsers(

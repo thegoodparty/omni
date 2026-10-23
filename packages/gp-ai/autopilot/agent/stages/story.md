@@ -25,9 +25,15 @@ Move `CLICKUP_TASK_ID` to `in progress` via
 
 ### 2. Branch and implement
 
-Work in the omni checkout already cloned into your workspace. Cut a fresh
-branch for this story alone — never reuse or extend a branch from another
-run. Follow the repo's own conventions rather than inventing your own: read
+Work in the omni checkout already cloned into your workspace. First check
+whether an earlier run of this story already opened a PR — a deadline kill can
+leave one that nobody recorded:
+
+    gh pr list --state open --search "<TICKET-ID or CLICKUP_TASK_ID> in:title,body,head"
+
+If one exists for this story, check out its branch and continue that PR; never
+open a second one. Only if there is none, cut a fresh branch for this story
+alone — never reuse or extend a branch from another story. Follow the repo's own conventions rather than inventing your own: read
 the nearest `AGENTS.md` to what you're touching before writing code, route
 any shape that crosses a service boundary through `@goodparty_org/contracts`,
 and name new tests `*.test.ts` run under Vitest.

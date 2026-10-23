@@ -11,6 +11,8 @@ import {
 import { useRouter } from 'next/navigation'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
+  COMMUNITY_INPUT_PURPOSE,
+  COMMUNITY_INPUT_QUESTION_MAX_LENGTH,
   PHONE_BANKING_NAME_MAX_LENGTH,
   REPORT_BACK_PURPOSE,
   type ChatCard,
@@ -330,11 +332,20 @@ export const ProposalFlowsProvider = ({
       }
       // The card's link rides to the walk's own create, which puts the check
       // out on the server: nothing here survives the navigation to say so.
+      // A priority's walk asks people the check's question, so it opens on
+      // that goal with the card's message as the question, the way a text
+      // arrives with its message written.
       const params = new URLSearchParams({
         create: '1',
         ...(listId ? { listId: String(listId) } : {}),
         ...linkOf(opened),
         launchSource: opened.launchSource,
+        ...(opened.priorityId !== undefined && {
+          purpose: COMMUNITY_INPUT_PURPOSE,
+          question: proposal.message
+            .trim()
+            .slice(0, COMMUNITY_INPUT_QUESTION_MAX_LENGTH),
+        }),
       })
       router.push(`/dashboard/door-knocking?${params.toString()}`)
     },

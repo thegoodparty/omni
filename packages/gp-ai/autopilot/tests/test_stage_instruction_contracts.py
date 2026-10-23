@@ -151,6 +151,35 @@ def test_story_covers_its_load_bearing_directives():
 # ---------------------------------------------------------------------------
 
 
+def test_qa_honors_scope_decisions_and_skips_browser_for_no_ui_stories():
+    text = _read("qa")
+    lower = text.lower()
+
+    # Step 1: the comment thread supersedes the ticket body, and the verdict
+    # states the effective ACs (ENG-11383 / ENG-11384 false-positive fails).
+    assert "effective ac" in lower, "must build an effective AC list"
+    assert "full ClickUp comment thread" in text, "must read the whole comment thread, not just the ticket body"
+    assert "supersedes the ticket body" in text, "human scope decisions must supersede the ticket body"
+    assert "de-scoped" in lower, "must call out de-scoped ACs in the verdict"
+    assert "never a QA failure" in text, "a de-scoped AC must never be reported as a failure"
+    assert "top of the verdict comment" in text, "the effective AC list leads the verdict comment"
+    assert text.index("effective acceptance criteria") < text.index("Wait for deploy"), (
+        "the comment-thread step must come before the deploy wait"
+    )
+
+    # Step 2: no-UI classification via the merged PR's changed files.
+    assert "Merge pending: PR #" in text, "must find the merged PR from the park comment text"
+    assert "gh pr view <n> --json files" in text, "must classify by the merged PR's changed files"
+    for ui_path in ("packages/gp-webapp/", "packages/gp-admin/", "packages/candidate-sites/"):
+        assert ui_path in text, f"{ui_path} must count as UI"
+    assert "gh pr checks <n>" in text, "no-UI stories verify against the PR's CI checks"
+    assert "Vitest" in text, "must not accept 'tests passed' as evidence without reading the code path"
+    assert "Read the code path" in text, "no-UI verification must read the code path each AC describes"
+    assert text.index("Classify") < text.index("Wait for deploy"), "classification must come before the deploy wait"
+    # Unclassifiable stories fall back to today's browser flow.
+    assert "treat the story as having UI" in text, "an unfindable PR must fall back to the browser walk"
+
+
 def test_qa_covers_its_load_bearing_directives():
     text = _read("qa")
 
@@ -236,3 +265,15 @@ def test_resume_handles_a_status_note_park_without_waiting_for_a_reply():
     assert "remaining handoff steps" in text.lower(), (
         "a resolved status-note park must continue the stage's handoff, not wait on the thread"
     )
+
+
+# ---------------------------------------------------------------------------
+# Existing-PR adoption (ENG-11166)
+# ---------------------------------------------------------------------------
+
+
+def test_story_and_resume_adopt_an_existing_open_pr_instead_of_opening_a_duplicate():
+    for stage in ("story", "resume"):
+        text = _read(stage)
+        assert "gh pr list" in text, f"{stage} must search for an existing open PR for the story"
+        assert "second" in text or "duplicate" in text.lower(), f"{stage} must forbid opening a duplicate PR"
