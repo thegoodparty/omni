@@ -1032,7 +1032,7 @@ jobs:
               echo ""
             fi
             if [ -f test-results/results.json ]; then
-              npx tsx ../scripts/e2e-lanes.ts retries test-results/results.json || true
+              npx tsx "$GITHUB_WORKSPACE/packages/gp-webapp/scripts/e2e-lanes.ts" retries "$PWD/test-results/results.json" || true
               echo ""
             fi
             if [ "$QUARANTINE" = "true" ]; then
@@ -1190,7 +1190,7 @@ jobs:
                 done <<< "$FAILED_TESTS"
                 echo ""
               fi
-              npx tsx ../scripts/e2e-lanes.ts retries "$RESULTS" || true
+              npx tsx "$GITHUB_WORKSPACE/packages/gp-webapp/scripts/e2e-lanes.ts" retries "$PWD/$RESULTS" || true
               echo ""
             else
               echo "_No results.json: the run did not produce results (outcome: ${OUTCOME})._"
