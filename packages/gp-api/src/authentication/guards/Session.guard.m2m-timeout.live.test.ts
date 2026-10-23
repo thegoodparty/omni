@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi, type MockInstance } from 'vitest'
 import jwt from 'jsonwebtoken'
 import { ClerkClient } from '@clerk/backend'
 import { useTestService } from '@/test-service'
@@ -32,7 +32,7 @@ const setup = () => {
   // Restoring twice fails (the first restore already unwrapped the spy), so
   // only restore while it is still a mock.
   if (vi.isMockFunction(authProvider.verifyM2MJwt)) {
-    authProvider.verifyM2MJwt.mockRestore()
+    ;(authProvider.verifyM2MJwt as unknown as MockInstance).mockRestore()
   }
   const clerkClient = service.app.get<ClerkClient>(CLERK_CLIENT_PROVIDER_TOKEN)
   const verify = vi
