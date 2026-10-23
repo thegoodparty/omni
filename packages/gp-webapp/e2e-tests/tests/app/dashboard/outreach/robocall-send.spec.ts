@@ -152,7 +152,12 @@ const expectPhonebookCount = async (
     (r) => r.vendor === 'callhub' && r.kind === 'phonebook',
   )
   expect(phonebooks).toHaveLength(1)
-  expect(phonebooks[0]?.state).toMatchObject({ count: audienceSize })
+  const state = phonebooks[0]?.state as { count?: number } | undefined
+  // Deployed envs may set ROBOCALL_TEST_OVERRIDE_NUMBER (robocallPhonebook.
+  // service.ts), which loads ONLY that one number and never the real audience
+  // (the preview does: it staged 1 against a 1,570-person list). Accept that
+  // single-number load or the full audience, and nothing in between.
+  expect([1, audienceSize]).toContain(state?.count)
 }
 
 // Time-travels the send to now, runs the staging sweep, and asserts the
