@@ -241,13 +241,9 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
     renderFlow()
 
     expect(
-      await screen.findByText(
-        'Hear from everyone in your community, not only the people who show up',
-      ),
+      await screen.findByText('Meet your chief of staff'),
     ).toBeInTheDocument()
-    expect(
-      screen.getByText('Ask residents before you vote'),
-    ).toBeInTheDocument()
+    expect(screen.getByText('Get hours back every week')).toBeInTheDocument()
     expect(
       screen.queryByText('Let residents opt in to hear from you'),
     ).not.toBeInTheDocument()
@@ -546,9 +542,7 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
     const user = userEvent.setup()
     renderFlow()
 
-    await screen.findByText(
-      'Hear from everyone in your community, not only the people who show up',
-    )
+    await screen.findByText('Meet your chief of staff')
     await waitFor(() => expect(communityStarts).toBe(1))
 
     await user.click(screen.getByRole('button', { name: 'Continue' }))
@@ -583,9 +577,7 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
       user: ReturnType<typeof userEvent.setup>,
       answer: RegExp,
     ) => {
-      await screen.findByText(
-        'Hear from everyone in your community, not only the people who show up',
-      )
+      await screen.findByText('Meet your chief of staff')
       await user.click(screen.getByRole('button', { name: 'Continue' }))
       await user.click(await screen.findByRole('radio', { name: answer }))
       expect(communityStarts).toBe(0)
@@ -656,9 +648,7 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
       const user = userEvent.setup()
       renderFlow()
 
-      await screen.findByText(
-        'Hear from everyone in your community, not only the people who show up',
-      )
+      await screen.findByText('Meet your chief of staff')
       await user.click(screen.getByRole('button', { name: 'Continue' }))
       await user.click(
         await screen.findByRole('radio', { name: /I'm an elected official/ }),
@@ -919,9 +909,7 @@ describe('ServeOnboardingFlow with serve-citizen-panels off', () => {
       screen.queryByText('Meet your virtual chief of staff in 5 minutes'),
     ).not.toBeInTheDocument()
     expect(
-      screen.queryByText(
-        'Hear from everyone in your community, not only the people who show up',
-      ),
+      screen.queryByText('Meet your chief of staff'),
     ).not.toBeInTheDocument()
   })
 
