@@ -388,6 +388,15 @@ describe('DoorKnockingStatsService', () => {
       expect((await stats.canvassingTotals(orgSlug)).committedVoters).toBe(1)
     })
 
+    it('counts a supporter who has already voted', async () => {
+      await knock('p1', DoorKnockOutcome.answered, {
+        supportAnswer: SupportAnswer.supporter,
+        willVote: WillVoteAnswer.already_voted,
+      })
+
+      expect((await stats.canvassingTotals(orgSlug)).committedVoters).toBe(1)
+    })
+
     it('drops a supporter who later says they will not vote', async () => {
       await knock('p1', DoorKnockOutcome.answered, {
         occurredAt: T1,

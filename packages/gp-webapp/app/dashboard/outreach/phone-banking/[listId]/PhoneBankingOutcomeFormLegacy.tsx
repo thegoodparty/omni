@@ -663,50 +663,53 @@ export default function PhoneBankingOutcomeFormLegacy({
             </div>
           ) : (
             <>
+              {/* Turnout first, so "Already voted" is the first thing a
+                  caller can record. */}
               <div>
                 <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  Do they support you?
+                  Will they vote this election?
                 </p>
                 <div className="mt-2">
                   <FilterPillGroup
                     type="single"
-                    value={draft.supportAnswer ?? ''}
+                    value={draft.willVote ?? ''}
                     onValueChange={(value) =>
                       setDraft((current) =>
-                        draftWithSupportAnswer(
+                        draftWithWillVote(
                           current,
-                          (value || undefined) as typeof draft.supportAnswer,
+                          (value || undefined) as typeof draft.willVote,
                         ),
                       )
                     }
                   >
-                    <FilterPill value="supporter">Yes</FilterPill>
-                    <FilterPill value="non_supporter">No</FilterPill>
+                    <FilterPill value="yes">Yes</FilterPill>
+                    <FilterPill value="no">No</FilterPill>
                     <FilterPill value="unsure">Unsure</FilterPill>
+                    <FilterPill value="already_voted">Already voted</FilterPill>
                   </FilterPillGroup>
                 </div>
               </div>
 
-              {draft.supportAnswer !== undefined && (
+              {draft.willVote !== undefined && (
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    Will they vote this election?
+                    Do they support you?
                   </p>
                   <div className="mt-2">
                     <FilterPillGroup
                       type="single"
-                      value={draft.willVote ?? ''}
+                      value={draft.supportAnswer ?? ''}
                       onValueChange={(value) =>
                         setDraft((current) =>
-                          draftWithWillVote(
+                          draftWithSupportAnswer(
                             current,
-                            (value || undefined) as typeof draft.willVote,
+                            (value || undefined) as typeof draft.supportAnswer,
                           ),
                         )
                       }
                     >
-                      <FilterPill value="yes">Yes</FilterPill>
-                      <FilterPill value="no">No</FilterPill>
+                      <FilterPill value="supporter">Yes</FilterPill>
+                      <FilterPill value="non_supporter">No</FilterPill>
                       <FilterPill value="unsure">Unsure</FilterPill>
                     </FilterPillGroup>
                   </div>

@@ -59,6 +59,7 @@ const WILL_VOTE_ANSWER_LABELS: Record<WillVoteAnswer, string> = {
   yes: 'Yes',
   no: 'No',
   unsure: 'Unsure',
+  already_voted: 'Already voted',
 }
 
 // Serve's answer, in its place. Binary where the Win pair is three-way, and
