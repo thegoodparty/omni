@@ -13,7 +13,10 @@ import {
   type PriorityStepId,
 } from '@goodparty_org/contracts'
 import { PrioritySource } from '../../generated/prisma'
-import { PriorityStatusService } from './priorityStatus.service'
+import {
+  nextActionProblem,
+  PriorityStatusService,
+} from './priorityStatus.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { UpdatePriorityStatusInputSchema } from '../schemas/priorityStatus.schema'
 
@@ -115,6 +118,15 @@ describe('PriorityStatusService.applyUpdate', () => {
 
     expect(result.nextAction).toBeNull()
     expect((await readRow(id)).nextAction).toBeNull()
+  })
+
+  it.each([
+    ['Will the council approve the budget?', null],
+    ['Mark the vote on your calendar', null],
+    ['Ask Will to send the backlog numbers', 'name'],
+    ['Will, call the director today', 'name'],
+  ])('reads %s for an official named Will Mark', (nextAction, problem) => {
+    expect(nextActionProblem(nextAction, ['Will', 'Mark'])).toBe(problem)
   })
 
   it('keeps a nextAction that uses a step word as an ordinary word', async () => {

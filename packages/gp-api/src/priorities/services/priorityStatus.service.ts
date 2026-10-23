@@ -60,12 +60,15 @@ export const nextActionProblem = (
   nextAction: string,
   names: (string | null | undefined)[],
 ): 'name' | 'step_id' | null => {
+  // A name that is also a word ("Will", "Mark", "Grant") opens plenty of good
+  // sentences, so a leading match followed by a lowercase word is grammar.
   const named = names.some((name) => {
     const trimmed = name?.trim()
+    if (trimmed === undefined || trimmed.length < 2) return false
+    const escaped = escapeRegExp(trimmed)
     return (
-      trimmed !== undefined &&
-      trimmed.length >= 2 &&
-      new RegExp(`\\b${escapeRegExp(trimmed)}\\b`).test(nextAction)
+      new RegExp(`(?<!^)\\b${escaped}\\b`).test(nextAction) ||
+      new RegExp(`^${escaped}\\b(?!\\s+[a-z])`).test(nextAction)
     )
   })
   if (named) return 'name'
