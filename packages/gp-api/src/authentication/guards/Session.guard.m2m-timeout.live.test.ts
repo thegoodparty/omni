@@ -29,7 +29,11 @@ const setup = () => {
   const authProvider = service.app.get<AuthProvider>(AUTH_PROVIDER_TOKEN)
   // The harness stubs verifyM2MJwt with an AUTH_SECRET check; put the real
   // implementation back so the Clerk timeout behavior is what runs.
-  vi.mocked(authProvider.verifyM2MJwt).mockRestore()
+  // Restoring twice fails (the first restore already unwrapped the spy), so
+  // only restore while it is still a mock.
+  if (vi.isMockFunction(authProvider.verifyM2MJwt)) {
+    authProvider.verifyM2MJwt.mockRestore()
+  }
   const clerkClient = service.app.get<ClerkClient>(CLERK_CLIENT_PROVIDER_TOKEN)
   const verify = vi
     .spyOn(clerkClient.m2m, 'verify')
