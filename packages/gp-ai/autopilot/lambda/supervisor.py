@@ -834,7 +834,15 @@ def parse_flag_key_from_comments(comments: list[dict]) -> str | None:
     return best
 
 
+class CommentsUnreadableError(Exception):
+    """The epic's comments (which carry `flag-key:`) could not be read, so
+    whether a cleanup ticket is owed is unknown. Retryable: close_out_epic
+    releases its claim on it."""
+
+
 def file_flag_cleanup_ticket(epic_task_id: str) -> str | None:
+    """Raises CommentsUnreadableError when the epic's comments can't be read;
+    every other failure logs and returns None."""
     try:
         epic = get_task(epic_task_id)
     except Exception as e:
@@ -855,11 +863,10 @@ def file_flag_cleanup_ticket(epic_task_id: str) -> str | None:
         print(
             f"ERROR: failed to read comments for epic {epic_task_id} before filing its flag-cleanup ticket: {type(e).__name__}"
         )
-        # Deliberately fail toward filing: close-out is claimed once, so
-        # returning here would permanently lose the cleanup ticket of a real
-        # flag. A transient read failure on a `flag-key: none` epic costs one
-        # spurious (keyless, never auto-dispatched) ticket a human can close.
-        comments = []
+        # Can't tell a `flag-key: none` epic from a flagged one without the
+        # comments, so file nothing: close_out_epic releases its claim and a
+        # later tick retries.
+        raise CommentsUnreadableError(epic_task_id) from e
     flag_key = parse_flag_key_from_comments(comments)
     if flag_key == NO_FLAG_KEY:
         print(f"Epic {epic_task_id} declared 'flag-key: none'; no flag-cleanup ticket to file")
@@ -945,7 +952,15 @@ def close_out_epic(epic_task_id: str) -> None:
         print(f"ERROR: failed to move epic {epic_task_id} to done: {type(e).__name__}")
         release_epic_close_out_claim(epic_task_id)
         return
-    cleanup_task_id = file_flag_cleanup_ticket(epic_task_id)
+    try:
+        cleanup_task_id = file_flag_cleanup_ticket(epic_task_id)
+    except CommentsUnreadableError:
+        # Whether a cleanup ticket is owed is unknown, so neither file one
+        # nor announce completion. The epic is already done (the move is
+        # idempotent); release the claim so a later tick retries close-out
+        # and reads the comments then.
+        release_epic_close_out_claim(epic_task_id)
+        return
     post_close_out_summary(epic_task_id, cleanup_task_id)
 
 

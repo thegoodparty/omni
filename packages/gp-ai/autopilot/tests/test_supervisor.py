@@ -658,7 +658,7 @@ def test_flag_cleanup_ticket_not_filed_for_flag_key_none(fake_clickup):
     assert [c for c in fake_clickup.calls if c[1] == "/list/list-1/task"] == []
 
 
-def test_flag_cleanup_ticket_files_without_a_key_when_comments_unreadable(fake_clickup):
+def test_flag_cleanup_ticket_raises_when_comments_unreadable(fake_clickup):
     fake_clickup.responses[f"/task/{EPIC_ID}"] = {"id": EPIC_ID, "name": "Ship the thing", "list": {"id": "list-1"}}
 
     def failing_comments(method, endpoint, data):
@@ -667,11 +667,9 @@ def test_flag_cleanup_ticket_files_without_a_key_when_comments_unreadable(fake_c
     fake_clickup.responses[f"/task/{EPIC_ID}/comment"] = failing_comments
     fake_clickup.responses["/list/list-1/task"] = {"id": "cleanup-1"}
 
-    cleanup_task_id = supervisor.file_flag_cleanup_ticket(EPIC_ID)
-
-    assert cleanup_task_id == "cleanup-1"
-    create_calls = [c for c in fake_clickup.calls if c[1] == "/list/list-1/task"]
-    assert "flag-key:" not in create_calls[0][2]["description"]
+    with pytest.raises(supervisor.CommentsUnreadableError):
+        supervisor.file_flag_cleanup_ticket(EPIC_ID)
+    assert [c for c in fake_clickup.calls if c[1] == "/list/list-1/task"] == []
 
 
 # ---------------------------------------------------------------------------
@@ -784,6 +782,58 @@ def test_close_out_retries_after_a_failed_move(fake_clickup, fake_ecs):
     supervisor.run_supervisor_tick(EPIC_ID)  # retries and succeeds
 
     assert len(attempts) == 2
+    assert len(fake_clickup.slack_posts) == 1
+
+
+def test_close_out_retries_when_epic_comments_are_unreadable(fake_clickup, fake_ecs, capsys):
+    # The comments carry `flag-key:`, so unreadable comments mean "unknown",
+    # not "no key": file nothing, post no summary, release the claim, and let
+    # the next tick read them. A `none` epic must then file no ticket either.
+    register_epic(fake_clickup, ["s1"], {"s1": story_task("s1", router.STATUS_DONE)})
+    fake_clickup.responses[f"/task/{EPIC_ID}"] = {"id": EPIC_ID, "name": "Mock modules", "list": {"id": "list-1"}}
+    fake_clickup.responses["/list/list-1/task"] = {"id": "cleanup-1"}
+    attempts = []
+
+    def flaky_comments(method, endpoint, data):
+        attempts.append(1)
+        if len(attempts) == 1:
+            raise RuntimeError("ClickUp unavailable")
+        return {"comments": [{"comment_text": "flag-key: none", "date": "1000"}]}
+
+    fake_clickup.responses[f"/task/{EPIC_ID}/comment"] = flaky_comments
+
+    supervisor.run_supervisor_tick(EPIC_ID)  # comments unreadable
+
+    assert [c for c in fake_clickup.calls if c[1] == "/list/list-1/task"] == []
+    assert fake_clickup.slack_posts == []
+
+    supervisor.run_supervisor_tick(EPIC_ID)  # claim released: retries, reads none
+
+    assert len(attempts) == 2
+    assert [c for c in fake_clickup.calls if c[1] == "/list/list-1/task"] == []
+    assert len(fake_clickup.slack_posts) == 1
+
+
+def test_close_out_retry_files_the_ticket_for_a_real_key(fake_clickup, fake_ecs):
+    register_epic(fake_clickup, ["s1"], {"s1": story_task("s1", router.STATUS_DONE)})
+    fake_clickup.responses[f"/task/{EPIC_ID}"] = {"id": EPIC_ID, "name": "Epic", "list": {"id": "list-1"}}
+    fake_clickup.responses["/list/list-1/task"] = {"id": "cleanup-1"}
+    attempts = []
+
+    def flaky_comments(method, endpoint, data):
+        attempts.append(1)
+        if len(attempts) == 1:
+            raise RuntimeError("ClickUp unavailable")
+        return {"comments": [{"comment_text": "flag-key: win-thing", "date": "1000"}]}
+
+    fake_clickup.responses[f"/task/{EPIC_ID}/comment"] = flaky_comments
+
+    supervisor.run_supervisor_tick(EPIC_ID)
+    supervisor.run_supervisor_tick(EPIC_ID)
+
+    cleanup_calls = [c for c in fake_clickup.calls if c[1] == "/list/list-1/task"]
+    assert len(cleanup_calls) == 1
+    assert "flag-key: win-thing" in cleanup_calls[0][2]["description"]
     assert len(fake_clickup.slack_posts) == 1
 
 
