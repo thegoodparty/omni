@@ -401,8 +401,18 @@ hits them, and where it ends if nothing does:
    (`sweep._dispatch_qa_after_merge`, claimed on the PR number so two ticks
    discovering the same merge only launch once); closed-unmerged posts one
    Slack alert (`sweep._alert_closed_unmerged_pr`, claimed the same way,
-   `CLOSED_PR_ALERT_TTL_SECONDS` = 30 days); still open leaves the park
-   untouched. Runs BEFORE auto-resume in the same tick, and every merge-pending
+   `CLOSED_PR_ALERT_TTL_SECONDS` = 30 days); still open gets a health check
+   (`sweep.pr_red_reason`): a failed, timed-out or cancelled check run on the
+   head SHA, `mergeable_state` `dirty` (conflict), or the latest
+   delegate-reviewer review on the head being `CHANGES_REQUESTED` means the PR
+   can't merge on its own, so `sweep._resume_red_pr` dispatches one resume of
+   the parked stage (`resume.md` fixes the PR and re-parks) and comments why
+   on the card. Claimed on `red-pr-<n>-<head sha>`: one resume per red head, one
+   more if a new push goes red again. Pending checks, `blocked`/`unknown`
+   mergeability and a read failure leave the park alone; `dead-letter` stories
+   are skipped. Unlike merge and alert actions, red-PR resumes count against
+   `SWEEP_MAX_TRIGGERS` (the lookback pass gets first claim, auto-resume gets
+   what is left). Runs BEFORE auto-resume in the same tick, and every merge-pending
    park it finds is excluded from auto-resume regardless of outcome — a paid
    resume must never race this free check for the same park.
 

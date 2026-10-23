@@ -146,6 +146,8 @@ class FakeClickUp:
         # already are.
         self.done_tasks: dict[str, list[dict]] = {}
         self.comments: dict[str, list[dict]] = {}
+        # Comments the sweep POSTed to a card (ENG-11458 red-PR explanation).
+        self.posted_comments: dict[str, list[str]] = {}
         self.time_in_status_since: dict[str, int] = {}
         self.task_queries: list[str] = []
         self.status_updates: dict[str, list[str]] = {}
@@ -210,6 +212,10 @@ class FakeClickUp:
                 raise RuntimeError("transient ClickUp 500")
             self.tag_calls.append((task_id, tag_name))
             self.tags.setdefault(task_id, set()).add(tag_name)
+            return {}
+        if method == "POST" and endpoint.startswith("/task/") and endpoint.endswith("/comment"):
+            task_id = endpoint[len("/task/") :].split("/comment", 1)[0]
+            self.posted_comments.setdefault(task_id, []).append((data or {})["comment_text"])
             return {}
         if method == "GET" and endpoint.endswith("/comment"):
             task_id = endpoint.split("/task/", 1)[1].split("/comment", 1)[0]
@@ -997,6 +1003,200 @@ def test_non_merge_pending_park_is_unaffected_by_the_resolution_pass(fake_clicku
     sweep.handle_sweep({"autopilot_sweep": True})
 
     assert fake_pull_requests.calls == []
+
+
+# ---------------------------------------------------------------------------
+# Red-PR resume (ENG-11458)
+# ---------------------------------------------------------------------------
+
+HEAD_SHA = "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678"
+DELEGATE = "delegate-reviewer[bot]"
+
+
+class FakeGitHub:
+    """Stubs sweep._github_get_json for one PR's head: check runs + reviews."""
+
+    def __init__(self):
+        self.check_runs: list[dict] = []
+        self.reviews: list[dict] = []
+        self.fail = False
+        self.paths: list[str] = []
+
+    def get(self, path, what):
+        self.paths.append(path)
+        if self.fail:
+            print(f"ERROR: sweep failed to read {what}: TimeoutError")
+            return None
+        if "/check-runs" in path:
+            return {"check_runs": self.check_runs}
+        if path.endswith("/reviews?per_page=100"):
+            return self.reviews
+        raise AssertionError(path)
+
+
+@pytest.fixture
+def fake_github(monkeypatch):
+    github = FakeGitHub()
+    monkeypatch.setattr(sweep, "_github_get_json", github.get)
+    return github
+
+
+def open_pr(sha=HEAD_SHA, mergeable_state="blocked"):
+    return {"merged": False, "state": "open", "head": {"sha": sha}, "mergeable_state": mergeable_state}
+
+
+def check(name, status="completed", conclusion="success"):
+    return {"name": name, "status": status, "conclusion": conclusion}
+
+
+def delegate_review(state, sha=HEAD_SHA, login=DELEGATE):
+    return {"user": {"login": login}, "state": state, "commit_id": sha}
+
+
+@pytest.fixture
+def red_pr_story(fake_clickup):
+    fake_clickup.awaiting_merge_tasks[STORY_LIST_ID] = [task("story-9", router.STATUS_AWAITING_MERGE, parent="epic-1")]
+    fake_clickup.comments["story-9"] = [merge_pending_park(42)]
+    return "story-9"
+
+
+def resumes(fake_ecs):
+    return [c for c in fake_ecs.run_task_calls if env_vars(c)["AUTOPILOT_STAGE"] == router.STAGE_RESUME]
+
+
+def test_failed_check_resumes_the_story_once_per_head_sha(
+    red_pr_story, fake_clickup, fake_ecs, fake_pull_requests, fake_github
+):
+    fake_pull_requests[42] = open_pr()
+    fake_github.check_runs = [check("lint"), check("e2e (shard 2)", conclusion="failure")]
+
+    first = sweep.handle_sweep({"autopilot_sweep": True})
+    second = sweep.handle_sweep({"autopilot_sweep": True})
+
+    assert len(resumes(fake_ecs)) == 1
+    assert env_vars(resumes(fake_ecs)[0])["RESUME_STAGE"] == "story"
+    assert json.loads(first["body"])["red_pr_resumed"] == 1
+    assert json.loads(second["body"])["red_pr_resumed"] == 0
+    assert fake_clickup.posted_comments["story-9"] == [
+        "[autopilot] PR #42 can't merge as-is: check failed: e2e (shard 2). Resuming the story stage to fix it."
+    ]
+    assert f"red-pr-42-{HEAD_SHA}" in " ".join(dispatch.get_dynamodb_client().items)
+
+
+def test_a_new_red_head_gets_one_more_resume(red_pr_story, fake_clickup, fake_ecs, fake_pull_requests, fake_github):
+    fake_github.check_runs = [check("lint", conclusion="timed_out")]
+    fake_pull_requests[42] = open_pr()
+    sweep.handle_sweep({"autopilot_sweep": True})
+    fake_pull_requests[42] = open_pr(sha="f" * 40)
+    sweep.handle_sweep({"autopilot_sweep": True})
+    sweep.handle_sweep({"autopilot_sweep": True})
+
+    assert len(resumes(fake_ecs)) == 2
+
+
+def test_merge_conflict_resumes(red_pr_story, fake_clickup, fake_ecs, fake_pull_requests, fake_github):
+    fake_pull_requests[42] = open_pr(mergeable_state="dirty")
+    fake_github.check_runs = [check("lint")]
+
+    sweep.handle_sweep({"autopilot_sweep": True})
+
+    assert len(resumes(fake_ecs)) == 1
+    assert "merge conflict" in fake_clickup.posted_comments["story-9"][0]
+
+
+def test_delegate_changes_requested_after_an_approval_resumes(
+    red_pr_story, fake_clickup, fake_ecs, fake_pull_requests, fake_github
+):
+    fake_pull_requests[42] = open_pr()
+    fake_github.reviews = [delegate_review("APPROVED"), delegate_review("CHANGES_REQUESTED")]
+
+    sweep.handle_sweep({"autopilot_sweep": True})
+
+    assert len(resumes(fake_ecs)) == 1
+    assert "delegate reviewer requested changes" in fake_clickup.posted_comments["story-9"][0]
+
+
+def test_stale_or_foreign_changes_requested_is_not_red(
+    red_pr_story, fake_clickup, fake_ecs, fake_pull_requests, fake_github
+):
+    fake_pull_requests[42] = open_pr()
+    fake_github.reviews = [
+        delegate_review("CHANGES_REQUESTED", sha="0" * 40),  # earlier head
+        delegate_review("CHANGES_REQUESTED", login="some-human"),
+        delegate_review("APPROVED"),
+        delegate_review("CHANGES_REQUESTED", login="some-human"),
+    ]
+
+    sweep.handle_sweep({"autopilot_sweep": True})
+
+    assert resumes(fake_ecs) == []
+
+
+def test_pending_checks_and_unknown_or_blocked_state_trigger_nothing(
+    red_pr_story, fake_clickup, fake_ecs, fake_pull_requests, fake_github
+):
+    fake_github.check_runs = [
+        check("e2e", status="in_progress", conclusion=None),
+        check("lint", status="queued", conclusion=None),
+        check("skipped-job", conclusion="skipped"),
+    ]
+    for state in ("blocked", "unknown", "behind", "clean"):
+        fake_pull_requests[42] = open_pr(mergeable_state=state)
+        sweep.handle_sweep({"autopilot_sweep": True})
+
+    assert resumes(fake_ecs) == []
+    assert "story-9" not in fake_clickup.posted_comments
+
+
+def test_dead_letter_story_is_not_resumed_for_a_red_pr(
+    red_pr_story, fake_clickup, fake_ecs, fake_pull_requests, fake_github
+):
+    fake_clickup.awaiting_merge_tasks[STORY_LIST_ID][0]["tags"] = [{"name": router.DEAD_LETTER_TAG_NAME}]
+    fake_pull_requests[42] = open_pr()
+    fake_github.check_runs = [check("lint", conclusion="failure")]
+
+    sweep.handle_sweep({"autopilot_sweep": True})
+
+    assert resumes(fake_ecs) == []
+
+
+def test_red_pr_health_read_failure_leaves_the_story_untouched_and_logs(
+    red_pr_story, fake_clickup, fake_ecs, fake_pull_requests, fake_github, capsys
+):
+    fake_pull_requests[42] = open_pr(mergeable_state="dirty")
+    fake_github.fail = True
+
+    sweep.handle_sweep({"autopilot_sweep": True})
+
+    out = capsys.readouterr().out
+    assert resumes(fake_ecs) == []
+    assert "story-9" not in fake_clickup.posted_comments
+    assert "ERROR: sweep failed to read check runs for PR #42" in out
+    assert "could not assess PR #42's health" in out
+
+
+def test_red_pr_resumes_count_toward_the_trigger_cap(
+    fake_clickup, fake_ecs, fake_pull_requests, fake_github, monkeypatch
+):
+    monkeypatch.setenv("SWEEP_MAX_TRIGGERS", "1")
+    fake_clickup.awaiting_merge_tasks[STORY_LIST_ID] = [
+        task("story-1", router.STATUS_AWAITING_MERGE, parent="epic-1"),
+        task("story-2", router.STATUS_AWAITING_MERGE, parent="epic-1"),
+    ]
+    fake_clickup.comments["story-1"] = [merge_pending_park(41)]
+    fake_clickup.comments["story-2"] = [merge_pending_park(42)]
+    fake_pull_requests[41] = open_pr(mergeable_state="dirty")
+    fake_pull_requests[42] = open_pr(mergeable_state="dirty")
+    fake_github.check_runs = []
+
+    first = sweep.handle_sweep({"autopilot_sweep": True})
+    second = sweep.handle_sweep({"autopilot_sweep": True})
+
+    # One per tick; the deferred story is picked up next tick (story-1's
+    # claim holds, so the budget moves on to story-2).
+    assert json.loads(first["body"])["red_pr_resumed"] == 1
+    assert json.loads(second["body"])["red_pr_resumed"] == 1
+    assert len(resumes(fake_ecs)) == 2
 
 
 # ---------------------------------------------------------------------------

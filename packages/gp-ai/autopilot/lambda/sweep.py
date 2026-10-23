@@ -105,6 +105,13 @@ DEAD_LETTER_ALERT_STAGE = "dead-letter-alert"
 # a given park comment, not a per-run transition with a natural deadline.
 DEAD_LETTER_ALERT_TTL_SECONDS = 30 * 24 * 60 * 60
 
+# The delegate reviewer's GitHub login, as scripts/delegate-review-wait.sh
+# reads it. Its CHANGES_REQUESTED review on a PR's head commit counts as red.
+DELEGATE_REVIEWER_LOGIN = "delegate-reviewer[bot]"
+# Check-run conclusions that mean "this check will not pass as-is". Pending
+# (no conclusion yet), success, neutral and skipped are never red.
+RED_CHECK_CONCLUSIONS = frozenset({"failure", "timed_out", "cancelled"})
+
 
 def _load_sibling_module(stem: str) -> Any:
     """See handler.py's own copy for why this can't be a normal import."""
@@ -564,21 +571,141 @@ def _alert_closed_unmerged_pr(task_id: str, pr_number: int) -> bool:
     return True
 
 
-def resolve_merge_pending_parks(parked_stories: list[dict]) -> dict[str, int]:
+def _github_get_json(path: str, what: str) -> Any | None:
+    """One authenticated GET against the GitHub API for the red-PR health
+    read. None on ANY failure (no token, network error, non-2xx, bad JSON),
+    logged with `what` — the same "unconfirmed means untouched" contract as
+    fetch_pull_request."""
+    token = github_auth.installation_token()
+    if token is None:
+        return None
+    req = Request(
+        f"{GITHUB_API_BASE_URL}{path}",
+        headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
+        method="GET",
+    )
+    try:
+        with urlopen(req, timeout=10) as response:
+            if response.status >= 300:
+                print(f"ERROR: GitHub returned {response.status} reading {what}")
+                return None
+            return json.loads(response.read().decode())
+    except Exception as e:
+        print(f"ERROR: sweep failed to read {what}: {type(e).__name__}")
+        return None
+
+
+def pr_red_reason(pr_number: int, pull_request: dict) -> str | None | bool:
+    """Why an OPEN PR can no longer merge on its own, or None when it is not
+    red. False when a GitHub read failed and health could not be confirmed
+    (callers leave the story untouched, same as an unreadable PR).
+
+    Red is: a completed check run on the head SHA that failed, timed out or
+    was cancelled; `mergeable_state` "dirty" (conflicts with the base);
+    or the latest delegate-reviewer review ON THE HEAD SHA being
+    CHANGES_REQUESTED (an older approval followed by changes requested is
+    red; a review of an earlier head is stale and ignored). Pending checks,
+    "blocked" with nothing failing, and "unknown" (GitHub hasn't computed
+    mergeability yet, right after a push) are all not red."""
+    head = pull_request.get("head")
+    head_sha = head.get("sha") if isinstance(head, dict) else None
+    if not isinstance(head_sha, str) or not head_sha:
+        print(f"ERROR: PR #{pr_number} read carried no head sha; cannot assess its health")
+        return False
+
+    repo = f"/repos/{GITHUB_REPO}"
+    runs = _github_get_json(f"{repo}/commits/{head_sha}/check-runs?per_page=100", f"check runs for PR #{pr_number}")
+    reviews = _github_get_json(f"{repo}/pulls/{pr_number}/reviews?per_page=100", f"reviews for PR #{pr_number}")
+    if not isinstance(runs, dict) or not isinstance(reviews, list):
+        return False
+
+    failed = sorted(
+        {
+            str(run.get("name"))
+            for run in runs.get("check_runs") or []
+            if isinstance(run, dict)
+            and run.get("status") == "completed"
+            and run.get("conclusion") in RED_CHECK_CONCLUSIONS
+        }
+    )
+    if failed:
+        return f"check failed: {', '.join(failed[:3])}" + (" and more" if len(failed) > 3 else "")
+    if pull_request.get("mergeable_state") == "dirty":
+        return "merge conflict with main"
+    delegate_reviews = [
+        r
+        for r in reviews
+        if isinstance(r, dict)
+        and (r.get("user") or {}).get("login") == DELEGATE_REVIEWER_LOGIN
+        and r.get("commit_id") == head_sha
+        and r.get("state") in ("APPROVED", "CHANGES_REQUESTED", "DISMISSED")
+    ]
+    if delegate_reviews and delegate_reviews[-1].get("state") == "CHANGES_REQUESTED":
+        return "delegate reviewer requested changes"
+    return None
+
+
+def _resume_red_pr(task: dict, park: Any, pr_number: int, pull_request: dict) -> bool:
+    """If the open PR behind a merge-pending park is red, dispatches ONE
+    resume of the parked stage and posts a card comment saying why. Keyed on
+    the head SHA, so each red head gets at most one resume and a new push
+    that goes red again earns exactly one more. Returns whether a resume
+    launched. The comment follows the dispatch (never on a lost claim), so
+    a tick that loses the dedup claim stays silent instead of re-commenting
+    every 15 minutes."""
+    task_id = task["id"]
+    if router.has_dead_letter_tag(task):
+        return False  # human-owned until they remove the tag
+    reason = pr_red_reason(pr_number, pull_request)
+    if reason is False:
+        print(f"ERROR: sweep could not assess PR #{pr_number}'s health for {task_id}; leaving it parked")
+        return False
+    if reason is None:
+        return False
+
+    head_sha = pull_request["head"]["sha"]
+    ceiling = router.STAGE_CEILINGS[router.STAGE_RESUME]
+    envelope = dispatch.StageEnvelope(
+        stage=router.STAGE_RESUME,
+        task_id=task_id,
+        epic_task_id=None,
+        model=router.DEFAULT_AGENT_MODEL,
+        max_budget_usd=ceiling.max_budget_usd,
+        deadline_seconds=ceiling.deadline_seconds,
+        resume_stage=park.stage,
+    )
+    result = dispatch.dispatch_stage(task_id, router.STAGE_RESUME, f"red-pr-{pr_number}-{head_sha}", envelope)
+    if not result.get("dispatched"):
+        return False
+    print(f"Resumed {task_id} (stage {park.stage!r}) for red PR #{pr_number} at {head_sha[:7]}: {reason}")
+    try:
+        supervisor.create_task_comment(
+            task_id,
+            f"[autopilot] PR #{pr_number} can't merge as-is: {reason}. Resuming the story stage to fix it.",
+        )
+    except Exception as e:
+        print(f"ERROR: sweep failed to comment on {task_id} about red PR #{pr_number}: {type(e).__name__}")
+    return True
+
+
+def resolve_merge_pending_parks(parked_stories: list[dict], resume_cap: int = 0) -> dict[str, int]:
     """Runs BEFORE auto_resume_actionable_parks (see handle_sweep): for every
     story parked on a "Merge pending: PR #<n>" status note, one GitHub read
     decides the outcome — merged moves the story to `qa` and launches QA
     (see _dispatch_qa_after_merge), closed-unmerged posts one Slack alert,
-    and still-open (or an unreadable PR) leaves the park exactly where it is.
-    Not bounded by the sweep's own trigger cap: like the executing-feature-
-    card tick, the actions here are cheap and self-limiting (bounded by how
-    many stories are ever simultaneously parked on a pending merge, never by
-    dispatch fan-out). `parked_stories` is handle_sweep's single per-tick
+    and a still-open PR is health-checked (see pr_red_reason): a red one gets
+    one resume per head SHA (see _resume_red_pr), a green, pending or
+    unreadable one is left exactly where it is. The merge and alert actions
+    are not bounded by the sweep's own trigger cap — they are cheap and
+    self-limiting (bounded by how many stories are ever simultaneously parked
+    on a pending merge). The paid red-PR resumes are: at most `resume_cap`
+    per call (the caller passes the tick's remaining trigger budget). `parked_stories` is handle_sweep's single per-tick
     fetch, shared with auto_resume_actionable_parks — safe even though this
     pass moves resolved stories to `qa`, because auto-resume's own
     merge-pending skip drops those same entries."""
     resolved = 0
     alerted = 0
+    red_resumed = 0
     for task in parked_stories:
         task_id = task.get("id")
         if not isinstance(task_id, str) or not task_id:
@@ -607,11 +734,18 @@ def resolve_merge_pending_parks(parked_stories: list[dict]) -> dict[str, int]:
                 resolved += 1
             continue
 
-        if pull_request.get("state") == "closed" and _alert_closed_unmerged_pr(task_id, pr_number):
-            alerted += 1
-        # else: still open — leave it exactly where it is.
+        if pull_request.get("state") == "closed":
+            if _alert_closed_unmerged_pr(task_id, pr_number):
+                alerted += 1
+            continue
 
-    return {"merge_resolved": resolved, "merge_closed_alerted": alerted}
+        # Still open: hand it back to the story stage if it can't merge as-is.
+        if red_resumed >= resume_cap:
+            continue
+        if _resume_red_pr(task, park, pr_number, pull_request):
+            red_resumed += 1
+
+    return {"merge_resolved": resolved, "merge_closed_alerted": alerted, "red_pr_resumed": red_resumed}
 
 
 def alert_stalled_in_progress_feature_cards(cards: list[dict]) -> int:
@@ -825,18 +959,21 @@ def handle_sweep(event: dict) -> dict:
     parked_stories = _parked_stories()
     awaiting_merge_stories = _awaiting_merge_stories()
 
-    # Before auto-resume, and uncapped (see resolve_merge_pending_parks): every
+    # Before auto-resume (see resolve_merge_pending_parks; merges and alerts
+    # are uncapped, red-PR resumes draw on the remaining trigger budget): every
     # merge-pending park it finds is EXCLUDED from the auto-resume pass below
     # (auto_resume_actionable_parks' own skip), so a paid resume can never
     # race this free GitHub-backed resolution for the same park. Reads both
     # awaiting merge (where story.md parks now) and feedback needed (cards
     # parked there before awaiting merge existed).
-    merge_pending_result = resolve_merge_pending_parks(awaiting_merge_stories + parked_stories)
+    merge_pending_result = resolve_merge_pending_parks(awaiting_merge_stories + parked_stories, max(cap - triggered, 0))
 
     # After the lookback pass so reconstruction gets first claim at the cap:
     # an undelivered transition is lost work, an unparked resume is deferred
     # work — the next pass reaches it.
-    auto_resumed = auto_resume_actionable_parks(max(cap - triggered, 0), parked_stories)
+    auto_resumed = auto_resume_actionable_parks(
+        max(cap - triggered - merge_pending_result["red_pr_resumed"], 0), parked_stories
+    )
 
     # A separate, unconditional statuses[] query (own read family, like
     # executing_cards/in_progress_cards above) — cheap ClickUp reads; the
@@ -860,7 +997,8 @@ def handle_sweep(event: dict) -> dict:
         f"Sweep complete: {ticked} epics ticked, {alerted} stall alerts, "
         f"{scanned} candidates scanned, {triggered} triggered, "
         f"{merge_pending_result['merge_resolved']} merges resolved, "
-        f"{merge_pending_result['merge_closed_alerted']} closed-PR alerts, {auto_resumed} auto-resumed, "
+        f"{merge_pending_result['merge_closed_alerted']} closed-PR alerts, "
+        f"{merge_pending_result['red_pr_resumed']} red-PR resumes, {auto_resumed} auto-resumed, "
         f"{flag_cleanup_promoted} flag-cleanup tickets promoted"
     )
     return {
@@ -873,6 +1011,7 @@ def handle_sweep(event: dict) -> dict:
                 "triggered": triggered,
                 "merge_resolved": merge_pending_result["merge_resolved"],
                 "merge_closed_alerted": merge_pending_result["merge_closed_alerted"],
+                "red_pr_resumed": merge_pending_result["red_pr_resumed"],
                 "auto_resumed": auto_resumed,
                 "flag_cleanup_promoted": flag_cleanup_promoted,
             }
