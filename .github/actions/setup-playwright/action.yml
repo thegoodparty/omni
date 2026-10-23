@@ -64,8 +64,10 @@ runs:
         done
         exit 1
 
+    # Only main saves. A PR-scoped cache is invisible to every other PR, and at
+    # ~300 MB each they push shared caches out of the repo's storage limit.
     - name: Collect downloaded apt packages
-      if: steps.cache.outputs.cache-hit != 'true'
+      if: steps.cache.outputs.cache-hit != 'true' && github.ref == 'refs/heads/main'
       shell: bash
       run: |
         mkdir -p "$HOME/.cache/playwright-apt"
@@ -75,7 +77,7 @@ runs:
         ls -la "$HOME/.cache/playwright-apt"
 
     - name: Save Playwright cache
-      if: steps.cache.outputs.cache-hit != 'true'
+      if: steps.cache.outputs.cache-hit != 'true' && github.ref == 'refs/heads/main'
       uses: actions/cache/save@v4
       with:
         path: |
