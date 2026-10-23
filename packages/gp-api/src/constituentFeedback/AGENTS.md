@@ -245,6 +245,14 @@ and `updatedAt` unchanged since the pass read it, so a confirm that lands
 first keeps what its confirmer gave. Its read, oldest `updatedAt` first, runs
 on the `(confirmedAt, updatedAt)` index, so a pass never scans the table.
 
+Every automatic confirmation, the sweep's and an offline memo's, fires
+`Issue Capture - Memo Auto Confirmed` (`reason: abandoned` or
+`offline_transcribed`, `channel`, `product`), since the webapp's Confirmed
+and Skipped never see these memos. It is attributed to whoever recorded the
+memo and sent after the write, never awaited (`trackMemo` in
+`constituentFeedback.service.ts`), so a Segment failure cannot fail a pass.
+A conditional write that lost its race sends nothing.
+
 ## Synthesis
 
 `requestRun` loads the effort's confirmed memos that have a transcript (one
@@ -478,7 +486,11 @@ signal returns it sends the knock or call, then the memo. The webapp side is
    minutes rather than all failing inside it. An empty transcript is
    silence, which another job would hear the same way, so it fails at once.
    A `failed` memo with no transcript is unreadable: it stays unconfirmed,
-   and the report lists it with `extractionStatus: failed`. Every write is
+   and the report lists it with `extractionStatus: failed`, and fires
+   `Issue Capture - Memo Transcription Failed` with `reason`
+   `start_failed`, `empty_transcript`, `timeout` or `job_failed`. A failed
+   job's own reason is Transcribe's free text, so it is sent as
+   `job_failed`, never verbatim. Every write is
    scoped by the job name, so a memo re-recorded meanwhile is left to its
    own job, and to `confirmedAt` null, so one confirmed meanwhile keeps the
    issues its confirmer gave. No deploy allowlist: it calls Transcribe only
