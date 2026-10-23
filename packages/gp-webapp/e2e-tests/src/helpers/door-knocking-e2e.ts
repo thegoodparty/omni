@@ -133,23 +133,51 @@ const isSafe = (view: MapView, page: Page, [x, y]: [number, number]) => {
 // radius, or a click would grab a vertex instead of placing one.
 const MIN_SPACING_PX = 24
 
-const settledZoom = async (page: Page, before: number): Promise<void> => {
-  const map = page.getByTestId('voter-map')
-  await expect
-    .poll(async () => Number(await map.getAttribute('data-map-zoom')))
-    .not.toBe(before)
+const unmercator = ([x, y]: [number, number], zoom: number): LngLat => {
+  const scale = WORLD_PX * 2 ** zoom
+  return [
+    (x / scale) * 360 - 180,
+    (Math.atan(Math.sinh(Math.PI * (1 - (2 * y) / scale))) * 180) / Math.PI,
+  ]
+}
+
+// A square of `size` px, as it stands on the map right now, centred `dx`/`dy`
+// px from the middle of the map. Returned as longitude/latitude corners, so it
+// reads like any other ring and survives a camera that is about to be left
+// alone.
+//
+// Why a ring is taken from the screen rather than a place from the world: the
+// map must not be asked to move. On the preview the basemap's style never
+// loads (its tile key is restricted to other origins), the map never renders a
+// frame, and so a zoom or a drag animates nowhere — the camera stays where the
+// page framed it. Clicks do not need a frame, so they are the one gesture that
+// still works.
+export const ringInView = async (
+  page: Page,
+  { dx = 0, dy = 0, size }: { dx?: number; dy?: number; size: number },
+): Promise<LngLat[]> => {
+  const view = await readMapView(page)
+  const [cx, cy] = mercator(view.center, view.zoom)
+  const half = size / 2
+  return [
+    [-half, half],
+    [half, half],
+    [half, -half],
+    [-half, -half],
+  ].map(([ox, oy]) => unmercator([cx + dx + ox!, cy + dy + oy!], view.zoom))
 }
 
 // Clicks `ring`'s corners onto the map, in order, and returns once they are
 // down. The map must already be in drawing mode (a surface-specific press such
-// as "Draw the first turf"), and nothing here closes the shape: the canvas
+// as "Draw the first turf"); nothing here closes the shape, because the canvas
 // closes it from whatever vertices exist.
 //
 // Pixels are derived from the camera the canvas publishes on its container
 // (`data-map-center`, `data-map-zoom`, after `data-map-ready`), never from
 // fixed offsets, so the same longitude and latitude lands on the same street
-// at any viewport size. The ring is first panned to the middle and zoomed to a
-// workable size. Reusable by the Serve flow, which draws on the same canvas.
+// at any viewport size. The camera is left alone (see `ringInView`): a ring
+// that is not on screen is an error, not something to scroll to. Reusable by
+// the Serve flow, which draws on the same canvas.
 export const drawPolygon = async (
   page: Page,
   ring: LngLat[],
@@ -160,41 +188,24 @@ export const drawPolygon = async (
     0,
     ring[0] && sameVertex(ring[0], ring.at(-1)) ? -1 : undefined,
   )
-  // Never pans. A drag on the canvas is not a dependable way to move it (it
-  // did not move the camera on CI), and zooming about the centre is enough: at
-  // some whole zoom level the ring is both on screen and wide enough to click.
-  const tried = new Set<number>()
-  for (let attempt = 0; attempt < 12; attempt++) {
-    const view = await readMapView(page)
-    tried.add(view.zoom)
-    const pixels = corners.map((corner) => toPixel(view, corner))
-    const inside = pixels.every((pixel) => isSafe(view, page, pixel))
-    const spacing = Math.min(
-      ...pixels.flatMap(([x, y], i) =>
-        pixels.slice(i + 1).map(([ox, oy]) => Math.hypot(x - ox, y - oy)),
-      ),
+  const view = await readMapView(page)
+  const pixels = corners.map((corner) => toPixel(view, corner))
+  const spacing = Math.min(
+    ...pixels.flatMap(([x, y], i) =>
+      pixels.slice(i + 1).map(([ox, oy]) => Math.hypot(x - ox, y - oy)),
+    ),
+  )
+  if (!pixels.every((pixel) => isSafe(view, page, pixel))) {
+    throw new Error(
+      `polygon is not clickable at the map's current view: ${JSON.stringify(pixels)}`,
     )
-
-    if (inside && spacing >= MIN_SPACING_PX) {
-      for (const [x, y] of pixels) {
-        await page.mouse.click(x, y)
-      }
-      return
-    }
-
-    const zoomIn = inside && spacing < MIN_SPACING_PX
-    // Off screen at this zoom means a wider view; too small means a closer one.
-    // Stepping onto a zoom already tried means no level satisfies both.
-    if (tried.has(view.zoom + (zoomIn ? 1 : -1))) break
-    await page
-      .getByRole('button', {
-        name: zoomIn ? 'Zoom in' : 'Zoom out',
-        exact: true,
-      })
-      .click()
-    await settledZoom(page, view.zoom)
   }
-  throw new Error('could not frame the polygon on the map to draw it')
+  if (spacing < MIN_SPACING_PX) {
+    throw new Error(`polygon corners are only ${spacing}px apart`)
+  }
+  for (const [x, y] of pixels) {
+    await page.mouse.click(x, y)
+  }
 }
 
 const sameVertex = (a: LngLat, b: LngLat | undefined): boolean =>

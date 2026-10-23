@@ -7,6 +7,7 @@ import { mockAction, mockRecords } from 'src/helpers/vendor-mocks.helper'
 import {
   createFlowStepHeading,
   drawPolygon,
+  ringInView,
   gotoDoorKnocking,
   type LngLat,
 } from 'src/helpers/door-knocking-e2e'
@@ -37,7 +38,35 @@ const FIXTURE_GEO_POLY = {
 // Win — candidate (happy path + failure)
 // ---------------------------------------------------------------------------
 
-const FIXTURE_RING = FIXTURE_GEO_POLY.coordinates[0] as LngLat[]
+// Where on the visible map to try a square, as pixel offsets from its middle,
+// clear of the zoom/undo cluster in the bottom-right corner. The map cannot be
+// moved on the preview (see `ringInView`), so the district is searched in
+// place: the first square holding a workable audience wins.
+const CANDIDATE_OFFSETS = [
+  [0, 0],
+  [-150, 0],
+  [0, -120],
+  [-150, -120],
+  [150, -120],
+  [0, 120],
+  [-150, 120],
+] as const
+const SQUARE_PX = 160
+// The route planner is only asked when there are two or more block faces, and
+// the create refuses more than 150 stops. 10 is comfortably past the first.
+const MIN_STOPS = 10
+const MAX_STOPS = 120
+
+// The centre of a ring's bounding box, which does not care that a GeoJSON ring
+// repeats its first vertex.
+const center = (ring: LngLat[]): LngLat => {
+  const lngs = ring.map(([lng]) => lng)
+  const lats = ring.map(([, lat]) => lat)
+  return [
+    (Math.min(...lngs) + Math.max(...lngs)) / 2,
+    (Math.min(...lats) + Math.max(...lats)) / 2,
+  ]
+}
 
 const ROUTE_RESPONSE = /\/v1\/door-knocking\/turfs\/(\d+)\/route$/
 
@@ -48,7 +77,7 @@ const ROUTE_RESPONSE = /\/v1\/door-knocking\/turfs\/(\d+)\/route$/
 const createWinCampaignInUi = async (
   page: Page,
   campaignName: string,
-): Promise<void> => {
+): Promise<LngLat[]> => {
   // Cold pack download (4.5s p50 / 34s p95) sits behind the who step.
   test.setTimeout(5 * 60 * 1000)
 
@@ -81,10 +110,32 @@ const createWinCampaignInUi = async (
   await page.getByRole('button', { name: 'Draw turfs', exact: true }).click()
   const turfs = page.getByRole('complementary', { name: 'Turfs' })
   await turfs.getByRole('button', { name: 'Draw the first turf' }).click()
-  await drawPolygon(page, FIXTURE_RING)
-  // Corners alone say nothing about the audience inside them. The pill is
-  // what proves the polygon landed on houses, and not on empty ground.
-  await expect(page.getByText(/^[1-9][\d,]* selected$/)).toBeVisible()
+  const pill = page.getByText(/^[\d,]+ selected$/)
+  const readStops = async () =>
+    Number((await pill.innerText()).replace(/\D/g, ''))
+  let drawn: LngLat[] | null = null
+  for (const [dx, dy] of CANDIDATE_OFFSETS) {
+    const ring = await ringInView(page, { dx, dy, size: SQUARE_PX })
+    await drawPolygon(page, ring)
+    // Corners alone say nothing about the audience inside them. The pill is
+    // what proves the square landed on houses, and not on empty ground.
+    await expect(pill).toBeVisible()
+    // The count settles a beat after the last corner; a square with too few
+    // stops simply runs out the wait and is read as it stands.
+    await expect
+      .poll(readStops, { timeout: 3_000 })
+      .toBeGreaterThanOrEqual(MIN_STOPS)
+      .catch(() => undefined)
+    const stops = await readStops()
+    if (stops >= MIN_STOPS && stops <= MAX_STOPS) {
+      drawn = ring
+      break
+    }
+    for (let i = 0; i < ring.length; i++) {
+      await page.getByRole('button', { name: 'Undo', exact: true }).click()
+    }
+  }
+  if (!drawn) throw new Error('no square on the map held a workable audience')
   await turfs.getByRole('textbox', { name: 'Turf name' }).fill('E2E turf')
   await turfs.getByRole('button', { name: 'Save', exact: true }).click()
 
@@ -95,6 +146,7 @@ const createWinCampaignInUi = async (
   await expect(
     page.getByRole('heading', { name: 'Your campaign is ready' }),
   ).toBeVisible({ timeout: 60_000 })
+  return drawn
 }
 
 // Opens Start knocking on the turf the flow just made, picks walking, and
@@ -139,7 +191,10 @@ test.describe('Win — turf route via Geoapify mock', () => {
 
     // 1. The UI creates the list and the turf; 2. Start knocking builds the
     //    route through POST /v1/door-knocking/turfs/:id/route.
-    await createWinCampaignInUi(page, `E2E mock route ${Date.now()}`)
+    const ring = await createWinCampaignInUi(
+      page,
+      `E2E mock route ${Date.now()}`,
+    )
     const { response, turfId } = await pressBuildRoute(page)
     expect(response.status()).toBeLessThan(300)
 
@@ -151,16 +206,12 @@ test.describe('Win — turf route via Geoapify mock', () => {
     }>(`/v1/door-knocking/turfs/${turfId}`)
     expect(routedTurf.routeSeconds).not.toBeNull()
     const drawn = routedTurf.geoPoly.coordinates[0] ?? []
-    const mean = (index: 0 | 1, ring: LngLat[]) =>
-      ring.reduce((sum, point) => sum + point[index], 0) / ring.length
-    // Both rings are closed, so the repeated vertex weighs the same in each;
-    // 0.0005 degrees is ~50m, against a polygon ~330m across.
-    expect(Math.abs(mean(0, drawn) - mean(0, FIXTURE_RING))).toBeLessThan(
-      0.0005,
-    )
-    expect(Math.abs(mean(1, drawn) - mean(1, FIXTURE_RING))).toBeLessThan(
-      0.0005,
-    )
+    // The turf holds the square that was clicked, to within a few metres of
+    // pixel rounding: 0.0003 degrees is ~30m against a square ~150m across.
+    const [drawnLng, drawnLat] = center(drawn)
+    const [clickedLng, clickedLat] = center(ring)
+    expect(Math.abs(drawnLng - clickedLng)).toBeLessThan(0.0003)
+    expect(Math.abs(drawnLat - clickedLat)).toBeLessThan(0.0003)
 
     // 3b. The Geoapify mock saw one route-planner request. Its jobs are the
     //     turf's block faces, one per street side, so the count is bounded by
