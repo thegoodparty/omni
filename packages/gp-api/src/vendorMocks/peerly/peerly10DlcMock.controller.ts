@@ -658,7 +658,6 @@ export class Peerly10DlcMockController {
         ...(brand ? { vertical: PEERLY_USECASE } : {}),
         usecases: identity.state.usecases ?? [PEERLY_USECASE],
         website: str(source, 'website'),
-        will_send_over_2k: false,
       },
     })
   }

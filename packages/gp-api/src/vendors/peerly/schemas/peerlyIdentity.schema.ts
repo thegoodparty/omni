@@ -34,13 +34,13 @@ export const peerlyCampaignConfigSchema = z.object({
   subscriberOptin: z.number(),
   subscriberOptout: z.number(),
   usecase: z.string(),
-  vertical: z.string(),
+  vertical: z.string().optional(),
 })
 
 export const peerlyIdentityProfileSchema = z.object({
   account_id: z.string(),
   base_account_id: z.string(),
-  campaignVerifyToken: z.string().nullable(),
+  campaignVerifyToken: z.string().nullish(),
   campaigns: z.record(z.string(), peerlyCampaignConfigSchema),
   city: z.string(),
   companyName: z.string(),
@@ -58,9 +58,9 @@ export const peerlyIdentityProfileSchema = z.object({
   street: z.string(),
   usecase: z.string(),
   vertical: z.string().optional(),
-  usecases: z.array(z.string()),
+  usecases: z.array(z.string()).optional(),
   website: z.string(),
-  will_send_over_2k: z.boolean(),
+  will_send_over_2k: z.boolean().optional(),
 })
 
 // POST /identities/:id/submitProfile and GET /identities/:id/getProfile
