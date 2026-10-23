@@ -635,6 +635,37 @@ describe('OutreachService', () => {
         })
       })
 
+      it('does not raise the paid-not-scheduled alert line while the winner is still submitting', async () => {
+        vi.useFakeTimers()
+        try {
+          const logger = createMockLogger()
+          Object.defineProperty(service, 'logger', {
+            get: () => logger,
+            configurable: true,
+          })
+          mockOutreachUpdateMany.mockResolvedValue({ count: 0 })
+          mockOutreachFindFirst.mockResolvedValue({
+            status: OutreachStatus.pending,
+            projectId: null,
+          })
+
+          const result = service.finalizeOutreachPurchase(46, 1, 'cs_live_1')
+          const assertion = expect(result).rejects.toThrow(
+            /a concurrent finalize is still in flight/,
+          )
+          await vi.advanceTimersByTimeAsync(31_000)
+          await assertion
+
+          expect(logger.error).not.toHaveBeenCalledWith(
+            expect.anything(),
+            'P2P outreach finalize failed after payment',
+          )
+          expect(logger.warn).toHaveBeenCalledTimes(1)
+        } finally {
+          vi.useRealTimers()
+        }
+      })
+
       it('takes the draft over once, then defers to a redelivery', async () => {
         mockOutreachUpdateMany.mockResolvedValue({ count: 0 })
         mockOutreachFindFirst.mockResolvedValue({
