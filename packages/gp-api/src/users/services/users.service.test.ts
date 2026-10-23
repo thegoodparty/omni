@@ -21,6 +21,11 @@ import { UserAvatarService } from './userAvatar.service'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
 import { UserRole } from '../../generated/prisma'
 import { subDays, subHours } from 'date-fns'
+import { recordClerkUserCounts } from '../util/clerkUsers.metrics'
+
+vi.mock('../util/clerkUsers.metrics', () => ({
+  recordClerkUserCounts: vi.fn(),
+}))
 
 const service = useTestService()
 
@@ -2580,6 +2585,7 @@ describe('UsersService', () => {
 
     beforeEach(async () => {
       clerkClient = service.app.get<ClerkClient>(CLERK_CLIENT_PROVIDER_TOKEN)
+      vi.spyOn(clerkClient.users, 'getCount').mockResolvedValue(0)
       await service.prisma.cronRun.deleteMany({
         where: { jobName: 'testUserSweep' },
       })
@@ -2658,6 +2664,75 @@ describe('UsersService', () => {
         'testUserSweep',
         claimedAt,
       )
+    })
+
+    it('records the total and test-domain Clerk user counts', async () => {
+      vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'dev')
+      vi.spyOn(usersService, 'deleteTestUsers').mockResolvedValue(undefined)
+      const getCount = vi
+        .spyOn(clerkClient.users, 'getCount')
+        .mockImplementation(async (params) => (params?.query ? 2_700 : 41_000))
+
+      await usersService.sweepTestUsers()
+
+      expect(getCount).toHaveBeenCalledTimes(2)
+      expect(getCount).toHaveBeenCalledWith()
+      expect(getCount).toHaveBeenCalledWith({ query: '@test.goodparty.org' })
+      expect(recordClerkUserCounts).toHaveBeenCalledWith({
+        total: 41_000,
+        testDomain: 2_700,
+      })
+    })
+
+    it('counts before the sweep deletes anything', async () => {
+      vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'dev')
+      const sweep = vi
+        .spyOn(usersService, 'deleteTestUsers')
+        .mockResolvedValue(undefined)
+      const getCount = vi.spyOn(clerkClient.users, 'getCount')
+
+      await usersService.sweepTestUsers()
+
+      const [firstCount] = getCount.mock.invocationCallOrder
+      const [sweepStart] = sweep.mock.invocationCallOrder
+      expect(firstCount).toBeLessThan(sweepStart!)
+    })
+
+    it('still sweeps when the count call fails', async () => {
+      vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'dev')
+      const sweep = vi
+        .spyOn(usersService, 'deleteTestUsers')
+        .mockResolvedValue(undefined)
+      vi.spyOn(clerkClient.users, 'getCount').mockRejectedValue(
+        new Error('clerk down'),
+      )
+
+      await usersService.sweepTestUsers()
+
+      expect(recordClerkUserCounts).not.toHaveBeenCalled()
+      expect(sweep).toHaveBeenCalledTimes(1)
+    })
+
+    it('counts once when both replicas fire the same slot', async () => {
+      vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'dev')
+      vi.spyOn(usersService, 'deleteTestUsers').mockResolvedValue(undefined)
+      const getCount = vi.spyOn(clerkClient.users, 'getCount')
+
+      await usersService.sweepTestUsers()
+      await usersService.sweepTestUsers()
+
+      expect(getCount).toHaveBeenCalledTimes(2)
+      expect(recordClerkUserCounts).toHaveBeenCalledTimes(1)
+    })
+
+    it('does not count on a PR-preview stack', async () => {
+      vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'preview')
+      const getCount = vi.spyOn(clerkClient.users, 'getCount')
+
+      await usersService.sweepTestUsers()
+
+      expect(getCount).not.toHaveBeenCalled()
+      expect(recordClerkUserCounts).not.toHaveBeenCalled()
     })
   })
 

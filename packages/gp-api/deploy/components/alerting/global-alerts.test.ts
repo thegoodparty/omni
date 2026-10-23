@@ -929,3 +929,28 @@ describe('vendor drift alerts', () => {
     expect(mockRows!.execErrState).toBeUndefined()
   })
 })
+
+describe('Clerk dev instance headroom alert', () => {
+  const headroom = GLOBAL_ALERTS.find(
+    (a) => a.slug === 'clerk-dev-user-cap-headroom',
+  )
+
+  // Only the prod stack provisions alerting, so a `$ENV` selector would watch
+  // the prod Clerk instance, which has no such cap.
+  it('watches the dev instance from the prod-provisioned rule', () => {
+    expect(headroom?.type).toBe('metric')
+    expect(headroom!.expr).toContain('deployment_environment_name="dev"')
+    expect(headroom!.expr).not.toContain('$ENV')
+  })
+
+  // The gauge and its attribute come from src/users/util/clerkUsers.metrics.ts;
+  // a rename on either side turns this into a rule that never fires.
+  it('reads the total the test-user sweep records', () => {
+    expect(headroom!.expr).toMatch(/^max\(clerk_users\{/)
+    expect(headroom!.expr).toContain('population="all"')
+  })
+
+  it('fires at 80% of the 50,000-user cap', () => {
+    expect(headroom!.threshold).toBe(40_000)
+  })
+})

@@ -1,8 +1,8 @@
 # Scheduled jobs
 
-How to add a recurring job in gp-api without it running twice. Prod runs **two
-gp-api replicas** (`desiredCount: isProd ? 2 : 1`,
-`packages/gp-api/deploy/components/service.ts`), and `@nestjs/schedule` is
+How to add a recurring job in gp-api without it running twice. Dev and prod
+both run **more than one gp-api replica** (dev a fixed 2, prod autoscaled from
+4; `packages/gp-api/deploy/components/service.ts`), and `@nestjs/schedule` is
 in-process: every replica has its own scheduler. Nothing dedupes for you, so the
 job has to dedupe itself.
 
