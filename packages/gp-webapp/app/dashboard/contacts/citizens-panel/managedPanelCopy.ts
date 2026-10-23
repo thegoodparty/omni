@@ -1,5 +1,6 @@
 import {
   cityFromDistrictName,
+  cityNameCase,
   type ManagedCivicPanelStatus,
 } from '@goodparty_org/contracts'
 import { useOrganization } from '@shared/organization-picker'
@@ -8,7 +9,8 @@ import { useOrganization } from '@shared/organization-picker'
 // or null where the district is not known.
 export const useServePlace = (): string | null => {
   const l2Name = useOrganization()?.district?.l2Name
-  return l2Name ? cityFromDistrictName(l2Name) : null
+  const city = l2Name ? cityFromDistrictName(l2Name) : null
+  return city ? cityNameCase(city) : null
 }
 
 const residentsOf = (place: string | null): string =>
@@ -67,7 +69,7 @@ export const MANAGED_PANEL_COPY = {
     stop: 'Stop my civic panel',
     stopTitle: 'Stop building your civic panel?',
     stopCaption:
-      "We won't send any more invites. Everyone who joined stays on your panel.",
+      "We won't send any more invites. Everyone who joined stays on your civic panel.",
     stopConfirm: 'Stop my civic panel',
     stopCancel: 'Keep building',
     error: "We couldn't change your civic panel. Try again.",

@@ -737,7 +737,7 @@ describe('ChiefOfStaffHandler', () => {
         `On "${MANAGED_CIVIC_PANEL_SET_UP_MESSAGE}", call \`read_managed_panel\``,
       )
       expect(prompt).toContain(
-        '"Done. The first invites go out <firstSendDate>. I\'ll let you know when your panel is ready, around the week of <readyWeekOf>."',
+        '"Done. The first invites go out <firstSendDate>. I\'ll let you know when your civic panel is ready, around the week of <readyWeekOf>."',
       )
       expect(prompt).toContain('Never offer or show the invite again.')
       expect(prompt).toContain('ask which priority they want to work on')

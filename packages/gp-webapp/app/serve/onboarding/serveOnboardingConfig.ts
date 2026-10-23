@@ -382,6 +382,15 @@ export const SERVE_CITIZEN_PANELS_STEP_COPY: Pick<
 
 export const SERVE_CITIZEN_PANELS_PLEDGE_BUTTON = 'Meet your Chief of Staff'
 
+// The priorities step's list states. A failed issue search and a search that
+// found nothing read differently, so the official knows which one to retry.
+export const SERVE_PRIORITIES_LIST_COPY = {
+  searchFailed: 'We couldn’t load issues for your area.',
+  retry: 'Try again',
+  empty:
+    'We couldn’t find issues for your area yet. Add one under Other, or skip this for now.',
+}
+
 // The district story's copy. Titles are split so the accent words can be
 // colored without a second string to keep in sync.
 export interface ServeStoryTitle {
@@ -392,12 +401,13 @@ export interface ServeStoryTitle {
 
 export const SERVE_STORY_COPY = {
   represent: {
-    title: (people: string): ServeStoryTitle => ({
-      lead: 'You represent',
+    title: (people: string, place: string): ServeStoryTitle => ({
+      lead: 'You represent the',
       accent: people,
-      tail: 'people',
+      tail: `people living in ${place}`,
     }),
-    titleWithoutCount: 'You represent every resident of your district',
+    titleWithoutCount: (place: string): string =>
+      `You represent the people living in ${place}`,
     description: (perDot: string, place: string): string =>
       `Each dot is about ${perDot} people in ${place}, and you speak for all of them.`,
     descriptionWithoutCount: (place: string): string =>

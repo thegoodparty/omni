@@ -100,6 +100,36 @@ describe('PriorityStatusService.applyUpdate', () => {
     expect(row.nextAction).toBe('Pull the rent-burden numbers')
   })
 
+  it.each([
+    ['names the official', 'Ask Johnny to put the core problem in words'],
+    ['names them by last name', 'Have Goodparty call the director'],
+    ['names a step', 'Put the problem in words so define can be settled'],
+    ['uses an underscored step id', 'Finish listen_problem this week'],
+  ])('drops a nextAction that %s', async (_case, nextAction) => {
+    const id = await createPriority()
+
+    const result = await statusService.applyUpdate(id, {
+      steps: [{ id: 'define', state: 'active' }],
+      nextAction,
+    })
+
+    expect(result.nextAction).toBeNull()
+    expect((await readRow(id)).nextAction).toBeNull()
+  })
+
+  it('keeps a nextAction that uses a step word as an ordinary word', async () => {
+    const id = await createPriority()
+
+    const result = await statusService.applyUpdate(id, {
+      steps: [{ id: 'define', state: 'active' }],
+      nextAction: 'Define what a fixed pothole means and plan your options',
+    })
+
+    expect(result.nextAction).toBe(
+      'Define what a fixed pothole means and plan your options',
+    )
+  })
+
   it('an active step wins over earlier open and stale steps', async () => {
     const id = await createPriority()
 
