@@ -1156,28 +1156,31 @@ describe('PriorityFlowHandler', () => {
     )
   })
 
-  it('names the office from the resolved position when it has no custom name', async () => {
-    context.load = vi.fn(() =>
-      Promise.resolve({ ...baseCtx(), officeTitle: null }),
-    ) as never
-    const handler = build({
-      resolveByOrgSlug: vi.fn(() =>
-        Promise.resolve({
-          l2DistrictName: 'NEW BEDFORD CITY',
-          state: 'MA',
-          positionName: 'New Bedford City Mayor',
-        }),
-      ),
-      toMandatoryFilters: vi.fn(() => []),
-    })
+  it.each([null, ''])(
+    'names the office from the resolved position when its custom name is %j',
+    async (officeTitle) => {
+      context.load = vi.fn(() =>
+        Promise.resolve({ ...baseCtx(), officeTitle }),
+      ) as never
+      const handler = build({
+        resolveByOrgSlug: vi.fn(() =>
+          Promise.resolve({
+            l2DistrictName: 'NEW BEDFORD CITY',
+            state: 'MA',
+            positionName: 'New Bedford City Mayor',
+          }),
+        ),
+        toMandatoryFilters: vi.fn(() => []),
+      })
 
-    const ctx = await handler.loadContext('c1', USER_ID)
+      const ctx = await handler.loadContext('c1', USER_ID)
 
-    expect(ctx.officeTitle).toBe('New Bedford City Mayor')
-    expect(handler.buildSystemPrompt(ctx)).toContain(
-      'Office: New Bedford City Mayor\nCity/District: NEW BEDFORD CITY, MA\n',
-    )
-  })
+      expect(ctx.officeTitle).toBe('New Bedford City Mayor')
+      expect(handler.buildSystemPrompt(ctx)).toContain(
+        'Office: New Bedford City Mayor\nCity/District: NEW BEDFORD CITY, MA\n',
+      )
+    },
+  )
 
   it('keeps a custom office name over the position name', async () => {
     const ctx = await build({
