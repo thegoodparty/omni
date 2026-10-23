@@ -21,6 +21,11 @@ import {
   CENSUS_COMPOSITION_SOURCE,
   type CensusCompositionSource,
 } from '@/priorities/services/censusComposition'
+import {
+  ACS_COUNT_KEYS,
+  type AcsCounts,
+} from '@/peopleDb/databricks/districtCensusSql.util'
+import { CensusTractNameService } from '../services/censusTractName.service'
 
 const service = useTestService()
 
@@ -491,5 +496,62 @@ describe('managed civic panel org scoping', () => {
       where: { organizationSlug: theirs },
     })
     expect(row.status).toBe(ManagedCivicPanelStatus.building)
+  })
+})
+
+describe('census tract names on approval', () => {
+  const stubDistrictTracts = (tracts: string[]) => {
+    const spy = vi
+      .spyOn(
+        service.app.get<CensusCompositionSource>(CENSUS_COMPOSITION_SOURCE),
+        'weightingInputs',
+      )
+      .mockResolvedValue({
+        cells: [],
+        census: {
+          district: Object.fromEntries(
+            ACS_COUNT_KEYS.map((key) => [key, 0]),
+          ) as AcsCounts,
+          tractAdults: new Map(tracts.map((tract) => [tract, 100])),
+        },
+      })
+    onTestFinished(() => spy.mockRestore())
+  }
+
+  const spyFill = () => {
+    const spy = vi
+      .spyOn(service.app.get(CensusTractNameService), 'fillMissing')
+      .mockResolvedValue()
+    onTestFinished(() => spy.mockRestore())
+    return spy
+  }
+
+  it('names every tract in the district once per approval', async () => {
+    const slug = await seedOrg()
+    const tracts = ['37021002503', '37021002504', '37021002600']
+    stubDistrictTracts(tracts)
+    const fill = spyFill()
+
+    await approve(slug)
+    await vi.waitFor(() => expect(fill).toHaveBeenCalledTimes(1))
+    expect(fill.mock.calls[0]?.[1]).toEqual(tracts)
+
+    await approve(slug)
+    await act(slug, 'stop')
+    expect(fill).toHaveBeenCalledTimes(1)
+    await approve(slug)
+    await vi.waitFor(() => expect(fill).toHaveBeenCalledTimes(2))
+  })
+
+  it('approves when naming fails', async () => {
+    const slug = await seedOrg()
+    stubDistrictTracts(['37021002503'])
+    const fill = spyFill().mockRejectedValue(new Error('geocoder down'))
+
+    const res = await approve(slug)
+
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(res.data.panel?.status).toBe('building')
+    await vi.waitFor(() => expect(fill).toHaveBeenCalledTimes(1))
   })
 })

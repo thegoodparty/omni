@@ -42,8 +42,8 @@ test.describe('Win — turf route via Geoapify mock', () => {
     )
     const campaignId = mine.id
 
-    // Dev calls the real Geoapify (resolveVendorMode), so the mock never
-    // records this route or fails it. Only a preview or local run can.
+    // Previews, dev and local all resolve VENDOR_MODE=mock. The guard only
+    // trips when dev is rolled back with VENDOR_MODE=live (real Geoapify).
     const { vendorMode } = await mockRecords(client, campaignId)
     test.skip(vendorMode !== 'mock', 'needs VENDOR_MODE=mock')
 
@@ -186,8 +186,8 @@ test.describe('Win — turf route via Geoapify mock', () => {
     )
     const campaignId = mine.id
 
-    // Dev calls the real Geoapify (resolveVendorMode), so the mock never
-    // records this route or fails it. Only a preview or local run can.
+    // Previews, dev and local all resolve VENDOR_MODE=mock. The guard only
+    // trips when dev is rolled back with VENDOR_MODE=live (real Geoapify).
     const { vendorMode } = await mockRecords(client, campaignId)
     test.skip(vendorMode !== 'mock', 'needs VENDOR_MODE=mock')
 

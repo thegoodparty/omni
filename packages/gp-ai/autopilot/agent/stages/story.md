@@ -33,7 +33,9 @@ any shape that crosses a service boundary through `@goodparty_org/contracts`,
 and name new tests `*.test.ts` run under Vitest.
 
 **Every new runtime code path this story adds must be gated behind the
-epic's feature flag** (the key from the epic's breakdown summary). If this
+epic's feature flag** (the key from the epic's breakdown summary). If the
+summary says `flag-key: none`, the epic has no flag: skip this gate and
+ship the code ungated. Otherwise, if this
 story is itself the flag-wiring story, that gate IS the implementation; every
 other story checks the flag rather than reintroducing it.
 
