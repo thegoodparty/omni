@@ -414,7 +414,9 @@ hits them, and where it ends if nothing does:
    `error`), the cause is likely environmental, so it escalates through the
    dead-letter path below ("two consecutive <stage> runs ended <outcome>")
    instead of a third lap. A park, a success, or two different failures
-   between them reset the streak. Human-initiated resumes are unaffected.
+   between them reset the streak, and the newest failing run must have reported
+   after the current park (so a human re-parking after removing the tag is not
+   re-escalated by stale history). Human-initiated resumes are unaffected.
 
 6. **Dead-letter tag: what happens when the retry budget runs out.**
    Hitting `AUTO_RESUME_MAX_PARKS` on a story does not retry again — it ends

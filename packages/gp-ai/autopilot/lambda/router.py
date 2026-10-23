@@ -294,21 +294,29 @@ def run_summaries(comments: list[dict]) -> list[dict]:
             )
         )
     found.sort(key=lambda item: item[0], reverse=True)
-    return [fields for _, fields in found]
+    return [{**fields, "date_ms": date_ms} for date_ms, fields in found]
 
 
-def repeated_failure(comments: list[dict]) -> dict | None:
+def repeated_failure(comments: list[dict], since_ms: int = 0) -> dict | None:
     """The newest run summary's fields when the newest two both ended in the
     same failure outcome (FAILURE_RUN_OUTCOMES), else None. Stage is not
     compared: a story run followed by its auto-resume run (stage "resume")
-    failing alike is the same environmental failure. A park, a
-    success, or two different failures in between break the streak: only a
-    repeat of the SAME failure says the cause is environmental, not flaky."""
+    failing alike is the same environmental failure. A park, a success, or two
+    different failures in between break the streak: only a repeat of the SAME
+    failure says the cause is environmental, not flaky. `since_ms` (the current
+    park's date) requires the newest failing run to have reported at or after
+    it: every run posts its summary after any park it writes, so a park with no
+    later summary was not made by a failing run."""
     latest = run_summaries(comments)[:2]
     if len(latest) < 2:
         return None
     newest, previous = latest
     if newest["outcome"] not in FAILURE_RUN_OUTCOMES or newest["outcome"] != previous["outcome"]:
+        return None
+    if newest["date_ms"] < since_ms:
+        # The failing runs predate the current park (e.g. a human removed the
+        # dead-letter tag and parked the card themselves): nothing new has run
+        # since, so the old streak must not re-escalate it.
         return None
     return newest
 

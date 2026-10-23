@@ -338,7 +338,7 @@ def auto_resume_actionable_parks(cap: int, parked_stories: list[dict]) -> int:
             )
             _escalate_dead_letter(task_id, park)
             continue
-        failure = router.repeated_failure(comments)
+        failure = router.repeated_failure(comments, since_ms=park.date_ms)
         if failure is not None:
             # Two identical failures in a row mean the cause is environmental
             # (e.g. an oversized AGENTS.md blowing the context): a third lap

@@ -791,7 +791,12 @@ def test_run_summaries_newest_first_and_ignores_other_comments():
 def test_repeated_failure_same_stage_and_outcome():
     comments = [_summary("story", "deadline_exceeded", "1000"), _summary("story", "deadline_exceeded", "2000")]
 
-    assert router.repeated_failure(comments) == {"stage": "story", "outcome": "deadline_exceeded", "cost_usd": None}
+    assert router.repeated_failure(comments) == {
+        "stage": "story",
+        "outcome": "deadline_exceeded",
+        "cost_usd": None,
+        "date_ms": 2000,
+    }
 
 
 @pytest.mark.parametrize(
@@ -814,6 +819,13 @@ def test_repeated_failure_ignores_stage_so_a_resume_after_a_story_run_counts():
     comments = [_summary("story", "error", "1000"), _summary("resume", "error", "2000")]
 
     assert router.repeated_failure(comments)["stage"] == "resume"
+
+
+def test_repeated_failure_none_when_the_failures_predate_the_park():
+    comments = [_summary("story", "error", "1000"), _summary("story", "error", "2000")]
+
+    assert router.repeated_failure(comments, since_ms=3000) is None
+    assert router.repeated_failure(comments, since_ms=2000) is not None
 
 
 def test_repeated_failure_none_with_fewer_than_two_summaries():

@@ -1522,9 +1522,9 @@ def test_real_question_with_a_human_reply_resumes_through_the_comment_route_not_
 
 
 def _stranded_story_with_runs(*outcomes):
-    comments = [parked_comment("story", STRANDED_QUESTION, date="5000")]
+    comments = [parked_comment("story", STRANDED_QUESTION, date="1500")]
     comments += [
-        run_summary_comment("story", outcome, comment_id=f"sum-{i}", date=str(1000 * (i + 1)))
+        run_summary_comment("story", outcome, comment_id=f"sum-{i}", date=str(1000 * (i + 2)))
         for i, outcome in enumerate(outcomes)
     ]
     return comments
@@ -1585,3 +1585,19 @@ def test_repeated_failure_escalation_does_not_touch_a_human_reply(fake_clickup, 
 
     assert _resumes(fake_ecs) == []
     assert fake_clickup.tag_calls == []
+
+
+def test_stale_failures_before_a_human_made_park_do_not_re_escalate(fake_clickup, fake_ecs, slack_posts):
+    # Two old failures, tag removed by a human who then parked the card
+    # themselves: no run has reported since that park, so no re-escalation.
+    fake_clickup.parked_tasks[STORY_LIST_ID] = [task("story-9", router.STATUS_FEEDBACK_NEEDED, parent="epic-1")]
+    fake_clickup.comments["story-9"] = [
+        run_summary_comment("story", "error", comment_id="sum-0", date="1000"),
+        run_summary_comment("story", "error", comment_id="sum-1", date="2000"),
+        parked_comment("story", STRANDED_QUESTION, comment_id="park-new", date="9000"),
+    ]
+
+    sweep.handle_sweep({"autopilot_sweep": True})
+
+    assert fake_clickup.tag_calls == []
+    assert slack_posts == []
