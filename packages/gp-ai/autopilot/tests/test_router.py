@@ -174,6 +174,50 @@ def test_bot_actor_feedback_needed_to_in_progress_dispatches_nothing():
     assert router.route(e) == []
 
 
+def test_awaiting_merge_to_in_progress_dispatches_resume():
+    e = story_event(
+        transitions=[transition(HUMAN_USER_ID, router.STATUS_AWAITING_MERGE, router.STATUS_IN_PROGRESS)],
+    )
+
+    decisions = router.route(e)
+
+    assert len(decisions) == 1
+    assert decisions[0].stage == router.STAGE_RESUME
+
+
+def test_bot_actor_awaiting_merge_to_in_progress_dispatches_nothing():
+    e = story_event(
+        transitions=[transition(BOT_USER_ID, router.STATUS_AWAITING_MERGE, router.STATUS_IN_PROGRESS)],
+    )
+
+    assert router.route(e) == []
+
+
+def test_human_comment_while_awaiting_merge_dispatches_resume():
+    e = story_event(
+        kind="commentPosted",
+        current_status=router.STATUS_AWAITING_MERGE,
+        event_ts="1700000099000",
+    )
+
+    decisions = router.route(e)
+
+    assert len(decisions) == 1
+    assert decisions[0].stage == router.STAGE_RESUME
+
+
+def test_bot_comment_while_awaiting_merge_is_ignored(capsys):
+    e = story_event(
+        kind="commentPosted",
+        current_status=router.STATUS_AWAITING_MERGE,
+        event_actor_id=BOT_USER_ID,
+        latest_comment_text="[autopilot:parked stage=story]\n\n1. Merge pending: PR #1",
+    )
+
+    assert router.route(e) == []
+    assert "Ignoring the bot's own comment" in capsys.readouterr().out
+
+
 def test_comment_posted_while_feedback_needed_dispatches_resume():
     # A real taskCommentPosted delivery carries NO history_items; the dedup
     # key comes from the bucketed delivery timestamp.

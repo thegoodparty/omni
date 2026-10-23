@@ -118,12 +118,12 @@ deploy train. The conductor's own sweep now does that waiting for free: it
 checks the PR's merge state on a cheap GitHub read, moves the ticket to `qa`
 itself once the PR merges, and alerts Slack if it closes unmerged instead.
 
-    python -m autopilot.agent.feedback park --task-id <CLICKUP_TASK_ID> \
-        --stage story \
-        --question "Merge pending: PR #<n> is approved with auto-merge armed but hasn't merged yet. Comment here once it merges to resume."
+    python -m autopilot.agent.feedback await-merge --task-id <CLICKUP_TASK_ID> \
+        --stage story --pr <n>
 
 This writes the same `[autopilot:parked stage=story]` marker `resume` looks
-for, moves the card to `feedback needed`, and pings Slack — never move the
+for ("Merge pending: PR #<n> ..."), moves the card to `awaiting merge`, and
+does NOT ping Slack (nothing is being asked of a human) — never move the
 ticket to `qa` yourself, and never wait for the merge in this run. The run's
 reported outcome is whatever the park primitive actually stamps
 (`feedback_parked`); "merge pending" is the state you're telling the

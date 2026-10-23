@@ -125,6 +125,8 @@ def test_story_covers_its_load_bearing_directives():
     # metric outcome the park machinery does not produce).
     assert "--stage story" in text, "the deadline-exceeded path must park via the CLI, not just end the run"
     assert "merge pending" in text.lower(), "the parking comment's status note must say the merge is pending"
+    assert "feedback await-merge" in text, "the merge-pending park must use await-merge (no Slack ping)"
+    assert "awaiting merge" in text, "must tell the story where the card lands"
     assert "feedback_parked" in text, "must report the outcome the park primitive actually stamps, honestly"
 
     # The flag-wiring story must hand qa its override mechanism some other way

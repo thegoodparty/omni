@@ -10,7 +10,7 @@ of three things:
     then board order) up to `AUTOPILOT_MAX_CONCURRENT_STORIES` in flight at
     once (default 4, read from the env at tick time — see
     max_concurrent_stories) — a story sitting in "feedback needed" is a
-    human's turn, not a candidate, and a story with any unmet dependency link
+    human's turn, and one in "awaiting merge" is waiting on the merge queue; neither is a candidate, and a story with any unmet dependency link
     never launches regardless of how much cap headroom exists. A dependency
     is met once its story has MERGED (status qa or done), not only once it is
     done: its code is on main from the merge on, so a dependent can branch
@@ -222,7 +222,14 @@ class Story:
         # Everything that is neither queued (a fresh story lands in the
         # list's first status, "approved tdd" — the shared board has no
         # story-specific "to do" column), done, nor waiting on a human.
-        return self.status not in (router.STATUS_APPROVED_TDD, router.STATUS_DONE, router.STATUS_FEEDBACK_NEEDED)
+        # An awaiting-merge story is waiting on CI and the merge queue, not
+        # running, so it holds no concurrency slot either.
+        return self.status not in (
+            router.STATUS_APPROVED_TDD,
+            router.STATUS_DONE,
+            router.STATUS_FEEDBACK_NEEDED,
+            router.STATUS_AWAITING_MERGE,
+        )
 
 
 def _story_from_task(task: dict) -> Story | None:
@@ -315,7 +322,7 @@ def select_unblocked_stories(stories: list[Story], excluded_ids: frozenset[str],
     A dependency is satisfied once its story has merged: status qa (a story
     only enters qa after its PR merged) or done. Its code is on main, so a
     dependent can branch from it without waiting for the release train and
-    the QA run. A dependency parked in feedback needed (e.g. "Merge pending")
+    the QA run. A dependency parked in feedback needed or awaiting merge
     or still in progress has not merged and stays unmet."""
     if limit <= 0:
         return []
@@ -597,7 +604,8 @@ def max_concurrent_stories() -> int:
 # ---------------------------------------------------------------------------
 
 # Per-status TTLs for stories. STATUS_FEEDBACK_NEEDED is deliberately
-# absent: waiting on a human is not a stall. STATUS_APPROVED_TDD (the story
+# absent: waiting on a human is not a stall. So is STATUS_AWAITING_MERGE:
+# waiting on CI and the merge queue is not a stall either. STATUS_APPROVED_TDD (the story
 # queue) and STATUS_DONE are absent too: nothing is "in flight" there.
 # "in progress"'s 2h covers the whole dispatch-to-merge window — the story
 # stage's first act on kickoff is moving the card there, so a dispatch that

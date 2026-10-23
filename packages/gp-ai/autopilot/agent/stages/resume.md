@@ -58,7 +58,8 @@ never another card.
 `story` and `qa` also park when their own deadline arrives mid-wait — a PR
 approved and armed but not yet merged, or a merged commit not yet deployed —
 using the same marker but a status note ("Merge pending: ..." / "Deploy
-pending: ...") instead of a real question. Don't wait for a human reply to
+pending: ...") instead of a real question. A merge-pending note can arrive
+from `awaiting merge` as well as `feedback needed`. Don't wait for a human reply to
 "answer" it: check whether the condition itself has resolved instead — `gh pr
 view` / `gh pr checks` for a pending merge, or the deployed commit for a
 pending deploy.

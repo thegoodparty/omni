@@ -309,6 +309,7 @@ def is_relayable_slack_reply(event: SlackReplyEvent, *, expected_channel: str) -
 STATUS_APPROVED_TDD = "approved tdd"
 STATUS_IN_PROGRESS = "in progress"
 STATUS_FEEDBACK_NEEDED = "feedback needed"
+STATUS_AWAITING_MERGE = "awaiting merge"
 STATUS_EXECUTING = "executing"
 STATUS_QA = "qa"
 STATUS_DONE = "done"
@@ -369,6 +370,7 @@ ROUTING_TABLE: dict[tuple[CardType, str | None, str], str] = {
     (STORY_CARD, STATUS_APPROVED_TDD, STATUS_IN_PROGRESS): STAGE_STORY,
     (STORY_CARD, STATUS_IN_PROGRESS, STATUS_QA): STAGE_QA,
     (STORY_CARD, STATUS_FEEDBACK_NEEDED, STATUS_IN_PROGRESS): STAGE_RESUME,
+    (STORY_CARD, STATUS_AWAITING_MERGE, STATUS_IN_PROGRESS): STAGE_RESUME,
 }
 
 
@@ -520,7 +522,7 @@ def route(event: RoutableEvent) -> list[RoutingDecision]:
     if event.kind == "commentPosted":
         # commentPosted carries no status transition — the trigger is the
         # CURRENT status at delivery time, not a before/after pair.
-        if card_type == STORY_CARD and event.current_status == STATUS_FEEDBACK_NEEDED:
+        if card_type == STORY_CARD and event.current_status in (STATUS_FEEDBACK_NEEDED, STATUS_AWAITING_MERGE):
             # The park primitive's LAST card write is its own comment, which
             # arrives right back here as a commentPosted delivery. Without
             # this check every park resumes itself immediately — and a resume
@@ -566,7 +568,7 @@ def route(event: RoutableEvent) -> list[RoutingDecision]:
             # Loud on purpose: this log line is the only trace it happened.
             print(
                 f"WARNING: commentPosted on story {event.task_id} dropped: "
-                f"current_status={event.current_status!r} is not feedback-needed "
+                f"current_status={event.current_status!r} is not feedback-needed or awaiting-merge "
                 "(possible hydration-delay race — card may have moved before the async worker read it)"
             )
         return []

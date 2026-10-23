@@ -15,9 +15,15 @@ Python function only importable from inside this process.
 
     python -m autopilot.agent.feedback park --task-id <id> --stage <stage> \\
         --question "..." --question "..."
+    python -m autopilot.agent.feedback await-merge --task-id <id> --stage <stage> \\
+        --pr <n>
     python -m autopilot.agent.feedback parked-stage --task-id <id>
     python -m autopilot.agent.feedback notify --task-id <id> --stage <stage> \\
         --message "..."
+
+`await-merge` is the park for a story that is just waiting on auto-merge: the
+same "Merge pending: PR #n" marker, but the card moves to `awaiting merge`
+and Slack is NOT pinged (nobody is being asked anything).
 
 `notify` is the park's Slack ping without the park: no comment, no status
 move, no marker, no sentinel. It exists for handoffs that already put the
@@ -47,6 +53,7 @@ logger = get_logger(__name__)
 # shared.clickup_client.ClickUpClient.update_task takes it (see
 # TaskStatus.IN_PROGRESS et al for the same lowercase convention).
 FEEDBACK_NEEDED_STATUS = "feedback needed"
+AWAITING_MERGE_STATUS = "awaiting merge"
 
 # Recorded as the FIRST LINE of every parking comment (see format_park_comment)
 # — human-readable in the ClickUp UI, and machine-greppable by
@@ -229,6 +236,53 @@ def apply_park_outcome(result: dict, workspace_dir: str) -> dict:
     return result
 
 
+def _record_park(
+    task_id: str,
+    stage: str,
+    questions: Sequence[str],
+    *,
+    status: str,
+    clickup_client_factory: Callable[[], Any],
+    source_env: Mapping[str, str],
+) -> tuple[list[str], Any]:
+    """The card-writing half shared by park_for_feedback and await_merge:
+    validate, post the park comment (deduped against the thread), move the
+    card to `status`. Returns (questions actually posted, updated task).
+    Retry-safe for the reason park_for_feedback's docstring spells out."""
+    if stage not in STAGE_CEILINGS:
+        raise UnknownStageError(f"Unknown stage {stage!r}; known stages: {sorted(STAGE_CEILINGS)}")
+
+    allowed_task_ids = _allowed_task_ids(source_env)
+    if task_id not in allowed_task_ids:
+        raise ValueError(
+            f"Refusing to write to {task_id!r}: writes are scoped to CLICKUP_TASK_ID/EPIC_TASK_ID "
+            f"({sorted(allowed_task_ids) if allowed_task_ids else 'neither is set'})"
+        )
+
+    if not questions:
+        raise ValueError("At least one question is required to park for feedback")
+
+    with clickup_client_factory() as clickup:
+        existing_comments = clickup.get_task_comments(task_id)
+        to_ask = new_questions(questions, existing_comments)
+        if to_ask:
+            clickup.create_task_comment(task_id, format_park_comment(stage, to_ask))
+        else:
+            # Nothing new to add on top of what the thread already carries —
+            # either a genuine no-op re-park, or (the case that matters) a
+            # retry after `questions` was already posted by an earlier call
+            # to this function that failed on a later step. Either way,
+            # re-posting would duplicate the card's question list, so skip
+            # the comment and fall through to the steps below: they must
+            # still run so a retry is not permanently blocked here. See the
+            # docstring above.
+            logger.info(f"All {len(questions)} question(s) for {task_id} were already asked; not re-posting")
+
+        updated_task = clickup.update_task(task_id, status=status)
+
+    return to_ask, updated_task
+
+
 def park_for_feedback(
     task_id: str,
     stage: str,
@@ -259,41 +313,18 @@ def park_for_feedback(
     write as a no-op to proceed past, not an error.
     """
     source_env = env if env is not None else os.environ
-
-    if stage not in STAGE_CEILINGS:
-        raise UnknownStageError(f"Unknown stage {stage!r}; known stages: {sorted(STAGE_CEILINGS)}")
-
-    allowed_task_ids = _allowed_task_ids(source_env)
-    if task_id not in allowed_task_ids:
-        raise ValueError(
-            f"Refusing to write to {task_id!r}: writes are scoped to CLICKUP_TASK_ID/EPIC_TASK_ID "
-            f"({sorted(allowed_task_ids) if allowed_task_ids else 'neither is set'})"
-        )
-
     resolved_channel = channel or source_env.get("AUTOPILOT_SLACK_CHANNEL", "").strip()
     if not resolved_channel:
         raise ValueError("No Slack channel: pass --channel or set AUTOPILOT_SLACK_CHANNEL")
 
-    if not questions:
-        raise ValueError("At least one question is required to park for feedback")
-
-    with clickup_client_factory() as clickup:
-        existing_comments = clickup.get_task_comments(task_id)
-        to_ask = new_questions(questions, existing_comments)
-        if to_ask:
-            clickup.create_task_comment(task_id, format_park_comment(stage, to_ask))
-        else:
-            # Nothing new to add on top of what the thread already carries —
-            # either a genuine no-op re-park, or (the case that matters) a
-            # retry after `questions` was already posted by an earlier call
-            # to this function that failed on a later step. Either way,
-            # re-posting would duplicate the card's question list, so skip
-            # the comment and fall through to the steps below: they must
-            # still run so a retry is not permanently blocked here. See the
-            # docstring above.
-            logger.info(f"All {len(questions)} question(s) for {task_id} were already asked; not re-posting")
-
-        updated_task = clickup.update_task(task_id, status=FEEDBACK_NEEDED_STATUS)
+    to_ask, updated_task = _record_park(
+        task_id,
+        stage,
+        questions,
+        status=FEEDBACK_NEEDED_STATUS,
+        clickup_client_factory=clickup_client_factory,
+        source_env=source_env,
+    )
 
     card_url = getattr(updated_task, "url", None) or f"https://app.clickup.com/t/{task_id}"
 
@@ -311,6 +342,40 @@ def park_for_feedback(
         "card_url": card_url,
         "channel": resolved_channel,
     }
+
+
+def await_merge(
+    task_id: str,
+    stage: str,
+    pr_number: int,
+    *,
+    workspace_dir: str | None = None,
+    clickup_client_factory: Callable[[], Any] = ClickUpClient,
+    env: Mapping[str, str] | None = None,
+) -> dict:
+    """Parks a story whose PR is approved with auto-merge armed but not yet
+    merged: the same "Merge pending: PR #n" park marker comment as
+    park_for_feedback, but the card moves to `awaiting merge` and NOTHING goes
+    to Slack — a story waiting on CI and the merge queue is not asking a
+    human anything. The sweep's resolve_merge_pending_parks reads the marker
+    from either status. Same retry-safety as park_for_feedback: a re-run after
+    a partial failure dedupes the comment and still completes the move."""
+    source_env = env if env is not None else os.environ
+    question = f"Merge pending: PR #{pr_number} is approved with auto-merge armed but hasn't merged yet."
+    to_ask, updated_task = _record_park(
+        task_id,
+        stage,
+        [question],
+        status=AWAITING_MERGE_STATUS,
+        clickup_client_factory=clickup_client_factory,
+        source_env=source_env,
+    )
+    card_url = getattr(updated_task, "url", None) or f"https://app.clickup.com/t/{task_id}"
+
+    write_park_sentinel(workspace_dir or source_env.get("WORKSPACE_DIR", "/workspace"), stage, task_id)
+
+    logger.info(f"Parked {task_id} awaiting merge of PR #{pr_number} at stage {stage!r}")
+    return {"status": "awaiting_merge", "task_id": task_id, "stage": stage, "pr": pr_number, "card_url": card_url}
 
 
 # Statuses a run of each stage must never leave its card in when it ends:
@@ -473,6 +538,19 @@ def _park_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def _await_merge_command(args: argparse.Namespace) -> int:
+    try:
+        # Same call-time factory lookup as _park_command, for the same
+        # monkeypatch reason.
+        result = await_merge(args.task_id, args.stage, args.pr, clickup_client_factory=ClickUpClient)
+    except Exception as e:
+        print(f"Failed to park {args.task_id} awaiting merge: {e}", file=sys.stderr)
+        return 1
+
+    print(f"Parked {result['task_id']} awaiting merge of PR #{result['pr']}: {result['card_url']}")
+    return 0
+
+
 def _notify_command(args: argparse.Namespace) -> int:
     try:
         # Same call-time factory lookup as _park_command, for the same
@@ -518,6 +596,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     park.add_argument("--question", action="append", default=[], help="Repeatable: one per question")
     park.add_argument("--channel", default=None, help="Defaults to AUTOPILOT_SLACK_CHANNEL")
     park.set_defaults(func=_park_command)
+
+    await_merge_parser = subparsers.add_parser(
+        "await-merge", help="Park a story awaiting its PR's auto-merge: move the card, no Slack ping"
+    )
+    await_merge_parser.add_argument("--task-id", required=True)
+    await_merge_parser.add_argument("--stage", required=True, choices=sorted(STAGE_CEILINGS))
+    await_merge_parser.add_argument("--pr", required=True, type=int)
+    await_merge_parser.set_defaults(func=_await_merge_command)
 
     parked_stage = subparsers.add_parser(
         "parked-stage", help="Print which stage parked this card, read from its comment thread"
