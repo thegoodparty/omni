@@ -34,6 +34,8 @@ export interface PhoneListStatusResponse {
   // list's raw membership.
   excludedOptedOutCount: number
   excludedDuplicatePhoneCount: number
+  // Optional: absent from an older gp-api response. ENG-11484.
+  excludedIncompleteAddressCount?: number
 }
 
 // The build-status poll's result, collapsed to the three states a caller

@@ -366,6 +366,22 @@ describe('SmsReviewStep follow-up', () => {
     expect(screen.getByText(FOLLOW_UP_NOTE)).toBeInTheDocument()
   })
 
+  it('names the contacts dropped for an incomplete address', async () => {
+    renderStep({ excludedIncompleteAddressCount: 1234 })
+
+    expect(await screen.findByText('Incomplete address removed')).toBeVisible()
+    expect(screen.getByText('1,234')).toBeVisible()
+  })
+
+  it('hides the incomplete-address row when none were dropped', async () => {
+    renderStep({ excludedIncompleteAddressCount: 0 })
+
+    await screen.findByText('Send date')
+    expect(
+      screen.queryByText('Incomplete address removed'),
+    ).not.toBeInTheDocument()
+  })
+
   it('shows no follow-up on an ordinary text', async () => {
     renderStep()
 

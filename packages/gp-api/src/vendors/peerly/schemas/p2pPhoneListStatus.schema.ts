@@ -9,6 +9,7 @@ const checkPhoneListStatusResponseSchema = z.object({
   // membership.
   excludedOptedOutCount: z.number(),
   excludedDuplicatePhoneCount: z.number(),
+  excludedIncompleteAddressCount: z.number(),
 })
 
 export class CheckPhoneListStatusResponseDto extends createZodDto(

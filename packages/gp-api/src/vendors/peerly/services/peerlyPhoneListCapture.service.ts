@@ -102,6 +102,7 @@ export class PeerlyPhoneListCaptureService extends createPrismaBase(
     recipients: { personId: string; phone: string }[]
     excludedOptedOutCount: number
     excludedDuplicatePhoneCount: number
+    excludedIncompleteAddressCount: number
   }): Promise<void> {
     const {
       buildId,
@@ -109,6 +110,7 @@ export class PeerlyPhoneListCaptureService extends createPrismaBase(
       recipients,
       excludedOptedOutCount,
       excludedDuplicatePhoneCount,
+      excludedIncompleteAddressCount,
     } = params
 
     await this.client.$transaction(
@@ -119,6 +121,7 @@ export class PeerlyPhoneListCaptureService extends createPrismaBase(
             token,
             excludedOptedOutCount,
             excludedDuplicatePhoneCount,
+            excludedIncompleteAddressCount,
             buildStatus: PhoneListBuildStatus.processing,
           },
         })

@@ -120,6 +120,9 @@ export type AudienceResolutionSummary = {
   // People dropped because an earlier person in the same resolution already
   // claimed their phone number. Surfaced for the send's review/audit counts.
   excludedDuplicatePhoneCount: number
+  // Rows with a phone that `isEligible` rejected (counted before the phone
+  // dedupe, so a duplicate is never also counted here).
+  excludedIneligibleCount: number
 }
 
 export type FilterAudienceOptions = {
@@ -248,6 +251,7 @@ export async function* resolveFilterAudience(
   // which is ambiguous when a phone maps to more than one capture row.
   const seenPhones = new Set<string>()
   let excludedDuplicatePhoneCount = 0
+  let excludedIneligibleCount = 0
   let resolvedCount = 0
   let stalledPages = 0
 
@@ -398,7 +402,10 @@ export async function* resolveFilterAudience(
       // guarantee a phone for rather than resolving an unusable recipient.
       if (!hasCellPhone(person)) continue
       if (!seenPhones.has(person.cellPhone)) sawUnseenPhone = true
-      if (isEligible && !isEligible(person)) continue
+      if (isEligible && !isEligible(person)) {
+        excludedIneligibleCount += 1
+        continue
+      }
       if (seenPhones.has(person.cellPhone)) {
         excludedDuplicatePhoneCount += 1
         continue
@@ -445,5 +452,5 @@ export async function* resolveFilterAudience(
     page += 1
   }
 
-  return { excludedDuplicatePhoneCount }
+  return { excludedDuplicatePhoneCount, excludedIneligibleCount }
 }

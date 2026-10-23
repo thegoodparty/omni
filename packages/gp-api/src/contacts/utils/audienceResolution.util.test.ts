@@ -245,6 +245,7 @@ describe('resolveFilterAudience', () => {
 
     expect(people.map((p) => p.id)).toEqual(['b'])
     expect(summary.excludedDuplicatePhoneCount).toBe(0)
+    expect(summary.excludedIneligibleCount).toBe(1)
   })
 
   it('refuses an over-cap filter on page 1, before resolving anything', async () => {

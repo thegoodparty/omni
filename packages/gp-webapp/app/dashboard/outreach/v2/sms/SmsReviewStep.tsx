@@ -97,6 +97,8 @@ interface SmsReviewStepProps {
   phoneListBuildId: string | null
   excludedOptedOutCount: number | null
   excludedDuplicatePhoneCount: number | null
+  // Optional so the other flows that render this step need no change.
+  excludedIncompleteAddressCount?: number | null
   // Pay-before-ready (Win SMS hold billing): the total is the pre-pay estimate,
   // a ceiling the capture bills down to the actual reachable list — so the pay
   // card states the price as a ceiling instead of a flat charge.
@@ -140,6 +142,7 @@ export const SmsReviewStep = ({
   phoneListBuildId,
   excludedOptedOutCount,
   excludedDuplicatePhoneCount,
+  excludedIncompleteAddressCount,
   priceIsCeiling = false,
   preparing,
   prepareError,
@@ -357,6 +360,16 @@ export const SmsReviewStep = ({
                 </dt>
                 <dd className="text-muted-foreground">
                   {excludedDuplicatePhoneCount.toLocaleString()}
+                </dd>
+              </div>
+            )}
+            {!!excludedIncompleteAddressCount && (
+              <div className="flex justify-between gap-4">
+                <dt className="text-muted-foreground">
+                  Incomplete address removed
+                </dt>
+                <dd className="text-muted-foreground">
+                  {excludedIncompleteAddressCount.toLocaleString()}
                 </dd>
               </div>
             )}

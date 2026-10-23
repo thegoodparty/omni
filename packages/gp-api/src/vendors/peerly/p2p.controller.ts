@@ -48,6 +48,7 @@ type ListStatusRow = Pick<
   | 'peerlyListId'
   | 'excludedOptedOutCount'
   | 'excludedDuplicatePhoneCount'
+  | 'excludedIncompleteAddressCount'
 >
 
 @Controller('p2p')
@@ -300,6 +301,7 @@ export class P2pController {
       // extra query is needed to surface them (ENG-10808).
       excludedOptedOutCount: row.excludedOptedOutCount,
       excludedDuplicatePhoneCount: row.excludedDuplicatePhoneCount,
+      excludedIncompleteAddressCount: row.excludedIncompleteAddressCount,
     }
   }
 }

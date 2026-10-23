@@ -10,6 +10,7 @@ const checkPhoneListBuildStatusReadyResponseSchema = z.object({
   leadsLoaded: z.number(),
   excludedOptedOutCount: z.number(),
   excludedDuplicatePhoneCount: z.number(),
+  excludedIncompleteAddressCount: z.number(),
 })
 
 export class CheckPhoneListBuildStatusReadyResponseDto extends createZodDto(

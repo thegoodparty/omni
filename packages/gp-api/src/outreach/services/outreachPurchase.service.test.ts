@@ -124,6 +124,7 @@ const CAPTURED_LIST_FIXTURE: PeerlyPhoneList = {
   buildAttempts: 0,
   excludedOptedOutCount: 0,
   excludedDuplicatePhoneCount: 0,
+  excludedIncompleteAddressCount: 0,
   sendCapTexts: null,
 }
 

@@ -2290,12 +2290,14 @@ export const SmsFlow = ({
                 leadsLoaded,
                 excludedOptedOutCount,
                 excludedDuplicatePhoneCount,
+                excludedIncompleteAddressCount,
               } = result
               setPhoneList({
                 phoneListId,
                 leadsLoaded,
                 excludedOptedOutCount,
                 excludedDuplicatePhoneCount,
+                excludedIncompleteAddressCount,
               })
               setStopPolling(true)
               // Terminal this tick -- told synchronously so a `ready` on the
@@ -2617,6 +2619,9 @@ export const SmsFlow = ({
             excludedOptedOutCount={phoneList?.excludedOptedOutCount ?? null}
             excludedDuplicatePhoneCount={
               phoneList?.excludedDuplicatePhoneCount ?? null
+            }
+            excludedIncompleteAddressCount={
+              phoneList?.excludedIncompleteAddressCount ?? null
             }
             // Pay-before-ready: the amount is the estimate ceiling the capture
             // bills down to the actual reachable list — the pay card says so.

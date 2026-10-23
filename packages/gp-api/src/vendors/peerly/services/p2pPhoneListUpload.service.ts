@@ -643,6 +643,7 @@ export class P2pPhoneListUploadService {
       csvBuffer: Buffer
       recipients: PhoneListRecipient[]
       excludedDuplicatePhoneCount: number
+      excludedIncompleteAddressCount: number
     }
     try {
       phoneList = await this.buildPhoneList(
@@ -683,7 +684,12 @@ export class P2pPhoneListUploadService {
       await this.markBuildFailed(buildId, buildError)
       throw buildError
     }
-    const { csvBuffer, recipients, excludedDuplicatePhoneCount } = phoneList
+    const {
+      csvBuffer,
+      recipients,
+      excludedDuplicatePhoneCount,
+      excludedIncompleteAddressCount,
+    } = phoneList
     if (recipients.length === 0) {
       const emptyAudienceError = new BadRequestException(
         'No contacts matched the filter with a valid phone number and ' +
@@ -749,6 +755,7 @@ export class P2pPhoneListUploadService {
       recipients,
       excludedOptedOutCount: excludePersonIds.size,
       excludedDuplicatePhoneCount,
+      excludedIncompleteAddressCount,
     })
 
     this.logger.debug(
@@ -792,6 +799,7 @@ export class P2pPhoneListUploadService {
     csvBuffer: Buffer
     recipients: PhoneListRecipient[]
     excludedDuplicatePhoneCount: number
+    excludedIncompleteAddressCount: number
   }> {
     const recipients: PhoneListRecipient[] = []
     const rows = [CSV_HEADER_ROW]
@@ -870,6 +878,10 @@ export class P2pPhoneListUploadService {
       // so that observability count is reported as 0 rather than a partial tally.
       excludedDuplicatePhoneCount: next.done
         ? next.value.excludedDuplicatePhoneCount
+        : 0,
+      // Same early-break caveat as the duplicate tally above.
+      excludedIncompleteAddressCount: next.done
+        ? next.value.excludedIneligibleCount
         : 0,
     }
   }
