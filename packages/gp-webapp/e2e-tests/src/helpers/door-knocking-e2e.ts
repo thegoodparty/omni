@@ -108,18 +108,30 @@ const toPixel = (view: MapView, point: LngLat): [number, number] => {
   ]
 }
 
-// Where a click is safe: inside the map, clear of the zoom/undo cluster on the
-// right and of the bottom sheet that covers the map below `lg`.
-const safeRect = (view: MapView) => ({
-  left: view.box.x + view.box.width * 0.08,
-  right: view.box.x + view.box.width * 0.72,
-  top: view.box.y + view.box.height * 0.08,
-  bottom: view.box.y + view.box.height * 0.6,
-})
+// Where a click is safe: inside the map, clear of the zoom/undo cluster in its
+// bottom-right corner, and, below `lg`, above the bottom sheet that covers the
+// lower half of the map.
+const LG_BREAKPOINT_PX = 1024
+const CLUSTER = { width: 300, height: 240 }
+
+const isSafe = (view: MapView, page: Page, [x, y]: [number, number]) => {
+  const { x: left, y: top, width, height } = view.box
+  const docked = (page.viewportSize()?.width ?? 0) >= LG_BREAKPOINT_PX
+  const bottom = top + height * (docked ? 0.95 : 0.5)
+  const inCluster =
+    x > left + width - CLUSTER.width && y > top + height - CLUSTER.height
+  return (
+    x >= left + width * 0.05 &&
+    x <= left + width * 0.95 &&
+    y >= top + height * 0.05 &&
+    y <= bottom &&
+    !inCluster
+  )
+}
 
 // Closest two vertices must stay further apart than the map's 8px vertex pick
 // radius, or a click would grab a vertex instead of placing one.
-const MIN_SPACING_PX = 40
+const MIN_SPACING_PX = 24
 
 const settledZoom = async (page: Page, before: number): Promise<void> => {
   const map = page.getByTestId('voter-map')
@@ -148,19 +160,15 @@ export const drawPolygon = async (
     0,
     ring[0] && sameVertex(ring[0], ring.at(-1)) ? -1 : undefined,
   )
-  const centroid: LngLat = [
-    corners.reduce((sum, [lng]) => sum + lng, 0) / corners.length,
-    corners.reduce((sum, [, lat]) => sum + lat, 0) / corners.length,
-  ]
-
+  // Never pans. A drag on the canvas is not a dependable way to move it (it
+  // did not move the camera on CI), and zooming about the centre is enough: at
+  // some whole zoom level the ring is both on screen and wide enough to click.
+  const tried = new Set<number>()
   for (let attempt = 0; attempt < 12; attempt++) {
     const view = await readMapView(page)
-    const rect = safeRect(view)
+    tried.add(view.zoom)
     const pixels = corners.map((corner) => toPixel(view, corner))
-    const inside = pixels.every(
-      ([x, y]) =>
-        x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom,
-    )
+    const inside = pixels.every((pixel) => isSafe(view, page, pixel))
     const spacing = Math.min(
       ...pixels.flatMap(([x, y], i) =>
         pixels.slice(i + 1).map(([ox, oy]) => Math.hypot(x - ox, y - oy)),
@@ -174,32 +182,17 @@ export const drawPolygon = async (
       return
     }
 
-    const map = page.getByTestId('voter-map')
-    const zoomBefore = view.zoom
-    const [cx, cy] = toPixel(view, centroid)
-    const mapCx = view.box.x + view.box.width / 2
-    const mapCy = view.box.y + view.box.height / 2
-    // Centre the ring in the safe area before changing zoom: zooming keeps the
-    // centre fixed, so an off-centre ring would only drift further out.
-    const targetX = (rect.left + rect.right) / 2
-    const targetY = (rect.top + rect.bottom) / 2
-    if (Math.hypot(cx - targetX, cy - targetY) > 24 && attempt < 6) {
-      const centerBefore = await map.getAttribute('data-map-center')
-      await page.mouse.move(mapCx, mapCy)
-      await page.mouse.down()
-      await page.mouse.move(mapCx + (targetX - cx), mapCy + (targetY - cy), {
-        steps: 10,
+    const zoomIn = inside && spacing < MIN_SPACING_PX
+    // Off screen at this zoom means a wider view; too small means a closer one.
+    // Stepping onto a zoom already tried means no level satisfies both.
+    if (tried.has(view.zoom + (zoomIn ? 1 : -1))) break
+    await page
+      .getByRole('button', {
+        name: zoomIn ? 'Zoom in' : 'Zoom out',
+        exact: true,
       })
-      await page.mouse.up()
-      await expect
-        .poll(() => map.getAttribute('data-map-center'))
-        .not.toBe(centerBefore)
-      continue
-    }
-
-    const zoomButton = spacing < MIN_SPACING_PX ? 'Zoom in' : 'Zoom out'
-    await page.getByRole('button', { name: zoomButton, exact: true }).click()
-    await settledZoom(page, zoomBefore)
+      .click()
+    await settledZoom(page, view.zoom)
   }
   throw new Error('could not frame the polygon on the map to draw it')
 }
