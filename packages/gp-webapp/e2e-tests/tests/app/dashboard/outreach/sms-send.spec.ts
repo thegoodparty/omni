@@ -370,14 +370,9 @@ test.describe('Win SMS send', () => {
   }) => {
     test.setTimeout(5 * 60 * 1000)
 
-    // Assumes win_sms_hold_billing is off for the user: the build then runs in
-    // the upload request, so its failure lands on the audience step. With the
-    // flag on the build is queued and a failure shows on the review step.
-
     const { client, campaignId, filterName } = await setUpWinSmsCandidate(page)
 
-    // No checkout session may exist before the retry succeeds: the review step
-    // is what requests one.
+    // No checkout session may exist before the retry succeeds.
     const checkoutSessions: string[] = []
     page.on('request', (req) => {
       if (
@@ -397,28 +392,41 @@ test.describe('Win SMS send', () => {
     await mockAction(client, campaignId, 'peerly.phonelist.fail')
     await page.getByRole('button', { name: /^Continue/ }).click()
 
-    // The audience step stays put, shows the inline error and relabels
-    // Continue as "Try again".
-    await expect(
-      page.getByText("We couldn't prepare this audience. Try again."),
-    ).toBeVisible({ timeout: 30_000 })
+    // The error copy is the same on both surfaces, but where it lands depends
+    // on win_sms_hold_billing. Off: the build runs inside the upload request,
+    // the audience step stays put and Continue is relabelled "Try again". On:
+    // the build is queued, the flow moves on to compose and the failure shows
+    // as a card on the review step.
+    const failure = page.getByText(
+      "We couldn't prepare this audience. Try again.",
+    )
     const tryAgain = page.getByRole('button', { name: 'Try again' })
-    await expect(tryAgain).toBeEnabled()
+    const composeHeading = page.getByText('What do you want to say?').first()
+    await expect(failure.or(composeHeading)).toBeVisible({ timeout: 30_000 })
+
+    if (await failure.isVisible()) {
+      await expect(tryAgain).toBeEnabled()
+      expect(checkoutSessions).toEqual([])
+      await tryAgain.click()
+      await expect(failure).toBeHidden({ timeout: 30_000 })
+      await composeAndSchedule(page)
+    } else {
+      await composeAndSchedule(page)
+      await expect(failure).toBeVisible({ timeout: 60_000 })
+      await expect(tryAgain).toBeEnabled()
+      expect(checkoutSessions).toEqual([])
+      await tryAgain.click()
+      await expect(failure).toBeHidden({ timeout: 30_000 })
+    }
     expect(checkoutSessions).toEqual([])
 
-    // The flag is consumed, so the retry builds the list and moves on.
-    await tryAgain.click()
-    await expect(
-      page.getByText("We couldn't prepare this audience. Try again."),
-    ).toBeHidden({ timeout: 30_000 })
-    await composeAndSchedule(page)
-    expect(checkoutSessions).toEqual([])
-
+    // The flag is consumed, so the rebuilt list finishes and review renders.
     await withGatewayRetry('p2p.phoneListFinish', () =>
       runJob(client, 'p2p.phoneListFinish'),
     )
     await expect(
       page.getByRole('heading', { name: /Review (& pay|and send)/ }).first(),
     ).toBeVisible({ timeout: 30_000 })
+    await expect(failure).toBeHidden()
   })
 })
