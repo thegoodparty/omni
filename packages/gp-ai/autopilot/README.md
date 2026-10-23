@@ -396,14 +396,28 @@ hits them, and where it ends if nothing does:
    resume must never race this free check for the same park.
 
 5. **Auto-resume** (`sweep.auto_resume_actionable_parks`) retries a parked
-   story whose park is a status note or a stranded run, not a question — see
-   its own docstring for the exact skip list (QA-failed parks, any park with a
-   reply already posted, merge-pending parks). Deduped per park instance on
-   the park comment's own id, so a fresh re-park always earns exactly one more
-   try. Bounded by `AUTO_RESUME_MAX_PARKS` (10) — a count of park markers on
-   the thread, not a relapse streak, because a healthy story legitimately
-   accrues several along the way (merge-pending, deploy-pending, a stranded
-   run).
+   story only when the park is a mechanical status note, never a real
+   question. An allowlist (`router.is_auto_resumable_park`) of question
+   prefixes decides: `Deploy pending:` (qa.md) and the two stranded-run texts
+   `feedback.park_if_stranded` writes. Anything else (a free-form agent
+   question, `QA failed:`, `Merge pending:`) is skipped and waits for a human
+   reply, which resumes through the normal comment route. The stranded-run
+   prefix is kept in sync with `agent/feedback.py` by a test. Also skipped: any
+   park with a reply already posted, and merge-pending parks (resolved by the
+   sweep itself). Deduped per park instance on the park comment's own id, so a
+   fresh re-park always earns exactly one more try. Bounded by
+   `AUTO_RESUME_MAX_PARKS` (10), a count of park markers on the thread, not a
+   relapse streak, because a healthy story legitimately accrues several along
+   the way (merge-pending, deploy-pending, a stranded run).
+
+   Before dispatching, the sweep also checks the thread's last two run
+   summaries (`router.repeated_failure`): if both ended in the same failure outcome (`deadline_exceeded`, `budget_exhausted` or
+   `error`), the cause is likely environmental, so it escalates through the
+   dead-letter path below ("two consecutive <stage> runs ended <outcome>")
+   instead of a third lap. A park, a success, or two different failures
+   between them reset the streak, and the newest failing run must have reported
+   after the current park (so a human re-parking after removing the tag is not
+   re-escalated by stale history). Human-initiated resumes are unaffected.
 
 6. **Dead-letter tag: what happens when the retry budget runs out.**
    Hitting `AUTO_RESUME_MAX_PARKS` on a story does not retry again — it ends
