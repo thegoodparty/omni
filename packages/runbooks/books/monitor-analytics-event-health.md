@@ -209,7 +209,7 @@ A row looks like:
   - {event: "Briefing Assistant - Attachment Clicked", reason: "UI micro-interaction, not a funnel milestone", date: "2026-08-06"}
 ```
 
-Findings appear in the Slack digest thread under "Product labels" and in the triage skill's Labels queue.
+Findings appear in the Slack digest thread under "Product labels" and in the triage skill's Queue E.
 
 ## Stage 4 — metadata remediation (description backfill)
 

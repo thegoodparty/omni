@@ -549,7 +549,7 @@ def build_digest_blocks(
     if label_findings:
         rows = "\n".join(f"• `{r['event_type']}`  {r['kind']}" for r in label_findings[:TRANSITION_CAP])
         if len(label_findings) > TRANSITION_CAP:
-            rows += f"\n…and {len(label_findings) - TRANSITION_CAP} more (see the sheet)"
+            rows += f"\n…and {len(label_findings) - TRANSITION_CAP} more (see the run log)"
         thread.append(_section(f"*Product labels*\n{rows}"))
     if sc:
         thread.append(_section(f"*Status breakdown*\n{breakdown}"))
@@ -641,7 +641,7 @@ def _build_tiered_blocks(
     if label_findings:
         rows = "\n".join(f"• `{r['event_type']}`  {r['kind']}" for r in label_findings[:TRANSITION_CAP])
         if len(label_findings) > TRANSITION_CAP:
-            rows += f"\n…and {len(label_findings) - TRANSITION_CAP} more (see the sheet)"
+            rows += f"\n…and {len(label_findings) - TRANSITION_CAP} more (see the run log)"
         thread.append(_section(f"*Product labels*\n{rows}"))
     removals = result.get("removal_proposals") or []
     if removals:
