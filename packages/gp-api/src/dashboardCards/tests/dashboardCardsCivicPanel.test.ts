@@ -715,7 +715,7 @@ describe('GET /v1/dashboard/cards: the managed panel progress card', () => {
       title: 'Your civic panel is filling up',
       summary:
         '12 of 100 residents have joined. More invites go out Tuesday, November 3.',
-      ctaLabel: 'See your panel',
+      ctaLabel: 'See your civic panel',
       ctaHref: '/dashboard/contacts/citizens-panel',
       sourceItemId: 'building',
     })

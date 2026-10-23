@@ -1,4 +1,4 @@
-import { randomInt, randomUUID } from 'node:crypto'
+import { randomUUID } from 'node:crypto'
 import { addDays, addYears, format } from 'date-fns'
 import { expect, test, type Page } from '@playwright/test'
 import type { AxiosInstance } from 'axios'
@@ -15,6 +15,7 @@ import {
   peerlyAction,
   runJob,
 } from 'src/helpers/vendor-mocks.helper'
+import { uniqueEin } from 'src/helpers/pro-upgrade.helper'
 import { authenticateTestUser } from 'tests/utils/api-registration'
 import { withGatewayRetry } from 'tests/utils/headless-user'
 
@@ -40,16 +41,6 @@ type TcrComplianceMine = { status?: string | null }
 
 // Default Campaign Verify PIN of the Peerly 10DLC mock.
 const MOCK_CV_PIN = '123456'
-
-// A fresh EIN per registration (47 is an IRS-issued prefix, so the wizard's
-// sanity check passes). The Peerly mock ties an identity to a campaign through
-// the EIN in the identity name, newest TcrCompliance row first. A shared EIN
-// let a parallel test's campaign claim this one's identity, leaving this
-// campaign without Peerly records.
-const uniqueEin = (): string => {
-  const serial = String(randomInt(0, 10_000_000)).padStart(7, '0')
-  return `47-${serial}`
-}
 
 const BIO =
   'I am running for City Council because our neighborhood deserves a ' +

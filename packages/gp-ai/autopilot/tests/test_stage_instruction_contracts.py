@@ -103,6 +103,13 @@ def test_story_covers_its_load_bearing_directives():
     assert "MERGE" in text, "must require the confirmation command to print MERGE"
 
     assert "delegate review" in text, "must re-trigger delegate after every push"
+    # ENG-11462: in-scope option findings are decided, not parked on.
+    flat = " ".join(text.split())
+    assert "most consistent with the ticket's acceptance criteria" in flat, (
+        "must choose the recommended option on in-scope delegate choices instead of parking"
+    )
+    assert "the alternative, and why" in flat, "decision comment must name chosen, alternative and why"
+    assert "needs another ticket's files" in flat, "must keep the narrow park conditions"
     # The exact trigger form is load-bearing: a live PR stalled for hours on
     # "/delegate review" comments the reviewer never answered.
     assert "no leading slash" in text, "must pin the exact trigger form — slash-prefixed triggers are silently dead"
@@ -275,6 +282,14 @@ def test_resume_fixes_a_red_merge_pending_pr_and_reparks_with_await_merge():
     assert "can't merge as-is" in text, "must recognize the sweep's red-PR comment that triggers this resume"
     assert "git merge origin/main" in text, "a conflict is fixed by merging main, never rebase or force-push"
     assert "feedback await-merge" in text, "after fixing, the story must re-park with await-merge"
+
+
+def test_resume_applies_the_story_option_rule():
+    flat = " ".join(_read("resume").split())
+    assert "most consistent with the ticket's acceptance criteria" in flat, (
+        "resumed story work must apply the choose-and-record rule"
+    )
+    assert "(chosen, alternative, why)" in flat, "resume must specify the decision comment format"
 
 
 # ---------------------------------------------------------------------------

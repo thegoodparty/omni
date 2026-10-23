@@ -906,6 +906,10 @@ export const EVENTS = {
     // name: what a person said is not an analytics payload.
     ReportViewed: 'Issue Capture - Report Viewed',
     SynthesisRequested: 'Issue Capture - Synthesis Requested',
+    // A theme opened from the report: where it ranked and how many
+    // conversations it holds, never its title.
+    ThemeViewed: 'Issue Capture - Theme Viewed',
+    NotesDownloaded: 'Issue Capture - Notes Downloaded',
     // The offline path: a memo recorded with no signal, and the moment it
     // reaches the server.
     MemoQueuedOffline: 'Issue Capture - Memo Queued Offline',
