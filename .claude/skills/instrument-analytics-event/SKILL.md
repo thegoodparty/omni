@@ -162,11 +162,11 @@ Naming and governance are adopted from the Analytics Event Tracking Guide (produ
 
    Key format stays camelCase: `<collection><N><Field>`, 1-based. Cap `N` at a fixed, documented max (e.g. top 5 by rank) so the property set stays bounded and predefinable in HubSpot, and keep the true total in a `<collection>Count` prop. This applies to **any** event a user email is built from, not just this one.
 
-6. **Record the event's metadata (frontend/client events).**
+6. **Record the event's metadata (frontend and backend events).**
 
    **If this change only removes a frontend `trackEvent` call (no new event is being added),** skip directly to "When a change removes an event" below, complete the RETIRE handoff (including its CSV step), then go to step 8.
 
-   A new event is illegible later without its governance metadata. For a new **frontend** event, hand off to the **`event-metadata`** skill, which writes the purpose, status, product tag, and supersession lineage into Amplitude. Pass an ADD payload — you supply hints, it owns the write and the human confirmations:
+   A new event is illegible later without its governance metadata. For a new event, frontend or backend, hand off to the **`event-metadata`** skill, which writes the purpose, status, product tag, and supersession lineage into Amplitude. Pass an ADD payload — you supply hints, it owns the write and the human confirmations:
    - `mode=add`,
    - `event` = the Title Case event-name string you just registered (e.g. `Briefing Assistant - Agenda Submitted`),
    - `purposeDraft` = the one-line question this event answers (you already reasoned about this when naming it),
@@ -176,14 +176,12 @@ Naming and governance are adopted from the Analytics Event Tracking Guide (produ
    Include a `surface:` tag for every new event: the nav label, or the page title for a
    page not in the nav, lower-kebab. It is part of done.
 
-   Backend (`segment.types.ts`) events are out of scope for metadata for now (ClickUp 86aj7bdkp) — skip the handoff for them.
-
    If this change also **removes** a frontend `trackEvent` call, go to "When a change removes an event" below and complete the RETIRE handoff (including its CSV step), then complete steps 7–8.
 
 7. **Record code provenance (frontend AND backend).**
 
-   Unlike the metadata handoff above (client-only), this step runs for **every** event you
-   instrument — frontend or backend. It writes a *provisional* row into the omni provenance
+   Like the metadata handoff above, this step runs for **every** event you
+   instrument, frontend or backend. It writes a *provisional* row into the omni provenance
    CSV (`packages/runbooks/scripts/python/instrumentation_data/amplitude_event_provenance.csv`),
    the curated summary of instrumentation-related git events in this repo, read by the
    DATA-1952 monitor. Resolve the PR number once (`gh pr view --json number -q .number` on the
@@ -192,7 +190,8 @@ Naming and governance are adopted from the Analytics Event Tracking Guide (produ
    ```bash
    uv run --project packages/runbooks/scripts/python \
      python packages/runbooks/scripts/python/amplitude_event_provenance_backfill.py \
-     upsert --event "Briefing Assistant - Agenda Submitted" --direction add --pr 1234
+     upsert --event "Briefing Assistant - Agenda Submitted" --direction add --pr 1234 \
+     --product <win|serve|shared>
    ```
 
    The engine stores the PR as a full link (`https://github.com/thegoodparty/omni/pull/1234`),
@@ -200,6 +199,9 @@ Naming and governance are adopted from the Analytics Event Tracking Guide (produ
    periodic git-walk (`packages/runbooks/books/refresh-event-provenance.md`) to fill. The skill is the freshness
    writer; the walk is the truth writer. Do not hand-edit the CSV — always go through `upsert`
    so the file's sort and quoting stay identical to a full walk.
+
+   Every new event gets a product label, so the warehouse counts it. The analytics guard
+   warns when a new event has none; proceed or consciously skip, the warning never blocks.
 
    If you upserted before the PR existed, re-run the same command with `--pr` once it is
    open. `add` fills an empty `instrumented_pr` and never overwrites one already recorded,
@@ -269,6 +271,8 @@ A hook runs `governance_guard.py` after every edit to code that sends events, an
   **Relabel, do not rename**: leave the event name in code alone and add the
   `relabels:` row the warning prints to `monitored_events.yaml`, with the human's reason.
   Triage writes it to Govern after merge.
+- **A new event has no product label** (`no_product_label`, a warning, never a block).
+  Re-run the step 7 upsert with `--product <win|serve|shared>`.
 
 Before finishing any change that touches events, run it yourself:
 `cd packages/runbooks/scripts/python && uv run governance_guard.py check --base $(git merge-base origin/main HEAD)`.

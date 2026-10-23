@@ -36,6 +36,8 @@ Regenerate the committed Amplitude event git-provenance dataset (the curated sum
 
 Core columns produced by the backfill walk:
 
+- `product` — `win`, `serve` or `shared`, written by the skill's `upsert --product`, never by the walk. The walk (incremental or full) carries an existing row's value forward, and a blank one stays blank. It does not count as code evidence, so a row with only a product still expires as blank.
+
 - `retired_date` / `retired_commit` / `retired_pr` — when the event's **name** left the
   codebase. Written only when the name string is absent from the instrumentation paths
   at HEAD and the walk has history for it (`classify_code_status` returning `removed`).
