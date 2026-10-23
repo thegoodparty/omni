@@ -865,3 +865,17 @@ def test_stranded_park_names_the_branch_and_open_pr(tmp_path, monkeypatch):
     assert "story-branch" in comments[0]
     assert "https://github.com/o/r/pull/7" in comments[0]
     assert "adopt that PR" in comments[0]
+
+
+def test_preserve_work_treats_an_empty_pr_lookup_as_no_pr(tmp_path, monkeypatch):
+    _, work = _repo_with_unpushed_commit(tmp_path)
+    real_run = feedback.subprocess.run
+
+    def fake_run(cmd, *args, **kwargs):
+        if cmd[0] == "gh":
+            return feedback.subprocess.CompletedProcess(cmd, 0, stdout="null\n", stderr="")
+        return real_run(cmd, *args, **kwargs)
+
+    monkeypatch.setattr(feedback.subprocess, "run", fake_run)
+
+    assert feedback.preserve_work(str(work))["pr_url"] is None

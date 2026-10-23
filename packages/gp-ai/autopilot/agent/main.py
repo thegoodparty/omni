@@ -232,7 +232,8 @@ async def _run_session(config: AgentConfig, prompt: str, options: ClaudeAgentOpt
     result = await _consume_agent_stream(config, prompt, options)
     if result.get("status") != "success" or not result.get("session_id"):
         return result
-    status = _stranded_status_for_nudge(config)
+    # Off the event loop: the ClickUp client is synchronous, and a slow call here would hold off the deadline.
+    status = await asyncio.to_thread(_stranded_status_for_nudge, config)
     if status is None:
         return result
     remaining = config.max_budget_usd - (result.get("cost_usd") or 0.0)

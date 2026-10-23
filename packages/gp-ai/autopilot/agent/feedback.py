@@ -376,7 +376,7 @@ def preserve_work(repo_dir: str | None) -> dict | None:
     pr_url = None
     try:
         listed = subprocess.run(
-            ["gh", "pr", "list", "--head", branch, "--state", "open", "--json", "url", "--jq", ".[0].url"],
+            ["gh", "pr", "list", "--head", branch, "--state", "open", "--json", "url", "--jq", ".[0].url // empty"],
             cwd=repo_dir,
             capture_output=True,
             text=True,
@@ -384,6 +384,8 @@ def preserve_work(repo_dir: str | None) -> dict | None:
             check=True,
         )
         pr_url = listed.stdout.strip() or None
+        if pr_url == "null":
+            pr_url = None
     except Exception as e:
         logger.error(f"Could not look up an open PR for branch {branch}: {type(e).__name__}: {e}")
     return {"branch": branch, "pr_url": pr_url}
