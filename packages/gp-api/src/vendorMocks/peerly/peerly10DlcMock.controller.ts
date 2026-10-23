@@ -636,9 +636,7 @@ export class Peerly10DlcMockController {
       profile: {
         account_id: accountId,
         base_account_id: accountId,
-        ...(profile.campaignVerifyToken
-          ? { campaignVerifyToken: profile.campaignVerifyToken }
-          : {}),
+        campaignVerifyToken: profile.campaignVerifyToken,
         campaigns: {},
         city: str(source, 'city'),
         companyName: str(source, 'companyName'),
