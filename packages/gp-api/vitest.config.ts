@@ -1,9 +1,44 @@
 import { resolve } from 'path'
 import dotenv from 'dotenv'
+import { sync as glob } from 'fast-glob'
 import { readFileSync } from 'fs'
 import swc from 'unplugin-swc'
 import tsconfigPaths from 'vite-tsconfig-paths'
-import { coverageConfigDefaults, defineConfig } from 'vitest/config'
+import {
+  configDefaults,
+  coverageConfigDefaults,
+  defineConfig,
+} from 'vitest/config'
+
+// deploy/ is excluded from tsconfig and the lint glob (it resolves against
+// Pulumi's separate dependency tree), but the alert definitions under it
+// are plain functions, and a wrong one is only ever discovered by a page
+// that misleads whoever it wakes.
+// seed/ is here for the same reason as deploy/: it is not application code,
+// but it writes to a real database and its mistakes are invisible until
+// someone hits them in a preview environment days later.
+const TEST_FILES = [
+  'src/**/*.test.ts',
+  'scripts/**/*.test.ts',
+  'perf/**/*.test.ts',
+  'deploy/**/*.test.ts',
+  'seed/**/*.test.ts',
+]
+
+// Most of a file's cost is importing the app graph (~1,200 modules for
+// anything that boots AppModule), not running its tests, so the default
+// project reuses each worker's module cache across files (isolate: false).
+// That is only safe for files that leave the module graph alone: vi.mock
+// swaps a module for the whole worker, so a file that mocks one either sees a
+// copy an earlier file already cached or leaks its mock into the next. Those
+// files get a fresh module graph each, as before.
+const MODULE_MOCKING = /\bvi\.(mock|doMock|unmock|resetModules)\(/
+const needsFreshModules = glob(TEST_FILES, {
+  cwd: __dirname,
+  ignore: ['**/node_modules/**'],
+}).filter((file) =>
+  MODULE_MOCKING.test(readFileSync(resolve(__dirname, file), 'utf8')),
+)
 
 export default defineConfig({
   // We have to disable esbuild and use swc because esbuild doesn't support
@@ -55,20 +90,6 @@ export default defineConfig({
       // Pulumi has applied them — the thresholds below are calibrated on src/.
       exclude: [...coverageConfigDefaults.exclude, 'perf/**', 'deploy/**'],
     },
-    // deploy/ is excluded from tsconfig and the lint glob (it resolves against
-    // Pulumi's separate dependency tree), but the alert definitions under it
-    // are plain functions, and a wrong one is only ever discovered by a page
-    // that misleads whoever it wakes.
-    // seed/ is here for the same reason as deploy/: it is not application code,
-    // but it writes to a real database and its mistakes are invisible until
-    // someone hits them in a preview environment days later.
-    include: [
-      'src/**/*.test.ts',
-      'scripts/**/*.test.ts',
-      'perf/**/*.test.ts',
-      'deploy/**/*.test.ts',
-      'seed/**/*.test.ts',
-    ],
     env: dotenv.parse(readFileSync(`${__dirname}/.env.test`)),
     clearMocks: true,
     // Vitest's default is 5s, which is too tight for the route tests: each one
@@ -85,5 +106,23 @@ export default defineConfig({
     // are already core-constrained (and shard across several jobs), so this
     // only changes local behavior.
     maxWorkers: process.env.CI ? undefined : 4,
+    projects: [
+      {
+        extends: true,
+        test: {
+          name: 'shared-modules',
+          include: TEST_FILES,
+          exclude: [...configDefaults.exclude, ...needsFreshModules],
+          isolate: false,
+        },
+      },
+      {
+        extends: true,
+        test: {
+          name: 'fresh-modules',
+          include: needsFreshModules,
+        },
+      },
+    ],
   },
 })
