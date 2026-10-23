@@ -59,6 +59,8 @@ Single trunk: `main` is the one long-lived branch and the default branch; all PR
 
 Vitest + React Testing Library + jsdom. Test globals enabled (no imports needed for `describe`, `it`, `expect`, `vi`).
 
+Most files run in the `vm` project (`pool: 'vmForks'`): a fresh jsdom and module graph per file, inside a long-lived worker, which is what keeps per-file overhead low. There the global object is jsdom's own window, so `window.location` and `document` cannot be redefined. `vitest.config.ts` sends any file that does `Object.defineProperty(window, 'location' | 'document', ...)` or `vi.stubGlobal('location' | 'document', ...)` to the `forks` project, where they can be. Node globals that jsdom's window lacks (web streams, `PerformanceObserver`) are added in `vitest.vm-globals.ts`.
+
 After refactoring a component, run `npm run test` locally and update any tests that reference old selectors (e.g. library-specific CSS classes like `.Mui-error`), old copy, or old component APIs before pushing. Do not rely on CI to catch these — fix them first.
 
 ### Targeted runs
