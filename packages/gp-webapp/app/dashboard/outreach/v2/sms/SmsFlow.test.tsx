@@ -3089,5 +3089,4 @@ describe('SuccessScreen receipt', () => {
       await screen.findByText('SMS campaign, 1,200 constituents'),
     ).toBeInTheDocument()
   })
-
 })

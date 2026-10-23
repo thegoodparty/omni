@@ -85,7 +85,10 @@ export const CreateCampaignSuccess = ({
           </ConfettiBurst>
         </div>
         <div>
-          <h2 className="text-2xl font-semibold">
+          <h2
+            className="text-2xl font-semibold"
+            data-testid="door-knocking-create-success-title"
+          >
             {SUCCESS_TITLE[isServe ? 'serve' : 'win']}
           </h2>
           <p className="mt-1 text-base font-medium">{campaignName}</p>

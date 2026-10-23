@@ -146,8 +146,8 @@ test.describe('priority door card round trip', () => {
       .click({ timeout: 60_000 })
 
     await expect(
-      page.getByRole('heading', { name: 'Your campaign is ready' }),
-    ).toBeVisible({ timeout: 120_000 })
+      page.getByTestId('door-knocking-create-success-title'),
+    ).toHaveText('Your door knocking campaign is ready', { timeout: 120_000 })
     await page.getByRole('button', { name: 'Done', exact: true }).click()
 
     // A fresh load of the priority takes about a second, so 15s is generous.
