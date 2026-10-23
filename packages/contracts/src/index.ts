@@ -230,6 +230,12 @@ export {
   MANAGED_CIVIC_PANEL_EXHAUSTED_MESSAGE,
 } from './people/ManagedCivicPanel.schema'
 export {
+  MANAGED_CIVIC_PANEL_HOW_IT_WORKS,
+  managedCivicPanelOneInN,
+  managedCivicPanelExplanation,
+  managedCivicPanelHowItWorks,
+} from './people/ManagedCivicPanelExplainer'
+export {
   isCivicPanelOnlyList,
   type CivicPanelOnlyCriteria,
 } from './people/CivicPanelOnlyList'
@@ -553,7 +559,7 @@ export {
   OrganizationWithStatusSchema,
   type OrganizationWithStatus,
 } from './campaigns/Organization.schema'
-export { cityFromDistrictName } from './campaigns/DistrictCity'
+export { cityFromDistrictName, cityNameCase } from './campaigns/DistrictCity'
 
 export {
   ElectedOfficeSchema,
