@@ -392,32 +392,42 @@ test.describe('Win SMS send', () => {
     await mockAction(client, campaignId, 'peerly.phonelist.fail')
     await page.getByRole('button', { name: /^Continue/ }).click()
 
-    // The error copy is the same on both surfaces, but where it lands depends
-    // on win_sms_hold_billing. Off: the build runs inside the upload request,
-    // the audience step stays put and Continue is relabelled "Try again". On:
-    // the build is queued, the flow moves on to compose and the failure shows
-    // as a card on the review step.
+    // Where the failure lands is decided by win_sms_hold_billing, which gp-api
+    // evaluates per user in Amplitude and the test cannot force. Read the
+    // user's resolved value and assert the one surface it implies, so a
+    // regression on either surface fails instead of passing through the other.
+    // Off: the build runs inside the upload request, the audience step stays
+    // put and Continue is relabelled "Try again". On: the build is queued, the
+    // flow moves on to compose and the failure shows as a card on review.
+    const { data: flags } = await client.get<{
+      variants: Record<string, { value?: string }>
+    }>('/v1/experiment/variants')
+    const holdBilling = flags.variants['win_sms_hold_billing']?.value === 'on'
+    test.info().annotations.push({
+      type: 'win_sms_hold_billing',
+      description: holdBilling ? 'on: review-step card' : 'off: audience step',
+    })
+
     const failure = page.getByText(
       "We couldn't prepare this audience. Try again.",
     )
     const tryAgain = page.getByRole('button', { name: 'Try again' })
-    const composeHeading = page.getByText('What do you want to say?').first()
-    await expect(failure.or(composeHeading)).toBeVisible({ timeout: 30_000 })
 
-    if (await failure.isVisible()) {
-      await expect(tryAgain).toBeEnabled()
-      expect(checkoutSessions).toEqual([])
-      await tryAgain.click()
-      await expect(failure).toBeHidden({ timeout: 30_000 })
-      await composeAndSchedule(page)
-    } else {
+    if (holdBilling) {
+      await expect(
+        page.getByText('What do you want to say?').first(),
+      ).toBeVisible({ timeout: 30_000 })
       await composeAndSchedule(page)
       await expect(failure).toBeVisible({ timeout: 60_000 })
-      await expect(tryAgain).toBeEnabled()
-      expect(checkoutSessions).toEqual([])
-      await tryAgain.click()
-      await expect(failure).toBeHidden({ timeout: 30_000 })
+    } else {
+      await expect(failure).toBeVisible({ timeout: 30_000 })
     }
+    await expect(tryAgain).toBeEnabled()
+    expect(checkoutSessions).toEqual([])
+
+    await tryAgain.click()
+    await expect(failure).toBeHidden({ timeout: 30_000 })
+    if (!holdBilling) await composeAndSchedule(page)
     expect(checkoutSessions).toEqual([])
 
     // The flag is consumed, so the rebuilt list finishes and review renders.
