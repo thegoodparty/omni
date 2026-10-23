@@ -203,6 +203,13 @@ The digest's **Labels** section lists events whose Govern product label (`win`, 
 If an event should stay as it is, add it to `dismissed:` in `monitored_events.yaml` and
 the finding stops. Dismissing silences both kinds for that event. The `dismissed:` list is
 shared with watchlist proposals, so dismissing an event for one also hides it from the other.
+A row looks like:
+
+```yaml
+  - {event: "Briefing Assistant - Attachment Clicked", reason: "UI micro-interaction, not a funnel milestone", date: "2026-08-06"}
+```
+
+Findings appear in the Slack digest thread under "Product labels" and in the triage skill's Labels queue.
 
 ## Stage 4 — metadata remediation (description backfill)
 

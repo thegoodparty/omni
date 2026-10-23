@@ -1,6 +1,6 @@
 ---
 name: event-metadata
-description: Write an analytics event's governance metadata (purpose, status, supersession lineage, product tag) into Amplitude — when adding a new client event, retiring or superseding one, or enriching/backfilling an existing event that is missing metadata. Called by instrument-analytics-event after it registers a new event, and runnable standalone for governance updates after an audit. Client (Amplitude) events only.
+description: Write an analytics event's governance metadata (purpose, status, supersession lineage, product tag) into Amplitude — when adding a new event, retiring or superseding one, or enriching/backfilling an existing event that is missing metadata. Called by instrument-analytics-event after it registers a new event, and runnable standalone for governance updates after an audit.
 ---
 
 # Write event metadata to Amplitude

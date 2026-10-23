@@ -494,6 +494,7 @@ def build_digest_blocks(
     n_changes = sum(len(changes.get(k, [])) for k in ("new", "escalated", "resolved"))
     anomalies = _new_anomalies(result, prior_anomalous)
     proposals = result.get("proposals") or []
+    label_findings = result.get("label_findings") or []
     link = sheet_url()
 
     parent: list[dict] = [
@@ -514,6 +515,8 @@ def build_digest_blocks(
         headline_bits.append(f"⚠️ {len(anomalies)} new firing anomal{'y' if len(anomalies) == 1 else 'ies'}")
     if proposals:
         headline_bits.append(f"💡 {len(proposals)} watchlist proposal{'' if len(proposals) == 1 else 's'}")
+    if label_findings:
+        headline_bits.append(f"🏷 {len(label_findings)} label finding{'' if len(label_findings) == 1 else 's'}")
     if headline_bits:
         parent.append(_context(" · ".join(headline_bits)))
 
@@ -543,6 +546,11 @@ def build_digest_blocks(
         if len(proposals) > TRANSITION_CAP:
             rows += f"\n…and {len(proposals) - TRANSITION_CAP} more (see the sheet)"
         thread.append(_section(f"*Watchlist proposals*\n{rows}"))
+    if label_findings:
+        rows = "\n".join(f"• `{r['event_type']}`  {r['kind']}" for r in label_findings[:TRANSITION_CAP])
+        if len(label_findings) > TRANSITION_CAP:
+            rows += f"\n…and {len(label_findings) - TRANSITION_CAP} more (see the sheet)"
+        thread.append(_section(f"*Product labels*\n{rows}"))
     if sc:
         thread.append(_section(f"*Status breakdown*\n{breakdown}"))
     if not thread:
@@ -571,6 +579,7 @@ def _build_tiered_blocks(
     yellow = _tier_items(triage, "yellow")
     fyi = _tier_items(triage, "fyi")
     proposals = result.get("proposals") or []
+    label_findings = result.get("label_findings") or []
     link = sheet_url()
 
     parent: list[dict] = [_header(f"📊 Analytics event health — {result.get('run_date')}")]
@@ -588,6 +597,8 @@ def _build_tiered_blocks(
         fyi_bits.append(f"{len(fyi)} informational change{'' if len(fyi) == 1 else 's'}")
     if proposals:
         fyi_bits.append(f"{len(proposals)} watchlist proposal{'' if len(proposals) == 1 else 's'}")
+    if label_findings:
+        fyi_bits.append(f"{len(label_findings)} label finding{'' if len(label_findings) == 1 else 's'}")
     new_removals = result.get("new_removal_proposals") or []
     if new_removals:
         fyi_bits.append(
@@ -627,6 +638,11 @@ def _build_tiered_blocks(
         if len(proposals) > TRANSITION_CAP:
             rows += f"\n…and {len(proposals) - TRANSITION_CAP} more (see the sheet)"
         thread.append(_section(f"*Watchlist proposals*\n{rows}"))
+    if label_findings:
+        rows = "\n".join(f"• `{r['event_type']}`  {r['kind']}" for r in label_findings[:TRANSITION_CAP])
+        if len(label_findings) > TRANSITION_CAP:
+            rows += f"\n…and {len(label_findings) - TRANSITION_CAP} more (see the sheet)"
+        thread.append(_section(f"*Product labels*\n{rows}"))
     removals = result.get("removal_proposals") or []
     if removals:
         fresh = [r for r in removals if r["event_type"] in set(new_removals)]

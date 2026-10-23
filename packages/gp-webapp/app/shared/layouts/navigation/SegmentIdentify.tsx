@@ -62,7 +62,7 @@ const SegmentIdentify = (): null => {
 
   // Kept as its own effect (not folded into identify()) because the actor
   // role and active product change on an org switch alone, without user
-  // identity changing — re-running the UTM/CLID persistence above on every
+  // identity changing: re-running the UTM/CLID persistence above on every
   // org switch would be wasted work for a value that doesn't depend on it.
   useEffect(() => {
     setActorUserId(user?.id)

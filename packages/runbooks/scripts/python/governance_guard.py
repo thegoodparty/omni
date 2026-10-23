@@ -925,8 +925,8 @@ def new_key_warnings(base: Snapshot, head: Snapshot) -> list[Finding]:
         elif not head.provenance_products.get(name):
             out.append(Finding("no_product_label", "warn", name,
                                "New event with no product label.",
-                               "Run the instrument-analytics-event skill's metadata step and pass "
-                               "--product to the provenance upsert."))
+                               "Run the event-metadata step (it writes the Govern product tag), then "
+                               "re-run the provenance upsert with the same --product."))
     return out
 
 

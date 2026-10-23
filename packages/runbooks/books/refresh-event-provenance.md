@@ -40,6 +40,7 @@ Core columns produced by the backfill walk:
   codebase. Written only when the name string is absent from the instrumentation paths
   at HEAD and the walk has history for it (`classify_code_status` returning `removed`).
   It is silent about whether anything still *calls* that name.
+
 One column is written by the skill, not the walk:
 
 - `product` (`win`, `serve` or `shared`), from the skill's `upsert --product`. The walk (incremental or full) carries an existing row's value forward, and a blank one stays blank. It does not count as code evidence, so a row with only a product still expires as blank.

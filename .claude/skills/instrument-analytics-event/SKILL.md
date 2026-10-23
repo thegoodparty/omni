@@ -1,11 +1,11 @@
 ---
 name: instrument-analytics-event
-description: Add a Segment/Amplitude analytics event when building a feature — in the webapp (frontend, via trackEvent) or in gp-api (backend, via AnalyticsService). Decide whether it earns an event, which side fires it, name it per the standard, register it, and fire it. For frontend events it then hands off to the event-metadata skill to record governance metadata, and it also handles client events a change removes (routing them to retirement).
+description: Add a Segment/Amplitude analytics event when building a feature — in the webapp (frontend, via trackEvent) or in gp-api (backend, via AnalyticsService). Decide whether it earns an event, which side fires it, name it per the standard, register it, and fire it. It then hands off to the event-metadata skill to record governance metadata (frontend and backend events alike), and it also handles client events a change removes (routing them to retirement).
 ---
 
 # Instrument an analytics event
 
-Use when adding or changing something a dashboard might ask about — a new flow, screen, primary button, form submit, funnel step, outcome, async job, payment, or status change — in **gp-webapp** (frontend) or **gp-api** (backend). This skill decides whether the moment earns an event, which side should fire it, names it, registers it, and fires it. For frontend events it then hands off to the `event-metadata` skill to record the event's governance metadata in Amplitude (step 6); and when a change **removes** a client event, it routes that event to retirement (see "When a change removes an event").
+Use when adding or changing something a dashboard might ask about — a new flow, screen, primary button, form submit, funnel step, outcome, async job, payment, or status change — in **gp-webapp** (frontend) or **gp-api** (backend). This skill decides whether the moment earns an event, which side should fire it, names it, registers it, and fires it. It then hands off to the `event-metadata` skill to record the event's governance metadata in Amplitude (step 6); and when a change **removes** a client event, it routes that event to retirement (see "When a change removes an event").
 
 Background: events flow app/api → Segment → Amplitude (and HubSpot). There are two registries:
 
@@ -70,7 +70,7 @@ Naming and governance are adopted from the Analytics Event Tracking Guide (produ
 
    - Product area is the navigation area the user is in (frontend) or the domain the work belongs to (backend). Follow the app's navigation as the source of truth for the area name rather than inventing one or leaning on a fixed list; the canonical set is still evolving, so match how the product is organized in the nav today.
    - If it is something the user _is_ or _has_ (officeType, isPro, onboardingCompleted), it is a **user property**, not an event — set it with `identifyUser` (frontend, from `@shared/utils/analytics`) or `AnalyticsService.identify` (backend), not a track call.
-   - **Never put the product in the name.** A surface both Win and Serve reach fires one event carrying `product: 'win' | 'serve'`, not two events named `Voter Outreach - X` and `Constituent Outreach - X`. Two names make every cross-product total a union, and missing one undercounts with no error. This is the analytics half of the Win/Serve vocabulary rule in `docs/product-vocabulary.md`: user-facing copy is mode-keyed, analytics event names are not, because the property carries the distinction instead. `npm run check:serve-vocabulary` does not cover analytics constants, so nothing catches this for you.
+   - **Never put the product in the name.** A surface both Win and Serve reach fires one event carrying `product: 'win' | 'serve'`, not two events named `Voter Outreach - X` and `Constituent Outreach - X`. Web events now carry `activeProduct` automatically, so add `product` only where the feature itself decides the product, because `product` feeds the governed outreach exclusions. Two names make every cross-product total a union, and missing one undercounts with no error. This is the analytics half of the Win/Serve vocabulary rule in `docs/product-vocabulary.md`: user-facing copy is mode-keyed, analytics event names are not, because the property carries the distinction instead. `npm run check:serve-vocabulary` does not cover analytics constants, so nothing catches this for you.
    - **Outreach events use the `Outreach -` namespace.** Anything both products fire is `Outreach - {Channel} {Thing}`, with `product:` carrying Win vs Serve. `Voter Outreach -` survives only on the Win-only leftovers that predate this rule; do not add to it.
    - **Before adding a second event, ask whether a property would do.** One event with a property beats N events: N events can go dark one at a time behind a healthy-looking total, which is exactly how three per-channel completion events were lost for a month. Reuse the property the existing charts already filter on rather than forking a second one that means the same thing.
 
@@ -166,7 +166,7 @@ Naming and governance are adopted from the Analytics Event Tracking Guide (produ
 
    **If this change only removes a frontend `trackEvent` call (no new event is being added),** skip directly to "When a change removes an event" below, complete the RETIRE handoff (including its CSV step), then go to step 8.
 
-   A new event is illegible later without its governance metadata. For a new event, frontend or backend, hand off to the **`event-metadata`** skill, which writes the purpose, status, product tag, and supersession lineage into Amplitude. Pass an ADD payload — you supply hints, it owns the write and the human confirmations:
+   A new event is illegible later without its governance metadata. For a new event, frontend or backend, hand off to the **`event-metadata`** skill, which writes the purpose, status, product tag, and supersession lineage into Amplitude. Pass an ADD payload; you supply hints, it owns the write and the human confirmations:
    - `mode=add`,
    - `event` = the Title Case event-name string you just registered (e.g. `Briefing Assistant - Agenda Submitted`),
    - `purposeDraft` = the one-line question this event answers (you already reasoned about this when naming it),
@@ -194,14 +194,17 @@ Naming and governance are adopted from the Analytics Event Tracking Guide (produ
      --product <win|serve|shared>
    ```
 
+   Pass the product the human confirmed in step 6, not a fresh guess.
+
    The engine stores the PR as a full link (`https://github.com/thegoodparty/omni/pull/1234`),
    writes today's date and status `present`, and leaves the exact merge SHA blank for the
    periodic git-walk (`packages/runbooks/books/refresh-event-provenance.md`) to fill. The skill is the freshness
    writer; the walk is the truth writer. Do not hand-edit the CSV — always go through `upsert`
    so the file's sort and quoting stay identical to a full walk.
 
-   Every new event gets a product label, so the warehouse counts it. The analytics guard
-   warns when a new event has none; proceed or consciously skip, the warning never blocks.
+   The warehouse counts an event by the Govern `product:` tag that step 6 writes. The CSV
+   `product` is how the analytics guard sees that step 6 ran. The guard warns when a new
+   event's row has none; proceed or consciously skip, the warning never blocks.
 
    If you upserted before the PR existed, re-run the same command with `--pr` once it is
    open. `add` fills an empty `instrumented_pr` and never overwrites one already recorded,
@@ -272,7 +275,8 @@ A hook runs `governance_guard.py` after every edit to code that sends events, an
   `relabels:` row the warning prints to `monitored_events.yaml`, with the human's reason.
   Triage writes it to Govern after merge.
 - **A new event has no product label** (`no_product_label`, a warning, never a block).
-  Re-run the step 7 upsert with `--product <win|serve|shared>`.
+  Complete step 6 (`event-metadata` writes the `product:` tag the warehouse reads), then
+  re-run the step 7 upsert with the same `--product <win|serve|shared>`.
 
 Before finishing any change that touches events, run it yourself:
 `cd packages/runbooks/scripts/python && uv run governance_guard.py check --base $(git merge-base origin/main HEAD)`.
