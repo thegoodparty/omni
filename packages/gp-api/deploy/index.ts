@@ -12,6 +12,7 @@ import {
   PREVIEW_SHARED_ALB_NAME,
 } from './components/preview-shared-alb'
 import { createPreviewSharedCluster } from './components/preview-shared-cluster'
+import { createElectionDb } from './components/election-db'
 import { createRobocallAudioBucket } from './components/robocall-audio-bucket'
 import { createService } from './components/service'
 import { createSitemapsBucket } from './components/sitemaps-bucket'
@@ -349,6 +350,11 @@ export = async () => {
         engine: aws.rds.EngineType.AuroraPostgresql,
         engineVersion: rdsCluster!.engineVersion,
       })
+
+  // Previews read the shared dev election cluster and must not own it.
+  if (environment !== 'preview') {
+    createElectionDb(environment)
+  }
 
   // The dev stack owns the always-on shared preview Aurora cluster. Every PR
   // preview clones its own gpdb_pr_<n> database onto this one cluster (see
