@@ -14,6 +14,7 @@ import {
   getAnswersHref,
   readPercent,
 } from '../../readStatusCopy'
+import { GroupSeatsArc, GroupSeatsLegend } from '../../components/GroupSeats'
 import { READ_STATUS_PROPERTY } from '../../readStatusProperty'
 import { CivicPanelBloom } from 'app/dashboard/contacts/citizens-panel/components/CivicPanelBloom'
 import { RespondentHeatGrid } from './RespondentHeatGrid'
@@ -123,26 +124,41 @@ export const PriorityResultsView = ({
             />
             {READ_STATUS_COPY.label(readStatus)}
           </h2>
-          {readStatus.checkOut && READ_STATUS_COPY.namesGroups(readStatus) ? (
-            <p className="text-sm text-foreground">
-              {READ_STATUS_COPY.statusLine(readStatus)}
-            </p>
-          ) : null}
           {readStatus.groupsTotal > 0 ? (
-            <>
-              <p className="text-sm text-muted-foreground">
-                {READ_STATUS_COPY.progress(readStatus)}
+            <div className="flex flex-col gap-2 lg:items-center">
+              {/* Seats on a computer, the bar below lg, by CSS alone so the
+                  card never jumps. */}
+              <GroupSeatsArc
+                readStatus={readStatus}
+                className="hidden max-w-80 lg:block"
+              />
+              <GroupSeatsLegend
+                readStatus={readStatus}
+                className="hidden justify-center lg:flex"
+              />
+              <p className="text-sm font-semibold text-foreground">
+                {READ_STATUS_COPY.progress(readStatus)}.
               </p>
               <Progress
                 value={readPercent(readStatus)}
                 aria-label={READ_STATUS_COPY.progress(readStatus)}
-                className={cn('h-2', READ_PROGRESS_TONE[readStatus.status])}
+                className={cn(
+                  'h-2 lg:hidden',
+                  READ_PROGRESS_TONE[readStatus.status],
+                )}
               />
-            </>
+            </div>
           ) : null}
           <p className="text-sm text-muted-foreground">
             {READ_STATUS_COPY.heldBack(readStatus)}
           </p>
+          {readStatus.checkOut && READ_STATUS_COPY.namesGroups(readStatus) ? (
+            <p className="text-sm text-foreground">
+              {readStatus.status === 'gettingClose'
+                ? READ_STATUS_COPY.statusLine(readStatus)
+                : READ_STATUS_COPY.stillNeed(readStatus)}
+            </p>
+          ) : null}
           {READ_STATUS_COPY.canGetAnswers(readStatus) ? (
             <Button asChild size="small" className="self-start rounded-full">
               <Link href={getAnswersHref(priorityId)}>

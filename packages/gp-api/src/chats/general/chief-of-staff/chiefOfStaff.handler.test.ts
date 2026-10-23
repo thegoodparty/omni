@@ -745,7 +745,7 @@ describe('ChiefOfStaffHandler', () => {
         `On "${MANAGED_CIVIC_PANEL_SET_UP_MESSAGE}", call \`read_managed_panel\``,
       )
       expect(prompt).toContain(
-        '"Done. The first invites go out <firstSendDate>. I\'ll let you know when your panel is ready, around the week of <readyWeekOf>."',
+        '"Done. The first invites go out <firstSendDate>. I\'ll let you know when your civic panel is ready, around the week of <readyWeekOf>."',
       )
       expect(prompt).toContain('Never offer or show the invite again.')
       expect(prompt).toContain('ask which priority they want to work on')
@@ -823,7 +823,12 @@ describe('ChiefOfStaffHandler', () => {
       }
       expect(await read.execute({})).toEqual({ priority: [], office: [] })
       expect(forPriority).not.toHaveBeenCalled()
-      expect(forOffice).toHaveBeenCalledWith(ORG, null, undefined)
+      expect(forOffice).toHaveBeenCalledWith(
+        ORG,
+        null,
+        expect.stringMatching(/^US\//),
+        undefined,
+      )
     })
 
     it('reads outreach feedback only with serve-citizen-panels on for the user', async () => {
@@ -901,16 +906,17 @@ describe('ChiefOfStaffHandler', () => {
         priorityThemes: [],
         sends: [],
       })
-      expect(feedbackFor).toHaveBeenCalledWith(ORG, {
-        priorityId: null,
-        outreachId: 7,
-      })
+      expect(feedbackFor).toHaveBeenCalledWith(
+        ORG,
+        { priorityId: null, outreachId: 7 },
+        expect.stringMatching(/^US\//),
+      )
       await read.execute({ channel: 'phoneBanking' })
-      expect(feedbackFor).toHaveBeenLastCalledWith(ORG, {
-        priorityId: null,
-        outreachId: undefined,
-        channel: 'phoneBanking',
-      })
+      expect(feedbackFor).toHaveBeenLastCalledWith(
+        ORG,
+        { priorityId: null, outreachId: undefined, channel: 'phoneBanking' },
+        expect.stringMatching(/^US\//),
+      )
       expect(descriptionOf(read)).toContain('with read_past_outreach')
       expect(descriptionOf(tools.read_past_outreach)).toContain(
         'text replies only',

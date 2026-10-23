@@ -101,17 +101,7 @@ test.describe('Win SMS send', () => {
     expect(fixture.stage).toBe('tcr_approved')
     expect(fixture.peerlyIdentityId).toBeTruthy()
 
-    // ── 4. Open SMS window ─────────────────────────────────────────────────
-    // Move election date so texting window is open (19-day cutoff guard).
-    await withGatewayRetry('PUT /v1/campaigns/mine', () =>
-      client.put('/v1/campaigns/mine', {
-        details: {
-          electionDate: format(addDays(new Date(), 60), 'yyyy-MM-dd'),
-        },
-      }),
-    )
-
-    // ── 5. Pre-create a voter file filter so the audience picker has a row ─
+    // ── 4. Pre-create a voter file filter so the audience picker has a row ─
     const filterName = `E2E sms-send ${Date.now()}`
     await withGatewayRetry('POST /v1/voters/voter-file/filter', () =>
       client.post<{ id: number }>('/v1/voters/voter-file/filter', {
@@ -119,13 +109,13 @@ test.describe('Win SMS send', () => {
       }),
     )
 
-    // ── 6. Open the SMS compose drawer ────────────────────────────────────
+    // ── 5. Open the SMS compose drawer ────────────────────────────────────
     await page.goto('/dashboard/outreach?compose=text', {
       waitUntil: 'domcontentloaded',
     })
     await NavigationHelper.dismissOverlays(page)
 
-    // ── 7. Purpose step ───────────────────────────────────────────────────
+    // ── 6. Purpose step ───────────────────────────────────────────────────
     await expect(
       page.getByRole('button', { name: 'Introduce myself to voters' }),
     ).toBeVisible({ timeout: 30_000 })
@@ -133,7 +123,7 @@ test.describe('Win SMS send', () => {
       .getByRole('button', { name: 'Introduce myself to voters' })
       .click()
 
-    // ── 8. Audience step: pick the pre-created filter ─────────────────────
+    // ── 7. Audience step: pick the pre-created filter ─────────────────────
     await expect(
       page.getByRole('button', {
         name: /Choose a voter list|view your lists/i,
@@ -148,7 +138,7 @@ test.describe('Win SMS send', () => {
     })
     await page.getByRole('button', { name: /^Continue/ }).click()
 
-    // ── 9. Compose step ───────────────────────────────────────────────────
+    // ── 8. Compose step ───────────────────────────────────────────────────
     // Continue stays disabled while the AI draft is in flight. The step also
     // blocks Continue until the message carries an image: a campaign with no
     // profile photo attaches one here, the way a candidate would.
@@ -190,7 +180,7 @@ test.describe('Win SMS send', () => {
     expect(composedMessage.length).toBeGreaterThan(0)
     await page.getByRole('button', { name: /^Continue/ }).click()
 
-    // ── 10. Schedule step: date, time (the name is auto-filled) ──────────
+    // ── 9. Schedule step: date, time (the name is auto-filled) ──────────
     await expect(page.getByText('When do you want to send it?')).toBeVisible({
       timeout: 30_000,
     })
@@ -229,14 +219,14 @@ test.describe('Win SMS send', () => {
 
     await page.getByRole('button', { name: 'Continue' }).click()
 
-    // ── 11. If the phone list is still building, finish it ────────────────
+    // ── 10. If the phone list is still building, finish it ────────────────
     // The audience step's Continue kicks off the Peerly build. runJob finishes
     // it synchronously in mock mode if the poll hasn't resolved yet.
     await withGatewayRetry('p2p.phoneListFinish', () =>
       runJob(client, 'p2p.phoneListFinish'),
     )
 
-    // ── 12. Review step ───────────────────────────────────────────────────
+    // ── 11. Review step ───────────────────────────────────────────────────
     // "Review & pay" for a charged send, "Review and send" when the Pro free
     // texts offer covers the audience.
     const reviewHeading = page
@@ -261,26 +251,26 @@ test.describe('Win SMS send', () => {
       await expect(scheduleButton).toBeEnabled({ timeout: 15_000 })
       await scheduleButton.click()
     } else {
-      // ── 13. Fill Stripe card and submit ─────────────────────────────────
+      // ── 12. Fill Stripe card and submit ─────────────────────────────────
       await fillStripeCard(page)
       await expect(completeButton).toBeEnabled({ timeout: 15_000 })
       await completeButton.scrollIntoViewIfNeeded()
       await completeButton.click()
     }
 
-    // ── 14. Wait for the success screen ───────────────────────────────────
+    // ── 13. Wait for the success screen ───────────────────────────────────
     await expect(
       page.getByRole('heading', { name: /Payment successful|Scheduled/ }),
     ).toBeVisible({ timeout: 60_000 })
 
-    // ── 15. Deliver the Stripe webhook to finalize a charged outreach ─────
+    // ── 14. Deliver the Stripe webhook to finalize a charged outreach ─────
     // The review step requests a checkout session even when the offer makes
     // the send free, so only a paid send has a completed session to deliver.
     if (!isFreeSend && sessionId) {
       await deliverStripeEvent(client, sessionId)
     }
 
-    // ── 16. CAS approve ───────────────────────────────────────────────────
+    // ── 15. CAS approve ───────────────────────────────────────────────────
     // GET /v1/outreach returns the campaign's rows; the SMS send is the p2p one.
     let outreachId = 0
     await eventually(

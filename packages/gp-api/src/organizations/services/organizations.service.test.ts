@@ -843,6 +843,11 @@ describe('OrganizationsService', () => {
       it('handles multi-word city names', () => {
         expect(extract('Chapel Hill')).toBe('Chapel Hill')
       })
+
+      it('title-cases a name that arrives in all caps', () => {
+        expect(extract('WINSTON-SALEM CITY WARD 2')).toBe('Winston-Salem')
+        expect(extract('MCALLEN CITY')).toBe('McAllen')
+      })
     })
 
     describe('leading municipality prefix stripping', () => {
@@ -867,7 +872,7 @@ describe('OrganizationsService', () => {
       })
 
       it('is case-insensitive for prefix', () => {
-        expect(extract('CITY OF KYLE')).toBe('KYLE')
+        expect(extract('CITY OF KYLE')).toBe('Kyle')
       })
     })
 
@@ -881,7 +886,7 @@ describe('OrganizationsService', () => {
       })
 
       it('strips trailing "Ward N" from all-caps L2 name', () => {
-        expect(extract('BRUNSWICK TOWN WARD 6')).toBe('BRUNSWICK')
+        expect(extract('BRUNSWICK TOWN WARD 6')).toBe('Brunswick')
       })
 
       it('strips trailing "Precinct"', () => {
@@ -895,11 +900,11 @@ describe('OrganizationsService', () => {
 
     describe('trailing municipality type stripping', () => {
       it('strips trailing "City"', () => {
-        expect(extract('METHUEN CITY')).toBe('METHUEN')
+        expect(extract('METHUEN CITY')).toBe('Methuen')
       })
 
       it('strips trailing "Town"', () => {
-        expect(extract('FALMOUTH TOWN')).toBe('FALMOUTH')
+        expect(extract('FALMOUTH TOWN')).toBe('Falmouth')
       })
 
       it('strips trailing "Borough"', () => {
@@ -907,7 +912,7 @@ describe('OrganizationsService', () => {
       })
 
       it('strips trailing "Boro" (abbreviated Borough)', () => {
-        expect(extract('WEST MIFFLIN BORO')).toBe('WEST MIFFLIN')
+        expect(extract('WEST MIFFLIN BORO')).toBe('West Mifflin')
       })
 
       it('strips trailing "Township"', () => {
@@ -921,11 +926,11 @@ describe('OrganizationsService', () => {
 
     describe('parenthetical qualifier stripping', () => {
       it('strips trailing "(Est.)"', () => {
-        expect(extract('POCATELLO CITY (EST.)')).toBe('POCATELLO')
+        expect(extract('POCATELLO CITY (EST.)')).toBe('Pocatello')
       })
 
       it('strips "(Est.)" from multi-word city', () => {
-        expect(extract('NORTH PORT CITY (EST.)')).toBe('NORTH PORT')
+        expect(extract('NORTH PORT CITY (EST.)')).toBe('North Port')
       })
 
       it('strips generic parenthetical qualifiers', () => {
@@ -935,7 +940,7 @@ describe('OrganizationsService', () => {
 
     describe('abbreviated council district stripping', () => {
       it('strips trailing "Cncl D" (abbreviated Council District)', () => {
-        expect(extract('ALVIN CITY CNCL D')).toBe('ALVIN')
+        expect(extract('ALVIN CITY CNCL D')).toBe('Alvin')
       })
 
       it('strips trailing "Cncl Dist"', () => {
@@ -949,31 +954,31 @@ describe('OrganizationsService', () => {
 
     describe('multi-step stripping (combined patterns)', () => {
       it('strips ward then town type: "BRUNSWICK TOWN WARD 6"', () => {
-        expect(extract('BRUNSWICK TOWN WARD 6')).toBe('BRUNSWICK')
+        expect(extract('BRUNSWICK TOWN WARD 6')).toBe('Brunswick')
       })
 
       it('strips parenthetical then city type: "POCATELLO CITY (EST.)"', () => {
-        expect(extract('POCATELLO CITY (EST.)')).toBe('POCATELLO')
+        expect(extract('POCATELLO CITY (EST.)')).toBe('Pocatello')
       })
 
       it('strips abbreviated council then city type: "ALVIN CITY CNCL D"', () => {
-        expect(extract('ALVIN CITY CNCL D')).toBe('ALVIN')
+        expect(extract('ALVIN CITY CNCL D')).toBe('Alvin')
       })
 
       it('handles override district "DUBUQUE CITY"', () => {
-        expect(extract('DUBUQUE CITY')).toBe('DUBUQUE')
+        expect(extract('DUBUQUE CITY')).toBe('Dubuque')
       })
 
       it('handles "WESTLAND CITY"', () => {
-        expect(extract('WESTLAND CITY')).toBe('WESTLAND')
+        expect(extract('WESTLAND CITY')).toBe('Westland')
       })
 
       it('handles "IMPERIAL CITY"', () => {
-        expect(extract('IMPERIAL CITY')).toBe('IMPERIAL')
+        expect(extract('IMPERIAL CITY')).toBe('Imperial')
       })
 
       it('handles "NORTHAMPTON CITY"', () => {
-        expect(extract('NORTHAMPTON CITY')).toBe('NORTHAMPTON')
+        expect(extract('NORTHAMPTON CITY')).toBe('Northampton')
       })
     })
 

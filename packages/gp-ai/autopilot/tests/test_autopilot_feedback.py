@@ -492,6 +492,73 @@ def test_cli_park_exits_zero_and_reports_the_card(monkeypatch, capsys, tmp_path)
     assert read_park_sentinel(str(tmp_path)) == {"stage": "epic-create", "task_id": TASK_ID}
 
 
+def test_await_merge_posts_the_marker_and_moves_the_card_without_touching_slack(tmp_path):
+    clickup = FakeClickUpClient()
+
+    result = feedback.await_merge(
+        TASK_ID, "story", 42, clickup_client_factory=factory_for(clickup), workspace_dir=str(tmp_path), env=ENV
+    )
+
+    assert clickup.writes == [
+        (
+            "comment",
+            TASK_ID,
+            "[autopilot:parked stage=story]\n\n1. Merge pending: PR #42 is approved with auto-merge armed "
+            "but hasn't merged yet.",
+        ),
+        ("status", TASK_ID, feedback.AWAITING_MERGE_STATUS),
+    ]
+    assert result["status"] == "awaiting_merge"
+    assert read_park_sentinel(str(tmp_path)) == {"stage": "story", "task_id": TASK_ID}
+
+
+def test_await_merge_retry_after_a_failed_status_move_completes_without_a_duplicate_comment(tmp_path):
+    first = FakeClickUpClient(raise_on={"update_task": RuntimeError("boom")})
+    with pytest.raises(RuntimeError):
+        feedback.await_merge(
+            TASK_ID, "story", 42, clickup_client_factory=factory_for(first), workspace_dir=str(tmp_path), env=ENV
+        )
+    assert read_park_sentinel(str(tmp_path)) is None
+
+    retry = FakeClickUpClient(comments=[make_comment(first.writes[0][2])])
+    feedback.await_merge(
+        TASK_ID, "story", 42, clickup_client_factory=factory_for(retry), workspace_dir=str(tmp_path), env=ENV
+    )
+
+    assert retry.writes == [("status", TASK_ID, feedback.AWAITING_MERGE_STATUS)]
+    assert read_park_sentinel(str(tmp_path)) == {"stage": "story", "task_id": TASK_ID}
+
+
+def test_await_merge_rejects_a_task_id_outside_the_envelope(tmp_path):
+    clickup = FakeClickUpClient()
+
+    with pytest.raises(ValueError, match="Refusing to write"):
+        feedback.await_merge(
+            "OTHER-9", "story", 42, clickup_client_factory=factory_for(clickup), workspace_dir=str(tmp_path), env=ENV
+        )
+
+    assert clickup.writes == []
+
+
+def test_cli_await_merge_never_builds_a_slack_client(monkeypatch, capsys, tmp_path):
+    for key, value in ENV.items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.setenv("WORKSPACE_DIR", str(tmp_path))
+    clickup = FakeClickUpClient()
+    monkeypatch.setattr(feedback, "ClickUpClient", factory_for(clickup))
+
+    def no_slack():
+        raise AssertionError("await-merge must not touch Slack")
+
+    monkeypatch.setattr(feedback, "SlackClient", no_slack)
+
+    exit_code = feedback.main(["await-merge", "--task-id", TASK_ID, "--stage", "story", "--pr", "42"])
+
+    assert exit_code == 0
+    assert "awaiting merge of PR #42" in capsys.readouterr().out
+    assert ("status", TASK_ID, "awaiting merge") in clickup.writes
+
+
 def test_cli_park_exits_nonzero_and_says_why_on_failure(monkeypatch, capsys):
     for key, value in ENV.items():
         monkeypatch.setenv(key, value)

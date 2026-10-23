@@ -5,9 +5,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { CampaignStrategyContextService } from '@/electionDb/campaignStrategyContext/campaign-strategy-context.service'
 import {
-  ElectionApiRaceNotFoundError,
-  ElectionApiService,
-} from './electionApi.service'
+  RaceContextNotFoundError,
+  RaceContextService,
+} from './raceContext.service'
 
 const BR_HASH = 'hash-abc'
 
@@ -63,8 +63,8 @@ const contextResult = {
   win_number_upper: 601,
 }
 
-describe('ElectionApiService', () => {
-  let service: ElectionApiService
+describe('RaceContextService', () => {
+  let service: RaceContextService
   let getCampaignStrategyContext: ReturnType<typeof vi.fn>
 
   beforeEach(async () => {
@@ -72,7 +72,7 @@ describe('ElectionApiService', () => {
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
-        ElectionApiService,
+        RaceContextService,
         { provide: PinoLogger, useValue: createMockLogger() },
         {
           provide: CampaignStrategyContextService,
@@ -81,10 +81,10 @@ describe('ElectionApiService', () => {
       ],
     }).compile()
 
-    service = module.get<ElectionApiService>(ElectionApiService)
+    service = module.get<RaceContextService>(RaceContextService)
   })
 
-  it('passes the brHashId through and returns camelCase RaceContextFromApi', async () => {
+  it('passes the brHashId through and returns camelCase ElectionRaceContext', async () => {
     getCampaignStrategyContext.mockResolvedValue(contextResult)
 
     const result = await service.getRaceContext(BR_HASH)
@@ -197,7 +197,7 @@ describe('ElectionApiService', () => {
     )
   })
 
-  it('throws ElectionApiRaceNotFoundError when there is no Race row', async () => {
+  it('throws RaceContextNotFoundError when there is no Race row', async () => {
     // A missing Race row is a distinguishable condition the caller uses to
     // break the poll loop. Other failures stay BadGateway since they may be
     // transient.
@@ -206,7 +206,7 @@ describe('ElectionApiService', () => {
     )
 
     await expect(service.getRaceContext(BR_HASH)).rejects.toBeInstanceOf(
-      ElectionApiRaceNotFoundError,
+      RaceContextNotFoundError,
     )
   })
 

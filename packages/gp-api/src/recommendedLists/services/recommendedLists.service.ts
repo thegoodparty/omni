@@ -11,7 +11,7 @@ import {
 } from '@goodparty_org/contracts'
 import { ContactsService } from '@/contacts/services/contacts.service'
 import { CampaignIdeologyService } from '@/campaignIdeology/services/campaignIdeology.service'
-import { ElectionApiService } from '@/campaignStrategy/services/electionApi.service'
+import { RaceContextService } from '@/campaignStrategy/services/raceContext.service'
 import { ElectionCode } from '@/elections/types/elections.types'
 import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
 import { VoterRecommendedListsService } from '@/peopleDb/services/voterRecommendedLists.service'
@@ -166,7 +166,7 @@ export class RecommendedListsService {
     private readonly ideology: CampaignIdeologyService,
     private readonly voterFileFilters: VoterFileFilterService,
     private readonly reads: VoterRecommendedListsService,
-    private readonly electionApi: ElectionApiService,
+    private readonly raceContextService: RaceContextService,
     private readonly ballotReady: BallotReadyService,
     private readonly logger: PinoLogger,
   ) {
@@ -377,7 +377,7 @@ export class RecommendedListsService {
 
     try {
       const { winNumberEffective, electionCode } =
-        await this.electionApi.getRaceContext(raceId)
+        await this.raceContextService.getRaceContext(raceId)
       return {
         votesNeededToWin:
           winNumberEffective && winNumberEffective > 0
