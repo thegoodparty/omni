@@ -148,6 +148,8 @@ interface NativeDoorKnockingPageProps {
   // loaded as the turf's boundary
   // on the first arrival at the draw step. Spent once, like `?listId=`.
   initialPurpose?: ServeDoorKnockingPurpose
+  // A priority card's question, for the community input purpose it carries.
+  initialQuestion?: string
   prefillArea?: PolygonRing
   // The agent surface that opened the create flow, for the Outreach events.
   launchSource?: OutreachLaunchSource
@@ -196,6 +198,7 @@ export default function NativeDoorKnockingPage({
   proposalLink,
   createSource,
   initialPurpose,
+  initialQuestion,
   prefillArea,
   launchSource,
 }: NativeDoorKnockingPageProps) {
@@ -1617,6 +1620,9 @@ export default function NativeDoorKnockingPage({
                   {...(serveMode &&
                     carriedListId !== undefined &&
                     initialPurpose && { initialPurpose })}
+                  {...(serveMode &&
+                    carriedListId !== undefined &&
+                    initialQuestion && { initialQuestion })}
                   siblingTurfs={siblingTurfs}
                   campaignOutreachId={campaignOutreachId}
                   trackerTaskId={trackerTaskId}

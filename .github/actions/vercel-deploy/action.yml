@@ -58,9 +58,19 @@ outputs:
 runs:
   using: composite
   steps:
+    # A registry fetch that drops mid-install is the same ECONNRESET that #3099
+    # retried for the lambda builds; the install is idempotent.
     - name: Install Vercel CLI
       shell: bash
-      run: npm install --global vercel@59.25.0
+      run: |
+        for attempt in 1 2 3; do
+          npm install --global vercel@59.25.0 && exit 0
+          if [ "$attempt" -lt 3 ]; then
+            echo "::warning::Vercel CLI install attempt $attempt failed; retrying in $((attempt * 30))s"
+            sleep $((attempt * 30))
+          fi
+        done
+        exit 1
 
     - name: Build and deploy with Vercel CLI
       id: deploy
@@ -83,6 +93,29 @@ runs:
         NODE_OPTIONS: --max-old-space-size=6144
       run: |
         set -euo pipefail
+
+        # Bounded retries for the calls that only talk to Vercel's API and are
+        # safe to repeat: pull (a read), deploy of the already-built output,
+        # and alias (sets the same alias again). On 2026-10-02 a dev deploy
+        # uploaded its whole output and then died on `Error: fetch failed`
+        # (release 36955818655), which held prod for a run. A deploy retried
+        # after a failure Vercel had actually accepted creates a second
+        # deployment of the same prebuilt output; the alias and the
+        # production target then point at identical content. `vercel build`
+        # is not retried: it is local, slow, and its past failures were code,
+        # tokens and heap, not network. Neither is the upload quota (Aug 25),
+        # which no retry within a job outlasts.
+        retry() {
+          local attempt
+          for attempt in 1 2 3; do
+            "$@" && return 0
+            if [ "$attempt" -lt 3 ]; then
+              echo "::warning::'$1 ${2:-}' attempt $attempt failed; retrying in $((attempt * 30))s"
+              sleep $((attempt * 30))
+            fi
+          done
+          return 1
+        }
 
         PULL_ARGS=(--yes --token "$VERCEL_TOKEN")
         BUILD_ARGS=(--token "$VERCEL_TOKEN")
@@ -107,7 +140,7 @@ runs:
           ENV_FILE=.vercel/.env.preview.local
         fi
 
-        vercel pull "${PULL_ARGS[@]}"
+        retry vercel pull "${PULL_ARGS[@]}"
 
         # Override the baked backend URL when asked (full-stack PR previews).
         # vercel build reads the pulled env file, so replace the line there.
@@ -120,19 +153,23 @@ runs:
         fi
 
         vercel build "${BUILD_ARGS[@]}"
-        DEPLOY_URL="$(vercel deploy "${DEPLOY_ARGS[@]}" | awk 'NF { line=$0 } END { print line }')"
+        # stdout to a file rather than a pipe, so a retried attempt's URL is
+        # the one read and the retry warnings stay out of it.
+        deploy() { vercel deploy "${DEPLOY_ARGS[@]}" > "$RUNNER_TEMP/vercel-deploy.out"; }
+        retry deploy
+        DEPLOY_URL="$(awk 'NF { line=$0 } END { print line }' "$RUNNER_TEMP/vercel-deploy.out")"
         case "$DEPLOY_URL" in
           http*) ;;
           *) DEPLOY_URL="https://${DEPLOY_URL}" ;;
         esac
 
         if [ -n "$ALIAS_DOMAIN" ]; then
-          vercel alias set "$DEPLOY_URL" "$ALIAS_DOMAIN" --scope "$VERCEL_ORG_ID" --token "$VERCEL_TOKEN"
+          retry vercel alias set "$DEPLOY_URL" "$ALIAS_DOMAIN" --scope "$VERCEL_ORG_ID" --token "$VERCEL_TOKEN"
           echo "Aliased to https://${ALIAS_DOMAIN}" >> "$GITHUB_STEP_SUMMARY"
         fi
 
         if [ -n "$PR_ALIAS" ]; then
-          vercel alias set "$DEPLOY_URL" "$PR_ALIAS" --scope "$VERCEL_ORG_ID" --token "$VERCEL_TOKEN"
+          retry vercel alias set "$DEPLOY_URL" "$PR_ALIAS" --scope "$VERCEL_ORG_ID" --token "$VERCEL_TOKEN"
           echo "PR alias: https://${PR_ALIAS}" >> "$GITHUB_STEP_SUMMARY"
         fi
 

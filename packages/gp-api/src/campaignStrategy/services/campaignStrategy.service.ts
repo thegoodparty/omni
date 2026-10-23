@@ -24,7 +24,7 @@ import {
   StrategicLandscapeResponse,
   StrategicLandscapeResult,
 } from '../schemas/strategicLandscape.schema'
-import { ElectionApiRaceNotFoundError } from './electionApi.service'
+import { RaceContextNotFoundError } from './raceContext.service'
 import { StrategicLandscapeParamsService } from './strategicLandscapeParams.service'
 import { StrategicLandscapePersister } from './strategicLandscape.persister'
 import { AnalyticsService } from '@/analytics/analytics.service'
@@ -300,7 +300,7 @@ export class CampaignStrategyService extends createPrismaBase(
       params = await this.params.build(campaign, brHashId)
     } catch (error) {
       if (
-        error instanceof ElectionApiRaceNotFoundError ||
+        error instanceof RaceContextNotFoundError ||
         error instanceof BadGatewayException
       ) {
         this.logger.warn(
@@ -581,7 +581,7 @@ export class CampaignStrategyService extends createPrismaBase(
       params = await this.params.build(campaign, brHashId)
     } catch (error) {
       if (
-        error instanceof ElectionApiRaceNotFoundError ||
+        error instanceof RaceContextNotFoundError ||
         error instanceof BadGatewayException
       ) {
         this.logger.warn(

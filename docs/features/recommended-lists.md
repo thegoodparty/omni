@@ -344,7 +344,7 @@ zero check is separate and explicit.
 Omit, don't show-and-warn.
 
 **Where the vote goal comes from, and its standing caveat.**
-`ElectionApiService.getRaceContext` — the client that already fetches
+`RaceContextService.getRaceContext` — the client that already fetches
 win-number data, reused rather than duplicated — supplies
 `win_number_effective`, resolved **once per request** inside the existing
 concurrent fan-out rather than as a serial hop in front of it.

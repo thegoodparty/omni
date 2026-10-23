@@ -93,7 +93,9 @@ share of the district against its share of the coded answers, unweighted.
 `mrpReadStatus` also returns `unheard`, the named groups with no coded answer
 at all (a tract with none makes `unreachedAreas` unheard), and `groupsHeard` of `groupsTotal` (major groups with
 at least three coded answers), which the webapp shows instead of an answer
-count. `unreachedAreaFor` takes its tracts from the same model
+count, and `groupsNext`, the major groups short of three that belong to a
+group named in `underrepresented`, which the webapp's groups seats ring as
+needed next. `unreachedAreaFor` takes its tracts from the same model
 (`holdingBackTracts`: major tracts short of three answers or too unsure), so
 the area a list is saved to can never disagree with the status.
 

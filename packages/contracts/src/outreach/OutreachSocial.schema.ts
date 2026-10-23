@@ -241,6 +241,9 @@ export const OutreachDetailSchema = z.object({
   script: z.string().nullable(),
   message: z.string().nullable(),
   date: zCoerceDate().nullable(),
+  // The day a text is set to go out (yyyy-MM-dd). A Serve text carries its
+  // day only here, with `date` null. .nullish() for fixtures that omit it.
+  scheduledLocalDate: z.string().nullish(),
   imageUrl: z.string().nullable(),
   voterFileFilterId: z.number().nullable(),
   doorKnockingRouteId: z.number().nullable(),

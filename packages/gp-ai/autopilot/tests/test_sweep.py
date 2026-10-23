@@ -138,6 +138,7 @@ class FakeClickUp:
         self.executing_tasks: dict[str, list[dict]] = {}
         self.in_progress_tasks: dict[str, list[dict]] = {}
         self.parked_tasks: dict[str, list[dict]] = {}
+        self.awaiting_merge_tasks: dict[str, list[dict]] = {}
         # Backs the flag-cleanup ramp pass's own statuses[]=done query
         # (ENG-11152) — its own registry, not folded into executing_tasks'
         # catch-all below: "done" and "executing" are both single words with
@@ -192,6 +193,8 @@ class FakeClickUp:
             if "statuses" in query:
                 if "feedback%20needed" in query:
                     registry = self.parked_tasks
+                elif "awaiting%20merge" in query:
+                    registry = self.awaiting_merge_tasks
                 elif "in%20progress" in query:
                     registry = self.in_progress_tasks
                 elif f"statuses[]={router.STATUS_DONE}" in query:
@@ -846,6 +849,32 @@ def test_merged_pr_moves_story_to_qa_and_dispatches_once(fake_clickup, fake_ecs,
     assert fake_clickup.status_updates["story-9"] == [router.STATUS_QA, router.STATUS_QA]
 
 
+def test_merged_pr_on_an_awaiting_merge_story_moves_it_to_qa_and_dispatches_once(
+    fake_clickup, fake_ecs, fake_pull_requests
+):
+    fake_clickup.awaiting_merge_tasks[STORY_LIST_ID] = [task("story-9", router.STATUS_AWAITING_MERGE, parent="epic-1")]
+    fake_clickup.comments["story-9"] = [merge_pending_park(42)]
+    fake_pull_requests[42] = {"merged": True, "state": "closed"}
+
+    result = sweep.handle_sweep({"autopilot_sweep": True})
+
+    assert json.loads(result["body"])["merge_resolved"] == 1
+    assert fake_clickup.status_updates["story-9"] == [router.STATUS_QA]
+    qa_dispatches = [c for c in fake_ecs.run_task_calls if env_vars(c)["AUTOPILOT_STAGE"] == router.STAGE_QA]
+    assert len(qa_dispatches) == 1
+
+
+def test_awaiting_merge_story_is_never_auto_resumed(fake_clickup, fake_ecs, fake_pull_requests):
+    fake_clickup.awaiting_merge_tasks[STORY_LIST_ID] = [task("story-9", router.STATUS_AWAITING_MERGE, parent="epic-1")]
+    fake_clickup.comments["story-9"] = [merge_pending_park(42)]
+    fake_pull_requests[42] = {"merged": False, "state": "open"}
+
+    result = sweep.handle_sweep({"autopilot_sweep": True})
+
+    assert json.loads(result["body"])["auto_resumed"] == 0
+    assert fake_ecs.run_task_calls == []
+
+
 def test_failed_qa_launch_rolls_back_claim_and_status_for_a_full_retry(
     fake_clickup, fake_ecs, fake_pull_requests, monkeypatch, capsys
 ):
@@ -869,7 +898,7 @@ def test_failed_qa_launch_rolls_back_claim_and_status_for_a_full_retry(
 
     first = sweep.handle_sweep({"autopilot_sweep": True})
     assert json.loads(first["body"])["merge_resolved"] == 0
-    assert fake_clickup.status_updates["story-9"] == [router.STATUS_QA, router.STATUS_FEEDBACK_NEEDED]
+    assert fake_clickup.status_updates["story-9"] == [router.STATUS_QA, router.STATUS_AWAITING_MERGE]
     assert fake_ecs.run_task_calls == []
     assert "rolling back for sweep retry" in capsys.readouterr().out
 
@@ -1159,6 +1188,20 @@ def test_status_card_lists_parked_stories_awaiting_feedback(fake_clickup, fake_s
     text = fake_slack_status_card["posted"][0][1]
     assert "story-9" in text
     assert "Awaiting feedback" in text
+
+
+def test_status_card_lists_awaiting_merge_stories_on_their_own_line(fake_clickup, fake_slack_status_card):
+    fake_clickup.parked_tasks[STORY_LIST_ID] = [task("story-8", router.STATUS_FEEDBACK_NEEDED, parent="epic-1")]
+    fake_clickup.awaiting_merge_tasks[STORY_LIST_ID] = [task("story-9", router.STATUS_AWAITING_MERGE, parent="epic-1")]
+    fake_clickup.comments["story-8"] = [parked_comment("story", "A real question?")]
+    fake_clickup.comments["story-9"] = [merge_pending_park(42)]
+
+    sweep.handle_sweep({"autopilot_sweep": True})
+
+    text = fake_slack_status_card["posted"][0][1]
+    feedback_section, merge_section = text.split("*Awaiting merge*")
+    assert "story-8" in feedback_section and "story-9" not in feedback_section
+    assert "story-9" in merge_section
 
 
 def test_status_card_escapes_slack_markdown_in_task_names(fake_clickup, fake_slack_status_card):

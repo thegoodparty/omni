@@ -95,6 +95,7 @@ export const mrpReadStatus = (input: {
       needed,
       groupsHeard: 0,
       groupsTotal: 0,
+      groupsNext: 0,
       good,
       status: good ? 'enoughAnswers' : 'tooEarly',
       underrepresented: [],
@@ -155,6 +156,17 @@ export const mrpReadStatus = (input: {
     groupsHeard: majors.filter((group) => group.answers >= MIN_VOICES_PER_GROUP)
       .length,
     groupsTotal: majors.length,
+    // Every tract stands for one named group, so naming it puts each tract
+    // still short in the count.
+    groupsNext: majors.filter((group) => {
+      if (group.answers >= MIN_VOICES_PER_GROUP) return false
+      const named = underrepresentedGroupOf(
+        group.dimension,
+        group.value,
+        read?.raceNameable ?? false,
+      )
+      return named !== null && underrepresented.includes(named)
+    }).length,
     good: status === 'representative',
     status,
     underrepresented,

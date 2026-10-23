@@ -230,26 +230,37 @@ def list_executing_feature_cards() -> list[dict]:
 AUTO_RESUME_MAX_PARKS = 10
 
 
-def _parked_stories() -> list[dict]:
-    """Every story currently in feedback needed across the scoped lists —
-    the same unconditional statuses[] query shape as _feature_cards_in_status,
-    but WITH subtasks (stories are subtasks) and keeping only subtasks."""
+def _stories_in_status(status: str) -> list[dict]:
+    """Every story currently in `status` across the scoped lists — the same
+    unconditional statuses[] query shape as _feature_cards_in_status, but WITH
+    subtasks (stories are subtasks) and keeping only subtasks."""
     tasks: list[dict] = []
     for list_id in sorted(handler.in_scope_list_ids()):
         query = urlencode(
-            {"statuses[]": router.STATUS_FEEDBACK_NEEDED, "subtasks": "true", "include_closed": "false"},
+            {"statuses[]": status, "subtasks": "true", "include_closed": "false"},
             quote_via=quote,
             safe="[]",
         )
         try:
             result = supervisor.clickup_request("GET", f"/list/{list_id}/task?{query}")
         except Exception as e:
-            print(f"ERROR: sweep failed to list parked stories for list {list_id}: {type(e).__name__}")
+            print(f"ERROR: sweep failed to list {status} stories for list {list_id}: {type(e).__name__}")
             continue
         raw_tasks = result.get("tasks")
         if isinstance(raw_tasks, list):
             tasks.extend(t for t in raw_tasks if isinstance(t, dict) and isinstance(t.get("parent"), str))
     return tasks
+
+
+def _parked_stories() -> list[dict]:
+    """Every story currently in feedback needed."""
+    return _stories_in_status(router.STATUS_FEEDBACK_NEEDED)
+
+
+def _awaiting_merge_stories() -> list[dict]:
+    """Every story currently in awaiting merge (parked by `feedback
+    await-merge` on an approved, auto-merge-armed PR)."""
+    return _stories_in_status(router.STATUS_AWAITING_MERGE)
 
 
 def auto_resume_actionable_parks(cap: int, parked_stories: list[dict]) -> int:
@@ -476,7 +487,7 @@ def fetch_pull_request(pr_number: int) -> dict | None:
 def _dispatch_qa_after_merge(task_id: str, epic_task_id: str | None, pr_number: int) -> bool:
     """Moves a merge-pending story straight to `qa` and launches its QA stage
     run directly — never through ROUTING_TABLE. A second to_status="qa" row
-    there (reachable from `feedback needed`, alongside the existing
+    there (reachable from `awaiting merge` / `feedback needed`, alongside the existing
     `in progress` one) would make sweep._from_status_for_current's
     reconstruction pass treat EVERY story landing in `qa` as ambiguous and
     skip it, blinding the sweep to a lost `in progress -> qa` webhook — today
@@ -526,7 +537,7 @@ def _dispatch_qa_after_merge(task_id: str, epic_task_id: str | None, pr_number: 
     if not result["launched"]:
         # Undo both writes so the next tick retries the whole dispatch: once
         # a story sits in `qa`, no sweep path re-attempts this launch
-        # (_parked_stories only sees feedback-needed). The claim is released
+        # (the parked-story queries only see awaiting-merge / feedback-needed). The claim is released
         # FIRST — a rolled-back park with a live claim would re-enter here
         # next tick, re-move to qa, lose the claim, and strand the story
         # unlaunched. If a rollback step itself fails, the story sits in qa
@@ -538,9 +549,9 @@ def _dispatch_qa_after_merge(task_id: str, epic_task_id: str | None, pr_number: 
         )
         _release_qa_dispatch_claim(task_id, pr_number)
         try:
-            supervisor.move_task_status(task_id, router.STATUS_FEEDBACK_NEEDED)
+            supervisor.move_task_status(task_id, router.STATUS_AWAITING_MERGE)
         except Exception as e:
-            print(f"ERROR: rollback of {task_id} to feedback-needed failed: {type(e).__name__}")
+            print(f"ERROR: rollback of {task_id} to awaiting-merge failed: {type(e).__name__}")
     return bool(result["launched"])
 
 
@@ -835,12 +846,15 @@ def handle_sweep(event: dict) -> dict:
 
     # One parked-stories fetch per tick, shared by both passes below.
     parked_stories = _parked_stories()
+    awaiting_merge_stories = _awaiting_merge_stories()
 
     # Before auto-resume, and uncapped (see resolve_merge_pending_parks): every
     # merge-pending park it finds is EXCLUDED from the auto-resume pass below
     # (auto_resume_actionable_parks' own skip), so a paid resume can never
-    # race this free GitHub-backed resolution for the same park.
-    merge_pending_result = resolve_merge_pending_parks(parked_stories)
+    # race this free GitHub-backed resolution for the same park. Reads both
+    # awaiting merge (where story.md parks now) and feedback needed (cards
+    # parked there before awaiting merge existed).
+    merge_pending_result = resolve_merge_pending_parks(awaiting_merge_stories + parked_stories)
 
     # After the lookback pass so reconstruction gets first claim at the cap:
     # an undelivered transition is lost work, an unparked resume is deferred
@@ -861,7 +875,7 @@ def handle_sweep(event: dict) -> dict:
     # helper below already logs-and-continues on its own, and this catches
     # anything else (a bad board shape) that would otherwise bubble past them.
     try:
-        update_status_card(executing_cards, in_progress_cards, parked_stories)
+        update_status_card(executing_cards, in_progress_cards, parked_stories, awaiting_merge_stories)
     except Exception as e:
         print(f"ERROR: status card update failed: {type(e).__name__}: {e}")
 
@@ -1380,7 +1394,12 @@ def _with_valid_id(tasks: list[dict]) -> list[dict]:
     return [t for t in tasks if isinstance(t.get("id"), str) and t["id"]]
 
 
-def build_status_text(executing_cards: list[dict], in_progress_cards: list[dict], parked_stories: list[dict]) -> str:
+def build_status_text(
+    executing_cards: list[dict],
+    in_progress_cards: list[dict],
+    parked_stories: list[dict],
+    awaiting_merge_stories: list[dict] | None = None,
+) -> str:
     lines = [f"*Autopilot status* — updated {_status_timestamp()}", ""]
 
     executing = _with_valid_id(executing_cards)
@@ -1405,11 +1424,24 @@ def build_status_text(executing_cards: list[dict], in_progress_cards: list[dict]
         lines.extend(f"• {_card_link(t)}" for t in parked)
     else:
         lines.append("_none_")
+    lines.append("")
+
+    awaiting_merge = _with_valid_id(awaiting_merge_stories or [])
+    lines.append(f"*Awaiting merge* ({len(awaiting_merge)})")
+    if awaiting_merge:
+        lines.extend(f"• {_card_link(t)}" for t in awaiting_merge)
+    else:
+        lines.append("_none_")
 
     return "\n".join(lines)
 
 
-def update_status_card(executing_cards: list[dict], in_progress_cards: list[dict], parked_stories: list[dict]) -> None:
+def update_status_card(
+    executing_cards: list[dict],
+    in_progress_cards: list[dict],
+    parked_stories: list[dict],
+    awaiting_merge_stories: list[dict] | None = None,
+) -> None:
     """Maintains the single pinned #autopilot status message. Edits it in
     place via chat.update when the stored ts still resolves; self-heals
     (posts fresh, re-pins, stores the new ts) whenever it doesn't — covering
@@ -1422,7 +1454,7 @@ def update_status_card(executing_cards: list[dict], in_progress_cards: list[dict
         print("ERROR: AUTOPILOT_SLACK_CHANNEL not configured; skipping status card update")
         return
 
-    text = build_status_text(executing_cards, in_progress_cards, parked_stories)
+    text = build_status_text(executing_cards, in_progress_cards, parked_stories, awaiting_merge_stories)
 
     state = get_status_card_state()
     if state is not None and state.get("channel") == channel:
