@@ -1,14 +1,12 @@
 import {
   MAX_LIST_SAMPLE_SIZE,
   PANEL_SEED_ASSUMED_JOIN_RATE,
-  type CivicPanelBuildChannel,
   type UnderrepresentedGroup,
 } from '@goodparty_org/contracts'
 import type { PanelSteering } from './civicPanelSteering.util'
 
-// What a civic panel invite draws and how it sizes a text, shared by the
-// build plan and the managed panel's waves. See the contacts AGENTS.md,
-// "Sampling (prepare)" and "Managed civic panel".
+// What a managed civic panel wave draws and how it sizes its text. See the
+// contacts AGENTS.md, "Managed civic panel".
 
 // How many asks it takes to expect `joins` yeses. Rounded to six places
 // first so float noise (94.5 / 0.03 = 3150.0000000000005) never asks one
@@ -28,53 +26,19 @@ export const textInviteSize = (gap: number, reachable: number): number =>
         MAX_LIST_SAMPLE_SIZE,
       )
 
-// Every invite list draws people never invited to the panel and not
-// reached in the rest window; the channel adds the reach it needs.
-export const NOT_YET_ASKED = {
+// An invite draws people with a cell phone, never invited to the panel and
+// not reached in the rest window.
+export const CIVIC_PANEL_INVITE_CRITERIA = {
   civicPanelNeverInvited: true,
   notContactedRecently: true,
+  hasCellPhone: true,
 } as const
 
-export const civicPanelInviteCriteria = (channel: CivicPanelBuildChannel) =>
-  channel === 'text'
-    ? { ...NOT_YET_ASKED, hasCellPhone: true }
-    : channel === 'phone_banking'
-      ? { ...NOT_YET_ASKED, hasAnyPhone: true }
-      : { ...NOT_YET_ASKED }
+export const civicPanelInviteListName = (wave: number): string =>
+  wave > 1 ? `Civic panel invite, batch ${wave}` : 'Civic panel invite'
 
-const LIST_NAMES: Record<CivicPanelBuildChannel, string> = {
-  text: 'Civic panel invite',
-  phone_banking: 'Civic panel calls',
-  door_knocking: 'Civic panel doors',
-}
-
-export const civicPanelInviteListName = ({
-  channel,
-  position,
-  wave,
-}: {
-  channel: CivicPanelBuildChannel
-  position: number
-  wave: number
-}): string => {
-  const area = position > 1 ? ` ${position}` : ''
-  const batch = wave > 1 ? `, batch ${wave}` : ''
-  return `${LIST_NAMES[channel]}${area}${batch}`
-}
-
-// What a draw on this channel leans toward with the panel as it stands.
-// Doors lean only once their tract is known to hold enough doors, at the
-// draw; calls lean only once they stop putting landlines first.
+// What a wave's draw leans toward with the panel as it stands.
 export const inviteLean = (
-  channel: CivicPanelBuildChannel,
   steering: PanelSteering,
-): UnderrepresentedGroup | null => {
-  if (channel === 'door_knocking') {
-    return steering.doorTract ? 'unreachedAreas' : null
-  }
-  if (!steering.weights) return null
-  if (channel === 'phone_banking') {
-    return steering.landlineFirst ? null : steering.leansToward
-  }
-  return steering.leansToward
-}
+): UnderrepresentedGroup | null =>
+  steering.weights ? steering.leansToward : null

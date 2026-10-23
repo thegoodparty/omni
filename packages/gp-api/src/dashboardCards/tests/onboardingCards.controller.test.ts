@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
-  BUILD_CITIZENS_PANEL_MESSAGE,
+  START_MANAGED_CIVIC_PANEL_MESSAGE,
   type DashboardCardsResponse,
 } from '@goodparty_org/contracts'
 import { ChatScope, PrioritySource } from '../../generated/prisma'
@@ -99,7 +99,7 @@ describe('GET /v1/dashboard/onboarding-cards', () => {
   it('keeps meet active through Chief of Staff conversations it did not start', async () => {
     const orgSlug = 'eo-onboarding-meet-other-chats'
     await seedElectedOffice(orgSlug)
-    await seedConversation(orgSlug, BUILD_CITIZENS_PANEL_MESSAGE)
+    await seedConversation(orgSlug, START_MANAGED_CIVIC_PANEL_MESSAGE)
     await seedConversation(orgSlug, 'What is on the agenda this week?')
 
     const res = await service.client.get(
@@ -117,7 +117,7 @@ describe('GET /v1/dashboard/onboarding-cards', () => {
     ).mockResolvedValue(true)
     const eo = await seedElectedOffice(orgSlug)
     await seedPriority(eo.id, PrioritySource.user_stated)
-    await seedConversation(orgSlug, BUILD_CITIZENS_PANEL_MESSAGE)
+    await seedConversation(orgSlug, START_MANAGED_CIVIC_PANEL_MESSAGE)
 
     const onboarding = await service.client.get(
       '/v1/dashboard/onboarding-cards',

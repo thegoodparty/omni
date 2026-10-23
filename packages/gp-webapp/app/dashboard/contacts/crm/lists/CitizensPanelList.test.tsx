@@ -37,6 +37,20 @@ vi.mock('../map/ContactListMap', () => ({
   ),
 }))
 
+// Where the panel stands, which this card does not draw.
+const PANEL_READ = {
+  progress: {
+    members: 0,
+    goal: 240,
+    answersNeeded: 96,
+    expectedAnswers: 0,
+    groupsCovered: 0,
+    groupsTotal: 0,
+  },
+  balance: null,
+  composition: null,
+}
+
 const selectList = vi.fn()
 const selectPerson = vi.fn()
 
@@ -68,6 +82,7 @@ const mockSummary = (members: number, lastOutreachAt: string | null = null) =>
       reachedRecently: 0,
       askableNow: members,
       lastOutreachAt: lastOutreachAt as unknown as Date | null,
+      ...PANEL_READ,
     },
   })
 
@@ -123,6 +138,7 @@ describe('CitizensPanelListCard', () => {
           reachedRecently: 0,
           askableNow: 0,
           lastOutreachAt: null,
+          ...PANEL_READ,
         },
       }
     })
@@ -144,6 +160,7 @@ describe('CitizensPanelListCard', () => {
           reachedRecently: 0,
           askableNow: 2,
           lastOutreachAt: null,
+          ...PANEL_READ,
         },
       }
     })

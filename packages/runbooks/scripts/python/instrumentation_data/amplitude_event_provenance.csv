@@ -89,15 +89,15 @@ Chief Of Staff - Source Unreachable Prompt Shown,chief_of_staff_source_unreachab
 Chief Of Staff - Task Action Taken,chief_of_staff_task_action_taken,ba915e7eca2dba9b07645bb887ff96c90fd58daa,https://github.com/thegoodparty/omni/pull/2692,2026-10-12,bryan@goodparty.org,,,,,2026-10-12,4,,,,2026-10-19T11:07:48
 Chief Of Staff - Task Completed,chief_of_staff_task_completed,ba915e7eca2dba9b07645bb887ff96c90fd58daa,https://github.com/thegoodparty/omni/pull/2692,2026-10-12,bryan@goodparty.org,,,,,2026-10-12,1,,,,2026-10-19T11:07:48
 Chief Of Staff - Upload Guard Shown,chief_of_staff_upload_guard_shown,0ebb387de81cfb13f4220493e112ca947319759e,https://github.com/thegoodparty/omni/pull/2100,2026-09-23,gp-bot@goodparty.org,,,,,2026-09-23,1,,,,2026-09-29T21:13:34
-Civic Panel - Goal Reached,civic_panel_goal_reached,,https://github.com/thegoodparty/omni/pull/2921,2026-10-16,,,,,,2026-10-19,1,,,,2026-10-19T03:31:49
+Civic Panel - Goal Reached,civic_panel_goal_reached,,https://github.com/thegoodparty/omni/pull/2921,2026-10-16,,,https://github.com/thegoodparty/omni/pull/3183,2026-10-23,,2026-10-23,1,,,,2026-10-23T15:45:29
 Civic Panel - Membership Changed,civic_panel_membership_changed,,https://github.com/thegoodparty/omni/pull/2921,2026-10-16,,,,,,2026-10-19,1,,,,2026-10-19T03:31:49
 Civic Panel - Panel Viewed,civic_panel_panel_viewed,,https://github.com/thegoodparty/omni/pull/2921,2026-10-16,,,,,,2026-10-19,1,,,,2026-10-19T03:31:47
-Civic Panel - Plan Created,civic_panel_plan_created,,https://github.com/thegoodparty/omni/pull/2921,2026-10-16,,,,,,2026-10-19,1,,,,2026-10-19T03:31:48
-Civic Panel - Plan Updated,civic_panel_plan_updated,,https://github.com/thegoodparty/omni/pull/2921,2026-10-16,,,,,,2026-10-19,1,,,,2026-10-19T03:31:48
-Civic Panel - Step Completed,civic_panel_step_completed,,https://github.com/thegoodparty/omni/pull/2921,2026-10-16,,,,,,2026-10-19,2,,,,2026-10-19T03:31:48
-Civic Panel - Step Opened,civic_panel_step_opened,,https://github.com/thegoodparty/omni/pull/2921,2026-10-16,,,,,,2026-10-19,1,,,,2026-10-19T03:31:47
-Civic Panel - Step Skipped,civic_panel_step_skipped,,https://github.com/thegoodparty/omni/pull/2921,2026-10-16,,,,,,2026-10-19,1,,,,2026-10-19T03:31:48
-Civic Panel - Step Started,civic_panel_step_started,,https://github.com/thegoodparty/omni/pull/2921,2026-10-16,,,,,,2026-10-19,1,,,,2026-10-19T03:31:48
+Civic Panel - Plan Created,civic_panel_plan_created,,https://github.com/thegoodparty/omni/pull/2921,2026-10-16,,,https://github.com/thegoodparty/omni/pull/3183,2026-10-23,,2026-10-23,1,,,,2026-10-23T15:45:28
+Civic Panel - Plan Updated,civic_panel_plan_updated,,https://github.com/thegoodparty/omni/pull/2921,2026-10-16,,,https://github.com/thegoodparty/omni/pull/3183,2026-10-23,,2026-10-23,1,,,,2026-10-23T15:45:28
+Civic Panel - Step Completed,civic_panel_step_completed,,https://github.com/thegoodparty/omni/pull/2921,2026-10-16,,,https://github.com/thegoodparty/omni/pull/3183,2026-10-23,,2026-10-23,2,,,,2026-10-23T15:45:29
+Civic Panel - Step Opened,civic_panel_step_opened,,https://github.com/thegoodparty/omni/pull/2921,2026-10-16,,,https://github.com/thegoodparty/omni/pull/3183,2026-10-23,,2026-10-23,1,,,,2026-10-23T15:45:28
+Civic Panel - Step Skipped,civic_panel_step_skipped,,https://github.com/thegoodparty/omni/pull/2921,2026-10-16,,,https://github.com/thegoodparty/omni/pull/3183,2026-10-23,,2026-10-23,1,,,,2026-10-23T15:45:29
+Civic Panel - Step Started,civic_panel_step_started,,https://github.com/thegoodparty/omni/pull/2921,2026-10-16,,,https://github.com/thegoodparty/omni/pull/3183,2026-10-23,,2026-10-23,1,,,,2026-10-23T15:45:29
 Click to Call CTA Clicked,click_to_call_cta_clicked,,,,,,,,,,,,,,2026-06-30T20:12:33
 Click to Call CTA Viewed,click_to_call_cta_viewed,,,,,,,,,,,,,,2026-06-30T20:12:33
 Click to Call Phone Submitted,click_to_call_phone_submitted,,,,,,,,,,,,,,2026-06-30T20:12:33

@@ -1,7 +1,4 @@
-import {
-  BUILD_CITIZENS_PANEL_MESSAGE,
-  START_MANAGED_CIVIC_PANEL_MESSAGE,
-} from '@goodparty_org/contracts'
+import { START_MANAGED_CIVIC_PANEL_MESSAGE } from '@goodparty_org/contracts'
 import { humanizeToolName } from '../../../shared/agent-chat/toolLabels'
 /**
  * Hard-coded intro the Chief of Staff plays on first open (before any
@@ -116,21 +113,6 @@ export const buildChiefOfStaffNextSteps = ({
 ]
 
 /**
- * The step under the answer to What's a civic panel?, matching how the reply
- * ends: build one in this chat with no members, grow it with some, so the
- * explainer never dead-ends. No card until the summary loads.
- */
-export const civicPanelExplainNextStep = (
-  panelMembers: number | undefined,
-): ChatSuggestion | undefined =>
-  panelMembers === undefined
-    ? undefined
-    : {
-        label: panelMembers === 0 ? 'Build my panel' : 'Grow your civic panel',
-        kickoff: BUILD_CITIZENS_PANEL_MESSAGE,
-      }
-
-/**
  * gp-api's saved-filter write tool (ENG-10736). A `tool_result` for it means
  * the agent may have created, updated, or deleted a saved contact list, so the
  * contacts queries need a refetch — see ChiefOfStaffChatBody's `onEvent`.
@@ -154,7 +136,6 @@ const TOOL_DISPLAY_NAMES: Record<string, string> = {
   count_contacts: 'Counting matches',
   list_precincts: 'Looking up precincts',
   [SAVED_FILTERS_TOOL]: 'Working on your lists',
-  save_panel_weekly_time: 'Making your panel plan',
   read_managed_panel: 'Checking your civic panel',
   constituent_data: 'Reviewing district data',
   query_constituent_data: 'Reviewing district data',

@@ -7,10 +7,7 @@ import {
 } from './chiefOfStaff.handler'
 import { ChiefOfStaffContextService } from './services/chiefOfStaffContext.service'
 import { ChiefOfStaffBriefingsService } from './services/chiefOfStaffBriefings.service'
-import {
-  PrioritiesToolPort,
-  type PriorityRecord,
-} from './services/prioritiesPort'
+import { PrioritiesToolPort } from './services/prioritiesPort'
 import { DistrictResolverService } from '@/chats/briefing-chats/services/districtResolver.service'
 import { DATA_SOURCE_ROUTING_RULES } from '@/llm/tools/dataSourceRouting'
 import type { LlmTool } from '@/llm/services/llm.service'
@@ -25,18 +22,14 @@ import { guardrailLine } from '../services/guardrailLines'
 import { buildPresentOutreachProposalTool } from '../chat-tools/presentOutreachProposal.tool'
 import type { PriorityFlowOutreachService } from '../priority-flow/services/priorityFlowOutreach.service'
 import type { PriorityStatusService } from '@/priorities/services/priorityStatus.service'
-import type { CivicPanelBuildPlanService } from '@/contacts/services/civicPanelBuildPlan.service'
 import type { ManagedCivicPanelService } from '@/contacts/services/managedCivicPanel.service'
 import {
-  BUILD_CITIZENS_PANEL_MESSAGE,
-  EXPLAIN_CIVIC_PANEL_MESSAGE,
   MANAGED_CIVIC_PANEL_BACKED_OUT_MESSAGE,
   MANAGED_CIVIC_PANEL_EXHAUSTED_MESSAGE,
   MANAGED_CIVIC_PANEL_SET_UP_MESSAGE,
   START_MANAGED_CIVIC_PANEL_MESSAGE,
   type ManagedCivicPanel,
 } from '@goodparty_org/contracts'
-import type { PriorityResultsService } from '@/priorities/services/priorityResults.service'
 
 // Native web search has no description; every other registered tool does.
 const descriptionOf = (tool: LlmTool | undefined): string => {
@@ -110,14 +103,6 @@ describe('ChiefOfStaffHandler', () => {
           anchor: null,
           districtFilters: null,
           constituentToolEnabled: false,
-        }),
-      ),
-      civicPanelBuildState: vi.fn(() =>
-        Promise.resolve({
-          members: 0,
-          inviteSent: false,
-          hasPlan: false,
-          goalMembers: 240,
         }),
       ),
     } as unknown as ChiefOfStaffContextService
@@ -676,12 +661,6 @@ describe('ChiefOfStaffHandler', () => {
       'read_managed_panel',
       'present_managed_panel',
     ]
-    const PLAN_TOOLS = [
-      'ask_panel_weekly_time',
-      'save_panel_weekly_time',
-      'present_panel_next_step',
-    ]
-
     const enrollment = {
       id: 'mp-1',
       status: 'building',
@@ -697,20 +676,10 @@ describe('ChiefOfStaffHandler', () => {
     const buildManagedHandler = ({
       panel,
       panels = true,
-      hasPlan = false,
     }: {
       panel: ManagedCivicPanel | null
       panels?: boolean
-      hasPlan?: boolean
     }) => {
-      context.civicPanelBuildState = vi.fn(() =>
-        Promise.resolve({
-          members: 0,
-          inviteSent: false,
-          hasPlan,
-          goalMembers: 240,
-        }),
-      )
       const read = vi.fn(() => Promise.resolve({ panel }))
       const handler = new ChiefOfStaffHandler(
         context,
@@ -731,18 +700,16 @@ describe('ChiefOfStaffHandler', () => {
         } as never,
         undefined,
         undefined,
-        {} as CivicPanelBuildPlanService,
         { read } as unknown as ManagedCivicPanelService,
       )
       return { handler, read }
     }
 
-    it('offers the managed panel in place of the plan before the office approves', async () => {
+    it('offers the managed panel before the office approves', async () => {
       const { handler } = buildManagedHandler({ panel: null })
       const ctx = await handler.loadContext('c1', USER_ID)
       const names = Object.keys(handler.buildTools(ctx))
       expect(names).toEqual(expect.arrayContaining(MANAGED_TOOLS))
-      for (const name of PLAN_TOOLS) expect(names).not.toContain(name)
 
       const prompt = handler.buildSystemPrompt(ctx)
       expect(prompt).toContain(
@@ -760,10 +727,6 @@ describe('ChiefOfStaffHandler', () => {
       )
       expect(prompt).toContain('Then call `present_managed_panel_invite`')
       expect(prompt).toContain(`On "${MANAGED_CIVIC_PANEL_BACKED_OUT_MESSAGE}"`)
-      expect(prompt).not.toContain(
-        "CIVIC PANEL (apply when the user's message is exactly " +
-          `"${BUILD_CITIZENS_PANEL_MESSAGE}"`,
-      )
     })
 
     it('says when the first invites go out once the office approves', async () => {
@@ -808,14 +771,6 @@ describe('ChiefOfStaffHandler', () => {
       )
     })
 
-    it('keeps the plan for an office already part way through one', async () => {
-      const { handler } = buildManagedHandler({ panel: null, hasPlan: true })
-      const ctx = await handler.loadContext('c1', USER_ID)
-      expect(Object.keys(handler.buildTools(ctx))).toEqual(
-        expect.arrayContaining([...MANAGED_TOOLS, ...PLAN_TOOLS]),
-      )
-    })
-
     it('reads nothing with serve-citizen-panels off', async () => {
       const { handler, read } = buildManagedHandler({
         panel: null,
@@ -826,376 +781,6 @@ describe('ChiefOfStaffHandler', () => {
       expect(ctx.managedPanel).toBeUndefined()
       const names = Object.keys(handler.buildTools(ctx))
       for (const name of MANAGED_TOOLS) expect(names).not.toContain(name)
-    })
-  })
-
-  describe('building the civic panel', () => {
-    const buildPanelHandler = (flags: { panels: boolean }) => {
-      const features = {
-        isFeatureEnabled: vi.fn(({ feature }: { feature: string }) =>
-          Promise.resolve(
-            feature === 'serve-citizen-panels' ? flags.panels : false,
-          ),
-        ),
-      }
-      const handler = new ChiefOfStaffHandler(
-        context,
-        buildBriefings(),
-        port,
-        NO_TABLES,
-        undefined,
-        undefined,
-        undefined,
-        {
-          getFilterDimensions: vi.fn(() => []),
-          countContacts: vi.fn(),
-        } as unknown as ContactsService,
-        {
-          findByOrganizationSlug: vi.fn(() => Promise.resolve([])),
-        } as unknown as VoterFileFilterService,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        features as never,
-        undefined,
-        undefined,
-        {} as CivicPanelBuildPlanService,
-      )
-      return { handler, features }
-    }
-
-    const withPanel = (state: {
-      members: number
-      inviteSent: boolean
-      hasPlan?: boolean
-    }) => {
-      context.civicPanelBuildState = vi.fn(() =>
-        Promise.resolve({ hasPlan: false, goalMembers: 240, ...state }),
-      )
-    }
-
-    const promptFor = async (
-      override: { priorities?: PriorityRecord[] } = {},
-    ) => {
-      const { handler } = buildPanelHandler({ panels: true })
-      const ctx = await handler.loadContext('c1', USER_ID)
-      return handler.buildSystemPrompt({ ...ctx, ...override })
-    }
-
-    const PLAN_TOOLS = [
-      'ask_panel_weekly_time',
-      'save_panel_weekly_time',
-      'present_panel_next_step',
-    ]
-
-    it('registers the plan tools, and no single invite text', async () => {
-      const { handler } = buildPanelHandler({ panels: true })
-      const tools = handler.buildTools(await handler.loadContext('c1', USER_ID))
-      expect(Object.keys(tools)).toEqual(expect.arrayContaining(PLAN_TOOLS))
-      expect(Object.keys(tools)).not.toContain('size_panel_invite')
-      expect(
-        Object.keys(
-          (
-            tools.present_outreach_proposal as unknown as {
-              inputSchema: { shape: object }
-            }
-          ).inputSchema.shape,
-        ),
-      ).toEqual(
-        Object.keys(buildPresentOutreachProposalTool().inputSchema.shape),
-      )
-    })
-
-    it('explains, then asks the weekly time question and makes the plan from the answer', async () => {
-      const prompt = await promptFor()
-      expect(prompt).toContain(
-        "CIVIC PANEL (apply when the user's message is exactly " +
-          `"${BUILD_CITIZENS_PANEL_MESSAGE}"`,
-      )
-      expect(prompt).toContain('- Explain what a civic panel is')
-      expect(prompt).toContain(
-        '"A civic panel is residents from every part of your district who ' +
-          'agreed to tell you what they think before you decide."',
-      )
-      expect(prompt).toContain(
-        'Never say how members are found, picked or invited',
-      )
-      expect(prompt).not.toContain('picking people at random')
-      expect(prompt).toContain(
-        'call `ask_panel_weekly_time` with nothing after it',
-      )
-      expect(prompt).toContain(
-        'never write the question or the answers yourself',
-      )
-      expect(prompt).toContain(
-        'call `save_panel_weekly_time` with the hours: 4 for "4 or more ' +
-          'hours a week"',
-      )
-      expect(prompt).toContain(
-        'When it returns saved "created", call `present_panel_next_step`',
-      )
-      expect(prompt).toContain(
-        'Never propose a text, a list or any other outreach to build the ' +
-          'panel',
-      )
-      expect(prompt).not.toContain('size_panel_invite')
-      expect(prompt).not.toContain('civicPanelAsk true')
-    })
-
-    it('says what to do when no plan can be made, pointing at the panel page', async () => {
-      const prompt = await promptFor()
-      expect(prompt).toContain(
-        'When it returns planMade false, no plan could be made.',
-      )
-      expect(prompt).toContain(
-        'link their panel page as [See your civic panel](/dashboard/contacts/citizens-panel)',
-      )
-    })
-
-    it('shows the plan an office already has and never asks again', async () => {
-      withPanel({ members: 3, inviteSent: true, hasPlan: true })
-      const prompt = await promptFor()
-      expect(prompt).toContain(
-        'They already have a plan to build it. Never ask the weekly time ' +
-          'question again. Call `present_panel_next_step`',
-      )
-      expect(prompt).not.toContain(
-        'call `ask_panel_weekly_time` with nothing after it',
-      )
-      expect(prompt).toContain('"I can give 2 hours now"')
-      expect(prompt).toContain('When it returns saved "updated"')
-    })
-
-    it('grows a panel with members but no plan through the same question', async () => {
-      withPanel({ members: 42, inviteSent: true })
-      const prompt = await promptFor()
-      expect(prompt).toContain(
-        'They already have 42 people on their civic panel',
-      )
-      expect(prompt).toContain(
-        'call `ask_panel_weekly_time` with nothing after it',
-      )
-      expect(prompt).not.toContain('- Explain what a civic panel is')
-    })
-
-    it('ends on priorities once the first invite is out and none are on file', async () => {
-      withPanel({ members: 0, inviteSent: true, hasPlan: true })
-      const prompt = await promptFor()
-      expect(prompt).toContain(
-        'Their first invite is out and they have no priorities on file.',
-      )
-      expect(prompt).toContain('offer to record what they tell you')
-    })
-
-    it('does not ask for priorities before the first invite is out', async () => {
-      withPanel({ members: 0, inviteSent: false })
-      const prompt = await promptFor()
-      expect(prompt).not.toContain('they have no priorities on file.')
-      expect(prompt).toContain('Do not ask about priorities in this reply')
-    })
-
-    it('ends on the plan, not on priorities, when some are on file', async () => {
-      withPanel({ members: 0, inviteSent: true, hasPlan: true })
-      const prompt = await promptFor({
-        priorities: [
-          {
-            id: 'pri-1',
-            title: 'Rents',
-            description: 'Keep renters near transit.',
-            archivedAt: null,
-            flow: { currentStep: 'evidence', nextAction: null, checks: [] },
-          },
-        ],
-      })
-      expect(prompt).not.toContain('they have no priorities on file.')
-      expect(prompt).toContain(
-        'They already have priorities on file. Never ask them to record priorities',
-      )
-    })
-
-    it('offers to keep a panel at its goal fresh, through the same question', async () => {
-      withPanel({ members: 240, inviteSent: true })
-      const prompt = await promptFor()
-      expect(prompt).toContain(
-        'Their civic panel already has 240 people, its goal.',
-      )
-      expect(prompt).toContain('keep it fresh')
-      expect(prompt).toContain(
-        'call `ask_panel_weekly_time` with nothing after it',
-      )
-    })
-
-    it('says the invite is out, then plans the calls and doors', async () => {
-      withPanel({ members: 0, inviteSent: true })
-      const prompt = await promptFor()
-      expect(prompt).toContain('Their panel invite already went out')
-      expect(prompt).toContain(
-        'call `ask_panel_weekly_time` with nothing after it',
-      )
-    })
-
-    it('links the panel page when the plan tools are not there', async () => {
-      const handler = new ChiefOfStaffHandler(
-        context,
-        buildBriefings(),
-        port,
-        NO_TABLES,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        {
-          isFeatureEnabled: vi.fn(() => Promise.resolve(true)),
-        } as never,
-      )
-      const ctx = await handler.loadContext('c1', USER_ID)
-      expect(Object.keys(handler.buildTools(ctx))).not.toContain(
-        'ask_panel_weekly_time',
-      )
-      expect(handler.buildSystemPrompt(ctx)).toContain(
-        'link it as [Build your civic panel](/dashboard/contacts/citizens-panel)',
-      )
-    })
-
-    // Two lines a build reply produced: "not just the people who already
-    // reach out" (banned word) and "the panel ends up looking like
-    // Asheville" (a promise the panel brief forbids). The panel page's own
-    // status and group to invite next may be said, nothing past them.
-    it('bans "just" and any promise that the panel will match the community', async () => {
-      const prompt = await promptFor()
-      const civicPanel = prompt.slice(prompt.indexOf('CIVIC PANEL ('))
-      expect(civicPanel).toContain('Never use the word "just".')
-      expect(civicPanel).toContain(
-        'You may say the status their panel page shows (the panelStatus a ' +
-          'panel tool returns: Too few members yet, Missing some groups or ' +
-          'Every group on your panel) and the group it says to invite next ' +
-          '(inviteMoreNext), in those words.',
-      )
-      expect(civicPanel).toContain(
-        'Never promise or imply the panel will look like, match, mirror or ' +
-          'represent the district, the city or the community.',
-      )
-      expect(civicPanel).toContain(
-        'Never mention weights, quotas or targets, and never say or ' +
-          "guess any one person's race.",
-      )
-      expect(civicPanel).not.toContain(
-        'never suggest inviting or leaving out anyone by race',
-      )
-      expect(civicPanel).not.toContain('looks like the district')
-      const explained = prompt.slice(prompt.indexOf('CIVIC PANEL EXPLAINED'))
-      expect(explained).toContain('Never use the word "just".')
-    })
-
-    describe("What's a civic panel?", () => {
-      it('explains the panel and asks before building anything', async () => {
-        const prompt = await promptFor()
-        expect(prompt).toContain(
-          "CIVIC PANEL EXPLAINED (apply when the user's message is exactly " +
-            `"${EXPLAIN_CIVIC_PANEL_MESSAGE}"`,
-        )
-        expect(prompt).toContain('They asked what it is, not to build one.')
-        expect(prompt).toContain('do they want to build theirs?')
-        expect(prompt).toContain(
-          'The app shows a Build my panel button under your reply that ' +
-            'starts it here',
-        )
-        expect(prompt).toContain(
-          'Skip this when you already explained the panel earlier in this ' +
-            'conversation',
-        )
-        expect(prompt).toContain(
-          'never count the district, size an invite, draft a text or ' +
-            'present a card',
-        )
-        expect(prompt).toContain(
-          'Never call it representative, a poll, a survey panel, a focus ' +
-            'group or proprietary.',
-        )
-      })
-
-      it('offers no build to an office that already has members', async () => {
-        withPanel({ members: 42, inviteSent: true })
-        const prompt = await promptFor()
-        expect(prompt).toContain(
-          'they already have 42 people on their civic panel',
-        )
-        expect(prompt).not.toContain('do they want to build theirs?')
-      })
-
-      it('offers no build once the invite is out', async () => {
-        withPanel({ members: 0, inviteSent: true })
-        const prompt = await promptFor()
-        expect(prompt).toContain('their panel invite already went out')
-        expect(prompt).not.toContain('do they want to build theirs?')
-      })
-    })
-
-    it('is unchanged with serve-citizen-panels off', async () => {
-      const { handler } = buildPanelHandler({ panels: false })
-      const ctx = await handler.loadContext('c1', USER_ID)
-      const tools = handler.buildTools(ctx)
-      expect(ctx.civicPanel).toBeUndefined()
-      expect(context.civicPanelBuildState).not.toHaveBeenCalled()
-      for (const name of PLAN_TOOLS) {
-        expect(Object.keys(tools)).not.toContain(name)
-      }
-      expect(handler.buildSystemPrompt(ctx)).not.toContain('CIVIC PANEL')
-    })
-
-    it('sizes the panel goal from the district once a turn', async () => {
-      const turn = async (answers: number) => {
-        const districtAnswersNeeded = vi.fn(() => Promise.resolve(answers))
-        const readStatuses = vi.fn(() => Promise.resolve(new Map()))
-        context.civicPanelBuildState = vi.fn(() =>
-          Promise.resolve({
-            members: 0,
-            inviteSent: false,
-            hasPlan: false,
-            goalMembers: 240,
-          }),
-        )
-        const handler = new ChiefOfStaffHandler(
-          context,
-          buildBriefings(),
-          port,
-          NO_TABLES,
-          undefined,
-          undefined,
-          undefined,
-          {
-            getFilterDimensions: vi.fn(() => []),
-            countContacts: vi.fn(),
-          } as unknown as ContactsService,
-          undefined,
-          undefined,
-          undefined,
-          undefined,
-          undefined,
-          { isFeatureEnabled: vi.fn(() => Promise.resolve(true)) } as never,
-          undefined,
-          {
-            districtAnswersNeeded,
-            readStatuses,
-          } as unknown as PriorityResultsService,
-        )
-        await handler.loadContext('c1', USER_ID)
-        return { districtAnswersNeeded, readStatuses }
-      }
-
-      const city = await turn(96)
-      expect(city.districtAnswersNeeded).toHaveBeenCalledTimes(1)
-      expect(city.readStatuses).toHaveBeenCalledWith(ORG, [])
-      expect(context.civicPanelBuildState).toHaveBeenCalledWith(ORG, 240)
-
-      await turn(15)
-      expect(context.civicPanelBuildState).toHaveBeenCalledWith(ORG, 38)
     })
   })
 

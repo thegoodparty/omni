@@ -50,7 +50,7 @@ interface DoorKnockingPageGateProps {
   proposalLink?: ProposalLink
   // `?source=` — where that `?create=1` link was pressed.
   createSource?: OutreachFlowSource
-  // `?purpose=` / `?area=` — a civic panel plan's door step.
+  // `?purpose=` / `?area=` from a link.
   initialPurpose?: ServeDoorKnockingPurpose
   prefillArea?: PolygonRing
   // `?launchSource=` — the agent surface that opened the create flow.

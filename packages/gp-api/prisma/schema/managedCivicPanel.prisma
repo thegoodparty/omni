@@ -56,7 +56,7 @@ model ManagedPanelWave {
   /// row, where a CHECK can hold them together.
   outreach          Outreach?
   /// The group the drawn list leaned toward (contracts'
-  /// UnderrepresentedGroup), as on CivicPanelBuildStep. Null: no lean.
+  /// UnderrepresentedGroup). Null: no lean.
   steeredToward     String?           @map("steered_toward")
   sentAt            DateTime?         @map("sent_at")
   replyWindowEndsAt DateTime?         @map("reply_window_ends_at")

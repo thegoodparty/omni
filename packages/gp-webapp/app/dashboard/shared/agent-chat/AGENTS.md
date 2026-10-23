@@ -223,13 +223,10 @@ there is the agent's to say, once, in its message; no card repeats it.
   turn. Chief of Staff has no check to move and sends no such turn. While the
   SMS flag reads off, a text
   proposal says texting is not available instead of offering a button.
-  A Serve text proposal may carry `purpose` (contracts' Serve SMS purposes;
-  only Chief of Staff cards from before the panel plan carry one,
-  `build_citizens_panel`, the old single invite text; the chat now builds the
-  panel from the plan and proposes no invite). `SmsFlow` then opens on it as `initialPurpose`, past the
+  A Serve text proposal may carry `purpose` (contracts' Serve SMS
+  purposes). `SmsFlow` then opens on it as `initialPurpose`, past the
   picker, with the seeded message kept (a script otherwise opens on
-  `custom`) and the JOIN line locked on, the way the outreach page's panel
-  deep link opens it.
+  `custom`).
   `PastOutreachCard` is one row per send, linking to its row's drawer on the
   hub. It reads its mode from the provider like the proposal card: Win reads
   the campaign's send (`GET /v1/outreach/:id`) and links to
@@ -320,42 +317,7 @@ prompt keys on to work through them one at a time. That turn stays in the
 transcript, and it is the only place the steps still to do live.
 
 `showSuggestionsAfterKickoff` moves the cards from the empty transcript to
-under the reply to `pendingKickoff`, until anything else is sent. The Serve
-home uses it for What's a civic panel?: with no panel yet the answer ends on
-Build my panel, and with members on Grow your civic panel, each sending the
-same hidden build turn, which the Chief of Staff answers with the plan's next
-step card.
-
-## The civic panel in the Chief of Staff chat
-
-The chat builds the panel on the panel page's plan (gp-api's contacts
-AGENTS.md, "Building the panel starts on the Chief of Staff home"). Two
-no-arg tools are widgets in `chief-of-staff/components/chat/civicPanelWidgets.tsx`,
-registered on `ChiefOfStaffChatBody`'s registry:
-
-- **`ask_panel_weekly_time`** renders `ClarifyQuestionWidget` with the panel
-  page's own question and answers (`citizensPanelCopy`: "How much time can
-  you spend each week to connect with constituents by phone or in person?", 1, 2, 3, or 4 or more hours a week, plus the usual
-  write-your-own). `isQuestionTool` (`clarifyWidget.tsx`) counts it as a
-  clarify question, so only the open one takes input, an answered one
-  reloads checked, and prose asking it right above is dropped.
-- **`present_panel_next_step`** renders `CivicPanelNextStepCard`, which reads
-  the plan itself (`civicPanelPlanQueryOptions`, `GET …/civic-panel/plan`) and
-  holds no state of its own. It is the standard outreach card row
-  (`CompactCardStatic`): the step in the panel page's words ("Call 60
-  residents", then who and how long, from contracts' `civicPanelStepTitle` and
-  `civicPanelOpenStepDetail`) and the page's button for it. No member count
-  and no panel status: before anyone is invited, "Too few members yet" only
-  discourages. With no step to take (waiting on replies) it is a See your
-  plan row (`CompactCardLink`) with the Next line. A step it cannot start
-  (texting not set up) offers See your plan as its button instead. The button opens the step's own flow through the panel page's
-  `useCivicPanelStepFlow` (`contacts/citizens-panel/components/`): texts and
-  calls over the chat, doors on the door knocking page, calls or walks
-  underway on their caller page or walk. A refused call's null args render
-  nothing.
-
-A `save_panel_weekly_time` result drops the plan query and the home's cards,
-so the card and the People first card follow the new plan at once.
+under the reply to `pendingKickoff`, until anything else is sent.
 
 ## The managed civic panel in the Chief of Staff chat
 
@@ -366,7 +328,7 @@ tools are widgets in `chief-of-staff/components/chat/managedPanelWidgets.tsx`:
 
 - **`offer_managed_panel_invite`** renders `ClarifyQuestionWidget` with fixed
   words (Want to see the invite? Show me the invite, Who gets texted?, Not
-  now). `isQuestionTool` counts it, like the weekly time question.
+  now). `isQuestionTool` counts it as a clarify question.
 - **`present_managed_panel_invite`** renders `ManagedPanelInviteCard`: the
   draft (`managedInviteDraft`, the official's first name and grammarized
   office) composed with its locked lines and a sample first name, and Review

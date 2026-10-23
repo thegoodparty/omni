@@ -210,7 +210,7 @@ export class ManagedCivicPanelService extends createPrismaBase(
     }
   }
 
-  // The plan's source of the goal: the answers a good read of the district
+  // The goal's source: the answers a good read of the district
   // needs, or the most any district needs when it cannot be read.
   private async districtAnswersNeeded(
     organization: Organization,

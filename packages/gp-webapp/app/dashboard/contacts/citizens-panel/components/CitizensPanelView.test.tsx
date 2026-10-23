@@ -9,13 +9,6 @@ vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
   trackEvent: vi.fn(),
 }))
 
-const SUMMARY = {
-  members: 40,
-  reachedRecently: 15,
-  askableNow: 25,
-  lastOutreachAt: null,
-}
-
 // Tract 2 trails its share, and the women petal its share.
 const COMPOSITION = {
   placeKind: 'tract' as const,
@@ -29,10 +22,11 @@ const COMPOSITION = {
   ],
 }
 
-// Every panel here has a plan, so the cases below are about the members.
-const PLAN = {
-  plan: null,
-  next: null,
+const SUMMARY = {
+  members: 40,
+  reachedRecently: 15,
+  askableNow: 25,
+  lastOutreachAt: null,
   progress: {
     members: 40,
     goal: 240,
@@ -42,6 +36,7 @@ const PLAN = {
     groupsTotal: 12,
   },
   balance: null,
+  composition: null,
 }
 
 beforeEach(() => {
@@ -53,9 +48,8 @@ describe('CitizensPanelView', () => {
   it('records the visit with how close the panel is to the district', () => {
     render(
       <CitizensPanelView
-        summary={SUMMARY}
-        plan={{
-          ...PLAN,
+        summary={{
+          ...SUMMARY,
           balance: { status: 'missingGroups', inviteMore: 'age65plus' },
         }}
       />,
@@ -68,14 +62,13 @@ describe('CitizensPanelView', () => {
       answersFloor: 96,
       groupsCovered: 5,
       groupsTotal: 12,
-      planStatus: 'none',
       howCloseStatus: 'missing_groups',
       entry: 'direct',
     })
   })
 
   it('records no status while the comparison is hidden', () => {
-    render(<CitizensPanelView summary={SUMMARY} plan={PLAN} />)
+    render(<CitizensPanelView summary={SUMMARY} />)
 
     expect(trackEvent).toHaveBeenCalledWith(
       EVENTS.CivicPanel.PanelViewed,
@@ -86,9 +79,8 @@ describe('CitizensPanelView', () => {
   it('says how the panel compares with the district and who to invite next', () => {
     render(
       <CitizensPanelView
-        summary={SUMMARY}
-        plan={{
-          ...PLAN,
+        summary={{
+          ...SUMMARY,
           balance: { status: 'missingGroups', inviteMore: 'age65plus' },
         }}
       />,
@@ -106,9 +98,8 @@ describe('CitizensPanelView', () => {
   it('says how many groups need fresh voices past the goal, and who to invite', () => {
     render(
       <CitizensPanelView
-        summary={SUMMARY}
-        plan={{
-          ...PLAN,
+        summary={{
+          ...SUMMARY,
           balance: {
             status: 'everyGroup',
             inviteMore: 'age65plus',
@@ -131,9 +122,8 @@ describe('CitizensPanelView', () => {
   it('says every group has fresh voices once none need them', () => {
     render(
       <CitizensPanelView
-        summary={SUMMARY}
-        plan={{
-          ...PLAN,
+        summary={{
+          ...SUMMARY,
           balance: {
             status: 'everyGroup',
             inviteMore: null,
@@ -149,9 +139,8 @@ describe('CitizensPanelView', () => {
   it('waits for 30 members before comparing, and hides without the census', () => {
     const { unmount } = render(
       <CitizensPanelView
-        summary={SUMMARY}
-        plan={{
-          ...PLAN,
+        summary={{
+          ...SUMMARY,
           balance: { status: 'tooFewMembers', inviteMore: null },
         }}
       />,
@@ -164,7 +153,7 @@ describe('CitizensPanelView', () => {
     ).toBeInTheDocument()
     unmount()
 
-    render(<CitizensPanelView summary={SUMMARY} plan={PLAN} />)
+    render(<CitizensPanelView summary={SUMMARY} />)
     expect(
       screen.queryByText('How your panel compares with your district'),
     ).not.toBeInTheDocument()
@@ -173,9 +162,8 @@ describe('CitizensPanelView', () => {
   it('draws the district as seats and the groups as petals', () => {
     render(
       <CitizensPanelView
-        summary={SUMMARY}
-        plan={{
-          ...PLAN,
+        summary={{
+          ...SUMMARY,
           balance: { status: 'everyGroup', inviteMore: null },
           composition: COMPOSITION,
         }}
@@ -195,9 +183,8 @@ describe('CitizensPanelView', () => {
   it('names one next step, the group the next draw leans toward', () => {
     render(
       <CitizensPanelView
-        summary={SUMMARY}
-        plan={{
-          ...PLAN,
+        summary={{
+          ...SUMMARY,
           balance: { status: 'missingGroups', inviteMore: 'age65plus' },
           composition: COMPOSITION,
         }}
@@ -213,8 +200,8 @@ describe('CitizensPanelView', () => {
     ).toBeInTheDocument()
   })
 
-  it('puts the members and See members beside the plan', () => {
-    render(<CitizensPanelView summary={SUMMARY} plan={PLAN} />)
+  it('puts the members and See members beside the panel', () => {
+    render(<CitizensPanelView summary={SUMMARY} />)
 
     const aside = screen.getByTestId('civic-panel-aside')
     expect(within(aside).getByText('Members')).toBeInTheDocument()
@@ -225,13 +212,13 @@ describe('CitizensPanelView', () => {
   })
 
   it('draws no seats without the census', () => {
-    render(<CitizensPanelView summary={SUMMARY} plan={PLAN} />)
+    render(<CitizensPanelView summary={SUMMARY} />)
 
     expect(screen.queryByTestId('civic-panel-seats')).not.toBeInTheDocument()
   })
 
   it('offers no list of who can be asked now', () => {
-    render(<CitizensPanelView summary={SUMMARY} plan={PLAN} />)
+    render(<CitizensPanelView summary={SUMMARY} />)
 
     expect(
       screen.queryByRole('link', { name: /who can be asked now/ }),
@@ -239,7 +226,7 @@ describe('CitizensPanelView', () => {
   })
 
   it('opens the built-in panel list, saving nothing', () => {
-    render(<CitizensPanelView summary={SUMMARY} plan={PLAN} />)
+    render(<CitizensPanelView summary={SUMMARY} />)
 
     expect(screen.getByRole('link', { name: 'See members' })).toHaveAttribute(
       'href',
@@ -247,24 +234,19 @@ describe('CitizensPanelView', () => {
     )
   })
 
-  it('asks the hours question when nobody has joined and there is no plan', () => {
+  it('offers no members list when nobody has joined', () => {
     render(
       <CitizensPanelView
         summary={{
+          ...SUMMARY,
           members: 0,
           reachedRecently: 0,
           askableNow: 0,
-          lastOutreachAt: null,
+          progress: { ...SUMMARY.progress, members: 0, expectedAnswers: 0 },
         }}
-        plan={PLAN}
       />,
     )
 
-    expect(
-      screen.getByRole('heading', {
-        name: 'How much time can you spend each week to connect with constituents by phone or in person?',
-      }),
-    ).toBeInTheDocument()
     expect(
       screen.queryByRole('link', { name: 'See members' }),
     ).not.toBeInTheDocument()

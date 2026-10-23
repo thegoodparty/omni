@@ -345,8 +345,9 @@ when the extra row comes back. A truncated roster sends a canvasser to the wrong
 doors, which is worse than an error. Any change that silently caps, paginates or
 drops residents here is a correctness regression, not a performance win.
 
-The civic panel's door step does not go through either. `walkableArea()`
-(`buildWalkableAreaSql`) picks its doors in the warehouse over every
+The walkable-area pick (the test seed's tract draws, through
+`ContactsService.walkableAreaWithin`) does not go through either.
+`walkableArea()` (`buildWalkableAreaSql`) picks its doors in the warehouse over every
 eligible rooftop household in scope (or one tract): households into 200m
 cells, the densest 3x3 block of cells as the seed, the `households` nearest
 that block's center. Only the picked doors come back, as a position and

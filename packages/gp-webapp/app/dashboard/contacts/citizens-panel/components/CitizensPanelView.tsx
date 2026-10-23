@@ -1,15 +1,11 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
-import {
-  answersNeeded,
-  panelExpectedAnswers,
-  panelGoalMembers,
-  type CivicPanelBuildPlanResponse,
-  type CivicPanelSummary,
-  type ManagedCivicPanel,
+import type {
+  CivicPanelSummary,
+  ManagedCivicPanel,
 } from '@goodparty_org/contracts'
 import { Button } from '@styleguide'
 import { ArrowLeftIcon } from '@styleguide/components/ui/icons'
@@ -22,46 +18,25 @@ import {
 } from '../citizensPanelCopy'
 import { CitizensPanelStats } from './CitizensPanelStats'
 import { CivicPanelBalanceSection } from './CivicPanelBalance'
-import { CivicPanelPlanStart } from './CivicPanelPlanStart'
-import { CivicPanelPlanSteps } from './CivicPanelPlanSteps'
 import { CivicPanelMilestones } from './CivicPanelMilestones'
-import { CivicPanelRail } from './CivicPanelRail'
 import { CivicPanelSeats } from './CivicPanelSeats'
 import { ManagedPanelControls } from './ManagedPanelControls'
 
 export const CitizensPanelView = ({
   summary,
-  plan: initialPlan,
   managed = null,
 }: {
   summary: CivicPanelSummary
-  // Null when the plan could not be read; its own `plan` is null before the
-  // official has made one.
-  plan: CivicPanelBuildPlanResponse | null
   // The panel GoodParty builds for the office; null before it approves, or
   // when it could not be read.
   managed?: ManagedCivicPanel | null
 }) => {
-  const [planState, setPlanState] = useState(initialPlan)
   const hasMembers = summary.members > 0
-  // Without the plan's read there is no district mix at hand, so the goal is
-  // sized for the smallest major group any district can have.
-  const progress = planState?.progress ?? {
-    members: summary.members,
-    goal: panelGoalMembers(answersNeeded()),
-    answersNeeded: answersNeeded(),
-    expectedAnswers: panelExpectedAnswers(summary.members),
-    groupsCovered: 0,
-    groupsTotal: 0,
-  }
-  const activePlan =
-    planState?.plan?.status === 'active' ? planState.plan : null
-  const underGoal = progress.members < progress.goal
-  // GoodParty builds this office's panel, so there is no plan to start.
+  const { progress, balance, composition } = summary
   const managedActive = managed !== null && managed.status !== 'stopped'
 
   const entry = useSearchParams()?.get(CIVIC_PANEL_ENTRY_PARAM) ?? 'direct'
-  // Once per visit, on what the page was given, not on later plan changes.
+  // Once per visit, on what the page was given.
   useEffect(() => {
     trackEvent(EVENTS.CivicPanel.PanelViewed, {
       members: summary.members,
@@ -70,10 +45,7 @@ export const CitizensPanelView = ({
       answersFloor: progress.answersNeeded,
       groupsCovered: progress.groupsCovered,
       groupsTotal: progress.groupsTotal,
-      planStatus: initialPlan?.plan?.status ?? 'none',
-      howCloseStatus: initialPlan?.balance
-        ? PANEL_STATUS_PROPERTY[initialPlan.balance.status]
-        : null,
+      howCloseStatus: balance ? PANEL_STATUS_PROPERTY[balance.status] : null,
       entry,
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -94,69 +66,40 @@ export const CitizensPanelView = ({
         </h1>
       </div>
 
-      <CivicPanelMilestones
-        progress={progress}
-        composition={planState?.composition ?? null}
-      />
+      <CivicPanelMilestones progress={progress} composition={composition} />
 
       <div className="flex flex-col gap-4 sm:gap-6 lg:flex-row lg:items-start">
         <div className="flex min-w-0 flex-1 flex-col gap-5">
           {managedActive ? <ManagedPanelControls panel={managed} /> : null}
 
-          {planState === null && !managedActive ? (
-            <p className="text-sm text-muted-foreground">
-              {COPY.planLoadError}
-            </p>
-          ) : activePlan ? (
-            <CivicPanelPlanSteps
-              plan={activePlan}
-              next={planState?.next ?? null}
-              onPlan={setPlanState}
-            />
-          ) : managedActive ? null : (
-            <CivicPanelPlanStart keepFresh={!underGoal} onPlan={setPlanState} />
-          )}
-
-          {planState?.balance ? (
+          {balance ? (
             <CivicPanelBalanceSection
-              balance={planState.balance}
-              groups={planState.composition?.groups ?? []}
+              balance={balance}
+              groups={composition?.groups ?? []}
             />
           ) : null}
 
-          {hasMembers &&
-          planState?.composition &&
-          planState.composition.places.length > 0 ? (
+          {hasMembers && composition && composition.places.length > 0 ? (
             <CivicPanelSeats
-              placeKind={planState.composition.placeKind}
-              places={planState.composition.places}
+              placeKind={composition.placeKind}
+              places={composition.places}
               members={progress.members}
               goal={progress.goal}
             />
           ) : null}
         </div>
 
-        {/* Beside the plan from lg, below it on a phone: the weekly time
-            (only a plan has one to change), then the members' numbers. */}
-        {activePlan || hasMembers ? (
+        {/* Beside the panel from lg, below it on a phone: the members'
+            numbers. */}
+        {hasMembers ? (
           <aside
             className="flex w-full flex-col gap-4 lg:w-[300px] lg:shrink-0"
             data-testid="civic-panel-aside"
           >
-            {activePlan ? (
-              <CivicPanelRail
-                hoursPerWeek={activePlan.hoursPerWeek}
-                onPlan={setPlanState}
-              />
-            ) : null}
-            {hasMembers ? (
-              <>
-                <CitizensPanelStats summary={summary} />
-                <Button asChild variant="outline" className="self-start">
-                  <Link href={CITIZENS_PANEL_LIST_PATH}>{COPY.seeMembers}</Link>
-                </Button>
-              </>
-            ) : null}
+            <CitizensPanelStats summary={summary} />
+            <Button asChild variant="outline" className="self-start">
+              <Link href={CITIZENS_PANEL_LIST_PATH}>{COPY.seeMembers}</Link>
+            </Button>
           </aside>
         ) : null}
       </div>
