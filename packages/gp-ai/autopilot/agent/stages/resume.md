@@ -44,6 +44,16 @@ relevant reply, not just any reply in the thread.
 
 - **All answered**: continue the parked stage's remaining work under that
   stage's own contract, using the answers you found.
+
+When resumed story work hits a new delegate finding that offers options or is
+a judgment call inside the story's scope, don't park again: apply story.md
+step 5's rule. Choose the option most consistent with the ticket's acceptance
+criteria and the TDD, prefer the proper fix over a shortcut unless it needs
+files outside the story's scope, and record the choice in one PR comment and
+one ClickUp comment (chosen, alternative, why). Park only when the finding
+would change the ticket's scope, contradicts the TDD, needs another ticket's
+files, or you believe it is wrong and fixing it would make the code worse.
+
 - **Some still unanswered**: park again, asking only the ones still
   outstanding. `autopilot.agent.feedback park` drops any question that
   matches one already asked in a prior parking comment on this card, so

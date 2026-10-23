@@ -99,6 +99,13 @@ def test_story_covers_its_load_bearing_directives():
     assert "MERGE" in text, "must require the confirmation command to print MERGE"
 
     assert "delegate review" in text, "must re-trigger delegate after every push"
+    # ENG-11462: in-scope option findings are decided, not parked on.
+    flat = " ".join(text.split())
+    assert "most consistent with the ticket's acceptance criteria" in flat, (
+        "must choose the recommended option on in-scope delegate choices instead of parking"
+    )
+    assert "the alternative, and why" in flat, "decision comment must name chosen, alternative and why"
+    assert "needs another ticket's files" in flat, "must keep the narrow park conditions"
     # The exact trigger form is load-bearing: a live PR stalled for hours on
     # "/delegate review" comments the reviewer never answered.
     assert "no leading slash" in text, "must pin the exact trigger form — slash-prefixed triggers are silently dead"
@@ -233,3 +240,11 @@ def test_resume_handles_a_status_note_park_without_waiting_for_a_reply():
     assert "remaining handoff steps" in text.lower(), (
         "a resolved status-note park must continue the stage's handoff, not wait on the thread"
     )
+
+
+def test_resume_applies_the_story_option_rule():
+    flat = " ".join(_read("resume").split())
+    assert "most consistent with the ticket's acceptance criteria" in flat, (
+        "resumed story work must apply the choose-and-record rule"
+    )
+    assert "(chosen, alternative, why)" in flat, "resume must specify the decision comment format"
