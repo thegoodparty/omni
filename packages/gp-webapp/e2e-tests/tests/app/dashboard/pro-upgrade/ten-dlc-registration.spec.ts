@@ -26,8 +26,8 @@ import { withGatewayRetry } from 'tests/utils/headless-user'
 // Vercel and Route53 answer from the in-process mocks, so the whole vendor
 // sequence runs deterministically. The agent's judgment stays with the Judge.
 //
-// Runs wherever VENDOR_MODE=mock (previews, local gp-api) and skips on dev,
-// which always calls the real vendors.
+// Runs wherever VENDOR_MODE=mock (previews, dev, local gp-api) and skips only
+// if dev is rolled back with VENDOR_MODE=live.
 
 type ComplianceState = {
   stage: string
@@ -337,7 +337,7 @@ test.describe('10DLC registration — M4 vendor mocks', () => {
     const { vendorMode } = await mockRecords(client, campaign.id)
     test.skip(
       vendorMode !== 'mock',
-      '10DLC registration spec requires VENDOR_MODE=mock (preview / local only)',
+      '10DLC registration spec requires VENDOR_MODE=mock (skipped when VENDOR_MODE=live)',
     )
 
     // Texting closes 19 days before the election; keep it well clear.

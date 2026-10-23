@@ -84,7 +84,7 @@ test.describe('Win SMS send', () => {
     const { vendorMode } = await mockRecords(client, campaignId)
     test.skip(
       vendorMode !== 'mock',
-      'Win SMS mock pipeline requires VENDOR_MODE=mock (preview / local only)',
+      'Win SMS mock pipeline requires VENDOR_MODE=mock (skipped when VENDOR_MODE=live)',
     )
 
     // ── 3. Make it a 10DLC-approved Pro Win candidate ──────────────────────
