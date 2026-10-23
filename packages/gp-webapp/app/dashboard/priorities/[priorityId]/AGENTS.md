@@ -93,7 +93,10 @@ The agent makes that move on its own (`GOING_BACK_BLOCK` in
 rested on, from a department head, a report or the official, sends that step
 and the settled steps built on it back in the same turn. On the demo run it
 used a fire chief's overtime figure as evidence and left "The problem"
-settled until the official asked to rethink it. Judge case
+settled until the official asked to rethink it. On the preview it did the
+same by rewriting the settled step's summary in place, so the server now
+refuses that (`refusalFor` in gp-api's `priorityStatus.service.ts`) and tells
+the agent to set the step stale instead. Judge case
 `new-fact-reframes-settled-problem` guards it.
 
 `statusChanges` carries where each step came from, so the marker copy can say

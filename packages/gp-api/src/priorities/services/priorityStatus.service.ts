@@ -119,6 +119,34 @@ const refusalFor = (
   update: UpdatePriorityStatusInput,
   turn: StatusTurn,
 ): string | null => {
+  // Left alone, the model met a fact that undercut a settled step by
+  // rewriting that step's summary and keeping it settled, so the official
+  // never saw it go back. A revised check is the one way a settled step's
+  // conclusion changes in place, because constituents changed it.
+  const rewritesSettled = update.steps.find((patch) => {
+    const stored = current.steps.find((step) => step.id === patch.id)
+    return (
+      stored?.state === STEP_STATE.settled &&
+      patch.state === STEP_STATE.settled &&
+      patch.summary !== undefined &&
+      stored.summary.trim() !== '' &&
+      patch.summary.trim() !== stored.summary.trim() &&
+      patch.check?.state !== 'revised' &&
+      patch.check?.contrast?.state !== 'revised'
+    )
+  })
+  if (rewritesSettled !== undefined) {
+    const label = PRIORITY_STEP_LABELS[rewritesSettled.id]
+    return (
+      `${label} is done, so what it concluded stays as agreed. If what you ` +
+      'just learned undercuts that conclusion, send it back in this same ' +
+      'call: set it to stale, with a caveat saying what changed, and do the ' +
+      'same for every done step after it that rested on it. Then tell the ' +
+      `official plainly what changed and that ${label.toLowerCase()} needs ` +
+      'another look. If the conclusion still holds, leave the step as it ' +
+      'is and put the new fact on the step you are working on.'
+    )
+  }
   const offGate = update.steps.find(
     (step) => step.check !== undefined && !isGate(step.id),
   )
@@ -651,14 +679,15 @@ export class PriorityStatusService extends createPrismaBase(MODELS.Priority) {
           'before you set a step active, move the step that was active to ' +
           'settled or stale in the same call. If you do not, that step is ' +
           'dropped back to open and its work reads as abandoned. Call this ' +
-          'when a step genuinely changes state, or when what it settled ' +
-          'materially changes, not to restate what is already stored. Pass ' +
-          'only the steps that changed; anything you leave out keeps ' +
-          'exactly what it had. Send a settled step back to active or ' +
-          'stale only when new information meaningfully invalidates what ' +
-          'that step concluded and resolving it needs more conversation, ' +
-          'and say what changed in caveat. A detail added, a number ' +
-          'confirmed, or the topic coming up again is not enough. Always ' +
+          'when a step genuinely changes state, not to restate what is ' +
+          'already stored. Pass only the steps that changed; anything you ' +
+          'leave out keeps exactly what it had. A settled step keeps its ' +
+          'summary: a call that rewrites it and leaves it settled is ' +
+          'refused, unless constituents revised its check. Send a settled ' +
+          'step back to active or stale when new information meaningfully ' +
+          'invalidates what that step concluded and resolving it needs ' +
+          'more conversation, and say what changed in caveat. A detail added, a number confirmed, or the topic coming ' +
+          'up again is not enough. Always ' +
           'pass nextAction: one short sentence the official could act on ' +
           'today.',
         inputSchema: UpdatePriorityStatusInputSchema,

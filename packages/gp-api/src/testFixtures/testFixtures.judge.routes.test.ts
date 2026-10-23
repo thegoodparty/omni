@@ -109,6 +109,7 @@ describe('POST /v1/test-fixtures/judge-chat-cases', () => {
       l2DistrictType: 'City_Ward',
       l2DistrictName: 'CHEYENNE CITY WARD 1',
       level: 'CITY',
+      positionName: 'Cheyenne City Council - Ward 1',
     })
   })
 

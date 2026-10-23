@@ -1050,6 +1050,111 @@ describe('update_priority_status only lets constituents answer a check', () => {
   })
 })
 
+describe('update_priority_status sends a settled step back rather than rewriting it', () => {
+  const toolFor = (id: string) => {
+    const tool = statusService.buildStatusTool(id).update_priority_status
+    if (!tool || !('execute' in tool)) {
+      throw new Error('expected an executable update_priority_status tool')
+    }
+    return tool
+  }
+  const settleStation = (id: string) =>
+    statusService.applyUpdate(id, {
+      steps: [
+        {
+          id: 'define',
+          state: 'settled',
+          summary: 'Keep Station 9 open past the one-year patch',
+        },
+      ],
+      nextAction: 'Call the fire chief',
+    })
+
+  it('refuses a rewritten summary on a step that stays settled, and writes nothing', async () => {
+    const id = await createPriority()
+    await settleStation(id)
+
+    const result = await toolFor(id).execute({
+      steps: [
+        {
+          id: 'define',
+          state: 'settled',
+          summary: 'The real problem is 26 vacancies backfilled at overtime',
+        },
+        { id: 'evidence', state: 'active' },
+      ],
+      nextAction: 'Ask for the overtime total',
+    })
+
+    expect(result).toHaveProperty('error')
+    expect(JSON.stringify(result)).toContain('set it to stale')
+    const status = await statusService.read(id)
+    expect(stepOf(status, 'define')).toMatchObject({
+      state: 'settled',
+      summary: 'Keep Station 9 open past the one-year patch',
+    })
+    expect(stepOf(status, 'evidence').state).toBe('open')
+  })
+
+  it('takes the same rewrite when the call sends the step back to stale', async () => {
+    const id = await createPriority()
+    await settleStation(id)
+
+    const result = await toolFor(id).execute({
+      steps: [
+        {
+          id: 'define',
+          state: 'stale',
+          summary: 'The real problem is 26 vacancies backfilled at overtime',
+          caveat: 'The chief says overtime, not the station, drives the cost',
+        },
+      ],
+      nextAction: 'Agree the problem again with the vacancies in it',
+    })
+
+    expect(result).not.toHaveProperty('error')
+    expect(stepOf(await statusService.read(id), 'define')).toMatchObject({
+      state: 'stale',
+      summary: 'The real problem is 26 vacancies backfilled at overtime',
+    })
+  })
+
+  it('lets a settled step restate its summary and lets a revised check rewrite it', async () => {
+    const id = await createPriority()
+    await settleStation(id)
+    const tool = toolFor(id)
+
+    const same = await tool.execute({
+      steps: [
+        {
+          id: 'define',
+          state: 'settled',
+          summary: ' Keep Station 9 open past the one-year patch ',
+          check: { state: 'out', who: 'North End residents' },
+        },
+      ],
+      nextAction: 'Wait for replies',
+    })
+    expect(same).not.toHaveProperty('error')
+
+    const revised = await tool.execute({
+      steps: [
+        {
+          id: 'define',
+          state: 'settled',
+          summary: 'Fill the 26 vacancies so the North End stays covered',
+          check: { state: 'revised', heard: 'Replies said it is staffing' },
+        },
+      ],
+      nextAction: 'Size the hiring',
+    })
+    expect(revised).not.toHaveProperty('error')
+    expect(stepOf(await statusService.read(id), 'define').summary).toBe(
+      'Fill the 26 vacancies so the North End stays covered',
+    )
+  })
+})
+
 describe('PriorityStatusService.recordCheckReminder', () => {
   const deferDefine = async () => {
     const id = await createPriority()

@@ -5,6 +5,16 @@ An elected official's priorities: the record, the agent's seven-step status
 the results page's read of who answered the outreach sent on one
 (`services/priorityResults.service.ts`).
 
+## Status writes
+
+`services/priorityStatus.service.ts` is the only writer of `status`, and
+`refusalFor` turns down a call it should not take, with an error the agent
+can act on. One of them: a call that rewrites a settled step's summary and
+leaves it settled. A fact that changes what a step concluded sends the step
+back (stale or active, with a caveat), so the official sees it move; on the
+demo run the agent instead rewrote "The problem" in place. A revised check is
+the one exception, because constituents changed the conclusion.
+
 ## Answer coding
 
 `services/priorityAnswerCoding.service.ts`. Replies stay free text; an AI

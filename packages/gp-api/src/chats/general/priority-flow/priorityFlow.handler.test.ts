@@ -1124,6 +1124,9 @@ describe('PriorityFlowHandler', () => {
     expect(prompt).toContain(
       'Never wait for the official to ask whether to rethink it',
     )
+    expect(prompt).toContain(
+      "A settled step's summary is what was agreed, and it only changes when the step goes back.",
+    )
   })
 
   it('says each thing once, never around a tool call or over a card', () => {
@@ -1135,12 +1138,57 @@ describe('PriorityFlowHandler', () => {
       'A reply never opens with the line your last one ended on.',
     )
     expect(prompt).toContain('Never repeat in prose what a card shows')
+    expect(prompt).toContain(
+      'If it makes a point already made, however it is reworded, cut it',
+    )
   })
 
   it('speaks of news about their own office as about them', () => {
-    expect(build().buildSystemPrompt(baseCtx())).toContain(
-      'News, a story or a record about their own office is about them',
+    const prompt = build().buildSystemPrompt(baseCtx())
+    expect(prompt).toContain(
+      'about the holder of that office there, by title or by name, is about them',
     )
+    expect(prompt).toContain(
+      'An option is an answer the official gives, in the first person',
+    )
+  })
+
+  it('names the office from the resolved position when it has no custom name', async () => {
+    context.load = vi.fn(() =>
+      Promise.resolve({ ...baseCtx(), officeTitle: null }),
+    ) as never
+    const handler = build({
+      resolveByOrgSlug: vi.fn(() =>
+        Promise.resolve({
+          l2DistrictName: 'NEW BEDFORD CITY',
+          state: 'MA',
+          positionName: 'New Bedford City Mayor',
+        }),
+      ),
+      toMandatoryFilters: vi.fn(() => []),
+    })
+
+    const ctx = await handler.loadContext('c1', USER_ID)
+
+    expect(ctx.officeTitle).toBe('New Bedford City Mayor')
+    expect(handler.buildSystemPrompt(ctx)).toContain(
+      'Office: New Bedford City Mayor\nCity/District: NEW BEDFORD CITY, MA\n',
+    )
+  })
+
+  it('keeps a custom office name over the position name', async () => {
+    const ctx = await build({
+      resolveByOrgSlug: vi.fn(() =>
+        Promise.resolve({
+          l2DistrictName: 'Ward 3',
+          state: 'NC',
+          positionName: 'Raleigh City Council - District 3',
+        }),
+      ),
+      toMandatoryFilters: vi.fn(() => []),
+    }).loadContext('c1', USER_ID)
+
+    expect(ctx.officeTitle).toBe('City Council Member')
   })
 
   it('announces a count before a list only when the list matches it', () => {
