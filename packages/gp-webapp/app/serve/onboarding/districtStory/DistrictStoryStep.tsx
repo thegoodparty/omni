@@ -331,7 +331,7 @@ const RepresentText = ({
   return (
     <>
       <Title
-        title={copy.title(final)}
+        title={copy.title(final, place)}
         accentClass="text-primary"
         accent={
           <>
@@ -379,7 +379,7 @@ const StoryText = ({
     }
     return (
       <>
-        <h1 className={TITLE_CLASS}>{copy.titleWithoutCount}</h1>
+        <h1 className={TITLE_CLASS}>{copy.titleWithoutCount(place)}</h1>
         <Description>{copy.descriptionWithoutCount(place)}</Description>
       </>
     )

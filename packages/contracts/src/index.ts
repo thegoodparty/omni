@@ -553,7 +553,7 @@ export {
   OrganizationWithStatusSchema,
   type OrganizationWithStatus,
 } from './campaigns/Organization.schema'
-export { cityFromDistrictName } from './campaigns/DistrictCity'
+export { cityFromDistrictName, cityNameCase } from './campaigns/DistrictCity'
 
 export {
   ElectedOfficeSchema,
@@ -1773,6 +1773,13 @@ export {
   AdminOutreachActionResponseSchema,
   type AdminOutreachActionResponse,
 } from './testFixtures/vendorMocks'
+
+export {
+  SeedPollResultsRequestSchema,
+  type SeedPollResultsRequest,
+  SeedPollResultsResponseSchema,
+  type SeedPollResultsResponse,
+} from './testFixtures/pollResults'
 
 export {
   DEV_ENV_PACKAGE_VALUES,

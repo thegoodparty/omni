@@ -4,7 +4,9 @@ import { blockSlowScripts } from 'src/helpers/navigation.helper'
 import { authenticateTestUser } from 'tests/utils/api-registration'
 import { eventually } from 'tests/utils/eventually'
 import { setFlagOverrides } from 'src/helpers/campaignStory.helper'
+import { uniqueEin } from 'src/helpers/pro-upgrade.helper'
 import { deliverStripeEvent } from 'src/helpers/vendor-mocks.helper'
+import { withGatewayRetry } from 'tests/utils/headless-user'
 
 // Pro-upgrade happy path: an already-filed candidate drives the full wizard
 // funnel through an embedded Stripe subscription to Pro, and its TCR record
@@ -90,7 +92,7 @@ test('filed candidate upgrades to Pro and reaches the post-payment PIN state', a
 
   // 5. EIN — a shape-valid, sanity-passing EIN (47 is an IRS-issued prefix).
   await page.waitForURL(/\/dashboard\/pro-upgrade\/ein/)
-  await page.getByRole('textbox').first().fill('47-1234567')
+  await page.getByRole('textbox').first().fill(uniqueEin())
   await page.getByRole('button', { name: 'Continue' }).click()
 
   // 6. Filing details. Email and phone are both required (ENG-10483: Peerly
@@ -211,13 +213,17 @@ test('filed candidate upgrades to Pro and reaches the post-payment PIN state', a
   await zipInput.fill('82001')
   await page.waitForTimeout(500)
 
-  // Uncheck "Save my information for faster checkout" (Stripe Link) — when
-  // checked it demands a phone number and the submit button stays disabled.
-  const saveCheckbox = stripeFrame.getByLabel(
-    'Save my information for faster checkout',
-  )
-  if (await saveCheckbox.isChecked().catch(() => false)) {
-    await saveCheckbox.uncheck()
+  // Stripe Link's save-my-info box demands a phone number and keeps the
+  // submit disabled while checked. It is absent on some runner geolocations,
+  // where the longer form also pushes the submit below the fold.
+  const linkOptIn = stripeFrame.locator('#payment-linkOptInInput')
+  if (await linkOptIn.count()) {
+    await expect(async () => {
+      if (await linkOptIn.isChecked()) {
+        await linkOptIn.click({ timeout: 5_000 })
+      }
+      await expect(linkOptIn).not.toBeChecked({ timeout: 2_000 })
+    }).toPass({ timeout: 15_000 })
   }
   await page.waitForTimeout(1_000)
 
@@ -226,6 +232,7 @@ test('filed candidate upgrades to Pro and reaches the post-payment PIN state', a
   // confirm the step navigates to /success, so the URL change is the signal.
   const completeButton = page.getByRole('button', { name: 'Complete upgrade' })
   await expect(completeButton).toBeEnabled({ timeout: 30_000 })
+  await completeButton.scrollIntoViewIfNeeded()
   await completeButton.click()
 
   // 9. Success — "Welcome to Pro!".
@@ -237,9 +244,13 @@ test('filed candidate upgrades to Pro and reaches the post-payment PIN state', a
   // Deliver the Stripe checkout.session.completed event in-process. This fires
   // paymentEventsService synchronously, flipping `isPro` without waiting for a
   // real Stripe webhook. proSessionId was captured from the checkout-session
-  // response above; it must be non-null before we reach this point.
+  // response above; it must be non-null before we reach this point. On dev
+  // Stripe's own webhook can land at the same moment, and the handler is
+  // idempotent, so a transient write conflict (503) is safe to retry.
   expect(proSessionId).toBeTruthy()
-  await deliverStripeEvent(client, proSessionId!)
+  await withGatewayRetry('POST stripe/events', () =>
+    deliverStripeEvent(client, proSessionId!),
+  )
 
   await page.getByRole('button', { name: 'Continue' }).click()
 

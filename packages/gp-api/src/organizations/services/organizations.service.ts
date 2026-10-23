@@ -4,6 +4,7 @@ import { getVoterIssueLevelFromPositionLevel } from '@/elections/util/getVoterIs
 import {
   BallotReadyPositionLevel,
   cityFromDistrictName,
+  cityNameCase,
 } from '@goodparty_org/contracts'
 import {
   BadGatewayException,
@@ -489,7 +490,8 @@ export class OrganizationsService extends createPrismaBase(
   // Extracts a clean city name from an L2DistrictName string. Lives in
   // contracts so the webapp names the same place.
   static extractCityFromDistrictName(districtName: string): string | null {
-    return cityFromDistrictName(districtName)
+    const city = cityFromDistrictName(districtName)
+    return city ? cityNameCase(city) : null
   }
 
   async getDistrictForOrgSlug(slug: string): Promise<OrgDistrict | null> {
