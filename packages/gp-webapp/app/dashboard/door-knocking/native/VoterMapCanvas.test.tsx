@@ -75,6 +75,9 @@ const gl = vi.hoisted(() => {
     setPaintProperty: vi.fn(),
     setLayoutProperty: vi.fn(),
     getCanvas: () => (canvas ??= document.createElement('canvas')),
+    getContainer: () => document.createElement('div'),
+    unproject: vi.fn(() => ({ lng: -104.82, lat: 41.134 })),
+    getZoom: () => 15,
     fitBounds: vi.fn(),
     jumpTo: vi.fn(),
     easeTo: vi.fn(),
@@ -1372,6 +1375,26 @@ describe('VoterMapCanvas drawing', () => {
     )
     expect(attribution?.[1]).toBe('bottom-left')
     expect(gl.mapOptions?.attributionControl).toBe(false)
+  })
+
+  // End-to-end specs turn a longitude and latitude into a pixel from these
+  // attributes, so they are a contract with `drawPolygon`.
+  it('publishes its readiness and camera on the container for specs', () => {
+    const { getByTestId } = render(
+      <VoterMapCanvas
+        {...baseProps}
+        onPolygonChange={vi.fn()}
+        onDrawPointCount={vi.fn()}
+      />,
+    )
+    const container = getByTestId('voter-map')
+    expect(container).not.toHaveAttribute('data-map-ready')
+
+    act(() => gl.handlers.get('load')?.())
+
+    expect(container).toHaveAttribute('data-map-ready', 'true')
+    expect(container).toHaveAttribute('data-map-center', '-104.82,41.134')
+    expect(container).toHaveAttribute('data-map-zoom', '15')
   })
 
   // The sheets rise over the map's bottom edge, so the cluster is told where

@@ -1,18 +1,25 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 import {
   setupElectedOfficeUser,
   setupProCampaignUser,
 } from 'src/helpers/organizations'
 import { mockAction, mockRecords } from 'src/helpers/vendor-mocks.helper'
+import {
+  createFlowStepHeading,
+  drawPolygon,
+  gotoDoorKnocking,
+  type LngLat,
+} from 'src/helpers/door-knocking-e2e'
 import { withGatewayRetry } from 'tests/utils/headless-user'
 
 // A convex polygon inside Cheyenne WY Ward 1 — the fixture district used by
 // both setupProCampaignUser and setupElectedOfficeUser.
 //
-// With VENDOR_MODE=mock active on the preview, POST /v1/door-knocking/turfs
-// routes its Geoapify call to the mock controller (Story M1-3) instead of the
-// real Geoapify API, so no credits are billed and no 30s third-party round-trip
-// blocks the test.
+// With VENDOR_MODE=mock active on the preview, the route build routes its
+// Geoapify call to the mock controller (Story M1-3) instead of the real
+// Geoapify API, so no credits are billed and no 30s third-party round-trip
+// blocks the test. The Win tests draw this polygon on the map; the Serve test
+// below still posts it.
 const FIXTURE_GEO_POLY = {
   type: 'Polygon',
   coordinates: [
@@ -30,13 +37,96 @@ const FIXTURE_GEO_POLY = {
 // Win — candidate (happy path + failure)
 // ---------------------------------------------------------------------------
 
+const FIXTURE_RING = FIXTURE_GEO_POLY.coordinates[0] as LngLat[]
+
+const ROUTE_RESPONSE = /\/v1\/door-knocking\/turfs\/(\d+)\/route$/
+
+// The part of the create flow both Win tests share: purpose, audience, talking
+// points, name, then drawing the fixture district's polygon, ending on the
+// success screen with the turf's Start knocking button in view. Nothing here
+// touches the API from the test client — the UI creates the list and the turf.
+const createWinCampaignInUi = async (
+  page: Page,
+  campaignName: string,
+): Promise<void> => {
+  // Cold pack download (4.5s p50 / 34s p95) sits behind the who step.
+  test.setTimeout(5 * 60 * 1000)
+
+  await gotoDoorKnocking(page)
+
+  // An org with no lists has the create flow opened for it.
+  await expect(
+    createFlowStepHeading(page, 'What do you want to do?'),
+  ).toBeVisible({ timeout: 120_000 })
+  await page.getByRole('button', { name: /Introduce myself/ }).click()
+
+  // Who: an explicit pick is what enables Continue.
+  await expect(
+    createFlowStepHeading(page, 'Who do you want to reach?'),
+  ).toBeVisible({ timeout: 30_000 })
+  await page.getByRole('combobox', { name: 'All lists' }).click()
+  await page.getByRole('option', { name: /All contacts/ }).click()
+  const continueWithCount = page.getByRole('button', { name: /^Continue \(/ })
+  await expect(continueWithCount).toBeEnabled({ timeout: 120_000 })
+  await continueWithCount.click()
+
+  // Talking points: never blocks, so no wait on the AI draft.
+  await page.getByRole('button', { name: 'Continue', exact: true }).click()
+
+  // Name.
+  await page.getByLabel('Campaign name').fill(campaignName)
+  await page.getByRole('button', { name: 'Continue', exact: true }).click()
+
+  // Draw: open the map, start the first turf, and click the polygon's corners.
+  await page.getByRole('button', { name: 'Draw turfs', exact: true }).click()
+  const turfs = page.getByRole('complementary', { name: 'Turfs' })
+  await turfs.getByRole('button', { name: 'Draw the first turf' }).click()
+  await drawPolygon(page, FIXTURE_RING)
+  // Corners alone say nothing about the audience inside them. The pill is
+  // what proves the polygon landed on houses, and not on empty ground.
+  await expect(page.getByText(/^[1-9][\d,]* selected$/)).toBeVisible()
+  await turfs.getByRole('textbox', { name: 'Turf name' }).fill('E2E turf')
+  await turfs.getByRole('button', { name: 'Save', exact: true }).click()
+
+  // Back on the draw step, which is where the one write happens.
+  await page
+    .getByRole('button', { name: 'Create campaign', exact: true })
+    .click()
+  await expect(
+    page.getByRole('heading', { name: 'Your campaign is ready' }),
+  ).toBeVisible({ timeout: 60_000 })
+}
+
+// Opens Start knocking on the turf the flow just made, picks walking, and
+// presses Build route. Resolves with the route response, whatever its status.
+const pressBuildRoute = async (page: Page) => {
+  await page
+    .getByRole('button', { name: 'Start knocking', exact: true })
+    .click()
+  await expect(
+    page.getByRole('heading', { name: 'How are you getting there?' }),
+  ).toBeVisible()
+  await page.getByRole('radio', { name: 'Walking' }).click()
+  const routeResponse = page.waitForResponse(
+    (response) =>
+      response.request().method() === 'POST' &&
+      ROUTE_RESPONSE.test(new URL(response.url()).pathname),
+  )
+  await page.getByRole('button', { name: 'Build route', exact: true }).click()
+  const response = await routeResponse
+  const turfId = Number(
+    ROUTE_RESPONSE.exec(new URL(response.url()).pathname)?.[1],
+  )
+  return { response, turfId }
+}
+
 test.describe('Win — turf route via Geoapify mock', () => {
-  test('happy path: route builds, knock records, turf completes', async ({
+  test('happy path: list and turf are created in the UI, route builds, knock records, turf completes', async ({
     page,
   }) => {
     const { client } = await setupProCampaignUser(page)
 
-    // 0. Resolve the campaign ID (needed for vendor-mock assertions).
+    // Resolve the campaign ID (needed for vendor-mock assertions).
     const { data: mine } = await client.get<{ id: number }>(
       '/v1/campaigns/mine',
     )
@@ -47,47 +137,44 @@ test.describe('Win — turf route via Geoapify mock', () => {
     const { vendorMode } = await mockRecords(client, campaignId)
     test.skip(vendorMode !== 'mock', 'needs VENDOR_MODE=mock')
 
-    // 1. Create a voter file filter (no Geoapify involved).
-    const { data: list } = await withGatewayRetry(
-      'POST /v1/voters/voter-file/filter',
-      () =>
-        client.post<{ id: number }>('/v1/voters/voter-file/filter', {
-          name: 'E2E mock route list',
-        }),
-    )
+    // 1. The UI creates the list and the turf; 2. Start knocking builds the
+    //    route through POST /v1/door-knocking/turfs/:id/route.
+    await createWinCampaignInUi(page, `E2E mock route ${Date.now()}`)
+    const { response, turfId } = await pressBuildRoute(page)
+    expect(response.status()).toBeLessThan(300)
 
-    // 2. Create a routed turf — with VENDOR_MODE=mock this calls the Geoapify
-    //    mock controller (Story M1-3), not the real API.
-    const { data: turf } = await withGatewayRetry(
-      'POST /v1/door-knocking/turfs',
-      () =>
-        client.post<{ id: number }>('/v1/door-knocking/turfs', {
-          voterFileFilterId: list.id,
-          name: 'E2E turf route test',
-          color: '#3b82f6',
-          geoPoly: FIXTURE_GEO_POLY,
-          mode: 'walk',
-          loop: false,
-          purpose: 'introduce_myself',
-        }),
-    )
-
-    // 3. Confirm the mock routed the turf (routeSeconds is non-null).
+    // 3. The turf is routed, and it is the polygon that was drawn.
     const { data: routedTurf } = await client.get<{
       routeSeconds: number | null
-    }>(`/v1/door-knocking/turfs/${turf.id}`)
+      stopCount: number
+      geoPoly: { coordinates: LngLat[][] }
+    }>(`/v1/door-knocking/turfs/${turfId}`)
     expect(routedTurf.routeSeconds).not.toBeNull()
+    const drawn = routedTurf.geoPoly.coordinates[0] ?? []
+    const mean = (index: 0 | 1, ring: LngLat[]) =>
+      ring.reduce((sum, point) => sum + point[index], 0) / ring.length
+    // Both rings are closed, so the repeated vertex weighs the same in each;
+    // 0.0005 degrees is ~50m, against a polygon ~330m across.
+    expect(Math.abs(mean(0, drawn) - mean(0, FIXTURE_RING))).toBeLessThan(
+      0.0005,
+    )
+    expect(Math.abs(mean(1, drawn) - mean(1, FIXTURE_RING))).toBeLessThan(
+      0.0005,
+    )
 
-    // 3b. Confirm the Geoapify mock wrote a routeplanner_request record.
+    // 3b. The Geoapify mock saw one route-planner request. Its jobs are the
+    //     turf's block faces, one per street side, so the count is bounded by
+    //     the stops rather than equal to them.
     const records = await mockRecords(client, campaignId)
     const routeRecord = records.records.find(
-      (r) => r.kind === 'routeplanner_request',
+      (r) => r.vendor === 'geoapify' && r.kind === 'routeplanner_request',
     )
     expect(routeRecord).toBeTruthy()
+    const waypoints = (routeRecord?.state as { waypoints?: number }).waypoints
+    expect(waypoints).toBeGreaterThanOrEqual(1)
+    expect(waypoints).toBeLessThanOrEqual(routedTurf.stopCount)
 
-    // 4. Navigate directly to the walk surface for this pre-routed turf.
-    await page.goto(`/dashboard/door-knocking?walkTurfId=${turf.id}`)
-
+    // 4. The walk surface for the turf just routed.
     // 5. Wait for the route skeleton to disappear — confirms route payload arrived.
     await expect(page.locator('[data-testid="walk-view-loading"]')).toBeHidden({
       timeout: 15_000,
@@ -166,7 +253,7 @@ test.describe('Win — turf route via Geoapify mock', () => {
       .poll(
         async () => {
           const { data } = await client.get<{ completed: boolean }>(
-            `/v1/door-knocking/turfs/${turf.id}`,
+            `/v1/door-knocking/turfs/${turfId}`,
           )
           return data.completed
         },
@@ -191,44 +278,11 @@ test.describe('Win — turf route via Geoapify mock', () => {
     const { vendorMode } = await mockRecords(client, campaignId)
     test.skip(vendorMode !== 'mock', 'needs VENDOR_MODE=mock')
 
-    // Create a voter file filter.
-    const { data: list } = await withGatewayRetry(
-      'POST /v1/voters/voter-file/filter',
-      () =>
-        client.post<{ id: number }>('/v1/voters/voter-file/filter', {
-          name: 'E2E mock route fail list',
-        }),
-    )
-
-    // Create an UNROUTED turf (no mode/loop) — no Geoapify call yet.
-    const { data: turf } = await withGatewayRetry(
-      'POST /v1/door-knocking/turfs (unrouted)',
-      () =>
-        client.post<{ id: number }>('/v1/door-knocking/turfs', {
-          voterFileFilterId: list.id,
-          name: 'E2E mock route fail turf',
-          color: '#ef4444',
-          geoPoly: FIXTURE_GEO_POLY,
-          purpose: 'introduce_myself',
-          // Omitting mode/loop: turf is saved without buying a route.
-        }),
-    )
-
-    // Arm the Geoapify route-failure flag via the test-fixtures endpoint.
+    // Creating the campaign buys nothing, so the unrouted turf comes from the
+    // UI and the failure is armed only for the press that does.
+    await createWinCampaignInUi(page, `E2E mock route fail ${Date.now()}`)
     await mockAction(client, campaignId, 'geoapify.route.fail')
-
-    // Navigate to the walk surface — StartKnockingDialog appears (no route).
-    await page.goto(`/dashboard/door-knocking?walkTurfId=${turf.id}`)
-
-    await expect(
-      page.getByRole('heading', {
-        name: 'How are you getting there?',
-      }),
-    ).toBeVisible()
-
-    // Select walking mode and request the route.
-    await page.getByRole('radio', { name: 'Walking' }).click()
-    await page.getByRole('button', { name: 'Build route', exact: true }).click()
+    const { turfId } = await pressBuildRoute(page)
 
     // The Geoapify mock returns an error → the dialog must surface it.
     await expect(page.getByRole('alert')).toContainText(
@@ -238,7 +292,7 @@ test.describe('Win — turf route via Geoapify mock', () => {
     // routeSeconds stays null because the route attempt failed.
     const { data: turfAfter } = await client.get<{
       routeSeconds: number | null
-    }>(`/v1/door-knocking/turfs/${turf.id}`)
+    }>(`/v1/door-knocking/turfs/${turfId}`)
     expect(turfAfter.routeSeconds).toBeNull()
   })
 })
