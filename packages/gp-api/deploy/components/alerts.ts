@@ -994,7 +994,7 @@ export const GLOBAL_ALERTS: Alert[] = [
           '| event = "DistrictMatch"',
         ].join(' '),
         confirmedBy:
-          'The matched lines carry failureKind="no_match" with a reason naming no position. Any failureKind="error" in the same window means the read itself failed, which is a different alert and a different response.',
+          'The matched lines carry failureKind="no_match" with a reason naming no position. Any failureKind="error" in the same window means the read itself failed instead, which is a different alert and a different response.',
         action: 'annotate',
       },
     ],
