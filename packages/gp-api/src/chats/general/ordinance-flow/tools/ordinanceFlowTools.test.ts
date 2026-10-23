@@ -5,6 +5,7 @@ import { OrdinanceFlowSearchService } from '../services/ordinanceFlowSearch.serv
 import {
   buildApplyDraftEditTool,
   buildBraveSearchTool,
+  buildSaveExistingLawTool,
   type OrdinanceToolDeps,
 } from './ordinanceFlowTools'
 
@@ -49,6 +50,15 @@ describe('buildBraveSearchTool', () => {
 
     await buildBraveSearchTool(deps).execute({ query: 'q', count: 3 })
     expect(spy).toHaveBeenCalledWith('q', 3)
+  })
+})
+
+describe('buildSaveExistingLawTool', () => {
+  it('tells the model a failed read is noted, not saved', () => {
+    const { deps } = buildDeps()
+    expect(buildSaveExistingLawTool(deps).description).toContain(
+      'leave a save_note instead',
+    )
   })
 })
 
