@@ -82,6 +82,60 @@ export const winRaceWithTermDates = async (page: Page): Promise<void> => {
   await page.waitForURL('**/dashboard/chief-of-staff', { timeout: 15_000 })
 }
 
+// Confirm a win through the API, as a setup step. Same two writes the "I won my
+// race" page makes (the elected office, created already-onboarded with its term
+// dates, then details.wonGeneral), minus the UI. Specs that only need an elected
+// office as a precondition go through here: driving the page costs ~9 UI steps
+// under fixed 10-15s waits, and on a saturated dev gp-api (ENG-11477: 27% of
+// requests over 5s in the failing window) those waits, not the specs' own
+// assertions, were what failed. The page itself stays covered by
+// election-result-flow.spec.ts, which calls winRaceWithTermDates directly.
+// The client already carries the campaign org header (set by
+// authenticateTestUser), which is what links the office to the campaign.
+// The POST is not retried: a 502 can come after the office committed, and a
+// second office would trip the overlapping-term rule.
+const winRaceViaApi = async (page: Page, client: AxiosInstance) => {
+  await client.post('/v1/elected-office', {
+    termStartDate: '2023-01-01',
+    termEndDate: '2027-01-01',
+    onboardingCompletedAt: new Date().toISOString(),
+  })
+  await withGatewayRetry('PUT /v1/campaigns/mine', () =>
+    client.put('/v1/campaigns/mine', { details: { wonGeneral: true } }),
+  )
+
+  const electedOfficeOrgSlug = await eventually(
+    { that: 'an elected office organization is created' },
+    async () => {
+      const { data } = await client.get<{ organizations: { slug: string }[] }>(
+        '/v1/organizations',
+      )
+      const electedOfficeOrg = data.organizations.find((org) =>
+        org.slug.startsWith('eo-'),
+      )
+      if (!electedOfficeOrg) {
+        throw new Error('No elected office organization found')
+      }
+      return electedOfficeOrg.slug
+    },
+  )
+
+  // The page selects the new org in its cookie after winning; do the same so
+  // the browser lands on the elected office, not the campaign.
+  const baseUrl = process.env.BASE_URL
+  if (!baseUrl) throw new Error('BASE_URL is not set')
+  await page.context().addCookies([
+    {
+      name: 'organization-slug',
+      value: electedOfficeOrgSlug,
+      url: baseUrl,
+      sameSite: 'Lax',
+    },
+  ])
+  await page.goto('/dashboard/chief-of-staff')
+  return electedOfficeOrgSlug
+}
+
 type SetupResult = {
   user: AuthenticatedUser
   client: AxiosInstance
@@ -101,26 +155,7 @@ export const setupElectedOfficeUser = async (
     race,
   })
 
-  await winRaceWithTermDates(page)
-
-  const electedOfficeOrgSlug = await eventually(
-    { that: 'an elected office organization is created' },
-    async () => {
-      const { data } = await client.get<{ organizations: { slug: string }[] }>(
-        '/v1/organizations',
-      )
-
-      const electedOfficeOrg = data.organizations.find((org) =>
-        org.slug.startsWith('eo-'),
-      )
-
-      if (!electedOfficeOrg) {
-        throw new Error('No elected office organization found')
-      }
-
-      return electedOfficeOrg.slug
-    },
-  )
+  const electedOfficeOrgSlug = await winRaceViaApi(page, client)
   client.defaults.headers['x-organization-slug'] = electedOfficeOrgSlug
 
   return { user, client }
@@ -211,8 +246,8 @@ export const setupReelectionEligibleUser = async (
   // the just-created campaign's raceId at the BallotReady race hash.
   await client.put('/v1/campaigns/mine', { details: { raceId: hydrated.id } })
 
-  // Win the race -> create the elected office (term dates entered inline).
-  await winRaceWithTermDates(page)
+  // Win the race -> create the elected office (term dates included).
+  await winRaceViaApi(page, client)
 
   return client
 }
