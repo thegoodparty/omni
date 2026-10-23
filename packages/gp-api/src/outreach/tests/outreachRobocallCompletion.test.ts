@@ -12,6 +12,13 @@ import {
   ROBOCALL_SETTLE_MARGIN_HOURS,
 } from '@/shared/util/robocallHold.util'
 import { Campaign, RobocallSettleState } from '../../generated/prisma'
+import { disableVendorCrons } from '@/shared/test-utils/vendorCronsGate.util'
+
+vi.mock('@/shared/util/appEnvironment.util', async (importOriginal) => {
+  const { withVendorCronsGate } =
+    await import('@/shared/test-utils/vendorCronsGate.util.js')
+  return withVendorCronsGate(await importOriginal<object>())
+})
 
 const service = useTestService()
 
@@ -272,8 +279,8 @@ describe('OutreachRobocallCompletionService.sweepRobocallCompletion', () => {
     expect(satellite.completedCallCount).toBe(100)
   })
 
-  it('no-ops off prod', async () => {
-    process.env.OTEL_SERVICE_ENVIRONMENT = 'dev'
+  it('no-ops on a non-prod deploy in live mode', async () => {
+    disableVendorCrons()
     const outreachId = await createDraft()
 
     await completion.sweepRobocallCompletion()

@@ -126,33 +126,21 @@ inverted, same gates), each on its own card. Behind `serve-citizen-panels`
 every card is side `main`: the round goes to residents across the district.
 
 Behind `serve-citizen-panels` the default is round one instead
-(`buildRoundOneBlock`, "ROUND ONE"):
-a door knocking, a phone banking and a text card for the same check, all
-side `main`, offered together in one turn, to residents not reached in the
-last 30 days (`notContactedRecently`, plus any phone for calls and a cell
-phone for the text). The doors are one walkable area gp-api picks; the
-calls and the text are random samples across the district. gp-api's `size_round_one` counts who each channel reaches by group
-and sizes the three (`sizeRoundOne`; see the
-contacts AGENTS.md, "Round 1 sizing"): doors and calls from the official's
-weekly hours on their panel plan, asked once with `ask_clarify_question`
-when there is no plan, and the text so every major group is expected to
-give at least 3 answers. The text carries `civicPanelAsk`; calls and doors
-close on the panel's join question as every Serve call and walk does. The
-calls and the text are ordinary proposal cards with `sampleSize`. The text
-is one purchase in two rounds: `roundTwoSize` is the half held for a
+(`ROUND_ONE_BLOCK`, "ROUND ONE"): one text card, side `main`, to a random
+sample of residents across the district with a cell phone, not reached in
+the last 30 days (`notContactedRecently`, `hasCellPhone`).
+gp-api's `size_round_one` counts who the text reaches by group and sizes it
+so every major group is expected to give at least 3 answers (`sizeRoundOne`;
+see the contacts AGENTS.md, "Round 1 sizing"). The text carries
+`civicPanelAsk` and is an ordinary proposal card with `sampleSize`. It is
+one purchase in two rounds: `roundTwoSize` is the half held for a
 follow-up two weeks later, drawn toward the groups heard from least, and
 checked by gp-api against the split `size_round_one` made
 (`checkFollowUpPart`). Its card reads "Text 2,000 of 58,520: 1,000 now, 1,000
 two weeks later" (`proposalSampleLine`), `SmsFlow` forwards it on the create,
 the review step quotes both as one count with a Follow-up row
 (`SmsReviewStep`), and once paid the read status's `followUp` puts "Follow-up
-text to N people on Nov 3" in place of Get answers until it sends. The door card carries the area as `walkableArea` (a box,
-contracts' `WalkableAreaBoxSchema`). Starting it saves the list with that
-box as its drawn boundary (`geoPoly`, so its members are who the box holds)
-and opens door knocking with it on `?area=`, the first turf, as a panel
-plan's door step does (`proposalFlows.tsx`, `walkableAreaPolygon`). The
-handler only presents a `walkableArea` that `size_round_one` returned that
-turn, on a door card, with no `sampleSize` or `areaTarget`. There is no most or least
+text to N people on Nov 3" in place of Get answers until it sends. There is no most or least
 affected follow-up: more answers come from Get answers (below), aimed at the
 groups the read is missing. The handler reads the panel
 size per turn (`countCivicPanelMembers`) for the `<priority>` "Civic

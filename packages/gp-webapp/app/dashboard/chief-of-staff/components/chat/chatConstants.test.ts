@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { START_MANAGED_CIVIC_PANEL_MESSAGE } from '@goodparty_org/contracts'
 import {
   buildChiefOfStaffNextSteps,
   toolDisplayName,
@@ -53,7 +54,7 @@ describe('toolStatusLabel', () => {
       'list_precincts',
       'crud_saved_filters',
       'record_check_reminder',
-      'save_panel_weekly_time',
+      'read_managed_panel',
     ]) {
       expect(toolDisplayName(name)).not.toBe(name)
     }
@@ -81,19 +82,27 @@ describe('buildChiefOfStaffNextSteps', () => {
     expect(labels({ panelsEnabled: false })[1]).toBe(
       'Hear from your constituents',
     )
-    expect(labels({ panelsEnabled: true, panelMembers: 0 })[1]).toBe(
-      'Build your civic panel',
+    expect(labels({ panelsEnabled: true, managedSetUp: false })[1]).toBe(
+      'Build my civic panel',
     )
-    expect(labels({ panelsEnabled: true, panelMembers: 5 })[1]).toBe(
-      'Grow your civic panel',
+    expect(labels({ panelsEnabled: true, managedSetUp: true })[1]).toBe(
+      'Hear from your constituents',
     )
+  })
+
+  it('starts the managed setup with a hidden kickoff', () => {
+    const [, build] = buildChiefOfStaffNextSteps({
+      panelsEnabled: true,
+      managedSetUp: false,
+    })
+    expect(build?.kickoff).toBe(START_MANAGED_CIVIC_PANEL_MESSAGE)
   })
 
   it('lets every card combine, Something else as a write-in', () => {
     for (const args of [
       { panelsEnabled: false },
-      { panelsEnabled: true, panelMembers: 0 },
-      { panelsEnabled: true, panelMembers: 5 },
+      { panelsEnabled: true, managedSetUp: false },
+      { panelsEnabled: true, managedSetUp: true },
     ]) {
       const steps = buildChiefOfStaffNextSteps(args)
       expect(steps.filter((s) => s.combinable)).toHaveLength(4)

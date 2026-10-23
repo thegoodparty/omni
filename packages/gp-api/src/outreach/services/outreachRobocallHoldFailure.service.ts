@@ -6,6 +6,7 @@ import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import { OutreachType, RobocallSettleState } from '../../generated/prisma'
+import { VENDOR_CRONS_ENABLED } from 'src/shared/util/appEnvironment.util'
 
 // A failed hold (a declined or dead card) leaves the draft `hold_failed`. This
 // slice runs the two time-based follow-ups on that terminal: a daily "fix your
@@ -41,7 +42,7 @@ const ROBOCALL_REMINDER_MIN_INTERVAL_HOURS = 23
 // racing a sweep both SELECT the same candidates but only ONE wins each draft,
 // and the email fires once. No CronLockService (the per-record CAS is the
 // dedup): these neither dial nor charge — cancel places/voids nothing (a
-// declined hold reserved no money) — so the prod-only guard is all they need.
+// declined hold reserved no money) — so the VENDOR_CRONS_ENABLED guard is all they need.
 // @Cron (not @Interval) so the schedule survives deploys.
 @Injectable()
 export class OutreachRobocallHoldFailureService extends createPrismaBase(
@@ -51,7 +52,7 @@ export class OutreachRobocallHoldFailureService extends createPrismaBase(
     super()
   }
 
-  // Prod-only (docs/scheduled-jobs.md § Prod-only guard): reminder/cancel emails
+  // VENDOR_CRONS_ENABLED (docs/scheduled-jobs.md § Vendor-cron gate): reminder/cancel emails
   // route through the real Segment → HubSpot path, and cancelling a live draft is
   // a state change we don't want firing against dev/preview data.
   @Cron(ROBOCALL_REMINDER_SWEEP_CRON, {
@@ -59,7 +60,7 @@ export class OutreachRobocallHoldFailureService extends createPrismaBase(
     timeZone: EASTERN_TIMEZONE,
   })
   async sweepHoldFailureReminders(): Promise<void> {
-    if (process.env.OTEL_SERVICE_ENVIRONMENT !== 'prod') return
+    if (!VENDOR_CRONS_ENABLED) return
 
     const now = new Date()
     const reminderCutoff = subHours(now, ROBOCALL_REMINDER_MIN_INTERVAL_HOURS)
@@ -98,7 +99,7 @@ export class OutreachRobocallHoldFailureService extends createPrismaBase(
     timeZone: EASTERN_TIMEZONE,
   })
   async sweepHoldFailureCancellations(): Promise<void> {
-    if (process.env.OTEL_SERVICE_ENVIRONMENT !== 'prod') return
+    if (!VENDOR_CRONS_ENABLED) return
 
     const now = new Date()
     const candidates = await this.model.findMany({

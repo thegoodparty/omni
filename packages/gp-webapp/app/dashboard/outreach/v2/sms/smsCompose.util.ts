@@ -105,7 +105,7 @@ const removeEvery = (text: string, patterns: RegExp[]): string => {
 // The flow writes the one line a message should carry, so any other copy is
 // a duplicate.
 const JOIN_LINE_PATTERNS = [
-  /Reply JOIN to join my (?:civic|citizens['’]) panel[^\n]*?Empowered by GoodParty\.org\./i,
+  /Reply JOIN to join my (?:civic|citizens['’]) panel[^\n]*?(?:Sent with|Empowered by) GoodParty\.org\./i,
   /Reply JOIN to join my (?:civic|citizens['’]) panel[^\n]*?(?:[.!](?=\s|$)|(?=\n)|$)/i,
 ]
 const LEAVE_LINE_PATTERNS = [
@@ -539,6 +539,41 @@ export const withCivicPanelLines = (
   lines.leave
     ? withCivicPanelLeave(script, true)
     : withCivicPanelJoin(withCivicPanelLeave(script, false), lines.join)
+
+// --- The managed civic panel invite ----------------------------------------
+//
+// GoodParty texts one invite in the official's name until their panel is
+// built. They edit only its body; the JOIN line and the opt-out are locked
+// under it, so the composed invite always ends on exactly those two lines.
+
+// The draft body, greeting included. `office` has been through
+// `grammarizeOfficeName` ("Maplewood City Council Member").
+export const managedInviteDraft = ({
+  firstName,
+  office,
+}: {
+  firstName: string
+  office: string
+}): string =>
+  `Hi {{first_name}}, this is ${firstName || SERVE_SMS_IDENTIFICATION_FALLBACK.name}, ` +
+  `your ${office || SERVE_SMS_IDENTIFICATION_FALLBACK.office}. I'm putting ` +
+  'together a group of residents I check with before big votes. Want in?'
+
+// The invite as sent: the body, then the JOIN line and the opt-out. A body
+// that echoes either locked line loses it, so neither is ever sent twice.
+export const composeManagedInvite = (body: string): string =>
+  withCivicPanelJoin(
+    `${withoutLockedLines(body).trim()}\n\n${OPT_OUT_FOOTER}`,
+    true,
+  )
+
+// The editable body of an invite an AI rewrite handed back whole.
+export const managedInviteBody = (invite: string): string =>
+  withoutLockedLines(invite).trim()
+
+// What follows the editable body, shown locked under it: the composed
+// invite with no body, so the preview and the send cannot drift.
+export const MANAGED_INVITE_LOCKED_LINES = composeManagedInvite('').trim()
 
 // --- Add it back ------------------------------------------------------------
 //

@@ -1,6 +1,7 @@
 import { ControllerName } from '../../src/generated/route-types'
 import { Alert } from './alerting/alerts.types'
 import { geoapifyBudgetAlerts } from './alerting/geoapify-budget-alerts'
+import { vendorDriftAlerts } from './alerting/vendor-drift-alerts'
 import { doorKnockingCredits } from './alerting/door-knocking-spend'
 
 /**
@@ -324,6 +325,36 @@ export const GLOBAL_ALERTS: Alert[] = [
       'Click *View in Grafana* and read `outreachId` and `organizationSlug` off the matched lines, then approve, edit or deny each poll from the gp-admin poll queue.',
     ].join('\n\n'),
   },
+  // The two managed civic panel free-send safety alarms. Both read
+  // managed_panel.funding_alarm.count, which gp-api seeds with a zero at boot
+  // so `increase()` sees the first event (see managedPanelFunding.metrics.ts).
+  // Each should never fire: a send skipping payment is a money event.
+  {
+    slug: 'serve-managed-panel-unfunded-send-refused',
+    name: '[Serve] Text send refused: neither paid nor a managed panel wave',
+    type: 'metric',
+    expr: 'sum(increase(managed_panel_funding_alarm_count_total{service_name="gp-api", deployment_environment_name="$ENV", kind="send_refused"}[10m])) or vector(0)',
+    threshold: 0,
+    for: '0m',
+    keepFiringFor: '1h',
+    message: [
+      'The text delivery layer refused a Serve send that had neither a paid Stripe checkout nor a live managed civic panel wave behind it. Nothing was handed off and no CSV was written, so no constituent was texted.',
+      'Click *View in Grafana*, then search the logs for "CRITICAL managed panel funding: unfunded text send refused" to read `outreachId`, `sendSeq` and `reason`. A Slack notice with the same ids went to #bot-tevyn-api. Find what moved the row to `pending` without payment: only the SERVE_TEXT purchase claim and ManagedWaveFundingService.claimFree may. `flag_off` or `enrollment_stopped` on a pilot wave means serve-citizen-panels was turned off for the approving official, or the panel was stopped, after the claim, which is expected; anything else is a bug to fix before more sends go out.',
+    ].join('\n\n'),
+  },
+  {
+    slug: 'serve-managed-panel-funding-mismatch',
+    name: '[Serve] Daily reconciliation found a send with no funding',
+    type: 'metric',
+    expr: 'sum(increase(managed_panel_funding_alarm_count_total{service_name="gp-api", deployment_environment_name="$ENV", kind="reconcile_mismatch"}[10m])) or vector(0)',
+    threshold: 0,
+    for: '0m',
+    keepFiringFor: '1h',
+    message: [
+      'The daily managed panel funding reconciliation found Serve text or poll sends created in the last week that moved past checkout with neither a paid Stripe session nor a valid managed civic panel wave. These may already have been texted. It repeats daily until each is resolved, for up to a week.',
+      'Click *View in Grafana*, then search the logs for "CRITICAL managed panel funding: send past pending with no funding" to read the `mismatches` list (outreachId, sendSeq, organizationSlug, status). The same list went to #bot-tevyn-api. Check each in the gp-admin outreach console and find how it skipped payment before anything else sends.',
+    ].join('\n\n'),
+  },
   // ------ Win Warnings ------ //
   {
     slug: 'win-peerly-warnings',
@@ -382,9 +413,10 @@ export const GLOBAL_ALERTS: Alert[] = [
     timeRangeOffsetSeconds: 30,
     keepFiringFor: '1h',
     message: [
-      'A paid P2P outreach draft failed to submit to Peerly in the 60 seconds ending 30 seconds before this check. The candidate has been charged and no texts are scheduled.',
+      'A paid P2P outreach draft failed to submit to Peerly in the 60 seconds ending 30 seconds before this check. The candidate has paid or has a hold on their card, and no texts are scheduled.',
       'Click *View in Grafana* to find the log line (search "P2P outreach finalize failed after payment") for the outreachId, the campaignId, the checkout session that paid (`chargeRef`) and the underlying Peerly error. A CAS failure Slack message fires alongside this alert.',
-      'Then decide from that error whether a retry can help, because the two cases end differently for the candidate. A content rejection — a banned link or a banned word in the message — is permanent: nothing we retry will get past it, the candidate has to edit the message and schedule again, and scheduling again CHARGES THEM A SECOND TIME. So the charge named on the log line is the one to refund in Stripe, and nothing refunds it for us. Anything else is redelivered by Stripe and usually settles itself; confirm the same outreachId later reaches "Outreach <id> finalized after payment" before you close this.',
+      'Then decide from that error whether a retry can help, because the two cases end differently for the candidate. A content rejection — a banned link or a banned word in the message — is permanent: nothing we retry will get past it, and the candidate has to edit the message and schedule again, which takes a second payment. Anything else is redelivered by Stripe and usually settles itself; confirm the same outreachId later reaches "Outreach <id> finalized after payment" before you close this.',
+      'For a content rejection, check how the first payment was taken. If the outreachId has an `outreach_p2p_sms` row in settle_state `authorized`, the card was only held, not charged: the stranded-authorized sweep voids the hold once the send date passes, and you can void its `authorization_intent_id` in Stripe sooner. With no such row, the checkout charged the card, so the charge named on the log line (`chargeRef`) is the one to refund in Stripe, and nothing refunds it for us. Then add the refused word or link to the pre-checkout check in contracts (`checkSmsStandards`), so the next candidate is stopped before paying.',
       'The draft reverts to pending_payment either way, and holds everything needed for a manual submission (script, image URL, phone list, identity).',
     ].join('\n\n'),
   },
@@ -525,6 +557,7 @@ export const GLOBAL_ALERTS: Alert[] = [
   // written out four times so the four share one expression — see the file for
   // why that matters to the read cost.
   ...geoapifyBudgetAlerts,
+  ...vendorDriftAlerts,
   {
     slug: 'door-knocking-pack-build-failed',
     name: '[Win] Door-knocking pack build failed mid-response',

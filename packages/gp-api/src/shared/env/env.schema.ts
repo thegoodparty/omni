@@ -227,6 +227,7 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
 
   // --- Optional: everything else ---------------------------------------
   CLERK_JWT_KEY: { tier: 'optional' },
+  PYROSCOPE_ENABLED: { tier: 'optional', default: 'false' },
   NODE_ENV: { tier: 'optional' },
   LOG_LEVEL: { tier: 'optional', default: 'debug' },
   ENABLE_QUERY_LOGGING: { tier: 'optional', default: 'false' },
@@ -369,6 +370,10 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
   // mock; 'prod' → always live (never overridable). VENDOR_MODE=live on
   // dev is the rollback lever (see docs/vendor-mock-dev.md).
   VENDOR_MODE: { tier: 'optional' },
+  // One known approved Peerly identity id for the nightly vendor drift probe's
+  // get_usecases call (vendors/vendorDriftProbe.service.ts). An id, not a
+  // credential. Unset skips that one probe with a note.
+  DRIFT_PROBE_PEERLY_IDENTITY_ID: { tier: 'optional' },
 
   // Set per-deploy by deploy/index.ts to 'preview' | 'dev' | 'prod'. Also
   // drives IS_PROD_DEPLOY / IS_NON_PROD_DEPLOY in appEnvironment.util.ts —

@@ -10,10 +10,7 @@ import {
   civicPanelHref,
   SERVE_CITIZENS_PANEL_COPY as COPY,
 } from '../citizensPanelCopy'
-import {
-  civicPanelPlanQueryOptions,
-  civicPanelSummaryQueryOptions,
-} from '../civicPanelSummary.query'
+import { civicPanelSummaryQueryOptions } from '../civicPanelSummary.query'
 import { CitizensPanelEmpty, CitizensPanelStats } from './CitizensPanelStats'
 import { CivicPanelSeats } from './CivicPanelSeats'
 
@@ -27,16 +24,11 @@ export const CitizensPanelSection = () => {
     ...civicPanelSummaryQueryOptions(orgSlug),
     enabled: show && Boolean(orgSlug),
   })
-  // Its own read, so a plan that cannot be read only drops the seats.
-  const plan = useQuery({
-    ...civicPanelPlanQueryOptions(orgSlug),
-    enabled: show && Boolean(orgSlug),
-  })
 
   if (!show) return null
 
-  // The same seats the panel page draws, from the same plan read.
-  const composition = plan.data?.composition ?? null
+  // The same seats the panel page draws, from the same summary read.
+  const composition = query.data?.composition ?? null
   // Like the panel page, no seats before anyone joins.
   const hasMembers = (query.data?.members ?? 0) > 0
 
@@ -75,8 +67,8 @@ export const CitizensPanelSection = () => {
         <CivicPanelSeats
           placeKind={composition.placeKind}
           places={composition.places}
-          members={plan.data?.progress.members ?? 0}
-          goal={plan.data?.progress.goal ?? 0}
+          members={query.data?.progress.members ?? 0}
+          goal={query.data?.progress.goal ?? 0}
         />
       ) : null}
       {body}

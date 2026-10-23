@@ -155,15 +155,15 @@ describe('RecordKnockForm walkthrough', () => {
     walkToEngaged()
 
     expect(screen.queryByRole('button', { name: 'Save' })).toBeNull()
-    answer('Do they support you?', 'Yes')
-    expect(screen.getByText('Will they vote this election?')).toBeVisible()
+    answer('Will they vote this election?', 'Yes')
+    expect(screen.getByText('Do they support you?')).toBeVisible()
     expect(screen.queryByRole('button', { name: 'Save' })).toBeNull()
 
-    answer('Will they vote this election?', 'Yes')
+    answer('Do they support you?', 'Yes')
 
     expect(screen.getByText('Did they answer?')).toBeVisible()
     expect(screen.getByText('Did they engage?')).toBeVisible()
-    expect(screen.getByText('Do they support you?')).toBeVisible()
+    expect(screen.getByText('Will they vote this election?')).toBeVisible()
     expect(screen.getByText('Note')).toBeVisible()
     expect(screen.getByRole('button', { name: 'Save' })).toBeVisible()
   })
@@ -188,8 +188,8 @@ describe('RecordKnockForm walkthrough', () => {
 
     expect(screen.getByText('Note')).toBeVisible()
     // The canvas's placeholder, and the end of the canvas's ladder: "Did they
-    // answer?" → "Did they engage?" → "Do they support you?" → "Will they vote
-    // this election?" → Note → Save above Cancel.
+    // answer?" → "Did they engage?" → "Will they vote this election?" → "Do they
+    // support you?" → Note → Save above Cancel.
     expect(
       screen.getByPlaceholderText("What did they say? We'll clean it up."),
     ).toBeVisible()
@@ -241,7 +241,7 @@ describe('RecordKnockForm walkthrough', () => {
     expect(screen.queryByText('Note')).toBeNull()
 
     answer('Did they engage?', 'Engaged')
-    answer('Do they support you?', 'Yes')
+    answer('Will they vote this election?', 'Yes')
 
     expect(screen.queryByText('Note')).toBeNull()
   })
@@ -252,7 +252,7 @@ describe('RecordKnockForm walkthrough', () => {
     answer('Did they engage?', 'Refused')
 
     expect(screen.getByRole('button', { name: 'Save' })).toBeVisible()
-    expect(screen.queryByText('Do they support you?')).toBeNull()
+    expect(screen.queryByText('Will they vote this election?')).toBeNull()
   })
 
   // Tapping the chosen answer again clears it, and everything it opened goes
@@ -260,30 +260,30 @@ describe('RecordKnockForm walkthrough', () => {
   it('collapses the follow-ups when an answer is tapped off', () => {
     renderForm()
     walkToEngaged()
-    answer('Do they support you?', 'Yes')
-    expect(screen.getByText('Will they vote this election?')).toBeVisible()
+    answer('Will they vote this election?', 'Yes')
+    expect(screen.getByText('Do they support you?')).toBeVisible()
 
-    answer('Do they support you?', 'Yes')
+    answer('Will they vote this election?', 'Yes')
 
-    expect(screen.queryByText('Will they vote this election?')).toBeNull()
+    expect(screen.queryByText('Do they support you?')).toBeNull()
     expect(screen.queryByRole('button', { name: 'Save' })).toBeNull()
   })
 
   // A collapsed row must come back empty. Reopening it on the answer given
   // before the correction would offer a Save the canvasser never walked to.
-  it('forgets the will-vote answer once support is tapped off', () => {
+  it('forgets the support answer once will-vote is tapped off', () => {
     renderForm()
     walkToEngaged()
-    answer('Do they support you?', 'Yes')
-    answer('Will they vote this election?', 'No')
+    answer('Will they vote this election?', 'Yes')
+    answer('Do they support you?', 'No')
     expect(screen.getByRole('button', { name: 'Save' })).toBeVisible()
 
-    answer('Do they support you?', 'Yes')
-    answer('Do they support you?', 'No')
+    answer('Will they vote this election?', 'Yes')
+    answer('Will they vote this election?', 'No')
 
-    expect(screen.getByText('Will they vote this election?')).toBeVisible()
+    expect(screen.getByText('Do they support you?')).toBeVisible()
     expect(
-      question('Will they vote this election?').getByRole('radio', {
+      question('Do they support you?').getByRole('radio', {
         name: 'No',
       }),
     ).toHaveAttribute('data-state', 'off')
@@ -293,8 +293,8 @@ describe('RecordKnockForm walkthrough', () => {
   it('returns to the first question when the walk is cancelled', () => {
     renderForm()
     walkToEngaged()
-    answer('Do they support you?', 'Yes')
     answer('Will they vote this election?', 'Yes')
+    answer('Do they support you?', 'Yes')
 
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
 
@@ -317,8 +317,8 @@ describe('RecordKnockForm saving', () => {
     const onRecorded = renderForm()
 
     walkToEngaged()
-    answer('Do they support you?', 'Yes')
     answer('Will they vote this election?', 'Unsure')
+    answer('Do they support you?', 'Yes')
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
 
     await waitFor(() => expect(posted).toHaveLength(1))
@@ -330,6 +330,30 @@ describe('RecordKnockForm saving', () => {
       willVote: 'unsure',
     })
     expect(onRecorded).toHaveBeenCalledWith('person-1', 'supporter')
+  })
+
+  it('records a voter who has already voted', async () => {
+    const posted: unknown[] = []
+    api.mock('POST /v1/door-knocking/interactions', ({ body }) => {
+      posted.push(body)
+      return {
+        status: 200,
+        data: { personId: 'person-1', knockStatus: 'supporter' },
+      }
+    })
+    renderForm()
+
+    walkToEngaged()
+    answer('Will they vote this election?', 'Already voted')
+    answer('Do they support you?', 'Yes')
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => expect(posted).toHaveLength(1))
+    expect(posted[0]).toMatchObject({
+      outcome: 'answered',
+      supportAnswer: 'supporter',
+      willVote: 'already_voted',
+    })
   })
 
   // The second question is what the door ends as: step one's `answered` was
@@ -369,8 +393,8 @@ describe('RecordKnockForm saving', () => {
     renderForm()
 
     walkToEngaged()
-    answer('Do they support you?', 'Yes')
     answer('Will they vote this election?', 'Yes')
+    answer('Do they support you?', 'Yes')
     answer('Did they answer?', 'Not home')
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
 
@@ -425,8 +449,8 @@ describe('RecordKnockForm saving', () => {
     renderForm()
 
     walkToEngaged()
-    answer('Do they support you?', 'Yes')
     answer('Will they vote this election?', 'Yes')
+    answer('Do they support you?', 'Yes')
     fireEvent.change(
       screen.getByPlaceholderText("What did they say? We'll clean it up."),
       {
@@ -487,8 +511,8 @@ describe('RecordKnockForm saving', () => {
     renderForm()
 
     walkToEngaged()
-    answer('Do they support you?', 'Yes')
     answer('Will they vote this election?', 'Yes')
+    answer('Do they support you?', 'Yes')
     fireEvent.change(
       screen.getByPlaceholderText("What did they say? We'll clean it up."),
       {
@@ -764,10 +788,10 @@ describe('RecordKnockForm in serve mode', () => {
     expect(
       screen.queryByText('Do they want to join your civic panel?'),
     ).toBeNull()
-    answer('Do they support you?', 'Yes')
-
-    expect(screen.getByText('Will they vote this election?')).toBeVisible()
     answer('Will they vote this election?', 'Yes')
+
+    expect(screen.getByText('Do they support you?')).toBeVisible()
+    answer('Do they support you?', 'Yes')
 
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
 
@@ -783,8 +807,8 @@ describe('RecordKnockForm dictation', () => {
   const walkToNote = () => {
     renderForm()
     walkToEngaged()
-    answer('Do they support you?', 'Yes')
     answer('Will they vote this election?', 'Yes')
+    answer('Do they support you?', 'Yes')
   }
 
   it('offers dictation on the notes field', () => {

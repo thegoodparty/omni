@@ -1,7 +1,5 @@
 import { BadRequestException, Injectable } from '@nestjs/common'
 import {
-  checkSmsStandards,
-  countCivicPanelLines,
   findCivicPanelJoinLine,
   findCivicPanelLeaveLine,
   FOLLOW_UP_BUSINESS_DAYS,
@@ -35,6 +33,7 @@ import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import type { ProposalLink } from '@goodparty_org/contracts'
 import { roundTwoExclusions } from '@/priorities/util/roundTwoExclusions.util'
 import { createUnderProposalKey } from '../util/createUnderProposalKey.util'
+import { assertServeSmsLockedLines } from '../util/serveSmsLockedLines.util'
 import {
   ElectedOffice,
   Organization,
@@ -190,25 +189,14 @@ export const roundTwoDrawCutoff = (now: Date): string =>
     'yyyy-MM-dd',
   )
 
-// The lines the composer locks, checked again on the way in, so a composer
-// bug can never reach a send: honoring STOP follows the message, and a
-// second JOIN or LEAVE line texts people the same ask twice.
-export const assertServeSmsLockedLines = (message: string): void => {
-  if (checkSmsStandards(message).failures.includes('opt_out_line')) {
-    throw new BadRequestException(
-      'Your text is missing its opt-out line. Add "Reply STOP to opt out." as the last line and try again.',
-    )
-  }
-  // A JOIN beside a LEAVE is its own refusal, further down.
-  const both =
-    findCivicPanelJoinLine(message) !== null &&
-    findCivicPanelLeaveLine(message) !== null
-  if (countCivicPanelLines(message) > (both ? 2 : 1)) {
-    throw new BadRequestException(
-      'Your text has its civic panel line more than once. Keep one and try again.',
-    )
-  }
-}
+// The earliest send date assertServeSmsSendDateAllowed accepts: the third
+// business day, so staff get their full lead to set the text up. A managed
+// civic panel wave goes out on it.
+export const nextManagedSendDate = (now: Date): string =>
+  format(
+    addBusinessDays(referenceToday(now), MIN_SERVE_SMS_LEAD_BUSINESS_DAYS + 1),
+    'yyyy-MM-dd',
+  )
 
 @Injectable()
 export class OutreachServeSmsCreateService extends createPrismaBase(

@@ -1,7 +1,7 @@
 import Link from 'next/link'
 import {
   PANEL_MIN_MEMBERS_FOR_BALANCE,
-  type CivicPanelBuildProgress,
+  type CivicPanelProgress,
   type CivicPanelComposition,
 } from '@goodparty_org/contracts'
 import { Button } from '@styleguide'
@@ -86,7 +86,7 @@ export const CivicPanelMilestones = ({
   progress,
   composition,
 }: {
-  progress: CivicPanelBuildProgress
+  progress: CivicPanelProgress
   composition: CivicPanelComposition | null
 }) => {
   const { members, goal } = progress

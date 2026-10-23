@@ -152,6 +152,32 @@ describe('CivicPanelSeats', () => {
     if (labeled) expectLabelsInside(labeled, center)
   })
 
+  it('colors filled seats in brand families, outlined, and leaves empty seats plain', () => {
+    const { container } = seats(120)
+    const circles = [...container.querySelectorAll('circle')]
+    const filled = circles.filter((c) =>
+      /fill-brand-/.test(c.getAttribute('class') ?? ''),
+    )
+    const empty = circles.filter((c) =>
+      (c.getAttribute('class') ?? '').includes('fill-background'),
+    )
+    expect(filled.length).toBeGreaterThan(0)
+    expect(filled.length + empty.length).toBe(100)
+    const classes = filled.map((c) => c.getAttribute('class') ?? '')
+    for (const family of ['red', 'blue', 'lavender']) {
+      expect(classes.some((c) => c.includes(`fill-brand-${family}-`))).toBe(
+        true,
+      )
+    }
+    for (const c of classes) {
+      expect(c).toMatch(/stroke-brand-(red|blue|lavender)-\d+/)
+      expect(c).not.toContain('fill-primary')
+    }
+    for (const c of empty) {
+      expect(c.getAttribute('class')).toMatch(/stroke-(border|warning)/)
+    }
+  })
+
   it('says every tract has its share once every seat is filled', () => {
     render(
       <CivicPanelSeats

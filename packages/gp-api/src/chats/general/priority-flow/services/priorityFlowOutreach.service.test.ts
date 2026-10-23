@@ -50,13 +50,17 @@ const send = (name: string, priorityId: string | null) =>
   })
 
 // A native walk's envelope must point at a turf (DB check constraint).
-const turfIn = async (organizationSlug: string) => {
-  const filter = await service.prisma.voterFileFilter.create({
-    data: { organizationSlug, name: `audience ${uuidv7()}` },
-  })
+const turfIn = async (organizationSlug: string, voterFileFilterId?: number) => {
+  const filterId =
+    voterFileFilterId ??
+    (
+      await service.prisma.voterFileFilter.create({
+        data: { organizationSlug, name: `audience ${uuidv7()}` },
+      })
+    ).id
   const turf = await service.prisma.doorKnockingTurf.create({
     data: {
-      voterFileFilterId: filter.id,
+      voterFileFilterId: filterId,
       name: 'Turf A',
       color: '#ff0000',
       geoPoly: {
@@ -73,6 +77,30 @@ const turfIn = async (organizationSlug: string) => {
     },
   })
   return turf.id
+}
+
+const archive = (id: number) =>
+  service.prisma.outreach.update({
+    where: { id },
+    data: { archivedAt: new Date() },
+  })
+
+const idsOf = (rows: { outreachId: number }[]) =>
+  rows.map((row) => row.outreachId)
+
+const createCampaign = async (organizationSlug: string) => {
+  if (organizationSlug !== slug) {
+    await service.prisma.organization.create({
+      data: { slug: organizationSlug, ownerId: service.user.id },
+    })
+  }
+  return service.prisma.campaign.create({
+    data: {
+      userId: service.user.id,
+      slug: `${organizationSlug}-campaign`,
+      organizationSlug,
+    },
+  })
 }
 
 beforeEach(async () => {
@@ -256,21 +284,6 @@ describe('PriorityFlowOutreachService channel filter', () => {
 })
 
 describe('PriorityFlowOutreachService.feedbackForCampaign', () => {
-  const createCampaign = async (organizationSlug: string) => {
-    if (organizationSlug !== slug) {
-      await service.prisma.organization.create({
-        data: { slug: organizationSlug, ownerId: service.user.id },
-      })
-    }
-    return service.prisma.campaign.create({
-      data: {
-        userId: service.user.id,
-        slug: `${organizationSlug}-campaign`,
-        organizationSlug,
-      },
-    })
-  }
-
   const note = (
     outreachId: number,
     transcript: string,
@@ -411,6 +424,67 @@ describe('PriorityFlowOutreachService.feedbackForCampaign', () => {
       await outreach.feedbackForCampaign(campaign.id, ZONE, theirs.id),
     ).toEqual([])
   })
+
+  it('leaves an archived walk out unless it is asked for by id', async () => {
+    const campaign = await createCampaign(slug)
+    const walk = async () =>
+      service.prisma.outreach.create({
+        data: {
+          campaignId: campaign.id,
+          organizationSlug: slug,
+          outreachType: OutreachType.nativeDoorKnocking,
+          status: OutreachStatus.in_progress,
+          name: 'Central Park listening walk',
+          doorKnockingTurfId: await turfIn(slug),
+        },
+      })
+    const older = await walk()
+    await archive(older.id)
+    const current = await walk()
+
+    expect(
+      idsOf(await outreach.feedbackForCampaign(campaign.id, ZONE)),
+    ).toEqual([current.id])
+    expect(
+      idsOf(await outreach.feedbackForCampaign(campaign.id, ZONE, older.id)),
+    ).toEqual([older.id])
+  })
+
+  it('reads only the doors or only the calls when given a channel', async () => {
+    const campaign = await createCampaign(slug)
+    const walk = await service.prisma.outreach.create({
+      data: {
+        campaignId: campaign.id,
+        organizationSlug: slug,
+        outreachType: OutreachType.nativeDoorKnocking,
+        status: OutreachStatus.in_progress,
+        name: 'Central Park listening walk',
+        doorKnockingTurfId: await turfIn(slug),
+      },
+    })
+    const calls = await service.prisma.outreach.create({
+      data: {
+        campaignId: campaign.id,
+        organizationSlug: slug,
+        outreachType: OutreachType.nativePhoneBanking,
+        status: OutreachStatus.in_progress,
+        name: 'Listening calls',
+      },
+    })
+    const byChannel = async (channel: OutreachType) =>
+      idsOf(
+        await outreach.feedbackForCampaign(
+          campaign.id,
+          ZONE,
+          undefined,
+          channel,
+        ),
+      )
+
+    expect(await byChannel(OutreachType.doorKnocking)).toEqual([walk.id])
+    expect(await byChannel(OutreachType.nativePhoneBanking)).toEqual([calls.id])
+    expect(await byChannel(OutreachType.text)).toEqual([])
+  })
 })
 
 describe('PriorityFlowOutreachService.feedbackFor', () => {
@@ -485,6 +559,134 @@ describe('PriorityFlowOutreachService.feedbackFor', () => {
     const sends = await outreach.feedbackFor(slug, {}, ZONE)
 
     expect(sends.map((row) => row.outreachId)).toEqual([sent.id])
+  })
+
+  it('leaves an archived send out unless it is asked for by id', async () => {
+    const shelved = await send('spring newsletter', null)
+    await archive(shelved.id)
+    const newsletter = await send('fall newsletter', null)
+
+    const recent = await outreach.feedbackFor(slug, {}, ZONE)
+    const asked = await outreach.feedbackFor(
+      slug,
+      { outreachId: shelved.id },
+      ZONE,
+    )
+
+    expect(recent).toMatchObject([
+      { outreachId: newsletter.id, name: 'fall newsletter' },
+    ])
+    expect(asked).toMatchObject([
+      { outreachId: shelved.id, name: 'spring newsletter' },
+    ])
+  })
+
+  it("reads only the office's calls when given phone banking", async () => {
+    const calls = await service.prisma.outreach.create({
+      data: {
+        organizationSlug: slug,
+        outreachType: OutreachType.nativePhoneBanking,
+        status: OutreachStatus.in_progress,
+        name: 'Neighborhood priorities calls',
+      },
+    })
+    await service.prisma.outreach.create({
+      data: {
+        organizationSlug: slug,
+        outreachType: OutreachType.nativeDoorKnocking,
+        status: OutreachStatus.in_progress,
+        name: 'Neighborhood listening walk',
+        doorKnockingTurfId: await turfIn(slug),
+      },
+    })
+    await send('newsletter', null)
+
+    const sends = await outreach.feedbackFor(
+      slug,
+      { channel: OutreachType.phoneBanking },
+      ZONE,
+    )
+
+    expect(idsOf(sends)).toEqual([calls.id])
+  })
+})
+
+describe('PriorityFlowOutreachService archived sends', () => {
+  it('leaves them out of the office and campaign reads', async () => {
+    const shelved = await send('spring newsletter', null)
+    await archive(shelved.id)
+    const newsletter = await send('fall newsletter', null)
+    const campaign = await createCampaign(slug)
+    const campaignSend = (name: string) =>
+      service.prisma.outreach.create({
+        data: {
+          campaignId: campaign.id,
+          organizationSlug: slug,
+          outreachType: OutreachType.text,
+          status: OutreachStatus.completed,
+          name,
+        },
+      })
+    await archive((await campaignSend('primary push')).id)
+    const gotv = await campaignSend('get out the vote')
+
+    expect(idsOf(await outreach.forOffice(slug, null, ZONE))).toEqual([
+      newsletter.id,
+    ])
+    expect(idsOf(await outreach.forCampaign(campaign.id, ZONE))).toEqual([
+      gotv.id,
+    ])
+  })
+
+  it("keeps a priority's own, so nobody it asked is asked again", async () => {
+    const bridge = await createPriority('Bridge')
+    const shelved = await send('about the bridge', bridge)
+    await archive(shelved.id)
+
+    expect(idsOf(await outreach.forPriority(bridge, ZONE))).toEqual([
+      shelved.id,
+    ])
+    expect(
+      idsOf(await outreach.feedbackFor(slug, { priorityId: bridge }, ZONE)),
+    ).toEqual([shelved.id])
+  })
+})
+
+describe('PriorityFlowOutreachService names', () => {
+  it('names a walk apart from the list it was cut from', async () => {
+    const campaign = await createCampaign(slug)
+    const filter = await service.prisma.voterFileFilter.create({
+      data: { organizationSlug: slug, name: 'Oak Street households' },
+    })
+    const walk = await service.prisma.outreach.create({
+      data: {
+        campaignId: campaign.id,
+        organizationSlug: slug,
+        outreachType: OutreachType.nativeDoorKnocking,
+        status: OutreachStatus.in_progress,
+        name: 'Central Park listening walk',
+        voterFileFilterId: filter.id,
+        doorKnockingTurfId: await turfIn(slug, filter.id),
+      },
+    })
+    const named = {
+      outreachId: walk.id,
+      name: 'Central Park listening walk',
+      audience: 'Oak Street households',
+    }
+
+    expect(await outreach.forCampaign(campaign.id, ZONE)).toMatchObject([named])
+    expect(await outreach.feedbackForCampaign(campaign.id, ZONE)).toMatchObject(
+      [named],
+    )
+  })
+
+  it('names the audience of a send cut from no list', async () => {
+    await send('office newsletter', null)
+
+    expect(await outreach.forOffice(slug, null, ZONE)).toMatchObject([
+      { name: 'office newsletter', audience: 'Unnamed audience' },
+    ])
   })
 })
 

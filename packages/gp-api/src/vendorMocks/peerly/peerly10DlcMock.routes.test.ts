@@ -835,7 +835,13 @@ describe('Peerly 10DLC mock: CV request, PIN and use cases (M4-4)', () => {
       { headers },
     )
     expect(peerlyIdentityUseCaseResponseBodySchema.parse(pending.data)).toEqual(
-      [expect.objectContaining({ usecase: 'POLITICAL', activated: 0 })],
+      [
+        expect.objectContaining({
+          usecase: 'POLITICAL',
+          activated: 0,
+          tcr_campaign_id: null,
+        }),
+      ],
     )
 
     const activate = await applyAction(campaign.id, 'peerly.usecase.activate')

@@ -51,7 +51,8 @@ export const runJob = (client: AxiosInstance, name: string) =>
  * Shifts outreach timing so a sweep processes this specific robocall:
  * - `robocall.send_due_now`     → sets Outreach.date to now - 1 min (staging and send pick it up)
  * - `robocall.dialed_48h_ago`   → backdates dialedAt 49h (completion sweep settles it)
- * - `sms.start_date_today`      → moves an SMS send's start date to today
+ * - `sms.start_date_today`      → moves an SMS send's start date to today (completion reads in_progress)
+ * - `sms.start_date_passed`     → moves it to yesterday (completion reads completed)
  */
 export const timeTravel = (
   client: AxiosInstance,
@@ -59,7 +60,8 @@ export const timeTravel = (
   action:
     | 'robocall.send_due_now'
     | 'robocall.dialed_48h_ago'
-    | 'sms.start_date_today',
+    | 'sms.start_date_today'
+    | 'sms.start_date_passed',
 ) =>
   client.post<void>('/v1/test-fixtures/vendor-mocks/time-travel', {
     outreachId,
@@ -113,8 +115,8 @@ export const deliverStripeEvent = async (
 }
 
 /**
- * Applies an admin action to an outreach row using a test-user session,
- * bypassing the AdminOrM2MGuard. `cas.approve` books canvassers; `results.upload`
+ * Applies an admin action to an outreach row the caller owns using their own
+ * session, bypassing the AdminOrM2MGuard. `cas.approve` books canvassers; `results.upload`
  * ingests a CSV payload.
  */
 export const adminAction = async (

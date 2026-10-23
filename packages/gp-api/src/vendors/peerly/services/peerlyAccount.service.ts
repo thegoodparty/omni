@@ -44,4 +44,13 @@ export class PeerlyAccountService extends PeerlyBaseConfig {
       })
     }
   }
+
+  // The raw balance body, for the nightly drift probe to parse in enforce mode
+  // (getBalance validates inside its own try and maps a drift to a 502).
+  async fetchBalanceBodyForProbe(): Promise<unknown> {
+    const response = await this.peerlyHttpService.get(
+      `/accounts/${this.accountNumber}/balance`,
+    )
+    return response.data
+  }
 }

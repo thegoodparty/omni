@@ -9,6 +9,7 @@ import {
 } from 'src/helpers/navigation.helper'
 import {
   deliverStripeEvent,
+  mockAction,
   mockRecords,
   overrideCvValidation,
   peerlyAction,
@@ -26,8 +27,8 @@ import { withGatewayRetry } from 'tests/utils/headless-user'
 // Vercel and Route53 answer from the in-process mocks, so the whole vendor
 // sequence runs deterministically. The agent's judgment stays with the Judge.
 //
-// Runs wherever VENDOR_MODE=mock (previews, local gp-api) and skips on dev,
-// which always calls the real vendors.
+// Runs wherever VENDOR_MODE=mock (previews, dev, local gp-api) and skips only
+// if dev is rolled back with VENDOR_MODE=live.
 
 type ComplianceState = {
   stage: string
@@ -223,6 +224,23 @@ const getComplianceState = async (
   return data
 }
 
+const DOMAIN_MAX_PRICE = 50
+
+const searchAvailableDomain = async (
+  client: AxiosInstance,
+  prefix = 'janeforcouncil',
+): Promise<string> => {
+  const { data: search } = await client.post<{
+    candidates: { domain: string; price: number }[]
+  }>('/v1/domains/search', {
+    patterns: [`${prefix}${randomUUID().slice(0, 8)}`],
+    maxPrice: DOMAIN_MAX_PRICE,
+  })
+  const [candidate] = search.candidates
+  expect(candidate, 'domain search returned no candidates').toBeDefined()
+  return candidate!.domain
+}
+
 // Plays the compliance_setup agent from `pending_domain_purchase` through
 // `submit-to-peerly`, which leaves the registration at `awaiting_pin`.
 const playAgentThroughSubmit = async (
@@ -234,16 +252,8 @@ const playAgentThroughSubmit = async (
     'pending_domain_purchase',
   )
 
-  const maxPrice = 50
-  const { data: search } = await client.post<{
-    candidates: { domain: string; price: number }[]
-  }>('/v1/domains/search', {
-    patterns: [`janeforcouncil${randomUUID().slice(0, 8)}`],
-    maxPrice,
-  })
-  const [candidate] = search.candidates
-  expect(candidate, 'domain search returned no candidates').toBeDefined()
-  const domainName = candidate!.domain
+  const maxPrice = DOMAIN_MAX_PRICE
+  const domainName = await searchAvailableDomain(client)
 
   // The route holds the request open until the order completes (~30s on the
   // mock), longer than some proxies wait. Purchase is idempotent per campaign,
@@ -323,11 +333,12 @@ test.describe('10DLC registration — M4 vendor mocks', () => {
     await blockSlowScripts(page)
   })
 
-  // Registers a Pro candidate through the wizard and Stripe, then plays the
-  // agent up to `awaiting_pin`. Skips where the vendors are not mocked.
-  const registerUntilAwaitingPin = async (
+  // Registers a Pro candidate through the wizard and Stripe, which leaves the
+  // registration at `pending_domain_purchase`. Skips where the vendors are not
+  // mocked.
+  const registerPro = async (
     page: Page,
-  ): Promise<{ client: AxiosInstance; campaignId: number }> => {
+  ): Promise<{ client: AxiosInstance; campaignId: number; ein: string }> => {
     const { user, client } = await authenticateTestUser(page, {
       isolated: true,
     })
@@ -337,7 +348,7 @@ test.describe('10DLC registration — M4 vendor mocks', () => {
     const { vendorMode } = await mockRecords(client, campaign.id)
     test.skip(
       vendorMode !== 'mock',
-      '10DLC registration spec requires VENDOR_MODE=mock (preview / local only)',
+      '10DLC registration spec requires VENDOR_MODE=mock (skipped when VENDOR_MODE=live)',
     )
 
     // Texting closes 19 days before the election; keep it well clear.
@@ -361,8 +372,16 @@ test.describe('10DLC registration — M4 vendor mocks', () => {
       )
       .toBe(true)
 
-    await playAgentThroughSubmit(client, campaign.id, ein)
-    return { client, campaignId: campaign.id }
+    return { client, campaignId: campaign.id, ein }
+  }
+
+  // Plays the agent on top of `registerPro` up to `awaiting_pin`.
+  const registerUntilAwaitingPin = async (
+    page: Page,
+  ): Promise<{ client: AxiosInstance; campaignId: number }> => {
+    const { client, campaignId, ein } = await registerPro(page)
+    await playAgentThroughSubmit(client, campaignId, ein)
+    return { client, campaignId }
   }
 
   test('registers a candidate from the Pro wizard to tcr_approved', async ({
@@ -421,5 +440,98 @@ test.describe('10DLC registration — M4 vendor mocks', () => {
       '/v1/campaigns/tcr-compliance/mine',
     )
     expect(tcr.status).toBe('submitted')
+  })
+
+  test('shows no PIN entry when Campaign Verify rejects the registration', async ({
+    page,
+  }) => {
+    test.setTimeout(10 * 60 * 1000)
+
+    const { client, campaignId } = await registerUntilAwaitingPin(page)
+
+    await peerlyAction(client, campaignId, 'peerly.cv.reject', {
+      reason: 'E2E rejection',
+    })
+    await runJob(client, 'cvStatusPoll.scanFresh')
+
+    await page.goto('/dashboard/profile/texting-compliance/enter-pin')
+    // The scan marks the registration rejected, and the page has no rejected
+    // state of its own: it falls back to the generic "step isn't available".
+    await expect(page.getByText('This step isn’t available yet.')).toBeVisible({
+      timeout: 30_000,
+    })
+    await expect(page.getByRole('textbox', { name: 'Digit 1' })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'Submit' })).toHaveCount(0)
+
+    expect((await getComplianceState(client)).stage).toBe('tcr_rejected')
+    const { data: tcr } = await client.get<TcrComplianceMine>(
+      '/v1/campaigns/tcr-compliance/mine',
+    )
+    expect(tcr.status).toBe('rejected')
+  })
+
+  test('retries a failed domain order and offers no taken domain', async ({
+    page,
+  }) => {
+    test.setTimeout(10 * 60 * 1000)
+
+    const { client, campaignId } = await registerPro(page)
+    expect((await getComplianceState(client)).stage).toBe(
+      'pending_domain_purchase',
+    )
+
+    // The Route53 mock reports every `taken-` name as unavailable, so a search
+    // for one must not offer it, while a normal pattern in the same search does.
+    const takenPattern = `taken-${randomUUID().slice(0, 8)}`
+    const { data: search } = await client.post<{
+      candidates: { domain: string }[]
+    }>('/v1/domains/search', {
+      patterns: [takenPattern, `janeforcouncil${randomUUID().slice(0, 8)}`],
+      maxPrice: DOMAIN_MAX_PRICE,
+    })
+    expect(search.candidates.length).toBeGreaterThan(0)
+    for (const { domain } of search.candidates) {
+      expect(domain.startsWith('taken-'), `${domain} is offered`).toBe(false)
+    }
+
+    const domainName = await searchAvailableDomain(client)
+    const purchaseBody = { domain: domainName, maxPrice: DOMAIN_MAX_PRICE }
+
+    await mockAction(client, campaignId, 'vercel.order.fail')
+    const failed = await client.post('/v1/domains/purchase', purchaseBody, {
+      validateStatus: () => true,
+    })
+    expect(
+      failed.status,
+      'the failed order fails the purchase',
+    ).toBeGreaterThanOrEqual(400)
+
+    const { data: status } = await client.get<{ message: string }>(
+      '/v1/domains/status',
+    )
+    expect(status.message).toBe('INACTIVE')
+    expect((await getComplianceState(client)).stage).toBe(
+      'pending_domain_purchase',
+    )
+
+    // The armed failure was consumed by that one order.
+    const retried = await withGatewayRetry('POST /v1/domains/purchase', () =>
+      client.post('/v1/domains/purchase', purchaseBody),
+    )
+    expect(retried.status).toBeLessThan(300)
+
+    await expect
+      .poll(async () => (await getComplianceState(client)).stage, {
+        message: 'the retried order moves the stage past the purchase',
+        timeout: 60_000,
+        intervals: [2_000],
+      })
+      .toBe('pending_website_live')
+
+    await client.put('/v1/websites/mine', { status: 'published' })
+    const { data: live } = await client.post<{ verified: boolean }>(
+      '/v1/websites/mine/verify-live',
+    )
+    expect(live.verified).toBe(true)
   })
 })

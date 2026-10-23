@@ -100,6 +100,9 @@ architecture, or a convention, update the nearest relevant `AGENTS.md` and/or
 `docs/` file in the same change.** A PR that changes how something works and leaves
 its doc stale is incomplete. Update _or delete_ in place; never leave them to rot.
 
+Keep every `AGENTS.md` under 100 KB (102400 bytes): it auto-loads into context, so make it a short
+index and move detail into linked `docs/*.md` files. CI (`scripts/check-agents-md-size.sh`) fails above the cap.
+
 **When a change adds or renames something a user can see, add it to the
 assistants' product map** (`packages/gp-api/src/chats/general/product-knowledge/`)
 in the same change. The Campaign Manager and Chief of Staff answer product

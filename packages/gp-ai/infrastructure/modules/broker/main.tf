@@ -771,12 +771,11 @@ resource "aws_ecs_service" "broker" {
     rollback = true
   }
 
-  # Terraform apply becomes the deploy once the task def pins a SHA-tagged image,
-  # so the apply must not report success until the new tasks are actually
-  # healthy. Without this, Terraform returns as soon as ECS accepts the
-  # deployment and a failed rollout looks like a successful deploy. Mirrors
-  # gp-api's Pulumi service (waitForSteadyState: true).
-  wait_for_steady_state = true
+  # Terraform does not wait for the rollout (wait_for_steady_state defaults to
+  # false). ci-verify-deployed.sh is what waits: it polls the PRIMARY deployment
+  # to COMPLETED with a diagnostic on timeout. Waiting here instead hid a stalled
+  # rollout inside a 20m opaque apply timeout (ENG-11448) and held up the rest of
+  # the prod roots behind it.
 
   # desired_count is managed by application-autoscaling after initial apply.
   # Without this, terraform plan will always want to reset it to 1.

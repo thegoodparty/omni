@@ -11,6 +11,7 @@ import {
 // Written out rather than read from CIVIC_PANEL_JOIN_LINES: sends already
 // stored carry these exact words, so editing or dropping one must fail here.
 const LEGACY_JOIN_LINES = [
+  'Reply JOIN to join my civic panel. My office will text you about once a month to ask what you think before I decide. Empowered by GoodParty.org.',
   "Reply JOIN to join my citizens' panel. My office will text you about once a month to ask what you think before I decide. Empowered by GoodParty.org.",
   "Reply JOIN to join my citizens' panel, residents my office (not my campaign) texts a few times a year to hear what you think before I make decisions. Empowered by GoodParty.org.",
 ]
@@ -18,7 +19,7 @@ const LEGACY_JOIN_LINES = [
 describe('CIVIC_PANEL_JOIN_LINE', () => {
   it('composes the civic panel wording', () => {
     expect(CIVIC_PANEL_JOIN_LINE).toBe(
-      'Reply JOIN to join my civic panel. My office will text you about once a month to ask what you think before I decide. Empowered by GoodParty.org.',
+      'Reply JOIN to join my civic panel. My office will text you about once a month to ask what you think before I decide. Sent with GoodParty.org.',
     )
     expect(CIVIC_PANEL_JOIN_LINES[0]).toBe(CIVIC_PANEL_JOIN_LINE)
   })

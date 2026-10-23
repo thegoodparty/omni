@@ -239,7 +239,8 @@ uv run instrumentation_gaps.py --today "$run_date" --list-new
 This is read-only (`load_state` + `new_this_run`, no scan, no judge) and prints this
 run's untriaged (`disposition: new`, `first_seen == run_date`) gaps as a JSON array,
 each with `id`, `surface_type`, `location`, `rubric_rule`, `dashboard_question`,
-`judge_reason`, `rank`.
+`judge_reason`, `rank`, and for entries judged since DATA-2676 `value`,
+`answers_question`, `fix`, `extend_event` and `extend_property`. Low-value gaps sort last.
 
 `resolved` and `retired` are terminal dispositions — a gap that closed itself (the
 surface got instrumented, or the surface disappeared) never comes back as `new`, so

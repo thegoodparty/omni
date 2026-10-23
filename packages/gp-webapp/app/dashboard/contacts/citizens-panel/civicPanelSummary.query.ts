@@ -12,16 +12,16 @@ export const civicPanelSummaryQueryOptions = (orgSlug: string | undefined) =>
     },
   })
 
-// Where the panel stands toward its goal, for the Constituents section's
-// progress bar. Reading the plan is what moves it, as on the panel page.
-export const civicPanelPlanQueryOptions = (orgSlug: string | undefined) =>
+// The panel GoodParty builds for the office: null until the official
+// approves its invite.
+export const managedCivicPanelQueryOptions = (orgSlug: string | undefined) =>
   queryOptions({
-    queryKey: ['civic-panel-plan', orgSlug],
+    queryKey: ['civic-panel-managed', orgSlug],
     queryFn: async () => {
       const { data } = await clientRequest(
-        'GET /v1/contacts/civic-panel/plan',
+        'GET /v1/contacts/civic-panel/managed',
         {},
       )
-      return data
+      return data.panel
     },
   })

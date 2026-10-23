@@ -71,14 +71,13 @@ export type OutreachFlowSource =
   | 'deep_link'
 
 // Which agent surface launched the outreach, when one did: a priority card
-// that answered Get answers, any other priority card, a civic panel plan step,
-// or a card in the Chief of Staff or Campaign Manager chat. Omitted when the
+// that answered Get answers, any other priority card, or a card in the
+// Chief of Staff or Campaign Manager chat. Omitted when the
 // official started the outreach themselves. Analytics only: it never rides on
 // a server payload.
 export type OutreachLaunchSource =
   | 'expand_panel'
   | 'priorities'
-  | 'civic_panel'
   | 'chief_of_staff'
   | 'campaign_manager'
 
@@ -89,7 +88,6 @@ const LAUNCH_SOURCE_PREFIX = 'outreach-launch-source:'
 const LAUNCH_SOURCES: readonly OutreachLaunchSource[] = [
   'expand_panel',
   'priorities',
-  'civic_panel',
   'chief_of_staff',
   'campaign_manager',
 ]

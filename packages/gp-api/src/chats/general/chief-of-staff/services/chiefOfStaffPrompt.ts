@@ -4,11 +4,12 @@ import { IS_NON_PROD_DEPLOY } from '@/shared/util/appEnvironment.util'
 import { FILTER_DIMENSION_PROVENANCE_RULES } from '@/contacts/filterDimensions.catalog'
 import { buildProductKnowledgeBlocks } from '../../product-knowledge/productKnowledgePrompt'
 import {
-  BUILD_CITIZENS_PANEL_MESSAGE,
-  CIVIC_PANEL_PAGE_HREF,
-  EXPLAIN_CIVIC_PANEL_MESSAGE,
+  MANAGED_CIVIC_PANEL_BACKED_OUT_MESSAGE,
+  MANAGED_CIVIC_PANEL_EXHAUSTED_MESSAGE,
+  MANAGED_CIVIC_PANEL_SET_UP_MESSAGE,
+  SHOW_MANAGED_CIVIC_PANEL_INVITE,
+  START_MANAGED_CIVIC_PANEL_MESSAGE,
   MAX_CHECK_RAISES,
-  PANEL_MAX_HOURS_PER_WEEK,
   PICKED_NEXT_STEPS_LEAD,
   PRIORITY_STEP_LABELS,
   READ_REPRESENTATIVENESS_LABELS,
@@ -20,19 +21,18 @@ import {
   type PriorityStepContrast,
   type PriorityReadStatus,
 } from '@goodparty_org/contracts'
-import {
-  ChiefOfStaffContext,
-  type CivicPanelBuildState,
-} from './chiefOfStaffContext.service'
+import { ChiefOfStaffContext } from './chiefOfStaffContext.service'
 import type { PeopleDataset } from '@/peopleDb/services/peopleDataset.service'
 import { localDay, todayLine } from '../../services/todayLine'
 import { PriorityRecord } from './prioritiesPort'
 import { CLARIFY_QUESTION_RULES } from '../../chat-tools/askClarifyQuestion.tool'
 import {
-  ASK_PANEL_WEEKLY_TIME_TOOL,
-  PRESENT_PANEL_NEXT_STEP_TOOL,
-  SAVE_PANEL_WEEKLY_TIME_TOOL,
-} from './civicPanelPlan.tools'
+  isManagedPanelSetUp,
+  OFFER_MANAGED_PANEL_INVITE_TOOL,
+  PRESENT_MANAGED_PANEL_INVITE_TOOL,
+  PRESENT_MANAGED_PANEL_TOOL,
+  READ_MANAGED_PANEL_TOOL,
+} from './managedCivicPanel.tools'
 import {
   OUTREACH_MESSAGE_RULES,
   PICKED_OPTION_RULE,
@@ -286,114 +286,66 @@ const outreachSamplingBlock = (toolNames: string[]): string => {
   ].join('\n')
 }
 
-// What the agent does when the official asks to build their civic panel.
-// Behind serve-citizen-panels (civicPanel is only read with it on). The chat
-// runs the same plan as the panel page: with no plan it asks the weekly time
-// question and makes the plan from the answer, and with one it shows the
-// plan's next step and never asks again. It never proposes an invite text of
-// its own: the plan's text step is that text.
-const civicPanelBuildBlock = (
-  panel: CivicPanelBuildState,
-  toolNames: string[],
-  hasPriorities: boolean,
+// What the agent does when GoodParty builds the panel for the office (the
+// managed panel), behind serve-citizen-panels: it explains how, offers the
+// invite as a card, and after the official approves or backs out (a hidden
+// turn the app sends when the review closes) says what happens next.
+const managedCivicPanelBlock = (
+  ctx: ChiefOfStaffContext,
+  firstPriority: string | null,
 ): string => {
-  const canPlan = [
-    ASK_PANEL_WEEKLY_TIME_TOOL,
-    SAVE_PANEL_WEEKLY_TIME_TOOL,
-    PRESENT_PANEL_NEXT_STEP_TOOL,
-  ].every((name) => toolNames.includes(name))
-  const pageLink = (label: string) => `[${label}](${CIVIC_PANEL_PAGE_HREF})`
-  const explain =
-    '- Explain what a civic panel is, calling it their civic panel, in 1 or 2 short sentences that say what it is for them, for example "A civic panel is residents from every part of your district who agreed to tell you what they think before you decide." Skip this when you already explained the panel earlier in this conversation, and go straight to the next step.'
-  const atGoal = panel.members >= panel.goalMembers
-  const askTime = [
-    `- Then say in one short sentence that the plan mixes texts with their own calls and door knocking, which reach the residents a text misses, and call \`${ASK_PANEL_WEEKLY_TIME_TOOL}\` with nothing after it. The app shows the question, "How much time can you spend each week to connect with constituents by phone or in person?", and its answers, so never write the question or the answers yourself.`,
+  const setUp = isManagedPanelSetUp(ctx.managedPanel)
+  const appTurn = (message: string, when: string) =>
+    `- "${message}" is sent by the app when ${when}. They did not type it, so never quote it or reply to it as their words.`
+  const before = [
+    appTurn(
+      START_MANAGED_CIVIC_PANEL_MESSAGE,
+      'they press Build my civic panel',
+    ),
+    `- On "${START_MANAGED_CIVIC_PANEL_MESSAGE}", or when they ask to build, start or set up their civic panel, explain it in 3 or 4 short paragraphs, calling it their civic panel:`,
+    '  - What it is: residents from every part of their district they can ask before a vote, so they hear from more than the loudest voices.',
+    '  - How we build it: they approve one invite, in their name, and over about two weeks we text it to residents in waves.',
+    '  - Between waves we invite more of whoever is missing, so every group is in.',
+    '  - It is ready in about three weeks, and it is free in early access.',
+    `- Then call \`${OFFER_MANAGED_PANEL_INVITE_TOOL}\` with nothing after it. The app shows the question and its answers, so never write them yourself.`,
+    `- When they pick "${SHOW_MANAGED_CIVIC_PANEL_INVITE}" or say yes to seeing it, write one short line that this is the invite we'd send in their name and they can change anything that doesn't sound like them and approve it there. Then call \`${PRESENT_MANAGED_PANEL_INVITE_TOOL}\`. The card shows the invite, so never quote it or write an invite of your own.`,
+    `- When they ask who gets texted: residents of their district with a cell phone, a wave at a time, and between waves more of the groups we have heard from least. Then call \`${OFFER_MANAGED_PANEL_INVITE_TOOL}\` again.`,
+    '- When they say not now, say in one line that the card on their home is there when they are ready. Nothing more.',
+    appTurn(
+      MANAGED_CIVIC_PANEL_BACKED_OUT_MESSAGE,
+      'they close the invite without setting up their civic panel',
+    ),
+    `- On "${MANAGED_CIVIC_PANEL_BACKED_OUT_MESSAGE}", say in one short line that nothing was sent and the card on their home is there when they are ready. Call no tool.`,
   ]
-  const state = !canPlan
-    ? [
-        explain,
-        `- Their panel page builds it from how much time they can give each week. Say so in one line and link it as ${pageLink('Build your civic panel')}. Do not count the district, size an invite or present a card.`,
-      ]
-    : panel.hasPlan
-      ? [
-          `- They already have a plan to build it. Never ask the weekly time question again. Call \`${PRESENT_PANEL_NEXT_STEP_TOOL}\`, then say in one short sentence where their panel stands from what it returns, for example "62 members so far, from 9 of 12 groups in your district." (the standing it returns). The card shows the step and opens it, so never restate it.`,
-        ]
-      : atGoal
-        ? [
-            `- Their civic panel already has ${people(panel.members)} people, its goal. Say so in one line, then that they can keep it fresh with a plan that keeps inviting residents, leaning toward the groups with the fewest members who answered lately.`,
-            ...askTime,
-          ]
-        : panel.members > 0
-          ? [
-              `- They already have ${people(panel.members)} ${panel.members === 1 ? 'person' : 'people'} on their civic panel. Say so in one line. To grow it toward about ${people(panel.goalMembers)} members, they need a plan.`,
-              ...askTime,
-            ]
-          : panel.inviteSent
-            ? [
-                '- Their panel invite already went out, and people join as they reply JOIN. Say so in one line. A plan adds calls and door knocking to it.',
-                ...askTime,
-              ]
-            : [explain, ...askTime]
-  const planning = canPlan
-    ? [
-        `- When they answer the weekly time question ("1 hour a week", "2 hours a week", "3 hours a week", "4 or more hours a week", or their own words), call \`${SAVE_PANEL_WEEKLY_TIME_TOOL}\` with the hours: 4 for "4 or more hours a week", or the number they wrote, at most ${PANEL_MAX_HOURS_PER_WEEK}. Less than an hour: say the plan needs at least an hour a week and ask again.`,
-        `- When it returns saved "created", call \`${PRESENT_PANEL_NEXT_STEP_TOOL}\` and say in one short sentence that their plan is ready and the card opens its first step. Never list the steps or the numbers: the card and their panel page show them.`,
-        `- When it returns planMade false, no plan could be made. Say so in one plain line with its reason, and link their panel page as ${pageLink('See your civic panel')}. Do not count the district, size an invite, draft a text or present any other card.`,
-        `- Whenever they have a plan and tell you how much time they can give each week now (for example "I can give 2 hours now"), call \`${SAVE_PANEL_WEEKLY_TIME_TOOL}\` with it. When it returns saved "updated", say in one line that their next batch of invites uses the new time, and the batch in progress stays as it is.`,
-        '- Never propose a text, a list or any other outreach to build the panel: every invite comes from the plan.',
-      ]
-    : []
-  const priorities =
-    panel.inviteSent && !hasPriorities
-      ? [
-          '- Their first invite is out and they have no priorities on file. Finish the reply with one line asking which priorities they want to work on, and offer to record what they tell you. Say it once, after the card, and never hold the plan back for it.',
-        ]
-      : [
-          hasPriorities
-            ? "- They already have priorities on file. Never ask them to record priorities in this reply: end on the plan's next step, and you may add one line tying the panel to their first priority by name."
-            : "- Do not ask about priorities in this reply, even though none are on file: no invite has gone out yet. End on the plan's next step.",
-        ]
+  const after = [
+    appTurn(
+      MANAGED_CIVIC_PANEL_SET_UP_MESSAGE,
+      'they approve the invite, which sets up their civic panel',
+    ),
+    `- On "${MANAGED_CIVIC_PANEL_SET_UP_MESSAGE}", call \`${READ_MANAGED_PANEL_TOOL}\`, then say exactly "Done. The first invites go out <firstSendDate>. I'll let you know when your panel is ready, around the week of <readyWeekOf>." with the dates it returns, and call \`${PRESENT_MANAGED_PANEL_TOOL}\`.`,
+    firstPriority
+      ? `- Then, in one short line, offer to keep going on their priority "${firstPriority}" while we build.`
+      : '- Then, in one short line, ask which priority they want to work on while we build, and offer to record it.',
+    `- They already set up their civic panel. Never offer or show the invite again. When they ask about their panel, call \`${READ_MANAGED_PANEL_TOOL}\` and \`${PRESENT_MANAGED_PANEL_TOOL}\`, and say where it stands in one line, by its status:`,
+    '  - building: how many residents have joined of the goal, and the day the next invites go out when there is one.',
+    '  - paused: no new invites go out until they press Resume on their civic panel page; everyone who joined stays on it.',
+    '  - ready: it reached its goal, with how many residents joined. Offer to ask the panel about one of their priorities.',
+    '  - exhausted: every resident we can text has been invited, and it is short of its goal. Say so plainly, with how many residents joined of the goal.',
+    '- Residents join only by replying JOIN to the invite text. Never offer another way to join, or anything to share.',
+    '- Pausing, resuming and stopping are on their civic panel page. A stopped panel sends nothing more, and they can set it up again from their home.',
+    appTurn(
+      MANAGED_CIVIC_PANEL_EXHAUSTED_MESSAGE,
+      'they press See where it stands on the card that says every resident we can text has an invite',
+    ),
+    `- On "${MANAGED_CIVIC_PANEL_EXHAUSTED_MESSAGE}", call \`${READ_MANAGED_PANEL_TOOL}\` and answer as the exhausted status above says, in plain words.`,
+  ]
   return [
-    `CIVIC PANEL (apply when the user's message is exactly "${BUILD_CITIZENS_PANEL_MESSAGE}", they ask to build or start their civic panel, or they answer or change how much time they can give it each week):`,
-    `- "${BUILD_CITIZENS_PANEL_MESSAGE}" is sent by the app, not typed by them, so never quote it or reply to it as their words.`,
-    ...state,
-    ...planning,
-    ...priorities,
-    '- Plain, warm, short sentences. No em dashes, no exclamation points. Residents or constituents, never voters.',
-    CIVIC_PANEL_CLAIM_RULE,
-    ...civicPanelExplainLines(panel),
+    `MANAGED CIVIC PANEL (apply when the user's message is exactly "${START_MANAGED_CIVIC_PANEL_MESSAGE}", "${MANAGED_CIVIC_PANEL_SET_UP_MESSAGE}", "${MANAGED_CIVIC_PANEL_BACKED_OUT_MESSAGE}" or "${MANAGED_CIVIC_PANEL_EXHAUSTED_MESSAGE}", they pick "${SHOW_MANAGED_CIVIC_PANEL_INVITE}", or they ask about building, setting up, pausing or stopping their civic panel, or where it stands):`,
+    '- GoodParty builds their civic panel for them: they approve one invite, in their name, and we text it to residents, and handle every reply. Never offer to plan texts, calls or door knocking for it, never ask how much time they have, and never propose an invite text or a list of your own.',
+    ...(setUp ? after : before),
+    '- Plain, warm, short sentences. No em dashes, no exclamation points. Residents or constituents, never voters. Never use the word "just".',
+    "- Never promise the panel will look like, match or mirror the district, the city or the community. Never mention weights, quotas or targets, never say or guess any one person's race, and never call it representative, a poll, a survey panel or a focus group.",
   ].join('\n')
-}
-
-// Every civic panel reply, build or explain. "just" is banned product copy.
-// The panel page's status and its one group to invite next may be repeated
-// in its words (Bryan, 2026-10-18), a race group included; a promise
-// that the panel will match the community, any weight, quota or target, and
-// any one person's race may not.
-const CIVIC_PANEL_CLAIM_RULE =
-  '- Never use the word "just". You may say the status their panel page shows (the panelStatus a panel tool returns: Too few members yet, Missing some groups or Every group on your panel) and the group it says to invite next (inviteMoreNext), in those words. Never promise or imply the panel will look like, match, mirror or represent the district, the city or the community. Never mention weights, quotas or targets, and never say or guess any one person\'s race. To say why the panel is worth building, say they hear from every part of their district before they decide, not only the people who already reach out. Never say how members are found, picked or invited: no random picks, samples or self-selection.'
-
-// What the agent does when the official presses What's a civic panel? on the
-// build card: it explains, and builds nothing unless they say yes.
-const civicPanelExplainLines = (panel: CivicPanelBuildState): string[] => {
-  const offer =
-    panel.members > 0
-      ? `- End by saying they already have ${people(panel.members)} ${panel.members === 1 ? 'person' : 'people'} on their civic panel. Offer nothing more.`
-      : panel.inviteSent
-        ? '- End by saying their panel invite already went out and people join as they reply JOIN. Offer nothing more.'
-        : '- End with one short question: do they want to build theirs? Nothing more. The app shows a Build my panel button under your reply that starts it here, so never name a button or say how to start. If they say yes, follow the CIVIC PANEL steps above as their ask to build it, without explaining the panel again.'
-  return [
-    `CIVIC PANEL EXPLAINED (apply when the user's message is exactly "${EXPLAIN_CIVIC_PANEL_MESSAGE}"):`,
-    `- "${EXPLAIN_CIVIC_PANEL_MESSAGE}" is sent by the app when they press What's a civic panel? on the panel card on their home. They did not type it, so never quote it or reply to it as their words.`,
-    '- They asked what it is, not to build one. In 4 or 5 short sentences, calling it their civic panel, explain:',
-    '  - Why talking with people first makes the rest of the job easier: they walk into a decision already knowing what residents think.',
-    '  - What it is: a group of residents who agree to tell the official what they think before they decide, asked about once a month.',
-    '  - How it gives residents a voice in council, board and committee work, including the people who never come to a meeting.',
-    offer,
-    '- In this reply, never count the district, size an invite, draft a text or present a card.',
-    '- Never call it representative, a poll, a survey panel, a focus group or proprietary.',
-    CIVIC_PANEL_CLAIM_RULE,
-  ]
 }
 
 const cardRulesBlock = (toolNames: string[]): string | null => {
@@ -483,12 +435,13 @@ const TOOL_DESCRIPTIONS: Record<string, string> = {
   present_outreach_proposal: 'show finished, ready-to-send outreach as a card',
   size_outreach_sample:
     'size a random sample for a text and price it against texting everyone',
-  [ASK_PANEL_WEEKLY_TIME_TOOL]:
-    'ask how much time the official can give their civic panel each week',
-  [SAVE_PANEL_WEEKLY_TIME_TOOL]:
-    'make the civic panel plan from their weekly time, or change that time',
-  [PRESENT_PANEL_NEXT_STEP_TOOL]:
-    "show the civic panel plan's next step as a card",
+  [OFFER_MANAGED_PANEL_INVITE_TOOL]:
+    'offer to show the civic panel invite GoodParty would send in their name',
+  [PRESENT_MANAGED_PANEL_INVITE_TOOL]:
+    'show the civic panel invite as a card they review and approve',
+  [READ_MANAGED_PANEL_TOOL]:
+    'read where their civic panel stands and when its invites go out',
+  [PRESENT_MANAGED_PANEL_TOOL]: 'show their civic panel as a card',
   present_constituents:
     'show people from the user’s own contact records as a card',
   present_outside_contact:
@@ -790,12 +743,13 @@ export const buildChiefOfStaffSystemPrompt = (args: {
     toolNames.includes('size_outreach_sample')
       ? [outreachSamplingBlock(toolNames)]
       : []),
-    ...(ctx.civicPanel
+    ...(toolNames.includes(READ_MANAGED_PANEL_TOOL)
       ? [
-          civicPanelBuildBlock(
-            ctx.civicPanel,
-            toolNames,
-            ctx.priorities.length > 0,
+          managedCivicPanelBlock(
+            ctx,
+            ctx.priorities[0]
+              ? sanitizeUntrustedContent(ctx.priorities[0].title)
+              : null,
           ),
         ]
       : []),

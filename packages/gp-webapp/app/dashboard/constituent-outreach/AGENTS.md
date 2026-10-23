@@ -101,19 +101,9 @@ generation services, the spine scoping — are in
   and `POST /v1/outreach/serve/sms` on the same key, so the surface and the
   API roll out together — but the flag gates UX, not authz:
   `@UseElectedOffice()` is still the real check.
-- **`?compose=text&purpose=build_citizens_panel` opens the panel invite
-  directly.** The Chief of Staff's civic panel build card no
-  longer links here (it opens the panel page, whose text step opens the
-  same flow on the step's own list), but the link still works for anything
-  that sends it. Once both `serve-sms-outreach` and
-  `serve-citizen-panels` have resolved, the page strips the params and opens
-  the text flow with `initialPurpose` and `SERVE_PANEL_SEED_AUDIENCE`: the
-  district's cell phones (`hasCellPhone`, the one filter, which is also what
-  the builder needs before Continue enables), saved as a random draw of
-  contracts' `PANEL_SEED_SAMPLE_SIZE` (8,334, sized for the largest panel goal of 250 members, since the page has no district mix), so a smaller district is
-  texted whole. With the panels flag off the same link
-  opens a plain text flow; with the SMS flag off it opens nothing. Both are
-  spent on close, so the tile opens a plain flow afterwards.
+- **`?compose=text` opens the text flow directly**, once `serve-sms-outreach`
+  has resolved; the page strips the param. With the SMS flag off it opens
+  nothing.
 - **Poll / Survey is the second flagged channel.** `useServeSelfServePollsFlag()`
   (`serve-self-serve-polls`) gates the card and mounts `PollFlow`
   (`outreach/v2/poll/`) on `ready && enabled`, the same way SMS does; gp-api
@@ -128,7 +118,11 @@ generation services, the spine scoping — are in
   this issue" links here that way when the flag is on, and to the old
   `/dashboard/polls/create` when it is off); with the flag off it opens
   nothing. The poll results page highlights Outreach and its back link
-  returns here.
+  returns here. The question step checks the question for bias
+  (`usePollBiasCheck`, `POST /v1/polls/analyze-bias`) when the official leaves
+  the field or presses Continue, never per keystroke: the analyzer is a model.
+  A flagged question holds Continue until it is reworded, so the create's
+  `biasOverridden` is always false; a check that fails lets the step go.
 
 - **An SMS send is the one row this page refetches for, and that refetch
   must never throw.** Social and phone banking seed their new row from the

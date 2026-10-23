@@ -12,6 +12,7 @@ import {
   PREVIEW_SHARED_ALB_NAME,
 } from './components/preview-shared-alb'
 import { createPreviewSharedCluster } from './components/preview-shared-cluster'
+import { createElectionDb } from './components/election-db'
 import { createRobocallAudioBucket } from './components/robocall-audio-bucket'
 import { createService } from './components/service'
 import { createSitemapsBucket } from './components/sitemaps-bucket'
@@ -39,6 +40,12 @@ export = async () => {
     'arn:aws:acm:us-west-2:333022194791:certificate/b009d1a6-68ff-4d24-84f7-93683ca3f786'
 
   const imageUri = config.require('imageUri')
+
+  // Prod-only value: the probe itself runs wherever VENDOR_MODE is live.
+  const driftProbePeerlyIdentityId =
+    environment === 'prod'
+      ? config.get('driftProbePeerlyIdentityId')
+      : undefined
 
   const prNumber =
     environment === 'preview' ? config.require('prNumber') : undefined
@@ -344,6 +351,11 @@ export = async () => {
         engineVersion: rdsCluster!.engineVersion,
       })
 
+  // Previews read the shared dev election cluster and must not own it.
+  if (environment !== 'preview') {
+    createElectionDb(environment)
+  }
+
   // The dev stack owns the always-on shared preview Aurora cluster. Every PR
   // preview clones its own gpdb_pr_<n> database onto this one cluster (see
   // docker-entrypoint.sh) instead of provisioning a cluster per PR.
@@ -550,6 +562,11 @@ export = async () => {
       }),
       CORS_ORIGIN: productDomain,
       AWS_REGION: 'us-west-2',
+      PYROSCOPE_ENABLED: select({
+        preview: 'false',
+        dev: 'true',
+        prod: 'true',
+      }),
       // Clerk instance public key, so tokens verify without fetching Clerk's
       // JWKS on the request path. Public, so it lives here and not in the
       // secret. Previews use the dev Clerk instance.
@@ -681,6 +698,13 @@ jwIDAQAB
         : rdsCluster!.databaseName,
       SECRETS_MANAGER_KEYS: Object.keys(containerSecrets).join(','),
       ...(environment === 'preview' ? { IS_PREVIEW: 'true' } : {}),
+      // One known approved Peerly identity for the nightly vendor drift probe.
+      // An id, not a credential, so a plain env var rather than the secret.
+      // Set per stack (`pulumi config set driftProbePeerlyIdentityId <id>`);
+      // unset leaves the var off and the probe skips that one call.
+      ...(driftProbePeerlyIdentityId
+        ? { DRIFT_PROBE_PEERLY_IDENTITY_ID: driftProbePeerlyIdentityId }
+        : {}),
     },
     permissions: [
       {

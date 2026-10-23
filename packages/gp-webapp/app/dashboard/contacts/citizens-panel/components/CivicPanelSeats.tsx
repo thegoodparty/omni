@@ -12,12 +12,36 @@ import {
   LIST_SIZE,
   polar,
   roundCoord,
+  SEAT_HUES,
   SEAT_R_OUT,
   SEAT_SIZE,
   spreadLabels,
   type SeatChart,
+  type SeatHue,
   type SeatPlace,
 } from './panelCharts'
+
+// Darkest tint first. Each seat is outlined in its family's darkest tint so
+// the light ones still read on white.
+export const SEAT_FILL: Record<SeatHue, [string, string, string]> = {
+  red: ['fill-brand-red-500', 'fill-brand-red-400', 'fill-brand-red-300'],
+  blue: ['fill-brand-blue-600', 'fill-brand-blue-500', 'fill-brand-blue-300'],
+  lavender: [
+    'fill-brand-lavender-800',
+    'fill-brand-lavender-700',
+    'fill-brand-lavender-600',
+  ],
+}
+export const SEAT_OUTLINE: Record<SeatHue, string> = {
+  red: 'stroke-brand-red-500',
+  blue: 'stroke-brand-blue-600',
+  lavender: 'stroke-brand-lavender-800',
+}
+const PLACE_DOT: Record<SeatHue, string> = {
+  red: 'bg-brand-red-500',
+  blue: 'bg-brand-blue-600',
+  lavender: 'bg-brand-lavender-800',
+}
 
 // The arc alone, tight to the seats so it reads large on a phone.
 const PLAIN = {
@@ -103,15 +127,15 @@ const SeatArc = ({
         {chart.seats.map((seat, i) => {
           const place = chart.places[seat.place]
           const warn = nearFull || (place?.behind ?? false)
+          const hue = place?.hue ?? 'red'
           return seat.filled ? (
             <circle
               key={i}
               cx={seat.x}
               cy={seat.y}
-              r={SEAT_SIZE / 2}
-              className={
-                place?.shade === 1 ? 'fill-primary/60' : 'fill-primary'
-              }
+              r={SEAT_SIZE / 2 - 0.5}
+              strokeWidth={1}
+              className={cn(SEAT_FILL[hue][seat.tint], SEAT_OUTLINE[hue])}
             />
           ) : (
             <circle
@@ -191,7 +215,7 @@ const PlaceRow = ({
           className={cn(
             'size-3 rounded-full',
             k < place.filled
-              ? 'bg-primary'
+              ? PLACE_DOT[place.hue]
               : 'border-2 border-warning bg-background',
           )}
         />
@@ -236,7 +260,11 @@ const LegendDot = ({ className }: { className: string }) => (
 const Legend = ({ chart }: { chart: SeatChart }) => (
   <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-xs text-muted-foreground">
     <span className="flex items-center gap-1.5">
-      <LegendDot className="bg-primary" />
+      <span aria-hidden className="flex gap-0.5">
+        {SEAT_HUES.map((hue) => (
+          <LegendDot key={hue} className={PLACE_DOT[hue]} />
+        ))}
+      </span>
       {COPY.legendMember}
     </span>
     {chart.stage === 'nearFull' ? (

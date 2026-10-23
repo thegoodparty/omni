@@ -31,7 +31,7 @@ model Organization {
   outreachAssignments               OutreachAssignment[]
   issueTags                         IssueTag[]
   feedbackSynthesisRuns             FeedbackSynthesisRun[]
-  civicPanelBuildPlans              CivicPanelBuildPlan[]
+  managedCivicPanel                 ManagedCivicPanel?
   priorityAnswers                   PriorityAnswer[]
   testModeCreatedAt                 DateTime?                        @map("test_mode_created_at")
 

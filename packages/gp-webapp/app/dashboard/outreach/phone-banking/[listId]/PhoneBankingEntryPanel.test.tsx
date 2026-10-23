@@ -397,23 +397,23 @@ describe('<PhoneBankingEntryPanel>', () => {
       expect(within(dialog).queryByText(/Follow-up:/)).not.toBeInTheDocument()
     })
 
-    it('win still asks support then turnout, and never follow-up', async () => {
+    it('win asks turnout then support, and never follow-up', async () => {
       const user = userEvent.setup()
       renderPanel()
       const dialog = await screen.findByRole('dialog')
       await engage(user, dialog)
 
       expect(
-        within(dialog).getByText('Do they support you?'),
+        within(dialog).getByText('Will they vote this election?'),
       ).toBeInTheDocument()
       expect(
         within(dialog).queryByText('Do they need follow-up?'),
       ).not.toBeInTheDocument()
 
-      // Turnout only appears once support is answered, and Save waits for it.
+      // Support only appears once turnout is answered, and Save waits for it.
       await user.click(within(dialog).getByRole('radio', { name: 'Yes' }))
       expect(
-        await within(dialog).findByText('Will they vote this election?'),
+        await within(dialog).findByText('Do they support you?'),
       ).toBeInTheDocument()
       expect(
         within(dialog).queryByRole('button', { name: 'Save' }),

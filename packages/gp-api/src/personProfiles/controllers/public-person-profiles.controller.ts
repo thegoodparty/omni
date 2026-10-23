@@ -1,6 +1,7 @@
 import { PublicAccess } from '@/authentication/decorators/PublicAccess.decorator'
 import { ServiceReadGuard } from '@/authentication/guards/ServiceRead.guard'
 import { ServiceReadOrOwnerGuard } from '@/authentication/guards/ServiceReadOrOwner.guard'
+import { ServiceReadConcurrencyInterceptor } from '@/elections/interceptors/serviceReadConcurrency.interceptor'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interceptor'
 import {
@@ -104,7 +105,7 @@ function buildMarkerResponse(
 @Controller('public-person-profiles')
 @PublicAccess()
 @UsePipes(ZodValidationPipe)
-@UseInterceptors(ZodResponseInterceptor)
+@UseInterceptors(ServiceReadConcurrencyInterceptor, ZodResponseInterceptor)
 export class PublicPersonProfilesController {
   constructor(
     private readonly personProfilesService: PersonProfilesService,

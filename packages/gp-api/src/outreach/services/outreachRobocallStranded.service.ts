@@ -6,6 +6,7 @@ import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
 import { ROBOCALL_STAGING_GRACE_MINUTES } from '@/shared/util/robocallHold.util'
 import { OutreachType, RobocallSettleState } from '../../generated/prisma'
 import { OutreachRobocallHoldService } from './outreachRobocallHold.service'
+import { VENDOR_CRONS_ENABLED } from 'src/shared/util/appEnvironment.util'
 
 // Every 15 minutes on the only minute-of-hour slots no other robocall cron
 // touches (send :04.., capture :02.., staging :07.., reconcile :03.., recovery
@@ -26,7 +27,7 @@ const ROBOCALL_STRANDED_SWEEP_JOB = 'robocallStrandedAuthorizedSweep'
 // the candidate, and fires the CRITICAL alert. It only ever fails a
 // definitively-undeliverable, never-staged, past-due draft (the safe
 // direction) and only releases money — like the deferred-cancel and
-// hold-reconcile sweeps, it is prod-only and gated by nothing beyond the prod
+// hold-reconcile sweeps, it is gated by nothing beyond the VENDOR_CRONS_ENABLED
 // guard.
 @Injectable()
 export class OutreachRobocallStrandedService extends createPrismaBase(
@@ -36,8 +37,8 @@ export class OutreachRobocallStrandedService extends createPrismaBase(
     super()
   }
 
-  // Prod-only (failSend voids a real Stripe hold and emails, stubbed on
-  // dev/preview). No CronLockService: failSend's own single-owner CAS elects one
+  // VENDOR_CRONS_ENABLED (failSend voids a real Stripe hold and emails; test
+  // mode where vendors are mocked). No CronLockService: failSend's own single-owner CAS elects one
   // winner per draft, so two replicas racing this sweep both SELECT the same
   // candidates but only ONE fails each — idempotent across replicas. @Cron (not
   // @Interval) so the schedule survives deploys.
@@ -46,7 +47,7 @@ export class OutreachRobocallStrandedService extends createPrismaBase(
     timeZone: EASTERN_TIMEZONE,
   })
   async sweepStrandedAuthorized(): Promise<void> {
-    if (process.env.OTEL_SERVICE_ENVIRONMENT !== 'prod') return
+    if (!VENDOR_CRONS_ENABLED) return
 
     const now = new Date()
     const candidates = await this.model.findMany({

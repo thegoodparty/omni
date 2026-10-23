@@ -35,6 +35,13 @@ enum OutreachStatus {
   draft
 }
 
+// Who pays for a send other than its buyer. Null on the row means it was
+// paid for at checkout.
+enum OutreachFunding {
+  // A managed civic panel wave GoodParty sends for free in the pilot.
+  goodparty_pilot
+}
+
 model Outreach {
   id                                Int                                @id @default(autoincrement())
   // Minted server-side when an agent proposes outreach in a chat, and carried
@@ -201,7 +208,14 @@ model Outreach {
   constituentFeedback               ConstituentFeedback[]
   feedbackSynthesisRuns             FeedbackSynthesisRun[]
   contactInteractionDoorKnocks      ContactInteractionDoorKnock[]
-  civicPanelBuildSteps              CivicPanelBuildStep[]
+  // Set only by ManagedWaveFundingService.claimFree, never from a request. A
+  // CHECK (migration managed_panel_free_sends) allows it only on a row linked
+  // to a managed wave and never beside a checkout session.
+  fundedBy                          OutreachFunding?                   @map("funded_by")
+  // The managed civic panel wave this send carries; unique, one send per
+  // wave. NoAction so a wave cannot be deleted out from under its send.
+  managedPanelWaveId                String?                            @unique @map("managed_panel_wave_id")
+  managedPanelWave                  ManagedPanelWave?                  @relation(fields: [managedPanelWaveId], references: [id], onDelete: NoAction)
   priorityAnswers                   PriorityAnswer[]
 
   @@index([campaignId])

@@ -14,6 +14,7 @@ import { CommunityIssuesModule } from '@/communityIssues/communityIssues.module'
 import { ContactEngagementModule } from '@/contactEngagement/contactEngagement.module'
 import { ContactInteractionModule } from '@/contactInteraction/contactInteraction.module'
 import { DoorKnockingModule } from './doorKnocking/doorKnocking.module'
+import { VendorDriftProbeModule } from './vendors/vendorDriftProbe.module'
 import { PhoneBankingModule } from './phoneBanking/phoneBanking.module'
 import { ContactNoteModule } from '@/contactNote/contactNote.module'
 import { ConstituentFeedbackModule } from '@/constituentFeedback/constituentFeedback.module'
@@ -28,6 +29,8 @@ import { FeaturesModule } from '@/features/features.module'
 import { HealthModule } from '@/health/health.module'
 import { BlockedStateInterceptor } from '@/observability/blockedState/blockedState.interceptor'
 import { OutreachModule } from '@/outreach/outreach.module'
+import { ManagedWaveFundingModule } from '@/managedWaveFunding/managedWaveFunding.module'
+import { ManagedPanelWavesModule } from '@/managedPanelWaves/managedPanelWaves.module'
 import { OutreachProposalModule } from '@/outreachProposal/outreachProposal.module'
 import { VoterOutreachActivityModule } from '@/voterOutreachActivity/voterOutreachActivity.module'
 import { OnboardingModule } from '@/onboarding/onboarding.module'
@@ -112,6 +115,11 @@ import { VendorMocksModule } from '@/vendorMocks/vendorMocks.module'
     SubscribeModule,
     ScheduledMessagingModule,
     OutreachModule,
+    // Registered at the root so the service boots with the app; nothing
+    // that serves a request imports it.
+    ManagedWaveFundingModule,
+    // The daily wave job, the one caller of the free claim.
+    ManagedPanelWavesModule,
     OutreachProposalModule,
     VoterOutreachActivityModule,
     SegmentModule,
@@ -126,6 +134,7 @@ import { VendorMocksModule } from '@/vendorMocks/vendorMocks.module'
     ConstituentFeedbackModule,
     RecommendedListsModule,
     DoorKnockingModule,
+    VendorDriftProbeModule,
     PhoneBankingModule,
     PollsModule,
     PrioritiesModule,
