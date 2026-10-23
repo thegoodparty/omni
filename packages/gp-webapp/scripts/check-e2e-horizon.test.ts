@@ -129,12 +129,29 @@ describe('assessReference', () => {
       needs: 'upcoming',
       usedBy: 'office-picker-28806',
     }
-    const verdict = assessReference(
+    const other = assessReference(
       council,
       { future: [race('Woodfin Town Council', '2027-11-02')], past: [] },
       TODAY,
     )
-    expect(verdict.ok).toBe(false)
+    expect(other.ok).toBe(false)
+
+    const matching = assessReference(
+      council,
+      {
+        future: [
+          race('Woodfin Town Council', '2027-10-05'),
+          race('Asheville City Council - District 1', '2027-11-02'),
+        ],
+        past: [],
+      },
+      TODAY,
+    )
+    expect(matching).toMatchObject({
+      ok: true,
+      next: '2027-11-02',
+      detail: '1 office(s) clear.',
+    })
   })
 })
 
