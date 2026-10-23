@@ -171,9 +171,36 @@ describe('the managed civic panel in the Chief of Staff chat', () => {
     render(<ChiefOfStaffChatBody active conversationIdOverride="conv" />)
 
     expect(await screen.findByText('Want to see the invite?')).toBeVisible()
-    for (const name of ['Show me the invite', 'Who gets texted?', 'Not now']) {
+    for (const name of ['Show me the invite', 'How does it work?', 'Not now']) {
       expect(screen.getByRole('radio', { name })).toBeInTheDocument()
     }
+    expect(screen.getAllByRole('radio')).toHaveLength(3)
+    expect(screen.getByText('Or write your own...')).toBeInTheDocument()
+    expect(screen.queryByText(/wave/i)).toBeNull()
+  })
+
+  it('offers the invite without How does it work? once it is answered', async () => {
+    listMessagesMock.mockResolvedValue([
+      turn([
+        {
+          kind: 'text',
+          text: 'Members hear from your office about once a month.',
+        },
+        {
+          kind: 'tool',
+          toolName: 'offer_managed_panel_invite',
+          payload: { afterHowItWorks: true },
+        },
+      ]),
+    ])
+    render(<ChiefOfStaffChatBody active conversationIdOverride="conv" />)
+
+    expect(await screen.findByText('Want to see the invite?')).toBeVisible()
+    for (const name of ['Show me the invite', 'Not now']) {
+      expect(screen.getByRole('radio', { name })).toBeInTheDocument()
+    }
+    expect(screen.getAllByRole('radio')).toHaveLength(2)
+    expect(screen.getByText('Or write your own...')).toBeInTheDocument()
   })
 
   it('shows the panel it set up, linking to the panel page', async () => {
@@ -200,6 +227,8 @@ describe('the managed civic panel in the Chief of Staff chat', () => {
             goalMembers: 275,
             wavesSent: 0,
             nextWaveAt: null,
+            firstSendDate: '2026-10-27',
+            readyWeekOf: '2026-11-09',
           },
         },
       },

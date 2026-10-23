@@ -19,7 +19,11 @@ does not lapse, and is done while an enrollment that is not stopped exists
 (a stopped one opens it again; a skip stays a skip). Its button, and the
 intro's Build my civic panel, send the hidden
 `START_MANAGED_CIVIC_PANEL_MESSAGE`; the chat (`managedCivicPanel.tools.ts`,
-`managedCivicPanelBlock` in the Chief of Staff prompt) explains, offers the
+`managedCivicPanelBlock` in the Chief of Staff prompt) explains with fixed
+words (`explain_managed_panel`: contracts' `managedCivicPanelExplanation`,
+and `managedCivicPanelHowItWorks` with the place, the seats and the census
+share of adults 65 or older from `ManagedCivicPanelService.explainerFacts`,
+falling back to a sentence without numbers), offers the
 invite (`offer_managed_panel_invite`), shows it
 (`present_managed_panel_invite`), and the webapp's text flow approves it
 (POST, with contracts' `MANAGED_CIVIC_PANEL_CONSENT_VERSION`). The flow's
@@ -45,9 +49,10 @@ the ready one; words are rewritten on read; no Mark done; building and
 exhausted do not lapse. The read goes through `ManagedCivicPanelService`
 (by `ModuleRef`, before the lock) and a failed read leaves the card alone.
 The Chief of Staff (`managedCivicPanelBlock`, `read_managed_panel`)
-answers in each status's words. The civic panel page shows
-`ManagedPanelControls`: the status, members of the goal, Pause, Resume and
-Stop (with a confirm), each the `PATCH` below.
+answers in each status's words. The civic panel page's rail shows
+`ManagedPanelControls` (the Invites card): the status, the next send day
+and ready week while building, Pause, Resume and Stop (with a confirm),
+each the `PATCH` below.
 
 `ManagedCivicPanel` is one row per office (`organizationSlug` unique), kept
 when stopped so `freeTextsUsed` still counts against `freeTextCap` (15,000)
@@ -90,8 +95,12 @@ panel route: 404 with the flag off, 400 for a non-`eo-` org.
 
 - `GET` returns `{ panel }`, null before approval. `progress` is the
   members (the standing `member` set, as the summary counts them),
-  `goalMembers`, `wavesSent` (waves with `sentAt`) and `nextWaveAt`: while
-  building, the latest sent wave's `replyWindowEndsAt`, else null.
+  `goalMembers`, `wavesSent` (waves with `sentAt`), `nextWaveAt`: while
+  building, the latest sent wave's `replyWindowEndsAt`, else null, and
+  `firstSendDate` / `readyWeekOf` (yyyy-MM-dd, `managedPanelSchedule` in
+  `utils/managedPanelSchedule.util.ts`): `nextManagedSendDate` from the
+  approval and the Monday of the week two weeks of waves later, the same
+  days `read_managed_panel` tells the official.
 - `POST { inviteMessage, consentVersion }` approves. The invite must carry
   a civic panel wording of the JOIN line (the current
   `CIVIC_PANEL_JOIN_LINE`, or an earlier civic panel wording a draft may

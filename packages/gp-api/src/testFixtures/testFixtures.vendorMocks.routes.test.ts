@@ -465,6 +465,79 @@ describe('GET /v1/test-fixtures/vendor-mocks/records', () => {
     expect(res.status).toBe(HttpStatus.FORBIDDEN)
   })
 
+  it('returns records stamped with an organization the caller owns', async () => {
+    const campaign = await seedCampaign(service.user.id)
+    const slug = campaign.organizationSlug
+    await seedRecord(VendorMockVendor.geoapify, 'routeplanner_request', 'o-1', {
+      status: 'complete',
+      waypoints: 3,
+      organizationSlug: slug,
+    })
+    await seedRecord(
+      VendorMockVendor.geoapify,
+      'routeplanner_request',
+      'o-other',
+      { status: 'complete', waypoints: 3, organizationSlug: 'someone-else' },
+    )
+
+    const res = await service.client.get(
+      '/v1/test-fixtures/vendor-mocks/records',
+      { params: { organizationSlug: slug }, validateStatus: () => true },
+    )
+
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(res.data.vendorMode).toBe('mock')
+    expect(
+      res.data.records.map((r: { externalId: string }) => r.externalId),
+    ).toEqual(['o-1'])
+  })
+
+  it('returns 403 for an organization owned by a different user', async () => {
+    const otherUser = await service.prisma.user.create({
+      data: {
+        email: `other-${Math.random().toString(36).slice(2)}@test.goodparty.org`,
+        name: 'Other',
+        firstName: 'Other',
+        lastName: 'User',
+      },
+    })
+    const campaign = await seedCampaign(otherUser.id)
+
+    const res = await service.client.get(
+      '/v1/test-fixtures/vendor-mocks/records',
+      {
+        params: { organizationSlug: campaign.organizationSlug },
+        validateStatus: () => true,
+      },
+    )
+
+    expect(res.status).toBe(HttpStatus.FORBIDDEN)
+  })
+
+  it('returns 400 unless exactly one of campaignId or organizationSlug is given', async () => {
+    const res = await service.client.get(
+      '/v1/test-fixtures/vendor-mocks/records',
+      { validateStatus: () => true },
+    )
+
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+  })
+
+  it('returns 404 for an organization lookup outside a non-prod deploy', async () => {
+    envNonProd.value = false
+    const campaign = await seedCampaign(service.user.id)
+
+    const res = await service.client.get(
+      '/v1/test-fixtures/vendor-mocks/records',
+      {
+        params: { organizationSlug: campaign.organizationSlug },
+        validateStatus: () => true,
+      },
+    )
+
+    expect(res.status).toBe(HttpStatus.NOT_FOUND)
+  })
+
   it('returns 404 outside a non-prod deploy', async () => {
     envNonProd.value = false
     const campaign = await seedCampaign(service.user.id)

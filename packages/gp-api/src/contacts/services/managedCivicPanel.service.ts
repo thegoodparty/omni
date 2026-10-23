@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common'
 import {
   answersNeeded,
+  cityNameCase,
   CIVIC_PANEL_JOIN_LINE,
   CIVIC_PANEL_JOIN_LINES,
   findCivicPanelJoinLine,
@@ -27,13 +28,16 @@ import {
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { isUniqueConstraintError } from '@/prisma/util/prismaErrors.util'
 import { ContactStatusService } from '@/contactInteraction/services/contactStatus.service'
+import { OrganizationsService } from '@/organizations/services/organizations.service'
 import { assertServeSmsLockedLines } from '@/outreach/util/serveSmsLockedLines.util'
 import {
   CENSUS_COMPOSITION_SOURCE,
   type CensusCompositionSource,
 } from '@/priorities/services/censusComposition'
+import { adultAgeBandShares } from '@/priorities/util/censusSexAge.util'
 import { ContactsService } from './contacts.service'
 import { CensusTractNameService } from './censusTractName.service'
+import { managedPanelSchedule } from '../utils/managedPanelSchedule.util'
 
 type Row = Prisma.ManagedCivicPanelGetPayload<{
   include: { waves: { select: { sentAt: true; replyWindowEndsAt: true } } }
@@ -71,6 +75,7 @@ export class ManagedCivicPanelService extends createPrismaBase(
     @Inject(CENSUS_COMPOSITION_SOURCE)
     private readonly census: CensusCompositionSource,
     private readonly tractNames: CensusTractNameService,
+    private readonly organizations: OrganizationsService,
   ) {
     super()
   }
@@ -137,6 +142,63 @@ export class ManagedCivicPanelService extends createPrismaBase(
       if (!isUniqueConstraintError(err)) throw err
     }
     return this.read(organization)
+  }
+
+  // What the Chief of Staff's explanation names: the place, the seats, and
+  // the share of the district's adults 65 or older. Each read that fails
+  // leaves its part unknown rather than failing the explanation.
+  async explainerFacts(organization: Organization): Promise<{
+    place: string | null
+    goalMembers: number
+    olderShare: number | null
+  }> {
+    assertServeOrg(organization)
+    const [place, row, olderShare] = await Promise.all([
+      this.districtPlace(organization),
+      this.model.findUnique({
+        where: { organizationSlug: organization.slug },
+        select: { status: true, goalMembers: true },
+      }),
+      this.districtOlderShare(organization),
+    ])
+    const goalMembers =
+      row && row.status !== ManagedCivicPanelStatus.stopped
+        ? row.goalMembers
+        : panelGoalMembers(await this.districtAnswersNeeded(organization))
+    return { place, goalMembers, olderShare }
+  }
+
+  // "Asheville", the way Serve copy names the office's place, or null.
+  async districtPlace(organization: Organization): Promise<string | null> {
+    try {
+      const district = await this.organizations.getDistrictForOrgSlug(
+        organization.slug,
+      )
+      const city = district?.l2Name
+        ? OrganizationsService.extractCityFromDistrictName(district.l2Name)
+        : null
+      return city ? cityNameCase(city) : null
+    } catch {
+      return null
+    }
+  }
+
+  private async districtOlderShare(
+    organization: Organization,
+  ): Promise<number | null> {
+    try {
+      const district =
+        await this.contactsService.resolveEligibleDistrict(organization)
+      const inputs = await this.census.weightingInputs({
+        ...district,
+        personIds: [],
+      })
+      return inputs
+        ? (adultAgeBandShares(inputs.census.district)?.['65plus'] ?? null)
+        : null
+    } catch {
+      return null
+    }
   }
 
   // Names every tract in the district in the background, so the panel page
@@ -226,6 +288,7 @@ export class ManagedCivicPanelService extends createPrismaBase(
           row.status === ManagedCivicPanelStatus.building
             ? (latest?.replyWindowEndsAt ?? null)
             : null,
+        ...managedPanelSchedule(row.approvedAt),
       },
     }
   }

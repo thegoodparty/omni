@@ -1,0 +1,38 @@
+{
+  "defaultOffice": {
+    "zip": "82001",
+    "office": "Cheyenne City Council - Ward 1"
+  },
+  "references": [
+    {
+      "id": "default-office",
+      "zip": "82001",
+      "office": "Cheyenne City Council - Ward 1",
+      "needs": "exists",
+      "usedBy": "authenticateTestUser and the serve/org helpers (DEFAULT_TEST_RACE), gp-api test fixtures and Test mode (DEFAULT_RACE), the judge sweep (JUDGE_FIXTURE_RACE). Resolved whatever the date, so it only has to exist."
+    },
+    {
+      "id": "82001-office-picker",
+      "zip": "82001",
+      "needs": "upcoming",
+      "minOffices": 2,
+      "usedBy": "onboarding, serve-onboarding, polls-onboarding, test-mode and follow-on-new-office pick from the office picker at this zip; follow-on-new-office needs a second seat."
+    },
+    {
+      "id": "28806-asheville-mayor",
+      "zip": "28806",
+      "office": "Asheville City Mayor",
+      "needs": "upcoming",
+      "minRaces": 2,
+      "usedBy": "office-picker-28806 selects one of two duplicate Asheville City Mayor rows."
+    },
+    {
+      "id": "28806-city-council",
+      "zip": "28806",
+      "officeContains": "City Council",
+      "needs": "upcoming",
+      "minOffices": 1,
+      "usedBy": "office-picker-28806 filters by the City Council role pill."
+    }
+  ]
+}

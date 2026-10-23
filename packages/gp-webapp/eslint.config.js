@@ -133,6 +133,30 @@ module.exports = [
   },
 
   {
+    // E2E test state declares its dates (e2e-tests/AGENTS.md). A spec that
+    // reads a real race's date, or pins a literal one, breaks the day that
+    // date passes, on every PR and on the release train at once.
+    files: ['e2e-tests/**/*.ts'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector:
+            'Literal[value=/races-by-year/], TemplateElement[value.raw=/races-by-year/]',
+          message:
+            'Resolve an office with resolveTestRace (GET /v1/test-fixtures/races/resolve), which works whatever the date. races-by-year lists upcoming races only.',
+        },
+        {
+          selector:
+            'Property[key.name=/[eE]lectionDate$/] > Literal[value=/^\\d{4}-\\d{2}-\\d{2}$/], VariableDeclarator[id.name=/[eE]lection/] > Literal[value=/^\\d{4}-\\d{2}-\\d{2}$/]',
+          message:
+            'Declare the election state with a preset (authenticateTestUser { election } or applyElectionPreset) instead of a literal date.',
+        },
+      ],
+    },
+  },
+
+  {
     files: ['**/*.test.ts', '**/*.test.tsx'],
 
     rules: {

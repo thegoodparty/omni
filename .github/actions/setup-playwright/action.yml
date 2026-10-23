@@ -15,7 +15,9 @@ runs:
       id: version
       shell: bash
       working-directory: ${{ inputs.working-directory }}
-      run: echo "version=$(node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+      run: |
+        echo "version=$(node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+        echo "image=$ImageOS" >> "$GITHUB_OUTPUT"
 
     # The browser download takes seconds. What stalls is apt pulling the
     # system packages (fonts, libglib, libnss3) from Azure's Ubuntu mirror,
@@ -29,7 +31,7 @@ runs:
         path: |
           ~/.cache/ms-playwright
           ~/.cache/playwright-apt
-        key: playwright-v1-${{ runner.os }}-${{ env.ImageOS }}-${{ steps.version.outputs.version }}
+        key: playwright-v1-${{ runner.os }}-${{ steps.version.outputs.image }}-${{ steps.version.outputs.version }}
 
     - name: Seed apt archive from cache
       if: steps.cache.outputs.cache-hit == 'true'
@@ -62,8 +64,10 @@ runs:
         done
         exit 1
 
+    # Only main saves. A PR-scoped cache is invisible to every other PR, and at
+    # ~300 MB each they push shared caches out of the repo's storage limit.
     - name: Collect downloaded apt packages
-      if: steps.cache.outputs.cache-hit != 'true'
+      if: steps.cache.outputs.cache-hit != 'true' && github.ref == 'refs/heads/main'
       shell: bash
       run: |
         mkdir -p "$HOME/.cache/playwright-apt"
@@ -73,7 +77,7 @@ runs:
         ls -la "$HOME/.cache/playwright-apt"
 
     - name: Save Playwright cache
-      if: steps.cache.outputs.cache-hit != 'true'
+      if: steps.cache.outputs.cache-hit != 'true' && github.ref == 'refs/heads/main'
       uses: actions/cache/save@v4
       with:
         path: |

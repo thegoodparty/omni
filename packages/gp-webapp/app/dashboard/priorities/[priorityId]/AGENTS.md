@@ -420,8 +420,8 @@ answered. After, it shows everything below.
 - **The map never pins a house.** Coordinates arrive rounded to about 100 m
   with no ids, and `respondentGrid.ts` bins them into fixed ~400 m squares on
   the contact map's tile style, so no new map dependency.
-- **Who you're hearing from is the read's own groups**, drawn as the civic
-  panel page's petals (`CivicPanelBloom`, reused with `showNext` off and a
+- **Who you're hearing from is the read's own groups**, drawn as petals
+  (`CivicPanelBloom`, from the civic panel's components, reused with `showNext` off and a
   `summary` that speaks of answers). `groups` on the response is each major
   group the read counts by age band, gender, and race when it may be named
   (no neighborhoods, no housing): its share of the district and of the coded

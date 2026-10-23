@@ -1,0 +1,46 @@
+name: playwright-cache
+
+# Seeds the Playwright browser + apt package cache on main. PR runs can read
+# main's caches but only save to their own ref, and the release train's E2E
+# shards are usually cancelled by a newer merge before they save, so without
+# this every PR misses and pulls from the slow Ubuntu mirror. setup-playwright
+# only saves on main, so this is the one writer outside the release train.
+#
+# Runs when the Playwright version or the action changes, weekly to pick up a
+# new runner image, and on demand.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - package-lock.json
+      - .github/actions/setup-playwright/**
+      - .github/workflows/playwright-cache.yml
+  schedule:
+    - cron: '0 12 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: playwright-cache
+  cancel-in-progress: false
+
+jobs:
+  seed:
+    name: Seed Playwright cache
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-node-workspace
+        with:
+          app: gp-webapp
+
+      - uses: ./.github/actions/setup-playwright
+        with:
+          working-directory: packages/gp-webapp/e2e-tests

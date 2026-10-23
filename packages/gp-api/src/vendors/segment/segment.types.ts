@@ -255,6 +255,13 @@ export const EVENTS = {
   // said.
   IssueCapture: {
     SynthesisCompleted: 'Issue Capture - Synthesis Completed',
+    // A memo confirmed with nobody at the confirm step: an offline memo once
+    // its transcript is in, or a live one the 2-hour sweep found abandoned.
+    // The webapp's Confirmed and Skipped never see these.
+    MemoAutoConfirmed: 'Issue Capture - Memo Auto Confirmed',
+    // An offline memo no transcription job could read, once retries are
+    // spent. It stays unconfirmed and never reaches a summary.
+    MemoTranscriptionFailed: 'Issue Capture - Memo Transcription Failed',
   },
   // A visitor on a public /people page asking an unclaimed person to complete
   // their profile. Distinct from gp-marketing's browser-side 'Person Profile
