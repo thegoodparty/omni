@@ -207,16 +207,21 @@ const sendAnchorOf = (outreach: Outreach): Date =>
 // mismatch would silently drop the job's first or last day of events.
 // Anchor on the scheduled send date when it exists — a backdated
 // outreach's replies can predate the row's createdAt.
+// `readFrom` narrows the start to the last completed read, so a pass asks
+// Peerly only for the days since, not the whole send again. Every reply
+// carries a stable event id, so re-reading the overlap day is harmless.
 const buildReportWindow = (
   outreach: Outreach,
   now: Date,
-): PeerlyReportDateWindow => ({
-  startDate: format(
-    subDays(sendAnchorOf(outreach), 1),
-    PEERLY_REPORT_DATE_FORMAT,
-  ),
-  endDate: format(addDays(now, 1), PEERLY_REPORT_DATE_FORMAT),
-})
+  readFrom?: Date,
+): PeerlyReportDateWindow => {
+  const sendAnchor = sendAnchorOf(outreach)
+  const from = readFrom && isAfter(readFrom, sendAnchor) ? readFrom : sendAnchor
+  return {
+    startDate: format(subDays(from, 1), PEERLY_REPORT_DATE_FORMAT),
+    endDate: format(addDays(now, 1), PEERLY_REPORT_DATE_FORMAT),
+  }
+}
 
 @Injectable()
 export class OutreachInboundSweepService extends createPrismaBase(
@@ -312,6 +317,12 @@ export class OutreachInboundSweepService extends createPrismaBase(
 
   private async runInboundSweep(now: Date): Promise<void> {
     const candidates = await this.findCandidates(now, INBOUND_SWEEP_WINDOW_DAYS)
+    const reads = await this.client.outreachInboundSweep.findMany({
+      where: { outreachId: { in: candidates.map(({ id }) => id) } },
+    })
+    const sweptAtById = new Map(
+      reads.map(({ outreachId, sweptAt }) => [outreachId, sweptAt]),
+    )
     const counters = emptySweepCounters()
     let agedJobsPolled = 0
     const currentHour = getHours(now)
@@ -348,11 +359,21 @@ export class OutreachInboundSweepService extends createPrismaBase(
 
       this.jobsInFlight.add(jobId)
       try {
-        const polled = await this.sweepOutreach(outreach, now, counters)
+        const polled = await this.sweepOutreach(
+          outreach,
+          now,
+          counters,
+          sweptAtById.get(outreach.id),
+        )
         if (!polled) {
           counters.jobsWithoutCapture += 1
           continue
         }
+        await this.client.outreachInboundSweep.upsert({
+          where: { outreachId: outreach.id },
+          create: { outreachId: outreach.id, sweptAt: now },
+          update: { sweptAt: now },
+        })
         counters.jobsPolled += 1
         if (isAged) {
           agedJobsPolled += 1
@@ -545,6 +566,7 @@ export class OutreachInboundSweepService extends createPrismaBase(
     outreach: SweepableOutreach,
     now: Date,
     counters: SweepCounters,
+    sweptAt?: Date,
   ): Promise<boolean> {
     const jobId = outreach.projectId
     if (!jobId) return false
@@ -553,7 +575,7 @@ export class OutreachInboundSweepService extends createPrismaBase(
 
     const cdrRows = await this.peerlyJobResults.fetchInboundCdrRows(
       jobId,
-      buildReportWindow(outreach, now),
+      buildReportWindow(outreach, now, sweptAt),
     )
     const events = this.collectCdrEvents(
       jobId,
