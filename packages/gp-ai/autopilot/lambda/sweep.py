@@ -979,7 +979,7 @@ def _flag_cleanup_candidates(closed_epics: list[dict]) -> list[dict]:
             if not isinstance(description, str):
                 description = full_task.get("description")
             flag_key = supervisor.parse_flag_key(description)
-            if flag_key is None:
+            if flag_key is None or flag_key == supervisor.NO_FLAG_KEY:
                 continue
             candidates.append({"epic_task_id": epic_task_id, "cleanup_task_id": sub_id, "flag_key": flag_key})
     return candidates

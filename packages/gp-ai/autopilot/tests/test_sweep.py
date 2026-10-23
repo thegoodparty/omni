@@ -1418,6 +1418,18 @@ def test_missing_flag_key_skips_the_candidate_entirely(fake_clickup, fake_ecs, m
     assert fake_ecs.run_task_calls == []
 
 
+def test_flag_key_none_is_never_treated_as_a_flag(fake_clickup, fake_ecs, monkeypatch):
+    register_flag_cleanup_candidate(fake_clickup, flag_key="none")
+    read_calls = []
+    monkeypatch.setattr(sweep, "_read_prod_flag_rollout", lambda key: read_calls.append(key))
+
+    promoted = sweep.check_flag_cleanup_ramps([{"id": CLOSED_EPIC_ID}])
+
+    assert promoted == 0
+    assert read_calls == []
+    assert fake_ecs.run_task_calls == []
+
+
 def test_flag_cleanup_ramp_check_is_bounded_per_tick(fake_clickup, fake_ecs, monkeypatch):
     epic_ids = [f"epic-{i}" for i in range(sweep.FLAG_CLEANUP_AMPLITUDE_READ_CAP + 2)]
     for i, epic_id in enumerate(epic_ids):
