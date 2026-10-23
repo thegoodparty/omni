@@ -3,7 +3,7 @@ title: A civic panel joiner the voter file does not hold gets their own id as pe
 status: active
 decided_by: [agent]
 date: 2026-10-23
-code: ['#TBD']
+code: ['#3171']
 scope:
   - packages/gp-api/src/contacts/services/civicPanelJoin.service.ts
   - packages/gp-api/src/outreach/services/outreachTextIngest.service.ts
