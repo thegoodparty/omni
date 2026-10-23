@@ -531,8 +531,11 @@ test.describe('Robocall send — M2 mock pipeline', () => {
     await expectVbCampaignStatus(client, campaignId, VB_STATUS.ABORT)
 
     // ── Drawer reflects the canceled state ───────────────────────────────────
-    // A canceled row keeps its history: the footer offers archive (not
-    // Delete, which is draft/phone-banking only) and no longer offers Cancel.
+    // A successful cancel closes the drawer. Reopen the row: a canceled row
+    // keeps its history, so the footer offers archive (not Delete, which is
+    // draft/phone-banking only) and no longer offers Cancel.
+    await expect(confirmDialog).toBeHidden({ timeout: 15_000 })
+    await row.click()
     await expect(
       page.getByRole('button', { name: 'Move to archive' }),
     ).toBeVisible({ timeout: 15_000 })
