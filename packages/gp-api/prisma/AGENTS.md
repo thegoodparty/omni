@@ -29,8 +29,8 @@ Postgres schema, migrations, and the Prisma client surface. Schema is split per-
 - **Every table is mirrored into Databricks** by Lakeflow Connect
   (`deploy/databricks/lakeflow/README.md`; the Databricks side is Terraform
   in `thegoodparty/gp-terraform-dataplatform`). A new table joins automatically:
-  an event trigger sets `REPLICA IDENTITY FULL` and adds it to the
-  `databricks_lakeflow` publication. Renaming or retyping a column, or
+  the `databricks_lakeflow` publication covers all tables, and an event
+  trigger sets `REPLICA IDENTITY FULL` on it. Renaming or retyping a column, or
   changing a primary key, makes Lakeflow re-copy that table, so prefer
   additive changes on large tables. `DateTime` columns land as `STRING` in
   the mirror.

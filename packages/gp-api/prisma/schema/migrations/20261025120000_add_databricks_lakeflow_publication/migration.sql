@@ -40,22 +40,9 @@ BEGIN
 END
 $$;
 
--- An explicit table list, not FOR ALL TABLES: that form needs a true
--- superuser, which the RDS master user (rds_superuser) is not. The event
--- trigger below adds tables created later.
-DO $$
-BEGIN
-  EXECUTE (
-    SELECT 'CREATE PUBLICATION databricks_lakeflow FOR TABLE '
-      || string_agg(c.oid::regclass::text, ', ' ORDER BY c.relname)
-    FROM pg_class c
-    JOIN pg_namespace n ON n.oid = c.relnamespace
-    WHERE n.nspname = 'public'
-      AND c.relkind IN ('r', 'p')
-      AND c.relpersistence = 'p'
-  );
-END
-$$;
+-- Every table, including ones created later. On Aurora the master user
+-- (rds_superuser) may create a FOR ALL TABLES publication.
+CREATE PUBLICATION databricks_lakeflow FOR ALL TABLES;
 
 -- Roles are cluster-wide, and the shared preview cluster runs this migration
 -- once per PR database, sometimes concurrently.
@@ -81,7 +68,7 @@ GRANT SELECT ON ALL TABLES IN SCHEMA public TO databricks_lakeflow;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public
   GRANT SELECT ON TABLES TO databricks_lakeflow;
 
-CREATE FUNCTION public.databricks_lakeflow_publish_new_table()
+CREATE FUNCTION public.databricks_lakeflow_replica_identity_full()
   RETURNS event_trigger
   LANGUAGE plpgsql
 AS $$
@@ -93,27 +80,21 @@ BEGIN
     FROM pg_event_trigger_ddl_commands() created
     JOIN pg_class c ON c.oid = created.objid
     WHERE created.object_type = 'table'
-      AND created.schema_name = 'public'
       AND c.relpersistence = 'p'
   LOOP
-    -- Only a role that owns both the table and the publication can add it.
-    -- A table created by any other role is still created, and stays out of
-    -- the mirror.
+    -- A table created by a role that can't alter it is still created; its
+    -- unchanged large values may then arrive empty in the mirror.
     BEGIN
       EXECUTE format('ALTER TABLE %s REPLICA IDENTITY FULL', relation);
-      EXECUTE format(
-        'ALTER PUBLICATION databricks_lakeflow ADD TABLE %s',
-        relation
-      );
     EXCEPTION WHEN insufficient_privilege THEN
-      RAISE WARNING '% was not added to publication databricks_lakeflow: %',
+      RAISE WARNING '% kept its default replica identity: %',
         relation, SQLERRM;
     END;
   END LOOP;
 END
 $$;
 
-CREATE EVENT TRIGGER databricks_lakeflow_publish_new_tables
+CREATE EVENT TRIGGER databricks_lakeflow_replica_identity_full
   ON ddl_command_end
   WHEN TAG IN ('CREATE TABLE', 'CREATE TABLE AS', 'SELECT INTO')
-  EXECUTE FUNCTION public.databricks_lakeflow_publish_new_table();
+  EXECUTE FUNCTION public.databricks_lakeflow_replica_identity_full();

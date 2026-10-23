@@ -45,7 +45,7 @@ Ingestion) and enables inline DDL tracking, so new columns flow without a
 table re-copy. Then the DB admin runs their
 `lakeflow_pg_ddl_change_tracking.sql` in `gpdb`
 ([source setup](https://docs.databricks.com/aws/en/ingestion/lakeflow-connect/postgresql-source-setup)).
-The migration's event trigger adds its audit table to the publication.
+The publication covers all tables, so its audit table is included.
 
 ### 1. Merge this PR (engineer)
 
@@ -171,9 +171,8 @@ GATEWAY_ID=$(databricks pipelines list-pipelines --filter "name LIKE 'gp-api-mir
 INGESTION_ID=$(databricks pipelines list-pipelines --filter "name LIKE 'gp-api-mirror-$ENV-ingestion'" -o json | jq -r '.[0].pipeline_id')
 ```
 
-**New tables** need nothing. The migration's event trigger sets
-`REPLICA IDENTITY FULL` on every table created in `public` and adds it to the
-publication. The gateway looks for new tables every few hours (up to 6). To
+**New tables** need nothing. The publication covers all tables, and the
+migration's event trigger sets `REPLICA IDENTITY FULL` on each new one. The gateway looks for new tables every few hours (up to 6). To
 pick one up sooner, restart the gateway:
 `databricks pipelines stop "$GATEWAY_ID" && databricks pipelines start-update "$GATEWAY_ID"`.
 
@@ -236,7 +235,7 @@ Errors: the same tables (`gateway_event_log`, `ingestion_event_log`),
 | Ingestion runs failing                                                     | Failed runs on the loop job and the ingestion pipeline                     | Read `ingestion_event_log` errors                                                                              |
 | Slot lost (failover per Databricks docs, manual drop, major upgrade)       | "slot not found" in the event logs; slot missing in Postgres               | Recreate the slot (step 7), restart the gateway, full refresh everything                                       |
 | Rename, retype or primary key change                                       | Schema change in `ingestion_event_log`                                     | Auto full refresh; by hand if it has not run within the hour                                                   |
-| Table created by a role other than `gpuser`                                | `WARNING ... was not added to publication` when it is created              | `ALTER TABLE ... REPLICA IDENTITY FULL` and `ALTER PUBLICATION databricks_lakeflow ADD TABLE ...` as its owner |
+| Table created by a role other than `gpuser`                                | `WARNING ... kept its default replica identity` when it is created         | `ALTER TABLE ... REPLICA IDENTITY FULL` as its owner |
 | TLS or network                                                             | `PKIX path building failed` or timeouts in `gateway_event_log`             | Check the connection's certificate (step 6) and the 172.16.0.0/16 ingress                                      |
 
 A major Postgres upgrade needs every logical slot dropped first, a parameter
