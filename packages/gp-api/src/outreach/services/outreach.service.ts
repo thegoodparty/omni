@@ -746,10 +746,20 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
       if (observed === 'finalized') return false
       if (observed === 'rearmed' && takeovers === 0) continue
 
-      this.logger.error(
-        { outreachId, campaignId, observed, chargeRef },
-        'P2P outreach finalize failed after payment',
-      )
+      // inFlight is not a failure: the claim holder is still inside its Peerly
+      // submission and logs the terminal outcome itself. Logging it under the
+      // alert's message paged on a draft that had not failed yet.
+      if (observed === 'inFlight') {
+        this.logger.warn(
+          { outreachId, campaignId, chargeRef },
+          'P2P outreach finalize still held by another request after the poll window; deferring to a redelivery',
+        )
+      } else {
+        this.logger.error(
+          { outreachId, campaignId, observed, chargeRef },
+          'P2P outreach finalize failed after payment',
+        )
+      }
       throw new OutreachStepError(
         'peerlyJobCreation',
         new Error(
