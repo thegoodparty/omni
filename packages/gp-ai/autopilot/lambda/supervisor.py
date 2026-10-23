@@ -855,6 +855,10 @@ def file_flag_cleanup_ticket(epic_task_id: str) -> str | None:
         print(
             f"ERROR: failed to read comments for epic {epic_task_id} before filing its flag-cleanup ticket: {type(e).__name__}"
         )
+        # Deliberately fail toward filing: close-out is claimed once, so
+        # returning here would permanently lose the cleanup ticket of a real
+        # flag. A transient read failure on a `flag-key: none` epic costs one
+        # spurious (keyless, never auto-dispatched) ticket a human can close.
         comments = []
     flag_key = parse_flag_key_from_comments(comments)
     if flag_key == NO_FLAG_KEY:
