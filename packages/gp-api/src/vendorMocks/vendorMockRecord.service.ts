@@ -77,6 +77,16 @@ export class VendorMockRecordService extends createPrismaBase(
     return this.model.findMany({ where: { campaignId } })
   }
 
+  // Serve has no Campaign, so its Geoapify records carry no campaignId; the
+  // mock stamps the organization slug on `state` instead.
+  async findByOrganization(organizationSlug: string) {
+    return this.model.findMany({
+      where: {
+        state: { path: ['organizationSlug'], equals: organizationSlug },
+      },
+    })
+  }
+
   // Returns the vb_campaign mock records for a campaign's robocalls.
   // CallHub records are stored without a campaignId (they're global to the
   // mock controller), so we resolve them via the campaign's OutreachRobocall

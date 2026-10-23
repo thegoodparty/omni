@@ -196,7 +196,11 @@ export class GeoapifyMockController {
       VendorMockVendor.geoapify,
       'routeplanner_request',
       randomUUID(),
-      { status: 'complete', waypoints: jobs.length },
+      {
+        status: 'complete',
+        waypoints: jobs.length,
+        ...(organizationSlug !== undefined && { organizationSlug }),
+      },
       campaignId,
       rawBody,
     )

@@ -40,6 +40,21 @@ export const mockRecords = async (
 }
 
 /**
+ * Serve counterpart of mockRecords: Serve has no campaign, so the Geoapify
+ * mock stamps the org slug on its records and they are read back by that slug.
+ */
+export const mockRecordsForOrganization = async (
+  client: AxiosInstance,
+  organizationSlug: string,
+): Promise<MockRecordsResponse> => {
+  const { data } = await client.get<MockRecordsResponse>(
+    '/v1/test-fixtures/vendor-mocks/records',
+    { params: { organizationSlug } },
+  )
+  return data
+}
+
+/**
  * Triggers a named robocall background job (staging/send/completion/capture)
  * via the session-auth test-user route.  Global — the job sweeps all eligible
  * rows, not only the caller's.

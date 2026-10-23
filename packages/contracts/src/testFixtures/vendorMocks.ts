@@ -34,9 +34,20 @@ export const MockActionResponseSchema = z.object({
 })
 export type MockActionResponse = z.infer<typeof MockActionResponseSchema>
 
-export const MockRecordsQuerySchema = z.object({
-  campaignId: z.coerce.number().int().positive(),
-})
+// Win records are keyed by campaign. Serve has no campaign, so the Geoapify
+// mock stamps the caller's organization slug on the record's state and Serve
+// specs look records up by that slug. Exactly one of the two.
+export const MockRecordsQuerySchema = z
+  .object({
+    campaignId: z.coerce.number().int().positive().optional(),
+    organizationSlug: z.string().min(1).optional(),
+  })
+  .refine(
+    (q) => (q.campaignId === undefined) !== (q.organizationSlug === undefined),
+    {
+      message: 'Provide exactly one of campaignId or organizationSlug',
+    },
+  )
 export type MockRecordsQuery = z.infer<typeof MockRecordsQuerySchema>
 
 export const MockRecordsResponseSchema = z.object({
