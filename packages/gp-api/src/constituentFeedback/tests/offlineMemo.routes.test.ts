@@ -16,9 +16,11 @@ import {
   ConstituentFeedbackExtractionStatus,
   OrganizationRole,
 } from '@/generated/prisma'
+import { AnalyticsService } from '@/analytics/analytics.service'
 import { FeaturesService } from '@/features/services/features.service'
 import { LlmService } from '@/llm/services/llm.service'
 import { useTestService } from '@/test-service'
+import { EVENTS } from '@/vendors/segment/segment.types'
 import { SEED_MEMOS } from '../services/feedbackSeedMemos'
 import { TranscribeFileService } from '@/speech/services/transcribeFile.service'
 import {
@@ -156,6 +158,17 @@ describe('offline memo capture', () => {
       where: { id },
       include: { issues: true },
     })
+
+  // The calls made for one event. The service sends them without awaiting,
+  // so a test reads them with waitFor.
+  const spyOnTrack = () => {
+    const track = vi
+      .spyOn(service.app.get(AnalyticsService), 'track')
+      .mockResolvedValue({ event: 'stub', userId: 'stub' })
+    onTestFinished(() => track.mockRestore())
+    return (event: string) =>
+      track.mock.calls.filter(([, name]) => name === event)
+  }
 
   describe('POST audio-upload-url', () => {
     it('hands out a key under the org and a URL to put the audio at', async () => {
@@ -369,6 +382,36 @@ describe('offline memo capture', () => {
       expect(await proposal(res.data.id)).toEqual([])
     })
 
+    // Neither the confirm step nor its Skip ever sees an offline memo, so
+    // the server reports the confirmation. Enums only, never what was said.
+    it('reports the automatic confirmation without what anyone said', async () => {
+      const calls = spyOnTrack()
+      await recordOffline()
+      const poll = vi
+        .spyOn(service.app.get(TranscribeFileService), 'fetchResult')
+        .mockResolvedValue({
+          status: 'completed',
+          transcript: 'She wants the storm drain cleared.',
+        })
+      onTestFinished(() => poll.mockRestore())
+
+      await cron().pass(FIRST_SLOT)
+
+      await vi.waitFor(() =>
+        expect(calls(EVENTS.IssueCapture.MemoAutoConfirmed)).toEqual([
+          [
+            service.user.id,
+            EVENTS.IssueCapture.MemoAutoConfirmed,
+            {
+              reason: 'offline_transcribed',
+              channel: 'doorKnocking',
+              product: 'win',
+            },
+          ],
+        ]),
+      )
+    })
+
     it('starts a new job after a failed one, and gives up after three', async () => {
       const { res } = await recordOffline()
       failEveryJob()
@@ -394,6 +437,29 @@ describe('offline memo capture', () => {
       )
       expect(unreadable.transcript).toBeNull()
       expect(unreadable.confirmedAt).toBeNull()
+    })
+
+    // Transcribe's failure text is the vendor's, not a category a chart can
+    // group by, so the event says the job failed.
+    it('reports a memo no job could read once it gives up', async () => {
+      const calls = spyOnTrack()
+      await recordOffline()
+      failEveryJob()
+
+      await cron().pass(FIRST_SLOT)
+      await cron().pass(NEXT_SLOT)
+      expect(calls(EVENTS.IssueCapture.MemoTranscriptionFailed)).toEqual([])
+      await cron().pass(THIRD_SLOT)
+
+      await vi.waitFor(() =>
+        expect(calls(EVENTS.IssueCapture.MemoTranscriptionFailed)).toEqual([
+          [
+            service.user.id,
+            EVENTS.IssueCapture.MemoTranscriptionFailed,
+            { reason: 'job_failed', channel: 'doorKnocking', product: 'win' },
+          ],
+        ]),
+      )
     })
 
     const minutesOn = (minutes: number) =>
@@ -458,6 +524,32 @@ describe('offline memo capture', () => {
       )
       expect(saved.transcriptionAttempts).toBe(1)
       expect(saved.confirmedAt).toBeNull()
+    })
+
+    it('reports a silent recording as empty', async () => {
+      const calls = spyOnTrack()
+      await recordOffline()
+      const poll = vi
+        .spyOn(service.app.get(TranscribeFileService), 'fetchResult')
+        .mockResolvedValue({ status: 'completed', transcript: '  ' })
+      onTestFinished(() => poll.mockRestore())
+
+      await cron().pass(FIRST_SLOT)
+
+      await vi.waitFor(() =>
+        expect(calls(EVENTS.IssueCapture.MemoTranscriptionFailed)).toEqual([
+          [
+            service.user.id,
+            EVENTS.IssueCapture.MemoTranscriptionFailed,
+            {
+              reason: 'empty_transcript',
+              channel: 'doorKnocking',
+              product: 'win',
+            },
+          ],
+        ]),
+      )
+      expect(calls(EVENTS.IssueCapture.MemoAutoConfirmed)).toEqual([])
     })
 
     // An hour with no word counts as a failed job: another starts while
@@ -707,6 +799,25 @@ describe('offline memo capture', () => {
       ])
     })
 
+    it('reports the abandoned confirm step', async () => {
+      const calls = spyOnTrack()
+      await recordLive()
+
+      await service.app
+        .get(PendingTranscriptionService)
+        .pass(hoursOn(ABANDONED_CONFIRM_AFTER_HOURS + 1))
+
+      await vi.waitFor(() =>
+        expect(calls(EVENTS.IssueCapture.MemoAutoConfirmed)).toEqual([
+          [
+            service.user.id,
+            EVENTS.IssueCapture.MemoAutoConfirmed,
+            { reason: 'abandoned', channel: 'doorKnocking', product: 'win' },
+          ],
+        ]),
+      )
+    })
+
     it('leaves a memo still inside the cutoff alone', async () => {
       const id = await recordLive()
 
@@ -722,6 +833,7 @@ describe('offline memo capture', () => {
     // The sweep read the memo, then the canvasser confirmed it before the
     // sweep wrote: their confirmation stands.
     it('leaves a memo confirmed after the sweep read it', async () => {
+      const calls = spyOnTrack()
       const id = await recordLive()
       const { updatedAt, issues } = await row(id)
       const confirmed = await service.client.patch(
@@ -757,6 +869,7 @@ describe('offline memo capture', () => {
           where: { feedbackId: id },
         }),
       ).toBe(0)
+      expect(calls(EVENTS.IssueCapture.MemoAutoConfirmed)).toEqual([])
     })
   })
 
