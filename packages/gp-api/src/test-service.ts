@@ -125,7 +125,18 @@ export type TestServiceContext = {
  * })
  * ```
  */
-export const useTestService = (): TestServiceContext => {
+export type TestServiceOptions = {
+  /**
+   * Register the app's `@Cron`, `@Interval` and `@Timeout` jobs and let them
+   * fire on real timers. Off by default, so no job writes rows mid-suite; a
+   * test runs a job by calling its method on the service instead.
+   */
+  scheduler?: boolean
+}
+
+export const useTestService = ({
+  scheduler = false,
+}: TestServiceOptions = {}): TestServiceContext => {
   let baseConnectionUri: string
   let app: NestFastifyApplication
   let client: AxiosInstance
@@ -178,6 +189,9 @@ export const useTestService = (): TestServiceContext => {
     const databaseUrl = `${cloneUri}?connection_limit=${TEST_POOL_LIMIT}`
     // Set DATABASE_URL for Prisma with the unique database
     process.env.DATABASE_URL = databaseUrl
+
+    // Read by AppModule's ScheduleModule factory during bootstrap.
+    process.env.TEST_SCHEDULER = scheduler ? 'on' : 'off'
 
     // Create NestJS application using the same bootstrap function as production
     app = await bootstrap({ loggingEnabled: false })

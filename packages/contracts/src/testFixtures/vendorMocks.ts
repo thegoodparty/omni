@@ -18,6 +18,7 @@ export const MockActionSchema = z.object({
   action: z.enum([
     'geoapify.route.fail',
     'callhub.campaign.complete',
+    'callhub.campaign.fail',
     'peerly.balance.empty',
     'peerly.cv.approve',
     'peerly.cv.reject',

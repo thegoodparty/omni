@@ -5,12 +5,17 @@ import { overrideEnvForEvals } from '../../../evals/envOverride'
 overrideEnvForEvals()
 
 import { HttpStatus } from '@nestjs/common'
-import { describe, expect, it } from 'vitest'
+import { OrdinanceExistingLawSchema } from '@goodparty_org/contracts'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ChatScope } from '../../../../generated/prisma'
 import { useTestService } from '@/test-service'
 import { LlmService } from '../../../../llm/services/llm.service'
 import { OrdinanceFlowSearchService } from '../services/ordinanceFlowSearch.service'
-import { seedFromFixture } from './seedFromFixture'
+import {
+  OrdinanceFlowFetchService,
+  type OrdinanceFetchResult,
+} from '../services/ordinanceFlowFetch.service'
+import { DEFAULT_CODE_URL, seedFromFixture } from './seedFromFixture'
 import { measureStepVerbosity } from './verbosity'
 import { judgePanel } from './coldJudge'
 import { gatherVerificationEvidence } from './verifyCitations'
@@ -61,6 +66,92 @@ const assertGovernanceVoice = (assistantText: string): void => {
 }
 
 const service = useTestService()
+
+// Served for the seeded code URL in the current-law case: code libraries
+// refuse a plain client, so the fixture's city cannot be read live. Mirrors
+// the existingLaw reading in records/bike-parking.json: automobile standards
+// only, no bicycle parking anywhere.
+const FIXTURE_CHAPTER = [
+  'Zoning Ordinance. Article 500. Parking.',
+  '',
+  'Section 501. Off-street parking required. Every use established after the',
+  'effective date of this article shall provide off-street parking spaces in',
+  'the number set by Section 510, on the same lot as the use or as permitted',
+  'by Section 520.',
+  '',
+  'Section 510. Table of parking standards. Minimum off-street automobile',
+  'parking: single-family dwelling, two spaces per dwelling unit; two-family',
+  'dwelling, two spaces per dwelling unit; multifamily dwelling, one and',
+  'one-half spaces per dwelling unit; retail sales, one space per 250 square',
+  'feet of gross floor area; office, one space per 300 square feet of gross',
+  'floor area; restaurant, one space per 100 square feet of customer floor',
+  'area. Where a use is not listed, the Zoning Administrator shall apply the',
+  'standard for the most similar listed use.',
+  '',
+  'Section 520. Satellite parking. Required spaces may be located on a',
+  'separate lot within 400 feet of the use when the owner records an agreement',
+  'securing the spaces for the life of the use.',
+  '',
+  'Section 530. Shared parking. Two or more uses may share required spaces',
+  'when the Zoning Administrator finds that their peak demand occurs at',
+  'different hours. The total may be reduced by no more than 25 percent.',
+  '',
+  'Section 540. General design. Parking areas shall be designed so that no',
+  'vehicle must back into a public street, shall provide a landscaped strip at',
+  'least five feet wide along any street frontage, and shall be lighted when',
+  'open after dark.',
+  '',
+  'Section 541. Space dimensions. A standard space shall be nine feet wide and',
+  'eighteen feet long. Aisles shall be twenty-four feet wide for ninety-degree',
+  'parking and eighteen feet wide for angled parking.',
+  '',
+  'Section 542. Surfacing. Parking areas and driveways shall be surfaced with',
+  'asphalt, concrete, or an approved pervious pavement and shall be maintained',
+  'free of potholes and standing water.',
+  '',
+  'Amendment history, Article 500: Ord. 2019-14 (expanded the Parking Overlay',
+  'District); Ord. 2022-03 (added pervious pavement to Section 542).',
+].join('\n')
+
+// A section number that exists only in the served chapter: the backstop that
+// the record came from it. The judge reads the rest.
+const SERVED_SECTION = /\b5(01|10|20|30|4[012])\b/
+
+const codeHost = (url: string): string =>
+  new URL(url).hostname.replace(/^www\./, '')
+
+// Enough of a live page for the judge to check a claim against; bounds the
+// ground truth when the agent reads several statutes.
+const LIVE_READ_CHARS = 6_000
+
+// Live pages the agent reads on the pass-through join the judge's ground
+// truth.
+const serveFixtureChapter = () => {
+  const fetchService = service.app.get(OrdinanceFlowFetchService)
+  const live = fetchService.fetchUrl.bind(fetchService)
+  const liveReads: string[] = []
+  const spy = vi
+    .spyOn(fetchService, 'fetchUrl')
+    .mockImplementation(async (url: string): Promise<OrdinanceFetchResult> => {
+      if (url.startsWith(DEFAULT_CODE_URL)) {
+        return {
+          ok: true,
+          status: HttpStatus.OK,
+          finalUrl: url,
+          contentType: 'text/html',
+          content: FIXTURE_CHAPTER,
+          truncated: false,
+          totalChars: FIXTURE_CHAPTER.length,
+        }
+      }
+      const result = await live(url)
+      if (result.ok) {
+        liveReads.push(`${url}\n${result.content.slice(0, LIVE_READ_CHARS)}`)
+      }
+      return result
+    })
+  return { spy, liveReads }
+}
 
 const anchorFor = (ordinanceId: string, step: string) => ({
   resourceType: 'ordinance',
@@ -226,6 +317,10 @@ const runJudges = async (
 }
 
 d('ordinance-flow step evals (real Claude)', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
   // Clarify opening turn (design: ask ONE question via ask_clarify_question with
   // 2-4 options, the question lives in the payload not prose, sequential reveal
   // so no synthesis/offer yet). Parameter-grade, distinct, sourced options are
@@ -346,13 +441,19 @@ d('ordinance-flow step evals (real Claude)', () => {
   )
 
   // Current law (design: get_code_source first, save_existing_law before
-  // offering, a does/gaps summary with the chapter source).
+  // offering, a does/gaps summary with the chapter source). The code host
+  // serves the chapter from the fixture, so the card and the record come from
+  // read text and the judge checks them against that text.
   it(
     'current-law step grounds in the code source and saves findings',
     async () => {
+      const { spy: fetchSpy, liveReads } = serveFixtureChapter()
       const { toolNames, payloadsFor, ordinance, assistantText } =
         await runStep('bike-parking', 'current_law')
 
+      expect(fetchSpy).toHaveBeenCalledWith(
+        expect.stringContaining(DEFAULT_CODE_URL),
+      )
       expect(toolNames).toContain('get_code_source')
       expect(toolNames).toContain('present_current_law_summary')
       expect(toolNames).toContain('save_existing_law')
@@ -364,6 +465,9 @@ d('ordinance-flow step evals (real Claude)', () => {
       expect((summary.does ?? []).length).toBeGreaterThan(0)
       expect((summary.gaps ?? []).length).toBeGreaterThan(0)
       expect(ordinance.existingLaw).not.toBeNull()
+      const record = OrdinanceExistingLawSchema.parse(ordinance.existingLaw)
+      expect(codeHost(record.sourceUrl)).toBe(codeHost(DEFAULT_CODE_URL))
+      expect(record.text).toMatch(SERVED_SECTION)
       assertGovernanceVoice(assistantText)
       reportVerbosity('current_law', assistantText, [
         summary,
@@ -380,9 +484,12 @@ d('ordinance-flow step evals (real Claude)', () => {
             2,
           ),
         ),
-        // The fetched chapter is the ground truth the does/gaps gate checks
+        // The served chapter is the ground truth the does/gaps gate checks
         // against — without it a blind judge can't tell grounded from invented.
-        `Fetched current law on the record: ${JSON.stringify(ordinance.existingLaw)}`,
+        [
+          `Chapter text the agent read: ${FIXTURE_CHAPTER}`,
+          ...liveReads.map((page) => `Other page the agent read live: ${page}`),
+        ].join('\n\n'),
       )
     },
     JUDGE_TIMEOUT_MS,

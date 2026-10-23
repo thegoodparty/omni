@@ -66,6 +66,12 @@ export const READ_STATUS_COPY = {
   whatWeHeard: 'What we heard',
   progress: (read: PriorityReadStatus): string =>
     `${read.groupsHeard} of ${read.groupsTotal} groups heard`,
+  legendHeard: 'Heard',
+  legendNext: 'Needs answers next',
+  legendNotYet: 'Not yet',
+  // The groups holding the read back, for the results page's held card.
+  stillNeed: (read: PriorityReadStatus): string =>
+    `Still need: ${groupList(read, read.underrepresented)}.`,
   label: (read: PriorityReadStatus): string => {
     if (!read.good && !read.checkOut) return NO_ONE_ASKED
     return onlyTotalShort(read)
@@ -98,7 +104,7 @@ export const READ_STATUS_COPY = {
     }
     return read.status === 'gettingClose'
       ? "We'll show what we heard once we're sure what every group thinks."
-      : "We'll show what we heard once every group has enough answers."
+      : "We'll show what people said once every group has enough answers, so a few loud voices can't tip the read."
   },
   // A follow-up text paid for with the first: when it goes and to whom.
   followUp: (texts: number, date: string): string =>

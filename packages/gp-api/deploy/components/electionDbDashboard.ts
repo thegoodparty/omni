@@ -1,5 +1,5 @@
-// election-api's production database, read through the CloudWatch data source
-// next to election-api's own connection errors in Loki. Built for the P1001
+// The production election database, read through the CloudWatch data source
+// next to gp-api's connection errors against it in Loki. Built for the P1001
 // ("Can't reach database server") and P2024 (pool timeout) bursts: the panels
 // separate a database restart, a connection storm and task churn.
 
@@ -11,13 +11,13 @@ export const GRAFANA_CLOUDWATCH_ROLE_ARN =
 
 const REGION = 'us-west-2'
 const CLUSTER = 'election-api-db-prod'
-const ECS_CLUSTER = 'election-api-master-fargateCluster'
-const ECS_SERVICE = 'election-api-master'
+const ECS_CLUSTER = 'gp-master-fargateCluster'
+const ECS_SERVICE = 'gp-api-master'
 
-// Written by election-api's deploy (EventBridge rule on the cluster).
+// Written by the EventBridge rule in components/election-db.ts.
 export const RDS_EVENTS_LOG_GROUP = `/aws/events/rds/${CLUSTER}`
 
-export interface ElectionApiDbDashboardConfig {
+export interface ElectionDbDashboardConfig {
   lokiDatasourceUid: string
 }
 
@@ -81,14 +81,14 @@ const timeseries = (
   },
 })
 
-export function electionApiDbDashboardConfigJson({
+export function electionDbDashboardConfigJson({
   lokiDatasourceUid,
-}: ElectionApiDbDashboardConfig): string {
+}: ElectionDbDashboardConfig): string {
   const loki = { type: 'loki', uid: lokiDatasourceUid }
   const cloudwatch = { type: 'cloudwatch', uid: CLOUDWATCH_DATASOURCE_UID }
 
   return JSON.stringify({
-    title: 'election-api prod - Database',
+    title: 'Election database (prod)',
     uid: 'election-api-prod-database',
     editable: true,
     timezone: 'browser',
@@ -97,14 +97,17 @@ export function electionApiDbDashboardConfigJson({
     panels: [
       timeseries(
         1,
-        'election-api database errors per minute',
+        'Election database errors per minute (gp-api)',
         { h: 8, w: 12, x: 0, y: 0 },
         loki,
         [
           {
             refId: 'A',
             datasource: loki,
-            expr: 'sum by (exception_type) (count_over_time({service_name="election-api", deployment_environment_name="prod"} | exception_type=~"P1001|P2024" [1m]))',
+            // gp-api has two Prisma clients. A P1001 against this database names
+            // its host, and a P2024 names the election model it was reading, so
+            // keep only those; the main database's errors belong elsewhere.
+            expr: 'sum by (exception_type) (count_over_time({service_name="gp-api", deployment_environment_name="prod"} |~ "election-api-db|prisma\\\\.(race|place|person|personMerge|candidacy|officeHolder|district|projectedTurnout|zipToPosition|stance|issue)\\\\." | exception_type=~"P1001|P2024" [1m]))',
             legendFormat: '{{exception_type}}',
           },
         ],
@@ -120,7 +123,7 @@ export function electionApiDbDashboardConfigJson({
       ),
       timeseries(
         3,
-        'election-api running tasks',
+        'gp-api running tasks',
         { h: 8, w: 12, x: 0, y: 8 },
         cloudwatch,
         [

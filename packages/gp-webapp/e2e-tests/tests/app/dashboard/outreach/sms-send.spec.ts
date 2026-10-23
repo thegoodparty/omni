@@ -69,8 +69,8 @@ const fillStripeCard = async (page: Page): Promise<void> => {
 
 // ─── Shared setup ─────────────────────────────────────────────────────────────
 
-// Steps 1-5: a registered, 10DLC-approved Pro Win candidate with an open SMS
-// window and a saved voter file filter for the audience picker.
+// Steps 1-4: a registered, 10DLC-approved Pro Win candidate with a saved
+// voter file filter for the audience picker.
 const setUpWinSmsCandidate = async (page: Page) => {
   // ── 1. Register a user and read its campaign ───────────────────────────
   const { user, client } = await authenticateTestUser(page, {
@@ -91,17 +91,7 @@ const setUpWinSmsCandidate = async (page: Page) => {
   expect(fixture.stage).toBe('tcr_approved')
   expect(fixture.peerlyIdentityId).toBeTruthy()
 
-  // ── 4. Open SMS window ─────────────────────────────────────────────────
-  // Move election date so texting window is open (19-day cutoff guard).
-  await withGatewayRetry('PUT /v1/campaigns/mine', () =>
-    client.put('/v1/campaigns/mine', {
-      details: {
-        electionDate: format(addDays(new Date(), 60), 'yyyy-MM-dd'),
-      },
-    }),
-  )
-
-  // ── 5. Pre-create a voter file filter so the audience picker has a row ─
+  // ── 4. Pre-create a voter file filter so the audience picker has a row ─
   const filterName = `E2E sms-send ${Date.now()}`
   await withGatewayRetry('POST /v1/voters/voter-file/filter', () =>
     client.post<{ id: number }>('/v1/voters/voter-file/filter', {

@@ -196,7 +196,7 @@ const mockDistrict = ({
 }
 
 const storyHeading = {
-  represent: /You represent 32,000 people/,
+  represent: /You represent the 32,000 people living in/,
   loudest: "Until now, you've heard from the loudest voices only",
   sample: 'A few voices from every group tell you where your community stands',
   grow: "We'll help you hear from more of your community over time",
@@ -241,13 +241,9 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
     renderFlow()
 
     expect(
-      await screen.findByText(
-        'Hear from everyone in your community, not only the people who show up',
-      ),
+      await screen.findByText('Meet your chief of staff'),
     ).toBeInTheDocument()
-    expect(
-      screen.getByText('Ask residents before you vote'),
-    ).toBeInTheDocument()
+    expect(screen.getByText('Get hours back every week')).toBeInTheDocument()
     expect(
       screen.queryByText('Let residents opt in to hear from you'),
     ).not.toBeInTheDocument()
@@ -417,7 +413,9 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
     resumedAt('story-represent')
     renderFlow()
 
-    await findStoryHeading(storyHeading.represent)
+    await findStoryHeading(
+      'You represent the 32,000 people living in your district',
+    )
     expect(screen.getByTestId('district-story-map')).toHaveAttribute(
       'data-abstract',
       'true',
@@ -429,7 +427,7 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
     resumedAt('story-represent')
     renderFlow()
 
-    await findStoryHeading('You represent every resident of your district')
+    await findStoryHeading('You represent the people living in your district')
   })
 
   it('shows the end state of each step when motion is reduced', async () => {
@@ -546,9 +544,7 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
     const user = userEvent.setup()
     renderFlow()
 
-    await screen.findByText(
-      'Hear from everyone in your community, not only the people who show up',
-    )
+    await screen.findByText('Meet your chief of staff')
     await waitFor(() => expect(communityStarts).toBe(1))
 
     await user.click(screen.getByRole('button', { name: 'Continue' }))
@@ -583,9 +579,7 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
       user: ReturnType<typeof userEvent.setup>,
       answer: RegExp,
     ) => {
-      await screen.findByText(
-        'Hear from everyone in your community, not only the people who show up',
-      )
+      await screen.findByText('Meet your chief of staff')
       await user.click(screen.getByRole('button', { name: 'Continue' }))
       await user.click(await screen.findByRole('radio', { name: answer }))
       expect(communityStarts).toBe(0)
@@ -656,9 +650,7 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
       const user = userEvent.setup()
       renderFlow()
 
-      await screen.findByText(
-        'Hear from everyone in your community, not only the people who show up',
-      )
+      await screen.findByText('Meet your chief of staff')
       await user.click(screen.getByRole('button', { name: 'Continue' }))
       await user.click(
         await screen.findByRole('radio', { name: /I'm an elected official/ }),
@@ -692,7 +684,9 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
       await screen.findByText('When does your term run?')
       await fillTermDates(user)
       await user.click(screen.getByRole('button', { name: 'Continue' }))
-      await findStoryHeading(storyHeading.represent)
+      await findStoryHeading(
+        /You represent the [\d,]+ people living in Springfield/,
+      )
       expect(calls.filter((call) => call === 'start issues')).toHaveLength(1)
     } finally {
       testQueryClient.removeQueries({ queryKey: positionsKey })
@@ -860,7 +854,9 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
     let loadFails = true
     api.mock('POST /v1/community-issues/onboarding', () => {
       communityStarts += 1
-      return { status: 500, data: {} }
+      return communityStarts <= 2
+        ? { status: 500, data: {} }
+        : { status: 200, data: { starterIssueCount: 0 } }
     })
     api.mock('GET /v1/priorities/onboarding', () =>
       loadFails
@@ -876,7 +872,7 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
     renderFlow()
 
     await screen.findByText('When does your term run?')
-    await waitFor(() => expect(communityStarts).toBe(1))
+    await waitFor(() => expect(communityStarts).toBe(2))
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     for (const heading of [
       storyHeading.represent,
@@ -888,12 +884,102 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
       await user.click(screen.getByRole('button', { name: 'Continue' }))
     }
     await screen.findByText('We couldn’t load issues for your community.')
-    expect(communityStarts).toBe(1)
+    expect(communityStarts).toBe(2)
 
     loadFails = false
     await user.click(screen.getByRole('button', { name: 'Try again' }))
     await screen.findByText(/We couldn’t find issues for your area yet/)
+    expect(communityStarts).toBe(3)
+  })
+
+  it('retries a failed issue search once on its own', async () => {
+    resumedAt('priorities')
+    let communityStarts = 0
+    api.mock('POST /v1/community-issues/onboarding', () => {
+      communityStarts += 1
+      return communityStarts === 1
+        ? { status: 401, data: {} }
+        : { status: 200, data: { starterIssueCount: 1 } }
+    })
+    api.mock('GET /v1/priorities/onboarding', () =>
+      communityStarts < 2
+        ? { status: 200, data: { options: [] } }
+        : {
+            status: 200,
+            data: {
+              options: [
+                {
+                  key: 'issue-1',
+                  kind: 'community',
+                  title: 'Housing costs',
+                  description: 'Rents are rising fast.',
+                  selected: false,
+                },
+              ],
+            },
+          },
+    )
+    renderFlow()
+
+    expect(await screen.findByLabelText(/Housing costs/)).toBeInTheDocument()
     expect(communityStarts).toBe(2)
+    expect(
+      screen.queryByText('We couldn’t load issues for your area.'),
+    ).not.toBeInTheDocument()
+  })
+
+  it('says the search failed, not that nothing was found, and lets the official skip or try again', async () => {
+    resumedAt('priorities')
+    let communityStarts = 0
+    let searchFails = true
+    let saves = 0
+    api.mock('POST /v1/community-issues/onboarding', () => {
+      communityStarts += 1
+      return searchFails
+        ? { status: 401, data: {} }
+        : { status: 200, data: { starterIssueCount: 1 } }
+    })
+    api.mock('GET /v1/priorities/onboarding', () =>
+      searchFails
+        ? { status: 200, data: { options: [] } }
+        : {
+            status: 200,
+            data: {
+              options: [
+                {
+                  key: 'issue-1',
+                  kind: 'community',
+                  title: 'Housing costs',
+                  description: 'Rents are rising fast.',
+                  selected: false,
+                },
+              ],
+            },
+          },
+    )
+    api.mock('PUT /v1/priorities/onboarding', () => {
+      saves += 1
+      return { status: 200, data: undefined }
+    })
+    const user = userEvent.setup()
+    renderFlow()
+
+    await screen.findByText('We couldn’t load issues for your area.')
+    expect(communityStarts).toBe(2)
+    expect(
+      screen.queryByText(/We couldn’t find issues for your area yet/),
+    ).not.toBeInTheDocument()
+    expect(screen.getByLabelText(/Other/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled()
+
+    searchFails = false
+    await user.click(screen.getByRole('button', { name: 'Try again' }))
+    expect(await screen.findByLabelText(/Housing costs/)).toBeInTheDocument()
+    expect(communityStarts).toBe(3)
+    expect(
+      screen.queryByText('We couldn’t load issues for your area.'),
+    ).not.toBeInTheDocument()
+    expect(saves).toBe(0)
   })
 })
 
@@ -919,9 +1005,7 @@ describe('ServeOnboardingFlow with serve-citizen-panels off', () => {
       screen.queryByText('Meet your virtual chief of staff in 5 minutes'),
     ).not.toBeInTheDocument()
     expect(
-      screen.queryByText(
-        'Hear from everyone in your community, not only the people who show up',
-      ),
+      screen.queryByText('Meet your chief of staff'),
     ).not.toBeInTheDocument()
   })
 

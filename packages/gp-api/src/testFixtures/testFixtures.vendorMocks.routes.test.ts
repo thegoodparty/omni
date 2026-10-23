@@ -143,6 +143,52 @@ describe('POST /v1/test-fixtures/vendor-mocks/actions', () => {
     expect(res.data.records).toEqual([])
   })
 
+  it("arms the campaign's next CallHub broadcast create to fail for callhub.campaign.fail", async () => {
+    const campaign = await seedCampaign(service.user.id)
+
+    const res = await applyAction(campaign.id, 'callhub.campaign.fail')
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(res.data.records).toEqual([
+      expect.objectContaining({
+        kind: 'create_fail',
+        externalId: String(campaign.id),
+        campaignId: campaign.id,
+        state: { createFail: true },
+      }),
+    ])
+  })
+
+  it('returns 403 for callhub.campaign.fail on a campaign owned by a different user', async () => {
+    const otherUser = await service.prisma.user.create({
+      data: {
+        email: `other-${Math.random().toString(36).slice(2)}@test.goodparty.org`,
+        name: 'Other',
+        firstName: 'Other',
+        lastName: 'User',
+      },
+    })
+    const campaign = await seedCampaign(otherUser.id)
+
+    const res = await applyAction(campaign.id, 'callhub.campaign.fail')
+
+    expect(res.status).toBe(HttpStatus.FORBIDDEN)
+    expect(
+      await service.prisma.vendorMockRecord.count({
+        where: { kind: 'create_fail', campaignId: campaign.id },
+      }),
+    ).toBe(0)
+  })
+
+  it('returns 404 for callhub.campaign.fail outside a non-prod deploy', async () => {
+    envNonProd.value = false
+    const campaign = await seedCampaign(service.user.id)
+
+    const res = await applyAction(campaign.id, 'callhub.campaign.fail')
+
+    expect(res.status).toBe(HttpStatus.NOT_FOUND)
+  })
+
   it('arms the next Vercel order to fail for vercel.order.fail', async () => {
     const campaign = await seedCampaign(service.user.id)
 

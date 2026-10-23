@@ -7,6 +7,8 @@ import {
   Controller,
   Get,
   Headers,
+  HttpException,
+  HttpStatus,
   NotFoundException,
   Param,
   Post,
@@ -199,13 +201,33 @@ export class CallhubMockController {
   ) {
     this.assertMockMode()
     this.assertAuth(auth)
-    const externalId = randomUUID()
     const name = body['name'] ?? 'mock-campaign'
+    // callhub.campaign.fail: fail this campaign's next create once, in
+    // CallHub's DRF `{ detail }` error shape.
+    const failFor =
+      await this.vendorMockRecord.campaignIdForRobocallBroadcast(name)
+    if (
+      failFor !== undefined &&
+      (await this.vendorMockRecord.consumeCallhubCreateFail(failFor))
+    ) {
+      throw new HttpException(
+        { detail: 'Mock CallHub failure: service temporarily unavailable.' },
+        HttpStatus.SERVICE_UNAVAILABLE,
+      )
+    }
+    const externalId = randomUUID()
+    // Keep the phonebook ids so the records route can surface the audience
+    // a campaign was staged against (the campaign body carries no org link).
+    const phonebooks: unknown = body['phonebooks']
     await this.vendorMockRecord.upsert(
       VendorMockVendor.callhub,
       'vb_campaign',
       externalId,
-      { status: 2, name },
+      {
+        status: 2,
+        name,
+        phonebooks: Array.isArray(phonebooks) ? phonebooks.map(String) : [],
+      },
     )
     return { pk_str: externalId, name }
   }

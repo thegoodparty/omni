@@ -79,20 +79,39 @@ describe('PriorityResultsView', () => {
           good: false,
           status: 'tooEarly',
           underrepresented: ['men', 'age65plus'],
+          groupsNext: 2,
           unheard: ['men'],
           checkOut: true,
         },
       })
 
-    it('shows who answered and how many groups have been heard', () => {
+    it('shows who answered and the groups heard as seats', () => {
       renderView(early())
 
       expect(screen.getByText('People who answered')).toBeInTheDocument()
       expect(screen.getByText('25 by text')).toBeInTheDocument()
-      expect(screen.getByText('9 of 12 groups heard')).toBeInTheDocument()
-      expect(
-        screen.getByRole('progressbar', { name: '9 of 12 groups heard' }),
-      ).toBeInTheDocument()
+      expect(screen.getByText('9 of 12 groups heard.')).toBeInTheDocument()
+      const arc = screen.getByRole('img', { name: '9 of 12 groups heard' })
+      expect(arc.querySelectorAll('[data-state="heard"]')).toHaveLength(76)
+      expect(arc.querySelectorAll('[data-state="next"]')).toHaveLength(16)
+      expect(screen.getByText('Needs answers next')).toBeInTheDocument()
+    })
+
+    // jsdom applies no CSS, so this pins the classes that pick one by width.
+    it('shows the seats from lg up and the bar below it', () => {
+      renderView(early())
+
+      const arc = screen.getByRole('img', { name: '9 of 12 groups heard' })
+      expect(arc).toHaveClass('hidden', 'lg:block')
+      expect(screen.getByText('Heard').closest('ul')).toHaveClass(
+        'hidden',
+        'lg:flex',
+      )
+      const bar = screen.getByRole('progressbar', {
+        name: '9 of 12 groups heard',
+      })
+      expect(bar).toHaveClass('lg:hidden')
+      expect(bar).not.toHaveClass('hidden')
     })
 
     it('holds back the themes, the map and the comparison behind one line', () => {
@@ -100,7 +119,7 @@ describe('PriorityResultsView', () => {
 
       expect(
         screen.getByText(
-          "We'll show what we heard once every group has enough answers.",
+          "We'll show what people said once every group has enough answers, so a few loud voices can't tip the read.",
         ),
       ).toBeInTheDocument()
       expect(screen.queryByText('Top themes')).not.toBeInTheDocument()
@@ -113,15 +132,11 @@ describe('PriorityResultsView', () => {
       ).not.toBeInTheDocument()
     })
 
-    // The same line as the priority page's status strip, so the card says
-    // which groups are short and never that nobody answered.
-    it('names the groups with no answers apart from the ones that are short', () => {
+    it('names the groups it still needs', () => {
       renderView(early())
 
       expect(
-        screen.getByText(
-          'Still need to hear from men, and a few more answers from people 65 and over',
-        ),
+        screen.getByText('Still need: men and people 65 and over.'),
       ).toBeInTheDocument()
       expect(screen.queryByText(/haven't answered/)).not.toBeInTheDocument()
       expect(screen.queryByText('Hear from more')).not.toBeInTheDocument()
@@ -148,11 +163,8 @@ describe('PriorityResultsView', () => {
         screen.getByRole('heading', { name: 'A few groups need more answers' }),
       ).toBeInTheDocument()
       expect(
-        screen.getByText(
-          'Need a few more answers from people 65 and over and people 55 to 64',
-        ),
+        screen.getByText('Still need: people 65 and over and people 55 to 64.'),
       ).toBeInTheDocument()
-      expect(screen.queryByText(/Still need to hear from/)).toBeNull()
     })
 
     it('waits on enough answers when the district could not be read', () => {
@@ -176,6 +188,7 @@ describe('PriorityResultsView', () => {
           "We'll show what we heard once enough people have answered.",
         ),
       ).toBeInTheDocument()
+      expect(screen.queryByRole('img')).not.toBeInTheDocument()
       expect(screen.queryByRole('progressbar')).not.toBeInTheDocument()
     })
 
@@ -217,6 +230,9 @@ describe('PriorityResultsView', () => {
     ).toBeInTheDocument()
     expect(
       screen.getByText('Still unsure what people in a few neighborhoods think'),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('img', { name: '12 of 12 groups heard' }),
     ).toBeInTheDocument()
     // Every group heard but the model not sure yet: a full bar in the
     // warning tone, never the success one.

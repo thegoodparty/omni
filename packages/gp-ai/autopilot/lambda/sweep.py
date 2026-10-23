@@ -230,21 +230,21 @@ def list_executing_feature_cards() -> list[dict]:
 AUTO_RESUME_MAX_PARKS = 10
 
 
-def _parked_stories() -> list[dict]:
-    """Every story currently in feedback needed across the scoped lists —
-    the same unconditional statuses[] query shape as _feature_cards_in_status,
-    but WITH subtasks (stories are subtasks) and keeping only subtasks."""
+def _stories_in_status(status: str) -> list[dict]:
+    """Every story currently in `status` across the scoped lists — the same
+    unconditional statuses[] query shape as _feature_cards_in_status, but WITH
+    subtasks (stories are subtasks) and keeping only subtasks."""
     tasks: list[dict] = []
     for list_id in sorted(handler.in_scope_list_ids()):
         query = urlencode(
-            {"statuses[]": router.STATUS_FEEDBACK_NEEDED, "subtasks": "true", "include_closed": "false"},
+            {"statuses[]": status, "subtasks": "true", "include_closed": "false"},
             quote_via=quote,
             safe="[]",
         )
         try:
             result = supervisor.clickup_request("GET", f"/list/{list_id}/task?{query}")
         except Exception as e:
-            print(f"ERROR: sweep failed to list parked stories for list {list_id}: {type(e).__name__}")
+            print(f"ERROR: sweep failed to list {status} stories for list {list_id}: {type(e).__name__}")
             continue
         raw_tasks = result.get("tasks")
         if isinstance(raw_tasks, list):
@@ -252,22 +252,39 @@ def _parked_stories() -> list[dict]:
     return tasks
 
 
+def _parked_stories() -> list[dict]:
+    """Every story currently in feedback needed."""
+    return _stories_in_status(router.STATUS_FEEDBACK_NEEDED)
+
+
+def _awaiting_merge_stories() -> list[dict]:
+    """Every story currently in awaiting merge (parked by `feedback
+    await-merge` on an approved, auto-merge-armed PR)."""
+    return _stories_in_status(router.STATUS_AWAITING_MERGE)
+
+
 def auto_resume_actionable_parks(cap: int, parked_stories: list[dict]) -> int:
     """Dispatches ONE resume per park instance for parks that are obvious
-    work, not questions: a status note (merge/deploy pending), or a
-    stranded-run park — states where the story's own PR carries whatever
+    work, not questions: a status note ("Deploy pending") or a stranded-run
+    park — an ALLOWLIST (router.is_auto_resumable_park), states where the story's own PR carries whatever
     needs doing (failing checks, delegate blockers, a completed merge) and
     asking a human "may I fix my own PR?" just stalls the epic (the first
     live epic stalled three stories this way). Skipped, and left to a human:
 
-    - "QA failed" parks — deciding whether findings mean a code fix, an
-      answer, or a cancellation is the human call resume.md's intent check
-      exists for.
+    - Any park not on that allowlist: a real question (auto-resuming builds
+      a guess a human's answer may discard), or "QA failed" — deciding
+      whether findings mean a code fix, an answer, or a cancellation is the
+      human call resume.md's intent check exists for. A human reply still
+      resumes through the comment-resume route.
+    - Merge-pending parks: resolve_merge_pending_parks owns them.
     - Any park with a comment after it: a reply already dispatched (or will
       dispatch) the comment-resume route; racing it would double-dispatch.
     - Threads carrying AUTO_RESUME_MAX_PARKS or more park markers: a story
       relapsing that often needs a human, and each park already pinged Slack
       (see _escalate_dead_letter) instead of another auto-resume lap.
+    - Stories whose last two run summaries ended in the same failure outcome (router.repeated_failure: deadline_exceeded,
+      budget_exhausted or error): escalated via _escalate_dead_letter instead
+      of dispatching, since a third lap would fail the same way.
     - Any story already carrying the `dead-letter` tag (router.has_dead_letter_tag):
       once a story hits the park cap it stays a human's until they remove the
       tag, at which point a genuinely new park (see _escalate_dead_letter)
@@ -301,7 +318,9 @@ def auto_resume_actionable_parks(cap: int, parked_stories: list[dict]) -> int:
         park = router.latest_park(comments)
         if park is None or park.comment_id is None:
             continue
-        if park.question.lower().startswith("qa failed"):
+        if not router.is_auto_resumable_park(park.question):
+            # A real question, "QA failed", or any other non-mechanical park:
+            # only a human reply (the comment-resume route) wakes it.
             continue
         if router.merge_pending_pr_number(park.question) is not None:
             # resolve_merge_pending_parks (run earlier this same tick) owns
@@ -329,6 +348,18 @@ def auto_resume_actionable_parks(cap: int, parked_stories: list[dict]) -> int:
                 "leaving it for a human instead of another auto-resume lap"
             )
             _escalate_dead_letter(task_id, park)
+            continue
+        failure = router.repeated_failure(comments, since_ms=park.date_ms)
+        if failure is not None:
+            # Two identical failures in a row mean the cause is environmental
+            # (e.g. an oversized AGENTS.md blowing the context): a third lap
+            # would fail the same way, so ask a human instead.
+            print(f"Story {task_id}: two consecutive {failure['stage']} runs ended {failure['outcome']}; escalating")
+            _escalate_dead_letter(
+                task_id,
+                park,
+                f"stopped auto-resuming after two consecutive {failure['stage']} runs ended {failure['outcome']}",
+            )
             continue
 
         ceiling = router.STAGE_CEILINGS[router.STAGE_RESUME]
@@ -373,10 +404,12 @@ def _release_dead_letter_claim(task_id: str, comment_id: str) -> None:
         )
 
 
-def _escalate_dead_letter(task_id: str, park: Any) -> None:
+def _escalate_dead_letter(task_id: str, park: Any, cause: str | None = None) -> None:
     """Tags a story that just hit the park cap `dead-letter` and posts ONE
     Slack escalation ("automation exhausted, needs a human") — see the
-    README's retry-budget section for the full contract.
+    README's retry-budget section for the full contract. `cause` replaces the
+    park-cap wording when the escalation has another cause (two consecutive
+    identical run failures); claim, tag and alert behave the same either way.
 
     Ordering is CLAIM, then tag, then alert — not tag-first. The claim is
     what makes the tag write itself happen at most once per park cycle: a
@@ -417,8 +450,9 @@ def _escalate_dead_letter(task_id: str, park: Any) -> None:
         return
 
     supervisor.post_slack_message(
-        f":skull: Autopilot story {supervisor.clickup_task_url(task_id)} hit its park cap "
-        f"({AUTO_RESUME_MAX_PARKS} parks) and is now tagged `{router.DEAD_LETTER_TAG_NAME}` — automation is "
+        f":skull: Autopilot story {supervisor.clickup_task_url(task_id)} "
+        f"{cause or f'hit its park cap ({AUTO_RESUME_MAX_PARKS} parks)'} and is now tagged "
+        f"`{router.DEAD_LETTER_TAG_NAME}` — automation is "
         "exhausted, this one needs a human. Remove the tag once you've got it; a fresh park cycle after that "
         "can escalate again."
     )
@@ -453,7 +487,7 @@ def fetch_pull_request(pr_number: int) -> dict | None:
 def _dispatch_qa_after_merge(task_id: str, epic_task_id: str | None, pr_number: int) -> bool:
     """Moves a merge-pending story straight to `qa` and launches its QA stage
     run directly — never through ROUTING_TABLE. A second to_status="qa" row
-    there (reachable from `feedback needed`, alongside the existing
+    there (reachable from `awaiting merge` / `feedback needed`, alongside the existing
     `in progress` one) would make sweep._from_status_for_current's
     reconstruction pass treat EVERY story landing in `qa` as ambiguous and
     skip it, blinding the sweep to a lost `in progress -> qa` webhook — today
@@ -503,7 +537,7 @@ def _dispatch_qa_after_merge(task_id: str, epic_task_id: str | None, pr_number: 
     if not result["launched"]:
         # Undo both writes so the next tick retries the whole dispatch: once
         # a story sits in `qa`, no sweep path re-attempts this launch
-        # (_parked_stories only sees feedback-needed). The claim is released
+        # (the parked-story queries only see awaiting-merge / feedback-needed). The claim is released
         # FIRST — a rolled-back park with a live claim would re-enter here
         # next tick, re-move to qa, lose the claim, and strand the story
         # unlaunched. If a rollback step itself fails, the story sits in qa
@@ -515,9 +549,9 @@ def _dispatch_qa_after_merge(task_id: str, epic_task_id: str | None, pr_number: 
         )
         _release_qa_dispatch_claim(task_id, pr_number)
         try:
-            supervisor.move_task_status(task_id, router.STATUS_FEEDBACK_NEEDED)
+            supervisor.move_task_status(task_id, router.STATUS_AWAITING_MERGE)
         except Exception as e:
-            print(f"ERROR: rollback of {task_id} to feedback-needed failed: {type(e).__name__}")
+            print(f"ERROR: rollback of {task_id} to awaiting-merge failed: {type(e).__name__}")
     return bool(result["launched"])
 
 
@@ -812,12 +846,15 @@ def handle_sweep(event: dict) -> dict:
 
     # One parked-stories fetch per tick, shared by both passes below.
     parked_stories = _parked_stories()
+    awaiting_merge_stories = _awaiting_merge_stories()
 
     # Before auto-resume, and uncapped (see resolve_merge_pending_parks): every
     # merge-pending park it finds is EXCLUDED from the auto-resume pass below
     # (auto_resume_actionable_parks' own skip), so a paid resume can never
-    # race this free GitHub-backed resolution for the same park.
-    merge_pending_result = resolve_merge_pending_parks(parked_stories)
+    # race this free GitHub-backed resolution for the same park. Reads both
+    # awaiting merge (where story.md parks now) and feedback needed (cards
+    # parked there before awaiting merge existed).
+    merge_pending_result = resolve_merge_pending_parks(awaiting_merge_stories + parked_stories)
 
     # After the lookback pass so reconstruction gets first claim at the cap:
     # an undelivered transition is lost work, an unparked resume is deferred
@@ -838,7 +875,7 @@ def handle_sweep(event: dict) -> dict:
     # helper below already logs-and-continues on its own, and this catches
     # anything else (a bad board shape) that would otherwise bubble past them.
     try:
-        update_status_card(executing_cards, in_progress_cards, parked_stories)
+        update_status_card(executing_cards, in_progress_cards, parked_stories, awaiting_merge_stories)
     except Exception as e:
         print(f"ERROR: status card update failed: {type(e).__name__}: {e}")
 
@@ -956,7 +993,7 @@ def _flag_cleanup_candidates(closed_epics: list[dict]) -> list[dict]:
             if not isinstance(description, str):
                 description = full_task.get("description")
             flag_key = supervisor.parse_flag_key(description)
-            if flag_key is None:
+            if flag_key is None or flag_key == supervisor.NO_FLAG_KEY:
                 continue
             candidates.append({"epic_task_id": epic_task_id, "cleanup_task_id": sub_id, "flag_key": flag_key})
     return candidates
@@ -1357,7 +1394,12 @@ def _with_valid_id(tasks: list[dict]) -> list[dict]:
     return [t for t in tasks if isinstance(t.get("id"), str) and t["id"]]
 
 
-def build_status_text(executing_cards: list[dict], in_progress_cards: list[dict], parked_stories: list[dict]) -> str:
+def build_status_text(
+    executing_cards: list[dict],
+    in_progress_cards: list[dict],
+    parked_stories: list[dict],
+    awaiting_merge_stories: list[dict] | None = None,
+) -> str:
     lines = [f"*Autopilot status* — updated {_status_timestamp()}", ""]
 
     executing = _with_valid_id(executing_cards)
@@ -1382,11 +1424,24 @@ def build_status_text(executing_cards: list[dict], in_progress_cards: list[dict]
         lines.extend(f"• {_card_link(t)}" for t in parked)
     else:
         lines.append("_none_")
+    lines.append("")
+
+    awaiting_merge = _with_valid_id(awaiting_merge_stories or [])
+    lines.append(f"*Awaiting merge* ({len(awaiting_merge)})")
+    if awaiting_merge:
+        lines.extend(f"• {_card_link(t)}" for t in awaiting_merge)
+    else:
+        lines.append("_none_")
 
     return "\n".join(lines)
 
 
-def update_status_card(executing_cards: list[dict], in_progress_cards: list[dict], parked_stories: list[dict]) -> None:
+def update_status_card(
+    executing_cards: list[dict],
+    in_progress_cards: list[dict],
+    parked_stories: list[dict],
+    awaiting_merge_stories: list[dict] | None = None,
+) -> None:
     """Maintains the single pinned #autopilot status message. Edits it in
     place via chat.update when the stored ts still resolves; self-heals
     (posts fresh, re-pins, stores the new ts) whenever it doesn't — covering
@@ -1399,7 +1454,7 @@ def update_status_card(executing_cards: list[dict], in_progress_cards: list[dict
         print("ERROR: AUTOPILOT_SLACK_CHANNEL not configured; skipping status card update")
         return
 
-    text = build_status_text(executing_cards, in_progress_cards, parked_stories)
+    text = build_status_text(executing_cards, in_progress_cards, parked_stories, awaiting_merge_stories)
 
     state = get_status_card_state()
     if state is not None and state.get("channel") == channel:

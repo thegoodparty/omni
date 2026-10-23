@@ -52,12 +52,23 @@ checkpoint from the other flag state is not in the step list and resumes at
 the data-derived step. Story steps navigate first and save the checkpoint
 behind, so the save never holds the motion.
 
+The priorities step's issues come from `POST /v1/community-issues/onboarding`,
+started as soon as the office is on the org. A failed start retries once on
+its own. The step has three list states: the "Finding issues" spinner while
+the list loads, "We couldn't load issues for your area" with Try again when
+the search failed twice (Other and skip stay available), and the "couldn't
+find issues" empty line only when the search succeeded with nothing.
+
 ## The district story
 
 - **Population** is `districtPopulation` (2020 census) from
   `GET /v1/onboarding/contacts/stats` (`onboardingDistrictStatsQueryOptions`,
   shared with the Win flow's demographics step). Null
   drops the number from the copy.
+- **Place** is the picked office's `city`, falling back to "your district".
+  The first step reads "You represent the {people} people living in {place}"
+  (the number is the accent), or "You represent the people living in
+  {place}" without a population.
 - **Dots** come from `POST /v1/contacts/points` with no filters (the contacts
   wizard's endpoint: bare coordinates for the district, capped). The ids are
   dropped in the query function. A seeded random pick of ~640 keeps the

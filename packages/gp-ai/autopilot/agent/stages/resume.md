@@ -32,6 +32,16 @@ Read, in this order:
    / `gh pr checks` — a human may have pushed commits, approved, or requested
    changes while the card was parked.
 
+4. **Any existing PR for this story, whatever stage parked.** A run that was
+   killed (deadline) or ended stranded may have pushed a branch and opened a PR
+   without recording it. Read the parking comment for a named branch or PR
+   link, and search regardless:
+   `gh pr list --state open --search "<TICKET-ID or CLICKUP_TASK_ID> in:title,body,head"`.
+   If one exists, ADOPT it: check out its branch and continue from there
+   (finish checks, arm auto-merge, park with the PR link). Never open a second
+   PR for the same story — a duplicate double-spends delegate review and CI and
+   can double-apply on merge. Open a new PR only when none exists.
+
 Re-deriving this from scratch every time is the accepted cost of an autopilot
 run keeping no session state anywhere: nothing else remembers what a parked
 run was doing.
@@ -58,7 +68,8 @@ never another card.
 `story` and `qa` also park when their own deadline arrives mid-wait — a PR
 approved and armed but not yet merged, or a merged commit not yet deployed —
 using the same marker but a status note ("Merge pending: ..." / "Deploy
-pending: ...") instead of a real question. Don't wait for a human reply to
+pending: ...") instead of a real question. A merge-pending note can arrive
+from `awaiting merge` as well as `feedback needed`. Don't wait for a human reply to
 "answer" it: check whether the condition itself has resolved instead — `gh pr
 view` / `gh pr checks` for a pending merge, or the deployed commit for a
 pending deploy.

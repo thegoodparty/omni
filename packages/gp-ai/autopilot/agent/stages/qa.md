@@ -4,7 +4,58 @@ You were dispatched to verify one story, `CLICKUP_TASK_ID`, after its PR
 merged. You are read-only against the app — this run never edits code — and
 every write you make is scoped to the story ticket itself.
 
-### 1. Wait for deploy
+### 1. Build the effective acceptance criteria
+
+The ticket body is not the whole spec. Read the story's full ClickUp comment
+thread before judging anything. A human comment that changes, drops or
+replaces an acceptance criterion supersedes the ticket body, and a later human
+ruling supersedes an earlier one (ENG-11384 failed an AC that a human had
+already reversed with "put @dev-only back"). Bot and autopilot comments are
+not scope decisions.
+
+Build the effective AC list: the ticket's ACs with each human change applied.
+Judge the story against that list only. A criterion a human de-scoped is never
+a QA failure, even if the shipped code doesn't meet it (ENG-11383 failed two
+ACs a human had de-scoped).
+
+State the list at the top of the verdict comment, in both the pass and the
+fail case: the effective ACs, then each de-scoped or changed AC with the
+comment that de-scoped or changed it (author and date). If a comment is
+ambiguous about whether it changes an AC, keep the AC and say so in the
+comment rather than silently dropping it.
+
+### 2. Classify: does the story have UI?
+
+Find the story's merged PR number from its `Merge pending: PR #<n>` park
+comment, then read its changed files:
+
+    gh pr view <n> --json files -q '.files[].path'
+
+If no changed file is under `packages/gp-webapp/`, `packages/gp-admin/` or
+`packages/candidate-sites/`, the story has no UI (mock controllers, fixtures,
+crons, backend-only changes). Parse the comment text, not the card status.
+If there is no such park comment, look for the PR linked on the story or via
+`gh pr list --state merged --search "<ticket id>"`. If you still can't find
+the PR, treat the story as having UI and keep the normal flow.
+
+**No UI:** skip steps 3 through 6 (deploy wait, test-user provisioning, the
+Playwright walk and the flag-off smoke) and verify each effective AC against
+the merged PR instead:
+
+- Read the code path each AC describes in the merged diff. "The tests passed"
+  or "covered via Vitest" is not evidence on its own: ENG-11351's QA passed two
+  wrong ACs that way and it led to ENG-11377. Check that the code does what the
+  AC says and that a test actually exercises it.
+- Check the PR's CI with `gh pr checks <n>` and require it green.
+
+Then go to the verdict. A failure takes the same findings-and-park path (no
+screenshots to attach). A pass moves the ticket to `done`, with no wait for the
+deploy.
+
+**Has UI:** continue with step 3, judging the walk against the effective AC
+list from step 1.
+
+### 3. Wait for deploy
 
 The merge landing does not mean the commit is live: the release train still
 has to deploy it to dev. If the merged commit isn't live on dev yet, wait and
@@ -27,7 +78,7 @@ outcome is whatever the park primitive actually stamps (`feedback_parked`);
 "deploy pending" is the state you're telling a human in the parking comment,
 not a separate outcome this stage invents.
 
-### 2. Provision a test user and log in
+### 4. Provision a test user and log in
 
 Provision your own dev test user through gp-api's test-fixtures API
 (`packages/gp-api/src/testFixtures/AGENTS.md` documents the endpoints and
@@ -57,13 +108,16 @@ screenshot, or any output; and clean up with
 `DELETE /v1/test-fixtures/users` (body `{"userIds": [<ids>]}`) before you end
 your turn, pass or fail.
 
-### 3. Flag-on: walk the acceptance criteria
+### 5. Flag-on: walk the acceptance criteria
 
 With the epic's feature flag enabled in dev, drive a real browser (Playwright
-MCP) through every acceptance criterion on the story ticket, one at a time.
+MCP) through every effective acceptance criterion from step 1, one at a time.
 Take one screenshot per criterion as you confirm it.
 
-### 4. Flag-off: parity smoke
+### 6. Flag-off: parity smoke
+
+If the epic's breakdown summary says `flag-key: none`, the epic has no flag:
+skip this step and go to the verdict.
 
 `EPIC_TASK_ID` may be empty — the dispatcher hasn't always threaded it
 through yet. If so, derive it yourself: `ClickUpClient.get_task(CLICKUP_TASK_ID)`
@@ -79,9 +133,9 @@ built. Don't assume a cookie, a query param, or any other specific mechanism
 surfaces this story touched still behave the way they did before the story
 shipped.
 
-### 5. Verdict
+### 7. Verdict
 
-- **Anything failed**: post a numbered findings comment on `CLICKUP_TASK_ID`
+- **Anything failed**: post a numbered findings comment, opening with the effective AC list from step 1, on `CLICKUP_TASK_ID`
   (expected vs. actual per finding), attach the screenshots via the ClickUp
   attachment API, then park:
 
@@ -94,12 +148,13 @@ shipped.
   proved it: the card sat unroutable until a safety net parked it). The park
   lands the card in `feedback needed` with the marker `resume` needs, and a
   human's answer or drag re-dispatches QA.
-- **Everything passed**: move the ticket to `done`.
+- **Everything passed**: post a short verdict comment that opens with the
+  effective AC list from step 1, then move the ticket to `done`.
 
-Either way, screenshots belong on the ticket, not left behind in the
+Either way, any screenshots belong on the ticket, not left behind in the
 container — attach them before you end your turn.
 
-### 6. Stay read-only
+### 8. Stay read-only
 
 This run never edits code, never opens a PR, and never touches any ticket
 other than `CLICKUP_TASK_ID`. If something looks broken in a way this story
