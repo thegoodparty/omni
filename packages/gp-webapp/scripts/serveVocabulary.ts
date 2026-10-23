@@ -175,10 +175,14 @@ const OUTREACH_CAMPAIGN_SENSE: readonly RegExp[] = [
   /\bcampaigns?\s+(?:a\s+)?(?:name|names|history|details|list|title)\b/i,
   /\b(?:name|rename|title)\s+(?:your|this|the)\s+campaigns?\b/i,
   /\bcampaigns?\s+(?:you|they)\s+(?:sent|send|created|scheduled)\b/i,
-  // The press that makes one, and the one in front of the official in a flow:
-  // "Create campaign", "Schedule campaign", "One-time charge for this campaign".
+  // The press that makes one: "Create campaign", "Schedule campaign".
   /\b(?:create|creating|schedule|scheduling)\s+(?:another\s+)?campaigns?\b/i,
-  /\b(?:this|another|earlier)\s+campaigns?\b/i,
+  // The one in front of the official in a flow, by what is done to it. Bound
+  // to the verb, not to "this", so "Built from this campaign" still fails.
+  /\b(?:save|charge\s+for|identify|included\s+in)\s+this\s+campaigns?\b/i,
+  /\bcampaigns?\s+in\s+your\s+(?:outreach\s+)?history\b/i,
+  /\bcampaigns?\s+appears\s+in\s+your\b/i,
+  /\bcampaigns?\s+(?:from|with)\s+this\s+(?:same\s+)?list\b/i,
 ]
 
 // How wide a window around a `campaign` occurrence the sense patterns get to

@@ -142,9 +142,10 @@ export const keyed = { voter: 'Someone you represent' }`,
   b: 'Built from your campaign',
   c: 'Campaign Manager',
   d: 'Reuse campaigns from earlier cycles',
+  e: 'Built from this campaign',
 }`,
         ),
-      ).toEqual(['campaign', 'campaign', 'campaign', 'campaign'])
+      ).toEqual(['campaign', 'campaign', 'campaign', 'campaign', 'campaign'])
     })
 
     it('allows the outreach-campaign sense', () => {
