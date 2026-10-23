@@ -120,7 +120,9 @@ into a texting campaign. When a check is warranted, the agent picks who by the a
 `gp-api/.../priority-flow/priorityFlow.prompt.ts`, from Samuel's Serve lists
 runbook), counts the group without saving it, writes the one question, and offers it as
 work already done through `present_outreach_proposal` on whichever channel
-those people answer on, door knocking included. A check has two sides,
+those people answer on, door knocking included. Starting a door card opens
+the walk on the community input goal with the card's message as the
+question (`proposalFlows.tsx`), the way a text opens on its message. A check has two sides,
 both always offered: the most affected, and the least affected (exposure
 inverted, same gates), each on its own card. Behind `serve-citizen-panels`
 every card is side `main`: the round goes to residents across the district.
