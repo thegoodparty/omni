@@ -43,6 +43,22 @@ describe('peerlyIdentityProfileResponseBodySchema', () => {
     expect(result.success).toBe(true)
   })
 
+  it('accepts an empty-array campaigns and a null or missing usecase', () => {
+    const { usecase: _usecase, ...rest } = profile
+    expect(
+      peerlyIdentityProfileResponseBodySchema.safeParse({
+        link: 'l',
+        profile: { ...rest, campaigns: [], usecase: null },
+      }).success,
+    ).toBe(true)
+    expect(
+      peerlyIdentityProfileResponseBodySchema.safeParse({
+        link: 'l',
+        profile: { ...rest, campaigns: [] },
+      }).success,
+    ).toBe(true)
+  })
+
   it('still rejects a profile missing a required field', () => {
     const { ein: _ein, ...rest } = profile
     const result = peerlyIdentityProfileResponseBodySchema.safeParse({

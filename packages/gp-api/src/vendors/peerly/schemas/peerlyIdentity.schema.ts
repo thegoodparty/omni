@@ -41,7 +41,11 @@ export const peerlyIdentityProfileSchema = z.object({
   account_id: z.string(),
   base_account_id: z.string(),
   campaignVerifyToken: z.string().nullish(),
-  campaigns: z.record(z.string(), peerlyCampaignConfigSchema),
+  // Peerly is PHP-backed: a profile with no campaigns serializes as [] not {}.
+  campaigns: z.union([
+    z.record(z.string(), peerlyCampaignConfigSchema),
+    z.array(peerlyCampaignConfigSchema).length(0),
+  ]),
   city: z.string(),
   companyName: z.string(),
   country: z.string().nullable(),
@@ -56,7 +60,7 @@ export const peerlyIdentityProfileSchema = z.object({
   state: z.string(),
   status: z.string(),
   street: z.string(),
-  usecase: z.string(),
+  usecase: z.string().nullish(),
   vertical: z.string().optional(),
   usecases: z.array(z.string()).optional(),
   website: z.string(),
