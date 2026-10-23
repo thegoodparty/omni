@@ -68,6 +68,9 @@ const center = (ring: LngLat[]): LngLat => {
   ]
 }
 
+// Not /Stop 1/: a turf with ten or more stops also has "Stop 10" to "Stop 19".
+const STOP_ONE = /\bStop 1\b/
+
 const ROUTE_RESPONSE = /\/v1\/door-knocking\/turfs\/(\d+)\/route$/
 
 // The part of the create flow both Win tests share: purpose, audience, talking
@@ -238,15 +241,15 @@ test.describe('Win — turf route via Geoapify mock', () => {
     }
 
     // 7. At least one stop must be visible.
-    await expect(page.getByRole('button', { name: /Stop 1/ })).toBeVisible()
+    await expect(page.getByRole('button', { name: STOP_ONE })).toBeVisible()
 
     // 8. Expand Stop 1 and open PersonSheet for the first resident.
     //    For a house: the first sub-button is a resident row (opens PersonSheet).
     //    For a multi-unit stop: it is a door row (needs one more click).
-    await page.getByRole('button', { name: /Stop 1/ }).click()
+    await page.getByRole('button', { name: STOP_ONE }).click()
     const stopLi = page
       .locator('li')
-      .filter({ has: page.getByRole('button', { name: /Stop 1/ }) })
+      .filter({ has: page.getByRole('button', { name: STOP_ONE }) })
     await stopLi.getByRole('button').nth(1).click()
     if (
       !(await page
