@@ -126,13 +126,19 @@ exercises the exact full-stack version proposed in the PR.
   edge is serving the expected `github.sha` via that endpoint (liveness alone is
   not enough on branch builds, where dev is always up on the prior commit).
 - The suite itself is sharded across runners: `e2e-shard` fans the Playwright
-  tests over a 4-way matrix (`--shard=n/4 --reporter=blob`), and the `E2E`
+  tests over a 6-way matrix (`--shard=n/6 --reporter=blob`), and the `E2E`
   summary job merges the per-shard blob reports into one HTML report +
   `results.json`, publishes to S3, comments on the PR, and is the single required
-  status check (red iff any shard failed). `E2E` keeps that exact name because the
+  status check (red iff any shard failed). Its summary also lists the tests that
+  passed only on retry. `E2E` keeps that exact name because the
   `main` ruleset gates on it. This is the pre-merge E2E against the PR's own
   full-stack preview; after merge the release train runs a second E2E against dev
   before promoting the commit to prod (see below).
+- Tests listed in `e2e-tests/quarantine.json` are left out of the PR's `E2E`
+  gate and run in a non-blocking `E2E quarantine` job against the same preview,
+  so a spec known to be red does not block unrelated PRs. New specs are not on
+  probation on PRs: they gate the PR that adds them. See
+  `packages/gp-webapp/e2e-tests/AGENTS.md` § Quarantine and probation.
 - election-api is not part of this yet (the webapp does not call it directly and it
   has no preview stack).
 
@@ -202,8 +208,19 @@ The stages:
    Vercel and alias `dev.goodparty.org`).
 3. **E2E stage.** Confirms `gp-api-dev` is serving the SHA (the serialized deploy
    just put it there and nothing else can move dev mid-run), then runs the
-   Playwright suite sharded 4 ways against `dev.goodparty.org`. There is no
+   Playwright suite sharded 6 ways against `dev.goodparty.org`. There is no
    `e2e-wait` poll here — the dev deploys are `needs`, so they are already done.
+   The suite is split into two lanes by `E2E lanes`. The gate (`E2E Shard (n)`
+   -> `E2E`) holds prod. `E2E quarantine` runs, against the same deploy, the
+   tests in `e2e-tests/quarantine.json` and every spec file new to `main` in the
+   3 days before the commit (probation), and holds nothing: no prod job needs
+   it and it stays green whatever its tests do. Its report goes to the run
+   summary and to S3 under `gp-webapp/quarantine/main/`. One red spec used to
+   hold every service until its fix merged (88 hours twice, Sep 9 and Oct 16);
+   now the person on point quarantines it in a one-entry PR. Expired entries
+   stay quarantined and are flagged in the `E2E lanes` summary. If `E2E lanes`
+   itself fails, every test gates. Procedure and policy:
+   `packages/gp-webapp/e2e-tests/AGENTS.md` § Quarantine and probation.
 4. **Prod stage.** Deploys the **same** SHA to prod via the same composite
    actions with prod inputs (same images, prod env). Backends repoint prod at the
    image the dev stage already built; `packages/gp-ai` applies its prod Terraform
@@ -254,8 +271,9 @@ Details worth knowing:
   straight to prod (loud warning in the run; write access required). Use it when
   the pipeline itself is broken or a hotfix can't wait. It only works if the SHA's
   images were already built — if the dev _build_ failed there is nothing to
-  promote, so that case is fix-forward. First resort for a flaky pipeline is to
-  re-run the failed check, not force.
+  promote, so that case is fix-forward. Neither `force` nor a re-run is the
+  answer to a red E2E: find the cause (root `CLAUDE.md`, "Clear a red check,
+  never re-run it"), and if the fix is not landing quickly, quarantine the spec.
 - **Forward-only.** There is no manual rollback. A crash-on-boot image is reverted
   automatically by the ECS deployment circuit breaker; to move forward, land a fix
   on `main` and let the next train promote it.
