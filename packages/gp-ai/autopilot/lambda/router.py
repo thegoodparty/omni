@@ -110,6 +110,33 @@ def merge_pending_pr_number(question: str) -> int | None:
     return int(match.group(1)) if match else None
 
 
+# Question prefixes of the mechanical status-note parks the sweep may
+# auto-resume: nothing to answer, the story's own PR/deploy state carries
+# whatever needs doing. An ALLOWLIST on purpose — any other question text (a
+# free-form agent question, "QA failed: ...") waits for a human, because an
+# auto-resume would build one guess at an answer a human then overrides
+# (ENG-11383 built option (b), the human answered (a)). Stage text lives in:
+#   - "Deploy pending:" — agent/stages/qa.md
+#   - "This run ended while the card was still in" — feedback.park_if_stranded's
+#     success branch (feedback.STRANDED_RUN_SUCCESS_PREFIX; the Lambda cannot
+#     import the agent package, so a test pins the copies together)
+#   - "This run ended in an error (" — park_if_stranded's error branch
+# "Merge pending:" is deliberately absent: the sweep resolves those itself
+# (merge_pending_pr_number).
+AUTO_RESUMABLE_PARK_PREFIXES = (
+    "deploy pending:",
+    "this run ended while the card was still in",
+    "this run ended in an error (",
+)
+
+
+def is_auto_resumable_park(question: str) -> bool:
+    """Whether a Park's question text is one of the mechanical status notes in
+    AUTO_RESUMABLE_PARK_PREFIXES, as opposed to a real question or a park a
+    human must triage (e.g. "QA failed")."""
+    return question.strip().lower().startswith(AUTO_RESUMABLE_PARK_PREFIXES)
+
+
 # ClickUp tag applied when a parked story exhausts automation (sweep.py's
 # park cap — see sweep._escalate_dead_letter). A board-visible, human-
 # removable "I've got it" signal, not a status: a status change would need a
@@ -238,6 +265,52 @@ def latest_run_summary(comments: list[dict]) -> dict | None:
                 "cost_usd": float(cost_raw) if cost_raw is not None else None,
             }
     return best
+
+
+FAILURE_RUN_OUTCOMES = frozenset({"deadline_exceeded", "budget_exhausted", "error"})
+
+
+def run_summaries(comments: list[dict]) -> list[dict]:
+    """Every run-summary marker's fields (stage, outcome, cost_usd — same shape
+    as latest_run_summary), newest first by the comment's own date. Comments
+    without a marker are ignored."""
+    found: list[tuple[int, dict]] = []
+    for comment in comments:
+        text = comment.get("comment_text")
+        if not isinstance(text, str):
+            continue
+        match = RUN_SUMMARY_MARKER_PATTERN.search(text)
+        if not match:
+            continue
+        cost_raw = match.group(3)
+        found.append(
+            (
+                _comment_date_ms(comment),
+                {
+                    "stage": match.group(1).lower(),
+                    "outcome": match.group(2).lower(),
+                    "cost_usd": float(cost_raw) if cost_raw is not None else None,
+                },
+            )
+        )
+    found.sort(key=lambda item: item[0], reverse=True)
+    return [fields for _, fields in found]
+
+
+def repeated_failure(comments: list[dict]) -> dict | None:
+    """The newest run summary's fields when the newest two both ended in the
+    same failure outcome (FAILURE_RUN_OUTCOMES), else None. Stage is not
+    compared: a story run followed by its auto-resume run (stage "resume")
+    failing alike is the same environmental failure. A park, a
+    success, or two different failures in between break the streak: only a
+    repeat of the SAME failure says the cause is environmental, not flaky."""
+    latest = run_summaries(comments)[:2]
+    if len(latest) < 2:
+        return None
+    newest, previous = latest
+    if newest["outcome"] not in FAILURE_RUN_OUTCOMES or newest["outcome"] != previous["outcome"]:
+        return None
+    return newest
 
 
 # The ClickUp card link a park/notify ping's Slack message embeds (see

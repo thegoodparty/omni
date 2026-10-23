@@ -1470,3 +1470,118 @@ def test_flag_cleanup_check_failure_never_fails_the_sweep_tick(fake_clickup, mon
 
     assert result["statusCode"] == 200
     assert json.loads(result["body"])["flag_cleanup_promoted"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Auto-resume allowlist (ENG-11459)
+# ---------------------------------------------------------------------------
+
+REAL_QUESTION = "Two options: (a) remove the balance-empty test or (b) add a peerly.phonelist.fail mock action?"
+STRANDED_QUESTION = "This run ended while the card was still in 'in progress' — most likely waiting on a watcher."
+
+
+def _resumes(fake_ecs):
+    return [c for c in fake_ecs.run_task_calls if env_vars(c)["AUTOPILOT_STAGE"] == router.STAGE_RESUME]
+
+
+def test_real_question_park_with_no_reply_is_not_auto_resumed(fake_clickup, fake_ecs):
+    fake_clickup.parked_tasks[STORY_LIST_ID] = [task("story-9", router.STATUS_FEEDBACK_NEEDED, parent="epic-1")]
+    fake_clickup.comments["story-9"] = [parked_comment("story", REAL_QUESTION)]
+
+    result = sweep.handle_sweep({"autopilot_sweep": True})
+
+    assert _resumes(fake_ecs) == []
+    assert json.loads(result["body"])["auto_resumed"] == 0
+
+
+def test_stranded_run_park_with_no_reply_is_auto_resumed(fake_clickup, fake_ecs):
+    fake_clickup.parked_tasks[STORY_LIST_ID] = [task("story-9", router.STATUS_FEEDBACK_NEEDED, parent="epic-1")]
+    fake_clickup.comments["story-9"] = [parked_comment("story", STRANDED_QUESTION)]
+
+    result = sweep.handle_sweep({"autopilot_sweep": True})
+
+    assert len(_resumes(fake_ecs)) == 1
+    assert json.loads(result["body"])["auto_resumed"] == 1
+
+
+def test_real_question_with_a_human_reply_resumes_through_the_comment_route_not_the_sweep(fake_clickup, fake_ecs):
+    fake_clickup.parked_tasks[STORY_LIST_ID] = [task("story-9", router.STATUS_FEEDBACK_NEEDED, parent="epic-1")]
+    fake_clickup.comments["story-9"] = [
+        parked_comment("story", REAL_QUESTION, date="2000"),
+        {"id": "reply-1", "comment_text": "Go with (a).", "date": "3000"},
+    ]
+
+    sweep.handle_sweep({"autopilot_sweep": True})
+
+    assert _resumes(fake_ecs) == []
+
+
+# ---------------------------------------------------------------------------
+# Escalate after two consecutive identical failures (ENG-11464)
+# ---------------------------------------------------------------------------
+
+
+def _stranded_story_with_runs(*outcomes):
+    comments = [parked_comment("story", STRANDED_QUESTION, date="5000")]
+    comments += [
+        run_summary_comment("story", outcome, comment_id=f"sum-{i}", date=str(1000 * (i + 1)))
+        for i, outcome in enumerate(outcomes)
+    ]
+    return comments
+
+
+def test_two_consecutive_deadline_exceeded_runs_escalate_instead_of_resuming(fake_clickup, fake_ecs, slack_posts):
+    fake_clickup.parked_tasks[STORY_LIST_ID] = [task("story-9", router.STATUS_FEEDBACK_NEEDED, parent="epic-1")]
+    fake_clickup.comments["story-9"] = _stranded_story_with_runs("deadline_exceeded", "deadline_exceeded")
+
+    result = sweep.handle_sweep({"autopilot_sweep": True})
+
+    assert _resumes(fake_ecs) == []
+    assert json.loads(result["body"])["auto_resumed"] == 0
+    assert fake_clickup.tag_calls == [("story-9", router.DEAD_LETTER_TAG_NAME)]
+    assert len(slack_posts) == 1
+    assert "two consecutive story runs ended deadline_exceeded" in slack_posts[0]
+
+
+def test_two_consecutive_error_runs_escalate(fake_clickup, fake_ecs, slack_posts):
+    fake_clickup.parked_tasks[STORY_LIST_ID] = [task("story-9", router.STATUS_FEEDBACK_NEEDED, parent="epic-1")]
+    fake_clickup.comments["story-9"] = _stranded_story_with_runs("error", "error")
+
+    sweep.handle_sweep({"autopilot_sweep": True})
+
+    assert _resumes(fake_ecs) == []
+    assert fake_clickup.tag_calls == [("story-9", router.DEAD_LETTER_TAG_NAME)]
+
+
+@pytest.mark.parametrize(
+    "outcomes",
+    [
+        ("deadline_exceeded", "success"),
+        ("deadline_exceeded", "feedback_parked"),
+        ("error", "deadline_exceeded"),
+        ("deadline_exceeded",),
+    ],
+)
+def test_non_repeating_failures_still_auto_resume(fake_clickup, fake_ecs, slack_posts, outcomes):
+    fake_clickup.parked_tasks[STORY_LIST_ID] = [task("story-9", router.STATUS_FEEDBACK_NEEDED, parent="epic-1")]
+    fake_clickup.comments["story-9"] = _stranded_story_with_runs(*outcomes)
+
+    sweep.handle_sweep({"autopilot_sweep": True})
+
+    assert len(_resumes(fake_ecs)) == 1
+    assert fake_clickup.tag_calls == []
+    assert slack_posts == []
+
+
+def test_repeated_failure_escalation_does_not_touch_a_human_reply(fake_clickup, fake_ecs, slack_posts):
+    # A human reply after the park is the comment-resume route's business; the
+    # sweep neither dispatches nor escalates for it.
+    fake_clickup.parked_tasks[STORY_LIST_ID] = [task("story-9", router.STATUS_FEEDBACK_NEEDED, parent="epic-1")]
+    fake_clickup.comments["story-9"] = _stranded_story_with_runs("error", "error") + [
+        {"id": "reply-1", "comment_text": "try again", "date": "9000"}
+    ]
+
+    sweep.handle_sweep({"autopilot_sweep": True})
+
+    assert _resumes(fake_ecs) == []
+    assert fake_clickup.tag_calls == []

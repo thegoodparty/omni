@@ -790,3 +790,32 @@ def test_park_if_stranded_guard_failure_never_masks_the_run_result(tmp_path):
     )
 
     assert returned == {"status": "success"}
+
+
+@pytest.mark.parametrize(
+    "result",
+    [{"status": "success"}, {"status": "error", "error": "Deadline exceeded (1800s)"}],
+    ids=["success", "error"],
+)
+def test_stranded_run_question_stays_on_the_sweeps_auto_resume_allowlist(tmp_path, result):
+    # The sweep auto-resumes only allowlisted question prefixes
+    # (router.AUTO_RESUMABLE_PARK_PREFIXES, a copy: the Lambda cannot import
+    # this package). Fails if either stranded-run text drifts from it.
+    import autopilot_conductor_router as router
+
+    clickup = FakeClickUpClient(task_status="in progress")
+
+    park_if_stranded(
+        result,
+        "story",
+        TASK_ID,
+        clickup_client_factory=factory_for(clickup),
+        slack_client_factory=factory_for(FakeSlackClient()),
+        env=ENV,
+        workspace_dir=str(tmp_path),
+    )
+
+    parked_text = next(text for (kind, _, text) in clickup.writes if kind == "comment")
+    parked = router.latest_park([{"id": "c1", "comment_text": parked_text, "date": "1"}])
+    assert parked is not None
+    assert router.is_auto_resumable_park(parked.question), parked.question
