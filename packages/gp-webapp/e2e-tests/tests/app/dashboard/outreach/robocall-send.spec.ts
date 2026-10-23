@@ -417,6 +417,7 @@ const composeAndAuthorizeRobocall = async (
 
   // The success summary lists the caller ID; the CallHub mock always rents
   // this number (callhubMock.controller.ts).
+  // eslint-disable-next-line no-restricted-syntax -- the mock's output, not an input
   await expect(page.getByText('+15551234567', { exact: true })).toBeVisible()
 
   expect(outreachId).toBeGreaterThan(0)
