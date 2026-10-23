@@ -1051,6 +1051,7 @@ describe('GET /v1/p2p/phone-list/:token/status (ENG-10728 peerlyListId stamping)
       leadsLoaded: 10,
       excludedOptedOutCount: 0,
       excludedDuplicatePhoneCount: 0,
+      excludedIncompleteAddressCount: 0,
     })
 
     const afterFirstPoll = await service.prisma.peerlyPhoneList.findUnique({
@@ -1200,6 +1201,7 @@ describe('GET /v1/p2p/phone-list/build/:buildId/status (additive build-status ro
       leadsLoaded: 42,
       excludedOptedOutCount: 3,
       excludedDuplicatePhoneCount: 2,
+      excludedIncompleteAddressCount: 0,
     })
 
     const stamped = await service.prisma.peerlyPhoneList.findUnique({
