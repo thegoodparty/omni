@@ -1,3 +1,4 @@
+import type { CivicPanelPlaceKind } from '@goodparty_org/contracts'
 import { Progress } from '@styleguide'
 import { cn } from '@styleguide/lib/utils'
 import { CheckIcon } from '@styleguide/components/ui/icons'
@@ -55,10 +56,12 @@ export const CivicPanelHero = ({
   stage,
   members,
   goal,
+  placeKind = 'tract',
 }: {
   stage: CivicPanelStage
   members: number
   goal: number
+  placeKind?: CivicPanelPlaceKind
 }) => {
   const copy = COPY.hero[stage]
   const joined = COPY.joinedOfGoal(members, goal)
@@ -79,7 +82,7 @@ export const CivicPanelHero = ({
       <div className="hidden w-full justify-center lg:flex">
         <SeatArc
           chart={plainSeats(members, goal)}
-          words={COPY.seatPlaces.tract}
+          words={COPY.seatPlaces[placeKind]}
           labeled={false}
           quiet
           className="max-w-[32rem]"

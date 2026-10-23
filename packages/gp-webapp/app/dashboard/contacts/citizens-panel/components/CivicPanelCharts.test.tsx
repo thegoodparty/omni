@@ -379,6 +379,23 @@ describe('CivicPanelHero', () => {
     ).toBeTruthy()
   })
 
+  it('names a precinct district by precinct, never by tract', () => {
+    render(
+      <CivicPanelHero
+        stage="building"
+        members={60}
+        goal={GOAL}
+        placeKind="precinct"
+      />,
+    )
+    const arc = screen.getByRole('img')
+    expect(arc).toHaveAttribute(
+      'aria-label',
+      'Your district as 100 seats. 25 of 100 seats filled.',
+    )
+    expect(arc.getAttribute('aria-label')).not.toMatch(/tract/)
+  })
+
   it('never claims seats a ready panel lost', () => {
     render(<CivicPanelHero stage="ready" members={230} goal={GOAL} />)
     expect(
