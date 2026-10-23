@@ -768,6 +768,16 @@ export class PriorityStatusService extends createPrismaBase(MODELS.Priority) {
         inputSchema: UpdatePriorityStatusInputSchema,
         execute: async (input) => {
           const current = await this.read(priorityId)
+          // Recorded before the refusals, so a send-back the agent meant in a
+          // call refused for another step still holds for the turn.
+          input.steps
+            .filter(
+              (patch) =>
+                patch.state !== STEP_STATE.settled &&
+                current.steps.find((step) => step.id === patch.id)?.state ===
+                  STEP_STATE.settled,
+            )
+            .forEach((patch) => sentBack.add(patch.id))
           const resettled = input.steps.find(
             (patch) =>
               patch.state === STEP_STATE.settled && sentBack.has(patch.id),
@@ -783,16 +793,6 @@ export class PriorityStatusService extends createPrismaBase(MODELS.Priority) {
                 'their answer, and keep working on the step you are on.',
             )
           }
-          // Recorded before the refusals, so a send-back the agent meant in a
-          // call refused for another step still holds for the turn.
-          input.steps
-            .filter(
-              (patch) =>
-                patch.state !== STEP_STATE.settled &&
-                current.steps.find((step) => step.id === patch.id)?.state ===
-                  STEP_STATE.settled,
-            )
-            .forEach((patch) => sentBack.add(patch.id))
           const refusal = refusalFor(current, input, turn)
           if (refusal !== null) return refusalResult(current, input, refusal)
           const result = await this.applyUpdate(

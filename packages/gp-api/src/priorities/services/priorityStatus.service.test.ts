@@ -1208,6 +1208,37 @@ describe('update_priority_status sends a settled step back rather than rewriting
     })
   })
 
+  it('holds a send-back made in a call refused for re-settling another step', async () => {
+    const id = await createPriority()
+    await statusService.applyUpdate(id, {
+      steps: [
+        { id: 'define', state: 'settled', summary: 'Keep Station 9 open' },
+        { id: 'evidence', state: 'settled', summary: '4 minutes with it' },
+      ],
+      nextAction: 'Call the fire chief',
+    })
+    const tool = toolFor(id)
+    await tool.execute({
+      steps: [{ id: 'define', state: 'stale', caveat: 'Overtime, not it' }],
+      nextAction: 'Ask for the overtime total',
+    })
+
+    const refused = await tool.execute({
+      steps: [
+        { id: 'define', state: 'settled' },
+        { id: 'evidence', state: 'stale', caveat: 'The cost is overtime' },
+      ],
+      nextAction: 'Ask for the overtime total',
+    })
+    expect(refused).toHaveProperty('error')
+
+    const resettle = await tool.execute({
+      steps: [{ id: 'evidence', state: 'settled' }],
+      nextAction: 'Ask for the overtime total',
+    })
+    expect(resettle).toHaveProperty('error')
+  })
+
   it('refuses writing a summary onto a step settled without one', async () => {
     const id = await createPriority()
     await statusService.applyUpdate(id, {
