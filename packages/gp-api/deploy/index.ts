@@ -40,6 +40,12 @@ export = async () => {
 
   const imageUri = config.require('imageUri')
 
+  // Prod-only value: the probe itself runs wherever VENDOR_MODE is live.
+  const driftProbePeerlyIdentityId =
+    environment === 'prod'
+      ? config.get('driftProbePeerlyIdentityId')
+      : undefined
+
   const prNumber =
     environment === 'preview' ? config.require('prNumber') : undefined
 
@@ -686,6 +692,13 @@ jwIDAQAB
         : rdsCluster!.databaseName,
       SECRETS_MANAGER_KEYS: Object.keys(containerSecrets).join(','),
       ...(environment === 'preview' ? { IS_PREVIEW: 'true' } : {}),
+      // One known approved Peerly identity for the nightly vendor drift probe.
+      // An id, not a credential, so a plain env var rather than the secret.
+      // Set per stack (`pulumi config set driftProbePeerlyIdentityId <id>`);
+      // unset leaves the var off and the probe skips that one call.
+      ...(driftProbePeerlyIdentityId
+        ? { DRIFT_PROBE_PEERLY_IDENTITY_ID: driftProbePeerlyIdentityId }
+        : {}),
     },
     permissions: [
       {

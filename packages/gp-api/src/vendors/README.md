@@ -16,3 +16,5 @@ Thin wrappers around third-party SDKs. Each subdirectory is a Nest module that o
 - `vercel/` — site deploys
 
 Convention: vendor calls happen in services here. Application code injects the vendor service rather than calling the SDK directly. Wrap external calls in try/catch and throw `BadGatewayException` on failure.
+
+`vendorDriftProbe.service.ts` (with `vendorDriftProbe.schemas.ts`) is the nightly live-vendor drift probe: read-only calls through the real clients, parsed with the shared schemas via `parseVendorResponse(..., { mode: 'enforce' })`, Slack only on failure. A new vendor read endpoint that prod traffic rarely hits belongs in its `buildProbes()` list. Never add a write endpoint, and never `retrieve_cv` (Peerly limits it to 1 call a minute). See `docs/scheduled-jobs.md`.

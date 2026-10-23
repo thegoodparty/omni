@@ -84,6 +84,15 @@ Reference implementations, all clean examples of the shape below:
   abandoned memos. No deploy allowlist: it calls Transcribe only for memos
   recorded on the deploy's own database
 
+- `vendors/vendorDriftProbe.service.ts` (`vendorDriftProbe`, `41 4 * * *`):
+  daily slot, gated on `VENDOR_MODE === 'live'` (prod in practice; read
+  through the module constant, not `OTEL_SERVICE_ENVIRONMENT`). Calls eight
+  read-only endpoints across Peerly, CallHub, Geoapify, Vercel and Route53
+  with live credentials, parses each in `enforce` mode, and posts to
+  `#bot-10dlc-compliance` only when one fails. One billed Geoapify routing
+  call a day, the rest are free reads. Never logs or posts a response body.
+  Needs `DRIFT_PROBE_PEERLY_IDENTITY_ID` for the Peerly use-case probe
+
 A few older jobs predate this service and dedupe another way; treat those as
 history, not as a template.
 
