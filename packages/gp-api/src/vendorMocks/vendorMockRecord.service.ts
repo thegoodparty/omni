@@ -11,6 +11,10 @@ import {
 
 const MAX_REQUESTS = 10
 const ROUTE_FAIL_KIND = 'route_fail'
+const CALLHUB_CREATE_FAIL_KIND = 'create_fail'
+// Staging names a CallHub broadcast `Robocall <slug> #<outreachId>`; the create
+// request carries no other link back to the campaign.
+const ROBOCALL_BROADCAST_NAME = /^Robocall .+ #(\d+)$/
 const VERCEL_ORDER_KIND = 'domain_order'
 const VERCEL_ORDER_FAIL_KIND = 'order_fail'
 export const VERCEL_ORDER_COMPLETION_DELAY_SECONDS = 30
@@ -100,13 +104,81 @@ export class VendorMockRecordService extends createPrismaBase(
       .map((r) => r.callhubCampaignPkStr)
       .filter((pk): pk is string => pk !== null)
     if (pkStrs.length === 0) return []
-    return this.model.findMany({
+    const campaigns = await this.model.findMany({
       where: {
         vendor: VendorMockVendor.callhub,
         kind: 'vb_campaign',
         externalId: { in: pkStrs },
       },
     })
+    // Include the phonebooks those campaigns were created against.
+    const phonebookIds = campaigns.flatMap((c) => {
+      const state = c.state
+      if (typeof state !== 'object' || state === null || Array.isArray(state)) {
+        return []
+      }
+      const phonebooks: unknown = Object.entries(state).find(
+        ([key]) => key === 'phonebooks',
+      )?.[1]
+      return Array.isArray(phonebooks) ? phonebooks.map(String) : []
+    })
+    if (phonebookIds.length === 0) return campaigns
+    const phonebooks = await this.model.findMany({
+      where: {
+        vendor: VendorMockVendor.callhub,
+        kind: 'phonebook',
+        externalId: { in: phonebookIds },
+      },
+    })
+    return [...campaigns, ...phonebooks]
+  }
+
+  // Peerly p2p jobs carry no campaignId (the mock controller is global), so
+  // they are resolved through the campaign's outreach rows, whose projectId is
+  // the Peerly job id.
+  async findPeerlyP2pJobsForCampaign(campaignId: number) {
+    const outreaches = await this.client.outreach.findMany({
+      where: { campaignId, projectId: { not: null } },
+      select: { projectId: true },
+    })
+    const jobIds = outreaches
+      .map((o) => o.projectId)
+      .filter((id): id is string => id !== null)
+    if (jobIds.length === 0) return []
+    return this.model.findMany({
+      where: {
+        vendor: VendorMockVendor.peerly,
+        kind: 'p2p_job',
+        externalId: { in: jobIds },
+      },
+    })
+  }
+
+  // Moves a mocked Peerly p2p job's send day (`start_date`), which is what the
+  // outreach completion sweep reads. Returns false when the job has no record.
+  async setPeerlyP2pJobStartDate(jobId: string, startDate: string) {
+    this.assertNonProdDeploy()
+    const record = await this.model.findUnique({
+      where: {
+        vendor_kind_externalId: {
+          vendor: VendorMockVendor.peerly,
+          kind: 'p2p_job',
+          externalId: jobId,
+        },
+      },
+    })
+    if (!record) return false
+    const state =
+      typeof record.state === 'object' &&
+      record.state !== null &&
+      !Array.isArray(record.state)
+        ? record.state
+        : {}
+    await this.model.update({
+      where: { id: record.id },
+      data: { state: { ...state, start_date: startDate } },
+    })
+    return true
   }
 
   // Sets the mocked CallHub voice-broadcast status to END for the campaign's
@@ -164,6 +236,45 @@ export class VendorMockRecordService extends createPrismaBase(
       data: { state: { routeFail: false } },
     })
     return count > 0
+  }
+
+  // One row per campaign, so an armed failure only ever reaches that
+  // campaign's next CallHub broadcast create, never another test's.
+  async armCallhubCreateFail(campaignId: number) {
+    return this.upsert(
+      VendorMockVendor.callhub,
+      CALLHUB_CREATE_FAIL_KIND,
+      String(campaignId),
+      { createFail: true },
+      campaignId,
+    )
+  }
+
+  // Conditional update so two concurrent creates can't both consume it.
+  async consumeCallhubCreateFail(campaignId: number) {
+    this.assertNonProdDeploy()
+    const { count } = await this.model.updateMany({
+      where: {
+        vendor: VendorMockVendor.callhub,
+        kind: CALLHUB_CREATE_FAIL_KIND,
+        externalId: String(campaignId),
+        state: { path: ['createFail'], equals: true },
+      },
+      data: { state: { createFail: false } },
+    })
+    return count > 0
+  }
+
+  // The campaign a CallHub broadcast was staged for, read off the name the
+  // staging service gives it. Undefined for any other name.
+  async campaignIdForRobocallBroadcast(name: string) {
+    const outreachId = Number(ROBOCALL_BROADCAST_NAME.exec(name)?.[1])
+    if (!Number.isSafeInteger(outreachId)) return undefined
+    const outreach = await this.client.outreach.findUnique({
+      where: { id: outreachId },
+      select: { campaignId: true },
+    })
+    return outreach?.campaignId ?? undefined
   }
 
   // The campaign that owns a candidate domain, via its website. Undefined

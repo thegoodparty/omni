@@ -1,6 +1,11 @@
 import { randomUUID } from 'node:crypto'
 import axios, { type AxiosInstance } from 'axios'
 import { createClerkClient } from '@clerk/backend'
+import type {
+  ApplyTestFixtureElectionResponse,
+  RaceListItem,
+  TestModeElectionPreset,
+} from '@goodparty_org/contracts'
 import { TestDataHelper } from '../../src/helpers/data.helper'
 import { clerkThrottle } from './throttle-requests-with-retry'
 
@@ -137,35 +142,63 @@ export const mintApiToken = async (clerkUserId: string): Promise<string> => {
   return jwt
 }
 
-export type Race = {
-  id: string
-  brPositionId: string
-  filingPeriods?: { startOn: string; endOn: string }[]
-  election: {
-    id?: string
-    electionDay: string
-    name?: string
-    state?: string
-  }
-  position: {
-    id?: string
-    hasPrimary?: boolean
-    partisanType?: string
-    level: string
-    name: string
-    state: string
-  }
+// The office every test campaign is created on unless it names another: a
+// real BallotReady office with real voter rows in the dev people-db. Only the
+// office is real. The election date always comes from a preset.
+export const DEFAULT_TEST_RACE = {
+  zip: '82001',
+  office: 'Cheyenne City Council - Ward 1',
+}
+
+export type TestRace = { zip: string; office: string }
+
+// gp-api resolves the office whatever today's date is: its next race, else
+// its most recent past one. So an office's election passing never breaks
+// setup; the race supplies the position and district, never the date.
+export const resolveTestRace = async (
+  client: AxiosInstance,
+  race: TestRace = DEFAULT_TEST_RACE,
+): Promise<RaceListItem> => {
+  const { data } = await withGatewayRetry(
+    'GET /v1/test-fixtures/races/resolve',
+    () =>
+      client.get<RaceListItem>('/v1/test-fixtures/races/resolve', {
+        params: race,
+      }),
+  )
+  return data
+}
+
+// `in_8_weeks` keeps a campaign well outside the 19-day texting cutoff.
+export const DEFAULT_ELECTION_PRESET: TestModeElectionPreset = 'in_8_weeks'
+
+// Declares the campaign's election state. gp-api computes the date from its
+// own clock (the same presets staff Test mode uses), so specs never do date
+// math and never inherit a real race's date.
+export const applyElectionPreset = async (
+  client: AxiosInstance,
+  campaignId: number,
+  preset: TestModeElectionPreset,
+): Promise<ApplyTestFixtureElectionResponse> => {
+  const { data } = await withGatewayRetry(
+    'POST /v1/test-fixtures/campaigns/:id/election',
+    () =>
+      client.post<ApplyTestFixtureElectionResponse>(
+        `/v1/test-fixtures/campaigns/${campaignId}/election`,
+        { preset },
+      ),
+  )
+  return data
 }
 
 export type HeadlessUserProduct = 'win' | 'serve'
 
 export type CreateHeadlessTestUserOptions = {
   product: HeadlessUserProduct
-  // win: pick the candidate race by zip + office name (or a predicate).
-  race?: {
-    zip: string
-    office: string | ((office: string) => boolean)
-  }
+  // win: the office the campaign runs for (default DEFAULT_TEST_RACE).
+  race?: TestRace
+  // win: the campaign's election state (default DEFAULT_ELECTION_PRESET).
+  election?: TestModeElectionPreset
   // win: stop after JIT-provisioning the user (no campaign).
   skipCampaignCreation?: boolean
   // serve: the election-api Position id to bind the elected office to. Stored as
@@ -272,38 +305,19 @@ export const createHeadlessTestUser = async (
     return result
   }
 
-  const { data: races } = await withGatewayRetry(
-    'GET /v1/elections/races-by-year',
-    () =>
-      client.get<Race[]>('/v1/elections/races-by-year', {
-        params: { zipcode: zip },
-      }),
-  )
-
-  const desiredRace = options.race?.office ?? 'Cheyenne City Council - Ward 1'
-  const race = races.find((race) =>
-    typeof desiredRace === 'function'
-      ? desiredRace(race.position.name)
-      : race.position.name === desiredRace,
-  )
-
-  if (!race) {
-    throw new Error('No race found for the specific office selector')
-  }
+  const race = await resolveTestRace(client, {
+    zip,
+    office: options.race?.office ?? DEFAULT_TEST_RACE.office,
+  })
 
   const { data: campaign } = await withGatewayRetry('POST /v1/campaigns', () =>
     client.post<{ id: number }>('/v1/campaigns', {
       ballotReadyPositionId: race.brPositionId,
       details: {
-        electionId: race.election.id,
         raceId: race.id,
         state: race.position.state,
-        ballotLevel: race.position.level?.toUpperCase(),
+        ballotLevel: race.position.level.toUpperCase(),
         electionDate: race.election.electionDay,
-        partisanType: race.position.partisanType,
-        hasPrimary: race.position.hasPrimary,
-        filingPeriodsStart: race.filingPeriods?.[0]?.startOn,
-        filingPeriodsEnd: race.filingPeriods?.[0]?.endOn,
       },
       data: { currentStep: 'onboarding-1' },
     }),
@@ -312,6 +326,13 @@ export const createHeadlessTestUser = async (
   if (!campaign?.id) {
     throw new Error('Campaign creation did not return a valid id')
   }
+
+  // Before launch, so launch already sees the declared date.
+  await applyElectionPreset(
+    client,
+    campaign.id,
+    options.election ?? DEFAULT_ELECTION_PRESET,
+  )
 
   result.campaignId = campaign.id
   result.orgSlug = `campaign-${campaign.id}`

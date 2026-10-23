@@ -11,6 +11,7 @@ import {
   deliverStripeEvent,
   mockRecords,
   runJob,
+  timeTravel,
 } from 'src/helpers/vendor-mocks.helper'
 import { withGatewayRetry } from 'tests/utils/headless-user'
 import { eventually } from 'tests/utils/eventually'
@@ -19,7 +20,10 @@ import { authenticateTestUser } from 'tests/utils/api-registration'
 // [M3-4] Win SMS Playwright spec (ENG-XXXXX / ClickUp 17tnw2b7f5p)
 //
 // End-to-end coverage of the Win SMS P2P send flow against the vendor-mock
-// stack: compose → Stripe payment → deliver signed webhook → CAS approve.
+// stack: compose → Stripe payment → deliver signed webhook → CAS approve →
+// send day (in_progress) → send day passed (completed), with the Peerly mock
+// job asserted to carry the composed message, a phone list and booked
+// canvassers.
 //
 // The candidate is a Pro Win user whose 10DLC registration is approved. The
 // `pro-win-10dlc-mock` fixture state runs the real registration server-side
@@ -28,6 +32,11 @@ import { authenticateTestUser } from 'tests/utils/api-registration'
 // live-mode deploy. Every call here is real gp-api traffic; nothing is stubbed.
 
 const HEADSHOT_FIXTURE = join(__dirname, '../../../../src/fixtures/heart.png')
+
+// Whitespace-insensitive compare: the editor renders one paragraph per line,
+// so line breaks do not survive a read of the DOM the way the stored text has
+// them. Every other character must match.
+const normalize = (text: string): string => text.replace(/\s+/g, '')
 
 // ─── Stripe helper ─────────────────────────────────────────────────────────────
 // Fills the Stripe PaymentElement iframe with the test card. Matches the same
@@ -66,7 +75,7 @@ test.describe('Win SMS send', () => {
     await blockSlowScripts(page)
   })
 
-  test('happy path: compose → schedule → Stripe pay → CAS approve → outreach scheduled', async ({
+  test('happy path: compose → schedule → Stripe pay → CAS approve → in progress → completed', async ({
     page,
   }) => {
     test.setTimeout(8 * 60 * 1000)
@@ -92,17 +101,7 @@ test.describe('Win SMS send', () => {
     expect(fixture.stage).toBe('tcr_approved')
     expect(fixture.peerlyIdentityId).toBeTruthy()
 
-    // ── 4. Open SMS window ─────────────────────────────────────────────────
-    // Move election date so texting window is open (19-day cutoff guard).
-    await withGatewayRetry('PUT /v1/campaigns/mine', () =>
-      client.put('/v1/campaigns/mine', {
-        details: {
-          electionDate: format(addDays(new Date(), 60), 'yyyy-MM-dd'),
-        },
-      }),
-    )
-
-    // ── 5. Pre-create a voter file filter so the audience picker has a row ─
+    // ── 4. Pre-create a voter file filter so the audience picker has a row ─
     const filterName = `E2E sms-send ${Date.now()}`
     await withGatewayRetry('POST /v1/voters/voter-file/filter', () =>
       client.post<{ id: number }>('/v1/voters/voter-file/filter', {
@@ -110,13 +109,13 @@ test.describe('Win SMS send', () => {
       }),
     )
 
-    // ── 6. Open the SMS compose drawer ────────────────────────────────────
+    // ── 5. Open the SMS compose drawer ────────────────────────────────────
     await page.goto('/dashboard/outreach?compose=text', {
       waitUntil: 'domcontentloaded',
     })
     await NavigationHelper.dismissOverlays(page)
 
-    // ── 7. Purpose step ───────────────────────────────────────────────────
+    // ── 6. Purpose step ───────────────────────────────────────────────────
     await expect(
       page.getByRole('button', { name: 'Introduce myself to voters' }),
     ).toBeVisible({ timeout: 30_000 })
@@ -124,7 +123,7 @@ test.describe('Win SMS send', () => {
       .getByRole('button', { name: 'Introduce myself to voters' })
       .click()
 
-    // ── 8. Audience step: pick the pre-created filter ─────────────────────
+    // ── 7. Audience step: pick the pre-created filter ─────────────────────
     await expect(
       page.getByRole('button', {
         name: /Choose a voter list|view your lists/i,
@@ -139,7 +138,7 @@ test.describe('Win SMS send', () => {
     })
     await page.getByRole('button', { name: /^Continue/ }).click()
 
-    // ── 9. Compose step ───────────────────────────────────────────────────
+    // ── 8. Compose step ───────────────────────────────────────────────────
     // Continue stays disabled while the AI draft is in flight. The step also
     // blocks Continue until the message carries an image: a campaign with no
     // profile photo attaches one here, the way a candidate would.
@@ -162,9 +161,26 @@ test.describe('Win SMS send', () => {
     await expect(page.getByRole('button', { name: /^Continue/ })).toBeEnabled({
       timeout: 60_000,
     })
+    // Capture the composed message as the candidate sees it, before it leaves
+    // the browser. The merge-tag chip stands for its Peerly token
+    // ({first_name}, carried on the chip's data-token-text), so the chip is
+    // read as that token and the text compares to what Peerly stores verbatim.
+    const composedMessage = normalize(
+      await composeDialog
+        .locator('[aria-label="Message body"]')
+        .first()
+        .evaluate((el) => {
+          const copy = el.cloneNode(true) as HTMLElement
+          copy.querySelectorAll('[data-token-id]').forEach((chip) => {
+            chip.replaceWith(chip.getAttribute('data-token-text') ?? '')
+          })
+          return copy.innerText || copy.textContent || ''
+        }),
+    )
+    expect(composedMessage.length).toBeGreaterThan(0)
     await page.getByRole('button', { name: /^Continue/ }).click()
 
-    // ── 10. Schedule step: date, time (the name is auto-filled) ──────────
+    // ── 9. Schedule step: date, time (the name is auto-filled) ──────────
     await expect(page.getByText('When do you want to send it?')).toBeVisible({
       timeout: 30_000,
     })
@@ -203,14 +219,14 @@ test.describe('Win SMS send', () => {
 
     await page.getByRole('button', { name: 'Continue' }).click()
 
-    // ── 11. If the phone list is still building, finish it ────────────────
+    // ── 10. If the phone list is still building, finish it ────────────────
     // The audience step's Continue kicks off the Peerly build. runJob finishes
     // it synchronously in mock mode if the poll hasn't resolved yet.
     await withGatewayRetry('p2p.phoneListFinish', () =>
       runJob(client, 'p2p.phoneListFinish'),
     )
 
-    // ── 12. Review step ───────────────────────────────────────────────────
+    // ── 11. Review step ───────────────────────────────────────────────────
     // "Review & pay" for a charged send, "Review and send" when the Pro free
     // texts offer covers the audience.
     const reviewHeading = page
@@ -235,26 +251,26 @@ test.describe('Win SMS send', () => {
       await expect(scheduleButton).toBeEnabled({ timeout: 15_000 })
       await scheduleButton.click()
     } else {
-      // ── 13. Fill Stripe card and submit ─────────────────────────────────
+      // ── 12. Fill Stripe card and submit ─────────────────────────────────
       await fillStripeCard(page)
       await expect(completeButton).toBeEnabled({ timeout: 15_000 })
       await completeButton.scrollIntoViewIfNeeded()
       await completeButton.click()
     }
 
-    // ── 14. Wait for the success screen ───────────────────────────────────
+    // ── 13. Wait for the success screen ───────────────────────────────────
     await expect(
       page.getByRole('heading', { name: /Payment successful|Scheduled/ }),
     ).toBeVisible({ timeout: 60_000 })
 
-    // ── 15. Deliver the Stripe webhook to finalize a charged outreach ─────
+    // ── 14. Deliver the Stripe webhook to finalize a charged outreach ─────
     // The review step requests a checkout session even when the offer makes
     // the send free, so only a paid send has a completed session to deliver.
     if (!isFreeSend && sessionId) {
       await deliverStripeEvent(client, sessionId)
     }
 
-    // ── 16. CAS approve ───────────────────────────────────────────────────
+    // ── 15. CAS approve ───────────────────────────────────────────────────
     // GET /v1/outreach returns the campaign's rows; the SMS send is the p2p one.
     let outreachId = 0
     await eventually(
@@ -274,6 +290,61 @@ test.describe('Win SMS send', () => {
 
     const approval = await adminAction(client, outreachId, 'cas.approve')
     expect(approval.status).toBe('applied')
+
+    // The outreach status as gp-api reports it.
+    const outreachStatus = async (): Promise<string | null> => {
+      const { data } =
+        await client.get<{ id: number; status: string | null }[]>(
+          '/v1/outreach',
+        )
+      return data.find((o) => o.id === outreachId)?.status ?? null
+    }
+
+    // ── 17. Send day arrives → in_progress ────────────────────────────────
+    // The sweep reads the Peerly job's start_date: today (UTC) means sending.
+    await timeTravel(client, outreachId, 'sms.start_date_today')
+    await runJob(client, 'outreach.completion')
+    await eventually(
+      { that: 'outreach is in_progress on its send day', maxTimeout: 15_000 },
+      async () => {
+        expect(await outreachStatus()).toBe('in_progress')
+      },
+    )
+
+    // ── 18. Send day passes → completed ───────────────────────────────────
+    await timeTravel(client, outreachId, 'sms.start_date_passed')
+    await runJob(client, 'outreach.completion')
+    await eventually(
+      {
+        that: 'outreach is completed once its send day passed',
+        maxTimeout: 15_000,
+      },
+      async () => {
+        expect(await outreachStatus()).toBe('completed')
+      },
+    )
+
+    // ── 19. The Peerly mock job carries the send ──────────────────────────
+    const { records } = await mockRecords(client, campaignId)
+    const job = records.find(
+      (r) => r.vendor === 'peerly' && r.kind === 'p2p_job',
+    )
+    expect(job, 'Peerly p2p_job mock record').toBeTruthy()
+    const jobState = job?.state as {
+      templates?: { text?: string }[]
+      phoneListId?: number | string
+      canvassersBooked?: boolean
+    }
+    expect(normalize(jobState.templates?.[0]?.text ?? '')).toBe(composedMessage)
+    expect(jobState.phoneListId).toBeTruthy()
+    expect(jobState.canvassersBooked).toBe(true)
+
+    // ── 20. The outreach hub shows it as done ─────────────────────────────
+    await page.goto('/dashboard/outreach', { waitUntil: 'domcontentloaded' })
+    await NavigationHelper.dismissOverlays(page)
+    await expect(
+      page.locator('tbody tr').filter({ hasText: 'Done' }).first(),
+    ).toBeVisible({ timeout: 30_000 })
   })
 
   // TODO(M4): add a phone-list failure test once a Peerly phone-list failure

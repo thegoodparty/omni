@@ -100,6 +100,8 @@ vi.spyOn(contacts, 'getDistrictStats').mockResolvedValue({ ... })
 
 See `src/users/services/users.service.test.ts` and `src/polls/polls.test.ts` for representative examples.
 
+**No schedules run.** The harness boots the app with no `@Cron`, `@Interval` or `@Timeout` registered, so no job fires on a real timer mid-suite and writes rows a test is counting (ENG-11423: an hourly cron claimed a `cron_run` row during a table-wide count). Test a job by calling its method on the service, as `outreachInboundSweep.service.test.ts` does. A suite that needs the real scheduler, for example to assert what `SchedulerRegistry` holds, passes `useTestService({ scheduler: true })`; every job then fires on real timers, so scope each assertion to rows the test owns. `src/test-service.scheduler.test.ts` covers both.
+
 ## Helpers
 
 Under `src/shared/test-utils/`:

@@ -322,7 +322,7 @@ const managedCivicPanelBlock = (
       MANAGED_CIVIC_PANEL_SET_UP_MESSAGE,
       'they approve the invite, which sets up their civic panel',
     ),
-    `- On "${MANAGED_CIVIC_PANEL_SET_UP_MESSAGE}", call \`${READ_MANAGED_PANEL_TOOL}\`, then say exactly "Done. The first invites go out <firstSendDate>. I'll let you know when your panel is ready, around the week of <readyWeekOf>." with the dates it returns, and call \`${PRESENT_MANAGED_PANEL_TOOL}\`.`,
+    `- On "${MANAGED_CIVIC_PANEL_SET_UP_MESSAGE}", call \`${READ_MANAGED_PANEL_TOOL}\`, then say exactly "Done. The first invites go out <firstSendDate>. I'll let you know when your civic panel is ready, around the week of <readyWeekOf>." with the dates it returns, and call \`${PRESENT_MANAGED_PANEL_TOOL}\`.`,
     firstPriority
       ? `- Then, in one short line, offer to keep going on their priority "${firstPriority}" while we build.`
       : '- Then, in one short line, ask which priority they want to work on while we build, and offer to record it.',

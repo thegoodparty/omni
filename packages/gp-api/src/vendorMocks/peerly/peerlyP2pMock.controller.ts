@@ -71,7 +71,9 @@ export class PeerlyP2pMockController {
       leads_remaining: 0,
       start_date: today,
       end_date: today,
-      templates: [],
+      // Kept as sent so a test can read back the composed message. The create
+      // response below still answers with no templates, as before.
+      templates: Array.isArray(body['templates']) ? body['templates'] : [],
       deleted: false,
       can_use_mms: true,
     }

@@ -12,6 +12,7 @@ import { ProposalLinkSchema } from '@goodparty_org/contracts'
 import { parseTrackerOrigin } from 'app/dashboard/outreach/util/composeOutreachHref.util'
 import { parseWalkableAreaParam } from './native/walkableAreaParam'
 import { SERVE_DOOR_KNOCKING_PURPOSE_VALUES } from './native/createFlow/serveDoorKnockingPurposes'
+import { COMMUNITY_INPUT_QUESTION_MAX_LENGTH } from '@goodparty_org/contracts'
 
 // The surfaces that link here with `?create=1` and say where they are.
 // Allowlisted so the query string cannot put an arbitrary value into
@@ -57,6 +58,7 @@ interface PageParams {
     trackerTaskId?: string
     phase?: string
     purpose?: string
+    question?: string
     area?: string
     launchSource?: string
   }>
@@ -83,6 +85,7 @@ export default async function Page({
       trackerTaskId,
       phase,
       purpose,
+      question,
       area,
       launchSource,
     },
@@ -148,6 +151,11 @@ export default async function Page({
     initialPurpose: SERVE_DOOR_KNOCKING_PURPOSE_VALUES.find(
       (value) => value === purpose,
     ),
+    // A priority card's question, for the community input purpose it
+    // carries. Blank is no question, and the flow asks for one.
+    initialQuestion:
+      question?.trim().slice(0, COMMUNITY_INPUT_QUESTION_MAX_LENGTH) ||
+      undefined,
     prefillArea: parseWalkableAreaParam(area),
     // The agent surface that sent the official here, for the Outreach events.
     launchSource: LAUNCH_SOURCES.find((value) => value === launchSource),

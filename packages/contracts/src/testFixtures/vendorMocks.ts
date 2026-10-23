@@ -18,6 +18,7 @@ export const MockActionSchema = z.object({
   action: z.enum([
     'geoapify.route.fail',
     'callhub.campaign.complete',
+    'callhub.campaign.fail',
     'peerly.balance.empty',
     'peerly.cv.approve',
     'peerly.cv.reject',
@@ -68,6 +69,7 @@ export const TimeTravelSchema = z.object({
     'robocall.send_due_now',
     'robocall.dialed_48h_ago',
     'sms.start_date_today',
+    'sms.start_date_passed',
   ]),
 })
 export type TimeTravel = z.infer<typeof TimeTravelSchema>

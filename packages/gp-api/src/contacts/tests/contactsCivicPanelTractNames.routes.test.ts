@@ -9,7 +9,10 @@ import {
   vi,
   type MockInstance,
 } from 'vitest'
-import type { CivicPanelSummary } from '@goodparty_org/contracts'
+import {
+  CIVIC_PANEL_JOIN_LINE,
+  type CivicPanelSummary,
+} from '@goodparty_org/contracts'
 import { useTestService } from '@/test-service'
 import {
   CivicPanelStatus,
@@ -272,6 +275,32 @@ describe('census tract names on the civic panel', () => {
       [b]: 'West Asheville, around State St',
       [c]: `West Asheville, around Haywood Rd (Tract ${tractNumber(c)})`,
     })
+  })
+
+  it('names the district on approval, so the first read has names', async () => {
+    const tract = newTract()
+    stubPlaces([place(tract, 35.64, 'HAYWOOD', 'RD')])
+    stubGeocoder(
+      new Map([[35.64, { suburb: 'West Asheville', city: 'Asheville' }]]),
+    )
+    const slug = await seedOffice()
+    stubDistrict([tract])
+
+    const approved = await service.client.post(
+      '/v1/contacts/civic-panel/managed',
+      {
+        inviteMessage: `Hi, it's Mayor Lee.\n\n${CIVIC_PANEL_JOIN_LINE}\n\nReply STOP to opt out.`,
+        consentVersion: '2026-10-22',
+      },
+      { headers: headers(slug), validateStatus: () => true },
+    )
+    expect(approved.status).toBe(200)
+    await naming(1)
+    await joinPanel(slug, 20)
+    const res = await readPanel(slug)
+
+    expect(labels(res)).toEqual({ [tract]: 'West Asheville' })
+    expect(fill).toHaveBeenCalledTimes(1)
   })
 
   it('geocodes a tract once, ever, after the first read', async () => {

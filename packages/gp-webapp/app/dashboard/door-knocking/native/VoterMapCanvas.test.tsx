@@ -1390,7 +1390,7 @@ describe('VoterMapCanvas drawing', () => {
     const container = getByTestId('voter-map')
     expect(container).not.toHaveAttribute('data-map-ready')
 
-    act(() => gl.handlers.get('load')?.())
+    act(() => gl.handlers.get('moveend')?.())
 
     expect(container).toHaveAttribute('data-map-ready', 'true')
     expect(container).toHaveAttribute('data-map-center', '-104.82,41.134')

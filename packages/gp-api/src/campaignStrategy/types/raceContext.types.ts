@@ -4,7 +4,7 @@ import { ElectionCode } from '@/elections/types/elections.types'
 // fields are nullable per the contract — first/last/full name on candidates
 // are the only guaranteed strings on the candidate, and every field on the
 // race is independently nullable.
-export interface ApiCandidate {
+export interface ElectionCandidate {
   gpCandidateId: string | null
   firstName: string
   lastName: string
@@ -15,7 +15,7 @@ export interface ApiCandidate {
   isIncumbent: boolean | null
 }
 
-export interface RaceContextFromApi {
+export interface ElectionRaceContext {
   state: string | null
   candidateOffice: string | null
   officialOfficeName: string | null
@@ -36,16 +36,16 @@ export interface RaceContextFromApi {
   winNumberEffective: number | null
   contactsNeededEstimate: number | null
   candidateCount: number
-  candidates: ApiCandidate[]
+  candidates: ElectionCandidate[]
 }
 
 // What the prompts consume: the API response + gp-api-stitched fields.
 // isUser is set by matching candidate identity against the requesting user.
-export interface RaceCandidate extends ApiCandidate {
+export interface RaceCandidate extends ElectionCandidate {
   isUser: boolean
 }
 
-export interface RaceContext extends Omit<RaceContextFromApi, 'candidates'> {
+export interface RaceContext extends Omit<ElectionRaceContext, 'candidates'> {
   userFullName: string
   userPartyAffiliation: string
   candidates: RaceCandidate[]

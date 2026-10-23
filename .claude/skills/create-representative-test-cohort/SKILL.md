@@ -106,8 +106,8 @@ WHERE (tier='t1' AND rn<=17) OR (tier='t2' AND rn<=7) OR (tier='t3' AND rn<=1)
 
 Optional safety check: for a sample of the chosen `ea_position_id`s, confirm dev
 resolves them ICP-true (the prod mart writes to dev too, but verify):
-`GET https://election-api-dev.goodparty.org/v1/positions/<id>?includeDistrict=true`
-→ expect `isServeIcp: true`.
+`SELECT id, is_serve_icp, is_win_icp, district_id FROM goodparty_data_catalog.dbt.m_election_api__position WHERE id IN (...)`
+→ expect `is_serve_icp = true` (or `is_win_icp` for Win).
 
 ## Step 3: create the cohort (headless, dev)
 
@@ -168,8 +168,8 @@ To validate the skill without any agent spend:
   creation, manifest, slug list, failure handling) at any N.
 - **Binding fidelity** (the one thing `--dry-run` skips — the position bind) is
   cheap to spot-check on a single bound user: create one without `--dry-run`, then
-  `GET election-api-dev /v1/positions/<id>?includeDistrict=true` and confirm
-  `isServeIcp: true`, or read back the created org.
+  look the position up in `m_election_api__position` and confirm
+  `is_serve_icp = true`, or read back the created org.
 - The endpoint's `refresh.status` is **not** a "did it dispatch" signal: it returns
   `running` whenever there is no run at all (`latestRun ? map : 'running'`), so it
   cannot distinguish "queued/running" from "never dispatched". Only `completed` /

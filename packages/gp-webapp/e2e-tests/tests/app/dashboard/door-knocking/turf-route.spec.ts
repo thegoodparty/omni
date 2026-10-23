@@ -11,48 +11,64 @@ import {
 import {
   createFlowStepHeading,
   drawPolygon,
+  ringInView,
   gotoDoorKnocking,
   type LngLat,
 } from 'src/helpers/door-knocking-e2e'
 
-// A convex polygon inside Cheyenne WY Ward 1 — the fixture district used by
-// both setupProCampaignUser and setupElectedOfficeUser.
-//
 // With VENDOR_MODE=mock active on the preview, the route build routes its
 // Geoapify call to the mock controller (Story M1-3) instead of the real
 // Geoapify API, so no credits are billed and no 30s third-party round-trip
-// blocks the test. Both the Win and the Serve tests draw this polygon on the
-// map.
-const FIXTURE_GEO_POLY = {
-  type: 'Polygon',
-  coordinates: [
-    [
-      [-104.821, 41.133],
-      [-104.818, 41.133],
-      [-104.818, 41.136],
-      [-104.821, 41.136],
-      [-104.821, 41.133],
-    ],
-  ],
-}
+// blocks the test. Both the Win and the Serve tests draw their polygon on the
+// map, inside the fixture district (Cheyenne WY Ward 1).
 
 // ---------------------------------------------------------------------------
 // Win — candidate (happy path + failure)
 // ---------------------------------------------------------------------------
 
-const FIXTURE_RING = FIXTURE_GEO_POLY.coordinates[0] as LngLat[]
+// Where on the visible map to try a square, as pixel offsets from its middle,
+// clear of the zoom/undo cluster in the bottom-right corner. The map cannot be
+// moved on the preview (see `ringInView`), so the district is searched in
+// place: the first square holding a workable audience wins.
+const CANDIDATE_OFFSETS = [
+  [0, 0],
+  [-150, 0],
+  [0, -120],
+  [-150, -120],
+  [150, -120],
+  [0, 120],
+  [-150, 120],
+] as const
+const SQUARE_PX = 160
+// The route planner is only asked when there are two or more block faces, and
+// the create refuses more than 150 stops. 10 is comfortably past the first.
+const MIN_STOPS = 10
+const MAX_STOPS = 120
+
+// The centre of a ring's bounding box, which does not care that a GeoJSON ring
+// repeats its first vertex.
+const center = (ring: LngLat[]): LngLat => {
+  const lngs = ring.map(([lng]) => lng)
+  const lats = ring.map(([, lat]) => lat)
+  return [
+    (Math.min(...lngs) + Math.max(...lngs)) / 2,
+    (Math.min(...lats) + Math.max(...lats)) / 2,
+  ]
+}
+
+// Not /Stop 1/: a turf with ten or more stops also has "Stop 10" to "Stop 19".
+const STOP_ONE = /\bStop 1\b/
 
 const ROUTE_RESPONSE = /\/v1\/door-knocking\/turfs\/(\d+)\/route$/
 
-// The part of the create flow every door-knocking test shares (Win and Serve): purpose, audience, talking
+// The part of the create flow both Win tests share: purpose, audience, talking
 // points, name, then drawing the fixture district's polygon, ending on the
 // success screen with the turf's Start knocking button in view. Nothing here
 // touches the API from the test client — the UI creates the list and the turf.
-const createCampaignInUi = async (
+const createWinCampaignInUi = async (
   page: Page,
   campaignName: string,
-  purposeLabel: RegExp = /Introduce myself/,
-): Promise<void> => {
+): Promise<LngLat[]> => {
   // Cold pack download (4.5s p50 / 34s p95) sits behind the who step.
   test.setTimeout(5 * 60 * 1000)
 
@@ -62,7 +78,7 @@ const createCampaignInUi = async (
   await expect(
     createFlowStepHeading(page, 'What do you want to do?'),
   ).toBeVisible({ timeout: 120_000 })
-  await page.getByRole('button', { name: purposeLabel }).click()
+  await page.getByRole('button', { name: /Introduce myself/ }).click()
 
   // Who: an explicit pick is what enables Continue.
   await expect(
@@ -85,10 +101,32 @@ const createCampaignInUi = async (
   await page.getByRole('button', { name: 'Draw turfs', exact: true }).click()
   const turfs = page.getByRole('complementary', { name: 'Turfs' })
   await turfs.getByRole('button', { name: 'Draw the first turf' }).click()
-  await drawPolygon(page, FIXTURE_RING)
-  // Corners alone say nothing about the audience inside them. The pill is
-  // what proves the polygon landed on houses, and not on empty ground.
-  await expect(page.getByText(/^[1-9][\d,]* selected$/)).toBeVisible()
+  const pill = page.getByText(/^[\d,]+ selected$/)
+  const readStops = async () =>
+    Number((await pill.innerText()).replace(/\D/g, ''))
+  let drawn: LngLat[] | null = null
+  for (const [dx, dy] of CANDIDATE_OFFSETS) {
+    const ring = await ringInView(page, { dx, dy, size: SQUARE_PX })
+    await drawPolygon(page, ring)
+    // Corners alone say nothing about the audience inside them. The pill is
+    // what proves the square landed on houses, and not on empty ground.
+    await expect(pill).toBeVisible()
+    // The count settles a beat after the last corner; a square with too few
+    // stops simply runs out the wait and is read as it stands.
+    await expect
+      .poll(readStops, { timeout: 3_000 })
+      .toBeGreaterThanOrEqual(MIN_STOPS)
+      .catch(() => undefined)
+    const stops = await readStops()
+    if (stops >= MIN_STOPS && stops <= MAX_STOPS) {
+      drawn = ring
+      break
+    }
+    for (let i = 0; i < ring.length; i++) {
+      await page.getByRole('button', { name: 'Undo', exact: true }).click()
+    }
+  }
+  if (!drawn) throw new Error('no square on the map held a workable audience')
   await turfs.getByRole('textbox', { name: 'Turf name' }).fill('E2E turf')
   await turfs.getByRole('button', { name: 'Save', exact: true }).click()
 
@@ -99,6 +137,7 @@ const createCampaignInUi = async (
   await expect(
     page.getByRole('heading', { name: 'Your campaign is ready' }),
   ).toBeVisible({ timeout: 60_000 })
+  return drawn
 }
 
 // Opens Start knocking on the turf the flow just made, picks walking, and
@@ -143,7 +182,10 @@ test.describe('Win — turf route via Geoapify mock', () => {
 
     // 1. The UI creates the list and the turf; 2. Start knocking builds the
     //    route through POST /v1/door-knocking/turfs/:id/route.
-    await createCampaignInUi(page, `E2E mock route ${Date.now()}`)
+    const ring = await createWinCampaignInUi(
+      page,
+      `E2E mock route ${Date.now()}`,
+    )
     const { response, turfId } = await pressBuildRoute(page)
     expect(response.status()).toBeLessThan(300)
 
@@ -155,16 +197,12 @@ test.describe('Win — turf route via Geoapify mock', () => {
     }>(`/v1/door-knocking/turfs/${turfId}`)
     expect(routedTurf.routeSeconds).not.toBeNull()
     const drawn = routedTurf.geoPoly.coordinates[0] ?? []
-    const mean = (index: 0 | 1, ring: LngLat[]) =>
-      ring.reduce((sum, point) => sum + point[index], 0) / ring.length
-    // Both rings are closed, so the repeated vertex weighs the same in each;
-    // 0.0005 degrees is ~50m, against a polygon ~330m across.
-    expect(Math.abs(mean(0, drawn) - mean(0, FIXTURE_RING))).toBeLessThan(
-      0.0005,
-    )
-    expect(Math.abs(mean(1, drawn) - mean(1, FIXTURE_RING))).toBeLessThan(
-      0.0005,
-    )
+    // The turf holds the square that was clicked, to within a few metres of
+    // pixel rounding: 0.0003 degrees is ~30m against a square ~150m across.
+    const [drawnLng, drawnLat] = center(drawn)
+    const [clickedLng, clickedLat] = center(ring)
+    expect(Math.abs(drawnLng - clickedLng)).toBeLessThan(0.0003)
+    expect(Math.abs(drawnLat - clickedLat)).toBeLessThan(0.0003)
 
     // 3b. The Geoapify mock saw one route-planner request. Its jobs are the
     //     turf's block faces, one per street side, so the count is bounded by
@@ -191,15 +229,15 @@ test.describe('Win — turf route via Geoapify mock', () => {
     }
 
     // 7. At least one stop must be visible.
-    await expect(page.getByRole('button', { name: /Stop 1/ })).toBeVisible()
+    await expect(page.getByRole('button', { name: STOP_ONE })).toBeVisible()
 
     // 8. Expand Stop 1 and open PersonSheet for the first resident.
     //    For a house: the first sub-button is a resident row (opens PersonSheet).
     //    For a multi-unit stop: it is a door row (needs one more click).
-    await page.getByRole('button', { name: /Stop 1/ }).click()
+    await page.getByRole('button', { name: STOP_ONE }).click()
     const stopLi = page
       .locator('li')
-      .filter({ has: page.getByRole('button', { name: /Stop 1/ }) })
+      .filter({ has: page.getByRole('button', { name: STOP_ONE }) })
     await stopLi.getByRole('button').nth(1).click()
     if (
       !(await page
@@ -284,7 +322,7 @@ test.describe('Win — turf route via Geoapify mock', () => {
 
     // Creating the campaign buys nothing, so the unrouted turf comes from the
     // UI and the failure is armed only for the press that does.
-    await createCampaignInUi(page, `E2E mock route fail ${Date.now()}`)
+    await createWinCampaignInUi(page, `E2E mock route fail ${Date.now()}`)
     await mockAction(client, campaignId, 'geoapify.route.fail')
     const { turfId } = await pressBuildRoute(page)
 
@@ -311,8 +349,8 @@ test.describe('Serve — turf route via Geoapify mock', () => {
   }) => {
     const { client } = await setupElectedOfficeUser(page)
 
-    // Serve has no campaign: the Geoapify mock stamps the organization slug
-    // on its records, and setupElectedOfficeUser pins that org on the client.
+    // Serve has no campaign: the Geoapify mock stamps the organization slug on
+    // its records, and setupElectedOfficeUser pins that org on the client.
     const organizationSlug = String(
       client.defaults.headers['x-organization-slug'],
     )
@@ -326,29 +364,29 @@ test.describe('Serve — turf route via Geoapify mock', () => {
     )
     test.skip(vendorMode !== 'mock', 'needs VENDOR_MODE=mock')
 
-    // 1. The UI creates the list and the turf, with a Serve purpose;
-    // 2. Start knocking builds the route through
-    //    POST /v1/door-knocking/turfs/:id/route (org-scoped, no serve sibling).
-    await createCampaignInUi(page, `E2E serve mock route ${Date.now()}`)
+    // 1. The UI creates the list and the turf. The create flow is the same
+    //    one Win uses, and an elected-office org gets the Serve purposes
+    //    ("Introduce myself" is one of them); 2. Start knocking builds the
+    //    route through POST /v1/door-knocking/turfs/:id/route (org-scoped,
+    //    there is no serve sibling).
+    const ring = await createWinCampaignInUi(
+      page,
+      `E2E serve mock route ${Date.now()}`,
+    )
     const { response, turfId } = await pressBuildRoute(page)
     expect(response.status()).toBeLessThan(300)
 
-    // 3. The turf is routed, and it is the polygon that was drawn.
+    // 3. The turf is routed, and it is the square that was clicked.
     const { data: routedTurf } = await client.get<{
       routeSeconds: number | null
       stopCount: number
       geoPoly: { coordinates: LngLat[][] }
     }>(`/v1/door-knocking/turfs/${turfId}`)
     expect(routedTurf.routeSeconds).not.toBeNull()
-    const drawn = routedTurf.geoPoly.coordinates[0] ?? []
-    const mean = (index: 0 | 1, ring: LngLat[]) =>
-      ring.reduce((sum, point) => sum + point[index], 0) / ring.length
-    expect(Math.abs(mean(0, drawn) - mean(0, FIXTURE_RING))).toBeLessThan(
-      0.0005,
-    )
-    expect(Math.abs(mean(1, drawn) - mean(1, FIXTURE_RING))).toBeLessThan(
-      0.0005,
-    )
+    const [drawnLng, drawnLat] = center(routedTurf.geoPoly.coordinates[0] ?? [])
+    const [clickedLng, clickedLat] = center(ring)
+    expect(Math.abs(drawnLng - clickedLng)).toBeLessThan(0.0003)
+    expect(Math.abs(drawnLat - clickedLat)).toBeLessThan(0.0003)
 
     // 3b. The Geoapify mock saw one route-planner request for this org. Its
     //     jobs are the turf's block faces, one per street side, so the count
@@ -374,13 +412,13 @@ test.describe('Serve — turf route via Geoapify mock', () => {
       await grip.click()
     }
 
-    await expect(page.getByRole('button', { name: /Stop 1/ })).toBeVisible()
+    await expect(page.getByRole('button', { name: STOP_ONE })).toBeVisible()
 
     // 6. Open Stop 1 and click through to PersonSheet.
-    await page.getByRole('button', { name: /Stop 1/ }).click()
+    await page.getByRole('button', { name: STOP_ONE }).click()
     const stopLi = page
       .locator('li')
-      .filter({ has: page.getByRole('button', { name: /Stop 1/ }) })
+      .filter({ has: page.getByRole('button', { name: STOP_ONE }) })
     await stopLi.getByRole('button').nth(1).click()
     if (
       !(await page

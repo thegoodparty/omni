@@ -57,7 +57,7 @@ test.describe('pro-upgrade step derivation & resume', () => {
 
     // Seed EIN + the "already filed" answer (its real upstream prerequisite),
     // but no filing details — the first incomplete step is filing-details.
-    await seedEinAndFiled(client)
+    const ein = await seedEinAndFiled(client)
 
     await page.goto(PRO_UPGRADE_PATH)
     await NavigationHelper.dismissOverlays(page)
@@ -73,7 +73,7 @@ test.describe('pro-upgrade step derivation & resume', () => {
 
     // Advance the seed: complete the filing-details step via its endpoint. On
     // reload the derived entry must move forward to candidate-profile.
-    await seedFilingComplete(client, user.email)
+    await seedFilingComplete(client, user.email, ein)
 
     await page.goto(PRO_UPGRADE_PATH)
     await page.waitForURL(`**${PRO_UPGRADE_PATH}/candidate-profile`, {
