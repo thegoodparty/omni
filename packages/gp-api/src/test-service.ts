@@ -52,12 +52,14 @@ const HOOK_TIMEOUT_MS = 60_000
 /**
  * Empty every table, then seed the one user the suite authenticates as.
  *
- * Truncating all 88 tables unconditionally costs a flat ~350ms, because the
- * commit syncs a new relation file for each one; asking all 88 whether they
- * hold a row costs ~15ms in a single round trip, and a test typically dirties
- * a handful. So probe first and truncate only what the last test actually
- * wrote. CASCADE may pull in an empty child table, which is harmless — the
- * post-condition is only that every table is empty.
+ * Asking every table whether it holds a row costs ~15ms in a single round
+ * trip, and a test typically dirties a handful, so probe first and empty only
+ * what the last test wrote. DELETE, not TRUNCATE: the user seeded below makes
+ * `user` dirty before every test, and `TRUNCATE "user" CASCADE` wiped its whole
+ * foreign-key closure (102 of 121 tables) each time, ~120ms against ~2ms. The
+ * probe already lists every non-empty child, so deleting the dirty tables with
+ * foreign-key triggers off (replica mode, this transaction only; the test role
+ * is a superuser) leaves every table empty, the same post-condition.
  */
 const resetDatabase = async (
   prisma: PrismaService,
@@ -76,10 +78,12 @@ const resetDatabase = async (
     : []
 
   if (dirty.length > 0) {
-    const tableList = dirty
-      .map(({ tablename }) => `"public"."${tablename}"`)
-      .join(', ')
-    await prisma.$executeRawUnsafe(`TRUNCATE TABLE ${tableList} CASCADE;`)
+    await prisma.$transaction([
+      prisma.$executeRawUnsafe('SET LOCAL session_replication_role = replica'),
+      ...dirty.map(({ tablename }) =>
+        prisma.$executeRawUnsafe(`DELETE FROM "public"."${tablename}"`),
+      ),
+    ])
   }
 
   return prisma.user.create({

@@ -92,10 +92,12 @@ own rather than a managed cluster. Unset, nothing changes.
 
 Two things about that container and the per-test reset are load-bearing, not
 incidental. It runs with `fsync`/`synchronous_commit`/`full_page_writes` off,
-because TRUNCATE's commit syncs a new relation file per table and the defaults
-put the reset near vitest's hook timeout on a contended runner. And the reset
-truncates only the tables that actually hold a row (one `EXISTS` probe across
-all of them costs far less than truncating all 88), then each suite drops its
+because the defaults put the reset near vitest's hook timeout on a contended
+runner. And the reset empties only the tables that actually hold a row (one
+`EXISTS` probe across all of them), with `DELETE` in a single transaction that
+turns foreign-key triggers off, not `TRUNCATE ... CASCADE`: the seeded user
+makes `user` dirty every time, and its cascade emptied 102 of 121 tables per
+test (~120ms against ~2ms). Each suite drops its
 own clone in `afterAll` so a reused container doesn't accumulate one database
 per suite forever. Post-condition is unchanged: every table is empty and user
 `123` exists.
