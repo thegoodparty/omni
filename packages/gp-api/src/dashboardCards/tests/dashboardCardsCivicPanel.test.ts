@@ -736,6 +736,16 @@ describe('GET /v1/dashboard/cards: the managed panel progress card', () => {
     )
   })
 
+  it('says the civic panel starts here before anyone joins', async () => {
+    const orgSlug = 'eo-progress-empty'
+    await seedElectedOffice(orgSlug)
+    await seedEnrollment(orgSlug)
+
+    const [card] = await progressCards(orgSlug)
+
+    expect(card?.title).toBe('Your civic panel starts here')
+  })
+
   it('becomes the ready card, even after the building card was set aside', async () => {
     const orgSlug = 'eo-progress-ready'
     const eo = await seedElectedOffice(orgSlug)

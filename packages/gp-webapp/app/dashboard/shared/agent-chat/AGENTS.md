@@ -24,7 +24,7 @@ nearest reference wrapper.
 | `clarifyWidget.tsx` / `composeHandoffWidget.tsx` | Registry entries for `ask_clarify_question` and `compose_handoff`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | `MessageActionBar.tsx`                           | **The per-message bar.** Copy + thumbs up/down under one assistant turn, with the optional-note bubble a rating opens. Opt-in per surface (`showMessageActions`), and it renders the thumbs only when the client implements the feedback calls.                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `chatHelpers.ts`                                 | `newClientMessageId`, `friendlyError`, and the server's cut-off marker (`CHAT_INTERRUPTED_BEFORE_OUTPUT_MARKER`, `isInterruptedTurn`) that a wrapper turns into a retry.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| `usePinnedAutoScroll.ts`                         | Stick-to-bottom scroll (releases on scroll-up). Optional — a chat inside a vaul drawer may roll its own scroll instead.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `usePinnedAutoScroll.ts`                         | Stick-to-bottom scroll (releases on scroll-up). Pass `{ sending }` so a send re-pins and the reply that starts comes into view; a resize of the container or its content (a card laying out late, a phone keyboard closing) keeps a pinned view at the bottom. Optional — a chat inside a vaul drawer may roll its own scroll instead.                                                                                                                                                                                                                                                                                                                                                                        |
 
 ## The recipe (what a wrapper owns)
 
@@ -321,7 +321,15 @@ prompt keys on to work through them one at a time. That turn stays in the
 transcript, and it is the only place the steps still to do live.
 
 `showSuggestionsAfterKickoff` moves the cards from the empty transcript to
-under the reply to `pendingKickoff`, until anything else is sent.
+under the reply to `pendingKickoff`, until anything else is sent. No starter
+shows while a clarify question (or the managed offer) waits on its answer:
+its own options are the answer.
+
+Each combinable card can carry `onPicked`, run for every card a Start sends.
+The Chief of Staff's next steps use it for `Chief Of Staff - Next Step
+Picked` (`nextStep` community_issues, managed_civic_panel, next_meeting or
+something_else; Hear from your constituents has no value and fires
+nothing).
 
 ## The managed civic panel in the Chief of Staff chat
 
@@ -354,6 +362,27 @@ three tools are widgets in
 The home's exhausted progress card sends the hidden
 `MANAGED_CIVIC_PANEL_EXHAUSTED_MESSAGE`, which the Serve home hides on
 reload like the other panel turns.
+
+Tool pills: `explain_managed_panel` reads Explaining your civic panel, the
+offer and the invite Getting your civic panel invite, `read_managed_panel`
+and `present_managed_panel` Checking your civic panel (`chatConstants.ts`).
+
+**Analytics** (`EVENTS.CivicPanel`, the setup before gp-api's approval):
+
+- `Managed Invite Explainer Viewed` when a turn streams the first offer
+  (`isManagedExplainerOffer`), `source` home_card (the home card's kickoff),
+  intro_next_step (the intro's Build my civic panel) or chat.
+- `Managed Invite Explainer Completed` on the next thing the official sends
+  while that offer waits, `choice` show_invite, how_it_works, not_now or
+  wrote_own (`managedExplainerChoice`).
+- `Managed Invite Viewed` when a turn presents the invite card, never on a
+  replay: `inviteChars` and `inviteSegments` (160 characters each, as the
+  text flow counts them).
+- `Managed Invite Review Viewed` on Review the invite, `source` chat_card.
+- `SmsFlow` in its managed mode fires `Managed Invite Submitted` on Set up
+  my civic panel (`edited`, `usedImproveWithAi`, `usedDictation`,
+  `inviteSegments`) and `Managed Invite Review Dismissed` on a close without
+  setting it up (`edited`).
 
 ## Analytics — one event per message sent
 

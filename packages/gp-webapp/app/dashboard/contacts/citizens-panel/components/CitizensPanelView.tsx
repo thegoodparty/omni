@@ -27,6 +27,7 @@ import { CivicPanelChatDock, useCivicPanelChat } from './CivicPanelChatDock'
 import { CivicPanelHero } from './CivicPanelHero'
 import { CivicPanelFirstJoin, CivicPanelNext } from './CivicPanelNext'
 import { ManagedPanelControls } from './ManagedPanelControls'
+import { buildBloom, buildSeats } from './panelCharts'
 
 const stageOf = (
   members: number,
@@ -61,7 +62,7 @@ export const CitizensPanelView = ({
       ? managedPanelNextInvitesAt(active)
       : null
 
-  const entry = useSearchParams()?.get(CIVIC_PANEL_ENTRY_PARAM) ?? 'direct'
+  const source = useSearchParams()?.get(CIVIC_PANEL_ENTRY_PARAM) ?? 'direct'
   // Once per visit, on what the page was given.
   useEffect(() => {
     trackEvent(EVENTS.CivicPanel.PanelViewed, {
@@ -72,7 +73,20 @@ export const CitizensPanelView = ({
       groupsCovered: progress.groupsCovered,
       groupsTotal: progress.groupsTotal,
       howCloseStatus: balance ? PANEL_STATUS_PROPERTY[balance.status] : null,
-      entry,
+      managedStatus: managed?.status ?? 'none',
+      source,
+      ...(managed?.status === 'building' && composition
+        ? {
+            groupsAtShare: buildBloom(composition.groups).atShare,
+            tractsBehind: buildSeats({
+              places: composition.places,
+              members: summary.members,
+              goal: progress.goal,
+              cx: 0,
+              cy: 0,
+            }).behind.length,
+          }
+        : {}),
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -132,13 +146,6 @@ export const CitizensPanelView = ({
                 <Link href={CITIZENS_PANEL_LIST_PATH}>{COPY.seeMembers}</Link>
               </Button>
             ) : null}
-            <button
-              type="button"
-              onClick={() => chat.ask(COPY.askAboutPanelMessage)}
-              className="self-start text-base font-semibold text-link hover:underline"
-            >
-              {COPY.askAboutPanel}
-            </button>
           </aside>
         </div>
       </div>

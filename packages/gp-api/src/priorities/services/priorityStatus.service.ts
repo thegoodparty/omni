@@ -78,6 +78,16 @@ export const nextActionProblem = (
   return null
 }
 
+// nextAction as the official may see it. One stored before the write guard
+// existed can still name them or a step, so reads drop it the same way.
+export const shownNextAction = (
+  nextAction: string | null,
+  names: (string | null | undefined)[],
+): string | null =>
+  nextAction !== null && nextActionProblem(nextAction, names) === null
+    ? nextAction
+    : null
+
 // A merged check is always a fresh object with a fresh updatedAt, so only its
 // content says whether anything changed.
 const sameCheck = (

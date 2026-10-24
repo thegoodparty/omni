@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { screen } from '@testing-library/react'
+import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { render } from 'helpers/test-utils/render'
+import { render, testQueryClient } from 'helpers/test-utils/render'
+import { api } from 'helpers/test-utils/api-mocking'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import {
   MANAGED_CIVIC_PANEL_EXHAUSTED_CARD_CTA,
@@ -572,6 +573,13 @@ describe('<TaskStack>', () => {
       expect(onDiscussCard).toHaveBeenCalledWith(
         START_MANAGED_CIVIC_PANEL_MESSAGE,
       )
+      expect(trackEvent).toHaveBeenCalledWith(
+        EVENTS.ChiefOfStaff.TaskActionTaken,
+        expect.objectContaining({
+          cardVariant: 'managed_offer',
+          action: 'start',
+        }),
+      )
 
       await user.click(screen.getByRole('button', { name: 'Ask about this' }))
       expect(onDiscussCard).toHaveBeenLastCalledWith(
@@ -676,5 +684,102 @@ describe('<TaskStack>', () => {
     withCards([card({})])
     const { container } = render(<TaskStack onOpenCard={vi.fn()} />)
     expect(container.textContent).not.toContain('—')
+  })
+
+  describe('Task Viewed', () => {
+    beforeEach(() => {
+      testQueryClient.clear()
+    })
+
+    const viewed = () =>
+      vi
+        .mocked(trackEvent)
+        .mock.calls.filter(
+          ([event]) => event === EVENTS.ChiefOfStaff.TaskViewed,
+        )
+        .map(([, properties]) => properties)
+
+    it('fires once for the front card, with the stack size', () => {
+      withCards([card({}), card({ id: 'c2' })])
+      const { rerender } = render(<TaskStack onOpenCard={vi.fn()} />)
+      rerender(<TaskStack onOpenCard={vi.fn()} />)
+
+      expect(viewed()).toEqual([
+        { cardType: 'briefing', cardVariant: 'other', stackSize: 2 },
+      ])
+    })
+
+    it('fires again when another card comes to the front', () => {
+      withCards([card({}), card({ id: 'c2', type: 'agenda_item' })])
+      const { rerender } = render(<TaskStack onOpenCard={vi.fn()} />)
+      withCards([card({ id: 'c2', type: 'agenda_item' })])
+      rerender(<TaskStack onOpenCard={vi.fn()} />)
+
+      expect(viewed()).toEqual([
+        expect.objectContaining({ cardType: 'briefing' }),
+        expect.objectContaining({ cardType: 'agenda_item', stackSize: 1 }),
+      ])
+    })
+
+    it("carries a report back's priority", () => {
+      withCards([
+        card({
+          id: 'rb',
+          type: 'report_back',
+          sourceExternalId: 'p1',
+          sourceItemId: 'tooEarly',
+        }),
+      ])
+      render(<TaskStack onOpenCard={vi.fn()} />)
+
+      expect(viewed()).toEqual([
+        expect.objectContaining({
+          cardType: 'report_back',
+          cardVariant: 'report_back',
+          priorityId: 'p1',
+        }),
+      ])
+    })
+
+    it("waits for a civic panel card's members and goal", async () => {
+      api.mock('GET /v1/contacts/civic-panel', {
+        status: 200,
+        data: {
+          members: 12,
+          reachedRecently: 0,
+          askableNow: 12,
+          lastOutreachAt: null,
+          progress: {
+            members: 12,
+            goal: 243,
+            answersNeeded: 96,
+            expectedAnswers: 5,
+            groupsCovered: 1,
+            groupsTotal: 12,
+          },
+          balance: null,
+          composition: null,
+        },
+      })
+      withCards([
+        card({
+          id: 'progress',
+          type: 'civic_panel',
+          title: 'Your civic panel is filling up',
+          sourceExternalId: 'managed-panel-progress:eo-1',
+          sourceItemId: 'building',
+        }),
+      ])
+      render(<TaskStack onOpenCard={vi.fn()} />)
+
+      await waitFor(() => expect(viewed()).toHaveLength(1))
+      expect(viewed()[0]).toEqual({
+        cardType: 'civic_panel',
+        cardVariant: 'managed_building',
+        stackSize: 1,
+        members: 12,
+        goalMembers: 243,
+      })
+    })
   })
 })

@@ -17,6 +17,8 @@ import {
 } from '@/generated/prisma'
 import { ContactStatusService } from '@/contactInteraction/services/contactStatus.service'
 import { FeaturesService } from '@/features/services/features.service'
+import { AnalyticsService } from '@/analytics/analytics.service'
+import { EVENTS } from 'src/vendors/segment/segment.types'
 import {
   CENSUS_COMPOSITION_SOURCE,
   type CensusCompositionSource,
@@ -555,5 +557,137 @@ describe('census tract names on approval', () => {
     expect(res.status).toBe(HttpStatus.OK)
     expect(res.data.panel?.status).toBe('building')
     await vi.waitFor(() => expect(fill).toHaveBeenCalledTimes(1))
+  })
+})
+
+describe('managed civic panel analytics', () => {
+  const spyTrack = () => {
+    const track = vi
+      .spyOn(service.app.get(AnalyticsService), 'track')
+      .mockResolvedValue(undefined as never)
+    onTestFinished(() => track.mockRestore())
+    return track
+  }
+
+  const seedOffice = async () => {
+    const slug = await seedOrg()
+    await service.prisma.electedOffice.create({
+      data: { organizationSlug: slug, userId: service.user.id },
+    })
+    return slug
+  }
+
+  const tracked = (track: ReturnType<typeof spyTrack>, event: string) =>
+    track.mock.calls
+      .filter(([, name]) => name === event)
+      .map(([, , properties]) => properties)
+
+  it('records the approval it made, once', async () => {
+    const track = spyTrack()
+    const slug = await seedOffice()
+    stubAnswersNeeded(20)
+
+    const res = await approve(slug)
+    await approve(slug)
+
+    await vi.waitFor(() =>
+      expect(
+        tracked(track, EVENTS.CivicPanel.ManagedInviteApproved),
+      ).toHaveLength(1),
+    )
+    expect(tracked(track, EVENTS.CivicPanel.ManagedInviteApproved)[0]).toEqual(
+      expect.objectContaining({
+        goalMembers: 50,
+        freeTextCap: 15000,
+        firstSendDate: res.data.panel?.progress.firstSendDate,
+        reapproval: false,
+        product: 'serve',
+      }),
+    )
+  })
+
+  it('records a stopped civic panel approved again as a reapproval and a status change', async () => {
+    const track = spyTrack()
+    const slug = await seedOffice()
+    await approve(slug)
+    await act(slug, 'stop')
+    track.mockClear()
+
+    await approve(slug)
+
+    await vi.waitFor(() =>
+      expect(
+        tracked(track, EVENTS.CivicPanel.ManagedPanelStatusChanged),
+      ).toHaveLength(1),
+    )
+    expect(tracked(track, EVENTS.CivicPanel.ManagedInviteApproved)).toEqual([
+      expect.objectContaining({ reapproval: true }),
+    ])
+    expect(
+      tracked(track, EVENTS.CivicPanel.ManagedPanelStatusChanged)[0],
+    ).toEqual(
+      expect.objectContaining({
+        from: 'stopped',
+        to: 'building',
+        changedBy: 'official',
+      }),
+    )
+  })
+
+  it('records the official pausing it, with the members it has', async () => {
+    const track = spyTrack()
+    const slug = await seedOffice()
+    await approve(slug)
+    await joinPanel(slug, 2)
+    track.mockClear()
+
+    await act(slug, 'pause')
+
+    await vi.waitFor(() =>
+      expect(
+        tracked(track, EVENTS.CivicPanel.ManagedPanelStatusChanged),
+      ).toEqual([
+        expect.objectContaining({
+          from: 'building',
+          to: 'paused',
+          members: 2,
+          changedBy: 'official',
+        }),
+      ]),
+    )
+  })
+
+  it('records how a member joined, and that the civic panel is managed', async () => {
+    const track = spyTrack()
+    const slug = await seedOffice()
+    await approve(slug)
+    track.mockClear()
+
+    await joinPanel(slug, 1)
+
+    await vi.waitFor(() =>
+      expect(tracked(track, EVENTS.CivicPanel.MembershipChanged)).toEqual([
+        expect.objectContaining({
+          toStatus: 'member',
+          source: 'staff',
+          managed: true,
+        }),
+      ]),
+    )
+  })
+
+  it('records nothing when a 409 changes nothing', async () => {
+    const track = spyTrack()
+    const slug = await seedOffice()
+    await approve(slug)
+    await setStatus(slug, ManagedCivicPanelStatus.ready)
+    track.mockClear()
+
+    const res = await act(slug, 'resume')
+
+    expect(res.status).toBe(HttpStatus.CONFLICT)
+    expect(tracked(track, EVENTS.CivicPanel.ManagedPanelStatusChanged)).toEqual(
+      [],
+    )
   })
 })

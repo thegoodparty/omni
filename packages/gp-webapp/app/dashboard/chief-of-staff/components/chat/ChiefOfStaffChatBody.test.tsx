@@ -12,8 +12,12 @@ import type {
   ChatMessageSegment,
   ChatStreamEvent,
 } from '../../../shared/agent-chat/chatClient'
+import {
+  START_MANAGED_CIVIC_PANEL_MESSAGE,
+  SHOW_MANAGED_CIVIC_PANEL_INVITE,
+} from '@goodparty_org/contracts'
 import ChiefOfStaffChatBody from './ChiefOfStaffChatBody'
-import { COS_INTRO_MESSAGES } from './chatConstants'
+import { buildChiefOfStaffNextSteps, COS_INTRO_MESSAGES } from './chatConstants'
 
 const createMock = vi.fn()
 const listMessagesMock = vi.fn()
@@ -3067,5 +3071,180 @@ describe('<ChiefOfStaffChatBody> widgets', () => {
       conversationId: 'conv',
       content: 'Main Street',
     })
+  })
+})
+
+describe('the managed civic panel explainer', () => {
+  const EXPLAINER = 'GoodParty builds your civic panel for you.'
+  const explainerTurn = () => [
+    msg('user', START_MANAGED_CIVIC_PANEL_MESSAGE),
+    msg('assistant', EXPLAINER, {
+      id: 'a1',
+      segments: [
+        { kind: 'text', text: EXPLAINER },
+        {
+          kind: 'tool',
+          toolName: 'offer_managed_panel_invite',
+          toolCallId: 'tc-offer',
+          payload: {},
+        },
+      ],
+    }),
+  ]
+  const streamExplainer = () =>
+    streamMessageMock.mockReturnValue(
+      makeStream([
+        { type: 'text', delta: EXPLAINER },
+        {
+          type: 'tool_call',
+          toolName: 'offer_managed_panel_invite',
+          toolCallId: 'tc-offer',
+          args: {},
+        },
+        { type: 'done', assistantMessageId: 'a1' },
+      ]),
+    )
+  const managedEvents = (event: string) =>
+    trackEventMock.mock.calls.filter(([name]) => name === event)
+
+  it('records the explainer from the home card, and how it was answered', async () => {
+    const user = userEvent.setup()
+    listConversationsMock.mockResolvedValue([])
+    createMock.mockResolvedValue({ conversationId: 'conv_m' })
+    streamExplainer()
+    listMessagesMock.mockResolvedValue(explainerTurn())
+
+    render(
+      <ChiefOfStaffChatBody
+        active
+        pendingKickoff={START_MANAGED_CIVIC_PANEL_MESSAGE}
+        hiddenMessageContents={[START_MANAGED_CIVIC_PANEL_MESSAGE]}
+      />,
+    )
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole('radio', { name: SHOW_MANAGED_CIVIC_PANEL_INVITE }),
+      ).toBeEnabled(),
+    )
+    expect(
+      managedEvents(EVENTS.CivicPanel.ManagedInviteExplainerViewed),
+    ).toEqual([
+      [EVENTS.CivicPanel.ManagedInviteExplainerViewed, { source: 'home_card' }],
+    ])
+    // The offer's own options stand alone, with no starters under them.
+    expect(
+      screen.queryByRole('button', { name: "What's most urgent this week?" }),
+    ).toBeNull()
+
+    streamMessageMock.mockReturnValue(
+      makeStream([
+        { type: 'text', delta: 'Here is the invite.' },
+        { type: 'done', assistantMessageId: 'a2' },
+      ]),
+    )
+    await user.click(
+      screen.getByRole('radio', { name: SHOW_MANAGED_CIVIC_PANEL_INVITE }),
+    )
+
+    await waitFor(() =>
+      expect(
+        managedEvents(EVENTS.CivicPanel.ManagedInviteExplainerCompleted),
+      ).toEqual([
+        [
+          EVENTS.CivicPanel.ManagedInviteExplainerCompleted,
+          { choice: 'show_invite' },
+        ],
+      ]),
+    )
+  })
+
+  it('hides the starters under a reloaded offer still waiting on an answer', async () => {
+    listMessagesMock.mockResolvedValue(explainerTurn())
+
+    render(
+      <ChiefOfStaffChatBody
+        active
+        conversationIdOverride="conv_m"
+        hiddenMessageContents={[START_MANAGED_CIVIC_PANEL_MESSAGE]}
+        showSuggestionsWithGreeting
+      />,
+    )
+
+    await screen.findByRole('radio', { name: SHOW_MANAGED_CIVIC_PANEL_INVITE })
+    expect(
+      screen.queryByRole('button', { name: "What's most urgent this week?" }),
+    ).toBeNull()
+  })
+
+  it('records a typed answer to the offer as their own words', async () => {
+    const user = userEvent.setup()
+    listMessagesMock.mockResolvedValue(explainerTurn())
+    streamMessageMock.mockReturnValue(
+      makeStream([
+        { type: 'text', delta: 'Sure.' },
+        { type: 'done', assistantMessageId: 'a2' },
+      ]),
+    )
+
+    render(
+      <ChiefOfStaffChatBody
+        active
+        conversationIdOverride="conv_m"
+        hiddenMessageContents={[START_MANAGED_CIVIC_PANEL_MESSAGE]}
+      />,
+    )
+
+    await screen.findByRole('radio', { name: SHOW_MANAGED_CIVIC_PANEL_INVITE })
+    await user.type(screen.getByRole('textbox'), 'Who gets texted?{Enter}')
+
+    await waitFor(() =>
+      expect(
+        managedEvents(EVENTS.CivicPanel.ManagedInviteExplainerCompleted),
+      ).toEqual([
+        [
+          EVENTS.CivicPanel.ManagedInviteExplainerCompleted,
+          { choice: 'wrote_own' },
+        ],
+      ]),
+    )
+  })
+
+  it('records the next steps picked under the intro, and where the explainer came from', async () => {
+    const user = userEvent.setup()
+    listConversationsMock.mockResolvedValue([])
+    createMock.mockResolvedValue({ conversationId: 'conv_m' })
+    streamExplainer()
+    listMessagesMock.mockResolvedValue(explainerTurn())
+
+    render(
+      <ChiefOfStaffChatBody
+        active
+        hiddenMessageContents={[START_MANAGED_CIVIC_PANEL_MESSAGE]}
+        suggestions={buildChiefOfStaffNextSteps({
+          panelsEnabled: true,
+          managedSetUp: false,
+        })}
+      />,
+    )
+
+    await user.click(
+      await screen.findByRole('checkbox', { name: /Build my civic panel/ }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Start' }))
+
+    await waitFor(() =>
+      expect(
+        managedEvents(EVENTS.CivicPanel.ManagedInviteExplainerViewed),
+      ).toEqual([
+        [
+          EVENTS.CivicPanel.ManagedInviteExplainerViewed,
+          { source: 'intro_next_step' },
+        ],
+      ]),
+    )
+    expect(managedEvents(EVENTS.ChiefOfStaff.NextStepPicked)).toEqual([
+      [EVENTS.ChiefOfStaff.NextStepPicked, { nextStep: 'managed_civic_panel' }],
+    ])
   })
 })

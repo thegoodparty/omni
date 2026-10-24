@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { afterEach, describe, it, expect, vi } from 'vitest'
 import { renderHook } from '@testing-library/react'
 import { usePinnedAutoScroll } from './usePinnedAutoScroll'
 
@@ -74,5 +74,82 @@ describe('usePinnedAutoScroll', () => {
     result.current.onScroll()
     rerender({ tick: 3 })
     expect(el.scrollTop).toBe(200)
+  })
+
+  it('brings the reply into view when the user sends, even after scrolling up', () => {
+    const el = makeEl(1000, 400)
+    const view = renderHook(
+      ({ tick, sending }: { tick: number; sending: boolean }) =>
+        usePinnedAutoScroll([tick], { sending }),
+      { initialProps: { tick: 0, sending: false } },
+    )
+    view.result.current.scrollRef.current = el
+    view.rerender({ tick: 1, sending: false })
+
+    el.scrollTop = 200
+    view.result.current.onScroll()
+    view.rerender({ tick: 2, sending: false })
+    expect(el.scrollTop).toBe(200)
+
+    view.rerender({ tick: 2, sending: true })
+    expect(el.scrollTop).toBe(1000)
+    view.rerender({ tick: 3, sending: true })
+    expect(el.scrollTop).toBe(1000)
+  })
+
+  describe('when the content grows on its own', () => {
+    const observers: (() => void)[] = []
+    afterEach(() => {
+      observers.length = 0
+      vi.unstubAllGlobals()
+    })
+    const stubResizeObserver = () =>
+      vi.stubGlobal(
+        'ResizeObserver',
+        vi.fn(function ResizeObserver(callback: () => void) {
+          observers.push(callback)
+          return { observe: vi.fn(), disconnect: vi.fn() }
+        }),
+      )
+
+    it('keeps a pinned view at the bottom', () => {
+      stubResizeObserver()
+      let height = 1000
+      const el = document.createElement('div')
+      Object.defineProperty(el, 'scrollHeight', { get: () => height })
+      Object.defineProperty(el, 'clientHeight', { value: 400 })
+      const view = renderHook(
+        ({ tick }: { tick: number }) => usePinnedAutoScroll([tick]),
+        { initialProps: { tick: 0 } },
+      )
+      view.result.current.scrollRef.current = el
+      view.rerender({ tick: 1 })
+      expect(el.scrollTop).toBe(1000)
+
+      // A draft card finishes laying out below the fold: no dep changes.
+      height = 1600
+      observers.forEach((callback) => callback())
+      expect(el.scrollTop).toBe(1600)
+    })
+
+    it('leaves a reader who scrolled up where they are', () => {
+      stubResizeObserver()
+      let height = 1000
+      const el = document.createElement('div')
+      Object.defineProperty(el, 'scrollHeight', { get: () => height })
+      Object.defineProperty(el, 'clientHeight', { value: 400 })
+      const view = renderHook(
+        ({ tick }: { tick: number }) => usePinnedAutoScroll([tick]),
+        { initialProps: { tick: 0 } },
+      )
+      view.result.current.scrollRef.current = el
+      view.rerender({ tick: 1 })
+      el.scrollTop = 200
+      view.result.current.onScroll()
+
+      height = 1600
+      observers.forEach((callback) => callback())
+      expect(el.scrollTop).toBe(200)
+    })
   })
 })

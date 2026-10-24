@@ -195,6 +195,9 @@ const mockDistrict = ({
   )
 }
 
+const PRIORITIES_VIEWED = 'Serve Onboarding - Priorities Viewed'
+const PRIORITIES_ERRORED = 'Serve Onboarding - Priorities Errored'
+
 const storyHeading = {
   represent: /You represent the 32,000 people living in/,
   loudest: "Until now, you've heard from the loudest voices only",
@@ -420,6 +423,46 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
       'data-abstract',
       'true',
     )
+  })
+
+  it('names the city from the district when the office has no city', async () => {
+    mockLoad(
+      buildEO({
+        party: 'independent',
+        termStartDate: '2026-01-01',
+        termEndDate: '2030-01-01',
+        selfReported: true,
+        onboardingStep: 'story-represent',
+      }),
+      buildOrg({
+        positionName: 'Asheville City Council',
+        position: { id: 'p1', brPositionId: 'br-1', state: 'NC' },
+        district: { id: 'd1', l2Type: 'City', l2Name: 'ASHEVILLE CITY' },
+      }),
+    )
+    renderFlow()
+
+    await findStoryHeading(
+      'You represent the 32,000 people living in Asheville',
+    )
+  })
+
+  it('holds the number while it starts counting, never showing 0 people', async () => {
+    const frame = vi
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation(() => 0)
+    try {
+      resumedAt('story-represent')
+      renderFlow()
+
+      const heading = await findStoryHeading(storyHeading.represent)
+      expect(
+        within(heading).getByTestId('district-population-loading'),
+      ).toBeInTheDocument()
+      expect(heading.textContent).not.toMatch(/\b0 people/)
+    } finally {
+      frame.mockRestore()
+    }
   })
 
   it('drops the number when the district population is unknown', async () => {
@@ -772,10 +815,18 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
     expect(screen.queryByLabelText(/Other/)).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
     expect(saves).toBe(0)
+    expect(eventProps(PRIORITIES_ERRORED)).toEqual([
+      expect.objectContaining({ reason: 'search_failed', retried: false }),
+    ])
+    expect(eventProps(PRIORITIES_VIEWED)).toEqual([
+      expect.objectContaining({ loadMs: expect.any(Number) }),
+    ])
 
     failing = false
     await user.click(screen.getByRole('button', { name: 'Try again' }))
     expect(await screen.findByLabelText(/Housing costs/)).toBeInTheDocument()
+    expect(eventProps(PRIORITIES_ERRORED)).toHaveLength(1)
+    expect(eventProps(PRIORITIES_VIEWED)).toHaveLength(1)
   })
 
   it('keeps the list on screen while saving and shows the saved picks on Back', async () => {
@@ -842,6 +893,9 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
 
     await screen.findByText(/We couldn’t find issues for your area yet/)
     expect(screen.getByLabelText(/Other/)).not.toBeChecked()
+    expect(eventProps(PRIORITIES_ERRORED)).toEqual([
+      expect.objectContaining({ reason: 'none_found', retried: false }),
+    ])
     await user.click(screen.getByRole('button', { name: 'Continue' }))
 
     await screen.findByText('Take our pledge to get started')
@@ -1611,6 +1665,10 @@ const OFFICE_VIEWED = 'Serve Onboarding - Office Viewed'
 const OFFICE_COMPLETED = 'Serve Onboarding - Office Completed'
 const TERM_DATES_VIEWED = 'Serve Onboarding - Term Dates Viewed'
 const PLEDGE_COMPLETED = 'Serve Onboarding - Pledge Completed'
+const WELCOME_COMPLETED = 'Serve Onboarding - Welcome Completed'
+const OFFICE_STATUS_COMPLETED = 'Serve Onboarding - Office Status Completed'
+const PARTY_COMPLETED = 'Serve Onboarding - Party Designation Completed'
+const TERM_DATES_COMPLETED = 'Serve Onboarding - Term Dates Completed'
 const COMPLETED = 'Serve Onboarding - Net New Completed'
 // Events removed in the per-screen rework — asserted absent below.
 const STEP_VIEWED = 'Serve Onboarding - Step Viewed'
@@ -1787,10 +1845,88 @@ describe('ServeOnboardingFlow analytics instrumentation', () => {
 
     await screen.findByText('When does your term run?')
     expect(eventProps(OFFICE_COMPLETED)).toEqual([
-      expect.objectContaining({ branch: 'net-new', selection: 'Mayor' }),
+      expect.objectContaining({
+        branch: 'net-new',
+        selection: 'Mayor',
+        officesFound: 1,
+        officeLevel: 'city',
+        usedFilter: false,
+      }),
     ])
     // Term Dates Viewed then fires on view of the next screen.
     expect(eventProps(TERM_DATES_VIEWED)).toHaveLength(1)
+  })
+
+  it('completes welcome, office status and party with what was picked', async () => {
+    mockLoad(buildEO(), buildOrg())
+    api.mock('PUT /v1/elected-office/:id', {
+      status: 200,
+      data: buildEO({ party: 'nonpartisan' }),
+    })
+    const user = userEvent.setup()
+    renderFlow()
+
+    await screen.findByText('Meet your virtual chief of staff in 5 minutes')
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(
+      await screen.findByRole('radio', { name: /I'm an elected official/ }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(await screen.findByRole('radio', { name: /^Nonpartisan/ }))
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    await waitFor(() => expect(eventProps(PARTY_COMPLETED)).toHaveLength(1))
+    expect(eventProps(WELCOME_COMPLETED)).toEqual([
+      expect.objectContaining({ branch: 'net_new' }),
+    ])
+    expect(eventProps(OFFICE_STATUS_COMPLETED)).toEqual([
+      expect.objectContaining({ officeStatus: 'elected' }),
+    ])
+    expect(eventProps(PARTY_COMPLETED)).toEqual([
+      expect.objectContaining({ party: 'nonpartisan' }),
+    ])
+  })
+
+  it('completes office status for someone still campaigning', async () => {
+    mockLoad(buildEO(), buildOrg())
+    const user = userEvent.setup()
+    renderFlow()
+
+    await screen.findByText('Meet your virtual chief of staff in 5 minutes')
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(
+      await screen.findByRole('radio', { name: /I'm still campaigning/ }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    await screen.findByText("Let's get you set up for your campaign")
+    expect(eventProps(OFFICE_STATUS_COMPLETED)).toEqual([
+      expect.objectContaining({ officeStatus: 'campaigning' }),
+    ])
+  })
+
+  it('completes the term with its length in years', async () => {
+    const user = await reachOfficeStepNetNew()
+    await user.type(
+      screen.getByPlaceholderText('Enter 5 digit zip code'),
+      '90001',
+    )
+    await user.click(screen.getByRole('button', { name: 'Search' }))
+    await user.click(
+      await within(
+        await screen.findByRole('radiogroup', { name: 'Available offices' }),
+      ).findByRole('radio', { name: /Mayor/ }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findByText('When does your term run?')
+    await fillTermDates(user)
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    await waitFor(() =>
+      expect(eventProps(TERM_DATES_COMPLETED)).toEqual([
+        expect.objectContaining({ termYears: 4 }),
+      ]),
+    )
   })
 
   it('fires Pledge Completed and the Net New Completed metric (without a branch prop) at completion', async () => {

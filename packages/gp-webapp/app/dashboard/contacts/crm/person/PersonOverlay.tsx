@@ -405,13 +405,15 @@ export const PersonRecord: React.FC<{
   useEffect(() => {
     if (isWinContextReady && !firedContactViewedRef.current) {
       firedContactViewedRef.current = true
-      trackEvent(
-        isWin
-          ? EVENTS.VoterData.ContactViewed
-          : EVENTS.ConstituentData.ContactViewed,
-      )
+      if (isWin) {
+        trackEvent(EVENTS.VoterData.ContactViewed)
+      } else {
+        trackEvent(EVENTS.ConstituentData.ContactViewed, {
+          onCivicPanel: person.civicPanel === 'member',
+        })
+      }
     }
-  }, [isWinContextReady, isWin])
+  }, [isWinContextReady, isWin, person.civicPanel])
 
   // Serve keeps its poll-interaction timeline behind its own flag (unchanged);
   // Win adds the outreach timeline for campaigns (not elected officials). The

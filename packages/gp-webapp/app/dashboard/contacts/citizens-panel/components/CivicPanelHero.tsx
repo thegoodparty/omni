@@ -92,7 +92,11 @@ export const CivicPanelHero = ({
         className="flex w-full max-w-[30rem] flex-col gap-2 lg:hidden"
         data-testid="civic-panel-hero-bar"
       >
-        <p className="text-base font-semibold text-foreground">{joined}</p>
+        {/* Only the start line leaves the count out; every other stage's
+            line already says it. */}
+        {stage === 'start' ? (
+          <p className="text-base font-semibold text-foreground">{joined}</p>
+        ) : null}
         <Progress
           value={Math.min(100, Math.round((members / Math.max(1, goal)) * 100))}
           aria-label={joined}

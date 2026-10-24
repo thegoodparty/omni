@@ -129,6 +129,52 @@ describe('priorities controller', () => {
     expect(settled.data.currentStep).toBeNull()
   })
 
+  it('drops a stored next step that names the official or a step', async () => {
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { firstName: 'Bryan' },
+    })
+    const created = await service.client.post<Priority>(
+      PRIORITIES_PATH,
+      { title: 'Housing', description: 'Build more homes' },
+      eoHeaders(),
+    )
+    await service.prisma.priority.update({
+      where: { id: created.data.id },
+      data: {
+        nextAction:
+          'Ask Bryan to put the core problem in his own words so define can be settled',
+      },
+    })
+
+    const status = await service.client.get<{ nextAction: string | null }>(
+      `/v1/priorities/${created.data.id}/status`,
+      eoHeaders(),
+    )
+    const listed = await service.client.get<Priority[]>(
+      PRIORITIES_PATH,
+      eoHeaders(),
+    )
+    const fetched = await service.client.get<Priority>(
+      `${PRIORITIES_PATH}/${created.data.id}`,
+      eoHeaders(),
+    )
+
+    expect(status.data.nextAction).toBeNull()
+    expect(listed.data[0]?.nextAction).toBeNull()
+    expect(fetched.data.nextAction).toBeNull()
+
+    await service.prisma.priority.update({
+      where: { id: created.data.id },
+      data: { nextAction: 'Put the core problem in your own words' },
+    })
+    const good = await service.client.get<{ nextAction: string | null }>(
+      `/v1/priorities/${created.data.id}/status`,
+      eoHeaders(),
+    )
+    expect(good.data.nextAction).toBe('Put the core problem in your own words')
+  })
+
   it('reads one priority by id, and 404s for another office', async () => {
     const created = await service.client.post<Priority>(
       PRIORITIES_PATH,

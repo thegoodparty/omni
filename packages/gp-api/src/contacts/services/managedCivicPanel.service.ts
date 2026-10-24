@@ -35,6 +35,10 @@ import {
   type CensusCompositionSource,
 } from '@/priorities/services/censusComposition'
 import { adultAgeBandShares } from '@/priorities/util/censusSexAge.util'
+import { AnalyticsService } from '@/analytics/analytics.service'
+import { trackForOffice } from '@/priorities/util/priorityAnalytics.util'
+import { EVENTS } from 'src/vendors/segment/segment.types'
+import { managedPanelStatusChanged } from '../utils/managedPanelAnalytics.util'
 import { ContactsService } from './contacts.service'
 import { CensusTractNameService } from './censusTractName.service'
 import { managedPanelSchedule } from '../utils/managedPanelSchedule.util'
@@ -76,6 +80,7 @@ export class ManagedCivicPanelService extends createPrismaBase(
     private readonly census: CensusCompositionSource,
     private readonly tractNames: CensusTractNameService,
     private readonly organizations: OrganizationsService,
+    private readonly analytics: AnalyticsService,
   ) {
     super()
   }
@@ -130,8 +135,9 @@ export class ManagedCivicPanelService extends createPrismaBase(
           stoppedAt: null,
         },
       })
-      if (count > 0) this.nameDistrictTracts(organization)
-      return this.read(organization)
+      if (count === 0) return this.read(organization)
+      this.nameDistrictTracts(organization)
+      return this.approved(organization, true)
     }
     try {
       await this.model.create({
@@ -140,8 +146,48 @@ export class ManagedCivicPanelService extends createPrismaBase(
       this.nameDistrictTracts(organization)
     } catch (err) {
       if (!isUniqueConstraintError(err)) throw err
+      return this.read(organization)
     }
-    return this.read(organization)
+    return this.approved(organization, false)
+  }
+
+  // The approval that this call made, not one it found, is the one tracked.
+  private async approved(
+    organization: Organization,
+    reapproval: boolean,
+  ): Promise<ManagedCivicPanelResponse> {
+    const response = await this.read(organization)
+    const { panel } = response
+    if (panel) {
+      void trackForOffice(
+        this.client,
+        this.analytics,
+        { organizationSlug: organization.slug },
+        [
+          [
+            EVENTS.CivicPanel.ManagedInviteApproved,
+            {
+              goalMembers: panel.goalMembers,
+              freeTextCap: panel.freeTextCap,
+              firstSendDate: panel.progress.firstSendDate,
+              reapproval,
+              product: 'serve',
+            },
+          ],
+          ...(reapproval
+            ? [
+                managedPanelStatusChanged({
+                  from: ManagedCivicPanelStatus.stopped,
+                  to: ManagedCivicPanelStatus.building,
+                  members: panel.progress.members,
+                  changedBy: 'official',
+                }),
+              ]
+            : []),
+        ],
+      )
+    }
+    return response
   }
 
   // What the Chief of Staff's explanation names: the place, the seats, and
@@ -223,6 +269,10 @@ export class ManagedCivicPanelService extends createPrismaBase(
   ): Promise<ManagedCivicPanelResponse> {
     assertServeOrg(organization)
     const now = new Date()
+    const before = await this.model.findUnique({
+      where: { organizationSlug: organization.slug },
+      select: { status: true },
+    })
     const data: Prisma.ManagedCivicPanelUpdateManyMutationInput =
       action === 'pause'
         ? { status: ManagedCivicPanelStatus.paused, pausedAt: now }
@@ -250,7 +300,23 @@ export class ManagedCivicPanelService extends createPrismaBase(
         `A ${existing.status} civic panel can't ${action}`,
       )
     }
-    return this.read(organization)
+    const response = await this.read(organization)
+    if (before && response.panel) {
+      void trackForOffice(
+        this.client,
+        this.analytics,
+        { organizationSlug: organization.slug },
+        [
+          managedPanelStatusChanged({
+            from: before.status,
+            to: response.panel.status,
+            members: response.panel.progress.members,
+            changedBy: 'official',
+          }),
+        ],
+      )
+    }
+    return response
   }
 
   private async toResponse(

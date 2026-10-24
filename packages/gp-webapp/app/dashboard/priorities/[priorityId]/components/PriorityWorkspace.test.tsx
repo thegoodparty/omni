@@ -469,6 +469,36 @@ describe('PriorityWorkspace', () => {
     expect(screen.getByText('Back to your options')).toBeInTheDocument()
   })
 
+  it('records each outreach the agent proposes as it streams in', async () => {
+    mocks.streamMessage.mockImplementation(
+      streamOf([
+        { type: 'text', delta: 'Here is a call list. ' },
+        {
+          type: 'tool_call',
+          toolName: 'present_outreach_proposal',
+          toolCallId: 'tc-live-proposal',
+          args: proposalArgs,
+        },
+        { type: 'done', assistantMessageId: 'a1' },
+      ]),
+    )
+
+    renderWorkspace()
+
+    await waitFor(() =>
+      expect(trackEvent).toHaveBeenCalledWith(
+        EVENTS.Priorities.OutreachProposed,
+        {
+          priorityId: 'pri-1',
+          round: 'one',
+          sampleSize: 412,
+          targetGroup: 'everyone',
+          channel: 'call',
+        },
+      ),
+    )
+  })
+
   it('renders a card tool call through ChatCardRenderer with a derived proposalKey', async () => {
     mocks.listMessages.mockResolvedValue([
       {
@@ -1449,7 +1479,12 @@ describe('PriorityWorkspace', () => {
       expect(screen.queryByText(/Help me get more answers/)).toBeNull()
       expect(trackEvent).toHaveBeenCalledWith(
         EVENTS.Priorities.GetAnswersClicked,
-        { priorityId: 'pri-1', source: 'rail' },
+        {
+          priorityId: 'pri-1',
+          source: 'rail',
+          readStatus: 'waiting',
+          groupsShort: 9,
+        },
       )
       expect(
         vi
@@ -1461,6 +1496,20 @@ describe('PriorityWorkspace', () => {
       expect(trackEvent).not.toHaveBeenCalledWith(
         EVENTS.AIChat.MessageSent,
         expect.anything(),
+      )
+    })
+
+    it('records the read the priority opened with', async () => {
+      renderWorkspace(emptyPriorityStatus(), null, { initialReadStatus: thin })
+      await screen.findByText('Here is where this stands.')
+
+      expect(trackEvent).toHaveBeenCalledWith(
+        EVENTS.Priorities.PriorityViewed,
+        expect.objectContaining({
+          readStatus: 'waiting',
+          groupsHeard: 3,
+          groupsTotal: 12,
+        }),
       )
     })
 
@@ -1479,7 +1528,12 @@ describe('PriorityWorkspace', () => {
       expect(router.replace).not.toHaveBeenCalled()
       expect(trackEvent).toHaveBeenCalledWith(
         EVENTS.Priorities.GetAnswersClicked,
-        { priorityId: 'pri-1', source: 'results_page' },
+        {
+          priorityId: 'pri-1',
+          source: 'results_page',
+          readStatus: 'waiting',
+          groupsShort: 9,
+        },
       )
     })
 

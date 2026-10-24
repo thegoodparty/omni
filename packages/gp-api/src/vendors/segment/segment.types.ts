@@ -286,12 +286,23 @@ export const EVENTS = {
     StepStateChanged: 'Priorities - Step State Changed',
     CheckStateChanged: 'Priorities - Check State Changed',
     PlanCompleted: 'Priorities - Plan Completed',
+    // A report back text claimed after checkout and handed off to send:
+    // { answeredCount, themesShared, channel }.
+    ReportBackSent: 'Priorities - Report Back Sent',
   },
   // Serve's civic panel. People join and leave by replying, at a door or on
   // a call, so all of it is server truth. Attributed to the office's
   // user; counts, ids and enums only, never who joined.
   CivicPanel: {
     MembershipChanged: 'Civic Panel - Membership Changed',
+    // The civic panel GoodParty builds (the managed panel): the approval, its
+    // status moves, each wave out and closed, and the goal reached. The
+    // ready email has no event of its own: Managed Panel Ready marks it.
+    ManagedInviteApproved: 'Civic Panel - Managed Invite Approved',
+    ManagedPanelStatusChanged: 'Civic Panel - Managed Panel Status Changed',
+    ManagedWaveSent: 'Civic Panel - Managed Wave Sent',
+    ManagedWaveClosed: 'Civic Panel - Managed Wave Closed',
+    ManagedPanelReady: 'Civic Panel - Managed Panel Ready',
   },
 }
 
