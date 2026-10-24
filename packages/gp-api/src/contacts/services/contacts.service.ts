@@ -797,18 +797,6 @@ export class ContactsService {
     }
   }
 
-  // Serve's "who still owes a follow-up" dimension. It reads the STANDING
-  // flag (contact_current_status.follow_up), not the follow-up column on the
-  // interaction rows, so a request already met by a later call, a later
-  // knock, or the contact card's toggle drops out of the audience. That is
-  // the whole reason the field exists: AND-ed with an activity condition for
-  // one closed outreach, it answers "who from that campaign still needs
-  // calling back", and it shrinks as the official works it down — which the
-  // campaign's own byFollowUp.yes count, a frozen historical fact, cannot.
-  //
-  // Only ever a positive membership set, so unlike contactsMade there is no
-  // notIn or override shape to compose: nobody carries an implicit flag, and
-  // a person with no row is simply not in it.
   // "Voted in election" (Win only). Already voted is the voted set itself;
   // Unknown is everyone outside it, which only a notIn can express, since
   // people who were never asked are not enumerable. Both, or neither, is no
@@ -836,6 +824,18 @@ export class ContactsService {
       : { kind: 'filter', idFilter: { notIn: voted } }
   }
 
+  // Serve's "who still owes a follow-up" dimension. It reads the STANDING
+  // flag (contact_current_status.follow_up), not the follow-up column on the
+  // interaction rows, so a request already met by a later call, a later
+  // knock, or the contact card's toggle drops out of the audience. That is
+  // the whole reason the field exists: AND-ed with an activity condition for
+  // one closed outreach, it answers "who from that campaign still needs
+  // calling back", and it shrinks as the official works it down — which the
+  // campaign's own byFollowUp.yes count, a frozen historical fact, cannot.
+  //
+  // Only ever a positive membership set, so unlike contactsMade there is no
+  // notIn or override shape to compose: nobody carries an implicit flag, and
+  // a person with no row is simply not in it.
   private async resolveFollowUpRequested(
     organization: Organization,
     filterInput: ContactsFilterResolutionInput,
