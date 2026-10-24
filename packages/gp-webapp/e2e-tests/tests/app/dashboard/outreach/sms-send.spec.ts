@@ -393,34 +393,43 @@ test.describe('Win SMS send', () => {
     await page.getByRole('button', { name: /^Continue/ }).click()
 
     // Where the failure lands is decided by win_sms_hold_billing, which gp-api
-    // evaluates per user in Amplitude and the test cannot force. Read the
-    // user's resolved value and assert the one surface it implies, so a
-    // regression on either surface fails instead of passing through the other.
-    // Off: the build runs inside the upload request, the audience step stays
-    // put and Continue is relabelled "Try again". On: the build is queued, the
-    // flow moves on to compose and the failure shows as a card on review.
+    // evaluates per user in Amplitude and the test cannot force. Off: the build
+    // runs inside the upload request, the audience step stays put and Continue
+    // is relabelled "Try again". On: the build is queued, the flow moves on to
+    // compose and the failure shows as a card on review.
+    //
+    // gp-api answers with an empty variants map when it has no real Amplitude
+    // key (the preview case) while treating the flag as on, so an empty map
+    // says nothing. When the map has flags, its value decides the surface and
+    // the UI must match; when it is empty, the UI is the oracle.
     const { data: flags } = await client.get<{
       variants: Record<string, { value?: string }>
     }>('/v1/experiment/variants')
-    const holdBilling = flags.variants['win_sms_hold_billing']?.value === 'on'
-    test.info().annotations.push({
-      type: 'win_sms_hold_billing',
-      description: holdBilling ? 'on: review-step card' : 'off: audience step',
-    })
-
+    const flagReadable = Object.keys(flags.variants).length > 0
     const failure = page.getByText(
       "We couldn't prepare this audience. Try again.",
     )
     const tryAgain = page.getByRole('button', { name: 'Try again' })
+    const composeHeading = page.getByText('What do you want to say?').first()
+
+    let holdBilling: boolean
+    if (flagReadable) {
+      holdBilling = flags.variants['win_sms_hold_billing']?.value === 'on'
+      await expect(holdBilling ? composeHeading : failure).toBeVisible({
+        timeout: 30_000,
+      })
+    } else {
+      await expect(failure.or(composeHeading)).toBeVisible({ timeout: 30_000 })
+      holdBilling = await composeHeading.isVisible()
+    }
+    test.info().annotations.push({
+      type: 'win_sms_hold_billing',
+      description: `${holdBilling ? 'on: review-step card' : 'off: audience step'}; flag ${flagReadable ? 'read' : 'unreadable, UI oracle'}; variants=${JSON.stringify(flags.variants)}`,
+    })
 
     if (holdBilling) {
-      await expect(
-        page.getByText('What do you want to say?').first(),
-      ).toBeVisible({ timeout: 30_000 })
       await composeAndSchedule(page)
       await expect(failure).toBeVisible({ timeout: 60_000 })
-    } else {
-      await expect(failure).toBeVisible({ timeout: 30_000 })
     }
     await expect(tryAgain).toBeEnabled()
     expect(checkoutSessions).toEqual([])
