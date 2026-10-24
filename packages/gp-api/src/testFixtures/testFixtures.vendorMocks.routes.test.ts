@@ -207,6 +207,23 @@ describe('POST /v1/test-fixtures/vendor-mocks/actions', () => {
     ])
   })
 
+  it('arms the next Peerly phone-list upload to fail for peerly.phonelist.fail', async () => {
+    const campaign = await seedCampaign(service.user.id)
+
+    const res = await applyAction(campaign.id, 'peerly.phonelist.fail')
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(res.data.records).toEqual([
+      expect.objectContaining({
+        vendor: 'peerly',
+        kind: 'phone_list_fail',
+        externalId: String(campaign.id),
+        campaignId: campaign.id,
+        state: { phoneListFail: true },
+      }),
+    ])
+  })
+
   describe('peerly 10DLC actions', () => {
     const seedPeerlyCampaign = async () => {
       const campaign = await seedCampaign(service.user.id)
@@ -350,6 +367,31 @@ describe('POST /v1/test-fixtures/vendor-mocks/actions', () => {
     )
 
     expect(res.status).toBe(HttpStatus.FORBIDDEN)
+  })
+
+  it('returns 403 for peerly.phonelist.fail on another user campaign', async () => {
+    const otherUser = await service.prisma.user.create({
+      data: {
+        email: `other-${Math.random().toString(36).slice(2)}@test.goodparty.org`,
+        name: 'Other',
+        firstName: 'Other',
+        lastName: 'User',
+      },
+    })
+    const campaign = await seedCampaign(otherUser.id)
+
+    const res = await applyAction(campaign.id, 'peerly.phonelist.fail')
+
+    expect(res.status).toBe(HttpStatus.FORBIDDEN)
+  })
+
+  it('returns 404 for peerly.phonelist.fail outside a non-prod deploy', async () => {
+    envNonProd.value = false
+    const campaign = await seedCampaign(service.user.id)
+
+    const res = await applyAction(campaign.id, 'peerly.phonelist.fail')
+
+    expect(res.status).toBe(HttpStatus.NOT_FOUND)
   })
 
   it('returns 404 outside a non-prod deploy', async () => {
