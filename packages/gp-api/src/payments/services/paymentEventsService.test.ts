@@ -33,7 +33,11 @@ describe('PaymentEventsService', () => {
     setIsPro: vi.fn(),
   }
   const emailService = { sendCancellationRequestConfirmationEmail: vi.fn() }
-  const stripeService = { retrieveCustomer: vi.fn() }
+  const stripeService = {
+    retrieveCustomer: vi.fn(),
+    listBillableSubscriptions: vi.fn(),
+    cancelSubscription: vi.fn(),
+  }
   const analytics = {
     trackProPayment: vi.fn(),
     track: vi.fn(),
@@ -904,6 +908,63 @@ describe('PaymentEventsService', () => {
         expect.stringContaining('no longer exists'),
       )
       expect(logger.error).not.toHaveBeenCalled()
+    })
+
+    describe('orphaned sibling subscriptions (ENG-11454)', () => {
+      const requested = {
+        cancellation_details: { reason: 'cancellation_requested' },
+      }
+
+      beforeEach(() => {
+        stripeService.listBillableSubscriptions.mockResolvedValue([
+          { id: 'sub_test_unmatched', status: 'canceled' },
+          { id: 'sub_orphan', status: 'active' },
+          { id: 'sub_claimed', status: 'active' },
+        ])
+        campaignsService.findBySubscriptionId.mockImplementation(
+          async (id: string) =>
+            id === 'sub_orphan' ? null : (mockCampaign as never),
+        )
+      })
+
+      it('cancels only the unclaimed billable sibling after a requested cancellation', async () => {
+        await service.customerSubscriptionDeletedHandler(
+          deletedEvent(requested),
+        )
+
+        expect(stripeService.listBillableSubscriptions).toHaveBeenCalledWith(
+          'cus_test_unmatched',
+        )
+        expect(
+          stripeService.cancelSubscription,
+        ).toHaveBeenCalledExactlyOnceWith('sub_orphan')
+      })
+
+      it('leaves siblings alone when the cancellation was not user-requested', async () => {
+        await service.customerSubscriptionDeletedHandler(deletedEvent())
+
+        expect(stripeService.listBillableSubscriptions).not.toHaveBeenCalled()
+        expect(stripeService.cancelSubscription).not.toHaveBeenCalled()
+      })
+
+      it('still completes the de-Pro when the sibling cancel fails', async () => {
+        stripeService.cancelSubscription.mockRejectedValue(
+          new Error('stripe down'),
+        )
+
+        await expect(
+          service.customerSubscriptionDeletedHandler(deletedEvent(requested)),
+        ).resolves.toBeUndefined()
+
+        expect(
+          campaignsService.persistCampaignProCancellation,
+        ).toHaveBeenCalledOnce()
+        expect(slackService.message).toHaveBeenCalledOnce()
+        expect(logger.error).toHaveBeenCalledWith(
+          expect.objectContaining({ customerId: 'cus_test_unmatched' }),
+          expect.stringContaining('may still be billed'),
+        )
+      })
     })
 
     it('tracks the Pro cancellation with the reason Stripe gave', async () => {

@@ -875,6 +875,17 @@ export class PaymentEventsService {
       subscriptionCanceledAt: Date.now(),
     })
 
+    if (
+      subscription.cancellation_details?.reason === 'cancellation_requested'
+    ) {
+      await this.cancelOrphanedSiblingSubscriptions(
+        typeof subscription.customer === 'string'
+          ? subscription.customer
+          : subscription.customer.id,
+        subscriptionId,
+      )
+    }
+
     try {
       await this.analytics.track(user.id, EVENTS.Account.ProSubscriptionEnded, {
         subscriptionId,
@@ -888,6 +899,49 @@ export class PaymentEventsService {
     }
 
     await this.sendProCancellationSlackMessage(user, campaign)
+  }
+
+  // The candidate asked to stop paying, and we just un-Pro'd the campaign. Any
+  // OTHER billable subscription on the same Stripe customer that no campaign
+  // carries is an orphan (ENG-11084 and friends) the product can no longer see
+  // or cancel: Manage Subscription resolves off the campaign, so it would keep
+  // charging someone who has already cancelled (ENG-11454). Scoped narrowly on
+  // purpose: only a user-requested cancellation, only the same customer, only
+  // subscriptions no campaign claims. Best effort: a failure here must not
+  // fail the webhook, which would redeliver the de-Pro.
+  private async cancelOrphanedSiblingSubscriptions(
+    customerId: string,
+    canceledSubscriptionId: string,
+  ): Promise<void> {
+    try {
+      const subscriptions =
+        await this.stripeService.listBillableSubscriptions(customerId)
+      for (const sibling of subscriptions) {
+        if (
+          sibling.id === canceledSubscriptionId ||
+          UNBILLABLE_SUBSCRIPTION_STATUSES.has(sibling.status)
+        ) {
+          continue
+        }
+        if (await this.campaignsService.findBySubscriptionId(sibling.id)) {
+          continue
+        }
+        await this.stripeService.cancelSubscription(sibling.id)
+        this.logger.warn(
+          {
+            customerId,
+            canceledSubscriptionId,
+            siblingSubscriptionId: sibling.id,
+          },
+          '[WEBHOOK] Canceled an orphaned sibling subscription on the same Stripe customer after a user-requested Pro cancellation',
+        )
+      }
+    } catch (error) {
+      this.logger.error(
+        { error, customerId, canceledSubscriptionId },
+        '[WEBHOOK] Could not cancel orphaned sibling subscriptions after a Pro cancellation — the customer may still be billed',
+      )
+    }
   }
 
   async sendProCancellationSlackMessage(user: User, campaign: Campaign) {

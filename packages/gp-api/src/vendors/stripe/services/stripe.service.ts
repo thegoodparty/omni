@@ -908,6 +908,28 @@ export class StripeService {
     }
   }
 
+  // Every subscription on the customer that has not ended, i.e. can still bill.
+  // Stripe's list omits canceled ones by default; incomplete_expired is dropped
+  // here because it can never bill either.
+  async listBillableSubscriptions(customerId: string) {
+    try {
+      const { data } = await this.stripe.subscriptions.list({
+        customer: customerId,
+        limit: 100,
+      })
+      return data.filter((sub) => sub.status !== 'incomplete_expired')
+    } catch (e) {
+      if (e instanceof Error) {
+        this.logger.error(e, `Failed to list subscriptions for ${customerId}`)
+        throw new BadGatewayException(
+          `Failed to list subscriptions for ${customerId}`,
+          e.message,
+        )
+      }
+      throw e
+    }
+  }
+
   async retrieveSubscription(subscriptionId: string) {
     try {
       return await this.stripe.subscriptions.retrieve(subscriptionId)
