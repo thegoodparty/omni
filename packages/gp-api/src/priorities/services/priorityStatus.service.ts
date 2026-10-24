@@ -157,6 +157,33 @@ const refusalFor = (
   update: UpdatePriorityStatusInput,
   turn: StatusTurn,
 ): string | null => {
+  // Left alone, the model met a fact that undercut a settled step by
+  // rewriting that step's summary and keeping it settled, so the official
+  // never saw it go back. A revised check is the one way a settled step's
+  // conclusion changes in place, because constituents changed it.
+  const rewritesSettled = update.steps.find((patch) => {
+    const stored = current.steps.find((step) => step.id === patch.id)
+    return (
+      stored?.state === STEP_STATE.settled &&
+      patch.state === STEP_STATE.settled &&
+      patch.summary !== undefined &&
+      patch.summary.trim() !== stored.summary.trim() &&
+      patch.check?.state !== 'revised' &&
+      patch.check?.contrast?.state !== 'revised'
+    )
+  })
+  if (rewritesSettled !== undefined) {
+    const label = PRIORITY_STEP_LABELS[rewritesSettled.id]
+    return (
+      `${label} is done as the official agreed it, so it is not rewritten ` +
+      'in place. If what you just learned changes that, it needs another ' +
+      'look: send it back in this same call, set to stale with a caveat ' +
+      'saying what changed, along with every done step after it that ' +
+      'rested on it, and tell the official what changed. If it still ' +
+      'holds, leave it as it is and put the new fact on the step you are ' +
+      'working on.'
+    )
+  }
   const offGate = update.steps.find(
     (step) => step.check !== undefined && !isGate(step.id),
   )
@@ -710,6 +737,10 @@ export class PriorityStatusService extends createPrismaBase(MODELS.Priority) {
     priorityId: string,
     turn: StatusTurn = NO_TURN,
   ): Record<string, LlmTool> {
+    // Steps this turn moved off settled. On the preview the agent sent the
+    // problem back and settled its own rewrite a few calls later, so the
+    // official never had a say in the new version.
+    const sentBack = new Set<PriorityStepId>()
     const updateStatus: LlmStreamTool<typeof UpdatePriorityStatusInputSchema> =
       {
         description:
@@ -718,14 +749,17 @@ export class PriorityStatusService extends createPrismaBase(MODELS.Priority) {
           'before you set a step active, move the step that was active to ' +
           'settled or stale in the same call. If you do not, that step is ' +
           'dropped back to open and its work reads as abandoned. Call this ' +
-          'when a step genuinely changes state, or when what it settled ' +
-          'materially changes, not to restate what is already stored. Pass ' +
-          'only the steps that changed; anything you leave out keeps ' +
-          'exactly what it had. Send a settled step back to active or ' +
-          'stale only when new information meaningfully invalidates what ' +
-          'that step concluded and resolving it needs more conversation, ' +
-          'and say what changed in caveat. A detail added, a number ' +
-          'confirmed, or the topic coming up again is not enough. Always ' +
+          'when a step genuinely changes state, not to restate what is ' +
+          'already stored. Pass only the steps that changed; anything you ' +
+          'leave out keeps exactly what it had. A settled step keeps its ' +
+          'summary: a call that rewrites it and leaves it settled is ' +
+          'refused, unless constituents revised its check. Send a settled ' +
+          'step back to active or stale when new information meaningfully ' +
+          'invalidates what that step concluded and resolving it needs ' +
+          'more conversation, and say what changed in caveat. A step sent ' +
+          'back stays back for the rest of the turn. A detail added, a ' +
+          'number confirmed, or the topic coming up again is not enough. ' +
+          'Always ' +
           'pass nextAction: one short sentence the official could act on ' +
           'today, written to them as "you". The app shows it to the ' +
           'official, so never use their name, he, she or they for them, ' +
@@ -734,6 +768,31 @@ export class PriorityStatusService extends createPrismaBase(MODELS.Priority) {
         inputSchema: UpdatePriorityStatusInputSchema,
         execute: async (input) => {
           const current = await this.read(priorityId)
+          // Recorded before the refusals, so a send-back the agent meant in a
+          // call refused for another step still holds for the turn.
+          input.steps
+            .filter(
+              (patch) =>
+                patch.state !== STEP_STATE.settled &&
+                current.steps.find((step) => step.id === patch.id)?.state ===
+                  STEP_STATE.settled,
+            )
+            .forEach((patch) => sentBack.add(patch.id))
+          const resettled = input.steps.find(
+            (patch) =>
+              patch.state === STEP_STATE.settled && sentBack.has(patch.id),
+          )
+          if (resettled !== undefined) {
+            const label = PRIORITY_STEP_LABELS[resettled.id]
+            return refusalResult(
+              current,
+              input,
+              `${label} went back this turn and waits on the official ` +
+                'agreeing the new version, so it cannot be done yet. Offer ' +
+                'the new version with ask_clarify_question, settle it on ' +
+                'their answer, and keep working on the step you are on.',
+            )
+          }
           const refusal = refusalFor(current, input, turn)
           if (refusal !== null) return refusalResult(current, input, refusal)
           const result = await this.applyUpdate(

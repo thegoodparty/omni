@@ -1518,7 +1518,7 @@ describe('the chat budget', () => {
     expect(loadCases(registered('chief_of_staff')).cases).toHaveLength(9)
     expect(loadCases(registered('campaign_assistant')).cases).toHaveLength(9)
     expect(() => loadCases(registered('priority_flow'))).toThrow(
-      /^priority_flow was not admitted to this sweep: would take about 38 minutes for 75 chat turns at 30s each/,
+      /^priority_flow was not admitted to this sweep: would take about 48 minutes for 96 chat turns at 30s each/,
     )
     expect(capturableAgents(ids, arm, findAgent, DEFAULT_JUDGE_CONFIG)).toEqual(
       ['chief_of_staff', 'campaign_assistant'],

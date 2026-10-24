@@ -1180,6 +1180,102 @@ describe('PriorityFlowHandler', () => {
     )
   })
 
+  it('sends a settled step back on its own when a new fact undercuts it', () => {
+    const prompt = build().buildSystemPrompt(baseCtx())
+    expect(prompt).toContain(
+      'A new fact that undercuts what a settled step rested on clears that bar',
+    )
+    expect(prompt).toContain(
+      'Send that step back on your own, in the same turn you take the fact in',
+    )
+    expect(prompt).toContain(
+      'Never wait for the official to ask whether to rethink it',
+    )
+    expect(prompt).toContain(
+      "A settled step's summary is what was agreed, and it only changes when the step goes back.",
+    )
+    expect(prompt).toContain(
+      'A step you send back stays back for the rest of that turn. Never settle your own new version',
+    )
+  })
+
+  it('says each thing once, never around a tool call or over a card', () => {
+    const prompt = build().buildSystemPrompt(baseCtx())
+    expect(prompt).toContain(
+      'What you wrote before a tool call is already on screen',
+    )
+    expect(prompt).toContain(
+      'A reply never opens with the line your last one ended on.',
+    )
+    expect(prompt).toContain('Never repeat in prose what a card shows')
+    expect(prompt).toContain(
+      'If it makes a point already made, however it is reworded, cut it',
+    )
+  })
+
+  it('speaks of news about their own office as about them', () => {
+    const prompt = build().buildSystemPrompt(baseCtx())
+    expect(prompt).toContain(
+      'about the holder of that office there, by title or by name, is about them',
+    )
+    expect(prompt).toContain(
+      'An option is an answer the official gives, in the first person',
+    )
+  })
+
+  it.each([null, ''])(
+    'names the office from the resolved position when its custom name is %j',
+    async (officeTitle) => {
+      context.load = vi.fn(() =>
+        Promise.resolve({ ...baseCtx(), officeTitle }),
+      ) as never
+      const handler = build({
+        resolveByOrgSlug: vi.fn(() =>
+          Promise.resolve({
+            l2DistrictName: 'NEW BEDFORD CITY',
+            state: 'MA',
+            positionName: 'New Bedford City Mayor',
+          }),
+        ),
+        toMandatoryFilters: vi.fn(() => []),
+      })
+
+      const ctx = await handler.loadContext('c1', USER_ID)
+
+      expect(ctx.officeTitle).toBe('New Bedford City Mayor')
+      expect(handler.buildSystemPrompt(ctx)).toContain(
+        'Office: New Bedford City Mayor\nCity/District: NEW BEDFORD CITY, MA\n',
+      )
+    },
+  )
+
+  it('keeps a custom office name over the position name', async () => {
+    const ctx = await build({
+      resolveByOrgSlug: vi.fn(() =>
+        Promise.resolve({
+          l2DistrictName: 'Ward 3',
+          state: 'NC',
+          positionName: 'Raleigh City Council - District 3',
+        }),
+      ),
+      toMandatoryFilters: vi.fn(() => []),
+    }).loadContext('c1', USER_ID)
+
+    expect(ctx.officeTitle).toBe('City Council Member')
+  })
+
+  it('announces a count before a list only when the list matches it', () => {
+    expect(build().buildSystemPrompt(baseCtx())).toContain(
+      'Never announce how many things a list holds ("you have two paths") unless the list that follows',
+    )
+  })
+
+  it('quotes counts in the unit the tool returned, never estimating doors', () => {
+    expect(build().buildSystemPrompt(baseCtx())).toContain(
+      'People are people and doors are doors: never estimate, round or convert one into the other',
+    )
+  })
+
   it('names the community issue a priority came from in <priority>', () => {
     const prompt = build().buildSystemPrompt({
       ...baseCtx(),
@@ -1312,6 +1408,9 @@ describe('PriorityFlowHandler', () => {
       expect(prompt).toContain('When coversEveryGroup comes back false')
       expect(prompt).not.toContain('walkableArea')
       expect(prompt).not.toContain('hours a week')
+      expect(prompt).toContain(
+        'Every count you say about the round is copied from what size_round_one returned this turn',
+      )
       expect(prompt).toContain(
         'never mention weights, quotas, targets or answer rates',
       )
