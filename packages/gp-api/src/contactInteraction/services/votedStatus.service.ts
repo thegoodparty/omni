@@ -8,9 +8,14 @@ type ElectionDates = {
   primaryElectionDate?: string | null
 }
 
-const DAY_MS = 24 * 60 * 60 * 1000
+// An election resets the flag at noon UTC the day after it: by then election
+// day is over everywhere in the US, territories included (8am Eastern, 2am
+// Hawaii, 1am American Samoa). UTC midnight would be 5pm Pacific on election
+// day itself, clearing the flag mid-GOTV and pushing primary-night answers
+// into the general.
+const RESET_AFTER_ELECTION_DATE_MS = 36 * 60 * 60 * 1000
 
-// Where "this election" starts: the day after the latest of the campaign's
+// Where "this election" starts: the reset after the latest of the campaign's
 // election dates that is already behind us. A primary voter who said "already
 // voted" in August has not voted in November, so answers from before that
 // boundary must not count. No past date means no boundary. Runoffs are not on
@@ -19,15 +24,17 @@ export const votedWindowStart = (
   dates: ElectionDates | null | undefined,
   now: Date = new Date(),
 ): Date | null => {
-  const today = now.toISOString().slice(0, 10)
-  const past = [dates?.primaryElectionDate, dates?.electionDate]
+  const latest = [dates?.primaryElectionDate, dates?.electionDate]
     .filter((date): date is string => Boolean(date))
-    .map((date) => date.slice(0, 10))
-    .filter((date) => date < today)
-    .sort()
-  const latest = past.at(-1)
-  if (!latest) return null
-  return new Date(Date.parse(`${latest}T00:00:00.000Z`) + DAY_MS)
+    .map(
+      (date) =>
+        Date.parse(`${date.slice(0, 10)}T00:00:00.000Z`) +
+        RESET_AFTER_ELECTION_DATE_MS,
+    )
+    .filter((reset) => reset <= now.getTime())
+    .sort((a, b) => a - b)
+    .at(-1)
+  return latest === undefined ? null : new Date(latest)
 }
 
 // The Voted flag (Win only): true when the person's MOST RECENT will-vote
