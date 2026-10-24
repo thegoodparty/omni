@@ -3210,6 +3210,89 @@ describe('the managed civic panel explainer', () => {
     )
   })
 
+  it('completes each offer once: the first, then the follow-up after How does it work?', async () => {
+    const user = userEvent.setup()
+    const howItWorks = 'How does it work?'
+    const followUp = [
+      ...explainerTurn(),
+      msg('user', howItWorks),
+      msg('assistant', 'Anyone who replies JOIN takes a seat.', {
+        id: 'a2',
+        segments: [
+          { kind: 'text', text: 'Anyone who replies JOIN takes a seat.' },
+          {
+            kind: 'tool',
+            toolName: 'offer_managed_panel_invite',
+            toolCallId: 'tc-offer-2',
+            payload: { afterHowItWorks: true },
+          },
+        ],
+      }),
+    ]
+    const shown = [
+      ...followUp,
+      msg('user', SHOW_MANAGED_CIVIC_PANEL_INVITE),
+      msg('assistant', 'Here is the invite.', { id: 'a3' }),
+    ]
+    const after = [
+      ...shown,
+      msg('user', 'Thanks'),
+      msg('assistant', 'Any time.', { id: 'a4' }),
+    ]
+    listMessagesMock.mockResolvedValueOnce(explainerTurn())
+    const reply = (text: string, id: string) =>
+      makeStream([
+        { type: 'text', delta: text },
+        { type: 'done', assistantMessageId: id },
+      ])
+    const completed = () =>
+      managedEvents(EVENTS.CivicPanel.ManagedInviteExplainerCompleted).map(
+        ([, properties]) => properties,
+      )
+
+    render(
+      <ChiefOfStaffChatBody
+        active
+        conversationIdOverride="conv_m"
+        hiddenMessageContents={[START_MANAGED_CIVIC_PANEL_MESSAGE]}
+      />,
+    )
+
+    await screen.findByRole('radio', { name: howItWorks })
+    streamMessageMock.mockReturnValueOnce(
+      reply('Anyone who replies JOIN takes a seat.', 'a2'),
+    )
+    listMessagesMock.mockResolvedValue(followUp)
+    await user.click(screen.getByRole('radio', { name: howItWorks }))
+    // The follow-up offer is the last Show me the invite, and the only one
+    // still open.
+    const lastShow = () =>
+      screen
+        .getAllByRole('radio', { name: SHOW_MANAGED_CIVIC_PANEL_INVITE })
+        .at(-1)!
+    await waitFor(() =>
+      expect(
+        screen.getAllByRole('radio', { name: SHOW_MANAGED_CIVIC_PANEL_INVITE }),
+      ).toHaveLength(2),
+    )
+    await waitFor(() => expect(lastShow()).toBeEnabled())
+
+    streamMessageMock.mockReturnValueOnce(reply('Here is the invite.', 'a3'))
+    listMessagesMock.mockResolvedValue(shown)
+    await user.click(lastShow())
+    await screen.findByText('Here is the invite.')
+
+    streamMessageMock.mockReturnValueOnce(reply('Any time.', 'a4'))
+    listMessagesMock.mockResolvedValue(after)
+    await user.type(screen.getByRole('textbox'), 'Thanks{Enter}')
+    await screen.findByText('Any time.')
+
+    expect(completed()).toEqual([
+      { choice: 'how_it_works' },
+      { choice: 'show_invite' },
+    ])
+  })
+
   it('records the next steps picked under the intro, and where the explainer came from', async () => {
     const user = userEvent.setup()
     listConversationsMock.mockResolvedValue([])

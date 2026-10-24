@@ -611,26 +611,32 @@ describe('managed civic panel analytics', () => {
     const slug = await seedOffice()
     await approve(slug)
     await act(slug, 'stop')
-    track.mockClear()
 
     await approve(slug)
 
+    // Every event is fire-and-forget, so wait for each rather than clearing
+    // the spy between requests: a late one from the stop would land after.
+    await vi.waitFor(() =>
+      expect(tracked(track, EVENTS.CivicPanel.ManagedInviteApproved)).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ reapproval: false }),
+          expect.objectContaining({ reapproval: true }),
+        ]),
+      ),
+    )
     await vi.waitFor(() =>
       expect(
         tracked(track, EVENTS.CivicPanel.ManagedPanelStatusChanged),
-      ).toHaveLength(1),
-    )
-    expect(tracked(track, EVENTS.CivicPanel.ManagedInviteApproved)).toEqual([
-      expect.objectContaining({ reapproval: true }),
-    ])
-    expect(
-      tracked(track, EVENTS.CivicPanel.ManagedPanelStatusChanged)[0],
-    ).toEqual(
-      expect.objectContaining({
-        from: 'stopped',
-        to: 'building',
-        changedBy: 'official',
-      }),
+      ).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ from: 'building', to: 'stopped' }),
+          expect.objectContaining({
+            from: 'stopped',
+            to: 'building',
+            changedBy: 'official',
+          }),
+        ]),
+      ),
     )
   })
 
