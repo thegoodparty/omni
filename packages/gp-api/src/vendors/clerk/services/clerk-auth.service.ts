@@ -171,8 +171,17 @@ export class ClerkAuthService implements AuthProvider {
 
   async verifyM2MJwt(token: string): Promise<VerifiedM2MToken> {
     try {
-      const { id, subject, expired } = await clerkCall('m2m.verify', {}, () =>
-        this.clerkClient.m2m.verify({ token }),
+      // With CLERK_JWT_KEY set the SDK verifies a three-part JWT locally, with
+      // no network call, so the timeout race could only fire when the event
+      // loop was frozen and would 403 a valid token. Without the key it still
+      // refetches the JWKS, so keep the timeout there.
+      const verifiesLocally =
+        !!process.env.CLERK_JWT_KEY && token.split('.').length === 3
+      const { id, subject, expired } = await clerkCall(
+        'm2m.verify',
+        {},
+        () => this.clerkClient.m2m.verify({ token }),
+        verifiesLocally ? null : undefined,
       )
       if (expired) {
         throw new Error('M2M JWT is expired')
