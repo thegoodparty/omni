@@ -1,6 +1,11 @@
-# Security updates only. Version updates are disabled via
+# npm: security updates only. Version updates are disabled via
 # open-pull-requests-limit: 0; security PRs are driven by Dependabot alerts
 # (repo setting) and auto-merged by .github/workflows/dependabot-merge.yml.
+#
+# docker: Dependabot has no security updates for docker, so a limit of 0 would
+# never open a PR. Base images get version updates instead, so a Node security
+# patch (22.23.4 -> 22.23.5) arrives as a PR. Majors (Node 22 -> 24) and Python
+# minors (3.12 -> 3.13) are runtime upgrades, so a human makes those.
 version: 2
 updates:
   - package-ecosystem: npm
@@ -9,37 +14,23 @@ updates:
       interval: daily
     open-pull-requests-limit: 0
   - package-ecosystem: docker
-    directory: /packages/election-api/deploy
+    directories:
+      - /packages/election-api/deploy
+      - /packages/gp-ai/autopilot
+      - /packages/gp-ai/broker
+      - /packages/gp-ai/hubspot_ddhq_match/deployment
+      - /packages/gp-ai/pmf_engine
+      - /packages/gp-ai/serve/v1_pipeline
+      - /packages/gp-api/deploy
     schedule:
       interval: daily
-    open-pull-requests-limit: 0
-  - package-ecosystem: docker
-    directory: /packages/gp-ai/autopilot
-    schedule:
-      interval: daily
-    open-pull-requests-limit: 0
-  - package-ecosystem: docker
-    directory: /packages/gp-ai/broker
-    schedule:
-      interval: daily
-    open-pull-requests-limit: 0
-  - package-ecosystem: docker
-    directory: /packages/gp-ai/hubspot_ddhq_match/deployment
-    schedule:
-      interval: daily
-    open-pull-requests-limit: 0
-  - package-ecosystem: docker
-    directory: /packages/gp-ai/pmf_engine
-    schedule:
-      interval: daily
-    open-pull-requests-limit: 0
-  - package-ecosystem: docker
-    directory: /packages/gp-ai/serve/v1_pipeline
-    schedule:
-      interval: daily
-    open-pull-requests-limit: 0
-  - package-ecosystem: docker
-    directory: /packages/gp-api/deploy
-    schedule:
-      interval: daily
-    open-pull-requests-limit: 0
+    open-pull-requests-limit: 5
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "*python"
+        update-types: ["version-update:semver-minor"]
+    groups:
+      base-images:
+        patterns: ["*"]
+        group-by: dependency-name
