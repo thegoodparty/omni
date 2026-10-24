@@ -632,6 +632,44 @@ describe('<PersonOverlay>', () => {
       // ENG-10836: the StatusRow carries support on Win, not this card.
       expect(screen.queryByText('Support Status')).not.toBeInTheDocument()
     })
+
+    it('marks both turnout rows when the voter has already voted', () => {
+      setContext({
+        isElectedOfficial: false,
+        selectedPerson: {
+          person: makePerson({
+            voterStatus: 'Unreliable',
+            earlyVoteStatus: null,
+            voted: true,
+          }),
+        },
+      })
+
+      render(<PersonOverlay />)
+
+      expect(screen.getByText('Unreliable (Already voted)')).toBeInTheDocument()
+      // No score to qualify still says so, rather than dropping the row.
+      expect(screen.getByText('Unknown (Already voted)')).toBeInTheDocument()
+    })
+
+    it('leaves the turnout rows alone when the voter has not voted', () => {
+      setContext({
+        isElectedOfficial: false,
+        selectedPerson: {
+          person: makePerson({
+            voterStatus: 'Unreliable',
+            earlyVoteStatus: 'Likely',
+            voted: false,
+          }),
+        },
+      })
+
+      render(<PersonOverlay />)
+
+      expect(screen.getByText('Unreliable')).toBeInTheDocument()
+      expect(screen.getByText('Likely')).toBeInTheDocument()
+      expect(screen.queryByText(/Already voted/)).not.toBeInTheDocument()
+    })
   })
 
   describe('ENG-10836 status row', () => {
