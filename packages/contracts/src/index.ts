@@ -122,6 +122,9 @@ export {
   type TrackerTaskSkipReason,
   TRACKER_TASK_SKIP_REASON_VALUES,
   TrackerTaskSkipReasonSchema,
+  type VotedStatus,
+  VOTED_STATUS_VALUES,
+  VotedStatusSchema,
 } from './generated/enums'
 
 export {

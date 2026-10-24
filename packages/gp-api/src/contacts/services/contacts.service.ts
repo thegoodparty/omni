@@ -21,6 +21,7 @@ import {
   type ListDetailContactsResponse,
   type PeopleOverlapCountResponse,
   type SupportStatusRollup,
+  type VotedStatus,
   type UpdateContactStatusInput,
   type VoterLikelihood,
   type PeoplePrecinctsResponse,
@@ -61,6 +62,7 @@ import {
   hasDayRange,
 } from 'src/contactInteraction/services/civicPanelHistory.service'
 import { SupportStatusService } from 'src/contactInteraction/services/supportStatus.service'
+import { VotedStatusService } from 'src/contactInteraction/services/votedStatus.service'
 import { ElectionsService } from 'src/elections/services/elections.service'
 import { OrganizationsService } from 'src/organizations/services/organizations.service'
 import { VoterFileDownloadAccessService } from '@/shared/services/voterFileDownloadAccess.service'
@@ -323,6 +325,7 @@ export type ContactsFilterResolutionInput = Partial<
 > & {
   activityConditions?: ActivityCondition[]
   supportStatus?: SupportStatusRollup[]
+  votedStatus?: VotedStatus[]
   search?: string | null
 }
 
@@ -348,6 +351,7 @@ export class ContactsService {
     private readonly contactsMadeResolutionService: ContactsMadeResolutionService,
     private readonly civicPanelHistory: CivicPanelHistoryService,
     private readonly independentAffinityColumn: IndependentAffinityColumnService,
+    private readonly votedStatusService: VotedStatusService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(ContactsService.name)
@@ -730,7 +734,7 @@ export class ContactsService {
     // boundary is a Serve feature and that return is the Serve path. Applied
     // after it, the boundary would hold on the CSV and the counts and
     // nowhere a holder actually looks.
-    const idResolution = await this.resolveNotContactedRecently(
+    const sharedResolution = await this.resolveNotContactedRecently(
       organization,
       filterInput,
       intersectIdFilterResolutions(
@@ -752,11 +756,16 @@ export class ContactsService {
           await this.resolveFollowUpRequested(
             organization,
             filterInput,
-            idResolution,
+            sharedResolution,
           ),
         ),
       }
     }
+
+    const idResolution = intersectIdFilterResolutions(
+      sharedResolution,
+      await this.resolveVotedStatus(organization, filterInput),
+    )
 
     const selected = extractContactsMadeSelection(filterInput)
     if (selected.size === 0) {
@@ -800,6 +809,33 @@ export class ContactsService {
   // Only ever a positive membership set, so unlike contactsMade there is no
   // notIn or override shape to compose: nobody carries an implicit flag, and
   // a person with no row is simply not in it.
+  // "Voted in election" (Win only). Already voted is the voted set itself;
+  // Unknown is everyone outside it, which only a notIn can express, since
+  // people who were never asked are not enumerable. Both, or neither, is no
+  // constraint, the same as selecting every Support status pill.
+  private async resolveVotedStatus(
+    organization: Organization,
+    filterInput: ContactsFilterResolutionInput,
+  ): Promise<IdFilterResolution> {
+    const selected = new Set(filterInput.votedStatus ?? [])
+    const wantsVoted = selected.has('already_voted')
+    if (wantsVoted === selected.has('unknown')) {
+      return { kind: 'none' }
+    }
+    const voted = await this.votedStatusService.votedPersonIds(
+      organization.slug,
+    )
+    if (wantsVoted) {
+      // Nobody has voted yet: an empty audience, not an absent filter.
+      return voted.length === 0
+        ? { kind: 'empty' }
+        : { kind: 'filter', idFilter: { in: voted } }
+    }
+    return voted.length === 0
+      ? { kind: 'none' }
+      : { kind: 'filter', idFilter: { notIn: voted } }
+  }
+
   private async resolveFollowUpRequested(
     organization: Organization,
     filterInput: ContactsFilterResolutionInput,
@@ -1831,6 +1867,13 @@ export class ContactsService {
             savedFilter,
             savedIdResolution,
           )
+          // Voted in election is in excludeFields for the same reason as
+          // followUpRequested: skipped, a "not yet voted" list would count
+          // the voters it leaves out.
+          savedIdResolution = intersectIdFilterResolutions(
+            savedIdResolution,
+            await this.resolveVotedStatus(organization, savedFilter),
+          )
           // And the shape drawn on it. Without this a boundaried list joins
           // the union at its PRE-boundary size — every person its criteria
           // match anywhere in the district, not the ones inside the shape —
@@ -2563,6 +2606,7 @@ export class ContactsService {
       followUpOrNull,
       civicPanelOrNull,
       civicPanelActivityOrNull,
+      votedOrNull,
     ] = await Promise.all([
       this.contactInteractionTextService.latestOptOutAt(
         organization.slug,
@@ -2596,6 +2640,12 @@ export class ContactsService {
       this.hasElectedOfficeAccess(organization)
         ? this.civicPanelActivity(organization.slug, person.id)
         : Promise.resolve(null),
+      // Win-only, like voterLikelihood: Serve never asks whether anyone voted.
+      this.hasElectedOfficeAccess(organization)
+        ? Promise.resolve(null)
+        : this.votedStatusService
+            .votedForPeople(organization.slug, [person.id])
+            .then((voted) => voted.get(person.id) ?? false),
     ])
     const base = {
       ...this.stripWinOnlyFieldsIfElectedOffice(organization, person),
@@ -2605,7 +2655,11 @@ export class ContactsService {
     const withLikelihood =
       voterLikelihoodOrNull === null
         ? base
-        : { ...base, voterLikelihood: voterLikelihoodOrNull }
+        : {
+            ...base,
+            voterLikelihood: voterLikelihoodOrNull,
+            ...(votedOrNull === null ? {} : { voted: votedOrNull }),
+          }
     return followUpOrNull === null ||
       civicPanelOrNull === null ||
       civicPanelActivityOrNull === null
