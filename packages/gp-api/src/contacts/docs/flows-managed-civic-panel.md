@@ -38,7 +38,8 @@ office one card at a time (`syncManagedPanelProgressCard`,
 `sourceExternalId` from contracts' `managedCivicPanelProgressCardSourceId`,
 `managed-panel-progress:<electedOfficeId>`, `sourceItemId` the phase from
 `managedPanelPhase`): `building` (building or paused: "Your civic panel is
-filling up", members of the goal and the next send date, or "Invites are
+filling up", or "Your civic panel starts here" at 0 members as on the civic
+panel page, members of the goal and the next send date, or "Invites are
 paused"), `ready` (for `MANAGED_PANEL_READY_CARD_DAYS`, 14, after
 `readyAt`), and `exhausted` ("Every resident we can text has an invite",
 members of the goal, button `MANAGED_CIVIC_PANEL_EXHAUSTED_CARD_CTA`, which
@@ -112,6 +113,8 @@ panel route: 404 with the flag off, 400 for a non-`eo-` org.
   stopped comes back unchanged; a stopped one is approved again in place.
 - `PATCH { action }`: `pause` from building, `resume` from paused, `stop`
   from building, paused, ready or exhausted. Anything else is a 409; no enrollment is a 404. Each write is conditional on the status it leaves from.
+  A 409 means the status moved since the page loaded, so the Invites card
+  reads the enrollment again and redraws instead of offering Try again.
 
 **Drawing a wave** (`ManagedPanelWaveDrawService.drawNextWave`, no route).
 It draws a building enrollment's next wave and sends nothing. A wave not yet
@@ -180,3 +183,28 @@ left `pending` is resumed by `claimFree`, and a send already past `pending`
 only gets its wave marked. Paused, stopped, ready and exhausted panels are
 not touched. Decision:
 `docs/adr/2026-10-22-managed-panel-wave-job-derives-each-step.md`.
+
+**Analytics** (`EVENTS.CivicPanel` in `segment.types.ts`, to the office's
+user through `trackForOffice`, fire-and-forget). Each fires only from the
+write that changed the row, so a retry or a second run never counts twice.
+
+- `Managed Invite Approved` (`approve`, only an approval this call made):
+  `goalMembers`, `freeTextCap`, `firstSendDate`, `reapproval` (a stopped
+  enrollment approved again), `product: serve`.
+- `Managed Panel Status Changed` (`managedPanelStatusChanged` in
+  `utils/managedPanelAnalytics.util.ts`): `from`, `to`, `members`,
+  `changedBy`. `official` from the PATCH and a re-approval, `system` from the
+  wave job (ready, exhausted, paused out of free texts) and `claimFree`'s
+  pause at the cap. Nothing writes `staff` yet: staff have no route.
+- `Managed Wave Sent` (the wave marked sent): `wave`, `texts`, `sendDate`,
+  `steeredToward`.
+- `Managed Wave Closed`: `wave`, `invited` (the people its list drew),
+  `joinedMembers`, `membersAfter`.
+- `Managed Panel Ready` (with the status change to ready): `members`,
+  `goalMembers`, `wavesSent`, `daysToReady` (calendar days from the latest
+  approval). The ready email has no event of its own.
+
+The browser fires the setup steps (`EVENTS.CivicPanel` in the webapp's
+`analyticsHelper.ts`): Managed Invite Explainer Viewed and Completed, Managed
+Invite Viewed, Review Viewed, Review Dismissed and Submitted. See the
+webapp's `shared/agent-chat/AGENTS.md`.

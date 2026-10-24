@@ -254,7 +254,8 @@ describe('CivicPanelSeats with tract names', () => {
     expect(row).toHaveClass('truncate')
     expect(row).toHaveAttribute('title', 'West Asheville, around Haywood Rd')
     expect(within(list).getByText('Tract 14.02')).toBeInTheDocument()
-    expect(within(list).getByText('around Merrimon Ave')).toBeInTheDocument()
+    // A street label starts its line here, so it reads capitalized.
+    expect(within(list).getByText('Around Merrimon Ave')).toBeInTheDocument()
   })
 
   it('cuts a long name short around the arc, inside the frame, with the whole name as its tooltip', () => {
@@ -352,6 +353,15 @@ describe('CivicPanelHero', () => {
     expect(screen.getByText('Full civic panel')).toHaveTextContent('Next')
   })
 
+  it('says how many joined over the bar only at the start, where the line does not', () => {
+    render(<CivicPanelHero stage="start" members={0} goal={GOAL} />)
+    expect(
+      within(screen.getByTestId('civic-panel-hero-bar')).getByText(
+        '0 of 240 residents have joined',
+      ),
+    ).toBeInTheDocument()
+  })
+
   it('draws the seats from lg and a bar below it, the milestones under both', () => {
     const { container } = render(
       <CivicPanelHero stage="building" members={60} goal={GOAL} />,
@@ -360,9 +370,13 @@ describe('CivicPanelHero', () => {
     expect(arc).toHaveClass('hidden', 'lg:flex')
     const bar = screen.getByTestId('civic-panel-hero-bar')
     expect(bar).toHaveClass('lg:hidden')
+    // The line above already says how many joined, so the bar does not.
     expect(
-      within(bar).getByText('60 of 240 residents have joined'),
+      screen.getByText('60 of 240 residents have joined so far.'),
     ).toBeInTheDocument()
+    expect(
+      within(bar).queryByText('60 of 240 residents have joined'),
+    ).not.toBeInTheDocument()
     expect(
       within(bar).getByRole('progressbar', {
         name: '60 of 240 residents have joined',

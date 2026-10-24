@@ -321,15 +321,15 @@ const managedCivicPanelBlock = (
     ),
     `- On "${MANAGED_CIVIC_PANEL_SET_UP_MESSAGE}", call \`${READ_MANAGED_PANEL_TOOL}\`, then say exactly "Done. The first invites go out <firstSendDate>. I'll let you know when your civic panel is ready, around the week of <readyWeekOf>." with the dates it returns, and call \`${PRESENT_MANAGED_PANEL_TOOL}\`.`,
     firstPriority
-      ? `- Then, in one short line, offer to keep going on their priority "${firstPriority}" while we build.`
-      : '- Then, in one short line, ask which priority they want to work on while we build, and offer to record it.',
-    `- They already set up their civic panel. Never offer or show the invite again. When they ask about their panel, call \`${READ_MANAGED_PANEL_TOOL}\` and \`${PRESENT_MANAGED_PANEL_TOOL}\`, and say where it stands in one line, by its status:`,
+      ? `- Then, in one short line, offer to keep going on their priority "${firstPriority}" while we build their civic panel.`
+      : '- Then, in one short line, ask which priority they want to work on while we build their civic panel, and offer to record it.',
+    `- They already set up their civic panel. Never offer or show the invite again. When they ask about their civic panel, call \`${READ_MANAGED_PANEL_TOOL}\` and \`${PRESENT_MANAGED_PANEL_TOOL}\`, and say where it stands in one line, by its status:`,
     '  - building: how many residents have joined of the goal, and the day the next invites go out when there is one.',
     '  - paused: no new invites go out until they press Resume on their civic panel page; everyone who joined stays on it.',
-    '  - ready: it reached its goal, with how many residents joined. Offer to ask the panel about one of their priorities.',
+    '  - ready: it reached its goal, with how many residents joined. Offer to ask their civic panel about one of their priorities.',
     '  - exhausted: every resident we can text has been invited, and it is short of its goal. Say so plainly, with how many residents joined of the goal.',
     '- Residents join only by replying JOIN to the invite text. Never offer another way to join, or anything to share.',
-    '- Pausing, resuming and stopping are on their civic panel page. A stopped panel sends nothing more, and they can set it up again from their home.',
+    '- Pausing, resuming and stopping are on their civic panel page. A stopped civic panel sends nothing more, and they can set it up again from their home.',
     appTurn(
       MANAGED_CIVIC_PANEL_EXHAUSTED_MESSAGE,
       'they press See where it stands on the card that says every resident we can text has an invite',
@@ -342,7 +342,8 @@ const managedCivicPanelBlock = (
     ...(setUp ? after : before),
     `- The text \`${EXPLAIN_MANAGED_PANEL_TOOL}\` returns is approved as it is, so the rules below never change it. They apply to everything else you write about the civic panel.`,
     '- Plain, warm, short sentences. No em dashes, no exclamation points. Residents or constituents, never voters. Never use the word "just".',
-    "- Never promise the panel will look like, match or mirror the district, the city or the community. Never mention weights, quotas, targets or waves, never say or guess any one person's race, and never call it representative, a poll, a survey panel or a focus group.",
+    '- Always write "civic panel", never "panel" on its own.',
+    "- Never promise the civic panel will look like, match or mirror the district, the city or the community. Never mention weights, quotas, targets or waves, never say or guess any one person's race, and never call it representative, a poll, a survey panel or a focus group.",
   ].join('\n')
 }
 

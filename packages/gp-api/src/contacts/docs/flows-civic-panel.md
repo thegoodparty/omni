@@ -430,5 +430,8 @@ the caller leaves race out unless `raceNameable` holds. The model is
 **Analytics** (`EVENTS.CivicPanel` in `segment.types.ts`, sent to the
 office's user through `trackForOffice`; ids, counts and enums only).
 `Membership Changed` fires from `ContactStatusService.changeStatus` for every
-civic panel write, with the from and to status and the source. The browser
-fires `Civic Panel - Panel Viewed` itself.
+civic panel write, with the from and to status, `source` (text, call, door or
+staff, from `MEMBERSHIP_SOURCE`) and `managed` (the office has a managed
+civic panel that is not stopped). The browser fires `Civic Panel - Panel
+Viewed` itself. The managed civic panel's events are in
+`flows-managed-civic-panel.md`.

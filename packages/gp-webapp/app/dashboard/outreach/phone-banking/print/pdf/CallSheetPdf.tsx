@@ -313,7 +313,7 @@ const headings = (
   ...(asksCivicPanel
     ? [
         [
-          civicPanelOnly ? 'Stay on panel Y N' : 'Civic panel Y N',
+          civicPanelOnly ? 'Stay on civic panel Y N' : 'Civic panel Y N',
           COLUMN.civicPanel,
         ] as [string, number],
       ]

@@ -183,6 +183,24 @@ export class OutreachReportBackService extends createPrismaBase(
     return row ? { outreachId: row.id, sentOn: sentOnOf(row) } : null
   }
 
+  // What a report back on this send could tell people: how many answered
+  // the priority, and how many of its themes it has to share.
+  async reportBackFacts(
+    organizationSlug: string,
+    reportBackForOutreachId: number,
+  ): Promise<{ answeredCount: number; themesShared: number } | null> {
+    const priorityId = await this.priorityOf(
+      organizationSlug,
+      reportBackForOutreachId,
+    )
+    if (priorityId === null) return null
+    const [answered, themes] = await Promise.all([
+      answeredPersonIds(this.client, organizationSlug, priorityId),
+      this.topThemes(organizationSlug, priorityId),
+    ])
+    return { answeredCount: answered.length, themesShared: themes.length }
+  }
+
   // The office's priorities with a text whose replies are in, newest first,
   // one entry each, optionally one priority or the priority a send belongs
   // to. The entry is anchored on the priority's latest such send.

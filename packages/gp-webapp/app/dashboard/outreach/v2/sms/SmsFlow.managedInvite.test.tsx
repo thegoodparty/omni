@@ -9,6 +9,7 @@ import {
   type ApproveManagedCivicPanelInput,
   type ServeSmsDraftRequest,
 } from '@goodparty_org/contracts'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { SERVE_SMS_SURFACE, SmsFlow } from './SmsFlow'
 import { managedInviteDraft, OPT_OUT_FOOTER } from './smsCompose.util'
 
@@ -151,6 +152,15 @@ describe('SmsFlow in its managed civic panel invite mode', () => {
       },
     ])
     expect(onScheduled).not.toHaveBeenCalled()
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.CivicPanel.ManagedInviteSubmitted,
+      {
+        edited: false,
+        usedImproveWithAi: false,
+        usedDictation: false,
+        inviteSegments: Math.ceil(approvals[0]!.inviteMessage.length / 160),
+      },
+    )
     // Never an Outreach row, a list, a checkout or a payment.
     expect(requests.filter((request) => request.startsWith('POST'))).toEqual([
       'POST /api/v1/contacts/civic-panel/managed',
@@ -181,6 +191,17 @@ describe('SmsFlow in its managed civic panel invite mode', () => {
     expect(drafts[0]?.currentDraft).toContain(CIVIC_PANEL_JOIN_LINE)
     expect(messageText()).not.toContain('Reply JOIN')
     expect(messageText()).not.toContain('Reply STOP')
+
+    await user.click(
+      screen.getByRole('checkbox', {
+        name: 'I approve GoodParty sending this invite in my name.',
+      }),
+    )
+    await user.click(submit())
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.CivicPanel.ManagedInviteSubmitted,
+      expect.objectContaining({ edited: true, usedImproveWithAi: true }),
+    )
   })
 
   it('says so when the approval fails, and stays open', async () => {
@@ -217,5 +238,9 @@ describe('SmsFlow in its managed civic panel invite mode', () => {
     expect(onClose).toHaveBeenCalled()
     expect(onSetUp).not.toHaveBeenCalled()
     expect(approvals).toHaveLength(0)
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.CivicPanel.ManagedInviteReviewDismissed,
+      { edited: false },
+    )
   })
 })

@@ -21,6 +21,8 @@ import { VoterQueryService } from '@/peopleDb/services/voterQuery.service'
 import { QueueProducerService } from '@/queue/producer/queueProducer.service'
 import { QueueType } from '@/queue/queue.types'
 import { useTestService } from '@/test-service'
+import { AnalyticsService } from '@/analytics/analytics.service'
+import { EVENTS } from 'src/vendors/segment/segment.types'
 import { SlackService } from '@/vendors/slack/services/slack.service'
 import {
   MANAGED_PANEL_WAVE_JOB,
@@ -535,5 +537,106 @@ describe('the managed panel wave job', () => {
         expect.objectContaining({ outreachId: own.id }),
       )
     })
+  })
+})
+
+describe('the managed panel wave job analytics', () => {
+  let track: Mock<AnalyticsService['track']>
+  beforeEach(() => {
+    track = vi
+      .fn<AnalyticsService['track']>()
+      .mockResolvedValue(undefined as never)
+    vi.spyOn(service.app.get(AnalyticsService), 'track').mockImplementation(
+      track,
+    )
+  })
+
+  const enrollOffice = async (
+    overrides: Partial<Prisma.ManagedCivicPanelUncheckedCreateInput> = {},
+  ) => {
+    const enrolled = await enroll(overrides)
+    await service.prisma.electedOffice.create({
+      data: { organizationSlug: enrolled.slug, userId: service.user.id },
+    })
+    return enrolled
+  }
+
+  const tracked = (event: string) =>
+    track.mock.calls
+      .filter(([, name]) => name === event)
+      .map(([, , properties]) => properties)
+
+  it('records each wave sent, once', async () => {
+    const { id } = await enrollOffice()
+
+    await job().advance(id, WEDNESDAY)
+    await job().advance(id, WEDNESDAY)
+
+    await vi.waitFor(() =>
+      expect(tracked(EVENTS.CivicPanel.ManagedWaveSent)).toEqual([
+        expect.objectContaining({
+          wave: 1,
+          texts: WAVE_SIZE,
+          sendDate: WEDNESDAY_SEND_DATE,
+        }),
+      ]),
+    )
+  })
+
+  it('records the wave closing and the civic panel reaching its goal', async () => {
+    const { slug, id } = await enrollOffice()
+    await job().advance(id, WEDNESDAY)
+    for (let i = 0; i < GOAL; i++) await setMember(slug, randomUUID())
+
+    expect(await job().advance(id, new Date(2026, 9, 31, 9))).toBe('ready')
+
+    await vi.waitFor(() =>
+      expect(tracked(EVENTS.CivicPanel.ManagedPanelReady)).toHaveLength(1),
+    )
+    expect(tracked(EVENTS.CivicPanel.ManagedWaveClosed)).toEqual([
+      {
+        organizationSlug: slug,
+        wave: 1,
+        invited: WAVE_SIZE,
+        joinedMembers: 0,
+        membersAfter: GOAL,
+      },
+    ])
+    expect(tracked(EVENTS.CivicPanel.ManagedPanelStatusChanged)).toEqual([
+      expect.objectContaining({
+        from: 'building',
+        to: 'ready',
+        members: GOAL,
+        changedBy: 'system',
+      }),
+    ])
+    expect(tracked(EVENTS.CivicPanel.ManagedPanelReady)[0]).toEqual(
+      expect.objectContaining({
+        members: GOAL,
+        goalMembers: GOAL,
+        wavesSent: 1,
+        daysToReady: expect.any(Number),
+      }),
+    )
+  })
+
+  it('records the job pausing a civic panel at its free text cap', async () => {
+    const { slug, id } = await enrollOffice({
+      freeTextCap: 100,
+      freeTextsUsed: 80,
+    })
+    await waveWithDraft(id, slug)
+
+    expect(await job().advance(id, WEDNESDAY)).toBe('paused_at_cap')
+
+    await vi.waitFor(() =>
+      expect(tracked(EVENTS.CivicPanel.ManagedPanelStatusChanged)).toEqual([
+        expect.objectContaining({
+          from: 'building',
+          to: 'paused',
+          changedBy: 'system',
+        }),
+      ]),
+    )
   })
 })

@@ -40,7 +40,7 @@ const SERVE_CIVIC_PANEL_ACTIVITY_COPY: {
     door_knock: 'Left at the door',
     phone_banking: 'Left on a call',
     manual: 'Removed by you',
-    share_page: 'Left the panel',
+    share_page: 'Left the civic panel',
   },
   lastAsked: 'Last asked',
 }

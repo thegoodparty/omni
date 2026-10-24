@@ -13,7 +13,13 @@ import type {
   ChatMessageSegment,
   ChatStreamEvent,
 } from '../../../shared/agent-chat/chatClient'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import ChiefOfStaffChatBody from './ChiefOfStaffChatBody'
+
+vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('helpers/analyticsHelper')>()),
+  trackEvent: vi.fn(),
+}))
 
 const listMessagesMock = vi.fn()
 const streamMessageMock = vi.fn()
@@ -87,6 +93,7 @@ const inviteTurn = () =>
   ])
 
 beforeEach(() => {
+  vi.mocked(trackEvent).mockReset()
   flowProps.current = null
   listMessagesMock.mockReset().mockResolvedValue([inviteTurn()])
   streamMessageMock
@@ -263,5 +270,65 @@ describe('the managed civic panel in the Chief of Staff chat', () => {
 
     expect(await screen.findByText('Here it is.')).toBeInTheDocument()
     expect(screen.queryByTestId('managed-panel-invite')).toBeNull()
+  })
+
+  describe('analytics', () => {
+    const calls = (event: string) =>
+      vi.mocked(trackEvent).mock.calls.filter(([name]) => name === event)
+
+    it('records the invite when a turn presents it, not when history replays it', async () => {
+      listMessagesMock.mockReset().mockResolvedValueOnce([])
+      listMessagesMock.mockResolvedValue([inviteTurn()])
+      streamMessageMock.mockImplementation(() =>
+        makeStream([
+          { type: 'text', delta: 'Here it is.' },
+          {
+            type: 'tool_call',
+            toolName: 'present_managed_panel_invite',
+            toolCallId: 'tc-invite',
+            args: {},
+          },
+          { type: 'done', assistantMessageId: 'a1' },
+        ]),
+      )
+      render(
+        <ChiefOfStaffChatBody
+          active
+          conversationIdOverride="conv"
+          pendingKickoff="Show me the invite"
+        />,
+      )
+
+      await screen.findByTestId('managed-panel-invite')
+      await waitFor(() =>
+        expect(calls(EVENTS.CivicPanel.ManagedInviteViewed)).toHaveLength(1),
+      )
+      const [, properties] =
+        calls(EVENTS.CivicPanel.ManagedInviteViewed)[0] ?? []
+      expect(properties).toEqual({
+        inviteChars: expect.any(Number),
+        inviteSegments: expect.any(Number),
+      })
+    })
+
+    it('records nothing for an invite replayed from history', async () => {
+      render(<ChiefOfStaffChatBody active conversationIdOverride="conv" />)
+
+      await screen.findByTestId('managed-panel-invite')
+      expect(calls(EVENTS.CivicPanel.ManagedInviteViewed)).toHaveLength(0)
+    })
+
+    it('records opening the review from the chat card', async () => {
+      const user = userEvent.setup()
+      render(<ChiefOfStaffChatBody active conversationIdOverride="conv" />)
+
+      await user.click(
+        await screen.findByRole('button', { name: 'Review the invite' }),
+      )
+
+      expect(calls(EVENTS.CivicPanel.ManagedInviteReviewViewed)).toEqual([
+        [EVENTS.CivicPanel.ManagedInviteReviewViewed, { source: 'chat_card' }],
+      ])
+    })
   })
 })
