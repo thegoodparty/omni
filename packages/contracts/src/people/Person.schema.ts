@@ -205,7 +205,7 @@ export const PersonSchema = z.object({
   // person's latest will-vote answer this election is "Already voted".
   // Detail-only and Win-only, like voterLikelihood above.
   voted: z.boolean().optional(),
-  // The mirror image of the line above: Serve's standing "asked to be
+  // The mirror image of the two lines above: Serve's standing "asked to be
   // followed up with", omitted for a Win org, which has no such flag. Its
   // absence on a Serve person means nothing is owed — nothing derives this
   // field, so there is no seed to distinguish "no override" from "answered
