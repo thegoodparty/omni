@@ -206,7 +206,7 @@ export class PrioritiesController {
       PrioritySource.user_stated,
       'priorities_page',
     )
-    return priorityToApi(created)
+    return this.toApi(created, await this.officialNames(electedOffice))
   }
 
   @Put(':id')
@@ -223,7 +223,7 @@ export class PrioritiesController {
     if (!updated) {
       throw new NotFoundException('Priority not found')
     }
-    return priorityToApi(updated)
+    return this.toApi(updated, await this.officialNames(electedOffice))
   }
 
   @Delete(':id')

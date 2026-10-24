@@ -10,8 +10,8 @@ home Next steps cards), so it is one sentence to them as "you".
 `PriorityStatusService.applyUpdate` drops it to null and logs a warning when it
 names the official (first or last name) or uses a step id as a name ("so
 define can be settled", `listen_problem`). Reads apply the same guard
-(`shownNextAction`): `GET /v1/priorities`, `GET /v1/priorities/:id`, its
-`/status` and the home Next steps cards show a value stored before the write
+(`shownNextAction`): every priorities route that returns a priority (list,
+get, create, update and `/status`) and the home Next steps cards show a value stored before the write
 guard existed as no Next line.
 
 **Report Back Sent** (`EVENTS.Priorities.ReportBackSent`) fires from the Serve

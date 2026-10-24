@@ -160,9 +160,16 @@ describe('priorities controller', () => {
       eoHeaders(),
     )
 
+    const updated = await service.client.put<Priority>(
+      `${PRIORITIES_PATH}/${created.data.id}`,
+      { title: 'Affordable housing' },
+      eoHeaders(),
+    )
+
     expect(status.data.nextAction).toBeNull()
     expect(listed.data[0]?.nextAction).toBeNull()
     expect(fetched.data.nextAction).toBeNull()
+    expect(updated.data.nextAction).toBeNull()
 
     await service.prisma.priority.update({
       where: { id: created.data.id },
