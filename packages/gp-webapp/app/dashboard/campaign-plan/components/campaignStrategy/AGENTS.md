@@ -31,7 +31,7 @@ falls in. The cards are dated, prioritized tasks the candidate checks off. Featu
   The server changes (dates, skip, tasks closing themselves) apply to
   everyone either way. Both Homes fire the same task events
   (`Campaign Plan - Task Action Taken` on a CTA click, `Dashboard - Campaign
-  Task Completed` on Mark done, `source: 'campaign_manager'`), so the arms
+Task Completed` on Mark done, `source: 'campaign_manager'`), so the arms
   compare on one series split by the flag's exposure. The control's prompt
   cards fire `Campaign Manager - Prompt Card Action Taken`, which goes with
   `campaign-manager/legacy/` when the flag is removed.
@@ -54,10 +54,13 @@ falls in. The cards are dated, prioritized tasks the candidate checks off. Featu
 - **Work done through a task's button closes the task.** `taskAction` puts
   the task's id on the flow's URL (`trackerTaskId` + `phase`), each flow
   sends it with the record it creates, and gp-api ticks the task once that
-  outreach is scheduled (see `gp-api/src/campaigns/campaignTracker`). They
-  keep "Mark done" all the same, since work started from the hub or done
-  offline carries no task id. Only the story task, which the server ticks
-  however the story gets finished, has none (`taskClosesItself`).
+  outreach is scheduled (see `gp-api/src/campaigns/campaignTracker`). Work
+  started from the hub carries no task id and closes nothing; matching it to
+  a task by channel was rejected, because it would close a task the
+  candidate never opened. So the next-task card moves an outreach task's
+  "Mark done" under Skip instead of beside its button, and the row keeps it
+  in its menu. Only the story task, which the server ticks however the story
+  gets finished, has none (`taskClosesItself`).
 - **Text tasks after the texting cutoff.** gp-api swaps open text sends for
   robocalls once `smsCompliance` is `'closed'`, so none should reach the
   page. One that still does (no own link, not done) keeps no way into the
