@@ -23,6 +23,7 @@ Pulumi (TypeScript) infrastructure-as-code, the production Dockerfile, and the `
 | `pulumi/`                                   | `node_modules` for Pulumi's runtime (separate dependency tree)                       |
 | `components/preview-shared-cluster.ts`      | Shared preview Aurora cluster (`gp-api-preview-shared-db`); created by the dev stack |
 | `components/election-db.ts`                 | The election Aurora cluster (`election-api-db-develop` / `-prod`) and its RDS-event log copy; dev and prod stacks only |
+| `databricks/lakeflow/`                      | Runbook and connection script for the Lakeflow Connect mirror of gp-api Postgres; the Databricks resources are Terraform in `thegoodparty/gp-terraform-dataplatform` |
 | `components/preview-shared-alb.ts`          | Shared preview ALB (`gp-api-previews`) + `*.preview.goodparty.org`; created by the dev stack |
 
 ## Patterns
@@ -65,6 +66,8 @@ Preview services run with `connection_limit=5` (set by `IS_PREVIEW` in `docker-e
 The election data Aurora cluster that `ELECTION_DATABASE_URL` points at. It was created by the retired election-api stack and adopted here by `import`, so its physical names (`election-api-db-*`, `tf-2025…` instance ids, `rdsEventsRule-*`) and its `Project: election-api` tag are historical, not a pattern to copy. Previews read the dev cluster and never own it. The master password is deliberately not an input: Pulumi does not manage it.
 
 ## Gotchas
+
+- **Both gp-api clusters run a custom parameter group** (`rdsClusterParameterGroup`, family `aurora-postgresql16`) with `rds.logical_replication` switched per env by `logicalReplication`, for the Lakeflow mirror. The parameter is static: a change takes effect at the writer's next reboot, not on deploy. A major engine upgrade needs a group in the new family and the mirror's replication slot dropped first (`databricks/lakeflow/README.md`). No alert watches the slot yet; the README has the manual check.
 
 - VPC ID, subnet IDs, security group IDs, and the hosted zone are **hardcoded** in `index.ts`. They reference the existing AWS account and aren't created by Pulumi. Don't try to make them dynamic.
 - **The assets CDN keys its cache on `Origin`.** `components/assets-router.ts` uses its own cache policy (dev and prod alike) that puts `Origin` and the two `Access-Control-Request-*` headers in the cache key, plus all query strings. CloudFront ignores S3's `Vary: Origin`, so without it an `<img>` load cached a copy with no `Access-Control-Allow-Origin` and every later `fetch()` of that object from the app was blocked. Allowed origins live in the bucket CORS rules in `components/assets-bucket.ts`; an origin missing there gets no CORS headers however the CDN caches.

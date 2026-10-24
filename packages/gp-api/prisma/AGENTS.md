@@ -26,4 +26,12 @@ Postgres schema, migrations, and the Prisma client surface. Schema is split per-
 - **`map:` and snake_case** — DB columns are `snake_case`, Prisma fields are `camelCase`, joined by `@map()`. Match the existing style on adjacent fields when adding columns.
 - **`Json` columns are an anti-pattern** for known-shape data (Rule 25). Several legacy models (`Campaign.data`, `Campaign.details`, `Campaign.aiContent`) use them — don't replicate that for new models. Prefer proper columns or relations.
 - **Don't bypass `npm run generate`.** `prisma generate` alone misses the route-types step (`scripts/generate-route-types.ts`) that the `generate` script also runs.
+- **Every table is mirrored into Databricks** by Lakeflow Connect
+  (`deploy/databricks/lakeflow/README.md`; the Databricks side is Terraform
+  in `thegoodparty/gp-terraform-dataplatform`). A new table joins automatically:
+  the `databricks_lakeflow` publication covers all tables, and an event
+  trigger sets `REPLICA IDENTITY FULL` on it. Renaming or retyping a column, or
+  changing a primary key, makes Lakeflow re-copy that table, so prefer
+  additive changes on large tables. `DateTime` columns land as `STRING` in
+  the mirror.
 - `binaryTargets = ["native", "linux-musl-openssl-3.0.x"]` is set so the same `node_modules/.prisma` works in the Alpine Docker image — keep it.
