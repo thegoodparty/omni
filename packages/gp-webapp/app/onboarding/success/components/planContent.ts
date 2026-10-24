@@ -903,11 +903,23 @@ const buildPlanAtAGlance = (
   },
 ]
 
+const normalizeName = (name: string): string =>
+  name
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/-/g, ' ')
+    .split(/\s+/)
+    .map((t) => t.replace(/\./g, ''))
+    .filter((t) => t.length > 1 && !['jr', 'sr', 'ii', 'iii', 'iv'].includes(t))
+    .join(' ')
+
 const buildOpponents = (
   strategicLandscape: StrategicLandscapeData | undefined,
   raceCandidates: RaceCandidate[],
   runningAgainst: PlanOpponentInput[],
   hubspotIncumbentName: string | null,
+  candidateName: string,
 ): Opponent[] => {
   // Source priority:
   //   1. strategicLandscape — the CAP endpoint's opponent roster.
@@ -922,8 +934,12 @@ const buildOpponents = (
       incumbent: o.incumbent,
     }))
   }
+  // The roster includes the candidate's own row. Drop it, or the candidate is
+  // listed as their own opponent with whatever incumbent flag the roster holds.
+  const ownName = normalizeName(candidateName)
   const fromRaceCandidates: Opponent[] = raceCandidates
     .filter((c) => c.fullName.trim() !== '')
+    .filter((c) => ownName === '' || normalizeName(c.fullName) !== ownName)
     .map((c) => ({
       fullName: c.fullName.trim(),
       partyAffiliation: c.party?.trim() ?? '',
@@ -1197,6 +1213,7 @@ export const buildPlanData = (input: PlanInput): PlanData => {
     input.raceCandidates,
     input.runningAgainst,
     input.hubspotIncumbent,
+    input.candidateName,
   )
   const opponentCount = opponents.length
   const incumbent = opponents.find((o) => o.incumbent === true) ?? null
