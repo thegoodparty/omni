@@ -167,9 +167,18 @@ RUN /opt/runbooks/install.sh copy user && \
 # since this build that a real `npm ci` is required.
 ENV BAKED_OMNI_DIR="/opt/omni-bake"
 COPY --from=omni-checkout . "$BAKED_OMNI_DIR/omni"
+#
+# The bake is best-effort (ENG-11442): it is only a speed-up. If `npm ci` hits
+# a registry network error (ECONNRESET) the build still succeeds, with no
+# lockfile hash written, and workspace.py's npm_ci_needed treats a missing hash
+# as a mismatch and runs a real `npm ci` at container start. The hash is
+# written only after a successful install so it can never vouch for a partial
+# node_modules.
 RUN cd "$BAKED_OMNI_DIR/omni" && \
-    sha256sum package-lock.json | awk '{print $1}' > "$BAKED_OMNI_DIR/lockfile.sha256" && \
-    npm ci --ignore-scripts && \
+    { npm ci --ignore-scripts --fetch-retries=5 --fetch-retry-mintimeout=20000 \
+        && sha256sum package-lock.json | awk '{print $1}' > "$BAKED_OMNI_DIR/lockfile.sha256" \
+      || { echo "WARN: baked npm ci failed; skipping bake, runtime will npm ci" >&2; \
+           rm -rf node_modules "$BAKED_OMNI_DIR/lockfile.sha256"; }; } && \
     chown -R agent:agent "$BAKED_OMNI_DIR"
 
 # ARG, not ENV: only needs to affect this build's layers, never the running
