@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { PlacesService } from './places.service'
 import {
   DEFAULT_PLACE_PAGE_SIZE,
@@ -166,6 +166,82 @@ describe('PlacesService', () => {
     const args = findMany.mock.calls[0]?.[0]
     expect(args.skip).toBe(80)
     expect(args.take).toBe(40)
+  })
+
+  describe('getPlaces race reads share one query', () => {
+    const raceFilter = {
+      slug: 'ca/los-angeles-county',
+      includeRaces: true,
+    } as PlaceFilterDto
+    const place = [{ id: 'p1', slug: 'ca/los-angeles-county', Races: [] }]
+
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('runs identical concurrent race reads as one query', async () => {
+      findMany.mockResolvedValue(place)
+
+      await Promise.all([
+        service.getPlaces(raceFilter),
+        service.getPlaces({ ...raceFilter }),
+        service.getPlaces(raceFilter),
+      ])
+
+      expect(findMany).toHaveBeenCalledTimes(1)
+    })
+
+    it('reads again once the minute is up', async () => {
+      vi.useFakeTimers()
+      findMany.mockResolvedValue(place)
+
+      await service.getPlaces(raceFilter)
+      vi.advanceTimersByTime(60_001)
+      await service.getPlaces(raceFilter)
+
+      expect(findMany).toHaveBeenCalledTimes(2)
+    })
+
+    it('keeps different places apart', async () => {
+      findMany.mockResolvedValue(place)
+
+      await service.getPlaces(raceFilter)
+      await service.getPlaces({ ...raceFilter, slug: 'ca/orange-county' })
+
+      expect(findMany).toHaveBeenCalledTimes(2)
+    })
+
+    it('does not remember a failed read', async () => {
+      findMany.mockRejectedValueOnce(new Error('pool timeout'))
+      findMany.mockResolvedValueOnce(place)
+
+      await expect(service.getPlaces(raceFilter)).rejects.toThrow(
+        'pool timeout',
+      )
+      await expect(service.getPlaces(raceFilter)).resolves.toBeDefined()
+
+      expect(findMany).toHaveBeenCalledTimes(2)
+    })
+
+    it('does not remember an unknown place', async () => {
+      findMany.mockResolvedValueOnce([])
+      findMany.mockResolvedValueOnce(place)
+
+      await expect(service.getPlaces(raceFilter)).rejects.toThrow(
+        'No places found',
+      )
+      await expect(service.getPlaces(raceFilter)).resolves.toBeDefined()
+    })
+
+    it('does not hold reads that load no races', async () => {
+      findMany.mockResolvedValue(place)
+      const plain = { slug: 'ca' } as PlaceFilterDto
+
+      await service.getPlaces(plain)
+      await service.getPlaces(plain)
+
+      expect(findMany).toHaveBeenCalledTimes(2)
+    })
   })
 
   // `count` reaches a raw SQL LIMIT, so the schema is the only thing standing
