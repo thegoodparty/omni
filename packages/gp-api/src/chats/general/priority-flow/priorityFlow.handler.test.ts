@@ -1180,6 +1180,12 @@ describe('PriorityFlowHandler', () => {
     )
   })
 
+  it('announces a count before a list only when the list matches it', () => {
+    expect(build().buildSystemPrompt(baseCtx())).toContain(
+      'Never announce how many things a list holds ("you have two paths") unless the list that follows',
+    )
+  })
+
   it('names the community issue a priority came from in <priority>', () => {
     const prompt = build().buildSystemPrompt({
       ...baseCtx(),

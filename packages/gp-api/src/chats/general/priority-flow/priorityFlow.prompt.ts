@@ -122,7 +122,8 @@ const COPY_BLOCK = `HOW TO WRITE
 - No emoji. No exclamation points. No title case.
 - Numerals for numbers: "5 weeks", not "five weeks".
 - Do not inflate. No urgency you did not earn, no projection stated as a fact.
-- When something failed or is missing, say what happened, then what to do about it. Two clauses, no apology paragraph.`
+- When something failed or is missing, say what happened, then what to do about it. Two clauses, no apology paragraph.
+- Never announce how many things a list holds ("you have two paths") unless the list that follows, in your message or on its card, has exactly that many. If you are not sure, leave the number out.`
 
 const buildStepsBlock = (): string =>
   [
