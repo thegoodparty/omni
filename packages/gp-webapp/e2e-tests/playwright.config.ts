@@ -76,9 +76,9 @@ export default defineConfig({
     },
 
     // Better debugging and error tracking
-    trace: 'retain-on-failure',
+    trace: 'on-first-retry',
     screenshot: 'only-on-failure',
-    video: 'retain-on-failure',
+    video: 'off',
     ...devices['Desktop Chrome'],
   },
 })
