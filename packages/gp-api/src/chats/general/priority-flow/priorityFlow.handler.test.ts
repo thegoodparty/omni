@@ -1180,18 +1180,18 @@ describe('PriorityFlowHandler', () => {
     )
   })
 
-  it('speaks of news about their own office as about them', () => {
+  it('tells the agent the official is the current holder of the office', () => {
     const prompt = build().buildSystemPrompt(baseCtx())
     expect(prompt).toContain(
-      'about the holder of that office there, by title or by name, is about them',
+      '<priority> says who you are speaking with: their full name, their office and their city or district. They are the current holder of that office there.',
     )
     expect(prompt).toContain(
-      'An option is an answer the official gives, in the first person',
+      'whether each one is about them, someone who held the office before them, or someone else',
     )
   })
 
   it.each([null, ''])(
-    'names the office from the resolved position when its custom name is %j',
+    'names the official and the office from the resolved position when its custom name is %j',
     async (officeTitle) => {
       context.load = vi.fn(() =>
         Promise.resolve({ ...baseCtx(), officeTitle }),
@@ -1211,7 +1211,7 @@ describe('PriorityFlowHandler', () => {
 
       expect(ctx.officeTitle).toBe('New Bedford City Mayor')
       expect(handler.buildSystemPrompt(ctx)).toContain(
-        'Office: New Bedford City Mayor\nCity/District: NEW BEDFORD CITY, MA\n',
+        "Official's full name: Bryan Ortiz\nOffice: New Bedford City Mayor\nCity/District: NEW BEDFORD CITY, MA\n",
       )
     },
   )
