@@ -1,10 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import { clerk, setupClerkTestingToken } from '@clerk/testing/playwright'
 import { setFlagOverrides } from 'src/helpers/campaignStory.helper'
-import {
-  blockRouterPrefetch,
-  blockSlowScripts,
-} from 'src/helpers/navigation.helper'
+import { blockSlowScripts } from 'src/helpers/navigation.helper'
 import { clerkThrottle } from 'tests/utils/throttle-requests-with-retry'
 import { clerkBackend, createHeadlessTestUser } from 'tests/utils/headless-user'
 
@@ -42,7 +39,6 @@ const signInAsExistingUser = async (
   page: Page,
   clerkUserId: string,
 ): Promise<void> => {
-  await blockRouterPrefetch(page)
   await setupClerkTestingToken({ page })
   await page.goto('/')
   await page.waitForFunction(() => window.Clerk?.loaded, null, {

@@ -3,7 +3,6 @@ import { createClerkClient } from '@clerk/backend'
 import { type Page } from '@playwright/test'
 import { setupClerkTestingToken } from '@clerk/testing/playwright'
 import { TestDataHelper } from './data.helper'
-import { blockRouterPrefetch } from './navigation.helper'
 import { clerkThrottle } from 'tests/utils/throttle-requests-with-retry'
 import { withGatewayRetry } from 'tests/utils/headless-user'
 
@@ -240,7 +239,6 @@ export const redeemServeTicket = async (
   page: Page,
   welcomeUrl: string,
 ): Promise<void> => {
-  await blockRouterPrefetch(page)
   await setupClerkTestingToken({ page })
   // The cookie-consent snackbar (`app/shared/layouts/CookiesSnackbar.tsx`)
   // renders `fixed bottom-4 … w-full` on every page and overlays the onboarding
