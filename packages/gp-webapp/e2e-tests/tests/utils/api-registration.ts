@@ -104,7 +104,9 @@ let cachedUser: BootstrappedUser | null = null
 // Backend API call against the shared rate budget for an id we never lost.
 async function signInUser(page: Page, clerkUserId: string): Promise<void> {
   await setupClerkTestingToken({ page })
-  await page.goto('/')
+  // Clerk is ready long before the marketing page's images and analytics
+  // finish, and waiting for the full load event cost up to 9s a sign-in.
+  await page.goto('/', { waitUntil: 'domcontentloaded' })
   await page.waitForFunction(() => window.Clerk?.loaded, null, {
     timeout: 15000,
   })
