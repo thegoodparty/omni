@@ -1,6 +1,6 @@
 import { ElectionCode } from '@/elections/types/elections.types'
 
-// Shape election-api returns on the campaign-strategy-context endpoint. Most
+// Shape of the campaign-strategy context read from the election database. Most
 // fields are nullable per the contract — first/last/full name on candidates
 // are the only guaranteed strings on the candidate, and every field on the
 // race is independently nullable.
@@ -22,7 +22,7 @@ export interface ElectionRaceContext {
   officeLevel: string | null
   officeType: string | null
   // The electorate `projectedTurnout` was drawn for. Comes off the race row
-  // in election-api, which the warehouse tags; do NOT re-derive it from
+  // in the election database, which the warehouse tags; do NOT re-derive it from
   // `relevantElectionDate` here, or the rule for what counts as a November
   // general lives in two services and drifts.
   electionCode: ElectionCode | null

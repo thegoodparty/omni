@@ -107,7 +107,7 @@ export function electionDbDashboardConfigJson({
             // gp-api has two Prisma clients. A P1001 against this database names
             // its host, and a P2024 names the election model it was reading, so
             // keep only those; the main database's errors belong elsewhere.
-            expr: 'sum by (exception_type) (count_over_time({service_name="gp-api", deployment_environment_name="prod"} |~ "election-api-db|prisma\\\\.(race|place|person|personMerge|candidacy|officeHolder|district|projectedTurnout|zipToPosition|stance|issue)\\\\." | exception_type=~"P1001|P2024" [1m]))',
+            expr: 'sum by (exception_type) (count_over_time({service_name="gp-api", deployment_environment_name="prod"} |~ "election-api-db|prisma\\\\.(race|place|person|personMerge|candidacy|officeHolder|district|districtVoterDensity|districtVoterDensityMeta|districtTopIssue|electedOfficeSupport|projectedTurnout|zipToPosition|stance|issue)\\\\." | exception_type=~"P1001|P2024" [1m]))',
             legendFormat: '{{exception_type}}',
           },
         ],
