@@ -809,30 +809,12 @@ jobs:
         uses: ./.github/actions/setup-playwright
         with:
           working-directory: packages/gp-webapp/e2e-tests
-      # Main's durations, recorded by the E2E job of an earlier train. A miss
-      # only degrades the plan to a count split.
-      - name: Restore test durations
-        uses: actions/cache/restore@v4
-        with:
-          path: packages/gp-webapp/e2e-tests/e2e-durations.json
-          key: e2e-durations-v1-${{ github.run_id }}
-          restore-keys: e2e-durations-v1-
-      # Balanced by duration, not Playwright's --shard count split; see the
-      # same step in gp-webapp.yml.
       - name: Run Playwright tests
         working-directory: packages/gp-webapp/e2e-tests
-        run: |
-          set -euo pipefail
-          npx playwright test --config="$PWD/playwright.config.ts" tests/ --list --reporter=json > "$RUNNER_TEMP/e2e-list.json"
-          node scripts/plan-shards.mjs plan "$RUNNER_TEMP/e2e-list.json" e2e-durations.json ${{ matrix.shard }} ${{ strategy.job-total }} > "$RUNNER_TEMP/e2e-shard.txt"
-          if [ ! -s "$RUNNER_TEMP/e2e-shard.txt" ]; then
-            echo "::notice::no tests planned for shard ${{ matrix.shard }}"
-            exit 0
-          fi
-          mapfile -t locations < "$RUNNER_TEMP/e2e-shard.txt"
-          npx playwright test --config="$PWD/playwright.config.ts" "${locations[@]}" --reporter=blob
+        run: >-
+          npx playwright test --config="$PWD/playwright.config.ts" tests/
+          --shard=${{ matrix.shard }}/${{ strategy.job-total }} --reporter=blob
         env:
-          PLAYWRIGHT_BLOB_OUTPUT_NAME: report-${{ matrix.shard }}.zip
           TEST_RUN_NAME: 'E2E Tests - dev'
           CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
           CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
@@ -870,11 +852,13 @@ jobs:
         with:
           ref: ${{ needs.await-checks.outputs.sha }}
           persist-credentials: false
-          sparse-checkout: packages/gp-webapp/e2e-tests
       - uses: aws-actions/configure-aws-credentials@v5
         with:
           role-to-assume: arn:aws:iam::333022194791:role/web-app-e2e-tests
           aws-region: us-west-2
+      - uses: ./.github/actions/setup-node-workspace
+        with:
+          app: gp-webapp
       - name: Download shard blob reports
         id: download-blobs
         continue-on-error: true
@@ -917,28 +901,10 @@ jobs:
           needs.e2e-shard.result == 'success'
           || needs.e2e-shard.result == 'failure'
         working-directory: packages/gp-webapp/e2e-tests
-        # npx at the lockfile's version, not a workspace install; see the same
-        # step in gp-webapp.yml.
-        run: |
-          version=$(jq -r '.packages["node_modules/@playwright/test"].version' "$GITHUB_WORKSPACE/package-lock.json")
-          npx --yes "@playwright/test@$version" merge-reports \
-            --config="${{ github.workspace }}/packages/gp-webapp/e2e-tests/playwright.merge.config.ts" \
-            "${{ github.workspace }}/packages/gp-webapp/e2e-tests/blob-report"
-      # Feeds the next run's shard plan, on main and every PR that has no
-      # durations of its own yet.
-      - name: Record test durations
-        id: durations
-        continue-on-error: true
-        if: hashFiles('packages/gp-webapp/e2e-tests/test-results/results.json') != ''
-        working-directory: packages/gp-webapp/e2e-tests
-        run: node scripts/plan-shards.mjs durations test-results/results.json > e2e-durations.json
-      - name: Save test durations
-        continue-on-error: true
-        if: steps.durations.outcome == 'success'
-        uses: actions/cache/save@v4
-        with:
-          path: packages/gp-webapp/e2e-tests/e2e-durations.json
-          key: e2e-durations-v1-${{ github.run_id }}-${{ github.run_attempt }}
+        run: >-
+          npx playwright merge-reports
+          --config="${{ github.workspace }}/packages/gp-webapp/e2e-tests/playwright.merge.config.ts"
+          "${{ github.workspace }}/packages/gp-webapp/e2e-tests/blob-report"
       - name: Upload Playwright report
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4

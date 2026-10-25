@@ -130,14 +130,7 @@ exercises the exact full-stack version proposed in the PR.
   edge is serving the expected `github.sha` via that endpoint (liveness alone is
   not enough on branch builds, where dev is always up on the prior commit).
 - The suite itself is sharded across runners: `e2e-shard` fans the Playwright
-  tests over a 6-way matrix, balanced by duration rather than Playwright's
-  count-based `--shard`. Each shard lists the suite and runs the `file:line`
-  slice `e2e-tests/scripts/plan-shards.mjs` assigns it from the last run's
-  durations, which the `E2E` job records to the Actions cache
-  (`e2e-durations-v1-*`; a PR reads its own latest, else main's). On PRs the
-  shards start with the webapp deploy rather than after `e2e-wait`: they install
-  and plan while gp-api is still deploying, then hold at `Wait for E2E Wait`
-  until it passes. The `E2E`
+  tests over a 4-way matrix (`--shard=n/4 --reporter=blob`), and the `E2E`
   summary job merges the per-shard blob reports into one HTML report +
   `results.json`, publishes to S3, comments on the PR, and is the single required
   status check (red iff any shard failed). `E2E` keeps that exact name because the
