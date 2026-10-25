@@ -345,8 +345,9 @@ when the extra row comes back. A truncated roster sends a canvasser to the wrong
 doors, which is worse than an error. Any change that silently caps, paginates or
 drops residents here is a correctness regression, not a performance win.
 
-The civic panel's door step does not go through either. `walkableArea()`
-(`buildWalkableAreaSql`) picks its doors in the warehouse over every
+The walkable-area pick (the test seed's tract draws, through
+`ContactsService.walkableAreaWithin`) does not go through either.
+`walkableArea()` (`buildWalkableAreaSql`) picks its doors in the warehouse over every
 eligible rooftop household in scope (or one tract): households into 200m
 cells, the densest 3x3 block of cells as the seed, the `households` nearest
 that block's center. Only the picked doors come back, as a position and
@@ -393,7 +394,7 @@ signatures rather than callers reaching into `databricks/` directly.
 | `services/stats.service.ts`                     | District aggregate stats from the voter rows; census composition                                           |
 | `databricks/districtCensusSql.util.ts`          | Census mart SQL: population, ACS composition, people's block groups, model cells                           |
 | `services/peopleDataset.service.ts`             | Which people table an organization reads (`PeopleDataset`)                                                 |
-| `services/electionApiDistrict.service.ts`       | District resolution/scoping, from `src/electionDb/`                                                        |
+| `services/electionDistrict.service.ts`       | District resolution/scoping, from `src/electionDb/`                                                        |
 | `services/voterDoorKnocking.service.ts`         | Door-knocking cap guards + roster shaping                                                                  |
 | `services/voterPack.service.ts`                 | Encoded voter-pack build/read                                                                              |
 | `services/voterRecommendedLists.service.ts`     | Recommended-list counts + door precinct ranking                                                            |

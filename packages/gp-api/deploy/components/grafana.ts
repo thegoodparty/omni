@@ -29,9 +29,9 @@ import {
 import { personProfilesDashboardConfigJson } from './personProfilesDashboard'
 import {
   CLOUDWATCH_DATASOURCE_UID,
-  electionApiDbDashboardConfigJson,
+  electionDbDashboardConfigJson,
   GRAFANA_CLOUDWATCH_ROLE_ARN,
-} from './electionApiDbDashboard'
+} from './electionDbDashboard'
 
 export interface GrafanaConfig {
   environment: 'dev' | 'prod'
@@ -584,7 +584,7 @@ export const createGrafanaResources = async ({
     {
       folder: folder.uid,
       overwrite: true,
-      configJson: electionApiDbDashboardConfigJson({
+      configJson: electionDbDashboardConfigJson({
         lokiDatasourceUid: LOKI_DATASOURCE_UID,
       }),
     },

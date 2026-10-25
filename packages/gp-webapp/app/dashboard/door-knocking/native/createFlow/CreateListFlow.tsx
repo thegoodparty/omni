@@ -36,7 +36,6 @@ import {
 } from 'app/dashboard/outreach/v2/eventDetails'
 import { purposeForRecommendedVariant } from 'app/dashboard/outreach/v2/audience/recommendedListMapping.util'
 import { CommunityInputQuestionStep } from 'app/dashboard/outreach/v2/CommunityInputQuestionStep'
-import { useServeCitizenPanelsFlag } from 'app/shared/experiments/serveCitizenPanelsFlag'
 import { Intro } from 'app/dashboard/outreach/v2/social/Intro'
 import {
   builderFiltersFromRecommendation,
@@ -281,10 +280,13 @@ interface CreateListFlowProps {
   // its card would; reported the same way the list above is.
   preselectedRecommendedVariant?: RecommendedListVariant
   onRecommendedPreselectApplied?: () => void
-  // The purpose a civic panel plan's door step answered. With its list
+  // The purpose a link carried. With its list
   // (`preselectedListId`) the flow lands on the talking points, drafted for
   // it, the way a text from a chat card lands on its message.
   initialPurpose?: ServeDoorKnockingPurpose
+  // The question a priority card carried for the community input purpose,
+  // so that purpose arrives answered rather than asking it again.
+  initialQuestion?: string
   // Which saved list the who step is currently attached to. The draft is
   // booleans, and a list's support-status, activity and precinct clauses are
   // not, so the surface above cannot assemble the address-preview request from
@@ -442,6 +444,7 @@ export default function CreateListFlow({
   preselectedRecommendedVariant,
   onRecommendedPreselectApplied,
   initialPurpose,
+  initialQuestion,
   onSelectedListChange,
   siblingTurfs,
   campaignOutreachId,
@@ -508,14 +511,22 @@ export default function CreateListFlow({
       : preselectedRecommendedVariant !== undefined && !serveMode
         ? purposeForRecommendedVariant(preselectedRecommendedVariant)
         : null
+  // A carried purpose that asks a question opens on it unless the question
+  // came with it: a blank one would 400 at the create.
+  const carriedQuestion =
+    carriedPurpose && purposeAsksQuestion(carriedPurpose)
+      ? (initialQuestion?.trim() ?? '')
+      : ''
   const [preDrawStage, setPreDrawStage] = useState<PreDrawStage>(
     carriedPurpose
       ? isEventInvite(carriedPurpose)
         ? 'details'
-        : 'who'
+        : purposeAsksQuestion(carriedPurpose) && carriedQuestion === ''
+          ? 'question'
+          : 'who'
       : 'purpose',
   )
-  const [question, setQuestion] = useState('')
+  const [question, setQuestion] = useState(carriedQuestion)
   const [purpose, setPurpose] = useState<CreateFlowPurpose | null>(
     carriedPurpose,
   )
@@ -527,13 +538,10 @@ export default function CreateListFlow({
   // The goal cards and the name they suggest are the surface's answer: Serve
   // carries its own vocabulary (no election mechanics), and door knocking has
   // ONE route for both rails, so this is the only place the two can differ.
-  // The civic panel invite is offered behind the panel's flag, as on texts.
-  const { enabled: citizenPanelsEnabled } = useServeCitizenPanelsFlag(false)
+  // The civic panel invite only goes out in the managed panel's texts.
   const purposes = (
     serveMode ? SERVE_DOOR_KNOCKING_PURPOSES : DOOR_KNOCKING_PURPOSES
-  ).filter(
-    ({ id }) => citizenPanelsEnabled || id !== BUILD_CITIZENS_PANEL_PURPOSE,
-  )
+  ).filter(({ id }) => id !== BUILD_CITIZENS_PANEL_PURPOSE)
   const purposeNameSuggestion = serveMode
     ? serveDoorKnockingPurposeNameSuggestion
     : doorKnockingPurposeNameSuggestion
@@ -754,13 +762,15 @@ export default function CreateListFlow({
     selectList(preselectedListId)
     onPreselectApplied?.()
     // With the purpose answered too, the talking points are next. A purpose
-    // that asks something first (an event's details, a question) still asks.
+    // that asks something first (an event's details, a question) still asks,
+    // unless the question came with it.
     const landing = outreachLandingStep({
       purposeSettled:
         initialPurpose !== undefined &&
         serveMode &&
         !isEventInvite(initialPurpose) &&
-        !purposeAsksQuestion(initialPurpose),
+        (!purposeAsksQuestion(initialPurpose) ||
+          Boolean(initialQuestion?.trim())),
       audienceSettled: true,
       messageSettled: false,
     })
@@ -771,6 +781,7 @@ export default function CreateListFlow({
     selectList,
     onPreselectApplied,
     initialPurpose,
+    initialQuestion,
     serveMode,
     onStepChange,
   ])

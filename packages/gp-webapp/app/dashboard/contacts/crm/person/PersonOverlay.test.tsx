@@ -689,6 +689,7 @@ describe('<PersonOverlay>', () => {
 
       expect(trackEvent).toHaveBeenCalledWith(
         EVENTS.ConstituentData.ContactViewed,
+        { onCivicPanel: false },
       )
     })
 

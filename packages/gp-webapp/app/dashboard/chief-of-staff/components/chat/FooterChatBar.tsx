@@ -24,6 +24,11 @@ interface Props {
   openLabel?: string
   /** Open the chat surface with this file attached (the paperclip). */
   onAttachFile: (file: File) => void
+  /**
+   * A page's own question in place of the greeting. It may wrap to two
+   * lines on a phone rather than be cut off.
+   */
+  placeholder?: string
 }
 
 /**
@@ -42,10 +47,11 @@ export default function FooterChatBar({
   historyKey,
   openLabel = 'Open Chief of Staff chat',
   onAttachFile,
+  placeholder: pagePlaceholder,
 }: Props): React.JSX.Element {
-  const placeholder = firstName
-    ? `Hi, ${firstName}, how can I help?`
-    : 'How can I help?'
+  const placeholder =
+    pagePlaceholder ??
+    (firstName ? `Hi, ${firstName}, how can I help?` : 'How can I help?')
 
   const barRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -80,7 +86,11 @@ export default function FooterChatBar({
             <button
               type="button"
               onClick={onOpen}
-              className="flex-1 truncate text-left text-[15px] font-medium text-muted-foreground"
+              className={
+                pagePlaceholder
+                  ? 'line-clamp-2 flex-1 text-left text-sm font-medium leading-tight text-muted-foreground sm:text-[15px]'
+                  : 'flex-1 truncate text-left text-[15px] font-medium text-muted-foreground'
+              }
             >
               {placeholder}
             </button>

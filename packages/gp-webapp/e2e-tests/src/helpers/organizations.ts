@@ -5,7 +5,12 @@ import {
   type AuthenticatedUser,
   type TestUserOptions,
 } from 'tests/utils/api-registration'
-import { withGatewayRetry } from 'tests/utils/headless-user'
+import {
+  DEFAULT_TEST_RACE,
+  resolveTestRace,
+  type TestRace,
+  withGatewayRetry,
+} from 'tests/utils/headless-user'
 import { closeStrayDialog } from 'src/helpers/dashboard'
 import { eventually, wait } from 'tests/utils/eventually'
 
@@ -91,14 +96,9 @@ export const setupElectedOfficeUser = async (
   page: Page,
   raceOptions?: TestUserOptions['race'],
 ): Promise<SetupResult> => {
-  const race = raceOptions ?? {
-    zip: '82001',
-    office: 'Cheyenne City Council - Ward 1',
-  }
-
   const { user, client } = await authenticateTestUser(page, {
     isolated: true,
-    race,
+    race: raceOptions ?? DEFAULT_TEST_RACE,
   })
 
   await winRaceWithTermDates(page)
@@ -138,16 +138,11 @@ export const setupProCampaignUser = async (
   page: Page,
   raceOptions?: TestUserOptions['race'],
 ): Promise<SetupResult> => {
-  // Default to the same race setupElectedOfficeUser pinned: a district with
+  // Default to the same office setupElectedOfficeUser pins: a district with
   // real L2 voter data, so the Contacts surface has rows to exercise.
-  const race = raceOptions ?? {
-    zip: '82001',
-    office: 'Cheyenne City Council - Ward 1',
-  }
-
   const { user, client } = await authenticateTestUser(page, {
     isolated: true,
-    race,
+    race: raceOptions ?? DEFAULT_TEST_RACE,
   })
 
   await withGatewayRetry('POST /v1/campaigns/mine/test-set-pro', () =>
@@ -157,23 +152,11 @@ export const setupProCampaignUser = async (
   return { user, client }
 }
 
-type RaceListItem = {
-  id: string
-  brPositionId: string
-  position: { name: string }
-  election: { electionDay: string }
-}
-
-const REELECTION_RACE = {
-  zip: '82001',
-  office: 'Cheyenne City Council - Ward 1',
-}
-
 // Build a held-office user whose elected office has a DERIVED termEndAt, so a
 // same-office follow-on can in turn derive a future electionDate and the office
 // holder is re-election-eligible (eligibility.reelectionOfficeSlug populated).
-// The shared api-registration helper creates the campaign straight from
-// races-by-year and stores race.id — a ZipToPosition id — as details.raceId; EO
+// The shared api-registration helper creates the campaign from the resolved
+// race and stores race.id — a ZipToPosition id — as details.raceId; EO
 // term derivation looks the cadence up by Race.brHashId, so that id never
 // resolves and termEndAt stays null. Mirror the real onboarding office picker
 // instead: hydrate the race via race-by-position (whose data.id IS the
@@ -181,21 +164,18 @@ const REELECTION_RACE = {
 // creation derives the term.
 export const setupReelectionEligibleUser = async (
   page: Page,
-  raceOptions?: { zip: string; office: string },
+  raceOptions?: TestRace,
 ): Promise<AxiosInstance> => {
-  const race = raceOptions ?? REELECTION_RACE
+  const race = raceOptions ?? DEFAULT_TEST_RACE
 
   const { client } = await authenticateTestUser(page, {
     isolated: true,
     race,
   })
 
-  const { data: races } = await client.get<RaceListItem[]>(
-    '/v1/elections/races-by-year',
-    { params: { zipcode: race.zip } },
-  )
-  const matchedRace = races.find((r) => r.position.name === race.office)
-  if (!matchedRace) throw new Error(`Race not found: ${race.office}`)
+  // The resolved race may already be past; race-by-position hydrates a past
+  // date just as well, and only its BallotReady hash is kept.
+  const matchedRace = await resolveTestRace(client, race)
 
   const { data: hydrated } = await client.get<{ id: string }>(
     '/v1/elections/race-by-position',

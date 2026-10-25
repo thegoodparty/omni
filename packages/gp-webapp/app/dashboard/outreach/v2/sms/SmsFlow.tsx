@@ -1,8 +1,6 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import Link from 'next/link'
-import { civicPanelHref } from 'app/dashboard/contacts/citizens-panel/citizensPanelCopy'
 import { parseISO } from 'date-fns'
 import { formatInTimeZone } from 'date-fns-tz'
 import { useMutation, useQuery } from '@tanstack/react-query'
@@ -433,16 +431,6 @@ const sendTimeLabel = (d: Date, timeZone?: string) =>
 const cardBrandLabel = (brand: string) =>
   brand.charAt(0).toUpperCase() + brand.slice(1)
 
-// The first civic panel text ends on what it set in motion, and goes back
-// to the panel it is building rather than to the outreach page.
-const SERVE_PANEL_SEED_SUCCESS_COPY = {
-  title: 'Your panel invite is scheduled',
-  reach: (count: string, when: string) =>
-    `It goes to ${count} residents${when}.`,
-  next: 'Replies come in over the next few days. Anyone who replies JOIN is added to your panel.',
-  action: 'See your civic panel',
-}
-
 // Exported for its component test — the paid branch is unreachable through
 // the flow in jsdom (CheckoutPayment mounts real Stripe elements).
 export const SuccessScreen = ({
@@ -451,7 +439,6 @@ export const SuccessScreen = ({
   timeZone,
   outreachId,
   paid,
-  seedsPanel = false,
   onDone,
 }: {
   contactCount: number
@@ -461,8 +448,6 @@ export const SuccessScreen = ({
   // Free-texts sends skip the receipt entirely — there is no charge, and
   // the endpoint 404s rows without a checkout session.
   paid: boolean
-  // A build_citizens_panel send, which gets its own copy and next step.
-  seedsPanel?: boolean
   onDone: () => void
 }) => {
   const receiptQuery = useQuery({
@@ -485,35 +470,18 @@ export const SuccessScreen = ({
           <CircleCheckIcon className="size-8 text-primary" />
         </span>
       </div>
-      {seedsPanel ? (
-        <div className="space-y-2">
-          <h2 className="text-2xl font-semibold text-foreground">
-            {SERVE_PANEL_SEED_SUCCESS_COPY.title}
-          </h2>
-          <p className="text-muted-foreground">
-            {SERVE_PANEL_SEED_SUCCESS_COPY.reach(
-              contactCount.toLocaleString(),
-              sendAt ? ` on ${sendDateLabel(sendAt, timeZone)}` : '',
-            )}
-          </p>
-          <p className="text-muted-foreground">
-            {SERVE_PANEL_SEED_SUCCESS_COPY.next}
-          </p>
-        </div>
-      ) : (
-        <div className="space-y-2">
-          <h2 className="text-2xl font-semibold text-foreground">
-            {paid ? 'Payment successful!' : 'Scheduled!'}
-          </h2>
-          <p className="text-muted-foreground">
-            Your sms campaign will reach {contactCount.toLocaleString()}{' '}
-            recipients
-            {sendAt
-              ? ` starting ${sendDateLabel(sendAt, timeZone)} at ${sendTimeLabel(sendAt, timeZone)}.`
-              : ' soon.'}
-          </p>
-        </div>
-      )}
+      <div className="space-y-2">
+        <h2 className="text-2xl font-semibold text-foreground">
+          {paid ? 'Payment successful!' : 'Scheduled!'}
+        </h2>
+        <p className="text-muted-foreground">
+          Your sms campaign will reach {contactCount.toLocaleString()}{' '}
+          recipients
+          {sendAt
+            ? ` starting ${sendDateLabel(sendAt, timeZone)} at ${sendTimeLabel(sendAt, timeZone)}.`
+            : ' soon.'}
+        </p>
+      </div>
       {receipt && (
         <Card className="gap-0 p-0 text-left">
           <div className="flex items-center justify-between px-4 py-4">
@@ -573,17 +541,9 @@ export const SuccessScreen = ({
           Download receipt
         </Button>
       )}
-      {seedsPanel ? (
-        <Button asChild size="large" className="w-full">
-          <Link href={civicPanelHref('outreach')} onClick={onDone}>
-            {SERVE_PANEL_SEED_SUCCESS_COPY.action}
-          </Link>
-        </Button>
-      ) : (
-        <Button size="large" className="w-full" onClick={onDone}>
-          Done
-        </Button>
-      )}
+      <Button size="large" className="w-full" onClick={onDone}>
+        Done
+      </Button>
     </div>
   )
 }
@@ -631,6 +591,9 @@ export const SmsFlow = ({
       return data
     },
   })
+  // What the official used on the managed invite, for its Submitted event.
+  const managedUsedAiRef = useRef(false)
+  const managedUsedDictationRef = useRef(false)
   const [campaign] = useCampaign()
   const [user] = useUser()
   const gate = useOutreachGate('sms')
@@ -672,9 +635,8 @@ export const SmsFlow = ({
     asksToJoinCivicPanelRef.current = asks
     setAsksToJoinCivicPanelState(asks)
   }
-  // A text that builds the panel is its ask, so the ask cannot be unticked.
-  const civicPanelAskLocked =
-    surface.isServe && purpose === BUILD_CITIZENS_PANEL_PURPOSE
+  // The managed panel's invite is its ask, so the ask cannot be unticked.
+  const civicPanelAskLocked = managed
   // A report back goes to the people already asked, so it never asks them
   // to join the panel.
   const isReportBack = surface.isServe && purpose === REPORT_BACK_PURPOSE
@@ -684,11 +646,11 @@ export const SmsFlow = ({
     (asksToJoinCivicPanel || civicPanelAskLocked)
   // A report back's audience is one earlier send, which only its card can
   // name, so the picker never offers it.
-  const purposes = (
-    citizenPanelsEnabled
-      ? surface.purposes
-      : surface.purposes.filter(({ id }) => id !== BUILD_CITIZENS_PANEL_PURPOSE)
-  ).filter(({ id }) => id !== REPORT_BACK_PURPOSE)
+  // The panel invite only goes out in the managed panel's waves.
+  const purposes = surface.purposes.filter(
+    ({ id }) =>
+      id !== REPORT_BACK_PURPOSE && id !== BUILD_CITIZENS_PANEL_PURPOSE,
+  )
   // Whether the words are the candidate's (typed, seeded or polished) rather
   // than an untouched fresh draft. Picks the one AI action: Regenerate, or
   // Improve with AI.
@@ -967,10 +929,9 @@ export const SmsFlow = ({
               ? 'compose'
               : 'audience',
     )
-    // A card that names its purpose as well as its words (the Chief of
-    // Staff's panel invite, a report back) keeps that purpose, so the flow
-    // treats the send as the purpose's own: a report back never gets the
-    // panel ask, and a panel invite always does.
+    // A card that names its purpose as well as its words (a report back)
+    // keeps that purpose, so the flow treats the send as the purpose's own:
+    // a report back never gets the panel ask.
     setPurpose(initialPurpose ?? (initialScript ? 'custom' : carriedPurpose))
     resetEventDetails()
     confirmedEventRef.current = null
@@ -978,8 +939,7 @@ export const SmsFlow = ({
     const asks =
       surface.isServe &&
       carriedPurpose !== REPORT_BACK_PURPOSE &&
-      (initialAsksToJoinCivicPanel ||
-        carriedPurpose === BUILD_CITIZENS_PANEL_PURPOSE)
+      initialAsksToJoinCivicPanel
     const seeded = initialScript
       ? withCivicPanelJoin(surface.composeMessage(initialScript, null), asks)
       : ''
@@ -1433,11 +1393,6 @@ export const SmsFlow = ({
 
   const handleSelectPurpose = (selected: SmsFlowPurpose) => {
     setPurpose(selected)
-    // Kept ticked on the way to another purpose, so the box still matches
-    // the message.
-    if (surface.isServe && selected === BUILD_CITIZENS_PANEL_PURPOSE) {
-      setAsksToJoinCivicPanel(true)
-    }
     setTone('warm')
     setUndoText(null)
     // A custom message starts as its required parts, written between.
@@ -1514,6 +1469,7 @@ export const SmsFlow = ({
 
   const aiAction = ownWords ? 'improve' : 'regenerate'
   const handleAiAction = () => {
+    if (managed) managedUsedAiRef.current = true
     if (aiAction === 'regenerate') {
       requestDraft(purpose, tone, message, ownWords)
       return
@@ -1541,6 +1497,12 @@ export const SmsFlow = ({
       return
     }
     setManagedError(false)
+    trackEvent(EVENTS.CivicPanel.ManagedInviteSubmitted, {
+      edited: message !== (initialScript ?? ''),
+      usedImproveWithAi: managedUsedAiRef.current,
+      usedDictation: managedUsedDictationRef.current,
+      inviteSegments: Math.max(1, Math.ceil(composedLength / 160)),
+    })
     managedApprove.mutate(composedMessage, {
       onSuccess: () => managedInvite?.onSetUp(),
       onError: () => setManagedError(true),
@@ -2048,6 +2010,18 @@ export const SmsFlow = ({
     if (previous) setStepId(previous)
   }
 
+  // Closing the managed invite without setting it up sends nothing.
+  const closeFlow = managed
+    ? () => {
+        if (!managedApprove.isSuccess) {
+          trackEvent(EVENTS.CivicPanel.ManagedInviteReviewDismissed, {
+            edited: message !== (initialScript ?? ''),
+          })
+        }
+        onClose()
+      }
+    : onClose
+
   // A saved draft is the opposite of unsaved work: closing loses nothing.
   const dirty = managed
     ? message !== (initialScript ?? '') || managedConsent
@@ -2242,7 +2216,7 @@ export const SmsFlow = ({
   return (
     <OutreachFlowShell
       open={open}
-      onClose={onClose}
+      onClose={closeFlow}
       title={
         managed
           ? MANAGED_PANEL_COPY.flow.title
@@ -2289,7 +2263,7 @@ export const SmsFlow = ({
       backExits={managed}
       onBack={
         managed
-          ? onClose
+          ? closeFlow
           : // A resume has no reachable step behind it at all: purpose, audience
             // and compose were settled when the draft was saved, and compose
             // could never advance again (its Continue needs a local image file
@@ -2382,7 +2356,6 @@ export const SmsFlow = ({
           timeZone={fixedMorningSchedule ? undefined : timeZone}
           outreachId={draftOutreachId}
           paid={paidSend}
-          seedsPanel={civicPanelAskLocked}
           onDone={onClose}
         />
       ) : gateOpen ? (
@@ -2582,6 +2555,9 @@ export const SmsFlow = ({
             onImageError={setImageError}
             continueAttempts={composeContinueAttempts}
             {...(managed && {
+              onDictated: () => {
+                managedUsedDictationRef.current = true
+              },
               managedInvite: {
                 title: MANAGED_PANEL_COPY.flow.title,
                 caption: MANAGED_PANEL_COPY.flow.caption(

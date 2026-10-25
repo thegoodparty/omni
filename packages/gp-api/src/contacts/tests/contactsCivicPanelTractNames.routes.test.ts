@@ -9,7 +9,10 @@ import {
   vi,
   type MockInstance,
 } from 'vitest'
-import type { CivicPanelBuildPlanResponse } from '@goodparty_org/contracts'
+import {
+  CIVIC_PANEL_JOIN_LINE,
+  type CivicPanelSummary,
+} from '@goodparty_org/contracts'
 import { useTestService } from '@/test-service'
 import {
   CivicPanelStatus,
@@ -17,7 +20,6 @@ import {
   ContactStatusSource,
 } from '@/generated/prisma'
 import { ContactStatusService } from '@/contactInteraction/services/contactStatus.service'
-import { VoterQueryService } from '@/peopleDb/services/voterQuery.service'
 import { StatsService } from '@/peopleDb/services/stats.service'
 import {
   CENSUS_COMPOSITION_SOURCE,
@@ -97,20 +99,6 @@ const stubDistrict = (tracts: string[]) => {
       ],
       tractAdults: new Map(tracts.map((tract) => [tract, 100])),
     })
-  // A text pool, so a plan can be made.
-  vi.spyOn(service.app.get(VoterQueryService), 'findPeople')
-    .mockClear()
-    .mockResolvedValue({
-      people: [],
-      pagination: {
-        totalResults: 50_000,
-        currentPage: 1,
-        pageSize: 1,
-        totalPages: 1,
-        hasNextPage: false,
-        hasPreviousPage: false,
-      },
-    } as never)
 }
 
 // What the voter file says about each tract: its residents' mean point and
@@ -158,42 +146,35 @@ const place = (
   designator,
 })
 
-const createPlan = (slug: string) =>
-  service.client.post<CivicPanelBuildPlanResponse>(
-    '/v1/contacts/civic-panel/plan',
-    { hoursPerWeek: 1 },
-    { headers: headers(slug), validateStatus: () => true },
-  )
+const readPanel = (slug: string) =>
+  service.client.get<CivicPanelSummary>('/v1/contacts/civic-panel', {
+    headers: headers(slug),
+    validateStatus: () => true,
+  })
 
-const readPlan = (slug: string) =>
-  service.client.get<CivicPanelBuildPlanResponse>(
-    '/v1/contacts/civic-panel/plan',
-    { headers: headers(slug), validateStatus: () => true },
-  )
-
-const labels = (res: { data: CivicPanelBuildPlanResponse }) =>
+const labels = (res: { data: CivicPanelSummary }) =>
   Object.fromEntries(
     (res.data.composition?.places ?? []).map((p) => [p.key, p.label ?? null]),
   )
 
 let fill: MockInstance<CensusTractNameService['fillMissing']>
 
-// The naming a plan write starts after its response, awaited.
+// The naming a read starts after its response, awaited.
 const naming = async (calls = 1) => {
   await vi.waitFor(() => expect(fill).toHaveBeenCalledTimes(calls))
   await fill.mock.results[calls - 1]?.value
 }
 
-// Makes a plan for a district of the given tracts and waits for them to
-// be named.
+// Reads the panel of a district of the given tracts, waits for them to be
+// named, and reads it again.
 const namedDistrict = async (tracts: string[]) => {
   const slug = await seedOffice()
   stubDistrict(tracts)
   await joinPanel(slug, 20)
-  const res = await createPlan(slug)
-  expect(res.status).toBe(201)
+  const res = await readPanel(slug)
+  expect(res.status).toBe(200)
   await naming()
-  return { slug, res: await readPlan(slug) }
+  return { slug, res: await readPanel(slug) }
 }
 
 beforeAll(() => {
@@ -296,7 +277,33 @@ describe('census tract names on the civic panel', () => {
     })
   })
 
-  it('geocodes a tract once, ever, and never on a read', async () => {
+  it('names the district on approval, so the first read has names', async () => {
+    const tract = newTract()
+    stubPlaces([place(tract, 35.64, 'HAYWOOD', 'RD')])
+    stubGeocoder(
+      new Map([[35.64, { suburb: 'West Asheville', city: 'Asheville' }]]),
+    )
+    const slug = await seedOffice()
+    stubDistrict([tract])
+
+    const approved = await service.client.post(
+      '/v1/contacts/civic-panel/managed',
+      {
+        inviteMessage: `Hi, it's Mayor Lee.\n\n${CIVIC_PANEL_JOIN_LINE}\n\nReply STOP to opt out.`,
+        consentVersion: '2026-10-22',
+      },
+      { headers: headers(slug), validateStatus: () => true },
+    )
+    expect(approved.status).toBe(200)
+    await naming(1)
+    await joinPanel(slug, 20)
+    const res = await readPanel(slug)
+
+    expect(labels(res)).toEqual({ [tract]: 'West Asheville' })
+    expect(fill).toHaveBeenCalledTimes(1)
+  })
+
+  it('geocodes a tract once, ever, after the first read', async () => {
     const tract = newTract()
     stubPlaces([place(tract, 35.6, 'HAYWOOD', 'RD')])
     const fetchSpy = stubGeocoder(
@@ -306,21 +313,14 @@ describe('census tract names on the civic panel', () => {
     stubDistrict([tract])
     await joinPanel(slug, 20)
 
-    const before = await readPlan(slug)
+    const before = await readPanel(slug)
     expect(labels(before)).toEqual({ [tract]: null })
-    expect(fill).not.toHaveBeenCalled()
-
-    await createPlan(slug)
     await naming(1)
-    await service.client.patch(
-      '/v1/contacts/civic-panel/plan',
-      { hoursPerWeek: 2 },
-      { headers: headers(slug) },
-    )
-    await naming(2)
-    const after = await readPlan(slug)
+    const after = await readPanel(slug)
+    await readPanel(slug)
 
     expect(labels(after)).toEqual({ [tract]: 'Biltmore Village' })
+    expect(fill).toHaveBeenCalledTimes(1)
     expect(geocodeCalls(fetchSpy)).toBe(1)
   })
 })

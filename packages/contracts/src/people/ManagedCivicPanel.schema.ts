@@ -45,11 +45,16 @@ export type UpdateManagedCivicPanelInput = z.infer<
 
 // `nextWaveAt` is when the reply window of the latest sent wave closes while
 // the panel is building, the earliest the next wave can go; null otherwise.
+// `firstSendDate` and `readyWeekOf` are yyyy-MM-dd days from the approval:
+// the day the first wave goes out, and the Monday of the week the panel
+// should be ready, about two weeks of waves later.
 export const ManagedCivicPanelProgressSchema = z.object({
   members: z.number().int(),
   goalMembers: z.number().int(),
   wavesSent: z.number().int(),
   nextWaveAt: zDate().nullable(),
+  firstSendDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  readyWeekOf: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
 })
 export type ManagedCivicPanelProgress = z.infer<
   typeof ManagedCivicPanelProgressSchema

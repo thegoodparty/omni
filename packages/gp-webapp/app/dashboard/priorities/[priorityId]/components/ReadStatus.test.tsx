@@ -54,6 +54,51 @@ describe('ReadStatusRailBlock', () => {
   })
 })
 
+describe('the rail seats', () => {
+  it('draws the groups heard as seats, with a key and the groups named', () => {
+    renderBlock({ ...READ, groupsNext: 1 })
+    const arc = screen.getByRole('img', { name: '9 of 12 groups heard' })
+    expect(arc.querySelectorAll('circle')).toHaveLength(100)
+    expect(arc.querySelectorAll('[data-state="heard"]')).toHaveLength(76)
+    expect(arc.querySelectorAll('[data-state="next"]')).toHaveLength(8)
+    expect(screen.getByText('9 of 12 groups heard')).toBeInTheDocument()
+    expect(screen.getByText('Heard')).toBeInTheDocument()
+    expect(screen.getByText('Needs answers next')).toBeInTheDocument()
+    expect(screen.getByText('Not yet')).toBeInTheDocument()
+    expect(
+      screen.getByText('Need a few more answers from people 65 and over'),
+    ).toBeInTheDocument()
+  })
+
+  // jsdom applies no CSS, so this pins the classes that pick one by width.
+  it('shows the seats from lg up and the bar below it', () => {
+    renderBlock(READ)
+    const arc = screen.getByRole('img', { name: '9 of 12 groups heard' })
+    expect(arc).toHaveClass('hidden', 'lg:block')
+    expect(screen.getByText('Heard').closest('ul')).toHaveClass(
+      'hidden',
+      'lg:flex',
+    )
+    const bar = screen.getByRole('progressbar', {
+      name: '9 of 12 groups heard',
+    })
+    expect(bar).toHaveClass('lg:hidden')
+    expect(bar).not.toHaveClass('hidden')
+  })
+
+  it('keeps a good read as it is, with no seats', () => {
+    renderBlock({
+      ...READ,
+      good: true,
+      status: 'representative',
+      groupsHeard: 12,
+      underrepresented: [],
+    })
+    expect(screen.getByText('Every group heard')).toBeInTheDocument()
+    expect(screen.queryByRole('img')).not.toBeInTheDocument()
+  })
+})
+
 describe('Get answers', () => {
   const rail = (readStatus: PriorityReadStatus) => renderBlock(readStatus)
   const button = () => screen.queryByRole('button', { name: 'Get answers' })

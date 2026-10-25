@@ -77,12 +77,16 @@ describe('GET /v1/contacts/civic-panel', () => {
     const res = await summary(slug)
 
     expect(res.status).toBe(HttpStatus.OK)
-    expect(res.data).toEqual({
+    expect(res.data).toMatchObject({
       members: 0,
       reachedRecently: 0,
       askableNow: 0,
       lastOutreachAt: null,
+      progress: { members: 0, expectedAnswers: 0, groupsCovered: 0 },
+      balance: { status: 'tooFewMembers', inviteMore: null },
+      composition: null,
     })
+    expect(res.data.progress.goal).toBeGreaterThan(0)
   })
 
   it('counts a member reached 10 days ago as reached and 40 days ago as askable', async () => {
@@ -104,7 +108,7 @@ describe('GET /v1/contacts/civic-panel', () => {
     const res = await summary(slug)
 
     expect(res.status).toBe(HttpStatus.OK)
-    expect(res.data).toEqual({
+    expect(res.data).toMatchObject({
       members: 3,
       reachedRecently: 1,
       askableNow: 2,
@@ -121,7 +125,7 @@ describe('GET /v1/contacts/civic-panel', () => {
 
     const res = await summary(slug)
 
-    expect(res.data).toEqual({
+    expect(res.data).toMatchObject({
       members: 1,
       reachedRecently: 0,
       askableNow: 1,
@@ -149,7 +153,7 @@ describe('GET /v1/contacts/civic-panel', () => {
     const res = await summary(slug)
 
     expect(res.status).toBe(HttpStatus.OK)
-    expect(res.data).toEqual({
+    expect(res.data).toMatchObject({
       members: 2,
       reachedRecently: 1,
       askableNow: 1,

@@ -24,20 +24,23 @@ import { JUDGE_FIXTURE_RACE } from './sweepFixture'
 // refuses any slug that is not `judge-*`. Checked end to end, because a value
 // of any other shape passes every check short of that one.
 
+const raceRow = (office: string, id: string, electionDay = '2026-11-03') => ({
+  id,
+  brPositionId: 'br-position-1',
+  position: { name: office, level: 'city', state: 'WY' },
+  election: { electionDay },
+})
+
+// A fresh Response per call: a body reads once, and a lookup that finds no
+// upcoming race asks a second time for past ones.
 const races = (office: string, id: string) =>
-  vi.fn<typeof fetch>().mockResolvedValue(
-    new Response(
-      JSON.stringify([
-        {
-          id,
-          brPositionId: 'br-position-1',
-          position: { name: office, level: 'city', state: 'WY' },
-          election: { electionDay: '2026-11-03' },
-        },
-      ]),
-      { status: 200 },
-    ),
-  )
+  vi
+    .fn<typeof fetch>()
+    .mockImplementation(() =>
+      Promise.resolve(
+        new Response(JSON.stringify([raceRow(office, id)]), { status: 200 }),
+      ),
+    )
 
 const PARSE = (lines: string): Record<string, string> =>
   Object.fromEntries(
@@ -128,6 +131,31 @@ describe('resolveRaceId', () => {
     await expect(
       resolveRaceId('http://localhost:3000', fetchImpl),
     ).rejects.toThrow()
+  })
+
+  // The office's election passing must not lose the id: with no upcoming
+  // race, the most recent past one stands in.
+  it('falls back to the most recent past race once the election passed', async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockImplementation((input) => {
+      const past =
+        new URL(String(input)).searchParams.get('timeframe') === 'past'
+      const body = past
+        ? [
+            raceRow(JUDGE_FIXTURE_RACE.office, 'older', '2022-11-08'),
+            raceRow(JUDGE_FIXTURE_RACE.office, 'latest', '2026-11-03'),
+            raceRow(JUDGE_FIXTURE_RACE.office, 'primary', '2026-08-18'),
+          ]
+        : []
+      return Promise.resolve(
+        new Response(JSON.stringify(body), { status: 200 }),
+      )
+    })
+    expect(await resolveRaceId('http://localhost:3000', fetchImpl)).toBe(
+      'latest',
+    )
+    expect(String(fetchImpl.mock.calls[1]?.[0])).toBe(
+      `http://localhost:3000/v1/elections/races-by-year?zipcode=${JUDGE_FIXTURE_RACE.zip}&timeframe=past`,
+    )
   })
 
   it('refuses when no race matches the office', async () => {

@@ -3029,36 +3029,4 @@ describe('SuccessScreen receipt', () => {
     )
     open.mockRestore()
   })
-
-  it("ends a civic panel send on what happens next and the panel's page", async () => {
-    const onDone = vi.fn()
-    render(
-      <SuccessScreen
-        contactCount={3334}
-        sendAt={new Date('2026-09-08T11:00:00')}
-        outreachId={56}
-        paid={false}
-        seedsPanel
-        onDone={onDone}
-      />,
-    )
-
-    expect(
-      screen.getByRole('heading', { name: 'Your panel invite is scheduled' }),
-    ).toBeInTheDocument()
-    expect(
-      screen.getByText('It goes to 3,334 residents on Tue, Sep 8, 2026.'),
-    ).toBeInTheDocument()
-    expect(screen.getByText(/Anyone who replies JOIN/)).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Done' })).toBeNull()
-    const back = screen.getByRole('link', {
-      name: 'See your civic panel',
-    })
-    expect(back).toHaveAttribute(
-      'href',
-      '/dashboard/contacts/citizens-panel?from=outreach',
-    )
-    await userEvent.click(back)
-    expect(onDone).toHaveBeenCalled()
-  })
 })

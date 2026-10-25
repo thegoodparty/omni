@@ -15,7 +15,7 @@ import {
   type CensusCompositionSource,
 } from '@/priorities/services/censusComposition'
 import {
-  civicPanelInviteCriteria,
+  CIVIC_PANEL_INVITE_CRITERIA,
   civicPanelInviteListName,
   inviteLean,
   textInviteSize,
@@ -47,8 +47,6 @@ export type ManagedPanelWaveDraw =
   | { outcome: 'goal_reached'; members: number }
   | { outcome: 'out_of_free_texts' }
   | { outcome: 'not_building'; status: ManagedCivicPanelStatus }
-
-const TEXT = 'text' as const
 
 // Draws a managed civic panel's next texts-only wave: sized to the members
 // still missing, steered toward the groups the panel trails, and frozen as a
@@ -99,7 +97,7 @@ export class ManagedPanelWaveDrawService extends createPrismaBase(
     const freeTextsLeft = enrollment.freeTextCap - enrollment.freeTextsUsed
     if (freeTextsLeft <= 0) return { outcome: 'out_of_free_texts' }
 
-    const criteria = civicPanelInviteCriteria(TEXT)
+    const criteria = CIVIC_PANEL_INVITE_CRITERIA
     const exclude = await this.excludedPersonIds(organization.slug)
     const reachable = await this.contactsService.countWithin(
       organization,
@@ -131,7 +129,7 @@ export class ManagedPanelWaveDrawService extends createPrismaBase(
       organization.slug,
       {
         ...criteria,
-        name: civicPanelInviteListName({ channel: TEXT, position: 1, wave }),
+        name: civicPanelInviteListName(wave),
         sample: { size: personIds.length },
         civicPanelInvite: true,
       },
@@ -152,7 +150,7 @@ export class ManagedPanelWaveDrawService extends createPrismaBase(
           enrollmentId,
           wave,
           voterFileFilterId: list.id,
-          steeredToward: inviteLean(TEXT, steering),
+          steeredToward: inviteLean(steering),
         },
         select: WAVE_SELECT,
       })
@@ -190,9 +188,8 @@ export class ManagedPanelWaveDrawService extends createPrismaBase(
     return { outcome: 'pending', wave, size }
   }
 
-  // Who no wave may draw: anyone an earlier wave drew, anyone a build plan
-  // step drew (unless it was skipped untouched, as the plan reads it), and
-  // anyone who opted out of the office's texts. Members, people who left,
+  // Who no wave may draw: anyone an earlier wave drew, and anyone who opted
+  // out of the office's texts. Members, people who left,
   // anyone already invited and anyone reached in the rest window are left
   // out by the invite criteria.
   private async excludedPersonIds(organizationSlug: string): Promise<string[]> {
@@ -201,16 +198,7 @@ export class ManagedPanelWaveDrawService extends createPrismaBase(
         where: {
           voterFileFilter: {
             organizationSlug,
-            OR: [
-              { managedPanelWaves: { some: {} } },
-              {
-                civicPanelBuildStep: {
-                  is: {
-                    OR: [{ skippedAt: null }, { startedAt: { not: null } }],
-                  },
-                },
-              },
-            ],
+            managedPanelWaves: { some: {} },
           },
         },
         select: { personId: true },

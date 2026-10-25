@@ -4,7 +4,10 @@ import {
   type CivicPanelPlaceKind,
 } from '@goodparty_org/contracts'
 import { cn } from '@styleguide/lib/utils'
-import { SERVE_CITIZENS_PANEL_COPY as COPY } from '../citizensPanelCopy'
+import {
+  capitalizeFirst,
+  SERVE_CITIZENS_PANEL_COPY as COPY,
+} from '../citizensPanelCopy'
 import {
   buildSeats,
   LABEL_ALL_UP_TO,
@@ -52,13 +55,13 @@ const PLAIN = {
 const LABELED = { width: 2 * (SEAT_R_OUT + 120), top: SEAT_R_OUT + 52 }
 const LABEL_GAP = 10
 
-type PlaceWords = (typeof COPY.seatPlaces)[CivicPanelPlaceKind]
+export type PlaceWords = (typeof COPY.seatPlaces)[CivicPanelPlaceKind]
 
 const LABEL_R = SEAT_R_OUT + SEAT_SIZE / 2 + LABEL_GAP
 
 // A tract's human name where it has one, else its number.
 const placeName = (place: SeatPlace, words: PlaceWords): string =>
-  place.label ?? words.name(place.name)
+  place.label ? capitalizeFirst(place.label) : words.name(place.name)
 
 // Names around the arc have no room to wrap, so a long one is cut short
 // there; the full name is its tooltip.
@@ -93,22 +96,26 @@ const placeLabels = (chart: SeatChart) => {
   return labels
 }
 
-const SeatArc = ({
+// `quiet` draws the seats filling and nothing else: no place outlined as
+// behind or empty, for the panel page's lead card, which has no legend.
+export const SeatArc = ({
   chart,
   words,
   labeled,
+  quiet = false,
   className,
 }: {
   chart: SeatChart
   words: PlaceWords
   labeled: boolean
+  quiet?: boolean
   className?: string
 }) => {
   const frame = labeled ? LABELED : PLAIN
   const cx = frame.width / 2
   const cy = frame.top
   const height = cy + SEAT_SIZE / 2 + (labeled ? 30 : 4)
-  const nearFull = chart.stage === 'nearFull'
+  const nearFull = !quiet && chart.stage === 'nearFull'
   return (
     <svg
       viewBox={`0 0 ${frame.width} ${height}`}
@@ -116,7 +123,7 @@ const SeatArc = ({
       role="img"
       aria-label={COPY.seatsSummary(
         chart.filled,
-        chart.behind.length,
+        quiet ? 0 : chart.behind.length,
         words.one,
         words.many,
       )}
@@ -126,7 +133,7 @@ const SeatArc = ({
       <g transform={`translate(${cx} ${cy})`}>
         {chart.seats.map((seat, i) => {
           const place = chart.places[seat.place]
-          const warn = nearFull || (place?.behind ?? false)
+          const warn = nearFull || (!quiet && (place?.behind ?? false))
           const hue = place?.hue ?? 'red'
           return seat.filled ? (
             <circle

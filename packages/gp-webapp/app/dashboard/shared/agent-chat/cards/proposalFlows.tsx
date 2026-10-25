@@ -11,7 +11,8 @@ import {
 import { useRouter } from 'next/navigation'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  BUILD_CITIZENS_PANEL_PURPOSE,
+  COMMUNITY_INPUT_PURPOSE,
+  COMMUNITY_INPUT_QUESTION_MAX_LENGTH,
   PHONE_BANKING_NAME_MAX_LENGTH,
   REPORT_BACK_PURPOSE,
   type ChatCard,
@@ -54,10 +55,8 @@ import {
 import {
   proposalListName,
   proposedAudienceOf,
-  walkableAreaPolygon,
   type CardMode,
 } from './proposalPresentation'
-import { walkableAreaParam } from 'app/dashboard/door-knocking/native/walkableAreaParam'
 
 type OutreachProposal = Extract<ChatCard, { kind: 'outreach_proposal' }>
 
@@ -298,9 +297,6 @@ export const ProposalFlowsProvider = ({
       // The map page takes a saved list and nothing else, so this is the
       // latest point the list can be saved: the official has started.
       const audience = proposedAudienceOf(proposal, opened.priorityId)
-      const area = proposal.walkableArea
-        ? walkableAreaPolygon(proposal.walkableArea)
-        : null
       const key = proposal.proposalKey
       // A second press while the first is saving would save a second list.
       if (savingLists.current.has(key)) return
@@ -316,11 +312,9 @@ export const ProposalFlowsProvider = ({
                 supportStatus: audience.supportStatus,
                 precincts: audience.precincts,
                 ...(audience.sample && { sample: audience.sample }),
-                ...(audience.civicPanelInvite && { civicPanelInvite: true }),
                 ...(audience.unreachedAreaOfPriorityId && {
                   unreachedAreaOfPriorityId: audience.unreachedAreaOfPriorityId,
                 }),
-                ...(area && { geoPoly: area }),
               },
             )
             return data.id
@@ -338,14 +332,21 @@ export const ProposalFlowsProvider = ({
       }
       // The card's link rides to the walk's own create, which puts the check
       // out on the server: nothing here survives the navigation to say so.
+      // A priority's walk asks people the check's question, so it opens on
+      // that goal with the card's message as the question, the way a text
+      // arrives with its message written.
       const params = new URLSearchParams({
         create: '1',
         ...(listId ? { listId: String(listId) } : {}),
         ...linkOf(opened),
         launchSource: opened.launchSource,
+        ...(opened.priorityId !== undefined && {
+          purpose: COMMUNITY_INPUT_PURPOSE,
+          question: proposal.message
+            .trim()
+            .slice(0, COMMUNITY_INPUT_QUESTION_MAX_LENGTH),
+        }),
       })
-      const areaParam = area ? walkableAreaParam(area) : null
-      if (areaParam) params.set('area', areaParam)
       router.push(`/dashboard/door-knocking?${params.toString()}`)
     },
     [router, errorSnackbar],
@@ -353,8 +354,6 @@ export const ProposalFlowsProvider = ({
 
   // Saves the card's audience as a list once, the way the builder would have
   // after the official confirmed it, so the flow can open on the message.
-  // The panel invite always goes to its seeded draw of the district, never a
-  // list a card named.
   const saveProposalList = useCallback(
     (
       proposal: OutreachProposal,
@@ -364,10 +363,7 @@ export const ProposalFlowsProvider = ({
       const inFlight = savingLists.current.get(key)
       if (inFlight) return inFlight
       const run = (async () => {
-        const buildsPanel = proposal.purpose === BUILD_CITIZENS_PANEL_PURPOSE
-        if (!buildsPanel && proposal.savedFilterId) {
-          return proposal.savedFilterId
-        }
+        if (proposal.savedFilterId) return proposal.savedFilterId
         const known = savedLists.current.get(key) ?? readStoredList(key)
         if (known !== null) {
           const { data } = await clientRequest(
@@ -392,7 +388,6 @@ export const ProposalFlowsProvider = ({
             supportStatus: audience.supportStatus,
             precincts: audience.precincts,
             ...(audience.sample && { sample: audience.sample }),
-            ...(audience.civicPanelInvite && { civicPanelInvite: true }),
             ...(audience.unreachedAreaOfPriorityId && {
               unreachedAreaOfPriorityId: audience.unreachedAreaOfPriorityId,
             }),

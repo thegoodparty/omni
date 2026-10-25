@@ -1849,7 +1849,7 @@ describe('NativeDoorKnockingPage draw step', () => {
     expect(map).toHaveAttribute('data-resume-draw', '0')
   })
 
-  // A civic panel plan's door step carries its walkable area: the first
+  // A link carries a walkable area: the first
   // arrival at the draw step loads it as the campaign's first turf instead of
   // a blank session.
   it('loads a carried walkable area as the first turf', async () => {

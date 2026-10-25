@@ -208,7 +208,6 @@ model Outreach {
   constituentFeedback               ConstituentFeedback[]
   feedbackSynthesisRuns             FeedbackSynthesisRun[]
   contactInteractionDoorKnocks      ContactInteractionDoorKnock[]
-  civicPanelBuildSteps              CivicPanelBuildStep[]
   // Set only by ManagedWaveFundingService.claimFree, never from a request. A
   // CHECK (migration managed_panel_free_sends) allows it only on a row linked
   // to a managed wave and never beside a checkout session.

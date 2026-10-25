@@ -294,6 +294,23 @@ jobs:
       - name: Build application
         if: steps.ecr-image.outputs.exists != 'true'
         run: npm run build -w packages/gp-api
+      # setup-buildx pulls its builder image once and fails the job if that
+      # pull fails, which is what held prod on 2026-10-20 (release
+      # 39451429293: the public.ecr.aws token fetch hit "context deadline
+      # exceeded"). When its own pull fails, buildx falls back to a copy
+      # already in the local image store, so pulling it here first, with
+      # retries, turns that one-shot pull into three. A pull is idempotent.
+      - name: Pull the buildx builder image
+        if: steps.ecr-image.outputs.exists != 'true'
+        run: |
+          for attempt in 1 2 3; do
+            docker pull public.ecr.aws/vend/moby/buildkit:buildx-stable-1 && exit 0
+            if [ "$attempt" -lt 3 ]; then
+              echo "::warning::buildkit image pull attempt $attempt failed; retrying in $((attempt * 30))s"
+              sleep $((attempt * 30))
+            fi
+          done
+          echo "::warning::Could not pre-pull the buildkit image; setup-buildx will try once more itself."
       - name: Set up Docker Buildx
         if: steps.ecr-image.outputs.exists != 'true'
         uses: docker/setup-buildx-action@v3
@@ -388,11 +405,49 @@ jobs:
       - name: Build application
         if: steps.ecr-image.outputs.exists != 'true'
         run: npm run build -w packages/election-api
+      # Retried only when the build failed on the network. Sep 28 to 29, eight
+      # runs in a row died resolving the node base image's manifest on
+      # public.ecr.aws (429 Too Many Requests), and a 30s or 60s wait is
+      # often all a rate limit needs. A build that fails on its own code
+      # fails once, not three times. Rebuilding is idempotent: same inputs,
+      # same tag, nothing pushed yet.
+      #
+      # The push is retried too, but the tag is immutable: a push that
+      # landed and then lost its response would fail every retry on "tag
+      # already exists". So before each retry, an image already under the
+      # tag counts as pushed. ECR writes the manifest, and with it the tag,
+      # only after every layer is in, so a present tag is a complete image.
       - name: Build and push Docker image
         if: steps.ecr-image.outputs.exists != 'true'
         run: |
-          docker build -t "${IMAGE_URI}" -f packages/election-api/deploy/Dockerfile .
-          docker push "${IMAGE_URI}"
+          # A run step without `shell:` gets `bash -e`, no pipefail, and the
+          # build is piped through tee: without this a failed build passes.
+          set -o pipefail
+          NETWORK='Too Many Requests|toomanyrequests|failed to resolve source metadata|TLS handshake timeout|i/o timeout|connection reset|context deadline exceeded|unexpected EOF|Bad Gateway|Service Unavailable|Gateway Time-?out|ECONNRESET|ETIMEDOUT|EAI_AGAIN|temporary error'
+          for attempt in 1 2 3; do
+            if docker build -t "${IMAGE_URI}" -f packages/election-api/deploy/Dockerfile . 2>&1 | tee "$RUNNER_TEMP/docker-build.log"; then
+              break
+            fi
+            if [ "$attempt" -eq 3 ] || ! grep -qE "$NETWORK" "$RUNNER_TEMP/docker-build.log"; then
+              echo "::error::docker build failed"
+              exit 1
+            fi
+            echo "::warning::docker build attempt $attempt failed on the network; retrying in $((attempt * 30))s"
+            sleep $((attempt * 30))
+          done
+          for attempt in 1 2 3; do
+            docker push "${IMAGE_URI}" && exit 0
+            if aws ecr describe-images --repository-name election-api \
+              --image-ids imageTag=${{ needs.await-checks.outputs.sha }} >/dev/null 2>&1; then
+              echo "::warning::docker push reported a failure, but the tag is in ECR; treating it as pushed."
+              exit 0
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              echo "::warning::docker push attempt $attempt failed; retrying in $((attempt * 30))s"
+              sleep $((attempt * 30))
+            fi
+          done
+          exit 1
       - name: Deploy (Pulumi)
         uses: ./.github/actions/pulumi-deploy
         with:
@@ -750,19 +805,10 @@ jobs:
         with:
           app: gp-webapp
       - name: Install Playwright browsers
-        working-directory: packages/gp-webapp/e2e-tests
-        # --with-deps runs apt, and a mirror that stops responding makes apt wait
-        # forever until the job is cancelled. Time out a stalled download rather
-        # than the whole install (the mirror can be slow and still finish), and
-        # wait for the dpkg lock so a retry does not fail on a leftover apt.
         timeout-minutes: 20
-        run: |
-          printf 'Acquire::http::Timeout "60";\nAcquire::https::Timeout "60";\nAcquire::Retries "5";\nDPkg::Lock::Timeout "300";\n' | sudo tee /etc/apt/apt.conf.d/99-ci-timeouts > /dev/null
-          for attempt in 1 2 3; do
-            npx playwright install --with-deps chromium && exit 0
-            echo "Playwright install attempt $attempt failed"
-          done
-          exit 1
+        uses: ./.github/actions/setup-playwright
+        with:
+          working-directory: packages/gp-webapp/e2e-tests
       - name: Run Playwright tests
         working-directory: packages/gp-webapp/e2e-tests
         run: >-
