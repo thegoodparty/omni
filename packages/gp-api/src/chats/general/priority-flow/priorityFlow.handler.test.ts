@@ -1180,6 +1180,12 @@ describe('PriorityFlowHandler', () => {
     )
   })
 
+  it('quotes counts in the unit the tool returned, never estimating doors', () => {
+    expect(build().buildSystemPrompt(baseCtx())).toContain(
+      'People are people and doors are doors: never estimate, round or convert one into the other',
+    )
+  })
+
   it('names the community issue a priority came from in <priority>', () => {
     const prompt = build().buildSystemPrompt({
       ...baseCtx(),
@@ -1312,6 +1318,9 @@ describe('PriorityFlowHandler', () => {
       expect(prompt).toContain('When coversEveryGroup comes back false')
       expect(prompt).not.toContain('walkableArea')
       expect(prompt).not.toContain('hours a week')
+      expect(prompt).toContain(
+        'Every count you say about the round is copied from what size_round_one returned this turn',
+      )
       expect(prompt).toContain(
         'never mention weights, quotas, targets or answer rates',
       )
