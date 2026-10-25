@@ -433,16 +433,16 @@ jobs:
 
   e2e-shard:
     name: E2E Shard (${{ matrix.shard }})
-    needs: [deploy, e2e-wait]
-    # Skip when the wait gate determined this main commit was superseded by a
-    # newer merge (the newer commit's gp-api deploy + E2E cover the current dev
-    # stack), so there's nothing meaningful to test for this SHA.
+    # Not `needs: e2e-wait`. The shards start with the webapp deploy and do
+    # their ~1 minute of setup while E2E Wait is still waiting on gp-api, then
+    # hold at "Wait for E2E Wait" below. Setup used to start only after it.
+    needs: [deploy]
     if: >-
       needs.deploy.outputs.url != ''
-      && needs.e2e-wait.outputs.skip != 'true'
       && github.event_name == 'pull_request'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # E2E Wait's own 60-minute budget, plus the suite.
+    timeout-minutes: 80
     strategy:
       # One failing shard must not cancel the others — we want the full result
       # set and a complete merged report.
@@ -452,6 +452,7 @@ jobs:
     permissions:
       contents: read
       id-token: write
+      actions: read
     env:
       # The Clerk throttle splits its budget across every worker of the run
       # (tests/utils/throttle-requests-with-retry.ts), so it needs the count.
@@ -513,20 +514,50 @@ jobs:
       # left one shard running minutes after the rest. Every shard lists the
       # same suite and runs the slice plan-shards.mjs assigns it, so the
       # shards together still cover every test exactly once.
+      - name: Plan shard
+        working-directory: ${{ env.WORKSPACE }}/e2e-tests
+        run: |
+          set -euo pipefail
+          npx playwright test --config="$PWD/playwright.config.ts" tests/ --grep-invert @dev-only --list --reporter=json > "$RUNNER_TEMP/e2e-list.json"
+          node scripts/plan-shards.mjs plan "$RUNNER_TEMP/e2e-list.json" e2e-durations.json ${{ matrix.shard }} ${{ strategy.job-total }} > "$RUNNER_TEMP/e2e-shard.txt"
+        env:
+          CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
+
+      # E2E Wait gates on gp-api's deploy of this commit. The preview's
+      # /v1/version is free to poll, but the GitHub API is shared by every
+      # workflow in the repo (1,000 calls an hour on this plan), so it is asked
+      # once a minute until the edge serves this commit, and every poll after.
+      - name: Wait for E2E Wait
+        env:
+          GH_TOKEN: ${{ github.token }}
+          API_BASE: https://pr-${{ github.event.pull_request.number }}.preview.goodparty.org
+        run: |
+          asked=-60
+          while :; do
+            live="$(curl -fsS "$API_BASE/v1/version" 2>/dev/null | jq -r '.commit // empty' 2>/dev/null || true)"
+            if [ "$live" = "$GITHUB_SHA" ] || [ $((SECONDS - asked)) -ge 60 ]; then
+              asked=$SECONDS
+              conclusion=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs?filter=latest&per_page=100" \
+                --jq '[.jobs[] | select(.name == "E2E Wait")][0].conclusion // ""')
+              case "$conclusion" in
+                success) echo "E2E Wait passed after ${SECONDS}s"; exit 0 ;;
+                "") ;;
+                *) echo "::error::E2E Wait concluded $conclusion"; exit 1 ;;
+              esac
+            fi
+            sleep 10
+          done
+
       - name: Run Playwright tests
         working-directory: ${{ env.WORKSPACE }}/e2e-tests
         run: |
           set -euo pipefail
-          filter=()
-          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then filter=(--grep-invert @dev-only); fi
-          npx playwright test --config="$PWD/playwright.config.ts" tests/ "${filter[@]}" --list --reporter=json > "$RUNNER_TEMP/e2e-list.json"
-          node scripts/plan-shards.mjs plan "$RUNNER_TEMP/e2e-list.json" e2e-durations.json ${{ matrix.shard }} ${{ strategy.job-total }} > "$RUNNER_TEMP/e2e-shard.txt"
           if [ ! -s "$RUNNER_TEMP/e2e-shard.txt" ]; then
             echo "::notice::no tests planned for shard ${{ matrix.shard }}"
             exit 0
           fi
           mapfile -t locations < "$RUNNER_TEMP/e2e-shard.txt"
-          npx playwright test --config="$PWD/playwright.config.ts" "${locations[@]}" "${filter[@]}" --reporter=blob
+          npx playwright test --config="$PWD/playwright.config.ts" "${locations[@]}" --grep-invert @dev-only --reporter=blob
         env:
           PLAYWRIGHT_BLOB_OUTPUT_NAME: report-${{ matrix.shard }}.zip
           TEST_RUN_NAME: 'E2E Tests - PR Preview'
