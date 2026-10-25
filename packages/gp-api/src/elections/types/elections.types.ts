@@ -44,7 +44,7 @@ export enum OfficeLevel {
 }
 
 export enum ElectionCode {
-  // Should directly reflect ElectionCode in election-api/prisma/schema/projectedTurnout.prisma
+  // Should directly reflect ElectionCode in prisma-election/schema/projectedTurnout.prisma
   General = 'General',
   LocalOrMunicipal = 'LocalOrMunicipal',
   ConsolidatedGeneral = 'ConsolidatedGeneral',

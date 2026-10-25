@@ -90,7 +90,7 @@ type DispatchBase = {
 // Defensive Zod parse over Campaign.details — the column is Prisma JSON,
 // so we can't trust the shadow type at runtime. Only the keys we read here
 // are declared; everything else passes through silently. raceId is the
-// BallotReady race hash that election-api keys on.
+// BallotReady race hash that the election database keys on.
 //
 // Every field is independently fault-tolerant (`.catch(null)`): a single
 // off-shape value anywhere in details must never fail the whole parse,
@@ -254,7 +254,7 @@ export class CampaignStrategyService extends createPrismaBase(
   // discovery lives in exactly one place and the two paths can't drift.
   //
   // Degrades to 'unavailable' (logged, never thrown) when there's no race,
-  // election-api is down, or the attempt cap / SQS send fails, so the
+  // the election database is down, or the attempt cap / SQS send fails, so the
   // race-opponent collect path never 500s on a setup gap.
   async ensureOppositionResearch(campaign: CampaignWith<'user'>): Promise<{
     disposition: 'inflight' | 'persisted' | 'unavailable'
@@ -294,7 +294,7 @@ export class CampaignStrategyService extends createPrismaBase(
       return { disposition: 'inflight', oppositionRunId: plan.oppositionRunId }
     }
 
-    // 'redispatch': build params (election-api) then claim+dispatch opposition.
+    // 'redispatch': build params (election database) then claim+dispatch opposition.
     let params: StrategicLandscapeParams
     try {
       params = await this.params.build(campaign, brHashId)
@@ -305,7 +305,7 @@ export class CampaignStrategyService extends createPrismaBase(
       ) {
         this.logger.warn(
           { error, campaignId: campaign.id, raceId: brHashId },
-          'election-api unavailable while discovering opponents; reporting unavailable',
+          'election database unavailable while discovering opponents; reporting unavailable',
         )
         return { disposition: 'unavailable', oppositionRunId: null }
       }
@@ -572,10 +572,10 @@ export class CampaignStrategyService extends createPrismaBase(
       )
     }
 
-    // Building params calls election-api. If the race isn't found (404) or
-    // election-api is otherwise unavailable, there's nothing to dispatch —
+    // Building params reads the election database. If the race isn't found or
+    // the database is otherwise unavailable, there's nothing to dispatch —
     // report a terminal 'failed' so the client stops polling instead of
-    // re-hammering election-api with a 500/502 on every poll.
+    // re-hammering the election database with a 500/502 on every poll.
     let params: StrategicLandscapeParams
     try {
       params = await this.params.build(campaign, brHashId)
@@ -586,7 +586,7 @@ export class CampaignStrategyService extends createPrismaBase(
       ) {
         this.logger.warn(
           { error, campaignId: campaign.id, raceId: brHashId },
-          'election-api unavailable while building strategy params; reporting failed',
+          'election database unavailable while building strategy params; reporting failed',
         )
         return { status: 'failed', reason: 'race_lookup_failed' }
       }

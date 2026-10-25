@@ -1786,28 +1786,28 @@ def test_load_gap_config_defaults_scan_roots_when_absent(tmp_path):
 def test_load_gap_config_reads_scan_roots():
     cfg = ig.load_gap_config(ig.CONFIG_PATH)
     paths = {r["path"] for r in cfg["scan_roots"]}
-    assert "packages/election-api/src" in paths
+    assert "packages/gp-api/src" in paths
     assert "packages/gp-admin" not in paths
     assert all(r["detectors"] in ("webapp", "api") for r in cfg["scan_roots"])
 
 
 def test_detect_surfaces_takes_detector_set_explicitly():
     api_text = "@Processor('queue')\nclass W {}\n"
-    assert ig.detect_surfaces_in_file("packages/election-api/src/w.ts", api_text, "api")
+    assert ig.detect_surfaces_in_file("packages/gp-api/src/w.ts", api_text, "api")
     # the same text under the webapp detector set matches nothing
-    assert ig.detect_surfaces_in_file("packages/election-api/src/w.ts", api_text, "webapp") == []
+    assert ig.detect_surfaces_in_file("packages/gp-api/src/w.ts", api_text, "webapp") == []
 
 
 def test_scan_repo_walks_a_configured_third_root(tmp_path):
-    root = tmp_path / "packages/election-api/src/jobs"
+    root = tmp_path / "packages/other-api/src/jobs"
     root.mkdir(parents=True)
     (root / "sender.ts").write_text("@Processor('send')\nclass S { run(){} }\n")
     surfaces, _tracked = ig.scan_repo(
         tmp_path,
         exclude_globs=[],
-        scan_roots=[{"path": "packages/election-api/src", "detectors": "api"}],
+        scan_roots=[{"path": "packages/other-api/src", "detectors": "api"}],
     )
-    assert any(s["location"] == "packages/election-api/src/jobs/sender.ts" for s in surfaces)
+    assert any(s["location"] == "packages/other-api/src/jobs/sender.ts" for s in surfaces)
 
 
 # --- per-surface detection + scoping (DATA-2539 task 4) -----------------------

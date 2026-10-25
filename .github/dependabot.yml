@@ -9,11 +9,6 @@ updates:
       interval: daily
     open-pull-requests-limit: 0
   - package-ecosystem: docker
-    directory: /packages/election-api/deploy
-    schedule:
-      interval: daily
-    open-pull-requests-limit: 0
-  - package-ecosystem: docker
     directory: /packages/gp-ai/autopilot
     schedule:
       interval: daily

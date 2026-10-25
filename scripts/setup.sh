@@ -50,11 +50,8 @@ source "$ROOT/scripts/setup-config.sh"
 # The packages this script provisions locally: gp-api and gp-webapp, spelled
 # out per-package below rather than looped over an associative array — macOS
 # ships bash 3.2 (no `declare -A`), and every engineer's Mac is exactly the
-# machine this script has to run on. election-api is deliberately excluded —
-# gp-webapp talks to the deployed dev election-api URL it already defaults to
-# (see packages/election-api/src/shared/env/env.schema.ts), and nothing here
-# runs it. gp-admin is out of scope for the same reason: it is not part of
-# the stack scripts/dev.sh boots.
+# machine this script has to run on. gp-admin is out of scope: it is not part
+# of the stack scripts/dev.sh boots.
 #
 # Next.js only reads .env.local (gitignored) locally, never .env — see
 # docs/development.md and gp-webapp/package.json's `dev` script.
