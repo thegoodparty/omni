@@ -1180,6 +1180,25 @@ describe('PriorityFlowHandler', () => {
     )
   })
 
+  it('sends a settled step back on its own when a new fact undercuts it', () => {
+    const prompt = build().buildSystemPrompt(baseCtx())
+    expect(prompt).toContain(
+      'A new fact that undercuts what a settled step rested on clears that bar',
+    )
+    expect(prompt).toContain(
+      'Send that step back on your own, in the same turn you take the fact in',
+    )
+    expect(prompt).toContain(
+      'Never wait for the official to ask whether to rethink it',
+    )
+    expect(prompt).toContain(
+      "A settled step's summary is what was agreed, and it only changes when the step goes back.",
+    )
+    expect(prompt).toContain(
+      'A step you send back stays back for the rest of that turn. Never settle your own new version',
+    )
+  })
+
   it('names the community issue a priority came from in <priority>', () => {
     const prompt = build().buildSystemPrompt({
       ...baseCtx(),
