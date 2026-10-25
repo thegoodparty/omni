@@ -39,17 +39,18 @@ export default defineConfig({
     globalSetup: ['../contracts/scripts/vitest-global-setup.ts'],
     globals: true,
     exclude: EXCLUDE,
+    // A vm worker keeps some memory from every context it has run, and
+    // vitest's default recycle point (a share of system RAM) sits above Node's
+    // ~4GB heap ceiling, so a worker dies of OOM before it is ever recycled.
+    // 1GB of heap is the fastest limit measured locally. Vitest reads this
+    // from the root config only; set inside a project it is ignored.
+    vmMemoryLimit: '1GB',
     projects: [
       {
         extends: true,
         test: {
           name: 'vm',
           pool: 'vmForks',
-          // A vm worker keeps some memory from every context it has run, and
-          // vitest's default recycle point (a share of system RAM) sits above
-          // Node's ~4GB heap ceiling, so a worker dies of OOM before it is ever
-          // recycled. 1GB of heap is the fastest limit measured locally.
-          vmMemoryLimit: '1GB',
           exclude: [...EXCLUDE, ...replacesWindowGlobal],
         },
       },
