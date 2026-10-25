@@ -172,7 +172,7 @@ jobs:
   # across runners to cut wall-clock. Three jobs:
   #   e2e-wait  — gates once on gp-api's (slow) deploy, so the shards don't each
   #               idle on the same multi-minute poll.
-  #   e2e-shard — fans the suite across 8 runners, balanced by the last
+  #   e2e-shard — fans the suite across 6 runners, balanced by the last
   #               run's test durations (e2e-tests/scripts/plan-shards.mjs);
   #               each emits a blob report artifact.
   #   e2e       — merges the shard blobs into one HTML report + results.json,
@@ -448,7 +448,7 @@ jobs:
       # set and a complete merged report.
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5, 6, 7, 8]
+        shard: [1, 2, 3, 4, 5, 6]
     permissions:
       contents: read
       id-token: write
@@ -526,7 +526,7 @@ jobs:
       # E2E Wait gates on gp-api's deploy of this commit. The preview's
       # /v1/version is free to poll, but the GitHub API is shared by every
       # workflow in the repo (1,000 calls an hour on this plan), so it is asked
-      # once a minute until the edge serves this commit, and every poll after.
+      # once a minute until the edge serves this commit, and every 5s after.
       - name: Wait for E2E Wait
         env:
           GH_TOKEN: ${{ github.token }}
@@ -545,7 +545,7 @@ jobs:
                 *) echo "::error::E2E Wait concluded $conclusion"; exit 1 ;;
               esac
             fi
-            sleep 10
+            sleep 5
           done
 
       - name: Run Playwright tests
@@ -602,9 +602,12 @@ jobs:
       # shards actually tested — see the e2e-shard BASE_URL comment.
       BASE_URL: ${{ github.event_name == 'push' && 'https://dev.goodparty.org' || needs.deploy.outputs.url }}
     steps:
+      # Only the merge config, the shard planner and the root lockfile are
+      # read here.
       - uses: actions/checkout@v5
         with:
           persist-credentials: false
+          sparse-checkout: ${{ env.WORKSPACE }}/e2e-tests
 
       - uses: aws-actions/configure-aws-credentials@v5
         with:

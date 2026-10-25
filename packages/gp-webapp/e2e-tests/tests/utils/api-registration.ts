@@ -4,6 +4,7 @@ import axios, { type AxiosInstance } from 'axios'
 import { clerk, setupClerkTestingToken } from '@clerk/testing/playwright'
 import type { TestModeElectionPreset } from '@goodparty_org/contracts'
 import { TestDataHelper } from 'src/helpers/data.helper'
+import { blockRouterPrefetch } from 'src/helpers/navigation.helper'
 import { clerkThrottle } from './throttle-requests-with-retry'
 import {
   apiURL,
@@ -103,6 +104,7 @@ let cachedUser: BootstrappedUser | null = null
 // clerk.signIn an email instead makes it look the user up first, a second
 // Backend API call against the shared rate budget for an id we never lost.
 async function signInUser(page: Page, clerkUserId: string): Promise<void> {
+  await blockRouterPrefetch(page)
   await setupClerkTestingToken({ page })
   await page.goto('/')
   await page.waitForFunction(() => window.Clerk?.loaded, null, {

@@ -130,7 +130,7 @@ exercises the exact full-stack version proposed in the PR.
   edge is serving the expected `github.sha` via that endpoint (liveness alone is
   not enough on branch builds, where dev is always up on the prior commit).
 - The suite itself is sharded across runners: `e2e-shard` fans the Playwright
-  tests over an 8-way matrix, balanced by duration rather than Playwright's
+  tests over a 6-way matrix, balanced by duration rather than Playwright's
   count-based `--shard`. Each shard lists the suite and runs the `file:line`
   slice `e2e-tests/scripts/plan-shards.mjs` assigns it from the last run's
   durations, which the `E2E` job records to the Actions cache

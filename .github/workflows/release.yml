@@ -781,7 +781,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5, 6, 7, 8]
+        shard: [1, 2, 3, 4, 5, 6]
     permissions:
       contents: read
       id-token: write
@@ -870,6 +870,7 @@ jobs:
         with:
           ref: ${{ needs.await-checks.outputs.sha }}
           persist-credentials: false
+          sparse-checkout: packages/gp-webapp/e2e-tests
       - uses: aws-actions/configure-aws-credentials@v5
         with:
           role-to-assume: arn:aws:iam::333022194791:role/web-app-e2e-tests

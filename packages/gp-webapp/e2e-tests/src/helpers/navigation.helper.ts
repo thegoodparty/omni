@@ -12,6 +12,21 @@ export const blockSlowScripts = async (page: Page) => {
   await page.route('**/snap.licdn.com/**', (route) => route.abort())
 }
 
+// Next prefetches every <Link> in view, and each prefetch is a server render
+// that calls gp-api again: a dashboard load made 41 gp-api requests with
+// prefetch and 16 without. One PR preview's single gp-api task serves every
+// shard, so that load set the suite's pace. A navigation that finds nothing
+// prefetched renders on click instead, so no flow under test changes.
+export const blockRouterPrefetch = async (page: Page) => {
+  await page.context().route(
+    (url) => url.searchParams.has('_rsc'),
+    (route) =>
+      route.request().headers()['next-router-prefetch']
+        ? route.abort()
+        : route.fallback(),
+  )
+}
+
 export class NavigationHelper {
   static async navigateToPage(page: Page, path: string): Promise<void> {
     await page.goto(path)
