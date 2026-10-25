@@ -432,6 +432,17 @@ describe('ElectionsService', () => {
       })
     })
 
+    it('forwards timeframe=all unchanged', async () => {
+      zipToPosition.search.mockResolvedValue([])
+
+      await service.searchPositions({ zip: '90210', timeframe: 'all' })
+
+      expect(zipToPosition.search).toHaveBeenCalledWith({
+        zip: '90210',
+        timeframe: 'all',
+      })
+    })
+
     it('forwards name-only queries', async () => {
       zipToPosition.search.mockResolvedValue([])
 

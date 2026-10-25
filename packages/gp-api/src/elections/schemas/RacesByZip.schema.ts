@@ -37,7 +37,7 @@ export class RacesByZipSchema extends createZodDto(
       ),
       // Win onboarding wants upcoming elections; Serve onboarding wants the
       // elections an incumbent already won. Defaults to future downstream.
-      timeframe: z.enum(['future', 'past']).optional(),
+      timeframe: z.enum(['future', 'past', 'all']).optional(),
     })
     .refine(
       (q) => q.zipcode || q.name || (q.officeType && q.officeType.length > 0),

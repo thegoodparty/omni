@@ -25,7 +25,7 @@ type SearchParams = {
   name?: string
   officeType?: string[]
   displayOfficeLevels?: string[]
-  timeframe?: 'future' | 'past'
+  timeframe?: 'future' | 'past' | 'all'
 }
 
 @Injectable()
@@ -81,10 +81,14 @@ export class ZipToPositionService extends createElectionDbBase(
     horizonUtc.setUTCFullYear(
       horizonUtc.getUTCFullYear() + FUTURE_SEARCH_HORIZON_YEARS,
     )
+    // 'all' drops the date bound so a seat whose next race is beyond the
+    // horizon (e.g. a staggered 4-year seat) is still offered.
     const electionDate =
-      params.timeframe === 'past'
-        ? { lt: todayUtc }
-        : { gte: todayUtc, lte: horizonUtc }
+      params.timeframe === 'all'
+        ? undefined
+        : params.timeframe === 'past'
+          ? { lt: todayUtc }
+          : { gte: todayUtc, lte: horizonUtc }
 
     const races = await this.client.race.findMany({
       where: { positionId: { in: [...metaByPositionId.keys()] }, electionDate },
