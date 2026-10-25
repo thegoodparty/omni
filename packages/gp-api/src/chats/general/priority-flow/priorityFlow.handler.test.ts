@@ -1180,6 +1180,20 @@ describe('PriorityFlowHandler', () => {
     )
   })
 
+  it('says each thing once, never around a tool call or over a card', () => {
+    const prompt = build().buildSystemPrompt(baseCtx())
+    expect(prompt).toContain(
+      'What you wrote before a tool call is already on screen',
+    )
+    expect(prompt).toContain(
+      'A reply never opens with the line your last one ended on.',
+    )
+    expect(prompt).toContain('Never repeat in prose what a card shows')
+    expect(prompt).toContain(
+      'If it makes a point already made, however it is reworded, cut it',
+    )
+  })
+
   it('names the community issue a priority came from in <priority>', () => {
     const prompt = build().buildSystemPrompt({
       ...baseCtx(),

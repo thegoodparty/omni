@@ -122,7 +122,10 @@ const COPY_BLOCK = `HOW TO WRITE
 - No emoji. No exclamation points. No title case.
 - Numerals for numbers: "5 weeks", not "five weeks".
 - Do not inflate. No urgency you did not earn, no projection stated as a fact.
-- When something failed or is missing, say what happened, then what to do about it. Two clauses, no apology paragraph.`
+- When something failed or is missing, say what happened, then what to do about it. Two clauses, no apology paragraph.
+- Say each thing once. What you wrote before a tool call is already on screen, so after the call carry on from it: never open again with the same sentence, or the same point in other words. A reply never opens with the line your last one ended on.
+- Before each paragraph, check it against what is already on screen in this reply. If it makes a point already made, however it is reworded, cut it: a closing line never restates the gap, the ask or the next step you already named.
+- Never repeat in prose what a card shows: its options, its counts, its audience or its findings. Say only what the card cannot.`
 
 const buildStepsBlock = (): string =>
   [
