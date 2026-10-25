@@ -72,10 +72,12 @@ graph once and reuses it across files. Any file that calls `vi.mock`,
 `vi.doMock`, `vi.unmock` or `vi.resetModules` is detected by a scan of the test
 files at config load and goes to `fresh-modules`, which keeps `isolate: true`,
 because a module mock in a shared graph either misses a copy an earlier file
-cached or leaks into the next file. A test that leaves module-level state behind
-(fake timers left on, a mutated singleton, a `process.env` write it never
-restores) can break whichever file runs next in its worker, so clean up in
-`afterEach`/`afterAll`.
+cached or leaks into the next file. Between files vitest restores mocks, and
+`src/test-file-cleanup.ts` also restores real timers and undoes
+`vi.stubEnv`/`vi.stubGlobal`. A file that left fake timers on used to hang the
+next file's `app.close()` until its hook timed out. Anything else a test leaves
+behind (a mutated singleton, a direct `process.env` write) still reaches the
+next file in its worker, so clean it up in `afterEach`/`afterAll`.
 
 One container serves every checkout on the machine, and three things are what
 make that safe. The template is named for a digest of the migrations it holds

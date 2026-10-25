@@ -71,6 +71,7 @@ export default defineConfig({
       '../contracts/scripts/vitest-global-setup.ts',
       './src/test-global-setup.ts',
     ],
+    setupFiles: ['./src/test-file-cleanup.ts'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json-summary', 'json'],
