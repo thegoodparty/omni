@@ -4,16 +4,17 @@ End-to-end tests using Playwright. Runs against a deployed environment (local ap
 
 ## Key files
 
-| File                   | Role                                                                                                                                              |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `playwright.config.ts` | Playwright config — testDir is `./tests`, BASE_URL required                                                                                       |
-| `global-setup.ts`      | One-shot `clerkSetup()` before tests run                                                                                                          |
-| `tests/core/`          | Cross-cutting tests (auth, navigation, public pages)                                                                                              |
-| `tests/app/`           | Feature-area tests mirroring `app/` (`organizations/`, `polls/`, `website/`, `contacts/`, `content/`, `dashboard/`, `profile/`, `mobile/`, `ai/`) |
-| `tests/utils/`         | Test-only helpers (selectors, factories)                                                                                                          |
-| `src/fixtures/`        | Static fixtures (PDFs, images, JSON poll results)                                                                                                 |
-| `src/helpers/`         | Reusable test helpers (clerk, navigation, account, organizations, contacts, wait, data)                                                           |
-| `.env.example`         | Required env (`BASE_URL`, secrets per `#devs-only`)                                                                                               |
+| File                      | Role                                                                                                                                              |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `playwright.config.ts`    | Playwright config — testDir is `./tests`, BASE_URL required                                                                                       |
+| `global-setup.ts`         | One-shot `clerkSetup()` before tests run                                                                                                          |
+| `scripts/plan-shards.mjs` | CI shard planner: splits the suite across shards by the last run's test durations (see `docs/deployment.md`)                                      |
+| `tests/core/`             | Cross-cutting tests (auth, navigation, public pages)                                                                                              |
+| `tests/app/`              | Feature-area tests mirroring `app/` (`organizations/`, `polls/`, `website/`, `contacts/`, `content/`, `dashboard/`, `profile/`, `mobile/`, `ai/`) |
+| `tests/utils/`            | Test-only helpers (selectors, factories)                                                                                                          |
+| `src/fixtures/`           | Static fixtures (PDFs, images, JSON poll results)                                                                                                 |
+| `src/helpers/`            | Reusable test helpers (clerk, navigation, account, organizations, contacts, wait, data)                                                           |
+| `.env.example`            | Required env (`BASE_URL`, secrets per `#devs-only`)                                                                                               |
 
 ## Patterns
 
