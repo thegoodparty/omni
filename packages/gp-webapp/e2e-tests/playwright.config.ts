@@ -76,6 +76,8 @@ export default defineConfig({
     },
 
     // Better debugging and error tracking
+    // Recording every attempt cost each shard's 4 browsers CPU they needed
+    // for the tests. A failure is retried on CI, and the retry is recorded.
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
     video: 'off',

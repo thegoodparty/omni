@@ -40,9 +40,7 @@ const signInAsExistingUser = async (
   clerkUserId: string,
 ): Promise<void> => {
   await setupClerkTestingToken({ page })
-  // Clerk is ready long before the marketing page's images and analytics
-  // finish, and waiting for the full load event cost up to 9s a sign-in.
-  await page.goto('/', { waitUntil: 'domcontentloaded' })
+  await page.goto('/')
   await page.waitForFunction(() => window.Clerk?.loaded, null, {
     timeout: 15_000,
   })
