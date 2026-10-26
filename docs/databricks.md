@@ -31,8 +31,9 @@ in `gp-data-platform`, not here. This repo only _reads_ Databricks.
 
 The foreign catalogs `gp_api_pg_dev` and `gp_api_pg` read gp-api's Aurora
 database live, as the read-only Postgres role `databricks_federation`. Serverless
-warehouses reach Aurora over PrivateLink through an NLB that gp-api's Pulumi
-creates. Access is through the readers groups `gp_api_pg_dev_readers` and
+warehouses reach Aurora through an internet-facing NLB, allowlisted to
+Databricks' us-west-2 ranges, and an RDS Proxy, both created by gp-api's
+Pulumi. Access is through the readers groups `gp_api_pg_dev_readers` and
 `gp_api_pg_readers`. Setup, access and failure modes:
 `packages/gp-api/deploy/databricks/federation/README.md`.
 

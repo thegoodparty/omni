@@ -24,7 +24,7 @@ Pulumi (TypeScript) infrastructure-as-code, the production Dockerfile, and the `
 | `components/preview-shared-cluster.ts`      | Shared preview Aurora cluster (`gp-api-preview-shared-db`); created by the dev stack |
 | `components/election-db.ts`                 | The election Aurora cluster (`election-api-db-develop` / `-prod`) and its RDS-event log copy; dev and prod stacks only |
 | `components/preview-shared-alb.ts`          | Shared preview ALB (`gp-api-previews`) + `*.preview.goodparty.org`; created by the dev stack |
-| `components/databricks-federation.ts`       | PrivateLink path for Databricks Lakehouse Federation into Aurora (NLB, endpoint service, IP-sync Lambda); dev and prod stacks only |
+| `components/databricks-federation.ts`       | Databricks Lakehouse Federation's path into Aurora (allowlisted internet-facing NLB, RDS Proxy); dev and prod stacks only |
 | `databricks/federation/`                    | Runbook and `create-connection.sh` for the Unity Catalog connection                   |
 
 ## Patterns
@@ -68,7 +68,7 @@ The election data Aurora cluster that `ELECTION_DATABASE_URL` points at. It was 
 
 ## Databricks federation (`components/databricks-federation.ts`)
 
-Databricks serverless compute queries the dev and prod Aurora clusters through a VPC endpoint service on an internal NLB (stack output `databricksEndpointServiceName`). An NLB target can only be an IP and the writer's IP moves on failover, so the `gp-api-db-<env>-federation-ip-sync` Lambda re-registers the target every minute; Pulumi registers none. Its decision logic, `databricks-federation-ip-sync/target-plan.ts`, is transpiled into the Lambda at deploy time and must not import anything. The NLB's security group is created in `index.ts`, ahead of the RDS security group whose inline ingress names it. Previews get none of it. Runbook: `databricks/federation/README.md`.
+Databricks serverless compute queries the dev and prod Aurora clusters through an internet-facing NLB (stack output `databricksFederationHost`) whose security group admits only `DATABRICKS_SERVERLESS_OUTBOUND_CIDRS`, Databricks' published us-west-2 ranges. The NLB targets the IPs of an RDS Proxy endpoint, looked up from the endpoint's network interfaces on every deploy; the proxy follows the writer across failovers. The proxy's Secrets Manager secret is created empty and filled by hand, so the password never enters Pulumi state. The proxy's security group is created in `index.ts`, ahead of the RDS security group whose inline ingress names it. Previews get none of it. Runbook, costs and how to update the ranges: `databricks/federation/README.md`.
 
 ## Gotchas
 

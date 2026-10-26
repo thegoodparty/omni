@@ -1,69 +1,198 @@
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
 import * as aws from '@pulumi/aws'
 import * as pulumi from '@pulumi/pulumi'
-import * as ts from 'typescript'
 
-// The Databricks serverless stable IAM role for us-west-2, from "Create a VPC
-// endpoint service in your AWS account" in
-// https://docs.databricks.com/aws/en/security/network/serverless-network-security/pl-to-internal-network
-// (format arn:aws:iam::565502421330:role/private-connectivity-role-<region>).
-const DATABRICKS_SERVERLESS_PRINCIPAL =
-  'arn:aws:iam::565502421330:role/private-connectivity-role-us-west-2'
+// Databricks serverless outbound ranges for aws us-west-2 (type "outbound") in
+// https://www.databricks.com/networking/v1/ip-ranges.json, read 2026-10-26.
+// Every Databricks customer's serverless compute in the region shares them.
+const DATABRICKS_SERVERLESS_OUTBOUND_CIDRS = [
+  '18.246.106.0/24',
+  '3.42.138.0/25',
+  '44.234.192.32/28',
+  '52.27.216.188/32',
+]
 
 const POSTGRES_PORT = 5432
 
 interface DatabricksFederationConfig {
   name: string
   vpcId: string
+  publicSubnetIds: string[]
   privateSubnetIds: string[]
-  nlbSecurityGroup: aws.ec2.SecurityGroup
+  proxySecurityGroup: aws.ec2.SecurityGroup
   rdsSecurityGroupId: pulumi.Input<string>
-  clusterEndpoint: pulumi.Input<string>
+  clusterIdentifier: pulumi.Input<string>
 }
 
 // Lets Databricks serverless compute (which runs federated queries and cannot
-// use the workspace's VPC peering) reach the gp-api Aurora writer over
-// PrivateLink: an internal NLB in front of the writer, exposed as a VPC
-// endpoint service that a private endpoint rule on the workspace's NCC
-// connects to. Runbook: deploy/databricks/federation/README.md.
+// use the workspace's VPC peering) reach the gp-api Aurora cluster: an
+// internet-facing NLB that only Databricks' published ranges can reach, in
+// front of an RDS Proxy that follows the writer across failovers. Runbook:
+// deploy/databricks/federation/README.md.
 export const createDatabricksFederation = ({
   name,
   vpcId,
+  publicSubnetIds,
   privateSubnetIds,
-  nlbSecurityGroup,
+  proxySecurityGroup,
   rdsSecurityGroupId,
-  clusterEndpoint,
+  clusterIdentifier,
 }: DatabricksFederationConfig) => {
-  new aws.vpc.SecurityGroupEgressRule('databricksFederationNlbToRds', {
+  const nlbSecurityGroup = new aws.ec2.SecurityGroup(
+    'databricksFederationNlbSecurityGroup',
+    {
+      name: `${name}-nlb`,
+      description: 'Databricks federation NLB, open to Databricks serverless',
+      vpcId,
+    },
+  )
+
+  for (const cidr of DATABRICKS_SERVERLESS_OUTBOUND_CIDRS) {
+    new aws.vpc.SecurityGroupIngressRule(
+      `databricksFederationNlbFrom-${cidr.replace(/[./]/g, '-')}`,
+      {
+        securityGroupId: nlbSecurityGroup.id,
+        description: 'Databricks serverless us-west-2',
+        ipProtocol: 'tcp',
+        fromPort: POSTGRES_PORT,
+        toPort: POSTGRES_PORT,
+        cidrIpv4: cidr,
+      },
+    )
+  }
+
+  new aws.vpc.SecurityGroupEgressRule('databricksFederationNlbToProxy', {
     securityGroupId: nlbSecurityGroup.id,
-    description: 'federation NLB to the gp-api Aurora cluster',
+    description: 'federation NLB to its RDS Proxy',
+    ipProtocol: 'tcp',
+    fromPort: POSTGRES_PORT,
+    toPort: POSTGRES_PORT,
+    referencedSecurityGroupId: proxySecurityGroup.id,
+  })
+
+  new aws.vpc.SecurityGroupIngressRule('databricksFederationProxyFromNlb', {
+    securityGroupId: proxySecurityGroup.id,
+    description: 'federation NLB',
+    ipProtocol: 'tcp',
+    fromPort: POSTGRES_PORT,
+    toPort: POSTGRES_PORT,
+    referencedSecurityGroupId: nlbSecurityGroup.id,
+  })
+
+  new aws.vpc.SecurityGroupEgressRule('databricksFederationProxyToRds', {
+    securityGroupId: proxySecurityGroup.id,
+    description: 'federation RDS Proxy to the gp-api Aurora cluster',
     ipProtocol: 'tcp',
     fromPort: POSTGRES_PORT,
     toPort: POSTGRES_PORT,
     referencedSecurityGroupId: rdsSecurityGroupId,
   })
 
-  const nlb = new aws.lb.LoadBalancer('databricksFederationNlb', {
-    name,
-    internal: true,
-    loadBalancerType: 'network',
-    subnets: privateSubnetIds,
-    securityGroups: [nlbSecurityGroup.id],
-    // Required off by the Databricks page cited above.
-    enforceSecurityGroupInboundRulesOnPrivateLinkTraffic: 'off',
-    // The Databricks endpoint can land in either AZ; the writer is in one.
-    enableCrossZoneLoadBalancing: true,
+  // Created without a value so the password never enters Pulumi state. The DB
+  // admin writes {"username":"databricks_federation","password":"..."} (README
+  // step 3).
+  const proxySecret = new aws.secretsmanager.Secret(
+    'databricksFederationProxySecret',
+    {
+      name: `${name}-proxy`,
+      description: 'databricks_federation credentials for the RDS Proxy',
+    },
+  )
+
+  const proxyRole = new aws.iam.Role('databricksFederationProxyRole', {
+    name: `${name}-proxy`,
+    assumeRolePolicy: aws.iam.assumeRolePolicyForPrincipal({
+      Service: 'rds.amazonaws.com',
+    }),
   })
 
-  // Targets are registered only by the IP-sync Lambda below, never by Pulumi,
-  // so a deploy cannot put back an IP the writer has since moved off.
-  const targetGroup = new aws.lb.TargetGroup('databricksFederationTargets', {
+  // Per https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/rds-proxy-iam-setup.html,
+  // including kms:Decrypt for the secret's key (here the default
+  // aws/secretsmanager key), limited to decrypting this one secret.
+  const proxyRolePolicy = new aws.iam.RolePolicy(
+    'databricksFederationProxyPolicy',
+    {
+      role: proxyRole.id,
+      policy: pulumi.jsonStringify({
+        Version: '2012-10-17',
+        Statement: [
+          {
+            Effect: 'Allow',
+            Action: 'secretsmanager:GetSecretValue',
+            Resource: proxySecret.arn,
+          },
+          {
+            Effect: 'Allow',
+            Action: 'kms:Decrypt',
+            Resource: '*',
+            Condition: {
+              StringEquals: {
+                'kms:ViaService': 'secretsmanager.us-west-2.amazonaws.com',
+                'kms:EncryptionContext:SecretARN': proxySecret.arn,
+              },
+            },
+          },
+        ],
+      }),
+    },
+  )
+
+  const proxy = new aws.rds.Proxy(
+    'databricksFederationProxy',
+    {
+      name,
+      engineFamily: 'POSTGRESQL',
+      roleArn: proxyRole.arn,
+      vpcSubnetIds: privateSubnetIds,
+      vpcSecurityGroupIds: [proxySecurityGroup.id],
+      requireTls: true,
+      debugLogging: false,
+      auths: [
+        {
+          authScheme: 'SECRETS',
+          secretArn: proxySecret.arn,
+          iamAuth: 'DISABLED',
+          description: 'databricks_federation',
+        },
+      ],
+    },
+    { dependsOn: [proxyRolePolicy] },
+  )
+
+  const proxyTargetGroup = new aws.rds.ProxyDefaultTargetGroup(
+    'databricksFederationProxyTargetGroup',
+    {
+      dbProxyName: proxy.name,
+      connectionPoolConfig: {
+        // A percent of Aurora's max_connections. Low so federated scans can
+        // never crowd out gp-api; the role's own limit of 20 binds first.
+        maxConnectionsPercent: 10,
+      },
+    },
+  )
+
+  new aws.rds.ProxyTarget('databricksFederationProxyTarget', {
+    dbProxyName: proxy.name,
+    targetGroupName: proxyTargetGroup.name,
+    dbClusterIdentifier: clusterIdentifier,
+  })
+
+  const nlb = new aws.lb.LoadBalancer('databricksFederationNlb', {
+    name,
+    internal: false,
+    loadBalancerType: 'network',
+    subnets: publicSubnetIds,
+    securityGroups: [nlbSecurityGroup.id],
+  })
+
+  const nlbTargetGroup = new aws.lb.TargetGroup('databricksFederationTargets', {
     name,
     port: POSTGRES_PORT,
     protocol: 'TCP',
     targetType: 'ip',
     vpcId,
+    // The proxy then sees the NLB's address, which its security group
+    // allows, rather than a Databricks one.
+    preserveClientIp: 'false',
     deregistrationDelay: 30,
     healthCheck: { protocol: 'TCP', interval: 10, healthyThreshold: 2 },
   })
@@ -72,126 +201,36 @@ export const createDatabricksFederation = ({
     loadBalancerArn: nlb.arn,
     port: POSTGRES_PORT,
     protocol: 'TCP',
-    defaultActions: [{ type: 'forward', targetGroupArn: targetGroup.arn }],
+    defaultActions: [{ type: 'forward', targetGroupArn: nlbTargetGroup.arn }],
   })
 
-  const endpointService = new aws.ec2.VpcEndpointService(
-    'databricksFederationEndpointService',
-    {
-      acceptanceRequired: false,
-      networkLoadBalancerArns: [nlb.arn],
-      allowedPrincipals: [DATABRICKS_SERVERLESS_PRINCIPAL],
-      tags: { Name: name },
-    },
-  )
+  // The proxy's default endpoint is a VPC endpoint with one network interface
+  // in each of its subnets, carrying the proxy's security group, and its IPs
+  // are "static IP addresses for the life of the endpoint":
+  // https://aws.amazon.com/blogs/database/use-amazon-rds-proxy-and-aws-privatelink-to-access-amazon-rds-databases-across-aws-organizations-at-american-family-insurance-group/
+  // Keyed on the proxy so the lookup runs only once the proxy exists.
+  const proxySecurityGroupIdOnceCreated = pulumi
+    .all([proxy.arn, proxySecurityGroup.id])
+    .apply(([, securityGroupId]) => securityGroupId)
 
-  // Aurora moves the writer's IP on failover and host replacement, and an NLB
-  // target can only be an IP, so this re-points the target group every
-  // minute. It runs outside the VPC: the cluster endpoint resolves publicly to
-  // the writer's private IP, and the ELB API is public.
-  const ipSyncName = `${name}-ip-sync`
-
-  const ipSyncLogGroup = new aws.cloudwatch.LogGroup(
-    'databricksFederationIpSyncLogs',
-    { name: `/aws/lambda/${ipSyncName}`, retentionInDays: 30 },
-  )
-
-  const ipSyncRole = new aws.iam.Role('databricksFederationIpSyncRole', {
-    name: ipSyncName,
-    assumeRolePolicy: aws.iam.assumeRolePolicyForPrincipal({
-      Service: 'lambda.amazonaws.com',
-    }),
-  })
-
-  new aws.iam.RolePolicy('databricksFederationIpSyncPolicy', {
-    role: ipSyncRole.id,
-    policy: pulumi.jsonStringify({
-      Version: '2012-10-17',
-      Statement: [
-        {
-          // ELB Describe actions do not support resource-level permissions.
-          Effect: 'Allow',
-          Action: 'elasticloadbalancing:DescribeTargetHealth',
-          Resource: '*',
-        },
-        {
-          Effect: 'Allow',
-          Action: [
-            'elasticloadbalancing:RegisterTargets',
-            'elasticloadbalancing:DeregisterTargets',
-          ],
-          Resource: targetGroup.arn,
-        },
-        {
-          Effect: 'Allow',
-          Action: ['logs:CreateLogStream', 'logs:PutLogEvents'],
-          Resource: pulumi.interpolate`${ipSyncLogGroup.arn}:*`,
-        },
+  privateSubnetIds.forEach((subnetId, index) => {
+    const proxyEndpointInterface = aws.ec2.getNetworkInterfaceOutput({
+      filters: [
+        { name: 'group-id', values: [proxySecurityGroupIdOnceCreated] },
+        { name: 'interface-type', values: ['vpc_endpoint'] },
+        { name: 'subnet-id', values: [subnetId] },
       ],
-    }),
-  })
+    })
 
-  const targetPlanSource = ts.transpileModule(
-    readFileSync(
-      join(__dirname, 'databricks-federation-ip-sync/target-plan.ts'),
-      'utf8',
-    ),
-    {
-      compilerOptions: {
-        module: ts.ModuleKind.ESNext,
-        target: ts.ScriptTarget.ES2022,
+    new aws.lb.TargetGroupAttachment(
+      `databricksFederationProxyEndpoint${index}`,
+      {
+        targetGroupArn: nlbTargetGroup.arn,
+        targetId: proxyEndpointInterface.privateIp,
+        port: POSTGRES_PORT,
       },
-    },
-  ).outputText
-
-  const ipSync = new aws.lambda.Function(
-    'databricksFederationIpSync',
-    {
-      name: ipSyncName,
-      description:
-        'Points the Databricks federation NLB at the Aurora writer IP',
-      runtime: aws.lambda.Runtime.NodeJS22dX,
-      handler: 'handler.handler',
-      role: ipSyncRole.arn,
-      timeout: 30,
-      memorySize: 128,
-      code: new pulumi.asset.AssetArchive({
-        'handler.mjs': new pulumi.asset.FileAsset(
-          join(__dirname, 'databricks-federation-ip-sync/handler.mjs'),
-        ),
-        'target-plan.mjs': new pulumi.asset.StringAsset(targetPlanSource),
-      }),
-      environment: {
-        variables: {
-          DB_HOSTNAME: clusterEndpoint,
-          DB_PORT: String(POSTGRES_PORT),
-          TARGET_GROUP_ARN: targetGroup.arn,
-        },
-      },
-    },
-    { dependsOn: [ipSyncLogGroup] },
-  )
-
-  const ipSyncSchedule = new aws.cloudwatch.EventRule(
-    'databricksFederationIpSyncSchedule',
-    {
-      name: ipSyncName,
-      description: `Runs ${ipSyncName} every minute`,
-      scheduleExpression: 'rate(1 minute)',
-    },
-  )
-
-  new aws.cloudwatch.EventTarget('databricksFederationIpSyncTarget', {
-    rule: ipSyncSchedule.name,
-    arn: ipSync.arn,
+    )
   })
 
-  new aws.lambda.Permission('databricksFederationIpSyncInvoke', {
-    action: 'lambda:InvokeFunction',
-    function: ipSync.name,
-    principal: 'events.amazonaws.com',
-    sourceArn: ipSyncSchedule.arn,
-  })
-
-  return { endpointService }
+  return { nlb }
 }

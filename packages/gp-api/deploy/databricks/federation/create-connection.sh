@@ -6,10 +6,10 @@
 # it never reaches this machine. Safe to re-run.
 set -euo pipefail
 
-target=${1:?usage: create-connection.sh dev|prod}
+target=${1:?usage: create-connection.sh dev|prod <databricksFederationHost>}
+host=${2:?usage: create-connection.sh dev|prod <databricksFederationHost>}
 case "$target" in
-  dev) host=gp-api-db.cluster-cmb1uukjsfbe.us-west-2.rds.amazonaws.com ;;
-  prod) host=gp-api-db-prod.cluster-cmb1uukjsfbe.us-west-2.rds.amazonaws.com ;;
+  dev | prod) ;;
   *) echo "unknown target: $target" >&2 && exit 1 ;;
 esac
 connection=gp_api_${target}
@@ -41,9 +41,13 @@ else
 fi
 
 if [[ -z "$current_owner" ]]; then
-  # The serverless JVM does not trust the RDS CA, so the connection carries it.
+  # RDS Proxy presents an ACM certificate, which chains to the Amazon Trust
+  # Services roots, and names the proxy rather than the NLB, so the chain is
+  # verified (verify-ca) but not the hostname. See the README's TLS section.
   ca=$(
-    curl -fsS https://truststore.pki.rds.amazonaws.com/us-west-2/us-west-2-bundle.pem
+    for root in AmazonRootCA1 AmazonRootCA2 AmazonRootCA3 AmazonRootCA4 SFSRootCAG2; do
+      curl -fsS "https://www.amazontrust.com/repository/$root.pem"
+    done
   )
   run_sql "CREATE CONNECTION $connection TYPE postgresql
 OPTIONS (
@@ -51,6 +55,7 @@ OPTIONS (
   port '5432',
   user 'databricks_federation',
   password secret('gp-api-federation-$target', 'postgres-password'),
+  sslmode 'verify-ca',
   userProvidedServerCertificate '$ca'
 )
 COMMENT 'gp-api Postgres for Lakehouse Federation (omni deploy/databricks/federation)'"

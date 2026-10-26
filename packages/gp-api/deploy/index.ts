@@ -231,10 +231,11 @@ export = async () => {
   })
 
   // Created ahead of the RDS security group, whose inline ingress names it.
-  const databricksFederationNlbSecurityGroup = databricksFederationName
-    ? new aws.ec2.SecurityGroup('databricksFederationNlbSecurityGroup', {
-        name: `${databricksFederationName}-nlb`,
-        description: 'Databricks federation NLB in front of gp-api Aurora',
+  const databricksFederationProxySecurityGroup = databricksFederationName
+    ? new aws.ec2.SecurityGroup('databricksFederationProxySecurityGroup', {
+        name: `${databricksFederationName}-proxy`,
+        description:
+          'Databricks federation RDS Proxy in front of gp-api Aurora',
         vpcId,
       })
     : undefined
@@ -281,14 +282,14 @@ export = async () => {
             description: 'databricks via vpc peering',
             cidrBlocks: ['172.16.0.0/16'],
           },
-          ...(databricksFederationNlbSecurityGroup
+          ...(databricksFederationProxySecurityGroup
             ? [
                 {
                   protocol: 'tcp',
                   fromPort: 5432,
                   toPort: 5432,
-                  description: 'databricks serverless via privatelink nlb',
-                  securityGroups: [databricksFederationNlbSecurityGroup.id],
+                  description: 'databricks serverless via federation rds proxy',
+                  securityGroups: [databricksFederationProxySecurityGroup.id],
                 },
               ]
             : []),
@@ -382,16 +383,17 @@ export = async () => {
 
   const databricksFederation =
     databricksFederationName &&
-    databricksFederationNlbSecurityGroup &&
+    databricksFederationProxySecurityGroup &&
     rdsSecurityGroup &&
     rdsCluster
       ? createDatabricksFederation({
           name: databricksFederationName,
           vpcId,
+          publicSubnetIds: vpcSubnetIds.public,
           privateSubnetIds: vpcSubnetIds.private,
-          nlbSecurityGroup: databricksFederationNlbSecurityGroup,
+          proxySecurityGroup: databricksFederationProxySecurityGroup,
           rdsSecurityGroupId: rdsSecurityGroup.id,
-          clusterEndpoint: rdsCluster.endpoint,
+          clusterIdentifier: rdsCluster.clusterIdentifier,
         })
       : undefined
 
@@ -876,7 +878,6 @@ jwIDAQAB
 
   return {
     serviceUrl: service.url,
-    databricksEndpointServiceName:
-      databricksFederation?.endpointService.serviceName,
+    databricksFederationHost: databricksFederation?.nlb.dnsName,
   }
 }
