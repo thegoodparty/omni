@@ -927,16 +927,17 @@ const buildOpponents = (
   //      Authoritative for who's on the ballot + incumbent flag.
   //   3. runningAgainst — user-entered onboarding answers.
   //   4. hubspotIncumbent — last-ditch incumbent name from HubSpot.
-  if (strategicLandscape?.opponents.length) {
-    return strategicLandscape.opponents.map((o) => ({
+  // Rosters can include the candidate's own row. Drop it on every path, or the
+  // candidate is listed as their own opponent with the roster's incumbent flag.
+  const ownName = normalizeName(candidateName)
+  const fromLandscape: Opponent[] = (strategicLandscape?.opponents ?? [])
+    .filter((o) => ownName === '' || normalizeName(o.fullName) !== ownName)
+    .map((o) => ({
       fullName: o.fullName,
       partyAffiliation: o.partyAffiliation,
       incumbent: o.incumbent,
     }))
-  }
-  // The roster includes the candidate's own row. Drop it, or the candidate is
-  // listed as their own opponent with whatever incumbent flag the roster holds.
-  const ownName = normalizeName(candidateName)
+  if (fromLandscape.length > 0) return fromLandscape
   const fromRaceCandidates: Opponent[] = raceCandidates
     .filter((c) => c.fullName.trim() !== '')
     .filter((c) => ownName === '' || normalizeName(c.fullName) !== ownName)

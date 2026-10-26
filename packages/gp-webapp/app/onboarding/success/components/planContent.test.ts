@@ -599,4 +599,21 @@ describe('buildPlanData opponents fallback to the race roster', () => {
     expect(plan.opponents.map((o) => o.fullName)).toEqual(['Steve Ferry'])
     expect(plan.incumbent).toBeNull()
   })
+
+  it('leaves the candidate out of the strategic landscape roster too', () => {
+    const plan = buildPlanData(
+      makeInput({
+        candidateName: 'Ben A. Glickman',
+        strategicLandscape: {
+          opponents: [
+            { fullName: 'Ben Glickman', partyAffiliation: '', incumbent: true },
+            { fullName: 'Steve Ferry', partyAffiliation: '', incumbent: false },
+          ],
+        } as never,
+      }),
+    )
+
+    expect(plan.opponents.map((o) => o.fullName)).toEqual(['Steve Ferry'])
+    expect(plan.incumbent).toBeNull()
+  })
 })
