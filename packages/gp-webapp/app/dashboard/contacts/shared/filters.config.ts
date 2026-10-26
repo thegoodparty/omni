@@ -115,14 +115,6 @@ const filterSections = [
         ],
       },
       {
-        key: 'early_absentee_voted',
-        label: 'Voted early or by mail',
-        options: [
-          { key: 'earlyAbsenteeVotedYes', label: 'Yes' },
-          { key: 'earlyAbsenteeVotedNo', label: 'No' },
-        ],
-      },
-      {
         key: 'children',
         label: 'Children',
         options: [
