@@ -478,11 +478,6 @@ export class StripeService {
     return found.data[0] ?? null
   }
 
-  // Marks a promotion code redeemed (or restores it) by flipping `active`.
-  // Stripe never counts a redemption for a code we applied outside Checkout, so
-  // deactivating on consume is what stops a second use, and reactivating on a
-  // cancel-before-send hands the reward back. Best-effort: the money state
-  // already committed, and our own redemption record is the second guard.
   // A single-use promotion code on an existing coupon. Stripe never counts a
   // redemption we apply outside Checkout, so max_redemptions is a label here;
   // deactivation on consume is what actually stops a second use.
@@ -508,6 +503,11 @@ export class StripeService {
     }
   }
 
+  // Marks a promotion code redeemed (or restores it) by flipping `active`.
+  // Stripe never counts a redemption for a code we applied outside Checkout, so
+  // deactivating on consume is what stops a second use, and reactivating on a
+  // cancel-before-send hands the reward back. Best-effort: the money state
+  // already committed, and our own redemption record is the second guard.
   async setPromotionCodeActive(
     promotionCodeId: string,
     active: boolean,
