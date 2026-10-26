@@ -253,8 +253,9 @@ describe('ProposalFlowsProvider', () => {
   })
 
   // The walk is drawn on its own page, so the card's link rides the URL to
-  // that page's create, which puts the check out on the server.
-  it('carries the card’s link to door knocking, saving the list at the click', async () => {
+  // that page's create, which puts the check out on the server. A priority's
+  // walk asks the check's question, so the goal and the question ride too.
+  it('carries the card’s link, goal and question to door knocking, saving the list at the click', async () => {
     api.mock('POST /v1/voters/voter-file/filter', {
       status: 200,
       data: { id: 77, name: 'Flood block renters' },
@@ -287,52 +288,35 @@ describe('ProposalFlowsProvider', () => {
       stepId: 'method',
       side: 'main',
       launchSource: 'priorities',
+      purpose: 'community_input',
+      question: SCRIPT,
     })
   })
 
-  // Round 1's doors are one walkable area gp-api picked: the list is kept
-  // to it and the walk opens with it as the first turf.
-  it('keeps a walkable area card’s list to its box and opens the walk on it', async () => {
+  // The question has the create's own limit, so a longer door message is
+  // cut to it rather than opening a walk that cannot be created.
+  it('cuts a door message longer than a question can be', async () => {
     router.push?.mockClear()
-    const lists = mockSavedLists()
-    const box = { west: -82.56, south: 35.59, east: -82.54, north: 35.61 }
+    api.mock('POST /v1/voters/voter-file/filter', {
+      status: 200,
+      data: { id: 80, name: 'Flood block renters' },
+    })
 
     render(
       <ProposalFlowsProvider>
         <Opener
-          card={proposal({
-            channel: 'doorKnocking',
-            stepId: 'define',
-            side: 'main',
-            walkableArea: box,
-          })}
+          card={proposal({ channel: 'doorKnocking', message: 'a'.repeat(400) })}
         />
       </ProposalFlowsProvider>,
     )
     await user.click(screen.getByRole('button', { name: 'Start' }))
 
     await waitFor(() => expect(router.push).toHaveBeenCalled())
-    expect(lists[0]).toMatchObject({
-      geoPoly: {
-        type: 'Polygon',
-        coordinates: [
-          [
-            [-82.56, 35.59],
-            [-82.54, 35.59],
-            [-82.54, 35.61],
-            [-82.56, 35.61],
-            [-82.56, 35.59],
-          ],
-        ],
-      },
-    })
-    expect(lists[0]).not.toHaveProperty('sample')
     const url = new URL(
       String(router.push?.mock.calls[0]?.[0]),
       'https://app.test',
     )
-    expect(url.searchParams.get('listId')).toBe('88')
-    expect(url.searchParams.get('area')).toBe('-82.56,35.59,-82.54,35.61')
+    expect(url.searchParams.get('question')).toBe('a'.repeat(300))
   })
 
   it('saves the walk’s list once when the card is pressed twice', async () => {

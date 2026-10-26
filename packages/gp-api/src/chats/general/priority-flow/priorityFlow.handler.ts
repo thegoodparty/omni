@@ -13,7 +13,6 @@ import {
   type PriorityCheckSide,
   type PriorityStepId,
   type ProposalChannel,
-  type WalkableAreaBox,
 } from '@goodparty_org/contracts'
 import { ChatScope } from '../../../generated/prisma'
 import type { LlmStreamTool, LlmTool } from '@/llm/services/llm.service'
@@ -68,10 +67,7 @@ import {
 } from '../chat-tools/presentOutreachProposal.tool'
 import { buildPresentPastOutreachTool } from '../chat-tools/presentPastOutreach.tool'
 import { buildSizeOutreachSampleTool } from '../chat-tools/sizeOutreachSample.tool'
-import {
-  buildSizeRoundOneTool,
-  sameWalkableArea,
-} from '../chat-tools/sizeRoundOne.tool'
+import { buildSizeRoundOneTool } from '../chat-tools/sizeRoundOne.tool'
 import { buildReadPastOutreachTool } from '../chat-tools/readPastOutreach.tool'
 import { buildReadOutreachFeedbackTool } from '../chat-tools/readOutreachFeedback.tool'
 import {
@@ -84,6 +80,7 @@ import {
   PriorityFlowContextService,
 } from './services/priorityFlowContext.service'
 import { PriorityFlowOutreachService } from './services/priorityFlowOutreach.service'
+import { resolveSendWindowTimeZone } from '@/vendors/peerly/utils/sendWindowTimeZone.util'
 import { buildPriorityFlowSystemPrompt } from './priorityFlow.prompt'
 import { voterFilterBaseSchema } from '@/shared/schemas/voterFilterBase.schema'
 
@@ -125,33 +122,6 @@ const unsignedDraftReason = (
         `one), then present it again.`
     : `A phone script has to name the official. Have the caller say who ` +
         `they are calling for: "${officialName}, your" and their office.`
-}
-
-// A door card's walkable area is gp-api's pick, never the model's: it has
-// to be one size_round_one returned this turn, on a door card, kept to it
-// whole rather than sampled.
-const walkableAreaRefusal = (
-  input: {
-    channel: ProposalChannel
-    walkableArea: WalkableAreaBox
-    sampleSize?: number
-    areaTarget?: 'unreached'
-  },
-  sizedAreas: WalkableAreaBox[],
-): string | null => {
-  if (input.channel !== 'doorKnocking') {
-    return 'walkableArea is for door knocking only. Leave it out and present again.'
-  }
-  if (input.sampleSize !== undefined || input.areaTarget !== undefined) {
-    return (
-      'A door card in a walkable area knocks every door in it. Leave out ' +
-      'sampleSize and areaTarget and present again.'
-    )
-  }
-  return sizedAreas.some((area) => sameWalkableArea(area, input.walkableArea))
-    ? null
-    : 'That walkableArea is not one size_round_one returned in this turn. ' +
-        'Call size_round_one and present the door card exactly as it returns it.'
 }
 
 @Injectable()
@@ -263,9 +233,6 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
     const civicPanelMembers = outreachFeedbackEnabled
       ? await this.contextService.countCivicPanelMembers(ctx.organizationSlug)
       : undefined
-    const panelHoursPerWeek = outreachFeedbackEnabled
-      ? await this.contextService.panelHoursPerWeek(ctx.electedOfficeId)
-      : undefined
     const reportBacks =
       outreachFeedbackEnabled && this.reportBack
         ? await this.reportBack.listForOffice(
@@ -282,24 +249,33 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
             ])
           ).get(ctx.priorityId)
         : undefined
+    // Read in the office's own zone, so the thread never calls a send out
+    // that the prompt's date line has not reached yet.
+    const anchorSummaries = await this.outreach.summarizeAnchors(
+      ctx.priorityId,
+      resolveSendWindowTimeZone(resolved?.state),
+    )
     if (!resolved) {
       return {
         ...ctx,
+        anchorSummaries,
         peopleDataset,
         outreachFeedbackEnabled,
         civicPanelMembers,
-        panelHoursPerWeek,
         reportBacks,
         readStatus,
       }
     }
     return {
       ...ctx,
+      anchorSummaries,
       outreachFeedbackEnabled,
       civicPanelMembers,
-      panelHoursPerWeek,
       reportBacks,
       readStatus,
+      // A bound position clears customPositionName, so for most offices the
+      // title only comes from the position the resolver just read.
+      officeTitle: ctx.officeTitle || resolved.positionName || null,
       jurisdiction: `${resolved.l2DistrictName}, ${resolved.state}`,
       state: resolved.state,
       districtFilters: this.districtResolver
@@ -438,9 +414,6 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
     // reach the official in this turn". The status tool refuses to record a
     // check as asked until one has, which is what makes `asked` mean shown.
     let offeredThisTurn = false
-    // The walkable areas size_round_one picked this turn: the only areas a
-    // door card may carry.
-    const sizedAreas: WalkableAreaBox[] = []
     const ask = buildAskClarifyQuestionTool()
     const propose = buildPriorityOutreachProposalTool({
       citizenPanels: ctx.outreachFeedbackEnabled === true,
@@ -488,23 +461,6 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
           if (panelPart !== null) return { error: panelPart }
           const followUpPart = checkFollowUpPart(input, ctx.readStatus)
           if (followUpPart !== null) return { error: followUpPart }
-          if (input.walkableArea !== undefined) {
-            const area = walkableAreaRefusal(
-              { ...input, walkableArea: input.walkableArea },
-              sizedAreas,
-            )
-            if (area !== null) return { error: area }
-          } else if (
-            input.channel === 'doorKnocking' &&
-            sizedAreas.length > 0
-          ) {
-            // Without its area the list would be saved district-wide.
-            return {
-              error:
-                'This door card has no walkableArea. Present it with the ' +
-                'walkableArea size_round_one returned, exactly as given.',
-            }
-          }
           if (input.areaTarget === 'unreached') {
             const area = await this.unreachedAreaRefusal(ctx, input)
             if (area !== null) return { error: area }
@@ -554,6 +510,7 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
         outreach: this.outreach,
         priorityId: ctx.priorityId,
         organizationSlug: ctx.organizationSlug,
+        timeZone: resolveSendWindowTimeZone(ctx.state),
       }),
     }
 
@@ -563,15 +520,13 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
           contacts: this.contacts,
           priorityResults: this.priorityResults,
           organization: ctx.organization,
-          priorityId: ctx.priorityId,
-          planHoursPerWeek: ctx.panelHoursPerWeek ?? null,
-          onArea: (area) => sizedAreas.push(area),
         })
       }
       tools.read_outreach_feedback = buildReadOutreachFeedbackTool({
         outreach: this.outreach,
         priorityId: ctx.priorityId,
         organizationSlug: ctx.organizationSlug,
+        timeZone: resolveSendWindowTimeZone(ctx.state),
         goodRead: ctx.readStatus?.good,
       })
       if (this.reportBack) {

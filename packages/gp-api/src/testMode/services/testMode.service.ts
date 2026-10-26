@@ -33,7 +33,6 @@ import {
   addDays,
   addYears,
   differenceInCalendarDays,
-  format,
   isBefore,
   parseISO,
   startOfDay,
@@ -58,7 +57,6 @@ import {
 export const TEST_ORGANIZATION_CAP = 15
 const TEST_MODE_PLACEHOLDER = 'test-mode'
 const TEST_MODE_FILING_HOLD_REASON = 'Test mode filing hold'
-const DATE_FORMAT = 'yyyy-MM-dd'
 const ENDING_SOON_WINDOW_DAYS = 90
 const IN_ONE_WEEK_WINDOW_DAYS = 14
 
@@ -444,7 +442,11 @@ export class TestModeService {
     const created = await this.transitions.createLaunchedCampaign(
       user,
       body.race,
-      { testMode: true, launch: body.onboarding === 'complete' },
+      {
+        testMode: true,
+        launch: body.onboarding === 'complete',
+        election: body.election,
+      },
     )
     if (body.onboarding === 'not_started') {
       await this.applyCampaignOnboarding(created, 'not_started')
@@ -534,14 +536,17 @@ export class TestModeService {
     preset: TestModeOnboardingPreset,
   ) {
     if (preset === 'not_started') {
-      await this.rewriteCampaignJson(campaign.id, ({ details, data }) => {
-        delete details.party
-        delete details.otherParty
-        delete details.pledged
-        delete data.launchStatus
-        delete data.currentStep
-        return { details, data, scalars: { isActive: false } }
-      })
+      await this.transitions.rewriteCampaignJson(
+        campaign.id,
+        ({ details, data }) => {
+          delete details.party
+          delete details.otherParty
+          delete details.pledged
+          delete data.launchStatus
+          delete data.currentStep
+          return { details, data, scalars: { isActive: false } }
+        },
+      )
       await this.organizations.model.update({
         where: { slug: campaign.organizationSlug },
         data: { positionId: null, customPositionName: null },
@@ -614,77 +619,38 @@ export class TestModeService {
     campaign: Campaign,
     preset: TestModeElectionPreset,
   ) {
-    const today = startOfDay(new Date())
-    switch (preset) {
-      case 'in_8_weeks':
-      case 'in_1_week': {
-        const electionDate = format(
-          addDays(today, preset === 'in_8_weeks' ? 56 : 7),
-          DATE_FORMAT,
-        )
-        await this.rewriteCampaignJson(campaign.id, ({ details, data }) => {
-          delete details.wonGeneral
-          delete details.primaryElectionDate
-          return {
-            details: { ...details, electionDate },
-            data,
-            scalars: { didWin: null, primaryResult: null },
-          }
-        })
-        return
-      }
-      case 'passed_unanswered':
-      case 'passed_lost': {
-        const electionDate = format(subDays(today, 14), DATE_FORMAT)
-        await this.rewriteCampaignJson(campaign.id, ({ details, data }) => {
-          delete details.wonGeneral
-          return {
-            details: {
-              ...details,
-              electionDate,
-              ...(preset === 'passed_lost' ? { wonGeneral: false } : {}),
-            },
-            data,
-            scalars: { didWin: null },
-          }
-        })
-        return
-      }
-      case 'passed_won':
-        await this.linkWonRace(user, campaign, today)
-        return
+    if (preset === 'passed_won') {
+      await this.linkWonOffice(user, campaign)
     }
+    await this.transitions.applyElectionPreset(campaign.id, preset)
   }
 
   // Mirrors the election-result flow: the office is created first, then the
   // win markers land with a past election date. `didWin` stays null, as it
   // does when a candidate reports the result themselves.
-  private async linkWonRace(user: User, campaign: Campaign, today: Date) {
+  private async linkWonOffice(user: User, campaign: Campaign) {
     const linked = await this.organizations.client.electedOffice.findFirst({
       where: { campaignId: campaign.id },
     })
-    if (!linked) {
-      await this.assertUnderCap(user)
-      const org = await this.organizations.model.findUniqueOrThrow({
-        where: { slug: campaign.organizationSlug },
-      })
-      await this.insertElectedOfficeOrganization(user, {
-        positionId: org.positionId,
-        customPositionName: org.customPositionName,
-        overrideDistrictId: org.overrideDistrictId,
-        termStartDate: today,
-        termEndDate: addYears(today, 4),
-        onboardingCompletedAt: new Date(),
-        pledgedAt: new Date(),
-        selfReported: false,
-        campaignId: campaign.id,
-      })
+    if (linked) {
+      return
     }
-    const electionDate = format(subDays(today, 30), DATE_FORMAT)
-    await this.rewriteCampaignJson(campaign.id, ({ details, data }) => ({
-      details: { ...details, electionDate, wonGeneral: true },
-      data,
-    }))
+    await this.assertUnderCap(user)
+    const org = await this.organizations.model.findUniqueOrThrow({
+      where: { slug: campaign.organizationSlug },
+    })
+    const today = startOfDay(new Date())
+    await this.insertElectedOfficeOrganization(user, {
+      positionId: org.positionId,
+      customPositionName: org.customPositionName,
+      overrideDistrictId: org.overrideDistrictId,
+      termStartDate: today,
+      termEndDate: addYears(today, 4),
+      onboardingCompletedAt: new Date(),
+      pledgedAt: new Date(),
+      selfReported: false,
+      campaignId: campaign.id,
+    })
   }
 
   private async applyTerm(office: ElectedOffice, preset: TestModeTermPreset) {
@@ -775,40 +741,6 @@ export class TestModeService {
       where: { campaignId: campaign.id },
       create: { campaignId: campaign.id, ...placeholders, ...presetFields },
       update: { ...placeholders, ...presetFields },
-    })
-  }
-
-  // updateJsonFields deep-merges and cannot delete keys, so the presets that
-  // drop `wonGeneral` or the onboarding markers rebuild the columns under the
-  // same row lock it takes (see campaigns/AGENTS.md on JSON columns).
-  private async rewriteCampaignJson(
-    campaignId: number,
-    rewrite: (row: {
-      details: PrismaJson.CampaignDetails
-      data: PrismaJson.CampaignData
-    }) => {
-      details: PrismaJson.CampaignDetails
-      data: PrismaJson.CampaignData
-      scalars?: Pick<
-        Prisma.CampaignUncheckedUpdateInput,
-        'isActive' | 'didWin' | 'primaryResult'
-      >
-    },
-  ) {
-    await this.campaigns.client.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT id FROM campaign WHERE id = ${campaignId} FOR UPDATE`
-      const row = await tx.campaign.findUniqueOrThrow({
-        where: { id: campaignId },
-        select: { details: true, data: true },
-      })
-      const next = rewrite({
-        details: { ...row.details },
-        data: { ...row.data },
-      })
-      await tx.campaign.update({
-        where: { id: campaignId },
-        data: { details: next.details, data: next.data, ...next.scalars },
-      })
     })
   }
 }

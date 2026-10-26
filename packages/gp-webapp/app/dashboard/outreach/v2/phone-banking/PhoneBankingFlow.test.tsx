@@ -1,11 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import {
-  act,
-  cleanup,
-  fireEvent,
-  screen,
-  waitFor,
-} from '@testing-library/react'
+import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { Editor } from '@tiptap/react'
 import { render } from 'helpers/test-utils/render'
@@ -1565,53 +1559,15 @@ describe('PhoneBankingFlow with the serve surface', () => {
     return { onClose }
   }
 
-  it('offers the civic panel invite only with serve-citizen-panels on', async () => {
-    openServeFlow()
-    expect(screen.queryByText('Invite to your civic panel')).toBeNull()
-    cleanup()
-
+  // The panel invite only goes out in the managed panel's texts.
+  it('never offers the civic panel invite', async () => {
     panelFlag.enabled = true
     try {
       openServeFlow()
       expect(
-        await screen.findByText('Invite to your civic panel'),
+        await screen.findByText('Explain a recent decision'),
       ).toBeInTheDocument()
-    } finally {
-      panelFlag.enabled = false
-    }
-  })
-
-  // A civic panel plan's call step hands over the invite and its frozen
-  // list, so the flow lands on the script with the invite drafting, and
-  // Back still reaches the list.
-  it("lands a plan step's calls on the script, drafting the invite", async () => {
-    panelFlag.enabled = true
-    try {
-      const draftCalls = mockServeDraft()
-      mockSavedLists([{ id: 8, name: 'Civic panel calls' }])
-      mockListDetail(30)
-      render(
-        <PhoneBankingFlow
-          source="deep_link"
-          open
-          onClose={vi.fn()}
-          surface={SERVE_PHONE_BANKING_SURFACE}
-          preselectedListId={8}
-          initialPurpose="build_citizens_panel"
-          initialName="Civic panel calls"
-        />,
-      )
-
-      expect(
-        (await screen.findAllByText('Write your call script')).length,
-      ).toBeGreaterThan(0)
-      await waitFor(() => expect(draftCalls).toHaveLength(1))
-      expect(draftCalls[0]).toMatchObject({ purpose: 'build_citizens_panel' })
-
-      await user.click(screen.getByRole('button', { name: 'Back' }))
-      expect(
-        (await screen.findAllByText('Who do you want to reach?')).length,
-      ).toBeGreaterThan(0)
+      expect(screen.queryByText('Invite to your civic panel')).toBeNull()
     } finally {
       panelFlag.enabled = false
     }

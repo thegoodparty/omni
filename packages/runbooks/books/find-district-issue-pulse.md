@@ -19,7 +19,7 @@ The voter file lives at `goodparty_data_catalog.dbt.int__l2_nationwide_uniform_w
 
 ## Steps
 
-### 1. Resolve the district from election-api RDS
+### 1. Resolve the district from the election database
 
 Don't guess L2 district names. Look them up:
 

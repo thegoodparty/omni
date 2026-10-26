@@ -31,7 +31,6 @@ and verified by `ai-rules/scripts/agents-md-sync.sh`, which CI runs on every PR.
 | `packages/gp-api`          | API monolith (auth, campaigns, payments, AI)                      | NestJS + Fastify  | 3000 |
 | `packages/gp-webapp`       | Product app for candidates & elected officials                    | Next.js 16        | 4000 |
 | `packages/prototypes`      | Public backend-free UI prototyping surface                        | Next.js           | 4002 |
-| `packages/election-api`    | Election/race/candidacy data microservice                         | NestJS + Fastify  | 3001 |
 | `packages/gp-ai`           | Python AI/data services + their Terraform                         | Python + uv       | —    |
 | `packages/gp-admin`        | Internal staff admin console                                      | Next.js 16        | 3500 |
 | `packages/candidate-sites` | Per-candidate static sites                                        | Next.js           | 4001 |
@@ -100,6 +99,9 @@ architecture, or a convention, update the nearest relevant `AGENTS.md` and/or
 `docs/` file in the same change.** A PR that changes how something works and leaves
 its doc stale is incomplete. Update _or delete_ in place; never leave them to rot.
 
+Keep every `AGENTS.md` under 100 KB (102400 bytes): it auto-loads into context, so make it a short
+index and move detail into linked `docs/*.md` files. CI (`scripts/check-agents-md-size.sh`) fails above the cap.
+
 **When a change adds or renames something a user can see, add it to the
 assistants' product map** (`packages/gp-api/src/chats/general/product-knowledge/`)
 in the same change. The Campaign Manager and Chief of Staff answer product
@@ -157,7 +159,7 @@ packages; uv owns those subtrees. `packages/gp-ai` has no `package.json`, so the
   PR, not an access request. Nothing here needs a prod secret value in hand. Read
   `docs/secrets.md` before touching one.
 - **Services:** Prisma-backed services extend `createPrismaBase(MODELS.ModelName)`
-  (gp-api, election-api). gp-api's `src/electionDb/` mirrors this with
+  (gp-api). gp-api's `src/electionDb/` mirrors this with
   `createElectionDbBase(ELECTION_MODELS.ModelName)` against a second, read-only
   Prisma client for the election database.
 - **Contracts are the cross-service source of truth.** Any shape that crosses a
@@ -216,7 +218,7 @@ When investigating a bug or incident, use the MCP tools rather than guessing.
 - **Grafana MCP** for logs (Loki), metrics (Prometheus), and traces (Tempo).
   Datasource UIDs: Loki `grafanacloud-logs`, Tempo `grafanacloud-traces`,
   Prometheus `grafanacloud-prom`. Narrow logs with labels `service_name`
-  (`gp-api` | `election-api`) and `deployment_environment_name`
+  (`gp-api`) and `deployment_environment_name`
   (`dev` | `prod`), e.g.
   `{service_name="gp-api", deployment_environment_name="prod"}`.
 - **Sentry MCP** for frontend errors. Org slug `goodparty`, region

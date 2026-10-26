@@ -204,7 +204,6 @@ POST_BAKE_STEPS: tuple[tuple[str, ...], ...] = (
     ("npm", "run", "build", "-w", "packages/contracts"),
     ("npm", "run", "build", "-w", "packages/nest-common"),
     ("npm", "run", "generate", "-w", "packages/gp-api"),
-    ("npm", "run", "generate", "-w", "packages/election-api"),
 )
 
 

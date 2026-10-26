@@ -1,6 +1,7 @@
 import {
   type ActivityConditionAction,
   SupportStatusRollupSchema,
+  VotedStatusSchema,
 } from '@goodparty_org/contracts'
 import {
   ACTIVITY_CONDITION_CHANNEL_ACTIONS,
@@ -176,6 +177,16 @@ const SUPPORT_STATUS_LABELS: Record<
   refused: 'Refused',
 }
 
+// The words the Create a list pills use, so the assistant and the wizard
+// describe a list the same way.
+const VOTED_STATUS_LABELS: Record<
+  (typeof VotedStatusSchema.options)[number],
+  string
+> = {
+  already_voted: 'Already voted',
+  unknown: 'Unknown',
+}
+
 // The exhaustive ACTIVITY_CHANNEL_LABELS record breaks the build when a new
 // channel joins ActivityConditionChannel; the catalog unit test pins this list
 // to ACTIVITY_CONDITION_CHANNEL_ACTIONS' keys so it can't fall behind either.
@@ -283,9 +294,8 @@ export const FILTER_DIMENSIONS: readonly FilterDimension[] = [
   {
     // The standing civic panel status. Values OR together. Member: joined
     // (by replying JOIN, at a door, on a call, or on their contact card) and
-    // has not left. Left: was a member and left. Never invited: no send ever
-    // asked them, nobody asked at a door or on a call, and they were never
-    // on it. Serve-only, `observed` for the same reason as follow-up.
+    // has not left. Left: was a member and left. Serve-only, `observed` for
+    // the same reason as follow-up.
     key: 'civicPanel',
     label: 'Civic panel',
     kind: 'boolean-group',
@@ -294,7 +304,6 @@ export const FILTER_DIMENSIONS: readonly FilterDimension[] = [
     values: [
       { key: 'civicPanelMember', label: 'On your civic panel' },
       { key: 'civicPanelLeft', label: 'Left' },
-      { key: 'civicPanelNeverInvited', label: 'Never invited' },
     ],
   },
   {
@@ -602,6 +611,20 @@ export const FILTER_DIMENSIONS: readonly FilterDimension[] = [
     values: SupportStatusRollupSchema.options.map((value) => ({
       key: value,
       label: SUPPORT_STATUS_LABELS[value],
+    })),
+  },
+  {
+    key: 'votedStatus',
+    label: 'Voted in Election',
+    kind: 'multi-value',
+    // Win only: Serve never asks whether anyone voted.
+    modes: 'win',
+    // The latest will-vote answer this election from this org's own door
+    // knocks and calls, so Already voted only covers people already asked.
+    provenance: 'derived',
+    values: VotedStatusSchema.options.map((value) => ({
+      key: value,
+      label: VOTED_STATUS_LABELS[value],
     })),
   },
   {

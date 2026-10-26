@@ -208,8 +208,7 @@ The campaign reached voters. One event, every channel.
 `launchSource` names the agent surface that launched the outreach:
 `expand_panel` is a priority card that answers the hidden Get answers turn
 (read from the user turn before it, so it survives a reload), `priorities`
-any other priority card, `civic_panel` a plan step opened through
-`useCivicPanelStepFlow`, and `chief_of_staff` / `campaign_manager` a card in
+any other priority card, and `chief_of_staff` / `campaign_manager` a card in
 those chats. It rides on Campaign Created and Completed for text, phone
 banking and door knocking, on `Call List Created`, and on social when a card
 opened it. Analytics only: it is a flow prop (door knocking reads one

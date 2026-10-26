@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException } from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { PhoneListState } from '../peerly.types'
 import { PeerlyPhoneListService } from './peerlyPhoneList.service'
@@ -21,6 +21,10 @@ describe('PeerlyTestListService', () => {
     list_state: PhoneListState.ACTIVE,
     suppress_cell_phones: 6,
   }
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
 
   beforeEach(() => {
     vi.useFakeTimers()

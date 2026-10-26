@@ -41,8 +41,24 @@ A failed past lookup drops the dates, never the list.
 Each story step has its own `Viewed` / `Completed` pair, named for what it
 tells the official (`SERVE_STORY_EVENTS`: You Represent, Hear From The Loudest
 Voices, Where Your Community Stands, Build And Grow Your List), and
-`priorities` fires Priorities Viewed / Completed with shown and selected
-counts.
+`priorities` fires Priorities Viewed (once its list has loaded or failed,
+with `loadMs` from entering the step) and Completed with shown and selected
+counts. Priorities Errored fires each time the list lands on an error:
+`reason` search_failed (either Try again state) or none_found, and
+`retried` once Try again was pressed.
+
+The earlier steps complete with what was picked: Welcome Completed
+(`branch` net_new or prefill), Office Status Completed (`officeStatus`
+elected, campaigning or testing, on both paths), Party Designation Completed
+(`party`), Office Completed (`officesFound` in the picker's list,
+`officeLevel` city, county, state or other from BallotReady's level, and
+`usedFilter` when a name search or pill narrowed it) and Term Dates
+Completed (`termYears`, rounded).
+
+The term-date pickers block the user's other offices' terms
+(`buildDisabledRanges`). An office with no start date blocks nothing, as
+gp-api's `dateRangesOverlap` treats it; one with a start and no end blocks
+from its start on. The end picker opens on the start date's month.
 
 Every Continue writes the step id to `ElectedOffice.onboardingStep`. gp-api
 validates it against `SERVE_ONBOARDING_STEPS`
@@ -52,12 +68,28 @@ checkpoint from the other flag state is not in the step list and resumes at
 the data-derived step. Story steps navigate first and save the checkpoint
 behind, so the save never holds the motion.
 
+The priorities step's issues come from `POST /v1/community-issues/onboarding`,
+started as soon as the office is on the org. A failed start retries once on
+its own. The step has three list states: the "Finding issues" spinner while
+the list loads, "We couldn't load issues for your area" with Try again when
+the search failed twice (Other and skip stay available), and the "couldn't
+find issues" empty line only when the search succeeded with nothing.
+
 ## The district story
 
 - **Population** is `districtPopulation` (2020 census) from
   `GET /v1/onboarding/contacts/stats` (`onboardingDistrictStatsQueryOptions`,
   shared with the Win flow's demographics step). Null
   drops the number from the copy.
+- **Place** is the picked office's `city`, else the city in the EO org's
+  district name (`servePlaceOf`: contracts' `cityFromDistrictName` and
+  `cityNameCase`, the path the Serve home's `useServePlace` takes; the name
+  is read on load and from each office PATCH), else "your district". A
+  BallotReady office often has no city (Asheville City Council).
+  The first step reads "You represent the {people} people living in {place}"
+  (the number is the accent), or "You represent the people living in
+  {place}" without a population. The count-up starts at 0, so the number
+  holds a placeholder until it moves and never reads "0 people".
 - **Dots** come from `POST /v1/contacts/points` with no filters (the contacts
   wizard's endpoint: bare coordinates for the district, capped). The ids are
   dropped in the query function. A seeded random pick of ~640 keeps the

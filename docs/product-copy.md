@@ -59,6 +59,12 @@ say the consequence in one clause and stop. "You are only charged for the
 calls we actually place" is the consequence. A paragraph about how holds and
 releases work is not.
 
+One exception: the Chief of Staff's civic panel explanation and its answer
+to How does it work? say how the civic panel works, on purpose, because an
+official won't approve an invite to a group they can't picture. The words
+are approved and fixed (`packages/contracts/src/people/ManagedCivicPanelExplainer.ts`).
+Change them only with product sign-off, and never mention waves.
+
 ### 4. Use their words, not ours
 
 Candidates say voters, doors, calls, texts, yard signs, turnout. They do not
@@ -136,12 +142,13 @@ matters to them. Cost, counts, channels and how it works belong in the flow
 the card opens, never on the card. Cards that show an item (a meeting, an
 agenda item, an issue, a priority's next step) keep the item as the headline.
 
-| Write this                                  | Not this                                         |
-| ------------------------------------------- | ------------------------------------------------ |
-| Know what residents think before you decide | A paid text to up to 3,334 residents, about $117 |
+| Write this                                     | Not this                                         |
+| ---------------------------------------------- | ------------------------------------------------ |
+| Know what your district thinks before you vote | A paid text to up to 3,334 residents, about $117 |
 
-Source of truth for the pattern: the Chief of Staff build card in
-`packages/gp-api/src/dashboardCards/services/dashboardCards.service.ts` and
+Source of truth for the pattern: the managed civic panel card
+(`managedCivicPanelCardContent` in
+`packages/contracts/src/dashboard/DashboardCard.schema.ts`) and
 the get-started cards in
 `packages/gp-webapp/app/dashboard/chief-of-staff/components/onboardingCardsConfig.ts`.
 

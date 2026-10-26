@@ -133,10 +133,11 @@ rebuild performs. Table-level grants on the `dbt` objects do not -- they were
 granted directly once and silently vanished, taking every voter read with them.
 
 Scoping a voter read needs the district's `type`, `name`, and `state`, and those
-come from **election-api**, which owns that table. Resolving it from the
-warehouse instead put a keyed single-row lookup at the head of every read, for a
-p90 an order of magnitude worse than the HTTP hop. The result is memoized per
-process, so it is one hop per district per task.
+come from the **election database**, which owns that table (gp-api reads it in
+process, `src/electionDb/`). Resolving it from the warehouse instead put a keyed
+single-row lookup at the head of every read, for a p90 an order of magnitude
+worse than the database read. The result is memoized per process, so it is one
+read per district per task.
 
 The hostname and HTTP path are workspace identifiers, not secrets. The credentials
 are — never commit them; pull service-principal secrets from the deployment env, not

@@ -30,6 +30,7 @@ export const isCriteriaFreeList = (list: SegmentResponse): boolean =>
   !list.search &&
   !list.geoPoly &&
   !list.supportStatus?.length &&
+  !list.votedStatus?.length &&
   !list.activityConditions?.length &&
   !(Array.isArray(list.precincts) && list.precincts.length > 0)
 

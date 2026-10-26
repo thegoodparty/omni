@@ -143,6 +143,8 @@ interface SmsComposeStepProps {
   // Serve's civic panel invite that GoodParty sends in the official's name:
   // its own title, no tone, image or panel ask, the JOIN line and opt-out
   // locked under the editable body, and the official's approval below.
+  // A dictated passage landed in the message.
+  onDictated?: () => void
   managedInvite?: {
     title: string
     caption: string
@@ -288,6 +290,7 @@ export const SmsComposeStep = ({
   onImageError,
   continueAttempts,
   civicPanelAsk,
+  onDictated,
   managedInvite,
 }: SmsComposeStepProps) => {
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -301,7 +304,9 @@ export const SmsComposeStep = ({
   const dictation = useDictation({
     analyticsLabel: 'outreach-sms-compose',
     onFinalTranscript: (text) => {
-      if (text) fieldRef.current?.insertText(` ${text}`)
+      if (!text) return
+      fieldRef.current?.insertText(` ${text}`)
+      onDictated?.()
     },
   })
   const isRecording = dictation.status === 'recording'
@@ -603,7 +608,7 @@ export const SmsComposeStep = ({
                 Ask them to join your civic panel
               </span>
               <span className="mt-0.5 block text-xs font-normal text-muted-foreground">
-                People who reply JOIN are added to your panel for future
+                People who reply JOIN are added to your civic panel for future
                 questions.
               </span>
             </Label>

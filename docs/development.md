@@ -32,9 +32,7 @@ fetches the bundle again and lays it over your files, keeping every value
 the bundle doesn't carry. The same fetch writes the Grafana MCP token to
 `.env.mcp.local` at the repo root, so your agent can read logs
 (`docs/mcp.md`); restart Claude Code after it lands.
-election-api and
-gp-admin aren't part of it; gp-webapp already defaults to the deployed dev
-election-api, and gp-admin isn't part of the stack `scripts/dev.sh` boots.
+gp-admin isn't part of it: it isn't part of the stack `scripts/dev.sh` boots.
 
 gp-api reads election data (races, positions, districts, office holders) from
 a second database. Locally that is `electiondb` in the same Postgres
@@ -89,7 +87,7 @@ A Serve (`eo-`) org also gets the whole civic panel loop:
 
 - **Civic panel** (`/dashboard/contacts/citizens-panel`): 60 to 100
   members, from door and call yeses plus JOIN replies to a panel invite
-  text, and a build plan at 2 hours a week whose first text step reads done.
+  text.
 - **Priority** (`/dashboard/priorities`): "Safer streets near schools", with
   a text ask to panel members, other residents and a few doors' worth of
   residents from each of the district's major census tracts. Every resident
@@ -146,7 +144,6 @@ apps start the same way via their workspace name.
 ```bash
 npm run start:dev -w gp-api          # gp-api on :3000
 npm run dev       -w packages/gp-webapp # gp-webapp on :4000
-npm run start:dev -w election-api    # :3001
 npm run dev       -w gp-admin        # :3500
 npm run dev       -w candidate-sites # :4001
 ```
@@ -163,7 +160,7 @@ door-knocking read fails. See `packages/gp-api/src/peopleDb/AGENTS.md`.
 Generate clients for both Prisma-managed backends from the root:
 
 ```bash
-npm run generate:prisma            # gp-api + election-api
+npm run generate:prisma            # gp-api (main + election clients)
 npm run generate:prisma:gp-api     # one service
 ```
 

@@ -1,0 +1,52 @@
+import { ElectionCode } from '@/elections/types/elections.types'
+
+// Shape of the campaign-strategy context read from the election database. Most
+// fields are nullable per the contract — first/last/full name on candidates
+// are the only guaranteed strings on the candidate, and every field on the
+// race is independently nullable.
+export interface ElectionCandidate {
+  gpCandidateId: string | null
+  firstName: string
+  lastName: string
+  fullName: string
+  email: string | null
+  websiteUrl: string | null
+  party: string | null
+  isIncumbent: boolean | null
+}
+
+export interface ElectionRaceContext {
+  state: string | null
+  candidateOffice: string | null
+  officialOfficeName: string | null
+  officeLevel: string | null
+  officeType: string | null
+  // The electorate `projectedTurnout` was drawn for. Comes off the race row
+  // in the election database, which the warehouse tags; do NOT re-derive it from
+  // `relevantElectionDate` here, or the rule for what counts as a November
+  // general lives in two services and drifts.
+  electionCode: ElectionCode | null
+  primaryElectionDate: string | null
+  generalElectionDate: string | null
+  relevantElectionDate: string | null
+  numberOfSeats: number | null
+  projectedTurnout: number | null
+  civicsWinNumber: number | null
+  winNumberEstimate: number | null
+  winNumberEffective: number | null
+  contactsNeededEstimate: number | null
+  candidateCount: number
+  candidates: ElectionCandidate[]
+}
+
+// What the prompts consume: the API response + gp-api-stitched fields.
+// isUser is set by matching candidate identity against the requesting user.
+export interface RaceCandidate extends ElectionCandidate {
+  isUser: boolean
+}
+
+export interface RaceContext extends Omit<ElectionRaceContext, 'candidates'> {
+  userFullName: string
+  userPartyAffiliation: string
+  candidates: RaceCandidate[]
+}

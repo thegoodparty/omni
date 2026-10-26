@@ -101,9 +101,6 @@ export type ProposedAudience = {
   // Kept to the parts of the district this priority's answers have barely
   // reached. gp-api draws the area when the list is saved.
   unreachedAreaOfPriorityId?: string
-  // A civic panel invite's audience: saved for the outreach and left out of
-  // the lists index, where the built-in Civic panel row is the panel's list.
-  civicPanelInvite?: true
 }
 
 export interface OutreachAudience {
@@ -281,9 +278,6 @@ export const useOutreachAudience = ({
   const [builderSample, setBuilderSample] = useState<ListSample | undefined>()
   const [builderUnreachedArea, setBuilderUnreachedArea] = useState<
     string | undefined
-  >()
-  const [builderCivicPanelInvite, setBuilderCivicPanelInvite] = useState<
-    true | undefined
   >()
   // Which carried-in variant the audience step has already applied. Held
   // here and not in the step because the step unmounts between steps, and
@@ -559,8 +553,13 @@ export const useOutreachAudience = ({
         ? { supportStatus: builderSupportStatus }
         : {}),
       ...(builderPrecincts.length ? { precincts: builderPrecincts } : {}),
+      // Not a builder pill: a recommendation's "not yet voted" screen rides
+      // with the recommendation it came from, and goes when that does.
+      ...(recommendedMeta?.filter.votedStatus?.length
+        ? { votedStatus: recommendedMeta.filter.votedStatus }
+        : {}),
     }),
-    [builderFilters, builderSupportStatus, builderPrecincts],
+    [builderFilters, builderSupportStatus, builderPrecincts, recommendedMeta],
   )
   // Key the memo on the overlay's VALUE, not its identity, so a caller passing
   // an inline `{ hasLandline: true }` each render can't churn the payload and
@@ -603,7 +602,6 @@ export const useOutreachAudience = ({
           ...(builderSample
             ? { ...(countOverlay ?? {}), sample: builderSample }
             : {}),
-          ...(builderCivicPanelInvite && { civicPanelInvite: true }),
           ...(builderUnreachedArea && {
             unreachedAreaOfPriorityId: builderUnreachedArea,
           }),
@@ -647,7 +645,6 @@ export const useOutreachAudience = ({
     setBuilderName(proposed?.name ?? '')
     setBuilderSample(proposed?.sample)
     setBuilderUnreachedArea(proposed?.unreachedAreaOfPriorityId)
-    setBuilderCivicPanelInvite(proposed?.civicPanelInvite)
     setRecommendedMeta(null)
     resetCreateMutation()
   }, [resetCreateMutation])
@@ -660,7 +657,6 @@ export const useOutreachAudience = ({
     setBuilderName(proposed.name)
     setBuilderSample(proposed.sample)
     setBuilderUnreachedArea(proposed.unreachedAreaOfPriorityId)
-    setBuilderCivicPanelInvite(proposed.civicPanelInvite)
   }, [])
 
   const reset = useCallback(() => {
@@ -691,7 +687,6 @@ export const useOutreachAudience = ({
     setBuilderName('')
     setBuilderSample(undefined)
     setBuilderUnreachedArea(undefined)
-    setBuilderCivicPanelInvite(undefined)
     setRecommendedMeta(null)
     resetCreateMutation()
     // Seeded here rather than beside the flow's own open effect, which calls
@@ -807,6 +802,7 @@ export const useOutreachAudience = ({
       const trimmed = name.trim()
       const filters = builderFiltersFromRecommendation(recommendation.filter)
       const supportStatus = recommendation.filter.supportStatus ?? []
+      const votedStatus = recommendation.filter.votedStatus ?? []
       const precincts = recommendation.filter.precincts ?? []
       setCreateRecommendedListPending(true)
       setCreateRecommendedListError(null)
@@ -818,6 +814,7 @@ export const useOutreachAudience = ({
             name: trimmed,
             ...transformVoterFileFiltersForBackend(filters),
             ...(supportStatus.length ? { supportStatus } : {}),
+            ...(votedStatus.length ? { votedStatus } : {}),
             ...(precincts.length ? { precincts } : {}),
             recommendedVariant: recommendation.variant,
             recommendedChannel: reachabilityKey,

@@ -1,17 +1,9 @@
 import type { ReportBackSend } from '@/outreach/services/outreachReportBack.service'
 import { Injectable, NotFoundException } from '@nestjs/common'
-import {
-  ChatScope,
-  CivicPanelBuildPlanStatus,
-  CivicPanelStatus,
-  ContactStatusField,
-  OutreachType,
-  type Organization,
-} from '../../../../generated/prisma'
+import { ChatScope, type Organization } from '../../../../generated/prisma'
 import type { MandatoryFilter } from '@/llm/tools/districtInsights.tool'
 import type { PeopleDataset } from '@/peopleDb/services/peopleDataset.service'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
-import { UNSENT_OUTREACH_STATUSES } from '@/outreach/util/unsentOutreachStatuses.util'
 import {
   ChatAnchorSchema,
   type ChatAnchor,
@@ -62,10 +54,6 @@ export interface ChiefOfStaffContext {
   // Whether read_outreach_feedback registers: the serve-citizen-panels flag
   // for the chatting user, resolved per turn by the handler.
   outreachFeedbackEnabled?: boolean
-  // Where the civic panel stands, read per turn behind the same flag.
-  // Undefined while it is off, so nothing about building a panel reaches the
-  // prompt or the proposal tool.
-  civicPanel?: CivicPanelBuildState
   // The panel GoodParty builds for the office, null before the official
   // approves it. Read per turn behind the same flag; undefined while it is
   // off, or where the managed panel is not wired in.
@@ -76,19 +64,6 @@ export interface ChiefOfStaffContext {
   // Each active priority's answers against what a good read of the district
   // needs, keyed by priority id. Read per turn behind the same flag.
   priorityReads?: Map<string, PriorityReadStatus>
-}
-
-export interface CivicPanelBuildState {
-  members: number
-  // A text asking people to join is past checkout: the invite is out, and
-  // the build card is done.
-  inviteSent: boolean
-  // The office has a plan building the panel across texts, calls and doors,
-  // on the panel page.
-  hasPlan: boolean
-  // The members it takes to answer one question in their district
-  // (panelGoalMembers).
-  goalMembers: number
 }
 
 // Loads the static CoS context from the conversation's owning user + their
@@ -178,44 +153,6 @@ export class ChiefOfStaffContextService extends createPrismaBase(
       districtFilters: null,
       constituentToolEnabled: false,
       peopleDataset: 'voters',
-    }
-  }
-
-  async civicPanelBuildState(
-    organizationSlug: string,
-    goalMembers: number,
-  ): Promise<CivicPanelBuildState> {
-    const [members, invite, plan] = await Promise.all([
-      this.client.contactCurrentStatus.count({
-        where: {
-          organizationSlug,
-          field: ContactStatusField.civic_panel,
-          value: CivicPanelStatus.member,
-        },
-      }),
-      this.client.outreach.findFirst({
-        where: {
-          organizationSlug,
-          campaignId: null,
-          outreachType: OutreachType.text,
-          asksToJoinCivicPanel: true,
-          status: { notIn: UNSENT_OUTREACH_STATUSES },
-        },
-        select: { id: true },
-      }),
-      this.client.civicPanelBuildPlan.findFirst({
-        where: {
-          organizationSlug,
-          status: CivicPanelBuildPlanStatus.active,
-        },
-        select: { id: true },
-      }),
-    ])
-    return {
-      members,
-      inviteSent: invite !== null,
-      hasPlan: plan !== null,
-      goalMembers,
     }
   }
 }

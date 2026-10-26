@@ -482,9 +482,8 @@ version, the live one, so the two Serve products make the same promise:
 each Serve text by hand, so its send date must be on the 3rd business day or
 later: today and the next 2 business days are closed (`getDisabledState` in
 the picker, `assertServeSmsSendDateAllowed` on every Serve text and poll
-create in gp-api). That holds for a plain text, a civic panel plan step or
-`build_citizens_panel` invite, a Keep fresh wave, and any text made later to
-fill a panel gap, each from the day it is created. A priority's two rounds
+create in gp-api). That holds for a plain text and a managed civic panel
+wave, each from the day it is created. A priority's two rounds
 are bought and scheduled at once, so they share the first send's gate:
 round 2 gets no extra day of its own. Pinned by `SmsFlow.serveSurface.test.tsx`
 and gp-api's `outreachServeSmsSendDate.test.ts`.

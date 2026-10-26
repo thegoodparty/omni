@@ -22,7 +22,8 @@ import OnboardingTopBar from 'app/onboarding/shared/OnboardingTopBar'
 import { MajorPartyBlockedAlert } from 'app/onboarding/shared/partisanParty'
 import { PRIORITY_FORM_COPY } from 'app/dashboard/priorities/priorityFormCopy'
 import { useServeCitizenPanelsFlag } from '@shared/experiments/serveCitizenPanelsFlag'
-import ServeOfficePicker from './ServeOfficePicker'
+import { servePlaceOf } from 'app/dashboard/contacts/citizens-panel/managedPanelCopy'
+import ServeOfficePicker, { type OfficePick } from './ServeOfficePicker'
 import { DistrictStoryStep } from './districtStory/DistrictStoryStep'
 import {
   buildDisabledRanges,
@@ -38,7 +39,11 @@ import {
   type DisabledRange,
 } from './termDates.shared'
 import {
+  BRANCH_PROPERTY,
   buildBrSuggestionChangedPayload,
+  OFFICE_STATUS_PROPERTY,
+  officeLevelProperty,
+  termYearsProperty,
   trackServeOnboarding,
   SERVE_ONBOARDING_EVENTS,
   SERVE_STORY_EVENTS,
@@ -56,6 +61,7 @@ import {
   SERVE_IN_OFFICE_OPTIONS,
   SERVE_PARTY_OPTIONS,
   SERVE_CITIZEN_PANELS_PLEDGE_BUTTON,
+  SERVE_PRIORITIES_LIST_COPY,
   SERVE_CITIZEN_PANELS_STEP_COPY,
   SERVE_CITIZEN_PANELS_WELCOME_VALUE_PROPS,
   SERVE_PLEDGE_COMMITMENTS,
@@ -78,6 +84,7 @@ const STARTER_ISSUES_POLL_LIMIT_MS = 120_000
 // Screens whose "Viewed" event fires once on view (in a useEffect). The two
 // selection screens (`inOffice`, `party`) are deliberately absent: their
 // "Viewed" events carry the chosen card title and so fire on Continue instead.
+// `priorities` fires once its list has loaded, with how long that took.
 const SERVE_STEP_VIEWED_EVENTS: Partial<Record<ServeStepId, string>> = {
   welcome: SERVE_ONBOARDING_EVENTS.WelcomeViewed,
   office: SERVE_ONBOARDING_EVENTS.OfficeViewed,
@@ -88,7 +95,6 @@ const SERVE_STEP_VIEWED_EVENTS: Partial<Record<ServeStepId, string>> = {
   'story-loudest': SERVE_STORY_EVENTS['story-loudest'].viewed,
   'story-sample': SERVE_STORY_EVENTS['story-sample'].viewed,
   'story-grow': SERVE_STORY_EVENTS['story-grow'].viewed,
-  priorities: SERVE_ONBOARDING_EVENTS.PrioritiesViewed,
 }
 
 export default function ServeOnboardingFlow(): React.JSX.Element {
@@ -123,6 +129,11 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
   const [party, setParty] = useState<string | null>(null)
 
   const [office, setOffice] = useState<SelectedOffice | undefined>(undefined)
+  // The picker's list when the office was picked, for Office Completed.
+  const officePickRef = useRef<OfficePick | null>(null)
+  // The EO org's L2 district name. A picked office often has no city, so
+  // the district story names the place from this.
+  const [orgDistrictName, setOrgDistrictName] = useState<string | null>(null)
   const [customOfficeName, setCustomOfficeName] = useState('')
   const [officeLabel, setOfficeLabel] = useState<string>(DEFAULT_OFFICE_LABEL)
   const [orgPositionId, setOrgPositionId] = useState<string | undefined>(
@@ -149,6 +160,7 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
     OnboardingPriorityOption[] | null
   >(null)
   const [priorityLoadFailed, setPriorityLoadFailed] = useState(false)
+  const [communityIssuesFailed, setCommunityIssuesFailed] = useState(false)
   const [selectedPriorityKeys, setSelectedPriorityKeys] = useState<Set<string>>(
     new Set(),
   )
@@ -231,6 +243,7 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
           )
           if (orgRes.ok) {
             const org = orgRes.data as Organization
+            setOrgDistrictName(org.district?.l2Name ?? null)
             if (org.positionName) {
               setOfficeLabel(org.positionName)
               prefillPositionName = org.positionName
@@ -429,6 +442,52 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
     }
   }, [loading, step, priorityOptions, priorityLoadFailed])
 
+  // Priorities Viewed waits for the list, so it can say how long that took.
+  const prioritiesEnteredAtRef = useRef<number | null>(null)
+  const prioritiesViewedRef = useRef(false)
+  useEffect(() => {
+    if (loading || step !== 'priorities') return
+    prioritiesEnteredAtRef.current ??= Date.now()
+  }, [loading, step])
+  const prioritiesSettled = priorityOptions !== null || priorityLoadFailed
+  useEffect(() => {
+    if (step !== 'priorities' || !prioritiesSettled) return
+    if (prioritiesViewedRef.current) return
+    prioritiesViewedRef.current = true
+    const enteredAt = prioritiesEnteredAtRef.current ?? Date.now()
+    trackServeOnboarding(SERVE_ONBOARDING_EVENTS.PrioritiesViewed, {
+      branch,
+      electedOfficeId: currentEO?.id,
+      loadMs: Date.now() - enteredAt,
+    })
+  }, [step, prioritiesSettled, branch, currentEO?.id])
+
+  // Once each time the list lands on an error state: the search failed (the
+  // Try again states) or it found nothing.
+  const prioritiesError: 'search_failed' | 'none_found' | null =
+    step !== 'priorities'
+      ? null
+      : priorityLoadFailed ||
+          (priorityOptions !== null &&
+            communityIssuesFailed &&
+            !priorityOptions.some((option) => option.kind === 'community'))
+        ? 'search_failed'
+        : priorityOptions !== null && priorityOptions.length === 0
+          ? 'none_found'
+          : null
+  const prioritiesRetriesRef = useRef(0)
+  const prioritiesErrorRef = useRef<typeof prioritiesError>(null)
+  useEffect(() => {
+    const previous = prioritiesErrorRef.current
+    prioritiesErrorRef.current = prioritiesError
+    if (prioritiesError === null || prioritiesError === previous) return
+    trackServeOnboarding(SERVE_ONBOARDING_EVENTS.PrioritiesErrored, {
+      electedOfficeId: currentEO?.id,
+      reason: prioritiesError,
+      retried: prioritiesRetriesRef.current > 0,
+    })
+  }, [prioritiesError, currentEO?.id])
+
   // Starter issues can land after the list first loads. Keep checking until
   // they do, then add them without touching what the official already picked.
   const priorityOptionsLoaded = priorityOptions !== null
@@ -438,7 +497,8 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
     if (
       step !== 'priorities' ||
       !priorityOptionsLoaded ||
-      hasCommunityOptions
+      hasCommunityOptions ||
+      communityIssuesFailed
     ) {
       return
     }
@@ -481,7 +541,7 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
       cancelled = true
       clearTimeout(timer)
     }
-  }, [step, priorityOptionsLoaded, hasCommunityOptions])
+  }, [step, priorityOptionsLoaded, hasCommunityOptions, communityIssuesFailed])
 
   // One-shot guards for the two selection screens whose "Viewed" event fires on
   // Continue (with the chosen card title) rather than on view, so re-advancing
@@ -585,18 +645,21 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
   // is never sent here, so the completion guard stays untouched.
   // Writes quick starter issues for the office, then starts the full community
   // issues research, so the priorities step can offer real local issues. Kept
-  // as a promise so that step can wait on it. A failed start stays in the ref
-  // so later steps never refire it; only the priorities step's Try again
-  // starts one fresh attempt.
+  // as a promise so that step can wait on it. A failed start is retried once
+  // on its own; one that fails again stays in the ref so later steps never
+  // refire it, and only the priorities step's Try again starts a fresh one.
   const communityIssuesStartRef = useRef<Promise<void> | null>(null)
   const communityIssuesFailedRef = useRef(false)
   const startCommunityIssues = (): Promise<void> => {
     if (communityIssuesStartRef.current) return communityIssuesStartRef.current
-    const started = clientRequest('POST /v1/community-issues/onboarding', {})
+    const post = () => clientRequest('POST /v1/community-issues/onboarding', {})
+    const started = post()
+      .catch(post)
       .then(() => undefined)
       .catch((err: Error) => {
         reportErrorToSentry(err, { context: 'serveOnboarding.communityIssues' })
         communityIssuesFailedRef.current = true
+        setCommunityIssuesFailed(true)
       })
     communityIssuesStartRef.current = started
     return started
@@ -626,11 +689,12 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
         officeToPatch.ballotReadyPositionId ??
         `custom:${officeToPatch.customPositionName ?? ''}`
       if (patchedOfficeRef.current !== patchKey) {
-        await clientRequest('PATCH /v1/organizations/:slug', {
+        const patched = await clientRequest('PATCH /v1/organizations/:slug', {
           slug: `eo-${eo.id}`,
           ballotReadyPositionId: officeToPatch.ballotReadyPositionId,
           customPositionName: officeToPatch.customPositionName,
         })
+        setOrgDistrictName(patched.data?.district?.l2Name ?? null)
         patchedOfficeRef.current = patchKey
         setOfficeOnOrg(true)
       }
@@ -714,9 +778,12 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
   }
 
   const retryPriorities = () => {
+    prioritiesRetriesRef.current += 1
     if (communityIssuesFailedRef.current) {
       communityIssuesFailedRef.current = false
       communityIssuesStartRef.current = null
+      setCommunityIssuesFailed(false)
+      setPriorityOptions(null)
     }
     setPriorityLoadFailed(false)
   }
@@ -883,6 +950,10 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
         // onboardingCompletedAt:null record that the `mine` resume fallback would
         // later drag them back into serve onboarding with. Create-on-first-answer
         // is deferred to the inOffice Continue (the first real "I'm in office").
+        trackServeOnboarding(SERVE_ONBOARDING_EVENTS.WelcomeCompleted, {
+          branch: BRANCH_PROPERTY[branch],
+          electedOfficeId: currentEO?.id,
+        })
         setStep('inOffice')
         return
       case 'inOffice': {
@@ -899,6 +970,12 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
             electedOfficeId: currentEO?.id,
             selection: SERVE_IN_OFFICE_OPTIONS.find((o) => o.value === inOffice)
               ?.title,
+          })
+        }
+        if (inOffice) {
+          trackServeOnboarding(SERVE_ONBOARDING_EVENTS.OfficeStatusCompleted, {
+            electedOfficeId: currentEO?.id,
+            officeStatus: OFFICE_STATUS_PROPERTY[inOffice],
           })
         }
         if (inOffice === 'campaigning') {
@@ -931,6 +1008,12 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
               ?.title,
           })
         }
+        if (party) {
+          trackServeOnboarding(
+            SERVE_ONBOARDING_EVENTS.PartyDesignationCompleted,
+            { electedOfficeId: currentEO?.id, party },
+          )
+        }
         // The party PUT also stamps the net-new `selfReported` marker (the
         // record's first user-driven write): the office the user picks next
         // lands on the org indistinguishably from a prefill, so we record HERE
@@ -960,6 +1043,13 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
           branch,
           electedOfficeId: currentEO?.id,
           selection: officeDisplayLabel,
+          officesFound: officePickRef.current?.officesFound ?? null,
+          officeLevel: officeLevelProperty(
+            office?.positionId ? office.level : undefined,
+          ),
+          usedFilter: office?.positionId
+            ? (officePickRef.current?.usedFilter ?? false)
+            : false,
         })
         // On the prefill detour, re-enter the confirm hub through the gate
         // (enterConfirmHub) — picking an office may still leave term dates to
@@ -973,6 +1063,12 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
         return
       }
       case 'term-dates': {
+        if (termStartDate && termEndDate) {
+          trackServeOnboarding(SERVE_ONBOARDING_EVENTS.TermDatesCompleted, {
+            electedOfficeId: currentEO?.id,
+            termYears: termYearsProperty(termStartDate, termEndDate),
+          })
+        }
         const target = returnToConfirm ? 'confirm' : afterTerm
         void persistAndAdvance(
           {
@@ -1190,8 +1286,9 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
                 manualEntry={manualEntry}
                 zip={zip}
                 onZipChange={setZip}
-                onSelectOffice={(selected) => {
+                onSelectOffice={(selected, pick) => {
                   setOffice(selected)
+                  officePickRef.current = pick ?? null
                   setCustomOfficeName('')
                 }}
                 onCustomOfficeNameChange={setCustomOfficeName}
@@ -1225,7 +1322,11 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
                 step={step}
                 eoId={currentEO?.id}
                 positionId={storyPositionId}
-                place={office?.city}
+                place={
+                  office?.city?.trim() ||
+                  servePlaceOf(orgDistrictName) ||
+                  undefined
+                }
                 introPlayed={storyIntroPlayed}
                 onIntroPlayed={() => setStoryIntroPlayed(true)}
               />
@@ -1234,6 +1335,7 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
               <PrioritiesStep
                 options={priorityOptions}
                 loadFailed={priorityLoadFailed}
+                searchFailed={communityIssuesFailed}
                 onRetry={retryPriorities}
                 selectedKeys={selectedPriorityKeys}
                 onToggle={togglePriority}
@@ -1443,7 +1545,10 @@ const OfficeStep = ({
   manualEntry: boolean
   zip: string | undefined
   onZipChange: (zip: string) => void
-  onSelectOffice: (office: SelectedOffice | undefined) => void
+  onSelectOffice: (
+    office: SelectedOffice | undefined,
+    pick?: OfficePick,
+  ) => void
   onCustomOfficeNameChange: (value: string) => void
   onEnableManual: () => void
   onDisableManual: () => void
@@ -1646,6 +1751,7 @@ const PRIORITY_KIND_ORDER: OnboardingPriorityOption['kind'][] = [
 const PrioritiesStep = ({
   options,
   loadFailed,
+  searchFailed,
   onRetry,
   selectedKeys,
   onToggle,
@@ -1658,6 +1764,7 @@ const PrioritiesStep = ({
 }: {
   options: OnboardingPriorityOption[] | null
   loadFailed: boolean
+  searchFailed: boolean
   onRetry: () => void
   selectedKeys: Set<string>
   onToggle: (key: string) => void
@@ -1687,11 +1794,20 @@ const PrioritiesStep = ({
         </div>
       ) : (
         <div className="mt-8 space-y-3">
-          {options.length === 0 && (
-            <p className="text-sm text-muted-foreground">
-              We couldn’t find issues for your area yet. Add one under Other, or
-              skip this for now.
-            </p>
+          {searchFailed &&
+          !options.some((option) => option.kind === 'community') ? (
+            <div className="flex flex-col items-start gap-3 text-sm text-muted-foreground">
+              <p>{SERVE_PRIORITIES_LIST_COPY.searchFailed}</p>
+              <Button type="button" variant="outline" onClick={onRetry}>
+                {SERVE_PRIORITIES_LIST_COPY.retry}
+              </Button>
+            </div>
+          ) : (
+            options.length === 0 && (
+              <p className="text-sm text-muted-foreground">
+                {SERVE_PRIORITIES_LIST_COPY.empty}
+              </p>
+            )
           )}
           {PRIORITY_KIND_ORDER.flatMap((kind) =>
             options
