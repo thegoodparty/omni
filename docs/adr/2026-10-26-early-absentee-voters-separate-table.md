@@ -1,12 +1,13 @@
 ---
 title: Early and absentee voters are a separate daily table, filtered by id subquery
-status: active
+status: superseded
 decided_by: [hhkarimi]
 date: 2026-10-26
 code: ['thegoodparty/gp-data-platform#1266', 'thegoodparty/omni#3280']
 scope:
   - packages/gp-api/src/peopleDb/databricks/databricksVoterSql.util.ts
   - packages/contracts/src/people/PeopleFilters.schema.ts
+superseded_by: 2026-10-26-voted-in-election-includes-l2-early-absentee.md
 ---
 
 # Early and absentee voters are a separate daily table, filtered by id subquery
