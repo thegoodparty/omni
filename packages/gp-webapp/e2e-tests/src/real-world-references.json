@@ -19,20 +19,20 @@
       "usedBy": "onboarding, serve-onboarding, polls-onboarding, test-mode and follow-on-new-office pick from the office picker at this zip; follow-on-new-office needs a second seat."
     },
     {
-      "id": "28806-asheville-mayor",
-      "zip": "28806",
-      "office": "Asheville City Mayor",
+      "id": "28202-charlotte-mayor",
+      "zip": "28202",
+      "office": "Charlotte City Mayor",
       "needs": "upcoming",
       "minRaces": 2,
-      "usedBy": "office-picker-28806 selects one of two duplicate Asheville City Mayor rows."
+      "usedBy": "office-picker-28202 selects one of two duplicate Charlotte City Mayor rows."
     },
     {
-      "id": "28806-city-council",
-      "zip": "28806",
+      "id": "28202-city-council",
+      "zip": "28202",
       "officeContains": "City Council",
       "needs": "upcoming",
       "minOffices": 1,
-      "usedBy": "office-picker-28806 filters by the City Council role pill."
+      "usedBy": "office-picker-28202 filters by the City Council role pill."
     }
   ]
 }

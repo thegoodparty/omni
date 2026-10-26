@@ -7,14 +7,19 @@ import {
 import { fillClerkSignUpForm } from '../../../src/helpers/clerk.helper'
 import { clickOnboardingContinue } from '../../../src/helpers/onboarding.helper'
 
-// Regression for the Win onboarding office picker on zip 28806 (Asheville, NC).
-// election-api returns several offices whose Race rows are duplicated for the
-// same election date (a stale + fresh BallotReady PositionElection). That broke
-// the picker three ways: role pills stopped filtering, selecting one row lit up
-// a different one, and rows collided. This drives the real dev data end to end
-// and asserts the two user-visible behaviors — pills filter, and a selection
-// highlights exactly one row. Both hold whether or not the duplicates are still
-// present, so this stays green after the data team prunes them upstream.
+// Regression for the Win onboarding office picker. election-api returns several
+// offices whose Race rows are duplicated for the same election date (a stale +
+// fresh BallotReady PositionElection). That broke the picker three ways: role
+// pills stopped filtering, selecting one row lit up a different one, and rows
+// collided. This drives the real dev data end to end and asserts the two
+// user-visible behaviors — pills filter, and a selection highlights exactly one
+// row. Both hold whether or not the duplicates are still present, so this stays
+// green after the data team prunes them upstream.
+//
+// Zip 28202 (Charlotte, NC) has that shape on its Nov 2027 municipal general:
+// two "Charlotte City Mayor" rows and three City Council offices. The picker
+// lists only races dated today or later, so the zip has to keep a race that far
+// out; real-world-references.json lists both needs for the daily horizon check.
 
 test.beforeEach(async ({ page }) => {
   await blockSlowScripts(page)
@@ -43,7 +48,7 @@ const advanceToOfficeSelection = async (page: Page): Promise<void> => {
   ).toBeVisible()
 }
 
-test('office picker filters by role pill and highlights one row for zip 28806', async ({
+test('office picker filters by role pill and highlights one row for zip 28202', async ({
   page,
 }) => {
   await setupClerkTestingToken({ page })
@@ -59,7 +64,7 @@ test('office picker filters by role pill and highlights one row for zip 28806', 
 
   await advanceToOfficeSelection(page)
 
-  await page.getByLabel(/zip code/i).fill('28806')
+  await page.getByLabel(/zip code/i).fill('28202')
   await page.getByRole('button', { name: /search/i }).click()
 
   const officeGroup = page.getByRole('radiogroup', {
@@ -71,12 +76,12 @@ test('office picker filters by role pill and highlights one row for zip 28806', 
     .waitFor({ state: 'visible', timeout: 30000 })
 
   // Regression 1 — selecting a duplicate row highlights exactly that row, not
-  // its twin. 28806 returns two "Asheville City Mayor" rows (same office + date,
+  // its twin. 28202 returns two "Charlotte City Mayor" rows (same office + date,
   // different race id); before the fix they shared a radio value and lit up
   // together. Match on the accessible name, which RadioCardItem takes from the
   // office title and the line under it.
   const mayorRows = officeGroup.getByRole('radio', {
-    name: /Asheville City Mayor/i,
+    name: /Charlotte City Mayor/i,
   })
   await expect(mayorRows.first()).toBeVisible()
   await mayorRows.first().click()
