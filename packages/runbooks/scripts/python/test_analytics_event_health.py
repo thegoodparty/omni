@@ -2917,6 +2917,14 @@ def test_label_findings_flags_conflict():
     assert [(r["event_type"], r["kind"]) for r in out] == [("Old Conflict", "product_label_conflict")]
 
 
+def test_label_findings_conflict_accepts_numpy_bool():
+    np = pytest.importorskip("numpy")
+    row = _lab("Np Conflict", product="win", conflict=True)
+    row["product_label_conflict"] = np.bool_(True)
+    out = eh.label_findings([row], TODAY)
+    assert [r["kind"] for r in out] == ["product_label_conflict"]
+
+
 def test_digest_renders_labels_section():
     findings = eh.label_findings([_lab("New Thing"), _lab("Mixed", conflict=True)], TODAY)
     out = _digest([], label_findings=findings)

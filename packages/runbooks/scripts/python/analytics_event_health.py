@@ -677,7 +677,7 @@ def label_findings(
         if event_type in dismissed_events:
             continue
         first_seen = to_date(row.get("first_seen_date"))
-        if row.get("product_label_conflict") is True:
+        if row.get("product_label_conflict"):
             kind = "product_label_conflict"
         elif (
             family == "other"
