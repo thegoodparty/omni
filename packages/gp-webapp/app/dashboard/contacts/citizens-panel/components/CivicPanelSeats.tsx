@@ -121,12 +121,16 @@ export const SeatArc = ({
       viewBox={`0 0 ${frame.width} ${height}`}
       className={cn('h-auto w-full', className)}
       role="img"
-      aria-label={COPY.seatsSummary(
-        chart.filled,
-        quiet ? 0 : chart.behind.length,
-        words.one,
-        words.many,
-      )}
+      aria-label={
+        quiet
+          ? COPY.seatsSummary(chart.filled, 0, words.one, words.many)
+          : COPY.seatsAtShareSummary(
+              chart.filled,
+              chart.behind.length,
+              words.one,
+              words.many,
+            )
+      }
     >
       {/* Built around (0, 0) and moved into place, so one build serves both
           frames. */}
@@ -401,8 +405,7 @@ export const CivicPanelSeats = ({
           <SeatArc chart={chart} words={words} labeled={false} />
         )}
         <p className="text-center text-sm text-muted-foreground">
-          <span className="font-semibold text-foreground">{chart.filled}</span>
-          {COPY.seatsFilled}
+          {COPY.seatsAtShare(chart.filled, words.one)}
         </p>
       </div>
       <Legend chart={chart} />
