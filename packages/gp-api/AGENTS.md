@@ -116,12 +116,14 @@ own rather than a managed cluster. Unset, nothing changes.
 
 Two things about that container and the per-test reset are load-bearing, not
 incidental. It runs with `fsync`/`synchronous_commit`/`full_page_writes` off,
-because TRUNCATE's commit syncs a new relation file per table and the defaults
-put the reset near vitest's hook timeout on a contended runner. And the reset
-truncates only the tables that actually hold a row (one `EXISTS` probe across
-all of them costs far less than truncating all 88), then each suite drops its
-own clone in `afterAll` so a reused container doesn't accumulate one database
-per suite forever. Post-condition is unchanged: every table is empty and user
+because every test commits many small writes and the container is thrown away,
+so durability only costs time. And the reset is a `DELETE` from every table in
+one `DO` block under `session_replication_role = replica`, not a `TRUNCATE`:
+TRUNCATE swaps in a new relation file per table, which invalidates every pooled
+connection's cached view of it and cost ~55ms a test, against ~5ms for deleting
+a handful of rows. Replica mode skips foreign key checks, so table order does
+not matter. Each suite then drops its own clone in `afterAll` so a reused
+container doesn't accumulate one database per suite forever. Post-condition is unchanged: every table is empty and user
 `123` exists.
 
 If you touched `prisma/`, make sure there are no undeclared schema changes (the

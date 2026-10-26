@@ -63,7 +63,7 @@ See `src/analytics/analytics.service.test.ts` for a worked example.
 
 ## Pattern 3: `useTestService()`
 
-Spins up a real Postgres in Docker, runs migrations, bootstraps the full Nest app, and exposes an authed Axios client plus a Prisma client. Each test file gets its own database; tables are truncated between tests. Default authenticated user id is `123`.
+Spins up a real Postgres in Docker, runs migrations, bootstraps the full Nest app, and exposes an authed Axios client plus a Prisma client. Each test file gets its own database; every table is emptied between tests. Default authenticated user id is `123`.
 
 ```ts
 import { useTestService } from '@/test-service'
@@ -156,5 +156,5 @@ npm run verify                                      # lint + tsc + tests
 
 - Mocking Prisma to test SQL behavior. If the test's purpose is "does this query return what I think it returns", use `useTestService()` — a mock just asserts the mock.
 - Asserting on private methods. Test the public surface (controller route, service method).
-- Sharing mutable state between tests in a file. Reset in `beforeEach`. With `useTestService()`, tables are already truncated for you.
+- Sharing mutable state between tests in a file. Reset in `beforeEach`. With `useTestService()`, tables are already emptied for you.
 - Adding a new pattern. If none of the three above fit, raise it before inventing a fourth.

@@ -136,7 +136,7 @@ export const useTestService = ({
   // When a hook exceeds its timeout vitest rejects the hook's promise but
   // cannot cancel the queries already in flight, so an abandoned reset runs to
   // completion regardless. Unordered, its user insert lands after the NEXT
-  // test's truncate and every later test in the file dies on a duplicate id —
+  // test's delete and every later test in the file dies on a duplicate id —
   // which is how one slow reset used to fail a whole file. Chaining keeps an
   // abandoned reset strictly ahead of its successor, so it costs one test.
   let pendingReset: Promise<unknown> = Promise.resolve()
