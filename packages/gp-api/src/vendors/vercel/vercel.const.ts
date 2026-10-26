@@ -9,6 +9,12 @@ export const GP_DOMAIN_CONTACT = {
   zipCode: '90274',
 }
 
+// True when `phone` is GoodParty's own registrant number, in any formatting.
+export const isGpDomainContactPhone = (phone: string): boolean => {
+  const digits = (value: string) => value.replace(/\D/g, '').slice(-10)
+  return digits(phone) === digits(GP_DOMAIN_CONTACT.phoneNumber)
+}
+
 // Registrant contact for agent-provisioned domains. ICANN keys its
 // "Verify Your Domain Contact Information" requirement on the
 // (firstName, lastName, email) tuple, not the email alone. Holding all three
