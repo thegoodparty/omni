@@ -45,10 +45,6 @@ export default defineConfig({
     // 1GB of heap is the fastest limit measured locally. Vitest reads this
     // from the root config only; set inside a project it is ignored.
     vmMemoryLimit: '1GB',
-    // Vitest leaves one core free by default, but a flow test spends about a
-    // quarter of its time waiting on real timers, so on a 4-core CI runner the
-    // fourth worker is mostly filling idle time rather than competing for it.
-    maxWorkers: process.env.CI ? '100%' : undefined,
     projects: [
       {
         extends: true,
