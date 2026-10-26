@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { fireEvent, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
@@ -86,6 +86,11 @@ const reachActivityConditionsStepWithSelection = async (
 }
 
 beforeEach(() => {
+  vi.useFakeTimers({ shouldAdvanceTime: true })
+  // Testing Library only advances a fake clock inside findBy/waitFor when it
+  // sees a `jest` global. Without it every findBy waits out the 600ms count
+  // debounce in real time.
+  vi.stubGlobal('jest', { advanceTimersByTime: vi.advanceTimersByTime })
   vi.clearAllMocks()
   mockedUseSnackbar.mockReturnValue({
     successSnackbar: vi.fn(),
@@ -95,6 +100,11 @@ beforeEach(() => {
   refreshCustomSegments.mockClear()
   selectList.mockClear()
   setContext()
+})
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+  vi.useRealTimers()
 })
 
 const countResult = (
@@ -112,7 +122,7 @@ const countResult = (
 describe('CreateListWizard — build CTA zero-match gate (ENG-10781)', () => {
   it('disables the build CTA once a valid selection resolves to a settled zero', async () => {
     mockedUseListWizardCount.mockReturnValue(countResult({ count: 0 }))
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     render(<CreateListWizard open onOpenChange={vi.fn()} />)
 
     await reachConditionsStepWithSelection(user)
@@ -130,7 +140,7 @@ describe('CreateListWizard — build CTA zero-match gate (ENG-10781)', () => {
 
   it('enables the build CTA once a valid selection resolves to a nonzero count', async () => {
     mockedUseListWizardCount.mockReturnValue(countResult({ count: 42 }))
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     render(<CreateListWizard open onOpenChange={vi.fn()} />)
 
     await reachConditionsStepWithSelection(user)
@@ -149,7 +159,7 @@ describe('CreateListWizard — build CTA zero-match gate (ENG-10781)', () => {
     mockedUseListWizardCount.mockReturnValue(
       countResult({ count: undefined, isLoading: true }),
     )
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     render(<CreateListWizard open onOpenChange={vi.fn()} />)
 
     await reachConditionsStepWithSelection(user)
@@ -169,7 +179,7 @@ describe('CreateListWizard — build CTA zero-match gate (ENG-10781)', () => {
     mockedUseListWizardCount.mockReturnValue(
       countResult({ count: 0, isStale: true }),
     )
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     render(<CreateListWizard open onOpenChange={vi.fn()} />)
 
     await reachConditionsStepWithSelection(user)
@@ -185,7 +195,7 @@ describe('CreateListWizard — build CTA zero-match gate (ENG-10781)', () => {
     mockedUseListWizardCount.mockReturnValue(
       countResult({ count: undefined, isLoading: true }),
     )
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     const { rerender } = render(
       <CreateListWizard open onOpenChange={vi.fn()} />,
     )
@@ -211,7 +221,7 @@ describe('CreateListWizard — build CTA zero-match gate (ENG-10781)', () => {
 
   it('disables the build CTA for the activity branch once a valid selection resolves to a settled zero', async () => {
     mockedUseListWizardCount.mockReturnValue(countResult({ count: 0 }))
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     render(<CreateListWizard open onOpenChange={vi.fn()} />)
 
     await reachActivityConditionsStepWithSelection(user)
@@ -234,7 +244,7 @@ describe('CreateListWizard — build CTA zero-match gate (ENG-10781)', () => {
     mockedUseListWizardCount.mockReturnValue(
       countResult({ count: 0, isError: true }),
     )
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     render(<CreateListWizard open onOpenChange={vi.fn()} />)
 
     await reachConditionsStepWithSelection(user)
@@ -246,7 +256,7 @@ describe('CreateListWizard — build CTA zero-match gate (ENG-10781)', () => {
 
   it('enables the build CTA for the activity branch once a valid selection resolves to a nonzero count', async () => {
     mockedUseListWizardCount.mockReturnValue(countResult({ count: 17 }))
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     render(<CreateListWizard open onOpenChange={vi.fn()} />)
 
     await reachActivityConditionsStepWithSelection(user)

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
-import { act, fireEvent, screen } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
@@ -113,7 +113,7 @@ const drawBoundary = async (
   const draw = await screen.findByRole('button', {
     name: /draw shapes|draw another shape/i,
   })
-  await vi.waitFor(() => expect(draw).toBeEnabled())
+  await waitFor(() => expect(draw).toBeEnabled())
   await user.click(draw)
   for (const label of ['place point 1', 'place point 2', 'place point 3']) {
     await user.click(await screen.findByRole('button', { name: label }))
@@ -159,7 +159,7 @@ const clickSaveList = async (
   user: ReturnType<typeof userEvent.setup>,
 ): Promise<void> => {
   const save = screen.getByRole('button', { name: 'Save list' })
-  await vi.waitFor(() => expect(save).toBeEnabled(), { timeout: 10_000 })
+  await waitFor(() => expect(save).toBeEnabled(), { timeout: 10_000 })
   await user.click(save)
 }
 
@@ -384,7 +384,7 @@ describe('CreateListWizard — step navigation', () => {
       await screen.findByRole('button', { name: /build your list \(250\)/i }),
     )
     const draw = await screen.findByRole('button', { name: 'Draw shapes' })
-    await vi.waitFor(() => expect(draw).toBeEnabled())
+    await waitFor(() => expect(draw).toBeEnabled())
     await user.click(draw)
 
     const map = await screen.findByTestId('contact-map-stub')
@@ -447,7 +447,7 @@ describe('CreateListWizard — step navigation', () => {
     const continueButton = await screen.findByRole('button', {
       name: 'Continue',
     })
-    await vi.waitFor(() => expect(continueButton).toBeEnabled(), {
+    await waitFor(() => expect(continueButton).toBeEnabled(), {
       timeout: 10_000,
     })
     await user.click(continueButton)
@@ -480,7 +480,7 @@ describe('CreateListWizard — step navigation', () => {
     // 86ajrth65: selecting a channel starts the (now-enabled) count query,
     // which is itself loading/disabled until it settles — wait for that
     // rather than asserting synchronously.
-    await vi.waitFor(() => expect(cta).toBeEnabled(), { timeout: 10_000 })
+    await waitFor(() => expect(cta).toBeEnabled(), { timeout: 10_000 })
   })
 
   it('resets all state when reopened after being cancelled', async () => {
@@ -540,7 +540,7 @@ describe('CreateListWizard — voter-file branch payload assembly', () => {
     await user.type(screen.getByLabelText(/list name/i), 'Likely Dem women')
     await clickSaveList(user)
 
-    await vi.waitFor(() => expect(sentBody).not.toBeNull())
+    await waitFor(() => expect(sentBody).not.toBeNull())
     expect(sentBody).toMatchObject({
       name: 'Likely Dem women',
       genderFemale: true,
@@ -549,8 +549,8 @@ describe('CreateListWizard — voter-file branch payload assembly', () => {
     })
     expect(sentBody).not.toHaveProperty('activityConditions')
 
-    await vi.waitFor(() => expect(refreshCustomSegments).toHaveBeenCalled())
-    await vi.waitFor(() => expect(selectList).toHaveBeenCalledWith(101))
+    await waitFor(() => expect(refreshCustomSegments).toHaveBeenCalled())
+    await waitFor(() => expect(selectList).toHaveBeenCalledWith(101))
     expect(onOpenChange).toHaveBeenCalledWith(false)
   })
 
@@ -579,7 +579,7 @@ describe('CreateListWizard — voter-file branch payload assembly', () => {
     await user.type(screen.getByLabelText(/list name/i), 'Counted list')
     await clickSaveList(user)
 
-    await vi.waitFor(() => expect(sentBody).not.toBeNull())
+    await waitFor(() => expect(sentBody).not.toBeNull())
     expect(sentBody).toMatchObject({ name: 'Counted list' })
     // The stored voterCount was retired — the outreach send count is the
     // authoritative number now, so the wizard never persists a filter count.
@@ -612,7 +612,7 @@ describe('CreateListWizard — voter-file branch payload assembly', () => {
     await user.click(pillForOption('Female'))
 
     const cta = await screen.findByRole('button', { name: 'Build your list' })
-    await vi.waitFor(() => expect(cta).toHaveAttribute('data-loading', 'true'))
+    await waitFor(() => expect(cta).toHaveAttribute('data-loading', 'true'))
     expect(cta).toBeDisabled()
 
     // Programmatic activation must not advance either — the guard isn't
@@ -685,7 +685,7 @@ describe('CreateListWizard — voter-file branch payload assembly', () => {
     await user.type(screen.getByLabelText(/list name/i), 'Cleared list')
     await clickSaveList(user)
 
-    await vi.waitFor(() => expect(sentBody).not.toBeNull())
+    await waitFor(() => expect(sentBody).not.toBeNull())
     expect(sentBody).toMatchObject({
       genderFemale: false,
       partyDemocrat: true,
@@ -716,7 +716,7 @@ describe('CreateListWizard — activity branch payload assembly', () => {
     expect(countHandler).not.toHaveBeenCalled()
 
     await user.click(screen.getByRole('radio', { name: 'Text' }))
-    await vi.waitFor(() => expect(countHandler).toHaveBeenCalled())
+    await waitFor(() => expect(countHandler).toHaveBeenCalled())
   })
 
   it('sends two stacked conditions in the exact API shape (AC example)', async () => {
@@ -777,7 +777,7 @@ describe('CreateListWizard — activity branch payload assembly', () => {
     await user.type(screen.getByLabelText(/list name/i), 'Text + door knock')
     await clickSaveList(user)
 
-    await vi.waitFor(() => expect(sentBody).not.toBeNull())
+    await waitFor(() => expect(sentBody).not.toBeNull())
     expect(sentBody).toMatchObject({
       name: 'Text + door knock',
       activityConditions: [
@@ -841,7 +841,7 @@ describe('CreateListWizard — running total + CTA', () => {
     // settled state. Locks in the regression this ticket's isCounting fix
     // closed.
     const cta = await screen.findByRole('button', { name: 'Build your list' })
-    await vi.waitFor(() => expect(cta).toHaveAttribute('data-loading', 'false'))
+    await waitFor(() => expect(cta).toHaveAttribute('data-loading', 'false'))
     expect(cta).toBeEnabled()
 
     await user.click(cta)
@@ -856,7 +856,7 @@ describe('CreateListWizard — running total + CTA', () => {
     // omits voterCount (the count is a nice-to-have, not a submit-block). The
     // stale seed count can surface the cap message a beat before the debounce
     // settles, so wait for the gate to open rather than reading it synchronously.
-    await vi.waitFor(() =>
+    await waitFor(() =>
       expect(screen.getByRole('button', { name: 'Save list' })).toBeEnabled(),
     )
   })
@@ -905,7 +905,7 @@ describe('CreateListWizard — ENG-10751 zero-filter build block', () => {
     await user.click(pillForOption('Female'))
     // 86ajrth65: selecting a pill restarts the debounce, so the CTA is
     // loading/disabled again until the count resettles for the new payload.
-    await vi.waitFor(() => expect(cta).toBeEnabled(), { timeout: 10_000 })
+    await waitFor(() => expect(cta).toBeEnabled(), { timeout: 10_000 })
 
     await user.click(screen.getByRole('button', { name: 'Clear filters' }))
     expect(cta).toBeDisabled()
@@ -927,7 +927,7 @@ describe('CreateListWizard — ENG-10751 zero-filter build block', () => {
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
 
-    await vi.waitFor(() => expect(countHandler).toHaveBeenCalled())
+    await waitFor(() => expect(countHandler).toHaveBeenCalled())
     const cta = await screen.findByRole('button', {
       name: /build your list \(118,099\)/i,
     })
@@ -956,7 +956,7 @@ describe('CreateListWizard — ENG-10781 zero-match build block', () => {
       { name: /build your list \(0\)/i },
       { timeout: 10_000 },
     )
-    await vi.waitFor(() => expect(cta).toBeDisabled(), { timeout: 10_000 })
+    await waitFor(() => expect(cta).toBeDisabled(), { timeout: 10_000 })
 
     // Programmatic activation must not advance either (mirrors the
     // ENG-10751 zero-selection guard directly above).
@@ -989,7 +989,7 @@ describe('CreateListWizard — ENG-10781 zero-match build block', () => {
       { name: /build your list \(0\)/i },
       { timeout: 10_000 },
     )
-    await vi.waitFor(() => expect(zeroCta).toBeDisabled(), { timeout: 10_000 })
+    await waitFor(() => expect(zeroCta).toBeDisabled(), { timeout: 10_000 })
 
     await user.click(pillForOption('Democrat'))
 
@@ -998,7 +998,7 @@ describe('CreateListWizard — ENG-10781 zero-match build block', () => {
       { name: /build your list \(42\)/i },
       { timeout: 10_000 },
     )
-    await vi.waitFor(() => expect(matchedCta).toBeEnabled(), {
+    await waitFor(() => expect(matchedCta).toBeEnabled(), {
       timeout: 10_000,
     })
   })
@@ -1030,7 +1030,7 @@ describe('CreateListWizard — error handling', () => {
     await user.type(screen.getByLabelText(/list name/i), 'Broken list')
     await clickSaveList(user)
 
-    await vi.waitFor(() => expect(errorSnackbar).toHaveBeenCalled())
+    await waitFor(() => expect(errorSnackbar).toHaveBeenCalled())
     expect(onOpenChange).not.toHaveBeenCalledWith(false)
     // Stage Viewed/Completed events fired on the way in (ENG-10767), but a
     // failed create must emit neither the outcome nor the funnel completion.
@@ -1069,7 +1069,7 @@ describe('CreateListWizard — error handling', () => {
     await user.type(screen.getByLabelText(/list name/i), 'Too big')
     await clickSaveList(user)
 
-    await vi.waitFor(() =>
+    await waitFor(() =>
       expect(errorSnackbar).toHaveBeenCalledWith(
         capMessage,
         expect.objectContaining({ autoHideDuration: 6000 }),
@@ -1110,7 +1110,7 @@ describe('CreateListWizard — ENG-10709 List Created / Activity List Created an
     await user.type(screen.getByLabelText(/list name/i), 'Likely Dem women')
     await clickSaveList(user)
 
-    await vi.waitFor(() =>
+    await waitFor(() =>
       expect(eventCalls(EVENTS.VoterData.ListCreated)).toHaveLength(1),
     )
     expect(trackEvent).toHaveBeenCalledWith(EVENTS.VoterData.ListCreated, {
@@ -1145,7 +1145,7 @@ describe('CreateListWizard — ENG-10709 List Created / Activity List Created an
     )
     await clickSaveList(user)
 
-    await vi.waitFor(() =>
+    await waitFor(() =>
       expect(eventCalls(EVENTS.ConstituentData.ListCreated)).toHaveLength(1),
     )
     expect(trackEvent).toHaveBeenCalledWith(
@@ -1155,7 +1155,7 @@ describe('CreateListWizard — ENG-10709 List Created / Activity List Created an
     const [, properties] = eventCalls(EVENTS.ConstituentData.ListCreated)[0]!
     expect(properties).not.toHaveProperty('hasParty')
 
-    await vi.waitFor(() => expect(sentBody).not.toBeNull())
+    await waitFor(() => expect(sentBody).not.toBeNull())
     expect(sentBody).toMatchObject({
       name: 'Reachable constituents',
       genderFemale: true,
@@ -1185,14 +1185,14 @@ describe('CreateListWizard — ENG-10709 List Created / Activity List Created an
     const continueButton = await screen.findByRole('button', {
       name: 'Continue',
     })
-    await vi.waitFor(() => expect(continueButton).toBeEnabled(), {
+    await waitFor(() => expect(continueButton).toBeEnabled(), {
       timeout: 10_000,
     })
     await user.click(continueButton)
     await user.type(screen.getByLabelText(/list name/i), 'Riverside block')
     await clickSaveList(user)
 
-    await vi.waitFor(() => expect(sentBody).not.toBeNull())
+    await waitFor(() => expect(sentBody).not.toBeNull())
     expect(sentBody).toMatchObject({
       geoPoly: {
         type: 'Polygon',
@@ -1226,14 +1226,14 @@ describe('CreateListWizard — ENG-10709 List Created / Activity List Created an
     const continueButton = await screen.findByRole('button', {
       name: 'Continue',
     })
-    await vi.waitFor(() => expect(continueButton).toBeEnabled(), {
+    await waitFor(() => expect(continueButton).toBeEnabled(), {
       timeout: 10_000,
     })
     await user.click(continueButton)
     await user.type(screen.getByLabelText(/list name/i), 'Riverside voters')
     await clickSaveList(user)
 
-    await vi.waitFor(() => expect(sentBody).not.toBeNull())
+    await waitFor(() => expect(sentBody).not.toBeNull())
     expect(sentBody).toMatchObject({
       genderFemale: true,
       geoPoly: {
@@ -1257,7 +1257,7 @@ describe('CreateListWizard — ENG-10709 List Created / Activity List Created an
     const continueButton = await screen.findByRole('button', {
       name: 'Continue',
     })
-    await vi.waitFor(() => expect(continueButton).toBeEnabled(), {
+    await waitFor(() => expect(continueButton).toBeEnabled(), {
       timeout: 10_000,
     })
     await user.click(continueButton)
@@ -1286,7 +1286,7 @@ describe('CreateListWizard — ENG-10709 List Created / Activity List Created an
     await drawBoundary(user)
 
     expect(await screen.findByText(/no constituents here/i)).toBeInTheDocument()
-    await vi.waitFor(
+    await waitFor(
       () =>
         expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled(),
       { timeout: 10_000 },
@@ -1319,7 +1319,7 @@ describe('CreateListWizard — ENG-10709 List Created / Activity List Created an
     expect(
       await screen.findByText(/too many people to count/i),
     ).toBeInTheDocument()
-    await vi.waitFor(
+    await waitFor(
       () =>
         expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled(),
       { timeout: 10_000 },
@@ -1392,7 +1392,7 @@ describe('CreateListWizard — ENG-10709 List Created / Activity List Created an
     await user.type(screen.getByLabelText(/list name/i), 'Texted GOTV blast')
     await clickSaveList(user)
 
-    await vi.waitFor(() =>
+    await waitFor(() =>
       expect(eventCalls(EVENTS.VoterData.ActivityListCreated)).toHaveLength(1),
     )
     expect(trackEvent).toHaveBeenCalledWith(
@@ -1456,7 +1456,7 @@ describe('CreateListWizard — ENG-10709 List Created / Activity List Created an
     await user.type(screen.getByLabelText(/list name/i), 'Text + door knock')
     await clickSaveList(user)
 
-    await vi.waitFor(() =>
+    await waitFor(() =>
       expect(eventCalls(EVENTS.VoterData.ActivityListCreated)).toHaveLength(1),
     )
     expect(trackEvent).toHaveBeenCalledWith(
@@ -1492,7 +1492,7 @@ describe('CreateListWizard — ENG-10767 stage Viewed/Completed funnel', () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     render(<CreateListWizard open onOpenChange={vi.fn()} />)
 
-    await vi.waitFor(() =>
+    await waitFor(() =>
       expect(eventCalls(EVENTS.Contacts.ListWizard.MethodViewed)).toHaveLength(
         1,
       ),
@@ -1517,7 +1517,7 @@ describe('CreateListWizard — ENG-10767 stage Viewed/Completed funnel', () => {
       EVENTS.Contacts.ListWizard.MethodCompleted,
       { context: 'win', branch: 'voterFile' },
     )
-    await vi.waitFor(() =>
+    await waitFor(() =>
       expect(
         eventCalls(EVENTS.Contacts.ListWizard.ConditionsViewed),
       ).toHaveLength(1),
@@ -1540,7 +1540,7 @@ describe('CreateListWizard — ENG-10767 stage Viewed/Completed funnel', () => {
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await user.click(screen.getByRole('button', { name: 'Back' }))
 
-    await vi.waitFor(() =>
+    await waitFor(() =>
       expect(eventCalls(EVENTS.Contacts.ListWizard.MethodViewed)).toHaveLength(
         2,
       ),
@@ -1571,7 +1571,7 @@ describe('CreateListWizard — ENG-10767 stage Viewed/Completed funnel', () => {
       EVENTS.Contacts.ListWizard.ConditionsCompleted,
       { context: 'win', branch: 'voterFile' },
     )
-    await vi.waitFor(() =>
+    await waitFor(() =>
       expect(
         eventCalls(EVENTS.Contacts.ListWizard.BoundaryViewed),
       ).toHaveLength(1),
@@ -1582,14 +1582,14 @@ describe('CreateListWizard — ENG-10767 stage Viewed/Completed funnel', () => {
       EVENTS.Contacts.ListWizard.BoundaryCompleted,
       { context: 'win', branch: 'voterFile', hasBoundary: false },
     )
-    await vi.waitFor(() =>
+    await waitFor(() =>
       expect(eventCalls(EVENTS.Contacts.ListWizard.NameViewed)).toHaveLength(1),
     )
 
     await user.type(screen.getByLabelText(/list name/i), 'Funnel list')
     await clickSaveList(user)
 
-    await vi.waitFor(() =>
+    await waitFor(() =>
       expect(eventCalls(EVENTS.Contacts.ListWizard.NameCompleted)).toHaveLength(
         1,
       ),
@@ -1607,7 +1607,7 @@ describe('CreateListWizard — ENG-10767 stage Viewed/Completed funnel', () => {
     const { rerender } = render(
       <CreateListWizard open onOpenChange={onOpenChange} />,
     )
-    await vi.waitFor(() =>
+    await waitFor(() =>
       expect(eventCalls(EVENTS.Contacts.ListWizard.MethodViewed)).toHaveLength(
         1,
       ),
@@ -1616,7 +1616,7 @@ describe('CreateListWizard — ENG-10767 stage Viewed/Completed funnel', () => {
     rerender(<CreateListWizard open={false} onOpenChange={onOpenChange} />)
     rerender(<CreateListWizard open onOpenChange={onOpenChange} />)
 
-    await vi.waitFor(() =>
+    await waitFor(() =>
       expect(eventCalls(EVENTS.Contacts.ListWizard.MethodViewed)).toHaveLength(
         2,
       ),
@@ -1627,7 +1627,7 @@ describe('CreateListWizard — ENG-10767 stage Viewed/Completed funnel', () => {
     setContext({ isWinContext: false, isElectedOfficial: true })
     render(<CreateListWizard open onOpenChange={vi.fn()} />)
 
-    await vi.waitFor(() =>
+    await waitFor(() =>
       expect(
         eventCalls(EVENTS.Contacts.ListWizard.ConditionsViewed),
       ).toHaveLength(1),
@@ -1688,14 +1688,14 @@ describe('CreateListWizard — dismissed mid-mutation (vaul swipe-close path)', 
     // The create DID happen server-side — onSuccess must still run exactly
     // once: the analytics event, the navigation, and the success snackbar
     // all fire despite the drawer no longer being visible.
-    await vi.waitFor(() =>
+    await waitFor(() =>
       expect(eventCalls(EVENTS.VoterData.ListCreated)).toHaveLength(1),
     )
     expect(trackEvent).toHaveBeenCalledWith(EVENTS.VoterData.ListCreated, {
       variableCount: 1,
       hasParty: false,
     })
-    await vi.waitFor(() => expect(selectList).toHaveBeenCalledWith(555))
+    await waitFor(() => expect(selectList).toHaveBeenCalledWith(555))
     expect(selectList).toHaveBeenCalledTimes(1)
     expect(successSnackbar).toHaveBeenCalledTimes(1)
   })
@@ -1729,7 +1729,7 @@ describe('CreateListWizard — district gating', () => {
     render(<CreateListWizard open onOpenChange={vi.fn()} />)
     await openVoterFileStep(user)
 
-    await vi.waitFor(() => expect(onCount).toHaveBeenCalled(), {
+    await waitFor(() => expect(onCount).toHaveBeenCalled(), {
       timeout: 3000,
     })
   })
