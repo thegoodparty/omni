@@ -91,7 +91,10 @@ pads `var(--chat-dock-height)` plus 8rem so the last card clears the bar.
   each place one brand family cycled in arc order (`seatHue`, `seatTint`,
   fixed by position so server and client agree). From 30 members a place
   is behind when its progress is under half the panel's, outlined in
-  warning and listed under "Furthest behind"; from 80% of the goal every
+  warning and listed under "Furthest behind" (on a phone each row puts the
+  name, its "X of Y seats filled" and its seats on lines of their own, so a
+  long tract name wraps instead of pushing the count off screen; from `sm`
+  they share one row); from 80% of the goal every
   empty seat is outlined and named or listed. The petals
   (`CivicPanelBloom`) are drawn by the priority results page. Geometry and
   allocation are pure, in `components/panelCharts.ts`. Every drawn

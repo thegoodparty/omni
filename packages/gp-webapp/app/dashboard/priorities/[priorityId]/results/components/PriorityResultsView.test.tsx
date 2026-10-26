@@ -76,6 +76,8 @@ describe('PriorityResultsView', () => {
           needed: 96,
           groupsHeard: 9,
           groupsTotal: 12,
+          representativeAnswers: 18,
+          representativeNeeded: 96,
           good: false,
           status: 'tooEarly',
           underrepresented: ['men', 'age65plus'],
@@ -85,30 +87,38 @@ describe('PriorityResultsView', () => {
         },
       })
 
-    it('shows who answered and the groups heard as seats', () => {
+    it('shows who answered and the answers that count as seats', () => {
       renderView(early())
 
       expect(screen.getByText('People who answered')).toBeInTheDocument()
       expect(screen.getByText('25 by text')).toBeInTheDocument()
-      expect(screen.getByText('9 of 12 groups heard.')).toBeInTheDocument()
-      const arc = screen.getByRole('img', { name: '9 of 12 groups heard' })
-      expect(arc.querySelectorAll('[data-state="heard"]')).toHaveLength(76)
-      expect(arc.querySelectorAll('[data-state="next"]')).toHaveLength(16)
-      expect(screen.getByText('Needs answers next')).toBeInTheDocument()
+      // 25 answered, but only 18 count toward a balanced read.
+      expect(
+        screen.getByText('18 of the 96 answers we need.'),
+      ).toBeInTheDocument()
+      expect(screen.queryByText(/groups heard/)).not.toBeInTheDocument()
+      const arc = screen.getByRole('img', {
+        name: '18 of the 96 answers we need',
+      })
+      expect(arc.querySelectorAll('[data-state="heard"]')).toHaveLength(19)
+      expect(arc.querySelectorAll('[data-state="needed"]')).toHaveLength(81)
+      expect(screen.getByText('Still needed')).toBeInTheDocument()
     })
 
     // jsdom applies no CSS, so this pins the classes that pick one by width.
     it('shows the seats from lg up and the bar below it', () => {
       renderView(early())
 
-      const arc = screen.getByRole('img', { name: '9 of 12 groups heard' })
+      const arc = screen.getByRole('img', {
+        name: '18 of the 96 answers we need',
+      })
       expect(arc).toHaveClass('hidden', 'lg:block')
       expect(screen.getByText('Heard').closest('ul')).toHaveClass(
         'hidden',
         'lg:flex',
       )
       const bar = screen.getByRole('progressbar', {
-        name: '9 of 12 groups heard',
+        name: '18 of the 96 answers we need',
       })
       expect(bar).toHaveClass('lg:hidden')
       expect(bar).not.toHaveClass('hidden')
@@ -210,6 +220,8 @@ describe('PriorityResultsView', () => {
           needed: 96,
           groupsHeard: 12,
           groupsTotal: 12,
+          representativeAnswers: 96,
+          representativeNeeded: 96,
           good: false,
           status: 'gettingClose',
           underrepresented: ['unreachedAreas'],
@@ -232,12 +244,12 @@ describe('PriorityResultsView', () => {
       screen.getByText('Still unsure what people in a few neighborhoods think'),
     ).toBeInTheDocument()
     expect(
-      screen.getByRole('img', { name: '12 of 12 groups heard' }),
+      screen.getByRole('img', { name: '96 of the 96 answers we need' }),
     ).toBeInTheDocument()
-    // Every group heard but the model not sure yet: a full bar in the
+    // Every answer in but the model not sure yet: a full bar in the
     // warning tone, never the success one.
     const bar = screen.getByRole('progressbar', {
-      name: '12 of 12 groups heard',
+      name: '96 of the 96 answers we need',
     })
     expect(bar.className).toContain('bg-warning')
     expect(screen.queryByText('Top themes')).not.toBeInTheDocument()

@@ -1,7 +1,7 @@
 # @goodparty_org/styleguide
 
 Standalone design system package. Components, CSS tokens, and hooks consumed as
-source (no dist build) by `packages/gp-webapp` and `packages/prototypes`.
+source (no dist build) by `packages/gp-webapp`.
 
 ## Key facts
 

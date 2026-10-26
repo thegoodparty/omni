@@ -347,6 +347,24 @@ describe('trackRegistrationCompleted', () => {
     )
   })
 
+  it('pushes a sign_up event to the GTM dataLayer', async () => {
+    const w = window as unknown as {
+      dataLayer?: Record<string, unknown>[]
+    }
+    delete w.dataLayer
+    mockCookieGet.mockReturnValue(undefined)
+
+    await trackRegistrationCompleted({
+      analytics: Promise.resolve(null),
+      userId: '42',
+      signUpMethod: 'google',
+    })
+
+    expect(w.dataLayer).toEqual([
+      { event: 'sign_up', method: 'google', user_id: '42' },
+    ])
+  })
+
   it('awaits the track event before resolving', async () => {
     let trackResolved = false
     vi.mocked(segmentTrackEvent).mockImplementation(

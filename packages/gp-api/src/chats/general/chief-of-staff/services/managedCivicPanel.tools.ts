@@ -109,10 +109,10 @@ export const buildManagedCivicPanelTools = ({
 
   const presentInvite: LlmStreamTool<typeof noInput> = {
     description:
-      'Show the invite as a card. The official opens it to review the ' +
+      'Show the invite as a card. The official opens it to read the ' +
       'words, change them and approve it, which sets up their civic ' +
-      'panel. The card shows the invite, so never quote it. Only before ' +
-      'they set up their civic panel.',
+      'panel. The words are on the screen it opens, not in the chat, so ' +
+      'never quote them. Only before they set up their civic panel.',
     inputSchema: noInput,
     execute: () => (setUp ? notAgain : { shown: true }),
   }

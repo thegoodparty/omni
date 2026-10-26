@@ -18,6 +18,7 @@ import { identifyUser } from '@shared/utils/analytics'
 import { buildUserTraits } from 'helpers/buildUserTraits'
 import { User } from 'helpers/types'
 import { useOrganization } from '@shared/organization-picker'
+import { setDataLayerUserId } from 'helpers/gtmDataLayer'
 
 const identify = async (
   user: User | null,
@@ -51,7 +52,7 @@ const identify = async (
 }
 
 const SegmentIdentify = (): null => {
-  const [user] = useUser()
+  const [user, , isUserLoading] = useUser()
   const searchParams = useSearchParams()
   const organization = useOrganization()
   const organizationRole = organization?.role
@@ -69,6 +70,15 @@ const SegmentIdentify = (): null => {
     setActorRole(organizationRole ?? null)
     setActiveProduct(toActiveProduct(organization))
   }, [user?.id, organizationRole, organization])
+
+  // GA4's User-ID is read from the GTM dataLayer, not from Segment, so the id
+  // is mirrored there whenever it resolves (and cleared on sign-out). See
+  // helpers/gtmDataLayer.ts. Skipped while the user loads so a signed-in page
+  // load does not first push a cleared id.
+  useEffect(() => {
+    if (isUserLoading) return
+    setDataLayerUserId(user?.id)
+  }, [user?.id, isUserLoading])
 
   return null
 }
