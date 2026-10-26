@@ -30,7 +30,6 @@ and verified by `ai-rules/scripts/agents-md-sync.sh`, which CI runs on every PR.
 | -------------------------- | ----------------------------------------------------------------- | ----------------- | ---- |
 | `packages/gp-api`          | API monolith (auth, campaigns, payments, AI)                      | NestJS + Fastify  | 3000 |
 | `packages/gp-webapp`       | Product app for candidates & elected officials                    | Next.js 16        | 4000 |
-| `packages/prototypes`      | Public backend-free UI prototyping surface                        | Next.js           | 4002 |
 | `packages/gp-ai`           | Python AI/data services + their Terraform                         | Python + uv       | —    |
 | `packages/gp-admin`        | Internal staff admin console                                      | Next.js 16        | 3500 |
 | `packages/candidate-sites` | Per-candidate static sites                                        | Next.js           | 4001 |

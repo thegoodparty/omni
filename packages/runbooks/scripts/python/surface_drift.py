@@ -100,7 +100,7 @@ def area_option(display_name: str, area: er.Area, routes: Sequence[str]) -> dict
 
 
 STATE = PY / "instrumentation_data" / "surface_drift.json"
-EXPLORER = PY.parent.parent.parent / "prototypes/app/p/analytics-event-explorer/data/event-explorer.json"
+EXPLORER = PY.parent.parent / "surfaces/event-explorer/data/event-explorer.json"
 AGREEMENT = 0.8
 MIN_ATTRIBUTED = 10
 MIN_COVERAGE = 0.5
