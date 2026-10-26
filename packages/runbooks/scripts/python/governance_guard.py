@@ -8,8 +8,8 @@ call went into another file that runs); the page behind a path-qualified
 leg removed; an OKR call-site file no longer imported; an event's last call site removed
 while its registry key survives; a monitored_events.yaml surface path this change made
 stale; a monitored_events.yaml this change made unparseable. Warns: a HubSpot-used backend
-event removed from the registry; a new event key with a malformed name or no provenance
-row; an intent row added in this change that clears nothing.
+event removed from the registry; a new event key with a malformed name, no provenance
+row or no product label; an intent row added in this change that clears nothing.
 
 OKR legs are read from the merge base's vendored sem copy, so a PR cannot drop the leg it
 breaks.
@@ -217,6 +217,7 @@ class Snapshot:
     watchlist: dict
     provenance_events: set[str]
     page_routes: set[str]
+    provenance_products: dict[str, str] = field(default_factory=dict)
     watchlist_error: str | None = None
     route_texts: dict[str, str] = field(default_factory=dict)
     product_map: str = ""
@@ -273,8 +274,9 @@ def build_snapshot(tree: Tree) -> Snapshot:
                   and p not in (WEB_REGISTRY, API_REGISTRY))
     texts = tree.read_many([*scan, WEB_REGISTRY, API_REGISTRY, WATCHLIST, PROVENANCE, PRODUCT_MAP])
     api_text = texts.get(API_REGISTRY, "")
-    provenance = {row["event_type"] for row in csv.DictReader(io.StringIO(texts.get(PROVENANCE, "")))
-                  if row.get("event_type")}
+    prov_rows = [row for row in csv.DictReader(io.StringIO(texts.get(PROVENANCE, ""))) if row.get("event_type")]
+    provenance = {row["event_type"] for row in prov_rows}
+    products = {row["event_type"]: (row.get("product") or "").strip() for row in prov_rows}
     registries = {}
     for scope, reg in (("web", WEB_REGISTRY), ("api", API_REGISTRY)):
         registries[scope] = prov.parse_events_map(texts.get(reg, ""))
@@ -299,6 +301,7 @@ def build_snapshot(tree: Tree) -> Snapshot:
         hubspot=hubspot_protected(api_text),
         watchlist=watchlist,
         provenance_events=provenance,
+        provenance_products=products,
         page_routes={r for p in paths if (r := page_route(p))},
         watchlist_error=watchlist_error,
         route_texts={p: texts[p] for p in scan if p in texts and er.route_kind(p)},
@@ -777,6 +780,7 @@ _TITLES = {
     "hubspot_event_removed": "HubSpot event removed",
     "naming": "Event name",
     "no_provenance_row": "No provenance row",
+    "no_product_label": "No product label",
     "surface_moved": "Event now fires from a different place",
     "invalid_relabel": "Relabel row is not valid",
     "surface_check_failed": "Surface check did not run",
@@ -918,6 +922,11 @@ def new_key_warnings(base: Snapshot, head: Snapshot) -> list[Finding]:
             out.append(Finding("no_provenance_row", "warn", name,
                                "New event with no provenance row.",
                                "Run the instrument-analytics-event skill's provenance upsert step."))
+        elif not head.provenance_products.get(name):
+            out.append(Finding("no_product_label", "warn", name,
+                               "New event with no product label.",
+                               "Run the event-metadata step (it writes the Govern product tag), then "
+                               "re-run the provenance upsert with the same --product."))
     return out
 
 

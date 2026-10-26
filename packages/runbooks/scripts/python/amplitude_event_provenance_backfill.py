@@ -553,11 +553,17 @@ PROVENANCE_COLUMNS = [
     "call_site_retired_commit",
     "call_site_retired_pr",
     "updated_at",
+    "product",
 ]
+
+PRODUCTS = ("win", "serve", "shared")
 
 # Everything a walk or upsert can learn about an event. A row with none of these set was
 # onboarded from the taxonomy and never found in code: it records a declaration, not code.
-CODE_EVIDENCE_COLUMNS = [c for c in PROVENANCE_COLUMNS if c not in ("event_type", "event_type_slug", "updated_at")]
+# product is a human label, not code evidence, so it must not keep a blank row alive.
+CODE_EVIDENCE_COLUMNS = [
+    c for c in PROVENANCE_COLUMNS if c not in ("event_type", "event_type_slug", "updated_at", "product")
+]
 
 # A routine refresh expires at most this many rows. More at once is likelier a partial
 # taxonomy read than a real Govern deletion; the largest real one was 31 (2026-09-29).
@@ -600,6 +606,7 @@ def build_provenance_row(
         "call_site_retired_commit": None,
         "call_site_retired_pr": None,
         "updated_at": updated_at,
+        "product": None,
     }
     if code_status == "removed" and retired:
         row["retired_commit"] = retired["commit"]
@@ -1202,6 +1209,7 @@ def upsert_provenance_row(
     date: str,
     updated_at: str,
     csv_path: str = DEFAULT_CSV_PATH,
+    product: str | None = None,
 ) -> dict:
     """Upsert one event's *provisional* provenance row from the instrument skill (pre-merge).
 
@@ -1212,10 +1220,13 @@ def upsert_provenance_row(
     clobber instrumentation already recorded (e.g. by a prior exact walk), but it does fill
     an empty ``instrumented_pr``, so calling it again with ``--pr`` once the PR exists works;
     ``retire`` always stamps the retired_* fields, creating the row if the event predates
-    the backfill.
+    the backfill. ``product`` (win, serve or shared) is the engineer's label and is only
+    written when given, so a later upsert without it never blanks a recorded one.
     """
     if direction not in ("add", "retire"):
         raise ValueError(f"direction must be 'add' or 'retire', got {direction!r}")
+    if product is not None and product not in PRODUCTS:
+        raise ValueError(f"product must be one of {PRODUCTS}, got {product!r}")
     rows = read_provenance_rows(csv_path)
     row = rows.get(event_type) or {c: None for c in PROVENANCE_COLUMNS}
     row["event_type"] = event_type
@@ -1258,6 +1269,8 @@ def upsert_provenance_row(
             row["retired_commit"] = None
     row["last_code_change_date"] = date
     row["updated_at"] = updated_at
+    if product:
+        row["product"] = product
     rows[event_type] = row
     write_provenance(list(rows.values()), csv_path)
     return row
@@ -1347,6 +1360,7 @@ def _carry_forward_provisional(
         prior = existing.get(row["event_type"])
         if not prior:
             continue
+        row["product"] = prior.get("product")
         if row.get("instrumented_date") is None and prior.get("instrumented_date"):
             row["instrumented_pr"] = prior.get("instrumented_pr")
             row["instrumented_date"] = prior.get("instrumented_date")
@@ -1541,7 +1555,10 @@ def run_refresh(
         updated_rows: list[dict] = []
         for ev in affected_existing:
             merged = merge_provenance_entry(existing.get(ev), acc[ev], present_before.get(ev, False))
-            updated_rows.append(build_provenance_row(ev, merged, present.get(ev), updated_at))
+            rebuilt = build_provenance_row(ev, merged, present.get(ev), updated_at)
+            # A rebuilt row has no product of its own; the label is human-set, so carry it.
+            rebuilt["product"] = (existing.get(ev) or {}).get("product")
+            updated_rows.append(rebuilt)
         _, filled = resolve_pr_gaps(updated_rows, pr_resolver)
         if pr_resolver is not None:
             print(f"Merge-walk PR backfill: filled {filled} *_pr gaps", file=sys.stderr)
@@ -1613,6 +1630,8 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     u.add_argument("--direction", required=True, choices=("add", "retire"), help="add = instrumented; retire = removed.")
     u.add_argument("--pr", default=None, help="PR number or link, if known (omit when no PR exists yet).")
     u.add_argument("--csv", default=DEFAULT_CSV_PATH, help="Provenance CSV to upsert into.")
+    u.add_argument("--product", choices=PRODUCTS, default=None,
+                   help="Product the event belongs to; kept as-is when omitted.")
 
     return p.parse_args(argv)
 
@@ -1657,6 +1676,7 @@ def _run_upsert(args: argparse.Namespace) -> None:
     row = upsert_provenance_row(
         args.event, args.direction, args.pr,
         now.date().isoformat(), now.isoformat(timespec="seconds"), csv_path=args.csv,
+        product=args.product,
     )
     print(f"Upserted ({args.direction}) {args.event!r} -> {args.csv}", file=sys.stderr)
     print(_summarize([row]), file=sys.stderr)

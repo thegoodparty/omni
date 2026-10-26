@@ -94,8 +94,8 @@ pre-break reference survives only there). Useful flags:
 
 Read the digest top-down: the dormant-OKR-anchor latch table and any "OKR dormancy checks
 degraded" line first, then the priority flags table (ranks 0-7), then the dormant tail,
-then changes-since-last-run, then metadata completeness, then watchlist proposals and
-removals. The loud
+then changes-since-last-run, then metadata completeness, then watchlist proposals,
+labels and removals. The loud
 ones (rank 1-2) are what you route to Eng/PM; everything else is awareness.
 
 ## Stage 2 — investigate a flag in code (on demand)
@@ -187,6 +187,29 @@ first, and the triage skill's `unwatch` verb takes them off.
    picks. Do not add unilaterally.
 4. **Apply.** Paste the agreed rows into `monitored_events.yaml` under `events:`; set
    `product`/`family` from the proposal, fill `owner` if known. Surface the diff for approval.
+
+## Product labels
+
+The digest's **Labels** section lists events whose Govern product label (`win`, `serve` or
+`shared`) is missing or contradicts another signal. It is empty most weeks.
+
+- `no_product_label`: a new event (first seen in the last 90 days) that fired in the last
+  30 days, that no name rule or tag placed (family `other`), and that carries no `product:`
+  tag. Label it in Amplitude with the `event-metadata` skill.
+- `product_label_conflict`: the event has more than one `product:` tag, or its tag
+  disagrees with the family the name rules gave it. Any age. Fix the tag in Amplitude with
+  the `event-metadata` skill, or correct the name if the tag is right.
+
+If an event should stay as it is, add it to `dismissed:` in `monitored_events.yaml` and
+the finding stops. Dismissing silences both kinds for that event. The `dismissed:` list is
+shared with watchlist proposals, so dismissing an event for one also hides it from the other.
+A row looks like:
+
+```yaml
+  - {event: "Briefing Assistant - Attachment Clicked", reason: "UI micro-interaction, not a funnel milestone", date: "2026-08-06"}
+```
+
+Findings appear in the Slack digest thread under "Product labels" and in the triage skill's Queue E.
 
 ## Stage 4 — metadata remediation (description backfill)
 
