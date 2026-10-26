@@ -384,6 +384,10 @@ export default function VoterFileStep({
                 : 'Select all'}
             </Button>
           </div>
+          <p className="text-xs text-muted-foreground">
+            Based on answers your team recorded at the door and on calls. Early
+            voting records from the voter file are not included.
+          </p>
           <ToggleGroup
             type="multiple"
             value={votedStatus}
