@@ -25,6 +25,22 @@ const replacesWindowGlobal = glob(configDefaults.include, {
 
 export default defineConfig({
   plugins: [react(), tsconfigPaths()],
+  resolve: {
+    alias: [
+      // react-day-picker reads enUS from the date-fns/locale barrel, which
+      // loads every date-fns locale into each test file's fresh context (~1s a
+      // file). Nothing here uses another locale; one that tried would fail to
+      // import rather than pass on the wrong one.
+      {
+        find: /^date-fns\/locale$/,
+        replacement: 'date-fns/locale/en-US',
+      },
+      {
+        find: /^@sentry\/nextjs$/,
+        replacement: resolve(__dirname, 'helpers/test-utils/sentryStub.ts'),
+      },
+    ],
+  },
   test: {
     environment: 'jsdom',
     // Several suites deliberately wait up to 10s for a debounced count or a
@@ -38,6 +54,8 @@ export default defineConfig({
     // bypasses package.json, and that is the invocation that strands people.
     globalSetup: ['../contracts/scripts/vitest-global-setup.ts'],
     globals: true,
+    // Inlined so the date-fns/locale alias above reaches its imports.
+    server: { deps: { inline: [/react-day-picker/] } },
     exclude: EXCLUDE,
     // A vm worker keeps some memory from every context it has run, and
     // vitest's default recycle point (a share of system RAM) sits above Node's

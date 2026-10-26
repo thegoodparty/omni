@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { Editor } from '@tiptap/react'
@@ -122,7 +122,22 @@ const createResponse = {
   hasMore: false,
 }
 
-const user = userEvent.setup()
+// No test here is about hover, and the pointer move user-event makes before
+// every click fires a round of hover events (and re-renders) for nothing.
+const user = userEvent.setup({
+  skipHover: true,
+  advanceTimers: (ms) => {
+    if (vi.isFakeTimers()) vi.advanceTimersByTime(ms)
+  },
+})
+
+// useListWizardCount debounces the builder count by 600ms. A fake clock that
+// still ticks lets the builder tests skip that wait instead of sitting it out.
+const useBuilderClock = () => vi.useFakeTimers({ shouldAdvanceTime: true })
+const skipCountDebounce = () => act(() => vi.advanceTimersByTimeAsync(600))
+afterEach(() => {
+  vi.useRealTimers()
+})
 
 const openFlow = (onSaved?: (outreachId: number, name: string) => void) => {
   const onClose = vi.fn()
@@ -592,6 +607,7 @@ describe('PhoneBankingFlow', () => {
   })
 
   it('offers the next-batch path even when the reachable count is unavailable', async () => {
+    useBuilderClock()
     mockDraft()
     mockSavedLists([{ id: 3, name: 'Huge list' }])
     mockListDetail(null)
@@ -608,6 +624,7 @@ describe('PhoneBankingFlow', () => {
     await user.click(screen.getByText('Choose a voter list'))
     await user.click(await screen.findByText('Create a new list'))
     await user.click(screen.getByRole('button', { name: 'Democrat' }))
+    await skipCountDebounce()
     await waitFor(() =>
       expect(
         screen.getByRole('button', { name: /Continue \(\d+\)/ }),
@@ -1169,6 +1186,7 @@ describe('PhoneBankingFlow', () => {
   })
 
   it('applies the any-phone overlay to the builder count but never to the saved list', async () => {
+    useBuilderClock()
     mockDraft()
     const countBodies: Record<string, unknown>[] = []
     api.mock('POST /v1/contacts/count', ({ body }) => {
@@ -1186,6 +1204,7 @@ describe('PhoneBankingFlow', () => {
     await user.click(screen.getByText('Choose a voter list'))
     await user.click(await screen.findByText('Create a new list'))
     await user.click(screen.getByRole('button', { name: 'Democrat' }))
+    await skipCountDebounce()
     await waitFor(() =>
       expect(
         screen.getByRole('button', { name: /Continue \(\d+\)/ }),
@@ -1242,6 +1261,7 @@ describe('PhoneBankingFlow', () => {
   })
 
   it('builds a custom audience via the builder → naming sub-states, persists it, and sends its id', async () => {
+    useBuilderClock()
     mockDraft()
     mockCount(50)
     mockCreateList(99, 'My audience')
@@ -1256,6 +1276,7 @@ describe('PhoneBankingFlow', () => {
     await user.click(screen.getByText('Choose a voter list'))
     await user.click(await screen.findByText('Create a new list'))
     await user.click(screen.getByRole('button', { name: 'Democrat' }))
+    await skipCountDebounce()
     await waitFor(() =>
       expect(
         screen.getByRole('button', { name: /Continue \(\d+\)/ }),
@@ -1303,6 +1324,7 @@ describe('PhoneBankingFlow', () => {
   // allow exactly that — zero filters selected → Continue enables once the
   // count settles, and the created list carries no criteria.
   it('builds an all-voters audience with no filters selected — Continue enables and the list persists criteria-free', async () => {
+    useBuilderClock()
     mockDraft()
     mockCount(50)
     const createListCalls: Record<string, unknown>[] = []
@@ -1320,6 +1342,7 @@ describe('PhoneBankingFlow', () => {
 
     await user.click(screen.getByText('Choose a voter list'))
     await user.click(await screen.findByText('Create a new list'))
+    await skipCountDebounce()
     await waitFor(() =>
       expect(
         screen.getByRole('button', { name: /Continue \(50\)/ }),

@@ -8,6 +8,13 @@ import { api, mswServer } from 'helpers/test-utils/api-mocking'
 import { PollFlow } from './PollFlow'
 import { SERVE_POLL_QUESTION_COPY } from './pollCopy'
 
+// No test here is about hover, and the pointer move user-event makes before
+// every click fires a round of hover events (and re-renders) for nothing.
+let user: ReturnType<typeof userEvent.setup>
+beforeEach(() => {
+  user = userEvent.setup({ skipHover: true })
+})
+
 const LEADING_QUESTION = "Isn't the pothole crisis the city's biggest failure?"
 
 vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
@@ -61,7 +68,7 @@ const openFlow = () => {
 }
 
 const pickTopic = async (label: string) =>
-  userEvent.click(await screen.findByText(label))
+  user.click(await screen.findByText(label))
 
 describe('PollFlow bias check', () => {
   beforeEach(() => {
@@ -167,9 +174,7 @@ describe('PollFlow bias check', () => {
   const writeLeadingQuestion = async () => {
     openFlow()
     await pickTopic('Write my own')
-    await userEvent.click(
-      await screen.findByRole('button', { name: /^Continue/ }),
-    )
+    await user.click(await screen.findByRole('button', { name: /^Continue/ }))
     const field = (await screen.findByRole('textbox', {
       name: 'Poll question',
     })) as HTMLElement & { editor: Editor }
@@ -198,7 +203,7 @@ describe('PollFlow bias check', () => {
   it('holds the official on the What step until the bias check reports, then shows the flag', async () => {
     await writeLeadingQuestion()
 
-    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
 
     expect(
       await screen.findByText(SERVE_POLL_QUESTION_COPY.biasFlaggedNote),
@@ -218,9 +223,7 @@ describe('PollFlow bias check', () => {
     )
     await writeLeadingQuestion()
 
-    await userEvent.click(
-      screen.getByRole('button', { name: 'Check for bias' }),
-    )
+    await user.click(screen.getByRole('button', { name: 'Check for bias' }))
 
     expect(
       await screen.findByText(SERVE_POLL_QUESTION_COPY.biasPassed),
@@ -245,9 +248,7 @@ describe('PollFlow bias check', () => {
         ),
       )
       await writeLeadingQuestion()
-      await userEvent.click(
-        screen.getByRole('button', { name: 'Check for bias' }),
-      )
+      await user.click(screen.getByRole('button', { name: 'Check for bias' }))
 
       const label = await screen.findByText(SERVE_POLL_QUESTION_COPY.biasPassed)
       expect(label).toHaveClass('sr-only')
@@ -272,7 +273,7 @@ describe('PollFlow bias check', () => {
   it('rewrites the question with Improve with AI', async () => {
     await writeLeadingQuestion()
 
-    await userEvent.click(
+    await user.click(
       screen.getByRole('button', { name: SERVE_POLL_QUESTION_COPY.improve }),
     )
 
@@ -301,7 +302,7 @@ describe('PollFlow bias check', () => {
     )
     await writeLeadingQuestion()
 
-    await userEvent.click(
+    await user.click(
       screen.getByRole('button', { name: SERVE_POLL_QUESTION_COPY.improve }),
     )
 
@@ -332,9 +333,7 @@ describe('PollFlow bias check', () => {
     )
     openFlow()
     await pickTopic('Write my own')
-    await userEvent.click(
-      await screen.findByRole('button', { name: /^Continue/ }),
-    )
+    await user.click(await screen.findByRole('button', { name: /^Continue/ }))
     const field = (await screen.findByRole('textbox', {
       name: 'Poll question',
     })) as HTMLElement & { editor: Editor }
@@ -342,10 +341,10 @@ describe('PollFlow bias check', () => {
       field.editor.commands.setContent('parks?')
     })
 
-    await userEvent.click(
+    await user.click(
       screen.getByRole('button', { name: SERVE_POLL_QUESTION_COPY.improve }),
     )
-    await userEvent.click(
+    await user.click(
       await screen.findByRole('button', {
         name: SERVE_POLL_QUESTION_COPY.tryAgain,
       }),
@@ -364,7 +363,7 @@ describe('PollFlow bias check', () => {
       name: 'Poll question',
     }) as HTMLElement & { editor: Editor }
 
-    await userEvent.click(
+    await user.click(
       screen.getByRole('button', { name: SERVE_POLL_QUESTION_COPY.improve }),
     )
     await waitFor(() =>
@@ -372,7 +371,7 @@ describe('PollFlow bias check', () => {
         'How do you feel about road repairs?',
       ),
     )
-    await userEvent.click(
+    await user.click(
       screen.getByRole('button', { name: SERVE_POLL_QUESTION_COPY.undo }),
     )
 
@@ -384,7 +383,7 @@ describe('PollFlow bias check', () => {
 
   it('keeps Continue disabled while the question is flagged, until it is reworded', async () => {
     await writeLeadingQuestion()
-    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
     await screen.findByText(SERVE_POLL_QUESTION_COPY.biasFlaggedNote)
 
     expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
@@ -431,7 +430,7 @@ describe('PollFlow bias check', () => {
       name: 'Poll question',
     }) as HTMLElement & { editor: Editor }
 
-    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
     act(() => {
       field.editor.commands.setContent('What should the city fix first?')
     })
@@ -452,12 +451,12 @@ describe('PollFlow bias check', () => {
       name: 'Poll question',
     }) as HTMLElement & { editor: Editor }
 
-    await userEvent.click(
+    await user.click(
       screen.getByRole('button', { name: SERVE_POLL_QUESTION_COPY.improve }),
     )
     // The field is read-only while Improve runs, so the edit arrives the way
     // a reset or a new draft would: from outside the editor.
-    await userEvent.click(screen.getByRole('radio', { name: 'Warm' }))
+    await user.click(screen.getByRole('radio', { name: 'Warm' }))
     release()
 
     await waitFor(() => expect(draftBodies.length).toBeGreaterThan(0))
@@ -474,7 +473,7 @@ describe('PollFlow bias check', () => {
 
     // The press blurs the field first, which starts the check.
     fireEvent.focusOut(screen.getByRole('textbox', { name: 'Poll question' }))
-    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
     release()
 
     expect(
@@ -499,7 +498,7 @@ describe('PollFlow bias check', () => {
     fireEvent.focusOut(screen.getByRole('textbox', { name: 'Poll question' }))
     await screen.findByText(SERVE_POLL_QUESTION_COPY.biasFlagged)
 
-    await userEvent.click(
+    await user.click(
       screen.getByRole('button', { name: SERVE_POLL_QUESTION_COPY.improve }),
     )
 
@@ -570,7 +569,7 @@ describe('PollFlow bias check', () => {
     )
     await writeLeadingQuestion()
 
-    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
 
     expect(
       await screen.findByRole('button', { name: /^Friday, September 4(?!\d)/ }),

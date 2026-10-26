@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { screen, waitFor, within } from '@testing-library/react'
+import { act, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import type { ElectedOffice, Organization } from 'gpApi/api-endpoints'
@@ -272,7 +272,7 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
         data: buildEO({ party: 'independent', selfReported: true }),
       }
     })
-    const user = userEvent.setup()
+    const user = userEvent.setup({ skipHover: true })
     renderFlow()
 
     await findStoryHeading(storyHeading.represent)
@@ -316,7 +316,7 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
       status: 200,
       data: buildEO({ party: 'independent', selfReported: true }),
     })
-    const user = userEvent.setup()
+    const user = userEvent.setup({ skipHover: true })
     renderFlow()
 
     await findStoryHeading(storyHeading.represent)
@@ -341,7 +341,7 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
 
   it('says what it aims for in every group', async () => {
     resumedAt('story-sample')
-    const user = userEvent.setup()
+    const user = userEvent.setup({ skipHover: true })
     renderFlow()
 
     await findStoryHeading(storyHeading.sample)
@@ -531,7 +531,7 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
       status: 200,
       data: buildEO({ party: 'independent', selfReported: true }),
     })
-    const user = userEvent.setup()
+    const user = userEvent.setup({ skipHover: true })
     renderFlow()
 
     await screen.findByText(PRIORITIES_TITLE)
@@ -584,7 +584,7 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
       communityStarts += 1
       return { status: 200, data: { starterIssueCount: 1 } }
     })
-    const user = userEvent.setup()
+    const user = userEvent.setup({ skipHover: true })
     renderFlow()
 
     await screen.findByText('Meet your chief of staff')
@@ -630,7 +630,7 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
     }
 
     it('waits past the welcome step and starts once they confirm they are in office', async () => {
-      const user = userEvent.setup()
+      const user = userEvent.setup({ skipHover: true })
       renderFlow()
 
       await answerInOffice(user, /I'm an elected official/)
@@ -639,7 +639,7 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
     })
 
     it('never starts for an official who is still campaigning', async () => {
-      const user = userEvent.setup()
+      const user = userEvent.setup({ skipHover: true })
       renderFlow()
 
       await answerInOffice(user, /I'm still campaigning/)
@@ -648,7 +648,7 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
     })
 
     it('never starts for someone just testing the product', async () => {
-      const user = userEvent.setup()
+      const user = userEvent.setup({ skipHover: true })
       renderFlow()
 
       await answerInOffice(user, /I'm just testing out the product/)
@@ -690,7 +690,7 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
     })
 
     try {
-      const user = userEvent.setup()
+      const user = userEvent.setup({ skipHover: true })
       renderFlow()
 
       await screen.findByText('Meet your chief of staff')
@@ -761,26 +761,34 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
         data: { options: loads < 3 ? [typed] : [typed, community] },
       }
     })
-    const user = userEvent.setup()
-    renderFlow()
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      const user = userEvent.setup({
+        skipHover: true,
+        advanceTimers: vi.advanceTimersByTime,
+      })
+      renderFlow()
 
-    const typed = await screen.findByLabelText(/Library hours/)
-    expect(typed).toBeChecked()
-    expect(screen.queryByLabelText(/Housing costs/)).not.toBeInTheDocument()
-    await user.click(typed)
-    expect(typed).not.toBeChecked()
+      const typed = await screen.findByLabelText(/Library hours/)
+      expect(typed).toBeChecked()
+      expect(screen.queryByLabelText(/Housing costs/)).not.toBeInTheDocument()
+      await user.click(typed)
+      expect(typed).not.toBeChecked()
 
-    expect(
-      await screen.findByLabelText(/Housing costs/, {}, { timeout: 12_000 }),
-    ).not.toBeChecked()
-    expect(screen.getByLabelText(/Library hours/)).not.toBeChecked()
-    expect(
-      screen.queryByText('Finding issues in your community'),
-    ).not.toBeInTheDocument()
-    const loadsWhenFound = loads
-    await new Promise((resolve) => setTimeout(resolve, 4_500))
-    expect(loads).toBe(loadsWhenFound)
-  }, 25_000)
+      await act(() => vi.advanceTimersByTimeAsync(4_000))
+      await act(() => vi.advanceTimersByTimeAsync(4_000))
+      expect(await screen.findByLabelText(/Housing costs/)).not.toBeChecked()
+      expect(screen.getByLabelText(/Library hours/)).not.toBeChecked()
+      expect(
+        screen.queryByText('Finding issues in your community'),
+      ).not.toBeInTheDocument()
+      const loadsWhenFound = loads
+      await act(() => vi.advanceTimersByTimeAsync(4_500))
+      expect(loads).toBe(loadsWhenFound)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 
   it('offers a retry and never saves when the issues fail to load', async () => {
     resumedAt('priorities')
@@ -808,7 +816,7 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
       saves += 1
       return { status: 200, data: undefined }
     })
-    const user = userEvent.setup()
+    const user = userEvent.setup({ skipHover: true })
     renderFlow()
 
     await screen.findByText('We couldn’t load issues for your community.')
@@ -853,7 +861,7 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
       status: 200,
       data: buildEO({ party: 'independent', selfReported: true }),
     })
-    const user = userEvent.setup()
+    const user = userEvent.setup({ skipHover: true })
     renderFlow()
 
     await user.click(await screen.findByLabelText(/Housing costs/))
@@ -888,7 +896,7 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
       status: 200,
       data: buildEO({ party: 'independent', selfReported: true }),
     })
-    const user = userEvent.setup()
+    const user = userEvent.setup({ skipHover: true })
     renderFlow()
 
     await screen.findByText(/We couldn’t find issues for your area yet/)
@@ -922,7 +930,7 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
       status: 200,
       data: buildEO({ party: 'independent', selfReported: true }),
     })
-    const user = userEvent.setup()
+    const user = userEvent.setup({ skipHover: true })
     renderFlow()
 
     await screen.findByText('When does your term run?')
@@ -1015,7 +1023,7 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
       saves += 1
       return { status: 200, data: undefined }
     })
-    const user = userEvent.setup()
+    const user = userEvent.setup({ skipHover: true })
     renderFlow()
 
     await screen.findByText('We couldn’t load issues for your area.')
@@ -1080,7 +1088,7 @@ describe('ServeOnboardingFlow with serve-citizen-panels off', () => {
       status: 200,
       data: buildEO({ party: 'independent', selfReported: true }),
     })
-    const user = userEvent.setup()
+    const user = userEvent.setup({ skipHover: true })
     renderFlow()
 
     await screen.findByText('Take our pledge to get your chief of staff')
@@ -1114,7 +1122,7 @@ describe('ServeOnboardingFlow', () => {
 
   it('selects a choice card with one click on its text', async () => {
     mockLoad(buildEO(), buildOrg())
-    const user = userEvent.setup()
+    const user = userEvent.setup({ skipHover: true })
     renderFlow()
 
     await screen.findByText('Meet your virtual chief of staff in 5 minutes')
@@ -1160,7 +1168,7 @@ describe('ServeOnboardingFlow', () => {
       }),
       buildOrg(),
     )
-    const user = userEvent.setup()
+    const user = userEvent.setup({ skipHover: true })
     renderFlow()
 
     // Prompt-first routing lands on the office step (office still missing).
@@ -1187,7 +1195,7 @@ describe('ServeOnboardingFlow', () => {
       return { status: 200, data: buildEO({ party: 'independent' }) }
     })
 
-    const user = userEvent.setup()
+    const user = userEvent.setup({ skipHover: true })
     renderFlow()
 
     await screen.findByText('Meet your virtual chief of staff in 5 minutes')
@@ -1242,7 +1250,7 @@ describe('ServeOnboardingFlow', () => {
       ),
     )
 
-    const user = userEvent.setup()
+    const user = userEvent.setup({ skipHover: true })
     renderFlow()
 
     // Net-new resume with a saved party lands on the office step.
@@ -1374,7 +1382,7 @@ describe('ServeOnboardingFlow', () => {
       status: 200,
       data: buildEO({ party: 'independent' }),
     })
-    const user = userEvent.setup()
+    const user = userEvent.setup({ skipHover: true })
     renderFlow()
 
     expect(
@@ -1437,7 +1445,7 @@ describe('ServeOnboardingFlow', () => {
       return { status: 200, data: buildEO({ party: 'independent' }) }
     })
 
-    const user = userEvent.setup()
+    const user = userEvent.setup({ skipHover: true })
     renderFlow()
 
     await screen.findByText('Meet your virtual chief of staff in 5 minutes')
@@ -1488,7 +1496,7 @@ describe('ServeOnboardingFlow', () => {
       data: buildEO({ party: 'independent' }),
     })
 
-    const user = userEvent.setup()
+    const user = userEvent.setup({ skipHover: true })
     renderFlow()
 
     await screen.findByText('Take our pledge to get your chief of staff')
@@ -1546,7 +1554,7 @@ describe('ServeOnboardingFlow', () => {
     })
 
     try {
-      const user = userEvent.setup()
+      const user = userEvent.setup({ skipHover: true })
       renderFlow()
 
       // Welcome Continue is navigation-only: no EO is created before the user
@@ -1635,7 +1643,7 @@ describe('ServeOnboardingFlow', () => {
       data: { message: 'boom' },
     })
 
-    const user = userEvent.setup()
+    const user = userEvent.setup({ skipHover: true })
     renderFlow()
 
     await screen.findByText('Meet your virtual chief of staff in 5 minutes')
@@ -1696,7 +1704,7 @@ const reachOfficeStepNetNew = async () => {
       ]),
     ),
   )
-  const user = userEvent.setup()
+  const user = userEvent.setup({ skipHover: true })
   renderFlow()
   await screen.findByText('What office do you currently hold?')
   return user
@@ -1714,7 +1722,7 @@ describe('ServeOnboardingFlow analytics instrumentation', () => {
       status: 200,
       data: buildEO(),
     })
-    const user = userEvent.setup()
+    const user = userEvent.setup({ skipHover: true })
     renderFlow()
 
     // Welcome view fires on view (net-new branch resolved at load).
@@ -1745,7 +1753,7 @@ describe('ServeOnboardingFlow analytics instrumentation', () => {
       status: 200,
       data: buildEO(),
     })
-    const user = userEvent.setup()
+    const user = userEvent.setup({ skipHover: true })
     renderFlow()
 
     await screen.findByText('Meet your virtual chief of staff in 5 minutes')
@@ -1770,7 +1778,7 @@ describe('ServeOnboardingFlow analytics instrumentation', () => {
 
   it('captures the "still campaigning" hand-off as the Office Status Viewed selection', async () => {
     mockLoad(buildEO(), buildOrg())
-    const user = userEvent.setup()
+    const user = userEvent.setup({ skipHover: true })
     renderFlow()
 
     await screen.findByText('Meet your virtual chief of staff in 5 minutes')
@@ -1795,7 +1803,7 @@ describe('ServeOnboardingFlow analytics instrumentation', () => {
       status: 200,
       data: buildEO({ party: 'independent' }),
     })
-    const user = userEvent.setup()
+    const user = userEvent.setup({ skipHover: true })
     renderFlow()
 
     await screen.findByText('Meet your virtual chief of staff in 5 minutes')
@@ -1863,7 +1871,7 @@ describe('ServeOnboardingFlow analytics instrumentation', () => {
       status: 200,
       data: buildEO({ party: 'nonpartisan' }),
     })
-    const user = userEvent.setup()
+    const user = userEvent.setup({ skipHover: true })
     renderFlow()
 
     await screen.findByText('Meet your virtual chief of staff in 5 minutes')
@@ -1889,7 +1897,7 @@ describe('ServeOnboardingFlow analytics instrumentation', () => {
 
   it('completes office status for someone still campaigning', async () => {
     mockLoad(buildEO(), buildOrg())
-    const user = userEvent.setup()
+    const user = userEvent.setup({ skipHover: true })
     renderFlow()
 
     await screen.findByText('Meet your virtual chief of staff in 5 minutes')
@@ -1949,7 +1957,7 @@ describe('ServeOnboardingFlow analytics instrumentation', () => {
       data: buildEO({ party: 'independent', selfReported: true }),
     })
 
-    const user = userEvent.setup()
+    const user = userEvent.setup({ skipHover: true })
     renderFlow()
 
     await screen.findByText('Take our pledge to get your chief of staff')
