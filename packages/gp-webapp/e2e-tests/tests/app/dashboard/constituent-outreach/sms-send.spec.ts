@@ -266,8 +266,12 @@ test.describe('Serve SMS send — vendor-mock payment + results pipeline', () =>
     const stripeFrame = page
       .frameLocator('iframe[title="Secure payment input frame"]')
       .first()
+    // Stripe mounts only after POST /outreach/serve/sms returns, and that call
+    // is allowed 90s above (route.fetch). Wait as long as the request may take,
+    // or a slow dev gp-api fails the spec while the request is still in flight
+    // (ENG-11477).
     await expect(stripeFrame.locator('#payment-numberInput')).toBeVisible({
-      timeout: 30_000,
+      timeout: 90_000,
     })
 
     await fillStripeCard(page)
