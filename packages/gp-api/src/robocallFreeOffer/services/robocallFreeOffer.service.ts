@@ -64,15 +64,6 @@ export class RobocallFreeOfferService extends createPrismaBase(
 ) {
   private readonly couponId = getEnv('ROBOCALL_FREE_OFFER_COUPON_ID') || null
 
-  // Internal test campaigns that skip the demo / test-mode / goodparty.org
-  // exclusion, so the offer can be checked end to end in prod.
-  private readonly allowedCampaignIds = new Set(
-    (getEnv('ROBOCALL_FREE_OFFER_ALLOWED_CAMPAIGN_IDS') ?? '')
-      .split(',')
-      .map((id) => Number(id.trim()))
-      .filter((id) => Number.isInteger(id) && id > 0),
-  )
-
   constructor(
     private readonly features: FeaturesService,
     private readonly experimentAssignments: CampaignExperimentAssignmentService,
@@ -131,7 +122,8 @@ export class RobocallFreeOfferService extends createPrismaBase(
       feature: ROBOCALL_FREE_OFFER_FLAG,
     })
     if (!flagOn) return null
-    if (!(await this.passesOutreachAndOwnerRules(campaign))) return null
+    if (!(await this.passesOutreachAndOwnerRules(organization, campaign)))
+      return null
     // Win ICP is a slow rule the stored arm caches, but it is checked ahead
     // of the warehouse read below so a non-ICP campaign never pays for one.
     if (arm === null && !(await this.isWinIcp(organization))) return null
@@ -164,7 +156,11 @@ export class RobocallFreeOfferService extends createPrismaBase(
     )
     if (arm !== ROBOCALL_FREE_OFFER_ARMS.offered) return null
     if (
-      !(await this.passesOutreachAndOwnerRules(campaign, excludeOutreachId))
+      !(await this.passesOutreachAndOwnerRules(
+        organization,
+        campaign,
+        excludeOutreachId,
+      ))
     ) {
       return null
     }
@@ -286,14 +282,15 @@ export class RobocallFreeOfferService extends createPrismaBase(
     if (!organization.slug.startsWith('campaign-')) return false
     const parsed = CampaignElectionSchema.safeParse(campaign.details)
     const electionDate = parsed.success ? parsed.data.electionDate : null
-    if (electionDate !== ROBOCALL_FREE_OFFER_ELECTION_DATE) return false
-    if (this.allowedCampaignIds.has(campaign.id)) return true
-    return !campaign.isDemo && organization.testModeCreatedAt === null
+    return electionDate === ROBOCALL_FREE_OFFER_ELECTION_DATE
   }
 
   // Rules that need other tables: has sent texts, has booked no robocall,
-  // and is not an internal account.
+  // and is not a demo or test-mode campaign. A goodparty.org owner skips
+  // that last rule, so staff can check the offer end to end in prod; the
+  // readout leaves those campaigns out.
   private async passesOutreachAndOwnerRules(
+    organization: Organization,
     campaign: Campaign,
     excludeOutreachId?: number,
   ): Promise<boolean> {
@@ -321,8 +318,8 @@ export class RobocallFreeOfferService extends createPrismaBase(
       }),
     ])
     if (sentSms === 0 || bookedRobocall > 0) return false
-    if (this.allowedCampaignIds.has(campaign.id)) return true
-    return !owner?.email.toLowerCase().endsWith(INTERNAL_EMAIL_DOMAIN)
+    if (owner?.email.toLowerCase().endsWith(INTERNAL_EMAIL_DOMAIN)) return true
+    return !campaign.isDemo && organization.testModeCreatedAt === null
   }
 
   // The district's known precincts (the Unknown bucket dropped) with their
