@@ -30,6 +30,7 @@ const service = useTestService()
 const EXPERIMENT = 'robocall-free-offer-2026-11'
 const VARIANT = 'freeOfferElectionEveRobocall'
 const FLAG = 'robocall-free-offer'
+const CAMPAIGN_ID = 996
 
 const district: DbxDistrict = {
   districtId: 'district-1',
@@ -69,7 +70,7 @@ const offerPromo = (
     livemode: false,
     metadata: {
       experiment: EXPERIMENT,
-      campaignId: overrides.campaignId ?? String(campaign.id),
+      campaignId: overrides.campaignId ?? String(CAMPAIGN_ID),
     },
     restrictions: { minimum_amount: null },
     promotion: {
@@ -150,7 +151,7 @@ beforeEach(async () => {
     'notifyRobocallScheduled',
   ).mockResolvedValue(undefined)
 
-  const campaignId = 996
+  const campaignId = CAMPAIGN_ID
   orgSlug = `campaign-${campaignId}`
   await service.prisma.organization.create({
     data: { slug: orgSlug, ownerId: service.user.id, positionId: 'pos-icp' },
