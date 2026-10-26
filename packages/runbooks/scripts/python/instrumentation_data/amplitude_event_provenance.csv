@@ -83,29 +83,29 @@ Chief Of Staff - Attached Document Queried,chief_of_staff_attached_document_quer
 Chief Of Staff - Citation Opened,chief_of_staff_citation_opened,0ebb387de81cfb13f4220493e112ca947319759e,https://github.com/thegoodparty/omni/pull/2100,2026-09-23,gp-bot@goodparty.org,,,,,2026-09-23,1,,,,2026-10-05T11:08:13
 Chief Of Staff - Compose Handoff Opened,chief_of_staff_compose_handoff_opened,0ebb387de81cfb13f4220493e112ca947319759e,https://github.com/thegoodparty/omni/pull/2100,2026-09-23,gp-bot@goodparty.org,,,,,2026-09-23,1,,,,2026-10-05T11:08:13
 Chief Of Staff - Document Attached,chief_of_staff_document_attached,0ebb387de81cfb13f4220493e112ca947319759e,https://github.com/thegoodparty/omni/pull/2100,2026-09-23,gp-bot@goodparty.org,,,,,2026-09-23,1,,,,2026-09-29T21:13:34
-Chief Of Staff - Introductory Next Step Picked,chief_of_staff_introductory_next_step_picked,,,2026-10-26,,,,,,2026-10-26,,,,,2026-10-26T12:59:50
+Chief Of Staff - Introductory Next Step Picked,chief_of_staff_introductory_next_step_picked,,https://github.com/thegoodparty/omni/pull/3261,2026-10-26,,,,,,2026-10-26,,,,,2026-10-26T13:03:35
 Chief Of Staff - Link Fetch Failed,chief_of_staff_link_fetch_failed,0ebb387de81cfb13f4220493e112ca947319759e,https://github.com/thegoodparty/omni/pull/2100,2026-09-23,gp-bot@goodparty.org,,,,,2026-09-23,2,,,,2026-10-05T11:08:13
 Chief Of Staff - Link Submitted,chief_of_staff_link_submitted,0ebb387de81cfb13f4220493e112ca947319759e,https://github.com/thegoodparty/omni/pull/2100,2026-09-23,gp-bot@goodparty.org,,,,,2026-09-23,1,,,,2026-10-05T11:08:13
-Chief Of Staff - Next Step Picked,chief_of_staff_next_step_picked,,https://github.com/thegoodparty/omni/pull/3249,2026-10-24,,,,2026-10-26,,2026-10-26,,,,,2026-10-26T12:59:50
+Chief Of Staff - Next Step Picked,chief_of_staff_next_step_picked,,https://github.com/thegoodparty/omni/pull/3249,2026-10-24,,,https://github.com/thegoodparty/omni/pull/3261,2026-10-26,,2026-10-26,,,,,2026-10-26T13:03:35
 Chief Of Staff - Source Unreachable Prompt Shown,chief_of_staff_source_unreachable_prompt_shown,0ebb387de81cfb13f4220493e112ca947319759e,https://github.com/thegoodparty/omni/pull/2100,2026-09-23,gp-bot@goodparty.org,,,,,2026-09-23,1,,,,2026-10-05T11:08:13
 Chief Of Staff - Task Action Taken,chief_of_staff_task_action_taken,ba915e7eca2dba9b07645bb887ff96c90fd58daa,https://github.com/thegoodparty/omni/pull/2692,2026-10-12,bryan@goodparty.org,,,,,2026-10-12,4,,,,2026-10-19T11:07:48
 Chief Of Staff - Task Completed,chief_of_staff_task_completed,ba915e7eca2dba9b07645bb887ff96c90fd58daa,https://github.com/thegoodparty/omni/pull/2692,2026-10-12,bryan@goodparty.org,,,,,2026-10-12,1,,,,2026-10-19T11:07:48
 Chief Of Staff - Task Viewed,chief_of_staff_task_viewed,,https://github.com/thegoodparty/omni/pull/3249,2026-10-24,,,,,,2026-10-24,,,,,2026-10-24T18:08:42
 Chief Of Staff - Upload Guard Shown,chief_of_staff_upload_guard_shown,0ebb387de81cfb13f4220493e112ca947319759e,https://github.com/thegoodparty/omni/pull/2100,2026-09-23,gp-bot@goodparty.org,,,,,2026-09-23,1,,,,2026-09-29T21:13:34
 Civic Panel - Goal Reached,civic_panel_goal_reached,,https://github.com/thegoodparty/omni/pull/2921,2026-10-16,,,https://github.com/thegoodparty/omni/pull/3183,2026-10-23,,2026-10-23,1,,,,2026-10-23T15:45:29
-Civic Panel - Managed Invite Approved,civic_panel_managed_invite_approved,,https://github.com/thegoodparty/omni/pull/3249,2026-10-24,,,,2026-10-26,,2026-10-26,,,,,2026-10-26T12:59:50
-Civic Panel - Managed Invite Explainer Completed,civic_panel_managed_invite_explainer_completed,,https://github.com/thegoodparty/omni/pull/3249,2026-10-24,,,,2026-10-26,,2026-10-26,,,,,2026-10-26T12:59:49
-Civic Panel - Managed Invite Explainer Viewed,civic_panel_managed_invite_explainer_viewed,,https://github.com/thegoodparty/omni/pull/3249,2026-10-24,,,,2026-10-26,,2026-10-26,,,,,2026-10-26T12:59:48
-Civic Panel - Managed Invite Review Dismissed,civic_panel_managed_invite_review_dismissed,,https://github.com/thegoodparty/omni/pull/3249,2026-10-24,,,,2026-10-26,,2026-10-26,,,,,2026-10-26T12:59:49
-Civic Panel - Managed Invite Review Viewed,civic_panel_managed_invite_review_viewed,,https://github.com/thegoodparty/omni/pull/3249,2026-10-24,,,,2026-10-26,,2026-10-26,,,,,2026-10-26T12:59:49
-Civic Panel - Managed Invite Submitted,civic_panel_managed_invite_submitted,,https://github.com/thegoodparty/omni/pull/3249,2026-10-24,,,,2026-10-26,,2026-10-26,,,,,2026-10-26T12:59:50
-Civic Panel - Managed Invite Viewed,civic_panel_managed_invite_viewed,,https://github.com/thegoodparty/omni/pull/3249,2026-10-24,,,,2026-10-26,,2026-10-26,,,,,2026-10-26T12:59:49
-Civic Panel - Managed Panel Ready,civic_panel_managed_panel_ready,,https://github.com/thegoodparty/omni/pull/3249,2026-10-24,,,,2026-10-26,,2026-10-26,,,,,2026-10-26T12:59:51
-Civic Panel - Managed Panel Status Changed,civic_panel_managed_panel_status_changed,,https://github.com/thegoodparty/omni/pull/3249,2026-10-24,,,,2026-10-26,,2026-10-26,,,,,2026-10-26T12:59:50
-Civic Panel - Managed Wave Closed,civic_panel_managed_wave_closed,,https://github.com/thegoodparty/omni/pull/3249,2026-10-24,,,,2026-10-26,,2026-10-26,,,,,2026-10-26T12:59:51
-Civic Panel - Managed Wave Sent,civic_panel_managed_wave_sent,,https://github.com/thegoodparty/omni/pull/3249,2026-10-24,,,,2026-10-26,,2026-10-26,,,,,2026-10-26T12:59:51
-Civic Panel - Membership Changed,civic_panel_membership_changed,,https://github.com/thegoodparty/omni/pull/2921,2026-10-16,,,,2026-10-26,,2026-10-26,1,,,,2026-10-26T12:59:51
-Civic Panel - Panel Viewed,civic_panel_panel_viewed,,https://github.com/thegoodparty/omni/pull/2921,2026-10-16,,,,2026-10-26,,2026-10-26,1,,,,2026-10-26T12:59:50
+Civic Panel - Managed Invite Approved,civic_panel_managed_invite_approved,,https://github.com/thegoodparty/omni/pull/3249,2026-10-24,,,https://github.com/thegoodparty/omni/pull/3261,2026-10-26,,2026-10-26,,,,,2026-10-26T13:03:35
+Civic Panel - Managed Invite Explainer Completed,civic_panel_managed_invite_explainer_completed,,https://github.com/thegoodparty/omni/pull/3249,2026-10-24,,,https://github.com/thegoodparty/omni/pull/3261,2026-10-26,,2026-10-26,,,,,2026-10-26T13:03:33
+Civic Panel - Managed Invite Explainer Viewed,civic_panel_managed_invite_explainer_viewed,,https://github.com/thegoodparty/omni/pull/3249,2026-10-24,,,https://github.com/thegoodparty/omni/pull/3261,2026-10-26,,2026-10-26,,,,,2026-10-26T13:03:33
+Civic Panel - Managed Invite Review Dismissed,civic_panel_managed_invite_review_dismissed,,https://github.com/thegoodparty/omni/pull/3249,2026-10-24,,,https://github.com/thegoodparty/omni/pull/3261,2026-10-26,,2026-10-26,,,,,2026-10-26T13:03:34
+Civic Panel - Managed Invite Review Viewed,civic_panel_managed_invite_review_viewed,,https://github.com/thegoodparty/omni/pull/3249,2026-10-24,,,https://github.com/thegoodparty/omni/pull/3261,2026-10-26,,2026-10-26,,,,,2026-10-26T13:03:34
+Civic Panel - Managed Invite Submitted,civic_panel_managed_invite_submitted,,https://github.com/thegoodparty/omni/pull/3249,2026-10-24,,,https://github.com/thegoodparty/omni/pull/3261,2026-10-26,,2026-10-26,,,,,2026-10-26T13:03:34
+Civic Panel - Managed Invite Viewed,civic_panel_managed_invite_viewed,,https://github.com/thegoodparty/omni/pull/3249,2026-10-24,,,https://github.com/thegoodparty/omni/pull/3261,2026-10-26,,2026-10-26,,,,,2026-10-26T13:03:34
+Civic Panel - Managed Panel Ready,civic_panel_managed_panel_ready,,https://github.com/thegoodparty/omni/pull/3249,2026-10-24,,,https://github.com/thegoodparty/omni/pull/3261,2026-10-26,,2026-10-26,,,,,2026-10-26T13:03:35
+Civic Panel - Managed Panel Status Changed,civic_panel_managed_panel_status_changed,,https://github.com/thegoodparty/omni/pull/3249,2026-10-24,,,https://github.com/thegoodparty/omni/pull/3261,2026-10-26,,2026-10-26,,,,,2026-10-26T13:03:35
+Civic Panel - Managed Wave Closed,civic_panel_managed_wave_closed,,https://github.com/thegoodparty/omni/pull/3249,2026-10-24,,,https://github.com/thegoodparty/omni/pull/3261,2026-10-26,,2026-10-26,,,,,2026-10-26T13:03:35
+Civic Panel - Managed Wave Sent,civic_panel_managed_wave_sent,,https://github.com/thegoodparty/omni/pull/3249,2026-10-24,,,https://github.com/thegoodparty/omni/pull/3261,2026-10-26,,2026-10-26,,,,,2026-10-26T13:03:35
+Civic Panel - Membership Changed,civic_panel_membership_changed,,https://github.com/thegoodparty/omni/pull/2921,2026-10-16,,,https://github.com/thegoodparty/omni/pull/3261,2026-10-26,,2026-10-26,1,,,,2026-10-26T13:03:36
+Civic Panel - Panel Viewed,civic_panel_panel_viewed,,https://github.com/thegoodparty/omni/pull/2921,2026-10-16,,,https://github.com/thegoodparty/omni/pull/3261,2026-10-26,,2026-10-26,1,,,,2026-10-26T13:03:34
 Civic Panel - Plan Created,civic_panel_plan_created,,https://github.com/thegoodparty/omni/pull/2921,2026-10-16,,,https://github.com/thegoodparty/omni/pull/3183,2026-10-23,,2026-10-23,1,,,,2026-10-23T15:45:28
 Civic Panel - Plan Updated,civic_panel_plan_updated,,https://github.com/thegoodparty/omni/pull/2921,2026-10-16,,,https://github.com/thegoodparty/omni/pull/3183,2026-10-23,,2026-10-23,1,,,,2026-10-23T15:45:28
 Civic Panel - Step Completed,civic_panel_step_completed,,https://github.com/thegoodparty/omni/pull/2921,2026-10-16,,,https://github.com/thegoodparty/omni/pull/3183,2026-10-23,,2026-10-23,2,,,,2026-10-23T15:45:29
@@ -143,19 +143,19 @@ Constituent Feedback - Issue Confirmed,constituent_feedback_issue_confirmed,,htt
 Constituent Feedback - Issue Skipped,constituent_feedback_issue_skipped,,https://github.com/thegoodparty/omni/pull/2145,2026-10-02,,,,,,2026-10-02,,,,,2026-10-02T14:32:41
 Contacts - Assistant Chat Opened,contacts_assistant_chat_opened,07933cd077828e68440067f9dadf5dd5c668390d,https://github.com/thegoodparty/omni/pull/959,2026-07-22,tomer@goodparty.org,,,,,2026-07-22,3,,,,2026-07-27T12:04:25
 Contacts - Assistant Message Sent,contacts_assistant_message_sent,07933cd077828e68440067f9dadf5dd5c668390d,https://github.com/thegoodparty/omni/pull/959,2026-07-22,tomer@goodparty.org,,,2026-10-19,,2026-10-19,1,,,,2026-10-19T13:24:19
-Contacts - Civic Panel Invite Approved,contacts_civic_panel_invite_approved,,,2026-10-26,,,,,,2026-10-26,,,,,2026-10-26T12:59:50
-Contacts - Civic Panel Invite Review Dismissed,contacts_civic_panel_invite_review_dismissed,,,2026-10-26,,,,,,2026-10-26,,,,,2026-10-26T12:59:50
-Contacts - Civic Panel Invite Review Viewed,contacts_civic_panel_invite_review_viewed,,,2026-10-26,,,,,,2026-10-26,,,,,2026-10-26T12:59:49
-Contacts - Civic Panel Invite Submitted,contacts_civic_panel_invite_submitted,,,2026-10-26,,,,,,2026-10-26,,,,,2026-10-26T12:59:50
-Contacts - Civic Panel Invite Viewed,contacts_civic_panel_invite_viewed,,,2026-10-26,,,,,,2026-10-26,,,,,2026-10-26T12:59:49
-Contacts - Civic Panel Managed Invite Value Prop Completed,contacts_civic_panel_managed_invite_value_prop_completed,,,2026-10-26,,,,,,2026-10-26,,,,,2026-10-26T12:59:49
-Contacts - Civic Panel Managed Invite Value Prop Viewed,contacts_civic_panel_managed_invite_value_prop_viewed,,,2026-10-26,,,,,,2026-10-26,,,,,2026-10-26T12:59:49
-Contacts - Civic Panel Membership Changed,contacts_civic_panel_membership_changed,,,2026-10-26,,,,,,2026-10-26,,,,,2026-10-26T12:59:51
-Contacts - Civic Panel Ready,contacts_civic_panel_ready,,,2026-10-26,,,,,,2026-10-26,,,,,2026-10-26T12:59:51
-Contacts - Civic Panel Status Changed,contacts_civic_panel_status_changed,,,2026-10-26,,,,,,2026-10-26,,,,,2026-10-26T12:59:51
-Contacts - Civic Panel Viewed,contacts_civic_panel_viewed,,,2026-10-26,,,,,,2026-10-26,,,,,2026-10-26T12:59:50
-Contacts - Civic Panel Wave Closed,contacts_civic_panel_wave_closed,,,2026-10-26,,,,,,2026-10-26,,,,,2026-10-26T12:59:51
-Contacts - Civic Panel Wave Sent,contacts_civic_panel_wave_sent,,,2026-10-26,,,,,,2026-10-26,,,,,2026-10-26T12:59:51
+Contacts - Civic Panel Invite Approved,contacts_civic_panel_invite_approved,,https://github.com/thegoodparty/omni/pull/3261,2026-10-26,,,,,,2026-10-26,,,,,2026-10-26T13:03:35
+Contacts - Civic Panel Invite Review Dismissed,contacts_civic_panel_invite_review_dismissed,,https://github.com/thegoodparty/omni/pull/3261,2026-10-26,,,,,,2026-10-26,,,,,2026-10-26T13:03:34
+Contacts - Civic Panel Invite Review Viewed,contacts_civic_panel_invite_review_viewed,,https://github.com/thegoodparty/omni/pull/3261,2026-10-26,,,,,,2026-10-26,,,,,2026-10-26T13:03:34
+Contacts - Civic Panel Invite Submitted,contacts_civic_panel_invite_submitted,,https://github.com/thegoodparty/omni/pull/3261,2026-10-26,,,,,,2026-10-26,,,,,2026-10-26T13:03:34
+Contacts - Civic Panel Invite Viewed,contacts_civic_panel_invite_viewed,,https://github.com/thegoodparty/omni/pull/3261,2026-10-26,,,,,,2026-10-26,,,,,2026-10-26T13:03:34
+Contacts - Civic Panel Managed Invite Value Prop Completed,contacts_civic_panel_managed_invite_value_prop_completed,,https://github.com/thegoodparty/omni/pull/3261,2026-10-26,,,,,,2026-10-26,,,,,2026-10-26T13:03:33
+Contacts - Civic Panel Managed Invite Value Prop Viewed,contacts_civic_panel_managed_invite_value_prop_viewed,,https://github.com/thegoodparty/omni/pull/3261,2026-10-26,,,,,,2026-10-26,,,,,2026-10-26T13:03:33
+Contacts - Civic Panel Membership Changed,contacts_civic_panel_membership_changed,,https://github.com/thegoodparty/omni/pull/3261,2026-10-26,,,,,,2026-10-26,,,,,2026-10-26T13:03:36
+Contacts - Civic Panel Ready,contacts_civic_panel_ready,,https://github.com/thegoodparty/omni/pull/3261,2026-10-26,,,,,,2026-10-26,,,,,2026-10-26T13:03:36
+Contacts - Civic Panel Status Changed,contacts_civic_panel_status_changed,,https://github.com/thegoodparty/omni/pull/3261,2026-10-26,,,,,,2026-10-26,,,,,2026-10-26T13:03:35
+Contacts - Civic Panel Viewed,contacts_civic_panel_viewed,,https://github.com/thegoodparty/omni/pull/3261,2026-10-26,,,,,,2026-10-26,,,,,2026-10-26T13:03:34
+Contacts - Civic Panel Wave Closed,contacts_civic_panel_wave_closed,,https://github.com/thegoodparty/omni/pull/3261,2026-10-26,,,,,,2026-10-26,,,,,2026-10-26T13:03:35
+Contacts - Civic Panel Wave Sent,contacts_civic_panel_wave_sent,,https://github.com/thegoodparty/omni/pull/3261,2026-10-26,,,,,,2026-10-26,,,,,2026-10-26T13:03:35
 Contacts - Column Edited,contacts_column_edited,e54c02097e3c70880d05b8a7479f7889f87cdd99,https://github.com/thegoodparty/gp-webapp/pull/958,2025-09-14,tomer@goodparty.org,58821b65733bc3b6da57c261c7602ee7e8f1c6e5,https://github.com/thegoodparty/omni/pull/732,2026-07-13,tristan@goodparty.org,2026-07-13,,,,,2026-07-13T21:45:27
 Contacts - Contacts Viewed,contacts_contacts_viewed,89f97d0c41382d4c48e72db3ffe591be4694d12a,https://github.com/thegoodparty/omni/pull/194,2026-06-17,52380560+tomer-tgp@users.noreply.github.com,,,,,2026-07-22,1,,,,2026-07-27T12:04:25
 Contacts - Download,contacts_download,e54c02097e3c70880d05b8a7479f7889f87cdd99,https://github.com/thegoodparty/gp-webapp/pull/958,2025-09-14,tomer@goodparty.org,,,,,2025-09-14,1,,,,2026-06-30T20:12:33
