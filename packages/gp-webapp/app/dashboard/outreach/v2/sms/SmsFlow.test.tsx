@@ -343,9 +343,7 @@ describe('SmsFlow', () => {
     expect(
       await screen.findByText(/Message 1,200 voters for \$42\.00/),
     ).toBeInTheDocument()
-    await user.click(
-      screen.getByRole('button', { name: /Continue \(1,200\)/ }),
-    )
+    await user.click(screen.getByRole('button', { name: /Continue \(1,200\)/ }))
 
     // Compose: initial AI draft fires; body arrives with the intro region.
     expect(
@@ -386,9 +384,7 @@ describe('SmsFlow', () => {
       await screen.findByText('When do you want to send it?'),
     ).toBeInTheDocument()
     await user.click(screen.getByText('Pick a date'))
-    await user.click(
-      await screen.findByRole('button', { name: dayName(4) }),
-    )
+    await user.click(await screen.findByRole('button', { name: dayName(4) }))
     await user.click(screen.getByRole('button', { name: 'Continue' }))
 
     // Review: free-texts offer covers 1,200 → free branch.
@@ -468,9 +464,7 @@ describe('SmsFlow', () => {
     ).toBeInTheDocument()
     expect(stepOf()).toBe('Step 4 of 5')
     await user.click(screen.getByText('Pick a date'))
-    await user.click(
-      await screen.findByRole('button', { name: dayName(4) }),
-    )
+    await user.click(await screen.findByRole('button', { name: dayName(4) }))
     await user.click(screen.getByRole('button', { name: 'Continue' }))
 
     expect(
@@ -524,9 +518,7 @@ describe('SmsFlow', () => {
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await user.click(await screen.findByText('Pick a date'))
-    await user.click(
-      await screen.findByRole('button', { name: dayName(4) }),
-    )
+    await user.click(await screen.findByRole('button', { name: dayName(4) }))
     await user.click(screen.getByRole('button', { name: 'Continue' }))
   }
 
@@ -617,9 +609,7 @@ describe('SmsFlow', () => {
       )
       await user.click(screen.getByRole('button', { name: 'Continue' }))
       await user.click(await screen.findByText('Pick a date'))
-      await user.click(
-        await screen.findByRole('button', { name: dayName(4) }),
-      )
+      await user.click(await screen.findByRole('button', { name: dayName(4) }))
       await user.click(screen.getByRole('button', { name: 'Continue' }))
 
       // The review step sits in its preparing (spinner) state — no draft, no
@@ -746,9 +736,7 @@ describe('SmsFlow', () => {
       await user.click(continueButton())
 
       await user.click(await screen.findByText('Pick a date'))
-      await user.click(
-        await screen.findByRole('button', { name: dayName(4) }),
-      )
+      await user.click(await screen.findByRole('button', { name: dayName(4) }))
       await waitFor(() => expect(continueButton()).toBeEnabled())
     })
 
@@ -824,9 +812,7 @@ describe('SmsFlow', () => {
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await user.click(await screen.findByText('Pick a date'))
-    await user.click(
-      await screen.findByRole('button', { name: dayName(4) }),
-    )
+    await user.click(await screen.findByRole('button', { name: dayName(4) }))
     await user.click(screen.getByRole('button', { name: 'Continue' }))
 
     await user.click(
@@ -852,9 +838,7 @@ describe('SmsFlow', () => {
     await user.click(screen.getByText('Introduce myself to voters'))
     await user.click(screen.getByText('Choose a voter list'))
     await user.click(await screen.findByText('Likely voters'))
-    await user.click(
-      screen.getByRole('button', { name: /Continue \(1,200\)/ }),
-    )
+    await user.click(screen.getByRole('button', { name: /Continue \(1,200\)/ }))
 
     await waitFor(() =>
       expect(
@@ -881,9 +865,7 @@ describe('SmsFlow', () => {
     await user.click(screen.getByText('Introduce myself to voters'))
     await user.click(screen.getByText('Choose a voter list'))
     await user.click(await screen.findByText('Likely voters'))
-    await user.click(
-      screen.getByRole('button', { name: /Continue \(1,200\)/ }),
-    )
+    await user.click(screen.getByRole('button', { name: /Continue \(1,200\)/ }))
 
     await waitFor(() =>
       expect(
@@ -1147,9 +1129,7 @@ describe('SmsFlow', () => {
       )
       await waitFor(() => expect(box).toHaveTextContent(/Go vote!/))
 
-      await user.click(
-        screen.getByRole('button', { name: 'Improve with AI' }),
-      )
+      await user.click(screen.getByRole('button', { name: 'Improve with AI' }))
       await user.click(screen.getByRole('button', { name: 'Undo' }))
       release()
       await waitFor(() => expect(answered.done).toBe(true))
@@ -1494,9 +1474,7 @@ describe('SmsFlow', () => {
       )
       await waitFor(() => expect(box).toHaveTextContent(/Please vote soon!/))
 
-      await user.click(
-        screen.getByRole('button', { name: 'Improve with AI' }),
-      )
+      await user.click(screen.getByRole('button', { name: 'Improve with AI' }))
       await waitFor(() => expect(box).toHaveTextContent(/Vote soon ASAP!/))
 
       await user.click(screen.getByRole('button', { name: 'Undo' }))
@@ -1521,9 +1499,7 @@ describe('SmsFlow', () => {
     await user.click(screen.getByText('Introduce myself to voters'))
     await user.click(screen.getByText('Choose a voter list'))
     await user.click(await screen.findByText('Likely voters'))
-    await user.click(
-      screen.getByRole('button', { name: /Continue \(1,200\)/ }),
-    )
+    await user.click(screen.getByRole('button', { name: /Continue \(1,200\)/ }))
 
     await waitFor(() =>
       expect(
@@ -1630,9 +1606,7 @@ describe('SmsFlow', () => {
       await attachImage()
       await user.click(screen.getByRole('button', { name: 'Continue' }))
       await user.click(await screen.findByText('Pick a date'))
-      await user.click(
-        await screen.findByRole('button', { name: dayName(4) }),
-      )
+      await user.click(await screen.findByRole('button', { name: dayName(4) }))
       await user.click(screen.getByRole('button', { name: 'Continue' }))
       expect(
         await screen.findByRole('heading', {
@@ -1700,9 +1674,7 @@ describe('SmsFlow', () => {
       )
       await user.click(screen.getByRole('button', { name: 'Continue' }))
       await user.click(await screen.findByText('Pick a date'))
-      await user.click(
-        await screen.findByRole('button', { name: dayName(4) }),
-      )
+      await user.click(await screen.findByRole('button', { name: dayName(4) }))
       await user.click(screen.getByRole('button', { name: 'Continue' }))
 
       await waitFor(() =>
@@ -1734,9 +1706,7 @@ describe('SmsFlow', () => {
       )
       await user.click(screen.getByRole('button', { name: 'Continue' }))
       await user.click(await screen.findByText('Pick a date'))
-      await user.click(
-        await screen.findByRole('button', { name: dayName(4) }),
-      )
+      await user.click(await screen.findByRole('button', { name: dayName(4) }))
       await user.click(screen.getByRole('button', { name: 'Continue' }))
 
       await waitFor(() =>
@@ -1766,9 +1736,7 @@ describe('SmsFlow', () => {
       )
       await user.click(screen.getByRole('button', { name: 'Continue' }))
       await user.click(await screen.findByText('Pick a date'))
-      await user.click(
-        await screen.findByRole('button', { name: dayName(4) }),
-      )
+      await user.click(await screen.findByRole('button', { name: dayName(4) }))
       await user.click(screen.getByRole('button', { name: 'Continue' }))
 
       expect(
@@ -1969,9 +1937,7 @@ describe('SmsFlow', () => {
       await screen.findByText('When do you want to send it?'),
     ).toBeInTheDocument()
     await user.click(screen.getByText('Pick a date'))
-    await user.click(
-      await screen.findByRole('button', { name: dayName(4) }),
-    )
+    await user.click(await screen.findByRole('button', { name: dayName(4) }))
     await user.click(screen.getByRole('button', { name: 'Continue' }))
 
     const scheduleButton = await screen.findByRole('button', {
@@ -2254,9 +2220,7 @@ describe('SmsFlow', () => {
       expect(await screen.findByLabelText('List name')).toHaveValue(
         'Undecided persuadables',
       )
-      await user.click(
-        await screen.findByRole('button', { name: 'Continue' }),
-      )
+      await user.click(await screen.findByRole('button', { name: 'Continue' }))
       expect(
         await screen.findByText(/AI body \(warm\) for introduce_myself/),
       ).toBeInTheDocument()
@@ -2293,14 +2257,10 @@ describe('SmsFlow', () => {
       await user.click(await screen.findByText('Persuadable independents'))
 
       await user.click(screen.getByText(GATE_LINE))
-      await user.click(
-        await screen.findByRole('button', { name: 'Join Pro' }),
-      )
+      await user.click(await screen.findByRole('button', { name: 'Join Pro' }))
       expect(await screen.findByTestId('pro-upgrade-flow')).toBeInTheDocument()
 
-      await user.click(
-        screen.getByRole('button', { name: 'Finish later' }),
-      )
+      await user.click(screen.getByRole('button', { name: 'Finish later' }))
 
       expect(
         await screen.findByText('Persuadable independents'),
@@ -2320,9 +2280,7 @@ describe('SmsFlow', () => {
       await saveDraft()
       await screen.findByTestId('pro-upgrade-flow')
 
-      await user.click(
-        screen.getByRole('button', { name: 'Finish later' }),
-      )
+      await user.click(screen.getByRole('button', { name: 'Finish later' }))
 
       expect(onClose).toHaveBeenCalled()
     })
@@ -2403,9 +2361,7 @@ describe('SmsFlow', () => {
       // Still on the upgrade's success screen, not dumped back into the flow.
       expect(screen.getByTestId('pro-upgrade-flow')).toBeInTheDocument()
 
-      await user.click(
-        screen.getByRole('button', { name: 'Finish upgrade' }),
-      )
+      await user.click(screen.getByRole('button', { name: 'Finish upgrade' }))
 
       expect(
         await screen.findByText('When do you want to send it?'),
@@ -2464,9 +2420,7 @@ describe('SmsFlow', () => {
         screen.queryByRole('button', { name: 'Back' }),
       ).not.toBeInTheDocument()
       await user.click(screen.getByText('Pick a date'))
-      await user.click(
-        await screen.findByRole('button', { name: dayName(4) }),
-      )
+      await user.click(await screen.findByRole('button', { name: dayName(4) }))
       await user.click(screen.getByRole('button', { name: 'Continue' }))
 
       await waitFor(() =>
@@ -2503,9 +2457,7 @@ describe('SmsFlow', () => {
       const { rerender } = render(flow(true, draftDetail()))
       await screen.findByText('When do you want to send it?')
       await user.click(screen.getByText('Pick a date'))
-      await user.click(
-        await screen.findByRole('button', { name: dayName(4) }),
-      )
+      await user.click(await screen.findByRole('button', { name: dayName(4) }))
 
       rerender(flow(false, draftDetail()))
       const reopened = draftDetail({ id: 89, name: 'Likely voters, Sep 5' })
@@ -2577,9 +2529,7 @@ describe('SmsFlow', () => {
         await screen.findByText('When do you want to send it?'),
       ).toBeInTheDocument()
       await user.click(screen.getByText('Pick a date'))
-      await user.click(
-        await screen.findByRole('button', { name: dayName(4) }),
-      )
+      await user.click(await screen.findByRole('button', { name: dayName(4) }))
       await user.click(screen.getByRole('button', { name: 'Continue' }))
 
       await waitFor(() =>
@@ -2617,9 +2567,7 @@ describe('SmsFlow', () => {
         ),
       ).toBeInTheDocument()
       await user.click(screen.getByText('Pick a date'))
-      await user.click(
-        await screen.findByRole('button', { name: dayName(4) }),
-      )
+      await user.click(await screen.findByRole('button', { name: dayName(4) }))
       expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
     })
 
@@ -2727,15 +2675,11 @@ describe('SmsFlow', () => {
       await user.click(await screen.findByText('Persuadable independents'))
 
       await user.click(screen.getByText(GATE_LINE))
-      await user.click(
-        await screen.findByRole('button', { name: 'Join Pro' }),
-      )
+      await user.click(await screen.findByRole('button', { name: 'Join Pro' }))
       expect(await screen.findByTestId('pro-upgrade-flow')).toBeInTheDocument()
 
       act(() => gateRef.set(CLEARED_GATE))
-      await user.click(
-        screen.getByRole('button', { name: 'Finish upgrade' }),
-      )
+      await user.click(screen.getByRole('button', { name: 'Finish upgrade' }))
 
       // Back on the audience step with the audience still picked, not dropped
       // on schedule against a draft that was never written.
@@ -2782,9 +2726,7 @@ describe('SmsFlow', () => {
         expect.objectContaining({ surface: 'sms_flow' }),
       )
 
-      await user.click(
-        screen.getByRole('button', { name: 'Back to outreach' }),
-      )
+      await user.click(screen.getByRole('button', { name: 'Back to outreach' }))
       expect(onClose).toHaveBeenCalled()
     })
 
@@ -2869,9 +2811,7 @@ describe('SmsFlow', () => {
       await user.click(screen.getByRole('button', { name: 'Continue' }))
       await screen.findByText('When do you want to send it?')
       await user.click(screen.getByText('Pick a date'))
-      await user.click(
-        await screen.findByRole('button', { name: dayName(4) }),
-      )
+      await user.click(await screen.findByRole('button', { name: dayName(4) }))
       await user.click(screen.getByRole('button', { name: 'Continue' }))
     }
 
@@ -3035,9 +2975,7 @@ describe('SuccessScreen receipt', () => {
     expect(screen.getByText('Visa •••• 4242')).toBeInTheDocument()
     expect(screen.getByText('Charged today')).toBeInTheDocument()
 
-    await user.click(
-      screen.getByRole('button', { name: 'Download receipt' }),
-    )
+    await user.click(screen.getByRole('button', { name: 'Download receipt' }))
     expect(open).toHaveBeenCalledWith(
       'https://pay.stripe.com/receipts/rcpt_1',
       '_blank',

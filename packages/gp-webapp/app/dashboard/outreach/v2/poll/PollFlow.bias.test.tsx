@@ -174,9 +174,7 @@ describe('PollFlow bias check', () => {
   const writeLeadingQuestion = async () => {
     openFlow()
     await pickTopic('Write my own')
-    await user.click(
-      await screen.findByRole('button', { name: /^Continue/ }),
-    )
+    await user.click(await screen.findByRole('button', { name: /^Continue/ }))
     const field = (await screen.findByRole('textbox', {
       name: 'Poll question',
     })) as HTMLElement & { editor: Editor }
@@ -225,9 +223,7 @@ describe('PollFlow bias check', () => {
     )
     await writeLeadingQuestion()
 
-    await user.click(
-      screen.getByRole('button', { name: 'Check for bias' }),
-    )
+    await user.click(screen.getByRole('button', { name: 'Check for bias' }))
 
     expect(
       await screen.findByText(SERVE_POLL_QUESTION_COPY.biasPassed),
@@ -252,9 +248,7 @@ describe('PollFlow bias check', () => {
         ),
       )
       await writeLeadingQuestion()
-      await user.click(
-        screen.getByRole('button', { name: 'Check for bias' }),
-      )
+      await user.click(screen.getByRole('button', { name: 'Check for bias' }))
 
       const label = await screen.findByText(SERVE_POLL_QUESTION_COPY.biasPassed)
       expect(label).toHaveClass('sr-only')
@@ -339,9 +333,7 @@ describe('PollFlow bias check', () => {
     )
     openFlow()
     await pickTopic('Write my own')
-    await user.click(
-      await screen.findByRole('button', { name: /^Continue/ }),
-    )
+    await user.click(await screen.findByRole('button', { name: /^Continue/ }))
     const field = (await screen.findByRole('textbox', {
       name: 'Poll question',
     })) as HTMLElement & { editor: Editor }

@@ -118,7 +118,10 @@ export default defineConfig({
           // Not in fresh-modules: those files vi.resetModules to re-read
           // appEnvironment.util under a stubbed env, and a mocked module is
           // never re-evaluated.
-          setupFiles: ['./src/test-app-env-mock.ts'],
+          setupFiles: [
+            './src/test-app-env-mock.ts',
+            './src/test-clerk-throttle-mock.ts',
+          ],
           include: TEST_FILES,
           exclude: [...configDefaults.exclude, ...needsFreshModules],
           isolate: false,

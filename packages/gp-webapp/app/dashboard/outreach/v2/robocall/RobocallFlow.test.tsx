@@ -698,10 +698,7 @@ describe('RobocallFlow', () => {
     )
 
     // Name step -> Create list -> POST /voter-file/filter -> schedule step.
-    await user.type(
-      screen.getByLabelText('mock list name'),
-      'My landline list',
-    )
+    await user.type(screen.getByLabelText('mock list name'), 'My landline list')
     await user.click(screen.getByRole('button', { name: 'Create list' }))
     expect(await screen.findByLabelText('Campaign name')).toBeInTheDocument()
   })
@@ -723,10 +720,7 @@ describe('RobocallFlow', () => {
         { timeout: 3000 },
       ),
     )
-    await user.type(
-      screen.getByLabelText('mock list name'),
-      'My landline list',
-    )
+    await user.type(screen.getByLabelText('mock list name'), 'My landline list')
     await user.click(screen.getByRole('button', { name: 'Create list' }))
 
     expect(
@@ -892,9 +886,7 @@ describe('RobocallFlow', () => {
     await user.click(screen.getByText('Pick a date'))
     await user.click(await screen.findByText('mock-pick-future'))
     await user.click(screen.getByRole('combobox', { name: /Send time/ }))
-    await user.click(
-      await screen.findByRole('option', { name: '10:00 AM' }),
-    )
+    await user.click(await screen.findByRole('option', { name: '10:00 AM' }))
 
     const continueBtn = screen.getByRole('button', { name: 'Continue' })
     await waitFor(() => expect(continueBtn).toBeEnabled())
@@ -913,9 +905,7 @@ describe('RobocallFlow', () => {
     await user.click(screen.getByText('Pick a date'))
     await user.click(await screen.findByText('mock-pick-past'))
     await user.click(screen.getByRole('combobox', { name: /Send time/ }))
-    await user.click(
-      await screen.findByRole('option', { name: '10:00 AM' }),
-    )
+    await user.click(await screen.findByRole('option', { name: '10:00 AM' }))
 
     expect(
       await screen.findByText(/Pick a send date and time in the future/),
@@ -929,9 +919,7 @@ describe('RobocallFlow', () => {
     await user.click(screen.getByText('Pick a date'))
     await user.click(await screen.findByText('mock-pick-too-far'))
     await user.click(screen.getByRole('combobox', { name: /Send time/ }))
-    await user.click(
-      await screen.findByRole('option', { name: '10:00 AM' }),
-    )
+    await user.click(await screen.findByRole('option', { name: '10:00 AM' }))
 
     expect(
       await screen.findByText(/Pick a send date within the next 85 days/),
@@ -947,9 +935,7 @@ describe('RobocallFlow', () => {
     await user.click(screen.getByText('Pick a date'))
     await user.click(await screen.findByText('mock-pick-future'))
     await user.click(screen.getByRole('combobox', { name: /Send time/ }))
-    await user.click(
-      await screen.findByRole('option', { name: '10:00 AM' }),
-    )
+    await user.click(await screen.findByRole('option', { name: '10:00 AM' }))
 
     expect(
       screen.queryByText(/Pick a send date within the next 85 days/),
@@ -972,15 +958,11 @@ describe('RobocallFlow', () => {
     expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
 
     // Record -> the live timer shows elapsed over the 60s cap ("0:00 / 1:00").
-    await user.click(
-      screen.getByRole('button', { name: 'Start recording' }),
-    )
+    await user.click(screen.getByRole('button', { name: 'Start recording' }))
     expect(screen.getByText('0:00 / 1:00')).toBeInTheDocument()
 
     // -> stop lands on preview (not yet committed): still disabled.
-    await user.click(
-      screen.getByRole('button', { name: 'Stop recording' }),
-    )
+    await user.click(screen.getByRole('button', { name: 'Stop recording' }))
     expect(
       await screen.findByText('Preview your recording'),
     ).toBeInTheDocument()
@@ -1003,12 +985,8 @@ describe('RobocallFlow', () => {
     mockAudioUpload(false)
     await screen.findByText(/Hi, this is Alex, and I am running/)
 
-    await user.click(
-      screen.getByRole('button', { name: 'Start recording' }),
-    )
-    await user.click(
-      screen.getByRole('button', { name: 'Stop recording' }),
-    )
+    await user.click(screen.getByRole('button', { name: 'Start recording' }))
+    await user.click(screen.getByRole('button', { name: 'Stop recording' }))
     await user.click(screen.getByRole('button', { name: 'Save' }))
 
     // Upload failed: surface the error, stay in preview, keep Continue locked.
@@ -1023,12 +1001,8 @@ describe('RobocallFlow', () => {
     await gotoCompose()
     mockAudioUpload()
 
-    await user.click(
-      screen.getByRole('button', { name: 'Start recording' }),
-    )
-    await user.click(
-      screen.getByRole('button', { name: 'Stop recording' }),
-    )
+    await user.click(screen.getByRole('button', { name: 'Start recording' }))
+    await user.click(screen.getByRole('button', { name: 'Stop recording' }))
     await user.click(screen.getByRole('button', { name: 'Save' }))
     await screen.findByText('Recording saved')
 
@@ -1051,12 +1025,8 @@ describe('RobocallFlow', () => {
     await gotoCompose()
     mockAudioUpload()
 
-    await user.click(
-      screen.getByRole('button', { name: 'Start recording' }),
-    )
-    await user.click(
-      screen.getByRole('button', { name: 'Stop recording' }),
-    )
+    await user.click(screen.getByRole('button', { name: 'Start recording' }))
+    await user.click(screen.getByRole('button', { name: 'Stop recording' }))
     await user.click(screen.getByRole('button', { name: 'Save' }))
     await screen.findByText('Recording saved')
     expect(
@@ -1082,12 +1052,8 @@ describe('RobocallFlow', () => {
     await gotoCompose()
     mockAudioUpload()
 
-    await user.click(
-      screen.getByRole('button', { name: 'Start recording' }),
-    )
-    await user.click(
-      screen.getByRole('button', { name: 'Stop recording' }),
-    )
+    await user.click(screen.getByRole('button', { name: 'Start recording' }))
+    await user.click(screen.getByRole('button', { name: 'Stop recording' }))
     await user.click(screen.getByRole('button', { name: 'Save' }))
     await screen.findByText('Recording saved')
     expect(
@@ -1112,12 +1078,8 @@ describe('RobocallFlow', () => {
     await gotoCompose()
     mockAudioUpload()
 
-    await user.click(
-      screen.getByRole('button', { name: 'Start recording' }),
-    )
-    await user.click(
-      screen.getByRole('button', { name: 'Stop recording' }),
-    )
+    await user.click(screen.getByRole('button', { name: 'Start recording' }))
+    await user.click(screen.getByRole('button', { name: 'Stop recording' }))
     await screen.findByText('Preview your recording')
     expect(
       screen.queryByText(/Your script changed after you recorded/),
@@ -1712,12 +1674,8 @@ describe('RobocallFlow', () => {
     await gotoCompose()
     mockAudioUpload()
 
-    await user.click(
-      screen.getByRole('button', { name: 'Start recording' }),
-    )
-    await user.click(
-      screen.getByRole('button', { name: 'Stop recording' }),
-    )
+    await user.click(screen.getByRole('button', { name: 'Start recording' }))
+    await user.click(screen.getByRole('button', { name: 'Stop recording' }))
     await user.click(screen.getByRole('button', { name: 'Save' }))
 
     // The compliance verdict renders and Continue unlocks.
@@ -1735,12 +1693,8 @@ describe('RobocallFlow', () => {
       'The recording must name the organization behind the call.',
     ])
 
-    await user.click(
-      screen.getByRole('button', { name: 'Start recording' }),
-    )
-    await user.click(
-      screen.getByRole('button', { name: 'Stop recording' }),
-    )
+    await user.click(screen.getByRole('button', { name: 'Start recording' }))
+    await user.click(screen.getByRole('button', { name: 'Stop recording' }))
     await user.click(screen.getByRole('button', { name: 'Save' }))
 
     expect(
@@ -1755,12 +1709,8 @@ describe('RobocallFlow', () => {
     mockAudioUpload()
     mockComplianceError()
 
-    await user.click(
-      screen.getByRole('button', { name: 'Start recording' }),
-    )
-    await user.click(
-      screen.getByRole('button', { name: 'Stop recording' }),
-    )
+    await user.click(screen.getByRole('button', { name: 'Start recording' }))
+    await user.click(screen.getByRole('button', { name: 'Stop recording' }))
     await user.click(screen.getByRole('button', { name: 'Save' }))
 
     expect(
@@ -1781,12 +1731,8 @@ describe('RobocallFlow', () => {
     mockAudioUpload()
 
     const record = async () => {
-      await user.click(
-        screen.getByRole('button', { name: 'Start recording' }),
-      )
-      await user.click(
-        screen.getByRole('button', { name: 'Stop recording' }),
-      )
+      await user.click(screen.getByRole('button', { name: 'Start recording' }))
+      await user.click(screen.getByRole('button', { name: 'Stop recording' }))
       await user.click(screen.getByRole('button', { name: 'Save' }))
     }
 
@@ -1837,12 +1783,8 @@ describe('RobocallFlow', () => {
 
     await gotoCompose()
     mockAudioUpload()
-    await user.click(
-      screen.getByRole('button', { name: 'Start recording' }),
-    )
-    await user.click(
-      screen.getByRole('button', { name: 'Stop recording' }),
-    )
+    await user.click(screen.getByRole('button', { name: 'Start recording' }))
+    await user.click(screen.getByRole('button', { name: 'Stop recording' }))
     await user.click(screen.getByRole('button', { name: 'Save' }))
 
     await screen.findByText(/has everything it needs/)
@@ -1899,10 +1841,7 @@ describe('RobocallFlow', () => {
         { timeout: 3000 },
       ),
     )
-    await user.type(
-      screen.getByLabelText('mock list name'),
-      'My landline list',
-    )
+    await user.type(screen.getByLabelText('mock list name'), 'My landline list')
     await user.click(screen.getByRole('button', { name: 'Create list' }))
 
     // Schedule: set a comfortably-future date + time and advance.
@@ -1910,9 +1849,7 @@ describe('RobocallFlow', () => {
     await user.click(screen.getByText('Pick a date'))
     await user.click(await screen.findByText('mock-pick-future'))
     await user.click(screen.getByRole('combobox', { name: /Send time/ }))
-    await user.click(
-      await screen.findByRole('option', { name: '10:00 AM' }),
-    )
+    await user.click(await screen.findByRole('option', { name: '10:00 AM' }))
     const toCompose = screen.getByRole('button', { name: 'Continue' })
     await waitFor(() => expect(toCompose).toBeEnabled())
     await user.click(toCompose)
@@ -1920,12 +1857,8 @@ describe('RobocallFlow', () => {
     // Compose: record + save (passes compliance via the beforeEach mock).
     await screen.findByText(/Read the script below into your microphone/)
     mockAudioUpload()
-    await user.click(
-      screen.getByRole('button', { name: 'Start recording' }),
-    )
-    await user.click(
-      screen.getByRole('button', { name: 'Stop recording' }),
-    )
+    await user.click(screen.getByRole('button', { name: 'Start recording' }))
+    await user.click(screen.getByRole('button', { name: 'Stop recording' }))
     await user.click(screen.getByRole('button', { name: 'Save' }))
     const toReview = screen.getByRole('button', { name: 'Continue' })
     await waitFor(() => expect(toReview).toBeEnabled())
@@ -2079,10 +2012,7 @@ describe('RobocallFlow', () => {
     await enterPay()
     await screen.findByRole('button', { name: /Authorize \$5\.60/ })
 
-    await user.type(
-      screen.getByPlaceholderText('Enter promo code'),
-      'CALLS100',
-    )
+    await user.type(screen.getByPlaceholderText('Enter promo code'), 'CALLS100')
     await user.click(screen.getByRole('button', { name: 'Apply' }))
 
     // The server-priced discount and remainder replace the estimate; nothing
@@ -2215,18 +2145,14 @@ describe('RobocallFlow', () => {
       'data-client-secret',
       'seti_secret_1',
     )
-    await user.click(
-      screen.getByRole('button', { name: /Authorize \$5\.60/ }),
-    )
+    await user.click(screen.getByRole('button', { name: /Authorize \$5\.60/ }))
 
     expect(
       await screen.findByText('Your card was declined'),
     ).toBeInTheDocument()
 
     // Try another card re-fetches a fresh SetupIntent and re-mounts against it.
-    await user.click(
-      screen.getByRole('button', { name: 'Try another card' }),
-    )
+    await user.click(screen.getByRole('button', { name: 'Try another card' }))
     await waitFor(() =>
       expect(screen.getByTestId('stripe-elements')).toHaveAttribute(
         'data-client-secret',
@@ -2344,9 +2270,7 @@ describe('RobocallFlow', () => {
 
     // Retry: must NOT re-confirm the already-vaulted card (a SetupIntent
     // confirms once), and must re-authorize with that same payment method.
-    await user.click(
-      screen.getByRole('button', { name: /Authorize \$5\.60/ }),
-    )
+    await user.click(screen.getByRole('button', { name: /Authorize \$5\.60/ }))
     expect(await screen.findByText("You're all set")).toBeInTheDocument()
     expect(confirmSetupMock).toHaveBeenCalledTimes(1)
     expect(authorizeCalls).toBe(2)
@@ -2762,12 +2686,8 @@ describe('RobocallFlow', () => {
       )
       await screen.findByText(/Read the script below into your microphone/)
       mockAudioUpload()
-      await user.click(
-        screen.getByRole('button', { name: 'Start recording' }),
-      )
-      await user.click(
-        screen.getByRole('button', { name: 'Stop recording' }),
-      )
+      await user.click(screen.getByRole('button', { name: 'Start recording' }))
+      await user.click(screen.getByRole('button', { name: 'Stop recording' }))
       await user.click(screen.getByRole('button', { name: 'Save' }))
       await waitFor(() =>
         expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
@@ -2793,15 +2713,11 @@ describe('RobocallFlow', () => {
       await user.click(await screen.findByText('Persuadable independents'))
 
       await user.click(screen.getByText(GATE_LINE))
-      await user.click(
-        await screen.findByRole('button', { name: 'Join Pro' }),
-      )
+      await user.click(await screen.findByRole('button', { name: 'Join Pro' }))
       expect(await screen.findByTestId('pro-upgrade-flow')).toBeInTheDocument()
 
       act(() => gateRef.set(PRO_GATE))
-      await user.click(
-        screen.getByRole('button', { name: 'Finish upgrade' }),
-      )
+      await user.click(screen.getByRole('button', { name: 'Finish upgrade' }))
 
       // Back on the audience step with the audience still picked, not dropped
       // on schedule against a draft that was never written.
@@ -2851,17 +2767,11 @@ describe('RobocallFlow', () => {
       expect(await screen.findByLabelText('List name')).toHaveValue(
         'Undecided persuadables',
       )
-      await user.click(
-        await screen.findByRole('button', { name: 'Continue' }),
-      )
+      await user.click(await screen.findByRole('button', { name: 'Continue' }))
       await screen.findByText(/Read the script below into your microphone/)
       mockAudioUpload()
-      await user.click(
-        screen.getByRole('button', { name: 'Start recording' }),
-      )
-      await user.click(
-        screen.getByRole('button', { name: 'Stop recording' }),
-      )
+      await user.click(screen.getByRole('button', { name: 'Start recording' }))
+      await user.click(screen.getByRole('button', { name: 'Stop recording' }))
       await user.click(screen.getByRole('button', { name: 'Save' }))
       await waitFor(() =>
         expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
@@ -2884,14 +2794,10 @@ describe('RobocallFlow', () => {
       await user.click(await screen.findByText('Persuadable independents'))
 
       await user.click(screen.getByText(GATE_LINE))
-      await user.click(
-        await screen.findByRole('button', { name: 'Join Pro' }),
-      )
+      await user.click(await screen.findByRole('button', { name: 'Join Pro' }))
       expect(await screen.findByTestId('pro-upgrade-flow')).toBeInTheDocument()
 
-      await user.click(
-        screen.getByRole('button', { name: 'Finish later' }),
-      )
+      await user.click(screen.getByRole('button', { name: 'Finish later' }))
 
       expect(
         await screen.findByText('Persuadable independents'),
@@ -2962,9 +2868,7 @@ describe('RobocallFlow', () => {
       // Still on the upgrade's success screen, not dumped back into the flow.
       expect(screen.getByTestId('pro-upgrade-flow')).toBeInTheDocument()
 
-      await user.click(
-        screen.getByRole('button', { name: 'Finish upgrade' }),
-      )
+      await user.click(screen.getByRole('button', { name: 'Finish upgrade' }))
 
       expect(await screen.findByLabelText('Campaign name')).toBeInTheDocument()
       expect(
@@ -3047,9 +2951,7 @@ describe('RobocallFlow', () => {
       await user.click(screen.getByText('Pick a date'))
       await user.click(await screen.findByText('mock-pick-future'))
       await user.click(screen.getByRole('combobox', { name: /Send time/ }))
-      await user.click(
-        await screen.findByRole('option', { name: '10:00 AM' }),
-      )
+      await user.click(await screen.findByRole('option', { name: '10:00 AM' }))
       expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
     })
 
@@ -3095,9 +2997,7 @@ describe('RobocallFlow', () => {
       await user.click(screen.getByText('Pick a date'))
       await user.click(await screen.findByText('mock-pick-future'))
       await user.click(screen.getByRole('combobox', { name: /Send time/ }))
-      await user.click(
-        await screen.findByRole('option', { name: '10:00 AM' }),
-      )
+      await user.click(await screen.findByRole('option', { name: '10:00 AM' }))
       const continueBtn = screen.getByRole('button', { name: 'Continue' })
       await waitFor(() => expect(continueBtn).toBeEnabled())
       await user.click(continueBtn)

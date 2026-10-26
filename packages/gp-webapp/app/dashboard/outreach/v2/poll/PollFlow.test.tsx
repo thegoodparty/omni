@@ -195,9 +195,7 @@ describe('PollFlow', () => {
     openFlow()
     await pickTopic('Public safety')
 
-    await user.click(
-      await screen.findByRole('button', { name: /^Continue/ }),
-    )
+    await user.click(await screen.findByRole('button', { name: /^Continue/ }))
 
     await screen.findByRole('textbox', { name: 'Poll question' })
     await waitFor(() =>
@@ -209,9 +207,7 @@ describe('PollFlow', () => {
   it('redrafts from the current question when the tone changes', async () => {
     openFlow()
     await pickTopic('Public safety')
-    await user.click(
-      await screen.findByRole('button', { name: /^Continue/ }),
-    )
+    await user.click(await screen.findByRole('button', { name: /^Continue/ }))
     await screen.findByRole('textbox', { name: 'Poll question' })
     await waitFor(() => expect(questionText()).toMatch(/How safe/))
 
@@ -237,18 +233,14 @@ describe('PollFlow', () => {
     }))
     openFlow()
     await pickTopic('Public safety')
-    await user.click(
-      await screen.findByRole('button', { name: /^Continue/ }),
-    )
+    await user.click(await screen.findByRole('button', { name: /^Continue/ }))
     await screen.findByRole('textbox', { name: 'Poll question' })
     await waitFor(() => expect(questionText()).toMatch(/How safe/))
 
     await user.click(screen.getByRole('button', { name: 'Back' }))
     await user.click(await screen.findByRole('button', { name: 'Back' }))
     await pickTopic('Housing')
-    await user.click(
-      await screen.findByRole('button', { name: /^Continue/ }),
-    )
+    await user.click(await screen.findByRole('button', { name: /^Continue/ }))
     await screen.findByRole('textbox', { name: 'Poll question' })
     await waitFor(() => expect(questionText()).toMatch(/affordable/))
 
@@ -271,9 +263,7 @@ describe('PollFlow', () => {
     })
     openFlow()
     await pickTopic('Public safety')
-    await user.click(
-      await screen.findByRole('button', { name: /^Continue/ }),
-    )
+    await user.click(await screen.findByRole('button', { name: /^Continue/ }))
     await screen.findByRole('textbox', { name: 'Poll question' })
     await waitFor(() => expect(questionText()).toMatch(/How safe/))
     expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull()
@@ -289,9 +279,7 @@ describe('PollFlow', () => {
   it('previews the greeting with a name, titles the step as a question, and suggests for the audience', async () => {
     openFlow()
     await pickTopic('Public safety')
-    await user.click(
-      await screen.findByRole('button', { name: /^Continue/ }),
-    )
+    await user.click(await screen.findByRole('button', { name: /^Continue/ }))
     await screen.findByRole('textbox', { name: 'Poll question' })
     await waitFor(() => expect(questionText()).toMatch(/How safe/))
 
@@ -313,9 +301,7 @@ describe('PollFlow', () => {
   it('suggests nothing for a question the official writes themselves', async () => {
     openFlow()
     await pickTopic('Write my own')
-    await user.click(
-      await screen.findByRole('button', { name: /^Continue/ }),
-    )
+    await user.click(await screen.findByRole('button', { name: /^Continue/ }))
     await screen.findByText('Your question')
 
     expect(screen.queryByText(/^Suggested for/)).toBeNull()
@@ -416,9 +402,7 @@ describe('PollFlow', () => {
   it('does not count trailing whitespace against the question limit', async () => {
     openFlow()
     await pickTopic('Write my own')
-    await user.click(
-      await screen.findByRole('button', { name: /^Continue/ }),
-    )
+    await user.click(await screen.findByRole('button', { name: /^Continue/ }))
     await screen.findByRole('textbox', { name: 'Poll question' })
     await typeQuestion(`${'a'.repeat(480)} `)
 
@@ -461,9 +445,7 @@ describe('PollFlow', () => {
     await waitFor(() => expect(createBodies).toHaveLength(1))
 
     await user.click(screen.getByRole('button', { name: 'Back' }))
-    await user.click(
-      await screen.findByRole('button', { name: 'Continue' }),
-    )
+    await user.click(await screen.findByRole('button', { name: 'Continue' }))
     release()
 
     await waitFor(() => expect(createBodies).toHaveLength(2))
