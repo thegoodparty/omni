@@ -150,7 +150,6 @@ export const buildFilterSummary = (
       (field.key === 'political_party' ||
         field.key === 'voter_likely' ||
         field.key === 'early_vote' ||
-        field.key === 'early_absentee_voted' ||
         WIN_ONLY_RECOMMENDED_FIELD_KEYS.includes(field.key))
     )
       continue

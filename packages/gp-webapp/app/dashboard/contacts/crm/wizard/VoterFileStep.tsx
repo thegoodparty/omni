@@ -77,7 +77,6 @@ const CONTACTS_MADE_FIELD_KEY = 'contacts_made'
 const FIELD_ORDER_BELOW_SUPPORT_STATUS = [
   'voter_likely',
   'early_vote',
-  'early_absentee_voted',
   'political_party',
   'age',
   'marital_status',
@@ -149,7 +148,6 @@ export default function VoterFileStep({
           (field.key !== 'political_party' &&
             field.key !== 'voter_likely' &&
             field.key !== 'early_vote' &&
-            field.key !== 'early_absentee_voted' &&
             field.key !== 'ethnicity')),
     )
     .sort((a, b) => orderIndex(a.key) - orderIndex(b.key))

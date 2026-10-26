@@ -22,7 +22,7 @@ import type { ContactsFilterResolutionInput } from '@/contacts/services/contacts
 // which exists for the other half of this same gap.
 
 // The criteria that can resolve to nobody, in the words the CRM's own filter
-// pills use. Only these four: everything else on a VoterFileFilter becomes a
+// pills use. Only these three: everything else on a VoterFileFilter becomes a
 // column predicate that narrows a query, and a query returning no rows is the
 // polygon case below, not this one. These instead resolve to a person-id set
 // first, and an empty set short-circuits before any people-db scan happens.
@@ -33,13 +33,6 @@ const EMPTIABLE_CRITERIA: Array<{
   {
     label: 'support status',
     applies: (filter) => (filter.supportStatus?.length ?? 0) > 0,
-  },
-  {
-    // Only "Already voted" can empty a list; "Unknown" excludes, never selects.
-    label: 'voted in election',
-    applies: (filter) =>
-      filter.votedStatus?.length === 1 &&
-      filter.votedStatus[0] === 'already_voted',
   },
   {
     label: 'previous outreach',

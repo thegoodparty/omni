@@ -1,7 +1,12 @@
+import type { VotedStatus } from '@goodparty_org/contracts'
 import type { SegmentResponse } from 'app/dashboard/contacts/crm/shared/contacts-types'
 import type { DecodedPack } from '../packDecoder'
 import { runFilter } from '../filterEngine'
-import { savedListFilterKeys, savedListPrecincts } from '../savedListFilters'
+import {
+  savedListFilterKeys,
+  savedListPrecincts,
+  savedListVotedStatus,
+} from '../savedListFilters'
 import { filtersToDimSelections } from './voterFilterPreview'
 
 export interface SavedListOption {
@@ -16,6 +21,8 @@ export interface SavedListOption {
   // saved. Shared with the landing rail and the details drawer through
   // `savedListFilterKeys`, so the three cannot re-expand a list differently.
   filters: Record<string, boolean>
+  // Its "Voted in election" selection, seeded into the who step's pills.
+  votedStatus?: VotedStatus[]
 }
 
 export interface AudienceOptions {
@@ -54,9 +61,11 @@ export const audienceOptions = (
     )
     .map((list) => {
       const filters = savedListFilterKeys(list, isServe)
+      const votedStatus = savedListVotedStatus(list, isServe)
       return {
         id: list.id,
         name: list.name,
+        ...(votedStatus.length ? { votedStatus } : {}),
         // The precincts go in BESIDE the boolean keys, because the draft
         // carries only the mark and the values are what narrows. Missing
         // them here was worse than it looks: with the pack able to shade

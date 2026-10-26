@@ -201,9 +201,10 @@ export const PersonSchema = z.object({
   // (ENG-10833). Detail-only, like supportStatus/optedOutAt; omitted for
   // `eo-` (Serve) orgs, which don't get this status at all.
   voterLikelihood: VoterLikelihoodSchema.optional(),
-  // Derived, never stored (gp-api's VotedStatusService): true when the
-  // person's latest will-vote answer this election is "Already voted".
-  // Detail-only and Win-only, like voterLikelihood above.
+  // Derived, never stored: true when L2 reports the person voting early or
+  // absentee this general, or their latest will-vote answer this election
+  // is "Already voted" (gp-api's VotedStatusService). Detail-only and
+  // Win-only, like voterLikelihood above.
   voted: z.boolean().optional(),
   // The mirror image of the two lines above: Serve's standing "asked to be
   // followed up with", omitted for a Win org, which has no such flag. Its

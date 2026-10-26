@@ -44,8 +44,6 @@ export const voterFilterBaseSchema = z.object({
   hasLandline: z.boolean().optional(),
   hasAnyPhone: z.boolean().optional(),
   independentAffinity: z.boolean().optional(),
-  earlyAbsenteeVotedYes: z.boolean().optional(),
-  earlyAbsenteeVotedNo: z.boolean().optional(),
   ideologyConservative: z.boolean().optional(),
   ideologyLiberal: z.boolean().optional(),
   ideologyModerate: z.boolean().optional(),
