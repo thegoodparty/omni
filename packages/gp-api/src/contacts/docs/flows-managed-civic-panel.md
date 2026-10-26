@@ -184,27 +184,28 @@ only gets its wave marked. Paused, stopped, ready and exhausted panels are
 not touched. Decision:
 `docs/adr/2026-10-22-managed-panel-wave-job-derives-each-step.md`.
 
-**Analytics** (`EVENTS.CivicPanel` in `segment.types.ts`, to the office's
+**Analytics** (`EVENTS.Contacts` in `segment.types.ts`, to the office's
 user through `trackForOffice`, fire-and-forget). Each fires only from the
 write that changed the row, so a retry or a second run never counts twice.
 
-- `Managed Invite Approved` (`approve`, only an approval this call made):
+- `Contacts - Civic Panel Invite Approved` (`approve`, only an approval this call made):
   `goalMembers`, `freeTextCap`, `firstSendDate`, `reapproval` (a stopped
   enrollment approved again), `product: serve`.
-- `Managed Panel Status Changed` (`managedPanelStatusChanged` in
+- `Contacts - Civic Panel Status Changed` (`managedPanelStatusChanged` in
   `utils/managedPanelAnalytics.util.ts`): `from`, `to`, `members`,
   `changedBy`. `official` from the PATCH and a re-approval, `system` from the
   wave job (ready, exhausted, paused out of free texts) and `claimFree`'s
-  pause at the cap. Nothing writes `staff` yet: staff have no route.
-- `Managed Wave Sent` (the wave marked sent): `wave`, `texts`, `sendDate`,
+  pause at the cap. Nothing writes `manual` yet: nothing sets it by hand.
+- `Contacts - Civic Panel Wave Sent` (the wave marked sent): `wave`, `texts`, `sendDate`,
   `steeredToward`.
-- `Managed Wave Closed`: `wave`, `invited` (the people its list drew),
+- `Contacts - Civic Panel Wave Closed`: `wave`, `invited` (the people its list drew),
   `joinedMembers`, `membersAfter`.
-- `Managed Panel Ready` (with the status change to ready): `members`,
+- `Contacts - Civic Panel Ready` (with the status change to ready): `members`,
   `goalMembers`, `wavesSent`, `daysToReady` (calendar days from the latest
   approval). The ready email has no event of its own.
 
-The browser fires the setup steps (`EVENTS.CivicPanel` in the webapp's
-`analyticsHelper.ts`): Managed Invite Explainer Viewed and Completed, Managed
-Invite Viewed, Review Viewed, Review Dismissed and Submitted. See the
+The browser fires the setup steps (`EVENTS.Contacts` in the webapp's
+`analyticsHelper.ts`): Civic Panel Managed Invite Value Prop Viewed and
+Completed, then Civic Panel Invite Viewed, Review Viewed, Review Dismissed
+and Submitted. See the
 webapp's `shared/agent-chat/AGENTS.md`.

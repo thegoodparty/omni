@@ -1497,7 +1497,7 @@ export const SmsFlow = ({
       return
     }
     setManagedError(false)
-    trackEvent(EVENTS.CivicPanel.ManagedInviteSubmitted, {
+    trackEvent(EVENTS.Contacts.CivicPanelInviteSubmitted, {
       edited: message !== (initialScript ?? ''),
       usedImproveWithAi: managedUsedAiRef.current,
       usedDictation: managedUsedDictationRef.current,
@@ -2014,7 +2014,7 @@ export const SmsFlow = ({
   const closeFlow = managed
     ? () => {
         if (!managedApprove.isSuccess) {
-          trackEvent(EVENTS.CivicPanel.ManagedInviteReviewDismissed, {
+          trackEvent(EVENTS.Contacts.CivicPanelInviteReviewDismissed, {
             edited: message !== (initialScript ?? ''),
           })
         }

@@ -271,7 +271,7 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
       })
       this.track(enrollment.organizationSlug, [
         [
-          EVENTS.CivicPanel.ManagedWaveSent,
+          EVENTS.Contacts.CivicPanelWaveSent,
           {
             wave: wave.wave,
             texts: wave.outreach?.textCount ?? 0,
@@ -400,7 +400,7 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
       })
       this.track(organizationSlug, [
         [
-          EVENTS.CivicPanel.ManagedWaveClosed,
+          EVENTS.Contacts.CivicPanelWaveClosed,
           {
             wave: closed.wave,
             invited: drawn.length,
@@ -461,7 +461,7 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
       ...(status === ManagedCivicPanelStatus.ready
         ? [
             [
-              EVENTS.CivicPanel.ManagedPanelReady,
+              EVENTS.Contacts.CivicPanelReady,
               {
                 members,
                 goalMembers: enrollment.goalMembers,

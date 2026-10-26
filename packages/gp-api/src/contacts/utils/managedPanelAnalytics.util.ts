@@ -4,14 +4,14 @@ import {
   type SegmentTrackEventProperties,
 } from 'src/vendors/segment/segment.types'
 
-// Civic Panel - Managed Panel Status Changed, for whoever moved it: the
-// official from their page, staff, or the wave job.
+// Contacts - Civic Panel Status Changed, for whoever moved it: the official
+// from their page, someone setting it by hand, or the wave job.
 export const managedPanelStatusChanged = (change: {
   from: ManagedCivicPanelStatus
   to: ManagedCivicPanelStatus
   members: number
-  changedBy: 'official' | 'staff' | 'system'
+  changedBy: 'official' | 'manual' | 'system'
 }): [string, SegmentTrackEventProperties] => [
-  EVENTS.CivicPanel.ManagedPanelStatusChanged,
+  EVENTS.Contacts.CivicPanelStatusChanged,
   change,
 ]

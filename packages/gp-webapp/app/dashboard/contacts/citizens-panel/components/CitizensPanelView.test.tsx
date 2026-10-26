@@ -149,7 +149,7 @@ describe('CitizensPanelView', () => {
       />,
     )
 
-    expect(trackEvent).toHaveBeenCalledWith(EVENTS.CivicPanel.PanelViewed, {
+    expect(trackEvent).toHaveBeenCalledWith(EVENTS.Contacts.CivicPanelViewed, {
       members: 40,
       goalMembers: 240,
       expectedAnswers: 16,
@@ -168,7 +168,7 @@ describe('CitizensPanelView', () => {
     )
 
     expect(trackEvent).toHaveBeenCalledWith(
-      EVENTS.CivicPanel.PanelViewed,
+      EVENTS.Contacts.CivicPanelViewed,
       expect.objectContaining({
         managedStatus: 'building',
         groupsAtShare: 2,
@@ -184,7 +184,7 @@ describe('CitizensPanelView', () => {
       vi
         .mocked(trackEvent)
         .mock.calls.find(
-          ([event]) => event === EVENTS.CivicPanel.PanelViewed,
+          ([event]) => event === EVENTS.Contacts.CivicPanelViewed,
         ) ?? []
     expect(properties).toMatchObject({ managedStatus: 'paused' })
     expect(properties).not.toHaveProperty('groupsAtShare')
@@ -194,7 +194,7 @@ describe('CitizensPanelView', () => {
     render(<CitizensPanelView summary={SUMMARY} />)
 
     expect(trackEvent).toHaveBeenCalledWith(
-      EVENTS.CivicPanel.PanelViewed,
+      EVENTS.Contacts.CivicPanelViewed,
       expect.objectContaining({ howCloseStatus: null }),
     )
   })

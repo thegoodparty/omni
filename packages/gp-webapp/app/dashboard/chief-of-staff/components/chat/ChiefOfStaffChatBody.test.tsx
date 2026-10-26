@@ -3128,9 +3128,12 @@ describe('the managed civic panel explainer', () => {
       ).toBeEnabled(),
     )
     expect(
-      managedEvents(EVENTS.CivicPanel.ManagedInviteExplainerViewed),
+      managedEvents(EVENTS.Contacts.CivicPanelManagedInviteValuePropViewed),
     ).toEqual([
-      [EVENTS.CivicPanel.ManagedInviteExplainerViewed, { source: 'home_card' }],
+      [
+        EVENTS.Contacts.CivicPanelManagedInviteValuePropViewed,
+        { source: 'home_card' },
+      ],
     ])
     // The offer's own options stand alone, with no starters under them.
     expect(
@@ -3149,10 +3152,12 @@ describe('the managed civic panel explainer', () => {
 
     await waitFor(() =>
       expect(
-        managedEvents(EVENTS.CivicPanel.ManagedInviteExplainerCompleted),
+        managedEvents(
+          EVENTS.Contacts.CivicPanelManagedInviteValuePropCompleted,
+        ),
       ).toEqual([
         [
-          EVENTS.CivicPanel.ManagedInviteExplainerCompleted,
+          EVENTS.Contacts.CivicPanelManagedInviteValuePropCompleted,
           { choice: 'show_invite' },
         ],
       ]),
@@ -3200,10 +3205,12 @@ describe('the managed civic panel explainer', () => {
 
     await waitFor(() =>
       expect(
-        managedEvents(EVENTS.CivicPanel.ManagedInviteExplainerCompleted),
+        managedEvents(
+          EVENTS.Contacts.CivicPanelManagedInviteValuePropCompleted,
+        ),
       ).toEqual([
         [
-          EVENTS.CivicPanel.ManagedInviteExplainerCompleted,
+          EVENTS.Contacts.CivicPanelManagedInviteValuePropCompleted,
           { choice: 'wrote_own' },
         ],
       ]),
@@ -3246,9 +3253,9 @@ describe('the managed civic panel explainer', () => {
         { type: 'done', assistantMessageId: id },
       ])
     const completed = () =>
-      managedEvents(EVENTS.CivicPanel.ManagedInviteExplainerCompleted).map(
-        ([, properties]) => properties,
-      )
+      managedEvents(
+        EVENTS.Contacts.CivicPanelManagedInviteValuePropCompleted,
+      ).map(([, properties]) => properties)
 
     render(
       <ChiefOfStaffChatBody
@@ -3318,16 +3325,21 @@ describe('the managed civic panel explainer', () => {
 
     await waitFor(() =>
       expect(
-        managedEvents(EVENTS.CivicPanel.ManagedInviteExplainerViewed),
+        managedEvents(EVENTS.Contacts.CivicPanelManagedInviteValuePropViewed),
       ).toEqual([
         [
-          EVENTS.CivicPanel.ManagedInviteExplainerViewed,
+          EVENTS.Contacts.CivicPanelManagedInviteValuePropViewed,
           { source: 'intro_next_step' },
         ],
       ]),
     )
-    expect(managedEvents(EVENTS.ChiefOfStaff.NextStepPicked)).toEqual([
-      [EVENTS.ChiefOfStaff.NextStepPicked, { nextStep: 'managed_civic_panel' }],
+    expect(
+      managedEvents(EVENTS.ChiefOfStaff.IntroductoryNextStepPicked),
+    ).toEqual([
+      [
+        EVENTS.ChiefOfStaff.IntroductoryNextStepPicked,
+        { nextStep: 'managed_civic_panel' },
+      ],
     ])
   })
 })

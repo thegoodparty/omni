@@ -153,7 +153,7 @@ describe('SmsFlow in its managed civic panel invite mode', () => {
     ])
     expect(onScheduled).not.toHaveBeenCalled()
     expect(trackEvent).toHaveBeenCalledWith(
-      EVENTS.CivicPanel.ManagedInviteSubmitted,
+      EVENTS.Contacts.CivicPanelInviteSubmitted,
       {
         edited: false,
         usedImproveWithAi: false,
@@ -199,7 +199,7 @@ describe('SmsFlow in its managed civic panel invite mode', () => {
     )
     await user.click(submit())
     expect(trackEvent).toHaveBeenCalledWith(
-      EVENTS.CivicPanel.ManagedInviteSubmitted,
+      EVENTS.Contacts.CivicPanelInviteSubmitted,
       expect.objectContaining({ edited: true, usedImproveWithAi: true }),
     )
   })
@@ -239,7 +239,7 @@ describe('SmsFlow in its managed civic panel invite mode', () => {
     expect(onSetUp).not.toHaveBeenCalled()
     expect(approvals).toHaveLength(0)
     expect(trackEvent).toHaveBeenCalledWith(
-      EVENTS.CivicPanel.ManagedInviteReviewDismissed,
+      EVENTS.Contacts.CivicPanelInviteReviewDismissed,
       { edited: false },
     )
   })

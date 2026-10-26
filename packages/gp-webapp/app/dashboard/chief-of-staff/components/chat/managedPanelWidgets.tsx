@@ -126,7 +126,7 @@ export const ManagedPanelInviteCard = ({
   const [viewedInvite] = useState(composed)
   useEffect(() => {
     if (!live) return
-    trackEvent(EVENTS.CivicPanel.ManagedInviteViewed, {
+    trackEvent(EVENTS.Contacts.CivicPanelInviteViewed, {
       inviteChars: viewedInvite.length,
       inviteSegments: Math.max(1, Math.ceil(viewedInvite.length / 160)),
     })
@@ -161,7 +161,7 @@ export const ManagedPanelInviteCard = ({
           size="large"
           className="w-full"
           onClick={() => {
-            trackEvent(EVENTS.CivicPanel.ManagedInviteReviewViewed, {
+            trackEvent(EVENTS.Contacts.CivicPanelInviteReviewViewed, {
               source: 'chat_card',
             })
             setOpen(true)

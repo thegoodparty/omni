@@ -301,10 +301,10 @@ describe('the managed civic panel in the Chief of Staff chat', () => {
 
       await screen.findByTestId('managed-panel-invite')
       await waitFor(() =>
-        expect(calls(EVENTS.CivicPanel.ManagedInviteViewed)).toHaveLength(1),
+        expect(calls(EVENTS.Contacts.CivicPanelInviteViewed)).toHaveLength(1),
       )
       const [, properties] =
-        calls(EVENTS.CivicPanel.ManagedInviteViewed)[0] ?? []
+        calls(EVENTS.Contacts.CivicPanelInviteViewed)[0] ?? []
       expect(properties).toEqual({
         inviteChars: expect.any(Number),
         inviteSegments: expect.any(Number),
@@ -315,7 +315,7 @@ describe('the managed civic panel in the Chief of Staff chat', () => {
       render(<ChiefOfStaffChatBody active conversationIdOverride="conv" />)
 
       await screen.findByTestId('managed-panel-invite')
-      expect(calls(EVENTS.CivicPanel.ManagedInviteViewed)).toHaveLength(0)
+      expect(calls(EVENTS.Contacts.CivicPanelInviteViewed)).toHaveLength(0)
     })
 
     it('records opening the review from the chat card', async () => {
@@ -326,8 +326,8 @@ describe('the managed civic panel in the Chief of Staff chat', () => {
         await screen.findByRole('button', { name: 'Review the invite' }),
       )
 
-      expect(calls(EVENTS.CivicPanel.ManagedInviteReviewViewed)).toEqual([
-        [EVENTS.CivicPanel.ManagedInviteReviewViewed, { source: 'chat_card' }],
+      expect(calls(EVENTS.Contacts.CivicPanelInviteReviewViewed)).toEqual([
+        [EVENTS.Contacts.CivicPanelInviteReviewViewed, { source: 'chat_card' }],
       ])
     })
   })
