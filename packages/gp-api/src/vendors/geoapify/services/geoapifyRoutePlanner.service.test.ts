@@ -1,27 +1,19 @@
 import { BadGatewayException } from '@nestjs/common'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
-
-// VENDOR_MODE is a module-level export evaluated at import time. Use a
-// mutable value + getter so it stays controllable per-test.
-const { mockMode } = vi.hoisted(() => ({
-  mockMode: { value: 'mock' as 'mock' | 'live' },
-}))
-vi.mock('src/shared/util/appEnvironment.util', async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import('src/shared/util/appEnvironment.util')>()
-  return {
-    ...actual,
-    get VENDOR_MODE() {
-      return mockMode.value
-    },
-  }
-})
+import {
+  appEnvOverrides,
+  useAppEnvOverrides,
+} from '@/shared/test-utils/appEnvOverrides'
 
 import {
   GEOAPIFY_MOCK_API_KEY,
   GeoapifyRoutePlannerService,
 } from './geoapifyRoutePlanner.service'
+
+// VENDOR_MODE is a module-level export evaluated at import time, so tests
+// flip it through appEnvOverrides.
+useAppEnvOverrides({ VENDOR_MODE: 'mock' })
 
 const apiKeyOf = (service: GeoapifyRoutePlannerService): string =>
   (service as unknown as { apiKey: () => string }).apiKey()
@@ -39,7 +31,7 @@ describe('GeoapifyRoutePlannerService api key', () => {
 
   describe('mock mode', () => {
     beforeEach(() => {
-      mockMode.value = 'mock'
+      appEnvOverrides.VENDOR_MODE = 'mock'
     })
 
     it('sends the mock key when GEOAPIFY_API_KEY is unset', () => {
@@ -55,7 +47,7 @@ describe('GeoapifyRoutePlannerService api key', () => {
 
   describe('live mode', () => {
     beforeEach(() => {
-      mockMode.value = 'live'
+      appEnvOverrides.VENDOR_MODE = 'live'
     })
 
     it('throws when GEOAPIFY_API_KEY is unset', () => {

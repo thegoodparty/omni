@@ -3,23 +3,15 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { TestFixturesController } from './testFixtures.controller'
 import { ActivitySeedService } from './services/activitySeed.service'
 import { TestFixturesService } from './services/testFixtures.service'
+import {
+  appEnvOverrides,
+  useAppEnvOverrides,
+} from '@/shared/test-utils/appEnvOverrides'
 
 // IS_NON_PROD_DEPLOY is a module-level constant read inside every handler.
-// Mock the util so the gate is toggleable per-test via a getter. Default true
-// because the unit-test env has no OTEL_SERVICE_ENVIRONMENT (so the real value
-// is false) yet the happy-path cases need a non-prod deploy; other exports pass
-// through untouched.
-const { envNonProd } = vi.hoisted(() => ({ envNonProd: { value: true } }))
-vi.mock('@/shared/util/appEnvironment.util', async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import('@/shared/util/appEnvironment.util')>()
-  return {
-    ...actual,
-    get IS_NON_PROD_DEPLOY() {
-      return envNonProd.value
-    },
-  }
-})
+// Default true because the unit-test env has no OTEL_SERVICE_ENVIRONMENT (so
+// the real value is false) yet the happy-path cases need a non-prod deploy.
+useAppEnvOverrides({ IS_NON_PROD_DEPLOY: true })
 
 describe('TestFixturesController', () => {
   let controller: TestFixturesController
@@ -31,7 +23,7 @@ describe('TestFixturesController', () => {
   }
 
   beforeEach(() => {
-    envNonProd.value = true
+    appEnvOverrides.IS_NON_PROD_DEPLOY = true
     service = {
       createFixtureUser: vi.fn().mockResolvedValue({ userId: 1 }),
       deleteFixtureUsers: vi.fn().mockResolvedValue({ deleted: [] }),
@@ -96,7 +88,7 @@ describe('TestFixturesController', () => {
   // where the fail-closed gate must 404 rather than silently ungate. The gate
   // throws before any async work, hence the synchronous assertions.
   it('404s every endpoint outside a known non-prod deploy', () => {
-    envNonProd.value = false
+    appEnvOverrides.IS_NON_PROD_DEPLOY = false
 
     expect(() => controller.createUser({ state: 'free-win' })).toThrow(
       NotFoundException,
