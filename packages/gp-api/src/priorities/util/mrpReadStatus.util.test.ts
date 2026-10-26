@@ -367,15 +367,55 @@ describe('mrpReadStatus', () => {
   it('counts the known on a dimension, so unknowns never leave a seat unfillable', () => {
     const status = mrpReadStatus({
       answers: 15,
-      read: read([
-        group('age', '18to64', 0.6, 12),
-        group('age', '65plus', 0.15, 3),
-      ]),
+      read: read(
+        [group('age', '18to64', 0.6, 12), group('age', '65plus', 0.15, 3)],
+        true,
+        20,
+      ),
     })
     // Of the 75% whose age is known: 80% and 20% of the 20 needed.
     expect(status).toMatchObject({
       representativeAnswers: 15,
       representativeNeeded: 20,
+      status: 'notYetRepresentative',
+    })
+  })
+
+  it('gives a small group or the pooled rest no seats to hold empty', () => {
+    // Race splits 60/30, with 2% Asian and 8% other the read never decides
+    // on. Neither has an answer, but neither holds a seat back: 18 and 9 of
+    // the 30 the majors share fill 27.
+    const status = mrpReadStatus({
+      answers: 27,
+      read: read(
+        [
+          ...AGES(21, 6),
+          group('race', 'white', 0.6, 18),
+          group('race', 'black', 0.3, 9),
+          group('race', 'asian', 0.02, 0),
+          group('race', 'other', 0.08, 0),
+        ],
+        true,
+        30,
+      ),
+    })
+    expect(status).toMatchObject({
+      representativeAnswers: 27,
+      representativeNeeded: 30,
+      status: 'notYetRepresentative',
+    })
+  })
+
+  it('fills every seat on a good read, however its answers split', () => {
+    // 65 and over has its voices and a tight range, but under its share.
+    const status = mrpReadStatus({
+      answers: 60,
+      read: read(AGES(54, 6), true, 15),
+    })
+    expect(status).toMatchObject({
+      good: true,
+      representativeAnswers: 15,
+      representativeNeeded: 15,
     })
   })
 
