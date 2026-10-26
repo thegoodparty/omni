@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api, mswServer } from 'helpers/test-utils/api-mocking'
+import { router } from 'helpers/test-utils/router-mocking'
 import { useSnackbar } from 'helpers/useSnackbar'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useContactsTable } from '../ContactsTableProvider'
@@ -1168,5 +1169,82 @@ describe('ListDetailSheet — request gating', () => {
     await flush()
 
     expect(onRequest).not.toHaveBeenCalled()
+  })
+})
+
+// The free robocall offer's saved list skips the channel choice only while
+// the offer is live; once gp-api says no (used, or after Election Day), it
+// is a plain list.
+describe('ListDetailSheet — the free robocall offer list', () => {
+  const mockOfferList = () =>
+    api.mock('GET /v1/voters/voter-file/filters', {
+      status: 200,
+      data: [
+        {
+          id: 42,
+          name: 'Promotional robocall: landline voters in selected precincts',
+          recommendedVariant: 'freeOfferElectionEveRobocall',
+        },
+      ],
+    })
+
+  it('goes straight to robocall while the offer is live', async () => {
+    mockOfferList()
+    api.mock('GET /v1/campaigns/mine/robocall-offer', {
+      status: 200,
+      data: {
+        eligible: true,
+        variant: 'freeOfferElectionEveRobocall',
+        count: 852,
+        coveredCalls: 8844,
+      },
+    })
+
+    render(<ListDetailSheet listId="42" onClose={vi.fn()} />)
+
+    await screen.findByText(
+      'Promotional robocall: landline voters in selected precincts',
+    )
+    // Wait for the offer answer before pressing, as a person would see it.
+    await vi.waitFor(() =>
+      expect(
+        testQueryClient.getQueryData(['robocall-free-offer', 'test-org']),
+      ).toBeDefined(),
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Send outreach' }))
+    expect(router.push).toHaveBeenCalledWith(
+      expect.stringContaining('recommended=freeOfferElectionEveRobocall'),
+    )
+    expect(openChannelPicker).not.toHaveBeenCalled()
+  })
+
+  it('asks for a channel once the offer has ended', async () => {
+    mockOfferList()
+    api.mock('GET /v1/campaigns/mine/robocall-offer', {
+      status: 200,
+      data: {
+        eligible: false,
+        variant: 'freeOfferElectionEveRobocall',
+        count: null,
+        coveredCalls: null,
+      },
+    })
+
+    render(<ListDetailSheet listId="42" onClose={vi.fn()} />)
+
+    await screen.findByText(
+      'Promotional robocall: landline voters in selected precincts',
+    )
+    await vi.waitFor(() =>
+      expect(
+        testQueryClient.getQueryData(['robocall-free-offer', 'test-org']),
+      ).toBeDefined(),
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Send outreach' }))
+    expect(openChannelPicker).toHaveBeenCalledWith({
+      kind: 'list',
+      segment: expect.objectContaining({ id: 42 }),
+    })
+    expect(router.push).not.toHaveBeenCalled()
   })
 })

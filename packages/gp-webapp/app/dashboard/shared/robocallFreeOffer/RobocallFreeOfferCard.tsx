@@ -7,8 +7,8 @@ import {
 import { useRobocallFreeOffer } from './useRobocallFreeOffer'
 import {
   FREE_OFFER_BADGE,
+  FREE_OFFER_HOME_BODY,
   FREE_OFFER_TITLE,
-  freeOfferHomeBody,
 } from './freeOfferCopy'
 import { freeOfferHref } from './freeOfferHref'
 
@@ -18,9 +18,7 @@ import { freeOfferHref } from './freeOfferHref'
 // gp-api says the campaign has the offer.
 export default function RobocallFreeOfferCard(): React.JSX.Element | null {
   const { offer } = useRobocallFreeOffer()
-  if (!offer || offer.count === null || offer.coveredCalls === null) {
-    return null
-  }
+  if (!offer) return null
 
   return (
     <Card
@@ -40,12 +38,10 @@ export default function RobocallFreeOfferCard(): React.JSX.Element | null {
         {FREE_OFFER_BADGE}
       </p>
       <h3 className="text-base font-semibold">{FREE_OFFER_TITLE}</h3>
-      <p className="text-sm text-muted-foreground">
-        {freeOfferHomeBody(offer.count, offer.coveredCalls)}
-      </p>
+      <p className="text-sm text-muted-foreground">{FREE_OFFER_HOME_BODY}</p>
       <div className="mt-1 flex justify-end">
         <Button size="small" asChild>
-          <Link href={freeOfferHref('campaign_manager')}>Send outreach</Link>
+          <Link href={freeOfferHref('campaign_manager')}>Start outreach</Link>
         </Button>
       </div>
     </Card>

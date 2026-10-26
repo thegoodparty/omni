@@ -300,9 +300,7 @@ export const ChannelTileGrid = ({
                     formatSmsCutoffDate(smsCutoffDate),
                   )
                 ) : type === OUTREACH_TYPES.robocall && freeOffer ? (
-                  <Badge className="mt-1 uppercase tracking-wider">
-                    {FREE_OFFER_BADGE}
-                  </Badge>
+                  <Badge className="mt-1">{FREE_OFFER_BADGE}</Badge>
                 ) : undefined
               }
               aria-disabled={textClosed || undefined}

@@ -34,6 +34,7 @@ import {
   ROBOCALL_FREE_OFFER_VARIANT,
 } from '@goodparty_org/contracts'
 import { freeOfferHref } from 'app/dashboard/shared/robocallFreeOffer/freeOfferHref'
+import { useRobocallFreeOffer } from 'app/dashboard/shared/robocallFreeOffer/useRobocallFreeOffer'
 import { clientRequest } from 'gpApi/typed-request'
 import { useServeCitizenPanelsFlag } from '@shared/experiments/serveCitizenPanelsFlag'
 import { useOrganization } from '@shared/organization-picker'
@@ -93,6 +94,7 @@ export default function ListDetailSheet({
   const [duplicateOpen, setDuplicateOpen] = useState(false)
   const openChannelPicker = useOpenChannelPicker()
   const router = useRouter()
+  const { offer: freeOffer } = useRobocallFreeOffer()
 
   const isUniverse = listId === ALL_SEGMENTS
   // Serve's built-in civic panel list (CitizensPanelListCard): the
@@ -337,8 +339,11 @@ export default function ListDetailSheet({
                   // The prototype swaps this drawer for "Choose a channel";
                   // two full-height sheets never stack.
                   onClose()
-                  // The free robocall offer's list goes straight to robocall.
+                  // The free robocall offer's list goes straight to robocall
+                  // while the offer is live. Once it is used or Election Day
+                  // has passed, it is a plain list and asks for a channel.
                   if (
+                    freeOffer !== null &&
                     segment.recommendedVariant === ROBOCALL_FREE_OFFER_VARIANT
                   ) {
                     router.push(freeOfferHref('voter_data'))

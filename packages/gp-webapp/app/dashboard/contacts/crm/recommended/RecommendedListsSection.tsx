@@ -5,7 +5,7 @@ import {
   type RecommendedList,
 } from '@goodparty_org/contracts'
 import {
-  FREE_OFFER_BADGE,
+  FREE_OFFER_SECTION_TITLE,
   freeOfferAudienceNote,
 } from 'app/dashboard/shared/robocallFreeOffer/freeOfferCopy'
 import { useRobocallFreeOffer } from 'app/dashboard/shared/robocallFreeOffer/useRobocallFreeOffer'
@@ -117,9 +117,14 @@ export default function RecommendedListsSection() {
           data-testid="free-offer-section"
         >
           <div>
-            <h2 className="text-lg font-semibold">{FREE_OFFER_BADGE}</h2>
+            <h2 className="text-lg font-semibold">
+              {FREE_OFFER_SECTION_TITLE}
+            </h2>
             <p className="text-sm text-muted-foreground">
-              {freeOfferAudienceNote(offer?.coveredCalls ?? null)}
+              {freeOfferAudienceNote(
+                offer?.count ?? null,
+                offer?.coveredCalls ?? null,
+              )}
             </p>
           </div>
           <RecommendedVoterListCard

@@ -1176,7 +1176,10 @@ export const RobocallFlow = ({
               purpose === 'election_day_turnout'
                 ? {
                     recommendation: audience.freeOfferRecommendation,
-                    note: freeOfferAudienceNote(freeOffer.coveredCalls),
+                    note: freeOfferAudienceNote(
+                      freeOffer.count,
+                      freeOffer.coveredCalls,
+                    ),
                     // Picking the offer's list lands the schedule on its
                     // election-eve day, as arriving on it does.
                     onPicked: () =>
