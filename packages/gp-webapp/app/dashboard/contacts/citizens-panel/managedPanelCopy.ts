@@ -6,13 +6,17 @@ import {
 } from '@goodparty_org/contracts'
 import { useOrganization } from '@shared/organization-picker'
 
-// The place the office serves, the way Serve copy names it ("Maplewood"),
+// The place a district serves, the way Serve copy names it ("Maplewood"),
 // or null where the district is not known.
-export const useServePlace = (): string | null => {
-  const l2Name = useOrganization()?.district?.l2Name
+export const servePlaceOf = (
+  l2Name: string | null | undefined,
+): string | null => {
   const city = l2Name ? cityFromDistrictName(l2Name) : null
   return city ? cityNameCase(city) : null
 }
+
+export const useServePlace = (): string | null =>
+  servePlaceOf(useOrganization()?.district?.l2Name)
 
 const residentsOf = (place: string | null): string =>
   place ? `${place} residents` : 'residents of your district'

@@ -348,6 +348,32 @@ describe('PriorityResultsView', () => {
       respondentCount: 25,
       joinedCivicPanel: 6,
       representationShown: true,
+      themes: 1,
     })
+  })
+
+  it('leaves the themes out while the results are held back', () => {
+    renderView(
+      results({
+        readStatus: {
+          answers: 5,
+          needed: 20,
+          groupsHeard: 2,
+          groupsTotal: 12,
+          good: false,
+          status: 'tooEarly',
+          underrepresented: [],
+        },
+      }),
+    )
+
+    const [, properties] =
+      vi
+        .mocked(trackEvent)
+        .mock.calls.find(
+          ([event]) => event === EVENTS.Priorities.ResultsViewed,
+        ) ?? []
+    expect(properties).toMatchObject({ heldBack: true })
+    expect(properties).not.toHaveProperty('themes')
   })
 })

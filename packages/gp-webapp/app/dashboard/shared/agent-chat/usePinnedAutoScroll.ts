@@ -14,13 +14,27 @@ import { useCallback, useEffect, useRef, type RefObject } from 'react'
 // Pass the streaming/message signals as `deps` so the follow-scroll runs as they
 // change (instant, not smooth — a smooth scroll would restart its animation on
 // every ~40x/s reveal tick and jitter).
-export function usePinnedAutoScroll(deps: readonly unknown[]): {
+//
+// `sending` re-pins when the user sends: their own message means they are
+// done reading above, so the reply that starts next is brought into view. A
+// resize of the container or its content (a card growing after it renders,
+// a phone keyboard closing) keeps a pinned view at the bottom instead of
+// reading the moved bottom as a scroll-up.
+export function usePinnedAutoScroll(
+  deps: readonly unknown[],
+  { sending = false }: { sending?: boolean } = {},
+): {
   scrollRef: RefObject<HTMLDivElement | null>
   onScroll: () => void
 } {
   const scrollRef = useRef<HTMLDivElement>(null)
   const pinnedRef = useRef(true)
   const lastAutoTopRef = useRef(0)
+
+  const stick = useCallback((el: HTMLDivElement) => {
+    el.scrollTop = el.scrollHeight
+    lastAutoTopRef.current = el.scrollTop
+  }, [])
 
   const onScroll = useCallback(() => {
     const el = scrollRef.current
@@ -30,6 +44,25 @@ export function usePinnedAutoScroll(deps: readonly unknown[]): {
     if (Math.abs(el.scrollTop - lastAutoTopRef.current) < 1) return
     pinnedRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 4
   }, [])
+
+  useEffect(() => {
+    if (!sending) return
+    pinnedRef.current = true
+    const el = scrollRef.current
+    if (el) stick(el)
+  }, [sending, stick])
+
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el || typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(() => {
+      if (pinnedRef.current) stick(el)
+    })
+    observer.observe(el)
+    for (const child of Array.from(el.children)) observer.observe(child)
+    return () => observer.disconnect()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, deps)
 
   useEffect(() => {
     const el = scrollRef.current
@@ -48,8 +81,7 @@ export function usePinnedAutoScroll(deps: readonly unknown[]): {
       pinnedRef.current = false
       return
     }
-    el.scrollTop = el.scrollHeight
-    lastAutoTopRef.current = el.scrollTop
+    stick(el)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps)
 

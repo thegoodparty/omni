@@ -4,7 +4,10 @@ import {
   type CivicPanelComposition,
 } from '@goodparty_org/contracts'
 import { Button } from '@styleguide'
-import { SERVE_CITIZENS_PANEL_COPY as COPY } from '../citizensPanelCopy'
+import {
+  capitalizeFirst,
+  SERVE_CITIZENS_PANEL_COPY as COPY,
+} from '../citizensPanelCopy'
 import { shortGroups, type ShortGroup } from './panelCharts'
 
 const SHOWN = 4
@@ -48,17 +51,14 @@ export const CivicPanelFirstJoin = ({
   />
 )
 
-const capitalize = (words: string): string =>
-  words.charAt(0).toUpperCase() + words.slice(1)
-
 type PlaceKind = CivicPanelComposition['placeKind']
 
 // A tract by its human name, never its number; a precinct as filed.
 const rowName = (row: ShortGroup, kind: PlaceKind, place: string): string => {
   if (row.kind === 'group') {
-    return capitalize(UNDERREPRESENTED_GROUP_NAMES[row.group])
+    return capitalizeFirst(UNDERREPRESENTED_GROUP_NAMES[row.group])
   }
-  if (row.place.label) return row.place.label
+  if (row.place.label) return capitalizeFirst(row.place.label)
   return kind === 'precinct'
     ? COPY.seatPlaces.precinct.name(row.place.name)
     : COPY.unnamedTract(place)

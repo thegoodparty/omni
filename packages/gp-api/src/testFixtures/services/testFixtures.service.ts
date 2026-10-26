@@ -729,6 +729,8 @@ export class TestFixturesService {
       await this.vendorMockRecord.setPeerlyCvStatus(campaignId, { pin })
     } else if (action === 'peerly.usecase.activate') {
       await this.vendorMockRecord.activatePeerlyUsecase(campaignId)
+    } else if (action === 'peerly.phonelist.fail') {
+      await this.vendorMockRecord.armPhoneListFail(campaignId)
     } else if (action === 'vercel.order.fail') {
       await this.vendorMockRecord.failVercelOrders(campaignId)
     } else {

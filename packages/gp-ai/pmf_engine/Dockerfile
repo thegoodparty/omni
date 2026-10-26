@@ -48,9 +48,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN ARCH=$(uname -m) && \
     if [ "$ARCH" = "x86_64" ]; then NODE_ARCH="x64"; \
     elif [ "$ARCH" = "aarch64" ]; then NODE_ARCH="arm64"; fi && \
-    NODE_FILE="node-v22.16.0-linux-${NODE_ARCH}.tar.xz" && \
-    curl -fsSL "https://nodejs.org/dist/v22.16.0/${NODE_FILE}" -o "${NODE_FILE}" && \
-    curl -fsSL "https://nodejs.org/dist/v22.16.0/SHASUMS256.txt" -o SHASUMS256.txt && \
+    NODE_FILE="node-v22.23.4-linux-${NODE_ARCH}.tar.xz" && \
+    curl -fsSL "https://nodejs.org/dist/v22.23.4/${NODE_FILE}" -o "${NODE_FILE}" && \
+    curl -fsSL "https://nodejs.org/dist/v22.23.4/SHASUMS256.txt" -o SHASUMS256.txt && \
     grep " ${NODE_FILE}$" SHASUMS256.txt | sha256sum -c - && \
     tar -xJf "${NODE_FILE}" -C /usr/local --strip-components=1 && \
     rm "${NODE_FILE}" SHASUMS256.txt

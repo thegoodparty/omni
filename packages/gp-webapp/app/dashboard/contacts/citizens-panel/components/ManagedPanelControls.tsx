@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { FetchError } from 'ofetch'
 import type {
   ManagedCivicPanel,
   UpdateManagedCivicPanelInput,
@@ -36,12 +37,22 @@ export const ManagedPanelControls = ({
   const queryClient = useQueryClient()
   const orgSlug = useOrganization()?.slug
   const update = useMutation({
-    mutationFn: async (action: Action) =>
-      (
-        await clientRequest('PATCH /v1/contacts/civic-panel/managed', {
-          action,
-        })
-      ).data.panel,
+    mutationFn: async (action: Action) => {
+      try {
+        return (
+          await clientRequest('PATCH /v1/contacts/civic-panel/managed', {
+            action,
+          })
+        ).data.panel
+      } catch (error) {
+        // A 409 means the status moved since the page loaded (a ready civic
+        // panel can't resume), so trying again never works: redraw the card
+        // in its real state instead.
+        if (!(error instanceof FetchError && error.status === 409)) throw error
+        return (await clientRequest('GET /v1/contacts/civic-panel/managed', {}))
+          .data.panel
+      }
+    },
     onSuccess: (next) => {
       if (next) setPanel(next)
       queryClient.setQueryData(

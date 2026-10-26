@@ -1,11 +1,16 @@
 import { Injectable } from '@nestjs/common'
 import {
+  CivicPanelStatus,
+  ContactStatusField,
   ManagedCivicPanelStatus,
   OutreachFunding,
   OutreachStatus,
   OutreachType,
 } from '@/generated/prisma'
+import { AnalyticsService } from '@/analytics/analytics.service'
+import { managedPanelStatusChanged } from '@/contacts/utils/managedPanelAnalytics.util'
 import { FeaturesService } from '@/features/services/features.service'
+import { trackForOffice } from '@/priorities/util/priorityAnalytics.util'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { QueueProducerService } from '@/queue/producer/queueProducer.service'
@@ -72,6 +77,7 @@ export class ManagedWaveFundingService extends createPrismaBase(
     private readonly queueProducer: QueueProducerService,
     private readonly slack: SlackService,
     private readonly organizations: OrganizationsService,
+    private readonly analytics: AnalyticsService,
   ) {
     super()
   }
@@ -345,6 +351,26 @@ export class ManagedWaveFundingService extends createPrismaBase(
       return enrollment
     })
     if (!paused) return
+    const members = await this.client.contactCurrentStatus.count({
+      where: {
+        organizationSlug: paused.organizationSlug,
+        field: ContactStatusField.civic_panel,
+        value: CivicPanelStatus.member,
+      },
+    })
+    void trackForOffice(
+      this.client,
+      this.analytics,
+      { organizationSlug: paused.organizationSlug },
+      [
+        managedPanelStatusChanged({
+          from: ManagedCivicPanelStatus.building,
+          to: ManagedCivicPanelStatus.paused,
+          members,
+          changedBy: 'system',
+        }),
+      ],
+    )
     this.logger.warn(
       { waveId, organizationSlug: paused.organizationSlug },
       'Managed civic panel paused at its free text cap',

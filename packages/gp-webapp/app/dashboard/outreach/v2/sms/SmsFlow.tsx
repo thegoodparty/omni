@@ -591,6 +591,9 @@ export const SmsFlow = ({
       return data
     },
   })
+  // What the official used on the managed invite, for its Submitted event.
+  const managedUsedAiRef = useRef(false)
+  const managedUsedDictationRef = useRef(false)
   const [campaign] = useCampaign()
   const [user] = useUser()
   const gate = useOutreachGate('sms')
@@ -1466,6 +1469,7 @@ export const SmsFlow = ({
 
   const aiAction = ownWords ? 'improve' : 'regenerate'
   const handleAiAction = () => {
+    if (managed) managedUsedAiRef.current = true
     if (aiAction === 'regenerate') {
       requestDraft(purpose, tone, message, ownWords)
       return
@@ -1493,6 +1497,12 @@ export const SmsFlow = ({
       return
     }
     setManagedError(false)
+    trackEvent(EVENTS.CivicPanel.ManagedInviteSubmitted, {
+      edited: message !== (initialScript ?? ''),
+      usedImproveWithAi: managedUsedAiRef.current,
+      usedDictation: managedUsedDictationRef.current,
+      inviteSegments: Math.max(1, Math.ceil(composedLength / 160)),
+    })
     managedApprove.mutate(composedMessage, {
       onSuccess: () => managedInvite?.onSetUp(),
       onError: () => setManagedError(true),
@@ -2000,6 +2010,18 @@ export const SmsFlow = ({
     if (previous) setStepId(previous)
   }
 
+  // Closing the managed invite without setting it up sends nothing.
+  const closeFlow = managed
+    ? () => {
+        if (!managedApprove.isSuccess) {
+          trackEvent(EVENTS.CivicPanel.ManagedInviteReviewDismissed, {
+            edited: message !== (initialScript ?? ''),
+          })
+        }
+        onClose()
+      }
+    : onClose
+
   // A saved draft is the opposite of unsaved work: closing loses nothing.
   const dirty = managed
     ? message !== (initialScript ?? '') || managedConsent
@@ -2194,7 +2216,7 @@ export const SmsFlow = ({
   return (
     <OutreachFlowShell
       open={open}
-      onClose={onClose}
+      onClose={closeFlow}
       title={
         managed
           ? MANAGED_PANEL_COPY.flow.title
@@ -2241,7 +2263,7 @@ export const SmsFlow = ({
       backExits={managed}
       onBack={
         managed
-          ? onClose
+          ? closeFlow
           : // A resume has no reachable step behind it at all: purpose, audience
             // and compose were settled when the draft was saved, and compose
             // could never advance again (its Continue needs a local image file
@@ -2533,6 +2555,9 @@ export const SmsFlow = ({
             onImageError={setImageError}
             continueAttempts={composeContinueAttempts}
             {...(managed && {
+              onDictated: () => {
+                managedUsedDictationRef.current = true
+              },
               managedInvite: {
                 title: MANAGED_PANEL_COPY.flow.title,
                 caption: MANAGED_PANEL_COPY.flow.caption(

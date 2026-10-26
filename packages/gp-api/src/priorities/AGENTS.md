@@ -9,7 +9,16 @@ the results page's read of who answered the outreach sent on one
 home Next steps cards), so it is one sentence to them as "you".
 `PriorityStatusService.applyUpdate` drops it to null and logs a warning when it
 names the official (first or last name) or uses a step id as a name ("so
-define can be settled", `listen_problem`).
+define can be settled", `listen_problem`). Reads apply the same guard
+(`shownNextAction`): every priorities route that returns a priority (list,
+get, create, update and `/status`) and the home Next steps cards show a value stored before the write
+guard existed as no Next line.
+
+**Report Back Sent** (`EVENTS.Priorities.ReportBackSent`) fires from the Serve
+SMS post-purchase step once a report back text is claimed and queued, only
+from the claim that won: `answeredCount` (everyone who answered the
+priority), `themesShared` (its top themes, at most `MAX_THEMES`) and
+`channel` (`text`).
 
 ## Answer coding
 

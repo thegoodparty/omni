@@ -10,6 +10,11 @@ export type CivicPanelStage = 'start' | 'building' | 'ready' | 'exhausted'
 
 const count = (n: number): string => n.toLocaleString('en-US')
 
+// A name that starts its line: a group, or a tract label like "around Calm
+// Water Dr", which reads lower case mid-sentence.
+export const capitalizeFirst = (words: string): string =>
+  words.charAt(0).toUpperCase() + words.slice(1)
+
 export const CITIZENS_PANEL_PATH = '/dashboard/contacts/citizens-panel'
 
 // Where the official came to the panel page from, for its Panel Viewed event.
@@ -180,6 +185,7 @@ export const SERVE_CITIZENS_PANEL_COPY = {
   // A tract with no human name yet, never its number.
   unnamedTract: (place: string) => `A part of ${place}`,
   yourDistrict: 'your district',
-  askAboutPanel: 'Ask about your civic panel',
-  askAboutPanelMessage: 'How is my civic panel doing?',
+  // The pinned chat bar's question on this page. "civic panel" never
+  // breaks across its two lines on a phone.
+  chatPlaceholder: 'Ask who still needs to join your civic\u00a0panel',
 } as const

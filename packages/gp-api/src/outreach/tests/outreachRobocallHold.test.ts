@@ -13,12 +13,8 @@ import { OutreachNotificationService } from '@/outreach/services/outreachNotific
 import { Campaign, RobocallSettleState } from '../../generated/prisma'
 
 // The CAS schedule notice is fire-and-forget, so poll for the background call.
-const waitForCalls = async (
-  spy: { mock: { calls: unknown[] } },
-  count: number,
-  tries = 200,
-): Promise<void> => {
-  for (let i = 0; i < tries && spy.mock.calls.length < count; i += 1) {
+const waitUntil = async (done: () => boolean, tries = 200): Promise<void> => {
+  for (let i = 0; i < tries && !done(); i += 1) {
     await new Promise((resolve) => setTimeout(resolve, 10))
   }
 }
@@ -262,13 +258,14 @@ describe('POST /v1/outreach/robocall/:outreachId/authorize', () => {
     // the pending_payment -> pending transition fired it exactly once.
     // Counted for this outreach only: an earlier test's notice can land after
     // this test's mocks were cleared.
-    await waitForCalls(notifySpy, 1)
-    const forThisOutreach = (
-      notifySpy.mock.calls as Parameters<
-        OutreachNotificationService['notifyRobocallScheduled']
-      >[]
-    ).filter(([, , outreach]) => outreach.id === outreachId)
-    expect(forThisOutreach).toHaveLength(1)
+    const forThisOutreach = () =>
+      (
+        notifySpy.mock.calls as Parameters<
+          OutreachNotificationService['notifyRobocallScheduled']
+        >[]
+      ).filter(([, , outreach]) => outreach.id === outreachId)
+    await waitUntil(() => forThisOutreach().length >= 1)
+    expect(forThisOutreach()).toHaveLength(1)
   })
 
   it('failSend voids the hold, sets send_failed + failed spine, emails once', async () => {

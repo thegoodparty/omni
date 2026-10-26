@@ -27,7 +27,6 @@ vi.mock('@shared/hooks/useUser', () => ({
 
 interface SurfaceProps {
   open: boolean
-  pendingMessage?: string
   analyticsSurface?: string
 }
 let lastSurfaceProps: SurfaceProps | null = null
@@ -41,10 +40,16 @@ vi.mock(
   }),
 )
 vi.mock('../../../chief-of-staff/components/chat/FooterChatBar', () => ({
-  default: ({ onOpen }: { onOpen: () => void }) => (
+  default: ({
+    onOpen,
+    placeholder,
+  }: {
+    onOpen: () => void
+    placeholder?: string
+  }) => (
     <div data-testid="footer-chat-bar">
       <button type="button" onClick={onOpen}>
-        Open the chat bar
+        {placeholder ?? 'Open the chat bar'}
       </button>
     </div>
   ),
@@ -152,8 +157,37 @@ describe('CitizensPanelView', () => {
       groupsCovered: 5,
       groupsTotal: 12,
       howCloseStatus: 'missing_groups',
-      entry: 'direct',
+      managedStatus: 'none',
+      source: 'direct',
     })
+  })
+
+  it('records where a building civic panel is short', () => {
+    render(
+      <CitizensPanelView summary={SUMMARY} managed={managed('building')} />,
+    )
+
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.CivicPanel.PanelViewed,
+      expect.objectContaining({
+        managedStatus: 'building',
+        groupsAtShare: 2,
+        tractsBehind: 0,
+      }),
+    )
+  })
+
+  it('records a paused civic panel without the building numbers', () => {
+    render(<CitizensPanelView summary={SUMMARY} managed={managed('paused')} />)
+
+    const [, properties] =
+      vi
+        .mocked(trackEvent)
+        .mock.calls.find(
+          ([event]) => event === EVENTS.CivicPanel.PanelViewed,
+        ) ?? []
+    expect(properties).toMatchObject({ managedStatus: 'paused' })
+    expect(properties).not.toHaveProperty('groupsAtShare')
   })
 
   it('records no status while the comparison is hidden', () => {
@@ -227,6 +261,35 @@ describe('CitizensPanelView', () => {
     expect(within(next).getByText('A part of Asheville')).toBeInTheDocument()
     expect(
       screen.queryByRole('button', { name: 'See every group' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('capitalizes a street label that starts its row', async () => {
+    const user = userEvent.setup()
+    render(
+      <CitizensPanelView
+        summary={{
+          ...SUMMARY,
+          composition: {
+            ...COMPOSITION,
+            places: [
+              COMPOSITION.places[0]!,
+              {
+                ...COMPOSITION.places[1]!,
+                label: 'around Calm Water Dr',
+              },
+            ],
+          },
+        }}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'See every group' }))
+
+    const next = screen.getByTestId('civic-panel-next')
+    expect(within(next).getByText('Around Calm Water Dr')).toBeInTheDocument()
+    expect(
+      within(next).queryByText('around Calm Water Dr'),
     ).not.toBeInTheDocument()
   })
 
@@ -316,31 +379,27 @@ describe('CitizensPanelView', () => {
     ).toBeInTheDocument()
   })
 
-  it('pins the Chief of Staff bar, and asks it about the panel from the rail', async () => {
+  it('pins the Chief of Staff bar with a question about the civic panel, and no rail link', async () => {
     const user = userEvent.setup()
     render(<CitizensPanelView summary={SUMMARY} />)
 
     expect(screen.getByTestId('footer-chat-bar')).toBeInTheDocument()
     expect(screen.queryByTestId('panel-chat')).not.toBeInTheDocument()
+    expect(
+      within(screen.getByTestId('civic-panel-aside')).queryByRole('button', {
+        name: /ask about your civic panel/i,
+      }),
+    ).not.toBeInTheDocument()
 
     await user.click(
-      screen.getByRole('button', { name: 'Ask about your civic panel' }),
+      screen.getByRole('button', {
+        name: 'Ask who still needs to join your civic\u00a0panel',
+      }),
     )
 
     expect(screen.getByTestId('panel-chat')).toBeInTheDocument()
     expect(lastSurfaceProps).toMatchObject({
-      pendingMessage: 'How is my civic panel doing?',
       analyticsSurface: 'civic_panel_dock',
     })
-  })
-
-  it('opens a plain chat from the bar', async () => {
-    const user = userEvent.setup()
-    render(<CitizensPanelView summary={SUMMARY} />)
-
-    await user.click(screen.getByRole('button', { name: 'Open the chat bar' }))
-
-    expect(screen.getByTestId('panel-chat')).toBeInTheDocument()
-    expect(lastSurfaceProps?.pendingMessage).toBeUndefined()
   })
 })

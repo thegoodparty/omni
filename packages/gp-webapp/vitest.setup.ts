@@ -13,6 +13,7 @@ configure({ asyncUtilTimeout: 5000 })
 
 if (typeof window !== 'undefined' && !window.matchMedia) {
   Object.defineProperty(window, 'matchMedia', {
+    configurable: true,
     writable: true,
     value: (query: string) => ({
       matches: false,

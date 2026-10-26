@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
   MANAGED_CIVIC_PANEL_HOW_IT_WORKS,
@@ -6,6 +6,7 @@ import {
   type ChatClarifyQuestion,
 } from '@goodparty_org/contracts'
 import { Button, cn } from '@styleguide'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useUser } from '@shared/hooks/useUser'
 import { usePositionName } from '@shared/hooks/usePositionName'
 import { useOrganization } from '@shared/organization-picker'
@@ -73,6 +74,30 @@ const isCall = (args: unknown): args is object =>
 const isAfterHowItWorks = (args: object): boolean =>
   'afterHowItWorks' in args && args.afterHowItWorks === true
 
+// Where the official asked for the explainer from, for its Viewed event.
+export type ManagedExplainerSource = 'home_card' | 'intro_next_step' | 'chat'
+
+// The first offer under the explanation, not the one after How does it
+// work?: it is what tells the explainer was shown.
+export const isManagedExplainerOffer = (
+  toolName: string,
+  args: unknown,
+): boolean =>
+  toolName === MANAGED_PANEL_OFFER_TOOL &&
+  isCall(args) &&
+  !isAfterHowItWorks(args)
+
+// How the official answered the offer, for Explainer Completed.
+export const managedExplainerChoice = (
+  answer: string,
+): 'show_invite' | 'how_it_works' | 'not_now' | 'wrote_own' => {
+  const picked = answer.trim()
+  if (picked === SHOW_MANAGED_CIVIC_PANEL_INVITE) return 'show_invite'
+  if (picked === MANAGED_CIVIC_PANEL_HOW_IT_WORKS) return 'how_it_works'
+  if (picked === MANAGED_PANEL_COPY.notNow) return 'not_now'
+  return 'wrote_own'
+}
+
 // The invite in the official's name: its first name, their office.
 const useManagedInviteDraft = (): string => {
   const [user] = useUser()
@@ -87,11 +112,25 @@ const isSetUp = (status: string | undefined): boolean =>
 // one way forward: review it in the text flow, which approves it there.
 export const ManagedPanelInviteCard = ({
   onClosed,
+  live = false,
 }: {
   onClosed: (setUp: boolean) => void
+  // Drawn by the turn streaming now, rather than replayed from history.
+  live?: boolean
 }) => {
   const place = useServePlace()
   const draft = useManagedInviteDraft()
+  const composed = composeManagedInvite(draft)
+  const invite = withSampleFirstName(composed)
+  // Counted as the flow counts it, so Viewed and Submitted agree.
+  const [viewedInvite] = useState(composed)
+  useEffect(() => {
+    if (!live) return
+    trackEvent(EVENTS.CivicPanel.ManagedInviteViewed, {
+      inviteChars: viewedInvite.length,
+      inviteSegments: Math.max(1, Math.ceil(viewedInvite.length / 160)),
+    })
+  }, [live, viewedInvite])
   const orgSlug = useOrganization()?.slug
   const { data: panel } = useQuery({
     ...managedCivicPanelQueryOptions(orgSlug),
@@ -114,14 +153,19 @@ export const ManagedPanelInviteCard = ({
         </span>
       </div>
       <p className="whitespace-pre-line rounded-lg bg-muted p-3 text-sm text-foreground">
-        {withSampleFirstName(composeManagedInvite(draft))}
+        {invite}
       </p>
       {setUp ? null : (
         <Button
           type="button"
           size="large"
           className="w-full"
-          onClick={() => setOpen(true)}
+          onClick={() => {
+            trackEvent(EVENTS.CivicPanel.ManagedInviteReviewViewed, {
+              source: 'chat_card',
+            })
+            setOpen(true)
+          }}
         >
           {MANAGED_PANEL_COPY.reviewInvite}
         </Button>
@@ -209,7 +253,13 @@ export const managedPanelWidgetTools = [
     render: (
       _data,
       { onManagedPanelInviteClosed }: ManagedPanelWidgetContext,
-    ) => <ManagedPanelInviteCard onClosed={onManagedPanelInviteClosed} />,
+      call,
+    ) => (
+      <ManagedPanelInviteCard
+        onClosed={onManagedPanelInviteClosed}
+        live={call.messageId === null}
+      />
+    ),
   }),
   defineWidgetTool({
     toolName: MANAGED_PANEL_TOOL,

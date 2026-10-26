@@ -143,6 +143,48 @@ describe('ManagedPanelControls', () => {
     )
   })
 
+  it('redraws the card in its real state when the status moved since the page loaded', async () => {
+    const user = userEvent.setup()
+    api.mock('PATCH /v1/contacts/civic-panel/managed', () => ({
+      status: 409,
+      data: { message: "A ready civic panel can't resume" },
+    }))
+    api.mock('GET /v1/contacts/civic-panel/managed', () => ({
+      status: 200,
+      data: { panel: panel('ready') },
+    }))
+    render(<ManagedPanelControls panel={panel('paused')} />)
+
+    await user.click(screen.getByRole('button', { name: 'Resume invites' }))
+
+    expect(
+      await screen.findByText(
+        'Your civic panel is full. No new invites are going out.',
+      ),
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Resume invites' })).toBeNull()
+    expect(
+      screen.queryByText("We couldn't change your civic panel. Try again."),
+    ).toBeNull()
+  })
+
+  it('asks to try again when the change fails for another reason', async () => {
+    const user = userEvent.setup()
+    api.mock('PATCH /v1/contacts/civic-panel/managed', () => ({
+      status: 500,
+      data: { message: 'boom' },
+    }))
+    render(<ManagedPanelControls panel={panel('building')} />)
+
+    await user.click(screen.getByRole('button', { name: 'Pause invites' }))
+
+    expect(
+      await screen.findByText(
+        "We couldn't change your civic panel. Try again.",
+      ),
+    ).toBeInTheDocument()
+  })
+
   it('says every resident we can text has an invite, with no link and no pause', () => {
     render(<ManagedPanelControls panel={panel('exhausted')} />)
 

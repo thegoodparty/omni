@@ -28,8 +28,9 @@ pads `var(--chat-dock-height)` plus 8rem so the last card clears the bar.
   (`COPY.hero`), the goal as 100 seats (`SeatArc` from `CivicPanelSeats`,
   `quiet`, on `plainSeats`: filled is members over goal, in arc order, in
   bands of the brand's three families) from `lg`, below it a `Progress`
-  bar under "{members} of {goal} residents have joined" (CSS breakpoints,
-  both always rendered), then the four milestones, First
+  bar (CSS breakpoints, both always rendered; "{members} of {goal} residents
+  have joined" sits over the bar only at the start, since every other
+  stage's line already says it), then the four milestones, First
   yes, `PANEL_MIN_MEMBERS_FOR_BALANCE` members, Halfway and Full civic panel
   (`milestones`, from `progress.goal`, never a fixed number).
 - **Who joins first** (`CivicPanelFirstJoin`) at 0 members: the first
@@ -42,7 +43,9 @@ pads `var(--chat-dock-height)` plus 8rem so the last card clears the bar.
   (a group's share of 100 seats beside `memberShare` times the fill; a
   place's `buildSeats` count beside its filled), each "{have} of {need}
   seats" with a bar; See every group expands the rest in place. A tract
-  shows its `label` or "A part of {place}", never its number. This is the
+  shows its `label` or "A part of {place}", never its number. A label
+  starts its row, so its first letter is capitalized (`capitalizeFirst`:
+  "Around Calm Water Dr"); mid-sentence uses keep it as stored. This is the
   page's one answer to who's next, and it never tells the official to
   invite: GoodParty sends the invites.
 - **Rail**: the Invites card (`ManagedPanelControls`, only with a managed
@@ -50,19 +53,27 @@ pads `var(--chat-dock-height)` plus 8rem so the last card clears the bar.
   (`managedPanelNextInvitesAt`: `nextWaveAt`, else `firstSendDate` before
   the first wave) and Ready around (`readyWeekOf`, dropped once that week
   has passed), Pause / Resume and Stop my civic panel (with its confirm)
-  through `PATCH /v1/contacts/civic-panel/managed`. Then Members and Ready
-  to ask (`CitizensPanelStats showReached={false}`), See members once
-  anyone joined, and Ask about your civic panel, which opens the Chief of
-  Staff chat with "How is my civic panel doing?".
+  through `PATCH /v1/contacts/civic-panel/managed`. A 409 from it (the
+  status moved since the page loaded, like a ready civic panel that can't
+  resume) reads the enrollment again and redraws the card in its real
+  state, with no Try again; any other failure shows the error. Then Members
+  and Ready to ask (`CitizensPanelStats showReached={false}`) and See
+  members once anyone joined.
 - **Chat**: `CivicPanelChatDock` pins the shared `FooterChatBar` and
   `ChiefOfStaffChatSurface` (`analyticsSurface` `civic_panel_dock`), the
-  same dock as Ordinances and Community Issues; `useCivicPanelChat` lets
-  the rail open it on a question.
+  same dock as Ordinances and Community Issues. The bar's `placeholder` is
+  this page's question, `COPY.chatPlaceholder` ("Ask who still needs to
+  join your civic panel", with "civic panel" held together); a page
+  placeholder may wrap to two lines on a phone instead of being cut off.
 - **Analytics.** The page fires `Civic Panel - Panel Viewed` once per visit
   (members, goal, expected answers, `howCloseStatus` from the summary's
-  `balance`, snake case or null while hidden, and `entry` from the `?from=`
-  every in-app link adds through `civicPanelHref`: chief_of_staff_home,
-  chief_of_staff_chat, contacts, outreach, else direct). Every join or leave
+  `balance`, snake case or null while hidden, `managedStatus` none,
+  building, paused, ready, exhausted or stopped, and `source` from the
+  `?from=` every in-app link adds through `civicPanelHref`:
+  chief_of_staff_home, chief_of_staff_chat, contacts, outreach, else direct).
+  While building it adds `groupsAtShare` (`buildBloom`) and `tractsBehind`
+  (`buildSeats`). A record's `Constituent Data - Contact Viewed` carries
+  `onCivicPanel`. Every join or leave
   is server truth and fires from gp-api (contacts AGENTS.md).
 - **The full seats chart** (`CivicPanelSeats`) is the Constituents page
   section's (`CitizensPanelSection`), not this page's: the goal as 100
@@ -96,7 +107,7 @@ Moved to [`../../../docs/contacts-patterns.md`](../../../docs/contacts-patterns.
   - `isVoterDataUnavailable` — reactive, kept because `assertVoterDataEligibility` (the federal/state voter-file rule) throws the same `VOTER_DATA_UNAVAILABLE` code from a district-carrying org and needs campaign, district, and ballotLevel together, so it can't be predicted client-side.
   - `voterDataUnavailable` — the union. Every read-path query is gated on it: the provider's `contactsQuery` (gated on the proactive predicate alone — gating on the union would let the query's own error disable the query that produced it), `useListRowDetail`, `ListDetailSheet`, and the wizard's count/overlap-count.
 
-  The page (`crm/VoterDataUnavailableState.tsx`, support handoff to `support@goodparty.org` with the office and org slug prefilled) renders an unavailable state. **It unmounts the whole 560px column, the top bar, and `CrmAssistant` rather than disabling queries** — `DistrictStatCard` and `ListsIndex`'s `AllContactsCard` both observe the shared `['contacts-stats']` key, and React Query fires a query when ANY mounted observer is enabled, so `enabled: false` on one of them would change nothing. One known divergence: a dangling `overrideDistrictId` (set but unresolvable in election-api) makes the server proceed while the client predicts failure — the client is deliberately more conservative there.
+  The page (`crm/VoterDataUnavailableState.tsx`, support handoff to `support@goodparty.org` with the office and org slug prefilled) renders an unavailable state. **It unmounts the whole 560px column, the top bar, and `CrmAssistant` rather than disabling queries** — `DistrictStatCard` and `ListsIndex`'s `AllContactsCard` both observe the shared `['contacts-stats']` key, and React Query fires a query when ANY mounted observer is enabled, so `enabled: false` on one of them would change nothing. One known divergence: a dangling `overrideDistrictId` (set but unresolvable in the election database) makes the server proceed while the client predicts failure — the client is deliberately more conservative there.
 
   **The predicate lives in `app/dashboard/shared/useDistrictResolution.ts`, not in this provider.** `ContactsTableProvider` is mounted only on the contacts route, so polls (Serve), door knocking, campaign manager and onboarding cannot read its context — they call the hook directly. The provider consumes the same hook, so there is one definition of "unresolvable". **Serve is why this matters:** `canUseProFeatures` is `isPro || electedOffice`, i.e. always true for an `eo-` org, so the district gate is the only protection Serve has and the Pro gate does nothing for it.
 

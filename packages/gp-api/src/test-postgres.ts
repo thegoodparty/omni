@@ -104,10 +104,6 @@ export const withDatabase = (baseUri: string, database: string): string => {
   return `${baseUri.slice(0, -MAINTENANCE_PATH.length)}/${database}`
 }
 
-// Declared in both packages' harnesses rather than shared: gp-api and
-// election-api are independently deployable and neither imports the other's
-// source. The other copy is packages/election-api/src/test-postgres.ts — keep
-// the name identical there.
 export const TEST_POSTGRES_URL_VAR = 'OMNI_TEST_POSTGRES_URL'
 
 // DB SAFETY: a testcontainer always binds a random loopback port, so the

@@ -4,7 +4,10 @@ import {
   type CivicPanelPlaceKind,
 } from '@goodparty_org/contracts'
 import { cn } from '@styleguide/lib/utils'
-import { SERVE_CITIZENS_PANEL_COPY as COPY } from '../citizensPanelCopy'
+import {
+  capitalizeFirst,
+  SERVE_CITIZENS_PANEL_COPY as COPY,
+} from '../citizensPanelCopy'
 import {
   buildSeats,
   LABEL_ALL_UP_TO,
@@ -58,7 +61,7 @@ const LABEL_R = SEAT_R_OUT + SEAT_SIZE / 2 + LABEL_GAP
 
 // A tract's human name where it has one, else its number.
 const placeName = (place: SeatPlace, words: PlaceWords): string =>
-  place.label ?? words.name(place.name)
+  place.label ? capitalizeFirst(place.label) : words.name(place.name)
 
 // Names around the arc have no room to wrap, so a long one is cut short
 // there; the full name is its tooltip.

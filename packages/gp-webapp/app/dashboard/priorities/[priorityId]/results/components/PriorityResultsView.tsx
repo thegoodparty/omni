@@ -79,6 +79,7 @@ export const PriorityResultsView = ({
       respondentCount: respondents.total,
       joinedCivicPanel: respondents.joinedCivicPanel,
       representationShown: results.groups.length > 0,
+      ...(readStatus.good ? { themes: results.themes.length } : {}),
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [priorityId])

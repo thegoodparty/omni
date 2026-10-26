@@ -10,6 +10,7 @@ export interface DistrictResolution {
   l2DistrictType: string
   l2DistrictName: string
   level: BallotReadyPositionLevel | null
+  positionName?: string
 }
 
 const STATE_COLUMN = 'state_postal_code'
@@ -53,6 +54,7 @@ export class DistrictResolverService extends createPrismaBase(
       l2DistrictType: district.l2Type,
       l2DistrictName: district.l2Name,
       level: position.level ?? null,
+      ...(position.name ? { positionName: position.name } : {}),
     }
   }
 
