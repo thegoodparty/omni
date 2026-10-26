@@ -176,18 +176,26 @@ export const managedPanelProgressCardContent = (
       ctaHref: CIVIC_PANEL_PAGE_HREF,
     }
   }
+  // Matches the civic panel page's paused lead card.
+  if (panel.status === 'paused') {
+    return {
+      title: 'Your civic panel is paused',
+      summary:
+        members === 0
+          ? 'Nobody has joined yet. Resume invites to start filling it.'
+          : `${joined}. Resume invites to keep filling it.`,
+      ...see,
+    }
+  }
   return {
     // Matches the civic panel page, which has not started filling at 0.
     title:
       members === 0
         ? 'Your civic panel starts here'
         : 'Your civic panel is filling up',
-    summary:
-      panel.status === 'paused'
-        ? `${joined}. Invites are paused.`
-        : nextWaveAt
-          ? `${joined}. More invites go out ${format(nextWaveAt, 'EEEE, MMMM d')}.`
-          : `${joined} so far.`,
+    summary: nextWaveAt
+      ? `${joined}. More invites go out ${format(nextWaveAt, 'EEEE, MMMM d')}.`
+      : `${joined} so far.`,
     ...see,
   }
 }

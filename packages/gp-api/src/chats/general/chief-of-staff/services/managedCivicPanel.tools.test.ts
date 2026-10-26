@@ -75,7 +75,7 @@ const explain = async (
   return result.text
 }
 
-const EXPLANATION = `Your civic panel is a group of Asheville residents, from every age group, neighborhood, gender and race, who've said yes to hearing from your office. Before a big vote, you can ask them and hear from the whole city, not just the people at the podium.
+const EXPLANATION = `Your civic panel is a group of Asheville residents, from every age group, neighborhood, gender and race, who've said yes to hearing from your office. You can turn to them whenever you want to hear from the whole city, not just the people at the podium: before a big vote, while you're shaping a policy, or when you want to understand an issue more deeply.
 
 Your part is approving one invite. We gather the residents for you, in your name. It's free in early access.`
 
