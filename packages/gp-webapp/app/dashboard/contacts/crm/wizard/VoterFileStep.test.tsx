@@ -932,3 +932,85 @@ describe('VoterFileStep — no stray text under filter groups', () => {
     }
   })
 })
+
+describe('VoterFileStep — Voted in election', () => {
+  const precinctOptions = {
+    options: [],
+    truncated: false,
+    isLoading: false,
+    isError: false,
+    refetch: vi.fn(),
+  }
+  const renderStep = (
+    props: Partial<Parameters<typeof VoterFileStep>[0]> = {},
+  ) =>
+    render(
+      <VoterFileStep
+        filters={{}}
+        onFiltersChange={vi.fn()}
+        supportStatus={[]}
+        onSupportStatusChange={vi.fn()}
+        precincts={[]}
+        onPrecinctsChange={vi.fn()}
+        precinctOptions={precinctOptions}
+        isElectedOfficial={false}
+        {...props}
+      />,
+    )
+
+  it('renders directly below Support status when Create a list passes it', () => {
+    renderStep({ votedStatus: [], onVotedStatusChange: vi.fn() })
+
+    const headings = screen
+      .getAllByRole('heading', { level: 4 })
+      .map((heading) => heading.textContent)
+    expect(headings.indexOf('Voted in election')).toBe(
+      headings.indexOf('Support status') + 1,
+    )
+    const pills = screen.getByLabelText('Voted in election')
+    expect(within(pills).getByText('Already voted')).toBeInTheDocument()
+    expect(within(pills).getByText('Unknown')).toBeInTheDocument()
+  })
+
+  it('stays off the surfaces that do not pass it', () => {
+    renderStep()
+
+    expect(screen.queryByText('Voted in election')).toBeNull()
+  })
+
+  it('stays off Serve', () => {
+    renderStep({
+      votedStatus: [],
+      onVotedStatusChange: vi.fn(),
+      isElectedOfficial: true,
+    })
+
+    expect(screen.queryByText('Voted in election')).toBeNull()
+  })
+
+  it('Select all picks both options', async () => {
+    const user = userEvent.setup()
+    const onVotedStatusChange = vi.fn()
+    renderStep({ votedStatus: [], onVotedStatusChange })
+
+    const group = screen.getByText('Voted in election').parentElement!
+    await user.click(within(group).getByRole('button', { name: 'Select all' }))
+
+    expect(onVotedStatusChange).toHaveBeenCalledWith([
+      'already_voted',
+      'unknown',
+    ])
+  })
+
+  it('reports a single pick', async () => {
+    const user = userEvent.setup()
+    const onVotedStatusChange = vi.fn()
+    renderStep({ votedStatus: [], onVotedStatusChange })
+
+    await user.click(
+      within(screen.getByLabelText('Voted in election')).getByText('Unknown'),
+    )
+
+    expect(onVotedStatusChange).toHaveBeenCalledWith(['unknown'])
+  })
+})

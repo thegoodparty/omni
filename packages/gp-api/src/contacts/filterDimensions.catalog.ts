@@ -1,6 +1,7 @@
 import {
   type ActivityConditionAction,
   SupportStatusRollupSchema,
+  VotedStatusSchema,
 } from '@goodparty_org/contracts'
 import {
   ACTIVITY_CONDITION_CHANNEL_ACTIONS,
@@ -174,6 +175,16 @@ const SUPPORT_STATUS_LABELS: Record<
   unknown: 'Support Unknown',
   undecided: 'Undecided',
   refused: 'Refused',
+}
+
+// The words the Create a list pills use, so the assistant and the wizard
+// describe a list the same way.
+const VOTED_STATUS_LABELS: Record<
+  (typeof VotedStatusSchema.options)[number],
+  string
+> = {
+  already_voted: 'Already voted',
+  unknown: 'Unknown',
 }
 
 // The exhaustive ACTIVITY_CHANNEL_LABELS record breaks the build when a new
@@ -600,6 +611,20 @@ export const FILTER_DIMENSIONS: readonly FilterDimension[] = [
     values: SupportStatusRollupSchema.options.map((value) => ({
       key: value,
       label: SUPPORT_STATUS_LABELS[value],
+    })),
+  },
+  {
+    key: 'votedStatus',
+    label: 'Voted in Election',
+    kind: 'multi-value',
+    // Win only: Serve never asks whether anyone voted.
+    modes: 'win',
+    // The latest will-vote answer this election from this org's own door
+    // knocks and calls, so Already voted only covers people already asked.
+    provenance: 'derived',
+    values: VotedStatusSchema.options.map((value) => ({
+      key: value,
+      label: VOTED_STATUS_LABELS[value],
     })),
   },
   {
