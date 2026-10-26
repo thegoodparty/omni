@@ -181,7 +181,7 @@ beforeEach(async () => {
     await service.prisma.voterFileFilter.create({
       data: {
         organizationSlug: orgSlug,
-        name: 'Free robocall: landline voters in a selection of precincts',
+        name: 'Promotional robocall: landline voters in selected precincts',
         hasLandline: true,
         votedStatus: ['unknown'],
         precincts: TREATMENT,
