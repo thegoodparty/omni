@@ -304,11 +304,13 @@ in `underrepresented`, since the total is what holds it back. It is a floor, not
 (`answersFloor`) and sizing read it. What the seats and bar show is
 `representativeAnswers` of `representativeNeeded`: the district's floor
 (at least `answersNeeded` of the smallest major group), and the answers that
-count toward a balanced read of it. On each dimension a group's answers
-count up to its share of the floor (among the people whose value is known),
-the dimension furthest behind sets the count, and it never passes the
-people heard. So a group heard from plenty fills no extra seats, and every
-group at its share means every major group has its three. Uncoded answers
+count toward a balanced read of it. On each dimension the major groups
+share the floor by their part of the district (small groups and the pooled
+`other` hold no seats), a major group's answers count up to its share, the
+dimension furthest behind sets the count, and it never passes the people
+heard. So a group heard from plenty fills no extra seats, every group at its
+share means every major group has its three, and a good read fills every
+seat. Uncoded answers
 fill no seat yet. When the district cannot be read it is `answers` of
 `needed`. A read served before the fields existed falls back the same way
 (`representativeCount`).
