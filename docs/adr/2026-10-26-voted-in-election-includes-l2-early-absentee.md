@@ -3,7 +3,7 @@ title: Voted in election ORs L2's early and absentee table with campaign-recorde
 status: active
 decided_by: [hhkarimi]
 date: 2026-10-26
-code: ['thegoodparty/gp-data-platform#1266', 'thegoodparty/omni#3280']
+code: ['thegoodparty/gp-data-platform#1266', 'thegoodparty/omni#3280', 'thegoodparty/omni#3284']
 scope:
   - packages/gp-api/src/peopleDb/databricks/databricksVoterSql.util.ts
   - packages/gp-api/src/contacts/services/contacts.service.ts
