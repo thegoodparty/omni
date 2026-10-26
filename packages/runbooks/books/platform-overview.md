@@ -586,8 +586,6 @@ Catalog: `goodparty_data_catalog`. Read-only from app code (SELECT only). Write 
 | ------------------- | -------------------------- |
 | `GP_API_DEV`        | gp-api (dev + PR previews) |
 | `GP_API_PROD`       | gp-api (prod)              |
-| `ELECTION_API_DEV`  | election DB URL (dev)      |
-| `ELECTION_API_PROD` | election DB URL (prod)     |
 | `AI_SECRETS_DEV`    | gp-ai-projects (dev)       |
 | `AI_SECRETS_PROD`   | gp-ai-projects (prod)      |
 
