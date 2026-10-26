@@ -1,18 +1,12 @@
 import { useTestService } from '@/test-service'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 import { ConstituentActivityType } from '@/contactEngagement/contactEngagement.types'
+import {
+  appEnvOverrides,
+  useAppEnvOverrides,
+} from '@/shared/test-utils/appEnvOverrides'
 
-const { envNonProd } = vi.hoisted(() => ({ envNonProd: { value: true } }))
-vi.mock('@/shared/util/appEnvironment.util', async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import('@/shared/util/appEnvironment.util')>()
-  return {
-    ...actual,
-    get IS_NON_PROD_DEPLOY() {
-      return envNonProd.value
-    },
-  }
-})
+useAppEnvOverrides({ IS_NON_PROD_DEPLOY: true })
 
 const service = useTestService()
 
@@ -29,7 +23,7 @@ describe('POST /v1/test-fixtures/polls/results', () => {
   let eoOrgSlug: string
 
   beforeEach(async () => {
-    envNonProd.value = true
+    appEnvOverrides.IS_NON_PROD_DEPLOY = true
     await service.prisma.user.update({
       where: { id: service.user.id },
       data: { email: TEST_EMAIL },
@@ -135,7 +129,7 @@ describe('POST /v1/test-fixtures/polls/results', () => {
   })
 
   it('404s off a non-prod deploy', async () => {
-    envNonProd.value = false
+    appEnvOverrides.IS_NON_PROD_DEPLOY = false
 
     const res = await service.client.post(ROUTE, BODY, {
       headers: { 'x-organization-slug': eoOrgSlug },

@@ -5,23 +5,14 @@ import {
   Route53DomainsClient,
 } from '@aws-sdk/client-route-53-domains'
 import { HttpStatus } from '@nestjs/common'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 import { useTestService } from '@/test-service'
+import {
+  appEnvOverrides,
+  useAppEnvOverrides,
+} from '@/shared/test-utils/appEnvOverrides'
 
-const { mockMode } = vi.hoisted(() => ({ mockMode: { value: 'mock' } }))
-vi.mock('@/shared/util/appEnvironment.util', async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import('@/shared/util/appEnvironment.util')>()
-  return {
-    ...actual,
-    get IS_NON_PROD_DEPLOY() {
-      return true
-    },
-    get VENDOR_MODE() {
-      return mockMode.value as 'mock' | 'live'
-    },
-  }
-})
+useAppEnvOverrides({ IS_NON_PROD_DEPLOY: true, VENDOR_MODE: 'mock' })
 
 const service = useTestService()
 const PATH = '/v1/vendor-mocks/route53'
@@ -42,11 +33,11 @@ const buildClient = () =>
 
 describe('POST /v1/vendor-mocks/route53', () => {
   beforeEach(() => {
-    mockMode.value = 'mock'
+    appEnvOverrides.VENDOR_MODE = 'mock'
   })
 
   it('returns 404 when VENDOR_MODE is live', async () => {
-    mockMode.value = 'live'
+    appEnvOverrides.VENDOR_MODE = 'live'
     const res = await post('Route53Domains_v20140515.ListPrices', {})
     expect(res.status).toBe(HttpStatus.NOT_FOUND)
   })
