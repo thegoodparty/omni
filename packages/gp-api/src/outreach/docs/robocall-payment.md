@@ -297,7 +297,9 @@ settles first and the early free simply does not fire (correct, just not faster)
 
 **R1 — the estimate reads the run's STAGED rate, not the live env.** The rate each
 campaign is created with is FROZEN at stage time onto `OutreachRobocall.stagedCallsPerMinute`
-(`createVoiceBroadcast` returns the `frequency` it stamped), and
+(`createVoiceBroadcast` returns the APPLIED `frequency` — CallHub clamps the create to
+an account default and `createVoiceBroadcast` PATCHes it up and reads the real rate back,
+so this is the rate the run actually dials at, not the one we requested), and
 `dialCompletionCeilingAt` walks the haircut over `run.stagedCallsPerMinute ??
 getConfiguredCallsPerMinute()` — the live value is only the fallback for a run staged
 before the freeze. So raising `CALLHUB_VB_CALLS_PER_MINUTE` for new campaigns can
@@ -324,7 +326,12 @@ during a known CallHub status-read outage). A `dialing` row with NULL
 
 **Frequency.** `CALLHUB_VB_CALLS_PER_MINUTE` default is **120** — the whole
 account pool (10 → 30 → 120 on 2026-10-15 as the serial model let the rate
-climb; a live PATCH confirmed CallHub accepts 120 on a campaign). The serial gate
+climb). It is the rate we TARGET, not necessarily the one that dials: CallHub's
+create endpoint clamps frequency to an account default (observed 60/min, verified
+Oct 2026 across three real campaigns) regardless of what we POST, so
+`createVoiceBroadcast` PATCHes the fresh PAUSED campaign up to this rate on the
+`/v1/voice_broadcasts/{pk}/` detail route (the only method CallHub honors) and
+freezes the APPLIED frequency it reads back — see `callhub/AGENTS.md`. The serial gate
 makes only one campaign dial at a time, so a single run can own the full pool and
 never contends with our own others; it is SAFE for the estimate because R1 freezes
 each run's staged rate (an in-flight run keeps its ceiling) and the completion
