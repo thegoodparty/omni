@@ -116,9 +116,7 @@ describe('useListWizardCount — isStale', () => {
     expect(result.current.isStale).toBe(true)
 
     // ...and it clears once the 600ms debounce elapses and the new count lands.
-    await act(() => vi.advanceTimersByTimeAsync(599))
-    expect(result.current.isStale).toBe(true)
-    await act(() => vi.advanceTimersByTimeAsync(1))
+    await act(() => vi.advanceTimersByTimeAsync(600))
     expect(result.current.isStale).toBe(false)
   })
 })

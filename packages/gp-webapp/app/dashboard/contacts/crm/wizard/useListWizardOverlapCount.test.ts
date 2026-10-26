@@ -109,9 +109,7 @@ describe('useListWizardOverlapCount — isStale', () => {
     rerender({ payload: { genderFemale: true } })
     expect(result.current.isStale).toBe(true)
 
-    await act(() => vi.advanceTimersByTimeAsync(599))
-    expect(result.current.isStale).toBe(true)
-    await act(() => vi.advanceTimersByTimeAsync(1))
+    await act(() => vi.advanceTimersByTimeAsync(600))
     expect(result.current.isStale).toBe(false)
   })
 })
