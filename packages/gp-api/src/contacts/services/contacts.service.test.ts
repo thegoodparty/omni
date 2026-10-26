@@ -1089,6 +1089,66 @@ describe('ContactsService', () => {
         expect(result.politicalParty).toBe('Republican')
       })
 
+      describe('Already voted', () => {
+        const winOrg = () =>
+          makeOrganization({
+            slug: 'campaign-1',
+            overrideDistrictId: OVERRIDE_DISTRICT_ID,
+          })
+
+        it('is true when L2 reports an early or absentee vote, without asking the campaign', async () => {
+          mockCampaignsService.findFirst.mockResolvedValue(makeCampaign())
+          mockVoterQueryService.findPerson.mockResolvedValue({
+            id: 'p1',
+            voted: true,
+          })
+
+          const result = await service.findPerson('p1', winOrg())
+
+          expect(result.voted).toBe(true)
+          expect(mockVotedStatusService.votedForPeople).not.toHaveBeenCalled()
+        })
+
+        it('is true when only the campaign recorded the person as voted', async () => {
+          mockCampaignsService.findFirst.mockResolvedValue(makeCampaign())
+          mockVoterQueryService.findPerson.mockResolvedValue({ id: 'p1' })
+          mockVotedStatusService.votedForPeople.mockResolvedValue(
+            new Map([['p1', true]]),
+          )
+
+          const result = await service.findPerson('p1', winOrg())
+
+          expect(result.voted).toBe(true)
+        })
+
+        it('is false when neither source has the person', async () => {
+          mockCampaignsService.findFirst.mockResolvedValue(makeCampaign())
+          mockVoterQueryService.findPerson.mockResolvedValue({ id: 'p1' })
+          mockVotedStatusService.votedForPeople.mockResolvedValue(new Map())
+
+          const result = await service.findPerson('p1', winOrg())
+
+          expect(result.voted).toBe(false)
+        })
+
+        it('never reaches a Serve (eo-) org, even when L2 has the person', async () => {
+          mockVoterQueryService.findPerson.mockResolvedValue({
+            id: 'p1',
+            voted: true,
+          })
+
+          const result = await service.findPerson(
+            'p1',
+            makeOrganization({
+              slug: 'eo-mayor-1',
+              overrideDistrictId: OVERRIDE_DISTRICT_ID,
+            }),
+          )
+
+          expect(result).not.toHaveProperty('voted')
+        })
+      })
+
       it('attaches the supportStatus rollup returned by SupportStatusService', async () => {
         const org = makeOrganization({
           slug: 'eo-mayor-1',

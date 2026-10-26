@@ -87,6 +87,10 @@ consumer-only constituent is never in the L2 table. It is apart from
 `gp_api_voters` because that table rebuilds monthly
 (`docs/adr/2026-10-26-voted-in-election-includes-l2-early-absentee.md`).
 Not every state reports, so No does not mean the voter has yet to vote.
+`buildPersonSql` reads the same table as a trailing
+`early_absentee_voted` column, so a person's detail can show "Already
+voted" without a second warehouse round trip; `findPerson` sets
+`voted: true` from it and ContactsService ORs in the campaign's answer.
 
 Consumer-only rows are NULL in every voter-only column (party,
 `Voter_Status`, `StateVoterID`, vote history, `Voter_Independent_Affinity`,

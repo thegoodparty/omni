@@ -206,7 +206,9 @@ is a union with a Databricks table and the `id` resolution can only
 intersect; see `src/peopleDb/AGENTS.md`. It never empties a list on its
 own, so door knocking's empty-audience message does not name it.
 Recommended lists add No/Unknown (`NOT_YET_VOTED`), so they drop L2 early
-and absentee voters too. Separate from `earlyVote`, a modeled likelihood.
+and absentee voters too. The person card's "Already voted" (`person.voted`)
+reads the same two sources, so it agrees with the filter. Door knocking's
+create flow offers the same pills (WhoStep), seeded from a picked list. Separate from `earlyVote`, a modeled likelihood.
 
 ### Door-knock willVote writes a voter_likelihood override (ENG-10841)
 

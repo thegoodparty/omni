@@ -415,6 +415,8 @@ export class ContactsService {
     // an `eo-` org — and the Serve readers drop the row rather than printing
     // the null (PersonOverlay, demographicFacts).
     stripped.ethnicityGroup = null
+    // The people layer sets it from L2; Serve never asks who voted.
+    delete stripped.voted
     return stripped
   }
 
@@ -2636,11 +2638,16 @@ export class ContactsService {
         ? this.civicPanelActivity(organization.slug, person.id)
         : Promise.resolve(null),
       // Win-only, like voterLikelihood: Serve never asks whether anyone voted.
+      // True when L2 reports an early or absentee vote (set on the person by
+      // the people layer) or the campaign recorded the person as already
+      // voted, the same two sources as the Voted in election filter.
       this.hasElectedOfficeAccess(organization)
         ? Promise.resolve(null)
-        : this.votedStatusService
-            .votedForPeople(organization.slug, [person.id])
-            .then((voted) => voted.get(person.id) ?? false),
+        : person.voted === true
+          ? Promise.resolve(true)
+          : this.votedStatusService
+              .votedForPeople(organization.slug, [person.id])
+              .then((voted) => voted.get(person.id) ?? false),
     ])
     const base = {
       ...this.stripWinOnlyFieldsIfElectedOffice(organization, person),

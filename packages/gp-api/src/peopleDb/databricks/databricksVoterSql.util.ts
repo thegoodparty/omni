@@ -914,13 +914,20 @@ export const buildOverlapCountSql = (
 // One voter by id, still scoped to the district. The scope is not redundant:
 // an id from one district must not resolve through another office's drawer, so
 // the same predicate the list uses also gates the detail read.
+export const PERSON_EARLY_ABSENTEE_VOTED_COLUMN = 'early_absentee_voted'
+
 export const buildPersonSql = (
   args: DbxScopeArgs & { columns: readonly string[]; id: string },
 ): DbxStatement => {
   const bag = createBag()
-  const projection = args.columns
-    .map((column) => `${col(column)} AS ${ident(column)}`)
-    .join(', ')
+  // Trailing the column list so the row's named columns keep their
+  // positions: whether L2 reports this person voting early or absentee, for
+  // the detail's "Already voted". Folded in here rather than asked
+  // separately, which would add a warehouse round trip to every open.
+  const projection = [
+    ...args.columns.map((column) => `${col(column)} AS ${ident(column)}`),
+    `(${col('id')} IN (SELECT id FROM ${EARLY_ABSENTEE_VOTED_TABLE})) AS ${ident(PERSON_EARLY_ABSENTEE_VOTED_COLUMN)}`,
+  ].join(', ')
   const scope = buildScopeSql(bag, args)
   const sql =
     `SELECT ${projection} FROM ${args.district.table} v ${scope}` +

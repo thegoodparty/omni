@@ -1188,6 +1188,14 @@ describe('buildPersonSql', () => {
     expect(params.map(({ value }) => value)).toEqual(['CA', '29', ID])
   })
 
+  it('trails the named columns with the L2 early/absentee flag', () => {
+    const { sql } = buildPersonSql({ ...scope, columns: ['id'], id: ID })
+
+    expect(sql).toContain(
+      'SELECT v.`id` AS `id`, (v.`id` IN (SELECT id FROM goodparty_data_catalog.mart_gp_api.gp_api_voter_eav_general_2026)) AS `early_absentee_voted` FROM',
+    )
+  })
+
   // Postgres cast to `uuid` and folded case; this column is a STRING that does
   // not, and z.guid() hands the id through in whatever case it arrived.
   it('folds a mixed-case guid to match the stored value', () => {
