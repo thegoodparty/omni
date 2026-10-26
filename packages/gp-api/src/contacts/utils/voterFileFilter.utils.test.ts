@@ -238,29 +238,13 @@ describe('convertVoterFileFilterToFilters early vote status', () => {
   })
 })
 
-describe('convertVoterFileFilterToFilters early absentee voted', () => {
-  it('maps a single selection with eq', () => {
+describe('convertVoterFileFilterToFilters voted in election', () => {
+  // ContactsService.resolveBaseFilters owns it, since its campaign half is a
+  // person-id set the generic loop cannot resolve.
+  it('never sends votedStatus as a raw filter key', () => {
     expect(
-      convertVoterFileFilterToFilters({ earlyAbsenteeVotedNo: true }),
-    ).toEqual({ earlyAbsenteeVoted: { eq: 'No' } })
-  })
-
-  it('maps both selections with in', () => {
-    expect(
-      convertVoterFileFilterToFilters({
-        earlyAbsenteeVotedYes: true,
-        earlyAbsenteeVotedNo: true,
-      }),
-    ).toEqual({ earlyAbsenteeVoted: { in: ['Yes', 'No'] } })
-  })
-
-  // Without the explicit branch the generic loop would send each boolean
-  // as its own presence filter, which the filter schema strips.
-  it('never sends the persisted booleans as raw filter keys', () => {
-    const filters = convertVoterFileFilterToFilters({
-      earlyAbsenteeVotedYes: true,
-    })
-    expect(filters).not.toHaveProperty('earlyAbsenteeVotedYes')
+      convertVoterFileFilterToFilters({ votedStatus: ['unknown'] }),
+    ).toEqual({})
   })
 })
 

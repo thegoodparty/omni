@@ -643,7 +643,10 @@ export class ContactsService {
     )
     this.assertNoContactsMadeFilterForElectedOffice(organization, filterInput)
     this.assertNoFollowUpFilterForCampaign(organization, filterInput)
-    return this.resolveVoterLikelihoodFilter(organization, baseFilters)
+    return this.resolveVoterLikelihoodFilter(organization, {
+      ...baseFilters,
+      ...(await this.resolveVotedInElection(organization, filterInput)),
+    })
   }
 
   // Composes activity-condition/support-status resolution with the
@@ -762,10 +765,7 @@ export class ContactsService {
       }
     }
 
-    const idResolution = intersectIdFilterResolutions(
-      sharedResolution,
-      await this.resolveVotedStatus(organization, filterInput),
-    )
+    const idResolution = sharedResolution
 
     const selected = extractContactsMadeSelection(filterInput)
     if (selected.size === 0) {
@@ -797,31 +797,30 @@ export class ContactsService {
     }
   }
 
-  // "Voted in election" (Win only). Already voted is the voted set itself;
-  // Unknown is everyone outside it, which only a notIn can express, since
-  // people who were never asked are not enumerable. Both, or neither, is no
+  // "Voted in election" (Win only). Yes is L2's early and absentee voters
+  // OR the people this org's knocks and calls recorded as already voted; No
+  // is neither. The L2 half is a Databricks table and the campaign half a
+  // Postgres id set, so the two travel together as votedInElection plus its
+  // sibling id set and are OR-ed in one SQL clause, rather than as an `id`
+  // resolution, which can only intersect. Both, or neither, is no
   // constraint, the same as selecting every Support status pill.
-  private async resolveVotedStatus(
+  private async resolveVotedInElection(
     organization: Organization,
-    filterInput: ContactsFilterResolutionInput,
-  ): Promise<IdFilterResolution> {
+    filterInput: Pick<ContactsFilterResolutionInput, 'votedStatus'>,
+  ): Promise<FilterObject> {
+    if (this.hasElectedOfficeAccess(organization)) return {}
     const selected = new Set(filterInput.votedStatus ?? [])
     const wantsVoted = selected.has('already_voted')
-    if (wantsVoted === selected.has('unknown')) {
-      return { kind: 'none' }
-    }
-    const voted = await this.votedStatusService.votedPersonIds(
+    if (wantsVoted === selected.has('unknown')) return {}
+    const reported = await this.votedStatusService.votedPersonIds(
       organization.slug,
     )
-    if (wantsVoted) {
-      // Nobody has voted yet: an empty audience, not an absent filter.
-      return voted.length === 0
-        ? { kind: 'empty' }
-        : { kind: 'filter', idFilter: { in: voted } }
+    return {
+      votedInElection: { eq: wantsVoted ? 'Yes' : 'No' },
+      ...(reported.length > 0
+        ? { votedInElectionReportedIds: { in: reported } }
+        : {}),
     }
-    return voted.length === 0
-      ? { kind: 'none' }
-      : { kind: 'filter', idFilter: { notIn: voted } }
   }
 
   // Serve's "who still owes a follow-up" dimension. It reads the STANDING
@@ -1796,7 +1795,10 @@ export class ContactsService {
 
     const resolved = await Promise.all(
       capped.map(async (savedFilter) => {
-        const savedBaseFilters = convertVoterFileFilterToFilters(savedFilter)
+        const savedBaseFilters = {
+          ...convertVoterFileFilterToFilters(savedFilter),
+          ...(await this.resolveVotedInElection(organization, savedFilter)),
+        }
         // Party never reaches Serve (ENG-10696) — the write path doesn't
         // assert this on every saved-filter create/update, so a legacy or
         // otherwise-tainted row can still carry `politicalParty`. Every
@@ -1866,13 +1868,6 @@ export class ContactsService {
             organization,
             savedFilter,
             savedIdResolution,
-          )
-          // Voted in election is in excludeFields for the same reason as
-          // followUpRequested: skipped, a "not yet voted" list would count
-          // the voters it leaves out.
-          savedIdResolution = intersectIdFilterResolutions(
-            savedIdResolution,
-            await this.resolveVotedStatus(organization, savedFilter),
           )
           // And the shape drawn on it. Without this a boundaried list joins
           // the union at its PRE-boundary size — every person its criteria
@@ -3180,10 +3175,10 @@ export class ContactsService {
     this.assertNoFollowUpFilterForCampaign(organization, customSegment)
 
     const { filters: baseFilters, idOverrides } =
-      await this.resolveVoterLikelihoodFilter(
-        organization,
-        convertVoterFileFilterToFilters(customSegment),
-      )
+      await this.resolveVoterLikelihoodFilter(organization, {
+        ...convertVoterFileFilterToFilters(customSegment),
+        ...(await this.resolveVotedInElection(organization, customSegment)),
+      })
     const { idResolution, contactsMadeIdOverrides } =
       await this.resolveIdFilterWithContactsMade(organization, customSegment)
     if (idResolution.kind === 'empty') {

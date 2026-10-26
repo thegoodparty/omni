@@ -298,15 +298,15 @@ describe('ContactsService.getFilterDimensions', () => {
     expect(serveKeys).not.toContain('earlyVote')
   })
 
-  it('offers voted early or by mail to Win and never to an eo- organization', () => {
-    const winKeys = buildService()
+  it('labels Voted in election Yes and No/Unknown', () => {
+    const voted = buildService()
       .getFilterDimensions(organization('win-campaign'), PANELS_ON)
-      .map((d) => d.key)
-    const serveKeys = buildService()
-      .getFilterDimensions(organization('eo-city-council'), PANELS_ON)
-      .map((d) => d.key)
-    expect(winKeys).toContain('earlyAbsenteeVoted')
-    expect(serveKeys).not.toContain('earlyAbsenteeVoted')
+      .find((d) => d.key === 'votedStatus')
+    expect(voted?.kind).toBe('multi-value')
+    expect(
+      voted?.kind === 'multi-value' && voted.values.map((v) => v.label),
+    ).toEqual(['Yes', 'No/Unknown'])
+    expect(voted?.provenance).toBe('observed')
   })
 
   // Each mode sees the shared dimensions plus only its own. Stated

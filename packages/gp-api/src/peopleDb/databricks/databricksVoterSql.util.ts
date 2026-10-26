@@ -354,10 +354,18 @@ const buildIndependentAffinityFilter = (
 // L2's early and absentee voters for the current general, rebuilt daily
 // from an upload, apart from the monthly voter table so the filter tracks
 // returns as they come in. Same ids as both people tables; a consumer-only
-// constituent is never in it, so reads as No.
+// constituent is never in it.
 const EARLY_ABSENTEE_VOTED_TABLE = TABLE('gp_api_voter_eav_general_2026')
 
-const buildEarlyAbsenteeVotedFilter = (op?: FilterOperator): string | null => {
+// "Voted in election": L2's early and absentee voters OR the people the
+// campaign recorded as already voted. The campaign half is resolved in
+// Postgres and arrives as a sibling id set, which is why this one clause
+// reads two filter keys: an OR across the two sources cannot be split into
+// independently AND-ed filters.
+const buildVotedInElectionFilter = (
+  op: FilterOperator | undefined,
+  reportedIdsOp: FilterOperator | undefined,
+): string | null => {
   if (!op) return null
   const selected =
     op.operator === 'in' && op.values
@@ -367,14 +375,17 @@ const buildEarlyAbsenteeVotedFilter = (op?: FilterOperator): string | null => {
         : []
   const hasYes = selected.includes('Yes')
   const hasNo = selected.includes('No')
-  if (hasYes && hasNo) return null
+  if (hasYes === hasNo) return null
+  const reported =
+    reportedIdsOp?.operator === 'in' && reportedIdsOp.values?.length
+      ? idList(reportedIdsOp.values)
+      : null
   if (hasYes) {
-    return `${col('id')} IN (SELECT id FROM ${EARLY_ABSENTEE_VOTED_TABLE})`
+    const l2 = `${col('id')} IN (SELECT id FROM ${EARLY_ABSENTEE_VOTED_TABLE})`
+    return reported ? `(${l2} OR ${col('id')} IN (${reported}))` : l2
   }
-  if (hasNo) {
-    return `${col('id')} NOT IN (SELECT id FROM ${EARLY_ABSENTEE_VOTED_TABLE} WHERE id IS NOT NULL)`
-  }
-  return null
+  const l2 = `${col('id')} NOT IN (SELECT id FROM ${EARLY_ABSENTEE_VOTED_TABLE} WHERE id IS NOT NULL)`
+  return reported ? `(${l2} AND ${col('id')} NOT IN (${reported}))` : l2
 }
 
 const buildLanguageFilter = (bag: Bag, op?: FilterOperator): string | null => {
@@ -662,8 +673,14 @@ export const buildVoterFiltersSql = (
       case 'independentAffinity':
         sql = buildIndependentAffinityFilter(op, affinityColumn)
         break
-      case 'earlyAbsenteeVoted':
-        sql = buildEarlyAbsenteeVotedFilter(op)
+      case 'votedInElection':
+        sql = buildVotedInElectionFilter(
+          op,
+          filterOperators.votedInElectionReportedIds,
+        )
+        break
+      case 'votedInElectionReportedIds':
+        // Applied inside votedInElection; alone it constrains nothing.
         break
       case 'estimatedIncomeAmountInt':
         sql = buildNumericFilter(bag, 'Estimated_Income_Amount_Int', op)

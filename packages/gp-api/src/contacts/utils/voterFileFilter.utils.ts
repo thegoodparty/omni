@@ -172,7 +172,8 @@ export const convertVoterFileFilterToFilters = (
     // a meaningless FilterObject entry.
     'activityConditions',
     'supportStatus',
-    // Same reason: VotedStatusService resolves it to a person-id set.
+    // Same reason: ContactsService.resolveBaseFilters turns it into
+    // votedInElection, since its campaign half is a person-id set.
     'votedStatus',
     // Provenance metadata (Task 7, recommended lists), not filter criteria.
     // recommendedModified is a plain boolean and would otherwise fall into
@@ -249,8 +250,6 @@ export const convertVoterFileFilterToFilters = (
     'civicPanelJoinedByHand',
     'notContactedRecently',
     'independentAffinity',
-    'earlyAbsenteeVotedYes',
-    'earlyAbsenteeVotedNo',
     'ideologyConservative',
     'ideologyLiberal',
     'ideologyModerate',
@@ -496,16 +495,6 @@ export const convertVoterFileFilterToFilters = (
   // uses — `IS NOT NULL` on that column matches the whole file.
   if (segment.independentAffinity) {
     filters['independentAffinity'] = { eq: 'Yes' }
-  }
-
-  const earlyAbsenteeVotedValues: string[] = []
-  if (segment.earlyAbsenteeVotedYes) earlyAbsenteeVotedValues.push('Yes')
-  if (segment.earlyAbsenteeVotedNo) earlyAbsenteeVotedValues.push('No')
-  if (earlyAbsenteeVotedValues.length > 0) {
-    filters['earlyAbsenteeVoted'] =
-      earlyAbsenteeVotedValues.length === 1
-        ? { eq: earlyAbsenteeVotedValues[0] }
-        : { in: earlyAbsenteeVotedValues }
   }
   return filters
 }
