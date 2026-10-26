@@ -49,10 +49,10 @@ export const ROBOCALL_FREE_OFFER_COVERED_CALLS = Math.floor(
 export const ROBOCALL_FREE_OFFER_CODE_PREFIX = 'GPOFFER-'
 
 // The plan task the invite script adds. Tracker rows carry no catalog id, so
-// the title is how the task is found again to complete it.
+// the title is how the task is found again to complete it. Same words as the
+// webapp's FREE_OFFER_TITLE.
 export const ROBOCALL_FREE_OFFER_TASK_TITLE =
-  'Send a free promotional election-eve robocall to landlines in a ' +
-  'selection of precincts'
+  'Send a free promotional robocall to landline voters in selected precincts'
 
 // Serializes precinct assignment across every campaign in the experiment,
 // since overlapping districts share precincts. Same key space as
