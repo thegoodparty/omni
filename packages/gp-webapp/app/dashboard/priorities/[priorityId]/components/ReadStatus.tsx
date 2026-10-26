@@ -10,7 +10,7 @@ import {
   readPercent,
   resultsHref,
 } from '../readStatusCopy'
-import { GroupSeatsArc, GroupSeatsLegend } from './GroupSeats'
+import { AnswerSeatsArc, AnswerSeatsLegend } from './AnswerSeats'
 
 type ReadStatusProps = {
   priorityId: string
@@ -199,7 +199,7 @@ export const ReadStatusRailBlock = ({
           <div className="flex flex-col items-start gap-1.5">
             {/* Seats on a computer, the bar below lg, by CSS alone so the
                 rail never jumps. */}
-            <GroupSeatsArc
+            <AnswerSeatsArc
               readStatus={readStatus}
               className="hidden max-w-44 lg:block"
             />
@@ -207,7 +207,7 @@ export const ReadStatusRailBlock = ({
               {READ_STATUS_COPY.progress(readStatus)}
             </span>
             <ReadProgress readStatus={readStatus} className="h-2 lg:hidden" />
-            <GroupSeatsLegend
+            <AnswerSeatsLegend
               readStatus={readStatus}
               className="hidden lg:flex"
             />

@@ -62,7 +62,7 @@ Preview services run with `connection_limit=5` (set by `IS_PREVIEW` in `docker-e
 
 ## Election database (`components/election-db.ts`)
 
-The election data Aurora cluster that `ELECTION_DATABASE_URL` points at. It was created by the retired election-api stack and adopted here by `import`, so its physical names (`election-api-db-*`, `tf-2025…` instance ids, `rdsEventsRule-*`) and its `Project: election-api` tag are historical, not a pattern to copy. Previews read the dev cluster and never own it. The master password is deliberately not an input: Pulumi does not manage it.
+The election data Aurora cluster that `ELECTION_DATABASE_URL` points at. It was created by the retired election-api stack and adopted here by `import`, so its physical names (`election-api-db-*`, `tf-2025…` instance ids, `rdsEventsRule-*`) are historical, not a pattern to copy. It carries the stack's default tags (`Project: gp-api`), so its cost reports under gp-api. Previews read the dev cluster and never own it. The master password is deliberately not an input: Pulumi does not manage it.
 
 ## Gotchas
 

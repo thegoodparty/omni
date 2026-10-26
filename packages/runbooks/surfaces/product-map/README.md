@@ -13,7 +13,7 @@ guard still owed), under the DATA-2580 epic. Published page:
 ## One page with the explorer
 
 The map has no template of its own. `build.py` renders the explorer's
-`standalone/template.html` with `DATA.page = 'map'`, so the header, search, product
+`event-explorer/template.html` with `DATA.page = 'map'`, so the header, search, product
 filters, question and area cards, event card and What's next are the explorer's, and the
 only section that differs is the one under the filters: the explorer lists events, the
 map draws this tree. The two files here are what the map adds, passed to
@@ -61,7 +61,7 @@ mechanism `event_anchors.json` already uses.
 
 Both inputs are refreshed by the governance run, so the map moves when the explorer does.
 
-- The explorer snapshot, `packages/prototypes/app/p/analytics-event-explorer/data/event-explorer.json`,
+- The explorer snapshot, `surfaces/event-explorer/data/event-explorer.json`,
   whole. The page searches every event in it, and `map.js` builds each step's row
   (status, volume, series, route) from the same events its cards render, so a step and
   the card that opens under it cannot disagree.

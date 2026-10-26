@@ -5,7 +5,7 @@ import {
   SHOW_MANAGED_CIVIC_PANEL_INVITE,
   type ChatClarifyQuestion,
 } from '@goodparty_org/contracts'
-import { Button, cn } from '@styleguide'
+import { Button } from '@styleguide'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useUser } from '@shared/hooks/useUser'
 import { usePositionName } from '@shared/hooks/usePositionName'
@@ -17,10 +17,10 @@ import {
   type ClarifyWidgetContext,
 } from '../../../shared/agent-chat/clarifyWidget'
 import { defineWidgetTool } from '../../../shared/agent-chat/widgetRegistry'
-import { OPTION_CARD_CLASS } from '../../../shared/agent-chat/optionCard'
 import {
   CompactCardLink,
   CompactCardLoading,
+  CompactCardStatic,
   CompactCardUnavailable,
 } from '../../../shared/agent-chat/cards/cardShell'
 import { civicPanelHref } from '../../../contacts/citizens-panel/citizensPanelCopy'
@@ -33,7 +33,6 @@ import { SERVE_SMS_SURFACE, SmsFlow } from '../../../outreach/v2/sms/SmsFlow'
 import {
   composeManagedInvite,
   managedInviteDraft,
-  withSampleFirstName,
 } from '../../../outreach/v2/sms/smsCompose.util'
 
 export const MANAGED_PANEL_INVITE_TOOL = 'present_managed_panel_invite'
@@ -108,8 +107,8 @@ const useManagedInviteDraft = (): string => {
 const isSetUp = (status: string | undefined): boolean =>
   status !== undefined && status !== 'stopped'
 
-// The invite as residents would read it, with a sample first name, and the
-// one way forward: review it in the text flow, which approves it there.
+// Like the other text cards in chat: what it is, who it goes to, and the one
+// way forward. The words are on the review step, where they can be changed.
 export const ManagedPanelInviteCard = ({
   onClosed,
   live = false,
@@ -120,10 +119,8 @@ export const ManagedPanelInviteCard = ({
 }) => {
   const place = useServePlace()
   const draft = useManagedInviteDraft()
-  const composed = composeManagedInvite(draft)
-  const invite = withSampleFirstName(composed)
   // Counted as the flow counts it, so Viewed and Submitted agree.
-  const [viewedInvite] = useState(composed)
+  const [viewedInvite] = useState(() => composeManagedInvite(draft))
   useEffect(() => {
     if (!live) return
     trackEvent(EVENTS.Contacts.CivicPanelInviteViewed, {
@@ -140,36 +137,28 @@ export const ManagedPanelInviteCard = ({
   const setUp = isSetUp(panel?.status)
 
   return (
-    <div
-      className={cn(OPTION_CARD_CLASS, 'flex w-full max-w-md flex-col gap-3')}
-      data-testid="managed-panel-invite"
-    >
-      <div className="flex flex-col">
-        <span className="text-sm font-medium text-foreground">
-          {MANAGED_PANEL_COPY.inviteCardTitle}
-        </span>
-        <span className="text-sm leading-6 text-muted-foreground">
-          {MANAGED_PANEL_COPY.inviteCardSubtitle(place)}
-        </span>
-      </div>
-      <p className="whitespace-pre-line rounded-lg bg-muted p-3 text-sm text-foreground">
-        {invite}
-      </p>
-      {setUp ? null : (
-        <Button
-          type="button"
-          size="large"
-          className="w-full"
-          onClick={() => {
-            trackEvent(EVENTS.Contacts.CivicPanelInviteReviewViewed, {
-              source: 'chat_card',
-            })
-            setOpen(true)
-          }}
-        >
-          {MANAGED_PANEL_COPY.reviewInvite}
-        </Button>
-      )}
+    <div className="w-full max-w-md" data-testid="managed-panel-invite">
+      <CompactCardStatic
+        title={MANAGED_PANEL_COPY.inviteCardTitle}
+        subtitle={MANAGED_PANEL_COPY.inviteCardSubtitle(place)}
+        action={
+          setUp ? undefined : (
+            <Button
+              type="button"
+              size="small"
+              className="shrink-0"
+              onClick={() => {
+                trackEvent(EVENTS.Contacts.CivicPanelInviteReviewViewed, {
+                  source: 'chat_card',
+                })
+                setOpen(true)
+              }}
+            >
+              {MANAGED_PANEL_COPY.reviewInvite}
+            </Button>
+          )
+        }
+      />
       {open ? (
         <SmsFlow
           open
