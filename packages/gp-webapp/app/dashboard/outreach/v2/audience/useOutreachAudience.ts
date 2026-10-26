@@ -553,8 +553,13 @@ export const useOutreachAudience = ({
         ? { supportStatus: builderSupportStatus }
         : {}),
       ...(builderPrecincts.length ? { precincts: builderPrecincts } : {}),
+      // Not a builder pill: a recommendation's "not yet voted" screen rides
+      // with the recommendation it came from, and goes when that does.
+      ...(recommendedMeta?.filter.votedStatus?.length
+        ? { votedStatus: recommendedMeta.filter.votedStatus }
+        : {}),
     }),
-    [builderFilters, builderSupportStatus, builderPrecincts],
+    [builderFilters, builderSupportStatus, builderPrecincts, recommendedMeta],
   )
   // Key the memo on the overlay's VALUE, not its identity, so a caller passing
   // an inline `{ hasLandline: true }` each render can't churn the payload and
@@ -797,6 +802,7 @@ export const useOutreachAudience = ({
       const trimmed = name.trim()
       const filters = builderFiltersFromRecommendation(recommendation.filter)
       const supportStatus = recommendation.filter.supportStatus ?? []
+      const votedStatus = recommendation.filter.votedStatus ?? []
       const precincts = recommendation.filter.precincts ?? []
       setCreateRecommendedListPending(true)
       setCreateRecommendedListError(null)
@@ -808,6 +814,7 @@ export const useOutreachAudience = ({
             name: trimmed,
             ...transformVoterFileFiltersForBackend(filters),
             ...(supportStatus.length ? { supportStatus } : {}),
+            ...(votedStatus.length ? { votedStatus } : {}),
             ...(precincts.length ? { precincts } : {}),
             recommendedVariant: recommendation.variant,
             recommendedChannel: reachabilityKey,

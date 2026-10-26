@@ -352,6 +352,8 @@ export interface CreateListSurfaceProps {
   // The purpose a link carried, opening the flow past the purpose picker
   // on it.
   initialPurpose?: ServeDoorKnockingPurpose
+  // The question a priority card carried for that purpose.
+  initialQuestion?: string
   // The agent surface that opened the flow. Threaded straight through.
   launchSource?: OutreachLaunchSource
 }
@@ -398,6 +400,7 @@ export default function CreateListSurface({
   preselectedRecommendedVariant,
   onRecommendedPreselectApplied,
   initialPurpose,
+  initialQuestion,
   launchSource,
 }: CreateListSurfaceProps) {
   // The who step's list picker. Both reads are the page's own queries by key,
@@ -601,6 +604,7 @@ export default function CreateListSurface({
       preselectedRecommendedVariant={preselectedRecommendedVariant}
       onRecommendedPreselectApplied={onRecommendedPreselectApplied}
       {...(initialPurpose && { initialPurpose })}
+      {...(initialQuestion && { initialQuestion })}
       onSelectedListChange={handleSelectedListChange}
       siblingTurfs={siblingTurfs}
       campaignOutreachId={campaignOutreachId}

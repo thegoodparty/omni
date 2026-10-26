@@ -3,6 +3,7 @@ import type {
   ActivityConditionAction,
   OutreachType,
   SupportStatusRollup,
+  VotedStatus,
 } from '@goodparty_org/contracts'
 import { DoorOpenIcon, MessageSquareMoreIcon, PhoneIcon } from '@styleguide'
 
@@ -146,4 +147,15 @@ export const SUPPORT_STATUS_OPTIONS: {
   { value: 'undecided', label: 'Undecided' },
   { value: 'refused', label: 'Refused' },
   { value: 'unknown', label: 'Support Unknown' },
+]
+
+// "Voted in election" (Win only). Already voted is a voter whose latest
+// will-vote answer this election is Already voted; Unknown is everyone else,
+// including people never asked. Same single-source rule as above.
+export const VOTED_STATUS_OPTIONS: {
+  value: VotedStatus
+  label: string
+}[] = [
+  { value: 'already_voted', label: 'Already voted' },
+  { value: 'unknown', label: 'Unknown' },
 ]

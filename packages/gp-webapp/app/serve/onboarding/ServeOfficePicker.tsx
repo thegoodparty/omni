@@ -156,11 +156,18 @@ const toSelectedOffice = (row: PositionRow): SelectedOffice => ({
   state: row.state,
 })
 
+// The list the office was picked from: how many offices the zip found, and
+// whether a name search or a pill narrowed it.
+export interface OfficePick {
+  officesFound: number
+  usedFilter: boolean
+}
+
 interface ServeOfficePickerProps {
   zip: string | undefined
   selected: SelectedOffice | undefined
   onZipChange: (zip: string) => void
-  onSelect: (office: SelectedOffice | undefined) => void
+  onSelect: (office: SelectedOffice | undefined, pick?: OfficePick) => void
   onCantFindOffice: () => void
 }
 
@@ -348,7 +355,12 @@ export default function ServeOfficePicker({
                 const row = filteredPositions.find(
                   (candidate) => candidate.positionId === positionId,
                 )
-                if (row) onSelect(toSelectedOffice(row))
+                if (row) {
+                  onSelect(toSelectedOffice(row), {
+                    officesFound: positions.length,
+                    usedFilter: Boolean(nameFilter.trim() || activePill),
+                  })
+                }
               }}
             >
               {filteredPositions.map((row) => (

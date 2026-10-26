@@ -5,6 +5,7 @@ const typescriptEslint = require('@typescript-eslint/eslint-plugin')
 const react = require('eslint-plugin-react')
 const unusedImports = require('eslint-plugin-unused-imports')
 const stylistic = require('@stylistic/eslint-plugin')
+const { builtinRules } = require('eslint/use-at-your-own-risk')
 
 const { FlatCompat } = require('@eslint/eslintrc')
 
@@ -132,6 +133,30 @@ module.exports = [
   },
 
   {
+    // E2E test state declares its dates (e2e-tests/AGENTS.md). A spec that
+    // reads a real race's date, or pins a literal one, breaks the day that
+    // date passes, on every PR and on the release train at once.
+    files: ['e2e-tests/**/*.ts'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector:
+            'Literal[value=/races-by-year/], TemplateElement[value.raw=/races-by-year/]',
+          message:
+            'Resolve an office with resolveTestRace (GET /v1/test-fixtures/races/resolve), which works whatever the date. races-by-year lists upcoming races only.',
+        },
+        {
+          selector:
+            'Property[key.name=/[eE]lectionDate$/] > Literal[value=/^\\d{4}-\\d{2}-\\d{2}$/], VariableDeclarator[id.name=/[eE]lection/] > Literal[value=/^\\d{4}-\\d{2}-\\d{2}$/]',
+          message:
+            'Declare the election state with a preset (authenticateTestUser { election } or applyElectionPreset) instead of a literal date.',
+        },
+      ],
+    },
+  },
+
+  {
     files: ['**/*.test.ts', '**/*.test.tsx'],
 
     rules: {
@@ -184,6 +209,56 @@ module.exports = [
       'react-hooks/globals': 'off',
       'react-hooks/use-memo': 'off',
       'react-hooks/preserve-manual-memoization': 'off',
+    },
+  },
+
+  {
+    // Dev's database is long-lived and shared by every E2E worker, shard, PR
+    // run and earlier run, so a literal EIN or phone number in a spec collides
+    // across all of them (#3117). Generate one with
+    // e2e-tests/src/helpers/testIdentifiers.helper.ts. A deliberately invalid
+    // input a validation spec asserts on, or a value a vendor mock always
+    // returns, takes an eslint-disable-next-line naming why.
+    //
+    // Its own name for the core no-restricted-syntax rule: flat config replaces
+    // a rule's options per block rather than merging them, so sharing the core
+    // name with another e2e guard would switch that guard off, and one disable
+    // comment would silence both.
+    files: ['e2e-tests/**/*.ts'],
+    ignores: [
+      // Owned by in-flight PRs that are reworking these files (release-train
+      // reliability plan, report item M2). Drop each entry once its PR lands
+      // and the literals move to the helper, or carry a disable comment.
+      'e2e-tests/tests/app/dashboard/pro-upgrade/**',
+      'e2e-tests/src/helpers/pro-upgrade.helper.ts',
+    ],
+    plugins: {
+      'e2e-ids': {
+        rules: {
+          'no-literal-identifiers': builtinRules.get('no-restricted-syntax'),
+        },
+      },
+    },
+    rules: {
+      'e2e-ids/no-literal-identifiers': [
+        'error',
+        ...[
+          ['EIN', '^\\d{2}-\\d{7}$'],
+          [
+            'phone number',
+            '^(\\+?1[ .-]?)?(\\(\\d{3}\\)|\\d{3})[ .-]?\\d{3}[ .-]?\\d{4}$',
+          ],
+        ].flatMap(([kind, pattern]) =>
+          [
+            `Literal[value=/${pattern}/]`,
+            `TemplateLiteral[expressions.length=0] > TemplateElement[value.raw=/${pattern}/]`,
+          ].map((selector) => ({
+            // A placeholder is a selector for the field, not data.
+            selector: `${selector}:not(CallExpression[callee.property.name='getByPlaceholder'] > Literal)`,
+            message: `Literal ${kind} in an E2E spec. Dev's database is shared by every run, so generate one with src/helpers/testIdentifiers.helper.ts.`,
+          })),
+        ),
+      ],
     },
   },
 ]

@@ -715,7 +715,7 @@ describe('GET /v1/dashboard/cards: the managed panel progress card', () => {
       title: 'Your civic panel is filling up',
       summary:
         '12 of 100 residents have joined. More invites go out Tuesday, November 3.',
-      ctaLabel: 'See your panel',
+      ctaLabel: 'See your civic panel',
       ctaHref: '/dashboard/contacts/citizens-panel',
       sourceItemId: 'building',
     })
@@ -723,17 +723,45 @@ describe('GET /v1/dashboard/cards: the managed panel progress card', () => {
     expect(await progressCards(orgSlug)).toHaveLength(1)
   })
 
-  it('says invites are paused on a paused panel', async () => {
+  it('says a paused panel is paused, with how to keep it filling', async () => {
     const orgSlug = 'eo-progress-paused'
+    await seedElectedOffice(orgSlug)
+    await seedEnrollment(orgSlug)
+    await joinMembers(orgSlug, 12)
+    await setPanel(orgSlug, { status: ManagedCivicPanelStatus.paused })
+
+    const [card] = await progressCards(orgSlug)
+
+    expect(card).toMatchObject({
+      title: 'Your civic panel is paused',
+      summary:
+        '12 of 100 residents have joined. Resume invites to keep filling it.',
+      ctaLabel: 'See your civic panel',
+    })
+  })
+
+  it('says a paused panel nobody has joined is paused', async () => {
+    const orgSlug = 'eo-progress-paused-empty'
     await seedElectedOffice(orgSlug)
     await seedEnrollment(orgSlug)
     await setPanel(orgSlug, { status: ManagedCivicPanelStatus.paused })
 
     const [card] = await progressCards(orgSlug)
 
-    expect(card?.summary).toBe(
-      '0 of 100 residents have joined. Invites are paused.',
-    )
+    expect(card).toMatchObject({
+      title: 'Your civic panel is paused',
+      summary: 'Nobody has joined yet. Resume invites to start filling it.',
+    })
+  })
+
+  it('says the civic panel starts here before anyone joins', async () => {
+    const orgSlug = 'eo-progress-empty'
+    await seedElectedOffice(orgSlug)
+    await seedEnrollment(orgSlug)
+
+    const [card] = await progressCards(orgSlug)
+
+    expect(card?.title).toBe('Your civic panel starts here')
   })
 
   it('becomes the ready card, even after the building card was set aside', async () => {

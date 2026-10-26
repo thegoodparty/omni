@@ -8,7 +8,6 @@ import {
   NavigationHelper,
 } from 'src/helpers/navigation.helper'
 import { setupElectedOfficeUser } from 'src/helpers/organizations'
-import { openSmsWindow } from 'src/helpers/smsWindow.helper'
 import {
   adminAction,
   deliverStripeEvent,
@@ -128,23 +127,10 @@ test.describe('Serve SMS send — vendor-mock payment + results pipeline', () =>
     // ── 1. Provision an isolated elected office user ─────────────────────────
     const { client } = await setupElectedOfficeUser(page)
 
-    // ── 2. Keep the SMS window open: the Win campaign's real election date for
-    // Cheyenne drifts toward the 19-day cutoff; move it 60 days out so this
-    // spec does not break as the calendar approaches that date.
-    //
-    // openSmsWindow calls PUT /v1/campaigns/mine, which routes to the campaign
-    // org. After setupElectedOfficeUser the client carries the eo- org slug,
-    // and that org has no campaign — the request 404s. Drop the slug before
-    // the call (the campaign org header is unset/default) and restore after.
-    const eoSlug = client.defaults.headers['x-organization-slug'] as string
-    delete client.defaults.headers['x-organization-slug']
-    await openSmsWindow(client)
-    client.defaults.headers['x-organization-slug'] = eoSlug
-
-    // ── 3. Relay S3 image uploads before any navigation ──────────────────────
+    // ── 2. Relay S3 image uploads before any navigation ──────────────────────
     await relayS3ImageUploads(page)
 
-    // ── 4. Navigate to Constituent Outreach hub ──────────────────────────────
+    // ── 3. Navigate to Constituent Outreach hub ──────────────────────────────
     await page.goto('/dashboard/constituent-outreach', {
       waitUntil: 'domcontentloaded',
     })
@@ -156,10 +142,10 @@ test.describe('Serve SMS send — vendor-mock payment + results pipeline', () =>
       timeout: 30_000,
     })
 
-    // ── 5. Open the SMS flow ──────────────────────────────────────────────────
+    // ── 4. Open the SMS flow ──────────────────────────────────────────────────
     await page.getByRole('button', { name: 'SMS' }).click()
 
-    // ── 6. Purpose step ───────────────────────────────────────────────────────
+    // ── 5. Purpose step ───────────────────────────────────────────────────────
     await expect(
       page.getByRole('button', { name: 'Introduce myself to constituents' }),
     ).toBeVisible({ timeout: 30_000 })
@@ -167,7 +153,7 @@ test.describe('Serve SMS send — vendor-mock payment + results pipeline', () =>
       .getByRole('button', { name: 'Introduce myself to constituents' })
       .click()
 
-    // ── 7. Audience step: pick "All constituents" (the universe row) ──────────
+    // ── 6. Audience step: pick "All constituents" (the universe row) ──────────
     await expect(stepHeading(page, 'Who do you want to reach?')).toBeVisible({
       timeout: 30_000,
     })
@@ -191,7 +177,7 @@ test.describe('Serve SMS send — vendor-mock payment + results pipeline', () =>
     })
     await page.getByRole('button', { name: /^Continue/ }).click()
 
-    // ── 8. Compose step: upload image, wait for draft, click Continue ─────────
+    // ── 7. Compose step: upload image, wait for draft, click Continue ─────────
     await expect(stepHeading(page, 'What do you want to say?')).toBeVisible({
       timeout: 30_000,
     })
@@ -220,7 +206,7 @@ test.describe('Serve SMS send — vendor-mock payment + results pipeline', () =>
 
     await page.getByRole('button', { name: /^Continue/ }).click()
 
-    // ── 9. Schedule step: name (if empty) and date ────────────────────────────
+    // ── 8. Schedule step: name (if empty) and date ────────────────────────────
     await expect(stepHeading(page, 'When do you want to send it?')).toBeVisible(
       { timeout: 30_000 },
     )
@@ -236,7 +222,7 @@ test.describe('Serve SMS send — vendor-mock payment + results pipeline', () =>
     }
     await page.locator(`td[data-day="${isoDate}"] button`).click()
 
-    // ── 10. Set up interceptors before the review step mounts ─────────────────
+    // ── 9. Set up interceptors before the review step mounts ─────────────────
     // The review step creates the outreach on mount and opens the Stripe
     // checkout immediately; interceptors must be armed before we get there.
     // Arming after the Continue click is too late — the review step can mount
@@ -270,7 +256,7 @@ test.describe('Serve SMS send — vendor-mock payment + results pipeline', () =>
 
     await page.getByRole('button', { name: /^Continue/ }).click()
 
-    // ── 11. Review step: wait for Stripe, fill card, pay ─────────────────────
+    // ── 10. Review step: wait for Stripe, fill card, pay ─────────────────────
     await expect(stepHeading(page, 'Review & pay')).toBeVisible({
       timeout: 30_000,
     })
@@ -305,7 +291,7 @@ test.describe('Serve SMS send — vendor-mock payment + results pipeline', () =>
     await payButton.scrollIntoViewIfNeeded()
     await payButton.click()
 
-    // ── 12. Wait for the success screen ──────────────────────────────────────
+    // ── 11. Wait for the success screen ──────────────────────────────────────
     // Stripe confirm + gp-api POST /outreach/serve/sms can take up to 30s.
     await expect(
       page.getByRole('heading', { name: 'Payment successful!' }),
@@ -316,7 +302,7 @@ test.describe('Serve SMS send — vendor-mock payment + results pipeline', () =>
     expect(outreachId).toBeGreaterThan(0)
     expect(sessionId).toBeTruthy()
 
-    // ── 13. Deliver the Stripe checkout.session.completed event ───────────────
+    // ── 12. Deliver the Stripe checkout.session.completed event ───────────────
     // In-process delivery fires paymentEventsService synchronously, so the
     // outreach flips to in_progress without waiting for a real Stripe webhook.
     await deliverStripeEvent(client, sessionId!)
@@ -336,7 +322,7 @@ test.describe('Serve SMS send — vendor-mock payment + results pipeline', () =>
       },
     )
 
-    // ── 14. Upload results CSV via admin action ────────────────────────────────
+    // ── 13. Upload results CSV via admin action ────────────────────────────────
     // Two INBOUND rows make two replies; OUTBOUND rows are the sent messages
     // and are excluded from the Responses section.
     // Retry on 409: the queue consumer writes OutreachTextRecipient rows in a
@@ -367,7 +353,7 @@ test.describe('Serve SMS send — vendor-mock payment + results pipeline', () =>
       },
     )
 
-    // ── 15. Hub drawer: assert replies under "Responses" heading ──────────────
+    // ── 14. Hub drawer: assert replies under "Responses" heading ──────────────
     await page.goto('/dashboard/constituent-outreach', {
       waitUntil: 'domcontentloaded',
     })

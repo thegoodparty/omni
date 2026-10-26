@@ -5,9 +5,11 @@ import { overrideEnvForEvals } from '../../../evals/envOverride'
 overrideEnvForEvals()
 
 import { HttpStatus } from '@nestjs/common'
-import { describe, expect, it } from 'vitest'
+import { OrdinanceExistingLawSchema } from '@goodparty_org/contracts'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ChatScope } from '../../../../generated/prisma'
 import { useTestService } from '@/test-service'
+import { OrdinanceFlowFetchService } from '../services/ordinanceFlowFetch.service'
 import {
   seedSyntheticEntry,
   syntheticEntryByName,
@@ -67,6 +69,9 @@ const mentionsJurisdiction = (
 ): boolean =>
   text.toLowerCase().includes(place.toLowerCase()) ||
   new RegExp(`\\b${state}\\b`).test(text)
+
+const codeHost = (url: string): string =>
+  new URL(url).hostname.replace(/^www\./, '')
 
 const service = useTestService()
 
@@ -135,15 +140,38 @@ const runStep = async (entry: SyntheticOrdinanceEntry, step: DataStateStep) => {
 }
 
 d('ordinance-flow data-state evals (real Claude)', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
   // With a verified code record, current-law grounds does/gaps in the real
-  // municipality and persists the findings.
+  // municipality and persists the findings. The entry's host serves the
+  // chapter to a plain client, so the findings come from read text.
   it(
     'current-law with a code record grounds in the verified jurisdiction',
     async () => {
       const entry = syntheticEntryByName('late-night-noise')
+      if (!entry.chapter) {
+        throw new Error(`${entry.name} names no chapter page to read`)
+      }
+      const fetchService = service.app.get(OrdinanceFlowFetchService)
+      // A live host: fail with the reason before spending a turn on it.
+      const probe = await fetchService.fetchUrl(entry.chapter.url)
+      if (!probe.ok) {
+        throw new Error(
+          `${entry.chapter.url} no longer reads: ${probe.reason} ${probe.status ?? ''}`,
+        )
+      }
+      expect(probe.content).toContain(entry.chapter.marker)
+      const fetchSpy = vi.spyOn(fetchService, 'fetchUrl')
+
       const { ordinance, toolNames, payloadsFor, assistantText } =
         await runStep(entry, 'current_law')
 
+      // A page under the title, not the title index alone.
+      expect(fetchSpy).toHaveBeenCalledWith(
+        expect.stringContaining(`${entry.codeUrl}/`),
+      )
       expect(toolNames).toContain('get_code_source')
       expect(toolNames).toContain('present_current_law_summary')
       expect(toolNames).toContain('save_existing_law')
@@ -154,6 +182,9 @@ d('ordinance-flow data-state evals (real Claude)', () => {
       expect((summary.does ?? []).length).toBeGreaterThan(0)
       expect((summary.gaps ?? []).length).toBeGreaterThan(0)
       expect(ordinance.existingLaw).not.toBeNull()
+      const record = OrdinanceExistingLawSchema.parse(ordinance.existingLaw)
+      expect(codeHost(record.sourceUrl)).toBe(codeHost(entry.codeUrl))
+      expect(record.text).toContain(entry.chapter.marker)
 
       const grounded = mentionsJurisdiction(
         [

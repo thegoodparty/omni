@@ -1,5 +1,9 @@
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
-import type { ServeStoryStepId } from './serveOnboardingConfig'
+import type {
+  InOfficeStatus,
+  ServeBranch,
+  ServeStoryStepId,
+} from './serveOnboardingConfig'
 
 /**
  * Funnel events for the net-new (sales-sent magic link) elected-official
@@ -17,17 +21,50 @@ export const SERVE_ONBOARDING_EVENTS = {
   // selection screens (Office Status, Party Designation, Office) carry the
   // user's chosen card title, and the *Completed events fire on Continue.
   WelcomeViewed: EVENTS.ServeOnboarding.WelcomeViewed,
+  WelcomeCompleted: EVENTS.ServeOnboarding.WelcomeCompleted,
   OfficeStatusViewed: EVENTS.ServeOnboarding.OfficeStatusViewed,
+  OfficeStatusCompleted: EVENTS.ServeOnboarding.OfficeStatusCompleted,
   PartyDesignationViewed: EVENTS.ServeOnboarding.PartyDesignationViewed,
+  PartyDesignationCompleted: EVENTS.ServeOnboarding.PartyDesignationCompleted,
   OfficeViewed: EVENTS.ServeOnboarding.OfficeViewed,
   OfficeCompleted: EVENTS.ServeOnboarding.OfficeCompleted,
   ConfirmViewed: EVENTS.ServeOnboarding.ConfirmViewed,
   TermDatesViewed: EVENTS.ServeOnboarding.TermDatesViewed,
+  TermDatesCompleted: EVENTS.ServeOnboarding.TermDatesCompleted,
   PledgeViewed: EVENTS.ServeOnboarding.PledgeViewed,
   PledgeCompleted: EVENTS.ServeOnboarding.PledgeCompleted,
   PrioritiesViewed: EVENTS.ServeOnboarding.PrioritiesViewed,
   PrioritiesCompleted: EVENTS.ServeOnboarding.PrioritiesCompleted,
+  PrioritiesErrored: EVENTS.ServeOnboarding.PrioritiesErrored,
 } as const
+
+// The analytics spelling of each Office Status answer.
+export const OFFICE_STATUS_PROPERTY: Record<InOfficeStatus, string> = {
+  'in-office': 'elected',
+  campaigning: 'campaigning',
+  testing: 'testing',
+}
+
+// The analytics spelling of each branch.
+export const BRANCH_PROPERTY: Record<ServeBranch, string> = {
+  'net-new': 'net_new',
+  prefill: 'prefill',
+}
+
+// BallotReady's level, cut to the levels a dashboard asks about.
+export const officeLevelProperty = (
+  level: string | undefined,
+): 'city' | 'county' | 'state' | 'other' => {
+  const upper = level?.toUpperCase()
+  if (upper === 'CITY') return 'city'
+  if (upper === 'COUNTY') return 'county'
+  if (upper === 'STATE') return 'state'
+  return 'other'
+}
+
+// A term's length in whole years: a four-year term reads 4.
+export const termYearsProperty = (start: Date, end: Date): number =>
+  Math.round((end.getTime() - start.getTime()) / (365.25 * 24 * 3600 * 1000))
 
 // One Viewed / Completed pair per district story step, named for what the
 // step tells the official.

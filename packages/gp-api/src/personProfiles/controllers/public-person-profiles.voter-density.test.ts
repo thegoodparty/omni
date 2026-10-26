@@ -1,6 +1,7 @@
 import { NotFoundException } from '@nestjs/common'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
+import { Prisma } from '@/generated/election-prisma'
 import { PersonsService } from '@/electionDb/persons/persons.service'
 import { VoterDensityProxyService } from '../services/voter-density-proxy.service'
 
@@ -125,12 +126,52 @@ describe('GET /v1/public-person-profiles/voter-density', () => {
     spy.mockRestore()
   })
 
-  it('502s (not swallowed) when the read hard-fails', async () => {
+  it('renders no map (404, not 502) when the read hard-fails', async () => {
     const spy = mockRead(() => Promise.reject(new Error('connection refused')))
 
     const res = await get()
-    expect(res.status).toBe(502)
+    expect(res.status).toBe(404)
     spy.mockRestore()
+  })
+
+  it('retries once when election-db is unreachable', async () => {
+    const unreachable = new Prisma.PrismaClientKnownRequestError(
+      "Can't reach database server",
+      { code: 'P1001', clientVersion: 'test' },
+    )
+    let calls = 0
+    const spy = mockRead(() =>
+      ++calls === 1
+        ? Promise.reject(unreachable)
+        : Promise.resolve(density({ coverage: 0.7, cells: [] })),
+    )
+
+    const res = await get()
+
+    expect(res.status).toBe(200)
+    expect(res.data.coverage).toBe(0.7)
+    expect(spy).toHaveBeenCalledTimes(2)
+    spy.mockRestore()
+  })
+
+  it('serves the last answer when a refresh fails after the cache expired', async () => {
+    const warm = mockRead(() =>
+      Promise.resolve(density({ coverage: 0.5, cells: [] })),
+    )
+    expect((await get()).status).toBe(200)
+    warm.mockRestore()
+
+    const entry = densityCache().get(PERSON_ID) as { expiresAtMs: number }
+    entry.expiresAtMs = Date.now() - 1
+    const failing = mockRead(() =>
+      Promise.reject(new Error('connection refused')),
+    )
+
+    const res = await get()
+
+    expect(res.status).toBe(200)
+    expect(res.data.coverage).toBe(0.5)
+    failing.mockRestore()
   })
 
   it('400s on a non-uuid personId', async () => {
@@ -157,7 +198,7 @@ describe('GET /v1/public-person-profiles/voter-density', () => {
     const failing = mockRead(() =>
       Promise.reject(new Error('connection refused')),
     )
-    expect((await get()).status).toBe(502)
+    expect((await get()).status).toBe(404)
     failing.mockRestore()
 
     const recovered = mockRead(() =>

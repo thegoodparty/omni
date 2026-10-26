@@ -50,7 +50,7 @@ The consumer file is large (~1100 lines). A future refactor will split per-`Queu
 
 - `gp-webapp` -> `gp-api`: JWT cookie
 - `gp-api` -> Databricks: voter reads over the Statement Execution API (`src/peopleDb/`)
-- `gp-api` -> `election-api`: HTTP, internal
+- `gp-api` -> election database: Postgres, in process (`src/electionDb/`)
 - `gp-api` -> `gp-ai`: HTTP
 
 Shared types between `gp-api` and `gp-webapp`/`gp-admin` flow through `@goodparty_org/contracts` (see `docs/contracts.md`).

@@ -59,6 +59,12 @@ say the consequence in one clause and stop. "You are only charged for the
 calls we actually place" is the consequence. A paragraph about how holds and
 releases work is not.
 
+One exception: the Chief of Staff's civic panel explanation and its answer
+to How does it work? say how the civic panel works, on purpose, because an
+official won't approve an invite to a group they can't picture. The words
+are approved and fixed (`packages/contracts/src/people/ManagedCivicPanelExplainer.ts`).
+Change them only with product sign-off, and never mention waves.
+
 ### 4. Use their words, not ours
 
 Candidates say voters, doors, calls, texts, yard signs, turnout. They do not

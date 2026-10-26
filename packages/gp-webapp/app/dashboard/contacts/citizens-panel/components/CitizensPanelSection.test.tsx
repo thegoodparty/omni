@@ -77,10 +77,10 @@ describe('CitizensPanelSection', () => {
     expect(screen.getByText('Members')).toBeInTheDocument()
     expect(screen.getByText('Reached in the last 30 days')).toBeInTheDocument()
     expect(screen.getByText('300')).toBeInTheDocument()
-    expect(screen.getByText('Can be asked now')).toBeInTheDocument()
+    expect(screen.getByText('Ready to ask')).toBeInTheDocument()
     expect(screen.getByText('940')).toBeInTheDocument()
     expect(
-      screen.getByRole('link', { name: 'See your panel' }),
+      screen.getByRole('link', { name: 'See your civic panel' }),
     ).toHaveAttribute(
       'href',
       '/dashboard/contacts/citizens-panel?from=contacts',
@@ -110,13 +110,44 @@ describe('CitizensPanelSection', () => {
     const seats = await screen.findByTestId('civic-panel-seats')
     expect(
       within(seats).getByRole('heading', {
-        name: "Who's on your panel, by census tract",
+        name: "Who's on your civic panel, by census tract",
       }),
     ).toBeInTheDocument()
     expect(within(seats).getByText('Furthest behind')).toBeInTheDocument()
     // No group count of its own to disagree with the panel page's petals.
     expect(screen.queryByText(/ of 12 groups/)).not.toBeInTheDocument()
-    expect(screen.getByText('Can be asked now')).toBeInTheDocument()
+    expect(screen.getByText('Ready to ask')).toBeInTheDocument()
+  })
+
+  it("leads with the panel page's count, not the tract chart's", async () => {
+    api.mock('GET /v1/contacts/civic-panel', {
+      status: 200,
+      data: summary({
+        members: 120,
+        reachedRecently: 30,
+        askableNow: 90,
+        composition: {
+          placeKind: 'tract',
+          places: [
+            { key: '37021000100', name: '1', districtShare: 0.2, members: 110 },
+            { key: '37021000200', name: '2', districtShare: 0.8, members: 10 },
+          ],
+          groups: [],
+        },
+      }),
+    })
+
+    render(<CitizensPanelSection />)
+
+    expect(
+      await screen.findByTestId('citizens-panel-joined'),
+    ).toHaveTextContent('120 of 240 residents have joined')
+    const seats = screen.getByTestId('civic-panel-seats')
+    expect(
+      within(seats).getByText(
+        /of 100 seats filled, counting each tract only up to its share$/,
+      ),
+    ).not.toHaveTextContent(/^50 /)
   })
 
   it('leaves the seats out when the district could not be read', async () => {
@@ -143,7 +174,7 @@ describe('CitizensPanelSection', () => {
       await screen.findByText('Nobody has joined your civic panel yet.'),
     ).toBeInTheDocument()
     expect(
-      screen.queryByRole('link', { name: 'See your panel' }),
+      screen.queryByRole('link', { name: 'See your civic panel' }),
     ).not.toBeInTheDocument()
   })
 

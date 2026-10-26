@@ -63,8 +63,21 @@ once, which builds the full schema into a template database; each
 Postgres copy) instead of re-running all 258 migrations. `src/test-postgres.ts`
 owns the container config that both paths share — keep it identical in both or
 testcontainers' reuse hash stops matching and suites get a fresh, template-less
-container. Suites still run with `isolate: true`; sharding is what keeps wall
-clock down, since the per-file cost is re-importing the Nest app graph.
+container.
+
+Most of a test file's cost is importing the app graph (~1,200 modules for
+anything that boots `AppModule`), so `vitest.config.ts` runs two projects. The
+`shared-modules` project runs with `isolate: false`, so each worker imports the
+graph once and reuses it across files. Any file that calls `vi.mock`,
+`vi.doMock`, `vi.unmock` or `vi.resetModules` is detected by a scan of the test
+files at config load and goes to `fresh-modules`, which keeps `isolate: true`,
+because a module mock in a shared graph either misses a copy an earlier file
+cached or leaks into the next file. Between files vitest restores mocks, and
+`src/test-file-cleanup.ts` also restores real timers and undoes
+`vi.stubEnv`/`vi.stubGlobal`. A file that left fake timers on used to hang the
+next file's `app.close()` until its hook timed out. Anything else a test leaves
+behind (a mutated singleton, a direct `process.env` write) still reaches the
+next file in its worker, so clean it up in `afterEach`/`afterAll`.
 
 One container serves every checkout on the machine, and three things are what
 make that safe. The template is named for a digest of the migrations it holds
@@ -105,17 +118,17 @@ migration-diff step in `Checks` will fail otherwise — see `npm run migrate:dev
 
 ## Pointer table — when in doubt
 
-| Doing                                        | Read                                                             |
-| -------------------------------------------- | ---------------------------------------------------------------- |
-| **Writing or editing code**                  | **`.cursor/rules/*.mdc` — read first, every time**               |
-| Adding an endpoint                           | `docs/architecture.md` § Module shape                            |
-| Adding or changing analytics instrumentation | `.claude/skills/instrument-analytics-event/SKILL.md` (repo root) |
-| Touching contracts                           | `docs/contracts.md`                                              |
-| Writing or fixing a test                     | `docs/writing-tests.md`                                          |
-| Adding/debugging an alert                    | `docs/observability.md`                                          |
-| Reproducing a reported bug                   | `docs/debugging.md`                                              |
+| Doing                                        | Read                                                                                      |
+| -------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| **Writing or editing code**                  | **`.cursor/rules/*.mdc` — read first, every time**                                        |
+| Adding an endpoint                           | `docs/architecture.md` § Module shape                                                     |
+| Adding or changing analytics instrumentation | `.claude/skills/instrument-analytics-event/SKILL.md` (repo root)                          |
+| Touching contracts                           | `docs/contracts.md`                                                                       |
+| Writing or fixing a test                     | `docs/writing-tests.md`                                                                   |
+| Adding/debugging an alert                    | `docs/observability.md`                                                                   |
+| Reproducing a reported bug                   | `docs/debugging.md`                                                                       |
 | First-time setup                             | root `docs/development.md` (the one path); `docs/getting-started.md` for gp-api specifics |
-| AI rule-by-rule code review                  | `ai-rules/` (git submodule)                                      |
+| AI rule-by-rule code review                  | `ai-rules/` (git submodule)                                                               |
 
 ## Cursor rules (`alwaysApply: true`) — read before writing code
 

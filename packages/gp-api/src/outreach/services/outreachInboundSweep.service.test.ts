@@ -697,9 +697,9 @@ describe('OutreachInboundSweepService — cron lock and deploy gate', () => {
 
     expect(fetchInboundCdrRows).not.toHaveBeenCalled()
     expect(fetchQuestionResponseRows).not.toHaveBeenCalled()
-    // Scoped to these two jobs: the suite's app runs every other @Cron on
-    // real timers, and one that claims an hourly slot (the poll-review sweep
-    // at :33) can land a row mid-test.
+    // Scoped to these two jobs, so a row another job writes can't count here
+    // (ENG-11423: a live poll-review cron did, before the harness turned
+    // schedules off).
     expect(
       await service.prisma.cronRun.count({
         where: {

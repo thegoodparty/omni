@@ -17,10 +17,18 @@ import {
 } from '@/generated/prisma'
 import { ContactStatusService } from '@/contactInteraction/services/contactStatus.service'
 import { FeaturesService } from '@/features/services/features.service'
+import { AnalyticsService } from '@/analytics/analytics.service'
+import { EVENTS } from 'src/vendors/segment/segment.types'
 import {
   CENSUS_COMPOSITION_SOURCE,
   type CensusCompositionSource,
 } from '@/priorities/services/censusComposition'
+import {
+  ACS_COUNT_KEYS,
+  type AcsCounts,
+} from '@/peopleDb/databricks/districtCensusSql.util'
+import { CensusTractNameService } from '../services/censusTractName.service'
+import { managedPanelSchedule } from '../utils/managedPanelSchedule.util'
 
 const service = useTestService()
 
@@ -168,6 +176,7 @@ describe('GET /v1/contacts/civic-panel/managed', () => {
       goalMembers: panel.goalMembers,
       wavesSent: 2,
       nextWaveAt: windowEnds.toISOString(),
+      ...managedPanelSchedule(panel.approvedAt),
     })
   })
 
@@ -491,5 +500,196 @@ describe('managed civic panel org scoping', () => {
       where: { organizationSlug: theirs },
     })
     expect(row.status).toBe(ManagedCivicPanelStatus.building)
+  })
+})
+
+describe('census tract names on approval', () => {
+  const stubDistrictTracts = (tracts: string[]) => {
+    const spy = vi
+      .spyOn(
+        service.app.get<CensusCompositionSource>(CENSUS_COMPOSITION_SOURCE),
+        'weightingInputs',
+      )
+      .mockResolvedValue({
+        cells: [],
+        census: {
+          district: Object.fromEntries(
+            ACS_COUNT_KEYS.map((key) => [key, 0]),
+          ) as AcsCounts,
+          tractAdults: new Map(tracts.map((tract) => [tract, 100])),
+        },
+      })
+    onTestFinished(() => spy.mockRestore())
+  }
+
+  const spyFill = () => {
+    const spy = vi
+      .spyOn(service.app.get(CensusTractNameService), 'fillMissing')
+      .mockResolvedValue()
+    onTestFinished(() => spy.mockRestore())
+    return spy
+  }
+
+  it('names every tract in the district once per approval', async () => {
+    const slug = await seedOrg()
+    const tracts = ['37021002503', '37021002504', '37021002600']
+    stubDistrictTracts(tracts)
+    const fill = spyFill()
+
+    await approve(slug)
+    await vi.waitFor(() => expect(fill).toHaveBeenCalledTimes(1))
+    expect(fill.mock.calls[0]?.[1]).toEqual(tracts)
+
+    await approve(slug)
+    await act(slug, 'stop')
+    expect(fill).toHaveBeenCalledTimes(1)
+    await approve(slug)
+    await vi.waitFor(() => expect(fill).toHaveBeenCalledTimes(2))
+  })
+
+  it('approves when naming fails', async () => {
+    const slug = await seedOrg()
+    stubDistrictTracts(['37021002503'])
+    const fill = spyFill().mockRejectedValue(new Error('geocoder down'))
+
+    const res = await approve(slug)
+
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(res.data.panel?.status).toBe('building')
+    await vi.waitFor(() => expect(fill).toHaveBeenCalledTimes(1))
+  })
+})
+
+describe('managed civic panel analytics', () => {
+  const spyTrack = () => {
+    const track = vi
+      .spyOn(service.app.get(AnalyticsService), 'track')
+      .mockResolvedValue(undefined as never)
+    onTestFinished(() => track.mockRestore())
+    return track
+  }
+
+  const seedOffice = async () => {
+    const slug = await seedOrg()
+    await service.prisma.electedOffice.create({
+      data: { organizationSlug: slug, userId: service.user.id },
+    })
+    return slug
+  }
+
+  const tracked = (track: ReturnType<typeof spyTrack>, event: string) =>
+    track.mock.calls
+      .filter(([, name]) => name === event)
+      .map(([, , properties]) => properties)
+
+  it('records the approval it made, once', async () => {
+    const track = spyTrack()
+    const slug = await seedOffice()
+    stubAnswersNeeded(20)
+
+    const res = await approve(slug)
+    await approve(slug)
+
+    await vi.waitFor(() =>
+      expect(
+        tracked(track, EVENTS.Contacts.CivicPanelInviteApproved),
+      ).toHaveLength(1),
+    )
+    expect(tracked(track, EVENTS.Contacts.CivicPanelInviteApproved)[0]).toEqual(
+      expect.objectContaining({
+        goalMembers: 50,
+        freeTextCap: 15000,
+        firstSendDate: res.data.panel?.progress.firstSendDate,
+        reapproval: false,
+        product: 'serve',
+      }),
+    )
+  })
+
+  it('records a stopped civic panel approved again as a reapproval and a status change', async () => {
+    const track = spyTrack()
+    const slug = await seedOffice()
+    await approve(slug)
+    await act(slug, 'stop')
+
+    await approve(slug)
+
+    // Every event is fire-and-forget, so wait for each rather than clearing
+    // the spy between requests: a late one from the stop would land after.
+    await vi.waitFor(() =>
+      expect(tracked(track, EVENTS.Contacts.CivicPanelInviteApproved)).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ reapproval: false }),
+          expect.objectContaining({ reapproval: true }),
+        ]),
+      ),
+    )
+    await vi.waitFor(() =>
+      expect(tracked(track, EVENTS.Contacts.CivicPanelStatusChanged)).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ from: 'building', to: 'stopped' }),
+          expect.objectContaining({
+            from: 'stopped',
+            to: 'building',
+            changedBy: 'official',
+          }),
+        ]),
+      ),
+    )
+  })
+
+  it('records the official pausing it, with the members it has', async () => {
+    const track = spyTrack()
+    const slug = await seedOffice()
+    await approve(slug)
+    await joinPanel(slug, 2)
+    track.mockClear()
+
+    await act(slug, 'pause')
+
+    await vi.waitFor(() =>
+      expect(tracked(track, EVENTS.Contacts.CivicPanelStatusChanged)).toEqual([
+        expect.objectContaining({
+          from: 'building',
+          to: 'paused',
+          members: 2,
+          changedBy: 'official',
+        }),
+      ]),
+    )
+  })
+
+  it('records how a member joined, and that the civic panel is managed', async () => {
+    const track = spyTrack()
+    const slug = await seedOffice()
+    await approve(slug)
+    track.mockClear()
+
+    await joinPanel(slug, 1)
+
+    await vi.waitFor(() =>
+      expect(
+        tracked(track, EVENTS.Contacts.CivicPanelMembershipChanged),
+      ).toEqual([
+        expect.objectContaining({
+          toStatus: 'member',
+          source: 'manual',
+          managed: true,
+        }),
+      ]),
+    )
+  })
+
+  it('records nothing when a 409 changes nothing', async () => {
+    const track = spyTrack()
+    const slug = await seedOffice()
+    await approve(slug)
+    await setStatus(slug, ManagedCivicPanelStatus.ready)
+    track.mockClear()
+
+    const res = await act(slug, 'resume')
+
+    expect(res.status).toBe(HttpStatus.CONFLICT)
+    expect(tracked(track, EVENTS.Contacts.CivicPanelStatusChanged)).toEqual([])
   })
 })

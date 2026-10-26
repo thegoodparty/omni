@@ -227,6 +227,10 @@ describe('ContactsService — people-db (sole path)', () => {
       {
         resolve: vi.fn().mockResolvedValue('Voter_Independent_Affinity'),
       } as never,
+      {
+        votedPersonIds: vi.fn().mockResolvedValue([]),
+        votedForPeople: vi.fn().mockResolvedValue(new Map()),
+      } as never,
       createMockLogger(),
     )
   })

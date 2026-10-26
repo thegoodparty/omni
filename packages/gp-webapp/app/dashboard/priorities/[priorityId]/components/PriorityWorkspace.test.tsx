@@ -269,6 +269,14 @@ describe('PriorityWorkspace', () => {
 
   it('moves the rail while the turn is still streaming, then reconciles', async () => {
     const gate = deferred()
+    const stored: PriorityStatus = {
+      ...emptyPriorityStatus(),
+      steps: emptyPriorityStatus().steps.map((step) =>
+        step.id === 'evidence'
+          ? { ...step, state: 'settled' as const, summary: 'Maple floods.' }
+          : step,
+      ),
+    }
     mocks.streamMessage.mockImplementation(
       streamOf(
         [
@@ -281,6 +289,16 @@ describe('PriorityWorkspace', () => {
               steps: [
                 { id: 'evidence', state: 'settled', summary: 'Maple floods.' },
               ],
+              nextAction: 'Pick two blocks to walk',
+            },
+          },
+          {
+            type: 'tool_result',
+            toolName: 'update_priority_status',
+            toolCallId: 'tc-status',
+            result: {
+              status: stored,
+              currentStep: 'define',
               nextAction: 'Pick two blocks to walk',
             },
           },
@@ -300,6 +318,9 @@ describe('PriorityWorkspace', () => {
     )
     expect(mocks.fetchPriorityStatus).not.toHaveBeenCalled()
     expect(screen.getByText('Pick two blocks to walk')).toBeInTheDocument()
+    expect(
+      await screen.findByText('Done with what we know'),
+    ).toBeInTheDocument()
 
     // The turn settles and the rail is reconciled against what was stored.
     const persisted: PriorityStatus = {
@@ -337,6 +358,60 @@ describe('PriorityWorkspace', () => {
         ),
       ).toBeInTheDocument(),
     )
+  })
+
+  // The dev plan turn: the agent asked to close three steps and open the
+  // plan, the server refused, and the chat still said "Done with" each one.
+  it('draws no marker and leaves the rail alone when the server refuses the move', async () => {
+    const gate = deferred()
+    mocks.streamMessage.mockImplementation(
+      streamOf(
+        [
+          { type: 'text', delta: 'Let me record where this stands. ' },
+          {
+            type: 'tool_call',
+            toolName: 'update_priority_status',
+            toolCallId: 'tc-refused',
+            args: {
+              steps: [
+                { id: 'options', state: 'settled' },
+                { id: 'listen_options', state: 'settled' },
+                { id: 'method', state: 'settled' },
+                { id: 'plan', state: 'active' },
+                { id: 'listen_problem', state: 'stale' },
+              ],
+              nextAction: 'Draft the plan',
+            },
+          },
+          {
+            type: 'tool_result',
+            toolName: 'update_priority_status',
+            toolCallId: 'tc-refused',
+            result: {
+              error:
+                'Nothing was recorded. These did not move: Your options, ' +
+                'What people back, The path, The plan, Who to hear from.',
+            },
+          },
+          { type: 'text', delta: 'The plan waits on what residents say.' },
+          { type: 'done', assistantMessageId: 'a1' },
+        ],
+        gate.promise,
+      ),
+    )
+
+    renderWorkspace()
+
+    expect(
+      await screen.findByText(/The plan waits on what residents say/),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/^Done with/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/^Working on/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/^Back to/)).not.toBeInTheDocument()
+    expect(
+      within(railRow(PRIORITY_STEP_LABELS.method)).queryByText('Done'),
+    ).not.toBeInTheDocument()
+    gate.resolve()
   })
 
   it('leaves a marker in the conversation, saying so when a step goes backwards', async () => {
@@ -392,6 +467,36 @@ describe('PriorityWorkspace', () => {
 
     expect(await screen.findByText('Done with the problem')).toBeInTheDocument()
     expect(screen.getByText('Back to your options')).toBeInTheDocument()
+  })
+
+  it('records each outreach the agent proposes as it streams in', async () => {
+    mocks.streamMessage.mockImplementation(
+      streamOf([
+        { type: 'text', delta: 'Here is a call list. ' },
+        {
+          type: 'tool_call',
+          toolName: 'present_outreach_proposal',
+          toolCallId: 'tc-live-proposal',
+          args: proposalArgs,
+        },
+        { type: 'done', assistantMessageId: 'a1' },
+      ]),
+    )
+
+    renderWorkspace()
+
+    await waitFor(() =>
+      expect(trackEvent).toHaveBeenCalledWith(
+        EVENTS.Priorities.OutreachProposed,
+        {
+          priorityId: 'pri-1',
+          round: 'one',
+          sampleSize: 412,
+          targetGroup: 'everyone',
+          channel: 'call',
+        },
+      ),
+    )
   })
 
   it('renders a card tool call through ChatCardRenderer with a derived proposalKey', async () => {
@@ -1374,7 +1479,12 @@ describe('PriorityWorkspace', () => {
       expect(screen.queryByText(/Help me get more answers/)).toBeNull()
       expect(trackEvent).toHaveBeenCalledWith(
         EVENTS.Priorities.GetAnswersClicked,
-        { priorityId: 'pri-1', source: 'rail' },
+        {
+          priorityId: 'pri-1',
+          source: 'rail',
+          readStatus: 'waiting',
+          groupsShort: 9,
+        },
       )
       expect(
         vi
@@ -1386,6 +1496,20 @@ describe('PriorityWorkspace', () => {
       expect(trackEvent).not.toHaveBeenCalledWith(
         EVENTS.AIChat.MessageSent,
         expect.anything(),
+      )
+    })
+
+    it('records the read the priority opened with', async () => {
+      renderWorkspace(emptyPriorityStatus(), null, { initialReadStatus: thin })
+      await screen.findByText('Here is where this stands.')
+
+      expect(trackEvent).toHaveBeenCalledWith(
+        EVENTS.Priorities.PriorityViewed,
+        expect.objectContaining({
+          readStatus: 'waiting',
+          groupsHeard: 3,
+          groupsTotal: 12,
+        }),
       )
     })
 
@@ -1404,7 +1528,12 @@ describe('PriorityWorkspace', () => {
       expect(router.replace).not.toHaveBeenCalled()
       expect(trackEvent).toHaveBeenCalledWith(
         EVENTS.Priorities.GetAnswersClicked,
-        { priorityId: 'pri-1', source: 'results_page' },
+        {
+          priorityId: 'pri-1',
+          source: 'results_page',
+          readStatus: 'waiting',
+          groupsShort: 9,
+        },
       )
     })
 

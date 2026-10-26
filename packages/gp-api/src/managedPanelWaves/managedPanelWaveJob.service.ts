@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common'
 import { Cron } from '@nestjs/schedule'
-import { addDays, parseISO } from 'date-fns'
+import { addDays, differenceInCalendarDays, parseISO } from 'date-fns'
 import {
   CivicPanelStatus,
   ContactStatusField,
@@ -13,6 +13,13 @@ import {
 } from '@/generated/prisma'
 import { ContactStatusService } from '@/contactInteraction/services/contactStatus.service'
 import { assertManagedPanelInvite } from '@/contacts/services/managedCivicPanel.service'
+import { managedPanelStatusChanged } from '@/contacts/utils/managedPanelAnalytics.util'
+import { AnalyticsService } from '@/analytics/analytics.service'
+import { trackForOffice } from '@/priorities/util/priorityAnalytics.util'
+import {
+  EVENTS,
+  type SegmentTrackEventProperties,
+} from 'src/vendors/segment/segment.types'
 import { ManagedPanelWaveDrawService } from '@/contacts/services/managedPanelWaveDraw.service'
 import { CronLockService } from '@/cron/services/cronLock.service'
 import { FeaturesService } from '@/features/services/features.service'
@@ -89,8 +96,21 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
     private readonly contactStatus: ContactStatusService,
     private readonly slack: SlackService,
     private readonly email: EmailService,
+    private readonly analytics: AnalyticsService,
   ) {
     super()
+  }
+
+  private track(
+    organizationSlug: string,
+    events: [string, SegmentTrackEventProperties][],
+  ): void {
+    void trackForOffice(
+      this.client,
+      this.analytics,
+      { organizationSlug },
+      events,
+    )
   }
 
   @Cron(WAVE_CRON, { name: MANAGED_PANEL_WAVE_JOB, timeZone: EASTERN_TIMEZONE })
@@ -233,13 +253,34 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
       select: { scheduledLocalDate: true },
     })
     const sendDate = sent.scheduledLocalDate ?? nextManagedSendDate(now)
-    await this.client.managedPanelWave.updateMany({
+    const { count } = await this.client.managedPanelWave.updateMany({
       where: { id: waveId, sentAt: null },
       data: {
         sentAt: now,
         replyWindowEndsAt: addDays(parseISO(sendDate), MANAGED_WAVE_REPLY_DAYS),
       },
     })
+    if (count > 0) {
+      const wave = await this.client.managedPanelWave.findUniqueOrThrow({
+        where: { id: waveId },
+        select: {
+          wave: true,
+          steeredToward: true,
+          outreach: { select: { textCount: true } },
+        },
+      })
+      this.track(enrollment.organizationSlug, [
+        [
+          EVENTS.Contacts.CivicPanelWaveSent,
+          {
+            wave: wave.wave,
+            texts: wave.outreach?.textCount ?? 0,
+            sendDate,
+            steeredToward: wave.steeredToward,
+          },
+        ],
+      ])
+    }
     return 'sent'
   }
 
@@ -345,13 +386,30 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
             where: { voterFileFilterId: wave.voterFileFilterId },
             select: { personId: true },
           })
-    await this.client.managedPanelWave.updateMany({
+    const joinedMembers = drawn.filter((row) =>
+      members.has(row.personId),
+    ).length
+    const { count } = await this.client.managedPanelWave.updateMany({
       where: { id: wave.id, closedAt: null },
-      data: {
-        closedAt: now,
-        joinedMembers: drawn.filter((row) => members.has(row.personId)).length,
-      },
+      data: { closedAt: now, joinedMembers },
     })
+    if (count > 0) {
+      const closed = await this.client.managedPanelWave.findUniqueOrThrow({
+        where: { id: wave.id },
+        select: { wave: true },
+      })
+      this.track(organizationSlug, [
+        [
+          EVENTS.Contacts.CivicPanelWaveClosed,
+          {
+            wave: closed.wave,
+            invited: drawn.length,
+            joinedMembers,
+            membersAfter: members.size,
+          },
+        ],
+      ])
+    }
   }
 
   private memberIds(organizationSlug: string): Promise<string[]> {
@@ -367,14 +425,56 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
     status: 'ready' | 'exhausted',
     now: Date,
   ): Promise<WaveStep> {
-    await this.model.updateMany({
+    const { count } = await this.model.updateMany({
       where: { id: enrollmentId, status: ManagedCivicPanelStatus.building },
       data:
         status === ManagedCivicPanelStatus.ready
           ? { status, readyAt: now }
           : { status },
     })
+    if (count > 0) await this.trackFinished(enrollmentId, status, now)
     return status
+  }
+
+  private async trackFinished(
+    enrollmentId: string,
+    status: 'ready' | 'exhausted',
+    now: Date,
+  ): Promise<void> {
+    const enrollment = await this.model.findUniqueOrThrow({
+      where: { id: enrollmentId },
+      select: {
+        organizationSlug: true,
+        goalMembers: true,
+        approvedAt: true,
+        _count: { select: { waves: { where: { sentAt: { not: null } } } } },
+      },
+    })
+    const members = (await this.memberIds(enrollment.organizationSlug)).length
+    this.track(enrollment.organizationSlug, [
+      managedPanelStatusChanged({
+        from: ManagedCivicPanelStatus.building,
+        to: status,
+        members,
+        changedBy: 'system',
+      }),
+      ...(status === ManagedCivicPanelStatus.ready
+        ? [
+            [
+              EVENTS.Contacts.CivicPanelReady,
+              {
+                members,
+                goalMembers: enrollment.goalMembers,
+                wavesSent: enrollment._count.waves,
+                daysToReady: differenceInCalendarDays(
+                  now,
+                  enrollment.approvedAt,
+                ),
+              },
+            ] satisfies [string, SegmentTrackEventProperties],
+          ]
+        : []),
+    ])
   }
 
   // One email to the official for each time their panel reaches its goal.
@@ -466,6 +566,14 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
       data: { status: ManagedCivicPanelStatus.paused, pausedAt: now },
     })
     if (count === 0) return 'held'
+    this.track(enrollment.organizationSlug, [
+      managedPanelStatusChanged({
+        from: ManagedCivicPanelStatus.building,
+        to: ManagedCivicPanelStatus.paused,
+        members: (await this.memberIds(enrollment.organizationSlug)).length,
+        changedBy: 'system',
+      }),
+    ])
     this.logger.warn(
       { enrollmentId: enrollment.id },
       'Managed civic panel paused with its free texts spent',
@@ -515,7 +623,7 @@ export const managedPanelReadyEmail = (
     '',
     'Ask them what they think before your next vote.',
     '',
-    `See your panel: ${APP_ROOT}${CIVIC_PANEL_PAGE_HREF}`,
+    `See your civic panel: ${APP_ROOT}${CIVIC_PANEL_PAGE_HREF}`,
     '',
     'GoodParty.org',
   ].join('\n')

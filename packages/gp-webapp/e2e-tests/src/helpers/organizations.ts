@@ -5,7 +5,12 @@ import {
   type AuthenticatedUser,
   type TestUserOptions,
 } from 'tests/utils/api-registration'
-import { withGatewayRetry } from 'tests/utils/headless-user'
+import {
+  DEFAULT_TEST_RACE,
+  resolveTestRace,
+  type TestRace,
+  withGatewayRetry,
+} from 'tests/utils/headless-user'
 import { closeStrayDialog } from 'src/helpers/dashboard'
 import { eventually, wait } from 'tests/utils/eventually'
 
@@ -82,24 +87,32 @@ export const winRaceWithTermDates = async (page: Page): Promise<void> => {
   await page.waitForURL('**/dashboard/chief-of-staff', { timeout: 15_000 })
 }
 
-// Confirm a win through the API, as a setup step. Same two writes the "I won my
-// race" page makes (the elected office, created already-onboarded with its term
-// dates, then details.wonGeneral), minus the UI. Specs that only need an elected
-// office as a precondition go through here: driving the page costs ~9 UI steps
-// under fixed 10-15s waits, and on a saturated dev gp-api (ENG-11477: 27% of
-// requests over 5s in the failing window) those waits, not the specs' own
-// assertions, were what failed. The page itself stays covered by
-// election-result-flow.spec.ts, which calls winRaceWithTermDates directly.
-// The client already carries the campaign org header (set by
-// authenticateTestUser), which is what links the office to the campaign.
-// The POST is not retried: a 502 can come after the office committed, and a
-// second office would trip the overlapping-term rule.
-const winRaceViaApi = async (page: Page, client: AxiosInstance) => {
-  await client.post('/v1/elected-office', {
-    termStartDate: '2023-01-01',
-    termEndDate: '2027-01-01',
-    onboardingCompletedAt: new Date().toISOString(),
+type SetupResult = {
+  user: AuthenticatedUser
+  client: AxiosInstance
+}
+
+export const setupElectedOfficeUser = async (
+  page: Page,
+  raceOptions?: TestUserOptions['race'],
+): Promise<SetupResult> => {
+  const { user, client } = await authenticateTestUser(page, {
+    isolated: true,
+    race: raceOptions ?? DEFAULT_TEST_RACE,
   })
+
+  // The "I won" UI is covered by election-result-flow.spec.ts. Everyone else
+  // needs only its end state, so make the calls ElectionResultPage makes: the
+  // office (pinned to the campaign org by the client's default header), then
+  // the won flag. Driving the page and its two calendar dialogs cost ~10s a
+  // test across ~45 tests.
+  await withGatewayRetry('POST /v1/elected-office', () =>
+    client.post('/v1/elected-office', {
+      termStartDate: '2023-01-01',
+      termEndDate: '2027-01-01',
+      onboardingCompletedAt: new Date().toISOString(),
+    }),
+  )
   await withGatewayRetry('PUT /v1/campaigns/mine', () =>
     client.put('/v1/campaigns/mine', { details: { wonGeneral: true } }),
   )
@@ -110,53 +123,31 @@ const winRaceViaApi = async (page: Page, client: AxiosInstance) => {
       const { data } = await client.get<{ organizations: { slug: string }[] }>(
         '/v1/organizations',
       )
+
       const electedOfficeOrg = data.organizations.find((org) =>
         org.slug.startsWith('eo-'),
       )
+
       if (!electedOfficeOrg) {
         throw new Error('No elected office organization found')
       }
+
       return electedOfficeOrg.slug
     },
   )
+  client.defaults.headers['x-organization-slug'] = electedOfficeOrgSlug
 
-  // The page selects the new org in its cookie after winning; do the same so
-  // the browser lands on the elected office, not the campaign.
-  const baseUrl = process.env.BASE_URL
-  if (!baseUrl) throw new Error('BASE_URL is not set')
+  // The page selects the new org by this cookie, then lands on Chief of Staff.
   await page.context().addCookies([
     {
       name: 'organization-slug',
       value: electedOfficeOrgSlug,
-      url: baseUrl,
+      domain: new URL(page.url()).hostname,
+      path: '/',
       sameSite: 'Lax',
     },
   ])
   await page.goto('/dashboard/chief-of-staff')
-  return electedOfficeOrgSlug
-}
-
-type SetupResult = {
-  user: AuthenticatedUser
-  client: AxiosInstance
-}
-
-export const setupElectedOfficeUser = async (
-  page: Page,
-  raceOptions?: TestUserOptions['race'],
-): Promise<SetupResult> => {
-  const race = raceOptions ?? {
-    zip: '82001',
-    office: 'Cheyenne City Council - Ward 1',
-  }
-
-  const { user, client } = await authenticateTestUser(page, {
-    isolated: true,
-    race,
-  })
-
-  const electedOfficeOrgSlug = await winRaceViaApi(page, client)
-  client.defaults.headers['x-organization-slug'] = electedOfficeOrgSlug
 
   return { user, client }
 }
@@ -173,16 +164,11 @@ export const setupProCampaignUser = async (
   page: Page,
   raceOptions?: TestUserOptions['race'],
 ): Promise<SetupResult> => {
-  // Default to the same race setupElectedOfficeUser pinned: a district with
+  // Default to the same office setupElectedOfficeUser pins: a district with
   // real L2 voter data, so the Contacts surface has rows to exercise.
-  const race = raceOptions ?? {
-    zip: '82001',
-    office: 'Cheyenne City Council - Ward 1',
-  }
-
   const { user, client } = await authenticateTestUser(page, {
     isolated: true,
-    race,
+    race: raceOptions ?? DEFAULT_TEST_RACE,
   })
 
   await withGatewayRetry('POST /v1/campaigns/mine/test-set-pro', () =>
@@ -192,23 +178,11 @@ export const setupProCampaignUser = async (
   return { user, client }
 }
 
-type RaceListItem = {
-  id: string
-  brPositionId: string
-  position: { name: string }
-  election: { electionDay: string }
-}
-
-const REELECTION_RACE = {
-  zip: '82001',
-  office: 'Cheyenne City Council - Ward 1',
-}
-
 // Build a held-office user whose elected office has a DERIVED termEndAt, so a
 // same-office follow-on can in turn derive a future electionDate and the office
 // holder is re-election-eligible (eligibility.reelectionOfficeSlug populated).
-// The shared api-registration helper creates the campaign straight from
-// races-by-year and stores race.id — a ZipToPosition id — as details.raceId; EO
+// The shared api-registration helper creates the campaign from the resolved
+// race and stores race.id — a ZipToPosition id — as details.raceId; EO
 // term derivation looks the cadence up by Race.brHashId, so that id never
 // resolves and termEndAt stays null. Mirror the real onboarding office picker
 // instead: hydrate the race via race-by-position (whose data.id IS the
@@ -216,21 +190,18 @@ const REELECTION_RACE = {
 // creation derives the term.
 export const setupReelectionEligibleUser = async (
   page: Page,
-  raceOptions?: { zip: string; office: string },
+  raceOptions?: TestRace,
 ): Promise<AxiosInstance> => {
-  const race = raceOptions ?? REELECTION_RACE
+  const race = raceOptions ?? DEFAULT_TEST_RACE
 
   const { client } = await authenticateTestUser(page, {
     isolated: true,
     race,
   })
 
-  const { data: races } = await client.get<RaceListItem[]>(
-    '/v1/elections/races-by-year',
-    { params: { zipcode: race.zip } },
-  )
-  const matchedRace = races.find((r) => r.position.name === race.office)
-  if (!matchedRace) throw new Error(`Race not found: ${race.office}`)
+  // The resolved race may already be past; race-by-position hydrates a past
+  // date just as well, and only its BallotReady hash is kept.
+  const matchedRace = await resolveTestRace(client, race)
 
   const { data: hydrated } = await client.get<{ id: string }>(
     '/v1/elections/race-by-position',
@@ -246,8 +217,8 @@ export const setupReelectionEligibleUser = async (
   // the just-created campaign's raceId at the BallotReady race hash.
   await client.put('/v1/campaigns/mine', { details: { raceId: hydrated.id } })
 
-  // Win the race -> create the elected office (term dates included).
-  await winRaceViaApi(page, client)
+  // Win the race -> create the elected office (term dates entered inline).
+  await winRaceWithTermDates(page)
 
   return client
 }

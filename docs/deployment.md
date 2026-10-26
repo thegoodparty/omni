@@ -70,7 +70,7 @@ Vercel CLI (no git integration), driven by GitHub Actions and the shared
 - The **prototypes app** (`packages/prototypes`) is its own Vercel project
   (`VERCEL_PROJECT_ID_PROTOTYPES`, `rootDirectory=packages/prototypes`), served at
   `prototypes.goodparty.org`. It is a single-environment, fully public Next.js app
-  with no backend coupling (no gp-api, no election-api, no e2e). On merges to
+  with no backend coupling (no gp-api, no e2e). On merges to
   `main` the train's `dev-prototypes` job deploys it to the **production** target
   (single-environment); on PRs `prototypes.yml` deploys a preview with a
   deterministic alias (`prototypes-pr-<N>-good-party.vercel.app`). Both are guarded
@@ -97,6 +97,10 @@ build` peaks near Node's default ~4GB heap and started OOMing intermittently
   every preview deploy in the repo failed. `--archive=tgz` uploads the output as
   one compressed file, making each deploy cost ~1 against the quota. It changes
   only the upload transport, so preview and prod both use it.
+- The action retries its network-only calls 3 times with backoff: the CLI
+  install, `vercel pull`, `vercel deploy` of the prebuilt output, and
+  `vercel alias set`. Each is safe to repeat. `vercel build` is not retried:
+  it runs locally and fails for code, token or heap reasons.
 - A single workflow (`pr-preview-comment.yml`) upserts **one** unified preview
   comment on the PR listing every app; every app's deploy job runs on every PR,
   so all the URLs resolve.
@@ -126,20 +130,22 @@ exercises the exact full-stack version proposed in the PR.
   edge is serving the expected `github.sha` via that endpoint (liveness alone is
   not enough on branch builds, where dev is always up on the prior commit).
 - The suite itself is sharded across runners: `e2e-shard` fans the Playwright
-  tests over a 4-way matrix (`--shard=n/4 --reporter=blob`), and the `E2E`
+  tests over a 6-way matrix, balanced by duration rather than Playwright's
+  count-based `--shard`. Each shard lists the suite and runs the `file:line`
+  slice `e2e-tests/scripts/plan-shards.mjs` assigns it from the last run's
+  durations, which the `E2E` job records to the Actions cache
+  (`e2e-durations-v1-*`; a PR reads its own latest, else main's). The `E2E`
   summary job merges the per-shard blob reports into one HTML report +
   `results.json`, publishes to S3, comments on the PR, and is the single required
   status check (red iff any shard failed). `E2E` keeps that exact name because the
   `main` ruleset gates on it. This is the pre-merge E2E against the PR's own
   full-stack preview; after merge the release train runs a second E2E against dev
   before promoting the commit to prod (see below).
-- election-api is not part of this yet (the webapp does not call it directly and it
-  has no preview stack).
 
 ## Backends (Docker + ECR + Pulumi -> ECS Fargate)
 
-gp-api and election-api build a production Docker image, push to ECR
-(tagged with the commit SHA), and deploy to ECS Fargate via Pulumi. A push to
+gp-api builds a production Docker image, pushes it to ECR
+(tagged with the commit SHA), and deploys to ECS Fargate via Pulumi. A push to
 `main` runs the release train, whose dev stage deploys the dev environment and
 whose prod stage promotes the same image (see below), not a push to a prod branch.
 Both stages call the same composite deploy action, only with different env inputs.
@@ -188,7 +194,7 @@ not failures.
 The stages:
 
 1. **`await-checks`.** Waits for this commit's per-service check workflows
-   (gp-api, election-api, gp-webapp, gp-admin, candidate-sites,
+   (gp-api, gp-webapp, gp-admin, candidate-sites,
    publish-experiments, gp-ai) to go green on dev. A red check stops the train
    for that SHA; a later merge forms the next train. When `main` has already
    moved past the SHA, the run first waits for the newer commit's runs of the
@@ -280,6 +286,12 @@ in with `vars.AWS_ROLE_ARN`. gp-ai's pull request build, which never holds the
 deploy role, assumes the read-only plan role (`vars.AWS_PLAN_ROLE_ARN`), which
 can mint that login token (granted in `thegoodparty/ops`). Local builds need no
 login.
+
+A logged-in pull can still fail on the network, so the train retries the pulls
+it controls. It pre-pulls the buildx builder image with retries; buildx falls
+back to that local copy when its own one-shot pull fails. Pulumi and Terraform applies are never retried: they hold state
+locks, and a retry on top of a half-applied run is not idempotent (see
+[Concurrency](#concurrency-never-cancel-in-progress-true)).
 
 ### Analytics guard
 
