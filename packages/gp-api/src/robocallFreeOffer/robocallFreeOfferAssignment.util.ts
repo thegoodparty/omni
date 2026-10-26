@@ -1,4 +1,8 @@
-import { PRECINCT_ARMS } from './robocallFreeOffer.consts'
+import { formatInTimeZone } from 'date-fns-tz'
+import {
+  PRECINCT_ARMS,
+  ROBOCALL_FREE_OFFER_ELECTION_DATE,
+} from './robocallFreeOffer.consts'
 
 export type PrecinctArm = (typeof PRECINCT_ARMS)[keyof typeof PRECINCT_ARMS]
 
@@ -58,3 +62,9 @@ export const assignPrecincts = <Key>(params: {
     pTreatment,
   }))
 }
+
+// The offer ends once Election Day is over, on Eastern time. Injected `now`
+// so tests can fix the clock.
+export const isAfterOfferElection = (now: Date): boolean =>
+  formatInTimeZone(now, 'America/New_York', 'yyyy-MM-dd') >
+  ROBOCALL_FREE_OFFER_ELECTION_DATE

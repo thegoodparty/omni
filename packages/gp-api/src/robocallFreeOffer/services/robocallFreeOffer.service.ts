@@ -29,7 +29,10 @@ import {
   ROBOCALL_FREE_OFFER_EXPERIMENT_KEY,
   ROBOCALL_FREE_OFFER_FLAG,
 } from '../robocallFreeOffer.consts'
-import { assignPrecincts } from '../robocallFreeOfferAssignment.util'
+import {
+  assignPrecincts,
+  isAfterOfferElection,
+} from '../robocallFreeOfferAssignment.util'
 
 // Campaign.details is Prisma JSON; `.catch(null)` keeps one off-shape key
 // elsewhere in details from hiding a good election date.
@@ -277,6 +280,9 @@ export class RobocallFreeOfferService extends createPrismaBase(
     organization: Organization,
     campaign: Campaign,
   ): boolean {
+    // A used offer ends with the booked-robocall rule; an unused one ends
+    // after Election Day, so its saved list goes back to being a plain list.
+    if (isAfterOfferElection(new Date())) return false
     if (!campaign.isPro) return false
     // Win only: there is no product column, and `eo-` is Serve.
     if (!organization.slug.startsWith('campaign-')) return false
