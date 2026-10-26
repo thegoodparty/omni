@@ -73,8 +73,14 @@ if (typeof CSSStyleDeclaration !== 'undefined') {
   }
 }
 
+// vaul, sonner, react-remove-scroll and ProseMirror inject ~150 CSS rules on
+// import. jsdom matches every one of them on each getComputedStyle call, which
+// Radix Presence, Testing Library's role queries and user-event's
+// pointer-events check make constantly. It was ~15% of a flow test's CPU, and
+// none of those rules decide anything a test asserts.
 beforeEach(() => {
   testQueryClient.clear()
+  if (typeof document === 'undefined') return
   for (const style of document.head.querySelectorAll('style')) style.remove()
 })
 
