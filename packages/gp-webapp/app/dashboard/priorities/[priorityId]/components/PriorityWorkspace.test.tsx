@@ -1193,17 +1193,22 @@ describe('PriorityWorkspace', () => {
       needed: 96,
       groupsHeard: 3,
       groupsTotal: 12,
+      representativeAnswers: 20,
+      representativeNeeded: 96,
       good: false,
       status: 'tooEarly',
       underrepresented: ['age65plus'],
       unheard: ['age65plus'],
       checkOut: true,
     }
+    // 103 answered, but the groups heard most fill only their share.
     const skewed: PriorityReadStatus = {
       answers: 103,
       needed: 96,
       groupsHeard: 9,
       groupsTotal: 12,
+      representativeAnswers: 70,
+      representativeNeeded: 96,
       good: false,
       status: 'notYetRepresentative',
       underrepresented: ['women', 'age65plus'],
@@ -1257,7 +1262,7 @@ describe('PriorityWorkspace', () => {
       )
       expect(
         within(bar).getByRole('progressbar', {
-          name: '3 of 12 groups heard',
+          name: '20 of the 96 answers we need',
         }),
       ).toBeInTheDocument()
       const getAnswers = within(bar).getByRole('button', {
@@ -1387,7 +1392,9 @@ describe('PriorityWorkspace', () => {
       expect(
         within(rail).getByText('Still need to hear from people 65 and over'),
       ).toBeInTheDocument()
-      expect(within(rail).getByText('3 of 12 groups heard')).toBeInTheDocument()
+      expect(
+        within(rail).getByText('20 of the 96 answers we need'),
+      ).toBeInTheDocument()
       expect(
         within(rail).getByRole('button', { name: 'Get answers' }),
       ).toBeInTheDocument()
@@ -1455,7 +1462,9 @@ describe('PriorityWorkspace', () => {
           'Need a few more answers from women and people 65 and over',
         ),
       ).toBeInTheDocument()
-      expect(within(rail).getByText('9 of 12 groups heard')).toBeInTheDocument()
+      expect(
+        within(rail).getByText('70 of the 96 answers we need'),
+      ).toBeInTheDocument()
       expect(within(rail).queryByText(/weight/i)).not.toBeInTheDocument()
       expect(
         within(rail).getByRole('button', { name: 'Get answers' }),
