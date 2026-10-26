@@ -70,6 +70,8 @@ export interface SegmentResponse {
   // Recommended-lists provenance (Task 7): null on a hand-built list, or
   // when accepted, whether the candidate edited it before submitting.
   recommendedModified?: boolean | null
+  // Which recommendation the list was saved from, null on a hand-built list.
+  recommendedVariant?: string | null
   // Serve: a list our code saved as a civic panel invite's audience. The
   // lists index leaves it out; the built-in Civic panel row is the panel's.
   civicPanelInvite?: boolean

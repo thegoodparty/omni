@@ -1,5 +1,22 @@
-import { Button, Card, SparklesIcon, UserCheckIcon } from '@styleguide'
-import type { RecommendedList } from '@goodparty_org/contracts'
+import Link from 'next/link'
+import {
+  Button,
+  Card,
+  GiftIcon,
+  SparklesIcon,
+  UserCheckIcon,
+  cn,
+} from '@styleguide'
+import {
+  FREE_OFFER_CARD_CLASS,
+  FREE_OFFER_EYEBROW_CLASS,
+} from 'app/dashboard/shared/robocallFreeOffer/freeOfferStyles'
+import {
+  ROBOCALL_FREE_OFFER_VARIANT,
+  type RecommendedList,
+} from '@goodparty_org/contracts'
+import { FREE_OFFER_BADGE } from 'app/dashboard/shared/robocallFreeOffer/freeOfferCopy'
+import { freeOfferHref } from 'app/dashboard/shared/robocallFreeOffer/freeOfferHref'
 import { useOpenChannelPicker } from '../shared/channelPicker/ChannelPickerProvider'
 import { trackRecommendedSendOutreach } from './recommendedListOutreach.util'
 
@@ -17,15 +34,33 @@ export default function RecommendedVoterListCard({
 }: RecommendedVoterListCardProps) {
   const { copy, count } = recommendation
   const openChannelPicker = useOpenChannelPicker()
+  const isFreeOffer = recommendation.variant === ROBOCALL_FREE_OFFER_VARIANT
 
   return (
     <Card
-      className="w-full gap-2 rounded-2xl p-4 shadow-xs"
+      className={cn(
+        'w-full gap-2 rounded-2xl p-4 shadow-xs',
+        isFreeOffer && FREE_OFFER_CARD_CLASS,
+      )}
       data-testid="recommended-voter-list-card"
     >
-      <p className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-primary">
-        <SparklesIcon className="size-3.5" aria-hidden />
-        Recommended
+      <p
+        className={cn(
+          'flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider',
+          isFreeOffer ? FREE_OFFER_EYEBROW_CLASS : 'text-primary',
+        )}
+      >
+        {isFreeOffer ? (
+          <>
+            <GiftIcon className="size-3.5" aria-hidden />
+            {FREE_OFFER_BADGE}
+          </>
+        ) : (
+          <>
+            <SparklesIcon className="size-3.5" aria-hidden />
+            Recommended
+          </>
+        )}
       </p>
       <h3 className="text-base font-semibold">{copy.title}</h3>
       <p className="text-[13px] text-muted-foreground">
@@ -46,16 +81,32 @@ export default function RecommendedVoterListCard({
           >
             Details
           </Button>
-          <Button
-            size="small"
-            className="h-8 px-3.5 text-xs"
-            onClick={() => {
-              trackRecommendedSendOutreach(recommendation, 'recommendedCard')
-              openChannelPicker({ kind: 'recommended', recommendation })
-            }}
-          >
-            Send outreach
-          </Button>
+          {isFreeOffer ? (
+            <Button size="small" className="h-8 px-3.5 text-xs" asChild>
+              <Link
+                href={freeOfferHref('voter_data')}
+                onClick={() =>
+                  trackRecommendedSendOutreach(
+                    recommendation,
+                    'recommendedCard',
+                  )
+                }
+              >
+                Send outreach
+              </Link>
+            </Button>
+          ) : (
+            <Button
+              size="small"
+              className="h-8 px-3.5 text-xs"
+              onClick={() => {
+                trackRecommendedSendOutreach(recommendation, 'recommendedCard')
+                openChannelPicker({ kind: 'recommended', recommendation })
+              }}
+            >
+              Send outreach
+            </Button>
+          )}
         </div>
       </div>
     </Card>

@@ -1,3 +1,4 @@
+import { useRouter } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import {
   Button,
@@ -10,8 +11,12 @@ import {
   MessageSquareIcon,
   UsersRoundIcon,
 } from '@styleguide'
-import type { RecommendedList } from '@goodparty_org/contracts'
+import {
+  ROBOCALL_FREE_OFFER_VARIANT,
+  type RecommendedList,
+} from '@goodparty_org/contracts'
 import { useOrganization } from '@shared/organization-picker'
+import { freeOfferHref } from 'app/dashboard/shared/robocallFreeOffer/freeOfferHref'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { getContactsLabels } from '../../../shared/contactsLabels'
 import { useContactsTable } from '../ContactsTableProvider'
@@ -49,6 +54,7 @@ export default function RecommendedListDetailSheet({
   } = useContactsTable()
   const labels = getContactsLabels(isWinContext)
   const openChannelPicker = useOpenChannelPicker()
+  const router = useRouter()
   // A non-pro user has no upsell wired here — like ListDetailSheet, the
   // button communicates the lock through its icon alone.
   const { downloadFromHref, isPreparing } = useContactsDownload({
@@ -136,6 +142,11 @@ export default function RecommendedListDetailSheet({
                 // The prototype swaps this drawer for "Choose a channel"; two
                 // full-height sheets never stack.
                 onClose()
+                // The free robocall offer goes straight to robocall.
+                if (recommendation.variant === ROBOCALL_FREE_OFFER_VARIANT) {
+                  router.push(freeOfferHref('voter_data'))
+                  return
+                }
                 openChannelPicker({ kind: 'recommended', recommendation })
               }}
             >

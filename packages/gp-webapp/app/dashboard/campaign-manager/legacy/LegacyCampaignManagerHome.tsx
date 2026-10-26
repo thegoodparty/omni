@@ -5,6 +5,7 @@ import { CampaignUpdateHistoryProvider } from '@shared/hooks/CampaignUpdateHisto
 import CampaignManagerTasks from '../CampaignManagerTasks'
 import ProgressSection from '../../components/campaignManager/ProgressSection'
 import { useCampaignManagerChat } from '../CampaignManagerChatProvider'
+import RobocallFreeOfferCard from '../../shared/robocallFreeOffer/RobocallFreeOfferCard'
 
 /**
  * The Campaign Manager dashboard home for the campaign-story cohort: the
@@ -29,6 +30,7 @@ export default function CampaignManagerHome(): React.JSX.Element {
             <ProgressSection />
           </CampaignUpdateHistoryProvider>
         </VoterContactsProvider>
+        <RobocallFreeOfferCard />
       </div>
       {/* onMeetManager is a general open, so it dismisses the meet card.
           onPersonalize launches the story-intake chat flow without dismissing

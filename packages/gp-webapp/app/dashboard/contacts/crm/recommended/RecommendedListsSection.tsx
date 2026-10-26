@@ -1,6 +1,14 @@
 import { useState } from 'react'
 import { Button, LockIcon, ProBadge, Skeleton } from '@styleguide'
-import type { RecommendedList } from '@goodparty_org/contracts'
+import {
+  ROBOCALL_FREE_OFFER_VARIANT,
+  type RecommendedList,
+} from '@goodparty_org/contracts'
+import {
+  FREE_OFFER_BADGE,
+  freeOfferAudienceNote,
+} from 'app/dashboard/shared/robocallFreeOffer/freeOfferCopy'
+import { useRobocallFreeOffer } from 'app/dashboard/shared/robocallFreeOffer/useRobocallFreeOffer'
 import { useContactsTable } from '../ContactsTableProvider'
 import { useShowContactProModal } from '../ContactProModal'
 import RecommendedVoterListCard from './RecommendedVoterListCard'
@@ -29,8 +37,18 @@ export default function RecommendedListsSection() {
   const { recommendations, isLoading, isError } = useRecommendedLists(
     isWin && canUseProFeatures && !voterDataUnavailable,
   )
+  const { offer } = useRobocallFreeOffer()
 
   if (!isWin) return null
+
+  const freeOffer =
+    recommendations.find(
+      (recommendation) =>
+        recommendation.variant === ROBOCALL_FREE_OFFER_VARIANT,
+    ) ?? null
+  const otherRecommendations = recommendations.filter(
+    (recommendation) => recommendation.variant !== ROBOCALL_FREE_OFFER_VARIANT,
+  )
 
   // A recommendation the candidate has already saved opens that list's own
   // sheet, history included; one that exists nowhere yet gets the
@@ -75,9 +93,9 @@ export default function RecommendedListsSection() {
     <p className="text-sm text-destructive">
       We couldn&apos;t load recommendations right now.
     </p>
-  ) : recommendations.length === 0 ? null : (
+  ) : otherRecommendations.length === 0 ? null : (
     <div className="flex flex-col gap-3">
-      {recommendations.map((recommendation) => (
+      {otherRecommendations.map((recommendation) => (
         <RecommendedVoterListCard
           key={recommendation.variant}
           recommendation={recommendation}
@@ -87,21 +105,45 @@ export default function RecommendedListsSection() {
     </div>
   )
 
-  if (body === null) return null
+  if (body === null && !freeOffer) return null
 
   return (
-    <section className="flex flex-col gap-4">
-      <div>
-        <h2 className="text-lg font-semibold">Recommended voter lists</h2>
-        <p className="text-sm text-muted-foreground">
-          Voter lists in your district who are likely to support your campaign.
-        </p>
-      </div>
-      {body}
+    <>
+      {/* The free robocall offer is its own section above the
+          recommendations, as it is in the robocall flow. */}
+      {freeOffer && (
+        <section
+          className="flex flex-col gap-4"
+          data-testid="free-offer-section"
+        >
+          <div>
+            <h2 className="text-lg font-semibold">{FREE_OFFER_BADGE}</h2>
+            <p className="text-sm text-muted-foreground">
+              {freeOfferAudienceNote(offer?.coveredCalls ?? null)}
+            </p>
+          </div>
+          <RecommendedVoterListCard
+            recommendation={freeOffer}
+            onDetails={() => handleDetails(freeOffer)}
+          />
+        </section>
+      )}
+      {body !== null && (
+        <section className="flex flex-col gap-4">
+          <div>
+            <h2 className="text-lg font-semibold">Recommended voter lists</h2>
+            <p className="text-sm text-muted-foreground">
+              Voter lists in your district who are likely to support your
+              campaign.
+            </p>
+          </div>
+          {body}
+        </section>
+      )}
       <RecommendedListDetailSheet
         recommendation={openRecommendation}
         onClose={() => setOpenRecommendation(null)}
       />
-    </section>
+    </>
   )
 }

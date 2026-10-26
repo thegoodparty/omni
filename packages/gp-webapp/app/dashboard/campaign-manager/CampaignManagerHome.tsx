@@ -6,6 +6,7 @@ import NextTaskCard from '../campaign-plan/components/campaignStrategy/NextTaskC
 import { useTrackerTasks } from '../campaign-plan/components/campaignStrategy/useTrackerTasks'
 import { useNewTrackerTasks } from '../campaign-plan/components/campaignStrategy/useNewTrackerTasks'
 import { useCampaign } from '@shared/hooks/useCampaign'
+import RobocallFreeOfferCard from '../shared/robocallFreeOffer/RobocallFreeOfferCard'
 import { FIRST_LANDING_PARAM } from './homeHeadlines'
 
 /**
@@ -50,6 +51,7 @@ export default function CampaignManagerHome(): React.JSX.Element {
     <div className="flex min-h-screen flex-col bg-muted lg:-mb-24 lg:min-h-[calc(100dvh-3.5rem)] lg:pb-24">
       <div className="mx-auto flex w-full max-w-[720px] flex-col gap-4 px-4 pt-6 lg:my-auto lg:py-6">
         <NextTaskCard surface="manager" firstLanding={firstLanding} />
+        <RobocallFreeOfferCard />
       </div>
     </div>
   )

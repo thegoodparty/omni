@@ -1,6 +1,9 @@
 'use client'
 
 import { useState } from 'react'
+import { useRouter } from 'next/navigation'
+import { ROBOCALL_FREE_OFFER_VARIANT } from '@goodparty_org/contracts'
+import { freeOfferHref } from 'app/dashboard/shared/robocallFreeOffer/freeOfferHref'
 import {
   Button,
   Card,
@@ -47,6 +50,7 @@ export default function ListCard({ segment }: ListCardProps) {
   } = useContactsTable()
   const showProUpgradeModal = useShowContactProModal()
   const openChannelPicker = useOpenChannelPicker()
+  const router = useRouter()
   const { peopleCount, lastOutreach, isLoading, isError, isGated } =
     useListRowDetail(segment.id, canUseProFeatures)
   const [deleteOpen, setDeleteOpen] = useState(false)
@@ -162,6 +166,13 @@ export default function ListCard({ segment }: ListCardProps) {
                   listId: segment.id,
                   surface: 'listCard',
                 })
+                // The free robocall offer's list goes straight to robocall.
+                if (
+                  segment.recommendedVariant === ROBOCALL_FREE_OFFER_VARIANT
+                ) {
+                  router.push(freeOfferHref('voter_data'))
+                  return
+                }
                 openChannelPicker({ kind: 'list', segment })
               }}
             >

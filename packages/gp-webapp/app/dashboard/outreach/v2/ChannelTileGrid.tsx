@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { useQueryClient } from '@tanstack/react-query'
 import { MessageSquareOff } from 'lucide-react'
 import {
+  Badge,
   ChannelCard,
   Tooltip,
   TooltipContent,
@@ -30,6 +31,8 @@ import {
   formatSmsCutoffDate,
 } from 'app/dashboard/campaign-verification/verificationCopy'
 import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
+import { useRobocallFreeOffer } from 'app/dashboard/shared/robocallFreeOffer/useRobocallFreeOffer'
+import { FREE_OFFER_BADGE } from 'app/dashboard/shared/robocallFreeOffer/freeOfferCopy'
 import { CHANNEL_META } from './channelMeta'
 import type { AudiencePreselect } from './audiencePreselect'
 
@@ -96,6 +99,7 @@ export const ChannelTileGrid = ({
   // and opens neither the flow, the Pro wizard nor the compliance modal.
   const { smsCompliance, smsCutoffDate } = useSmsCompliance()
   const smsClosed = smsCompliance === 'closed'
+  const { offer: freeOffer } = useRobocallFreeOffer()
   // Milestone 2 moves the Pro/compliance gate INSIDE the text, robocall and
   // phone-banking flows: the tile stops refusing the click and opens the
   // flow, which pauses itself once there is something to save. Read without
@@ -289,13 +293,17 @@ export const ChannelTileGrid = ({
               iconClassName={textClosed ? 'bg-grayscale-200' : meta.iconTint}
               label={meta.label}
               subCopy={
-                textClosed
-                  ? SMS_TILE_CLOSED_COPY
-                  : isText && smsCompliance === 'closing' && smsCutoffDate
-                    ? SMS_CUTOFF_COPY.countdownChip(
-                        formatSmsCutoffDate(smsCutoffDate),
-                      )
-                    : undefined
+                textClosed ? (
+                  SMS_TILE_CLOSED_COPY
+                ) : isText && smsCompliance === 'closing' && smsCutoffDate ? (
+                  SMS_CUTOFF_COPY.countdownChip(
+                    formatSmsCutoffDate(smsCutoffDate),
+                  )
+                ) : type === OUTREACH_TYPES.robocall && freeOffer ? (
+                  <Badge className="mt-1 uppercase tracking-wider">
+                    {FREE_OFFER_BADGE}
+                  </Badge>
+                ) : undefined
               }
               aria-disabled={textClosed || undefined}
               className={cn(
