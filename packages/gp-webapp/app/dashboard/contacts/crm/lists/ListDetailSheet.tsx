@@ -45,6 +45,7 @@ import CrmSheet from '../shared/CrmSheet'
 import { useOpenChannelPicker } from '../shared/channelPicker/ChannelPickerProvider'
 import ListMapSection from '../map/ListMapSection'
 import ListFilterSummary from './ListFilterSummary'
+import { CivicPanelMembers } from './CivicPanelMembers'
 import ReachabilityGrid from './ReachabilityGrid'
 import DeleteListDialog from './DeleteListDialog'
 import DuplicateListDialog from './DuplicateListDialog'
@@ -390,7 +391,10 @@ export default function ListDetailSheet({
             <ListMapSection segment={segment} />
           )}
           {isPanel && canUseProFeatures && (
-            <ListMapSection builtInListId={CIVIC_PANEL_SEGMENT} />
+            <>
+              <CivicPanelMembers />
+              <ListMapSection builtInListId={CIVIC_PANEL_SEGMENT} />
+            </>
           )}
 
           <div className="flex flex-col gap-2">

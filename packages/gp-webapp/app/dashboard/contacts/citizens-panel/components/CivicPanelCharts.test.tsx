@@ -95,7 +95,7 @@ describe('CivicPanelSeats', () => {
     seats(0)
     expect(
       screen.getByRole('img', {
-        name: 'Your district as 100 seats. 0 of 100 seats filled.',
+        name: 'Your district as 100 seats. 0 of 100 seats filled, counting each tract only up to its share.',
       }),
     ).toBeInTheDocument()
     expect(
@@ -195,7 +195,33 @@ describe('CivicPanelSeats', () => {
     expect(
       screen.getByText('Every tract has its share of seats filled.'),
     ).toBeInTheDocument()
-    expect(screen.getByText('100')).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        '100 of 100 seats filled, counting each tract only up to its share',
+      ),
+    ).toBeInTheDocument()
+  })
+
+  it("counts a crowded tract's members only up to its share", () => {
+    render(
+      <CivicPanelSeats
+        placeKind="tract"
+        places={SHARES.map((share, i) => ({
+          key: tractName(i),
+          name: tractName(i),
+          districtShare: share,
+          members: i === 0 ? GOAL : 0,
+        }))}
+        members={GOAL}
+        goal={GOAL}
+      />,
+    )
+    const filled = Math.round((SHARES[0] ?? 0) * 100)
+    expect(
+      screen.getByText(
+        `${filled} of 100 seats filled, counting each tract only up to its share`,
+      ),
+    ).toBeInTheDocument()
   })
 })
 

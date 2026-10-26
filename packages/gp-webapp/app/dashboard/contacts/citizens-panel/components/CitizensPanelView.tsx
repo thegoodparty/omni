@@ -38,6 +38,7 @@ const stageOf = (
   if (managed?.status === 'ready' || (goal > 0 && members >= goal)) {
     return 'ready'
   }
+  if (managed?.status === 'paused') return 'paused'
   return members === 0 ? 'start' : 'building'
 }
 

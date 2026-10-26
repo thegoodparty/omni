@@ -22,8 +22,9 @@ pads `var(--chat-dock-height)` plus 8rem so the last card clears the bar.
 
 - **Stage** (`stageOf` in `CitizensPanelView`): `exhausted` or `ready`
   from the managed status (ready also once members reach the goal
-  without one), else `start` at 0 members, else `building`. Paused reads
-  as building.
+  without one), else `paused` from the managed status ("Your civic panel
+  is paused", with Resume invites in its line, the same words as the home
+  card), else `start` at 0 members, else `building`.
 - **Hero** (`CivicPanelHero`): the stage's title and line
   (`COPY.hero`), the goal as 100 seats (`SeatArc` from `CivicPanelSeats`,
   `quiet`, on `plainSeats`: filled is members over goal, in arc order, in
@@ -58,7 +59,9 @@ pads `var(--chat-dock-height)` plus 8rem so the last card clears the bar.
   resume) reads the enrollment again and redraws the card in its real
   state, with no Try again; any other failure shows the error. Then Members
   and Ready to ask (`CitizensPanelStats showReached={false}`) and See
-  members once anyone joined.
+  members once anyone joined, which opens the built-in list's sheet led by
+  its members by name (`crm/lists/CivicPanelMembers.tsx`), each opening
+  `PersonOverlay`.
 - **Chat**: `CivicPanelChatDock` pins the shared `FooterChatBar` and
   `ChiefOfStaffChatSurface` (`analyticsSurface` `civic_panel_dock`), the
   same dock as Ordinances and Community Issues. The bar's `placeholder` is
@@ -76,11 +79,15 @@ pads `var(--chat-dock-height)` plus 8rem so the last card clears the bar.
   `onCivicPanel`. Every join or leave
   is server truth and fires from gp-api (contacts AGENTS.md).
 - **The full seats chart** (`CivicPanelSeats`) is the Constituents page
-  section's (`CitizensPanelSection`), not this page's: the goal as 100
+  section's (`CitizensPanelSection`), not this page's. The section leads
+  with this page's count (`joinedOfGoal`, members over goal), so the two
+  never disagree. The chart is the goal as 100
   seats in six rows, split by each place's district share (largest
   remainder), census tracts or, where the district has no tract data,
   precincts, named by `placeKind` ("Tract 9501.02", "Precinct 01.1") or a
-  tract's human `label`. A place's members fill seats only up to its share,
+  tract's human `label`. A place's members fill seats only up to its share
+  (its count reads "{n} of 100 seats filled, counting each tract only up to
+  its share", never a member total),
   each place one brand family cycled in arc order (`seatHue`, `seatTint`,
   fixed by position so server and client agree). From 30 members a place
   is behind when its progress is under half the panel's, outlined in

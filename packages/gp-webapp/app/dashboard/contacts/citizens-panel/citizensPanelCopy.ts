@@ -4,9 +4,13 @@ import {
   type UnderrepresentedGroup,
 } from '@goodparty_org/contracts'
 
-// Where the panel stands, for the page's lead card. Paused reads as
-// building.
-export type CivicPanelStage = 'start' | 'building' | 'ready' | 'exhausted'
+// Where the panel stands, for the page's lead card.
+export type CivicPanelStage =
+  | 'start'
+  | 'building'
+  | 'paused'
+  | 'ready'
+  | 'exhausted'
 
 const count = (n: number): string => n.toLocaleString('en-US')
 
@@ -44,6 +48,10 @@ export const SERVE_CITIZENS_PANEL_COPY = {
     "We couldn't load your civic panel. Refresh the page to try again.",
   backToContacts: 'Back to constituents',
   seeMembers: 'See members',
+  membersLoading: 'Loading members…',
+  membersError: "We couldn't load the members right now.",
+  membersShown: (shown: number, total: number) =>
+    `Showing the first ${count(shown)} of ${count(total)}.`,
   listTitle: 'Civic panel',
   listFilter: 'On your civic panel.',
   // The seats' places in the words of what the district was split by.
@@ -86,7 +94,21 @@ export const SERVE_CITIZENS_PANEL_COPY = {
   milestonesLabel: "Your civic panel's milestones",
   seatsCaption:
     'Your district as 100 seats, filling as people join your civic panel.',
-  seatsFilled: ' of 100 seats filled',
+  // The tract chart's count: a place's seats fill only up to its share, so
+  // this is never the member total the hero and the section lead with.
+  seatsAtShare: (filled: number, one: string) =>
+    `${filled} of 100 seats filled, counting each ${one} only up to its share`,
+  seatsAtShareSummary: (
+    filled: number,
+    behind: number,
+    one: string,
+    many: string,
+  ) =>
+    `Your district as 100 seats. ${filled} of 100 seats filled, counting each ${one} only up to its share.${
+      behind > 0
+        ? ` ${behind} ${behind === 1 ? `${one} is` : `${many} are`} behind the rest.`
+        : ''
+    }`,
   seatsSummary: (filled: number, behind: number, one: string, many: string) =>
     behind > 0
       ? `Your district as 100 seats. ${filled} of 100 seats filled. ${behind} ${
@@ -148,6 +170,14 @@ export const SERVE_CITIZENS_PANEL_COPY = {
       title: 'Your civic panel is filling up',
       line: (members: number, goal: number) =>
         `${count(members)} of ${count(goal)} residents have joined so far.`,
+    },
+    // The home card says the same (gp-api's managedPanelProgressCardContent).
+    paused: {
+      title: 'Your civic panel is paused',
+      line: (members: number, goal: number) =>
+        members === 0
+          ? 'Nobody has joined yet. Resume invites to start filling it.'
+          : `${count(members)} of ${count(goal)} residents have joined. Resume invites to keep filling it.`,
     },
     ready: {
       title: 'Your civic panel is ready',
