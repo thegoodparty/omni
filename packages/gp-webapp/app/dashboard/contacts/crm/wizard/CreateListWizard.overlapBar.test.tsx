@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
@@ -110,11 +110,6 @@ const overlapParagraph = (expectedText: string): HTMLElement =>
   )
 
 beforeEach(() => {
-  vi.useFakeTimers({ shouldAdvanceTime: true })
-  // Testing Library only advances a fake clock inside findBy/waitFor when it
-  // sees a `jest` global. Without it every findBy waits out the 600ms count
-  // debounce in real time.
-  vi.stubGlobal('jest', { advanceTimersByTime: vi.advanceTimersByTime })
   vi.clearAllMocks()
   mockedUseSnackbar.mockReturnValue({
     successSnackbar: vi.fn(),
@@ -128,15 +123,10 @@ beforeEach(() => {
   mockedUseListWizardOverlapCount.mockReturnValue(overlapResult())
 })
 
-afterEach(() => {
-  vi.unstubAllGlobals()
-  vi.useRealTimers()
-})
-
 describe('CreateListWizard — saved-list overlap strip (ENG-10840)', () => {
   it('renders "N (P%) voters already exist in lists you\'ve saved." once a pill is selected and the org has a saved list', async () => {
     setContext({ customSegments: [savedList] } as never)
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    const user = userEvent.setup()
     render(<CreateListWizard open onOpenChange={vi.fn()} />)
 
     await reachConditionsStepWithSelection(user)
@@ -153,7 +143,7 @@ describe('CreateListWizard — saved-list overlap strip (ENG-10840)', () => {
 
   it('renders no strip when the org has no saved lists', async () => {
     setContext({ customSegments: [] } as never)
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    const user = userEvent.setup()
     render(<CreateListWizard open onOpenChange={vi.fn()} />)
 
     await reachConditionsStepWithSelection(user)
@@ -165,7 +155,7 @@ describe('CreateListWizard — saved-list overlap strip (ENG-10840)', () => {
 
   it('renders no strip before any pill is selected', async () => {
     setContext({ customSegments: [savedList] } as never)
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    const user = userEvent.setup()
     render(<CreateListWizard open onOpenChange={vi.fn()} />)
 
     await user.click(
@@ -185,7 +175,7 @@ describe('CreateListWizard — saved-list overlap strip (ENG-10840)', () => {
     mockedUseListWizardOverlapCount.mockReturnValue(
       overlapResult({ count: undefined, isError: true }),
     )
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    const user = userEvent.setup()
     render(<CreateListWizard open onOpenChange={vi.fn()} />)
 
     await reachConditionsStepWithSelection(user)
