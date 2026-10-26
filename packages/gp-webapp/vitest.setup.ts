@@ -75,6 +75,7 @@ if (typeof CSSStyleDeclaration !== 'undefined') {
 
 beforeEach(() => {
   testQueryClient.clear()
+  for (const style of document.head.querySelectorAll('style')) style.remove()
 })
 
 // Radix defers its unmount autofocus to a setTimeout(…, 0) — a React 16 focus

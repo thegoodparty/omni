@@ -52,34 +52,23 @@ const HOOK_TIMEOUT_MS = 60_000
 /**
  * Empty every table, then seed the one user the suite authenticates as.
  *
- * Truncating all 88 tables unconditionally costs a flat ~350ms, because the
- * commit syncs a new relation file for each one; asking all 88 whether they
- * hold a row costs ~15ms in a single round trip, and a test typically dirties
- * a handful. So probe first and truncate only what the last test actually
- * wrote. CASCADE may pull in an empty child table, which is harmless — the
- * post-condition is only that every table is empty.
+ * DELETE, not TRUNCATE. A test leaves a handful of rows, and TRUNCATE swaps
+ * in a new relation file for every table it touches, which invalidates each
+ * pooled connection's cached view of those tables and costs ~55ms a reset
+ * plus slower queries after it. DELETE on 88 near-empty tables is ~5ms in one
+ * round trip. Replica mode skips the foreign key checks, so order does not
+ * matter; every table is emptied, so nothing is left dangling.
  */
 const resetDatabase = async (
   prisma: PrismaService,
   tables: string[],
 ): Promise<User> => {
-  const dirty = tables.length
-    ? await prisma.$queryRawUnsafe<Array<{ tablename: string }>>(
-        tables
-          .map(
-            (table) =>
-              `SELECT '${table}' AS tablename ` +
-              `WHERE EXISTS (SELECT 1 FROM "public"."${table}")`,
-          )
-          .join(' UNION ALL '),
-      )
-    : []
-
-  if (dirty.length > 0) {
-    const tableList = dirty
-      .map(({ tablename }) => `"public"."${tablename}"`)
-      .join(', ')
-    await prisma.$executeRawUnsafe(`TRUNCATE TABLE ${tableList} CASCADE;`)
+  if (tables.length > 0) {
+    await prisma.$executeRawUnsafe(
+      `DO $$ BEGIN SET LOCAL session_replication_role = replica; ` +
+        tables.map((table) => `DELETE FROM "public"."${table}";`).join(' ') +
+        ` END $$`,
+    )
   }
 
   return prisma.user.create({
