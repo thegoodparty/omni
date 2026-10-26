@@ -50,8 +50,10 @@ import { UsersModule } from '../src/users/users.module'
 import { BraintrustModule } from '../src/vendors/braintrust/braintrust.module'
 import { GeminiModule } from '../src/vendors/google/gemini.module'
 
+// Same line as the webapp's Home card (FREE_OFFER_HOME_BODY): the outcome,
+// with the count left to the flow, where it is counted in voters.
 const TASK_DESCRIPTION =
-  'Free for up to about 8,800 calls on Nov 2, the day before Election Day.'
+  'Reach voters the day before Election Day, at no cost to your campaign.'
 
 // The task's button opens the robocall flow on the offer list. trackerTaskId
 // and phase let the run complete the task once it is scheduled.
