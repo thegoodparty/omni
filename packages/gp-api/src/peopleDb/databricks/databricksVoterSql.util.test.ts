@@ -296,6 +296,7 @@ describe('buildVoterFiltersSql', () => {
       precinct: { in: ['ORANGE|711'] },
       ideology: { in: ['Conservative'] },
       independentAffinity: { in: ['Yes'] },
+      earlyAbsenteeVoted: { in: ['No'] },
     }
 
     expect(Object.keys(sample).sort()).toEqual(
@@ -457,6 +458,40 @@ describe('buildVoterFiltersSql', () => {
       buildVoterFiltersSql(
         createBag(),
         parseFilters({ independentAffinity: { in: ['Yes', 'No'] } }),
+      ),
+    ).toBeNull()
+  })
+
+  it('selects early and absentee voters by membership in their table', () => {
+    const yesBag = createBag()
+    expect(
+      buildVoterFiltersSql(
+        yesBag,
+        parseFilters({ earlyAbsenteeVoted: { eq: 'Yes' } }),
+      ),
+    ).toBe(
+      'v.`id` IN (SELECT id FROM goodparty_data_catalog.mart_gp_api.gp_api_voter_eav_general_2026)',
+    )
+    expect(yesBag.params).toEqual([])
+  })
+
+  // NOT IN against a NULL id would match nobody.
+  it('excludes early and absentee voters with a null-safe NOT IN', () => {
+    expect(
+      buildVoterFiltersSql(
+        createBag(),
+        parseFilters({ earlyAbsenteeVoted: { eq: 'No' } }),
+      ),
+    ).toBe(
+      'v.`id` NOT IN (SELECT id FROM goodparty_data_catalog.mart_gp_api.gp_api_voter_eav_general_2026 WHERE id IS NOT NULL)',
+    )
+  })
+
+  it('emits no earlyAbsenteeVoted clause when both values are selected', () => {
+    expect(
+      buildVoterFiltersSql(
+        createBag(),
+        parseFilters({ earlyAbsenteeVoted: { in: ['Yes', 'No'] } }),
       ),
     ).toBeNull()
   })

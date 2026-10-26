@@ -35,7 +35,7 @@ import { z } from 'zod'
  * - Id filter: id — Operators: { in: string[] }, { notIn: string[] } (exactly one, each 1-200000 uuids)
  * - Enum filters: voterStatus, earlyVoteStatus, politicalParty, maritalStatus, veteranStatus, educationLevel,
  *   ethnicity, businessOwner, presenceOfChildren, homeowner, gender, language, ideology,
- *   independentAffinity
+ *   independentAffinity, earlyAbsenteeVoted
  *   Operators: { in: string[] }, { eq: string }, { is: "not_null" | "null" }
  * - Numeric filters: ageInt, estimatedIncomeAmountInt
  *   Operators: { in: number[] }, { eq: number }, { gte: number }, { lte: number }, { is: "not_null" | "null" }
@@ -118,6 +118,10 @@ export const PEOPLE_FILTER_VALUE_ENUMS = {
   // request. It is NULL only on consumer-only rows of the constituents table,
   // which never see this Win-only filter.
   independentAffinity: ['Yes', 'No'] as const,
+  // Whether L2 reports the voter already voted early or absentee in the
+  // current general. Membership in a separate daily table, not a column, so
+  // there is no Unknown: a state that does not report reads as No.
+  earlyAbsenteeVoted: ['Yes', 'No'] as const,
 } as const
 
 export const createEnumFilterSchema = <T extends readonly string[]>(
@@ -303,6 +307,9 @@ export const PeopleFiltersSchema = z.object({
   ).optional(),
   independentAffinity: createEnumFilterSchema(
     PEOPLE_FILTER_VALUE_ENUMS.independentAffinity,
+  ).optional(),
+  earlyAbsenteeVoted: createEnumFilterSchema(
+    PEOPLE_FILTER_VALUE_ENUMS.earlyAbsenteeVoted,
   ).optional(),
   estimatedIncomeAmountInt: createNumericFilterSchema().optional(),
   ageInt: createNumericFilterSchema().optional(),
