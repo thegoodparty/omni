@@ -24,7 +24,7 @@ const residentsOf = (place: string | null): string =>
 // Every string GoodParty's managed civic panel shows on the Serve home and
 // in the Chief of Staff chat. Serve only, so constituents and residents.
 export const MANAGED_PANEL_COPY = {
-  headline: 'Every group gets a seat',
+  headline: 'Your civic panel',
   seatsLabel: (filled: number) =>
     `${filled} of 100 seats filled, one for every group in your district`,
   offerQuestion: 'Want to see the invite?',

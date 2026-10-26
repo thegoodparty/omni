@@ -9,6 +9,7 @@ import {
 } from '../../generated/prisma'
 import { useTestService } from '@/test-service'
 import { FeaturesService } from '@/features/services/features.service'
+import { ManagedCivicPanelService } from '@/contacts/services/managedCivicPanel.service'
 import type { DashboardCardsResponse } from '@goodparty_org/contracts'
 
 const service = useTestService()
@@ -133,7 +134,7 @@ const titles = (cards: { title: string }[]) =>
 // leads the panel cards until the official approves the invite.
 const managedCard = {
   type: 'civic_panel',
-  title: 'Know what your district thinks before you vote',
+  title: 'Hear from all of your district, not just the loudest voices',
   summary:
     'Residents from every part of your district, matched by age, gender ' +
     'and race. Free in early access.',
@@ -714,13 +715,31 @@ describe('GET /v1/dashboard/cards: the managed panel progress card', () => {
     expect(card).toMatchObject({
       title: 'Your civic panel is filling up',
       summary:
-        '12 of 100 residents have joined. More invites go out Tuesday, November 3.',
+        '12 residents are ready to share their views. More invites go out Tuesday, November 3.',
       ctaLabel: 'See your civic panel',
       ctaHref: '/dashboard/contacts/citizens-panel',
       sourceItemId: 'building',
     })
     expect(card?.summary.split(' ').length).toBeLessThanOrEqual(20)
     expect(await progressCards(orgSlug)).toHaveLength(1)
+  })
+
+  it('names the place its members live while it builds', async () => {
+    const districtPlace = vi
+      .spyOn(service.app.get(ManagedCivicPanelService), 'districtPlace')
+      .mockResolvedValue('Asheville')
+    const orgSlug = 'eo-progress-building-place'
+    await seedElectedOffice(orgSlug)
+    await seedEnrollment(orgSlug)
+    await joinMembers(orgSlug, 1)
+
+    const [card] = await progressCards(orgSlug)
+    districtPlace.mockRestore()
+
+    expect(card).toMatchObject({
+      title: 'Your civic panel is filling up',
+      summary: '1 Asheville resident is ready to share their views.',
+    })
   })
 
   it('says a paused panel is paused, with how to keep it filling', async () => {

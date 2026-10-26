@@ -226,7 +226,9 @@ describe('CitizensPanelView', () => {
       screen.getByRole('heading', { name: 'Your civic panel is filling up' }),
     ).toBeInTheDocument()
     expect(
-      screen.getByText('40 of 240 residents have joined so far.'),
+      screen.getByText(
+        '40 Asheville residents are ready to share their views, on the way to 240.',
+      ),
     ).toBeInTheDocument()
     const next = screen.getByTestId('civic-panel-next')
     expect(

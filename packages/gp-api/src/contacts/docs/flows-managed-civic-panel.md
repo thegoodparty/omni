@@ -38,9 +38,11 @@ office one card at a time (`syncManagedPanelProgressCard`,
 `sourceExternalId` from contracts' `managedCivicPanelProgressCardSourceId`,
 `managed-panel-progress:<electedOfficeId>`, `sourceItemId` the phase from
 `managedPanelPhase`): `building` (building or paused: "Your civic panel is
-filling up", or "Your civic panel starts here" at 0 members as on the civic
-panel page, members of the goal and the next send date, or "Invites are
-paused"), `ready` (for `MANAGED_PANEL_READY_CARD_DAYS`, 14, after
+filling up" with "{members} {place} residents are ready to share their
+views" (the place from `ManagedCivicPanelService.districtPlace`, looked up
+only for this card), or "Your civic panel starts here" at 0 members as on
+the civic panel page with members of the goal, then the next send date; or
+"Invites are paused"), `ready` (for `MANAGED_PANEL_READY_CARD_DAYS`, 14, after
 `readyAt`), and `exhausted` ("Every resident we can text has an invite",
 members of the goal, button `MANAGED_CIVIC_PANEL_EXHAUSTED_CARD_CTA`, which
 the home turns into the hidden `MANAGED_CIVIC_PANEL_EXHAUSTED_MESSAGE` so

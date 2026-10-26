@@ -117,6 +117,7 @@ export const CitizensPanelView = ({
               members={summary.members}
               goal={progress.goal}
               placeKind={composition?.placeKind}
+              place={place}
             />
             {summary.members === 0 ? (
               <CivicPanelFirstJoin
