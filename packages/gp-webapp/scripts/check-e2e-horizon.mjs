@@ -2,12 +2,17 @@
 //
 // Test campaigns take their election date from a preset, but some specs still
 // lean on real offices: the default office every campaign is created on, and
-// the offices the onboarding and office-picker specs pick through the UI. This
-// asks dev's public races route about each one in
+// the offices the onboarding, office-picker and Test mode specs pick through the
+// UI. This asks dev's public races route about each one in
 // e2e-tests/src/real-world-references.json and fails, with a job summary, when
 // a reference is about to stop holding: an office that no longer resolves, or
 // an upcoming race that is gone or less than HORIZON_DAYS away. That turns the
 // next "default race passed" break into a red scheduled run weeks ahead.
+//
+// An upcoming race means a general by default. The Win office picker and Test
+// mode hide primaries and runoffs, so a zip whose only future races are
+// primaries lists no offices there at all. A reference for the Serve picker,
+// which does list them, opts in with `includePrimaries: true`.
 //
 // Run by .github/workflows/e2e-horizon.yml. Plain Node, no dependencies, so the
 // workflow needs no npm install.
@@ -42,6 +47,9 @@ const matches = (reference, race) =>
       ? race.position.name.includes(reference.officeContains)
       : true
 
+const counts = (reference, race) =>
+  reference.includePrimaries || (!race.isPrimary && !race.isRunoff)
+
 const earliest = (races) =>
   [...races].sort((a, b) =>
     a.election.electionDay.localeCompare(b.election.electionDay),
@@ -50,10 +58,9 @@ const earliest = (races) =>
 // One verdict per reference: { ok, next, detail }. `next` is the nearest
 // upcoming election day the reference sees, for the summary.
 export const assessReference = (reference, { future, past }, today) => {
-  const upcoming = future.filter((race) => matches(reference, race))
-  const next = earliest(upcoming)?.election.electionDay ?? null
-
   if (reference.needs === 'exists') {
+    const upcoming = future.filter((race) => matches(reference, race))
+    const next = earliest(upcoming)?.election.electionDay ?? null
     const found =
       upcoming.length + past.filter((r) => matches(reference, r)).length
     return found > 0
@@ -65,22 +72,29 @@ export const assessReference = (reference, { future, past }, today) => {
         }
   }
 
+  const upcoming = future.filter(
+    (race) => matches(reference, race) && counts(reference, race),
+  )
+  const next = earliest(upcoming)?.election.electionDay ?? null
+  const kind = reference.includePrimaries ? 'race' : 'general race'
+  const nextIn = next
+    ? ` Next is ${next}, ${daysUntil(next, today)} days away.`
+    : ''
   const clear = upcoming.filter(
     (race) => daysUntil(race.election.electionDay, today) >= HORIZON_DAYS,
   )
   if (reference.office) {
     const need = reference.minRaces ?? 1
     if (upcoming.length === 0) {
-      return { ok: false, next, detail: 'No upcoming race.' }
+      return { ok: false, next, detail: `No upcoming ${kind}.` }
     }
     if (clear.length < need) {
       return {
         ok: false,
         next,
         detail:
-          `Needs ${need} upcoming race(s) at least ${HORIZON_DAYS} days out; ` +
-          `has ${clear.length}. Next is ${next}, ` +
-          `${daysUntil(next, today)} days away.`,
+          `Needs ${need} upcoming ${kind}(s) at least ${HORIZON_DAYS} days ` +
+          `out; has ${clear.length}.${nextIn}`,
       }
     }
     return { ok: true, next, detail: `${clear.length} race(s) clear.` }
@@ -94,8 +108,8 @@ export const assessReference = (reference, { future, past }, today) => {
         ok: false,
         next,
         detail:
-          `Needs ${need} office(s) with a race at least ${HORIZON_DAYS} days ` +
-          `out; has ${offices.size}.`,
+          `Needs ${need} office(s) with a ${kind} at least ${HORIZON_DAYS} ` +
+          `days out; has ${offices.size}.${nextIn}`,
       }
 }
 
@@ -127,7 +141,9 @@ export const renderSummary = (rows, today) => {
       ({ reference, verdict }) =>
         `| \`${reference.id}\` (${reference.zip}${
           reference.office ? `, ${reference.office}` : ''
-        }) | ${reference.needs} | ${verdict.next ?? 'none'} | ${
+        }) | ${reference.needs}${
+          reference.includePrimaries ? ' (incl. primaries)' : ''
+        } | ${verdict.next ?? 'none'} | ${
           verdict.ok ? 'OK' : 'FAIL'
         }: ${verdict.detail} | ${reference.usedBy} |`,
     ),
