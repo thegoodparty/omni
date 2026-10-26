@@ -269,6 +269,9 @@ export const RobocallFlow = ({
 
   const { offer: freeOffer } = useRobocallFreeOffer()
   const queryClient = useQueryClient()
+  // Whether this open already skipped past the audience step for a
+  // carried-in free offer list (see the effect below handleSelected...).
+  const offerAutoAdvanced = useRef(false)
 
   const audience = useOutreachAudience({
     open,
@@ -595,6 +598,7 @@ export const RobocallFlow = ({
     setPurpose(resumeDraft ? 'custom' : carriedPurpose)
     setCampaignName(resumeDraft?.name ?? '')
     lastAutoName.current = ''
+    offerAutoAdvanced.current = false
     // The free offer is an election-eve call, so arriving on its list lands
     // the schedule on Nov 2. Prefilled, not locked: the candidate can move it.
     setScheduledDay(
@@ -834,6 +838,32 @@ export const RobocallFlow = ({
       // createRecommendedListError renders under the cards.
     }
   }
+
+  // Arriving on the free offer's list (its card, its saved list, Home, the
+  // plan task) has already answered "who": the list is set for the
+  // candidate. Once the audience step has applied it, go straight on to
+  // schedule, saving the list first if it isn't saved yet. Once per open, so
+  // Back from schedule stays on the audience step.
+  useEffect(() => {
+    if (
+      !open ||
+      stepId !== 'audience' ||
+      preselectedRecommendedVariant !== ROBOCALL_FREE_OFFER_VARIANT ||
+      offerAutoAdvanced.current ||
+      !audience.preselectedRecommendationApplied
+    ) {
+      return
+    }
+    if (audience.selectedListId !== null) {
+      offerAutoAdvanced.current = true
+      goToSchedule()
+    } else if (
+      audience.selectedRecommendation?.variant === ROBOCALL_FREE_OFFER_VARIANT
+    ) {
+      offerAutoAdvanced.current = true
+      void handleSelectedRecommendationContinue()
+    }
+  })
 
   // First AI draft on entry (non-custom, and only if we don't already have one
   // from a prior visit). Custom writes its own words, so it never drafts — but
@@ -1139,7 +1169,11 @@ export const RobocallFlow = ({
               audience.markPreselectedRecommendationApplied
             }
             freeOffer={
-              audience.freeOfferRecommendation && freeOffer
+              // Only under the election-day purpose, the one the offer's
+              // badge sits on (a carried-in offer list lands on it too).
+              audience.freeOfferRecommendation &&
+              freeOffer &&
+              purpose === 'election_day_turnout'
                 ? {
                     recommendation: audience.freeOfferRecommendation,
                     note: freeOfferAudienceNote(freeOffer.coveredCalls),
