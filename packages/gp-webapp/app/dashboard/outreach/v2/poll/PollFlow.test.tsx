@@ -7,6 +7,13 @@ import { render } from 'helpers/test-utils/render'
 import { api, mswServer } from 'helpers/test-utils/api-mocking'
 import { PollFlow } from './PollFlow'
 
+// No test here is about hover, and the pointer move user-event makes before
+// every click fires a round of hover events (and re-renders) for nothing.
+let user: ReturnType<typeof userEvent.setup>
+beforeEach(() => {
+  user = userEvent.setup({ skipHover: true })
+})
+
 vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
   ...(await importOriginal<typeof import('helpers/analyticsHelper')>()),
   trackEvent: vi.fn(),
@@ -86,16 +93,16 @@ const openFlow = () => {
 }
 
 const pickTopic = async (label: string) =>
-  userEvent.click(await screen.findByText(label))
+  user.click(await screen.findByText(label))
 
 const throughQuestion = async () => {
   await screen.findByRole('textbox', { name: 'Poll question' })
   await waitFor(() => expect(questionText()).not.toBe(''))
-  await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
-  await userEvent.click(
+  await user.click(screen.getByRole('button', { name: 'Continue' }))
+  await user.click(
     await screen.findByRole('button', { name: /^Friday, September 4(?!\d)/ }),
   )
-  await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+  await user.click(screen.getByRole('button', { name: 'Continue' }))
 }
 
 describe('PollFlow', () => {
@@ -188,9 +195,7 @@ describe('PollFlow', () => {
     openFlow()
     await pickTopic('Public safety')
 
-    await userEvent.click(
-      await screen.findByRole('button', { name: /^Continue/ }),
-    )
+    await user.click(await screen.findByRole('button', { name: /^Continue/ }))
 
     await screen.findByRole('textbox', { name: 'Poll question' })
     await waitFor(() =>
@@ -202,13 +207,11 @@ describe('PollFlow', () => {
   it('redrafts from the current question when the tone changes', async () => {
     openFlow()
     await pickTopic('Public safety')
-    await userEvent.click(
-      await screen.findByRole('button', { name: /^Continue/ }),
-    )
+    await user.click(await screen.findByRole('button', { name: /^Continue/ }))
     await screen.findByRole('textbox', { name: 'Poll question' })
     await waitFor(() => expect(questionText()).toMatch(/How safe/))
 
-    await userEvent.click(screen.getByRole('radio', { name: 'Warm' }))
+    await user.click(screen.getByRole('radio', { name: 'Warm' }))
 
     await waitFor(() => expect(draftBodies).toHaveLength(2))
     expect(draftBodies[1]).toEqual({
@@ -230,18 +233,14 @@ describe('PollFlow', () => {
     }))
     openFlow()
     await pickTopic('Public safety')
-    await userEvent.click(
-      await screen.findByRole('button', { name: /^Continue/ }),
-    )
+    await user.click(await screen.findByRole('button', { name: /^Continue/ }))
     await screen.findByRole('textbox', { name: 'Poll question' })
     await waitFor(() => expect(questionText()).toMatch(/How safe/))
 
-    await userEvent.click(screen.getByRole('button', { name: 'Back' }))
-    await userEvent.click(await screen.findByRole('button', { name: 'Back' }))
+    await user.click(screen.getByRole('button', { name: 'Back' }))
+    await user.click(await screen.findByRole('button', { name: 'Back' }))
     await pickTopic('Housing')
-    await userEvent.click(
-      await screen.findByRole('button', { name: /^Continue/ }),
-    )
+    await user.click(await screen.findByRole('button', { name: /^Continue/ }))
     await screen.findByRole('textbox', { name: 'Poll question' })
     await waitFor(() => expect(questionText()).toMatch(/affordable/))
 
@@ -264,16 +263,14 @@ describe('PollFlow', () => {
     })
     openFlow()
     await pickTopic('Public safety')
-    await userEvent.click(
-      await screen.findByRole('button', { name: /^Continue/ }),
-    )
+    await user.click(await screen.findByRole('button', { name: /^Continue/ }))
     await screen.findByRole('textbox', { name: 'Poll question' })
     await waitFor(() => expect(questionText()).toMatch(/How safe/))
     expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull()
 
-    await userEvent.click(screen.getByRole('button', { name: 'Regenerate' }))
+    await user.click(screen.getByRole('button', { name: 'Regenerate' }))
     await waitFor(() => expect(questionText()).toMatch(/street/))
-    await userEvent.click(screen.getByRole('button', { name: 'Undo' }))
+    await user.click(screen.getByRole('button', { name: 'Undo' }))
 
     expect(questionText()).toBe('How safe do you feel in your neighborhood?')
     expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull()
@@ -282,9 +279,7 @@ describe('PollFlow', () => {
   it('previews the greeting with a name, titles the step as a question, and suggests for the audience', async () => {
     openFlow()
     await pickTopic('Public safety')
-    await userEvent.click(
-      await screen.findByRole('button', { name: /^Continue/ }),
-    )
+    await user.click(await screen.findByRole('button', { name: /^Continue/ }))
     await screen.findByRole('textbox', { name: 'Poll question' })
     await waitFor(() => expect(questionText()).toMatch(/How safe/))
 
@@ -306,9 +301,7 @@ describe('PollFlow', () => {
   it('suggests nothing for a question the official writes themselves', async () => {
     openFlow()
     await pickTopic('Write my own')
-    await userEvent.click(
-      await screen.findByRole('button', { name: /^Continue/ }),
-    )
+    await user.click(await screen.findByRole('button', { name: /^Continue/ }))
     await screen.findByText('Your question')
 
     expect(screen.queryByText(/^Suggested for/)).toBeNull()
@@ -317,7 +310,7 @@ describe('PollFlow', () => {
   it('asks a question on the review step and keeps campaign out of the poll copy', async () => {
     openFlow()
     await pickTopic('Public safety')
-    await userEvent.click(
+    await user.click(
       await screen.findByRole('button', { name: /^Continue \(2,767\)$/ }),
     )
     await throughQuestion()
@@ -340,7 +333,7 @@ describe('PollFlow', () => {
   it('creates the poll for a sample audience', async () => {
     openFlow()
     await pickTopic('Public safety')
-    await userEvent.click(
+    await user.click(
       await screen.findByRole('button', { name: /^Continue \(2,767\)$/ }),
     )
     await throughQuestion()
@@ -365,9 +358,9 @@ describe('PollFlow', () => {
   it('creates against a saved list when one is picked', async () => {
     openFlow()
     await pickTopic('Housing')
-    await userEvent.click(await screen.findByText('Choose a constituent list'))
-    await userEvent.click(await screen.findByText('Northside residents'))
-    await userEvent.click(
+    await user.click(await screen.findByText('Choose a constituent list'))
+    await user.click(await screen.findByText('Northside residents'))
+    await user.click(
       await screen.findByRole('button', { name: /^Continue \(1,200\)$/ }),
     )
     await throughQuestion()
@@ -385,7 +378,7 @@ describe('PollFlow', () => {
       <PollFlow open onClose={vi.fn()} onScheduled={onScheduled} />,
     )
     await pickTopic('Public safety')
-    await userEvent.click(
+    await user.click(
       await screen.findByRole('button', { name: /^Continue \(2,767\)$/ }),
     )
     await throughQuestion()
@@ -397,7 +390,7 @@ describe('PollFlow', () => {
     rerender(<PollFlow open onClose={vi.fn()} onScheduled={onScheduled} />)
 
     await pickTopic('Housing')
-    await userEvent.click(
+    await user.click(
       await screen.findByRole('button', { name: /^Continue \(2,767\)$/ }),
     )
     await throughQuestion()
@@ -409,13 +402,11 @@ describe('PollFlow', () => {
   it('does not count trailing whitespace against the question limit', async () => {
     openFlow()
     await pickTopic('Write my own')
-    await userEvent.click(
-      await screen.findByRole('button', { name: /^Continue/ }),
-    )
+    await user.click(await screen.findByRole('button', { name: /^Continue/ }))
     await screen.findByRole('textbox', { name: 'Poll question' })
     await typeQuestion(`${'a'.repeat(480)} `)
 
-    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
 
     expect(
       await screen.findByRole('button', { name: /^Friday, September 4(?!\d)/ }),
@@ -447,16 +438,14 @@ describe('PollFlow', () => {
     })
     openFlow()
     await pickTopic('Public safety')
-    await userEvent.click(
+    await user.click(
       await screen.findByRole('button', { name: /^Continue \(2,767\)$/ }),
     )
     await throughQuestion()
     await waitFor(() => expect(createBodies).toHaveLength(1))
 
-    await userEvent.click(screen.getByRole('button', { name: 'Back' }))
-    await userEvent.click(
-      await screen.findByRole('button', { name: 'Continue' }),
-    )
+    await user.click(screen.getByRole('button', { name: 'Back' }))
+    await user.click(await screen.findByRole('button', { name: 'Continue' }))
     release()
 
     await waitFor(() => expect(createBodies).toHaveLength(2))

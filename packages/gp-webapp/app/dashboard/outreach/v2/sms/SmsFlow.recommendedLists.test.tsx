@@ -506,14 +506,8 @@ describe('SmsFlow — recommended lists', () => {
 
     // The list exists under the typed name and is the selected audience.
     expect(created).toEqual([{ id: 88, name: 'Intro texts, week one' }])
-    // vaul keeps a closed drawer mounted in jsdom, so read its state.
     await waitFor(() =>
-      expect(
-        screen
-          .getByText('Name this list')
-          .closest('[data-vaul-drawer]')
-          ?.getAttribute('data-state'),
-      ).toBe('closed'),
+      expect(screen.queryByText('Name this list')).not.toBeInTheDocument(),
     )
     expect(await screen.findByText('Intro texts, week one')).toBeInTheDocument()
 
@@ -526,8 +520,6 @@ describe('SmsFlow — recommended lists', () => {
     ).not.toBeInTheDocument()
 
     // Retrying re-derives the phone list from the saved row — no duplicate.
-    // The closed nested drawer stays mounted in jsdom, so the shell's CTA is
-    // still aria-hidden to role queries; find it by text.
     const retry = (await screen.findByText('Try again')).closest('button')
     expect(retry).toBeDisabled()
     expect(retry).toHaveAttribute('data-loading', 'true')

@@ -11,7 +11,7 @@ import OrdinanceFlowChat from './OrdinanceFlowChat'
 // (`showOffer = liveOffer && revealDone`). The reveal runs on setInterval,
 // which browsers throttle to ~1s in a hidden/backgrounded tab. We simulate the
 // throttle by clamping setInterval exactly as Chrome does, and assert the
-// button still surfaces in wall-clock time. (The deterministic unit guard for
+// button still surfaces within 10s of (fake) clock time. (The deterministic unit guard for
 // the pacing math lives in shared/agent-chat/streaming.test.ts.)
 
 const ordinance: Ordinance = {
@@ -76,12 +76,13 @@ vi.mock('../data/ordinances-api', () => ({
 
 const realSetInterval = globalThis.setInterval
 const clampSetIntervalTo = (minMs: number): void => {
+  const clockSetInterval = globalThis.setInterval
   globalThis.setInterval = ((
     handler: TimerHandler,
     delay?: number,
     ...args: unknown[]
   ) =>
-    realSetInterval(
+    clockSetInterval(
       handler,
       Math.max(Number(delay) || 0, minMs),
       ...args,
@@ -110,19 +111,20 @@ beforeEach(() => {
   mocks.createConversation.mockResolvedValue({ conversationId: 'conv-1' })
   mocks.listMessages.mockResolvedValue([])
   mocks.streamMessage.mockImplementation(streamRecapThenOffer)
+  vi.useFakeTimers({ shouldAdvanceTime: true })
 })
 
 afterEach(() => {
+  vi.useRealTimers()
   globalThis.setInterval = realSetInterval
 })
 
 describe('OrdinanceFlowChat — reveal keeps up with the backend', () => {
   it('foreground tab: the advance button appears after the turn finishes', async () => {
     render(<OrdinanceFlowChat slug="public-safety-cameras" step="authority" />)
-    expect(
-      await screen.findByText(OFFER_LABEL, undefined, { timeout: 10000 }),
-    ).toBeVisible()
-  }, 15000)
+    await vi.advanceTimersByTimeAsync(10000)
+    expect(screen.getByText(OFFER_LABEL)).toBeVisible()
+  })
 
   it('hidden/throttled tab: a finished turn still surfaces the advance button in wall-clock time', async () => {
     // Chrome fires setInterval ~1x/second in a backgrounded tab. Before the fix
@@ -131,8 +133,7 @@ describe('OrdinanceFlowChat — reveal keeps up with the backend', () => {
     // each throttled tick catches up the frames it slept through.
     clampSetIntervalTo(1000)
     render(<OrdinanceFlowChat slug="public-safety-cameras" step="authority" />)
-    expect(
-      await screen.findByText(OFFER_LABEL, undefined, { timeout: 10000 }),
-    ).toBeVisible()
-  }, 15000)
+    await vi.advanceTimersByTimeAsync(10000)
+    expect(screen.getByText(OFFER_LABEL)).toBeVisible()
+  })
 })
