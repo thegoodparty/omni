@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import {
   PRIORITY_STEP_LABELS,
@@ -177,6 +177,10 @@ beforeEach(() => {
   mocks.citizenPanels = { ready: true, enabled: false }
 })
 
+afterEach(() => {
+  vi.useRealTimers()
+})
+
 describe('PriorityWorkspace', () => {
   it('links to constituent feedback under the rail with serve-citizen-panels on', async () => {
     mocks.citizenPanels = { ready: true, enabled: true }
@@ -252,16 +256,14 @@ describe('PriorityWorkspace', () => {
     mocks.listMessages
       .mockResolvedValueOnce([kickoff])
       .mockResolvedValue([kickoff, reply])
+    vi.useFakeTimers({ shouldAdvanceTime: true })
 
     renderWorkspace()
 
     expect(await screen.findByText('Thinking...')).toBeInTheDocument()
+    await vi.advanceTimersByTimeAsync(2_000)
     expect(
-      await screen.findByText(
-        'Nothing has started on this yet.',
-        {},
-        { timeout: 5_000 },
-      ),
+      await screen.findByText('Nothing has started on this yet.'),
     ).toBeInTheDocument()
     expect(screen.queryByText('Thinking...')).not.toBeInTheDocument()
     expect(mocks.streamMessage).not.toHaveBeenCalled()
@@ -307,6 +309,7 @@ describe('PriorityWorkspace', () => {
         gate.promise,
       ),
     )
+    vi.useFakeTimers({ shouldAdvanceTime: true })
 
     renderWorkspace()
 
@@ -318,6 +321,7 @@ describe('PriorityWorkspace', () => {
     )
     expect(mocks.fetchPriorityStatus).not.toHaveBeenCalled()
     expect(screen.getByText('Pick two blocks to walk')).toBeInTheDocument()
+    await vi.advanceTimersByTimeAsync(2_000)
     expect(
       await screen.findByText('Done with what we know'),
     ).toBeInTheDocument()
@@ -350,6 +354,7 @@ describe('PriorityWorkspace', () => {
       } satisfies ChatMessageDto,
     ])
     gate.resolve()
+    await vi.advanceTimersByTimeAsync(2_000)
 
     await waitFor(() =>
       expect(
@@ -399,9 +404,12 @@ describe('PriorityWorkspace', () => {
         gate.promise,
       ),
     )
+    vi.useFakeTimers({ shouldAdvanceTime: true })
 
     renderWorkspace()
 
+    await screen.findByText(/^Let me/)
+    await vi.advanceTimersByTimeAsync(2_000)
     expect(
       await screen.findByText(/The plan waits on what residents say/),
     ).toBeInTheDocument()
@@ -845,8 +853,11 @@ describe('PriorityWorkspace', () => {
       ),
     )
 
+    vi.useFakeTimers({ shouldAdvanceTime: true })
     renderWorkspace()
 
+    await screen.findByText(/^The co/)
+    await vi.advanceTimersByTimeAsync(2_000)
     expect(await screen.findByText(/The county runs this/)).toBeInTheDocument()
     expect(
       await screen.findByText('Looking up who to contact...'),
@@ -867,8 +878,11 @@ describe('PriorityWorkspace', () => {
       ),
     )
 
+    vi.useFakeTimers({ shouldAdvanceTime: true })
     renderWorkspace()
 
+    await screen.findByText(/^Two/)
+    await vi.advanceTimersByTimeAsync(2_000)
     expect(await screen.findByText(/Two ways to read this/)).toBeInTheDocument()
     expect(
       await screen.findByText('Preparing your question...'),
@@ -890,8 +904,11 @@ describe('PriorityWorkspace', () => {
       ),
     )
 
+    vi.useFakeTimers({ shouldAdvanceTime: true })
     renderWorkspace()
 
+    await screen.findByText(/^Pul/)
+    await vi.advanceTimersByTimeAsync(2_000)
     expect(
       await screen.findByText(/Pulling the renters on those blocks/),
     ).toBeInTheDocument()
@@ -926,8 +943,11 @@ describe('PriorityWorkspace', () => {
       yield { type: 'done', assistantMessageId: 'a1' }
     })
 
+    vi.useFakeTimers({ shouldAdvanceTime: true })
     renderWorkspace()
 
+    await screen.findByText(/^Here/)
+    await vi.advanceTimersByTimeAsync(2_000)
     expect(
       await screen.findByText(/Containers are required/),
     ).toBeInTheDocument()
@@ -962,8 +982,11 @@ describe('PriorityWorkspace', () => {
       ),
     )
 
+    vi.useFakeTimers({ shouldAdvanceTime: true })
     renderWorkspace()
 
+    await screen.findByText(/^One/)
+    await vi.advanceTimersByTimeAsync(2_000)
     expect(
       await screen.findByText('Is the problem trash or garages?'),
     ).toBeInTheDocument()
@@ -982,8 +1005,11 @@ describe('PriorityWorkspace', () => {
       ]),
     )
 
+    vi.useFakeTimers({ shouldAdvanceTime: true })
     renderWorkspace()
 
+    await screen.findByText(/^Here/)
+    await vi.advanceTimersByTimeAsync(2_000)
     expect(
       await screen.findByText(/Here is where this stands/),
     ).toBeInTheDocument()
