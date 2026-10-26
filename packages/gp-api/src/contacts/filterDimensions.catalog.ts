@@ -249,6 +249,20 @@ export const FILTER_DIMENSIONS: readonly FilterDimension[] = [
     })),
   },
   {
+    // Ballots L2 reports as already cast early or absentee this general,
+    // refreshed daily. Some states do not report, so No is not proof the
+    // person has yet to vote. Win only, like earlyVote above.
+    key: 'earlyAbsenteeVoted',
+    label: 'Voted early or by mail',
+    kind: 'boolean-group',
+    modes: 'win',
+    provenance: 'observed',
+    values: [
+      { key: 'earlyAbsenteeVotedYes', label: 'Yes' },
+      { key: 'earlyAbsenteeVotedNo', label: 'No' },
+    ],
+  },
+  {
     // Observed where the state registers voters by party. In the states
     // where L2 assigns it from primary ballots or models it,
     // ContactsService.getFilterDimensions re-marks it modeled and adds the

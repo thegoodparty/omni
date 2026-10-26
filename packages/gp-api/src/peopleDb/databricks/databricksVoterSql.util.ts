@@ -351,6 +351,32 @@ const buildIndependentAffinityFilter = (
   return null
 }
 
+// L2's early and absentee voters for the current general, rebuilt daily
+// from an upload, apart from the monthly voter table so the filter tracks
+// returns as they come in. Same ids as both people tables; a consumer-only
+// constituent is never in it, so reads as No.
+const EARLY_ABSENTEE_VOTED_TABLE = TABLE('gp_api_voter_eav_general_2026')
+
+const buildEarlyAbsenteeVotedFilter = (op?: FilterOperator): string | null => {
+  if (!op) return null
+  const selected =
+    op.operator === 'in' && op.values
+      ? op.values.map(String)
+      : op.operator === 'eq' && op.value !== undefined
+        ? [String(op.value)]
+        : []
+  const hasYes = selected.includes('Yes')
+  const hasNo = selected.includes('No')
+  if (hasYes && hasNo) return null
+  if (hasYes) {
+    return `${col('id')} IN (SELECT id FROM ${EARLY_ABSENTEE_VOTED_TABLE})`
+  }
+  if (hasNo) {
+    return `${col('id')} NOT IN (SELECT id FROM ${EARLY_ABSENTEE_VOTED_TABLE} WHERE id IS NOT NULL)`
+  }
+  return null
+}
+
 const buildLanguageFilter = (bag: Bag, op?: FilterOperator): string | null => {
   if (!op) return null
   const target = col('Language_Code')
@@ -635,6 +661,9 @@ export const buildVoterFiltersSql = (
         break
       case 'independentAffinity':
         sql = buildIndependentAffinityFilter(op, affinityColumn)
+        break
+      case 'earlyAbsenteeVoted':
+        sql = buildEarlyAbsenteeVotedFilter(op)
         break
       case 'estimatedIncomeAmountInt':
         sql = buildNumericFilter(bag, 'Estimated_Income_Amount_Int', op)

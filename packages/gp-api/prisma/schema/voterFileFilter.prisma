@@ -43,6 +43,10 @@ model VoterFileFilter {
   /// Voter_Independent_Affinity is a non-nullable BOOLEAN in the mart, so
   /// there is no Unknown bucket to persist alongside this.
   independentAffinity        Boolean?                           @default(false) @map("independent_affinity")
+  /// Win only. L2's early and absentee voters for the current general.
+  /// Both, or neither, is no constraint.
+  earlyAbsenteeVotedYes      Boolean?                           @default(false) @map("early_absentee_voted_yes")
+  earlyAbsenteeVotedNo       Boolean?                           @default(false) @map("early_absentee_voted_no")
   ideologyConservative       Boolean?                           @default(false) @map("ideology_conservative")
   /// The mart column's value is `Liberal`; the product labels it
   /// "Progressive". The persisted name follows the data, not the label.
