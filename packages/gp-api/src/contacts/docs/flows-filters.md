@@ -193,6 +193,19 @@ unconditionally, so a saved list resolves whatever rendered it. The AI
 assistant therefore advertises these dimensions wherever the catalog reaches,
 independent of any UI.
 
+### Voted early or by mail filter
+
+Win only. The pill (`early_absentee_voted` in `filters.config.ts`) saves
+two booleans, `earlyAbsenteeVotedYes` and `earlyAbsenteeVotedNo`, which
+`convertVoterFileFilterToFilters` turns into
+`earlyAbsenteeVoted: { eq | in: ['Yes' | 'No'] }`. Both, or neither, is no
+constraint. The SQL is membership in L2's daily early and absentee voter
+table, not a column on the voter row; see `src/peopleDb/AGENTS.md`. Off by
+default, so no list changes until a user picks it. Separate from
+`votedStatus` ("Voted in election"), which reads this org's own will-vote
+answers, and from `earlyVote` (a modeled likelihood); recommended lists and
+`NOT_YET_VOTED` do not read it.
+
 ### Door-knock willVote writes a voter_likelihood override (ENG-10841)
 
 The door-knocking tool's `willVote` answer (yes/no/unsure) is the one

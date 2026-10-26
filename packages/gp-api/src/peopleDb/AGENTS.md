@@ -72,6 +72,18 @@ the parsed `Residence_Addresses_StreetName` and
 `Residence_Addresses_Designator`. Aggregates only; the civic panel stores
 the name (see the contacts AGENTS.md, "Tract names").
 
+## Early and absentee voters are a separate table, not a column
+
+The `earlyAbsenteeVoted` filter reads
+`gp_api_voter_eav_general_2026`: the ids L2 reports as having already
+voted early or absentee in the 2026 General, rebuilt twice daily from a
+manual upload (gp-data-platform#1266). It is a subquery, `id IN` for Yes
+and `id NOT IN (... WHERE id IS NOT NULL)` for No, so it works the same on
+both people tables; a consumer-only constituent is never in it and reads
+as No. It is apart from `gp_api_voters` because that table rebuilds
+monthly (`docs/adr/2026-10-26-early-absentee-voters-separate-table.md`).
+Not every state reports, so No does not mean the voter has yet to vote.
+
 Consumer-only rows are NULL in every voter-only column (party,
 `Voter_Status`, `StateVoterID`, vote history, `Voter_Independent_Affinity`,
 `hf_ideology_general`, every `hs_*` score) and most have no `LALVOTERID`,
