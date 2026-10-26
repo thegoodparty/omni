@@ -100,10 +100,18 @@ comment whose body is exactly `delegate review` — no leading slash, no other
 text. `/delegate review` is NOT the trigger and silently does nothing (a live
 PR sat blocked for hours on two slash-prefixed triggers no reviewer ever
 answered). Check `reviewDecision` before pushing anything
-further — don't push blind into an in-flight review. Fix blockers yourself;
-if a finding needs a human call (it's verifiably wrong, or touches something
-outside this story's scope), park instead of deciding alone. Your exit
-condition for this phase is the PR **approved and auto-merge armed** — not
+further — don't push blind into an in-flight review. Fix blockers yourself.
+
+When a finding offers options, or the fix is a judgment call inside this
+story's scope, decide it yourself: choose the option most consistent with the
+ticket's acceptance criteria and the TDD, and prefer the proper fix over a
+shortcut unless the proper fix needs files outside this story's scope. Record
+the decision in one PR comment and one ClickUp comment on the story, each
+saying what you chose, the alternative, and why. Then fix and re-trigger.
+
+Park only when the finding would change the ticket's scope, contradicts the
+TDD, needs another ticket's files, or you believe the finding is wrong and
+fixing it would make the code worse. Your exit condition for this phase is the PR **approved and auto-merge armed** — not
 merely opened.
 
 ### 6. Confirm the gate, then park — never wait out the merge yourself
@@ -126,12 +134,12 @@ deploy train. The conductor's own sweep now does that waiting for free: it
 checks the PR's merge state on a cheap GitHub read, moves the ticket to `qa`
 itself once the PR merges, and alerts Slack if it closes unmerged instead.
 
-    python -m autopilot.agent.feedback park --task-id <CLICKUP_TASK_ID> \
-        --stage story \
-        --question "Merge pending: PR #<n> is approved with auto-merge armed but hasn't merged yet. Comment here once it merges to resume."
+    python -m autopilot.agent.feedback await-merge --task-id <CLICKUP_TASK_ID> \
+        --stage story --pr <n>
 
 This writes the same `[autopilot:parked stage=story]` marker `resume` looks
-for, moves the card to `feedback needed`, and pings Slack — never move the
+for ("Merge pending: PR #<n> ..."), moves the card to `awaiting merge`, and
+does NOT ping Slack (nothing is being asked of a human) — never move the
 ticket to `qa` yourself, and never wait for the merge in this run. The run's
 reported outcome is whatever the park primitive actually stamps
 (`feedback_parked`); "merge pending" is the state you're telling the

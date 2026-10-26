@@ -195,7 +195,11 @@ Three more holds, because the model also called the official's own agreement
   already out on a send keeps it, and a side constituents already answered
   keeps its answer. A deferred or declined side does move: the send is what
   happened. A status write that fails after the send committed is logged,
-  and `healSends` puts it out before the next turn reads the status. The `<status>` block shows `Sent:`, the
+  and `healSends` puts it out before the next turn reads the status. The
+  `<status>` block shows `Set up on <day>` (the day of `sentAt` in the
+  office's zone), never "Sent": a paid text is out on its side days before it
+  reaches anyone, and the agent reads when it goes out from
+  `read_past_outreach` (`scheduledFor`, `sentOn`). The
   proposal tool refuses to offer a sent side again, and the workspace tells
   the agent with one hidden `PROPOSAL_SENT_MARKER` turn (see "Cards" in
   `shared/agent-chat/AGENTS.md`).
@@ -416,8 +420,8 @@ answered. After, it shows everything below.
 - **The map never pins a house.** Coordinates arrive rounded to about 100 m
   with no ids, and `respondentGrid.ts` bins them into fixed ~400 m squares on
   the contact map's tile style, so no new map dependency.
-- **Who you're hearing from is the read's own groups**, drawn as the civic
-  panel page's petals (`CivicPanelBloom`, reused with `showNext` off and a
+- **Who you're hearing from is the read's own groups**, drawn as petals
+  (`CivicPanelBloom`, from the civic panel's components, reused with `showNext` off and a
   `summary` that speaks of answers). `groups` on the response is each major
   group the read counts by age band, gender, and race when it may be named
   (no neighborhoods, no housing): its share of the district and of the coded

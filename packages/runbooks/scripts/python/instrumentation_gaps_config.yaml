@@ -5,8 +5,6 @@ scan_roots:
     detectors: webapp
   - path: packages/gp-api/src
     detectors: api
-  - path: packages/election-api/src
-    detectors: api
 
 # Deliberately not swept, and not an oversight:
 #   gp-ai        Python service with its own telemetry, not a client surface

@@ -1266,6 +1266,11 @@ export default function CreateListFlow({
             ...(recommendedSupportStatus.length
               ? { supportStatus: recommendedSupportStatus }
               : {}),
+            // The recommendation's "not yet voted" screen, carried the same
+            // way: it is not a pill this flow renders.
+            ...(recommendedMeta?.filter.votedStatus?.length
+              ? { votedStatus: recommendedMeta.filter.votedStatus }
+              : {}),
             // Sent alongside the submitted criteria purely so gp-api can
             // diff the two and persist recommendedModified — nothing
             // recommendation-time is otherwise saved anywhere to diff

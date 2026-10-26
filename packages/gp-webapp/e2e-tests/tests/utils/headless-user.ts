@@ -7,6 +7,7 @@ import type {
   TestModeElectionPreset,
 } from '@goodparty_org/contracts'
 import { TestDataHelper } from '../../src/helpers/data.helper'
+import realWorldReferences from '../../src/real-world-references.json'
 import { clerkThrottle } from './throttle-requests-with-retry'
 
 // Playwright-free test-user creation. Everything here runs against the API with
@@ -142,15 +143,13 @@ export const mintApiToken = async (clerkUserId: string): Promise<string> => {
   return jwt
 }
 
+export type TestRace = { zip: string; office: string }
+
 // The office every test campaign is created on unless it names another: a
 // real BallotReady office with real voter rows in the dev people-db. Only the
-// office is real. The election date always comes from a preset.
-export const DEFAULT_TEST_RACE = {
-  zip: '82001',
-  office: 'Cheyenne City Council - Ward 1',
-}
-
-export type TestRace = { zip: string; office: string }
+// office is real. The election date always comes from a preset. It lives in
+// real-world-references.json so the daily horizon check watches the same one.
+export const DEFAULT_TEST_RACE: TestRace = realWorldReferences.defaultOffice
 
 // gp-api resolves the office whatever today's date is: its next race, else
 // its most recent past one. So an office's election passing never breaks

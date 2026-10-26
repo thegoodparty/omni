@@ -122,6 +122,9 @@ export {
   type TrackerTaskSkipReason,
   TRACKER_TASK_SKIP_REASON_VALUES,
   TrackerTaskSkipReasonSchema,
+  type VotedStatus,
+  VOTED_STATUS_VALUES,
+  VotedStatusSchema,
 } from './generated/enums'
 
 export {
@@ -229,6 +232,12 @@ export {
   MANAGED_CIVIC_PANEL_EXHAUSTED_MARKER,
   MANAGED_CIVIC_PANEL_EXHAUSTED_MESSAGE,
 } from './people/ManagedCivicPanel.schema'
+export {
+  MANAGED_CIVIC_PANEL_HOW_IT_WORKS,
+  managedCivicPanelOneInN,
+  managedCivicPanelExplanation,
+  managedCivicPanelHowItWorks,
+} from './people/ManagedCivicPanelExplainer'
 export {
   isCivicPanelOnlyList,
   type CivicPanelOnlyCriteria,
@@ -553,7 +562,7 @@ export {
   OrganizationWithStatusSchema,
   type OrganizationWithStatus,
 } from './campaigns/Organization.schema'
-export { cityFromDistrictName } from './campaigns/DistrictCity'
+export { cityFromDistrictName, cityNameCase } from './campaigns/DistrictCity'
 
 export {
   ElectedOfficeSchema,
@@ -1122,6 +1131,7 @@ export {
   MAJOR_GROUP_SHARE,
   answersNeeded,
 } from './outreach/AnswersNeeded.const'
+export { outreachHasGoneOut } from './outreach/OutreachGoneOut'
 export {
   OUTREACH_PURPOSE_VALUES,
   OutreachPurposeSchema,
@@ -1772,6 +1782,13 @@ export {
   AdminOutreachActionResponseSchema,
   type AdminOutreachActionResponse,
 } from './testFixtures/vendorMocks'
+
+export {
+  SeedPollResultsRequestSchema,
+  type SeedPollResultsRequest,
+  SeedPollResultsResponseSchema,
+  type SeedPollResultsResponse,
+} from './testFixtures/pollResults'
 
 export {
   DEV_ENV_PACKAGE_VALUES,

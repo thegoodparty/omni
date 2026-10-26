@@ -6,7 +6,7 @@ import type {
 } from '@goodparty_org/contracts'
 import { CivicPanelSeats } from './CivicPanelSeats'
 import { CivicPanelBloom } from './CivicPanelBloom'
-import { CivicPanelMilestones } from './CivicPanelMilestones'
+import { CivicPanelHero } from './CivicPanelHero'
 
 const GOAL = 240
 // Fifteen tracts of uneven size, as a city district reads.
@@ -95,12 +95,12 @@ describe('CivicPanelSeats', () => {
     seats(0)
     expect(
       screen.getByRole('img', {
-        name: 'Your district as 100 seats. 0 of 100 seats filled.',
+        name: 'Your district as 100 seats. 0 of 100 seats filled, counting each tract only up to its share.',
       }),
     ).toBeInTheDocument()
     expect(
       screen.getByText(
-        "We'll compare your panel with your district once 30 people join.",
+        "We'll compare your civic panel with your district once 30 people join.",
       ),
     ).toBeInTheDocument()
     expect(screen.queryByText('Behind the rest')).not.toBeInTheDocument()
@@ -111,7 +111,7 @@ describe('CivicPanelSeats', () => {
     expect(screen.queryByText('Furthest behind')).not.toBeInTheDocument()
     expect(
       screen.getByText(
-        "We'll compare your panel with your district once 30 people join.",
+        "We'll compare your civic panel with your district once 30 people join.",
       ),
     ).toBeInTheDocument()
   })
@@ -195,7 +195,33 @@ describe('CivicPanelSeats', () => {
     expect(
       screen.getByText('Every tract has its share of seats filled.'),
     ).toBeInTheDocument()
-    expect(screen.getByText('100')).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        '100 of 100 seats filled, counting each tract only up to its share',
+      ),
+    ).toBeInTheDocument()
+  })
+
+  it("counts a crowded tract's members only up to its share", () => {
+    render(
+      <CivicPanelSeats
+        placeKind="tract"
+        places={SHARES.map((share, i) => ({
+          key: tractName(i),
+          name: tractName(i),
+          districtShare: share,
+          members: i === 0 ? GOAL : 0,
+        }))}
+        members={GOAL}
+        goal={GOAL}
+      />,
+    )
+    const filled = Math.round((SHARES[0] ?? 0) * 100)
+    expect(
+      screen.getByText(
+        `${filled} of 100 seats filled, counting each tract only up to its share`,
+      ),
+    ).toBeInTheDocument()
   })
 })
 
@@ -213,7 +239,9 @@ describe('CivicPanelSeats by precinct', () => {
       />,
     )
     expect(
-      screen.getByRole('heading', { name: "Who's on your panel, by precinct" }),
+      screen.getByRole('heading', {
+        name: "Who's on your civic panel, by precinct",
+      }),
     ).toBeInTheDocument()
     expect(screen.getByText('Precinct 015.1')).toBeInTheDocument()
     expect(
@@ -252,7 +280,8 @@ describe('CivicPanelSeats with tract names', () => {
     expect(row).toHaveClass('truncate')
     expect(row).toHaveAttribute('title', 'West Asheville, around Haywood Rd')
     expect(within(list).getByText('Tract 14.02')).toBeInTheDocument()
-    expect(within(list).getByText('around Merrimon Ave')).toBeInTheDocument()
+    // A street label starts its line here, so it reads capitalized.
+    expect(within(list).getByText('Around Merrimon Ave')).toBeInTheDocument()
   })
 
   it('cuts a long name short around the arc, inside the frame, with the whole name as its tooltip', () => {
@@ -320,83 +349,128 @@ describe('CivicPanelBloom', () => {
   })
 })
 
-describe('CivicPanelMilestones', () => {
-  const progressAt = (members: number) => ({
-    members,
-    goal: GOAL,
-    answersNeeded: 96,
-    expectedAnswers: 0,
-    groupsCovered: 10,
-    groupsTotal: 12,
-  })
-  const at = (
-    members: number,
-    places = placesAt(members),
-    groups: CivicPanelCompositionGroup[] = [],
-  ) =>
-    render(
-      <CivicPanelMilestones
-        progress={progressAt(members)}
-        composition={{ placeKind: 'tract', places, groups }}
-      />,
-    )
+describe('CivicPanelHero', () => {
+  const filledSeats = (container: HTMLElement) =>
+    container.querySelectorAll('circle[stroke-width="1"]').length
 
-  it('says how many tracts keep pace halfway there', () => {
-    at(120)
+  it('starts with every seat empty and no milestone done', () => {
+    const { container } = render(
+      <CivicPanelHero stage="start" members={0} goal={GOAL} />,
+    )
     expect(
-      screen.getByRole('heading', { name: 'Halfway there' }),
+      screen.getByRole('heading', { name: 'Your civic panel starts here' }),
     ).toBeInTheDocument()
     expect(
-      screen.getByText(
-        /^120 residents have said yes, and \d+ of 15 tracts are keeping pace\.$/,
+      screen.getByText('Every resident who says yes takes a seat.'),
+    ).toBeInTheDocument()
+    expect(filledSeats(container)).toBe(0)
+    expect(screen.getByText('First yes')).toHaveTextContent('Next')
+  })
+
+  it('fills the seats as a share of the goal', () => {
+    const { container } = render(
+      <CivicPanelHero stage="building" members={120} goal={GOAL} />,
+    )
+    expect(
+      screen.getByText('120 of 240 residents have joined so far.'),
+    ).toBeInTheDocument()
+    expect(filledSeats(container)).toBe(50)
+    expect(screen.getByText('Halfway')).toHaveTextContent('Done')
+    expect(screen.getByText('Full civic panel')).toHaveTextContent('Next')
+  })
+
+  it('says how many joined over the bar only at the start, where the line does not', () => {
+    render(<CivicPanelHero stage="start" members={0} goal={GOAL} />)
+    expect(
+      within(screen.getByTestId('civic-panel-hero-bar')).getByText(
+        '0 of 240 residents have joined',
       ),
     ).toBeInTheDocument()
   })
 
-  it('counts the seats to go near the goal', () => {
-    at(200)
-    expect(screen.getByRole('heading', { name: 'Almost there' })).toBeVisible()
+  it('draws the seats from lg and a bar below it, the milestones under both', () => {
+    const { container } = render(
+      <CivicPanelHero stage="building" members={60} goal={GOAL} />,
+    )
+    const arc = container.querySelector('svg')?.parentElement
+    expect(arc).toHaveClass('hidden', 'lg:flex')
+    const bar = screen.getByTestId('civic-panel-hero-bar')
+    expect(bar).toHaveClass('lg:hidden')
+    // The line above already says how many joined, so the bar does not.
     expect(
-      screen.getByText(/^\d+ seats to go, and \d+ of 15 tracts are full\.$/),
+      screen.getByText('60 of 240 residents have joined so far.'),
     ).toBeInTheDocument()
+    expect(
+      within(bar).queryByText('60 of 240 residents have joined'),
+    ).not.toBeInTheDocument()
+    expect(
+      within(bar).getByRole('progressbar', {
+        name: '60 of 240 residents have joined',
+      }),
+    ).toBeInTheDocument()
+    expect(bar.querySelector('[data-slot="progress-indicator"]')).toHaveStyle({
+      transform: 'translateX(-75%)',
+    })
+    const steps = screen.getByRole('list', {
+      name: "Your civic panel's milestones",
+    })
+    expect(
+      bar.compareDocumentPosition(steps) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
   })
 
-  it('shows the full panel once every seat is filled', () => {
-    at(
-      GOAL,
-      SHARES.map((share, i) => ({
-        key: tractName(i),
-        name: tractName(i),
-        districtShare: share,
-        members: Math.ceil(share * GOAL),
-      })),
-      GROUPS,
+  it('names a precinct district by precinct, never by tract', () => {
+    render(
+      <CivicPanelHero
+        stage="building"
+        members={60}
+        goal={GOAL}
+        placeKind="precinct"
+      />,
     )
-    expect(
-      screen.getByRole('heading', { name: 'Every seat is filled' }),
-    ).toBeInTheDocument()
-    expect(
-      screen.getByText('240 residents from all 15 tracts said yes.'),
-    ).toBeInTheDocument()
-    expect(screen.getByTestId('civic-panel-milestones')).toHaveTextContent(
-      '9 of 12 groups at their share',
+    const arc = screen.getByRole('img')
+    expect(arc).toHaveAttribute(
+      'aria-label',
+      'Your district as 100 seats. 25 of 100 seats filled.',
     )
+    expect(arc.getAttribute('aria-label')).not.toMatch(/tract/)
   })
 
-  it('counts groups the way the petals do, not the covered groups', () => {
-    at(
-      GOAL,
-      SHARES.map((share, i) => ({
-        key: tractName(i),
-        name: tractName(i),
-        districtShare: share,
-        members: Math.ceil(share * GOAL),
-      })),
+  it('never claims seats a ready panel lost', () => {
+    render(<CivicPanelHero stage="ready" members={230} goal={GOAL} />)
+    expect(
+      screen.getByText(
+        '230 residents are on your civic panel. Ask them before your next vote.',
+      ),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/seats are filled/)).not.toBeInTheDocument()
+  })
+
+  it('says every seat is filled once it is ready at its goal', () => {
+    const { container } = render(
+      <CivicPanelHero stage="ready" members={260} goal={GOAL} />,
     )
-    // Without petals there is no group count to show.
-    expect(screen.getByTestId('civic-panel-milestones')).not.toHaveTextContent(
-      'groups',
-    )
+    expect(
+      screen.getByRole('heading', { name: 'Your civic panel is ready' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        'All 240 seats are filled. Ask them before your next vote.',
+      ),
+    ).toBeInTheDocument()
+    expect(filledSeats(container)).toBe(100)
+  })
+
+  it('says every resident we can text has an invite', () => {
+    render(<CivicPanelHero stage="exhausted" members={90} goal={GOAL} />)
+    expect(
+      screen.getByRole('heading', {
+        name: 'Every resident we can text has an invite',
+      }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText('90 of 240 residents have joined your civic panel.'),
+    ).toBeInTheDocument()
   })
 })
 
@@ -421,6 +495,13 @@ describe('chart coordinates', () => {
 
   it('rounds the seats and their labels', () => {
     const { container } = seats(200, 12)
+    expectRounded(container)
+  })
+
+  it('rounds the hero seats', () => {
+    const { container } = render(
+      <CivicPanelHero stage="building" members={77} goal={GOAL} />,
+    )
     expectRounded(container)
   })
 

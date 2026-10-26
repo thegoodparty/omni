@@ -1,5 +1,5 @@
 import { useTestService } from '@/test-service'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { v7 as uuidv7 } from 'uuid'
 import {
   ConstituentFeedbackCaptureMethod,
@@ -13,11 +13,14 @@ import {
   SynthesisScope,
 } from '../../../../generated/prisma'
 import { PriorityFlowOutreachService } from './priorityFlowOutreach.service'
+import { buildReadPastOutreachTool } from '../../chat-tools/readPastOutreach.tool'
 
 // Runs against real Postgres on purpose. The bug this guards is SQL NULL
 // semantics — `priority_id <> $1` is never true for a NULL row — which a
 // mocked Prisma would happily "pass".
 const service = useTestService()
+
+const ZONE = 'US/Eastern'
 
 let outreach: PriorityFlowOutreachService
 let slug: string
@@ -120,7 +123,7 @@ describe('PriorityFlowOutreachService.forOffice', () => {
     const marketSend = await send('about the market', market)
     const newsletter = await send('office newsletter', null)
 
-    const rows = await outreach.forOffice(slug, bridge)
+    const rows = await outreach.forOffice(slug, bridge, ZONE)
 
     expect(rows.map((row) => row.outreachId).sort()).toEqual(
       [marketSend.id, newsletter.id].sort(),
@@ -166,7 +169,7 @@ describe('PriorityFlowOutreachService.forOffice', () => {
     const bridgeSend = await send('about the bridge', bridge)
     const newsletter = await send('office newsletter', null)
 
-    const rows = await outreach.forOffice(slug, null)
+    const rows = await outreach.forOffice(slug, null, ZONE)
 
     expect(rows.map((row) => row.outreachId).sort()).toEqual(
       [bridgeSend.id, newsletter.id].sort(),
@@ -193,7 +196,7 @@ describe('PriorityFlowOutreachService.forOffice campaign isolation', () => {
     })
     const newsletter = await send('office newsletter', null)
 
-    const rows = await outreach.forOffice(slug, null)
+    const rows = await outreach.forOffice(slug, null, ZONE)
 
     expect(rows.map((row) => row.outreachId)).toEqual([newsletter.id])
   })
@@ -218,7 +221,7 @@ describe('PriorityFlowOutreachService.forCampaign', () => {
     })
     await send('office newsletter', null)
 
-    const rows = await outreach.forCampaign(campaign.id)
+    const rows = await outreach.forCampaign(campaign.id, ZONE)
 
     expect(rows.map((row) => row.outreachId)).toEqual([campaignSend.id])
   })
@@ -245,7 +248,7 @@ describe('PriorityFlowOutreachService channel filter', () => {
       OutreachType.doorKnocking,
       OutreachType.nativeDoorKnocking,
     ]) {
-      const rows = await outreach.forOffice(slug, null, channel)
+      const rows = await outreach.forOffice(slug, null, ZONE, channel)
       expect(rows.map((row) => row.outreachId)).toEqual([office.id])
     }
   })
@@ -270,7 +273,7 @@ describe('PriorityFlowOutreachService channel filter', () => {
     })
 
     const byChannel = async (channel: OutreachType) =>
-      (await outreach.forCampaign(campaign.id, channel)).map(
+      (await outreach.forCampaign(campaign.id, ZONE, channel)).map(
         (row) => row.outreachId,
       )
 
@@ -374,7 +377,7 @@ describe('PriorityFlowOutreachService.feedbackForCampaign', () => {
       },
     })
 
-    const sends = await outreach.feedbackForCampaign(campaign.id)
+    const sends = await outreach.feedbackForCampaign(campaign.id, ZONE)
 
     expect(sends.map((row) => row.outreachId)).toEqual([walk.id])
     expect(sends[0]).toMatchObject({
@@ -417,9 +420,9 @@ describe('PriorityFlowOutreachService.feedbackForCampaign', () => {
       },
     })
 
-    expect(await outreach.feedbackForCampaign(campaign.id, theirs.id)).toEqual(
-      [],
-    )
+    expect(
+      await outreach.feedbackForCampaign(campaign.id, ZONE, theirs.id),
+    ).toEqual([])
   })
 
   it('leaves an archived walk out unless it is asked for by id', async () => {
@@ -439,11 +442,11 @@ describe('PriorityFlowOutreachService.feedbackForCampaign', () => {
     await archive(older.id)
     const current = await walk()
 
-    expect(idsOf(await outreach.feedbackForCampaign(campaign.id))).toEqual([
-      current.id,
-    ])
     expect(
-      idsOf(await outreach.feedbackForCampaign(campaign.id, older.id)),
+      idsOf(await outreach.feedbackForCampaign(campaign.id, ZONE)),
+    ).toEqual([current.id])
+    expect(
+      idsOf(await outreach.feedbackForCampaign(campaign.id, ZONE, older.id)),
     ).toEqual([older.id])
   })
 
@@ -469,7 +472,14 @@ describe('PriorityFlowOutreachService.feedbackForCampaign', () => {
       },
     })
     const byChannel = async (channel: OutreachType) =>
-      idsOf(await outreach.feedbackForCampaign(campaign.id, undefined, channel))
+      idsOf(
+        await outreach.feedbackForCampaign(
+          campaign.id,
+          ZONE,
+          undefined,
+          channel,
+        ),
+      )
 
     expect(await byChannel(OutreachType.doorKnocking)).toEqual([walk.id])
     expect(await byChannel(OutreachType.nativePhoneBanking)).toEqual([calls.id])
@@ -510,14 +520,17 @@ describe('PriorityFlowOutreachService.feedbackFor', () => {
     await reply(text.id, uuidv7(), 'STOP', true)
     await send('other priority', await createPriority('Parks'))
 
-    const [feedback, ...rest] = await outreach.feedbackFor(slug, {
-      priorityId: flooding,
-    })
+    const [feedback, ...rest] = await outreach.feedbackFor(
+      slug,
+      { priorityId: flooding },
+      ZONE,
+    )
 
     expect(rest).toEqual([])
     expect(feedback).toMatchObject({
       outreachId: text.id,
-      sentOn: '8 Oct',
+      scheduledFor: '2026-10-08',
+      sentOn: '2026-10-08',
       heardFrom: 1,
       verbatimsLeftOut: 0,
       themes: [],
@@ -543,7 +556,7 @@ describe('PriorityFlowOutreachService.feedbackFor', () => {
     })
     const sent = await send('newsletter', null)
 
-    const sends = await outreach.feedbackFor(slug, {})
+    const sends = await outreach.feedbackFor(slug, {}, ZONE)
 
     expect(sends.map((row) => row.outreachId)).toEqual([sent.id])
   })
@@ -553,8 +566,12 @@ describe('PriorityFlowOutreachService.feedbackFor', () => {
     await archive(shelved.id)
     const newsletter = await send('fall newsletter', null)
 
-    const recent = await outreach.feedbackFor(slug, {})
-    const asked = await outreach.feedbackFor(slug, { outreachId: shelved.id })
+    const recent = await outreach.feedbackFor(slug, {}, ZONE)
+    const asked = await outreach.feedbackFor(
+      slug,
+      { outreachId: shelved.id },
+      ZONE,
+    )
 
     expect(recent).toMatchObject([
       { outreachId: newsletter.id, name: 'fall newsletter' },
@@ -584,9 +601,11 @@ describe('PriorityFlowOutreachService.feedbackFor', () => {
     })
     await send('newsletter', null)
 
-    const sends = await outreach.feedbackFor(slug, {
-      channel: OutreachType.phoneBanking,
-    })
+    const sends = await outreach.feedbackFor(
+      slug,
+      { channel: OutreachType.phoneBanking },
+      ZONE,
+    )
 
     expect(idsOf(sends)).toEqual([calls.id])
   })
@@ -611,8 +630,12 @@ describe('PriorityFlowOutreachService archived sends', () => {
     await archive((await campaignSend('primary push')).id)
     const gotv = await campaignSend('get out the vote')
 
-    expect(idsOf(await outreach.forOffice(slug, null))).toEqual([newsletter.id])
-    expect(idsOf(await outreach.forCampaign(campaign.id))).toEqual([gotv.id])
+    expect(idsOf(await outreach.forOffice(slug, null, ZONE))).toEqual([
+      newsletter.id,
+    ])
+    expect(idsOf(await outreach.forCampaign(campaign.id, ZONE))).toEqual([
+      gotv.id,
+    ])
   })
 
   it("keeps a priority's own, so nobody it asked is asked again", async () => {
@@ -620,9 +643,11 @@ describe('PriorityFlowOutreachService archived sends', () => {
     const shelved = await send('about the bridge', bridge)
     await archive(shelved.id)
 
-    expect(idsOf(await outreach.forPriority(bridge))).toEqual([shelved.id])
+    expect(idsOf(await outreach.forPriority(bridge, ZONE))).toEqual([
+      shelved.id,
+    ])
     expect(
-      idsOf(await outreach.feedbackFor(slug, { priorityId: bridge })),
+      idsOf(await outreach.feedbackFor(slug, { priorityId: bridge }, ZONE)),
     ).toEqual([shelved.id])
   })
 })
@@ -650,17 +675,204 @@ describe('PriorityFlowOutreachService names', () => {
       audience: 'Oak Street households',
     }
 
-    expect(await outreach.forCampaign(campaign.id)).toMatchObject([named])
-    expect(await outreach.feedbackForCampaign(campaign.id)).toMatchObject([
-      named,
-    ])
+    expect(await outreach.forCampaign(campaign.id, ZONE)).toMatchObject([named])
+    expect(await outreach.feedbackForCampaign(campaign.id, ZONE)).toMatchObject(
+      [named],
+    )
   })
 
   it('names the audience of a send cut from no list', async () => {
     await send('office newsletter', null)
 
-    expect(await outreach.forOffice(slug, null)).toMatchObject([
+    expect(await outreach.forOffice(slug, null, ZONE)).toMatchObject([
       { name: 'office newsletter', audience: 'Unnamed audience' },
     ])
+  })
+})
+
+describe('read_past_outreach send days', () => {
+  // A Serve text: paid for, handed off (in_progress) at once, and set to go
+  // out on its scheduledLocalDate with `date` left null.
+  const paidText = (
+    priorityId: string,
+    status: OutreachStatus,
+    scheduledLocalDate: string,
+  ) =>
+    service.prisma.outreach.create({
+      data: {
+        organizationSlug: slug,
+        outreachType: OutreachType.text,
+        status,
+        name: 'Riverside renters',
+        textCount: 5000,
+        scheduledLocalDate,
+        priorityId,
+      },
+    })
+
+  const readFor = (priorityId: string) =>
+    buildReadPastOutreachTool({
+      outreach,
+      priorityId,
+      organizationSlug: slug,
+      timeZone: ZONE,
+    }).execute({})
+
+  // Noon Eastern on Oct 22, five days before the text's day.
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-10-22T16:00:00.000Z'))
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('holds a paid text in progress as not sent until its day', async () => {
+    const flooding = await createPriority('Flooding')
+    const text = await paidText(
+      flooding,
+      OutreachStatus.in_progress,
+      '2026-10-27',
+    )
+
+    expect(await readFor(flooding)).toEqual({
+      priority: [
+        expect.objectContaining({
+          outreachId: text.id,
+          status: OutreachStatus.in_progress,
+          scheduledFor: '2026-10-27',
+          sentOn: null,
+        }),
+      ],
+      office: [],
+    })
+  })
+
+  it('reads it as sent on its day once that day comes', async () => {
+    const flooding = await createPriority('Flooding')
+    await paidText(flooding, OutreachStatus.in_progress, '2026-10-27')
+    // 1:00 am Eastern on Oct 27, the text's day.
+    vi.setSystemTime(new Date('2026-10-27T05:00:00.000Z'))
+
+    expect(await readFor(flooding)).toEqual({
+      priority: [
+        expect.objectContaining({
+          scheduledFor: '2026-10-27',
+          sentOn: '2026-10-27',
+        }),
+      ],
+      office: [],
+    })
+  })
+
+  it('reads a completed text as sent and a pending one as not', async () => {
+    const flooding = await createPriority('Flooding')
+    const done = await paidText(
+      flooding,
+      OutreachStatus.completed,
+      '2026-10-08',
+    )
+    const waiting = await paidText(
+      flooding,
+      OutreachStatus.pending,
+      '2026-11-10',
+    )
+
+    expect(await readFor(flooding)).toEqual({
+      priority: expect.arrayContaining([
+        expect.objectContaining({
+          outreachId: done.id,
+          status: OutreachStatus.completed,
+          scheduledFor: '2026-10-08',
+          sentOn: '2026-10-08',
+        }),
+        expect.objectContaining({
+          outreachId: waiting.id,
+          status: OutreachStatus.pending,
+          scheduledFor: '2026-11-10',
+          sentOn: null,
+        }),
+      ]),
+      office: [],
+    })
+  })
+
+  it("reads a send's instant as the office's day, not the server's", async () => {
+    const flooding = await createPriority('Flooding')
+    // 9:30 pm Eastern on Oct 21 is already Oct 22 in UTC.
+    const calls = await service.prisma.outreach.create({
+      data: {
+        organizationSlug: slug,
+        outreachType: OutreachType.text,
+        status: OutreachStatus.in_progress,
+        date: new Date('2026-10-22T01:30:00.000Z'),
+        priorityId: flooding,
+      },
+    })
+
+    expect(await readFor(flooding)).toEqual({
+      priority: [
+        expect.objectContaining({
+          outreachId: calls.id,
+          scheduledFor: '2026-10-21',
+          sentOn: '2026-10-21',
+        }),
+      ],
+      office: [],
+    })
+  })
+
+  it('reads a walk that is out, with no day of its own, as sent the day it was made', async () => {
+    const flooding = await createPriority('Flooding')
+    const walk = await service.prisma.outreach.create({
+      data: {
+        organizationSlug: slug,
+        outreachType: OutreachType.nativeDoorKnocking,
+        status: OutreachStatus.in_progress,
+        doorKnockingTurfId: await turfIn(slug),
+        createdAt: new Date('2026-10-22T14:55:00.000Z'),
+        priorityId: flooding,
+      },
+    })
+
+    expect(await readFor(flooding)).toEqual({
+      priority: [
+        expect.objectContaining({
+          outreachId: walk.id,
+          scheduledFor: null,
+          sentOn: '2026-10-22',
+        }),
+      ],
+      office: [],
+    })
+    const [anchor] = await outreach.summarizeAnchors(flooding, ZONE)
+    expect(anchor?.line).toContain('sent 2026-10-22')
+  })
+
+  it('says a scheduled text is not sent yet in the thread line', async () => {
+    const flooding = await createPriority('Flooding')
+    await paidText(flooding, OutreachStatus.in_progress, '2026-10-27')
+
+    const [anchor] = await outreach.summarizeAnchors(flooding, ZONE)
+
+    expect(anchor?.line).toContain('scheduled for 2026-10-27, not sent yet')
+    expect(anchor?.line).not.toContain('sent 2026')
+  })
+
+  it('gives read_outreach_feedback the same days', async () => {
+    const flooding = await createPriority('Flooding')
+    await paidText(flooding, OutreachStatus.in_progress, '2026-10-27')
+
+    const [feedback] = await outreach.feedbackFor(
+      slug,
+      { priorityId: flooding },
+      ZONE,
+    )
+
+    expect(feedback).toMatchObject({
+      scheduledFor: '2026-10-27',
+      sentOn: null,
+    })
   })
 })

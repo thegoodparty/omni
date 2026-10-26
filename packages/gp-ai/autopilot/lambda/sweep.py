@@ -105,6 +105,20 @@ DEAD_LETTER_ALERT_STAGE = "dead-letter-alert"
 # a given park comment, not a per-run transition with a natural deadline.
 DEAD_LETTER_ALERT_TTL_SECONDS = 30 * 24 * 60 * 60
 
+# Durable once-per-head claim for red-PR resumes (see _resume_red_pr). The
+# resume dispatch's own claim expires with the resume's deadline, which would
+# let a still-red head be resumed again an hour later, so this second claim
+# outlives any realistic PR instead.
+RED_PR_CLAIM_STAGE = "red-pr-resume"
+RED_PR_CLAIM_TTL_SECONDS = 30 * 24 * 60 * 60
+
+# The delegate reviewer's GitHub login, as scripts/delegate-review-wait.sh
+# reads it. Its CHANGES_REQUESTED review on a PR's head commit counts as red.
+DELEGATE_REVIEWER_LOGIN = "delegate-reviewer[bot]"
+# Check-run conclusions that mean "this check will not pass as-is". Pending
+# (no conclusion yet), success, neutral and skipped are never red.
+RED_CHECK_CONCLUSIONS = frozenset({"failure", "timed_out", "cancelled"})
+
 
 def _load_sibling_module(stem: str) -> Any:
     """See handler.py's own copy for why this can't be a normal import."""
@@ -230,26 +244,37 @@ def list_executing_feature_cards() -> list[dict]:
 AUTO_RESUME_MAX_PARKS = 10
 
 
-def _parked_stories() -> list[dict]:
-    """Every story currently in feedback needed across the scoped lists —
-    the same unconditional statuses[] query shape as _feature_cards_in_status,
-    but WITH subtasks (stories are subtasks) and keeping only subtasks."""
+def _stories_in_status(status: str) -> list[dict]:
+    """Every story currently in `status` across the scoped lists — the same
+    unconditional statuses[] query shape as _feature_cards_in_status, but WITH
+    subtasks (stories are subtasks) and keeping only subtasks."""
     tasks: list[dict] = []
     for list_id in sorted(handler.in_scope_list_ids()):
         query = urlencode(
-            {"statuses[]": router.STATUS_FEEDBACK_NEEDED, "subtasks": "true", "include_closed": "false"},
+            {"statuses[]": status, "subtasks": "true", "include_closed": "false"},
             quote_via=quote,
             safe="[]",
         )
         try:
             result = supervisor.clickup_request("GET", f"/list/{list_id}/task?{query}")
         except Exception as e:
-            print(f"ERROR: sweep failed to list parked stories for list {list_id}: {type(e).__name__}")
+            print(f"ERROR: sweep failed to list {status} stories for list {list_id}: {type(e).__name__}")
             continue
         raw_tasks = result.get("tasks")
         if isinstance(raw_tasks, list):
             tasks.extend(t for t in raw_tasks if isinstance(t, dict) and isinstance(t.get("parent"), str))
     return tasks
+
+
+def _parked_stories() -> list[dict]:
+    """Every story currently in feedback needed."""
+    return _stories_in_status(router.STATUS_FEEDBACK_NEEDED)
+
+
+def _awaiting_merge_stories() -> list[dict]:
+    """Every story currently in awaiting merge (parked by `feedback
+    await-merge` on an approved, auto-merge-armed PR)."""
+    return _stories_in_status(router.STATUS_AWAITING_MERGE)
 
 
 def auto_resume_actionable_parks(cap: int, parked_stories: list[dict]) -> int:
@@ -476,7 +501,7 @@ def fetch_pull_request(pr_number: int) -> dict | None:
 def _dispatch_qa_after_merge(task_id: str, epic_task_id: str | None, pr_number: int) -> bool:
     """Moves a merge-pending story straight to `qa` and launches its QA stage
     run directly — never through ROUTING_TABLE. A second to_status="qa" row
-    there (reachable from `feedback needed`, alongside the existing
+    there (reachable from `awaiting merge` / `feedback needed`, alongside the existing
     `in progress` one) would make sweep._from_status_for_current's
     reconstruction pass treat EVERY story landing in `qa` as ambiguous and
     skip it, blinding the sweep to a lost `in progress -> qa` webhook — today
@@ -526,7 +551,7 @@ def _dispatch_qa_after_merge(task_id: str, epic_task_id: str | None, pr_number: 
     if not result["launched"]:
         # Undo both writes so the next tick retries the whole dispatch: once
         # a story sits in `qa`, no sweep path re-attempts this launch
-        # (_parked_stories only sees feedback-needed). The claim is released
+        # (the parked-story queries only see awaiting-merge / feedback-needed). The claim is released
         # FIRST — a rolled-back park with a live claim would re-enter here
         # next tick, re-move to qa, lose the claim, and strand the story
         # unlaunched. If a rollback step itself fails, the story sits in qa
@@ -538,9 +563,9 @@ def _dispatch_qa_after_merge(task_id: str, epic_task_id: str | None, pr_number: 
         )
         _release_qa_dispatch_claim(task_id, pr_number)
         try:
-            supervisor.move_task_status(task_id, router.STATUS_FEEDBACK_NEEDED)
+            supervisor.move_task_status(task_id, router.STATUS_AWAITING_MERGE)
         except Exception as e:
-            print(f"ERROR: rollback of {task_id} to feedback-needed failed: {type(e).__name__}")
+            print(f"ERROR: rollback of {task_id} to awaiting-merge failed: {type(e).__name__}")
     return bool(result["launched"])
 
 
@@ -576,21 +601,163 @@ def _alert_closed_unmerged_pr(task_id: str, pr_number: int) -> bool:
     return True
 
 
-def resolve_merge_pending_parks(parked_stories: list[dict]) -> dict[str, int]:
+def _github_get_json(path: str, what: str) -> Any | None:
+    """One authenticated GET against the GitHub API for the red-PR health
+    read. None on ANY failure (no token, network error, non-2xx, bad JSON),
+    logged with `what` — the same "unconfirmed means untouched" contract as
+    fetch_pull_request."""
+    token = github_auth.installation_token()
+    if token is None:
+        return None
+    req = Request(
+        f"{GITHUB_API_BASE_URL}{path}",
+        headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
+        method="GET",
+    )
+    try:
+        with urlopen(req, timeout=10) as response:
+            if response.status >= 300:
+                print(f"ERROR: GitHub returned {response.status} reading {what}")
+                return None
+            return json.loads(response.read().decode())
+    except Exception as e:
+        print(f"ERROR: sweep failed to read {what}: {type(e).__name__}")
+        return None
+
+
+def pr_red_reason(pr_number: int, pull_request: dict) -> str | None | bool:
+    """Why an OPEN PR can no longer merge on its own, or None when it is not
+    red. False when a GitHub read failed and health could not be confirmed
+    (callers leave the story untouched, same as an unreadable PR).
+
+    Red is: a completed check run on the head SHA that failed, timed out or
+    was cancelled; `mergeable_state` "dirty" (conflicts with the base);
+    or the latest delegate-reviewer review ON THE HEAD SHA being
+    CHANGES_REQUESTED (an older approval followed by changes requested is
+    red; a review of an earlier head is stale and ignored). Pending checks,
+    "blocked" with nothing failing, and "unknown" (GitHub hasn't computed
+    mergeability yet, right after a push) are all not red."""
+    head = pull_request.get("head")
+    head_sha = head.get("sha") if isinstance(head, dict) else None
+    if not isinstance(head_sha, str) or not head_sha:
+        print(f"ERROR: PR #{pr_number} read carried no head sha; cannot assess its health")
+        return False
+
+    repo = f"/repos/{GITHUB_REPO}"
+    runs = _github_get_json(f"{repo}/commits/{head_sha}/check-runs?per_page=100", f"check runs for PR #{pr_number}")
+    reviews = _github_get_json(f"{repo}/pulls/{pr_number}/reviews?per_page=100", f"reviews for PR #{pr_number}")
+    if not isinstance(runs, dict) or not isinstance(reviews, list):
+        return False
+
+    failed = sorted(
+        {
+            str(run.get("name"))
+            for run in runs.get("check_runs") or []
+            if isinstance(run, dict)
+            and run.get("status") == "completed"
+            and run.get("conclusion") in RED_CHECK_CONCLUSIONS
+        }
+    )
+    if failed:
+        return f"check failed: {', '.join(failed[:3])}" + (" and more" if len(failed) > 3 else "")
+    if pull_request.get("mergeable_state") == "dirty":
+        return "merge conflict with main"
+    delegate_reviews = [
+        r
+        for r in reviews
+        if isinstance(r, dict)
+        and (r.get("user") or {}).get("login") == DELEGATE_REVIEWER_LOGIN
+        and r.get("commit_id") == head_sha
+        and r.get("state") in ("APPROVED", "CHANGES_REQUESTED", "DISMISSED")
+    ]
+    if delegate_reviews and delegate_reviews[-1].get("state") == "CHANGES_REQUESTED":
+        return "delegate reviewer requested changes"
+    return None
+
+
+def _release_red_pr_claim(task_id: str, pr_number: int, head_sha: str) -> None:
+    """Deletes the exact long-lived claim _resume_red_pr just won."""
+    table_name = os.environ.get("AUTOPILOT_DEDUP_TABLE")
+    if not table_name:
+        return
+    try:
+        dispatch.get_dynamodb_client().delete_item(
+            TableName=table_name,
+            Key={"pk": {"S": dispatch.claim_pk(task_id, RED_PR_CLAIM_STAGE, f"{pr_number}-{head_sha}")}},
+        )
+    except Exception as e:
+        print(f"ERROR: releasing red-PR claim for {task_id} PR #{pr_number} failed: {type(e).__name__}")
+
+
+def _resume_red_pr(task: dict, park: Any, pr_number: int, pull_request: dict) -> bool:
+    """If the open PR behind a merge-pending park is red, dispatches ONE
+    resume of the parked stage and posts a card comment saying why. Keyed on
+    the head SHA, so each red head gets at most one resume and a new push
+    that goes red again earns exactly one more. Returns whether a resume
+    launched. The comment follows the dispatch (never on a lost claim), so
+    a tick that loses the dedup claim stays silent instead of re-commenting
+    every 15 minutes."""
+    task_id = task["id"]
+    if router.has_dead_letter_tag(task):
+        return False  # human-owned until they remove the tag
+    reason = pr_red_reason(pr_number, pull_request)
+    if reason is False:
+        print(f"ERROR: sweep could not assess PR #{pr_number}'s health for {task_id}; leaving it parked")
+        return False
+    if reason is None:
+        return False
+
+    head_sha = pull_request["head"]["sha"]
+    # Long-lived claim first: a resume that re-parks on the same still-red
+    # head must not earn another one when the dispatch claim below expires.
+    if dispatch.claim_transition(task_id, RED_PR_CLAIM_STAGE, f"{pr_number}-{head_sha}", RED_PR_CLAIM_TTL_SECONDS):
+        return False
+    ceiling = router.STAGE_CEILINGS[router.STAGE_RESUME]
+    envelope = dispatch.StageEnvelope(
+        stage=router.STAGE_RESUME,
+        task_id=task_id,
+        epic_task_id=None,
+        model=router.DEFAULT_AGENT_MODEL,
+        max_budget_usd=ceiling.max_budget_usd,
+        deadline_seconds=ceiling.deadline_seconds,
+        resume_stage=park.stage,
+    )
+    result = dispatch.dispatch_stage(task_id, router.STAGE_RESUME, f"red-pr-{pr_number}-{head_sha}", envelope)
+    if not result.get("dispatched"):
+        # Nothing launched, so the long claim has no run to protect: release
+        # it. (The dispatch's own claim still holds for its deadline, so a
+        # failed launch retries after that, not on the very next tick.)
+        _release_red_pr_claim(task_id, pr_number, head_sha)
+        return False
+    print(f"Resumed {task_id} (stage {park.stage!r}) for red PR #{pr_number} at {head_sha[:7]}: {reason}")
+    try:
+        supervisor.create_task_comment(
+            task_id,
+            f"[autopilot] PR #{pr_number} can't merge as-is: {reason}. Resuming the story stage to fix it.",
+        )
+    except Exception as e:
+        print(f"ERROR: sweep failed to comment on {task_id} about red PR #{pr_number}: {type(e).__name__}")
+    return True
+
+
+def resolve_merge_pending_parks(parked_stories: list[dict], resume_cap: int = 0) -> dict[str, int]:
     """Runs BEFORE auto_resume_actionable_parks (see handle_sweep): for every
     story parked on a "Merge pending: PR #<n>" status note, one GitHub read
     decides the outcome — merged moves the story to `qa` and launches QA
     (see _dispatch_qa_after_merge), closed-unmerged posts one Slack alert,
-    and still-open (or an unreadable PR) leaves the park exactly where it is.
-    Not bounded by the sweep's own trigger cap: like the executing-feature-
-    card tick, the actions here are cheap and self-limiting (bounded by how
-    many stories are ever simultaneously parked on a pending merge, never by
-    dispatch fan-out). `parked_stories` is handle_sweep's single per-tick
+    and a still-open PR is health-checked (see pr_red_reason): a red one gets
+    one resume per head SHA (see _resume_red_pr), a green, pending or
+    unreadable one is left exactly where it is. The merge and alert actions
+    are not bounded by the sweep's own trigger cap — they are cheap and
+    self-limiting (bounded by how many stories are ever simultaneously parked
+    on a pending merge). The paid red-PR resumes are: at most `resume_cap`
+    per call (the caller passes the tick's remaining trigger budget). `parked_stories` is handle_sweep's single per-tick
     fetch, shared with auto_resume_actionable_parks — safe even though this
     pass moves resolved stories to `qa`, because auto-resume's own
     merge-pending skip drops those same entries."""
     resolved = 0
     alerted = 0
+    red_resumed = 0
     for task in parked_stories:
         task_id = task.get("id")
         if not isinstance(task_id, str) or not task_id:
@@ -619,11 +786,18 @@ def resolve_merge_pending_parks(parked_stories: list[dict]) -> dict[str, int]:
                 resolved += 1
             continue
 
-        if pull_request.get("state") == "closed" and _alert_closed_unmerged_pr(task_id, pr_number):
-            alerted += 1
-        # else: still open — leave it exactly where it is.
+        if pull_request.get("state") == "closed":
+            if _alert_closed_unmerged_pr(task_id, pr_number):
+                alerted += 1
+            continue
 
-    return {"merge_resolved": resolved, "merge_closed_alerted": alerted}
+        # Still open: hand it back to the story stage if it can't merge as-is.
+        if red_resumed >= resume_cap:
+            continue
+        if _resume_red_pr(task, park, pr_number, pull_request):
+            red_resumed += 1
+
+    return {"merge_resolved": resolved, "merge_closed_alerted": alerted, "red_pr_resumed": red_resumed}
 
 
 def alert_stalled_in_progress_feature_cards(cards: list[dict]) -> int:
@@ -835,17 +1009,23 @@ def handle_sweep(event: dict) -> dict:
 
     # One parked-stories fetch per tick, shared by both passes below.
     parked_stories = _parked_stories()
+    awaiting_merge_stories = _awaiting_merge_stories()
 
-    # Before auto-resume, and uncapped (see resolve_merge_pending_parks): every
+    # Before auto-resume (see resolve_merge_pending_parks; merges and alerts
+    # are uncapped, red-PR resumes draw on the remaining trigger budget): every
     # merge-pending park it finds is EXCLUDED from the auto-resume pass below
     # (auto_resume_actionable_parks' own skip), so a paid resume can never
-    # race this free GitHub-backed resolution for the same park.
-    merge_pending_result = resolve_merge_pending_parks(parked_stories)
+    # race this free GitHub-backed resolution for the same park. Reads both
+    # awaiting merge (where story.md parks now) and feedback needed (cards
+    # parked there before awaiting merge existed).
+    merge_pending_result = resolve_merge_pending_parks(awaiting_merge_stories + parked_stories, max(cap - triggered, 0))
 
     # After the lookback pass so reconstruction gets first claim at the cap:
     # an undelivered transition is lost work, an unparked resume is deferred
     # work — the next pass reaches it.
-    auto_resumed = auto_resume_actionable_parks(max(cap - triggered, 0), parked_stories)
+    auto_resumed = auto_resume_actionable_parks(
+        max(cap - triggered - merge_pending_result["red_pr_resumed"], 0), parked_stories
+    )
 
     # A separate, unconditional statuses[] query (own read family, like
     # executing_cards/in_progress_cards above) — cheap ClickUp reads; the
@@ -861,7 +1041,7 @@ def handle_sweep(event: dict) -> dict:
     # helper below already logs-and-continues on its own, and this catches
     # anything else (a bad board shape) that would otherwise bubble past them.
     try:
-        update_status_card(executing_cards, in_progress_cards, parked_stories)
+        update_status_card(executing_cards, in_progress_cards, parked_stories, awaiting_merge_stories)
     except Exception as e:
         print(f"ERROR: status card update failed: {type(e).__name__}: {e}")
 
@@ -869,7 +1049,8 @@ def handle_sweep(event: dict) -> dict:
         f"Sweep complete: {ticked} epics ticked, {alerted} stall alerts, "
         f"{scanned} candidates scanned, {triggered} triggered, "
         f"{merge_pending_result['merge_resolved']} merges resolved, "
-        f"{merge_pending_result['merge_closed_alerted']} closed-PR alerts, {auto_resumed} auto-resumed, "
+        f"{merge_pending_result['merge_closed_alerted']} closed-PR alerts, "
+        f"{merge_pending_result['red_pr_resumed']} red-PR resumes, {auto_resumed} auto-resumed, "
         f"{flag_cleanup_promoted} flag-cleanup tickets promoted"
     )
     return {
@@ -882,6 +1063,7 @@ def handle_sweep(event: dict) -> dict:
                 "triggered": triggered,
                 "merge_resolved": merge_pending_result["merge_resolved"],
                 "merge_closed_alerted": merge_pending_result["merge_closed_alerted"],
+                "red_pr_resumed": merge_pending_result["red_pr_resumed"],
                 "auto_resumed": auto_resumed,
                 "flag_cleanup_promoted": flag_cleanup_promoted,
             }
@@ -1380,7 +1562,12 @@ def _with_valid_id(tasks: list[dict]) -> list[dict]:
     return [t for t in tasks if isinstance(t.get("id"), str) and t["id"]]
 
 
-def build_status_text(executing_cards: list[dict], in_progress_cards: list[dict], parked_stories: list[dict]) -> str:
+def build_status_text(
+    executing_cards: list[dict],
+    in_progress_cards: list[dict],
+    parked_stories: list[dict],
+    awaiting_merge_stories: list[dict] | None = None,
+) -> str:
     lines = [f"*Autopilot status* — updated {_status_timestamp()}", ""]
 
     executing = _with_valid_id(executing_cards)
@@ -1405,11 +1592,24 @@ def build_status_text(executing_cards: list[dict], in_progress_cards: list[dict]
         lines.extend(f"• {_card_link(t)}" for t in parked)
     else:
         lines.append("_none_")
+    lines.append("")
+
+    awaiting_merge = _with_valid_id(awaiting_merge_stories or [])
+    lines.append(f"*Awaiting merge* ({len(awaiting_merge)})")
+    if awaiting_merge:
+        lines.extend(f"• {_card_link(t)}" for t in awaiting_merge)
+    else:
+        lines.append("_none_")
 
     return "\n".join(lines)
 
 
-def update_status_card(executing_cards: list[dict], in_progress_cards: list[dict], parked_stories: list[dict]) -> None:
+def update_status_card(
+    executing_cards: list[dict],
+    in_progress_cards: list[dict],
+    parked_stories: list[dict],
+    awaiting_merge_stories: list[dict] | None = None,
+) -> None:
     """Maintains the single pinned #autopilot status message. Edits it in
     place via chat.update when the stored ts still resolves; self-heals
     (posts fresh, re-pins, stores the new ts) whenever it doesn't — covering
@@ -1422,7 +1622,7 @@ def update_status_card(executing_cards: list[dict], in_progress_cards: list[dict
         print("ERROR: AUTOPILOT_SLACK_CHANNEL not configured; skipping status card update")
         return
 
-    text = build_status_text(executing_cards, in_progress_cards, parked_stories)
+    text = build_status_text(executing_cards, in_progress_cards, parked_stories, awaiting_merge_stories)
 
     state = get_status_card_state()
     if state is not None and state.get("channel") == channel:

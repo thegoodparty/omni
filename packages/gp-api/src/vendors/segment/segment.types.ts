@@ -255,6 +255,13 @@ export const EVENTS = {
   // said.
   IssueCapture: {
     SynthesisCompleted: 'Issue Capture - Synthesis Completed',
+    // A memo confirmed with nobody at the confirm step: an offline memo once
+    // its transcript is in, or a live one the 2-hour sweep found abandoned.
+    // The webapp's Confirmed and Skipped never see these.
+    MemoAutoConfirmed: 'Issue Capture - Memo Auto Confirmed',
+    // An offline memo no transcription job could read, once retries are
+    // spent. It stays unconfirmed and never reaches a summary.
+    MemoTranscriptionFailed: 'Issue Capture - Memo Transcription Failed',
   },
   // A visitor on a public /people page asking an unclaimed person to complete
   // their profile. Distinct from gp-marketing's browser-side 'Person Profile
@@ -279,12 +286,24 @@ export const EVENTS = {
     StepStateChanged: 'Priorities - Step State Changed',
     CheckStateChanged: 'Priorities - Check State Changed',
     PlanCompleted: 'Priorities - Plan Completed',
+    // A report back text claimed after checkout and handed off to send:
+    // { answeredCount, themesShared, channel }.
+    ReportBackSent: 'Priorities - Report Back Sent',
   },
-  // Serve's civic panel. People join and leave by replying, at a door or on
-  // a call, so all of it is server truth. Attributed to the office's
-  // user; counts, ids and enums only, never who joined.
-  CivicPanel: {
-    MembershipChanged: 'Civic Panel - Membership Changed',
+  // Serve's civic panel, in the Contacts area. People join and leave by
+  // replying, at a door or on a call, so all of it is server truth.
+  // Attributed to the office's user; counts, ids and enums only, never who
+  // joined.
+  Contacts: {
+    CivicPanelMembershipChanged: 'Contacts - Civic Panel Membership Changed',
+    // The civic panel GoodParty builds (the managed panel): the approval, its
+    // status moves, each wave out and closed, and the goal reached. The
+    // ready email has no event of its own: Civic Panel Ready marks it.
+    CivicPanelInviteApproved: 'Contacts - Civic Panel Invite Approved',
+    CivicPanelStatusChanged: 'Contacts - Civic Panel Status Changed',
+    CivicPanelWaveSent: 'Contacts - Civic Panel Wave Sent',
+    CivicPanelWaveClosed: 'Contacts - Civic Panel Wave Closed',
+    CivicPanelReady: 'Contacts - Civic Panel Ready',
   },
 }
 

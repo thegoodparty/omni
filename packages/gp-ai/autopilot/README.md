@@ -104,9 +104,17 @@ truth — a board relabel without a matching code change breaks routing):
 | `approved tdd` | intake: TDD approved, awaiting kickoff | queued (fresh stories land here) |
 | `in progress` | epic-create is planning | story stage is implementing |
 | `feedback needed` | breakdown posted for review, or a parked question | parked question / QA findings |
+| `awaiting merge` | (never used) | PR approved, auto-merge armed, waiting on CI and the merge queue; no Slack ping |
 | `executing` | breakdown approved; stories are being dispatched | (never used) |
 | `qa` | (never used) | merged, QA verifying |
 | `done` | every story done | shipped and verified |
+
+**Manual board step:** `awaiting merge` is not created by code. A ClickUp admin
+must add it to the autopilot list (901329066225), between `in progress` and
+`qa`, with exactly that label, BEFORE deploying: until it exists, a story's
+`feedback await-merge` status write fails and the run errors. Moving an
+`awaiting merge` card back to `in progress` (or a human comment on it)
+resumes the story, like `feedback needed`.
 
 `executing` must stay distinct from `in progress` on the feature card: the
 sweep unconditionally drives every epic sitting in `executing`, and folding
@@ -114,7 +122,8 @@ it into `in progress` would let a sweep tick dispatch stories while
 epic-create is still mid-breakdown, before the human approved it.
 
 Every card arriving in `feedback needed` pings the Slack channel, park and
-finished breakdown alike — a park does it as part of the park primitive, and
+finished breakdown alike (a merge-pending story lands in `awaiting merge`
+instead, silently) — a park does it as part of the park primitive, and
 epic-create's handoff does it with `feedback notify` (the ping without the
 card writes). Nobody is expected to watch the board.
 
@@ -392,14 +401,26 @@ hits them, and where it ends if nothing does:
    `alert_stalled_in_progress_feature_cards`.
 
 4. **Merge-pending resolution** (`sweep.resolve_merge_pending_parks`) is a
-   free retry, not a paid one: a story parked on "Merge pending: PR #n" gets
+   free retry, not a paid one: a story parked on "Merge pending: PR #n" (in
+   `awaiting merge`, or `feedback needed` for cards parked before that status
+   existed) gets
    one GitHub read (`sweep.fetch_pull_request`) per tick, uncapped by
    `SWEEP_MAX_TRIGGERS`. Merged moves it straight to `qa` and launches QA
    (`sweep._dispatch_qa_after_merge`, claimed on the PR number so two ticks
    discovering the same merge only launch once); closed-unmerged posts one
    Slack alert (`sweep._alert_closed_unmerged_pr`, claimed the same way,
-   `CLOSED_PR_ALERT_TTL_SECONDS` = 30 days); still open leaves the park
-   untouched. Runs BEFORE auto-resume in the same tick, and every merge-pending
+   `CLOSED_PR_ALERT_TTL_SECONDS` = 30 days); still open gets a health check
+   (`sweep.pr_red_reason`): a failed, timed-out or cancelled check run on the
+   head SHA, `mergeable_state` `dirty` (conflict), or the latest
+   delegate-reviewer review on the head being `CHANGES_REQUESTED` means the PR
+   can't merge on its own, so `sweep._resume_red_pr` dispatches one resume of
+   the parked stage (`resume.md` fixes the PR and re-parks) and comments why
+   on the card. Claimed on `red-pr-<n>-<head sha>`: one resume per red head, one
+   more if a new push goes red again. Pending checks, `blocked`/`unknown`
+   mergeability and a read failure leave the park alone; `dead-letter` stories
+   are skipped. Unlike merge and alert actions, red-PR resumes count against
+   `SWEEP_MAX_TRIGGERS` (the lookback pass gets first claim, auto-resume gets
+   what is left). Runs BEFORE auto-resume in the same tick, and every merge-pending
    park it finds is excluded from auto-resume regardless of outcome — a paid
    resume must never race this free check for the same park.
 

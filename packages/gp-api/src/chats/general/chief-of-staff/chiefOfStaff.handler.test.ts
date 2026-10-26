@@ -26,6 +26,7 @@ import type { ManagedCivicPanelService } from '@/contacts/services/managedCivicP
 import {
   MANAGED_CIVIC_PANEL_BACKED_OUT_MESSAGE,
   MANAGED_CIVIC_PANEL_EXHAUSTED_MESSAGE,
+  MANAGED_CIVIC_PANEL_HOW_IT_WORKS,
   MANAGED_CIVIC_PANEL_SET_UP_MESSAGE,
   START_MANAGED_CIVIC_PANEL_MESSAGE,
   type ManagedCivicPanel,
@@ -656,6 +657,7 @@ describe('ChiefOfStaffHandler', () => {
 
   describe('the civic panel GoodParty builds (managed)', () => {
     const MANAGED_TOOLS = [
+      'explain_managed_panel',
       'offer_managed_panel_invite',
       'present_managed_panel_invite',
       'read_managed_panel',
@@ -716,15 +718,21 @@ describe('ChiefOfStaffHandler', () => {
         `MANAGED CIVIC PANEL (apply when the user's message is exactly "${START_MANAGED_CIVIC_PANEL_MESSAGE}"`,
       )
       expect(prompt).toContain(
-        'over about two weeks we text it to residents in waves',
+        'call `explain_managed_panel` with part what_it_is and write the text it returns as your reply, word for word',
       )
       expect(prompt).toContain(
-        'Between waves we invite more of whoever is missing',
+        `When they pick "${MANAGED_CIVIC_PANEL_HOW_IT_WORKS}"`,
       )
-      expect(prompt).toContain('free in early access')
       expect(prompt).toContain(
-        'call `offer_managed_panel_invite` with nothing after it',
+        'call `explain_managed_panel` with part how_it_works',
       )
+      expect(prompt).toContain(
+        'call `offer_managed_panel_invite` with afterHowItWorks true',
+      )
+      expect(prompt).toContain(
+        'Then call `offer_managed_panel_invite` with nothing after it',
+      )
+      expect(prompt).not.toMatch(/\bwaves? (at a time|we|in)\b|between waves/i)
       expect(prompt).toContain('Then call `present_managed_panel_invite`')
       expect(prompt).toContain(`On "${MANAGED_CIVIC_PANEL_BACKED_OUT_MESSAGE}"`)
     })
@@ -737,7 +745,7 @@ describe('ChiefOfStaffHandler', () => {
         `On "${MANAGED_CIVIC_PANEL_SET_UP_MESSAGE}", call \`read_managed_panel\``,
       )
       expect(prompt).toContain(
-        '"Done. The first invites go out <firstSendDate>. I\'ll let you know when your panel is ready, around the week of <readyWeekOf>."',
+        '"Done. The first invites go out <firstSendDate>. I\'ll let you know when your civic panel is ready, around the week of <readyWeekOf>."',
       )
       expect(prompt).toContain('Never offer or show the invite again.')
       expect(prompt).toContain('ask which priority they want to work on')
@@ -815,7 +823,12 @@ describe('ChiefOfStaffHandler', () => {
       }
       expect(await read.execute({})).toEqual({ priority: [], office: [] })
       expect(forPriority).not.toHaveBeenCalled()
-      expect(forOffice).toHaveBeenCalledWith(ORG, null, undefined)
+      expect(forOffice).toHaveBeenCalledWith(
+        ORG,
+        null,
+        expect.stringMatching(/^US\//),
+        undefined,
+      )
     })
 
     it('reads outreach feedback only with serve-citizen-panels on for the user', async () => {
@@ -893,16 +906,17 @@ describe('ChiefOfStaffHandler', () => {
         priorityThemes: [],
         sends: [],
       })
-      expect(feedbackFor).toHaveBeenCalledWith(ORG, {
-        priorityId: null,
-        outreachId: 7,
-      })
+      expect(feedbackFor).toHaveBeenCalledWith(
+        ORG,
+        { priorityId: null, outreachId: 7 },
+        expect.stringMatching(/^US\//),
+      )
       await read.execute({ channel: 'phoneBanking' })
-      expect(feedbackFor).toHaveBeenLastCalledWith(ORG, {
-        priorityId: null,
-        outreachId: undefined,
-        channel: 'phoneBanking',
-      })
+      expect(feedbackFor).toHaveBeenLastCalledWith(
+        ORG,
+        { priorityId: null, outreachId: undefined, channel: 'phoneBanking' },
+        expect.stringMatching(/^US\//),
+      )
       expect(descriptionOf(read)).toContain('with read_past_outreach')
       expect(descriptionOf(tools.read_past_outreach)).toContain(
         'text replies only',

@@ -10,6 +10,7 @@ import {
   Delete,
   Get,
   HttpCode,
+  HttpException,
   HttpStatus,
   NotFoundException,
   Param,
@@ -266,6 +267,22 @@ export class PeerlyP2pMockController {
     @Body() body: Record<string, string>,
   ) {
     this.assertMockMode()
+    const campaignId = await this.vendorMockRecord.resolvePeerlyCampaignId({
+      identityId: body['identity_id'],
+    })
+    if (
+      campaignId !== undefined &&
+      (await this.vendorMockRecord.consumePhoneListFail(campaignId))
+    ) {
+      // Peerly's error envelope, as the real client's error handling reads it.
+      throw new HttpException(
+        {
+          Error: 'Unable to process phone list upload',
+          status_code: HttpStatus.INTERNAL_SERVER_ERROR,
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      )
+    }
     const token = randomUUID()
     const listId = Math.floor(Math.random() * 900_000) + 100_000
     const listName = body['list_name'] ?? 'mock-list'

@@ -210,6 +210,20 @@ def test_select_unblocked_stories_skips_feedback_needed():
     assert [s.task_id for s in supervisor.select_unblocked_stories(stories, frozenset(), 5)] == ["s2"]
 
 
+def test_awaiting_merge_story_is_not_in_flight_and_not_a_candidate():
+    stories = [
+        supervisor.Story("s1", router.STATUS_AWAITING_MERGE, "1", frozenset()),
+        supervisor.Story("s2", router.STATUS_APPROVED_TDD, "2", frozenset()),
+    ]
+
+    assert not stories[0].is_in_flight
+    assert [s.task_id for s in supervisor.select_unblocked_stories(stories, frozenset(), 5)] == ["s2"]
+
+
+def test_awaiting_merge_has_no_stall_ttl():
+    assert router.STATUS_AWAITING_MERGE not in supervisor.STATUS_TTL_SECONDS
+
+
 def test_select_unblocked_stories_skips_stories_still_blocked():
     # s1's dependency (s2) is neither done nor even selected — a story with
     # any unmet dependency link is never a candidate, whatever the limit.
@@ -1007,6 +1021,16 @@ def test_feedback_needed_story_never_counted_stalled(fake_clickup, fake_ecs):
     register_epic(fake_clickup, ["s1"], {"s1": story_task("s1", router.STATUS_FEEDBACK_NEEDED)})
     # Even a very old since would trip in_progress/qa TTLs; feedback needed
     # must never be checked against them at all.
+    ancient_since = str(int((time.time() - 10 * 60 * 60) * 1000))
+    fake_clickup.responses["/task/s1/time_in_status"] = {"current_status": {"since": ancient_since}}
+
+    supervisor.run_supervisor_tick(EPIC_ID)
+
+    assert fake_clickup.slack_posts == []
+
+
+def test_awaiting_merge_story_never_counted_stalled(fake_clickup, fake_ecs):
+    register_epic(fake_clickup, ["s1"], {"s1": story_task("s1", router.STATUS_AWAITING_MERGE)})
     ancient_since = str(int((time.time() - 10 * 60 * 60) * 1000))
     fake_clickup.responses["/task/s1/time_in_status"] = {"current_status": {"since": ancient_since}}
 

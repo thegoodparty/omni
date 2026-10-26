@@ -54,6 +54,16 @@ relevant reply, not just any reply in the thread.
 
 - **All answered**: continue the parked stage's remaining work under that
   stage's own contract, using the answers you found.
+
+When resumed story work hits a new delegate finding that offers options or is
+a judgment call inside the story's scope, don't park again: apply story.md
+step 5's rule. Choose the option most consistent with the ticket's acceptance
+criteria and the TDD, prefer the proper fix over a shortcut unless it needs
+files outside the story's scope, and record the choice in one PR comment and
+one ClickUp comment (chosen, alternative, why). Park only when the finding
+would change the ticket's scope, contradicts the TDD, needs another ticket's
+files, or you believe it is wrong and fixing it would make the code worse.
+
 - **Some still unanswered**: park again, asking only the ones still
   outstanding. `autopilot.agent.feedback park` drops any question that
   matches one already asked in a prior parking comment on this card, so
@@ -68,7 +78,8 @@ never another card.
 `story` and `qa` also park when their own deadline arrives mid-wait — a PR
 approved and armed but not yet merged, or a merged commit not yet deployed —
 using the same marker but a status note ("Merge pending: ..." / "Deploy
-pending: ...") instead of a real question. Don't wait for a human reply to
+pending: ...") instead of a real question. A merge-pending note can arrive
+from `awaiting merge` as well as `feedback needed`. Don't wait for a human reply to
 "answer" it: check whether the condition itself has resolved instead — `gh pr
 view` / `gh pr checks` for a pending merge, or the deployed commit for a
 pending deploy.
@@ -78,7 +89,16 @@ work. Failing checks or delegate blockers on the story's own PR are the
 story stage's job, and parking to ask permission to fix your own PR stalls
 the epic (the first live epic stalled three stories exactly this way). Fix
 them, push, re-trigger delegate, and only then either finish the handoff or
-park again with an honest status note. The same applies when the conductor
+park again with an honest status note.
+
+The sweep also resumes a merge-pending story on its own when its still-open
+PR can no longer merge (an `[autopilot] PR #<n> can't merge as-is: ...`
+comment on the card names why). Fix exactly that, then re-park with
+`feedback await-merge`: a failed check means reading its logs and fixing the
+cause; a merge conflict means `git merge origin/main` (never rebase or
+force-push), resolving, and re-verifying; delegate changes requested means
+addressing each finding. Never leave the card in `awaiting merge` unless the
+PR is green again. The same applies when the conductor
 auto-resumed you onto a stranded-run park with no human reply: the card is
 where a safety net put it, the PR state is the work, do it.
 

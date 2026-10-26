@@ -10,6 +10,7 @@ import {
   setUserEmail,
   setActorUserId,
   setActorRole,
+  setActiveProduct,
 } from 'helpers/analyticsHelper'
 import { buildUserTraits } from 'helpers/buildUserTraits'
 
@@ -17,13 +18,17 @@ let mockUser: User | null = null
 let mockSearchParamsValue: URLSearchParams | null = new URLSearchParams()
 let mockOrganizationRole: 'owner' | 'campaignAdmin' | 'volunteer' | undefined =
   undefined
+let mockElectedOfficeId: string | null = null
 
 vi.mock('@shared/hooks/useUser', () => ({
   useUser: () => [mockUser, vi.fn()],
 }))
 
 vi.mock('@shared/organization-picker', () => ({
-  useOrganizationRole: () => mockOrganizationRole,
+  useOrganization: () =>
+    mockOrganizationRole
+      ? { role: mockOrganizationRole, electedOfficeId: mockElectedOfficeId }
+      : undefined,
 }))
 
 vi.mock('next/navigation', () => ({
@@ -43,6 +48,10 @@ vi.mock('helpers/analyticsHelper', () => ({
   setUserEmail: vi.fn(),
   setActorUserId: vi.fn(),
   setActorRole: vi.fn(),
+  setActiveProduct: vi.fn(),
+  toActiveProduct: vi.fn((org) =>
+    org ? (org.electedOfficeId ? 'serve' : 'win') : null,
+  ),
 }))
 
 vi.mock('helpers/buildUserTraits', () => ({
@@ -75,6 +84,7 @@ beforeEach(() => {
   mockUser = null
   mockSearchParamsValue = new URLSearchParams()
   mockOrganizationRole = undefined
+  mockElectedOfficeId = null
   vi.mocked(identifyUser).mockReset().mockResolvedValue(true)
   vi.mocked(persistUtmsOnce).mockReset()
   vi.mocked(getPersistedUtms).mockReset().mockReturnValue({})
@@ -258,6 +268,18 @@ describe('SegmentIdentify', () => {
 
     await vi.waitFor(() => {
       expect(setActorUserId).toHaveBeenCalledWith(undefined)
+    })
+  })
+
+  it('sets the active product from the selected org', async () => {
+    mockUser = fullUser
+    mockOrganizationRole = 'owner'
+    mockElectedOfficeId = 'eo1'
+
+    render(<SegmentIdentify />)
+
+    await vi.waitFor(() => {
+      expect(setActiveProduct).toHaveBeenCalledWith('serve')
     })
   })
 })

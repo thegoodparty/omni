@@ -1,7 +1,9 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
+import { useQuery } from '@tanstack/react-query'
+import { useOrganization } from '@shared/organization-picker'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import {
   CIVIC_PANEL_PAGE_HREF,
@@ -50,6 +52,7 @@ import {
   useServePlace,
 } from '../../contacts/citizens-panel/managedPanelCopy'
 import { ManagedPanelSeats } from '../../contacts/citizens-panel/components/ManagedPanelSeats'
+import { civicPanelSummaryQueryOptions } from '../../contacts/citizens-panel/civicPanelSummary.query'
 
 // Same timing as the Campaign Manager's stack: the confetti bursts, then a
 // done card lifts off the top while a skipped one drops down and out.
@@ -90,20 +93,23 @@ type DeckCard = {
   managedProgress: ManagedPanelProgressPhase | null
   // Tells the civic_panel cards apart in analytics.
   variant: CardVariant
+  // A report back's priority, for analytics.
+  priorityId: string | null
 }
 
 type CardVariant =
-  | 'panel_managed'
-  | 'panel_managed_progress'
+  | 'managed_offer'
+  | `managed_${ManagedPanelProgressPhase}`
   | 'priority_next_step'
   | 'report_back'
   | 'other'
 
-const cardVariant = (
+export const cardVariant = (
   card: Parameters<typeof managedPanelProgressPhase>[0],
 ): CardVariant => {
-  if (isManagedCivicPanelCard(card)) return 'panel_managed'
-  if (managedPanelProgressPhase(card)) return 'panel_managed_progress'
+  if (isManagedCivicPanelCard(card)) return 'managed_offer'
+  const phase = managedPanelProgressPhase(card)
+  if (phase) return `managed_${phase}`
   if (card.type === 'civic_panel') return 'priority_next_step'
   if (card.type === 'report_back') return 'report_back'
   return 'other'
@@ -218,6 +224,7 @@ const TaskStack = ({
     managedPanel: isManagedCivicPanelCard(card),
     managedProgress: managedPanelProgressPhase(card),
     variant: cardVariant(card),
+    priorityId: card.type === 'report_back' ? card.sourceExternalId : null,
   }))
   const onboardingCards: DeckCard[] = ONBOARDING_CARD_ORDER.filter((key) =>
     onboarding?.some((c) => c.key === key && c.status === 'active'),
@@ -235,6 +242,7 @@ const TaskStack = ({
     managedPanel: false,
     managedProgress: null,
     variant: 'other' as const,
+    priorityId: null,
   }))
   // A new official meets their Chief of Staff before anything else, then
   // builds the panel, then sets priorities. A report back on a good read
@@ -252,6 +260,41 @@ const TaskStack = ({
     : deck
   const front = stack[0]
   const layersBehind = Math.min(stack.length - 1, 2)
+
+  // Task Viewed: once each time a card becomes the front of the deck. A
+  // civic panel card waits for the panel's numbers so it can carry them.
+  const deckFront = deck[0]
+  const frontIsPanel = deckFront?.kind === 'civic_panel'
+  const orgSlug = useOrganization()?.slug
+  const panelSummary = useQuery({
+    ...civicPanelSummaryQueryOptions(orgSlug),
+    enabled: frontIsPanel && Boolean(orgSlug),
+  })
+  const viewedCardRef = useRef<string | null>(null)
+  const decksSettled = !cards.isPending && onboarding !== undefined
+  useEffect(() => {
+    if (!decksSettled || !deckFront) return
+    if (viewedCardRef.current === deckFront.id) return
+    if (frontIsPanel && panelSummary.isLoading) return
+    viewedCardRef.current = deckFront.id
+    const panel = frontIsPanel ? panelSummary.data : undefined
+    trackEvent(EVENTS.ChiefOfStaff.TaskViewed, {
+      cardType: deckFront.kind,
+      cardVariant: deckFront.variant,
+      stackSize: deck.length,
+      ...(panel
+        ? { members: panel.members, goalMembers: panel.progress.goal }
+        : {}),
+      ...(deckFront.priorityId ? { priorityId: deckFront.priorityId } : {}),
+    })
+  }, [
+    decksSettled,
+    deckFront,
+    deck.length,
+    frontIsPanel,
+    panelSummary.isLoading,
+    panelSummary.data,
+  ])
 
   if (cards.isPending || onboarding === undefined) {
     return (
@@ -381,7 +424,9 @@ const TaskStack = ({
           )}
         >
           <div className="flex flex-col gap-1 px-6 py-5">
-            {front.managedPanel ? <ManagedPanelSeats className="mb-4" /> : null}
+            {front.managedPanel ? (
+              <ManagedPanelSeats className="mx-auto mb-4 md:max-w-[360px]" />
+            ) : null}
             {/* No overline: the title leads. See design-memory learned.md. */}
             <h3 className="font-opensans text-lg font-medium text-card-foreground">
               {front.title}

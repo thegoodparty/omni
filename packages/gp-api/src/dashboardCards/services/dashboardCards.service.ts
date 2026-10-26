@@ -31,6 +31,7 @@ import {
   type PriorityReadStatus,
 } from '@goodparty_org/contracts'
 import { PriorityResultsService } from '@/priorities/services/priorityResults.service'
+import { shownNextAction } from '@/priorities/services/priorityStatus.service'
 import { currentStepOf } from '@/priorities/util/priority.util'
 import {
   briefingItemHref,
@@ -175,14 +176,26 @@ export const managedPanelProgressCardContent = (
       ctaHref: CIVIC_PANEL_PAGE_HREF,
     }
   }
+  // Matches the civic panel page's paused lead card.
+  if (panel.status === 'paused') {
+    return {
+      title: 'Your civic panel is paused',
+      summary:
+        members === 0
+          ? 'Nobody has joined yet. Resume invites to start filling it.'
+          : `${joined}. Resume invites to keep filling it.`,
+      ...see,
+    }
+  }
   return {
-    title: 'Your civic panel is filling up',
-    summary:
-      panel.status === 'paused'
-        ? `${joined}. Invites are paused.`
-        : nextWaveAt
-          ? `${joined}. More invites go out ${format(nextWaveAt, 'EEEE, MMMM d')}.`
-          : `${joined} so far.`,
+    // Matches the civic panel page, which has not started filling at 0.
+    title:
+      members === 0
+        ? 'Your civic panel starts here'
+        : 'Your civic panel is filling up',
+    summary: nextWaveAt
+      ? `${joined}. More invites go out ${format(nextWaveAt, 'EEEE, MMMM d')}.`
+      : `${joined} so far.`,
     ...see,
   }
 }
@@ -611,7 +624,17 @@ export class DashboardCardsService extends createPrismaBase(
       },
     })
     const openIds = open.map((priority) => priority.id)
-    const priorities = open.filter((priority) => !isPlanReady(priority))
+    const official = await tx.electedOffice.findUnique({
+      where: { id: electedOfficeId },
+      select: { user: { select: { firstName: true, lastName: true } } },
+    })
+    const names = [official?.user?.firstName, official?.user?.lastName]
+    const priorities = open
+      .filter((priority) => !isPlanReady(priority))
+      .map((priority) => ({
+        ...priority,
+        nextAction: shownNextAction(priority.nextAction, names),
+      }))
     const liveIds = priorities.map((priority) => priority.id)
 
     await tx.dashboardCard.deleteMany({

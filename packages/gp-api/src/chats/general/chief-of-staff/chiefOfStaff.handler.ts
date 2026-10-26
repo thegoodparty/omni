@@ -71,6 +71,7 @@ import { SERVE_CITIZEN_PANELS_FLAG } from '@/shared/util/serveCitizenPanelsFlag.
 import { PriorityResultsService } from '@/priorities/services/priorityResults.service'
 import { buildSizeOutreachSampleTool } from '../chat-tools/sizeOutreachSample.tool'
 import { PriorityFlowOutreachService } from '../priority-flow/services/priorityFlowOutreach.service'
+import { resolveSendWindowTimeZone } from '@/vendors/peerly/utils/sendWindowTimeZone.util'
 import { PriorityStatusService } from '@/priorities/services/priorityStatus.service'
 import { PeopleDatasetService } from '@/peopleDb/services/peopleDataset.service'
 
@@ -345,12 +346,14 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
         outreach: this.pastOutreach,
         priorityId: null,
         organizationSlug: ctx.organizationSlug,
+        timeZone: resolveSendWindowTimeZone(ctx.state),
       })
       if (ctx.outreachFeedbackEnabled) {
         tools.read_outreach_feedback = buildReadOutreachFeedbackTool({
           outreach: this.pastOutreach,
           priorityId: null,
           organizationSlug: ctx.organizationSlug,
+          timeZone: resolveSendWindowTimeZone(ctx.state),
         })
       }
       tools.present_past_outreach = buildPresentPastOutreachTool()

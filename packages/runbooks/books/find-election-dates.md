@@ -55,7 +55,7 @@ The remaining places are independent, so research them concurrently. Batch them 
   - Do not guess and do not infer from a similar jurisdiction. If no authoritative target-year date is verifiable, return not_found.
   - A single nonpartisan municipal election with no stage label goes in Election Date. A two-stage partisan race fills Primary and General.
   - Confidence: `high` = official `.gov` source. `medium` = a reputable secondary source (Ballotpedia, local news), or a date that rests only on a statewide statutory date with no jurisdiction-specific confirmation. Leave blank for not_found.
-  - Never cite: aggregator pages that return 200 but are machine-generated, PR-wire or self-published release pages, or LinkedIn. Same source discipline as `books/find-opposition-research.md`.
+  - Never cite: aggregator pages that return 200 but are machine-generated, PR-wire or self-published release pages, or LinkedIn.
 - **Verify URLs inside the subagent** (so verification parallelizes too):
 
 ```bash
@@ -117,7 +117,7 @@ Then print a short summary: filled vs not_found counts, the breakdown by state, 
 | State SoS lists one statutory election date, but a city votes on a different day | Home-rule / charter cities can set their own date | Treat the statewide date as medium until a jurisdiction-specific `.gov` source (county auditor, city clerk, sample ballot) confirms it. Verify per town for charter cities |
 | A jurisdiction has no election in the target year | Odd-year vs even-year municipal cycle | Return not_found and flag the contact as likely mis-cycled. Do not borrow a date from an adjacent year |
 | A tiny town has no election info online | Very small jurisdictions do not publish online | Return not_found plus a "call the county auditor / city clerk" flag. A blank beats a guess |
-| A source returns 200 but is machine-generated or an aggregator | Auto-generated per-candidate stubs and data aggregators verify clean but are not authoritative | Do not cite. Use an official `.gov` page or a named reputable source. Same rule as `find-opposition-research.md` |
+| A source returns 200 but is machine-generated or an aggregator | Auto-generated per-candidate stubs and data aggregators verify clean but are not authoritative | Do not cite. Use an official `.gov` page or a named reputable source. |
 | LinkedIn or a PR-wire page is the only "source" | These are not election authorities | Never cite them for an election date |
 | The election data has the race but `election_date` is null | BallotReady has the race but not the date for this local contest | Does not count as found. Route the jurisdiction to the web-research fan-out in step 3 |
 | A seeded `election_date` is in a year other than the target | You matched a past-cycle or wrong-cycle race record | Do not seed it. The step 2 target-year gate drops any non-target-year date and routes the jurisdiction to the web-research fan-out |

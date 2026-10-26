@@ -98,21 +98,25 @@ let cachedUser: BootstrappedUser | null = null
 // user gp-api has never seen, each of those independently asks Clerk's Backend
 // API to resolve the identity so it can JIT-provision the row, and Clerk's
 // per-instance budget answers 429 — which gp-api turns into a 401.
-async function signInUser(page: Page, email: string): Promise<void> {
+//
+// The ticket is minted from the Clerk user id we already hold. Passing
+// clerk.signIn an email instead makes it look the user up first, a second
+// Backend API call against the shared rate budget for an id we never lost.
+async function signInUser(page: Page, clerkUserId: string): Promise<void> {
   await setupClerkTestingToken({ page })
   await page.goto('/')
   await page.waitForFunction(() => window.Clerk?.loaded, null, {
     timeout: 15000,
   })
 
-  await clerkThrottle(
-    () =>
-      clerk.signIn({
-        page,
-        emailAddress: email,
-      }),
-    5,
+  const { token: ticket } = await clerkThrottle(() =>
+    clerkBackend.signInTokens.createSignInToken({
+      userId: clerkUserId,
+      expiresInSeconds: 300,
+    }),
   )
+  await clerk.signIn({ page, signInParams: { strategy: 'ticket', ticket } })
+  await page.waitForFunction(() => window.Clerk?.user !== null)
 }
 
 // Ordering contract: everything gp-api needs (user row, campaign) is created
@@ -139,7 +143,7 @@ const bootstrapTestUser = async (
     // /login, so only the first cached-user test on each worker was ever
     // authenticated. The user is already provisioned, so the ordering
     // contract below still holds.
-    await signInUser(page, cachedUser.user.email)
+    await signInUser(page, cachedUser.clerkUserId)
     return cachedUser
   }
 
@@ -202,7 +206,7 @@ const bootstrapTestUser = async (
   }
 
   if (options?.skipCampaignCreation) {
-    await signInUser(page, email)
+    await signInUser(page, clerkUser.id)
     if (!options?.isolated) {
       cachedUser = result
     }
@@ -265,7 +269,7 @@ const bootstrapTestUser = async (
     client.post('/v1/campaigns/launch', {}),
   )
 
-  await signInUser(page, email)
+  await signInUser(page, clerkUser.id)
 
   return result
 }

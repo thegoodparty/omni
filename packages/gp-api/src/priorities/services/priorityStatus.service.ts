@@ -7,6 +7,7 @@ import {
   isCheckAnswered,
   openListenBefore,
   PRIORITY_STATUS_VERSION,
+  PRIORITY_STEP_IDS,
   PRIORITY_STEP_LABELS,
   PriorityCheckSideSchema,
   PriorityStatusSchema,
@@ -39,6 +40,53 @@ import {
 } from '../schemas/priorityStatus.schema'
 
 const STEP_STATE = PriorityStepStateSchema.enum
+
+// Most step ids are ordinary words ("plan", "options"), so a bare match would
+// reject good sentences. These catch the id used as a name for the step:
+// "listen_problem", "the define step", "so define can be settled".
+const STEP_ID_PATTERNS = PRIORITY_STEP_IDS.flatMap((id) => [
+  new RegExp(`\\b${id}\\s+step\\b`, 'i'),
+  new RegExp(`\\b${id}\\b(?:\\s+\\w+){0,3}\\s+settled\\b`, 'i'),
+  new RegExp(`\\bsettle[sd]?\\s+(?:the\\s+)?${id}\\b`, 'i'),
+  ...(id.includes('_') ? [new RegExp(`\\b${id}\\b`, 'i')] : []),
+])
+
+const escapeRegExp = (value: string): string =>
+  value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+// The rail and the home cards show nextAction to the official, so it has to
+// read as advice to them: no third-person name, no internal step id.
+export const nextActionProblem = (
+  nextAction: string,
+  names: (string | null | undefined)[],
+): 'name' | 'step_id' | null => {
+  // A name that is also a word ("Will", "Mark", "Grant") opens plenty of good
+  // sentences, so a leading match followed by a lowercase word is grammar.
+  const named = names.some((name) => {
+    const trimmed = name?.trim()
+    if (trimmed === undefined || trimmed.length < 2) return false
+    const escaped = escapeRegExp(trimmed)
+    return (
+      new RegExp(`(?<!^)\\b${escaped}\\b`).test(nextAction) ||
+      new RegExp(`^${escaped}\\b(?!\\s+[a-z])`).test(nextAction)
+    )
+  })
+  if (named) return 'name'
+  if (STEP_ID_PATTERNS.some((pattern) => pattern.test(nextAction))) {
+    return 'step_id'
+  }
+  return null
+}
+
+// nextAction as the official may see it. One stored before the write guard
+// existed can still name them or a step, so reads drop it the same way.
+export const shownNextAction = (
+  nextAction: string | null,
+  names: (string | null | undefined)[],
+): string | null =>
+  nextAction !== null && nextActionProblem(nextAction, names) === null
+    ? nextAction
+    : null
 
 // A merged check is always a fresh object with a fresh updatedAt, so only its
 // content says whether anything changed.
@@ -374,6 +422,32 @@ export class PriorityStatusService extends createPrismaBase(MODELS.Priority) {
     return parsePriorityStatus(row?.status)
   }
 
+  private async officialNextAction(
+    priorityId: string,
+    nextAction: string | null,
+  ): Promise<string | null> {
+    if (nextAction === null) return null
+    const row = await this.model.findUnique({
+      where: { id: priorityId },
+      select: {
+        electedOffice: {
+          select: { user: { select: { firstName: true, lastName: true } } },
+        },
+      },
+    })
+    const user = row?.electedOffice.user
+    const problem = nextActionProblem(nextAction, [
+      user?.firstName,
+      user?.lastName,
+    ])
+    if (problem === null) return nextAction
+    this.logger.warn(
+      { priorityId, problem },
+      'dropped a nextAction not written to the official',
+    )
+    return null
+  }
+
   async applyUpdate(
     priorityId: string,
     update: UpdatePriorityStatusInput,
@@ -440,7 +514,10 @@ export class PriorityStatusService extends createPrismaBase(MODELS.Priority) {
       firstInState(STEP_STATE.active) ??
       firstInState(STEP_STATE.stale) ??
       firstInState(STEP_STATE.open)
-    const nextAction = update.nextAction.trim() || null
+    const nextAction = await this.officialNextAction(
+      priorityId,
+      update.nextAction.trim() || null,
+    )
 
     await this.model.update({
       where: { id: priorityId },
@@ -660,7 +737,10 @@ export class PriorityStatusService extends createPrismaBase(MODELS.Priority) {
           'and say what changed in caveat. A detail added, a number ' +
           'confirmed, or the topic coming up again is not enough. Always ' +
           'pass nextAction: one short sentence the official could act on ' +
-          'today.',
+          'today, written to them as "you". The app shows it to the ' +
+          'official, so never use their name, he, she or they for them, ' +
+          'or a step id like define. A nextAction with their name or a ' +
+          'step id is dropped.',
         inputSchema: UpdatePriorityStatusInputSchema,
         execute: async (input) => {
           const current = await this.read(priorityId)

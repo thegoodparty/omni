@@ -12,7 +12,7 @@ import { RecommendedListsService } from './services/recommendedLists.service'
   imports: [
     ContactsModule,
     CampaignIdeologyModule,
-    // For ElectionApiService, the one client that already fetches
+    // For RaceContextService, the one client that already fetches
     // win-number data. A second election-api client here would be a second
     // place for the vote goal to be defined.
     CampaignStrategyModule,
