@@ -114,6 +114,11 @@ to a container. Start that server with the same flags `test-postgres.ts` sets
 and the sweep's `pg_stat_file()` needs superuser, so it has to be a server we
 own rather than a managed cluster. Unset, nothing changes.
 
+In gp-pi, that server is a sidecar started from the host with
+`scripts/gp-pi-testdb.sh`; set `OMNI_TEST_POSTGRES_URL` to
+`postgresql://test_user:test_password@127.0.0.1:55432/postgres`. See
+`docs/testing.md` § In gp-pi.
+
 Two things about that container and the per-test reset are load-bearing, not
 incidental. It runs with `fsync`/`synchronous_commit`/`full_page_writes` off,
 because every test commits many small writes and the container is thrown away,

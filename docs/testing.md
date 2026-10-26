@@ -66,5 +66,25 @@ own. It has to be loopback and its maintenance database has to be named
 `postgres`; anything else throws instead of silently falling back. Details and
 the flags that server needs: `packages/gp-api/AGENTS.md` § Verify.
 
+### In gp-pi
+
+gp-pi's sandbox has no Docker socket either. From the host, give the instance a
+test database once:
+
+```bash
+scripts/gp-pi-testdb.sh [gp-pi instance]
+```
+
+It starts the harness's Postgres as a `gp-pi sidecar` on the sandbox's own
+loopback, and gp-pi re-creates it after the instance restarts. Then, inside the
+sandbox:
+
+```bash
+export OMNI_TEST_POSTGRES_URL=postgresql://test_user:test_password@127.0.0.1:55432/postgres
+```
+
+If the harness says that address is unreachable, the engineer re-runs the
+script on the host; an agent inside cannot.
+
 `ECONNREFUSED 127.0.0.1:5432` is a different failure — that suite wants a _local_
 Postgres, not a testcontainer.
