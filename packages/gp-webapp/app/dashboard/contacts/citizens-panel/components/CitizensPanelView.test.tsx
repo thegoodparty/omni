@@ -217,6 +217,25 @@ describe('CitizensPanelView', () => {
     expect(screen.queryByTestId('civic-panel-next')).not.toBeInTheDocument()
   })
 
+  it('says one member is ready to share their views', () => {
+    render(
+      <CitizensPanelView
+        summary={{
+          ...SUMMARY,
+          members: 1,
+          progress: { ...SUMMARY.progress, members: 1 },
+        }}
+        managed={managed('building')}
+      />,
+    )
+
+    expect(
+      screen.getByText(
+        '1 Asheville resident is ready to share their views, on the way to 240.',
+      ),
+    ).toBeInTheDocument()
+  })
+
   it('names the groups furthest below their share, never telling the official to invite', () => {
     render(
       <CitizensPanelView summary={SUMMARY} managed={managed('building')} />,
@@ -226,7 +245,9 @@ describe('CitizensPanelView', () => {
       screen.getByRole('heading', { name: 'Your civic panel is filling up' }),
     ).toBeInTheDocument()
     expect(
-      screen.getByText('40 of 240 residents have joined so far.'),
+      screen.getByText(
+        '40 Asheville residents are ready to share their views, on the way to 240.',
+      ),
     ).toBeInTheDocument()
     const next = screen.getByTestId('civic-panel-next')
     expect(

@@ -26,7 +26,8 @@ pads `var(--chat-dock-height)` plus 8rem so the last card clears the bar.
   is paused", with Resume invites in its line, the same words as the home
   card), else `start` at 0 members, else `building`.
 - **Hero** (`CivicPanelHero`): the stage's title and line
-  (`COPY.hero`), the goal as 100 seats (`SeatArc` from `CivicPanelSeats`,
+  (`COPY.hero`; building names the place, "{members} {place} residents
+  are ready to share their views, on the way to {goal}."), the goal as 100 seats (`SeatArc` from `CivicPanelSeats`,
   `quiet`, on `plainSeats`: filled is members over goal, in arc order, in
   bands of the brand's three families) from `lg`, below it a `Progress`
   bar (CSS breakpoints, both always rendered; "{members} of {goal} residents

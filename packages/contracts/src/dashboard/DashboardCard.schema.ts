@@ -79,7 +79,7 @@ export const MANAGED_CIVIC_PANEL_CARD_CTA = 'Build my civic panel'
 export const managedCivicPanelCardContent = (place: string | null) => {
   const where = place?.trim() || 'your district'
   return {
-    title: `Know what ${where} thinks before you vote`,
+    title: `Hear from all of ${where}, not just the loudest voices`,
     summary: `Residents from every part of ${where}, matched by age, gender and race. Free in early access.`,
   }
 }

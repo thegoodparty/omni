@@ -388,7 +388,7 @@ describe('CivicPanelHero', () => {
       screen.getByRole('heading', { name: 'Your civic panel starts here' }),
     ).toBeInTheDocument()
     expect(
-      screen.getByText('Every resident who says yes takes a seat.'),
+      screen.getByText('Every resident who says yes joins your civic panel.'),
     ).toBeInTheDocument()
     expect(filledSeats(container)).toBe(0)
     expect(screen.getByText('First yes')).toHaveTextContent('Next')
@@ -399,7 +399,9 @@ describe('CivicPanelHero', () => {
       <CivicPanelHero stage="building" members={120} goal={GOAL} />,
     )
     expect(
-      screen.getByText('120 of 240 residents have joined so far.'),
+      screen.getByText(
+        '120 residents are ready to share their views, on the way to 240.',
+      ),
     ).toBeInTheDocument()
     expect(filledSeats(container)).toBe(50)
     expect(screen.getByText('Halfway')).toHaveTextContent('Done')
@@ -425,7 +427,9 @@ describe('CivicPanelHero', () => {
     expect(bar).toHaveClass('lg:hidden')
     // The line above already says how many joined, so the bar does not.
     expect(
-      screen.getByText('60 of 240 residents have joined so far.'),
+      screen.getByText(
+        '60 residents are ready to share their views, on the way to 240.',
+      ),
     ).toBeInTheDocument()
     expect(
       within(bar).queryByText('60 of 240 residents have joined'),

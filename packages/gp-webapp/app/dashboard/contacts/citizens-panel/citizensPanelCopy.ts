@@ -164,12 +164,12 @@ export const SERVE_CITIZENS_PANEL_COPY = {
   hero: {
     start: {
       title: 'Your civic panel starts here',
-      line: () => 'Every resident who says yes takes a seat.',
+      line: () => 'Every resident who says yes joins your civic panel.',
     },
     building: {
       title: 'Your civic panel is filling up',
-      line: (members: number, goal: number) =>
-        `${count(members)} of ${count(goal)} residents have joined so far.`,
+      line: (members: number, goal: number, place: string | null) =>
+        `${count(members)} ${place ? `${place} ` : ''}${members === 1 ? 'resident is' : 'residents are'} ready to share their views, on the way to ${count(goal)}.`,
     },
     // The home card says the same (gp-api's managedPanelProgressCardContent).
     paused: {
@@ -195,7 +195,10 @@ export const SERVE_CITIZENS_PANEL_COPY = {
     },
   } satisfies Record<
     CivicPanelStage,
-    { title: string; line: (members: number, goal: number) => string }
+    {
+      title: string
+      line: (members: number, goal: number, place: string | null) => string
+    }
   >,
   // The hero's bar below lg, in place of the seats.
   joinedOfGoal: (members: number, goal: number) =>

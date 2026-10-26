@@ -263,7 +263,7 @@ describe('<TaskStack>', () => {
   const panelCard = card({
     id: 'panel',
     type: 'civic_panel',
-    title: 'Know what your district thinks before you vote',
+    title: 'Hear from all of your district, not just the loudest voices',
     summary:
       'Residents from every part of your district, matched by age, ' +
       'gender and race. Free in early access.',
@@ -506,7 +506,7 @@ describe('<TaskStack>', () => {
     const managedCard = card({
       id: 'managed-1',
       type: 'civic_panel',
-      title: 'Know what your district thinks before you vote',
+      title: 'Hear from all of your district, not just the loudest voices',
       summary:
         'Residents from every part of your district, matched by age, ' +
         'gender and race. Free in early access.',
@@ -515,7 +515,7 @@ describe('<TaskStack>', () => {
       sourceExternalId: 'managed-panel:office-1',
     })
 
-    it('leads under Every group gets a seat, naming the place', () => {
+    it('leads under Your civic panel, naming the place', () => {
       orgRef.current = {
         slug: 'eo-test',
         district: { l2Name: 'Maplewood City Ward 2' },
@@ -525,11 +525,11 @@ describe('<TaskStack>', () => {
       render(<TaskStack onOpenCard={vi.fn()} onDiscussCard={vi.fn()} />)
 
       expect(
-        screen.getByRole('heading', { name: 'Every group gets a seat' }),
+        screen.getByRole('heading', { name: 'Your civic panel' }),
       ).toBeInTheDocument()
       expect(
         screen.getByRole('heading', {
-          name: 'Know what Maplewood thinks before you vote',
+          name: 'Hear from all of Maplewood, not just the loudest voices',
         }),
       ).toBeInTheDocument()
       expect(
@@ -556,7 +556,7 @@ describe('<TaskStack>', () => {
 
       expect(
         screen.getByRole('heading', {
-          name: 'Know what Winston-Salem thinks before you vote',
+          name: 'Hear from all of Winston-Salem, not just the loudest voices',
         }),
       ).toBeInTheDocument()
     })
@@ -584,7 +584,7 @@ describe('<TaskStack>', () => {
       await user.click(screen.getByRole('button', { name: 'Ask about this' }))
       expect(onDiscussCard).toHaveBeenLastCalledWith(
         expect.stringContaining(
-          'Know what your district thinks before you vote',
+          'Hear from all of your district, not just the loudest voices',
         ),
       )
       expect(screen.getByRole('button', { name: 'Skip' })).toBeInTheDocument()

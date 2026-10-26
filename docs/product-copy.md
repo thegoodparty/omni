@@ -142,9 +142,9 @@ matters to them. Cost, counts, channels and how it works belong in the flow
 the card opens, never on the card. Cards that show an item (a meeting, an
 agenda item, an issue, a priority's next step) keep the item as the headline.
 
-| Write this                                     | Not this                                         |
-| ---------------------------------------------- | ------------------------------------------------ |
-| Know what your district thinks before you vote | A paid text to up to 3,334 residents, about $117 |
+| Write this                                                  | Not this                                         |
+| ----------------------------------------------------------- | ------------------------------------------------ |
+| Hear from all of your district, not just the loudest voices | A paid text to up to 3,334 residents, about $117 |
 
 Source of truth for the pattern: the managed civic panel card
 (`managedCivicPanelCardContent` in
