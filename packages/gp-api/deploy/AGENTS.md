@@ -24,6 +24,8 @@ Pulumi (TypeScript) infrastructure-as-code, the production Dockerfile, and the `
 | `components/preview-shared-cluster.ts`      | Shared preview Aurora cluster (`gp-api-preview-shared-db`); created by the dev stack |
 | `components/election-db.ts`                 | The election Aurora cluster (`election-api-db-develop` / `-prod`) and its RDS-event log copy; dev and prod stacks only |
 | `components/preview-shared-alb.ts`          | Shared preview ALB (`gp-api-previews`) + `*.preview.goodparty.org`; created by the dev stack |
+| `components/databricks-federation.ts`       | PrivateLink path for Databricks Lakehouse Federation into Aurora (NLB, endpoint service, IP-sync Lambda); dev and prod stacks only |
+| `databricks/federation/`                    | Runbook and `create-connection.sh` for the Unity Catalog connection                   |
 
 ## Patterns
 
@@ -63,6 +65,10 @@ Preview services run with `connection_limit=5` (set by `IS_PREVIEW` in `docker-e
 ## Election database (`components/election-db.ts`)
 
 The election data Aurora cluster that `ELECTION_DATABASE_URL` points at. It was created by the retired election-api stack and adopted here by `import`, so its physical names (`election-api-db-*`, `tf-2025…` instance ids, `rdsEventsRule-*`) and its `Project: election-api` tag are historical, not a pattern to copy. Previews read the dev cluster and never own it. The master password is deliberately not an input: Pulumi does not manage it.
+
+## Databricks federation (`components/databricks-federation.ts`)
+
+Databricks serverless compute queries the dev and prod Aurora clusters through a VPC endpoint service on an internal NLB (stack output `databricksEndpointServiceName`). An NLB target can only be an IP and the writer's IP moves on failover, so the `gp-api-db-<env>-federation-ip-sync` Lambda re-registers the target every minute; Pulumi registers none. Its decision logic, `databricks-federation-ip-sync/target-plan.ts`, is transpiled into the Lambda at deploy time and must not import anything. The NLB's security group is created in `index.ts`, ahead of the RDS security group whose inline ingress names it. Previews get none of it. Runbook: `databricks/federation/README.md`.
 
 ## Gotchas
 

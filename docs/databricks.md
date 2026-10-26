@@ -27,6 +27,15 @@ with 460+ models, and the results land here and get written back to the Postgres
 databases. If you need to change what a table contains or add one, that work happens
 in `gp-data-platform`, not here. This repo only _reads_ Databricks.
 
+### gp-api Postgres, live (Lakehouse Federation)
+
+The foreign catalogs `gp_api_pg_dev` and `gp_api_pg` read gp-api's Aurora
+database live, as the read-only Postgres role `databricks_federation`. Serverless
+warehouses reach Aurora over PrivateLink through an NLB that gp-api's Pulumi
+creates. Access is through the readers groups `gp_api_pg_dev_readers` and
+`gp_api_pg_readers`. Setup, access and failure modes:
+`packages/gp-api/deploy/databricks/federation/README.md`.
+
 ## Access — use the CLI
 
 The Databricks CLI authenticates with OAuth (browser login, token stored in your OS
