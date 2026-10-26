@@ -502,11 +502,18 @@ test.describe('Robocall send — M2 mock pipeline', () => {
     await NavigationHelper.dismissOverlays(page)
     const row = page.locator(`#outreach-row-${outreachId}`)
     await expect(row).toBeVisible({ timeout: 30_000 })
-    await row.click()
-
+    // The page is loaded on domcontentloaded, so the row click can land before
+    // React hydrates and be dropped, leaving the drawer closed. Retry until the
+    // drawer's footer button shows.
+    //
     // The footer button and the confirm dialog's action share the label, so
     // scope the second to the dialog.
-    await page.getByRole('button', { name: 'Cancel campaign' }).click()
+    const cancelButton = page.getByRole('button', { name: 'Cancel campaign' })
+    await expect(async () => {
+      if (!(await cancelButton.isVisible())) await row.click({ timeout: 2_000 })
+      await expect(cancelButton).toBeVisible({ timeout: 3_000 })
+    }).toPass({ timeout: 30_000 })
+    await cancelButton.click()
     const confirmDialog = page.getByRole('alertdialog')
     await expect(confirmDialog).toContainText('Cancel this campaign?')
     const cancelRequest = page.waitForResponse(
