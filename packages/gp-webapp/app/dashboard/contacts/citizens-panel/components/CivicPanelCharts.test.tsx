@@ -361,7 +361,7 @@ describe('CivicPanelHero', () => {
       screen.getByRole('heading', { name: 'Your civic panel starts here' }),
     ).toBeInTheDocument()
     expect(
-      screen.getByText('Every resident who says yes takes a seat.'),
+      screen.getByText('Every resident who says yes joins your civic panel.'),
     ).toBeInTheDocument()
     expect(filledSeats(container)).toBe(0)
     expect(screen.getByText('First yes')).toHaveTextContent('Next')

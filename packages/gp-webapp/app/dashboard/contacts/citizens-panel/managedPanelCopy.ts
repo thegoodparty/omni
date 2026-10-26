@@ -25,8 +25,8 @@ const residentsOf = (place: string | null): string =>
 // in the Chief of Staff chat. Serve only, so constituents and residents.
 export const MANAGED_PANEL_COPY = {
   headline: 'Your civic panel',
-  seatsLabel: (filled: number) =>
-    `${filled} of 100 seats filled, one for every group in your district`,
+  seatsLabel: (place: string | null) =>
+    `A civic panel filling up with residents from every part of ${place ?? 'your district'}`,
   offerQuestion: 'Want to see the invite?',
   notNow: 'Not now',
   inviteCardTitle: 'Your civic panel invite',

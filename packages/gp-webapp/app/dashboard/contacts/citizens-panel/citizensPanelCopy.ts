@@ -164,7 +164,7 @@ export const SERVE_CITIZENS_PANEL_COPY = {
   hero: {
     start: {
       title: 'Your civic panel starts here',
-      line: () => 'Every resident who says yes takes a seat.',
+      line: () => 'Every resident who says yes joins your civic panel.',
     },
     building: {
       title: 'Your civic panel is filling up',
