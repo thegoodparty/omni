@@ -14,7 +14,7 @@ import {
   getAnswersHref,
   readPercent,
 } from '../../readStatusCopy'
-import { GroupSeatsArc, GroupSeatsLegend } from '../../components/GroupSeats'
+import { AnswerSeatsArc, AnswerSeatsLegend } from '../../components/AnswerSeats'
 import { READ_STATUS_PROPERTY } from '../../readStatusProperty'
 import { CivicPanelBloom } from 'app/dashboard/contacts/citizens-panel/components/CivicPanelBloom'
 import { RespondentHeatGrid } from './RespondentHeatGrid'
@@ -129,11 +129,11 @@ export const PriorityResultsView = ({
             <div className="flex flex-col gap-2 lg:items-center">
               {/* Seats on a computer, the bar below lg, by CSS alone so the
                   card never jumps. */}
-              <GroupSeatsArc
+              <AnswerSeatsArc
                 readStatus={readStatus}
                 className="hidden max-w-80 lg:block"
               />
-              <GroupSeatsLegend
+              <AnswerSeatsLegend
                 readStatus={readStatus}
                 className="hidden justify-center lg:flex"
               />

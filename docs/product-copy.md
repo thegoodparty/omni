@@ -1,7 +1,7 @@
 # Product copy rules
 
 Every string a candidate reads is product. This file is the standard for
-writing it: UI copy in `gp-webapp`, `gp-admin`, `prototypes`, and
+writing it: UI copy in `gp-webapp`, `gp-admin` and
 `candidate-sites`, and any user-facing text our AI agents generate.
 
 Our users are first-time candidates and small-town elected officials doing

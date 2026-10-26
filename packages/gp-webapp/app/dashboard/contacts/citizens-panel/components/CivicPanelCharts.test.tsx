@@ -277,11 +277,38 @@ describe('CivicPanelSeats with tract names', () => {
     )
     const list = screen.getByRole('list')
     const row = within(list).getByText('West Asheville, around Haywood Rd')
-    expect(row).toHaveClass('truncate')
+    expect(row).toHaveClass('sm:truncate')
+    expect(row).not.toHaveClass('truncate')
     expect(row).toHaveAttribute('title', 'West Asheville, around Haywood Rd')
     expect(within(list).getByText('Tract 14.02')).toBeInTheDocument()
     // A street label starts its line here, so it reads capitalized.
     expect(within(list).getByText('Around Merrimon Ave')).toBeInTheDocument()
+  })
+
+  // jsdom applies no CSS, so this pins the classes that lay a row out.
+  it('puts the count on its own line under a long name on a phone, and beside it from sm up', () => {
+    render(
+      <CivicPanelSeats
+        placeKind="tract"
+        places={named(120)}
+        members={120}
+        goal={GOAL}
+      />,
+    )
+    const name = within(screen.getByRole('list')).getByText(
+      'West Asheville, around Haywood Rd',
+    )
+    const row = name.closest('li')
+    expect(row).toHaveClass('grid-cols-1')
+    const count = within(row as HTMLElement).getByText(/filled$/)
+    expect(count).toHaveClass(
+      'row-start-2',
+      'whitespace-nowrap',
+      'sm:row-start-1',
+      'sm:col-start-3',
+      'sm:text-right',
+    )
+    expect(count).not.toHaveClass('text-right')
   })
 
   it('cuts a long name short around the arc, inside the frame, with the whole name as its tooltip', () => {

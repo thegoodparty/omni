@@ -44,6 +44,19 @@ const shortLine = (read: PriorityReadStatus): string => {
     : `${still}, and a few more answers from ${groupList(read, few)}`
 }
 
+// The people toward a balanced read and the people it needs, for the seats
+// and the bar. A read served before the API counted them falls back to
+// everyone who answered, up to the total needed.
+export const representativeCount = (
+  read: PriorityReadStatus,
+): { have: number; need: number } => {
+  const need = read.representativeNeeded ?? read.needed
+  return {
+    have: Math.min(read.representativeAnswers ?? read.answers, need),
+    need,
+  }
+}
+
 // Shared by the priority page and its results page, so a read reads the
 // same everywhere it shows.
 export const READ_STATUS_COPY = {
@@ -64,11 +77,12 @@ export const READ_STATUS_COPY = {
     !read.followUpSent,
   seeWhatWeHeard: 'See what we heard',
   whatWeHeard: 'What we heard',
-  progress: (read: PriorityReadStatus): string =>
-    `${read.groupsHeard} of ${read.groupsTotal} groups heard`,
+  progress: (read: PriorityReadStatus): string => {
+    const { have, need } = representativeCount(read)
+    return `${have.toLocaleString()} of the ${need.toLocaleString()} answers we need`
+  },
   legendHeard: 'Heard',
-  legendNext: 'Needs answers next',
-  legendNotYet: 'Not yet',
+  legendNeeded: 'Still needed',
   // The groups holding the read back, for the results page's held card.
   stillNeed: (read: PriorityReadStatus): string =>
     `Still need: ${groupList(read, read.underrepresented)}.`,
@@ -121,13 +135,13 @@ export const GET_ANSWERS_PARAM = 'getAnswers'
 export const getAnswersHref = (priorityId: string): string =>
   `/dashboard/priorities/${encodeURIComponent(priorityId)}?${GET_ANSWERS_PARAM}=1`
 
-export const readPercent = (read: PriorityReadStatus): number =>
-  read.groupsTotal === 0
-    ? 0
-    : Math.min(100, Math.round((read.groupsHeard / read.groupsTotal) * 100))
+export const readPercent = (read: PriorityReadStatus): number => {
+  const { have, need } = representativeCount(read)
+  return Math.min(100, Math.round((have / need) * 100))
+}
 
-// The groups bar takes its status's tone, so a full bar before a good read
-// (every group heard, the model not sure yet) is never the success colour.
+// The bar takes its status's tone, so a full bar before a good read (every
+// answer in, the model not sure yet) is never the success colour.
 export const READ_PROGRESS_TONE: Record<PriorityReadStatus['status'], string> =
   {
     tooEarly:

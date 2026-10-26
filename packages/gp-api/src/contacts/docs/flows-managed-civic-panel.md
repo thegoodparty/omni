@@ -24,9 +24,11 @@ words (`explain_managed_panel`: contracts' `managedCivicPanelExplanation`,
 and `managedCivicPanelHowItWorks` with the place, the seats and the census
 share of adults 65 or older from `ManagedCivicPanelService.explainerFacts`,
 falling back to a sentence without numbers), offers the
-invite (`offer_managed_panel_invite`), shows it
-(`present_managed_panel_invite`), and the webapp's text flow approves it
-(POST, with contracts' `MANAGED_CIVIC_PANEL_CONSENT_VERSION`). The flow's
+invite (`offer_managed_panel_invite`), and shows the invite card
+(`present_managed_panel_invite`: Your civic panel invite, Text to <place>
+residents, Review the invite). The card never shows the words; Review the
+invite opens the webapp's text flow, where they are shown and edited, and
+it approves them (POST, with contracts' `MANAGED_CIVIC_PANEL_CONSENT_VERSION`). The flow's
 close sends a hidden `MANAGED_CIVIC_PANEL_SET_UP_MESSAGE` or
 `MANAGED_CIVIC_PANEL_BACKED_OUT_MESSAGE`; on set up the agent reads
 `read_managed_panel` (status, members, goal, the first send date,

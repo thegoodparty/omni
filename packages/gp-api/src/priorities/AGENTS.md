@@ -93,8 +93,11 @@ share of the district against its share of the coded answers, unweighted.
 at all (a tract with none makes `unreachedAreas` unheard), and `groupsHeard` of `groupsTotal` (major groups with
 at least three coded answers), which the webapp shows instead of an answer
 count, and `groupsNext`, the major groups short of three that belong to a
-group named in `underrepresented`, which the webapp's groups seats ring as
-needed next. `unreachedAreaFor` takes its tracts from the same model
+group named in `underrepresented`. `representativeAnswers` of
+`representativeNeeded` is what the webapp's seats and bar show, in people:
+the floor, and the answers within their group's share of it on every
+dimension (the one furthest behind sets it), so a group heard from plenty
+never fills more than its share (`representativeOf`). `unreachedAreaFor` takes its tracts from the same model
 (`holdingBackTracts`: major tracts short of three answers or too unsure), so
 the area a list is saved to can never disagree with the status.
 
