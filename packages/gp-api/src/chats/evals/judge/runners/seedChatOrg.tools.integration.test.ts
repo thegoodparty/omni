@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { SlackService } from '@/vendors/slack/services/slack.service'
 import {
   CreateChatResponseSchema,
   type ChatAnchor,
@@ -64,6 +65,14 @@ const OTHER_SWEEP_ID = 'judge-19284756312-2'
 // that a test process does not have and a deployment does, and only those two:
 // see `withJudgePosition` and `withConstituentProvider`.
 const service = useTestService()
+
+// The campaign assistant's live race lookup posts its election-data misses
+// to Slack, which would otherwise wait on a real webhook.
+beforeEach(() => {
+  vi.spyOn(service.app.get(SlackService), 'message').mockResolvedValue(
+    undefined,
+  )
+})
 
 const CONSTITUENT_TOOLS = [
   'query_constituent_data',

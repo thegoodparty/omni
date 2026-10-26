@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process'
 import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
+import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
@@ -190,9 +191,9 @@ const cases = (n: number): RunRecord[] =>
 
 // The command, not the function. A module that exports `main` and never calls
 // it prints nothing and exits 0, which is how a workflow step goes green
-// having judged nothing — so this runs `npx tsx sweep.ts` as the workflow
-// does, rather than importing `main` and proving only that the function
-// works.
+// having judged nothing — so this runs sweep.ts under the tsx CLI the
+// workflow's `npx tsx` resolves to, rather than importing `main` and proving
+// only that the function works.
 //
 // Driven with a deliberately incomplete environment, so it needs no model and
 // spends nothing. What it proves is the wiring: the file is invokable under
@@ -200,14 +201,15 @@ const cases = (n: number): RunRecord[] =>
 // the process exits non-zero.
 describe('the judging entry as a command', () => {
   const ENTRY = path.join(__dirname, 'sweep.ts')
+  const TSX_CLI = createRequire(__filename).resolve('tsx/cli')
 
   const invoke = async (
     env: NodeJS.ProcessEnv,
   ): Promise<{ code: number; stderr: string; stdout: string }> =>
     new Promise((resolve) => {
-      const child = spawn('npx', ['tsx', ENTRY], {
+      const child = spawn(process.execPath, [TSX_CLI, ENTRY], {
         // JUDGE_* are cleared so a developer's own shell cannot make this
-        // pass, and PATH is kept because npx needs it.
+        // pass, and PATH is kept as the workflow's shell would have it.
         env: {
           PATH: process.env.PATH ?? '',
           HOME: process.env.HOME ?? '',

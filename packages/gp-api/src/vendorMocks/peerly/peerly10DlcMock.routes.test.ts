@@ -29,21 +29,12 @@ import {
 import { PeerlyIdentityService } from '@/vendors/peerly/services/peerlyIdentity.service'
 import { isPeerlyCvPinRejection } from '@/vendors/peerly/utils/peerlyCvPinRejection.util'
 import { signHs256Jwt } from './peerlyMockAuth.util'
+import {
+  appEnvOverrides,
+  useAppEnvOverrides,
+} from '@/shared/test-utils/appEnvOverrides'
 
-const { mockMode } = vi.hoisted(() => ({ mockMode: { value: 'mock' } }))
-vi.mock('@/shared/util/appEnvironment.util', async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import('@/shared/util/appEnvironment.util')>()
-  return {
-    ...actual,
-    get IS_NON_PROD_DEPLOY() {
-      return true
-    },
-    get VENDOR_MODE() {
-      return mockMode.value as 'mock' | 'live'
-    },
-  }
-})
+useAppEnvOverrides({ IS_NON_PROD_DEPLOY: true, VENDOR_MODE: 'mock' })
 
 const service = useTestService()
 
@@ -170,7 +161,7 @@ const submitBrand = (
   )
 
 beforeEach(() => {
-  mockMode.value = 'mock'
+  appEnvOverrides.VENDOR_MODE = 'mock'
   vi.spyOn(
     service.app.get(AreaCodeFromZipService),
     'getAreaCodeFromZip',
@@ -179,7 +170,7 @@ beforeEach(() => {
 
 describe('Peerly 10DLC mock: gating and auth', () => {
   it('returns 404 when VENDOR_MODE is live', async () => {
-    mockMode.value = 'live'
+    appEnvOverrides.VENDOR_MODE = 'live'
     const res = await service.client.get(`${BASE}/identities/listByAccount`, {
       headers: await mintJwt(),
       validateStatus: () => true,

@@ -31,7 +31,10 @@ const TEST_FILES = [
 // That is only safe for files that leave the module graph alone: vi.mock
 // swaps a module for the whole worker, so a file that mocks one either sees a
 // copy an earlier file already cached or leaks its mock into the next. Those
-// files get a fresh module graph each, as before.
+// files get a fresh module graph each, as before. To vary a deploy-env
+// constant from appEnvironment.util, set appEnvOverrides instead: one
+// vi.mock in src/test-app-env-mock.ts covers every file, so it needs no
+// fresh graph.
 const MODULE_MOCKING = /\bvi\.(mock|doMock|unmock|resetModules)\(/
 const needsFreshModules = glob(TEST_FILES, {
   cwd: __dirname,
@@ -112,6 +115,13 @@ export default defineConfig({
         extends: true,
         test: {
           name: 'shared-modules',
+          // Not in fresh-modules: those files vi.resetModules to re-read
+          // appEnvironment.util under a stubbed env, and a mocked module is
+          // never re-evaluated.
+          setupFiles: [
+            './src/test-app-env-mock.ts',
+            './src/test-clerk-throttle-mock.ts',
+          ],
           include: TEST_FILES,
           exclude: [...configDefaults.exclude, ...needsFreshModules],
           isolate: false,

@@ -88,17 +88,14 @@ const buildStreamService = (): {
 }
 
 describe('LlmService.streamChatCompletion', () => {
-  let originalEnv: NodeJS.ProcessEnv
-
   beforeEach(() => {
-    originalEnv = { ...process.env }
-    process.env.ANTHROPIC_API_KEY = 'test-anthropic-key'
-    process.env.AI_MODELS = 'claude-sonnet-4-6,claude-opus-4-7'
-    delete process.env.TOGETHER_AI_KEY
+    vi.stubEnv('ANTHROPIC_API_KEY', 'test-anthropic-key')
+    vi.stubEnv('AI_MODELS', 'claude-sonnet-4-6,claude-opus-4-7')
+    vi.stubEnv('TOGETHER_AI_KEY', undefined)
   })
 
   afterEach(() => {
-    process.env = originalEnv
+    vi.unstubAllEnvs()
   })
 
   it('yields text deltas through textStream and resolves finalText', async () => {
@@ -743,17 +740,14 @@ describe('LlmService.streamChatCompletion', () => {
 })
 
 describe('LlmService.buildToolSet (via streamChatCompletion)', () => {
-  let originalEnv: NodeJS.ProcessEnv
-
   beforeEach(() => {
-    originalEnv = { ...process.env }
-    process.env.ANTHROPIC_API_KEY = 'test-anthropic-key'
-    process.env.AI_MODELS = 'claude-sonnet-4-6'
-    delete process.env.TOGETHER_AI_KEY
+    vi.stubEnv('ANTHROPIC_API_KEY', 'test-anthropic-key')
+    vi.stubEnv('AI_MODELS', 'claude-sonnet-4-6')
+    vi.stubEnv('TOGETHER_AI_KEY', undefined)
   })
 
   afterEach(() => {
-    process.env = originalEnv
+    vi.unstubAllEnvs()
   })
 
   it('fires onToolCallStart before execute and onToolCallEnd after with output', async () => {
@@ -1058,17 +1052,14 @@ describe('LlmService.buildToolSet (via streamChatCompletion)', () => {
 })
 
 describe('toModelMessages conversion', () => {
-  let originalEnv: NodeJS.ProcessEnv
-
   beforeEach(() => {
-    originalEnv = { ...process.env }
-    process.env.ANTHROPIC_API_KEY = 'test-anthropic-key'
-    process.env.AI_MODELS = 'claude-sonnet-4-6'
-    delete process.env.TOGETHER_AI_KEY
+    vi.stubEnv('ANTHROPIC_API_KEY', 'test-anthropic-key')
+    vi.stubEnv('AI_MODELS', 'claude-sonnet-4-6')
+    vi.stubEnv('TOGETHER_AI_KEY', undefined)
   })
 
   afterEach(() => {
-    process.env = originalEnv
+    vi.unstubAllEnvs()
   })
 
   it('passes a plain user string through to streamText as a ModelMessage', async () => {
