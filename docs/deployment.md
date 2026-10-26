@@ -67,23 +67,6 @@ Vercel CLI (no git integration), driven by GitHub Actions and the shared
   `outputDirectory=storybook-static`) on the runner, then deploys `--prebuilt` to
   the project's **production** target, which Vercel serves at its production
   domain. The project has no Git integration — CLI-only, like the others.
-- The **prototypes app** (`packages/prototypes`) is its own Vercel project
-  (`VERCEL_PROJECT_ID_PROTOTYPES`, `rootDirectory=packages/prototypes`), served at
-  `prototypes.goodparty.org`. It is a single-environment, fully public Next.js app
-  with no backend coupling (no gp-api, no election-api, no e2e). On merges to
-  `main` the train's `dev-prototypes` job deploys it to the **production** target
-  (single-environment); on PRs `prototypes.yml` deploys a preview with a
-  deterministic alias (`prototypes-pr-<N>-good-party.vercel.app`). Both are guarded
-  by `vars.VERCEL_PROJECT_ID_PROTOTYPES != ''` and no-op until that variable is set.
-
-  **Manual prerequisites (one-time setup):**
-  1. Create the Vercel project with `rootDirectory=packages/prototypes`.
-  2. Set the `VERCEL_PROJECT_ID_PROTOTYPES` Actions variable in the repo (Settings
-     → Secrets and variables → Actions → Variables).
-  3. Add the `prototypes.goodparty.org` domain to the Vercel project and point the
-     DNS record at Vercel.
-  4. Confirm that deployment protection is OFF so the site is fully public.
-
 - The build step runs with `NODE_OPTIONS: --max-old-space-size=6144`: `next
 build` peaks near Node's default ~4GB heap and started OOMing intermittently
   on the runners (2026-06-12). The cap is per process and propagates to every
@@ -97,6 +80,10 @@ build` peaks near Node's default ~4GB heap and started OOMing intermittently
   every preview deploy in the repo failed. `--archive=tgz` uploads the output as
   one compressed file, making each deploy cost ~1 against the quota. It changes
   only the upload transport, so preview and prod both use it.
+- The action retries its network-only calls 3 times with backoff: the CLI
+  install, `vercel pull`, `vercel deploy` of the prebuilt output, and
+  `vercel alias set`. Each is safe to repeat. `vercel build` is not retried:
+  it runs locally and fails for code, token or heap reasons.
 - A single workflow (`pr-preview-comment.yml`) upserts **one** unified preview
   comment on the PR listing every app; every app's deploy job runs on every PR,
   so all the URLs resolve.
@@ -126,20 +113,22 @@ exercises the exact full-stack version proposed in the PR.
   edge is serving the expected `github.sha` via that endpoint (liveness alone is
   not enough on branch builds, where dev is always up on the prior commit).
 - The suite itself is sharded across runners: `e2e-shard` fans the Playwright
-  tests over a 4-way matrix (`--shard=n/4 --reporter=blob`), and the `E2E`
+  tests over a 6-way matrix, balanced by duration rather than Playwright's
+  count-based `--shard`. Each shard lists the suite and runs the `file:line`
+  slice `e2e-tests/scripts/plan-shards.mjs` assigns it from the last run's
+  durations, which the `E2E` job records to the Actions cache
+  (`e2e-durations-v1-*`; a PR reads its own latest, else main's). The `E2E`
   summary job merges the per-shard blob reports into one HTML report +
   `results.json`, publishes to S3, comments on the PR, and is the single required
   status check (red iff any shard failed). `E2E` keeps that exact name because the
   `main` ruleset gates on it. This is the pre-merge E2E against the PR's own
   full-stack preview; after merge the release train runs a second E2E against dev
   before promoting the commit to prod (see below).
-- election-api is not part of this yet (the webapp does not call it directly and it
-  has no preview stack).
 
 ## Backends (Docker + ECR + Pulumi -> ECS Fargate)
 
-gp-api and election-api build a production Docker image, push to ECR
-(tagged with the commit SHA), and deploy to ECS Fargate via Pulumi. A push to
+gp-api builds a production Docker image, pushes it to ECR
+(tagged with the commit SHA), and deploys to ECS Fargate via Pulumi. A push to
 `main` runs the release train, whose dev stage deploys the dev environment and
 whose prod stage promotes the same image (see below), not a push to a prod branch.
 Both stages call the same composite deploy action, only with different env inputs.
@@ -166,6 +155,11 @@ prod. It is the whole post-merge deploy path — per-service workflows on `main`
 run only their checks and image builds; the train owns the shared-env deploys,
 the E2E, and the promotion.
 
+A push that only changes `docs/**` or root-level `*.md` files starts no
+release, because it deploys nothing. The next push that changes code releases
+everything since the last release. Markdown under `packages/` is not skipped:
+runbooks and prompts there are read at runtime.
+
 Serialization is the point. The `release-train` concurrency group runs one train
 at a time (`cancel-in-progress: false`) and GitHub keeps only the latest queued
 run, so a burst of merges queues to a single waiting run and the train always
@@ -175,25 +169,23 @@ one fixed SHA flows dev -> E2E -> prod. That is what removes the deploy/E2E/prom
 races the old per-push topology hit under load (a validated commit could be built
 and green on dev yet never promoted because it was no longer the tip).
 
-A failed run posts one alert to Slack `#bot-urgent`
-(`release-failure-alert.yml`, a `workflow_run` listener), naming the failed jobs
-and the phase that died. Read the phase line before triaging: a failed
-`Dev <service>` job **skips** the E2E shards, so the run's red gate job is named
-`E2E` even when nothing e2e-related ran. Cancelled runs are the train coalescing
-a merge burst and do not alert.
-
-The first green run after a red one posts a recovery notice to the same channel.
-That half is edge-gated and the failure half is not: every red run alerts, so a
-multi-day outage stays visible, while a green run says nothing unless the run
-before it was red. Cancelled and skipped runs are transparent to that
-comparison rather than counting as green.
+Find the phase that died before triaging a red run: a failed `Dev <service>`
+job **skips** the E2E shards, so the run's red gate job is named `E2E` even when
+nothing e2e-related ran. Cancelled runs are the train coalescing a merge burst,
+not failures.
 
 The stages:
 
 1. **`await-checks`.** Waits for this commit's per-service check workflows
-   (gp-api, election-api, gp-webapp, gp-admin, candidate-sites,
+   (gp-api, gp-webapp, gp-admin, candidate-sites,
    publish-experiments, gp-ai) to go green on dev. A red check stops the train
-   for that SHA; a later merge forms the next train.
+   for that SHA; a later merge forms the next train. When `main` has already
+   moved past the SHA, the run first waits for the newer commit's runs of the
+   red checks. If they all pass there, the run cancels itself instead of
+   failing, because the newer commit fixed the problem and a merge burst
+   should not raise a false alert. If any fails there too, the run fails.
+   The cancel happens before any deploy starts, so it cannot strand a Pulumi
+   lock.
 2. **Dev stage.** Deploys every service to dev at the SHA (backends build +
    push the SHA-tagged image then Pulumi/Terraform apply; frontends deploy to
    Vercel and alias `dev.goodparty.org`).
@@ -278,6 +270,12 @@ deploy role, assumes the read-only plan role (`vars.AWS_PLAN_ROLE_ARN`), which
 can mint that login token (granted in `thegoodparty/ops`). Local builds need no
 login.
 
+A logged-in pull can still fail on the network, so the train retries the pulls
+it controls. It pre-pulls the buildx builder image with retries; buildx falls
+back to that local copy when its own one-shot pull fails. Pulumi and Terraform applies are never retried: they hold state
+locks, and a retry on top of a half-applied run is not idempotent (see
+[Concurrency](#concurrency-never-cancel-in-progress-true)).
+
 ### Analytics guard
 
 `.github/workflows/analytics-guard.yml` runs `governance_guard.py` (DATA-2432) on every
@@ -314,6 +312,13 @@ they are never load-bearing on a hit.
 `~/.npm` is cached separately, and only saved by a job that actually ran
 `npm ci`. Cache keys are immutable, so a job that saves an empty `~/.npm` poisons
 that lockfile hash until the lockfile changes.
+
+`~/.cache/prisma` is cached per Prisma version and generate script, because
+`prisma generate` downloads the schemas' musl `binaryTargets` there whenever
+the restored `node_modules` lacks them, and a dropped connection mid-download
+crashes the CLI. It is saved only when a generate actually put a musl engine in
+it, for the same immutable-key reason. Generate itself retries three times with
+backoff for the cache-miss path.
 
 ## Dependency updates (Dependabot)
 

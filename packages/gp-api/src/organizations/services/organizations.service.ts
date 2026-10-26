@@ -1,8 +1,13 @@
 import { ElectionsService } from '@/elections/services/elections.service'
 import { VoterIssueLevel } from '@/elections/types/elections.types'
 import { getVoterIssueLevelFromPositionLevel } from '@/elections/util/getVoterIssueLevelFromPositionLevel.util'
-import { BallotReadyPositionLevel } from '@goodparty_org/contracts'
 import {
+  BallotReadyPositionLevel,
+  cityFromDistrictName,
+  cityNameCase,
+} from '@goodparty_org/contracts'
+import {
+  BadGatewayException,
   BadRequestException,
   Injectable,
   InternalServerErrorException,
@@ -169,7 +174,9 @@ export class OrganizationsService extends createPrismaBase(
     })
     return await Promise.all(
       sortOrganizations(orgs, new Date()).map(async (org) => {
-        const friendly = await this.makeFriendly(org)
+        const friendly = await this.makeFriendly(org, {
+          tolerateElectionDbFailure: true,
+        })
         return {
           ...friendly,
           role: this.viewerRole(org, userId),
@@ -480,53 +487,11 @@ export class OrganizationsService extends createPrismaBase(
     return `${citySlug}-${state.toUpperCase()}`
   }
 
-  /**
-   * Extracts a clean city name from an L2DistrictName string.
-   *
-   * Handles known patterns:
-   *   "Fayetteville Ward 4"          → "Fayetteville"
-   *   "Kyle District 3"              → "Kyle"
-   *   "City of Kyle"                 → "Kyle"
-   *   "Town of Chapel Hill"          → "Chapel Hill"
-   *   "Fayetteville"                 → "Fayetteville"  (already clean)
-   *   "Pocatello City (Est.)"        → "Pocatello"
-   *   "North Port City (Est.)"       → "North Port"
-   *   "West Mifflin Boro"            → "West Mifflin"
-   *   "Alvin City Cncl D"            → "Alvin"
-   *   "Dubuque City Ward 3"          → "Dubuque"
-   *
-   * Returns null if the result is empty or looks like a non-city name.
-   */
+  // Extracts a clean city name from an L2DistrictName string. Lives in
+  // contracts so the webapp names the same place.
   static extractCityFromDistrictName(districtName: string): string | null {
-    let name = districtName.trim()
-
-    // Strip leading "City of", "Town of", "Village of", "Borough of"
-    name = name.replace(/^(City|Town|Village|Borough|Township)\s+of\s+/i, '')
-
-    // Strip trailing parenthetical qualifiers: "(Est.)", "(Ind.)", "(Pt.)", etc.
-    name = name.replace(/\s*\([^)]*\)\.?\s*$/i, '')
-
-    // Strip trailing abbreviated council/district suffixes before ward/district stripping:
-    // "Cncl D", "Cncl Dist", "Council D", "Council Dist"
-    name = name.replace(/\s+Cncl\s*(D(ist)?\.?)?\s*$/i, '')
-    name = name.replace(/\s+Council\s+D(ist)?\.?\s*$/i, '')
-
-    // Strip trailing ward/district/precinct suffixes: "Ward 4", "District 3", "Precinct 2A"
-    name = name.replace(
-      /\s+(Ward|District|Precinct|Division|At-Large)\s*[\w-]*$/i,
-      '',
-    )
-
-    // Strip trailing municipality type: "Johnstown City" → "Johnstown"
-    // Includes "Boro" as a short form of "Borough"
-    name = name.replace(/\s+(City|Town|Village|Borough|Boro|Township)$/i, '')
-
-    name = name.trim()
-
-    // Reject if empty or looks non-city (pure number, single char, etc.)
-    if (!name || name.length < 2 || /^\d+$/.test(name)) return null
-
-    return name
+    const city = cityFromDistrictName(districtName)
+    return city ? cityNameCase(city) : null
   }
 
   async getDistrictForOrgSlug(slug: string): Promise<OrgDistrict | null> {
@@ -732,24 +697,45 @@ export class OrganizationsService extends createPrismaBase(
       campaign: Campaign | null
       electedOffice: ElectedOffice | null
     },
+    options?: { tolerateElectionDbFailure?: boolean },
   ): Promise<FriendlyOrganization> {
-    const [position, overrideDistrict] = await Promise.all([
-      org.positionId
-        ? this.electionsService
-            .getPositionById(org.positionId, { includeDistrict: true })
-            .then((position) => {
-              if (!position) {
-                throw new InternalServerErrorException(
-                  'Organization references a non-existent position',
-                )
-              }
-              return position
-            })
-        : Promise.resolve(null),
-      org.overrideDistrictId
-        ? this.electionsService.getDistrict(org.overrideDistrictId)
-        : Promise.resolve(null),
+    const lookup = async <T>(fetch: () => Promise<T | null>) => {
+      try {
+        return { value: await fetch(), failed: false }
+      } catch (error) {
+        if (
+          options?.tolerateElectionDbFailure &&
+          error instanceof BadGatewayException
+        ) {
+          this.logger.warn(
+            { error, slug: org.slug },
+            'Election API unavailable; returning organization without position/district',
+          )
+          return { value: null, failed: true }
+        }
+        throw error
+      }
+    }
+    const { positionId, overrideDistrictId } = org
+    const [positionLookup, districtLookup] = await Promise.all([
+      positionId
+        ? lookup(() =>
+            this.electionsService.getPositionById(positionId, {
+              includeDistrict: true,
+            }),
+          )
+        : { value: null, failed: false },
+      overrideDistrictId
+        ? lookup(() => this.electionsService.getDistrict(overrideDistrictId))
+        : { value: null, failed: false },
     ])
+    if (positionId && !positionLookup.failed && !positionLookup.value) {
+      throw new InternalServerErrorException(
+        'Organization references a non-existent position',
+      )
+    }
+    const position = positionLookup.value
+    const overrideDistrict = districtLookup.value
 
     const rawDistrict = overrideDistrict ?? position?.district
     const district: OrgDistrict | null = rawDistrict

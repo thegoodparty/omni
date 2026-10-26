@@ -20,8 +20,12 @@ import {
   SPECIFIC_PHONE_FILTER_KEYS,
   WIN_ONLY_RECOMMENDED_FIELD_KEYS,
 } from '../shared/recommendedListFilters.config'
-import { SUPPORT_STATUS_OPTIONS } from '../shared/activityConditionOptions'
+import {
+  SUPPORT_STATUS_OPTIONS,
+  VOTED_STATUS_OPTIONS,
+} from '../shared/activityConditionOptions'
 import type { SupportStatusRollup } from '../shared/contacts-types'
+import type { VotedStatus } from '@goodparty_org/contracts'
 import {
   hasAnyVoterFileSelection,
   type VoterFileFilters,
@@ -35,6 +39,10 @@ interface VoterFileStepProps {
   onFiltersChange: (filters: VoterFileFilters) => void
   supportStatus: SupportStatusRollup[]
   onSupportStatusChange: (value: SupportStatusRollup[]) => void
+  // "Voted in election", Win only. Optional: only Voter Data's Create a list
+  // passes it, so the other surfaces that share this step don't gain it.
+  votedStatus?: VotedStatus[]
+  onVotedStatusChange?: (value: VotedStatus[]) => void
   precincts: string[]
   onPrecinctsChange: (value: string[]) => void
   // Fetched by the caller, not here: this component stays dumb (same reason
@@ -68,6 +76,7 @@ const CONTACTS_MADE_FIELD_KEY = 'contacts_made'
 // field missing from this array still renders, after the ordered set.
 const FIELD_ORDER_BELOW_SUPPORT_STATUS = [
   'voter_likely',
+  'early_vote',
   'political_party',
   'age',
   'marital_status',
@@ -97,6 +106,8 @@ export default function VoterFileStep({
   onFiltersChange,
   supportStatus,
   onSupportStatusChange,
+  votedStatus = [],
+  onVotedStatusChange,
   precincts,
   onPrecinctsChange,
   precinctOptions,
@@ -136,6 +147,7 @@ export default function VoterFileStep({
         (!isElectedOfficial ||
           (field.key !== 'political_party' &&
             field.key !== 'voter_likely' &&
+            field.key !== 'early_vote' &&
             field.key !== 'ethnicity')),
     )
     .sort((a, b) => orderIndex(a.key) - orderIndex(b.key))
@@ -177,11 +189,13 @@ export default function VoterFileStep({
     filters,
     supportStatus,
     precincts,
+    votedStatus,
   )
 
   const handleClearFilters = () => {
     onFiltersChange({})
     onSupportStatusChange([])
+    onVotedStatusChange?.([])
     onPrecinctsChange([])
   }
 
@@ -347,6 +361,50 @@ export default function VoterFileStep({
           ))}
         </ToggleGroup>
       </div>
+
+      {!isElectedOfficial && onVotedStatusChange && (
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center justify-between">
+            <h4 className={FILTER_GROUP_LABEL_CLASSNAME}>Voted in election</h4>
+            <Button
+              type="button"
+              variant="link"
+              size="small"
+              className="h-auto border-none p-0 text-xs"
+              onClick={() =>
+                onVotedStatusChange(
+                  votedStatus.length === VOTED_STATUS_OPTIONS.length
+                    ? []
+                    : VOTED_STATUS_OPTIONS.map((option) => option.value),
+                )
+              }
+            >
+              {votedStatus.length === VOTED_STATUS_OPTIONS.length
+                ? 'Clear'
+                : 'Select all'}
+            </Button>
+          </div>
+          <ToggleGroup
+            type="multiple"
+            value={votedStatus}
+            onValueChange={(values) =>
+              onVotedStatusChange(values as VotedStatus[])
+            }
+            aria-label="Voted in election"
+            className="flex flex-wrap gap-2"
+          >
+            {VOTED_STATUS_OPTIONS.map((option) => (
+              <ToggleGroupItem
+                key={option.value}
+                value={option.value}
+                className={PILL_TOGGLE_ITEM_CLASSNAME}
+              >
+                {option.label}
+              </ToggleGroupItem>
+            ))}
+          </ToggleGroup>
+        </div>
+      )}
 
       {fieldsBelowSupportStatus.map((field) => renderField(field))}
 

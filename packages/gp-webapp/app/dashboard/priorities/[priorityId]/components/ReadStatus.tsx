@@ -1,13 +1,16 @@
 import Link from 'next/link'
+import { format, parseISO } from 'date-fns'
 import type { PriorityReadStatus } from '@goodparty_org/contracts'
-import { Button, Progress } from '@styleguide'
+import { Button, cn, Progress } from '@styleguide'
 import { CheckIcon } from '@styleguide/components/ui/icons'
 import {
+  READ_PROGRESS_TONE,
   READ_STATUS_COPY,
   READ_STATUS_DOT,
   readPercent,
   resultsHref,
 } from '../readStatusCopy'
+import { AnswerSeatsArc, AnswerSeatsLegend } from './AnswerSeats'
 
 type ReadStatusProps = {
   priorityId: string
@@ -31,6 +34,16 @@ const GoodReadMark = ({ size }: { size: 'small' | 'medium' }) => (
   </span>
 )
 
+const FollowUpLine = ({ readStatus }: { readStatus: PriorityReadStatus }) =>
+  readStatus.followUp ? (
+    <span className="text-sm text-muted-foreground">
+      {READ_STATUS_COPY.followUp(
+        readStatus.followUp.texts,
+        format(parseISO(readStatus.followUp.scheduledLocalDate), 'MMM d'),
+      )}
+    </span>
+  ) : null
+
 const StatusDot = ({ readStatus }: { readStatus: PriorityReadStatus }) => (
   <span
     aria-hidden
@@ -46,12 +59,9 @@ const ReadProgress = ({
   className: string
 }) => (
   <Progress
-    value={readPercent(readStatus.answers, readStatus.needed)}
-    aria-label={READ_STATUS_COPY.progress(
-      readStatus.answers,
-      readStatus.needed,
-    )}
-    className={className}
+    value={readPercent(readStatus)}
+    aria-label={READ_STATUS_COPY.progress(readStatus)}
+    className={cn(className, READ_PROGRESS_TONE[readStatus.status])}
   />
 )
 
@@ -75,65 +85,85 @@ const GetAnswers = ({
   </Button>
 )
 
-// Phone: one compact row under the top bar. The text opens the results
-// page; the button is the one action.
+// Phone: one compact block under the top bar. The text opens the results
+// page; the button is the one action. The line wraps to two lines rather
+// than cutting off the groups it names, so a short read puts the bar and
+// Get answers on a row of their own below it.
 export const ReadStatusStrip = ({
   priorityId,
   readStatus,
   onGetAnswers,
   getAnswersDisabled = false,
-}: ReadStatusProps): React.JSX.Element => (
-  <div className="flex items-center gap-3 px-4 pb-2.5 pt-0.5">
-    {readStatus.good ? (
-      <>
-        <Link
-          href={resultsHref(priorityId)}
-          className="flex min-w-0 flex-1 items-center gap-2 text-foreground no-underline"
-        >
-          <GoodReadMark size="small" />
-          <span className="truncate text-sm font-semibold">
-            {READ_STATUS_COPY.goodLine(readStatus)}
-          </span>
-        </Link>
-        <Button asChild size="small" className="shrink-0 rounded-full">
-          <Link href={resultsHref(priorityId)}>
-            {READ_STATUS_COPY.seeWhatWeHeard}
-          </Link>
-        </Button>
-      </>
-    ) : (
-      <>
-        <Link
-          href={resultsHref(priorityId)}
-          className="flex min-w-0 flex-1 flex-col gap-1.5 text-foreground no-underline"
-        >
-          {readStatus.status === 'tooEarly' ? (
-            <>
-              <span className="truncate text-sm font-semibold">
-                {READ_STATUS_COPY.moreAnswers(
-                  readStatus.needed - readStatus.answers,
-                )}
-              </span>
-              <ReadProgress readStatus={readStatus} className="h-1.5" />
-            </>
-          ) : (
-            <span className="flex min-w-0 items-center gap-2">
-              <StatusDot readStatus={readStatus} />
-              <span className="truncate text-sm font-semibold">
-                {READ_STATUS_COPY.stripLine(readStatus)}
-              </span>
+}: ReadStatusProps): React.JSX.Element => {
+  const showBar = readStatus.checkOut === true && readStatus.groupsTotal > 0
+  const showGetAnswers = READ_STATUS_COPY.canGetAnswers(readStatus)
+  return (
+    <>
+      {readStatus.good ? (
+        <div className="flex items-center gap-3 px-4 pb-2.5 pt-0.5">
+          <Link
+            href={resultsHref(priorityId)}
+            className="flex min-w-0 flex-1 items-center gap-2 text-foreground no-underline"
+          >
+            <GoodReadMark size="small" />
+            <span
+              data-testid="read-status-line"
+              className="line-clamp-2 text-sm font-semibold"
+            >
+              {READ_STATUS_COPY.statusLine(readStatus)}
             </span>
-          )}
-        </Link>
-        <GetAnswers
-          onGetAnswers={onGetAnswers}
-          disabled={getAnswersDisabled}
-          className="shrink-0 rounded-full"
-        />
-      </>
-    )}
-  </div>
-)
+          </Link>
+          <Button asChild size="small" className="shrink-0 rounded-full">
+            <Link href={resultsHref(priorityId)}>
+              {READ_STATUS_COPY.seeWhatWeHeard}
+            </Link>
+          </Button>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-2 px-4 pb-2.5 pt-0.5">
+          <Link
+            href={resultsHref(priorityId)}
+            className="flex min-w-0 items-start gap-2 text-foreground no-underline"
+          >
+            <span className="flex h-5 shrink-0 items-center">
+              <StatusDot readStatus={readStatus} />
+            </span>
+            <span
+              data-testid="read-status-line"
+              className="line-clamp-2 text-sm font-semibold"
+            >
+              {READ_STATUS_COPY.statusLine(readStatus)}
+            </span>
+          </Link>
+          {showBar || showGetAnswers ? (
+            <div className="flex items-center gap-3">
+              {showBar ? (
+                <ReadProgress
+                  readStatus={readStatus}
+                  className="h-1.5 min-w-0 flex-1"
+                />
+              ) : (
+                <span className="flex-1" />
+              )}
+              {showGetAnswers ? (
+                <GetAnswers
+                  onGetAnswers={onGetAnswers}
+                  disabled={getAnswersDisabled}
+                  className="shrink-0 rounded-full"
+                />
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      )}
+      {readStatus.followUp ? (
+        <div className="px-4 pb-2.5">
+          <FollowUpLine readStatus={readStatus} />
+        </div>
+      ) : null}
+    </>
+  )
+}
 
 // Desktop: the top of the right rail, above "Where this stands".
 export const ReadStatusRailBlock = ({
@@ -159,47 +189,53 @@ export const ReadStatusRailBlock = ({
       </>
     ) : (
       <>
-        {readStatus.status === 'tooEarly' ? null : (
-          <div className="flex items-center gap-2">
-            <StatusDot readStatus={readStatus} />
-            <span className="text-base font-semibold text-foreground">
-              {READ_STATUS_COPY.label(readStatus)}
+        <div className="flex items-center gap-2">
+          <StatusDot readStatus={readStatus} />
+          <span className="text-base font-semibold text-foreground">
+            {READ_STATUS_COPY.label(readStatus)}
+          </span>
+        </div>
+        {readStatus.checkOut && readStatus.groupsTotal > 0 ? (
+          <div className="flex flex-col items-start gap-1.5">
+            {/* Seats on a computer, the bar below lg, by CSS alone so the
+                rail never jumps. */}
+            <AnswerSeatsArc
+              readStatus={readStatus}
+              className="hidden max-w-44 lg:block"
+            />
+            <span className="text-sm text-muted-foreground">
+              {READ_STATUS_COPY.progress(readStatus)}
             </span>
+            <ReadProgress readStatus={readStatus} className="h-2 lg:hidden" />
+            <AnswerSeatsLegend
+              readStatus={readStatus}
+              className="hidden lg:flex"
+            />
           </div>
-        )}
-        {readStatus.answers < readStatus.needed ? (
-          <>
-            <span
-              className={
-                readStatus.status === 'tooEarly'
-                  ? 'text-base font-semibold text-foreground'
-                  : 'text-sm text-muted-foreground'
-              }
-            >
-              {READ_STATUS_COPY.moreAnswers(
-                readStatus.needed - readStatus.answers,
-              )}
-            </span>
-            <ReadProgress readStatus={readStatus} className="h-2" />
-          </>
         ) : null}
-        {readStatus.underrepresented.length > 0 ? (
+        {readStatus.checkOut && READ_STATUS_COPY.namesGroups(readStatus) ? (
           <span className="text-sm text-foreground">
-            {READ_STATUS_COPY.hearFromMore(readStatus.underrepresented)}
+            {READ_STATUS_COPY.statusLine(readStatus)}
           </span>
         ) : null}
-        <GetAnswers
-          onGetAnswers={onGetAnswers}
-          disabled={getAnswersDisabled}
-          className="mt-1 self-start rounded-full"
-        />
+        {READ_STATUS_COPY.canGetAnswers(readStatus) ? (
+          <GetAnswers
+            onGetAnswers={onGetAnswers}
+            disabled={getAnswersDisabled}
+            className="mt-1 self-start rounded-full"
+          />
+        ) : null}
       </>
     )}
-    <Link
-      href={resultsHref(priorityId)}
-      className="self-start text-sm text-muted-foreground underline underline-offset-4 hover:text-foreground"
-    >
-      {READ_STATUS_COPY.whatWeHeard}
-    </Link>
+    <FollowUpLine readStatus={readStatus} />
+    {/* A good read already leads with See what we heard. */}
+    {readStatus.good ? null : (
+      <Link
+        href={resultsHref(priorityId)}
+        className="self-start text-sm text-muted-foreground underline underline-offset-4 hover:text-foreground"
+      >
+        {READ_STATUS_COPY.whatWeHeard}
+      </Link>
+    )}
   </div>
 )

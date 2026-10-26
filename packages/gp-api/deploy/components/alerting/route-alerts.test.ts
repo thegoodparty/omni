@@ -592,10 +592,11 @@ describe('the grouped route alerts', () => {
 
     // The fan-out moved with the read. Two rules now cover every watched route
     // between them, so the bound that matters is the whole route map rather
-    // than any one controller's slice of it.
-    expect(Object.values(ROUTE_MAP).flat().length).toBeLessThan(
-      MAX_QUERY_SERIES,
-    )
+    // than any one controller's slice of it. Watched routes only: an opted-out
+    // controller is in no group, so its routes return no series and cannot
+    // count against the cap.
+    const watchedEndpoints = new Set(GROUPS.flatMap((group) => group.endpoints))
+    expect(watchedEndpoints.size).toBeLessThan(MAX_QUERY_SERIES)
   })
 
   // The regression: the vector was written `[1h]` while these alerts take the
@@ -707,6 +708,24 @@ describe('which statuses count as an error', () => {
       expect(expr, name).toContain('response_statusCode >= 500')
       expect(expr, name).not.toContain('response_statusCode >= 400')
     }
+  })
+
+  // A 504 is a voter query that outran its ceiling and told the user to narrow
+  // the audience. It must stop paging on the contacts routes only: the same
+  // status on any other server-errors route (door-knocking's pack scan) is
+  // still a fault, and 500, 502 and a null status still page everywhere.
+  it('drops 504 only on the routes in VOTER_QUERY_TIMEOUTS_NOT_PAGED', () => {
+    const { expr } = alertFor('route-errors-server-errors')
+    const contacts = ROUTE_MAP.contacts.map(({ endpoint }) => endpoint)
+    expect(contacts.length).toBeGreaterThan(0)
+
+    expect(expr).toContain(
+      '( response_statusCode >= 500 and response_statusCode != 504 )',
+    )
+    expect(expr).toContain(
+      `( response_statusCode = 504 and request_endpoint !~ \`${routeEndpointPattern([...new Set(contacts)])}\` )`,
+    )
+    expect(expr).toContain('response_statusCode = ""')
   })
 
   // The per-controller filter has to survive the collapse: a controller outside
@@ -822,9 +841,7 @@ describe('which statuses count as an error', () => {
       const { expr } = alertFor(group.slug)
 
       if (group.serverErrorsOnly) {
-        expect(expr, group.slug).toContain(
-          '( response_statusCode >= 500 ) or (',
-        )
+        expect(expr, group.slug).toMatch(/\( response_statusCode >= 500[ )]/)
       } else {
         expect(expr, group.slug).toContain('( response_statusCode >= 400')
       }

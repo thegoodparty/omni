@@ -63,6 +63,7 @@ const FIXTURE_PERSON: PersonOutput = {
   registeredVoter: 'Yes',
   estimatedIncomeAmount: 50000,
   voterStatus: 'Super',
+  earlyVoteStatus: null,
   maritalStatus: 'Married',
   hasChildrenUnder18: 'No',
   veteranStatus: null,
@@ -225,6 +226,10 @@ describe('ContactsService — people-db (sole path)', () => {
       { latestEvent: vi.fn().mockResolvedValue(null) } as never,
       {
         resolve: vi.fn().mockResolvedValue('Voter_Independent_Affinity'),
+      } as never,
+      {
+        votedPersonIds: vi.fn().mockResolvedValue([]),
+        votedForPeople: vi.fn().mockResolvedValue(new Map()),
       } as never,
       createMockLogger(),
     )

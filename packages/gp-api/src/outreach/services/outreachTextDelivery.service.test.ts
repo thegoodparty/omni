@@ -17,6 +17,7 @@ import {
   TextDeliveryHandoffPort,
 } from '../interfaces/textDeliveryHandoff.interface'
 import { OutreachTextDeliveryService } from './outreachTextDelivery.service'
+import { OutreachTextSendFundingService } from './outreachTextSendFunding.service'
 
 const service = useTestService()
 
@@ -82,6 +83,8 @@ describe('OutreachTextDeliveryService', () => {
         organizationSlug: slug,
         voterFileFilterId: filter.id,
         status: opts.status ?? OutreachStatus.pending,
+        // Every legitimate send reaches delivery paid at checkout.
+        stripeCheckoutSessionId: `cs_test_${slug}`,
       },
     })
     return { slug, filter, outreach }
@@ -163,6 +166,7 @@ describe('OutreachTextDeliveryService', () => {
       service.app.get(ContactInteractionTextService),
       s3 as unknown as S3Service,
       handoffPort,
+      service.app.get(OutreachTextSendFundingService),
     )
     Reflect.set(delivery, '_prisma', service.prisma)
     Reflect.set(delivery, 'logger', logger)
@@ -275,6 +279,7 @@ describe('OutreachTextDeliveryService', () => {
         textCount: 1,
         status: OutreachStatus.pending,
         approvedAt: new Date(),
+        stripeCheckoutSessionId: 'cs_test_expansion',
       },
     })
     const second = await delivery.requestSend(

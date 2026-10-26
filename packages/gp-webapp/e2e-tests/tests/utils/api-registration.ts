@@ -2,14 +2,19 @@ import { randomUUID } from 'node:crypto'
 import { BrowserContext, type Page, test } from '@playwright/test'
 import axios, { type AxiosInstance } from 'axios'
 import { clerk, setupClerkTestingToken } from '@clerk/testing/playwright'
+import type { TestModeElectionPreset } from '@goodparty_org/contracts'
 import { TestDataHelper } from 'src/helpers/data.helper'
 import { clerkThrottle } from './throttle-requests-with-retry'
 import {
   apiURL,
+  applyElectionPreset,
   clerkBackend,
+  DEFAULT_ELECTION_PRESET,
+  DEFAULT_TEST_RACE,
   mintApiToken,
+  resolveTestRace,
+  type TestRace,
   withGatewayRetry,
-  type Race,
 } from './headless-user'
 
 const baseURL = process.env.BASE_URL
@@ -37,10 +42,18 @@ type BaseTestUserOptions = {
     email: string
     phone: string
   }>
-  race?: {
-    zip: string
-    office: string | ((offices: string) => boolean)
-  }
+  /**
+   * The office the campaign runs for. Defaults to DEFAULT_TEST_RACE. Only the
+   * office is taken from the real race; the date comes from `election`.
+   */
+  race?: TestRace
+  /**
+   * The campaign's election state, computed by gp-api from its own clock.
+   * Defaults to `in_8_weeks`, outside the 19-day texting cutoff. Any other
+   * preset needs `isolated: true`, so the per-worker cached user keeps the
+   * default.
+   */
+  election?: TestModeElectionPreset
 }
 
 export type TestUserOptions =
@@ -85,21 +98,25 @@ let cachedUser: BootstrappedUser | null = null
 // user gp-api has never seen, each of those independently asks Clerk's Backend
 // API to resolve the identity so it can JIT-provision the row, and Clerk's
 // per-instance budget answers 429 — which gp-api turns into a 401.
-async function signInUser(page: Page, email: string): Promise<void> {
+//
+// The ticket is minted from the Clerk user id we already hold. Passing
+// clerk.signIn an email instead makes it look the user up first, a second
+// Backend API call against the shared rate budget for an id we never lost.
+async function signInUser(page: Page, clerkUserId: string): Promise<void> {
   await setupClerkTestingToken({ page })
   await page.goto('/')
   await page.waitForFunction(() => window.Clerk?.loaded, null, {
     timeout: 15000,
   })
 
-  await clerkThrottle(
-    () =>
-      clerk.signIn({
-        page,
-        emailAddress: email,
-      }),
-    5,
+  const { token: ticket } = await clerkThrottle(() =>
+    clerkBackend.signInTokens.createSignInToken({
+      userId: clerkUserId,
+      expiresInSeconds: 300,
+    }),
   )
+  await clerk.signIn({ page, signInParams: { strategy: 'ticket', ticket } })
+  await page.waitForFunction(() => window.Clerk?.user !== null)
 }
 
 // Ordering contract: everything gp-api needs (user row, campaign) is created
@@ -112,7 +129,21 @@ const bootstrapTestUser = async (
   page: Page,
   options?: TestUserOptions,
 ): Promise<BootstrappedUser> => {
+  const election = options?.election ?? DEFAULT_ELECTION_PRESET
+  if (election !== DEFAULT_ELECTION_PRESET && !options?.isolated) {
+    throw new Error(
+      `election: '${election}' needs isolated: true; the cached user is shared`,
+    )
+  }
+
   if (!options?.isolated && cachedUser) {
+    // The user is cached per worker, but every test gets a fresh browser
+    // context with no Clerk session. Without signing this page in, the
+    // middleware's Clerk handshake bounces the first dashboard navigation to
+    // /login, so only the first cached-user test on each worker was ever
+    // authenticated. The user is already provisioned, so the ordering
+    // contract below still holds.
+    await signInUser(page, cachedUser.clerkUserId)
     return cachedUser
   }
 
@@ -175,54 +206,29 @@ const bootstrapTestUser = async (
   }
 
   if (options?.skipCampaignCreation) {
-    await signInUser(page, email)
+    await signInUser(page, clerkUser.id)
     if (!options?.isolated) {
       cachedUser = result
     }
     return result
   }
 
-  const { data: races } = await withGatewayRetry(
-    'GET /v1/elections/races-by-year',
-    () =>
-      client.get<Race[]>('/v1/elections/races-by-year', {
-        params: {
-          zipcode: zip,
-        },
-      }),
-  )
-
-  const desiredRace = options?.race?.office ?? 'Cheyenne City Council - Ward 1'
-  const race = races.find((race) => {
-    if (typeof desiredRace === 'function') {
-      return desiredRace(race.position.name)
-    } else {
-      return race.position.name === desiredRace
-    }
+  const race = await resolveTestRace(client, {
+    zip,
+    office: options?.race?.office ?? DEFAULT_TEST_RACE.office,
   })
 
-  if (!race) {
-    throw new Error('No race found for the specific office selector')
-  }
-
+  // The campaign is still created through the product's own create route, so
+  // every spec keeps exercising it. The resolved race only places it; its
+  // date is replaced by the preset below.
   const { data: campaign } = await withGatewayRetry('POST /v1/campaigns', () =>
     client.post<{ id: number }>('/v1/campaigns', {
       ballotReadyPositionId: race.brPositionId,
       details: {
-        // electionId: the /v1/elections/races-by-year response does not include
-        // election.id; CreateCampaignSchema treats this field as `nullish`, so
-        // omitting it is well-formed (not a silent malformed campaign).
-        electionId: race.election.id,
         raceId: race.id,
-        // state is sourced from race.position.state (always present) rather
-        // than race.election.state (not returned by the elections endpoint).
         state: race.position.state,
-        ballotLevel: race.position.level?.toUpperCase(),
+        ballotLevel: race.position.level.toUpperCase(),
         electionDate: race.election.electionDay,
-        partisanType: race.position.partisanType,
-        hasPrimary: race.position.hasPrimary,
-        filingPeriodsStart: race.filingPeriods?.[0]?.startOn,
-        filingPeriodsEnd: race.filingPeriods?.[0]?.endOn,
       },
       data: { currentStep: 'onboarding-1' },
     }),
@@ -231,6 +237,9 @@ const bootstrapTestUser = async (
   if (!campaign?.id) {
     throw new Error('Campaign creation did not return a valid id')
   }
+
+  // Before launch, so launch already sees the declared date.
+  await applyElectionPreset(client, campaign.id, election)
 
   if (process.env.DEBUG) {
     console.log(
@@ -260,7 +269,7 @@ const bootstrapTestUser = async (
     client.post('/v1/campaigns/launch', {}),
   )
 
-  await signInUser(page, email)
+  await signInUser(page, clerkUser.id)
 
   return result
 }
@@ -308,6 +317,16 @@ export const authenticateTestUser = async (
     {
       name: 'user',
       value: JSON.stringify(user),
+      domain: COOKIE_DOMAIN,
+      path: '/',
+      sameSite: 'Lax',
+    },
+    // The cookie notice floats above the dashboard's chat dock and intercepts
+    // clicks on whatever page control sits under it. It reads this cookie
+    // once on mount, so seeding it keeps the notice from ever rendering.
+    {
+      name: 'cookiesAccepted',
+      value: 'true',
       domain: COOKIE_DOMAIN,
       path: '/',
       sameSite: 'Lax',

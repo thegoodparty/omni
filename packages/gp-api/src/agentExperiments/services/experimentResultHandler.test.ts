@@ -165,6 +165,7 @@ describe('QueueConsumerService - handleAgentExperimentResult', () => {
       {} as never,
       logger,
       {} as never,
+      {} as never,
     )
   })
 

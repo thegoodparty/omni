@@ -119,6 +119,7 @@ export class PurchaseService {
     id: string
     clientSecret: string
     amount: number
+    isHold: boolean
   }> {
     this.logger.info({
       user: user.id,
@@ -146,6 +147,11 @@ export class PurchaseService {
       // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
       ...(dto.metadata as Record<string, unknown>),
       ...metadata,
+      // The buyer createCustomCheckoutSession stamps on the session and
+      // fulfillment reads back, so a handler can refuse before payment what
+      // its fulfillment would refuse after. completeFreePurchase passes the
+      // same. Last, so a client-sent userId never stands in for it.
+      userId: String(user.id),
     })
 
     if (existingPayment) {
@@ -196,6 +202,7 @@ export class PurchaseService {
         id: freeSessionId,
         clientSecret: '',
         amount: 0,
+        isHold: false,
       }
     }
 
@@ -243,10 +250,14 @@ export class PurchaseService {
         // capture_method to read) from an immediate one. Undefined drops any
         // client-sent value, since the session metadata starts from dto's.
         winSmsHoldBilling: manualCapture ? 'true' : undefined,
+        // Fulfillment trusts this as the buyer. createCustomCheckoutSession
+        // writes the same value last; stamping it here too means the session
+        // never depends on that spread order to drop a client-sent userId.
+        userId: String(user.id),
       },
     }
 
-    return this.stripeService.createCustomCheckoutSession(
+    const session = await this.stripeService.createCustomCheckoutSession(
       {
         id: user.id,
         email: user.email,
@@ -254,6 +265,10 @@ export class PurchaseService {
       },
       checkoutPayload,
     )
+    // The webapp's review step reads this to know the amount is the
+    // undiscounted hold, so it can take the free texts off the total it
+    // shows the way capture will — never its own read of the flag.
+    return { ...session, isHold: manualCapture }
   }
 
   /**

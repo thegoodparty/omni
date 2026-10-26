@@ -44,6 +44,7 @@ import { QueueType } from '../queue.types'
 import { OutreachService } from '@/outreach/services/outreach.service'
 import { OutreachServePollExpansionService } from '@/outreach/services/outreachServePollExpansion.service'
 import { OutreachTextDeliveryService } from '@/outreach/services/outreachTextDelivery.service'
+import { OutreachTextSendFundingService } from '@/outreach/services/outreachTextSendFunding.service'
 import { P2pPhoneListUploadService } from '@/vendors/peerly/services/p2pPhoneListUpload.service'
 import { FeedbackSynthesisIngestService } from '@/constituentFeedback/services/feedbackSynthesisIngest.service'
 import { QueueConsumerService } from './queueConsumer.service'
@@ -282,6 +283,7 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
       {} as never,
       {} as never,
       logger,
+      {} as never,
       {} as never,
     )
   })
@@ -1164,6 +1166,7 @@ describe('QueueConsumerService - handleDomainEmailForwardingMessage', () => {
       {} as never,
       createMockLogger(),
       {} as never,
+      {} as never,
     )
   })
 
@@ -1365,6 +1368,7 @@ describe('QueueConsumerService - triggerPollExecution', () => {
       {} as never,
       createMockLogger(),
       {} as never,
+      {} as never,
     )
   })
 
@@ -1453,6 +1457,10 @@ describe('QueueConsumerService - message type routing', () => {
   }
   let mockOutreachTextDelivery: { requestSend: ReturnType<typeof vi.fn> }
   let mockPollExpansion: { resolveDelivery: ReturnType<typeof vi.fn> }
+  let mockTextSendFunding: {
+    check: ReturnType<typeof vi.fn>
+    reportRefusal: ReturnType<typeof vi.fn>
+  }
 
   beforeEach(async () => {
     mockCampaignsService = { model: { findUniqueOrThrow: vi.fn() } }
@@ -1460,6 +1468,10 @@ describe('QueueConsumerService - message type routing', () => {
     mockOutreachService = { model: { findUnique: vi.fn() } }
     mockOutreachTextDelivery = { requestSend: vi.fn() }
     mockPollExpansion = { resolveDelivery: vi.fn() }
+    mockTextSendFunding = {
+      check: vi.fn().mockResolvedValue({ funded: true, via: 'checkout' }),
+      reportRefusal: vi.fn(),
+    }
 
     const mod: TestingModule = await Test.createTestingModule({
       providers: [
@@ -1567,6 +1579,10 @@ describe('QueueConsumerService - message type routing', () => {
         { provide: P2pPhoneListUploadService, useValue: {} },
         { provide: PinoLogger, useValue: createMockLogger() },
         { provide: FeedbackSynthesisIngestService, useValue: {} },
+        {
+          provide: OutreachTextSendFundingService,
+          useValue: mockTextSendFunding,
+        },
       ],
     }).compile()
     module = mod
@@ -1652,6 +1668,57 @@ describe('QueueConsumerService - message type routing', () => {
       imageUrl: 'https://example.com/flyer.png',
       scheduledLocalDate: '2026-10-08',
     })
+  })
+
+  it('acks an unfunded outreachTextSend without building an audience', async () => {
+    mockOutreachService.model.findUnique.mockResolvedValue({
+      message: 'Trash pickup moves to Thursday.',
+      scheduledLocalDate: '2026-10-08',
+      voterFileFilterId: 77,
+    })
+    mockTextSendFunding.check.mockResolvedValue({
+      funded: false,
+      reason: 'unpaid',
+    })
+
+    const result = await service.processMessage(
+      outreachTextSendMessage({ outreachId: 1, sendSeq: 1 }),
+    )
+
+    expect(result).toBe(true)
+    expect(mockTextSendFunding.reportRefusal).toHaveBeenCalledWith(
+      1,
+      1,
+      'unpaid',
+    )
+    expect(mockOutreachTextDelivery.requestSend).not.toHaveBeenCalled()
+  })
+
+  it('leaves a send that is not pending to the delivery claim', async () => {
+    mockOutreachService.model.findUnique.mockResolvedValue({
+      message: 'Trash pickup moves to Thursday.',
+      scheduledLocalDate: '2026-10-08',
+      voterFileFilterId: 77,
+    })
+    mockTextSendFunding.check.mockResolvedValue({
+      funded: false,
+      reason: 'not_sendable',
+    })
+    mockOutreachTextDelivery.requestSend.mockResolvedValue({
+      audienceResolved: false,
+      recipientCount: 0,
+      excludedOptedOutCount: 0,
+      excludedDuplicateCount: 0,
+      sendKey: '1-1.csv',
+      terminalReason: 'not_sendable',
+    })
+
+    await service.processMessage(
+      outreachTextSendMessage({ outreachId: 1, sendSeq: 1 }),
+    )
+
+    expect(mockTextSendFunding.reportRefusal).not.toHaveBeenCalled()
+    expect(mockOutreachTextDelivery.requestSend).toHaveBeenCalled()
   })
 
   describe('outreachTextSend for a poll', () => {
@@ -2223,22 +2290,11 @@ describe('QueueConsumerService - message type routing', () => {
 describe('QueueConsumerService - handleTcrComplianceCheckMessage', () => {
   let service: QueueConsumerService
   let mockTcrComplianceService: {
-    findFirstOrThrow: ReturnType<typeof vi.fn>
-    checkTcrRegistrationStatus: ReturnType<typeof vi.fn>
-    model: { updateMany: ReturnType<typeof vi.fn> }
-    sendComplianceCompletedSingleSend: ReturnType<typeof vi.fn>
+    checkUsecaseActivation: ReturnType<typeof vi.fn>
   }
   let mockAnalytics: {
     track: ReturnType<typeof vi.fn>
     identify: ReturnType<typeof vi.fn>
-  }
-
-  const recipient = { id: 42, email: 'candidate@example.com' }
-  const campaignRecord = { userId: recipient.id, user: recipient }
-  const tcrComplianceRecord = {
-    peerlyIdentityId: 'peerly-999',
-    peerlyCvStatus: 'VERIFIED',
-    campaign: campaignRecord,
   }
 
   const buildMessage = (): Message => ({
@@ -2255,10 +2311,7 @@ describe('QueueConsumerService - handleTcrComplianceCheckMessage', () => {
 
   beforeEach(async () => {
     mockTcrComplianceService = {
-      findFirstOrThrow: vi.fn().mockResolvedValue(tcrComplianceRecord),
-      checkTcrRegistrationStatus: vi.fn().mockResolvedValue(true),
-      model: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
-      sendComplianceCompletedSingleSend: vi.fn().mockResolvedValue(undefined),
+      checkUsecaseActivation: vi.fn().mockResolvedValue(true),
     }
     mockAnalytics = {
       track: vi.fn().mockResolvedValue(undefined),
@@ -2308,87 +2361,22 @@ describe('QueueConsumerService - handleTcrComplianceCheckMessage', () => {
         { provide: P2pPhoneListUploadService, useValue: {} },
         { provide: PinoLogger, useValue: createMockLogger() },
         { provide: FeedbackSynthesisIngestService, useValue: {} },
+        { provide: OutreachTextSendFundingService, useValue: {} },
       ],
     }).compile()
     service = mod.get(QueueConsumerService)
   })
 
-  // Env-var gating (unset -> no-op) is owned by
-  // CampaignTcrComplianceService.sendComplianceCompletedSingleSend itself
-  // and covered in campaignTcrCompliance.service.test.ts — this suite
-  // covers what the consumer owns: resolving the recipient/properties and
-  // never letting a single-send failure affect the SQS ack.
-  it('resolves the campaign account email off the campaign relation and forwards it', async () => {
-    const result = await service.processMessage(buildMessage())
-
-    expect(result).toBe(true)
-    expect(mockTcrComplianceService.model.updateMany).toHaveBeenCalledWith({
-      where: { peerlyIdentityId: 'peerly-999', status: { not: 'approved' } },
-      data: { status: 'approved' },
-    })
-    expect(
-      mockTcrComplianceService.sendComplianceCompletedSingleSend,
-    ).toHaveBeenCalledWith(recipient.email, {
-      peerly_identity_id: 'peerly-999',
-    })
-    expect(mockAnalytics.track).toHaveBeenCalledWith(
-      recipient.id,
-      expect.stringContaining('10DLC Compliance Completed'),
-    )
-  })
-
-  // bootstrapTcrComplianceCheck (@Cron 7am/7pm ET) re-queries every `pending`
-  // record and re-enqueues this message twice daily, so a backlog or a
-  // slow-handler redelivery can land two messages for the same record while
-  // it's still pending — an at-least-once SQS redelivery, not adversarial
-  // timing. Only the caller that actually flips the status may notify.
-  it('does not re-track or re-send when another delivery already transitioned the record', async () => {
-    mockTcrComplianceService.model.updateMany.mockResolvedValueOnce({
-      count: 0,
-    })
-
-    const result = await service.processMessage(buildMessage())
-
-    expect(result).toBe(true)
-    expect(mockAnalytics.track).not.toHaveBeenCalledWith(
-      recipient.id,
-      expect.stringContaining('10DLC Compliance Completed'),
-    )
-    expect(mockAnalytics.identify).not.toHaveBeenCalled()
-    expect(
-      mockTcrComplianceService.sendComplianceCompletedSingleSend,
-    ).not.toHaveBeenCalled()
-  })
-
-  it('does not call single-send when the campaign has no linked user', async () => {
-    mockTcrComplianceService.findFirstOrThrow.mockResolvedValueOnce({
-      ...tcrComplianceRecord,
-      campaign: { userId: recipient.id, user: null },
-    })
-
+  // The body lives in CampaignTcrComplianceService.checkUsecaseActivation
+  // (covered in campaignTcrCompliance.service.test.ts); the consumer only
+  // delegates and returns its ack.
+  it('delegates to checkUsecaseActivation and returns its ack', async () => {
     const result = await service.processMessage(buildMessage())
 
     expect(result).toBe(true)
     expect(
-      mockTcrComplianceService.sendComplianceCompletedSingleSend,
-    ).not.toHaveBeenCalled()
-  })
-
-  it('never throws out of the handler when single-send fails (no infinite redelivery)', async () => {
-    mockTcrComplianceService.sendComplianceCompletedSingleSend.mockRejectedValueOnce(
-      new Error('HubSpot down'),
-    )
-
-    const result = await service.processMessage(buildMessage())
-
-    // The message is still acked (true) and the Segment event/DB update the
-    // flow depends on already happened — a single-send failure must not
-    // corrupt or requeue this SQS-fired path.
-    expect(result).toBe(true)
-    expect(mockAnalytics.track).toHaveBeenCalledWith(
-      recipient.id,
-      expect.stringContaining('10DLC Compliance Completed'),
-    )
+      mockTcrComplianceService.checkUsecaseActivation,
+    ).toHaveBeenCalledWith({ peerlyIdentityId: 'peerly-999' })
   })
 })
 
@@ -2520,6 +2508,7 @@ describe('QueueConsumerService - handleAgentExperimentResult', () => {
         { provide: P2pPhoneListUploadService, useValue: {} },
         { provide: PinoLogger, useValue: createMockLogger() },
         { provide: FeedbackSynthesisIngestService, useValue: {} },
+        { provide: OutreachTextSendFundingService, useValue: {} },
       ],
     }).compile()
     service = module.get(QueueConsumerService)
@@ -2647,6 +2636,7 @@ describe('QueueConsumerService - ORDINANCE_QUALITY_LOOP', () => {
       {} as never,
       createMockLogger(),
       {} as never,
+      {} as never,
     )
 
   const loopMessage = (data: unknown): Message => ({
@@ -2730,6 +2720,7 @@ describe('QueueConsumerService - FEEDBACK_SYNTHESIS_COMPLETE', () => {
       {} as never, // p2pPhoneListUpload
       logger,
       { handle } as never,
+      {} as never,
     )
   }
 

@@ -27,7 +27,7 @@ string keys. There is no per-key secret and no SSM parameter for app secrets.
 | Secret                               | Consumed by                              | Environments         |
 | ------------------------------------ | ---------------------------------------- | -------------------- |
 | `GP_API_PROD` / `GP_API_DEV`         | gp-api ECS tasks                         | prod / dev + preview |
-| `ELECTION_API_PROD` / `_DEV`         | election-api ECS tasks                   | prod / dev           |
+| `ELECTION_API_PROD` / `_DEV`         | the election database's `DATABASE_URL` (runbooks, local seed refresh) | prod / dev |
 | `AI_SECRETS_PROD` / `AI_SECRETS_DEV` | gp-ai Terraform roots (Fargate + Lambda) | prod / dev           |
 | `broker-<env>`                       | PMF broker only                          | prod / dev           |
 | `LOCAL_DEV_ENV`                      | laptops, via `POST /v1/dev-env/bundle`   | dev only             |
@@ -68,7 +68,7 @@ image, not in a `.env`, not in Pulumi or Terraform state.
 The two stacks differ in how a key gets into that block, which decides whether
 adding one needs a code change:
 
-- **gp-api and election-api need no code change.** The Pulumi program reads the
+- **gp-api needs no code change.** The Pulumi program reads the
   live secret and enumerates its keys, wiring every one it finds
   (`Object.keys(secret)` in `packages/*/deploy/index.ts`). A key that exists in
   the blob is in the task definition on the next deploy.
@@ -96,13 +96,13 @@ Do everything except the value write, in one PR.
 
 1. **Check whether it needs to be a secret at all.** A hostname, a bucket name, an
    ARN, a feature flag, or anything already public is an environment variable, not
-   a secret. Put it in `environmentVariables` (gp-api/election-api) or a
+   a secret. Put it in `environmentVariables` (gp-api) or a
    Terraform variable and skip the rest of this.
 2. **Name it** in `SCREAMING_SNAKE_CASE`, matching whatever the vendor calls it
    (`BRAINTRUST_API_KEY`, not `BT_KEY`). The same name is used in every
    environment; the environment is the secret, not the key.
 3. **Wire it in code.**
-   - gp-api / election-api: nothing to wire. Read it via `process.env.YOUR_KEY`
+   - gp-api: nothing to wire. Read it via `process.env.YOUR_KEY`
      and add it to whatever env validation the service does at boot.
    - gp-ai: add the `valueFrom` entry to the module's `secrets` array and extend
      the task role's `secretsmanager:GetSecretValue` statement. Both live in
@@ -132,8 +132,15 @@ Writing the value. Post this in `#devs-only`, one message:
 > Where the value comes from: <vendor dashboard / who issued it>
 > Needs to land: before/after the PR merges
 
-Send the value itself through 1Password, not Slack. Admins who can do this write:
-Tomer, Dan, Swain, Jeff.
+Send the value itself through 1Password, not Slack. Tomer, Dan, Swain or Jeff
+writes it.
+
+Nobody holds standing AWS admin, including them. Whoever does the write first
+gets temporary admin: run `/breakglass` in Slack, give the PR link as the reason,
+and wait for a different approver to approve it in `#sensitive-access-requests`.
+Then sign in again and pick `AdministratorAccess` (the `gp-admin` profile from
+`packages/gp-api/scripts/aws-setup.sh`). Access ends on its own after 1 to 4
+hours. How it works: `docs/sheriff.md` in the `ops` repo.
 
 That handoff is a stopgap. The write-only path that removes it — an engineer
 encrypts a value against a public key committed to this repo, CI decrypts and
@@ -147,7 +154,7 @@ Every real reason for wanting one has a better answer:
 | You want the value because                    | Do this instead                                                                                                                                                                       |
 | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | A prod call is 401/403ing                     | Read the failure in Loki via the Grafana MCP. The response body says whether the key is missing, malformed, expired, or scoped wrong — enough to act on. See `docs/observability.md`. |
-| You need to confirm a key is set              | `aws secretsmanager describe-secret` and the `SECRETS_MANAGER_KEYS` env var both list key **names** without values; an admin can confirm presence in a sentence.                      |
+| You need to confirm a key is set              | `aws secretsmanager describe-secret` and the `SECRETS_MANAGER_KEYS` env var both list key **names** without values; an admin (via `/breakglass`) can confirm presence in a sentence.                      |
 | You're testing an integration locally         | Use your own sandbox credential from the vendor, in your gitignored `.env`. Never a prod one.                                                                                         |
 | You're reproducing a prod-only bug            | Reproduce against dev with a dev credential. If it only reproduces with the prod key, the bug is in the key's configuration at the vendor, not in the code.                           |
 | A vendor call needs to run once, against prod | Ask an admin to run it, or add it as a one-shot script the deployed service runs with its task role.                                                                                  |

@@ -381,9 +381,8 @@ choice rather than something the test depends on.
 
 **This is gated on a pre-work PR to main, and the reason is that no PR will
 catch it.** `@dev-only` Playwright specs are grepped out of pull request runs
-entirely and run only post-merge on the release train
-(`gpbot-dev-test-triage.yml`: "These never run on PRs, so nothing saw them
-before the merge"; prior incident ENG-11106). The poll e2e is `@dev-only`, so
+entirely and run only post-merge on the release train, so nothing sees them
+before the merge (prior incident ENG-11106). The poll e2e is `@dev-only`, so
 removing the line fails nothing until the train runs.
 
 **Pre-work, shipped to main on its own before this line is removed: PR #2024.**
@@ -479,6 +478,16 @@ version, the live one, so the two Serve products make the same promise:
 * Estimated completion is `addBusinessDays(scheduledDate, 3)`, matching
   `polls.service.ts`.
 
+**Every newly scheduled Serve campaign gets the ops lead.** Ops schedules
+each Serve text by hand, so its send date must be on the 3rd business day or
+later: today and the next 2 business days are closed (`getDisabledState` in
+the picker, `assertServeSmsSendDateAllowed` on every Serve text and poll
+create in gp-api). That holds for a plain text and a managed civic panel
+wave, each from the day it is created. A priority's two rounds
+are bought and scheduled at once, so they share the first send's gate:
+round 2 gets no extra day of its own. Pinned by `SmsFlow.serveSurface.test.tsx`
+and gp-api's `outreachServeSmsSendDate.test.ts`.
+
 This is strictly simpler than Win's step: no hourly slots, no custom time, no
 48-hour arithmetic. It also drops `scheduledLocalTime` from the Serve create
 payload entirely, since the time is a constant rather than a choice.
@@ -511,7 +520,7 @@ new purchase type, because the `TEXT` handler hard-requires a `campaignId` and
 
 Draft-first is required, not preferred: the poll pattern puts message content
 in Stripe checkout metadata, which caps values at 500 characters, and
-`SMS_COMPOSED_MAX_LENGTH` is 1000.
+`SMS_COMPOSED_MAX_LENGTH` is 2000.
 
 **Results.** `getSmsResults` with its campaign predicate parametrized to an org
 scope, the same way `findByScope` already handles Win and Serve. Plus a

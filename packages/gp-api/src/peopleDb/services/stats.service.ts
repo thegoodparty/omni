@@ -3,7 +3,10 @@ import { StatsDTO } from '../schemas/people.schema'
 import { DatabricksVoterService } from '../databricks/databricksVoter.service'
 import { type ComputedDistrictStats } from '../databricks/databricksDistrictStatsSql.util'
 import {
-  type CensusCompositionRows,
+  type AnswerCell,
+  type DistrictCells,
+  type PersonAnswer,
+  type TractPlace,
   type WeightingInputs,
 } from '../databricks/districtCensusSql.util'
 import { VoterReadLogService } from '../databricks/voterReadLog.service'
@@ -28,32 +31,6 @@ export class StatsService {
     })
   }
 
-  async findDistrictPopulation(
-    districtId: string,
-    dataset: PeopleDataset,
-  ): Promise<number | null> {
-    return this.readLog.measure({
-      op: 'district-population',
-      districtId,
-      dataset,
-      read: () => this.databricks.findDistrictPopulation(districtId, dataset),
-    })
-  }
-
-  async findCensusComposition(
-    districtId: string,
-    dataset: PeopleDataset,
-    personIds: string[],
-  ): Promise<CensusCompositionRows> {
-    return this.readLog.measure({
-      op: 'census-composition',
-      districtId,
-      dataset,
-      read: () =>
-        this.databricks.findCensusComposition(districtId, dataset, personIds),
-    })
-  }
-
   async findWeightingInputs(
     districtId: string,
     dataset: PeopleDataset,
@@ -65,6 +42,31 @@ export class StatsService {
       dataset,
       read: () =>
         this.databricks.findWeightingInputs(districtId, dataset, personIds),
+    })
+  }
+
+  async findDistrictCells(
+    districtId: string,
+    dataset: PeopleDataset,
+  ): Promise<DistrictCells> {
+    return this.readLog.measure({
+      op: 'district-cells',
+      districtId,
+      dataset,
+      read: () => this.databricks.findDistrictCells(districtId, dataset),
+    })
+  }
+
+  async findAnswerCells(
+    districtId: string,
+    dataset: PeopleDataset,
+    answers: PersonAnswer[],
+  ): Promise<AnswerCell[]> {
+    return this.readLog.measure({
+      op: 'answer-cells',
+      districtId,
+      dataset,
+      read: () => this.databricks.findAnswerCells(districtId, dataset, answers),
     })
   }
 
@@ -85,6 +87,19 @@ export class StatsService {
           tracts,
           cellDegrees,
         ),
+    })
+  }
+
+  async findTractPlaces(
+    districtId: string,
+    dataset: PeopleDataset,
+    tracts: string[],
+  ): Promise<TractPlace[]> {
+    return this.readLog.measure({
+      op: 'tract-places',
+      districtId,
+      dataset,
+      read: () => this.databricks.findTractPlaces(districtId, dataset, tracts),
     })
   }
 }

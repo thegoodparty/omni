@@ -7,7 +7,7 @@ import {
   NotFoundException,
 } from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
-import { ElectionApiDistrictService } from '../services/electionApiDistrict.service'
+import { ElectionDistrictService } from '../services/electionDistrict.service'
 import {
   PeopleAggregatesResponse,
   PeopleAggregatesResponseSchema,
@@ -41,6 +41,7 @@ import {
   buildCountSql,
   buildOverlapCountSql,
   buildPrecinctsSql,
+  buildPrecinctMembersSql,
   MAX_PRECINCT_OPTIONS,
   buildPageSql,
   buildPersonSql,
@@ -72,19 +73,28 @@ import {
 } from './databricksDistrictStatsSql.util'
 import { type AffinityColumn } from '../affinityColumns.const'
 import {
+  buildAnswerCellsSql,
+  buildDistrictCellsSql,
   buildDistrictCensusSql,
   buildDistrictCompositionSql,
   buildDistrictTractAdultsSql,
-  buildRespondentBlockGroupsSql,
+  buildPoolCellsSql,
   buildRespondentCellsSql,
   buildTractGridCellsSql,
+  buildTractPlacesSql,
   mapAcsCounts,
-  mapCensusCompositionRows,
+  mapAnswerCells,
+  mapDistrictCells,
   mapGridCells,
   mapRespondentCells,
   mapTractAdults,
+  mapTractPlaces,
   sampleWeightSql,
-  type CensusCompositionRows,
+  type AnswerCell,
+  type DistrictCell,
+  type DistrictCells,
+  type PersonAnswer,
+  type TractPlace,
   type WeightingInputs,
 } from './districtCensusSql.util'
 import {
@@ -182,7 +192,7 @@ export class DatabricksVoterService {
   constructor(
     private readonly logger: PinoLogger,
     private readonly client: PeopleDbxStatementClient,
-    private readonly districtService: ElectionApiDistrictService,
+    private readonly districtService: ElectionDistrictService,
   ) {
     this.logger.setContext(DatabricksVoterService.name)
   }
@@ -251,6 +261,24 @@ export class DatabricksVoterService {
       avgAge: row?.[1] == null ? null : Number(row[1]),
       avgIncome: row?.[2] == null ? null : Number(row[2]),
     })
+  }
+
+  async findPoolCells(
+    dto: AggregatesDTO,
+    dataset: PeopleDataset,
+  ): Promise<DistrictCell[]> {
+    const district = await this.resolveDistrict(dto.districtId, dataset)
+    const { rows } = await this.run(
+      buildPoolCellsSql({
+        district,
+        filters: dto.filters,
+        search: dto.search,
+        idOverrides: dto.idOverrides,
+        contactsMadeIdOverrides: dto.contactsMadeIdOverrides,
+        affinityColumn: dto.affinityColumn,
+      }),
+    )
+    return mapDistrictCells(rows)
   }
 
   async getListDetailAggregates(
@@ -346,6 +374,25 @@ export class DatabricksVoterService {
       voters: Number(row[2] ?? 0),
     }))
     return PeoplePrecinctsResponseSchema.parse({ options, truncated })
+  }
+
+  // The given people counted per (County, Precinct). A NULL precinct is ''
+  // as in findPrecincts.
+  async findPrecinctMembers(
+    districtId: string,
+    dataset: PeopleDataset,
+    personIds: string[],
+  ): Promise<Array<{ county: string; precinct: string; people: number }>> {
+    if (personIds.length === 0) return []
+    const district = await this.resolveDistrict(districtId, dataset)
+    const { rows } = await this.run(
+      buildPrecinctMembersSql({ district, personIds }),
+    )
+    return rows.map((row) => ({
+      county: row[0] ?? '',
+      precinct: row[1] ?? '',
+      people: Number(row[2] ?? 0),
+    }))
   }
 
   // A recommended-list variant's own count, scoped to a resolved district.
@@ -490,40 +537,6 @@ export class DatabricksVoterService {
     return mapDistrictStatsRows(districtId, rows, districtPopulation)
   }
 
-  // The district's census population on its own, without the voter scan
-  // findStats runs: the civic panel sizes its goal from it. Null without a
-  // census row. Throws on a warehouse failure; the caller decides what that
-  // means.
-  async findDistrictPopulation(
-    districtId: string,
-    dataset: PeopleDataset,
-  ): Promise<number | null> {
-    const district = await this.resolveDistrict(districtId, dataset)
-    const { rows } = await this.client.query(buildDistrictCensusSql(district))
-    const raw = rows[0]?.[0]
-    return raw == null ? null : Math.round(Number(raw))
-  }
-
-  // The district's census row and the block groups the given people live
-  // in, for comparing the two. Not through `run()`: every caller treats a
-  // failure as "comparison unavailable" and answers 200, so the error-level
-  // log and HTTP translation `run()` adds would be wrong here (see the census
-  // lookup in findStats).
-  async findCensusComposition(
-    districtId: string,
-    dataset: PeopleDataset,
-    personIds: string[],
-  ): Promise<CensusCompositionRows> {
-    const district = await this.resolveDistrict(districtId, dataset)
-    const [districtResult, blockGroupResult] = await Promise.all([
-      this.client.query(buildDistrictCompositionSql(district)),
-      personIds.length > 0
-        ? this.client.query(buildRespondentBlockGroupsSql(district, personIds))
-        : Promise.resolve({ columns: [], rows: [] }),
-    ])
-    return mapCensusCompositionRows(districtResult.rows, blockGroupResult.rows)
-  }
-
   // What weighting needs: respondents counted by age band, gender, tenure
   // and tract, and the district's adults per tract.
   async findWeightingInputs(
@@ -547,6 +560,48 @@ export class DatabricksVoterService {
     }
   }
 
+  // The district's census row, its adults per tract, and its people counted
+  // by age band, gender, tract and race.
+  async findDistrictCells(
+    districtId: string,
+    dataset: PeopleDataset,
+  ): Promise<DistrictCells> {
+    const district = await this.resolveDistrict(districtId, dataset)
+    const [districtResult, cellResult, tractAdults] = await Promise.all([
+      this.client.query(buildDistrictCompositionSql(district)),
+      this.client.query(buildDistrictCellsSql(district)),
+      this.client
+        .query(buildDistrictTractAdultsSql(district))
+        .then(({ rows }) => mapTractAdults(rows))
+        .catch((err: unknown) => {
+          this.logger.warn(
+            { err, districtId },
+            'tract adults read failed; frame keeps the voter file tracts',
+          )
+          return new Map<string, number>()
+        }),
+    ])
+    const districtRow = districtResult.rows[0]
+    return {
+      district: districtRow ? mapAcsCounts(districtRow) : null,
+      cells: mapDistrictCells(cellResult.rows),
+      tractAdults,
+    }
+  }
+
+  async findAnswerCells(
+    districtId: string,
+    dataset: PeopleDataset,
+    answers: PersonAnswer[],
+  ): Promise<AnswerCell[]> {
+    if (answers.length === 0) return []
+    const district = await this.resolveDistrict(districtId, dataset)
+    const { rows } = await this.client.query(
+      buildAnswerCellsSql(district, answers),
+    )
+    return mapAnswerCells(rows)
+  }
+
   async findTractGridCells(
     districtId: string,
     dataset: PeopleDataset,
@@ -559,6 +614,19 @@ export class DatabricksVoterService {
       buildTractGridCellsSql(district, tracts, cellDegrees),
     )
     return mapGridCells(result.rows)
+  }
+
+  async findTractPlaces(
+    districtId: string,
+    dataset: PeopleDataset,
+    tracts: string[],
+  ): Promise<TractPlace[]> {
+    if (tracts.length === 0) return []
+    const district = await this.resolveDistrict(districtId, dataset)
+    const result = await this.client.query(
+      buildTractPlacesSql(district, tracts),
+    )
+    return mapTractPlaces(result.rows)
   }
 
   // Sizing comes from the district's own totals: the pre-cut divisor needs to

@@ -8,6 +8,7 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common'
 import { subMinutes } from 'date-fns'
+import { PEERLY_USECASE } from '../../../vendors/peerly/services/peerly.const'
 import { PeerlyBillingException } from '../../../vendors/peerly/utils/peerlyBillingError.util'
 import { PeerlyCvRejectionException } from '../../../vendors/peerly/utils/peerlyCvRejection.util'
 import { CvPreSubmissionValidationException } from '../utils/cvPreSubmissionValidation.util'
@@ -15,6 +16,7 @@ import {
   CommitteeType,
   ExperimentRunStatus,
   OfficeLevel,
+  TcrCompliance,
   TcrComplianceStatus,
 } from '../../../generated/prisma'
 import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library'
@@ -44,6 +46,20 @@ import {
   createMockUser,
   createMockCampaign,
 } from '@/shared/test-utils/mockData.util'
+
+// VENDOR_MODE is a module constant, so a test can't flip it through
+// process.env. Default to live mode; the mock-mode tests set `appEnv.mode`.
+const appEnv = vi.hoisted(() => ({ mode: 'live' as 'live' | 'mock' }))
+vi.mock('@/shared/util/appEnvironment.util', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('@/shared/util/appEnvironment.util')>()
+  return {
+    ...actual,
+    get VENDOR_MODE() {
+      return appEnv.mode
+    },
+  }
+})
 
 // Passes the dispatch gate's publishability check: genuine bio (over
 // MIN_BIO_LENGTH plain chars, not the template) + one genuine issue.
@@ -3177,7 +3193,7 @@ describe('CampaignTcrComplianceService - create (legacy) placeId guard', () => {
   })
 })
 
-describe('CampaignTcrComplianceService - PIN submission non-prod bypass', () => {
+describe('CampaignTcrComplianceService - PIN submission', () => {
   let service: CampaignTcrComplianceService
   let mockPeerly: {
     verifyCampaignVerifyPin: ReturnType<typeof vi.fn>
@@ -3290,30 +3306,33 @@ describe('CampaignTcrComplianceService - PIN submission non-prod bypass', () => 
     }
   }
 
-  it('retrieveCampaignVerifyToken short-circuits in non-prod without calling Peerly', async () => {
-    await withEnv('dev', async () => {
-      const token = await service.retrieveCampaignVerifyToken(
-        'any-pin',
-        tcrCompliance,
-      )
-
-      expect(token).toBe('non-prod-bypass-cv-token')
-      expect(mockPeerly.verifyCampaignVerifyPin).not.toHaveBeenCalled()
-      expect(mockPeerly.createCampaignVerifyToken).not.toHaveBeenCalled()
-      expect(mockModel.findFirstOrThrow).not.toHaveBeenCalled()
-    })
+  it('retrieveCampaignVerifyToken does not accept any PIN in non-prod mock mode', async () => {
+    appEnv.mode = 'mock'
+    try {
+      await withEnv('preview', async () => {
+        await expect(
+          service.retrieveCampaignVerifyToken('any-pin', tcrCompliance),
+        ).rejects.toThrow(BadRequestException)
+        // peerlyIdentityId is null on the stub, so the real guard ran.
+      })
+    } finally {
+      appEnv.mode = 'live'
+    }
   })
 
-  it('submitCampaignVerifyToken short-circuits in non-prod without calling Peerly', async () => {
-    await withEnv('dev', async () => {
-      const result = await service.submitCampaignVerifyToken(
-        tcrCompliance,
-        'token',
-      )
-
-      expect(result).toBeUndefined()
-      expect(mockPeerly.submitCampaignVerifyTokenToBrand).not.toHaveBeenCalled()
+  it('submitCampaignVerifyToken calls Peerly in non-prod mock mode', async () => {
+    mockPeerly.submitCampaignVerifyTokenToBrand.mockResolvedValueOnce({
+      brand: 'ok',
     })
+    appEnv.mode = 'mock'
+    try {
+      await withEnv('preview', async () => {
+        await service.submitCampaignVerifyToken(tcrCompliance, 'token')
+        expect(mockPeerly.submitCampaignVerifyTokenToBrand).toHaveBeenCalled()
+      })
+    } finally {
+      appEnv.mode = 'live'
+    }
   })
 
   it('retrieveCampaignVerifyToken calls Peerly when OTEL_SERVICE_ENVIRONMENT=prod', async () => {
@@ -3623,26 +3642,6 @@ describe('CampaignTcrComplianceService - resendCampaignVerifyPin', () => {
         NotFoundException,
       )
       expect(mockPeerly.resendCampaignVerifyPin).not.toHaveBeenCalled()
-    })
-  })
-
-  it('short-circuits in non-prod without touching Peerly', async () => {
-    mockModel.findUnique.mockResolvedValueOnce({
-      id: 'tcr-1',
-      peerlyIdentityId: null,
-    })
-
-    await withEnv('dev', async () => {
-      await expect(
-        service.resendCampaignVerifyPin(campaign),
-      ).resolves.toBeUndefined()
-      expect(mockPeerly.retrieveCampaignVerifyDetails).not.toHaveBeenCalled()
-      expect(mockPeerly.resendCampaignVerifyPin).not.toHaveBeenCalled()
-      expect(mockAnalytics.track).toHaveBeenCalledWith(
-        campaign.userId,
-        EVENTS.Outreach.CompliancePinResent,
-        { triggered_by: 'admin' },
-      )
     })
   })
 
@@ -4022,11 +4021,13 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
     })
   })
 
-  it('does not advance status in non-prod (no real usecase submission)', async () => {
-    // submitCampaignVerifyToken short-circuits to undefined off-prod; the record
-    // must not be promoted to pending for a usecase that was never submitted.
-    await withEnv('dev', async () => {
-      await submitUsecaseIfVerified(service, stuckRecord)
+  it('does not advance status for internal-testing rows (no real usecase submission)', async () => {
+    // submitCampaignVerifyToken short-circuits to undefined for internal-testing
+    // rows; the record must not be promoted to pending for a usecase that was
+    // never submitted.
+    await submitUsecaseIfVerified(service, {
+      ...stuckRecord,
+      internalTestingAt: new Date('2026-10-01T00:00:00Z'),
     })
 
     expect(mockPeerly.submitCampaignVerifyTokenToBrand).not.toHaveBeenCalled()
@@ -4120,6 +4121,17 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
     expect(mockModel.findMany).toHaveBeenCalledTimes(1)
     expect(mockPeerly.createCampaignVerifyToken).toHaveBeenCalledTimes(1)
     expect(mockPeerly.submitCampaignVerifyTokenToBrand).toHaveBeenCalledTimes(1)
+  })
+
+  it('runUnsubmittedUsecaseSweep never touches the lock and can run twice in one hour', async () => {
+    mockModel.findMany.mockResolvedValue([])
+
+    await service.runUnsubmittedUsecaseSweep()
+    await service.runUnsubmittedUsecaseSweep()
+
+    expect(mockModel.findMany).toHaveBeenCalledTimes(2)
+    expect(mockCronLock.tryClaimHourlyRun).not.toHaveBeenCalled()
+    expect(mockCronLock.markHourlyCompleted).not.toHaveBeenCalled()
   })
 
   it('does no work at all when the claim is lost', async () => {
@@ -4569,5 +4581,120 @@ describe('CampaignTcrComplianceService - sendComplianceCompletedSingleSend (ENG-
         peerly_identity_id: 'peerly-999',
       }),
     ).rejects.toThrow('HubSpot down')
+  })
+})
+
+describe('CampaignTcrComplianceService - checkUsecaseActivation', () => {
+  let service: CampaignTcrComplianceService
+  let mockModel: {
+    findFirstOrThrow: ReturnType<typeof vi.fn>
+    updateMany: ReturnType<typeof vi.fn>
+  }
+  let mockAnalytics: {
+    track: ReturnType<typeof vi.fn>
+    identify: ReturnType<typeof vi.fn>
+  }
+  let mockHubspot: { sendSingleSend: ReturnType<typeof vi.fn> }
+  let mockPeerly: { getIdentityUseCases: ReturnType<typeof vi.fn> }
+
+  const recipient = { id: 42, email: 'candidate@example.com' }
+  const record = {
+    peerlyIdentityId: 'peerly-999',
+    peerlyCvStatus: 'VERIFIED',
+    internalTestingAt: null,
+    campaign: { userId: recipient.id, user: recipient },
+  }
+  const message = { peerlyIdentityId: 'peerly-999' } as TcrCompliance
+
+  beforeEach(async () => {
+    mockModel = {
+      findFirstOrThrow: vi.fn().mockResolvedValue(record),
+      updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+    }
+    mockAnalytics = {
+      track: vi.fn().mockResolvedValue(undefined),
+      identify: vi.fn().mockResolvedValue(undefined),
+    }
+    mockHubspot = { sendSingleSend: vi.fn().mockResolvedValue(undefined) }
+    mockPeerly = {
+      getIdentityUseCases: vi
+        .fn()
+        .mockResolvedValue([{ usecase: PEERLY_USECASE, activated: true }]),
+    }
+
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        { provide: PrismaService, useValue: { tcrCompliance: mockModel } },
+        { provide: PeerlyIdentityService, useValue: mockPeerly },
+        { provide: WebsitesService, useValue: {} },
+        { provide: CampaignsService, useValue: {} },
+        { provide: CrmCampaignsService, useValue: {} },
+        { provide: ComplianceStateService, useValue: {} },
+        { provide: QueueProducerService, useValue: { sendMessage: vi.fn() } },
+        { provide: ExperimentRunsService, useValue: {} },
+        { provide: PinoLogger, useValue: createMockLogger() },
+        { provide: AnalyticsService, useValue: mockAnalytics },
+        { provide: SlackService, useValue: { message: vi.fn() } },
+        { provide: CvPreSubmissionValidationService, useValue: {} },
+        { provide: CronLockService, useValue: {} },
+        { provide: HubspotSingleSendService, useValue: mockHubspot },
+        CampaignTcrComplianceService,
+      ],
+    }).compile()
+    service = module.get(CampaignTcrComplianceService)
+  })
+
+  it('approves the record, tracks analytics and sends the single-send', async () => {
+    const result = await service.checkUsecaseActivation(message)
+
+    expect(result).toBe(true)
+    expect(mockModel.updateMany).toHaveBeenCalledWith({
+      where: { peerlyIdentityId: 'peerly-999', status: { not: 'approved' } },
+      data: { status: 'approved' },
+    })
+    expect(mockAnalytics.track).toHaveBeenCalledWith(
+      recipient.id,
+      expect.stringContaining('10DLC Compliance Completed'),
+    )
+    expect(mockAnalytics.identify).toHaveBeenCalled()
+  })
+
+  it('acks without transitioning when the usecase is not active', async () => {
+    mockPeerly.getIdentityUseCases.mockResolvedValueOnce([])
+
+    const result = await service.checkUsecaseActivation(message)
+
+    expect(result).toBe(true)
+    expect(mockModel.updateMany).not.toHaveBeenCalled()
+  })
+
+  it('does not re-track when another delivery already transitioned the record', async () => {
+    mockModel.updateMany.mockResolvedValueOnce({ count: 0 })
+
+    const result = await service.checkUsecaseActivation(message)
+
+    expect(result).toBe(true)
+    expect(mockAnalytics.track).not.toHaveBeenCalledWith(
+      recipient.id,
+      expect.stringContaining('10DLC Compliance Completed'),
+    )
+    expect(mockAnalytics.identify).not.toHaveBeenCalled()
+  })
+
+  it('acks and skips a record with no peerlyIdentityId', async () => {
+    const result = await service.checkUsecaseActivation({
+      peerlyIdentityId: null,
+    } as TcrCompliance)
+
+    expect(result).toBe(true)
+    expect(mockModel.findFirstOrThrow).not.toHaveBeenCalled()
+  })
+
+  it('never throws when the single-send fails', async () => {
+    const send = vi.spyOn(service, 'sendComplianceCompletedSingleSend')
+    send.mockRejectedValueOnce(new Error('HubSpot down'))
+
+    await expect(service.checkUsecaseActivation(message)).resolves.toBe(true)
+    expect(mockAnalytics.track).toHaveBeenCalled()
   })
 })

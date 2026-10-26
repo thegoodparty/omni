@@ -1,8 +1,13 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { UserSection } from './UserSection'
 import { UserProvider } from '../context/UserContext'
-import { UserRole, type User } from '@goodparty_org/sdk'
+import { UserRole, type User } from '@/shared/gpApi'
+
+// Loads its own state through server actions; covered by its own test.
+vi.mock('./PublicProfileCard', () => ({
+  PublicProfileCard: () => <div>Public profile card</div>,
+}))
 
 const mockUser: User = {
   id: 123,

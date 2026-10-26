@@ -1,9 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { screen } from '@testing-library/react'
+import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { render } from 'helpers/test-utils/render'
+import { render, testQueryClient } from 'helpers/test-utils/render'
+import { api } from 'helpers/test-utils/api-mocking'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
-import { EXPLAIN_CIVIC_PANEL_MESSAGE } from '@goodparty_org/contracts'
+import {
+  MANAGED_CIVIC_PANEL_EXHAUSTED_CARD_CTA,
+  MANAGED_CIVIC_PANEL_EXHAUSTED_MESSAGE,
+  START_MANAGED_CIVIC_PANEL_MESSAGE,
+} from '@goodparty_org/contracts'
 import TaskStack from './TaskStack'
 import { ONBOARDING_CARDS } from './onboardingCardsConfig'
 import type { DashboardCard, OnboardingCard } from '../data/contracts'
@@ -17,6 +22,14 @@ const onboardingRef: { current: OnboardingCard[] | undefined } = {
 vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
   ...(await importOriginal<typeof import('helpers/analyticsHelper')>()),
   trackEvent: vi.fn(),
+}))
+
+const orgRef: {
+  current: { slug: string; district: { l2Name: string } | null }
+} = { current: { slug: 'eo-test', district: null } }
+vi.mock('@shared/organization-picker', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  useOrganization: () => orgRef.current,
 }))
 
 const dismissMock = vi.fn()
@@ -57,6 +70,7 @@ const withCards = (data: DashboardCard[]) => {
 }
 
 beforeEach(() => {
+  orgRef.current = { slug: 'eo-test', district: null }
   cardsRef.current = { data: [], isPending: false, isError: false }
   onboardingRef.current = []
   dismissMock.mockReset()
@@ -245,224 +259,43 @@ describe('<TaskStack>', () => {
     )
   })
 
-  const buildCard = card({
-    id: 'build',
+  // The panel card GoodParty builds, offered until the official approves it.
+  const panelCard = card({
+    id: 'panel',
     type: 'civic_panel',
-    title: 'Start with the people you represent',
+    title: 'Know what your district thinks before you vote',
     summary:
-      'A civic panel is a group of residents who agree to tell you what they think before you decide.',
-    ctaLabel: 'Build my panel',
+      'Residents from every part of your district, matched by age, ' +
+      'gender and race. Free in early access.',
+    ctaLabel: 'Build my civic panel',
     ctaHref: '/dashboard/contacts/citizens-panel',
     dueDate: '2026-10-21T18:00:00.000Z',
-    sourceExternalId: 'build:eo-1',
-  })
-
-  it('offers no Ask about this on a civic panel card', () => {
-    withCards([buildCard])
-    render(<TaskStack onOpenCard={vi.fn()} onDiscussCard={vi.fn()} />)
-    expect(
-      screen.queryByRole('button', { name: 'Ask about this' }),
-    ).not.toBeInTheDocument()
-  })
-
-  it('explains the panel from the build card without building or finishing anything', async () => {
-    const user = userEvent.setup()
-    const onDiscussCard = vi.fn()
-    onboardingRef.current = [{ key: 'meet', status: 'completed' }]
-    withCards([buildCard])
-    render(<TaskStack onOpenCard={vi.fn()} onDiscussCard={onDiscussCard} />)
-    // A quiet link beside the one primary action.
-    const explain = screen.getByRole('button', {
-      name: "What's a civic panel?",
-    })
-    await user.click(explain)
-    expect(onDiscussCard).toHaveBeenCalledWith(EXPLAIN_CIVIC_PANEL_MESSAGE)
-    expect(trackEvent).toHaveBeenCalledWith(
-      EVENTS.ChiefOfStaff.TaskActionTaken,
-      {
-        cardId: 'build',
-        cardType: 'civic_panel',
-        cardVariant: 'panel_build',
-        stackSize: 1,
-        action: 'explain',
-      },
-    )
-    expect(completeMock).not.toHaveBeenCalled()
-    expect(completeOnboardingMock).not.toHaveBeenCalled()
-    expect(dismissMock).not.toHaveBeenCalled()
-  })
-
-  it('offers What is a civic panel only on the build card', () => {
-    withCards([
-      card({
-        id: 'p1-card',
-        type: 'civic_panel',
-        title: 'Affordable housing',
-        ctaLabel: 'Open priority',
-        ctaHref: '/dashboard/priorities/p1',
-        sourceExternalId: 'p1',
-      }),
-    ])
-    render(<TaskStack onOpenCard={vi.fn()} onDiscussCard={vi.fn()} />)
-    expect(
-      screen.queryByRole('button', { name: "What's a civic panel?" }),
-    ).not.toBeInTheDocument()
-  })
-
-  it('shows no due date on the build card', () => {
-    withCards([buildCard])
-    render(<TaskStack onOpenCard={vi.fn()} />)
-    expect(screen.queryByText(/October 21/)).toBeNull()
+    sourceExternalId: 'managed-panel:eo-1',
   })
 
   const frontTitle = () => screen.getByRole('heading', { level: 3 }).textContent
 
-  it('leads with meet, then the build card, then priorities, then the rest', () => {
-    onboardingRef.current = [
-      { key: 'meet', status: 'active' },
-      { key: 'priorities', status: 'active' },
-    ]
-    withCards([card({}), buildCard])
-    const { rerender } = render(<TaskStack onOpenCard={vi.fn()} />)
-    expect(frontTitle()).toBe(ONBOARDING_CARDS.meet.title)
-    expect(
-      screen.getByRole('heading', { level: 2, name: 'Start here' }),
-    ).toBeInTheDocument()
-
-    onboardingRef.current = [
-      { key: 'meet', status: 'completed' },
-      { key: 'priorities', status: 'active' },
-    ]
-    rerender(<TaskStack onOpenCard={vi.fn()} />)
-    expect(frontTitle()).toBe('Start with the people you represent')
-    expect(
-      screen.getByRole('heading', { level: 2, name: 'People first' }),
-    ).toBeInTheDocument()
-    // Build my panel opens the panel page, where the plan is made.
-    expect(
-      screen.getByRole('link', { name: 'Build my panel' }),
-    ).toHaveAttribute(
-      'href',
-      '/dashboard/contacts/citizens-panel?from=chief_of_staff_home',
-    )
-
-    withCards([card({})])
-    rerender(<TaskStack onOpenCard={vi.fn()} />)
-    expect(frontTitle()).toBe(ONBOARDING_CARDS.priorities.title)
-
-    onboardingRef.current = [
-      { key: 'meet', status: 'completed' },
-      { key: 'priorities', status: 'skipped' },
-    ]
-    rerender(<TaskStack onOpenCard={vi.fn()} />)
-    expect(frontTitle()).toBe('Prep for the zoning vote')
-  })
-
-  // Once the build card is done, the plan's next step takes its place.
-  it("puts the plan's next step where the build card was, with no explainer or due date", () => {
-    onboardingRef.current = [
-      { key: 'meet', status: 'completed' },
-      { key: 'priorities', status: 'active' },
-    ]
-    withCards([
-      card({}),
-      card({
-        id: 'step',
-        type: 'civic_panel',
-        title: 'Call residents to invite them to your civic panel',
-        summary: '12 of 100 members so far.',
-        ctaLabel: 'Start the calls',
-        ctaHref: '/dashboard/contacts/citizens-panel?step=s2',
-        dueDate: '2026-10-21T18:00:00.000Z',
-        sourceExternalId: 'panel-step:s2',
-      }),
-    ])
-    render(<TaskStack onOpenCard={vi.fn()} onDiscussCard={vi.fn()} />)
-
-    expect(frontTitle()).toBe(
-      'Call residents to invite them to your civic panel',
-    )
-    expect(
-      screen.getByRole('heading', { level: 2, name: 'People first' }),
-    ).toBeInTheDocument()
-    expect(
-      screen.getByRole('link', { name: 'Start the calls' }),
-    ).toHaveAttribute('href', '/dashboard/contacts/citizens-panel?step=s2')
-    expect(screen.queryByText(/October 21/)).toBeNull()
-    expect(
-      screen.queryByRole('button', { name: "What's a civic panel?" }),
-    ).not.toBeInTheDocument()
-    expect(
-      screen.queryByRole('button', { name: 'Mark done' }),
-    ).not.toBeInTheDocument()
-  })
-
-  it('puts the build card ahead of priorities once meet is skipped', () => {
-    onboardingRef.current = [
-      { key: 'meet', status: 'skipped' },
-      { key: 'priorities', status: 'active' },
-    ]
-    withCards([buildCard])
-    render(<TaskStack onOpenCard={vi.fn()} />)
-    expect(frontTitle()).toBe('Start with the people you represent')
-  })
-
-  // It is done when its text goes out, not when it is pressed.
-  it('offers no Mark done on the build card, with the priorities stacked under it', async () => {
+  it('puts the panel card off for 3 days from Skip', async () => {
     const user = userEvent.setup()
-    withCards([
-      card({
-        id: 'p1-card',
-        type: 'civic_panel',
-        title: 'Affordable housing',
-        ctaLabel: 'Open priority',
-        ctaHref: '/dashboard/priorities/p1',
-        dueDate: '2026-10-01T18:00:00.000Z',
-        sourceExternalId: 'p1',
-      }),
-      buildCard,
-    ])
-    render(<TaskStack onOpenCard={vi.fn()} />)
-    expect(
-      screen.getByRole('heading', {
-        level: 3,
-        name: 'Start with the people you represent',
-      }),
-    ).toBeInTheDocument()
-    expect(
-      screen.queryByRole('button', { name: /mark done/i }),
-    ).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Skip' })).toBeInTheDocument()
-
-    await user.click(screen.getByRole('link', { name: 'Build my panel' }))
-    expect(trackEvent).toHaveBeenCalledWith(
-      EVENTS.ChiefOfStaff.TaskActionTaken,
-      expect.objectContaining({ cardId: 'build', stackSize: 2 }),
-    )
-    expect(completeMock).not.toHaveBeenCalled()
-  })
-
-  it('puts the build card off for 3 days from Skip', async () => {
-    const user = userEvent.setup()
-    withCards([buildCard, card({})])
+    withCards([panelCard, card({})])
     render(<TaskStack onOpenCard={vi.fn()} />)
     await user.click(screen.getByRole('button', { name: 'Skip' }))
     await user.click(
       await screen.findByRole('menuitem', { name: 'Show in 3 days' }),
     )
-    expect(snoozeMock).toHaveBeenCalledWith('build')
+    expect(snoozeMock).toHaveBeenCalledWith('panel')
     expect(dismissMock).not.toHaveBeenCalled()
   })
 
-  it('sets the build card aside with Not for me', async () => {
+  it('sets the panel card aside with Not for me', async () => {
     const user = userEvent.setup()
-    withCards([buildCard])
+    withCards([panelCard])
     render(<TaskStack onOpenCard={vi.fn()} />)
     await user.click(screen.getByRole('button', { name: 'Skip' }))
     await user.click(
       await screen.findByRole('menuitem', { name: 'Not for me' }),
     )
-    expect(dismissMock).toHaveBeenCalledWith('build')
+    expect(dismissMock).toHaveBeenCalledWith('panel')
     expect(snoozeMock).not.toHaveBeenCalled()
   })
 
@@ -513,8 +346,10 @@ describe('<TaskStack>', () => {
       summary: 'People keep answering when they see what came of it.',
       ctaLabel: 'Report back',
       ctaHref: '/dashboard/priorities/p1?reportBack=77',
-      sourceExternalId: '77',
+      sourceExternalId: 'p1',
+      sourceItemId: 'notYetRepresentative',
     })
+    const goodReadReportBack = { ...reportBack, sourceItemId: 'representative' }
 
     it('opens the priority to report back, with Mark done', async () => {
       const user = userEvent.setup()
@@ -555,6 +390,293 @@ describe('<TaskStack>', () => {
       )
       expect(dismissMock).toHaveBeenCalledWith('rb')
     })
+
+    const step = card({
+      id: 'step',
+      type: 'civic_panel',
+      title: 'Your civic panel is filling up',
+      ctaLabel: 'See your civic panel',
+      ctaHref: '/dashboard/contacts/citizens-panel',
+      sourceExternalId: 'managed-panel-progress:eo-1',
+      sourceItemId: 'building',
+    })
+
+    it('leads the managed panel cards, after meet, once the read is good', () => {
+      onboardingRef.current = [
+        { key: 'meet', status: 'active' },
+        { key: 'priorities', status: 'active' },
+      ]
+      withCards([card({}), panelCard, goodReadReportBack])
+      const { rerender } = render(<TaskStack onOpenCard={vi.fn()} />)
+      expect(frontTitle()).toBe(ONBOARDING_CARDS.meet.title)
+
+      onboardingRef.current = [
+        { key: 'meet', status: 'completed' },
+        { key: 'priorities', status: 'active' },
+      ]
+      rerender(<TaskStack onOpenCard={vi.fn()} />)
+      expect(frontTitle()).toBe(reportBack.title)
+      expect(
+        screen.getByRole('heading', {
+          level: 2,
+          name: 'Tell people what you heard',
+        }),
+      ).toBeInTheDocument()
+
+      withCards([step, card({}), goodReadReportBack])
+      rerender(<TaskStack onOpenCard={vi.fn()} />)
+      expect(frontTitle()).toBe(reportBack.title)
+
+      // Enough answers is a good read too.
+      withCards([
+        step,
+        card({}),
+        { ...reportBack, sourceItemId: 'enoughAnswers' },
+      ])
+      rerender(<TaskStack onOpenCard={vi.fn()} />)
+      expect(frontTitle()).toBe(reportBack.title)
+
+      // Once it is snoozed or sent, the panel card is next.
+      withCards([step, card({})])
+      rerender(<TaskStack onOpenCard={vi.fn()} />)
+      expect(frontTitle()).toBe('Your civic panel is filling up')
+    })
+
+    it('waits behind the panel cards with the rest before the read is good', () => {
+      onboardingRef.current = [
+        { key: 'meet', status: 'active' },
+        { key: 'priorities', status: 'active' },
+      ]
+      withCards([reportBack, panelCard])
+      const { rerender } = render(<TaskStack onOpenCard={vi.fn()} />)
+      expect(frontTitle()).toBe(ONBOARDING_CARDS.meet.title)
+
+      onboardingRef.current = [
+        { key: 'meet', status: 'completed' },
+        { key: 'priorities', status: 'active' },
+      ]
+      rerender(<TaskStack onOpenCard={vi.fn()} />)
+      expect(frontTitle()).toBe(panelCard.title)
+
+      for (const sourceItemId of ['tooEarly', 'gettingClose']) {
+        withCards([{ ...reportBack, sourceItemId }, step])
+        rerender(<TaskStack onOpenCard={vi.fn()} />)
+        expect(frontTitle()).toBe('Your civic panel is filling up')
+      }
+
+      // The get-started card comes next, then the report back.
+      withCards([reportBack])
+      rerender(<TaskStack onOpenCard={vi.fn()} />)
+      expect(frontTitle()).toBe(ONBOARDING_CARDS.priorities.title)
+
+      onboardingRef.current = [
+        { key: 'meet', status: 'completed' },
+        { key: 'priorities', status: 'completed' },
+      ]
+      rerender(<TaskStack onOpenCard={vi.fn()} />)
+      expect(frontTitle()).toBe(reportBack.title)
+    })
+
+    // At 375px its three quiet buttons (Mark done, Ask about this, Skip) are
+    // wider than the card, so the row wraps rather than running off the
+    // right edge. jsdom has no layout, so this pins the classes that do it.
+    it('wraps its buttons inside the card on a phone', () => {
+      withCards([reportBack])
+      render(<TaskStack onOpenCard={vi.fn()} onDiscussCard={vi.fn()} />)
+
+      const row = screen.getByTestId('task-card-actions')
+      expect(row).toHaveClass('flex', 'flex-wrap')
+      const quiet = [
+        screen.getByRole('button', { name: /mark done/i }),
+        screen.getByRole('button', { name: 'Ask about this' }),
+        screen.getByRole('button', { name: 'Skip' }),
+      ]
+      for (const button of quiet) {
+        expect(row).toContainElement(button)
+        expect(button).toHaveClass('max-sm:grow')
+        expect(button).not.toHaveClass('max-sm:flex-1')
+      }
+      expect(screen.getByRole('link', { name: 'Report back' })).toHaveClass(
+        'w-full',
+      )
+    })
+  })
+
+  describe('the managed civic panel card', () => {
+    const managedCard = card({
+      id: 'managed-1',
+      type: 'civic_panel',
+      title: 'Know what your district thinks before you vote',
+      summary:
+        'Residents from every part of your district, matched by age, ' +
+        'gender and race. Free in early access.',
+      ctaLabel: 'Build my civic panel',
+      ctaHref: '/dashboard/contacts/citizens-panel',
+      sourceExternalId: 'managed-panel:office-1',
+    })
+
+    it('leads under Every group gets a seat, naming the place', () => {
+      orgRef.current = {
+        slug: 'eo-test',
+        district: { l2Name: 'Maplewood City Ward 2' },
+      }
+      onboardingRef.current = [{ key: 'priorities', status: 'active' }]
+      withCards([managedCard])
+      render(<TaskStack onOpenCard={vi.fn()} onDiscussCard={vi.fn()} />)
+
+      expect(
+        screen.getByRole('heading', { name: 'Every group gets a seat' }),
+      ).toBeInTheDocument()
+      expect(
+        screen.getByRole('heading', {
+          name: 'Know what Maplewood thinks before you vote',
+        }),
+      ).toBeInTheDocument()
+      expect(
+        screen.getByText(
+          'Residents from every part of Maplewood, matched by age, gender ' +
+            'and race. Free in early access.',
+        ),
+      ).toBeInTheDocument()
+      expect(screen.getByTestId('managed-panel-seats')).toHaveAttribute(
+        'role',
+        'img',
+      )
+      expect(screen.queryByText(/due/i)).toBeNull()
+    })
+
+    it('title-cases a place that arrives in all caps', () => {
+      orgRef.current = {
+        slug: 'eo-test',
+        district: { l2Name: 'WINSTON-SALEM CITY WARD 2' },
+      }
+      onboardingRef.current = [{ key: 'priorities', status: 'active' }]
+      withCards([managedCard])
+      render(<TaskStack onOpenCard={vi.fn()} onDiscussCard={vi.fn()} />)
+
+      expect(
+        screen.getByRole('heading', {
+          name: 'Know what Winston-Salem thinks before you vote',
+        }),
+      ).toBeInTheDocument()
+    })
+
+    it('opens the Chief of Staff on the setup, with Ask about this and Skip', async () => {
+      const user = userEvent.setup()
+      const onDiscussCard = vi.fn()
+      withCards([managedCard])
+      render(<TaskStack onOpenCard={vi.fn()} onDiscussCard={onDiscussCard} />)
+
+      await user.click(
+        screen.getByRole('button', { name: 'Build my civic panel' }),
+      )
+      expect(onDiscussCard).toHaveBeenCalledWith(
+        START_MANAGED_CIVIC_PANEL_MESSAGE,
+      )
+      expect(trackEvent).toHaveBeenCalledWith(
+        EVENTS.ChiefOfStaff.TaskActionTaken,
+        expect.objectContaining({
+          cardVariant: 'managed_offer',
+          action: 'start',
+        }),
+      )
+
+      await user.click(screen.getByRole('button', { name: 'Ask about this' }))
+      expect(onDiscussCard).toHaveBeenLastCalledWith(
+        expect.stringContaining(
+          'Know what your district thinks before you vote',
+        ),
+      )
+      expect(screen.getByRole('button', { name: 'Skip' })).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /mark done/i })).toBeNull()
+      expect(
+        screen.queryByRole('button', { name: "What's a civic panel?" }),
+      ).toBeNull()
+      expect(screen.queryByRole('link')).toBeNull()
+    })
+  })
+
+  describe('the managed civic panel progress card', () => {
+    const progressCard = (
+      phase: 'building' | 'ready' | 'exhausted',
+      overrides: Partial<DashboardCard> = {},
+    ) =>
+      card({
+        id: `progress-${phase}`,
+        type: 'civic_panel',
+        title: 'Your civic panel is filling up',
+        summary:
+          '12 of 250 residents have joined. More invites go out Tuesday, November 3.',
+        ctaLabel: 'See your civic panel',
+        ctaHref: '/dashboard/contacts/citizens-panel',
+        sourceExternalId: 'managed-panel-progress:office-1',
+        sourceItemId: phase,
+        ...overrides,
+      })
+
+    it('leads under Your civic panel and opens the panel page', () => {
+      onboardingRef.current = [{ key: 'priorities', status: 'active' }]
+      withCards([card({ id: 'other' }), progressCard('building')])
+      render(<TaskStack onOpenCard={vi.fn()} onDiscussCard={vi.fn()} />)
+
+      expect(
+        screen.getByRole('heading', { name: 'Your civic panel' }),
+      ).toBeInTheDocument()
+      expect(
+        screen.getByText(
+          '12 of 250 residents have joined. More invites go out Tuesday, November 3.',
+        ),
+      ).toBeInTheDocument()
+      expect(
+        screen.getByRole('link', { name: 'See your civic panel' }),
+      ).toHaveAttribute(
+        'href',
+        expect.stringContaining('/dashboard/contacts/citizens-panel'),
+      )
+      expect(screen.queryByRole('button', { name: /mark done/i })).toBeNull()
+      expect(screen.queryByText(/due/i)).toBeNull()
+    })
+
+    it('opens the Chief of Staff on where the panel stands once invites run out', async () => {
+      const user = userEvent.setup()
+      const onDiscussCard = vi.fn()
+      withCards([
+        progressCard('exhausted', {
+          title: 'Every resident we can text has an invite',
+          summary: '12 of 250 residents have joined your civic panel.',
+          ctaLabel: MANAGED_CIVIC_PANEL_EXHAUSTED_CARD_CTA,
+        }),
+      ])
+      render(<TaskStack onOpenCard={vi.fn()} onDiscussCard={onDiscussCard} />)
+
+      expect(screen.queryByText(/join link/i)).toBeNull()
+      await user.click(
+        screen.getByRole('button', { name: 'See where it stands' }),
+      )
+
+      expect(onDiscussCard).toHaveBeenCalledWith(
+        MANAGED_CIVIC_PANEL_EXHAUSTED_MESSAGE,
+      )
+      expect(screen.queryByRole('link')).toBeNull()
+    })
+
+    it('links the ready card to the panel page', () => {
+      withCards([
+        progressCard('ready', {
+          title: 'Your civic panel is ready',
+          summary:
+            '250 residents said yes. Ask them what they think before your next vote.',
+        }),
+      ])
+      render(<TaskStack onOpenCard={vi.fn()} onDiscussCard={vi.fn()} />)
+
+      expect(
+        screen.getByRole('heading', { name: 'Your civic panel is ready' }),
+      ).toBeInTheDocument()
+      expect(
+        screen.getByRole('link', { name: 'See your civic panel' }),
+      ).toBeInTheDocument()
+    })
   })
 
   it('does not explain the system or use an em-dash', () => {
@@ -562,5 +684,102 @@ describe('<TaskStack>', () => {
     withCards([card({})])
     const { container } = render(<TaskStack onOpenCard={vi.fn()} />)
     expect(container.textContent).not.toContain('—')
+  })
+
+  describe('Task Viewed', () => {
+    beforeEach(() => {
+      testQueryClient.clear()
+    })
+
+    const viewed = () =>
+      vi
+        .mocked(trackEvent)
+        .mock.calls.filter(
+          ([event]) => event === EVENTS.ChiefOfStaff.TaskViewed,
+        )
+        .map(([, properties]) => properties)
+
+    it('fires once for the front card, with the stack size', () => {
+      withCards([card({}), card({ id: 'c2' })])
+      const { rerender } = render(<TaskStack onOpenCard={vi.fn()} />)
+      rerender(<TaskStack onOpenCard={vi.fn()} />)
+
+      expect(viewed()).toEqual([
+        { cardType: 'briefing', cardVariant: 'other', stackSize: 2 },
+      ])
+    })
+
+    it('fires again when another card comes to the front', () => {
+      withCards([card({}), card({ id: 'c2', type: 'agenda_item' })])
+      const { rerender } = render(<TaskStack onOpenCard={vi.fn()} />)
+      withCards([card({ id: 'c2', type: 'agenda_item' })])
+      rerender(<TaskStack onOpenCard={vi.fn()} />)
+
+      expect(viewed()).toEqual([
+        expect.objectContaining({ cardType: 'briefing' }),
+        expect.objectContaining({ cardType: 'agenda_item', stackSize: 1 }),
+      ])
+    })
+
+    it("carries a report back's priority", () => {
+      withCards([
+        card({
+          id: 'rb',
+          type: 'report_back',
+          sourceExternalId: 'p1',
+          sourceItemId: 'tooEarly',
+        }),
+      ])
+      render(<TaskStack onOpenCard={vi.fn()} />)
+
+      expect(viewed()).toEqual([
+        expect.objectContaining({
+          cardType: 'report_back',
+          cardVariant: 'report_back',
+          priorityId: 'p1',
+        }),
+      ])
+    })
+
+    it("waits for a civic panel card's members and goal", async () => {
+      api.mock('GET /v1/contacts/civic-panel', {
+        status: 200,
+        data: {
+          members: 12,
+          reachedRecently: 0,
+          askableNow: 12,
+          lastOutreachAt: null,
+          progress: {
+            members: 12,
+            goal: 243,
+            answersNeeded: 96,
+            expectedAnswers: 5,
+            groupsCovered: 1,
+            groupsTotal: 12,
+          },
+          balance: null,
+          composition: null,
+        },
+      })
+      withCards([
+        card({
+          id: 'progress',
+          type: 'civic_panel',
+          title: 'Your civic panel is filling up',
+          sourceExternalId: 'managed-panel-progress:eo-1',
+          sourceItemId: 'building',
+        }),
+      ])
+      render(<TaskStack onOpenCard={vi.fn()} />)
+
+      await waitFor(() => expect(viewed()).toHaveLength(1))
+      expect(viewed()[0]).toEqual({
+        cardType: 'civic_panel',
+        cardVariant: 'managed_building',
+        stackSize: 1,
+        members: 12,
+        goalMembers: 243,
+      })
+    })
   })
 })

@@ -38,16 +38,24 @@ idempotent, so re-running this stage against a card that already has a flag
 just returns the existing state — never create a second flag for the same
 feature.
 
-**The first story you write in step 3 is always the flag-wiring story** — the
-one that adds the flag check and the dark/no-op path everything else lands
-behind. Every later story depends on it, and every runtime code path any
-story adds must sit behind that flag.
+**With a flag, the first story you write in step 3 is the flag-wiring story**
+— the one that adds the flag check and the dark/no-op path everything else
+lands behind. Every later story depends on it, and every runtime code path
+any story adds must sit behind that flag.
 
-**Exception**: skip the flag entirely only when the TDD says, in so many
-words, that this change has no runtime surface (a docs-only change, a
-one-time backfill script, internal tooling nothing user-facing gates). A TDD
-that is merely silent about a flag is not the same as a TDD that rules one
-out — default to creating the flag.
+**Exception**: skip the flag entirely (no Amplitude call, no flag-wiring
+story) when any of these hold:
+
+- The TDD names its own runtime switch for the change (an env var or config
+  mode such as `VENDOR_MODE`).
+- The work is test infrastructure, CI, developer tooling, docs, or a
+  one-time script.
+- The TDD says this change has no user-facing runtime surface.
+
+When you skip, record `flag-key: none` on its own line in the breakdown
+summary (step 5) and say why in one sentence. A TDD that is merely silent
+about a flag but changes user-facing behavior is not an exception — default
+to creating the flag.
 
 ### 3. Break the TDD into stories
 
@@ -62,10 +70,12 @@ a human through the feedback loop instead (step 4).
 
 Create each story as a subtask of `CLICKUP_TASK_ID` via
 `shared.clickup_client.ClickUpClient.create_task(..., parent=CLICKUP_TASK_ID)`,
-in dependency order, and wire the dependency links between them: the
-flag-wiring story has no dependency, every story behind it depends on the
-flag-wiring story, and anything with a real ordering constraint on top of
-that depends on its predecessor. Every ClickUp write this stage makes is
+in dependency order, and wire the dependency links between them. With a
+flag, the flag-wiring story has no dependency, every story behind it depends
+on the flag-wiring story, and anything with a real ordering constraint on top
+of that depends on its predecessor. Without a flag (step 2's exception) there
+is no flag-wiring story and no forced star: link only real ordering
+constraints, so independent stories can start at once. Every ClickUp write this stage makes is
 scoped to the feature card and the subtasks you create under it — never
 another card.
 
@@ -83,11 +93,12 @@ back up.
 Post one summary comment on `CLICKUP_TASK_ID` covering: the stories you
 created (title and id) in order, the flag key and how it was chosen, and any
 open questions you parked on earlier in this run. Name the flag key on its
-own machine-readable line, in exactly this form: `flag-key: <key>`. Autopilot
-parses that line back out at epic close-out to file the flag's eventual
-cleanup ticket — a key only named in prose leaves that ticket unable to be
-picked up automatically once the flag is fully ramped, and it is filed
-without one instead. Then move the card to
+own machine-readable line, in exactly this form: `flag-key: <key>` (or
+`flag-key: none` when you skipped the flag). Autopilot parses that line back
+out at epic close-out to file the flag's eventual cleanup ticket — a key only
+named in prose leaves that ticket unable to be picked up automatically once
+the flag is fully ramped, and it is filed without one instead. `none` files
+no cleanup ticket at all. Then move the card to
 `feedback needed` — that column is where a human reviews the breakdown (the
 same column a park lands in; the summary comment is what tells the reviewer
 this is a finished breakdown, not an open question).
@@ -98,7 +109,7 @@ park or a finished breakdown:
 
     python -m autopilot.agent.feedback notify --task-id <CLICKUP_TASK_ID> \
         --stage epic-create \
-        --message "Breakdown ready for review: <N> stories, flag <flag-key>. Move the card to executing to start implementation."
+        --message "Breakdown ready for review: <N> stories, flag <flag-key, or none>. Move the card to executing to start implementation."
 
 If that command exits non-zero, don't end your turn silently — nobody reads
 this run's stderr. Post the error as one more comment on the card so a human

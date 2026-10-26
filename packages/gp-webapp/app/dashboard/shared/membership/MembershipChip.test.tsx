@@ -121,7 +121,7 @@ describe('MembershipChip', () => {
   it('does not expose the flag when the surface is hidden', () => {
     for (const state of [
       membership({ isElectedOffice: true }),
-      membership({ texting: 'cleared' }),
+      membership({ texting: 'closed' }),
     ]) {
       setup({ state })
 
@@ -219,10 +219,21 @@ describe('MembershipChip', () => {
     expect(trackEvent).not.toHaveBeenCalled()
   })
 
-  it('renders nothing once a Pro campaign is cleared to text', () => {
+  it('sends a Pro campaign cleared to text to schedule its text', async () => {
+    const user = userEvent.setup()
     setup({ state: membership({ texting: 'cleared' }) })
 
-    expect(screen.queryByRole('button')).toBeNull()
+    expect(screen.getByText(MEMBERSHIP_COPY.chip.cleared)).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button'))
+
+    expect(router.push).toHaveBeenCalledWith(
+      '/dashboard/outreach?compose=text&source=navigation',
+    )
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.ProUpgrade.Membership.ScheduleBannerClicked,
+      { path: '/' },
+    )
   })
 
   it('renders nothing for an elected-office organization', () => {

@@ -22,6 +22,7 @@ Pulumi (TypeScript) infrastructure-as-code, the production Dockerfile, and the `
 | `components/alerting/` + `alerts.ts`        | Grafana alert rules and routing                                                      |
 | `pulumi/`                                   | `node_modules` for Pulumi's runtime (separate dependency tree)                       |
 | `components/preview-shared-cluster.ts`      | Shared preview Aurora cluster (`gp-api-preview-shared-db`); created by the dev stack |
+| `components/election-db.ts`                 | The election Aurora cluster (`election-api-db-develop` / `-prod`) and its RDS-event log copy; dev and prod stacks only |
 | `components/preview-shared-alb.ts`          | Shared preview ALB (`gp-api-previews`) + `*.preview.goodparty.org`; created by the dev stack |
 
 ## Patterns
@@ -59,6 +60,10 @@ Preview services run with `connection_limit=5` (set by `IS_PREVIEW` in `docker-e
 2. Add an RDS Proxy in front of the cluster (multiplexes connections; the proxy endpoint replaces `DB_HOST` for previews).
 3. Lower `connection_limit` further, or raise it if the 5-per-service cap proves too tight for single-preview load.
 
+## Election database (`components/election-db.ts`)
+
+The election data Aurora cluster that `ELECTION_DATABASE_URL` points at. It was created by the retired election-api stack and adopted here by `import`, so its physical names (`election-api-db-*`, `tf-2025…` instance ids, `rdsEventsRule-*`) and its `Project: election-api` tag are historical, not a pattern to copy. Previews read the dev cluster and never own it. The master password is deliberately not an input: Pulumi does not manage it.
+
 ## Gotchas
 
 - VPC ID, subnet IDs, security group IDs, and the hosted zone are **hardcoded** in `index.ts`. They reference the existing AWS account and aren't created by Pulumi. Don't try to make them dynamic.
@@ -66,6 +71,8 @@ Preview services run with `connection_limit=5` (set by `IS_PREVIEW` in `docker-e
 - `pulumi/` has its own `node_modules` — don't `npm install` inside `deploy/`. Pulumi resolves from there at runtime.
 - `Dockerfile` copies `node_modules/.prisma` from the build host. CI must run `prisma generate` before the docker build, or the image will fail at runtime with missing native engines.
 - `infra deploy preview` requires `prNumber`; running it without one will throw on `config.require`.
+- **Prod autoscaling owns the task count.** `components/service.ts` adopts the SST-era scalable target and its CPU and memory policies by name (4 to 24 tasks, 50% target, 10-minute scale-in cooldown), and the service ignores `desiredCount`. gp-api carries election traffic, which waits on the database more than it uses CPU, so a low floor or a fast scale-in drains it to a few saturated tasks. Average CPU then understates the problem: each saturated task fails health checks and its booting replacement reads near 0%. Dev and previews run a fixed task with no autoscaling.
+- **The target group routes by least outstanding requests, not round robin.** Cron jobs and queue consumers run inside the web tasks, and a `CronLockService` slot puts each run on one of them. `outreachInboundSweep` (hourly at :30) parses Peerly message-report CSVs for 15 minutes or more on that task's single thread. Round robin kept sending that task a full share of requests, and on 2026-10-21 it saturated while the other three sat at a quarter of capacity, below the average-CPU scale-out threshold.
 - **The deploy wait is a budget, and the health check spends most of it.** On dev and prod, `waitForSteadyState: true` plus `customTimeouts` (10m) means Pulumi fails the deploy if ECS does not stabilize in time, and `interval * healthyThreshold` (30s dev, 2m prod) is on the critical path of every handover. Raising the interval or lowering the timeout re-opens the failure where deploys missed the wait by seconds, and `healthCheckGracePeriodSeconds` (300) must stay above the slowest boot, which is a first-boot preview doing ensure-database + `migrate deploy`.
 - **Preview deploys do not wait in Pulumi.** The preview service sets `waitForSteadyState: false`, `deploymentMinimumHealthyPercent: 0`, no deregistration delay and a 5s health check, so its old task stops while the new one boots. The `Verify the preview is serving this commit` step in `gp-api.yml` is the gate: it polls `/v1/version` for this commit for up to 10 minutes and fails early if the ECS circuit breaker marks the rollout FAILED. A preview is unreachable for a minute or two mid-deploy, which is fine because the webapp E2E waits for this job.
 - **A rollout that never finishes needs a new commit, not a re-run.** Pulumi has already updated its resource spec, and `deploymentCircuitBreaker.rollback` is false, so the service never rolls over. Re-running the job is then a no-op: `pulumi up` diffs against its own spec, finds nothing to change, and exits 0. Because the ECR tag is `github.sha`, only a new commit produces a new image tag and so a genuinely new task definition. The verify step exists to catch exactly this; without it the divergence stays silent and reappears ~20m later as a gp-webapp `E2E Wait` failure pointing at a deploy that reported green (PR #1455, 2026-08-26, cost roughly an hour of re-runs that could not have worked).

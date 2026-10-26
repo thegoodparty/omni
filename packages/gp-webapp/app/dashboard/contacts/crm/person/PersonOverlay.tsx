@@ -39,6 +39,7 @@ import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useWinVoterContext } from '../../../shared/useWinVoterContext'
 import { InfoSection } from './InfoSection'
 import { ConstituentFeedbackSection } from './ConstituentFeedbackSection'
+import { PriorityAnswersSection } from './PriorityAnswersSection'
 import { useIssueCaptureFlag } from 'app/shared/experiments/issueCaptureFlag'
 import FollowUpRow from './FollowUpRow'
 import CivicPanelRow from './CivicPanelRow'
@@ -190,7 +191,9 @@ const TopIssuesContent: React.FC = () => {
           height={100}
           className="h-15 w-auto"
         />
-        <p className="text-sm text-muted-foreground">Data not available.</p>
+        <p className="text-sm text-muted-foreground">
+          No issues from your polls yet.
+        </p>
       </div>
     )
   }
@@ -402,13 +405,15 @@ export const PersonRecord: React.FC<{
   useEffect(() => {
     if (isWinContextReady && !firedContactViewedRef.current) {
       firedContactViewedRef.current = true
-      trackEvent(
-        isWin
-          ? EVENTS.VoterData.ContactViewed
-          : EVENTS.ConstituentData.ContactViewed,
-      )
+      if (isWin) {
+        trackEvent(EVENTS.VoterData.ContactViewed)
+      } else {
+        trackEvent(EVENTS.ConstituentData.ContactViewed, {
+          onCivicPanel: person.civicPanel === 'member',
+        })
+      }
     }
-  }, [isWinContextReady, isWin])
+  }, [isWinContextReady, isWin, person.civicPanel])
 
   // Serve keeps its poll-interaction timeline behind its own flag (unchanged);
   // Win adds the outreach timeline for campaigns (not elected officials). The
@@ -420,6 +425,12 @@ export const PersonRecord: React.FC<{
   const details = [person.gender, person.age ? `${person.age} years old` : null]
     .filter(isNotNil)
     .join(', ')
+  // `voted` is Win-only and detail-only (gp-api's VotedStatusService: the
+  // latest will-vote answer this election is Already voted). It sits next to
+  // the two turnout predictions rather than replacing them, so a canvasser
+  // still sees the voter-file score.
+  const withVoted = (value: string | null) =>
+    person.voted ? `${value ?? 'Unknown'} (Already voted)` : value
 
   return (
     <div>
@@ -446,6 +457,8 @@ export const PersonRecord: React.FC<{
         {issueCaptureEnabled && (
           <ConstituentFeedbackSection personId={person.id} isServe={isServe} />
         )}
+
+        <PriorityAnswersSection personId={person.id} isServe={isServe} />
 
         {showActivitiesAndIssues && topIssues ? (
           <InfoSection title="Top Issues" icon={<LuFrown size={24} />}>
@@ -504,7 +517,11 @@ export const PersonRecord: React.FC<{
             icon={<LuClipboardList size={24} />}
           >
             <Field label="Registered Voter" value={person.registeredVoter} />
-            <Field label="Voter Status" value={person.voterStatus} />
+            <Field label="Voter Status" value={withVoted(person.voterStatus)} />
+            <Field
+              label="Early Vote Likelihood"
+              value={withVoted(person.earlyVoteStatus)}
+            />
             <Field label="Political Party" value={person.politicalParty} />
           </InfoSection>
         )}

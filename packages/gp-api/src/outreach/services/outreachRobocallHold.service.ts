@@ -415,8 +415,9 @@ export class OutreachRobocallHoldService extends createPrismaBase(
     if (isAfter(captureDeadline, held.captureBefore)) {
       // We placed a hold that we are now abandoning. Void it (best-effort) and
       // revert, persisting attempt as the new payAttempt so a retry derives a
-      // FRESH idempotency key (robocall-hold-<id>-<attempt+1>) and a new PI —
-      // reusing the key would idempotent-replay this just-canceled PI.
+      // FRESH idempotency key (robocall-hold-<customer>-<id>-<attempt+1>) and
+      // a new PI — reusing the key would idempotent-replay this just-canceled
+      // PI.
       await this.stripe.voidHold(held.paymentIntentId)
       await this.recordOrphanHold(
         held.paymentIntentId,

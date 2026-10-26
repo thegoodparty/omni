@@ -88,4 +88,10 @@ export class CallhubPhonebookService {
       })
     }
   }
+
+  // The raw page body, for the nightly drift probe (see
+  // CallhubNumbersService.fetchRentedNumbersBodyForProbe).
+  async fetchPhonebooksBodyForProbe(): Promise<unknown> {
+    return this.http.get(PHONEBOOKS_PATH, { params: { page_size: PAGE_SIZE } })
+  }
 }

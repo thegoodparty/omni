@@ -16,6 +16,7 @@ import { ContactsService } from '@/contacts/services/contacts.service'
 import { FeaturesService } from '@/features/services/features.service'
 import { FeedbackSynthesisService } from '../services/feedbackSynthesis.service'
 import { FeedbackSynthesisIngestService } from '../services/feedbackSynthesisIngest.service'
+import { FeedbackThemeIssueMatchService } from '../services/feedbackThemeIssueMatch.service'
 import { MockSynthesisEngine } from '../services/mockSynthesisEngine'
 import { PriorityFlowOutreachService } from '@/chats/general/priority-flow/services/priorityFlowOutreach.service'
 import { SynthesisStaleRunSweepService } from '../services/synthesisStaleRunSweep.service'
@@ -181,6 +182,11 @@ describe('feedback synthesis across a priority', () => {
     const stray = await seedTextEffort(service, slug)
     const [strayReply] = await replies(1, stray.id)
     const started = await run()
+    const match = vi.spyOn(
+      service.app.get(FeedbackThemeIssueMatchService),
+      'matchRun',
+    )
+    onTestFinished(() => match.mockRestore())
 
     await ingest().handle(
       completionEvent(started.id, [
@@ -203,6 +209,8 @@ describe('feedback synthesis across a priority', () => {
     })
     expect(themes.map((theme) => theme.members.length)).toEqual([4, 1])
     expect(themes.every((theme) => theme.tagId === null)).toBe(true)
+    // Its themes are read for their people, never their stances.
+    expect(match).not.toHaveBeenCalled()
     expect(
       await service.prisma.constituentFeedbackTag.count({
         where: { runId: started.id },
@@ -378,7 +386,7 @@ describe('feedback synthesis across a priority', () => {
     const agent = service.app.get(PriorityFlowOutreachService)
     const page = (await results()).data.themes
     const pooledRead = await agent.pooledThemes(slug, priorityId)
-    const perSend = await agent.feedbackFor(slug, { priorityId })
+    const perSend = await agent.feedbackFor(slug, { priorityId }, 'US/Eastern')
     const peopleOn = (outreachId: number) =>
       perSend
         .find((send) => send.outreachId === outreachId)!

@@ -218,10 +218,10 @@ jobs:
           # Non-fatal must not mean invisible: a failure here stops the shared page
           # refreshing at all, so annotate the run the way the sheet step does.
           if ! uv run event_explorer_snapshot.py --series \
-            -o ../../../prototypes/app/p/analytics-event-explorer/data/event-explorer.json; then
+            -o ../../surfaces/event-explorer/data/event-explorer.json; then
             # A failed write can leave a half-written file, and the commit step stages
             # whatever is on disk, so put the last good copy back.
-            git checkout -- ../../../prototypes/app/p/analytics-event-explorer/data/event-explorer.json
+            git checkout -- ../../surfaces/event-explorer/data/event-explorer.json
             msg="Explorer snapshot NOT rebuilt: the shared page keeps its previous data until the next run."
             echo "::warning::$msg"
             echo ":warning: $msg" >> "$GITHUB_STEP_SUMMARY"
@@ -276,7 +276,7 @@ jobs:
         run: |
           set -euo pipefail
           state_dir=packages/runbooks/scripts/python/instrumentation_data
-          snapshot=packages/prototypes/app/p/analytics-event-explorer/data/event-explorer.json
+          snapshot=packages/runbooks/surfaces/event-explorer/data/event-explorer.json
           console=packages/runbooks/surfaces/governance-console/data/governance-console.json
           if [ -z "$(git status --porcelain -- "$state_dir" packages/runbooks/scripts/python/monitored_events.yaml "$snapshot" "$console")" ]; then
             echo "No state changes this run."

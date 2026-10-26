@@ -56,7 +56,8 @@ export const RECOMMENDED_LISTS_REGISTRY: Record<
     copy: {
       title: 'Persuadable independent-leaning voters',
       criteriaSummary:
-        'Moderate to high propensity voters who lean independent.',
+        'Moderate to high propensity voters who lean independent and who ' +
+        'have not already voted.',
     },
   },
   persuadeIdeology: {
@@ -66,8 +67,8 @@ export const RECOMMENDED_LISTS_REGISTRY: Record<
     copy: {
       title: 'Voters who may lean {bucket}',
       criteriaSummary:
-        'Moderate to high propensity voters whose behavior suggests a ' +
-        '{bucket} lean — a hypothesis worth testing with your message.',
+        'Moderate to high propensity voters who may lean {bucket}, a ' +
+        'hypothesis to test, and who have not already voted.',
     },
   },
   persuadeUndecided: {
@@ -77,8 +78,8 @@ export const RECOMMENDED_LISTS_REGISTRY: Record<
     copy: {
       title: 'Voters still on the fence',
       criteriaSummary:
-        'Moderate to high propensity voters marked undecided from past ' +
-        'outreach.',
+        'Moderate to high propensity voters marked undecided in past ' +
+        'outreach and who have not already voted.',
     },
   },
   eventSupporters: {
@@ -123,7 +124,7 @@ export const RECOMMENDED_LISTS_REGISTRY: Record<
       title: 'Get your supporters voting early',
       criteriaSummary:
         'Voters who have told you they support you, regardless of ' +
-        'turnout history.',
+        'turnout history, and who have not already voted.',
     },
   },
   earlyVoteAffinity: {
@@ -133,7 +134,8 @@ export const RECOMMENDED_LISTS_REGISTRY: Record<
     copy: {
       title: 'Encourage independent-leaning voters to vote early',
       criteriaSummary:
-        'Moderate to high propensity voters who lean independent.',
+        'Independent-leaning voters who tend to vote early, in person or ' +
+        'by mail, and who have not already voted.',
     },
   },
   earlyVoteIdeology: {
@@ -143,8 +145,8 @@ export const RECOMMENDED_LISTS_REGISTRY: Record<
     copy: {
       title: 'Encourage voters who may lean {bucket} to vote early',
       criteriaSummary:
-        'Moderate to high propensity voters whose behavior suggests a ' +
-        '{bucket} lean — a hypothesis worth testing with your message.',
+        'Voters who tend to vote early and may lean {bucket}, a ' +
+        'hypothesis to test, and who have not already voted.',
     },
   },
   electionDaySupporters: {
@@ -176,8 +178,8 @@ export const RECOMMENDED_LISTS_REGISTRY: Record<
     copy: {
       title: 'Turn out voters who may lean {bucket}',
       criteriaSummary:
-        'Moderate propensity voters whose behavior suggests a {bucket} ' +
-        'lean — a hypothesis worth testing with a turnout push.',
+        'Moderate propensity voters who may lean {bucket}, a hypothesis ' +
+        'to test, and who have not already voted.',
     },
   },
 }

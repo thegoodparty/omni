@@ -8,7 +8,7 @@ import {
   ComplianceStage,
   PeerlyCvVerificationStatus,
   type ComplianceStateOutput,
-} from '@goodparty_org/sdk'
+} from '@/shared/gpApi'
 import { formatLocalDateString } from '@/lib/utils/date'
 import { ProtectedContent } from '@/components/ProtectedContent'
 import { PERMISSIONS } from '@/lib/permissions'

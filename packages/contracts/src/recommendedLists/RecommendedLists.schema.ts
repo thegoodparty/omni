@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { SupportStatusRollupSchema } from '../people/Person.schema'
+import { VotedStatusSchema } from '../generated/enums'
 
 // The channel picked first in the outreach flow. Door knocking's own purpose
 // step (its native create flow's "purpose" stage) reads the same
@@ -94,7 +95,14 @@ export const RecommendedListFilterSchema = z
   .object({
     voterStatus: z.array(z.string()).optional(),
     supportStatus: z.array(SupportStatusRollupSchema).optional(),
+    // Every variant but the event invites leaves out voters who have already
+    // voted this election ("Voted in election: Unknown").
+    votedStatus: z.array(VotedStatusSchema).optional(),
     independentAffinity: z.boolean().optional(),
+    // The early-vote variants' screen: Early_Vote_Status Very likely or
+    // Likely, as the same two booleans a saved list stores.
+    earlyVoteVeryLikely: z.boolean().optional(),
+    earlyVoteLikely: z.boolean().optional(),
     ideologyLiberal: z.boolean().optional(),
     ideologyModerate: z.boolean().optional(),
     ideologyConservative: z.boolean().optional(),

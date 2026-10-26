@@ -9,7 +9,7 @@ import { z } from 'zod'
 // JSON Schema changes; runtime parsing is identical to the wrapped
 // z.coerce.date()/z.date().
 const withDateTimeJsonSchema = <T extends z.ZodType>(schema: T): T => {
-  ;(schema._zod as unknown as { toJSONSchema: () => unknown }).toJSONSchema =
+  ;(schema as unknown as { _zod: { toJSONSchema: () => unknown } })._zod.toJSONSchema =
     () => ({ type: 'string', format: 'date-time' })
   return schema
 }

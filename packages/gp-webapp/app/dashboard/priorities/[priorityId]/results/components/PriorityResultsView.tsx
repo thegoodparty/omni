@@ -2,22 +2,21 @@
 
 import { useEffect } from 'react'
 import Link from 'next/link'
-import {
-  MIN_RESPONDENTS_FOR_REPRESENTATION,
-  type PriorityResults,
-} from '@goodparty_org/contracts'
-import { Button, Progress } from '@styleguide'
+import type { PriorityResults } from '@goodparty_org/contracts'
+import { Button, cn, Progress } from '@styleguide'
 import { ArrowLeftIcon } from '@styleguide/components/ui/icons'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { RESULTS_COPY } from '../resultsCopy'
 import {
   READ_STATUS_COPY,
+  READ_PROGRESS_TONE,
   READ_STATUS_DOT,
   getAnswersHref,
   readPercent,
 } from '../../readStatusCopy'
-import { WEIGHTING_STATUS } from '../../weightingStatus'
-import { RepresentationBars } from './RepresentationBars'
+import { AnswerSeatsArc, AnswerSeatsLegend } from '../../components/AnswerSeats'
+import { READ_STATUS_PROPERTY } from '../../readStatusProperty'
+import { CivicPanelBloom } from 'app/dashboard/contacts/citizens-panel/components/CivicPanelBloom'
 import { RespondentHeatGrid } from './RespondentHeatGrid'
 
 const Section = ({
@@ -72,12 +71,15 @@ export const PriorityResultsView = ({
     trackEvent(EVENTS.Priorities.ResultsViewed, {
       priorityId,
       heldBack: !readStatus.good,
-      weightingStatus: WEIGHTING_STATUS[readStatus.status],
+      readStatus: READ_STATUS_PROPERTY[readStatus.status],
       answers: readStatus.answers,
-      answersNeeded: readStatus.needed,
+      answersFloor: readStatus.needed,
+      groupsHeard: readStatus.groupsHeard,
+      groupsTotal: readStatus.groupsTotal,
       respondentCount: respondents.total,
       joinedCivicPanel: respondents.joinedCivicPanel,
-      representationShown: results.representation !== null,
+      representationShown: results.groups.length > 0,
+      ...(readStatus.good ? { themes: results.themes.length } : {}),
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [priorityId])
@@ -123,45 +125,48 @@ export const PriorityResultsView = ({
             />
             {READ_STATUS_COPY.label(readStatus)}
           </h2>
-          {readStatus.answers < readStatus.needed ? (
-            <>
-              <p className="text-sm text-foreground">
-                {READ_STATUS_COPY.moreAnswers(
-                  readStatus.needed - readStatus.answers,
-                )}
+          {readStatus.groupsTotal > 0 ? (
+            <div className="flex flex-col gap-2 lg:items-center">
+              {/* Seats on a computer, the bar below lg, by CSS alone so the
+                  card never jumps. */}
+              <AnswerSeatsArc
+                readStatus={readStatus}
+                className="hidden max-w-80 lg:block"
+              />
+              <AnswerSeatsLegend
+                readStatus={readStatus}
+                className="hidden justify-center lg:flex"
+              />
+              <p className="text-sm font-semibold text-foreground">
+                {READ_STATUS_COPY.progress(readStatus)}.
               </p>
               <Progress
-                value={readPercent(readStatus.answers, readStatus.needed)}
-                aria-label={READ_STATUS_COPY.progress(
-                  readStatus.answers,
-                  readStatus.needed,
+                value={readPercent(readStatus)}
+                aria-label={READ_STATUS_COPY.progress(readStatus)}
+                className={cn(
+                  'h-2 lg:hidden',
+                  READ_PROGRESS_TONE[readStatus.status],
                 )}
-                className="h-2"
               />
-            </>
-          ) : null}
-          <p className="text-sm text-muted-foreground">
-            {readStatus.status === 'tooEarly'
-              ? READ_STATUS_COPY.tooEarly
-              : READ_STATUS_COPY.notLikeDistrict}
-          </p>
-          {readStatus.underrepresented.length > 0 ? (
-            <div data-testid="results-hear-from-more">
-              <h3 className="text-sm font-semibold text-foreground">
-                {READ_STATUS_COPY.hearFromMoreHeading}
-              </h3>
-              <ul className="mt-1 list-disc pl-5 text-sm text-foreground">
-                {readStatus.underrepresented.map((group) => (
-                  <li key={group}>{READ_STATUS_COPY.groupName(group)}</li>
-                ))}
-              </ul>
             </div>
           ) : null}
-          <Button asChild size="small" className="self-start rounded-full">
-            <Link href={getAnswersHref(priorityId)}>
-              {READ_STATUS_COPY.getAnswers}
-            </Link>
-          </Button>
+          <p className="text-sm text-muted-foreground">
+            {READ_STATUS_COPY.heldBack(readStatus)}
+          </p>
+          {readStatus.checkOut && READ_STATUS_COPY.namesGroups(readStatus) ? (
+            <p className="text-sm text-foreground">
+              {readStatus.status === 'gettingClose'
+                ? READ_STATUS_COPY.statusLine(readStatus)
+                : READ_STATUS_COPY.stillNeed(readStatus)}
+            </p>
+          ) : null}
+          {READ_STATUS_COPY.canGetAnswers(readStatus) ? (
+            <Button asChild size="small" className="self-start rounded-full">
+              <Link href={getAnswersHref(priorityId)}>
+                {READ_STATUS_COPY.getAnswers}
+              </Link>
+            </Button>
+          ) : null}
         </section>
       )}
     </div>
@@ -178,14 +183,16 @@ const HeardSections = ({ results }: { results: PriorityResults }) => (
         results.themes.length > 0 ? RESULTS_COPY.themesCaption : undefined
       }
     >
-      {results.summarizing && (
+      {results.summarizing && results.themes.length > 0 && (
         <p className="text-xs text-muted-foreground">
           {RESULTS_COPY.themesUpdating}
         </p>
       )}
       {results.themes.length === 0 ? (
         <p className="text-sm text-muted-foreground">
-          {RESULTS_COPY.themesEmpty}
+          {results.summarizing
+            ? RESULTS_COPY.themesProcessing
+            : RESULTS_COPY.themesEmpty}
         </p>
       ) : (
         <div className="flex flex-col gap-3">
@@ -220,17 +227,22 @@ const HeardSections = ({ results }: { results: PriorityResults }) => (
       )}
     </Section>
 
-    <Section
-      title={RESULTS_COPY.representationTitle}
-      caption={
-        results.representation ? RESULTS_COPY.representationCaption : undefined
-      }
-    >
-      {results.representation ? (
-        <RepresentationBars representation={results.representation} />
+    <Section title={RESULTS_COPY.representationTitle}>
+      {results.groups.length > 0 ? (
+        <CivicPanelBloom
+          groups={results.groups.map(
+            ({ group, districtShare, answerShare }) => ({
+              group,
+              districtShare,
+              memberShare: answerShare,
+            }),
+          )}
+          showNext={false}
+          summary={RESULTS_COPY.groupsSummary}
+        />
       ) : (
         <p className="text-sm text-muted-foreground">
-          {RESULTS_COPY.representationEmpty(MIN_RESPONDENTS_FOR_REPRESENTATION)}
+          {RESULTS_COPY.representationUnavailable}
         </p>
       )}
     </Section>

@@ -344,9 +344,9 @@ def test_the_snapshot_carries_cards_for_its_own_queues():
 def test_every_verb_on_every_queue_says_what_it_does():
     """A verb with no effect line is a button whose consequence is unreadable."""
     verbs = {
-        "flags": set(gcs.FLAG_VERBS),
+        "flags": set(gcs.FLAG_VERBS) | {"unwatch"},
         "gaps": set(gcs.GAP_VERBS),
-        "proposals": set(gcs.PROPOSAL_VERBS),
+        "proposals": set(gcs.PROPOSAL_VERBS) | set(gcs.REMOVAL_VERBS),
         "alignment": set(gcs.ALIGNMENT_VERBS),
     }
 
@@ -968,9 +968,12 @@ def test_surface_queue_lists_only_open_rows_and_prechecks_high_confidence():
     assert by_id["Profile - Running Against: Click Save"]["recommended"] == "accept"
     assert by_id["Contacts - Segment Created"]["recommended"] == ""
     assert all(i["queue"] == "surface" and i["verbs"] == gcs.SURFACE_VERBS for i in items)
-    ev = by_id["Profile - Running Against: Click Save"]["evidence"][0]
-    assert ev["proposed_surface"] == "additional-questions"
-    assert ev["removal_commit"] == "93cb4a414 2026-06-19"
+    item = by_id["Profile - Running Against: Click Save"]
+    assert item["relabel"]["proposed"]["surface"] == "additional-questions"
+    assert item["relabel"]["proposed"]["display_name"] == "Additional Questions - Running Against: Click Save"
+    assert item["relabel"]["now"]["claimed"] == "Profile"
+    assert item["evidence"][0]["removal_commit"] == "93cb4a414 2026-06-19"
+    assert "proposed_surface" not in item["evidence"][0]
 
 
 def test_surface_verbs_all_have_effects_and_rows_get_event_cards():
@@ -990,5 +993,114 @@ def test_surface_queue_shows_the_slug_options_and_uses_us_spelling():
         "verdict": "moved", "confidence": "proposed", "claimed": "Settings", "areas": ["Profile"],
         "proposed_surface": "profile", "surface_options": ["my-profile", "profile"], "disposition": "new"}}}
     [item] = gcs.build_surface_queue(drift)
-    assert item["evidence"][0]["surface_options"] == "my-profile, profile"
+    assert item["relabel"]["proposed"]["surface_options"] == ["my-profile", "profile"]
     assert item["label"] == "Settings - Personal Info: Click Upload: labeled Settings, fires from Profile"
+
+
+def test_a_multi_area_row_has_no_proposal_and_one_option_per_area():
+    options = [{"area": "Your Story", "surface": "your-story", "display_name": "Your Story - Rewrite Accepted",
+                "fires_on": "Your Story (/dashboard/campaign-story)", "url": "/dashboard/campaign-story"},
+               {"area": "Candidate Onboarding", "surface": "candidate-onboarding",
+                "display_name": "Candidate Onboarding - Rewrite Accepted",
+                "fires_on": "Candidate Onboarding (/onboarding/office-selection)", "url": ""}]
+    drift = {"rows": {"Campaign Story - Rewrite Accepted": {
+        "verdict": "stale_area_name", "confidence": "proposed", "claimed": "Campaign Story",
+        "claimed_kind": "prefix", "areas": ["Your Story", "Candidate Onboarding"], "proposed_surface": "",
+        "display_name": "Campaign Story - Rewrite Accepted", "area_options": options, "disposition": "new"}}}
+    [item] = gcs.build_surface_queue(drift)
+    assert item["relabel"]["proposed"] is None
+    assert item["relabel"]["options"] == options
+    assert item["relabel"]["now"] == {"display_name": "Campaign Story - Rewrite Accepted",
+                                      "claimed": "Campaign Story", "claimed_kind": "prefix"}
+
+
+# --- watchlist cost (DATA-2676) -------------------------------------------------
+
+
+def test_removal_proposals_join_the_proposal_queue_with_their_own_verbs():
+    report = {"removal_proposals": [
+        {"event_type": "Old", "reason": "retired", "retired_date": "2026-07-13"}]}
+
+    [item] = gcs.build_proposal_queue(report)
+
+    assert item["id"] == "remove:Old"
+    assert item["label"] == "Remove from watchlist: Old"
+    assert set(item["verbs"]) == {"remove", "keep", "defer"}
+    assert item["recommended"] == "remove"
+    assert item["evidence"] == [{"retired_date": "2026-07-13"}]
+    effects = gcs.VERB_EFFECTS["proposals"]
+    assert effects["remove"] and effects["keep"]
+
+
+def test_a_report_without_removals_still_builds():
+    assert gcs.build_proposal_queue({}) == []
+
+
+def test_a_dormant_cause_with_a_watched_member_offers_unwatch():
+    report = {"flagged": [_record(event_type="W", rank=6, elevated=True)],
+              "dismissed_causes": {}}
+
+    [item] = gcs.build_flag_queue(report)
+
+    assert item["id"] == "dormant_elevated"
+    assert "unwatch" in item["verbs"]
+    assert gcs.VERB_EFFECTS["flags"]["unwatch"]
+
+
+def test_unwatch_is_not_offered_when_no_member_is_watched():
+    report = {"flagged": [_record(event_type="W", rank=6, elevated=True, on_watchlist=False)],
+              "dismissed_causes": {}}
+
+    [item] = gcs.build_flag_queue(report)
+
+    assert "unwatch" not in item["verbs"]
+
+
+def test_unwatch_is_not_offered_on_a_non_dormant_cause():
+    report = {"flagged": [_record(event_type="A", rank=2, call_site_count=0,
+                                  call_site_retired_date="2026-09-01")],
+              "dismissed_causes": {}}
+
+    [item] = gcs.build_flag_queue(report)
+
+    assert "unwatch" not in item["verbs"]
+
+
+def test_a_low_value_gap_gets_no_recommendation_so_it_stays_rejudged():
+    # defer writes `open`, and select_candidates never re-judges an open gap, so a
+    # deferred low-value gap could never turn needed once someone asks its question.
+    verdict, why = gcs.recommend_gap({"value": "low", "judge_reason": "r"})
+    assert verdict == ""
+    assert why == ("No question anyone asked needs this event yet. Leave it unruled and "
+                   "it is judged again next run.")
+
+
+def test_a_gap_without_a_value_keeps_accept():
+    assert gcs.recommend_gap({"judge_reason": "r"})[0] == "accept"
+
+
+def test_unwatch_is_not_offered_for_a_qualified_okr_legs_base_event():
+    report = {"flagged": [_record(event_type="W", rank=6, elevated=True, okr_base=True)],
+              "dismissed_causes": {}}
+
+    [item] = gcs.build_flag_queue(report)
+
+    assert "unwatch" not in item["verbs"]
+
+
+def test_a_removal_items_event_gets_a_card():
+    queues = [{"queue": "proposals", "items": gcs.build_proposal_queue({"removal_proposals": [
+        {"event_type": "Old", "reason": "retired", "retired_date": "2026-07-13"}]})}]
+    assert gcs.queue_event_types(queues) == {"Old"}
+
+
+def test_every_removal_evidence_key_has_a_column_label():
+    import re
+
+    template = (Path(gcs.__file__).parent.parent.parent / "surfaces" / "governance-console"
+                / "template.html").read_text()
+    block = template.split("const EVIDENCE_LABELS = {", 1)[1].split("}", 1)[0]
+    labelled = set(re.findall(r"^\s*(\w+):", block, re.M))
+    [item] = gcs.build_proposal_queue({"removal_proposals": [
+        {"event_type": "Old", "reason": "retired", "retired_date": "2026-07-13"}]})
+    assert set(item["evidence"][0]) <= labelled

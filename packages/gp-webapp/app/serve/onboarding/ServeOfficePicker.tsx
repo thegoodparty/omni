@@ -1,11 +1,19 @@
 'use client'
 
-import { Button, Input, InputWithButton, Skeleton } from '@styleguide'
+import {
+  Button,
+  FilterPill,
+  FilterPillGroup,
+  Input,
+  InputWithButton,
+  RadioCardItem,
+  RadioGroup,
+  Skeleton,
+} from '@styleguide'
 import { useQuery } from '@tanstack/react-query'
 import Fuse, { type IFuseOptions } from 'fuse.js'
-import { Check, Loader2, Search } from 'lucide-react'
+import { Loader2, Search } from 'lucide-react'
 import { useMemo, useState, useEffect } from 'react'
-import { cn } from '@styleguide/lib/utils'
 import { clientFetch } from 'gpApi/clientFetch'
 import { apiRoutes } from 'gpApi/routes'
 import { dateUsHelper } from 'helpers/dateHelper'
@@ -13,16 +21,10 @@ import { reportErrorToSentry } from '@shared/sentry'
 import type { Race } from 'app/onboarding/[slug]/[step]/components/ballotOffices/types'
 import type { SelectedOffice } from 'app/onboarding/components/onboardingTypes'
 
-// An elected official already holds the office — this is a *position* picker,
-// not a race picker. Conceptually we want the elections an incumbent already
-// won, but the Race table isn't yet backfilled with past elections for every
-// position, so filtering to 'past' returns nothing for many zips. Until the
-// data team finishes that ingest we query upcoming elections ('future', which
-// every covered position has) so the picker is never empty; flip back to 'past'
-// (or 'all') once past races are loaded. We still surface the most recent
-// *already-held* election as a "last election" date — the signal that tells
-// apart cohort twins sharing an identical name — which stays blank until a past
-// election is on file.
+// An elected official already holds the office, so this is a position picker,
+// not a race picker. The list comes from upcoming races, which every covered
+// position has. Past races only supply each row's "Last elected" date, the
+// signal that tells apart cohort twins sharing an identical name.
 const isZipValid = (value: string): boolean => /^\d{5}$/.test(value.trim())
 
 interface PositionRow {
@@ -31,7 +33,7 @@ interface PositionRow {
   level?: string
   city?: string
   state?: string
-  electionDate?: string
+  lastElectedDate?: string
 }
 
 const FUSE_OPTIONS: IFuseOptions<PositionRow> = {
@@ -57,10 +59,13 @@ const KNOWN_PILLS = [
 ] as const
 const OTHER_PILL = 'Other'
 
-const fetchPositions = async (zip: string): Promise<Race[]> => {
+const fetchRaces = async (
+  zip: string,
+  timeframe: 'future' | 'past',
+): Promise<Race[]> => {
   const resp = await clientFetch<Race[]>(
     apiRoutes.elections.racesByYear,
-    { zipcode: zip, timeframe: 'future' },
+    { zipcode: zip, timeframe },
     { revalidate: 3600 },
   )
   if (!resp.ok) {
@@ -71,42 +76,64 @@ const fetchPositions = async (zip: string): Promise<Race[]> => {
   return Array.isArray(resp.data) ? resp.data : []
 }
 
-// Collapse the race rows (one per position+election) into one row per position.
-// A position is never dropped. Each row carries the position's most recent
-// *already-held* general/primary election (future dates and runoffs excluded)
-// as its "last election" date — the signal that tells apart cohort twins
-// sharing an identical name. While the picker queries upcoming elections (see
-// fetchPositions), no past date is on file, so this stays blank.
-const dedupeToPositions = (races: Race[]): PositionRow[] => {
+interface PositionRaces {
+  upcoming: Race[]
+  past: Race[]
+}
+
+// A failed past lookup only costs the dates, so it never fails the picker.
+const fetchPositions = async (zip: string): Promise<PositionRaces> => {
+  const [upcoming, past] = await Promise.all([
+    fetchRaces(zip, 'future'),
+    fetchRaces(zip, 'past').catch((error: Error) => {
+      reportErrorToSentry(error, {
+        context: 'serveOnboarding.officePicker.fetchPastRaces',
+        zip,
+      })
+      return []
+    }),
+  ])
+  return { upcoming, past }
+}
+
+const racePositionId = (race: Race): string | undefined =>
+  race.brPositionId ?? race.position?.id
+
+// The latest past general per position. Primaries and runoffs are not when
+// an official was elected.
+const lastElectedByPosition = (past: Race[]): Map<string, string> => {
+  const byId = new Map<string, string>()
+  for (const race of past) {
+    if (race.isPrimary || race.isRunoff) continue
+    const positionId = racePositionId(race)
+    const day = race.election?.electionDay
+    if (!positionId || !day) continue
+    const current = byId.get(positionId)
+    if (!current || day > current) byId.set(positionId, day)
+  }
+  return byId
+}
+
+// Collapse the upcoming race rows (one per position+election) into one row
+// per position.
+const dedupeToPositions = ({
+  upcoming,
+  past,
+}: PositionRaces): PositionRow[] => {
+  const lastElected = lastElectedByPosition(past)
   const byId = new Map<string, PositionRow>()
-  const todayIso = new Date().toISOString().slice(0, 10)
 
-  for (const race of races) {
-    const positionId = race.brPositionId ?? race.position?.id
-    if (!positionId) continue
-
-    let row = byId.get(positionId)
-    if (!row) {
-      row = {
-        positionId,
-        positionName: race.position?.name ?? 'Office',
-        level: race.position?.level,
-        city: race.city ?? undefined,
-        state: race.position?.state ?? race.election?.state,
-      }
-      byId.set(positionId, row)
-    }
-
-    if (!race.isRunoff) {
-      const day = race.election?.electionDay
-      if (
-        day &&
-        day <= todayIso &&
-        (!row.electionDate || day > row.electionDate)
-      ) {
-        row.electionDate = day
-      }
-    }
+  for (const race of upcoming) {
+    const positionId = racePositionId(race)
+    if (!positionId || byId.has(positionId)) continue
+    byId.set(positionId, {
+      positionId,
+      positionName: race.position?.name ?? 'Office',
+      level: race.position?.level,
+      city: race.city ?? undefined,
+      state: race.position?.state ?? race.election?.state,
+      lastElectedDate: lastElected.get(positionId),
+    })
   }
 
   return [...byId.values()].sort((a, b) =>
@@ -129,11 +156,18 @@ const toSelectedOffice = (row: PositionRow): SelectedOffice => ({
   state: row.state,
 })
 
+// The list the office was picked from: how many offices the zip found, and
+// whether a name search or a pill narrowed it.
+export interface OfficePick {
+  officesFound: number
+  usedFilter: boolean
+}
+
 interface ServeOfficePickerProps {
   zip: string | undefined
   selected: SelectedOffice | undefined
   onZipChange: (zip: string) => void
-  onSelect: (office: SelectedOffice | undefined) => void
+  onSelect: (office: SelectedOffice | undefined, pick?: OfficePick) => void
   onCantFindOffice: () => void
 }
 
@@ -180,7 +214,7 @@ export default function ServeOfficePicker({
   }, [query.error, submittedZip])
 
   const positions = useMemo(
-    () => dedupeToPositions(query.data ?? []),
+    () => dedupeToPositions(query.data ?? { upcoming: [], past: [] }),
     [query.data],
   )
 
@@ -282,26 +316,17 @@ export default function ServeOfficePicker({
           />
 
           {sortedPills.length > 0 ? (
-            <div className="flex flex-wrap gap-2">
-              {sortedPills.map((pill) => {
-                const active = activePill === pill
-                return (
-                  <button
-                    key={pill}
-                    type="button"
-                    onClick={() => setActivePill(active ? null : pill)}
-                    className={cn(
-                      'rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors',
-                      active
-                        ? 'border-primary bg-primary/10 text-foreground'
-                        : 'border-base-border bg-background text-foreground hover:border-primary/50',
-                    )}
-                  >
-                    {pill} ({pillCounts[pill] ?? 0})
-                  </button>
-                )
-              })}
-            </div>
+            <FilterPillGroup
+              aria-label="Filter offices by type"
+              value={activePill ?? ''}
+              onValueChange={(value) => setActivePill(value || null)}
+            >
+              {sortedPills.map((pill) => (
+                <FilterPill key={pill} value={pill}>
+                  {pill} ({pillCounts[pill] ?? 0})
+                </FilterPill>
+              ))}
+            </FilterPillGroup>
           ) : null}
 
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -322,55 +347,41 @@ export default function ServeOfficePicker({
               }
             />
           ) : (
-            <div
+            <RadioGroup
               aria-label="Available offices"
-              className="max-h-[480px] space-y-2 overflow-y-auto pr-1"
-              role="radiogroup"
-            >
-              {filteredPositions.map((row) => {
-                const isSelected = selected?.positionId === row.positionId
-                return (
-                  <button
-                    key={row.positionId}
-                    type="button"
-                    role="radio"
-                    aria-checked={isSelected}
-                    onClick={() => onSelect(toSelectedOffice(row))}
-                    className={cn(
-                      'flex w-full items-start gap-3 rounded-md border border-base-border bg-muted/30 p-3 text-left transition-all hover:border-primary/50',
-                      isSelected &&
-                        'border-primary bg-primary/5 ring-2 ring-primary/20',
-                    )}
-                  >
-                    <span
-                      className={cn(
-                        'mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border-2',
-                        isSelected
-                          ? 'border-primary bg-primary text-primary-foreground'
-                          : 'border-muted-foreground/40',
-                      )}
-                    >
-                      {isSelected ? <Check className="h-2.5 w-2.5" /> : null}
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block break-words text-sm font-semibold text-foreground">
-                        {row.positionName}
-                      </span>
-                      {row.level ? (
-                        <span className="block break-words text-xs text-muted-foreground">
-                          {row.level}
-                        </span>
-                      ) : null}
-                      {row.electionDate ? (
-                        <span className="block break-words text-xs text-muted-foreground">
-                          Last election: {dateUsHelper(row.electionDate)}
-                        </span>
-                      ) : null}
-                    </span>
-                  </button>
+              className="max-h-[480px] overflow-y-auto p-1"
+              value={selected?.positionId ?? ''}
+              onValueChange={(positionId) => {
+                const row = filteredPositions.find(
+                  (candidate) => candidate.positionId === positionId,
                 )
-              })}
-            </div>
+                if (row) {
+                  onSelect(toSelectedOffice(row), {
+                    officesFound: positions.length,
+                    usedFilter: Boolean(nameFilter.trim() || activePill),
+                  })
+                }
+              }}
+            >
+              {filteredPositions.map((row) => (
+                <RadioCardItem
+                  key={row.positionId}
+                  value={row.positionId}
+                  id={`office-${row.positionId}`}
+                  title={row.positionName}
+                  description={
+                    [
+                      row.level,
+                      row.lastElectedDate
+                        ? `Last elected: ${dateUsHelper(row.lastElectedDate)}`
+                        : undefined,
+                    ]
+                      .filter(Boolean)
+                      .join(' · ') || undefined
+                  }
+                />
+              ))}
+            </RadioGroup>
           )}
 
           <div className="pt-1 text-center">

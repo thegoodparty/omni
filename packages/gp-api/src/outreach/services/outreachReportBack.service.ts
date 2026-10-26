@@ -1,6 +1,10 @@
 import { Injectable } from '@nestjs/common'
-import { format, parseISO } from 'date-fns'
+import { ModuleRef } from '@nestjs/core'
+import { ContactsService } from '@/contacts/services/contacts.service'
+import { sizeOf } from '@/contacts/utils/civicPanelAllocation.util'
+import { format } from 'date-fns'
 import {
+  DashboardCardType,
   OutreachStatus,
   OutreachType,
   Prisma,
@@ -8,6 +12,7 @@ import {
   SynthesisScope,
 } from '../../generated/prisma'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
+import { answeredPersonIds } from '@/priorities/util/priorityRespondents.util'
 
 // The brief's report-back window: a send's replies are in, and the official
 // has two weeks to tell those people what was heard and what comes next.
@@ -36,15 +41,18 @@ export interface ReportBackSend {
   priorityId: string
   priorityTitle: string
   sentOn: string | null
-  // Who the report back goes to, in the official's words.
+  // Who the report back goes to, in the official's words: everyone who
+  // answered the priority on any channel.
   audience: string
-  // How many people the send reached, and how many of them can still be
-  // texted: everyone who has not opted out since.
+  // How many people answered the priority on any channel, each counted once,
+  // and how many of them can still be texted: everyone who has not opted out
+  // since. `reached` is the same people, since they are who it goes to.
   reached: number
   canReach: number
   answered: number
   themes: ReportBackTheme[]
-  // The report back that went out on this send, if one has.
+  // The report back that went out since the priority's read status last
+  // changed, if one has.
   reportBack: { outreachId: number; sentOn: string | null } | null
 }
 
@@ -55,13 +63,8 @@ const sentOnOf = (row: {
   row.scheduledLocalDate ??
   (row.date === null ? null : format(row.date, 'yyyy-MM-dd'))
 
-export const reportBackAudience = (
-  priorityTitle: string,
-  sentOn: string | null,
-): string =>
-  sentOn === null
-    ? `Everyone you texted about ${priorityTitle}`
-    : `Everyone you texted about ${priorityTitle} on ${format(parseISO(sentOn), 'MMMM d')}`
+export const reportBackAudience = (priorityTitle: string): string =>
+  `Everyone who answered about ${priorityTitle}`
 
 /**
  * Reporting back on a priority's text sends: which sends have their replies
@@ -79,6 +82,32 @@ export const reportBackAudience = (
 export class OutreachReportBackService extends createPrismaBase(
   MODELS.Outreach,
 ) {
+  constructor(private readonly moduleRef: ModuleRef) {
+    super()
+  }
+
+  // How many of these people a text can reach: those with a cell phone. A
+  // door or call answerer may have none, and the Serve text refuses a draft
+  // it cannot fill. Resolved lazily, so this module imports nothing. When the
+  // district cannot be read, everyone counts and the create has the last word.
+  private async textableCount(
+    organizationSlug: string,
+    personIds: string[],
+  ): Promise<number> {
+    if (personIds.length === 0) return 0
+    try {
+      const organization = await this.client.organization.findUniqueOrThrow({
+        where: { slug: organizationSlug },
+      })
+      const cells = await this.moduleRef
+        .get(ContactsService, { strict: false })
+        .countByGroupWithin(organization, { hasCellPhone: true }, personIds)
+      return sizeOf(cells)
+    } catch {
+      return personIds.length
+    }
+  }
+
   repliesInWhere(
     organizationSlug: string,
     electedOfficeId: string,
@@ -99,55 +128,95 @@ export class OutreachReportBackService extends createPrismaBase(
     }
   }
 
-  // Report backs that have gone out, keyed by the send they report on.
-  async sentReportBacks(
-    outreachIds: number[],
-  ): Promise<Map<number, { outreachId: number; sentOn: string | null }>> {
-    if (outreachIds.length === 0) return new Map()
-    const rows = await this.findMany({
-      where: {
-        reportBackForOutreachId: { in: outreachIds },
-        status: { notIn: REPORT_BACK_UNSENT_STATUSES },
-      },
-      orderBy: { createdAt: Prisma.SortOrder.asc },
-      select: {
-        id: true,
-        reportBackForOutreachId: true,
-        scheduledLocalDate: true,
-        date: true,
-      },
+  // The priority a text send belongs to, which its report back answers.
+  async priorityOf(
+    organizationSlug: string,
+    outreachId: number,
+  ): Promise<string | null> {
+    const row = await this.findFirst({
+      where: { id: outreachId, organizationSlug, campaignId: null },
+      select: { priorityId: true },
     })
-    return new Map(
-      rows.flatMap((row) =>
-        row.reportBackForOutreachId === null
-          ? []
-          : [
-              [
-                row.reportBackForOutreachId,
-                { outreachId: row.id, sentOn: sentOnOf(row) },
-              ] as const,
-            ],
-      ),
-    )
+    return row?.priorityId ?? null
   }
 
-  // The office's sends whose replies are in, newest first, optionally on
-  // one priority or one send.
+  // The report back on a priority that went out since its read status last
+  // changed, which is when its card was last made. With no card yet, any
+  // report back that went out counts. A new status is a new reason to tell
+  // people, so it opens the way to another.
+  async sentReportBack(
+    organizationSlug: string,
+    priorityId: string,
+    excludingOutreachId?: number,
+  ): Promise<{ outreachId: number; sentOn: string | null } | null> {
+    const [sends, card] = await Promise.all([
+      this.findMany({
+        where: {
+          priorityId,
+          organizationSlug,
+          campaignId: null,
+          outreachType: OutreachType.text,
+        },
+        select: { id: true },
+      }),
+      this.client.dashboardCard.findFirst({
+        where: {
+          type: DashboardCardType.report_back,
+          sourceExternalId: priorityId,
+        },
+        orderBy: { createdAt: Prisma.SortOrder.desc },
+        select: { createdAt: true },
+      }),
+    ])
+    const row = await this.findFirst({
+      where: {
+        reportBackForOutreachId: { in: sends.map((send) => send.id) },
+        status: { notIn: REPORT_BACK_UNSENT_STATUSES },
+        ...(excludingOutreachId !== undefined && {
+          id: { not: excludingOutreachId },
+        }),
+        ...(card && { createdAt: { gte: card.createdAt } }),
+      },
+      orderBy: { createdAt: Prisma.SortOrder.desc },
+      select: { id: true, scheduledLocalDate: true, date: true },
+    })
+    return row ? { outreachId: row.id, sentOn: sentOnOf(row) } : null
+  }
+
+  // What a report back on this send could tell people: how many answered
+  // the priority, and how many of its themes it has to share.
+  async reportBackFacts(
+    organizationSlug: string,
+    reportBackForOutreachId: number,
+  ): Promise<{ answeredCount: number; themesShared: number } | null> {
+    const priorityId = await this.priorityOf(
+      organizationSlug,
+      reportBackForOutreachId,
+    )
+    if (priorityId === null) return null
+    const [answered, themes] = await Promise.all([
+      answeredPersonIds(this.client, organizationSlug, priorityId),
+      this.topThemes(organizationSlug, priorityId),
+    ])
+    return { answeredCount: answered.length, themesShared: themes.length }
+  }
+
+  // The office's priorities with a text whose replies are in, newest first,
+  // one entry each, optionally one priority or the priority a send belongs
+  // to. The entry is anchored on the priority's latest such send.
   async listForOffice(
     organizationSlug: string,
     electedOfficeId: string,
     scope: { priorityId?: string; outreachId?: number } = {},
   ): Promise<ReportBackSend[]> {
-    const sends = await this.findMany({
+    const rows = await this.findMany({
       where: {
         ...this.repliesInWhere(organizationSlug, electedOfficeId),
         ...(scope.priorityId === undefined
           ? {}
           : { priorityId: scope.priorityId }),
-        ...(scope.outreachId === undefined ? {} : { id: scope.outreachId }),
       },
       orderBy: { createdAt: Prisma.SortOrder.desc },
-      take: MAX_SENDS,
       select: {
         id: true,
         priorityId: true,
@@ -156,76 +225,55 @@ export class OutreachReportBackService extends createPrismaBase(
         priority: { select: { title: true } },
       },
     })
-    const ids = sends.map((send) => send.id)
-    const reportBacks = await this.sentReportBacks(ids)
+    const anchors = new Map<string, (typeof rows)[number]>()
+    for (const row of rows) {
+      if (row.priorityId !== null && !anchors.has(row.priorityId)) {
+        anchors.set(row.priorityId, row)
+      }
+    }
+    const sends = [...anchors.values()]
+      .filter(
+        (send) =>
+          scope.outreachId === undefined || send.id === scope.outreachId,
+      )
+      .slice(0, MAX_SENDS)
     return Promise.all(
       sends.map(async (send) => {
-        const sentOn = sentOnOf(send)
+        const priorityId = send.priorityId ?? ''
         const title = send.priority?.title ?? ''
-        const [reached, canReach, answered, themes] = await Promise.all([
-          this.client.outreachTextRecipient.count({
-            where: { outreachId: send.id, organizationSlug },
-          }),
-          this.countAudience(organizationSlug, send.id),
-          this.client.contactInteractionText.count({
-            where: {
-              outreachId: send.id,
-              respondedAt: { not: null },
-              optedOutAt: null,
-            },
-          }),
-          this.topThemes(send.id),
+        const [answered, reportBack, themes] = await Promise.all([
+          answeredPersonIds(this.client, organizationSlug, priorityId),
+          this.sentReportBack(organizationSlug, priorityId),
+          this.topThemes(organizationSlug, priorityId),
         ])
         return {
           outreachId: send.id,
-          priorityId: send.priorityId ?? '',
+          priorityId,
           priorityTitle: title,
-          sentOn,
-          audience: reportBackAudience(title, sentOn),
-          reached,
-          canReach,
-          answered,
+          sentOn: sentOnOf(send),
+          audience: reportBackAudience(title),
+          reached: answered.length,
+          canReach: await this.textableCount(organizationSlug, answered),
+          answered: answered.length,
           themes,
-          reportBack: reportBacks.get(send.id) ?? null,
+          reportBack,
         }
       }),
     )
   }
 
-  // Everyone the send reached who has not opted out of the office's texts
-  // since. The recipient rows are who the delivery layer actually handed the
-  // text to, so this is the send's real audience, not its list re-read. The
-  // list a report back saves freezes the same people
-  // (VoterFileFilterSampleService.personIdsReachedBy).
-  async countAudience(
+  // The priority's top themes from its latest finished pooled summary, each
+  // with how many people it covers. Titles and counts only: a report back
+  // never quotes or points at anyone.
+  private async topThemes(
     organizationSlug: string,
-    outreachId: number,
-  ): Promise<number> {
-    const [row] = await this.client.$queryRaw<{ count: bigint }[]>(
-      Prisma.sql`
-        SELECT COUNT(*) AS count
-        FROM outreach_text_recipient r
-        WHERE r.outreach_id = ${outreachId}
-        AND r.organization_slug = ${organizationSlug}
-        AND NOT EXISTS (
-          SELECT 1 FROM contact_interaction_text t
-          WHERE t.organization_slug = r.organization_slug
-          AND t.person_id = r.person_id
-          AND t.opted_out_at IS NOT NULL
-        )
-      `,
-    )
-    return Number(row?.count ?? 0)
-  }
-
-  // The send's top themes from its latest finished summary, each with how
-  // many people it covers. Titles and counts only: a report back never
-  // quotes or points at anyone.
-  private async topThemes(outreachId: number): Promise<ReportBackTheme[]> {
+    priorityId: string,
+  ): Promise<ReportBackTheme[]> {
     const run = await this.client.feedbackSynthesisRun.findFirst({
       where: {
-        outreachId,
-        scope: SynthesisScope.effort,
+        organizationSlug,
+        priorityId,
+        scope: SynthesisScope.priority,
         status: SynthesisRunStatus.completed,
       },
       orderBy: { completedAt: Prisma.SortOrder.desc },
@@ -235,8 +283,16 @@ export class OutreachReportBackService extends createPrismaBase(
           select: {
             title: true,
             members: {
-              where: { textReplyId: { not: null } },
-              select: { textReply: { select: { personId: true } } },
+              where: {
+                OR: [
+                  { feedback: { confirmedAt: { not: null } } },
+                  { textReplyId: { not: null } },
+                ],
+              },
+              select: {
+                feedback: { select: { personId: true } },
+                textReply: { select: { personId: true } },
+              },
             },
           },
         },
@@ -246,9 +302,11 @@ export class OutreachReportBackService extends createPrismaBase(
       .map((theme) => ({
         title: theme.title,
         people: new Set(
-          theme.members.flatMap((member) =>
-            member.textReply ? [member.textReply.personId] : [],
-          ),
+          theme.members.flatMap((member) => {
+            const personId =
+              member.feedback?.personId ?? member.textReply?.personId
+            return personId === undefined ? [] : [personId]
+          }),
         ).size,
       }))
       .filter((theme) => theme.people > 0)

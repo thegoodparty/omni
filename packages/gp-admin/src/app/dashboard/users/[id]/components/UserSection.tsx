@@ -5,8 +5,9 @@ import { ProBadge } from '@/shared/components/ProBadge'
 import { formatPhone } from '@/lib/utils/phone'
 import { InfoCard } from './InfoCard'
 import { DataRow } from './DataRow'
+import { PublicProfileCard } from './PublicProfileCard'
 import { useUser } from '../context/UserContext'
-import { UserRole } from '@goodparty_org/sdk'
+import { UserRole } from '@/shared/gpApi'
 
 const HUBSPOT_PORTAL_ID = '21589597'
 const HUBSPOT_CONTACT_URL = `https://app.hubspot.com/contacts/${HUBSPOT_PORTAL_ID}/record/0-1`
@@ -89,6 +90,8 @@ export function UserSection({ isPro }: UserSectionProps) {
           )}
         </Flex>
       </InfoCard>
+
+      <PublicProfileCard />
     </Grid>
   )
 }

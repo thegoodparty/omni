@@ -130,6 +130,10 @@ describe('ContactsService', () => {
       resolveContactsMade: ReturnType<typeof vi.fn>
       lastReachedAt: ReturnType<typeof vi.fn>
     }
+    let mockVotedStatusService: {
+      votedPersonIds: ReturnType<typeof vi.fn>
+      votedForPeople: ReturnType<typeof vi.fn>
+    }
 
     beforeEach(() => {
       mockVoterFileFilterService = {
@@ -187,6 +191,11 @@ describe('ContactsService', () => {
         lastReachedAt: vi.fn().mockResolvedValue(null),
       }
 
+      mockVotedStatusService = {
+        votedPersonIds: vi.fn().mockResolvedValue([]),
+        votedForPeople: vi.fn().mockResolvedValue(new Map()),
+      }
+
       service = new ContactsService(
         mockVoterFileFilterService as never,
         {} as never,
@@ -209,6 +218,7 @@ describe('ContactsService', () => {
         {
           resolve: vi.fn().mockResolvedValue('Voter_Independent_Affinity'),
         } as never,
+        mockVotedStatusService as never,
         createMockLogger(),
       )
       vi.clearAllMocks()
@@ -2202,6 +2212,74 @@ describe('ContactsService', () => {
             filters: { id: { notIn: [PERSON_ID_3] } },
           }),
         )
+      })
+
+      describe('voted in election', () => {
+        const winOrg = () =>
+          makeOrganization({
+            slug: 'campaign-1',
+            overrideDistrictId: OVERRIDE_DISTRICT_ID,
+          })
+
+        it('Unknown leaves out everyone who has voted', async () => {
+          mockCampaignsService.findFirst.mockResolvedValue(makeCampaign())
+          mockActivityConditionResolutionService.resolveIdFilter.mockResolvedValue(
+            { kind: 'none' },
+          )
+          mockVotedStatusService.votedPersonIds.mockResolvedValue([PERSON_ID_3])
+          mockVoterQueryService.findPeople.mockResolvedValue({
+            people: [],
+            pagination: { totalResults: 4 },
+          })
+          const createSpy = vi.spyOn(ListPeopleDTO, 'create')
+
+          const result = await service.countContacts(
+            { votedStatus: ['unknown'] },
+            winOrg(),
+          )
+
+          expect(result).toEqual({ count: 4 })
+          expect(createSpy).toHaveBeenCalledWith(
+            expect.objectContaining({
+              filters: { id: { notIn: [PERSON_ID_3] } },
+            }),
+          )
+        })
+
+        it('Already voted is an empty list while nobody has voted', async () => {
+          mockCampaignsService.findFirst.mockResolvedValue(makeCampaign())
+          mockActivityConditionResolutionService.resolveIdFilter.mockResolvedValue(
+            { kind: 'none' },
+          )
+          mockVotedStatusService.votedPersonIds.mockResolvedValue([])
+
+          const result = await service.countContacts(
+            { votedStatus: ['already_voted'] },
+            winOrg(),
+          )
+
+          expect(result).toEqual({ count: 0 })
+          expect(mockVoterQueryService.findPeople).not.toHaveBeenCalled()
+        })
+
+        it('both options is no constraint', async () => {
+          mockCampaignsService.findFirst.mockResolvedValue(makeCampaign())
+          mockActivityConditionResolutionService.resolveIdFilter.mockResolvedValue(
+            { kind: 'none' },
+          )
+          mockVoterQueryService.findPeople.mockResolvedValue({
+            people: [],
+            pagination: { totalResults: 9 },
+          })
+
+          const result = await service.countContacts(
+            { votedStatus: ['already_voted', 'unknown'] },
+            winOrg(),
+          )
+
+          expect(result).toEqual({ count: 9 })
+          expect(mockVotedStatusService.votedPersonIds).not.toHaveBeenCalled()
+        })
       })
 
       it('downloadContacts writes an empty CSV response without calling people-db when the resolution is empty', async () => {

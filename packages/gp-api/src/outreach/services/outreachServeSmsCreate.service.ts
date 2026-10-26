@@ -1,14 +1,15 @@
 import { BadRequestException, Injectable } from '@nestjs/common'
 import {
-  checkSmsStandards,
-  countCivicPanelLines,
   findCivicPanelJoinLine,
   findCivicPanelLeaveLine,
+  FOLLOW_UP_BUSINESS_DAYS,
   isCivicPanelOnlyList,
+  MIN_TEXTS_PER_ROUND,
+  ROUND_TWO_DRAW_LEAD_BUSINESS_DAYS,
   ServeSmsCreateRequest,
   ServeSmsCreateResponse,
 } from '@goodparty_org/contracts'
-import { addBusinessDays, addDays, isWeekend } from 'date-fns'
+import { addBusinessDays, addDays, format, isWeekend, parseISO } from 'date-fns'
 import { toZonedTime } from 'date-fns-tz'
 import { MAX_RESOLVED_ID_SET_SIZE } from '@/contactInteraction/services/activityConditionResolution.service'
 import { ContactInteractionTextService } from '@/contactInteraction/services/contactInteractionText.service'
@@ -30,7 +31,9 @@ import {
 } from '@/priorities/util/proposalLink.util'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import type { ProposalLink } from '@goodparty_org/contracts'
+import { roundTwoExclusions } from '@/priorities/util/roundTwoExclusions.util'
 import { createUnderProposalKey } from '../util/createUnderProposalKey.util'
+import { assertServeSmsLockedLines } from '../util/serveSmsLockedLines.util'
 import {
   ElectedOffice,
   Organization,
@@ -50,7 +53,7 @@ import { OutreachReportBackService } from './outreachReportBack.service'
  * step.
  *
  * Draft-first is required, not preferred: a Stripe metadata VALUE caps at 500
- * characters and `SMS_COMPOSED_MAX_LENGTH` is 1000, so the poll pattern of
+ * characters and `SMS_COMPOSED_MAX_LENGTH` is 2000, so the poll pattern of
  * carrying the composed message through checkout metadata cannot work. The
  * row has to exist before checkout, and checkout then carries two ids.
  *
@@ -73,6 +76,10 @@ export const MIN_SERVE_SMS_RECIPIENTS = 25
 
 /** Serve sends at a fixed 11am local. Stated to the user, never chosen. */
 export const SERVE_SMS_SEND_HOUR_LOCAL = 11
+
+// A follow-up is sized to at most this share of the people left after the
+// first half, so a draw that finds some of them gone still fills it.
+export const FOLLOW_UP_POOL_SHARE = 0.9
 
 export const MIN_SERVE_SMS_LEAD_BUSINESS_DAYS = 2
 export const MAX_SERVE_SMS_SCHEDULE_DAYS = 30
@@ -172,25 +179,24 @@ export function assertServeSmsSendDateAllowed(
   }
 }
 
-// The lines the composer locks, checked again on the way in, so a composer
-// bug can never reach a send: honoring STOP follows the message, and a
-// second JOIN or LEAVE line texts people the same ask twice.
-export const assertServeSmsLockedLines = (message: string): void => {
-  if (checkSmsStandards(message).failures.includes('opt_out_line')) {
-    throw new BadRequestException(
-      'Your text is missing its opt-out line. Add "Reply STOP to opt out." as the last line and try again.',
-    )
-  }
-  // A JOIN beside a LEAVE is its own refusal, further down.
-  const both =
-    findCivicPanelJoinLine(message) !== null &&
-    findCivicPanelLeaveLine(message) !== null
-  if (countCivicPanelLines(message) > (both ? 2 : 1)) {
-    throw new BadRequestException(
-      'Your text has its civic panel line more than once. Keep one and try again.',
-    )
-  }
-}
+// The latest send date whose round 2 is due to be drawn today: the last day
+// a new send for that date would still be accepted above
+// (ROUND_TWO_DRAW_LEAD_BUSINESS_DAYS is MIN_SERVE_SMS_LEAD_BUSINESS_DAYS + 1),
+// so staff get the same lead as on any other Serve text.
+export const roundTwoDrawCutoff = (now: Date): string =>
+  format(
+    addBusinessDays(referenceToday(now), ROUND_TWO_DRAW_LEAD_BUSINESS_DAYS),
+    'yyyy-MM-dd',
+  )
+
+// The earliest send date assertServeSmsSendDateAllowed accepts: the third
+// business day, so staff get their full lead to set the text up. A managed
+// civic panel wave goes out on it.
+export const nextManagedSendDate = (now: Date): string =>
+  format(
+    addBusinessDays(referenceToday(now), MIN_SERVE_SMS_LEAD_BUSINESS_DAYS + 1),
+    'yyyy-MM-dd',
+  )
 
 @Injectable()
 export class OutreachServeSmsCreateService extends createPrismaBase(
@@ -228,13 +234,6 @@ export class OutreachServeSmsCreateService extends createPrismaBase(
         "A report back doesn't ask people to join your civic panel. Remove that line and try again.",
       )
     }
-    // One report back per send: a paid one closes it. Unpaid drafts are left
-    // alone, since re-entering the flow makes a fresh draft by design; the
-    // checkout refuses a second once one is paid.
-    const sent = await this.reportBack.sentReportBacks([outreachId])
-    if (sent.has(outreachId)) {
-      throw new BadRequestException('You already reported back on that text.')
-    }
     const target = await this.model.findFirst({
       where: {
         id: outreachId,
@@ -243,11 +242,25 @@ export class OutreachServeSmsCreateService extends createPrismaBase(
           electedOffice.id,
         ),
       },
-      select: { id: true },
+      select: { priorityId: true },
     })
-    if (!target) {
+    if (!target?.priorityId) {
       throw new BadRequestException(
         "That text can't be reported back on yet. Wait until its replies are in.",
+      )
+    }
+    // One report back each time the priority's read changes: a paid one
+    // closes it until then. Unpaid drafts are left alone, since re-entering
+    // the flow makes a fresh draft by design; the checkout refuses a second
+    // once one is paid.
+    if (
+      await this.reportBack.sentReportBack(
+        electedOffice.organizationSlug,
+        target.priorityId,
+      )
+    ) {
+      throw new BadRequestException(
+        "You already told people what you heard. We'll offer it again when what you've heard changes.",
       )
     }
   }
@@ -363,19 +376,70 @@ export class OutreachServeSmsCreateService extends createPrismaBase(
       textCount: recipientCount,
       ...link,
     } satisfies Prisma.OutreachUncheckedCreateInput
+    const followUp =
+      input.roundTwoSize === undefined
+        ? null
+        : await this.resolveFollowUp(
+            organization,
+            filter,
+            input,
+            link,
+            recipientCount,
+          )
+    // The follow-up goes out on a copy of the list's criteria holding a
+    // sample still to be drawn, which is what marks it as round 2 and keeps
+    // it from reaching anyone before the draw. It is written in the same
+    // transaction as the first send it belongs to, so a create that fails
+    // leaves neither behind, and it carries no proposal key: the first send
+    // holds the card's.
+    const insert = async (tx: Prisma.TransactionClient) => {
+      const created = await tx.outreach.create({
+        data,
+        select: { id: true },
+      })
+      if (followUp) {
+        await tx.outreach.create({
+          data: {
+            ...data,
+            proposalKey: null,
+            roundOneOutreachId: created.id,
+            scheduledLocalDate: followUp.scheduledLocalDate,
+            textCount: followUp.recipientCount,
+            voterFileFilterId: (
+              await this.voterFileFilterService.createUndrawnSampleOf(
+                tx,
+                filter,
+                followUp.recipientCount,
+                `${filter.name ?? input.name}, follow-up`,
+              )
+            ).id,
+          },
+          select: { id: true },
+        })
+      }
+      return created
+    }
     const outreach =
-      link.proposalKey === undefined
-        ? await this.model.create({ data, select: { id: true } })
-        : await createUnderProposalKey(
+      link.proposalKey !== undefined
+        ? await createUnderProposalKey(
             this.client,
             {
               proposalKey: link.proposalKey,
               organizationSlug,
               outreachType: OutreachType.text,
             },
-            (tx) => tx.outreach.create({ data, select: { id: true } }),
+            insert,
             async (id) => ({ id }),
           )
+        : followUp
+          ? await this.client.$transaction(insert)
+          : await this.model.create({ data, select: { id: true } })
+    const followUpRow = followUp
+      ? await this.model.findUnique({
+          where: { roundOneOutreachId: outreach.id },
+          select: { id: true, textCount: true, scheduledLocalDate: true },
+        })
+      : null
 
     // One payable report back per send: a new draft supersedes the unpaid
     // ones before it, so a stale draft left open in another tab can no
@@ -417,6 +481,63 @@ export class OutreachServeSmsCreateService extends createPrismaBase(
       // list reaches 5 of them quotes 5.
       excludedOptedOutCount,
       excludedDuplicateCount: excludedDuplicatePhoneCount,
+      ...(followUpRow?.textCount != null &&
+        followUpRow.scheduledLocalDate !== null && {
+          followUp: {
+            outreachId: followUpRow.id,
+            recipientCount: followUpRow.textCount,
+            scheduledLocalDate: followUpRow.scheduledLocalDate,
+          },
+        }),
+    }
+  }
+
+  // A priority text's follow-up: paid for now at `roundTwoSize`, or at most
+  // FOLLOW_UP_POOL_SHARE of what the pool holds past this send if fewer, and
+  // drawn on the last day staff can take it. The share leaves a buffer for
+  // people who opt out or are reached some other way before the draw, so the
+  // draw rarely finds fewer people than were paid for. The pool is the list's whole criteria (never its sample) on
+  // cell phones, less everyone the priority's other sends reached, everyone
+  // opted out, and the people this send goes to. Too few left for a text of
+  // its own is no follow-up, and the purchase is this send alone.
+  private async resolveFollowUp(
+    organization: Organization,
+    filter: ContactsFilterResolutionInput,
+    input: ServeSmsCreateRequest,
+    link: ProposalOutreachLink,
+    roundOneCount: number,
+  ): Promise<{ recipientCount: number; scheduledLocalDate: string } | null> {
+    if (link.priorityId === undefined) {
+      throw new BadRequestException('A follow-up text belongs to a priority')
+    }
+    if (input.reportBackForOutreachId !== undefined) {
+      throw new BadRequestException("A report back can't have a follow-up")
+    }
+    const exclude = await roundTwoExclusions(
+      this.client,
+      organization.slug,
+      link.priorityId,
+      [...(await this.resolveOptOutScrub(organization.slug))],
+    )
+    const pool = await this.contactsService.countWithin(
+      organization,
+      { ...filter, sampleSize: null, hasCellPhone: true },
+      exclude,
+    )
+    const recipientCount = Math.min(
+      input.roundTwoSize ?? 0,
+      Math.floor((pool - roundOneCount) * FOLLOW_UP_POOL_SHARE),
+    )
+    if (recipientCount < MIN_TEXTS_PER_ROUND) return null
+    return {
+      recipientCount,
+      scheduledLocalDate: format(
+        addBusinessDays(
+          parseISO(input.scheduledLocalDate),
+          FOLLOW_UP_BUSINESS_DAYS,
+        ),
+        'yyyy-MM-dd',
+      ),
     }
   }
 

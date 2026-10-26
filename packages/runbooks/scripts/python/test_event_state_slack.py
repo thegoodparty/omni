@@ -894,3 +894,105 @@ def test_anchor_block_renders_the_browse_link_when_a_sheet_is_configured(monkeyp
     links = slk.build_anchor_blocks({"queued": 3, "flagged": 1})[-1]["elements"][0]["text"]
     assert "#gid=999" in links
     assert "Browse anchors" in links
+
+
+# --- watchlist removals (DATA-2676) --------------------------------------------
+
+
+def _removal(event):
+    return {"event_type": event, "reason": "retired", "retired_date": "2026-07-13"}
+
+
+def test_should_post_true_on_new_removal_alone():
+    result = _tiered_result(removal_proposals=[_removal("A")], new_removal_proposals=["A"])
+    assert slk.should_post(result, NOCHG, set(), None) is True
+
+
+def test_should_post_false_on_standing_removal_alone():
+    result = _tiered_result(removal_proposals=[_removal("A")], new_removal_proposals=[])
+    assert slk.should_post(result, NOCHG, set(), None) is False
+
+
+def test_tiered_thread_lists_new_removals_and_counts_standing():
+    result = _tiered_result(removal_proposals=[_removal("A"), _removal("B")],
+                            new_removal_proposals=["A"])
+    parent, thread = slk.build_digest_blocks(result, NOCHG, {}, set(), gap=None,
+                                             triage=_triage([]))
+    text = _flatten_text(thread)
+    assert "*Watchlist removals*" in text
+    assert "• `A`  retired 2026-07-13" in text
+    assert "`B`" not in text
+    assert "(1 already proposed)" in text
+    assert "1 watchlist removal" in _flatten_text(parent)
+
+
+def test_triage_invocation_renders_for_removals_alone():
+    result = _tiered_result(removal_proposals=[_removal("A")], new_removal_proposals=[])
+    assert slk.build_triage_invocation(result, None) is not None
+
+
+def test_tiered_thread_counts_standing_removals_when_none_are_new():
+    result = _tiered_result(removal_proposals=[_removal("A")], new_removal_proposals=[])
+    _parent, thread = slk.build_digest_blocks(result, NOCHG, {}, set(), gap=None,
+                                              triage=_triage([]))
+    text = _flatten_text(thread)
+    assert "*Watchlist removals*" in text and "1 already proposed" in text
+    assert "`A`" not in text
+
+
+def test_gap_summary_line_counts_low_value_gaps():
+    line = slk.build_gap_summary_line({"status": "ok", "new_count": 1, "low_value_count": 3})
+    assert line == "🧭 1 new instrumentation gap (+3 low value, not listed)"
+
+
+def test_gap_thread_shows_an_extend_fix_in_place_of_the_question():
+    gap = {"new_count": 1, "new_gaps": [{"rank": 1, "id": "a", "surface_type": "form_submit",
+                                         "dashboard_question": "q", "fix": "extend",
+                                         "extend_event": "E", "extend_property": "p"}]}
+    text = _flatten_text(slk.build_gap_thread_blocks(gap))
+    assert "extend `E` with `p`" in text and " — q" not in text
+
+
+# --- product label findings ---------------------------------------------------
+
+
+def _label_row(i, kind="no_product_label"):
+    return {"event_type": f"lbl_{i}", "kind": kind, "family": "other", "first_seen_date": "2026-10-01"}
+
+
+def test_digest_renders_label_findings_in_parent_and_thread():
+    result = {**RESULT, "label_findings": [_label_row(1), _label_row(2, "product_label_conflict")]}
+    parent, thread = slk.build_digest_blocks(result, CHANGES, PRIOR)
+    assert "2 label findings" in _flatten_text(parent)
+    text = _flatten_text(thread)
+    assert "*Product labels*" in text
+    assert "lbl_1" in text and "product_label_conflict" in text
+
+
+def test_digest_omits_label_findings_when_empty():
+    parent, thread = slk.build_digest_blocks({**RESULT, "label_findings": []}, CHANGES, PRIOR)
+    assert "label finding" not in _flatten_text(parent)
+    assert "Product labels" not in _flatten_text(thread)
+
+
+def test_digest_label_findings_truncate_with_overflow():
+    many = {**RESULT, "label_findings": [_label_row(i) for i in range(slk.TRANSITION_CAP + 3)]}
+    _, thread = slk.build_digest_blocks(many, CHANGES, PRIOR)
+    text = _flatten_text(thread)
+    assert "…and 3 more" in text
+    assert f"lbl_{slk.TRANSITION_CAP}`" not in text
+
+
+def test_tiered_digest_renders_label_findings_only_when_present():
+    triage = _triage([_titem("PlainEvent", "fyi")])
+    with_labels = _tiered_result(label_findings=[_label_row(1)])
+    parent, thread = slk.build_digest_blocks(with_labels, NOCHG, {}, set(), triage=triage)
+    assert "1 label finding" in _flatten_text(parent)
+    assert "*Product labels*" in _flatten_text(thread) and "lbl_1" in _flatten_text(thread)
+    parent, thread = slk.build_digest_blocks(_tiered_result(), NOCHG, {}, set(), triage=triage)
+    assert "label finding" not in _flatten_text(parent)
+    assert "Product labels" not in _flatten_text(thread)
+
+
+def test_should_post_ignores_label_findings():
+    assert not slk.should_post(_tiered_result(label_findings=[_label_row(1)]), NOCHG, set(), None)

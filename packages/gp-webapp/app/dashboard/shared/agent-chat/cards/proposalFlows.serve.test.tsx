@@ -57,7 +57,6 @@ const panelAndFresh: Proposal = {
   stepId: 'define',
   side: 'main',
   sampleSize: 84,
-  panelSampleSize: 42,
   civicPanelAsk: true,
 }
 
@@ -112,17 +111,17 @@ beforeEach(() => {
   }))
 })
 
-describe("a priority's text card to the panel and new residents", () => {
+describe("a priority's text card that asks the civic panel", () => {
   // The card settled who gets it, so the list is saved before the flow
   // opens, and the flow opens on the message with that list picked.
-  it('saves one list holding both draws and opens on the message, the join ask on', async () => {
+  it('saves one sampled list and opens on the message, the join ask on', async () => {
     await openCard(panelAndFresh)
 
     expect(saved).toHaveLength(1)
     expect(saved[0]).toMatchObject({
       name: 'Flooding check',
       hasCellPhone: true,
-      sample: { size: 84, panelSize: 42, seedKey: PROPOSAL_KEY },
+      sample: { size: 84, seedKey: PROPOSAL_KEY },
     })
     const props = smsFlow.props
     expect(props?.surface).toEqual({ isServe: true })
@@ -137,7 +136,6 @@ describe("a priority's text card to the panel and new residents", () => {
   it('leaves the join ask off for a text that did not ask for it', async () => {
     await openCard({
       ...panelAndFresh,
-      panelSampleSize: undefined,
       civicPanelAsk: undefined,
     })
 
@@ -174,53 +172,21 @@ describe("a priority card's launch source", () => {
   })
 })
 
-describe("the Chief of Staff's civic panel invite", () => {
-  const invite: Proposal = {
-    kind: 'outreach_proposal',
-    proposalKey: PROPOSAL_KEY,
-    audience: 'Residents with a cell phone',
-    count: 12_000,
-    channel: 'text',
-    audienceFilters: { hasCellPhone: true },
-    listName: 'Civic panel invite',
-    message: MESSAGE,
-    deepLinkOnly: false,
-    sampleSize: 3334,
-    civicPanelAsk: true,
-    purpose: 'build_citizens_panel',
-  }
-
-  // The card's purpose rides into the flow, so it opens past the picker on
-  // the build purpose, on the seeded draw of the district's cell phones.
-  it('opens on the build purpose with the district draw saved', async () => {
-    await openCard(invite)
-
-    expect(saved[0]).toMatchObject({
-      name: 'Civic panel invite',
-      hasCellPhone: true,
-      sample: { size: 3334, seedKey: PROPOSAL_KEY },
-    })
-    const props = smsFlow.props
-    expect(props?.initialPurpose).toBe('build_citizens_panel')
-    expect(props?.initialAsksToJoinCivicPanel).toBe(true)
-    expect(props?.initialScript).toBe(MESSAGE)
-    expect(smsFlow.props?.audienceSettled).toBe(true)
-    expect(smsFlow.props).not.toHaveProperty('audienceSummary')
-  })
-
-  // A saved list would text a different audience from the one counted and
-  // priced, so the invite never takes one over its draw.
-  it('never takes a saved list over the district draw', async () => {
-    await openCard({ ...invite, savedFilterId: 41 })
-
-    expect(saved).toHaveLength(1)
-    expect(smsFlow.props?.preselectedListId).toBe(501)
-  })
-
-  it('opens any other text without a purpose', async () => {
+describe('a text card', () => {
+  it('opens without a purpose', async () => {
     await openCard({ ...panelAndFresh, purpose: undefined })
 
     expect(smsFlow.props).not.toHaveProperty('initialPurpose')
+  })
+})
+
+describe('a round 2 card', () => {
+  it('saves the pool whole and hands the flow its size', async () => {
+    const { sampleSize: _sample, ...whole } = panelAndFresh
+    await openCard({ ...whole, roundTwoSize: 300 })
+
+    expect(saved[0]).not.toHaveProperty('sample')
+    expect(smsFlow.props?.roundTwoSize).toBe(300)
   })
 })
 

@@ -546,8 +546,9 @@ carries a `DO NOT MODIFY` comment in `segment.types.ts` and is pinned by
 
 `src/doorKnocking/` (turf CRUD + the create transaction; controller routes
 under `/v1/door-knocking`), `src/vendors/geoapify/` (Route Planner client —
-requires `GEOAPIFY_API_KEY`, validated lazily at call time so environments
-without it still boot), and the evaluation/residents contracts in
+requires `GEOAPIFY_API_KEY` in live mode, validated lazily at call time so
+environments without it still boot; in mock mode it sends a constant mock key
+and needs no real key), and the evaluation/residents contracts in
 `@goodparty_org/contracts`, served in-process by
 `src/peopleDb/services/voterDoorKnocking.service.ts`.
 
@@ -905,7 +906,7 @@ or labelled. Every metric attribute is a closed set of literals.
 | Signal                                         | Where                                                | Reads                                                                                                                                                                                                           |
 | ---------------------------------------------- | ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `event: 'DoorKnockingSpend'` log line          | `doorKnockingCreate.service.ts` spend path           | `organizationSlug`, `turfId`, `waypoints` (stops), `credits` (both calls) — emitted before the ledger write and regardless of its outcome, so a lost ledger row cannot hide money the vendor has already billed |
-| `geoapify_credits_total{api}`                  | `vendors/geoapify/observability/geoapify.metrics.ts` | Credits billed, split `route_planner` / `routing`, no org label (Prometheus cardinality)                                                                                                                        |
+| `geoapify_credits_total{api}`                  | `vendors/geoapify/observability/geoapify.metrics.ts` | Credits billed, split `route_planner` / `routing` / `reverse_geocode` (the civic panel naming a census tract, once per tract), no org label (Prometheus cardinality)                                             |
 | `geoapify_vendor_call_count_total{api,result}` | same                                                 | `api="route_planner"` and `api="routing"` — call counts and failures, including a geometry fetch that was billed and returned nothing usable                                                                    |
 
 What pages: the global **route planner spend ceiling** alert (>10,000 credits /
@@ -1091,6 +1092,10 @@ Three things to know before trusting a tier:
 - **Rolling 24h, not calendar.** LogQL has no calendar alignment, so the window
   can span the tail of one metered day and the head of the next. That
   over-estimates, which is the safe direction here.
+- **Tract naming is not in the expression.** The civic panel's reverse
+  geocodes (one credit per census tract, once ever) count only in
+  `geoapify_credits_total{api="reverse_geocode"}`, not in
+  `DoorKnockingSpend`. A district costs tens of credits, once.
 
 All four read the same `DoorKnockingSpend` expression, differing only in
 threshold, so Loki's result cache serves tiers 2-4 from the work tier 1 does.
@@ -1646,8 +1651,9 @@ campaign's own outreach rather than by the district — usually a rounding error
 against 611,000 rows.
 
 **Past `PACK_CONTACTS_MADE_MAX` the plane is omitted, not truncated.** The cap
-is `MAX_RESOLVED_ID_SET_SIZE` (100,000), deliberately the same number at which
-resolving a contacts-made filter for a real query gives up: above it the
+is 100,000, deliberately no larger than `MAX_RESOLVED_ID_SET_SIZE` (200,000
+since ENG-11424), the point at which resolving a contacts-made filter for a
+real query gives up: above the resolver's cap the
 filter cannot be applied at knock time either. Truncating would read the
 dropped people as "0 prior contacts", which is the bucket candidates select
 most and the one answer that must never be invented. Absent, the dim never

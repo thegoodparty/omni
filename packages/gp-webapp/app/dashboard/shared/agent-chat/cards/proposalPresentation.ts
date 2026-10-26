@@ -97,10 +97,10 @@ export const proposedAudienceOf = (
     | 'proposalKey'
     | 'count'
     | 'sampleSize'
-    | 'panelSampleSize'
     | 'widensOutreachIds'
     | 'reportBackForOutreachId'
     | 'areaTarget'
+    | 'purpose'
   >,
   // The priority the card was offered on, which an unreached area belongs to.
   priorityId?: string,
@@ -162,25 +162,31 @@ const widens = (proposal: { widensOutreachIds?: number[] }): boolean =>
   (proposal.widensOutreachIds?.length ?? 0) > 0
 
 /**
- * "Text 4,000 of 58,520, picked at random", or null for the whole list. A
- * widen is never called random: once everyone not yet asked fits in it, the
- * list holds all of them, so it says who it reaches instead.
+ * "Text 4,000 of 58,520", or null for the whole list. A widen says who it
+ * reaches instead: once everyone not yet asked fits in it, the list holds all
+ * of them.
  */
 export const proposalSampleLine = (proposal: {
   channel: ProposalChannel
   count: number
   sampleSize?: number
+  roundTwoSize?: number
   widensOutreachIds?: number[]
 }): string | null => {
   const verb = SAMPLE_VERB[proposal.channel]
   const of = proposal.count.toLocaleString()
+  // One purchase in two rounds: the total, then how it splits.
+  if (proposal.roundTwoSize !== undefined && isSampled(proposal)) {
+    const total = proposal.sampleSize + proposal.roundTwoSize
+    return `${verb} ${total.toLocaleString()} of ${of}: ${proposal.sampleSize.toLocaleString()} now, ${proposal.roundTwoSize.toLocaleString()} two weeks later`
+  }
   if (widens(proposal)) {
     return isSampled(proposal)
       ? `${verb} up to ${proposal.sampleSize.toLocaleString()} of the ${of} not asked yet`
       : `${verb} everyone of the ${of} not asked yet`
   }
   return isSampled(proposal)
-    ? `${verb} ${proposal.sampleSize.toLocaleString()} of ${of}, picked at random`
+    ? `${verb} ${proposal.sampleSize.toLocaleString()} of ${of}`
     : null
 }
 
@@ -194,7 +200,6 @@ export const proposalListSample = (proposal: {
   proposalKey: string
   count: number
   sampleSize?: number
-  panelSampleSize?: number
   widensOutreachIds?: number[]
   reportBackForOutreachId?: number
 }): ListSample | undefined => {
@@ -205,22 +210,6 @@ export const proposalListSample = (proposal: {
       size: Math.min(Math.max(proposal.count, 1), MAX_LIST_SAMPLE_SIZE),
       seedKey: proposal.proposalKey,
       recipientsOfOutreachId: proposal.reportBackForOutreachId,
-    }
-  }
-  // The panel and the fresh residents are two draws, so the list always
-  // freezes them: saved whole it would hold neither part at its size.
-  if (
-    proposal.panelSampleSize !== undefined &&
-    proposal.sampleSize !== undefined &&
-    proposal.panelSampleSize < proposal.sampleSize
-  ) {
-    return {
-      size: proposal.sampleSize,
-      panelSize: proposal.panelSampleSize,
-      seedKey: proposal.proposalKey,
-      ...(widens(proposal) && {
-        excludeOutreachIds: proposal.widensOutreachIds,
-      }),
     }
   }
   if (widens(proposal)) {

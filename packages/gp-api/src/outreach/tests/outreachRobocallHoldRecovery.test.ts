@@ -5,6 +5,13 @@ import { useTestService } from '@/test-service'
 import { OutreachRobocallHoldRecoveryService } from '@/outreach/services/outreachRobocallHoldRecovery.service'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
 import { Campaign, RobocallSettleState } from '../../generated/prisma'
+import { disableVendorCrons } from '@/shared/test-utils/vendorCronsGate.util'
+
+vi.mock('@/shared/util/appEnvironment.util', async (importOriginal) => {
+  const { withVendorCronsGate } =
+    await import('@/shared/test-utils/vendorCronsGate.util.js')
+  return withVendorCronsGate(await importOriginal<object>())
+})
 
 const service = useTestService()
 
@@ -55,11 +62,13 @@ const createDraft = async ({
   payAttempt = 0,
   authorizationIntentId = null as string | null,
   authorizedAmountInCents = null as number | null,
+  stripeCustomerId = 'cus_1' as string | null,
 }: {
   settleState?: RobocallSettleState
   payAttempt?: number
   authorizationIntentId?: string | null
   authorizedAmountInCents?: number | null
+  stripeCustomerId?: string | null
 } = {}): Promise<number> => {
   const spine = await service.prisma.outreach.create({
     data: {
@@ -82,6 +91,7 @@ const createDraft = async ({
       payAttempt,
       authorizationIntentId,
       authorizedAmountInCents,
+      stripeCustomerId,
     },
   })
   return spine.id
@@ -118,7 +128,7 @@ describe('OutreachRobocallHoldRecoveryService.sweepStaleHoldPending', () => {
 
     await recovery.sweepStaleHoldPending()
 
-    expect(findHoldsSpy).toHaveBeenCalledWith(outreachId)
+    expect(findHoldsSpy).toHaveBeenCalledWith(outreachId, 'cus_1')
     expect(cancelSpy).toHaveBeenCalledWith('pi_orphan')
     const satellite = await readSatellite(outreachId)
     expect(satellite.settleState).toBe(RobocallSettleState.pending_payment)
@@ -234,8 +244,8 @@ describe('OutreachRobocallHoldRecoveryService.sweepStaleHoldPending', () => {
     )
   })
 
-  it('no-ops off prod', async () => {
-    process.env.OTEL_SERVICE_ENVIRONMENT = 'dev'
+  it('no-ops on a non-prod deploy in live mode', async () => {
+    disableVendorCrons()
     const outreachId = await createDraft()
     await strand(outreachId, 30)
 

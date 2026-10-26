@@ -1,25 +1,29 @@
 import { addDays, addYears, format } from 'date-fns'
 import { expect, test } from '@playwright/test'
-import {
-  blockSlowScripts,
-  NavigationHelper,
-} from 'src/helpers/navigation.helper'
+import { blockSlowScripts } from 'src/helpers/navigation.helper'
 import { authenticateTestUser } from 'tests/utils/api-registration'
 import { eventually } from 'tests/utils/eventually'
-import { waitForDashboardReady } from 'src/helpers/dashboard'
 import { setFlagOverrides } from 'src/helpers/campaignStory.helper'
+import { uniqueEin } from 'src/helpers/pro-upgrade.helper'
+import { deliverStripeEvent } from 'src/helpers/vendor-mocks.helper'
+import { withGatewayRetry } from 'tests/utils/headless-user'
 
 // Pro-upgrade happy path: an already-filed candidate drives the full wizard
-// funnel through an embedded Stripe subscription to Pro, then lands on the
-// post-payment dashboard PIN state (ENG-10475).
+// funnel through an embedded Stripe subscription to Pro, and its TCR record
+// reaches the post-payment PIN state (ENG-10475).
 //
-// @dev-only: the `isPro` flip and the compliance-agent dispatch are driven by
-// the live Stripe `checkout.session.completed` webhook in `paymentEventsService`
-// — not synchronously by the confirm call — which an ephemeral per-PR preview
-// can't deliver. The webhook can run past 90s, so the `isPro` poll widens
-// retries and the test budgets 15 minutes. Tagged on the test title so CI greps
-// it out on `pull_request` and includes it on the post-merge `develop` run.
-// See e2e-tests/CLAUDE.md ("@dev-only").
+// The filing-details step takes a hand-typed address (the street input's
+// Google Places autocomplete is a helper, never a gate), so the spec fills
+// the structured fields and never depends on Google Places, which does not
+// load on *.vercel.app PR previews. Runs on every PR.
+//
+// The Stripe `checkout.session.completed` event is delivered in-process via
+// deliverStripeEvent, which calls POST /v1/test-fixtures/vendor-mocks/stripe/events
+// and fires paymentEventsService synchronously — no inbound webhook from Stripe
+// is needed. The session ID is extracted from the checkout-session response's
+// `clientSecret` field (Pro subscription returns only clientSecret, not a
+// session id), using Stripe's format:
+// `cs_<test|live>_<id>_secret_<random>` → `split('_secret_')[0]`.
 //
 // Side effects (no automated teardown for either):
 //   - Creates a real test-mode Stripe subscription. There is no candidate-facing
@@ -48,12 +52,12 @@ test.beforeEach(async ({ page }) => {
   await blockSlowScripts(page)
 })
 
-test('filed candidate upgrades to Pro and reaches the post-payment PIN state @dev-only', async ({
+test('filed candidate upgrades to Pro and reaches the post-payment PIN state', async ({
   page,
 }) => {
-  // The `isPro` poll below can sleep up to ~240s on the Stripe webhook, so the
-  // budget must exceed the default 10 minutes.
-  test.setTimeout(15 * 60 * 1000)
+  // deliverStripeEvent delivers the webhook in-process, so the isPro flip is
+  // near-instant; the budget can be much tighter than the old 15-minute window.
+  test.setTimeout(8 * 60 * 1000)
 
   // Isolated: this mutates account-level state (campaign → Pro), so it must
   // never reuse the per-worker cached user. Default race (Cheyenne City Council
@@ -67,32 +71,13 @@ test('filed candidate upgrades to Pro and reaches the post-payment PIN state @de
     details: { electionDate: format(addDays(new Date(), 90), 'yyyy-MM-dd') },
   })
 
-  // 1. Dashboard — the non-Pro candidate sees the Get Pro banner; click into
-  // the wizard.
-  await page.goto('/dashboard')
-  await page.waitForURL(/\/dashboard/)
-  await NavigationHelper.dismissOverlays(page)
-  // Closes any stray task-detail dialog (which aria-hides the whole page) and
-  // waits for the campaign-gated chrome, like the sibling pro-upgrade specs.
-  await waitForDashboardReady(page)
-
-  await expect(
-    page.getByText('76% of candidates who use Pro win'),
-  ).toBeVisible()
-
-  // A click that lands before hydration attaches the banner's handler is
-  // swallowed (observed in CI: click fired on the half-hydrated dashboard,
-  // then no navigation for 45s), so retry the click until the URL moves.
-  await expect(async () => {
-    if (!/\/dashboard\/pro-upgrade\/value-prop/.test(page.url())) {
-      await page
-        .getByRole('button', { name: 'Get Pro' })
-        .click({ timeout: 5_000 })
-    }
-    await page.waitForURL(/\/dashboard\/pro-upgrade\/value-prop/, {
-      timeout: 10_000,
-    })
-  }).toPass({ timeout: 60_000 })
+  // 1. The wizard index. With the flag off the dashboard has no Pro entry
+  // (the sidebar banner is flag-gated), so open it directly; it lands a
+  // zero-progress candidate on the value-prop step.
+  await page.goto('/dashboard/pro-upgrade')
+  await page.waitForURL(/\/dashboard\/pro-upgrade\/value-prop/, {
+    timeout: 60_000,
+  })
 
   // 2. Value prop.
   await page.getByRole('button', { name: 'Get Pro for $10/mo' }).click()
@@ -107,7 +92,7 @@ test('filed candidate upgrades to Pro and reaches the post-payment PIN state @de
 
   // 5. EIN — a shape-valid, sanity-passing EIN (47 is an IRS-issued prefix).
   await page.waitForURL(/\/dashboard\/pro-upgrade\/ein/)
-  await page.getByRole('textbox').first().fill('47-1234567')
+  await page.getByRole('textbox').first().fill(uniqueEin())
   await page.getByRole('button', { name: 'Continue' }).click()
 
   // 6. Filing details. Email and phone are both required (ENG-10483: Peerly
@@ -124,40 +109,21 @@ test('filed candidate upgrades to Pro and reaches the post-payment PIN state @de
   await page.getByPlaceholder('jane@gmail.com').fill(user.email)
   await page.getByPlaceholder('(555) 555-5555').fill('(307) 555-1234')
 
-  // Filing address is required: the agentic TCR/Peerly submit resolves a postal
-  // address from this place_id, so the step blocks Continue until a real Google
-  // Places suggestion is selected. Type a known address, wait for Google's
-  // `.pac-item` dropdown (appended to <body>), and pick the first suggestion —
-  // ArrowDown+Enter so react-google-autocomplete fires onPlaceSelected.
-  const addressInput = page.getByPlaceholder(
-    'Start typing to search, or enter it yourself',
-  )
-  await addressInput.click()
-  await addressInput.pressSequentially('1700 Pennsylvania Ave NW, Washington', {
-    delay: 80,
+  // Filing address is required: the agentic TCR/Peerly submit needs a postal
+  // address. Fill the structured fields by hand rather than picking a Google
+  // Places suggestion (.pac-item never loads on *.vercel.app previews); an
+  // edited field submits as structured components.
+  await page
+    .getByPlaceholder('Start typing to search, or enter it yourself')
+    .fill('1700 Pennsylvania Ave NW')
+  await page.getByLabel('City').fill('Cheyenne')
+  await page.getByRole('combobox').filter({ hasText: 'State' }).click()
+  await page.getByRole('option', { name: 'WY' }).click()
+  await page.getByPlaceholder('12345').fill('82001')
+  await page.getByRole('button', { name: 'Continue' }).click()
+  await page.waitForURL(/\/dashboard\/pro-upgrade\/candidate-profile/, {
+    timeout: 60_000,
   })
-  const suggestion = page.locator('.pac-item').first()
-  await expect(suggestion).toBeVisible({ timeout: 15_000 })
-  await addressInput.press('ArrowDown')
-  await addressInput.press('Enter')
-
-  // onPlaceSelected resolves the place details asynchronously and only then
-  // writes the place (with its place_id) into form state; until that lands,
-  // Continue fails validation and silently no-ops (its error banner clears
-  // itself once the write arrives). There is no stable DOM signal for the
-  // write — arrowing through suggestions already rewrites the input text — so
-  // retry Continue until the wizard actually advances. Re-clicks during a real
-  // submit are no-ops (the form's submittingRef/loading guard).
-  await expect(async () => {
-    if (!/\/dashboard\/pro-upgrade\/candidate-profile/.test(page.url())) {
-      await page
-        .getByRole('button', { name: 'Continue' })
-        .click({ timeout: 5_000 })
-    }
-    await page.waitForURL(/\/dashboard\/pro-upgrade\/candidate-profile/, {
-      timeout: 15_000,
-    })
-  }).toPass({ timeout: 90_000 })
 
   // 7. Candidate profile — ≥200-char bio (Quill editor) + one policy priority
   // with a ≥100-char focus.
@@ -189,6 +155,27 @@ test('filed candidate upgrades to Pro and reaches the post-payment PIN state @de
   await page
     .getByRole('button', { name: 'Edit Safe and affordable housing' })
     .waitFor({ state: 'visible', timeout: 10_000 })
+
+  // Arm the checkout-session interceptor before clicking Continue. PaymentContent
+  // POSTs to /checkout-session on mount, so the interceptor must be live before
+  // the navigation that mounts it; arming after waitForURL is too late.
+  // gp-api returns only `clientSecret` for Pro subscriptions (no `id` field),
+  // so derive the session ID from the Stripe client secret format:
+  // `cs_test_<id>_secret_<random>` → `split('_secret_')[0]` gives `cs_test_<id>`.
+  let proSessionId: string | null = null
+  await page.route(
+    /\/api\/v1\/payments\/purchase\/checkout-session$/,
+    async (route) => {
+      const response = await route.fetch()
+      if (response.ok()) {
+        const body = (await response.json()) as { clientSecret?: string }
+        if (body.clientSecret) {
+          proSessionId = body.clientSecret.split('_secret_')[0] ?? null
+        }
+      }
+      await route.fulfill({ response })
+    },
+  )
 
   await page.getByRole('button', { name: 'Continue' }).click()
 
@@ -226,13 +213,17 @@ test('filed candidate upgrades to Pro and reaches the post-payment PIN state @de
   await zipInput.fill('82001')
   await page.waitForTimeout(500)
 
-  // Uncheck "Save my information for faster checkout" (Stripe Link) — when
-  // checked it demands a phone number and the submit button stays disabled.
-  const saveCheckbox = stripeFrame.getByLabel(
-    'Save my information for faster checkout',
-  )
-  if (await saveCheckbox.isChecked().catch(() => false)) {
-    await saveCheckbox.uncheck()
+  // Stripe Link's save-my-info box demands a phone number and keeps the
+  // submit disabled while checked. It is absent on some runner geolocations,
+  // where the longer form also pushes the submit below the fold.
+  const linkOptIn = stripeFrame.locator('#payment-linkOptInInput')
+  if (await linkOptIn.count()) {
+    await expect(async () => {
+      if (await linkOptIn.isChecked()) {
+        await linkOptIn.click({ timeout: 5_000 })
+      }
+      await expect(linkOptIn).not.toBeChecked({ timeout: 2_000 })
+    }).toPass({ timeout: 15_000 })
   }
   await page.waitForTimeout(1_000)
 
@@ -241,6 +232,7 @@ test('filed candidate upgrades to Pro and reaches the post-payment PIN state @de
   // confirm the step navigates to /success, so the URL change is the signal.
   const completeButton = page.getByRole('button', { name: 'Complete upgrade' })
   await expect(completeButton).toBeEnabled({ timeout: 30_000 })
+  await completeButton.scrollIntoViewIfNeeded()
   await completeButton.click()
 
   // 9. Success — "Welcome to Pro!".
@@ -248,17 +240,29 @@ test('filed candidate upgrades to Pro and reaches the post-payment PIN state @de
     timeout: 60_000,
   })
   await expect(page.getByText('Welcome to Pro!')).toBeVisible()
+
+  // Deliver the Stripe checkout.session.completed event in-process. This fires
+  // paymentEventsService synchronously, flipping `isPro` without waiting for a
+  // real Stripe webhook. proSessionId was captured from the checkout-session
+  // response above; it must be non-null before we reach this point. On dev
+  // Stripe's own webhook can land at the same moment, and the handler is
+  // idempotent, so a transient write conflict (503) is safe to retry.
+  expect(proSessionId).toBeTruthy()
+  await withGatewayRetry('POST stripe/events', () =>
+    deliverStripeEvent(client, proSessionId!),
+  )
+
   await page.getByRole('button', { name: 'Continue' }).click()
 
   // The webhook flips `isPro` server-side (never client-side); prove it via the
-  // authed client before asserting the dependent dashboard UI. Widen retries to
-  // ~240s because the Stripe webhook can run past the default ~90s window.
+  // authed client before asserting the dependent dashboard UI. In-process
+  // delivery is near-instant, so a short poll is sufficient.
   await eventually(
     {
-      that: 'the campaign isPro flips server-side via the Stripe webhook',
-      minTimeout: 1_000,
-      maxTimeout: 15_000,
-      retries: 20,
+      that: 'the campaign isPro flips server-side via deliverStripeEvent',
+      minTimeout: 500,
+      maxTimeout: 2_000,
+      retries: 5,
     },
     async () => {
       const res = await client.get<CampaignProState>('/v1/campaigns/mine')
@@ -278,21 +282,13 @@ test('filed candidate upgrades to Pro and reaches the post-payment PIN state @de
   // 10. Dashboard post-payment state. The success-step exit refreshes the
   // shared campaign cache, but the webhook usually lands after that refresh,
   // so the already-rendered dashboard can still show the non-Pro state —
-  // reload now that `isPro` is proven server-side. Expect: PRO badge, the
-  // compliance card in the Get Pro banner's slot, and the banner gone. For a
-  // fresh submission the card shows the awaiting-PIN in-review state — the
-  // "Enter your PIN" box appears only once Peerly CampaignVerify approves,
-  // days later (the CV gate, ENG-10785) — never within this test's window.
+  // reload now that `isPro` is proven server-side. Expect the PRO badge. The
+  // compliance state itself lives in the flag-gated sidebar banner, which
+  // does not render with the flag off.
   await page.goto('/dashboard')
   await page.waitForURL('**/dashboard', { timeout: 30_000 })
 
   await expect(page.getByRole('img', { name: 'PRO' }).first()).toBeVisible({
     timeout: 30_000,
   })
-  await expect(
-    page.getByText('Your registration is being verified'),
-  ).toBeVisible({ timeout: 30_000 })
-  await expect(page.getByText('76% of candidates who use Pro win')).toHaveCount(
-    0,
-  )
 })

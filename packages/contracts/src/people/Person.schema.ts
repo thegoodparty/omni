@@ -141,6 +141,12 @@ export const PersonSchema = z.object({
   registeredVoter: z.enum(['Yes', 'No']),
   estimatedIncomeAmount: z.number().nullable(),
   voterStatus: z.enum(['Super', 'Likely', 'Unreliable', 'Unlikely']).nullable(),
+  // Likelihood of voting before Election Day, early in person or by mail,
+  // from Haystaq's within-state percentile scores, so it is relative to the
+  // person's state rather than a probability.
+  earlyVoteStatus: z
+    .enum(['Very Likely', 'Likely', 'Unlikely', 'Very Unlikely'])
+    .nullable(),
   maritalStatus: z
     .enum(['Likely Married', 'Likely Single', 'Married', 'Single'])
     .nullable(),
@@ -195,7 +201,11 @@ export const PersonSchema = z.object({
   // (ENG-10833). Detail-only, like supportStatus/optedOutAt; omitted for
   // `eo-` (Serve) orgs, which don't get this status at all.
   voterLikelihood: VoterLikelihoodSchema.optional(),
-  // The mirror image of the line above: Serve's standing "asked to be
+  // Derived, never stored (gp-api's VotedStatusService): true when the
+  // person's latest will-vote answer this election is "Already voted".
+  // Detail-only and Win-only, like voterLikelihood above.
+  voted: z.boolean().optional(),
+  // The mirror image of the two lines above: Serve's standing "asked to be
   // followed up with", omitted for a Win org, which has no such flag. Its
   // absence on a Serve person means nothing is owed — nothing derives this
   // field, so there is no seed to distinguish "no override" from "answered

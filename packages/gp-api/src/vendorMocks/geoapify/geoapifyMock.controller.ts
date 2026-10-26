@@ -4,6 +4,7 @@ import {
   RoutePlannerRequestSchema,
   type RoutePlannerRequest,
 } from '@/vendors/geoapify/schemas/geoapify.schema'
+import { GEOAPIFY_MOCK_API_KEY } from '@/vendors/geoapify/services/geoapifyRoutePlanner.service'
 import {
   BadRequestException,
   Body,
@@ -49,8 +50,17 @@ const parseWaypointParam = (raw: string): [number, number][] =>
     return [nums[1] ?? NaN, nums[0] ?? NaN]
   })
 
-// In-process Geoapify mock — serves POST /v1/vendor-mocks/geoapify/v1/routeplanner
-// and GET /v1/vendor-mocks/geoapify/v1/routing when VENDOR_MODE=mock.
+const MOCK_NEIGHBORHOODS = [
+  'Riverside',
+  'Oak Hill',
+  'Northgate',
+  'Mill Village',
+  'Westside',
+] as const
+
+// In-process Geoapify mock — serves POST /v1/vendor-mocks/geoapify/v1/routeplanner,
+// GET /v1/vendor-mocks/geoapify/v1/routing and
+// GET /v1/vendor-mocks/geoapify/v1/geocode/reverse when VENDOR_MODE=mock.
 // @PublicAccess: the real GeoapifyRoutePlannerService calls this controller
 // via HTTP without a session token; assertMockMode() is the environment gate,
 // and assertApiKey() validates the caller supplies the real GEOAPIFY_API_KEY.
@@ -95,6 +105,72 @@ export class GeoapifyMockController {
     return this.route(organizationSlug, waypointsParam, mode, apiKey)
   }
 
+  @Get('v1/geocode/reverse')
+  reverseGeocode(
+    @Query('lat') lat: string | undefined,
+    @Query('lon') lon: string | undefined,
+    @Query('apiKey') apiKey: string | undefined,
+  ) {
+    return this.reverse(undefined, lat, lon, apiKey)
+  }
+
+  @Get('org/:organizationSlug/v1/geocode/reverse')
+  scopedReverseGeocode(
+    @Param('organizationSlug') organizationSlug: string,
+    @Query('lat') lat: string | undefined,
+    @Query('lon') lon: string | undefined,
+    @Query('apiKey') apiKey: string | undefined,
+  ) {
+    return this.reverse(organizationSlug, lat, lon, apiKey)
+  }
+
+  // One result in the shape the live API answers with format=json. Half the
+  // points (by their rounded latitude) get a neighborhood and half a road
+  // only, the split the live API showed for Asheville, so both ways a tract
+  // is named show up locally.
+  private async reverse(
+    organizationSlug: string | undefined,
+    latParam: string | undefined,
+    lonParam: string | undefined,
+    apiKey: string | undefined,
+  ) {
+    this.assertMockMode()
+    this.assertApiKey(apiKey)
+    const lat = Number(latParam)
+    const lon = Number(lonParam)
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+      throw new BadRequestException('lat and lon query params are required')
+    }
+
+    await this.vendorMockRecord.upsert(
+      VendorMockVendor.geoapify,
+      'reverse_geocode_request',
+      randomUUID(),
+      { status: 'complete' },
+      await this.vendorMockRecord.campaignIdFor(organizationSlug),
+      { lat, lon },
+    )
+
+    const cell = Math.abs(Math.round(lat * 100))
+    const place = {
+      street: 'Main Street',
+      city: 'Mockville',
+      county: 'Mock County',
+      lat,
+      lon,
+    }
+    return {
+      results: [
+        cell % 2 === 0
+          ? {
+              ...place,
+              suburb: MOCK_NEIGHBORHOODS[cell % MOCK_NEIGHBORHOODS.length],
+            }
+          : place,
+      ],
+    }
+  }
+
   private async planRoute(
     organizationSlug: string | undefined,
     apiKey: string | undefined,
@@ -120,7 +196,11 @@ export class GeoapifyMockController {
       VendorMockVendor.geoapify,
       'routeplanner_request',
       randomUUID(),
-      { status: 'complete', waypoints: jobs.length },
+      {
+        status: 'complete',
+        waypoints: jobs.length,
+        ...(organizationSlug !== undefined && { organizationSlug }),
+      },
       campaignId,
       rawBody,
     )
@@ -228,13 +308,17 @@ export class GeoapifyMockController {
     }
   }
 
-  // Accepts any non-empty key when GEOAPIFY_API_KEY is unconfigured (test
-  // environments); in configured environments it must match the real key so
-  // only the GeoapifyRoutePlannerService (which supplies it) can reach this
-  // endpoint.
+  // In mock mode the service always sends GEOAPIFY_MOCK_API_KEY, even
+  // where GEOAPIFY_API_KEY is also set (PR previews). The fallback to any
+  // non-empty key when GEOAPIFY_API_KEY is unset is intentionally absent:
+  // mock routes are internet-facing on previews and must not accept
+  // arbitrary tokens.
   private assertApiKey(apiKey: string | undefined) {
     const expectedKey = process.env.GEOAPIFY_API_KEY
-    if (!apiKey || (expectedKey && apiKey !== expectedKey)) {
+    const accepted =
+      apiKey === GEOAPIFY_MOCK_API_KEY ||
+      (!!expectedKey && apiKey === expectedKey)
+    if (!accepted) {
       throw new BadRequestException('apiKey query param is required')
     }
   }

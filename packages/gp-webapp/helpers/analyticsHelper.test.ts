@@ -22,6 +22,8 @@ import {
   setUserEmail,
   setActorUserId,
   setActorRole,
+  setActiveProduct,
+  toActiveProduct,
   getMetaClickIds,
   getPersistedClids,
   extractClids,
@@ -36,6 +38,7 @@ describe('trackEvent', () => {
     setUserEmail(undefined)
     setActorUserId(undefined)
     setActorRole(undefined)
+    setActiveProduct(undefined)
     vi.clearAllMocks()
     sessionStorage.clear()
   })
@@ -155,6 +158,46 @@ describe('trackEvent', () => {
         actorRole: 'owner',
       }),
     )
+  })
+
+  it('defaults activeProduct to null when never set', () => {
+    trackEvent('Test Event')
+
+    expect(segmentTrackEvent).toHaveBeenCalledWith(
+      'Test Event',
+      expect.objectContaining({ activeProduct: null }),
+    )
+  })
+
+  it('includes activeProduct once set', () => {
+    setActiveProduct('serve')
+
+    trackEvent('Test Event')
+
+    expect(segmentTrackEvent).toHaveBeenCalledWith(
+      'Test Event',
+      expect.objectContaining({ activeProduct: 'serve' }),
+    )
+  })
+
+  it('activeProduct cannot be overridden by caller properties', () => {
+    setActiveProduct('win')
+
+    trackEvent('Test Event', { activeProduct: 'serve', product: 'serve' })
+
+    expect(segmentTrackEvent).toHaveBeenCalledWith(
+      'Test Event',
+      expect.objectContaining({ activeProduct: 'win', product: 'serve' }),
+    )
+  })
+})
+
+describe('toActiveProduct', () => {
+  it('maps an elected office org to serve, any other org to win, no org to null', () => {
+    expect(toActiveProduct({ electedOfficeId: 'eo1' })).toBe('serve')
+    expect(toActiveProduct({ electedOfficeId: null })).toBe('win')
+    expect(toActiveProduct({})).toBe('win')
+    expect(toActiveProduct(undefined)).toBeNull()
   })
 })
 

@@ -1,0 +1,24 @@
+enum CensusTractNameSource {
+  neighborhood
+  street
+  none
+}
+
+/// A census tract's human name for the civic panel's seats, keyed by its
+/// 11-digit GEOID. Tract names do not change, so each is worked out once,
+/// ever: a Geoapify reverse geocode of the mean of the tract's residents'
+/// points, else the street most of them live on. A `none` row means neither
+/// gave a name and is kept, so the tract is never geocoded again.
+model CensusTractName {
+  tractGeoid String                @id @map("tract_geoid")
+  /// "West Asheville" or "around Haywood Rd"; null when `source` is none.
+  name       String?
+  source     CensusTractNameSource
+  /// The street most of the tract's residents live on ("Haywood Rd"), kept
+  /// to tell apart two tracts that share a neighborhood.
+  street     String?
+  createdAt  DateTime              @default(now()) @map("created_at")
+  updatedAt  DateTime              @updatedAt @map("updated_at")
+
+  @@map("census_tract_name")
+}

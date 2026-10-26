@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common'
 import { CampaignIdeologyModule } from '@/campaignIdeology/campaignIdeology.module'
 import { CampaignStrategyModule } from '@/campaignStrategy/campaignStrategy.module'
 import { ContactsModule } from '@/contacts/contacts.module'
+import { ElectionsModule } from '@/elections/elections.module'
 import { PeopleQueryModule } from '@/peopleDb/peopleQuery.module'
 import { VotersModule } from '@/voters/voters.module'
 import { RecommendedListsController } from './recommendedLists.controller'
@@ -11,10 +12,13 @@ import { RecommendedListsService } from './services/recommendedLists.service'
   imports: [
     ContactsModule,
     CampaignIdeologyModule,
-    // For ElectionApiService, the one client that already fetches
+    // For RaceContextService, the one client that already fetches
     // win-number data. A second election-api client here would be a second
     // place for the vote goal to be defined.
     CampaignStrategyModule,
+    // For BallotReadyService's election milestones, which date the
+    // early-vote window on the global recommendations.
+    ElectionsModule,
     VotersModule,
     PeopleQueryModule,
   ],

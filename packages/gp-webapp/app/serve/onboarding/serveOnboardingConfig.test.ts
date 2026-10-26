@@ -385,14 +385,14 @@ describe('the welcome tiles behind serve-citizen-panels', () => {
     expect(SERVE_WELCOME_VALUE_PROPS).toHaveLength(4)
   })
 
-  it('ends with meeting briefings', () => {
+  it('leads with time, then meetings, then residents', () => {
     expect(
       SERVE_CITIZEN_PANELS_WELCOME_VALUE_PROPS.map(({ title }) => title),
     ).toEqual([
-      'Ask residents before you vote',
-      'Know what your community is talking about',
-      'Follow through on the issues you were elected to solve',
-      'Walk into every meeting prepared',
+      'Get hours back every week',
+      'Walk into every meeting ready',
+      'Hear from everyone you represent',
+      'Show residents what you did',
     ])
   })
 })

@@ -253,8 +253,9 @@ describe('ProposalFlowsProvider', () => {
   })
 
   // The walk is drawn on its own page, so the card's link rides the URL to
-  // that page's create, which puts the check out on the server.
-  it('carries the card’s link to door knocking, saving the list at the click', async () => {
+  // that page's create, which puts the check out on the server. A priority's
+  // walk asks the check's question, so the goal and the question ride too.
+  it('carries the card’s link, goal and question to door knocking, saving the list at the click', async () => {
     api.mock('POST /v1/voters/voter-file/filter', {
       status: 200,
       data: { id: 77, name: 'Flood block renters' },
@@ -287,7 +288,67 @@ describe('ProposalFlowsProvider', () => {
       stepId: 'method',
       side: 'main',
       launchSource: 'priorities',
+      purpose: 'community_input',
+      question: SCRIPT,
     })
+  })
+
+  // The question has the create's own limit, so a longer door message is
+  // cut to it rather than opening a walk that cannot be created.
+  it('cuts a door message longer than a question can be', async () => {
+    router.push?.mockClear()
+    api.mock('POST /v1/voters/voter-file/filter', {
+      status: 200,
+      data: { id: 80, name: 'Flood block renters' },
+    })
+
+    render(
+      <ProposalFlowsProvider>
+        <Opener
+          card={proposal({ channel: 'doorKnocking', message: 'a'.repeat(400) })}
+        />
+      </ProposalFlowsProvider>,
+    )
+    await user.click(screen.getByRole('button', { name: 'Start' }))
+
+    await waitFor(() => expect(router.push).toHaveBeenCalled())
+    const url = new URL(
+      String(router.push?.mock.calls[0]?.[0]),
+      'https://app.test',
+    )
+    expect(url.searchParams.get('question')).toBe('a'.repeat(300))
+  })
+
+  it('saves the walk’s list once when the card is pressed twice', async () => {
+    router.push?.mockClear()
+    let release: () => void = () => undefined
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let saves = 0
+    api.mock('POST /v1/voters/voter-file/filter', async () => {
+      saves += 1
+      await held
+      return { status: 200, data: { id: 79, name: 'Flood block renters' } }
+    })
+
+    render(
+      <ProposalFlowsProvider>
+        <Opener card={proposal({ channel: 'doorKnocking' })} />
+      </ProposalFlowsProvider>,
+    )
+    await user.click(screen.getByRole('button', { name: 'Start' }))
+    await user.click(screen.getByRole('button', { name: 'Start' }))
+    release()
+
+    await waitFor(() => expect(router.push).toHaveBeenCalledTimes(1))
+    expect(saves).toBe(1)
+
+    // Back on the card, pressing it again reuses the list it saved.
+    await user.click(screen.getByRole('button', { name: 'Start' }))
+    await waitFor(() => expect(router.push).toHaveBeenCalledTimes(2))
+    expect(saves).toBe(1)
+    expect(String(router.push?.mock.calls[1]?.[0])).toContain('listId=79')
   })
 
   it('says so when the walk’s list cannot be saved, and the card can be pressed again', async () => {

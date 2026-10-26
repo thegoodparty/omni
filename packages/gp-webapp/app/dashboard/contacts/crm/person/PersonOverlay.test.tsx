@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { screen, within } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
@@ -632,6 +632,44 @@ describe('<PersonOverlay>', () => {
       // ENG-10836: the StatusRow carries support on Win, not this card.
       expect(screen.queryByText('Support Status')).not.toBeInTheDocument()
     })
+
+    it('marks both turnout rows when the voter has already voted', () => {
+      setContext({
+        isElectedOfficial: false,
+        selectedPerson: {
+          person: makePerson({
+            voterStatus: 'Unreliable',
+            earlyVoteStatus: null,
+            voted: true,
+          }),
+        },
+      })
+
+      render(<PersonOverlay />)
+
+      expect(screen.getByText('Unreliable (Already voted)')).toBeInTheDocument()
+      // No score to qualify still says so, rather than dropping the row.
+      expect(screen.getByText('Unknown (Already voted)')).toBeInTheDocument()
+    })
+
+    it('leaves the turnout rows alone when the voter has not voted', () => {
+      setContext({
+        isElectedOfficial: false,
+        selectedPerson: {
+          person: makePerson({
+            voterStatus: 'Unreliable',
+            earlyVoteStatus: 'Likely',
+            voted: false,
+          }),
+        },
+      })
+
+      render(<PersonOverlay />)
+
+      expect(screen.getByText('Unreliable')).toBeInTheDocument()
+      expect(screen.getByText('Likely')).toBeInTheDocument()
+      expect(screen.queryByText(/Already voted/)).not.toBeInTheDocument()
+    })
   })
 
   describe('ENG-10836 status row', () => {
@@ -689,6 +727,7 @@ describe('<PersonOverlay>', () => {
 
       expect(trackEvent).toHaveBeenCalledWith(
         EVENTS.ConstituentData.ContactViewed,
+        { onCivicPanel: false },
       )
     })
 
@@ -1046,6 +1085,111 @@ describe('<PersonOverlay>', () => {
         screen.findByText('What they told us', {}, { timeout: 500 }),
       ).rejects.toThrow()
       expect(screen.queryByText('Road bond')).not.toBeInTheDocument()
+    })
+  })
+  describe('what they have told the office, on Serve', () => {
+    const flagsOn = (...keys: string[]) =>
+      mockedUseFlagOn.mockImplementation((key: string) => ({
+        ready: true,
+        on: keys.includes(key),
+      }))
+    const answers = {
+      results: [
+        {
+          id: 'a1',
+          source: 'text' as const,
+          answer: 'yes' as const,
+          priorityId: 'pri_1',
+          priorityTitle: 'Safer streets near schools',
+        },
+        {
+          id: 'a2',
+          source: 'door_knocking' as const,
+          answer: 'mixed' as const,
+          priorityId: 'pri_2',
+          priorityTitle: 'Pool hours',
+        },
+      ],
+    }
+
+    it('lists each priority they answered, with its answer and channel', async () => {
+      flagsOn('serve-citizen-panels')
+      api.mock('GET /v1/contact-engagement/:id/priority-answers', {
+        status: 200,
+        data: answers,
+      })
+      setContext({ isElectedOfficial: true })
+
+      render(<PersonOverlay />)
+
+      expect(await screen.findByText('Their answers')).toBeVisible()
+      expect(
+        screen.getByRole('link', { name: 'Safer streets near schools' }),
+      ).toHaveAttribute('href', '/dashboard/priorities/pri_1')
+      expect(screen.getByText(/^Yes/)).toBeInTheDocument()
+      expect(screen.getByText(/By text/)).toBeInTheDocument()
+      expect(screen.getByText(/At the door/)).toBeInTheDocument()
+    })
+
+    it('stays out of the card until they have answered something', async () => {
+      flagsOn('serve-citizen-panels')
+      let asked = false
+      api.mock('GET /v1/contact-engagement/:id/priority-answers', () => {
+        asked = true
+        return { status: 200, data: { results: [] } }
+      })
+      setContext({ isElectedOfficial: true })
+
+      render(<PersonOverlay />)
+      await waitFor(() => expect(asked).toBe(true))
+
+      await screen.findByText('Address')
+      await new Promise((resolve) => setTimeout(resolve, 50))
+      expect(screen.queryByText('Their answers')).not.toBeInTheDocument()
+    })
+
+    it('never asks on a Win contact card', async () => {
+      flagsOn('serve-citizen-panels')
+      let asked = false
+      api.mock('GET /v1/contact-engagement/:id/priority-answers', () => {
+        asked = true
+        return { status: 200, data: answers }
+      })
+      setContext({ isElectedOfficial: false })
+
+      render(<PersonOverlay />)
+
+      await screen.findByText('Address')
+      await new Promise((resolve) => setTimeout(resolve, 50))
+      expect(asked).toBe(false)
+      expect(screen.queryByText('Their answers')).not.toBeInTheDocument()
+    })
+
+    it('stays out of the card with the civic panel flag off', async () => {
+      flagsOn()
+      let asked = false
+      api.mock('GET /v1/contact-engagement/:id/priority-answers', () => {
+        asked = true
+        return { status: 200, data: answers }
+      })
+      setContext({ isElectedOfficial: true })
+
+      render(<PersonOverlay />)
+
+      await screen.findByText('Address')
+      await new Promise((resolve) => setTimeout(resolve, 50))
+      expect(asked).toBe(false)
+    })
+
+    it('says plainly that no poll issues have come in', () => {
+      flagsOn('serve-contacts-activities-and-issues')
+      setContext({ isElectedOfficial: true })
+
+      render(<PersonOverlay />)
+
+      expect(screen.getByText('Top Issues')).toBeInTheDocument()
+      expect(screen.getByText('No issues from your polls yet.')).toBeVisible()
+      expect(screen.queryAllByText('Data not available.')).toHaveLength(1)
     })
   })
 })

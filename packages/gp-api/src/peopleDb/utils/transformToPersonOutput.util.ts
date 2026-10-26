@@ -1,6 +1,7 @@
 import type { Person } from '@goodparty_org/contracts'
 import { BaseDbPerson } from '../voter.select'
 import { classifyPoliticalParty } from './politicalParty.rules'
+import { earlyVoteStatusFromMart } from '../earlyVoteStatus'
 
 // people-api is the producer of this shape; the canonical definition lives in
 // @goodparty_org/contracts as Person (consumed by gp-api and gp-webapp).
@@ -163,6 +164,7 @@ export function transformToPersonOutput(
     age: mapAge(person),
     politicalParty: mapPoliticalParty(person.Parties_Description),
     voterStatus: mapVoterStatus(person.Voter_Status),
+    earlyVoteStatus: earlyVoteStatusFromMart(person.Early_Vote_Status),
     registeredVoter: 'Yes',
     state: person.State,
     address: {

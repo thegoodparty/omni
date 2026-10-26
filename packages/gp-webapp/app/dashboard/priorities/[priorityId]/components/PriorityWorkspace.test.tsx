@@ -269,6 +269,14 @@ describe('PriorityWorkspace', () => {
 
   it('moves the rail while the turn is still streaming, then reconciles', async () => {
     const gate = deferred()
+    const stored: PriorityStatus = {
+      ...emptyPriorityStatus(),
+      steps: emptyPriorityStatus().steps.map((step) =>
+        step.id === 'evidence'
+          ? { ...step, state: 'settled' as const, summary: 'Maple floods.' }
+          : step,
+      ),
+    }
     mocks.streamMessage.mockImplementation(
       streamOf(
         [
@@ -281,6 +289,16 @@ describe('PriorityWorkspace', () => {
               steps: [
                 { id: 'evidence', state: 'settled', summary: 'Maple floods.' },
               ],
+              nextAction: 'Pick two blocks to walk',
+            },
+          },
+          {
+            type: 'tool_result',
+            toolName: 'update_priority_status',
+            toolCallId: 'tc-status',
+            result: {
+              status: stored,
+              currentStep: 'define',
               nextAction: 'Pick two blocks to walk',
             },
           },
@@ -300,6 +318,9 @@ describe('PriorityWorkspace', () => {
     )
     expect(mocks.fetchPriorityStatus).not.toHaveBeenCalled()
     expect(screen.getByText('Pick two blocks to walk')).toBeInTheDocument()
+    expect(
+      await screen.findByText('Done with what we know'),
+    ).toBeInTheDocument()
 
     // The turn settles and the rail is reconciled against what was stored.
     const persisted: PriorityStatus = {
@@ -337,6 +358,60 @@ describe('PriorityWorkspace', () => {
         ),
       ).toBeInTheDocument(),
     )
+  })
+
+  // The dev plan turn: the agent asked to close three steps and open the
+  // plan, the server refused, and the chat still said "Done with" each one.
+  it('draws no marker and leaves the rail alone when the server refuses the move', async () => {
+    const gate = deferred()
+    mocks.streamMessage.mockImplementation(
+      streamOf(
+        [
+          { type: 'text', delta: 'Let me record where this stands. ' },
+          {
+            type: 'tool_call',
+            toolName: 'update_priority_status',
+            toolCallId: 'tc-refused',
+            args: {
+              steps: [
+                { id: 'options', state: 'settled' },
+                { id: 'listen_options', state: 'settled' },
+                { id: 'method', state: 'settled' },
+                { id: 'plan', state: 'active' },
+                { id: 'listen_problem', state: 'stale' },
+              ],
+              nextAction: 'Draft the plan',
+            },
+          },
+          {
+            type: 'tool_result',
+            toolName: 'update_priority_status',
+            toolCallId: 'tc-refused',
+            result: {
+              error:
+                'Nothing was recorded. These did not move: Your options, ' +
+                'What people back, The path, The plan, Who to hear from.',
+            },
+          },
+          { type: 'text', delta: 'The plan waits on what residents say.' },
+          { type: 'done', assistantMessageId: 'a1' },
+        ],
+        gate.promise,
+      ),
+    )
+
+    renderWorkspace()
+
+    expect(
+      await screen.findByText(/The plan waits on what residents say/),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/^Done with/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/^Working on/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/^Back to/)).not.toBeInTheDocument()
+    expect(
+      within(railRow(PRIORITY_STEP_LABELS.method)).queryByText('Done'),
+    ).not.toBeInTheDocument()
+    gate.resolve()
   })
 
   it('leaves a marker in the conversation, saying so when a step goes backwards', async () => {
@@ -392,6 +467,36 @@ describe('PriorityWorkspace', () => {
 
     expect(await screen.findByText('Done with the problem')).toBeInTheDocument()
     expect(screen.getByText('Back to your options')).toBeInTheDocument()
+  })
+
+  it('records each outreach the agent proposes as it streams in', async () => {
+    mocks.streamMessage.mockImplementation(
+      streamOf([
+        { type: 'text', delta: 'Here is a call list. ' },
+        {
+          type: 'tool_call',
+          toolName: 'present_outreach_proposal',
+          toolCallId: 'tc-live-proposal',
+          args: proposalArgs,
+        },
+        { type: 'done', assistantMessageId: 'a1' },
+      ]),
+    )
+
+    renderWorkspace()
+
+    await waitFor(() =>
+      expect(trackEvent).toHaveBeenCalledWith(
+        EVENTS.Priorities.OutreachProposed,
+        {
+          priorityId: 'pri-1',
+          round: 'one',
+          sampleSize: 412,
+          targetGroup: 'everyone',
+          channel: 'call',
+        },
+      ),
+    )
   })
 
   it('renders a card tool call through ChatCardRenderer with a derived proposalKey', async () => {
@@ -1005,12 +1110,9 @@ describe('PriorityWorkspace', () => {
       expect(mocks.streamMessage).toHaveBeenCalledWith(
         expect.objectContaining({ content: reportBackMessage(77) }),
       )
-      expect(router.replace).toHaveBeenCalledWith(
-        '/dashboard/priorities/pri-1',
-        {
-          scroll: false,
-        },
-      )
+      expect(window.location.pathname).toBe('/dashboard/priorities/pri-1')
+      expect(window.location.search).toBe('')
+      expect(router.replace).not.toHaveBeenCalled()
     })
 
     it('starts the report back once in a thread already under way, hidden', async () => {
@@ -1023,6 +1125,47 @@ describe('PriorityWorkspace', () => {
         expect.objectContaining({ content: reportBackMessage(77) }),
       )
       expect(screen.queryByText(/Help me report back/)).toBeNull()
+    })
+
+    // Reopening a report back once its chat exists: dropping the param
+    // must not navigate, since a navigation remounts the page mid-open.
+    it('reopens a report back without navigating, and an open it outlived never shows the error', async () => {
+      window.history.replaceState(
+        null,
+        '',
+        '/dashboard/priorities/pri-1?reportBack=77',
+      )
+      mocks.listMessages.mockResolvedValue([
+        {
+          id: 'u1',
+          conversationId: CONVERSATION_ID,
+          role: 'user',
+          content: reportBackMessage(77),
+          createdAt: '2026-09-01T00:00:00.000Z',
+        } satisfies ChatMessageDto,
+        { ...reply, createdAt: '2026-09-01T00:00:05.000Z' },
+      ])
+      let failFirst: ((err: Error) => void) | undefined
+      mocks.createConversation.mockImplementationOnce(
+        () =>
+          new Promise((_, reject) => {
+            failFirst = reject
+          }),
+      )
+      // The first mount is replaced before its open settles, as a remount
+      // would, and its request then fails.
+      const first = renderWorkspace(emptyPriorityStatus(), 77)
+      first.unmount()
+      failFirst?.(new Error('superseded'))
+      renderWorkspace(emptyPriorityStatus(), 77)
+
+      await screen.findByText('Here is where this stands.')
+      expect(
+        screen.queryByText(/We couldn.t open this priority/),
+      ).not.toBeInTheDocument()
+      expect(window.location.search).toBe('')
+      expect(router.replace).not.toHaveBeenCalled()
+      expect(mocks.streamMessage).not.toHaveBeenCalled()
     })
 
     it('does not ask again for a send it already started on', async () => {
@@ -1048,20 +1191,34 @@ describe('PriorityWorkspace', () => {
     const thin: PriorityReadStatus = {
       answers: 24,
       needed: 96,
+      groupsHeard: 3,
+      groupsTotal: 12,
+      representativeAnswers: 20,
+      representativeNeeded: 96,
       good: false,
       status: 'tooEarly',
-      underrepresented: [],
+      underrepresented: ['age65plus'],
+      unheard: ['age65plus'],
+      checkOut: true,
     }
+    // 103 answered, but the groups heard most fill only their share.
     const skewed: PriorityReadStatus = {
       answers: 103,
       needed: 96,
+      groupsHeard: 9,
+      groupsTotal: 12,
+      representativeAnswers: 70,
+      representativeNeeded: 96,
       good: false,
       status: 'notYetRepresentative',
-      underrepresented: ['renters', 'age65plus'],
+      underrepresented: ['women', 'age65plus'],
+      checkOut: true,
     }
     const good: PriorityReadStatus = {
       answers: 103,
       needed: 96,
+      groupsHeard: 12,
+      groupsTotal: 12,
       good: true,
       status: 'representative',
       underrepresented: [],
@@ -1097,20 +1254,75 @@ describe('PriorityWorkspace', () => {
         within(bar).getByRole('button', { name: 'Where this stands' }),
       ).toBeInTheDocument()
       const status = within(bar).getByRole('link', {
-        name: /72 more answers for a good read/,
+        name: /Still need to hear from people 65 and over/,
       })
       expect(status).toHaveAttribute(
         'href',
         '/dashboard/priorities/pri-1/results',
       )
       expect(
-        within(status).getByRole('progressbar', {
-          name: '24 of 96 answers for a good read',
+        within(bar).getByRole('progressbar', {
+          name: '20 of the 96 answers we need',
         }),
       ).toBeInTheDocument()
-      expect(
-        within(bar).getByRole('button', { name: 'Get answers' }),
-      ).toBeInTheDocument()
+      const getAnswers = within(bar).getByRole('button', {
+        name: 'Get answers',
+      })
+      expect(getAnswers).toBeEnabled()
+      // Its own row under the line, so the line has the full width.
+      expect(status).not.toContainElement(getAnswers)
+    })
+
+    it('keeps Get answers ready while a turn is in flight, and holds it once asked', async () => {
+      const kickoffDone = deferred()
+      const getAnswersDone = deferred()
+      mocks.listMessages.mockResolvedValue([])
+      mocks.streamMessage
+        .mockImplementationOnce(
+          streamOf(
+            [
+              { type: 'text', delta: 'Let me look at this.' },
+              { type: 'done', assistantMessageId: 'a1' },
+            ],
+            kickoffDone.promise,
+          ),
+        )
+        .mockImplementationOnce(
+          streamOf(
+            [
+              { type: 'text', delta: 'Here is a text to ask more people.' },
+              { type: 'done', assistantMessageId: 'a2' },
+            ],
+            getAnswersDone.promise,
+          ),
+        )
+      renderWorkspace(emptyPriorityStatus(), null, { initialReadStatus: thin })
+      await waitFor(() => expect(mocks.streamMessage).toHaveBeenCalledTimes(1))
+
+      const buttons = () =>
+        screen.getAllByRole('button', { name: 'Get answers' })
+      expect(buttons()).toHaveLength(2)
+      for (const button of buttons()) expect(button).toBeEnabled()
+
+      fireEvent.click(
+        within(screen.getByTestId('priority-phone-bar')).getByRole('button', {
+          name: 'Get answers',
+        }),
+      )
+      for (const button of buttons()) expect(button).toBeDisabled()
+      expect(mocks.streamMessage).toHaveBeenCalledTimes(1)
+
+      await act(async () => kickoffDone.resolve())
+      await waitFor(() => expect(mocks.streamMessage).toHaveBeenCalledTimes(2))
+      expect(mocks.streamMessage).toHaveBeenLastCalledWith(
+        expect.objectContaining({ content: GET_ANSWERS_MESSAGE }),
+      )
+      for (const button of buttons()) expect(button).toBeDisabled()
+
+      await act(async () => getAnswersDone.resolve())
+      await waitFor(() => {
+        for (const button of buttons()) expect(button).toBeEnabled()
+      })
     })
 
     it('puts the title in a bar above the chat and the rail on desktop', async () => {
@@ -1161,7 +1373,7 @@ describe('PriorityWorkspace', () => {
 
       const bar = screen.getByTestId('priority-phone-bar')
       expect(
-        within(bar).getByText('Representative of your district'),
+        within(bar).getByText("You've heard from every group"),
       ).toBeInTheDocument()
       expect(
         within(bar).getByRole('link', { name: 'See what we heard' }),
@@ -1176,8 +1388,12 @@ describe('PriorityWorkspace', () => {
       await screen.findByText('Here is where this stands.')
 
       const rail = screen.getByRole('complementary')
+      expect(within(rail).getByText('Waiting to hear back')).toBeInTheDocument()
       expect(
-        within(rail).getByText('72 more answers for a good read'),
+        within(rail).getByText('Still need to hear from people 65 and over'),
+      ).toBeInTheDocument()
+      expect(
+        within(rail).getByText('20 of the 96 answers we need'),
       ).toBeInTheDocument()
       expect(
         within(rail).getByRole('button', { name: 'Get answers' }),
@@ -1195,26 +1411,34 @@ describe('PriorityWorkspace', () => {
       await screen.findByText('Here is where this stands.')
 
       const rail = screen.getByRole('complementary')
-      expect(within(rail).getByText('Representative')).toBeInTheDocument()
+      expect(within(rail).getByText('Every group heard')).toBeInTheDocument()
       expect(
         within(rail).getByRole('link', { name: 'See what we heard' }),
       ).toBeInTheDocument()
+      // One way to the results, not a button and a link to the same page.
+      expect(
+        within(rail).queryByRole('link', { name: 'What we heard' }),
+      ).not.toBeInTheDocument()
     })
 
-    it('says enough answers, not representative, when the census was not checked', async () => {
+    it('says enough people answered, not every group, when the census was not checked', async () => {
       renderWorkspace(emptyPriorityStatus(), null, {
         initialReadStatus: { ...good, status: 'enoughAnswers' },
       })
       await screen.findByText('Here is where this stands.')
 
       const bar = screen.getByTestId('priority-phone-bar')
-      expect(within(bar).getByText('Enough answers')).toBeInTheDocument()
+      expect(
+        within(bar).getByText('Enough people have answered'),
+      ).toBeInTheDocument()
       expect(
         within(bar).getByRole('link', { name: 'See what we heard' }),
       ).toBeInTheDocument()
       const rail = screen.getByRole('complementary')
-      expect(within(rail).getByText('Enough answers')).toBeInTheDocument()
-      expect(screen.queryByText(/Representative/)).not.toBeInTheDocument()
+      expect(
+        within(rail).getByText('Enough people have answered'),
+      ).toBeInTheDocument()
+      expect(screen.queryByText(/every group/i)).not.toBeInTheDocument()
     })
 
     it('names who to hear more from once there are enough answers', async () => {
@@ -1225,18 +1449,22 @@ describe('PriorityWorkspace', () => {
 
       const bar = screen.getByTestId('priority-phone-bar')
       expect(
-        within(bar).getByText('Not yet representative. Hear from more renters'),
+        within(bar).getByText(
+          'Need a few more answers from women and people 65 and over',
+        ),
       ).toBeInTheDocument()
       const rail = screen.getByRole('complementary')
       expect(
-        within(rail).getByText('Not yet representative'),
+        within(rail).getByText('A few groups need more answers'),
       ).toBeInTheDocument()
       expect(
-        within(rail).getByText('Hear from more renters and people 65 and over'),
+        within(rail).getByText(
+          'Need a few more answers from women and people 65 and over',
+        ),
       ).toBeInTheDocument()
       expect(
-        within(rail).queryByText(/more answers for a good read/),
-      ).not.toBeInTheDocument()
+        within(rail).getByText('70 of the 96 answers we need'),
+      ).toBeInTheDocument()
       expect(within(rail).queryByText(/weight/i)).not.toBeInTheDocument()
       expect(
         within(rail).getByRole('button', { name: 'Get answers' }),
@@ -1260,7 +1488,12 @@ describe('PriorityWorkspace', () => {
       expect(screen.queryByText(/Help me get more answers/)).toBeNull()
       expect(trackEvent).toHaveBeenCalledWith(
         EVENTS.Priorities.GetAnswersClicked,
-        { priorityId: 'pri-1', source: 'rail' },
+        {
+          priorityId: 'pri-1',
+          source: 'rail',
+          readStatus: 'waiting',
+          groupsShort: 9,
+        },
       )
       expect(
         vi
@@ -1275,6 +1508,20 @@ describe('PriorityWorkspace', () => {
       )
     })
 
+    it('records the read the priority opened with', async () => {
+      renderWorkspace(emptyPriorityStatus(), null, { initialReadStatus: thin })
+      await screen.findByText('Here is where this stands.')
+
+      expect(trackEvent).toHaveBeenCalledWith(
+        EVENTS.Priorities.PriorityViewed,
+        expect.objectContaining({
+          readStatus: 'waiting',
+          groupsHeard: 3,
+          groupsTotal: 12,
+        }),
+      )
+    })
+
     it('asks once when the results page sent the official here', async () => {
       renderWorkspace(emptyPriorityStatus(), null, {
         initialReadStatus: thin,
@@ -1286,13 +1533,16 @@ describe('PriorityWorkspace', () => {
       expect(mocks.streamMessage).toHaveBeenCalledWith(
         expect.objectContaining({ content: GET_ANSWERS_MESSAGE }),
       )
-      expect(router.replace).toHaveBeenCalledWith(
-        '/dashboard/priorities/pri-1',
-        { scroll: false },
-      )
+      expect(window.location.search).toBe('')
+      expect(router.replace).not.toHaveBeenCalled()
       expect(trackEvent).toHaveBeenCalledWith(
         EVENTS.Priorities.GetAnswersClicked,
-        { priorityId: 'pri-1', source: 'results_page' },
+        {
+          priorityId: 'pri-1',
+          source: 'results_page',
+          readStatus: 'waiting',
+          groupsShort: 9,
+        },
       )
     })
 
@@ -1402,7 +1652,7 @@ describe('PriorityWorkspace', () => {
         expect(mocks.fetchPriorityReadStatus).toHaveBeenCalledWith('pri-1'),
       )
       expect(
-        (await screen.findAllByText('Representative of your district')).length,
+        (await screen.findAllByText("You've heard from every group")).length,
       ).toBeGreaterThan(0)
     })
   })

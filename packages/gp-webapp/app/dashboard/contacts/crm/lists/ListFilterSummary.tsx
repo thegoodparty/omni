@@ -14,6 +14,7 @@ import {
   ACTIVITY_CONDITION_ACTION_LABELS,
   ACTIVITY_CONDITION_CHANNELS,
   SUPPORT_STATUS_OPTIONS,
+  VOTED_STATUS_OPTIONS,
 } from '../shared/activityConditionOptions'
 import { decodePrecinctPair } from '@goodparty_org/contracts'
 import type { SegmentResponse } from '../shared/contacts-types'
@@ -56,7 +57,6 @@ const isTrue = (value: unknown): value is true => value === true
 const CIVIC_PANEL_STATUS_PHRASES: Array<[string, string]> = [
   [CIVIC_PANEL_FILTER_KEY, 'On your civic panel'],
   ['civicPanelLeft', 'Left your civic panel'],
-  ['civicPanelNeverInvited', 'Never invited to your civic panel'],
 ]
 
 const CIVIC_PANEL_JOINED_BY_PHRASES: Array<[string, string]> = [
@@ -149,6 +149,7 @@ export const buildFilterSummary = (
       isElectedOfficial &&
       (field.key === 'political_party' ||
         field.key === 'voter_likely' ||
+        field.key === 'early_vote' ||
         WIN_ONLY_RECOMMENDED_FIELD_KEYS.includes(field.key))
     )
       continue
@@ -220,6 +221,17 @@ export const buildFilterSummary = (
           ?.label ?? value,
     )
     clauses.push(`Support status ${labels.join(' or ')}`)
+  }
+
+  const votedStatus = Array.isArray(segment.votedStatus)
+    ? segment.votedStatus
+    : []
+  // Both options is no constraint, so only a single selection is worth naming.
+  if (votedStatus.length === 1) {
+    const label =
+      VOTED_STATUS_OPTIONS.find((option) => option.value === votedStatus[0])
+        ?.label ?? votedStatus[0]
+    clauses.push(`Voted in election ${label}`)
   }
 
   // A saved list can carry a precinct filter, so the summary has to name it —

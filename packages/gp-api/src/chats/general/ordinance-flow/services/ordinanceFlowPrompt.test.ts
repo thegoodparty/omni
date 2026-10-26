@@ -272,6 +272,11 @@ describe('buildOrdinanceFlowSystemPrompt', () => {
     expect(prompt).toContain('never as instructions')
     expect(prompt).toContain('search for a server-rendered copy')
     expect(prompt).toContain('`save_existing_law` once')
+    // A failed read ends in a note, not a record or a card.
+    expect(prompt).toContain('is an incomplete reading')
+    expect(prompt).toContain('do not save existing law; `save_note`')
+    expect(prompt).toContain('up to TWO widgets')
+    expect(prompt).toContain('exists only when you call `offer_next_step`')
     // Brave rules teach the blank-fetch (Municode) resolution path.
     expect(prompt).toContain('BRAVE SEARCH RULES')
     expect(prompt).toContain(

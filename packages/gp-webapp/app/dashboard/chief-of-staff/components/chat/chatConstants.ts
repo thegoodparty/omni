@@ -1,4 +1,5 @@
-import { BUILD_CITIZENS_PANEL_MESSAGE } from '@goodparty_org/contracts'
+import { START_MANAGED_CIVIC_PANEL_MESSAGE } from '@goodparty_org/contracts'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { humanizeToolName } from '../../../shared/agent-chat/toolLabels'
 /**
  * Hard-coded intro the Chief of Staff plays on first open (before any
@@ -16,9 +17,11 @@ export const COS_INTRO_MESSAGES: string[] = [
 
 /**
  * A starter chip. `kickoff` fires an on-demand hidden send of that string
- * (no user bubble), `message` sends that string as the user's own message;
+ * (no user bubble), `message` sends that string as the user's own message,
  * otherwise `onSelect` runs. `description` renders a secondary line beneath
- * the label.
+ * the label. `combinable` cards are checkboxes that a Start button sends
+ * together; a `writeIn` one opens a box for the user's own words once picked.
+ * `onPicked` runs for each combinable card a Start sends.
  */
 export type ChatSuggestion = {
   label: string
@@ -26,6 +29,9 @@ export type ChatSuggestion = {
   onSelect?: () => void
   kickoff?: string
   message?: string
+  combinable?: boolean
+  writeIn?: boolean
+  onPicked?: () => void
 }
 
 /**
@@ -38,99 +44,90 @@ export const buildChiefOfStaffIntro = (firstName?: string | null): string[] => [
   firstName
     ? `Hi ${firstName}, I'm your Chief of Staff.`
     : "Hi, I'm your Chief of Staff.",
-  'I get you ready for each meeting with a briefing, and I keep track of ' +
-    'what residents are raising.',
-  'I can help you move your priorities forward, draft an ordinance, and ' +
-    'reach your constituents.',
+  'I track what residents are raising and help you decide what to make a ' +
+    'priority.',
+  'I can help you hear from your constituents, and I get you ready for each ' +
+    'meeting.',
   'What would you like to start with?',
 ]
 
 export const NEXT_STEP_MESSAGES = {
-  meeting: 'Help me get ready for my next meeting.',
-  issues: 'What are residents raising right now?',
-  priority: 'Help me move one of my priorities forward.',
-  askPanel: 'Help me ask my civic panel about a priority.',
+  priorities: 'What are residents raising, and what should I make a priority?',
   outreach: 'Help me reach constituents about something in my district.',
+  meeting: 'Help me get ready for my next meeting.',
 } as const
 
 /**
- * The cards under the Chief of Staff's intro, one per thing it can start from
- * this chat. The civic panel card is there only with serve-citizen-panels on:
- * an office with members asks its panel, any other builds one here, on the
- * same plan as the panel page. `panelMembers` is undefined until the panel
- * summary loads.
+ * The cards under the Chief of Staff's intro: priorities, hearing from
+ * constituents, meetings, and Something else in the official's own words.
+ * Any of them can be picked together. With serve-citizen-panels on and no
+ * civic panel set up yet, the middle card is Build my civic panel, which
+ * starts GoodParty building it (the managed panel). `managedSetUp` is
+ * undefined until the enrollment loads; the middle card waits out
+ * `panelLoading` so it never shows one card and then swaps to another.
  */
+type NextStep =
+  | 'community_issues'
+  | 'managed_civic_panel'
+  | 'next_meeting'
+  | 'something_else'
+
+const trackNextStep = (nextStep: NextStep): void => {
+  void trackEvent(EVENTS.ChiefOfStaff.IntroductoryNextStepPicked, { nextStep })
+}
+
 export const buildChiefOfStaffNextSteps = ({
   panelsEnabled,
-  panelMembers,
-  onDraftOrdinance,
+  managedSetUp,
+  panelLoading = false,
 }: {
   panelsEnabled: boolean
-  panelMembers?: number
-  onDraftOrdinance: () => void
+  managedSetUp?: boolean
+  panelLoading?: boolean
 }): ChatSuggestion[] => [
   {
-    label: 'Get ready for your next meeting',
-    description: 'Walk in knowing what is on the agenda and what to ask.',
-    message: NEXT_STEP_MESSAGES.meeting,
+    label: 'See what matters in your community',
+    onPicked: () => trackNextStep('community_issues'),
+    description:
+      'What residents are raising, and which issues to make a priority.',
+    message: NEXT_STEP_MESSAGES.priorities,
+    combinable: true,
   },
-  {
-    label: 'See what residents are raising',
-    description: 'Hear the issues people in your district care about most.',
-    message: NEXT_STEP_MESSAGES.issues,
-  },
-  {
-    label: 'Move a priority forward',
-    description: 'Pick what matters most to you and get the next step done.',
-    message: NEXT_STEP_MESSAGES.priority,
-  },
-  ...(panelsEnabled
-    ? [
-        panelMembers !== undefined && panelMembers > 0
+  ...(panelLoading
+    ? []
+    : [
+        panelsEnabled && managedSetUp === false
           ? {
-              label: 'Ask your civic panel',
-              description: 'Hear what residents think before you decide.',
-              message: NEXT_STEP_MESSAGES.askPanel,
+              label: 'Build my civic panel',
+              description:
+                'Residents from every part of your district, free in ' +
+                'early access.',
+              kickoff: START_MANAGED_CIVIC_PANEL_MESSAGE,
+              combinable: true,
+              onPicked: () => trackNextStep('managed_civic_panel'),
             }
           : {
-              label: 'Build your civic panel',
-              description:
-                'Hear from residents before you decide, not only the ' +
-                'loudest voices.',
-              kickoff: BUILD_CITIZENS_PANEL_MESSAGE,
+              label: 'Hear from your constituents',
+              description: 'Ask the residents affected what they think.',
+              message: NEXT_STEP_MESSAGES.outreach,
+              combinable: true,
             },
-      ]
-    : []),
+      ]),
   {
-    label: 'Draft an ordinance',
-    description:
-      'Turn a problem in your district into language you can bring to a vote.',
-    onSelect: onDraftOrdinance,
+    label: 'Get ready for your next meeting',
+    onPicked: () => trackNextStep('next_meeting'),
+    description: 'Walk in knowing what is on the agenda and what to ask.',
+    message: NEXT_STEP_MESSAGES.meeting,
+    combinable: true,
   },
   {
-    label: 'Reach your constituents',
-    description: 'Get the right message to the residents who need it.',
-    message: NEXT_STEP_MESSAGES.outreach,
+    label: 'Something else',
+    description: 'Or write your own.',
+    onPicked: () => trackNextStep('something_else'),
+    combinable: true,
+    writeIn: true,
   },
 ]
-
-/**
- * The step under the answer to What's a civic panel?, matching how the reply
- * ends. The question comes from the build card, which is only up while no
- * invite has gone out, so the panel's members decide it: none builds one in
- * this chat, some asks it. No card until the summary loads.
- */
-export const civicPanelExplainNextStep = (
-  panelMembers: number | undefined,
-): ChatSuggestion | undefined => {
-  if (panelMembers === undefined) return undefined
-  return panelMembers > 0
-    ? {
-        label: 'Ask your panel about a priority',
-        message: NEXT_STEP_MESSAGES.askPanel,
-      }
-    : { label: 'Build my panel', kickoff: BUILD_CITIZENS_PANEL_MESSAGE }
-}
 
 /**
  * gp-api's saved-filter write tool (ENG-10736). A `tool_result` for it means
@@ -156,12 +153,17 @@ const TOOL_DISPLAY_NAMES: Record<string, string> = {
   count_contacts: 'Counting matches',
   list_precincts: 'Looking up precincts',
   [SAVED_FILTERS_TOOL]: 'Working on your lists',
-  save_panel_weekly_time: 'Making your panel plan',
+  explain_managed_panel: 'Explaining your civic panel',
+  offer_managed_panel_invite: 'Getting your civic panel invite',
+  present_managed_panel_invite: 'Getting your civic panel invite',
+  read_managed_panel: 'Checking your civic panel',
+  present_managed_panel: 'Checking your civic panel',
   constituent_data: 'Reviewing district data',
   query_constituent_data: 'Reviewing district data',
   describe_constituent_data: 'Reviewing district data',
   search_help_center: 'Searching the help center',
   size_outreach_sample: 'Sizing a sample',
+  read_outreach_feedback: 'Reading what came back',
   // Campaign Manager's own tools: this table serves both chats.
   get_ballot_requirements: 'Checking how to get on the ballot', // serve-vocabulary-allow: Campaign Manager tool label
   campaign_story: 'Working on your story',

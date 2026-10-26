@@ -15,10 +15,7 @@ import { S3Service } from '@/vendors/aws/services/s3.service'
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
-import {
-  assertPublicHostname,
-  ssrfSafeLookup,
-} from '@/websites/services/websites.service'
+import { assertPublicHostname, ssrfSafeLookup } from '@/websites/util/ssrf.util'
 import {
   DATASET_SOURCE_SCHEMES,
   OPPONENT_RESEARCH,

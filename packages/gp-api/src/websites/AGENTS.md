@@ -22,6 +22,7 @@ A longer narrative lives in `README.md` (data model, endpoint catalogue). This f
 ## Patterns
 
 - **Domain registration is a multi-step async flow** (Stripe charge → Route 53 op → polling → Vercel attach). State lives on the `Domain` row; never short-circuit by reading from Route 53 ad hoc.
+- **`verifyLive` has two modes.** In live mode it fetches the candidate site over HTTP and scores the HTML. In mock mode (preview, local) it never fetches: it returns verified only for a `published` website whose domain has a `project_domain` record on `VERCEL_PROJECT_ID` (or a DNS record pointing at Vercel) in the Vercel mock, else `verified: false` with `not_live` (unpublished) or `unreachable` (domain not attached).
 - **Forward Email is the inbound mail provider** for custom-domain campaign emails. New email-related domain features go through `ForwardEmailModule`, not direct DNS edits.
 - Website creation auto-seeds content from the campaign's positions and user data — see `WebsitesService.createForCampaign`.
 - **The site's headline and page `<title>` are not stored.** candidate-sites derives them from the campaign owner's name on every render (`getCandidateHeadline`), so a name correction reaches the live site immediately and cannot drift. `content.main` holds only `tagline` and `image`. Publishing therefore requires the owner to have a name — see `assertReadyToPublish`.

@@ -13,6 +13,7 @@ import {
   urlIncludesPath,
 } from '../../../shared/util/strings.util'
 import { Logger } from '@nestjs/common'
+import { isGpDomainContactPhone } from '@/vendors/vercel/vercel.const'
 
 const logger = new Logger('TcrComplianceDto')
 
@@ -89,7 +90,11 @@ export const tcrComplianceBaseShape = {
       'Filing URL must include path (e.g. https://example.com/filing, not just https://example.com)',
   }),
   email: WriteEmailSchema,
-  phone: PhoneSchema,
+  // GoodParty's own registrant number is the candidate-website contact
+  // fallback; it must never become a candidate's 10DLC filing phone (ENG-11489).
+  phone: PhoneSchema.refine((value) => !isGpDomainContactPhone(value), {
+    message: "Filing phone must be the candidate's own number",
+  }),
   officeLevel: z.nativeEnum(OfficeLevel),
   // Normalize '' -> undefined: the agent sends empty strings for fields it
   // can't resolve, and a falsy-but-not-nullish '' would slip past the relaxed

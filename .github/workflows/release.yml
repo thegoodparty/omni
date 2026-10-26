@@ -27,6 +27,14 @@ name: release
 on:
   push:
     branches: [main]
+    # A push that only touches these deploys nothing, so it starts no train;
+    # the next code push releases everything since. Root-level *.md only:
+    # Markdown under packages/ is read at runtime (runbooks, prompts). The
+    # autopilot image bakes in a copy of the repo, but it fetches and resets
+    # to main before each run, so it doesn't need a release to see new docs.
+    paths-ignore:
+      - 'docs/**'
+      - '*.md'
   workflow_dispatch:
     inputs:
       sha:
@@ -55,6 +63,10 @@ jobs:
   await-checks:
     name: Await checks
     runs-on: ubuntu-latest
+    # actions: write lets a superseded run cancel itself (see the wait step).
+    permissions:
+      contents: read
+      actions: write
     outputs:
       sha: ${{ steps.resolve.outputs.sha }}
       force: ${{ steps.force.outputs.force }}
@@ -103,17 +115,61 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           SHA: ${{ steps.resolve.outputs.sha }}
+          EVENT: ${{ github.event_name }}
+          RUN_ID: ${{ github.run_id }}
         run: |
           set -euo pipefail
           # Per-service check workflows whose green-ness gates a deploy. None is
           # path-filtered, so each has a run for THIS SHA. gp-ai builds its
-          # images here; gp-api/election-api build inside the train's dev stage.
-          # contracts/gp-sdk/styleguide/prototypes are omitted deliberately —
-          # contracts/gp-sdk are transitively covered (a service build fails if
-          # they do), and a broken styleguide/prototypes fails its own deploy
+          # images here; gp-api builds inside the train's dev stage.
+          # contracts/styleguide are omitted deliberately —
+          # contracts is transitively covered (a service build fails if
+          # it does), and a broken styleguide fails its own deploy
           # job in the train's dev stage.
-          REQUIRED="gp-api.yml election-api.yml gp-webapp.yml gp-admin.yml candidate-sites.yml publish-experiments.yml gp-ai.yml"
+          REQUIRED="gp-api.yml gp-webapp.yml gp-admin.yml candidate-sites.yml publish-experiments.yml gp-ai.yml"
           DEADLINE=$(( $(date +%s) + 60*60 ))
+
+          # "<total> <succeeded> <running> <conclusions>" for one workflow at
+          # one SHA, or empty on an API error.
+          runs_summary() {
+            gh api "repos/$REPO/actions/workflows/$2/runs?head_sha=$1&event=push&per_page=20" \
+              --jq '"\(.workflow_runs|length) \([.workflow_runs[]|select(.conclusion=="success")]|length) \([.workflow_runs[]|select(.status!="completed")]|length) \([.workflow_runs[]|.conclusion // .status]|join(","))"' 2>/dev/null || echo ""
+          }
+
+          # A red check on a commit that main has already moved past is not
+          # worth a red train when the newer commit fixed it. Such a run
+          # cancels itself, which reads as batching rather than a failure.
+          # The rule is per failed workflow: wait until the newer commit's run
+          # of it finishes, cancel only if every one passed there, and fail if
+          # any failed there too. Deciding
+          # earlier would rely on the newer commit getting its own train to
+          # report a failure, which a path-filtered or superseded push would
+          # not. Only push runs qualify: a dispatch names its SHA on purpose.
+          # Cancelling here is safe because no deploy has started yet.
+          #
+          # Prints "no", "wait", or "yes <tip sha>".
+          superseded_state() {
+            [ "$EVENT" = "push" ] || { echo no; return; }
+            local tip status wf summary
+            tip=$(gh api "repos/$REPO/commits/main" --jq .sha 2>/dev/null) || { echo no; return; }
+            { [ -n "$tip" ] && [ "$tip" != "$SHA" ]; } || { echo no; return; }
+            status=$(gh api "repos/$REPO/compare/$SHA...$tip" --jq .status 2>/dev/null) || { echo no; return; }
+            [ "$status" = "ahead" ] || { echo no; return; }
+            for entry in $failed; do
+              wf="${entry%%(*}"
+              summary=$(runs_summary "$tip" "$wf")
+              [ -n "$summary" ] || { echo wait; return; }
+              # shellcheck disable=SC2086
+              set -- $summary
+              if [ "$1" -eq 0 ] || [ "$3" -gt 0 ]; then
+                echo wait; return
+              fi
+              if [ "$2" -eq 0 ]; then
+                echo no; return
+              fi
+            done
+            echo "yes $tip"
+          }
 
           while :; do
             pending=0
@@ -128,8 +184,7 @@ jobs:
               # fact passed. A workflow is green if ANY of its runs for this
               # SHA concluded success; it is pending while any is still going;
               # only an all-completed, none-succeeded set is a real failure.
-              summary=$(gh api "repos/$REPO/actions/workflows/$wf/runs?head_sha=$SHA&event=push&per_page=20" \
-                --jq '"\(.workflow_runs|length) \([.workflow_runs[]|select(.conclusion=="success")]|length) \([.workflow_runs[]|select(.status!="completed")]|length) \([.workflow_runs[]|.conclusion // .status]|join(","))"' 2>/dev/null || echo "")
+              summary=$(runs_summary "$SHA" "$wf")
               if [ -z "$summary" ]; then
                 pending=$((pending+1)); continue # API hiccup — re-read next pass
               fi
@@ -147,6 +202,26 @@ jobs:
             done
 
             if [ -n "$failed" ]; then
+              state=$(superseded_state)
+              case "$state" in
+                yes\ *)
+                  tip="${state#yes }"
+                  echo "::notice::Superseded: main is at ${tip:0:10}, past $SHA, and the failed checks passed there. Checks here:$failed. Cancelling this run instead of failing it."
+                  # Cancellation lands within seconds. If it never does, fail as before.
+                  if gh run cancel "$RUN_ID" -R "$REPO"; then
+                    sleep 120
+                  fi
+                  echo "::error::Could not cancel superseded run $RUN_ID."
+                  exit 1
+                  ;;
+                wait)
+                  if [ "$(date +%s)" -lt "$DEADLINE" ]; then
+                    echo "Checks failed for $SHA:$failed. main has moved past it, so waiting for the newer commit's checks before deciding..."
+                    sleep 30
+                    continue
+                  fi
+                  ;;
+              esac
               echo "::error::Dev checks failed for $SHA:$failed. Not deploying."
               exit 1
             fi
@@ -219,6 +294,23 @@ jobs:
       - name: Build application
         if: steps.ecr-image.outputs.exists != 'true'
         run: npm run build -w packages/gp-api
+      # setup-buildx pulls its builder image once and fails the job if that
+      # pull fails, which is what held prod on 2026-10-20 (release
+      # 39451429293: the public.ecr.aws token fetch hit "context deadline
+      # exceeded"). When its own pull fails, buildx falls back to a copy
+      # already in the local image store, so pulling it here first, with
+      # retries, turns that one-shot pull into three. A pull is idempotent.
+      - name: Pull the buildx builder image
+        if: steps.ecr-image.outputs.exists != 'true'
+        run: |
+          for attempt in 1 2 3; do
+            docker pull public.ecr.aws/vend/moby/buildkit:buildx-stable-1 && exit 0
+            if [ "$attempt" -lt 3 ]; then
+              echo "::warning::buildkit image pull attempt $attempt failed; retrying in $((attempt * 30))s"
+              sleep $((attempt * 30))
+            fi
+          done
+          echo "::warning::Could not pre-pull the buildkit image; setup-buildx will try once more itself."
       - name: Set up Docker Buildx
         if: steps.ecr-image.outputs.exists != 'true'
         uses: docker/setup-buildx-action@v3
@@ -262,67 +354,6 @@ jobs:
           command: npm run infra deploy dev
         env:
           GITHUB_TOKEN: ${{ github.token }}
-
-  dev-election-api:
-    name: Dev election-api
-    needs: await-checks
-    if: >-
-      always() && needs.await-checks.result == 'success'
-      && needs.await-checks.outputs.force != 'true'
-    runs-on: ubuntu-latest
-    concurrency:
-      group: election-api-deploy-dev
-      cancel-in-progress: false
-    env:
-      IMAGE_URI: 333022194791.dkr.ecr.us-west-2.amazonaws.com/election-api:${{ needs.await-checks.outputs.sha }}
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          ref: ${{ needs.await-checks.outputs.sha }}
-          persist-credentials: false
-      - uses: ./.github/actions/setup-node-workspace
-        with:
-          app: election-api
-          workspace: packages/election-api
-          build-contracts: 'true'
-          build-nest-common: 'true'
-          prisma-generate-script: generate:prisma:election-api
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v5
-        with:
-          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-      - name: Login to Amazon ECR
-        uses: aws-actions/amazon-ecr-login@v2
-      # Base images come from ECR Public. Anonymous pulls there are limited
-      # per IP and shared runners hit 429s; logged in, the limit is per
-      # account.
-      - name: Login to Amazon ECR Public
-        uses: aws-actions/amazon-ecr-login@v2
-        with:
-          registry-type: public
-      - name: Check for existing image
-        id: ecr-image
-        run: |
-          if aws ecr describe-images --repository-name election-api \
-            --image-ids imageTag=${{ needs.await-checks.outputs.sha }} >/dev/null 2>&1; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
-          fi
-      - name: Build application
-        if: steps.ecr-image.outputs.exists != 'true'
-        run: npm run build -w packages/election-api
-      - name: Build and push Docker image
-        if: steps.ecr-image.outputs.exists != 'true'
-        run: |
-          docker build -t "${IMAGE_URI}" -f packages/election-api/deploy/Dockerfile .
-          docker push "${IMAGE_URI}"
-      - name: Deploy (Pulumi)
-        uses: ./.github/actions/pulumi-deploy
-        with:
-          working-directory: packages/election-api/deploy
-          command: ./deploy.sh dev
 
   dev-gp-webapp:
     name: Dev gp-webapp
@@ -402,32 +433,6 @@ jobs:
           target: preview
           git-branch: main
 
-  dev-prototypes:
-    name: Dev prototypes
-    needs: await-checks
-    if: >-
-      always() && needs.await-checks.result == 'success'
-      && needs.await-checks.outputs.force != 'true'
-      && vars.VERCEL_PROJECT_ID_PROTOTYPES != ''
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          ref: ${{ needs.await-checks.outputs.sha }}
-          persist-credentials: false
-      - uses: ./.github/actions/setup-node-workspace
-        with:
-          app: prototypes
-      # prototypes is a single-environment public surface — deploy straight to
-      # its production target on every main push.
-      - name: Deploy to Vercel
-        uses: ./.github/actions/vercel-deploy
-        with:
-          vercel-token: ${{ secrets.VERCEL_TOKEN }}
-          vercel-org-id: ${{ vars.VERCEL_ORG_ID }}
-          vercel-project-id: ${{ vars.VERCEL_PROJECT_ID_PROTOTYPES }}
-          target: production
-
   dev-gp-ai:
     name: Dev gp-ai
     needs: await-checks
@@ -463,10 +468,7 @@ jobs:
         run: bash pmf_engine/scripts/build_lambda_package.sh
 
       - name: Build serve-analyze lambda trigger
-        working-directory: packages/gp-ai/infrastructure/modules/serve-analyze-fargate/lambda-trigger
-        run: |
-          npm ci
-          npm run build
+        run: bash packages/gp-ai/infrastructure/modules/serve-analyze-fargate/lambda-trigger/build.sh
 
       - name: apply dev/agent-experiment-metadata
         background: true
@@ -501,9 +503,6 @@ jobs:
       - name: apply dev/ddhq-matcher-fargate
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh dev/ddhq-matcher-fargate ddhq-matcher-${{ needs.await-checks.outputs.sha }}
-      - name: apply dev/engineer-agent-fargate
-        background: true
-        run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh dev/engineer-agent-fargate engineer-agent-${{ needs.await-checks.outputs.sha }}
 
       - wait-all:
 
@@ -545,9 +544,6 @@ jobs:
       - name: reverify dev/ddhq-matcher-fargate
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/ddhq-matcher-fargate ddhq-matcher-${{ needs.await-checks.outputs.sha }}
-      - name: reverify dev/engineer-agent-fargate
-        background: true
-        run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/engineer-agent-fargate engineer-agent-${{ needs.await-checks.outputs.sha }}
       - name: reverify dev/shared-infra
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/shared-infra
@@ -644,14 +640,13 @@ jobs:
     # Barrier for the whole prod-bound batch: every service that gets promoted
     # must have deployed to dev first (verify-dev covers gp-api + gp-webapp).
     # A failure here skips the shards -> E2E goes red -> the prod stage is
-    # blocked, so prod is all-or-nothing across these services. prototypes and
-    # styleguide are single-env and not promoted, so their dev failures are not
-    # in this barrier and cannot block prod.
+    # blocked, so prod is all-or-nothing across these services. styleguide is
+    # single-env and not promoted, so its dev failures are not in this barrier
+    # and cannot block prod.
     needs:
       [
         await-checks,
         verify-dev,
-        dev-election-api,
         dev-candidate-sites,
         dev-gp-ai,
       ]
@@ -660,11 +655,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: [1, 2, 3, 4, 5, 6]
     permissions:
       contents: read
       id-token: write
     env:
+      # The Clerk throttle splits its budget across every worker of the run
+      # (tests/utils/throttle-requests-with-retry.ts), so it needs the count.
+      E2E_SHARD_TOTAL: ${{ strategy.job-total }}
       BASE_URL: https://dev.goodparty.org
     steps:
       - uses: actions/checkout@v5
@@ -681,25 +679,34 @@ jobs:
         with:
           app: gp-webapp
       - name: Install Playwright browsers
-        working-directory: packages/gp-webapp/e2e-tests
-        # --with-deps runs apt, and a mirror that stops responding makes apt wait
-        # forever until the job is cancelled. Time out a stalled download rather
-        # than the whole install (the mirror can be slow and still finish), and
-        # wait for the dpkg lock so a retry does not fail on a leftover apt.
         timeout-minutes: 20
-        run: |
-          printf 'Acquire::http::Timeout "60";\nAcquire::https::Timeout "60";\nAcquire::Retries "5";\nDPkg::Lock::Timeout "300";\n' | sudo tee /etc/apt/apt.conf.d/99-ci-timeouts > /dev/null
-          for attempt in 1 2 3; do
-            npx playwright install --with-deps chromium && exit 0
-            echo "Playwright install attempt $attempt failed"
-          done
-          exit 1
+        uses: ./.github/actions/setup-playwright
+        with:
+          working-directory: packages/gp-webapp/e2e-tests
+      # Main's durations, recorded by the E2E job of an earlier train. A miss
+      # only degrades the plan to a count split.
+      - name: Restore test durations
+        uses: actions/cache/restore@v4
+        with:
+          path: packages/gp-webapp/e2e-tests/e2e-durations.json
+          key: e2e-durations-v1-${{ github.run_id }}
+          restore-keys: e2e-durations-v1-
+      # Balanced by duration, not Playwright's --shard count split; see the
+      # same step in gp-webapp.yml.
       - name: Run Playwright tests
         working-directory: packages/gp-webapp/e2e-tests
-        run: >-
-          npx playwright test --config="$PWD/playwright.config.ts" tests/
-          --shard=${{ matrix.shard }}/4 --reporter=blob
+        run: |
+          set -euo pipefail
+          npx playwright test --config="$PWD/playwright.config.ts" tests/ --list --reporter=json > "$RUNNER_TEMP/e2e-list.json"
+          node scripts/plan-shards.mjs plan "$RUNNER_TEMP/e2e-list.json" e2e-durations.json ${{ matrix.shard }} ${{ strategy.job-total }} > "$RUNNER_TEMP/e2e-shard.txt"
+          if [ ! -s "$RUNNER_TEMP/e2e-shard.txt" ]; then
+            echo "::notice::no tests planned for shard ${{ matrix.shard }}"
+            exit 0
+          fi
+          mapfile -t locations < "$RUNNER_TEMP/e2e-shard.txt"
+          npx playwright test --config="$PWD/playwright.config.ts" "${locations[@]}" --reporter=blob
         env:
+          PLAYWRIGHT_BLOB_OUTPUT_NAME: report-${{ matrix.shard }}.zip
           TEST_RUN_NAME: 'E2E Tests - dev'
           CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
           CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
@@ -737,13 +744,11 @@ jobs:
         with:
           ref: ${{ needs.await-checks.outputs.sha }}
           persist-credentials: false
+          sparse-checkout: packages/gp-webapp/e2e-tests
       - uses: aws-actions/configure-aws-credentials@v5
         with:
           role-to-assume: arn:aws:iam::333022194791:role/web-app-e2e-tests
           aws-region: us-west-2
-      - uses: ./.github/actions/setup-node-workspace
-        with:
-          app: gp-webapp
       - name: Download shard blob reports
         id: download-blobs
         continue-on-error: true
@@ -766,6 +771,9 @@ jobs:
           || needs.e2e-shard.result == 'failure')
         run: rm -rf packages/gp-webapp/e2e-tests/blob-report
       - name: Retry shard blob report download
+        # Report-only: the gate verdict is the last step's e2e-shard.result, so
+        # a failed download must not block prod promotion.
+        continue-on-error: true
         if: >-
           steps.download-blobs.outcome == 'failure'
           && (needs.e2e-shard.result == 'success'
@@ -776,14 +784,35 @@ jobs:
           merge-multiple: true
           path: packages/gp-webapp/e2e-tests/blob-report
       - name: Merge shard reports
+        # Report-only (see above); an empty blob dir after a failed download
+        # makes merge-reports exit non-zero.
+        continue-on-error: true
         if: >-
           needs.e2e-shard.result == 'success'
           || needs.e2e-shard.result == 'failure'
         working-directory: packages/gp-webapp/e2e-tests
-        run: >-
-          npx playwright merge-reports
-          --config="${{ github.workspace }}/packages/gp-webapp/e2e-tests/playwright.merge.config.ts"
-          "${{ github.workspace }}/packages/gp-webapp/e2e-tests/blob-report"
+        # npx at the lockfile's version, not a workspace install; see the same
+        # step in gp-webapp.yml.
+        run: |
+          version=$(jq -r '.packages["node_modules/@playwright/test"].version' "$GITHUB_WORKSPACE/package-lock.json")
+          npx --yes "@playwright/test@$version" merge-reports \
+            --config="${{ github.workspace }}/packages/gp-webapp/e2e-tests/playwright.merge.config.ts" \
+            "${{ github.workspace }}/packages/gp-webapp/e2e-tests/blob-report"
+      # Feeds the next run's shard plan, on main and every PR that has no
+      # durations of its own yet.
+      - name: Record test durations
+        id: durations
+        continue-on-error: true
+        if: hashFiles('packages/gp-webapp/e2e-tests/test-results/results.json') != ''
+        working-directory: packages/gp-webapp/e2e-tests
+        run: node scripts/plan-shards.mjs durations test-results/results.json > e2e-durations.json
+      - name: Save test durations
+        continue-on-error: true
+        if: steps.durations.outcome == 'success'
+        uses: actions/cache/save@v4
+        with:
+          path: packages/gp-webapp/e2e-tests/e2e-durations.json
+          key: e2e-durations-v1-${{ github.run_id }}-${{ github.run_attempt }}
       - name: Upload Playwright report
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
@@ -832,12 +861,6 @@ jobs:
             # file, describes, title and tags joined by SPACES, so no separator
             # this prints would match. The file path is the part a repro command
             # takes, and it takes it positionally.
-            #
-            # DELIBERATELY NOT CLASSIFIED HERE. Whether a spec is `@dev-only`
-            # decides whether the bot files a ticket for it, and that judgement
-            # is single-sourced in clickup_bot/dev_test_triage.py where tests
-            # pin it. A second grep in YAML is how the two start disagreeing
-            # about which failures are nobody's problem.
             {
               echo "failed_tests<<E2E_FAILED_TESTS"
               jq -r '
@@ -950,45 +973,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
 
-  prod-election-api:
-    name: Promote election-api
-    needs: [await-checks, e2e]
-    if: >-
-      always() && needs.await-checks.result == 'success'
-      && needs.await-checks.outputs.frozen != 'true'
-      && (needs.await-checks.outputs.force == 'true' || needs.e2e.result == 'success')
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write
-    concurrency:
-      group: election-api-deploy-prod
-      cancel-in-progress: false
-    env:
-      IMAGE_URI: 333022194791.dkr.ecr.us-west-2.amazonaws.com/election-api:${{ needs.await-checks.outputs.sha }}
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          ref: ${{ needs.await-checks.outputs.sha }}
-          persist-credentials: false
-      - uses: ./.github/actions/setup-node-workspace
-        with:
-          app: election-api
-          workspace: packages/election-api
-          build-contracts: 'true'
-          build-nest-common: 'true'
-          prisma-generate-script: generate:prisma:election-api
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v5
-        with:
-          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-      - name: Deploy (Pulumi)
-        uses: ./.github/actions/pulumi-deploy
-        with:
-          working-directory: packages/election-api/deploy
-          command: ./deploy.sh prod
-
   prod-gp-webapp:
     name: Promote gp-webapp
     needs: [await-checks, e2e]
@@ -1031,8 +1015,6 @@ jobs:
         with:
           app: gp-admin
           build-contracts: 'true'
-      - name: Build SDK
-        run: npm run build -w packages/gp-sdk
       - name: Deploy to Vercel
         uses: ./.github/actions/vercel-deploy
         with:
@@ -1123,7 +1105,7 @@ jobs:
           set -euo pipefail
           found=0; missing=0; absent=""
           # KEEP IN SYNC with the "Build service matrix" step in gp-ai.yml.
-          for s in broker pmf-engine serve-analyze ddhq-matcher engineer-agent autopilot-agent autopilot-agent-playwright; do
+          for s in broker pmf-engine serve-analyze ddhq-matcher autopilot-agent autopilot-agent-playwright; do
             if aws ecr describe-images --repository-name gp-ai-projects \
                  --image-ids "imageTag=$s-$SHA" --region "$AWS_REGION" >/dev/null 2>&1; then
               found=$((found+1))
@@ -1133,10 +1115,10 @@ jobs:
           done
           if [ "$missing" -eq 0 ]; then
             echo "deploy=true" >> "$GITHUB_OUTPUT"
-            echo "All 7 gp-ai images present for $SHA; promoting gp-ai."
+            echo "All 6 gp-ai images present for $SHA; promoting gp-ai."
           elif [ "$found" -eq 0 ]; then
             echo "deploy=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::No gp-ai images for $SHA. gp-ai.yml builds all seven on every main push, so for a recent main commit this is UNEXPECTED and means the build failed or never pushed — investigate. It is only expected for a workflow_dispatch of a SHA predating unconditional builds. Skipping gp-ai promotion."
+            echo "::warning::No gp-ai images for $SHA. gp-ai.yml builds all six on every main push, so for a recent main commit this is UNEXPECTED and means the build failed or never pushed — investigate. It is only expected for a workflow_dispatch of a SHA predating unconditional builds. Skipping gp-ai promotion."
           else
             echo "::error::Partial gp-ai image set for $SHA ($found present,$absent missing). A build failed; refusing to promote a mixed set."
             exit 1
@@ -1183,10 +1165,7 @@ jobs:
         run: bash pmf_engine/scripts/build_lambda_package.sh
 
       - name: Build serve-analyze lambda trigger
-        working-directory: packages/gp-ai/infrastructure/modules/serve-analyze-fargate/lambda-trigger
-        run: |
-          npm ci
-          npm run build
+        run: bash packages/gp-ai/infrastructure/modules/serve-analyze-fargate/lambda-trigger/build.sh
 
       - name: apply prod/agent-experiment-metadata
         background: true
@@ -1200,9 +1179,6 @@ jobs:
       - name: apply prod/autopilot-bot
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh prod/autopilot-bot
-      - name: apply prod/clickup-bot
-        background: true
-        run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh prod/clickup-bot
       - name: apply prod/pmf-engine-control-plane
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh prod/pmf-engine-control-plane
@@ -1218,9 +1194,6 @@ jobs:
       - name: apply prod/ddhq-matcher-fargate
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh prod/ddhq-matcher-fargate ddhq-matcher-${{ needs.await-checks.outputs.sha }}
-      - name: apply prod/engineer-agent-fargate
-        background: true
-        run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh prod/engineer-agent-fargate engineer-agent-${{ needs.await-checks.outputs.sha }}
       - name: apply prod/alert-filter
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh prod/alert-filter
@@ -1229,7 +1202,7 @@ jobs:
 
       # shared-infra applies alone, after everything above, because it is the
       # only root that consumes other roots' outputs: it reads the lambda ARN
-      # and name out of alert-filter, clickup-bot and ddhq-matcher-fargate state
+      # and name out of alert-filter and ddhq-matcher-fargate state
       # to build a target group and permission for each. Nothing reads
       # shared-infra in turn, so it is free to go last.
       #
@@ -1256,9 +1229,6 @@ jobs:
       - name: reverify prod/autopilot-bot
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh prod/autopilot-bot
-      - name: reverify prod/clickup-bot
-        background: true
-        run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh prod/clickup-bot
       - name: reverify prod/pmf-engine-control-plane
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh prod/pmf-engine-control-plane
@@ -1274,9 +1244,6 @@ jobs:
       - name: reverify prod/ddhq-matcher-fargate
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh prod/ddhq-matcher-fargate ddhq-matcher-${{ needs.await-checks.outputs.sha }}
-      - name: reverify prod/engineer-agent-fargate
-        background: true
-        run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh prod/engineer-agent-fargate engineer-agent-${{ needs.await-checks.outputs.sha }}
       - name: reverify prod/alert-filter
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh prod/alert-filter
@@ -1331,7 +1298,6 @@ jobs:
       [
         await-checks,
         prod-gp-api,
-        prod-election-api,
         prod-gp-webapp,
         prod-gp-admin,
         prod-candidate-sites,
@@ -1349,7 +1315,6 @@ jobs:
       needs.await-checks.result == 'success' &&
       needs.await-checks.outputs.frozen != 'true' &&
       needs.prod-gp-api.result == 'success' &&
-      needs.prod-election-api.result == 'success' &&
       needs.prod-gp-webapp.result == 'success' &&
       needs.prod-gp-admin.result == 'success' &&
       needs.prod-candidate-sites.result == 'success' &&

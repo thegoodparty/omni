@@ -16,7 +16,7 @@ they see the whole path rather than only the step they are on.
 | `components/StatusChangeMarker.tsx` | The quiet inline line a status move leaves in the conversation                      |
 | `components/ReadStatus.tsx`         | The good read strip (phone) and rail block (desktop), behind `serve-citizen-panels` |
 | `readStatusCopy.ts`                 | Good read copy and links, shared with `results/`                                    |
-| `data/statusUpdates.ts`             | The `update_priority_status` merge, mirrored from the server, plus the marker copy  |
+| `data/statusUpdates.ts`             | The `update_priority_status` merge, mirrored from the server, and the marker diff   |
 | `data/statusReplay.ts`              | Replays the transcript's status calls so a reloaded thread shows the same markers   |
 | `data/chat-api.ts`                  | `createAgentChatClient('priority_flow', ...)`                                       |
 | `data/toolLabels.ts`                | Which tools show a pill, and what it says                                           |
@@ -60,19 +60,25 @@ so the workspace shows "Thinking..." and polls `listMessages` until it lands,
 on the shared engine's doneless commit-poll budget. It never sends a second
 kickoff, which would leave two in the thread.
 
-## The rail moves in three passes, and the last one is the truth
+## The rail moves on what the server stored, never on what the agent asked
 
-1. **`tool_call update_priority_status`** — `applyStatusUpdate` runs the
-   server's own merge locally and the rail moves mid-turn, while the agent is
-   still talking. This is most of the feel.
-2. **`tool_result`** — the tool returns the merged status it wrote, so any
-   drift in the optimistic guess is corrected a beat later.
-3. **`onTurnSettle`** — `fetchPriorityStatus` reads what was actually
-   persisted. An interrupted turn cannot leave the rail claiming a move the
-   server never stored.
+1. **`tool_result update_priority_status`** — the tool returns the merged
+   status it wrote, and the rail moves mid-turn, while the agent is still
+   talking. The marker is `statusChanges(before, stored)`: only what really
+   moved. The `tool_call` moves nothing. The server refuses a call outright
+   (`{ error }`, nothing written), and drawing from the call put "Done with"
+   markers in the chat for steps the rail then showed not started.
+2. **`onTurnSettle`** — `fetchPriorityStatus` reads what was actually
+   persisted, which also picks up a send putting a check out.
 
 The live status is held in a ref as well as state (`statusRef`), because two
-status calls can land in one tick and the second has to merge onto the first.
+status results can land in one tick and the second's marker is measured from
+the first.
+
+A refusal says which steps did not move and why, in words the agent can pass
+on (`refusalResult` in gp-api's `PriorityStatusService`), and the prompt
+(`STATUS_TOOL_BLOCK`) has it tell the official what the step waits on, never
+how the system works.
 
 ## A step going backwards is the feature
 
@@ -82,11 +88,15 @@ conversation marker says so out loud — `Back to your options`, `What we know
 needs another look`. Hiding a backwards move makes the rail look broken, which
 is worse than the move itself.
 
-`applyStatusUpdate` returns the changes it made, so the marker copy can say
+`statusChanges` carries where each step came from, so the marker copy can say
 "backwards". A stored patch only says what a step became, so
 `replayStatusMarkers` rebuilds the prior state by replaying every status call
-in the transcript from an empty status. That is why a reloaded thread reads the
-same as it did live.
+in the transcript from an empty status, and diffs each step the same way the
+live turn does. The transcript keeps a call's args, not its result, but gp-api
+nulls a refused call's args, so every call left to replay is one the server
+applied through the same merge. That is why a reloaded thread reads the same
+as it did live. Transcripts saved before that nulling can still replay a
+refused move.
 
 ## Cards are compact, and a card's detail opens over the page
 
@@ -120,31 +130,31 @@ into a texting campaign. When a check is warranted, the agent picks who by the a
 `gp-api/.../priority-flow/priorityFlow.prompt.ts`, from Samuel's Serve lists
 runbook), counts the group without saving it, writes the one question, and offers it as
 work already done through `present_outreach_proposal` on whichever channel
-those people answer on, door knocking included. A check has two sides,
+those people answer on, door knocking included. Starting a door card opens
+the walk on the community input goal with the card's message as the
+question (`proposalFlows.tsx`), the way a text opens on its message. A check has two sides,
 both always offered: the most affected, and the least affected (exposure
-inverted, same gates), each on its own card.
+inverted, same gates), each on its own card. Behind `serve-citizen-panels`
+every card is side `main`: the round goes to residents across the district.
 
-Behind `serve-citizen-panels` the default is one card instead
-(`buildCivicPanelFirstBlock`, "THE CIVIC PANEL COMES FIRST"): one text to
-the panel members who can be asked now (`civicPanelMember`, cell phone,
-`notContactedRecently`) plus a random group of residents not on the panel,
-with `civicPanelAsk` on so the new residents can reply JOIN. gp-api's
-`size_panel_ask` sizes both parts together (contracts' `sizePanelAsk`) for
-the district's `answersNeeded` (about 96): members at
-`PANEL_ASSUMED_REPLY_RATE` (40%), up to the members those answers take; new
-residents at `DEFAULT_TEXT_REPLY_RATE` (3%) for whatever the panel cannot
-give, capped by who the text reaches; and never fewer new residents than
-members asked, so every ask keeps growing the panel. With nobody on the
-panel to ask, the card is the new residents alone. The proposal carries both parts as one
-`sampleSize` with `panelSampleSize` inside it, over the shared criteria (cell
-phone, `notContactedRecently`), and the saved list freezes the union of the
-two draws. The targeted groups wait for that send's read
-(`read_outreach_feedback`): only a thin or one-sided read brings the most or
-least affected group, as its own card with `widensOutreachIds` set to
-every send the check has had; a thin read is never widened to more of the
-same audience, and a side never offered is never recorded declined. A side not yet sent may name the other side's sends there
-(`PriorityFlowHandler.proposalRefusal`), which is how the least affected
-group leaves out everyone the first send asked. The handler reads the panel
+Behind `serve-citizen-panels` the default is round one instead
+(`ROUND_ONE_BLOCK`, "ROUND ONE"): one text card, side `main`, to a random
+sample of residents across the district with a cell phone, not reached in
+the last 30 days (`notContactedRecently`, `hasCellPhone`).
+gp-api's `size_round_one` counts who the text reaches by group and sizes it
+so every major group is expected to give at least 3 answers (`sizeRoundOne`;
+see the contacts AGENTS.md, "Round 1 sizing"). The text carries
+`civicPanelAsk` and is an ordinary proposal card with `sampleSize`. It is
+one purchase in two rounds: `roundTwoSize` is the half held for a
+follow-up two weeks later, drawn toward the groups heard from least, and
+checked by gp-api against the split `size_round_one` made
+(`checkFollowUpPart`). Its card reads "Text 2,000 of 58,520: 1,000 now, 1,000
+two weeks later" (`proposalSampleLine`), `SmsFlow` forwards it on the create,
+the review step quotes both as one count with a Follow-up row
+(`SmsReviewStep`), and once paid the read status's `followUp` puts "Follow-up
+text to N people on Nov 3" in place of Get answers until it sends. There is no most or least
+affected follow-up: more answers come from Get answers (below), aimed at the
+groups the read is missing. The handler reads the panel
 size per turn (`countCivicPanelMembers`) for the `<priority>` "Civic
 panel" line, only with the flag on.
 
@@ -185,7 +195,11 @@ Three more holds, because the model also called the official's own agreement
   already out on a send keeps it, and a side constituents already answered
   keeps its answer. A deferred or declined side does move: the send is what
   happened. A status write that fails after the send committed is logged,
-  and `healSends` puts it out before the next turn reads the status. The `<status>` block shows `Sent:`, the
+  and `healSends` puts it out before the next turn reads the status. The
+  `<status>` block shows `Set up on <day>` (the day of `sentAt` in the
+  office's zone), never "Sent": a paid text is out on its side days before it
+  reaches anyone, and the agent reads when it goes out from
+  `read_past_outreach` (`scheduledFor`, `sentOn`). The
   proposal tool refuses to offer a sent side again, and the workspace tells
   the agent with one hidden `PROPOSAL_SENT_MARKER` turn (see "Cards" in
   `shared/agent-chat/AGENTS.md`).
@@ -219,12 +233,19 @@ separately.
 
 Behind `serve-citizen-panels`, once a priority text's replies are in (gp-api
 `OutreachReportBackService`: the results upload has landed and no summary of
-them is still running), the Chief of Staff home shows a report back card
-("Show people their voice counted on" the priority), linking here with
+them is still running) and someone has answered, the Chief of Staff home shows
+one report back card for the priority ("Show people their voice counted on"
+the priority), to everyone who answered on any channel, each counted once. A
+new card shows each time the priority's read status changes, and its summary
+says where the read stands and what to do. It links here with
 `?reportBack=<outreachId>`. `page.tsx` reads the param and the workspace sends `reportBackMessage(id)` (contracts,
 `REPORT_BACK_MARKER`) as one hidden turn: the opener on a fresh thread instead
 of the kickoff, otherwise queued behind any turn in flight, never twice for a
-send already in the transcript, and the param is dropped from the address.
+send already in the transcript, and the param is dropped from the address
+with `window.history.replaceState`, never `router.replace`: a navigation
+re-renders the page under a new search-param key and remounted the workspace
+while the open was still settling, which reopened a report back on the error
+screen.
 
 The agent (`REPORT_BACK_BLOCK` in `priorityFlow.prompt.ts`) reads the send
 with `read_report_back`, walks the official through who it went to, how many
@@ -240,42 +261,73 @@ same list so neither asks what the record answers.
 
 ## A good read
 
-Behind `serve-citizen-panels`, a priority has a good read once the people who
-answered on it, pooled across texts, calls and doors (the results page's
-count), are enough for the district and look like it. gp-api decides it in one
-place, `priorityReadStatus`
-(`gp-api/src/priorities/util/priorityReadStatus.util.ts`), returning
-`{ answers, needed, good, status, underrepresented }`:
+Behind `serve-citizen-panels`, a priority has a good read once every large
+group in the district has answered on it, pooled across texts, calls and
+doors, and a model of the coded answers is sure enough of each. gp-api
+decides it in one place, `mrpReadStatus`
+(`gp-api/src/priorities/util/mrpReadStatus.util.ts`), returning
+`{ answers, needed, groupsHeard, groupsTotal, groupsNext, representativeAnswers, representativeNeeded, good, status, underrepresented, unheard }`. A major group holds
+3% or more of the district on age band, tract, gender, or race when
+`raceNameable` holds (10 coded answers with a known race, 70% of all); the
+pooled `other` never counts.
 
-| `status`               | Rule                                                                                            |
-| ---------------------- | ----------------------------------------------------------------------------------------------- |
-| `tooEarly`             | fewer than 30 answers (or `needed`, in a district small enough to need fewer)                   |
-| `notYetRepresentative` | a weighted group (age band, tenure, tract) is more than 10 points off the census                |
-| `gettingClose`         | every group within 10 points, but the weighted answers (Kish) are short of `needed`             |
-| `representative`       | within 10 points and the weighted answers meet `needed`; `good` is exactly this                 |
-| `enoughAnswers`        | the census could not be read and answers meet `needed`; `good`, but no claim about who answered |
+| `status`               | Label                               | Rule                                                                                                     |
+| ---------------------- | ----------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `tooEarly`             | Waiting to hear back                | a major group has no coded answer                                                                        |
+| `notYetRepresentative` | A few groups need more answers      | a major group has fewer than 3, or answers are under the district's `answersNeeded` (the floor)          |
+| `gettingClose`         | Still unsure what some groups think | a major group's 90% range is wider than 20 points                                                        |
+| `representative`       | Every group heard                   | none of the above; `good` is exactly this                                                                |
+| `enoughAnswers`        | Enough people have answered         | the district could not be read and answers meet `answersNeeded`; `good`, but no claim about who answered |
 
-The answers are raked to the district's census marginals
-(`gp-api/src/priorities/util/raking.util.ts`, `censusWeighting.util.ts`):
-ACS adults 18 to 64 and 65 and over, owner and renter households, adults
-per census tract, and race (white, Black, Hispanic, Asian, other; all-ages
-ACS shares against L2's modeled ethnicity, `docs/decisions/2026-10-19-race-ethnicity-in-civic-panel.md`). Small groups pool, weights are capped at 0.2x to 5x the
-average, and an unknown value sits out its dimension. Gender is wired as a
-dimension and joins once the census marts publish sex by age. A race group
-is named only when `raceNameable` holds (10 answers with a known race, 70%
-of all); otherwise race only weights. `other` is never named. `underrepresented` names the one or two groups whose raw share
-trails the census most, by at least 5 points
-(`UNDERREPRESENTED_GROUP_NAMES` in contracts). When the census cannot be
-read, enough answers are a good read labeled "Enough answers", never
-"Representative", and fewer are too early. A weighting is kept in process for
-15 minutes per priority and answer count (`PriorityResultsService`), so a new
-answer reweighs and a failure is never kept. The tenure target is owner
-households, not adults, a known bias that makes renters look less heard; it
-waits on a statistician. `needed` is
-`answersNeeded(population)` from contracts for the census row's population
-(`CensusCompositionSource.population`, memoized per district); an unknown one
-uses the uncorrected 96. **The official never sees a weight, a quota or a
-discounted count**: only the status, the groups and actions.
+The model is MRP (`gp-api/src/priorities/util/mrp.util.ts`,
+`docs/features/civic-panel-mrp.md`): each person's coded answers to the
+priority (`PriorityAnswer`; yes 1, no 0, mixed half, not an answer left out,
+averaged when a person answered twice) fit by age band, gender, tract and
+race, reweighted to the district's own voter-file cells. Race is L2's
+modeled ethnicity folded as the panel's steering folds it; it shapes
+the model either way and counts as a group only when nameable. Scales are
+the model's defaults; nothing learns them from past priorities yet.
+`groupsHeard` of `groupsTotal` are the major groups with at least 3 coded
+answers; both are 0 when the district could not be read. `groupsNext` is
+how many of the rest belong to a group named in `underrepresented` (every
+short tract, once `unreachedAreas` is named); absent on older reads, read
+as 0. `answers` is the
+people heard (the results page's count); `needed` is the larger of the
+district's floor (`answersNeeded` of its smallest major group, the target
+round 1 is sized to) and `answers` plus the fewest more that could give
+every major group 3 (the dimension furthest short). One answer counts in
+every dimension, so the groups can all have 3 before the total reaches the
+floor; the read is then `notYetRepresentative` with every group heard
+(`groupsHeard` equals `groupsTotal`), and the copy says "Need a few more
+answers overall" (`READ_STATUS_COPY`), even when a group still too unsure is
+in `underrepresented`, since the total is what holds it back. It is a floor, not a promise, and no screen shows it: only analytics
+(`answersFloor`) and sizing read it. What the seats and bar show is
+`representativeAnswers` of `representativeNeeded`: the district's floor
+(at least `answersNeeded` of the smallest major group), and the answers that
+count toward a balanced read of it. On each dimension a group's answers
+count up to its share of the floor (among the people whose value is known),
+the dimension furthest behind sets the count, and it never passes the
+people heard. So a group heard from plenty fills no extra seats, and every
+group at its share means every major group has its three. Uncoded answers
+fill no seat yet. When the district cannot be read it is `answers` of
+`needed`. A read served before the fields existed falls back the same way
+(`representativeCount`).
+`underrepresented` names, in `batchTargets` order (`civicPanelAllocation.util.ts`),
+the one or two groups holding the read back: short of voices, or with a
+range still too wide; every tract reads as `unreachedAreas`
+(`underrepresentedGroupName` in contracts: "people in some parts of your
+district", or "people in a few neighborhoods" once every neighborhood has
+answered and the model is only unsure). Every name reads whole in a list,
+and `joinGroupNames` joins them. `unheard` is the named groups nobody in has
+answered yet (for `unreachedAreas`, any of its tracts), so the line can tell
+"Still need to hear from" apart from "Need a few more answers from". When the district
+cannot be read, `needed` is `answersNeeded()` from contracts (100, enough for
+the smallest major group any district can have), enough answers are a good
+read labeled "Enough people have answered", never "Every group heard", and
+fewer are too early. A read is kept in process for 15 minutes per priority and its coded
+answers (`PriorityResultsService`), so a new or recoded answer reads again
+and a failure is never kept. **The official never sees a share, a range or
+a model**: only the status, the groups and actions.
 `PriorityResultsService.readStatuses` serves `GET /v1/priorities/:id/read-status`
 (404 with the flag off), `readStatus` on the results response, the
 `<priority>` context of the priority flow and the Chief of Staff's
@@ -283,31 +335,62 @@ discounted count**: only the status, the groups and actions.
 
 - **Phone** (below `lg`): a short bar outside the scroll: back, the title on
   one line, and a list button that opens "Where this stands" in the steps
-  sheet. Under it one row: too early, "N more answers for a good read" with a
-  thin bar; otherwise a status dot and "Not yet representative. Hear from
-  more renters" (or "Getting close. ...", "Getting close. A few more answers
-  will do it"), each with Get answers; or a check, "Representative of your
-  district" (or "Enough answers") and See what we heard. The text links to
-  the results page; the button is the one action.
+  sheet. Under it the status dot and the status line naming the
+  groups, wrapping to two lines rather than cutting the groups off (`READ_STATUS_COPY.statusLine`: "Still need to hear from men" for a
+  group with no answers, "Need a few more answers from women and people 65
+  and over" for groups with a few or still too unsure, both in one sentence
+  when both kinds are named, "Still unsure what people 65 and over think"
+  once every group has three), then a row of its own with a thin
+  bar ("34 of the 100 answers we need", `READ_STATUS_COPY.progress`) and Get answers; or a check, "You've
+  heard from every group" (or "Enough people have answered") with See what we
+  heard beside it. Before a check is out with residents (`readStatus.checkOut`) the row
+  reads "No one asked yet" with no bar and no button, and while a follow-up
+  text is scheduled "Follow-up text to N people on Nov 3" stands in for the
+  button (`READ_STATUS_COPY.canGetAnswers`). The text links to the results page; the button is the one action.
 - **Desktop**: a 56px bar across the chat and the rail holds back and the
   title, so there is no title in the scroll with the flag on. The rail opens
-  with the status label and dot, the answers still needed with a bar while
-  there are fewer than `needed`, "Hear from more renters and people 65 and
-  over", Get answers, a quiet "What we heard" link, then "Where this stands".
+  with the status label and dot, the answer seats (below), "34 of the 100
+  answers we need" with a key (Heard, Still needed), the status line
+  naming the groups, Get answers, a quiet "What we heard" link, then "Where
+  this stands". With a good read the rail has See what we heard and
+  no second link to the same page.
+- **The answer seats** (`components/AnswerSeats.tsx`) are the civic panel's
+  100-seat arc (`seatSpots` from `citizens-panel/components/panelCharts.ts`,
+  reused, never changed for this), people, not groups: the share of
+  `representativeNeeded` that `representativeAnswers` fills, left to right,
+  in primary blue, the rest in a light grey ring. The arc is never full while
+  an answer is still needed, nor empty once one counts. They show from `lg`
+  up only; below it the rail block and the results held card keep the bar,
+  and the phone strip its thin bar, with the same numbers.
+  The switch is CSS (`hidden lg:block` / `lg:hidden`), never a width check,
+  so nothing jumps on load.
 - **Get answers** queues one hidden `GET_ANSWERS_MESSAGE` turn (contracts,
   `GET_ANSWERS_MARKER`) behind any turn in flight, filtered from the
-  transcript like the other app turns. The agent proposes more answers as a
-  card (`buildGoodReadBlock` in `priorityFlow.prompt.ts`); nothing sends
-  from the button. The results page's Get answers links back with
-  `?getAnswers=1`, which `page.tsx` reads and the workspace turns into the
-  same turn once, then drops from the address.
+  transcript like the other app turns. It is a detour that returns: the agent
+  proposes the outreach aimed at the groups still missing, a text, calls and
+  doors together when more than a text is needed, as cards
+  (`GET_ANSWERS_BLOCK` in `priorityFlow.prompt.ts`), never starts the civic
+  panel, offers no text while the follow-up is scheduled or after it went
+  out, and ends on one line back to the step it was on without changing any
+  step. Nothing sends from the button. The results page's Get answers shows on
+  the same terms and links back with `?getAnswers=1`, which `page.tsx` reads
+  and the workspace turns into the same turn once, then drops from the
+  address. Because it queues, the button is held only while its own turn is
+  queued or streaming, never for other turns, the load or an awaited reply:
+  holding it for every open turn made it look disabled while the chat looked
+  idle.
 - The read is re-read on every turn settle, since answers land while the
   official is on the page.
 - **Before a good read the agent shares no results**: no themes, splits,
   quotes or "most said"; it names the status and the group to hear more
   from and offers outreach aimed at it, and a direct "what have people said"
   gets one or two honest sentences and "too early to act on". It never
-  mentions weights or discounting.
+  mentions weights, models or counts of answers. The prompt alone did not
+  hold: `read_outreach_feedback` handed it the themes and replies and said
+  to lead with them, so it listed what residents raised. Before a good read
+  the tool returns only who each send went to and how many answered
+  (`goodRead: false` from the handler), and judge case
+  `themes-before-good-read` pins it.
 - **Parts not reached yet**: a proposal on a priority can carry
   `areaTarget: 'unreached'`. Saving its list sends `unreachedAreaOfPriorityId`
   to `POST /v1/voters/voter-file/filter`, and gp-api draws the area and saves
@@ -325,13 +408,17 @@ the good read row and the "What we heard" link in the rail, pools every send lin
 priority (`Outreach.priorityId`) through `GET /v1/priorities/:id/results`
 (gp-api `PriorityResultsService`): who answered (with the channels that
 brought answers under the count), how many of those people are now civic
-panel members, a heat grid of where they live, and over/under bars against
-the district. The response also carries reach and answers per send; the page
+panel members, a heat grid of where they live, and who you're hearing from
+against the district. The response also carries reach and answers per send; the page
 does not list sends, since the tiles already give those counts.
 
-Before a good read it shows the answered tiles and the answers still needed
-with the bar, and holds back the themes, the map and the census comparison
-behind one line and a Get answers button. After, it shows everything below.
+Before a good read it shows the answered tiles, then a card with the status,
+the answer seats, larger and centered, with their key and "34 of the 100
+answers we need." (the bar instead below `lg`), one line (`READ_STATUS_COPY.heldBack`) holding back the themes, the
+map and who you're hearing from, "Still need: men and people 65 and over."
+(`READ_STATUS_COPY.stillNeed`; the status line instead while the read is
+getting close), and a Get answers button. It never says nobody
+answered. After, it shows everything below.
 
 - **Behind `serve-citizen-panels`.** The link renders only with the flag on,
   the page reads the flag server-side (`getFlagVariants`) and 404s when off,
@@ -343,26 +430,25 @@ behind one line and a Get answers button. After, it shows everything below.
 - **The map never pins a house.** Coordinates arrive rounded to about 100 m
   with no ids, and `respondentGrid.ts` bins them into fixed ~400 m squares on
   the contact map's tile style, so no new map dependency.
-- **The bars compare places, not people** (product decision Q10): each
-  respondent stands for their census block group's makeup, averaged, against
-  the district's, so both sides read one census source. Race shows only from
-  25 respondents and only for groups at 2% or more of the district; nothing
-  shows below 10 respondents.
-- **The census figures are ACS 2024 5-year estimates** that gp-api reads
-  from `mart_gp_api` (`CENSUS_COMPOSITION_SOURCE`, shared with the civic
-  panel page). Age is shares of adults (18 to 64, 65 and over), since
-  everyone who answers is an adult. There is no gender row: the census
-  marts carry none. When the district's figures cannot be read, the
-  comparison arrives with no `groups`, and `RepresentationBars` says the
-  figures are not available instead of drawing bars.
+- **Who you're hearing from is the read's own groups**, drawn as petals
+  (`CivicPanelBloom`, from the civic panel's components, reused with `showNext` off and a
+  `summary` that speaks of answers). `groups` on the response is each major
+  group the read counts by age band, gender, and race when it may be named
+  (no neighborhoods, no housing): its share of the district and of the coded
+  answers on that dimension (gp-api `answerGroups`). It is empty when the
+  district could not be read, and the page says the figures are not
+  available. The results carry no places, so there are no seats.
 - **Themes are pooled across every send.** "Top themes" reads the
   priority's latest completed `priority`-scope synthesis run (gp-api
   `FeedbackSynthesisService.requestPriorityRun`): text replies, door notes
   and call notes grouped together. Any send on the priority finishing (a
   results upload, a turf's Done, a list's last call) starts a new run that
   replaces the last, so a door walk after a text feeds the same themes.
-  `people` counts distinct people, and `summarizing` shows while a run is in
-  flight with the previous themes still up. Each send's own report keeps its
+  `people` counts distinct people. `summarizing` is a run in flight, or
+  enough answers for themes (5) with no run completed or failed yet, since a
+  send's run starts only after it commits. With themes up it adds "Updating
+  with the latest answers."; with none it says "We're reading what people
+  said. Themes show up here soon." instead of asking for more answers. Each send's own report keeps its
   own themes and tags; a pooled run tags nothing.
 
 ## A check asks a sample, not everyone
@@ -393,8 +479,8 @@ a prompt.
   cards persisted before them still parse. A `sampleSize` no smaller than
   `count` means the whole audience everywhere: the card, the tool result
   (`wholeAudience`), and the server's draw.
-- **The card says it**: `proposalSampleLine` reads "Text 2,767 of 58,520,
-  picked at random" in place of the channel and count. The list saved from
+- **The card says it**: `proposalSampleLine` reads "Text 2,767 of 58,520"
+  in place of the channel and count, never "at random". The list saved from
   the proposal is drawn as `proposalListSample` (keyed on the proposal, so
   saving it twice draws the same people; see "Random samples" in
   `gp-api/src/peopleDb/AGENTS.md` and `VoterFileFilterSampleMember` in

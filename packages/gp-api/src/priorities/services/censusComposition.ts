@@ -1,77 +1,87 @@
 import { Injectable } from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
+import { addMinutes, isAfter } from 'date-fns'
 import {
   DISTRICT_GRID_CELL_DEGREES,
-  MIN_RESPONDENTS_FOR_REPRESENTATION,
   type GeoJsonShape,
-  type PriorityRepresentation,
 } from '@goodparty_org/contracts'
 import type {
   AcsCounts,
+  DistrictCell,
+  DistrictCells,
+  PersonAnswer,
   RespondentCell,
-  RespondentProfile,
 } from '@/peopleDb/databricks/districtCensusSql.util'
 import type { PeopleDataset } from '@/peopleDb/services/peopleDataset.service'
 import { StatsService } from '@/peopleDb/services/stats.service'
+import { frameAnswersNeeded } from '@/contacts/utils/civicPanelAllocation.util'
 import {
+  POOLED_VALUE,
   raceNameable,
-  unreachedTracts,
-  weighToCensus,
+  weightingTargets,
   type WeightingCensus,
 } from '../util/censusWeighting.util'
+import { censusFrame } from '../util/censusFrame.util'
 import { gridAreaShape } from '../util/gridArea.util'
-import type { ReadWeighting } from '../util/priorityReadStatus.util'
-import { computeRepresentation } from '../util/representation.util'
+import type { MrpAnswerCell, MrpFrameCell } from '../util/mrp.util'
 
-export type CensusComposition =
-  | {
-      available: true
-      district: AcsCounts
-      // One entry per person placed in a block group, in any order.
-      respondentBlockGroups: AcsCounts[]
-      // The same people in the same order, for weighting.
-      respondentProfiles?: RespondentProfile[]
-    }
-  | { available: false }
-
-// The answers weighted to the district's census mix: what the read status
-// needs, and each respondent's weight for the shares the results page shows.
-export interface CensusWeighting {
-  read: ReadWeighting
-  weightOf: (profile: RespondentProfile) => number
+// What a priority's model reads: the district's people and the answers,
+// in the same cells (age, gender, tract, race), race folded as the civic
+// panel's steering folds it. The frame's age, sex and tract margins are the
+// census's adults (see censusFrame); race stays the voter file's. Unknowns
+// sit out their dimension.
+export interface MrpInputs {
+  frame: MrpFrameCell[]
+  answers: MrpAnswerCell[]
+  // Whether a race group may be named (raceNameable, over the answers).
+  raceNameable: boolean
 }
 
-const profileKey = (profile: RespondentProfile): string =>
-  [
-    profile.ageBand,
-    profile.gender,
-    profile.tenure,
-    profile.tract,
-    profile.race,
-  ].join('|')
+const DISTRICT_CELLS_CACHE_MINUTES = 15
+
+// Race folds into 'other' wherever the census puts it under the share the
+// comparison bars hide, and sits out when the census has no race figures.
+const modelValues = (
+  cell: DistrictCell,
+  races: Record<string, number> | undefined,
+): Record<string, string | null> => ({
+  age: cell.ageBand,
+  gender: cell.gender,
+  tract: cell.tract,
+  race:
+    races && cell.race !== null
+      ? races[cell.race] === undefined
+        ? POOLED_VALUE
+        : cell.race
+      : null,
+})
+
+const knownValues = (
+  values: Record<string, string | null>,
+): Record<string, string> =>
+  Object.fromEntries(
+    Object.entries(values).filter(
+      (entry): entry is [string, string] => entry[1] !== null,
+    ),
+  )
 
 // Where district and block group demographics come from. Bound once in
 // CensusCompositionModule, so a test can stand in for the warehouse.
 export interface CensusCompositionSource {
-  compose(input: {
+  // The district's people and these answers in the model's cells. Null
+  // when the district's census or its people could not be read.
+  mrpInputs(input: {
     districtId: string
     dataset: PeopleDataset
-    personIds: string[]
-  }): Promise<CensusComposition>
-  // Null when the district's census or the people could not be read.
-  weighting(input: {
+    answers: PersonAnswer[]
+  }): Promise<MrpInputs | null>
+  // These tracts as a boundary a list can carry. Null when no one lives in
+  // them. Throws when the warehouse cannot be read: a list must not be saved
+  // as though the area were known.
+  areaOfTracts(input: {
     districtId: string
     dataset: PeopleDataset
-    personIds: string[]
-  }): Promise<CensusWeighting | null>
-  // The parts of the district these people have barely reached, as a
-  // boundary a list can carry. Null when every part has been heard from.
-  // Throws when the warehouse cannot be read: a list must not be saved as
-  // though the area were known.
-  unreachedArea(input: {
-    districtId: string
-    dataset: PeopleDataset
-    personIds: string[]
+    tracts: string[]
   }): Promise<GeoJsonShape | null>
   // These people counted by age band, gender, tenure and tract, beside the
   // district's census, unweighted: what the civic panel steers its invites
@@ -81,9 +91,10 @@ export interface CensusCompositionSource {
     dataset: PeopleDataset
     personIds: string[]
   }): Promise<{ cells: RespondentCell[]; census: WeightingCensus } | null>
-  // The district's census population, or null when it has no row or the
-  // warehouse could not be read.
-  population(input: {
+  // The answers a good read of the district needs: frameAnswersNeeded of
+  // the frame the model reads, the same floor the read holds a priority to.
+  // Null when the district or its people could not be read.
+  districtAnswersNeeded(input: {
     districtId: string
     dataset: PeopleDataset
   }): Promise<number | null>
@@ -91,16 +102,15 @@ export interface CensusCompositionSource {
 
 export const CENSUS_COMPOSITION_SOURCE = 'CensusCompositionSource'
 
-// gp-data-platform's ACS marts in mart_gp_api: the district's row, and the
-// block group each person lives in. A district with no row, or a warehouse
-// failure, is unavailable: the page says so rather than failing or showing
-// zeros.
+// gp-data-platform's ACS marts in mart_gp_api and the district's voter
+// file. A warehouse failure reads as unknown (null) rather than failing or
+// showing zeros.
 @Injectable()
 export class DistrictCensusComposition implements CensusCompositionSource {
-  // A district's census figure does not change between reads, and the
-  // priority page and every priority turn ask for it. Only a figure is kept:
-  // a missing row may land later, and a failure is retried.
-  private readonly populations = new Map<string, number>()
+  private readonly districtCells = new Map<
+    string,
+    { cells: Promise<DistrictCells>; expiresAt: Date }
+  >()
 
   constructor(
     private readonly stats: StatsService,
@@ -109,71 +119,125 @@ export class DistrictCensusComposition implements CensusCompositionSource {
     this.logger.setContext(DistrictCensusComposition.name)
   }
 
-  async compose(input: {
+  async mrpInputs(input: {
     districtId: string
     dataset: PeopleDataset
-    personIds: string[]
-  }): Promise<CensusComposition> {
+    answers: PersonAnswer[]
+  }): Promise<MrpInputs | null> {
     try {
-      const { district, respondentBlockGroups, respondentProfiles } =
-        await this.stats.findCensusComposition(
-          input.districtId,
-          input.dataset,
-          input.personIds,
-        )
-      return district
-        ? {
-            available: true,
-            district,
-            respondentBlockGroups,
-            respondentProfiles,
-          }
-        : { available: false }
-    } catch (err) {
-      this.logger.warn(
-        { err, districtId: input.districtId },
-        'census composition read failed; comparison unavailable',
+      const [{ district, cells, tractAdults }, answerCells] = await Promise.all(
+        [
+          this.districtCellsOf(input),
+          this.stats.findAnswerCells(
+            input.districtId,
+            input.dataset,
+            input.answers,
+          ),
+        ],
       )
-      return { available: false }
-    }
-  }
-
-  async weighting(input: {
-    districtId: string
-    dataset: PeopleDataset
-    personIds: string[]
-  }): Promise<CensusWeighting | null> {
-    try {
-      const { district, cells, tractAdults } =
-        await this.stats.findWeightingInputs(
-          input.districtId,
-          input.dataset,
-          input.personIds,
-        )
-      if (!district) return null
-      const result = weighToCensus(cells, { district, tractAdults })
-      const weights = new Map(
-        cells.map((cell, index) => [
-          profileKey(cell),
-          result.weights[index] ?? 1,
-        ]),
-      )
+      if (!district || cells.length === 0) return null
+      const { frame, races } = this.frameOf(input.districtId, {
+        district,
+        cells,
+        tractAdults,
+      })
+      const known = new Map<string, Set<string>>()
+      for (const cell of frame) {
+        for (const [dimension, value] of Object.entries(cell.values)) {
+          known.set(dimension, (known.get(dimension) ?? new Set()).add(value))
+        }
+      }
+      // An answer in a tract the census placement left out of the frame sits
+      // that dimension out, as the people in it do.
+      const placed = (
+        values: Record<string, string | null>,
+      ): Record<string, string | null> => {
+        const tract = values.tract ?? null
+        return {
+          ...values,
+          tract:
+            tract !== null && known.get('tract')?.has(tract) ? tract : null,
+        }
+      }
       return {
-        read: {
-          effectiveSampleSize: result.effectiveSampleSize,
-          largestGap: result.largestGap,
-          gaps: result.gaps,
-          raceNameable: raceNameable(cells),
-        },
-        weightOf: (profile) => weights.get(profileKey(profile)) ?? 1,
+        frame,
+        answers: answerCells.map((cell) => ({
+          yes: cell.yes,
+          answers: cell.count,
+          values: placed(modelValues(cell, races)),
+        })),
+        raceNameable: raceNameable(answerCells),
       }
     } catch (err) {
       this.logger.warn(
         { err, districtId: input.districtId },
-        'census weighting read failed; reading the count alone',
+        'model inputs read failed; reading the count alone',
       )
       return null
     }
+  }
+
+  // The one frame every read of the district shares: the model, the read
+  // status's major groups and the sizing, so the groups named on screen are
+  // the groups the model has. A dimension the census cannot give keeps the
+  // voter file's counts, logged.
+  private frameOf(
+    districtId: string,
+    input: {
+      district: AcsCounts
+      cells: DistrictCell[]
+      tractAdults: Map<string, number>
+    },
+  ): {
+    frame: MrpFrameCell[]
+    races: Record<string, number> | undefined
+  } {
+    const { cells: raked, fromVoterFile } = censusFrame(input.cells, {
+      district: input.district,
+      tractAdults: input.tractAdults,
+    })
+    if (fromVoterFile.length > 0) {
+      this.logger.warn(
+        { districtId, dimensions: fromVoterFile },
+        'census margin missing or suppressed; frame keeps the voter file counts',
+      )
+    }
+    const races = weightingTargets({
+      district: input.district,
+      tractAdults: new Map(),
+    }).race
+    return {
+      frame: raked.map((cell) => ({
+        count: cell.count,
+        values: knownValues(modelValues(cell, races)),
+      })),
+      races,
+    }
+  }
+
+  // Every priority in an office reads the same district, and a Chief of
+  // Staff turn reads them all at once, so one read serves them: shared while
+  // in flight and kept a while after. A failed read is dropped, so the next
+  // one tries again.
+  private districtCellsOf(input: {
+    districtId: string
+    dataset: PeopleDataset
+  }): Promise<DistrictCells> {
+    const key = `${input.dataset}:${input.districtId}`
+    const now = new Date()
+    const kept = this.districtCells.get(key)
+    if (kept && isAfter(kept.expiresAt, now)) return kept.cells
+    const cells = this.stats.findDistrictCells(input.districtId, input.dataset)
+    this.districtCells.set(key, {
+      cells,
+      expiresAt: addMinutes(now, DISTRICT_CELLS_CACHE_MINUTES),
+    })
+    cells.catch(() => {
+      if (this.districtCells.get(key)?.cells === cells) {
+        this.districtCells.delete(key)
+      }
+    })
+    return cells
   }
 
   async weightingInputs(input: {
@@ -198,19 +262,13 @@ export class DistrictCensusComposition implements CensusCompositionSource {
     }
   }
 
-  async unreachedArea(input: {
+  async areaOfTracts(input: {
     districtId: string
     dataset: PeopleDataset
-    personIds: string[]
+    tracts: string[]
   }): Promise<GeoJsonShape | null> {
-    const { cells, tractAdults } = await this.stats.findWeightingInputs(
-      input.districtId,
-      input.dataset,
-      input.personIds,
-    )
-    const tracts = unreachedTracts(cells, tractAdults)
-    if (tracts.length === 0) return null
-    return this.shapeOfTracts(input, tracts)
+    if (input.tracts.length === 0) return null
+    return this.shapeOfTracts(input, input.tracts)
   }
 
   // Squares of the results grid wherever the tracts' people live, standing
@@ -229,49 +287,25 @@ export class DistrictCensusComposition implements CensusCompositionSource {
     return gridAreaShape(squares, DISTRICT_GRID_CELL_DEGREES)
   }
 
-  async population(input: {
+  async districtAnswersNeeded(input: {
     districtId: string
     dataset: PeopleDataset
   }): Promise<number | null> {
-    const key = `${input.dataset}:${input.districtId}`
-    const cached = this.populations.get(key)
-    if (cached !== undefined) return cached
     try {
-      const value = await this.stats.findDistrictPopulation(
-        input.districtId,
-        input.dataset,
-      )
-      if (value !== null) this.populations.set(key, value)
-      return value
+      const { district, cells, tractAdults } = await this.districtCellsOf(input)
+      if (!district || cells.length === 0) return null
+      const { frame } = this.frameOf(input.districtId, {
+        district,
+        cells,
+        tractAdults,
+      })
+      return frameAnswersNeeded(frame)
     } catch (err) {
       this.logger.warn(
         { err, districtId: input.districtId },
-        'district population read failed; using the uncorrected answers needed',
+        'district cells read failed; sizing for the smallest major group',
       )
       return null
     }
-  }
-}
-
-// Both pages that compare people with their district shape it the same way.
-// Unavailable census is a comparison with no rows; too few people placed in
-// a block group is no comparison at all, the same as too few answering.
-// With a weighting, each person counts by their weight, so the shares are
-// the weighted answers' rather than the raw ones.
-export const representationFrom = (
-  composition: CensusComposition,
-  considered: number,
-  weighting: CensusWeighting | null = null,
-): PriorityRepresentation | null => {
-  if (!composition.available) return { respondentCount: considered, groups: [] }
-  const placed = composition.respondentBlockGroups
-  if (placed.length < MIN_RESPONDENTS_FOR_REPRESENTATION) return null
-  const weights =
-    weighting && composition.respondentProfiles
-      ? composition.respondentProfiles.map(weighting.weightOf)
-      : undefined
-  return {
-    respondentCount: placed.length,
-    groups: computeRepresentation(composition.district, placed, weights),
   }
 }

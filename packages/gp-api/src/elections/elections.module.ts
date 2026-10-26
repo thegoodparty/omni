@@ -6,6 +6,7 @@ import { CandidaciesModule } from '@/electionDb/candidacies/candidacies.module'
 import { DistrictsModule } from '@/electionDb/districts/districts.module'
 import { OfficeHoldersModule } from '@/electionDb/officeHolders/officeHolders.module'
 import { PlacesModule } from '@/electionDb/places/places.module'
+import { PersonMergesModule } from '@/electionDb/personMerges/personMerges.module'
 import { PersonsModule } from '@/electionDb/persons/persons.module'
 import { PositionsModule } from '@/electionDb/positions/positions.module'
 import { ProjectedTurnoutModule } from '@/electionDb/projectedTurnout/projectedTurnout.module'
@@ -16,11 +17,13 @@ import { EmailModule } from '../email/email.module'
 import { ElectionsController } from './elections.controller'
 import { ElectionCandidaciesController } from './controllers/electionCandidacies.controller'
 import { ElectionOfficeHoldersController } from './controllers/electionOfficeHolders.controller'
+import { ElectionPersonMergesController } from './controllers/electionPersonMerges.controller'
 import { ElectionPersonsController } from './controllers/electionPersons.controller'
 import { ElectionPlacesController } from './controllers/electionPlaces.controller'
 import { ElectionPositionsController } from './controllers/electionPositions.controller'
 import { ElectionRacesController } from './controllers/electionRaces.controller'
 import { ElectionsRateLimitGuard } from './guards/electionsRateLimit.guard'
+import { ServiceReadConcurrencyInterceptor } from './interceptors/serviceReadConcurrency.interceptor'
 import { BallotReadyService } from './services/ballotReady.service'
 import { CensusEntitiesService } from './services/censusEntities.service'
 import { ElectionsService } from './services/elections.service'
@@ -31,6 +34,7 @@ import { RacesService } from './services/races.service'
     ElectionsController,
     ElectionCandidaciesController,
     ElectionOfficeHoldersController,
+    ElectionPersonMergesController,
     ElectionPersonsController,
     ElectionPlacesController,
     ElectionPositionsController,
@@ -42,6 +46,7 @@ import { RacesService } from './services/races.service'
     BallotReadyService,
     ElectionsService,
     ElectionsRateLimitGuard,
+    ServiceReadConcurrencyInterceptor,
   ],
   exports: [RacesService, ElectionsService, BallotReadyService],
   imports: [
@@ -54,6 +59,7 @@ import { RacesService } from './services/races.service'
     OfficeHoldersModule,
     PlacesModule,
     ElectionDbRacesModule,
+    PersonMergesModule,
     PersonsModule,
     PositionsModule,
     ProjectedTurnoutModule,

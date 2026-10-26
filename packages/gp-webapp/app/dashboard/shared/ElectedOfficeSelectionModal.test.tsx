@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { screen, waitFor } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 
@@ -53,7 +53,9 @@ const searchAndAwaitResults = async (
     '04841',
   )
   await user.click(screen.getByRole('button', { name: 'Search' }))
-  await screen.findByRole('radio', { name: /City Council/i })
+  await within(
+    await screen.findByRole('radiogroup', { name: 'Available offices' }),
+  ).findByRole('radio', { name: /City Council/i })
 }
 
 describe('ElectedOfficeSelectionModal', () => {
@@ -72,7 +74,11 @@ describe('ElectedOfficeSelectionModal', () => {
     )
 
     await searchAndAwaitResults(user)
-    await user.click(screen.getByRole('radio', { name: /City Council/i }))
+    await user.click(
+      within(
+        screen.getByRole('radiogroup', { name: 'Available offices' }),
+      ).getByRole('radio', { name: /City Council/i }),
+    )
     await user.click(screen.getByRole('button', { name: 'Save' }))
 
     await waitFor(() =>

@@ -37,6 +37,9 @@ const EXCLUDED_SCHEMA_FIELDS = new Set([
   // the Homeowner/Renter/Unknown collapse (ENG-10947), but no longer
   // offered as its own catalog option.
   'homeownerLikely',
+  // The managed civic panel's wave draw criteria: set by gp-api, never
+  // offered for an official or the assistant to pick.
+  'civicPanelNeverInvited',
 ])
 
 const valueKeysOf = (key: string): string[] => {
@@ -168,6 +171,7 @@ describe('FILTER_DIMENSIONS provenance', () => {
       [
         'audience',
         'businessOwner',
+        'earlyVote',
         'education',
         'ethnicity',
         'homeowner',
@@ -201,6 +205,7 @@ describe('FILTER_DIMENSIONS provenance', () => {
 describe('ContactsService.getFilterDimensions', () => {
   const buildService = () =>
     new ContactsService(
+      {} as never,
       {} as never,
       {} as never,
       {} as never,
@@ -280,6 +285,19 @@ describe('ContactsService.getFilterDimensions', () => {
     expect(serveKeys).not.toContain('ethnicity')
   })
 
+  // Named for the same reason as ethnicity: 'audience' (turnout likelihood)
+  // is still 'both', so early vote could plausibly be "fixed" to match it.
+  it('offers early vote likelihood to Win and never to an eo- organization', () => {
+    const winKeys = buildService()
+      .getFilterDimensions(organization('win-campaign'), PANELS_ON)
+      .map((d) => d.key)
+    const serveKeys = buildService()
+      .getFilterDimensions(organization('eo-city-council'), PANELS_ON)
+      .map((d) => d.key)
+    expect(winKeys).toContain('earlyVote')
+    expect(serveKeys).not.toContain('earlyVote')
+  })
+
   // Each mode sees the shared dimensions plus only its own. Stated
   // symmetrically because both products now have exclusives — this used to
   // assert Win-minus-win-only === Serve outright, which held only while
@@ -349,6 +367,7 @@ describe('ContactsService.getFilterDimensions', () => {
 describe('ContactsService.getFilterDimensions: party by state', () => {
   const buildService = () =>
     new ContactsService(
+      {} as never,
       {} as never,
       {} as never,
       {} as never,

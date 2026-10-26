@@ -1,8 +1,9 @@
 import { HttpStatus } from '@nestjs/common'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
 import { VendorMockRecordService } from '../vendorMockRecord.service'
 import { VendorMockVendor } from '@/generated/prisma'
+import { GEOAPIFY_MOCK_API_KEY } from '@/vendors/geoapify/services/geoapifyRoutePlanner.service'
 
 // VENDOR_MODE and IS_NON_PROD_DEPLOY are module-level constants evaluated at
 // import time. Use getters so they stay mutable per-test.
@@ -25,7 +26,7 @@ const service = useTestService()
 
 const ROUTEPLANNER_PATH = '/v1/vendor-mocks/geoapify/v1/routeplanner'
 const ROUTING_PATH = '/v1/vendor-mocks/geoapify/v1/routing'
-const API_KEY = 'test-api-key'
+const API_KEY = GEOAPIFY_MOCK_API_KEY
 
 const scopedPath = (slug: string, api: 'routeplanner' | 'routing') =>
   `/v1/vendor-mocks/geoapify/org/${slug}/v1/${api}`
@@ -93,6 +94,27 @@ describe('POST /v1/vendor-mocks/geoapify/v1/routeplanner', () => {
   it('returns 400 when apiKey is missing', async () => {
     const res = await service.client.post(ROUTEPLANNER_PATH, twoJobBody)
     expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+  })
+
+  it('returns 400 when apiKey is a wrong value', async () => {
+    const res = await service.client.post(
+      `${ROUTEPLANNER_PATH}?apiKey=wrong-key`,
+      twoJobBody,
+    )
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+  })
+
+  describe('with GEOAPIFY_API_KEY unset', () => {
+    afterEach(() => vi.unstubAllEnvs())
+
+    it('accepts the mock key and succeeds', async () => {
+      vi.stubEnv('GEOAPIFY_API_KEY', '')
+      const res = await service.client.post(
+        `${ROUTEPLANNER_PATH}?apiKey=${GEOAPIFY_MOCK_API_KEY}`,
+        twoJobBody,
+      )
+      expect(res.status).toBe(HttpStatus.CREATED)
+    })
   })
 
   it('returns 404 when VENDOR_MODE is live', async () => {
@@ -230,5 +252,40 @@ describe('GET /v1/vendor-mocks/geoapify/v1/routing', () => {
     expect(coords).toHaveLength(2)
     expect(coords[0]).toEqual([-73.935, 40.73])
     expect(coords[1]).toEqual([-73.94, 40.732])
+  })
+})
+
+describe('GET /v1/vendor-mocks/geoapify/v1/geocode/reverse', () => {
+  beforeEach(() => {
+    mockMode.value = 'mock'
+  })
+
+  const REVERSE_PATH = '/v1/vendor-mocks/geoapify/v1/geocode/reverse'
+
+  it('answers a neighborhood or a road only, by the point', async () => {
+    const neighborhood = await service.client.get(
+      `${REVERSE_PATH}?lat=35.58&lon=-82.55&format=json&apiKey=${API_KEY}`,
+    )
+    const roadOnly = await service.client.get(
+      `${REVERSE_PATH}?lat=35.59&lon=-82.55&format=json&apiKey=${API_KEY}`,
+    )
+
+    expect(neighborhood.status).toBe(HttpStatus.OK)
+    expect(neighborhood.data.results[0].suburb).toEqual(expect.any(String))
+    expect(roadOnly.data.results[0]).not.toHaveProperty('suburb')
+    expect(roadOnly.data.results[0].street).toBe('Main Street')
+  })
+
+  it('returns 400 without a point and 404 in live mode', async () => {
+    const noPoint = await service.client.get(
+      `${REVERSE_PATH}?apiKey=${API_KEY}`,
+    )
+    expect(noPoint.status).toBe(HttpStatus.BAD_REQUEST)
+
+    mockMode.value = 'live'
+    const live = await service.client.get(
+      `${REVERSE_PATH}?lat=35.58&lon=-82.55&apiKey=${API_KEY}`,
+    )
+    expect(live.status).toBe(HttpStatus.NOT_FOUND)
   })
 })

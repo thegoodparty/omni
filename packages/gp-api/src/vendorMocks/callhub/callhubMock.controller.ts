@@ -2,18 +2,49 @@ import { PublicAccess } from '@/authentication/decorators/PublicAccess.decorator
 import { VENDOR_MODE } from '@/shared/util/appEnvironment.util'
 import { VendorMockVendor, Prisma } from '@/generated/prisma'
 import {
+  BadGatewayException,
   Body,
   Controller,
   Get,
   Headers,
+  HttpException,
+  HttpStatus,
   NotFoundException,
   Param,
+  Patch,
   Post,
   Put,
   UnauthorizedException,
 } from '@nestjs/common'
 import { randomUUID } from 'crypto'
 import { VendorMockRecordService } from '../vendorMockRecord.service'
+import { CALLHUB_MOCK_API_KEY } from '@/vendors/callhub/config/callhubBaseConfig'
+
+// The rate a create lands at before gp-api PATCHes it up — real CallHub clamps
+// every create to an account default regardless of the POSTed frequency.
+const CLAMPED_CREATE_FREQUENCY = 60
+
+// Real CallHub imports a phonebook by fetching `csv_url` (a presigned S3
+// GET), so the mock does too: staging polls numbers_count until it reaches
+// the audience size, and only the CSV knows that size.
+// Hostname is restricted to .amazonaws.com: the mock-key is a public constant
+// so any request with it passes assertAuth; without a hostname allowlist an
+// attacker on an internet-facing preview can SSRF to arbitrary HTTPS
+// endpoints by posting csv_url to bulk_create.
+const fetchCsv = async (url: string): Promise<string> => {
+  const parsed = new URL(url)
+  if (parsed.protocol !== 'https:') {
+    throw new BadGatewayException('csv_url must be HTTPS')
+  }
+  if (!parsed.hostname.endsWith('.amazonaws.com')) {
+    throw new BadGatewayException('csv_url must be an S3 presigned URL')
+  }
+  const res = await fetch(url)
+  if (!res.ok) {
+    throw new BadGatewayException(`CSV fetch failed: ${res.status}`)
+  }
+  return res.text()
+}
 
 @Controller('vendor-mocks/callhub')
 @PublicAccess()
@@ -52,10 +83,11 @@ export class CallhubMockController {
     return { count: results.length, next: null, previous: null, results }
   }
 
+  // The client posts multipart, which @fastify/multipart leaves off `body`.
   @Post('v1/media/upload')
   async uploadMedia(
     @Headers('authorization') auth: string | undefined,
-    @Body() body: Record<string, string>,
+    @Body() body: Record<string, string> | undefined,
   ) {
     this.assertMockMode()
     this.assertAuth(auth)
@@ -65,7 +97,7 @@ export class CallhubMockController {
       VendorMockVendor.callhub,
       'media',
       externalId,
-      { filename: body['filename'] ?? null, url },
+      { filename: body?.['filename'] ?? null, url },
     )
     return { data: { media_file_id: externalId, media_url: url } }
   }
@@ -149,7 +181,9 @@ export class CallhubMockController {
         // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
         const state = jsonObj(record.state as Prisma.JsonValue)
         const current = Number(state['count'] ?? 0)
-        const csv = body['csv']
+        const csv =
+          body['csv'] ??
+          (body['csv_url'] ? await fetchCsv(body['csv_url']) : undefined)
         const delta = csv
           ? csv.split('\n').filter((l) => l.trim().length > 0).length - 1
           : 1
@@ -172,15 +206,77 @@ export class CallhubMockController {
   ) {
     this.assertMockMode()
     this.assertAuth(auth)
-    const externalId = randomUUID()
     const name = body['name'] ?? 'mock-campaign'
+    // callhub.campaign.fail: fail this campaign's next create once, in
+    // CallHub's DRF `{ detail }` error shape.
+    const failFor =
+      await this.vendorMockRecord.campaignIdForRobocallBroadcast(name)
+    if (
+      failFor !== undefined &&
+      (await this.vendorMockRecord.consumeCallhubCreateFail(failFor))
+    ) {
+      throw new HttpException(
+        { detail: 'Mock CallHub failure: service temporarily unavailable.' },
+        HttpStatus.SERVICE_UNAVAILABLE,
+      )
+    }
+    const externalId = randomUUID()
+    // Keep the phonebook ids so the records route can surface the audience
+    // a campaign was staged against (the campaign body carries no org link).
+    const phonebooks: unknown = body['phonebooks']
+    // Real CallHub CLAMPS the create to an account default regardless of the
+    // POSTed frequency; gp-api PATCHes it up afterward (see the PATCH route
+    // below). Mirror that so the create→PATCH→applied flow is exercised.
+    const frequency = CLAMPED_CREATE_FREQUENCY
     await this.vendorMockRecord.upsert(
       VendorMockVendor.callhub,
       'vb_campaign',
       externalId,
-      { status: 2, name },
+      {
+        status: 2,
+        name,
+        frequency,
+        phonebooks: Array.isArray(phonebooks) ? phonebooks.map(String) : [],
+      },
     )
-    return { pk_str: externalId, name }
+    return { pk_str: externalId, name, frequency }
+  }
+
+  @Patch('v1/voice_broadcasts/:pk')
+  async patchVoiceBroadcast(
+    @Headers('authorization') auth: string | undefined,
+    @Param('pk') pk: string,
+    @Body() body: Record<string, string>,
+  ) {
+    this.assertMockMode()
+    this.assertAuth(auth)
+    const records = await this.vendorMockRecord.findMany({
+      where: {
+        vendor: VendorMockVendor.callhub,
+        kind: 'vb_campaign',
+        externalId: pk,
+      },
+    })
+    const record = records[0]
+    if (!record) throw new NotFoundException()
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+    const state = jsonObj(record.state as Prisma.JsonValue)
+    const frequency =
+      body['frequency'] != null
+        ? Number(body['frequency'])
+        : Number(state['frequency'] ?? CLAMPED_CREATE_FREQUENCY)
+    await this.vendorMockRecord.setFlag(
+      VendorMockVendor.callhub,
+      'vb_campaign',
+      pk,
+      'frequency',
+      frequency,
+    )
+    return {
+      pk_str: pk,
+      status: Number(state['status'] ?? 2),
+      frequency,
+    }
   }
 
   @Put('v1/voice_broadcasts/:pk')
@@ -239,7 +335,10 @@ export class CallhubMockController {
       url: `http://mock-callhub/v1/voice_broadcasts/${pk}/`,
       name: String(state['name'] ?? ''),
       status: Number(state['status'] ?? 2),
-      frequency: null,
+      frequency:
+        state['frequency'] != null
+          ? Number(state['frequency'])
+          : CLAMPED_CREATE_FREQUENCY,
       phonebook: null,
     }
   }
@@ -285,11 +384,17 @@ export class CallhubMockController {
     if (VENDOR_MODE !== 'mock') throw new NotFoundException()
   }
 
+  // In mock mode the real client always sends CALLHUB_MOCK_API_KEY, even
+  // where CALLHUB_API_KEY is also set (PR previews share it with dev).
+  // The fallback to any non-empty auth when CALLHUB_API_KEY is unset is
+  // intentionally absent: mock routes are internet-facing on previews and
+  // must not accept arbitrary tokens.
   private assertAuth(auth: string | undefined) {
     const expectedKey = process.env.CALLHUB_API_KEY
-    if (!auth || (expectedKey && auth !== `Token ${expectedKey}`)) {
-      throw new UnauthorizedException()
-    }
+    const accepted =
+      auth === `Token ${CALLHUB_MOCK_API_KEY}` ||
+      (!!expectedKey && auth === `Token ${expectedKey}`)
+    if (!accepted) throw new UnauthorizedException()
   }
 }
 

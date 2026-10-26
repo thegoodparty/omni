@@ -36,6 +36,25 @@ export const setActorRole = (
   actorRole = value
 }
 
+export type ActiveProduct = 'win' | 'serve'
+
+// Serve when the org has an elected office, else Win. No org yet gives null.
+export const toActiveProduct = (
+  org: { electedOfficeId?: string | null } | undefined,
+): ActiveProduct | null => {
+  if (!org) return null
+  return org.electedOfficeId ? 'serve' : 'win'
+}
+
+// Named differently from `product` on purpose: the governed outreach metrics
+// exclude on `product`, so filling it on every event would change them.
+let activeProduct: ActiveProduct | null | undefined
+export const setActiveProduct = (
+  value: ActiveProduct | null | undefined,
+): void => {
+  activeProduct = value
+}
+
 const UTM_KEYS = [
   'utm_source',
   'utm_medium',
@@ -172,12 +191,16 @@ export const EVENTS = {
     // ServeOnboardingFlow). Office Status / Party Designation / Office carry the
     // user's selected card title; the *Completed events fire on Continue.
     WelcomeViewed: 'Serve Onboarding - Welcome Viewed',
+    WelcomeCompleted: 'Serve Onboarding - Welcome Completed',
     OfficeStatusViewed: 'Serve Onboarding - Office Status Viewed',
+    OfficeStatusCompleted: 'Serve Onboarding - Office Status Completed',
     PartyDesignationViewed: 'Serve Onboarding - Party Designation Viewed',
+    PartyDesignationCompleted: 'Serve Onboarding - Party Designation Completed',
     OfficeViewed: 'Serve Onboarding - Office Viewed',
     OfficeCompleted: 'Serve Onboarding - Office Completed',
     ConfirmViewed: 'Serve Onboarding - Confirm Viewed',
     TermDatesViewed: 'Serve Onboarding - Term Dates Viewed',
+    TermDatesCompleted: 'Serve Onboarding - Term Dates Completed',
     PledgeViewed: 'Serve Onboarding - Pledge Viewed',
     PledgeCompleted: 'Serve Onboarding - Pledge Completed',
     // The serve-citizen-panels district story, one pair per step, then the
@@ -198,6 +221,9 @@ export const EVENTS = {
       'Serve Onboarding - Build And Grow Your List Completed',
     PrioritiesViewed: 'Serve Onboarding - Priorities Viewed',
     PrioritiesCompleted: 'Serve Onboarding - Priorities Completed',
+    // The list could not offer anything: { reason: search_failed |
+    // none_found, retried }.
+    PrioritiesErrored: 'Serve Onboarding - Priorities Errored',
   },
   Navigation: {
     Top: {
@@ -215,7 +241,6 @@ export const EVENTS = {
       ClickCampaignTeam: 'Navigation - Dashboard: Click Campaign Team',
       ClickVoterOutreach: 'Navigation - Dashboard: Click Voter Outreach',
       ClickContacts: 'Navigation - Dashboard: Click Contacts',
-      ClickPolls: 'Navigation - Dashboard: Click Polls',
       ClickBriefings: 'Navigation - Dashboard: Click Briefings',
       ClickCommunityIssues: 'Navigation - Dashboard: Click Community Issues',
       ClickCampaignPlan: 'Navigation - Dashboard: Click Campaign Plan',
@@ -380,11 +405,6 @@ export const EVENTS = {
     // Outreach.DlcCompliance.RegistrationSubmitted / PinVerificationCompleted);
     // the "viewed" steps below were the gap.
     Compliance: {
-      BannerViewed: 'Pro Upgrade - Banner Viewed',
-      BannerGetPro: 'Pro Upgrade - Banner: Click Get Pro',
-      TextingSetupBannerViewed: 'Pro Upgrade - Texting Setup Banner Viewed',
-      TextingSetupBannerStart:
-        'Pro Upgrade - Texting Setup Banner: Click Start',
       LockedItemClicked: 'Pro Upgrade - Locked Item: Click',
       // The funnel's first step: carries `source`, `channel` and `cta`.
       FlowStarted: 'Pro Upgrade - Flow Started',
@@ -424,6 +444,7 @@ export const EVENTS = {
       BannerClicked: 'Pro Upgrade - Banner Clicked',
       VerificationBannerClicked: '10DLC - Verification Banner Clicked',
       PinBannerClicked: '10DLC - PIN Banner Clicked',
+      ScheduleBannerClicked: '10DLC - Schedule Banner Clicked',
     },
     // outreach-pro-gating-v2 campaign verification flow (Pro upgrade and
     // campaign verification 2.0).
@@ -509,6 +530,19 @@ export const EVENTS = {
       NameViewed: 'Contacts - List Wizard Name Viewed',
       NameCompleted: 'Contacts - List Wizard Name Completed',
     },
+    // Serve's civic panel page, and setting up the civic panel GoodParty
+    // builds (the managed panel): value prop, invite, review, submit. gp-api
+    // fires the approval and everything after it.
+    CivicPanelViewed: 'Contacts - Civic Panel Viewed',
+    CivicPanelManagedInviteValuePropViewed:
+      'Contacts - Civic Panel Managed Invite Value Prop Viewed',
+    CivicPanelManagedInviteValuePropCompleted:
+      'Contacts - Civic Panel Managed Invite Value Prop Completed',
+    CivicPanelInviteViewed: 'Contacts - Civic Panel Invite Viewed',
+    CivicPanelInviteReviewViewed: 'Contacts - Civic Panel Invite Review Viewed',
+    CivicPanelInviteReviewDismissed:
+      'Contacts - Civic Panel Invite Review Dismissed',
+    CivicPanelInviteSubmitted: 'Contacts - Civic Panel Invite Submitted',
   },
   // ENG-10688: the CRM brief specs the typeahead search events as
   // product-specific by nav surface — "Voter Data" (Win) vs "Constituent
@@ -731,13 +765,19 @@ export const EVENTS = {
     // The front card of the home's task stack. `cardType` is the card's kind
     // (onboarding, briefing, agenda_item, community_issue, civic_panel,
     // report_back), `cardVariant` tells the civic panel cards apart
-    // (panel_build, panel_step, priority_next_step), `stackSize` how many
-    // cards were in the stack when the official acted.
+    // (managed_offer, managed_building, managed_ready, managed_exhausted,
+    // priority_next_step), `stackSize` how many cards were in the stack.
+    // Task Viewed fires each time a card becomes the front card; civic panel
+    // cards add members and goalMembers, report backs priorityId.
+    TaskViewed: 'Chief Of Staff - Task Viewed',
     TaskCompleted: 'Chief Of Staff - Task Completed',
     // Every other choice on that card: `action` is start (its main button),
-    // ask (open the chat about it), explain (What's a civic panel?) or skip,
+    // ask (open the chat about it) or skip,
     // with `skipChoice` snooze or dismiss.
     TaskActionTaken: 'Chief Of Staff - Task Action Taken',
+    // A card under the Chief of Staff's intro, sent with Start: { nextStep }.
+    IntroductoryNextStepPicked:
+      'Chief Of Staff - Introductory Next Step Picked',
   },
   BriefingAssistant: {
     ListViewed: 'Briefing Assistant - List Viewed',
@@ -825,14 +865,13 @@ export const EVENTS = {
     // results_page }. Typed messages are AI Chat - Message Sent.
     GetAnswersClicked: 'Priorities - Get Answers Clicked',
     // `heldBack` is true while the priority has no good read yet;
-    // `weightingStatus` is the read's status against the census.
+    // `readStatus` is the read's status, `answersFloor` the fewest answers
+    // that could give every major group its three, and `groupsHeard` of
+    // `groupsTotal` the major groups that have them.
     ResultsViewed: 'Priorities - Results Viewed',
-  },
-  CivicPanel: {
-    PanelViewed: 'Civic Panel - Panel Viewed',
-    // A plan step opened in its text, call or door flow, from the panel page
-    // or the Chief of Staff chat. Its start and completion are server truth.
-    StepOpened: 'Civic Panel - Step Opened',
+    // A proposal card the agent drew on a priority: { round: one |
+    // follow_up, sampleSize, targetGroup, channel: text | door | call }.
+    OutreachProposed: 'Priorities - Outreach Proposed',
   },
   Ordinances: {
     ClarifyViewed: 'Ordinances - Clarify Viewed',
@@ -913,13 +952,14 @@ export const EVENTS = {
     // name: what a person said is not an analytics payload.
     ReportViewed: 'Issue Capture - Report Viewed',
     SynthesisRequested: 'Issue Capture - Synthesis Requested',
-    TagAccepted: 'Issue Capture - Tag Accepted',
-    TagDismissed: 'Issue Capture - Tag Dismissed',
-    // The offline path: a memo recorded with no signal, the moment it
-    // reaches the server, and its confirmation later from "Notes to review".
+    // A theme opened from the report: where it ranked and how many
+    // conversations it holds, never its title.
+    ThemeViewed: 'Issue Capture - Theme Viewed',
+    NotesDownloaded: 'Issue Capture - Notes Downloaded',
+    // The offline path: a memo recorded with no signal, and the moment it
+    // reaches the server.
     MemoQueuedOffline: 'Issue Capture - Memo Queued Offline',
     MemoUploaded: 'Issue Capture - Memo Uploaded',
-    PendingMemoConfirmed: 'Issue Capture - Pending Memo Confirmed',
   },
 } as const
 
@@ -1108,6 +1148,7 @@ export const trackEvent = (
       impersonation: isImpersonating,
       actorUserId: actorUserId ?? null,
       actorRole: actorRole ?? null,
+      activeProduct: activeProduct ?? null,
     }
     // Return the segmentTrackEvent promise so callers that need the event to
     // flush before a page unload (e.g. a redirect) can await it.

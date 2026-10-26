@@ -90,6 +90,7 @@ const person = (id: string, firstName: string): Person => ({
   registeredVoter: 'Yes',
   estimatedIncomeAmount: null,
   voterStatus: null,
+  earlyVoteStatus: null,
   maritalStatus: null,
   hasChildrenUnder18: null,
   veteranStatus: null,
@@ -138,6 +139,43 @@ describe('PastOutreachCard', () => {
       screen.getByText('Both of these reached the same block.'),
     ).toBeInTheDocument()
     expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('says a paid text is scheduled until its day, then gives the day it went', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-10-22T16:00:00'))
+    try {
+      api.mock('GET /v1/outreach/serve/:id', ({ params }) => ({
+        status: 200,
+        data: {
+          ...outreachDetail(Number(params.id), `Send ${params.id}`),
+          status: params.id === '21' ? 'in_progress' : 'completed',
+          date: null,
+          scheduledLocalDate: params.id === '21' ? '2026-10-27' : '2026-10-08',
+        },
+      }))
+      api.mock('GET /v1/outreach/serve/:id/results', {
+        status: 200,
+        data: { contacts: 310, responded: 22, optedOut: 1 },
+      })
+
+      renderCard({
+        kind: 'past_outreach',
+        outreachIds: [21, 22],
+        note: 'One is still to go out.',
+      })
+
+      const scheduled = await screen.findByRole('link', { name: /Send 21/ })
+      expect(scheduled.textContent).toContain('Scheduled for Oct 27')
+      const sent = screen.getByRole('link', { name: /Send 22/ })
+      expect(
+        await within(sent).findByText(
+          'SMS · 310 constituents · 22 responses · Oct 8',
+        ),
+      ).toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it("reads a campaign's sends through Win's routes and words them for voters", async () => {

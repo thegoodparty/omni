@@ -39,6 +39,7 @@ import {
   type LiveRace,
 } from './campaignManagerPrompt'
 import { localDay } from '../services/todayLine'
+import { resolveSendWindowTimeZone } from '@/vendors/peerly/utils/sendWindowTimeZone.util'
 import { selectTopDynamicTasks } from './selectTopDynamicTasks'
 import { CampaignStoryIntakeService } from './campaignStoryIntake.service'
 import type {
@@ -74,6 +75,9 @@ import {
   type PublicProfileGate,
 } from '@/personProfiles/services/public-profile-address.service'
 import { buildCampaignManagerReadPastOutreachTool } from '../chat-tools/readPastOutreach.tool'
+import { buildCampaignManagerReadOutreachFeedbackTool } from '../chat-tools/readOutreachFeedback.tool'
+import { FeaturesService } from '@/features/services/features.service'
+import { ISSUE_CAPTURE_FLAG } from '@/constituentFeedback/util/issueCaptureFlag.util'
 import { buildCampaignManagerPresentPastOutreachTool } from '../chat-tools/presentPastOutreach.tool'
 import { buildAskClarifyQuestionTool } from '../chat-tools/askClarifyQuestion.tool'
 
@@ -288,6 +292,8 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
     private readonly logger?: PinoLogger,
     @Optional()
     private readonly publicProfiles?: PublicProfileAddressService,
+    @Optional()
+    private readonly features?: FeaturesService,
   ) {
     this.logger?.setContext(CampaignManagerHandler.name)
   }
@@ -361,7 +367,11 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
           },
         },
         tcrCompliance: {
-          select: { kickoffSentAt: true, internalTestingAt: true },
+          select: {
+            kickoffSentAt: true,
+            internalTestingAt: true,
+            peerlyIdentityId: true,
+          },
         },
       },
     })
@@ -422,6 +432,13 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
     // on one signal, same as crmToolsEnabled itself.
     const savedFilterToolsEnabled = crmToolsEnabled && !!this.voterFileFilters
 
+    const outreachFeedbackEnabled = this.features
+      ? await this.features.isFeatureEnabled({
+          user: userId,
+          feature: ISSUE_CAPTURE_FLAG,
+        })
+      : false
+
     const day = localDay(details.state ?? null)
     // Independent lookups on independent timers, so a slow day costs one
     // timeout and not two in a row.
@@ -473,6 +490,7 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
       raceId: details.raceId ?? null,
       webSearchEnabled: webSearchAvailable(),
       helpCenterToolEnabled: !!this.helpCenter,
+      outreachFeedbackEnabled,
       story,
       plan,
       publicProfile,
@@ -650,7 +668,16 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
       tools.read_past_outreach = buildCampaignManagerReadPastOutreachTool({
         outreach: this.pastOutreach,
         campaignId: ctx.campaignId,
+        timeZone: resolveSendWindowTimeZone(ctx.state),
       })
+      if (ctx.outreachFeedbackEnabled) {
+        tools.read_outreach_feedback =
+          buildCampaignManagerReadOutreachFeedbackTool({
+            outreach: this.pastOutreach,
+            campaignId: ctx.campaignId,
+            timeZone: resolveSendWindowTimeZone(ctx.state),
+          })
+      }
       tools.present_past_outreach =
         buildCampaignManagerPresentPastOutreachTool()
     }

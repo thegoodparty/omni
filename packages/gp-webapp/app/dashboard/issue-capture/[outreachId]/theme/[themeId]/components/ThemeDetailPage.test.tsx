@@ -1,14 +1,38 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { screen, within } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import type { FeedbackThemeDetail } from '@goodparty_org/contracts'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import ThemeDetailPage from './ThemeDetailPage'
+
+vi.mock('helpers/analyticsHelper', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('helpers/analyticsHelper')>()
+  return { ...actual, trackEvent: vi.fn() }
+})
+
+// The title bar is drawn as the real DashboardNavHeader draws it, an h1, since
+// the theme's title lives there now.
+// The note cards' Voter info sheet reads the org for its person query.
+vi.mock('@shared/organization-picker', () => ({
+  useOrganization: () => ({ slug: 'org-slug' }),
+}))
 
 vi.mock('app/dashboard/shared/DashboardLayout', () => ({
   __esModule: true,
-  default: ({ children }: { children: React.ReactNode }) => (
-    <div>{children}</div>
+  default: ({
+    children,
+    navHeader,
+  }: {
+    children: React.ReactNode
+    navHeader?: { label: string }
+  }) => (
+    <div>
+      <h1>{navHeader?.label}</h1>
+      {children}
+    </div>
   ),
 }))
 
@@ -83,6 +107,7 @@ const renderPage = (isServe = false) =>
 
 beforeEach(() => {
   testQueryClient.clear()
+  vi.mocked(trackEvent).mockClear()
 })
 
 describe('ThemeDetailPage', () => {
@@ -100,11 +125,11 @@ describe('ThemeDetailPage', () => {
     expect(screen.getByText('4 conversations')).toBeInTheDocument()
 
     const split = screen.getByLabelText('Where people stand')
-    // Title and summary, then details, then where people stand, then what
-    // they want, then the notes.
+    // Title, summary and where people stand, as on the report's card, then
+    // details, then what they want, then the notes.
     const order = [
-      screen.getByRole('heading', { name: 'Details' }),
       split,
+      screen.getByRole('heading', { name: 'Details' }),
       screen.getByRole('heading', { name: 'What people want' }),
       screen.getByRole('heading', { name: 'The notes' }),
     ]
@@ -130,6 +155,123 @@ describe('ThemeDetailPage', () => {
         .getAllByRole('listitem')
         .map((item) => item.textContent),
     ).toEqual(['Move the loading zone', 'Keep the lanes'])
+  })
+
+  it('ranks the asks by how many named them and keeps five in view', async () => {
+    const asks = [
+      ['Fix the park gate'],
+      ['More patrols', 'More patrols'],
+      ['More lighting', 'more lighting', 'More lighting'],
+      ['Close the alley'],
+      ['Cameras on Elm'],
+      ['A crossing guard'],
+      ['Trim the hedges'],
+    ]
+    const issues = asks.flat().map((desiredOutcome, position) => ({
+      id: `issue-${position}`,
+      position: 0,
+      issueLabel: 'Safety',
+      stance: 'supports' as const,
+      desiredOutcome,
+    }))
+    mockTheme({
+      ...THEME,
+      desiredOutcomes: [...new Set(asks.flat())],
+      members: issues.map((issue, index) => ({
+        ...THEME.members[0]!,
+        feedbackId: `memo-${index}`,
+        issues: [issue],
+      })),
+    })
+    renderPage()
+
+    const list = await screen.findByRole('list', { name: 'What people want' })
+    expect(
+      within(list)
+        .getAllByRole('listitem')
+        .map((item) => item.textContent),
+    ).toEqual([
+      'More lighting',
+      'More patrols',
+      'Fix the park gate',
+      'Close the alley',
+      'Cameras on Elm',
+    ])
+
+    await userEvent.click(screen.getByRole('button', { name: 'Show 2 more' }))
+    expect(within(list).getAllByRole('listitem')).toHaveLength(7)
+    expect(screen.queryByRole('button', { name: /^Show \d+ more$/ })).toBeNull()
+  })
+
+  // The page opens with the top of the card it was opened from, so its
+  // circle shows the card's number, which is the report's order rather
+  // than the run's own rank.
+  it('heads the page with the theme’s number on the report and its title', async () => {
+    mockTheme()
+    api.mock('GET /v1/constituent-feedback/efforts/:outreachId/report', {
+      status: 200,
+      data: {
+        question: null,
+        channel: 'door_knock',
+        floor: 5,
+        denominators: { conversations: 9, memos: 9, confirmed: 9, pending: 0 },
+        run: null,
+        themes: [
+          { ...THEME, rank: 2, conversationCount: 9 },
+          { ...THEME, id: 'theme-a', rank: 1, conversationCount: 3 },
+        ],
+        memos: [],
+      },
+    })
+    renderPage()
+
+    expect(
+      await screen.findByRole('heading', { name: 'Rank 1: Bike lanes' }),
+    ).toBeInTheDocument()
+    expect(screen.getByText('#1')).toBeInTheDocument()
+  })
+
+  // Where the theme sat on the report and how many conversations it holds,
+  // never its title or what anyone said.
+  it('records the view once, with its rank and counts and never words', async () => {
+    mockTheme()
+    api.mock('GET /v1/constituent-feedback/efforts/:outreachId/report', {
+      status: 200,
+      data: {
+        question: null,
+        channel: 'phone_bank',
+        floor: 5,
+        denominators: { conversations: 9, memos: 9, confirmed: 9, pending: 0 },
+        run: null,
+        themes: [
+          { ...THEME, id: 'theme-a', rank: 1, conversationCount: 9 },
+          { ...THEME, rank: 2, conversationCount: 4 },
+        ],
+        memos: [],
+      },
+    })
+    renderPage(true)
+
+    await screen.findByRole('heading', { name: 'Rank 2: Bike lanes' })
+    await waitFor(() =>
+      expect(trackEvent).toHaveBeenCalledWith(EVENTS.IssueCapture.ThemeViewed, {
+        channel: 'phoneBanking',
+        themeRank: 2,
+        themeCount: 2,
+        conversationCount: 4,
+        product: 'serve',
+      }),
+    )
+    expect(
+      vi
+        .mocked(trackEvent)
+        .mock.calls.filter(
+          ([name]) => name === EVENTS.IssueCapture.ThemeViewed,
+        ),
+    ).toHaveLength(1)
+    expect(JSON.stringify(vi.mocked(trackEvent).mock.calls)).not.toMatch(
+      /Bike lanes|deliveries|loading zone/,
+    )
   })
 
   it('labels every note as the canvasser’s summary', async () => {
@@ -182,8 +324,8 @@ describe('ThemeDetailPage', () => {
         .getAllByRole('listitem')
         .map((item) => item.textContent),
     ).toEqual([
-      'Delivery delays · Against it · Wants: Move the loading zone',
-      'Parking · Mixed',
+      'Issue 1:Delivery delaysAgainst itWants:Move the loading zone',
+      'Issue 2:ParkingMixed',
     ])
   })
 
@@ -232,6 +374,63 @@ describe('ThemeDetailPage', () => {
       screen.queryByRole('heading', { name: 'Where people stand' }),
     ).toBeNull()
     expect(container.textContent).not.toMatch(/voter/i)
+  })
+
+  it('shows the newest ten notes and the rest behind Show more', async () => {
+    mockTheme({
+      ...THEME,
+      members: Array.from({ length: 12 }, (_, index) => ({
+        ...THEME.members[0]!,
+        feedbackId: `memo-${index}`,
+        transcript: `Note ${index + 1}`,
+      })),
+    })
+    renderPage()
+
+    expect(await screen.findByText('Note 10')).toBeInTheDocument()
+    expect(screen.queryByText('Note 11')).toBeNull()
+
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Show 2 more notes' }),
+    )
+    expect(screen.getByText('Note 12')).toBeInTheDocument()
+  })
+
+  it('opens the person a note is about in a sheet, not another page', async () => {
+    mockTheme()
+    api.mock('GET /v1/contacts/:id', ({ params }) => {
+      expect(params.id).toBe('person-1')
+      return { status: 500, data: {} }
+    })
+    renderPage()
+
+    const [first] = await screen.findAllByRole('button', { name: 'Voter data' })
+    await userEvent.click(first!)
+
+    const sheet = await screen.findByRole('dialog', { name: 'Voter data' })
+    expect(
+      await within(sheet).findByText(
+        "We couldn't load this voter. Try again in a moment.",
+      ),
+    ).toBeInTheDocument()
+  })
+
+  // A 404 is a person outside the district's voter data: nothing to retry.
+  it('says a record is not available when the person is not found', async () => {
+    mockTheme()
+    api.mock('GET /v1/contacts/:id', {
+      status: 404,
+      data: { message: 'Person not found in district' },
+    })
+    renderPage()
+
+    const [first] = await screen.findAllByRole('button', { name: 'Voter data' })
+    await userEvent.click(first!)
+
+    const sheet = await screen.findByRole('dialog', { name: 'Voter data' })
+    expect(
+      await within(sheet).findByText("This voter's record isn't available."),
+    ).toBeInTheDocument()
   })
 
   it('leaves out the asks when nobody named one', async () => {

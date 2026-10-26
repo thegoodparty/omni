@@ -44,8 +44,32 @@ Controllers do **not** live here. The HTTP surface these services back is in
 reads are `@PublicAccess()` + `ServiceReadGuard`, not `M2MOnly`: gp-marketing
 sends a JWT-format machine token, which `SessionGuard` only turns into
 `serviceReader`, never `m2mToken`, so `M2MOnly` would 403 it.
+Every `src/elections/` controller also runs
+`ServiceReadConcurrencyInterceptor`, which lets at most 30 machine-caller
+reads (`serviceReader` or `m2mToken`) run at once per gp-api task. The rest
+queue, and a read still waiting after 30s gets a 503. That leaves 20 of the 50
+election-db connections free for user-facing reads during a gp-marketing
+crawl. Human callers are not capped.
 Most of what the old service exposed has no HTTP surface at all any more — it
 is reached by direct injection from gp-api code.
+
+## Local development
+
+Locally the election database is `electiondb` in the gp-api docker Postgres,
+loaded by `scripts/setup/election-db.sh` (run by `npm run setup`; refetch
+and reload with `npm run seed:election`). The seed is every row for
+Michigan, North Carolina and Wyoming in the dev election database, plus the
+rows those point at in other states, with `Person.email`, `Person.phone`,
+`Person.gp_api_user_id` and `Candidacy.email` nulled. Voter density is
+limited to Laramie County, WY, which covers the fixture office in Cheyenne.
+
+It is built by `prisma-election/seed/refresh.sh`, which needs a connection
+to the dev election database (VPN only) and `--upload` writes it to the
+private `gp-local-election-seed-dev` bucket that
+`POST /v1/dev-env/election-seed` presigns. Never commit the file: this repo
+is public and the seed is restricted data. Refresh it when a migration adds
+a required column, or when its races have mostly passed; the "upcoming
+election" reads run against real dates.
 
 ## Gotchas
 

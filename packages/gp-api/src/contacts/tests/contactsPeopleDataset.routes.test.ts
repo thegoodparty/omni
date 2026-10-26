@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
 import { FeaturesService } from '@/features/services/features.service'
 import { PeopleDbxStatementClient } from '@/peopleDb/databricks/peopleDbxStatement.client'
-import { ElectionApiDistrictService } from '@/peopleDb/services/electionApiDistrict.service'
+import { ElectionDistrictService } from '@/peopleDb/services/electionDistrict.service'
 import { SERVE_CONSUMER_DATA_FLAG } from '@/peopleDb/services/peopleDataset.service'
 
 const service = useTestService()
@@ -55,7 +55,7 @@ describe('POST /v1/contacts/count — people table', () => {
       .spyOn(service.app.get(FeaturesService), 'isFeatureEnabled')
       .mockResolvedValue(flagOn)
     vi.spyOn(
-      service.app.get(ElectionApiDistrictService),
+      service.app.get(ElectionDistrictService),
       'findDistrictById',
     ).mockImplementation(async (id: string) => ({
       id,

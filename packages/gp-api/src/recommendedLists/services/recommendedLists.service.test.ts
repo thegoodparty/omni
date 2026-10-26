@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { BadGatewayException, BadRequestException } from '@nestjs/common'
 import { convertVoterFileFilterToFilters } from '@/contacts/utils/voterFileFilter.utils'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
@@ -62,6 +62,7 @@ describe('RecommendedListsService.recommend', () => {
   let countForFilter: ReturnType<typeof vi.fn>
   let rankPrecincts: ReturnType<typeof vi.fn>
   let getRaceContext: ReturnType<typeof vi.fn>
+  let fetchMilestones: ReturnType<typeof vi.fn>
   let service: RecommendedListsService
 
   beforeEach(() => {
@@ -90,6 +91,7 @@ describe('RecommendedListsService.recommend', () => {
       winNumberEffective: VOTES_NEEDED,
       electionCode: ElectionCode.General,
     })
+    fetchMilestones = vi.fn().mockResolvedValue(null)
 
     service = new RecommendedListsService(
       {
@@ -105,6 +107,7 @@ describe('RecommendedListsService.recommend', () => {
         rankPrecincts,
       } as never,
       { getRaceContext } as never,
+      { fetchMilestones } as never,
       createMockLogger(),
     )
   })
@@ -168,6 +171,78 @@ describe('RecommendedListsService.recommend', () => {
       'persuadeIdeology',
       'persuadeUndecided',
     ])
+  })
+
+  describe('the early-vote window on the global set', () => {
+    const datedCampaign = {
+      ...campaign,
+      details: { raceId: RACE_ID, electionDate: '2026-11-03' },
+    } as unknown as Campaign
+
+    const atDay = (day: string) => {
+      vi.useFakeTimers({ toFake: ['Date'] })
+      vi.setSystemTime(new Date(`${day}T12:00:00Z`))
+    }
+
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('ranks early vote right after introduce while early voting is open', async () => {
+      atDay('2026-10-16')
+      fetchMilestones.mockResolvedValue({
+        voter_registration: null,
+        early_voting: { start: '2026-09-24', end: '2026-11-02' },
+        request_ballot: null,
+      })
+
+      const results = await service.recommend(
+        organization,
+        datedCampaign,
+        null,
+        null,
+      )
+
+      expect(fetchMilestones).toHaveBeenCalledWith(RACE_ID)
+      expect(results.slice(0, 3).map((result) => result.variant)).toEqual([
+        'introNeverIded',
+        'earlyVoteSupporters',
+        'earlyVoteAffinity',
+      ])
+    })
+
+    it('leaves early vote out before the window opens', async () => {
+      atDay('2026-10-16')
+      fetchMilestones.mockResolvedValue(null)
+
+      const results = await service.recommend(
+        organization,
+        datedCampaign,
+        null,
+        null,
+      )
+
+      expect(results.some((result) => result.intent === 'earlyVote')).toBe(
+        false,
+      )
+    })
+
+    it('never gates a request that names the early-vote intent', async () => {
+      atDay('2026-06-01')
+
+      const results = await service.recommend(
+        organization,
+        datedCampaign,
+        'sms',
+        'earlyVote',
+      )
+
+      expect(fetchMilestones).not.toHaveBeenCalled()
+      expect(results.map((result) => result.variant)).toEqual([
+        'earlyVoteSupporters',
+        'earlyVoteAffinity',
+      ])
+    })
   })
 
   describe('the vote-goal size floor', () => {
@@ -600,6 +675,7 @@ describe('RecommendedListsService.recommend', () => {
         // compares normalized payloads, not stored order.
         voterStatus: ['Likely', 'Super'],
         supportStatus: ['unknown'],
+        votedStatus: ['unknown'],
         hasCellPhone: true,
         activityConditions: [],
       },
@@ -627,6 +703,7 @@ describe('RecommendedListsService.recommend', () => {
         audienceSuperVoters: true,
         audienceLikelyVoters: true,
         supportStatus: ['unknown'],
+        votedStatus: ['unknown'],
         hasCellPhone: true,
         activityConditions: [],
       },
@@ -640,6 +717,29 @@ describe('RecommendedListsService.recommend', () => {
     )
 
     expect(first?.existingFilterId).toBe(78)
+  })
+
+  // A list saved before recommendations left out voters who already voted
+  // still holds them, so it is a different audience and must not be reused.
+  it('does not match a list that still includes voters who voted', async () => {
+    findByOrganizationSlug.mockResolvedValue([
+      {
+        id: 80,
+        voterStatus: ['Super', 'Likely'],
+        supportStatus: ['unknown'],
+        hasCellPhone: true,
+        activityConditions: [],
+      },
+    ])
+
+    const [first] = await service.recommend(
+      organization,
+      campaign,
+      'sms',
+      'introduce',
+    )
+
+    expect(first?.existingFilterId).toBeNull()
   })
 
   // The over-match the loaded `activityConditions` relation exists to
@@ -983,6 +1083,7 @@ describe('RecommendedListsService.recommend', () => {
       expect(filter).toEqual({
         voterStatus: ['Super', 'Likely'],
         independentAffinity: true,
+        votedStatus: ['unknown'],
       })
       expect(countForFilter).not.toHaveBeenCalled()
     })

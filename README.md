@@ -15,10 +15,8 @@ All workspaces (apps and shared libs) live under `packages/`.
 | -------------------------- | ----------------------------------------------- | ---- |
 | `packages/gp-api`          | NestJS API monolith (Prisma/Postgres)           | 3000 |
 | `packages/gp-webapp`       | Next.js product app (candidates & officials)    | 4000 |
-| `packages/election-api`    | NestJS microservice — election data             | 3001 |
 | `packages/gp-admin`        | Next.js internal admin console                  | 3500 |
 | `packages/candidate-sites` | Next.js per-candidate sites                     | 4001 |
-| `packages/gp-sdk`          | `@goodparty_org/sdk` — typed API client         | —    |
 | `packages/contracts`       | `@goodparty_org/contracts` — Zod schemas/types  | —    |
 | `packages/runbooks`        | Agent runbooks, slash commands, PMF experiments | —    |
 
@@ -33,8 +31,7 @@ npm run setup
 One command from fresh clone to a running, seeded local stack — no manual
 env setup. New machine? Start at
 [`docs/machine-setup.md`](./docs/machine-setup.md) (one-time prerequisites
-with check-first commands), then the two commands above. Full path, flags,
-and the UI-only fast tier (`packages/prototypes`, zero env):
+with check-first commands), then the two commands above. Full path and flags:
 [`docs/development.md`](./docs/development.md).
 
 ## Documentation

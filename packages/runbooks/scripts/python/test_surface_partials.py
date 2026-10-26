@@ -24,8 +24,8 @@ BUILDS = {
         SURFACES / "product-map/product-map.html",
     ),
     "explorer": (
-        PACKAGES / "prototypes/app/p/analytics-event-explorer/standalone/build.py",
-        PACKAGES / "prototypes/app/p/analytics-event-explorer/standalone/analytics-event-explorer.html",
+        SURFACES / "event-explorer/build.py",
+        SURFACES / "event-explorer/analytics-event-explorer.html",
     ),
 }
 
@@ -103,7 +103,7 @@ def test_inline_refuses_an_unknown_page_part():
         inline("<title>__PAGE_TITLE__</title>", {"__NOT_A_PART__": "x"})
 
 
-# Named on the map, and newer than the committed explorer snapshot (2026-10-05). The next
+# Named on the map, and newer than the committed explorer snapshot (2026-10-19). The next
 # scheduled snapshot carries them; delete an entry once it does. Never add one to make
 # this pass: a name missing from the snapshot is a step the map says is instrumented
 # while the page has nothing to show for it.
@@ -129,7 +129,7 @@ def test_every_event_the_map_draws_is_in_the_snapshot():
     import json
 
     snapshot = json.loads(
-        (PACKAGES / "prototypes/app/p/analytics-event-explorer/data/event-explorer.json").read_text()
+        (SURFACES / "event-explorer/data/event-explorer.json").read_text()
     )
     known = {e["event_type"] for e in snapshot["events"]}
     names = _map_event_names()

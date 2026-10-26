@@ -8,7 +8,6 @@ import {
   PollAudienceKind,
   PollIndividualMessageSender,
   Prisma,
-  TcrComplianceStatus,
 } from '../../generated/prisma'
 import { isPrismaError } from 'src/prisma/util/prismaErrors.util'
 import { SqsConsumerEventHandler, SqsMessageHandler } from '@ssut/nestjs-sqs'
@@ -97,6 +96,7 @@ import {
   OutreachTextDeliveryService,
   TextDeliveryAudience,
 } from '@/outreach/services/outreachTextDelivery.service'
+import { OutreachTextSendFundingService } from '@/outreach/services/outreachTextSendFunding.service'
 import { P2pPhoneListUploadService } from '@/vendors/peerly/services/p2pPhoneListUpload.service'
 import { FeedbackSynthesisIngestService } from '@/constituentFeedback/services/feedbackSynthesisIngest.service'
 import { FeedbackSynthesisCompleteEventSchema } from '@goodparty_org/contracts'
@@ -105,6 +105,7 @@ import type { AgentExperimentResultData } from '../queue.types'
 
 import { ExperimentRunStatus } from '../../generated/prisma'
 import { isJsonObject } from '@/shared/util/objects.util'
+import { isUndrawnSample } from '@/priorities/util/roundTwo.util'
 
 const INITIAL_POLL_SEND_SEQ = 1
 
@@ -198,6 +199,7 @@ export class QueueConsumerService {
     private readonly p2pPhoneListUpload: P2pPhoneListUploadService,
     private readonly logger: PinoLogger,
     private readonly feedbackSynthesisIngest: FeedbackSynthesisIngestService,
+    private readonly textSendFunding: OutreachTextSendFundingService,
   ) {
     this.logger.setContext(QueueConsumerService.name)
   }
@@ -608,6 +610,7 @@ export class QueueConsumerService {
         billableTextCount: true,
         textCount: true,
         pollDetails: { select: { audienceKind: true } },
+        voterFileFilter: { select: { sampleSize: true, sampledAt: true } },
       },
     })
 
@@ -628,6 +631,16 @@ export class QueueConsumerService {
       )
       return true
     }
+    // A round 2 text is enqueued by its draw, never before: its list holds
+    // nobody until then.
+    if (isUndrawnSample(outreach.voterFileFilter)) {
+      this.logger.error(
+        { outreachId, sendSeq },
+        'outreachTextSend: a round 2 text reached delivery before its draw, ' +
+          'which should never happen; acking without sending',
+      )
+      return true
+    }
     const expansion =
       isPoll && sendSeq > INITIAL_POLL_SEND_SEQ
         ? await this.pollExpansion.resolveDelivery(outreachId, sendSeq)
@@ -637,6 +650,19 @@ export class QueueConsumerService {
         { outreachId, sendSeq },
         'outreachTextSend: an expansion reached delivery without an ' +
           'approved row, which should never happen; acking without sending',
+      )
+      return true
+    }
+
+    // Paid at checkout, or a live managed civic panel wave; anything else is
+    // refused before an audience is resolved. `requestSend` repeats this in
+    // its own claim.
+    const funding = await this.textSendFunding.check(outreachId, sendSeq)
+    if (!funding.funded && funding.reason !== 'not_sendable') {
+      await this.textSendFunding.reportRefusal(
+        outreachId,
+        sendSeq,
+        funding.reason,
       )
       return true
     }
@@ -712,7 +738,10 @@ export class QueueConsumerService {
         result.terminalReason === 'send_failed'
           ? 'outreachTextSend: nothing was sent — the send cannot be made ' +
               'at all; the row is now failed'
-          : 'outreachTextSend: nothing was sent — the outreach was not ' +
+          : result.terminalReason === 'unfunded'
+            ? 'outreachTextSend: nothing was sent — the send was neither ' +
+              'paid nor a live managed panel wave'
+            : 'outreachTextSend: nothing was sent — the outreach was not ' +
               'pending, or a previous attempt already handed off this send',
       )
       return true
@@ -751,111 +780,7 @@ export class QueueConsumerService {
   private async handleTcrComplianceCheckMessage({
     tcrCompliance,
   }: TcrComplianceStatusCheckMessage) {
-    const { peerlyIdentityId } = tcrCompliance
-    if (!peerlyIdentityId) {
-      this.logger.error(
-        { tcrCompliance },
-        'No peerlyIdentityId found on TcrCompliance provided, skipping:',
-      )
-      return true // remove message from the queue
-    }
-
-    const record = await this.tcrComplianceService.findFirstOrThrow({
-      include: {
-        campaign: { include: { user: true } },
-      },
-      where: { peerlyIdentityId },
-    })
-    const { userId } = record.campaign
-
-    // A `pending` record's CV is VERIFIED by definition (the usecase was
-    // submitted post-PIN), so the persisted mirror the CV status scan and
-    // PIN-entry path stamp is authoritative here — this used to be a live
-    // retrieve_cv read, part of the call volume Peerly flagged (2026-08-17).
-    const cvTokenStatus = record.peerlyCvStatus
-
-    cvTokenStatus &&
-      (await this.analytics.track(
-        userId,
-        EVENTS.Outreach.CampaignVerifyTokenStatusUpdate,
-        {
-          cvTokenStatus,
-        },
-      ))
-
-    const registrationStatus =
-      await this.tcrComplianceService.checkTcrRegistrationStatus(
-        peerlyIdentityId,
-      )
-
-    if (!registrationStatus) {
-      this.logger.debug(
-        { tcrCompliance },
-        'TCR Registration is not active at this time:',
-      )
-      return true // delete from the queue
-    }
-
-    this.logger.debug(
-      `TCR Registration is active, updating TCR compliance w/ identity ID ${peerlyIdentityId} status to approved`,
-    )
-
-    // Atomic status-guarded claim (not a plain update): bootstrapTcrComplianceCheck
-    // re-queries every `pending` record and re-enqueues this message twice
-    // daily, so a backlog or a slow-handler redelivery can land two of these
-    // messages for the same record while it's still `pending`. Without a
-    // claim, both would pass the registrationStatus check above and both
-    // would fire the notification below — a real double-send, not a
-    // theoretical race (ENG-11035 review). Only the caller that actually
-    // transitions the status fires the notification.
-    const transitionClaim = await this.tcrComplianceService.model.updateMany({
-      where: {
-        peerlyIdentityId,
-        status: { not: TcrComplianceStatus.approved },
-      },
-      data: {
-        status: TcrComplianceStatus.approved,
-      },
-    })
-
-    if (transitionClaim.count === 0) {
-      return true
-    }
-
-    try {
-      await this.analytics.track(userId, EVENTS.Outreach.ComplianceCompleted)
-      await this.analytics.identify(userId, {
-        '10DLC_compliant': true,
-      })
-    } catch (analyticsError) {
-      this.logger.error(
-        { analyticsError },
-        `Failed to track analytics for TCR compliance: ${JSON.stringify(tcrCompliance)}`,
-      )
-    }
-
-    // No acting user on this consumer path — resolve the account email off
-    // the same campaign relation the Segment event's target `userId` above
-    // came from, never a HubSpot contact (ENG-11035). Own try/catch so a
-    // single-send failure can never throw out of an SQS handler (infinite
-    // redelivery — src/queue/AGENTS.md) or affect the ack below.
-    const recipientEmail = record.campaign.user?.email
-    if (recipientEmail) {
-      try {
-        await this.tcrComplianceService.sendComplianceCompletedSingleSend(
-          recipientEmail,
-          { peerly_identity_id: peerlyIdentityId },
-        )
-      } catch (singleSendError) {
-        this.logger.error(
-          { singleSendError, peerlyIdentityId },
-          'HubSpot single-send failed for 10DLC Compliance Completed; the ' +
-            'workflow email path still fires from the Segment event',
-        )
-      }
-    }
-
-    return true
+    return await this.tcrComplianceService.checkUsecaseActivation(tcrCompliance)
   }
 
   private async handleDomainEmailForwardingMessage({

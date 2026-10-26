@@ -1,19 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useQueryClient, type QueryClient } from '@tanstack/react-query'
 import { FetchError } from 'ofetch'
-import type {
-  RecordDoorKnockInteraction,
-  RecordPhoneBankingCall,
+import {
+  ISSUE_CAPTURE_OFF_ERROR_CODE,
+  type RecordDoorKnockInteraction,
+  type RecordPhoneBankingCall,
 } from '@goodparty_org/contracts'
 import { clientRequest } from 'gpApi/typed-request'
+import { extractApiErrorInfo } from 'helpers/extractApiErrorInfo'
 import { getCookie } from 'helpers/cookieHelper'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { ORG_SLUG_COOKIE } from '@shared/organizations/constants'
 import { reportErrorToSentry } from '@shared/sentry'
-import {
-  PENDING_QUERY_KEY_PREFIX,
-  REPORT_QUERY_KEY_PREFIX,
-} from 'app/dashboard/issue-capture/[outreachId]/queries'
+import { REPORT_QUERY_KEY_PREFIX } from 'app/dashboard/issue-capture/[outreachId]/queries'
 import type { DictationStatus } from './useDictation'
 import type { UseDictationAppendResult } from './useDictationAppend'
 import {
@@ -52,7 +51,9 @@ const FALLBACK_AUDIO_TYPE = 'audio/webm'
 // time and would otherwise block every memo behind it. A 401 is not: right
 // after the phone reconnects, the webapp proxy can forward a request before
 // the session token has refreshed, and dropping the queue on that would lose
-// every door it holds.
+// every door it holds. Nor is the 404 the issue-capture flag gives while it
+// is off, which is also what an Amplitude outage looks like: the memo waits
+// for the flag to come back.
 const REFUSAL_STATUSES = new Set([400, 403, 404, 409, 422])
 
 type LocalStatus = Extract<
@@ -81,7 +82,8 @@ export const isRefusal = (err: unknown): boolean =>
   err.status !== undefined &&
   REFUSAL_STATUSES.has(err.status) &&
   typeof err.data === 'object' &&
-  err.data !== null
+  err.data !== null &&
+  extractApiErrorInfo(err.data).errorCode !== ISSUE_CAPTURE_OFF_ERROR_CODE
 
 // A request that never got an answer: no signal, or not enough of it.
 export const isNetworkError = (err: unknown): boolean =>
@@ -179,14 +181,13 @@ const send = async (entry: QueueEntry): Promise<SendOutcome> => {
 const sentListeners = new Set<() => void>()
 
 // A drain that stops early leaves the rest for the next one. One that sent
-// something re-reads the review lists and the reports, so "Notes to review"
-// and "What we heard" count what just arrived, and tells the pages.
+// something re-reads the reports, so "What we heard" counts what just
+// arrived, and tells the pages.
 const drain = (queryClient: QueryClient): void => {
   if (!navigator.onLine) return
   drainQueue(send)
     .then((sent) => {
       if (sent === 0) return
-      void queryClient.invalidateQueries({ queryKey: PENDING_QUERY_KEY_PREFIX })
       void queryClient.invalidateQueries({ queryKey: REPORT_QUERY_KEY_PREFIX })
       sentListeners.forEach((listener) => listener())
     })

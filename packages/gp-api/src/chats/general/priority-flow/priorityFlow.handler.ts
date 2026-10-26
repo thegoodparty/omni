@@ -6,7 +6,6 @@ import {
 } from '@nestjs/common'
 import { formatISO } from 'date-fns'
 import {
-  answersNeeded,
   checkSmsStandards,
   OrdinanceAuthorityFindingSchema,
   OrdinanceCurrentLawSummarySchema,
@@ -61,13 +60,14 @@ import { buildAskClarifyQuestionTool } from '../chat-tools/askClarifyQuestion.to
 import { buildPresentOutsideContactTool } from '../chat-tools/presentOutsideContact.tool'
 import {
   buildPriorityOutreachProposalTool,
+  checkFollowUpPart,
   checkPanelPart,
   checkProposalRefusal,
   proposalResult,
 } from '../chat-tools/presentOutreachProposal.tool'
 import { buildPresentPastOutreachTool } from '../chat-tools/presentPastOutreach.tool'
 import { buildSizeOutreachSampleTool } from '../chat-tools/sizeOutreachSample.tool'
-import { buildSizePanelAskTool } from '../chat-tools/sizePanelAsk.tool'
+import { buildSizeRoundOneTool } from '../chat-tools/sizeRoundOne.tool'
 import { buildReadPastOutreachTool } from '../chat-tools/readPastOutreach.tool'
 import { buildReadOutreachFeedbackTool } from '../chat-tools/readOutreachFeedback.tool'
 import {
@@ -80,6 +80,7 @@ import {
   PriorityFlowContextService,
 } from './services/priorityFlowContext.service'
 import { PriorityFlowOutreachService } from './services/priorityFlowOutreach.service'
+import { resolveSendWindowTimeZone } from '@/vendors/peerly/utils/sendWindowTimeZone.util'
 import { buildPriorityFlowSystemPrompt } from './priorityFlow.prompt'
 import { voterFilterBaseSchema } from '@/shared/schemas/voterFilterBase.schema'
 
@@ -232,14 +233,6 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
     const civicPanelMembers = outreachFeedbackEnabled
       ? await this.contextService.countCivicPanelMembers(ctx.organizationSlug)
       : undefined
-    // One census read serves both the panel sizing and the good read.
-    const population =
-      outreachFeedbackEnabled && this.priorityResults
-        ? await this.priorityResults.districtPopulation(ctx.organization)
-        : null
-    const panelAnswersNeeded = outreachFeedbackEnabled
-      ? answersNeeded(population)
-      : undefined
     const reportBacks =
       outreachFeedbackEnabled && this.reportBack
         ? await this.reportBack.listForOffice(
@@ -251,31 +244,38 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
     const readStatus =
       outreachFeedbackEnabled && this.priorityResults
         ? (
-            await this.priorityResults.readStatuses(
-              ctx.organizationSlug,
-              [ctx.priorityId],
-              population,
-            )
+            await this.priorityResults.readStatuses(ctx.organizationSlug, [
+              ctx.priorityId,
+            ])
           ).get(ctx.priorityId)
         : undefined
+    // Read in the office's own zone, so the thread never calls a send out
+    // that the prompt's date line has not reached yet.
+    const anchorSummaries = await this.outreach.summarizeAnchors(
+      ctx.priorityId,
+      resolveSendWindowTimeZone(resolved?.state),
+    )
     if (!resolved) {
       return {
         ...ctx,
+        anchorSummaries,
         peopleDataset,
         outreachFeedbackEnabled,
         civicPanelMembers,
-        panelAnswersNeeded,
         reportBacks,
         readStatus,
       }
     }
     return {
       ...ctx,
+      anchorSummaries,
       outreachFeedbackEnabled,
       civicPanelMembers,
-      panelAnswersNeeded,
       reportBacks,
       readStatus,
+      // A bound position clears customPositionName, so for most offices the
+      // title only comes from the position the resolver just read.
+      officeTitle: ctx.officeTitle || resolved.positionName || null,
       jurisdiction: `${resolved.l2DistrictName}, ${resolved.state}`,
       state: resolved.state,
       districtFilters: this.districtResolver
@@ -459,6 +459,8 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
           }
           const panelPart = checkPanelPart(input)
           if (panelPart !== null) return { error: panelPart }
+          const followUpPart = checkFollowUpPart(input, ctx.readStatus)
+          if (followUpPart !== null) return { error: followUpPart }
           if (input.areaTarget === 'unreached') {
             const area = await this.unreachedAreaRefusal(ctx, input)
             if (area !== null) return { error: area }
@@ -508,17 +510,24 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
         outreach: this.outreach,
         priorityId: ctx.priorityId,
         organizationSlug: ctx.organizationSlug,
+        timeZone: resolveSendWindowTimeZone(ctx.state),
       }),
     }
 
     if (ctx.outreachFeedbackEnabled) {
-      if (ctx.panelAnswersNeeded !== undefined) {
-        tools.size_panel_ask = buildSizePanelAskTool(ctx.panelAnswersNeeded)
+      if (this.contacts && this.priorityResults) {
+        tools.size_round_one = buildSizeRoundOneTool({
+          contacts: this.contacts,
+          priorityResults: this.priorityResults,
+          organization: ctx.organization,
+        })
       }
       tools.read_outreach_feedback = buildReadOutreachFeedbackTool({
         outreach: this.outreach,
         priorityId: ctx.priorityId,
         organizationSlug: ctx.organizationSlug,
+        timeZone: resolveSendWindowTimeZone(ctx.state),
+        goodRead: ctx.readStatus?.good,
       })
       if (this.reportBack) {
         tools.read_report_back = buildReadReportBackTool({

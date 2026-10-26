@@ -1,50 +1,27 @@
-import {
-  answersNeeded,
-  type PriorityReadStatus,
-  type ReadRepresentativeness,
-  type UnderrepresentedGroup,
-} from '@goodparty_org/contracts'
+import type { UnderrepresentedGroup } from '@goodparty_org/contracts'
 import type { RakingGap } from './raking.util'
 
-// Below this many answers, a gap says more about chance than about who
-// outreach reached, so there is no status to give yet.
-export const MIN_ANSWERS_FOR_REPRESENTATIVENESS = 30
-
-// A district small enough to need fewer answers than that is read at its
-// own figure, or it could never have a good read.
-export const minAnswersForStatus = (population: number | null): number =>
-  Math.min(MIN_ANSWERS_FOR_REPRESENTATIVENESS, answersNeeded(population))
-// Within this share either way of the census on every weighted group, the
-// same ±10 points answersNeeded is sized for.
-export const MAX_REPRESENTATIVE_GAP = 0.1
 // A group trailing the census by less than this is not worth naming.
 export const MIN_UNDERREPRESENTED_GAP = 0.05
 const MAX_UNDERREPRESENTED = 2
 
-// What weighting the answers to the census found. Null when the district's
-// census could not be read.
-export interface ReadWeighting {
-  // Kish effective sample size: answers, discounted for how far the
-  // weights had to move them.
-  effectiveSampleSize: number
-  largestGap: number
-  gaps: RakingGap[]
-  // Whether a race group may be named (raceNameable).
-  raceNameable: boolean
-}
-
-const groupOf = (
-  gap: RakingGap,
+// The name a group goes by wherever it is named, or null for one that is
+// never named.
+export const underrepresentedGroupOf = (
+  dimension: string,
+  value: string,
   nameRace: boolean,
 ): UnderrepresentedGroup | null => {
-  if (gap.dimension === 'tract') return 'unreachedAreas'
-  if (gap.dimension === 'race' && !nameRace) return null
-  const key = `${gap.dimension}:${gap.value}`
+  if (dimension === 'tract') return 'unreachedAreas'
+  if (dimension === 'race' && !nameRace) return null
+  const key = `${dimension}:${value}`
   const groups: Record<string, UnderrepresentedGroup> = {
-    'age:18to64': 'age18to64',
+    'age:18to24': 'age18to24',
+    'age:25to34': 'age25to34',
+    'age:35to44': 'age35to44',
+    'age:45to54': 'age45to54',
+    'age:55to64': 'age55to64',
     'age:65plus': 'age65plus',
-    'tenure:owner': 'owners',
-    'tenure:renter': 'renters',
     'gender:male': 'men',
     'gender:female': 'women',
     // 'other' is a mix of groups no one would recognize as one, so it
@@ -65,7 +42,7 @@ export const underrepresentedGroups = (
 ): UnderrepresentedGroup[] => {
   const behind = new Map<UnderrepresentedGroup, number>()
   for (const gap of gaps) {
-    const group = groupOf(gap, nameRace)
+    const group = underrepresentedGroupOf(gap.dimension, gap.value, nameRace)
     const trail = gap.censusShare - gap.unweightedShare
     if (!group || trail < MIN_UNDERREPRESENTED_GAP) continue
     behind.set(group, Math.max(behind.get(group) ?? 0, trail))
@@ -74,43 +51,4 @@ export const underrepresentedGroups = (
     .sort(([, a], [, b]) => b - a)
     .slice(0, MAX_UNDERREPRESENTED)
     .map(([group]) => group)
-}
-
-// The one place a "good read" is decided, so every surface that reads it
-// changes together. A good read is a representative one: enough answers,
-// once weighted to the district's census mix, and every weighted group
-// within MAX_REPRESENTATIVE_GAP of the census. When the census cannot be
-// read, enough answers alone are a good read, under its own status.
-export const priorityReadStatus = (input: {
-  answers: number
-  population: number | null
-  weighting: ReadWeighting | null
-}): PriorityReadStatus => {
-  const needed = answersNeeded(input.population)
-  const { answers, weighting } = input
-  const tooEarly = answers < minAnswersForStatus(input.population)
-  const underrepresented =
-    weighting && !tooEarly
-      ? underrepresentedGroups(weighting.gaps, weighting.raceNameable)
-      : []
-  const status = ((): ReadRepresentativeness => {
-    // Without the census there is nothing to weigh against: enough answers
-    // still unlock the results, but nothing claims they look like the
-    // district.
-    if (!weighting) return answers >= needed ? 'enoughAnswers' : 'tooEarly'
-    if (tooEarly) return 'tooEarly'
-    if (weighting.largestGap > MAX_REPRESENTATIVE_GAP) {
-      return 'notYetRepresentative'
-    }
-    return weighting.effectiveSampleSize >= needed
-      ? 'representative'
-      : 'gettingClose'
-  })()
-  return {
-    answers,
-    needed,
-    good: status === 'representative' || status === 'enoughAnswers',
-    status,
-    underrepresented,
-  }
 }

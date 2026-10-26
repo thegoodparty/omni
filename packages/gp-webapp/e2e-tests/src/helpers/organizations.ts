@@ -5,7 +5,12 @@ import {
   type AuthenticatedUser,
   type TestUserOptions,
 } from 'tests/utils/api-registration'
-import { withGatewayRetry } from 'tests/utils/headless-user'
+import {
+  DEFAULT_TEST_RACE,
+  resolveTestRace,
+  type TestRace,
+  withGatewayRetry,
+} from 'tests/utils/headless-user'
 import { closeStrayDialog } from 'src/helpers/dashboard'
 import { eventually, wait } from 'tests/utils/eventually'
 
@@ -17,11 +22,24 @@ const ORG_SWITCHER_HEADER = '[data-sidebar="header"]'
 // each attempt — so a dialog open now or opening late is cleared before the
 // click lands. All org-switcher entry points go through this so the guard lives
 // in one place.
+//
+// Each attempt checks for the open menu first. Radix opens it on pointerdown, so
+// a click that times out after pressing can still have opened it, and once open
+// the menu aria-hides the header: a role-based trigger locator stops resolving
+// and every retry would click nothing until the loop gives up. A menu still
+// animating out after Escape is visible but data-state="closed", so key on the
+// open state rather than visibility.
 export const openOrgSwitcher = async (page: Page) => {
-  const trigger = page.locator(ORG_SWITCHER_HEADER).getByRole('button').first()
+  const trigger = page
+    .locator(ORG_SWITCHER_HEADER)
+    .locator('[aria-haspopup="menu"]')
+    .first()
+  const menu = page.locator('[role="menu"][data-state="open"]')
   await expect(async () => {
+    if (await menu.isVisible()) return
     await closeStrayDialog(page)
-    await trigger.click({ timeout: 2_000 })
+    await trigger.click({ timeout: 5_000 })
+    await expect(menu).toBeVisible({ timeout: 2_000 })
   }).toPass({ timeout: 30_000 })
 }
 
@@ -78,17 +96,26 @@ export const setupElectedOfficeUser = async (
   page: Page,
   raceOptions?: TestUserOptions['race'],
 ): Promise<SetupResult> => {
-  const race = raceOptions ?? {
-    zip: '82001',
-    office: 'Cheyenne City Council - Ward 1',
-  }
-
   const { user, client } = await authenticateTestUser(page, {
     isolated: true,
-    race,
+    race: raceOptions ?? DEFAULT_TEST_RACE,
   })
 
-  await winRaceWithTermDates(page)
+  // The "I won" UI is covered by election-result-flow.spec.ts. Everyone else
+  // needs only its end state, so make the calls ElectionResultPage makes: the
+  // office (pinned to the campaign org by the client's default header), then
+  // the won flag. Driving the page and its two calendar dialogs cost ~10s a
+  // test across ~45 tests.
+  await withGatewayRetry('POST /v1/elected-office', () =>
+    client.post('/v1/elected-office', {
+      termStartDate: '2023-01-01',
+      termEndDate: '2027-01-01',
+      onboardingCompletedAt: new Date().toISOString(),
+    }),
+  )
+  await withGatewayRetry('PUT /v1/campaigns/mine', () =>
+    client.put('/v1/campaigns/mine', { details: { wonGeneral: true } }),
+  )
 
   const electedOfficeOrgSlug = await eventually(
     { that: 'an elected office organization is created' },
@@ -110,6 +137,18 @@ export const setupElectedOfficeUser = async (
   )
   client.defaults.headers['x-organization-slug'] = electedOfficeOrgSlug
 
+  // The page selects the new org by this cookie, then lands on Chief of Staff.
+  await page.context().addCookies([
+    {
+      name: 'organization-slug',
+      value: electedOfficeOrgSlug,
+      domain: new URL(page.url()).hostname,
+      path: '/',
+      sameSite: 'Lax',
+    },
+  ])
+  await page.goto('/dashboard/chief-of-staff')
+
   return { user, client }
 }
 
@@ -125,16 +164,11 @@ export const setupProCampaignUser = async (
   page: Page,
   raceOptions?: TestUserOptions['race'],
 ): Promise<SetupResult> => {
-  // Default to the same race setupElectedOfficeUser pinned: a district with
+  // Default to the same office setupElectedOfficeUser pins: a district with
   // real L2 voter data, so the Contacts surface has rows to exercise.
-  const race = raceOptions ?? {
-    zip: '82001',
-    office: 'Cheyenne City Council - Ward 1',
-  }
-
   const { user, client } = await authenticateTestUser(page, {
     isolated: true,
-    race,
+    race: raceOptions ?? DEFAULT_TEST_RACE,
   })
 
   await withGatewayRetry('POST /v1/campaigns/mine/test-set-pro', () =>
@@ -144,23 +178,11 @@ export const setupProCampaignUser = async (
   return { user, client }
 }
 
-type RaceListItem = {
-  id: string
-  brPositionId: string
-  position: { name: string }
-  election: { electionDay: string }
-}
-
-const REELECTION_RACE = {
-  zip: '82001',
-  office: 'Cheyenne City Council - Ward 1',
-}
-
 // Build a held-office user whose elected office has a DERIVED termEndAt, so a
 // same-office follow-on can in turn derive a future electionDate and the office
 // holder is re-election-eligible (eligibility.reelectionOfficeSlug populated).
-// The shared api-registration helper creates the campaign straight from
-// races-by-year and stores race.id — a ZipToPosition id — as details.raceId; EO
+// The shared api-registration helper creates the campaign from the resolved
+// race and stores race.id — a ZipToPosition id — as details.raceId; EO
 // term derivation looks the cadence up by Race.brHashId, so that id never
 // resolves and termEndAt stays null. Mirror the real onboarding office picker
 // instead: hydrate the race via race-by-position (whose data.id IS the
@@ -168,21 +190,18 @@ const REELECTION_RACE = {
 // creation derives the term.
 export const setupReelectionEligibleUser = async (
   page: Page,
-  raceOptions?: { zip: string; office: string },
+  raceOptions?: TestRace,
 ): Promise<AxiosInstance> => {
-  const race = raceOptions ?? REELECTION_RACE
+  const race = raceOptions ?? DEFAULT_TEST_RACE
 
   const { client } = await authenticateTestUser(page, {
     isolated: true,
     race,
   })
 
-  const { data: races } = await client.get<RaceListItem[]>(
-    '/v1/elections/races-by-year',
-    { params: { zipcode: race.zip } },
-  )
-  const matchedRace = races.find((r) => r.position.name === race.office)
-  if (!matchedRace) throw new Error(`Race not found: ${race.office}`)
+  // The resolved race may already be past; race-by-position hydrates a past
+  // date just as well, and only its BallotReady hash is kept.
+  const matchedRace = await resolveTestRace(client, race)
 
   const { data: hydrated } = await client.get<{ id: string }>(
     '/v1/elections/race-by-position',

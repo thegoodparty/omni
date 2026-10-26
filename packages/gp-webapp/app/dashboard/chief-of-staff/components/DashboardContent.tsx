@@ -1,12 +1,13 @@
 'use client'
 
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
 import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
-  BUILD_CITIZENS_PANEL_MESSAGE,
-  EXPLAIN_CIVIC_PANEL_MESSAGE,
+  MANAGED_CIVIC_PANEL_BACKED_OUT_MESSAGE,
+  MANAGED_CIVIC_PANEL_EXHAUSTED_MESSAGE,
+  MANAGED_CIVIC_PANEL_SET_UP_MESSAGE,
+  START_MANAGED_CIVIC_PANEL_MESSAGE,
 } from '@goodparty_org/contracts'
 import { useUser } from '@shared/hooks/useUser'
 import { useOrganization } from '@shared/organization-picker'
@@ -15,7 +16,7 @@ import { Button } from '@styleguide'
 import { ArchiveIcon } from '@styleguide/components/ui/icons'
 import DashboardNavHeaderAction from '../../shared/DashboardNavHeaderAction'
 import { chiefOfStaffArchiveHref } from '../routes'
-import { civicPanelSummaryQueryOptions } from '../../contacts/citizens-panel/civicPanelSummary.query'
+import { managedCivicPanelQueryOptions } from '../../contacts/citizens-panel/civicPanelSummary.query'
 import BriefingDispatchBanner from './BriefingDispatchBanner'
 import { ONBOARDING_CARDS } from './onboardingCardsConfig'
 import TaskStack from './TaskStack'
@@ -24,17 +25,21 @@ import ChiefOfStaffChatSurface from './chat/ChiefOfStaffChatSurface'
 import {
   buildChiefOfStaffIntro,
   buildChiefOfStaffNextSteps,
-  civicPanelExplainNextStep,
 } from './chat/chatConstants'
 import { useBriefingDispatch } from '../data/use-briefing-dispatch'
 import type { OnboardingCardKey } from '../data/contracts'
 
-// The build card's turns, hidden again when their conversation is reopened.
-const HIDDEN_TURNS = [BUILD_CITIZENS_PANEL_MESSAGE, EXPLAIN_CIVIC_PANEL_MESSAGE]
+// The panel cards' turns, and the ones the invite review sends when it
+// closes, hidden again when their conversation is reopened.
+const HIDDEN_TURNS = [
+  START_MANAGED_CIVIC_PANEL_MESSAGE,
+  MANAGED_CIVIC_PANEL_EXHAUSTED_MESSAGE,
+  MANAGED_CIVIC_PANEL_SET_UP_MESSAGE,
+  MANAGED_CIVIC_PANEL_BACKED_OUT_MESSAGE,
+]
 // A kickoff answers in place of the intro, so the first-chat intro must not
 // type in over it. Module-level so its identity is stable.
 const NO_INTRO: string[] = []
-const ORDINANCE_NEW_HREF = '/dashboard/ordinances/new'
 
 /**
  * Chief of Staff dashboard (Serve home). Renders inside `DashboardLayout`.
@@ -61,16 +66,26 @@ export default function DashboardContent(): React.JSX.Element {
 
   const firstName = user?.firstName || undefined
 
-  const router = useRouter()
   const { ready: panelsReady, enabled: panelsEnabled } =
     useServeCitizenPanelsFlag(false)
-  // The panel's members pick the civic panel step: build one, or ask it.
   const orgSlug = useOrganization()?.slug
-  const { data: panelSummary } = useQuery({
-    ...civicPanelSummaryQueryOptions(orgSlug),
+  // Whether GoodParty is already building the panel picks the intro's
+  // middle step: set it up, or hear from constituents.
+  const {
+    data: managedPanel,
+    isLoading: managedLoading,
+    isError: managedReadFailed,
+  } = useQuery({
+    ...managedCivicPanelQueryOptions(orgSlug),
     enabled: panelsReady && panelsEnabled && Boolean(orgSlug),
   })
-  const panelMembers = panelsEnabled ? panelSummary?.members : undefined
+  // A failed read offers setup: approving is idempotent, so offering it to
+  // an office already enrolled does no harm.
+  const managedSetUp = managedReadFailed
+    ? false
+    : managedPanel === undefined
+      ? undefined
+      : managedPanel !== null && managedPanel.status !== 'stopped'
 
   const openNewChat = () => {
     setPendingFile(undefined)
@@ -115,21 +130,14 @@ export default function DashboardContent(): React.JSX.Element {
 
   // The intro ends on a question, answered by these cards. The priorities
   // card asks its own question and a kickoff answers something already, so
-  // neither gets them; the panel explainer gets its one next step instead.
-  const explaining = pendingKickoff === EXPLAIN_CIVIC_PANEL_MESSAGE
-  const explainStep = explaining
-    ? civicPanelExplainNextStep(panelMembers)
-    : undefined
-  const suggestions = explaining
-    ? explainStep
-      ? [explainStep]
-      : []
-    : pendingKickoff || openerKey === 'priorities'
+  // neither gets them.
+  const suggestions =
+    pendingKickoff || openerKey === 'priorities'
       ? undefined
       : buildChiefOfStaffNextSteps({
           panelsEnabled: panelsReady && panelsEnabled,
-          panelMembers,
-          onDraftOrdinance: () => router.push(ORDINANCE_NEW_HREF),
+          managedSetUp,
+          panelLoading: !panelsReady || (panelsEnabled && managedLoading),
         })
 
   return (
@@ -185,7 +193,6 @@ export default function DashboardContent(): React.JSX.Element {
         pendingFile={pendingFile}
         defaultIntro={pendingKickoff ? NO_INTRO : intro}
         suggestions={suggestions}
-        showSuggestionsAfterKickoff={explaining}
         hiddenMessageContents={HIDDEN_TURNS}
         showMessageActions
         analyticsSurface="chief_of_staff_page"

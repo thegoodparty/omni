@@ -4,22 +4,13 @@ import { expect, type Page, test } from '@playwright/test'
 import type { MessageElement } from '@slack/web-api/dist/types/response/ConversationsHistoryResponse'
 import { parse as parseCSV } from 'csv-parse/sync'
 import { addBusinessDays, format, subDays } from 'date-fns'
-import { clerk, setupClerkTestingToken } from '@clerk/testing/playwright'
+import type { GetIndividualActivitiesResponse } from '@goodparty_org/contracts'
 import {
   blockSlowScripts,
   NavigationHelper,
 } from 'src/helpers/navigation.helper'
-import { clerkThrottle } from 'tests/utils/throttle-requests-with-retry'
-import {
-  setupElectedOfficeUser,
-  switchOrganization,
-} from 'src/helpers/organizations'
-import { type AuthenticatedUser } from 'tests/utils/api-registration'
-import type { AxiosInstance } from 'axios'
-import {
-  type ContactsApiPerson,
-  openPersonViaTypeahead,
-} from 'src/helpers/crm-contacts-e2e'
+import { setupElectedOfficeUser } from 'src/helpers/organizations'
+import { type ContactsApiPerson } from 'src/helpers/crm-contacts-e2e'
 import { eventually } from 'tests/utils/eventually'
 import { downloadSlackFile, waitForSlackMessage } from 'tests/utils/slack'
 
@@ -28,6 +19,10 @@ type CsvRow = {
   firstName: string
   lastName: string
   cellPhone: string
+}
+
+type ConstituentIssues = {
+  results: { issueTitle: string; pollId: string; pollTitle: string }[]
 }
 
 type PollResponseJsonRow = {
@@ -302,19 +297,14 @@ test.beforeEach(async ({ page }) => {
   await blockSlowScripts(page)
 })
 
-// @dev-only: this whole serial block runs on merge to dev (the develop e2e run)
-// and on demand, never on PRs. The first test drives live pipelines — a
-// pollAnalysisComplete SQS round-trip and a ~240s Stripe-webhook wait — that an
-// ephemeral per-PR preview can't provide, and the later tests reuse its shared
-// state. Tag the describe so the whole block is excluded together. See
-// e2e-tests/CLAUDE.md ("@dev-only").
-test.describe.serial('poll onboarding @dev-only', () => {
-  // Shared state between tests
-  let sharedUser: AuthenticatedUser
-  let sharedClient: AxiosInstance
-  let sharedPollId: string
-  let sharedContact: CsvRow
-
+// @dev-only: drives the poll pipeline a PR preview doesn't run — dev's SQS
+// consumer sends the poll and posts its Slack CSV, and the test completes it
+// with pollAnalysisComplete messages on dev's queue (AWS credentials). The
+// expansion's Stripe checkout stays here because it needs that completed
+// poll. What the overlay renders for a respondent runs on PRs in
+// poll-respondent-overlay.spec.ts against seeded rows. See e2e-tests/AGENTS.md
+// ("@dev-only").
+test.describe('poll onboarding @dev-only', () => {
   test('poll onboarding and expansion', async ({ page }) => {
     // Set this test's timeout to 15 minutes. The "marked as expanding"
     // eventual check below can sleep up to ~240s waiting on the Stripe
@@ -325,10 +315,6 @@ test.describe.serial('poll onboarding @dev-only', () => {
       zip: district.zip,
       office: district.office,
     })
-
-    // Store for reuse in subsequent tests
-    sharedUser = user
-    sharedClient = client
 
     // Elected office users now land on /dashboard/chief-of-staff after winning
     // their race, so navigate to the polls welcome screen before onboarding.
@@ -380,6 +366,14 @@ test.describe.serial('poll onboarding @dev-only', () => {
     // Create poll.
     await page.getByRole('button', { name: 'Send SMS poll' }).click()
 
+    // Sending lands on a confirmation that waits 4s before it redirects to the
+    // poll. Wait for each hop, so the poll's title is not racing the create
+    // call, the confirmation and that delay inside a single expect window.
+    await expect(
+      page.getByRole('heading', { name: 'Your first poll has been scheduled' }),
+    ).toBeVisible()
+    await page.waitForURL(/\/dashboard\/polls\/[^/?]+$/)
+
     // Confirm the correct data shows up in the UI
     await expect(page.getByText('Top Community Issues')).toBeVisible()
 
@@ -405,9 +399,7 @@ test.describe.serial('poll onboarding @dev-only', () => {
       (message) => !!message.text?.includes(user.email),
     )
 
-    // Store for reuse in subsequent tests
-    sharedPollId = pollId
-    sharedContact = csvRows[0] as CsvRow
+    const respondent = csvRows[0] as CsvRow
 
     expect(csvRows).toHaveLength(500)
 
@@ -597,13 +589,14 @@ test.describe.serial('poll onboarding @dev-only', () => {
     await zipInput.fill('82001')
     await page.waitForTimeout(500)
 
-    // Uncheck "Save my information for faster checkout" (Stripe Link) —
-    // when checked, it requires a phone number which blocks canConfirm.
-    const saveCheckbox = stripeFrame.getByLabel(
-      'Save my information for faster checkout',
-    )
-    if (await saveCheckbox.isChecked().catch(() => false)) {
-      await saveCheckbox.uncheck()
+    // Stripe also picks the Link opt-in layout from that IP. A US buyer gets a
+    // pre-checked "Save my information for faster checkout" box that keeps the
+    // purchase disabled until a phone number is given or the box is unchecked.
+    // A Mexico-geolocated runner (link_default_opt_in OPTIONAL, 2026-10-20)
+    // gets an optional signup form with no box, which pays without a phone.
+    const linkOptIn = stripeFrame.locator('#payment-linkOptInInput')
+    if ((await linkOptIn.count()) > 0 && (await linkOptIn.isChecked())) {
+      await linkOptIn.uncheck()
     }
     await page.waitForTimeout(1_000)
 
@@ -611,21 +604,19 @@ test.describe.serial('poll onboarding @dev-only', () => {
       name: 'Complete Purchase',
     })
 
-    const completeCheckoutResponsePromise = page.waitForResponse(
-      (response) =>
-        response
-          .url()
-          .includes('/payments/purchase/complete-checkout-session') &&
-        response.request().method() === 'POST',
-      { timeout: 45_000 },
-    )
-
     await expect(purchaseButton).toBeEnabled({ timeout: 30_000 })
+    // The optional layout's longer form pushes the button below the fold, and
+    // a click that has to scroll first lands in Stripe's card iframe instead
+    // of on the button: no submit, no Stripe confirm. Scroll it into view so
+    // the click's own stability check runs on the settled page.
+    await purchaseButton.scrollIntoViewIfNeeded()
     await purchaseButton.click()
 
-    const completeCheckoutResponse = await completeCheckoutResponsePromise
-    expect(completeCheckoutResponse.ok()).toBeTruthy()
-
+    // The browser's complete-checkout-session call and Stripe's
+    // checkout.session.completed webhook both fulfill the expansion, and
+    // gp-api refuses whichever lands second with a 400 ("Poll is not
+    // completed"). The page moves on either way, so assert where it lands and
+    // what the poll reports below, not which of the two callers won.
     await page.waitForURL(
       (url) => new URL(url).pathname.includes('/expand-payment-success'),
       {
@@ -758,87 +749,57 @@ test.describe.serial('poll onboarding @dev-only', () => {
 
     // Confirm that the removed issue is no longer visible.
     await expect(page.getByText('Crime')).toHaveCount(0)
-  })
 
-  test('person overlay shows constituent issues and activities', async ({
-    page,
-  }) => {
-    test.setTimeout(2 * 60 * 1000)
-
-    await setupClerkTestingToken({ page })
-    await page.goto('/')
-    await clerkThrottle(
-      () => clerk.signIn({ page, emailAddress: sharedUser.email }),
-      5,
-    )
-
-    // Navigate to contacts page
-    await page.goto('/dashboard')
-    await switchOrganization(page, district.office)
-    await page.goto('/dashboard/contacts')
-    await NavigationHelper.dismissOverlays(page)
-
-    // The CRM contacts page has no member table by design (ENG-10756,
-    // unconditional since the serve-crm default-on) — resolve the poll
-    // respondent through the same GET /v1/contacts the legacy table read,
-    // then open their record via the persistent typeahead.
-    const { data } = await sharedClient.get<{ people: ContactsApiPerson[] }>(
+    // The pipeline attributed the first CSV respondent's reply (filed under
+    // Traffic Congestion in both rounds) to their person record. These are
+    // the rows the Constituents overlay reads; poll-respondent-overlay.spec.ts
+    // covers how it renders them.
+    const { data } = await client.get<{ people: ContactsApiPerson[] }>(
       '/v1/contacts',
       {
         params: {
           page: 1,
           resultsPerPage: 25,
           segment: 'all',
-          search: `${sharedContact.firstName} ${sharedContact.lastName}`,
+          search: `${respondent.firstName} ${respondent.lastName}`,
         },
       },
     )
     const person = data.people.find(
       (candidate) =>
         candidate.firstName?.toLowerCase() ===
-          sharedContact.firstName.toLowerCase() &&
-        candidate.lastName?.toLowerCase() ===
-          sharedContact.lastName.toLowerCase(),
+          respondent.firstName.toLowerCase() &&
+        candidate.lastName?.toLowerCase() === respondent.lastName.toLowerCase(),
     )
     expect(person).toBeTruthy()
 
-    const personSheet = await openPersonViaTypeahead(page, person!)
-
-    // Verify the correct person is displayed
-    await expect(
-      personSheet.getByText(sharedContact.firstName, { exact: false }),
-    ).toBeVisible({ timeout: 5_000 })
-
-    // Verify "Top Issues" section is visible and shows the poll issue.
-    // NOTE: Requires the 'serve-contacts-activities-and-issues' feature flag to be enabled.
-    await expect(personSheet.getByText('Top Issues')).toBeVisible({
-      timeout: 10_000,
-    })
-    // Use getByRole('link') to avoid strict mode violation — the summary
-    // paragraph also contains the text "Traffic congestion…" (lowercase).
-    const issueLink = personSheet
-      .getByRole('link', { name: 'Traffic Congestion' })
-      .first()
-    await expect(issueLink).toBeVisible()
-    await expect(issueLink).toHaveAttribute(
-      'href',
-      `/dashboard/polls/${sharedPollId}`,
+    const { data: issues } = await client.get<ConstituentIssues>(
+      `/v1/contact-engagement/${person!.id}/issues`,
+    )
+    expect(issues.results).toContainEqual(
+      expect.objectContaining({
+        issueTitle: 'Traffic Congestion',
+        pollTitle: 'Top Community Issues',
+        pollId,
+      }),
     )
 
-    // Verify "Activity Feed" section is visible with expected events
-    await expect(personSheet.getByText('Activity Feed')).toBeVisible({
-      timeout: 10_000,
-    })
-    await expect(personSheet.getByText('Sent').first()).toBeVisible()
-    await expect(personSheet.getByText('Responded').first()).toBeVisible()
-
-    // Verify the activity links to the poll
-    const activityLink = personSheet
-      .getByRole('link', { name: 'Top Community Issues' })
-      .first()
-    await expect(activityLink).toHaveAttribute(
-      'href',
-      `/dashboard/polls/${sharedPollId}`,
+    const { data: activities } =
+      await client.get<GetIndividualActivitiesResponse>(
+        `/v1/contact-engagement/${person!.id}/activities`,
+      )
+    expect(activities.results).toContainEqual(
+      expect.objectContaining({
+        type: 'POLL_INTERACTIONS',
+        data: expect.objectContaining({
+          pollId,
+          pollTitle: 'Top Community Issues',
+          events: expect.arrayContaining([
+            expect.objectContaining({ type: 'SENT' }),
+            expect.objectContaining({ type: 'RESPONDED' }),
+          ]),
+        }),
+      }),
     )
   })
 })

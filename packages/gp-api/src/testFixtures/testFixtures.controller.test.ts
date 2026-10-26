@@ -27,6 +27,7 @@ describe('TestFixturesController', () => {
     createFixtureUser: ReturnType<typeof vi.fn>
     deleteFixtureUsers: ReturnType<typeof vi.fn>
     mintFixtureSession: ReturnType<typeof vi.fn>
+    runJob: ReturnType<typeof vi.fn>
   }
 
   beforeEach(() => {
@@ -35,6 +36,10 @@ describe('TestFixturesController', () => {
       createFixtureUser: vi.fn().mockResolvedValue({ userId: 1 }),
       deleteFixtureUsers: vi.fn().mockResolvedValue({ deleted: [] }),
       mintFixtureSession: vi.fn().mockResolvedValue({ userId: 1 }),
+      runJob: vi.fn().mockResolvedValue({
+        ranAt: '2026-10-19T00:00:00.000Z',
+        durationMs: 5,
+      }),
     }
     controller = new TestFixturesController(
       service as unknown as TestFixturesService,
@@ -65,6 +70,28 @@ describe('TestFixturesController', () => {
     expect(service.mintFixtureSession).toHaveBeenCalledWith(42, {})
   })
 
+  it.each([
+    'robocall.staging',
+    'robocall.send',
+    'robocall.completion',
+    'robocall.capture',
+    'robocall.callhubCleanup',
+  ])('delegates runJob(%s) on a non-prod deploy', async (name) => {
+    const result = await controller.runJob(name)
+    expect(result).toEqual({
+      ranAt: '2026-10-19T00:00:00.000Z',
+      durationMs: 5,
+    })
+    expect(service.runJob).toHaveBeenCalledWith(name)
+  })
+
+  it('propagates NotFoundException from runJob for unknown job names', async () => {
+    service.runJob.mockRejectedValueOnce(new NotFoundException('Unknown job'))
+    await expect(controller.runJob('unknown')).rejects.toBeInstanceOf(
+      NotFoundException,
+    )
+  })
+
   // false models prod or a misconfigured/absent OTEL_SERVICE_ENVIRONMENT,
   // where the fail-closed gate must 404 rather than silently ungate. The gate
   // throws before any async work, hence the synchronous assertions.
@@ -78,8 +105,12 @@ describe('TestFixturesController', () => {
       NotFoundException,
     )
     expect(() => controller.mintSession(1, {})).toThrow(NotFoundException)
+    expect(() => controller.runJob('robocall.staging')).toThrow(
+      NotFoundException,
+    )
     expect(service.createFixtureUser).not.toHaveBeenCalled()
     expect(service.deleteFixtureUsers).not.toHaveBeenCalled()
     expect(service.mintFixtureSession).not.toHaveBeenCalled()
+    expect(service.runJob).not.toHaveBeenCalled()
   })
 })

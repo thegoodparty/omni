@@ -24,7 +24,10 @@ says. A row arrives with "Relabel it" suggested only when every check agrees: th
 reaches one area, the commit that removed the old mount is named, and the page people
 were on matches. Otherwise there is no suggestion and the evidence is yours to read.
 Accepting writes a new `surface:` tag, `fires_on` and display name through
-`event-metadata`; the raw event name never changes.
+`event-metadata`; the raw event name never changes. Each row opens with the label as it
+is now and the label an accept would write. An event that fires from several areas has
+no single proposal, so "Relabel it" becomes one "Relabel to <area>" button per area and
+the handoff carries the pick as an `area:` line.
 
 **A button label names the control; hovering it names the consequence.** "Fix in
 Govern" tells you which thing you are touching. The tooltip, and the review panel, say
@@ -165,6 +168,11 @@ So a `govern` verdict is held until the box carries code-removal proof: a commit
 commit or PR URL, or `#1234`. Prose is refused, because "the code is gone, I checked" is
 exactly the unevidenced claim the rule exists to stop. Absent data is not removal.
 
+The accepted shapes are printed under the box, not only in its placeholder, because a
+placeholder disappears the moment you type. While the text matches none of them the line
+turns red and starts "Not one of these yet". A bare `323` is the usual miss: it needs the
+`#`.
+
 **Why there is a second accepted answer.** "Fix in Govern" is not always a retirement,
 and `intent_divergence` is where that bites. One cause covers two opposite situations:
 
@@ -238,7 +246,8 @@ A cause is normally one ruling, but some causes hold more than one decision. On 
 row with more than one event, the evidence table takes checkboxes and a row of
 quick-select chips built from that cause's own data: `all`, `none`, one per distinct
 provenance state, and `older than 30d` where it applies. Pick a set, then apply a verb
-to just those events.
+to just those events. Picking every event is the whole cause, so the per-event boxes
+stay hidden and the page points you at the cause-level ruling instead.
 
 Use it when the evidence columns split a cause into more than one decision, for example
 when the provenance chips show some events were never found in code and others were.
@@ -308,7 +317,7 @@ digest raising the item again.
 | --- | --- |
 | Flagged causes | a `cause:` row in `monitored_events.yaml` |
 | Instrumentation gaps | `instrumentation_gaps.json` |
-| Watchlist proposals | an `event:` row in `monitored_events.yaml` |
+| Watchlist proposals | an `events:` row added or removed, a `dismissed:` row, or a `kept:` row in `monitored_events.yaml` |
 | Registry vs semantic layer | a `metric:` row in `monitored_events.yaml` |
 | Surface relabels | `instrumentation_data/surface_drift.json`, applied to Amplitude through `event-metadata` |
 

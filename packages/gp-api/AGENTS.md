@@ -45,10 +45,11 @@ makes those tests pass here and fail there.
 
 In CI (`.github/workflows/gp-api.yml`) the same work is split for speed: a
 `Checks` job runs lint, typecheck, and `prisma migrate diff ... --exit-code`
-against a shadow DB; a `Test` job fans the vitest suite across 2 shards
-(`--shard=N/2`, no coverage), one runner each, so the whole suite finishes in
-about 4-5 min of wall clock; and an empty `Validate` gate `needs` both so the
-branch-protection-required `Validate` check is green only when all of them pass.
+against a shadow DB; a `Test` job fans the vitest suite across 6 shards
+(`--shard=N/6`, no coverage), one runner each, because each runner's 4 cores
+are saturated by its own workers plus Postgres; and an empty `Validate` gate
+`needs` both so the branch-protection-required `Validate` check is green only
+when all of them pass.
 The local `npm run verify` is unchanged — it runs the whole suite in one pass.
 
 `lint`, `lint:fix` and `start:dev` set a 6 GB Node heap themselves (`start:dev` for the watch-mode type check, which hit the same ceiling). Type-aware ESLint over
@@ -62,8 +63,21 @@ once, which builds the full schema into a template database; each
 Postgres copy) instead of re-running all 258 migrations. `src/test-postgres.ts`
 owns the container config that both paths share — keep it identical in both or
 testcontainers' reuse hash stops matching and suites get a fresh, template-less
-container. Suites still run with `isolate: true`; sharding is what keeps wall
-clock down, since the per-file cost is re-importing the Nest app graph.
+container.
+
+Most of a test file's cost is importing the app graph (~1,200 modules for
+anything that boots `AppModule`), so `vitest.config.ts` runs two projects. The
+`shared-modules` project runs with `isolate: false`, so each worker imports the
+graph once and reuses it across files. Any file that calls `vi.mock`,
+`vi.doMock`, `vi.unmock` or `vi.resetModules` is detected by a scan of the test
+files at config load and goes to `fresh-modules`, which keeps `isolate: true`,
+because a module mock in a shared graph either misses a copy an earlier file
+cached or leaks into the next file. Between files vitest restores mocks, and
+`src/test-file-cleanup.ts` also restores real timers and undoes
+`vi.stubEnv`/`vi.stubGlobal`. A file that left fake timers on used to hang the
+next file's `app.close()` until its hook timed out. Anything else a test leaves
+behind (a mutated singleton, a direct `process.env` write) still reaches the
+next file in its worker, so clean it up in `afterEach`/`afterAll`.
 
 One container serves every checkout on the machine, and three things are what
 make that safe. The template is named for a digest of the migrations it holds
@@ -104,17 +118,17 @@ migration-diff step in `Checks` will fail otherwise — see `npm run migrate:dev
 
 ## Pointer table — when in doubt
 
-| Doing                                        | Read                                                             |
-| -------------------------------------------- | ---------------------------------------------------------------- |
-| **Writing or editing code**                  | **`.cursor/rules/*.mdc` — read first, every time**               |
-| Adding an endpoint                           | `docs/architecture.md` § Module shape                            |
-| Adding or changing analytics instrumentation | `.claude/skills/instrument-analytics-event/SKILL.md` (repo root) |
-| Touching contracts                           | `docs/contracts.md`                                              |
-| Writing or fixing a test                     | `docs/writing-tests.md`                                          |
-| Adding/debugging an alert                    | `docs/observability.md`                                          |
-| Reproducing a reported bug                   | `docs/debugging.md`                                              |
+| Doing                                        | Read                                                                                      |
+| -------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| **Writing or editing code**                  | **`.cursor/rules/*.mdc` — read first, every time**                                        |
+| Adding an endpoint                           | `docs/architecture.md` § Module shape                                                     |
+| Adding or changing analytics instrumentation | `.claude/skills/instrument-analytics-event/SKILL.md` (repo root)                          |
+| Touching contracts                           | `docs/contracts.md`                                                                       |
+| Writing or fixing a test                     | `docs/writing-tests.md`                                                                   |
+| Adding/debugging an alert                    | `docs/observability.md`                                                                   |
+| Reproducing a reported bug                   | `docs/debugging.md`                                                                       |
 | First-time setup                             | root `docs/development.md` (the one path); `docs/getting-started.md` for gp-api specifics |
-| AI rule-by-rule code review                  | `ai-rules/` (git submodule)                                      |
+| AI rule-by-rule code review                  | `ai-rules/` (git submodule)                                                               |
 
 ## Cursor rules (`alwaysApply: true`) — read before writing code
 
@@ -177,6 +191,7 @@ Per-area `AGENTS.md` files cover purpose, key files, patterns, and gotchas for t
 | Campaign websites / domains                              | `src/websites/AGENTS.md`                             |
 | Opposition research (Know Your Opponent)                 | `src/raceOpponent/AGENTS.md`                         |
 | Ordinances / drafting / quality loop                     | `src/ordinances/AGENTS.md`                           |
+| Priorities, their results, AI-coded answers              | `src/priorities/AGENTS.md`                           |
 | What the chat assistants know about the product          | `src/chats/general/product-knowledge/AGENTS.md`      |
 | SQS producer/consumer / async                            | `src/queue/AGENTS.md`                                |
 | Auth, JWT, Clerk M2M, roles                              | `src/authentication/AGENTS.md`                       |
@@ -275,7 +290,7 @@ The submodule is initialized automatically by `npm install` via the `postinstall
 - DB ops rely on Prisma + global `PrismaExceptionFilter` — **do not** wrap them in try/catch
 - **Wrap only external service calls in try/catch.** Keep DB operations outside the catch block so they aren't swallowed.
 - **Default to letting errors propagate** to the global `HttpExceptionFilter` (logs `{ statusCode, err }`) and `PrismaExceptionFilter`; add a try/catch only to translate an external failure, recover, or add lost context. **Never swallow** — a bare `catch {}` or returning null/`[]` to hide a failure is prohibited (rules.mdc Rule 3 § Error Handling & Observability).
-- **Log errors via the injected `PinoLogger` with the raw `{ err }`** — never `@nestjs/common`'s `Logger`, and never hand-extract `.message`/`.status` into strings. Pino serializes the full error incl. provider fields like Clerk's `status`/`errors[]` (rules.mdc Rule 3).
+- **Log errors via the injected `PinoLogger` with the raw `{ err }`** — never `@nestjs/common`'s `Logger`, and never hand-extract `.message`/`.status` into strings. Pino serializes the full error incl. provider fields like Clerk's `status`/`errors[]` to stdout, but the OTel log bridge that feeds Loki keeps only the error's code, message and stack, so a provider field you need in Grafana also goes alongside `err` as its own top-level field (rules.mdc Rule 3).
 - `@HttpCode(HttpStatus.NO_CONTENT)` methods must **`await`** the service call — never `return` it (rules.mdc Rule 24).
 
 ## Design rules — high-cost mistakes

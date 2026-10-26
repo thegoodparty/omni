@@ -9,13 +9,15 @@ import {
   setUserEmail,
   setActorUserId,
   setActorRole,
+  setActiveProduct,
+  toActiveProduct,
 } from 'helpers/analyticsHelper'
 import { useSearchParams } from 'next/navigation'
 import { useEffect } from 'react'
 import { identifyUser } from '@shared/utils/analytics'
 import { buildUserTraits } from 'helpers/buildUserTraits'
 import { User } from 'helpers/types'
-import { useOrganizationRole } from '@shared/organization-picker'
+import { useOrganization } from '@shared/organization-picker'
 import { setDataLayerUserId } from 'helpers/gtmDataLayer'
 
 const identify = async (
@@ -52,20 +54,22 @@ const identify = async (
 const SegmentIdentify = (): null => {
   const [user, , isUserLoading] = useUser()
   const searchParams = useSearchParams()
-  const organizationRole = useOrganizationRole()
+  const organization = useOrganization()
+  const organizationRole = organization?.role
 
   useEffect(() => {
     identify(user, searchParams)
   }, [user, searchParams])
 
   // Kept as its own effect (not folded into identify()) because the actor
-  // role changes on an org switch alone, without user identity changing —
-  // re-running the UTM/CLID persistence above on every org switch would be
-  // wasted work for a value that doesn't depend on it.
+  // role and active product change on an org switch alone, without user
+  // identity changing: re-running the UTM/CLID persistence above on every
+  // org switch would be wasted work for a value that doesn't depend on it.
   useEffect(() => {
     setActorUserId(user?.id)
     setActorRole(organizationRole ?? null)
-  }, [user?.id, organizationRole])
+    setActiveProduct(toActiveProduct(organization))
+  }, [user?.id, organizationRole, organization])
 
   // GA4's User-ID is read from the GTM dataLayer, not from Segment, so the id
   // is mirrored there whenever it resolves (and cleared on sign-out). See

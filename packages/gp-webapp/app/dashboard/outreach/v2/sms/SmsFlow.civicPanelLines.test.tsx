@@ -69,7 +69,6 @@ const openPanelInvite = () =>
       surface={SERVE_SMS_SURFACE}
       preselectedListId={41}
       audienceSettled
-      initialPurpose="build_citizens_panel"
       initialAsksToJoinCivicPanel
       initialScript={SEED}
     />,
@@ -218,7 +217,8 @@ describe('SmsFlow civic panel lines after a rewrite', () => {
         onClose={vi.fn()}
         onScheduled={vi.fn().mockResolvedValue(undefined)}
         surface={SERVE_SMS_SURFACE}
-        initialPurpose="build_citizens_panel"
+        initialPurpose="explain_decision"
+        initialAsksToJoinCivicPanel
       />,
     )
     await userEvent.click(await screen.findByText('Choose a constituent list'))

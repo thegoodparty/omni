@@ -19,7 +19,6 @@ import type {
   ConfirmConstituentFeedback,
   ConstituentFeedbackListResponse,
   ConstituentFeedbackRecord,
-  PendingFeedbackResponse,
   FeedbackReportResponse,
   FeedbackThemeDetail,
   IssueTag,
@@ -128,12 +127,9 @@ import type {
   PriorityReadStatus,
   CivicPanelSummary,
   CIVIC_PANEL_SEGMENT,
-  CivicPanelRepresentation,
-  CivicPanelBuildPlanResponse,
-  CreateCivicPanelBuildPlanInput,
-  UpdateCivicPanelBuildPlanInput,
-  MarkCivicPanelBuildStepInput,
-  PrepareCivicPanelBuildStepResponse,
+  ApproveManagedCivicPanelInput,
+  ManagedCivicPanelResponse,
+  UpdateManagedCivicPanelInput,
 } from '@goodparty_org/contracts'
 import type { Race } from 'app/onboarding/[slug]/[step]/components/ballotOffices/types'
 import type {
@@ -171,6 +167,7 @@ import type {
   ListDetailContactsResponse,
   GetConstituentIssuesResponse,
   GetIndividualActivitiesResponse,
+  GetPersonPriorityAnswersResponse,
   ContactNote,
   ContactNoteInput,
   ContactNoteListResponse,
@@ -1566,41 +1563,25 @@ export type APIEndpoints = {
     Request: UpdateCivicPanelInput
     Response: CivicPanelStatusResponse
   }
-  // Serve's civic panel as a whole. Both 404 with serve-citizen-panels
-  // off and 400 for a Win org.
+  // Serve's civic panel as a whole. 404s with serve-citizen-panels off and
+  // 400s for a Win org.
   'GET /v1/contacts/civic-panel': {
     Request: {}
     Response: CivicPanelSummary
   }
-  'GET /v1/contacts/civic-panel/representation': {
+  // The panel GoodParty builds for the office. GET is { panel: null } before
+  // the official approves; POST approves the invite in their name.
+  'GET /v1/contacts/civic-panel/managed': {
     Request: {}
-    Response: CivicPanelRepresentation
+    Response: ManagedCivicPanelResponse
   }
-  // The plan that builds the panel across texts, calls and doors. Reading
-  // it is what moves it on (links, dates, the next wave).
-  'GET /v1/contacts/civic-panel/plan': {
-    Request: {}
-    Response: CivicPanelBuildPlanResponse
+  'POST /v1/contacts/civic-panel/managed': {
+    Request: ApproveManagedCivicPanelInput
+    Response: ManagedCivicPanelResponse
   }
-  'POST /v1/contacts/civic-panel/plan': {
-    Request: CreateCivicPanelBuildPlanInput
-    Response: CivicPanelBuildPlanResponse
-  }
-  'PATCH /v1/contacts/civic-panel/plan': {
-    Request: UpdateCivicPanelBuildPlanInput
-    Response: CivicPanelBuildPlanResponse
-  }
-  'POST /v1/contacts/civic-panel/plan/steps/:id/prepare': {
-    Request: {}
-    Response: PrepareCivicPanelBuildStepResponse
-  }
-  'POST /v1/contacts/civic-panel/plan/steps/:id/skip': {
-    Request: {}
-    Response: CivicPanelBuildPlanResponse
-  }
-  'POST /v1/contacts/civic-panel/plan/steps/:id/mark': {
-    Request: MarkCivicPanelBuildStepInput
-    Response: CivicPanelBuildPlanResponse
+  'PATCH /v1/contacts/civic-panel/managed': {
+    Request: UpdateManagedCivicPanelInput
+    Response: ManagedCivicPanelResponse
   }
   'GET /v1/contacts/:id': {
     Request: {}
@@ -1843,17 +1824,6 @@ export type APIEndpoints = {
     Request: AudioUploadUrlRequest
     Response: AudioUploadUrlResponse
   }
-  // "Notes to review": an effort's unconfirmed memos. A volunteer gets their
-  // own, an owner or manager everyone's.
-  'GET /v1/constituent-feedback/pending': {
-    Request: { outreachId: number }
-    Response: PendingFeedbackResponse
-  }
-  // Transcribes or extracts a pending memo again.
-  'POST /v1/constituent-feedback/:id/retry': {
-    Request: {}
-    Response: ConstituentFeedbackRecord
-  }
   // The effort's report: what the "What we heard" page renders, and what
   // the turf and phone entry rows read their two counts from.
   'GET /v1/constituent-feedback/efforts/:outreachId/report': {
@@ -1929,6 +1899,10 @@ export type APIEndpoints = {
   'GET /v1/contact-engagement/:id/activities': {
     Request: { take?: number; after?: string; lalVoterId?: string }
     Response: GetIndividualActivitiesResponse
+  }
+  'GET /v1/contact-engagement/:id/priority-answers': {
+    Request: {}
+    Response: GetPersonPriorityAnswersResponse
   }
 
   'GET /v1/meetings': {
