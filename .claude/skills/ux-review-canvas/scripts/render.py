@@ -15,8 +15,9 @@ Usage: .claude/skills/ux-review-canvas/scripts/render.py <command> ...
   setup   <work> <dc-runtime.js>
   measure <work> <board.dc.html>... [--width 1280]
           Prints "<board> <content height>". Removes the root min-height first, so
-          the number is the content, not the current frame. Add 32 to 48 px of
-          bottom room when you set the frame.
+          the number is the content, not the current frame. It measures the
+          state the board opens in; for a taller later state, measure a copy that
+          opens there. Add 32 to 48 px of bottom room when you set the frame.
   shot    <work> <board.dc.html> <out.png> [--width 1280] [--height 900] [--hash from=email]
   sheet   <out.png> <columns> <tile-width> <image.png>...
 
@@ -71,6 +72,18 @@ def setup(work, runtime):
     print('runtime saved to', os.path.join(d, 'support.js'))
 
 
+def _zero_root_min_height(src):
+    # The root is the first element after the helmet. Earlier min-heights (44px
+    # targets in the helmet's styles) aren't the frame.
+    start = src.find('</helmet>')
+    start = src.find('<x-dc>') if start < 0 else start
+    m = re.compile(r'<[a-zA-Z][^>]*>').search(src, start)
+    if not m:
+        return src
+    tag = re.sub(r'min-height:\s*\d+px', 'min-height: 0px', m.group(0), count=1)
+    return src[:m.start()] + tag + src[m.end():]
+
+
 def measure(work, boards, width=1280):
     d = _render_dir(work)
     server = _serve(d)
@@ -78,7 +91,7 @@ def measure(work, boards, width=1280):
     try:
         for b in boards:
             src = open(b).read()
-            src = re.sub(r'min-height: \d+px', 'min-height: 0px', src, count=1)
+            src = _zero_root_min_height(src)
             name = 'm-' + os.path.basename(b)
             open(os.path.join(d, name), 'w').write(src.replace('</body>', MEASURE_JS + '</body>'))
             r = _chrome([f'--window-size={width},900', '--virtual-time-budget=5000', '--dump-dom',

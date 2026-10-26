@@ -26,7 +26,7 @@ old = json.load(open(path)) if os.path.exists(path) else {}
 
 
 def pv(f):
-    m = re.search(r'"\$preview":\{"width":(\d+),"height":(\d+)\}', open(os.path.join(P, f)).read())
+    m = re.search(r'"\$preview"\s*:\s*\{\s*"width"\s*:\s*(\d+)\s*,\s*"height"\s*:\s*(\d+)\s*\}', open(os.path.join(P, f)).read())
     if not m:
         sys.exit(f'{f} has no $preview size')
     return int(m.group(1)), int(m.group(2))
