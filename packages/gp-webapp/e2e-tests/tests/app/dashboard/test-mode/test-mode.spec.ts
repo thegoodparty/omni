@@ -22,6 +22,12 @@ type TestModeState = {
   } | null
 }
 
+// The office dropdown lists general races only. Charlotte's city general (Nov
+// 2027) is the `28202-city-council` reference in real-world-references.json;
+// picking it by name keeps the same office on either side of an earlier
+// election day.
+const OFFICE = { zip: '28202', name: /^Charlotte City Council/ }
+
 const staffEmail = () => `qa-${randomUUID()}@goodparty.org`
 
 const getTestMode = async (client: AxiosInstance, organizationSlug?: string) =>
@@ -86,14 +92,14 @@ test.describe('staff test mode', () => {
       sheet.getByRole('combobox').first(),
       'Elected Office',
     )
-    await sheet.getByPlaceholder('12345').fill('82001')
+    await sheet.getByPlaceholder('12345').fill(OFFICE.zip)
     await sheet.getByRole('button', { name: 'Search' }).click()
     const office = sheet
       .getByRole('combobox')
       .filter({ hasText: 'Select office' })
     await expect(office).toBeVisible({ timeout: 30_000 })
     await office.click()
-    await page.getByRole('option').first().click()
+    await page.getByRole('option', { name: OFFICE.name }).first().click()
     await sheet.getByRole('button', { name: 'Create' }).click()
 
     await expect
@@ -160,7 +166,7 @@ test.describe('staff test mode', () => {
     await gotoDashboard(page)
 
     const sheet = await openTestMode(page)
-    await sheet.getByPlaceholder('12345').fill('82001')
+    await sheet.getByPlaceholder('12345').fill(OFFICE.zip)
     await sheet.getByRole('button', { name: 'Search' }).click()
 
     const office = sheet
@@ -168,7 +174,7 @@ test.describe('staff test mode', () => {
       .filter({ hasText: 'Select office' })
     await expect(office).toBeVisible({ timeout: 30_000 })
     await office.click()
-    await page.getByRole('option').first().click()
+    await page.getByRole('option', { name: OFFICE.name }).first().click()
 
     // Comboboxes after the office pick: Type, Office, Onboarding, Pro, ...
     await pickOption(page, sheet.getByRole('combobox').nth(3), 'on')
