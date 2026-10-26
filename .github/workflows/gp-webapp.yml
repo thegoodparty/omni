@@ -89,7 +89,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
     steps:
       - uses: actions/checkout@v5
         with:
@@ -101,7 +101,7 @@ jobs:
           build-contracts: 'true'
 
       - name: Test
-        run: npm run test -w ${{ env.WORKSPACE }} -- --shard=${{ matrix.shard }}/4
+        run: npm run test -w ${{ env.WORKSPACE }} -- --shard=${{ matrix.shard }}/${{ strategy.job-total }}
 
   # Empty aggregation gate, mirroring gp-api's. The main branch ruleset
   # requires a status check named exactly "Validate"; this job preserves that
