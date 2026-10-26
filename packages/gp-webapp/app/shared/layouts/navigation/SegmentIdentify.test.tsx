@@ -14,12 +14,13 @@ import {
 import { buildUserTraits } from 'helpers/buildUserTraits'
 
 let mockUser: User | null = null
+let mockIsUserLoading = false
 let mockSearchParamsValue: URLSearchParams | null = new URLSearchParams()
 let mockOrganizationRole: 'owner' | 'campaignAdmin' | 'volunteer' | undefined =
   undefined
 
 vi.mock('@shared/hooks/useUser', () => ({
-  useUser: () => [mockUser, vi.fn()],
+  useUser: () => [mockUser, vi.fn(), mockIsUserLoading],
 }))
 
 vi.mock('@shared/organization-picker', () => ({
@@ -73,6 +74,7 @@ const fullUserTraits = {
 
 beforeEach(() => {
   mockUser = null
+  mockIsUserLoading = false
   mockSearchParamsValue = new URLSearchParams()
   mockOrganizationRole = undefined
   vi.mocked(identifyUser).mockReset().mockResolvedValue(true)
@@ -111,8 +113,24 @@ describe('SegmentIdentify', () => {
     render(<SegmentIdentify />)
 
     await vi.waitFor(() => {
-      expect(w.dataLayer).toContainEqual({ user_id: undefined })
+      expect(w.dataLayer).toContainEqual({ user_id: null })
     })
+  })
+
+  it('does not touch the dataLayer user id while the user is loading', async () => {
+    const w = window as unknown as {
+      dataLayer?: Record<string, unknown>[]
+    }
+    delete w.dataLayer
+    mockUser = null
+    mockIsUserLoading = true
+
+    render(<SegmentIdentify />)
+
+    await vi.waitFor(() => {
+      expect(identifyUser).toHaveBeenCalled()
+    })
+    expect(w.dataLayer).toBeUndefined()
   })
 
   it('calls identifyUser with buildUserTraits output when user is logged in', async () => {

@@ -32,12 +32,13 @@ export const pushToDataLayer = (entry: DataLayerEntry): void => {
 }
 
 // Pushed as a string because GA4's User-ID field is a string, and pushed as
-// `undefined` on sign-out so a later GTM read does not keep the previous
-// user's id.
+// `null` on sign-out so a later GTM read does not keep the previous user's
+// id. `undefined` would not work: a version 2 dataLayer variable merges
+// pushes recursively and skips undefined values.
 export const setDataLayerUserId = (
   userId: string | number | null | undefined,
 ): void => {
-  pushToDataLayer({ user_id: userId == null ? undefined : String(userId) })
+  pushToDataLayer({ user_id: userId == null ? null : String(userId) })
 }
 
 export const pushSignUpToDataLayer = ({

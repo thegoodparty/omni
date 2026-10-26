@@ -38,7 +38,7 @@ describe('gtmDataLayer', () => {
     setDataLayerUserId(42)
     setDataLayerUserId(null)
 
-    expect(w.dataLayer).toEqual([{ user_id: '42' }, { user_id: undefined }])
+    expect(w.dataLayer).toEqual([{ user_id: '42' }, { user_id: null }])
   })
 
   it('pushes a sign_up event with the method and user id', () => {
