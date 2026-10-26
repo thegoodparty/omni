@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { assignPrecincts } from './robocallFreeOfferAssignment.util'
+import {
+  assignPrecincts,
+  isAfterOfferElection,
+} from './robocallFreeOfferAssignment.util'
 
 // Always draws 0: no shuffle swaps, and the low side of an odd tie-break.
 const lowest = () => 0
@@ -85,5 +88,17 @@ describe('assignPrecincts', () => {
       randomInt: highest,
     })
     expect(rows.map((row) => row.key).sort()).toEqual(unassigned)
+  })
+})
+
+describe('isAfterOfferElection', () => {
+  it('keeps the offer through Election Day, Eastern time', () => {
+    expect(isAfterOfferElection(new Date('2026-11-02T12:00:00Z'))).toBe(false)
+    // 11:30pm Nov 3 in New York is already Nov 4 in UTC.
+    expect(isAfterOfferElection(new Date('2026-11-04T04:30:00Z'))).toBe(false)
+  })
+
+  it('ends the offer once Election Day is over', () => {
+    expect(isAfterOfferElection(new Date('2026-11-04T05:30:00Z'))).toBe(true)
   })
 })
