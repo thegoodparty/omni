@@ -86,6 +86,31 @@ const turn = (segments: ChatMessageSegment[]): ChatMessageDto => ({
   segments,
 })
 
+const builtPanel = {
+  id: 'mp-1',
+  status: 'building' as const,
+  inviteMessage: 'Hi.',
+  consentVersion: 'v1',
+  approvedAt: new Date('2026-10-22T18:00:00Z'),
+  approvedByUserId: 1,
+  goalMembers: 275,
+  freeTextCap: 15000,
+  freeTextsUsed: 0,
+  readyAt: null,
+  pausedAt: null,
+  stoppedAt: null,
+  createdAt: new Date('2026-10-22T18:00:00Z'),
+  updatedAt: new Date('2026-10-22T18:00:00Z'),
+  progress: {
+    members: 0,
+    goalMembers: 275,
+    wavesSent: 0,
+    nextWaveAt: null,
+    firstSendDate: '2026-10-27',
+    readyWeekOf: '2026-11-09',
+  },
+}
+
 const inviteTurn = () =>
   turn([
     { kind: 'text', text: 'Here it is.' },
@@ -106,24 +131,32 @@ beforeEach(() => {
 })
 
 describe('the managed civic panel in the Chief of Staff chat', () => {
-  it('shows the invite read-only with a sample first name, and one button', async () => {
+  it('shows a compact card with one button, and leaves the words to the review', async () => {
     render(<ChiefOfStaffChatBody active conversationIdOverride="conv" />)
 
     const card = await screen.findByTestId('managed-panel-invite')
     expect(within(card).getByText('Your civic panel invite')).toBeVisible()
     expect(within(card).getByText('Text to Maplewood residents')).toBeVisible()
-    const invite = within(card).getByText(/^Hi Sam, this is Carla/)
-    expect(invite).toHaveTextContent(
-      'Hi Sam, this is Carla, your Maplewood City Council Member. ' +
-        "I'm putting together a group of residents I check with before " +
-        'big votes. Want in?',
-    )
-    expect(invite).toHaveTextContent(CIVIC_PANEL_JOIN_LINE)
-    expect(invite.textContent?.trim().endsWith('Reply STOP to opt out.')).toBe(
-      true,
-    )
     expect(within(card).getAllByRole('button')).toHaveLength(1)
+    expect(
+      within(card).getByRole('button', { name: 'Review the invite' }),
+    ).toBeVisible()
+    expect(card).not.toHaveTextContent('this is Carla')
+    expect(card).not.toHaveTextContent(CIVIC_PANEL_JOIN_LINE)
+    expect(card).not.toHaveTextContent('Reply STOP to opt out.')
     expect(screen.queryByTestId('sms-flow')).toBeNull()
+  })
+
+  it('drops the button once the civic panel is set up', async () => {
+    api.mock('GET /v1/contacts/civic-panel/managed', {
+      status: 200,
+      data: { panel: builtPanel },
+    })
+    render(<ChiefOfStaffChatBody active conversationIdOverride="conv" />)
+
+    const card = await screen.findByTestId('managed-panel-invite')
+    await waitFor(() => expect(within(card).queryByRole('button')).toBeNull())
+    expect(within(card).getByText('Your civic panel invite')).toBeVisible()
   })
 
   it('opens the text flow in its managed mode on the draft', async () => {
@@ -214,30 +247,7 @@ describe('the managed civic panel in the Chief of Staff chat', () => {
     api.mock('GET /v1/contacts/civic-panel/managed', {
       status: 200,
       data: {
-        panel: {
-          id: 'mp-1',
-          status: 'building',
-          inviteMessage: 'Hi.',
-          consentVersion: 'v1',
-          approvedAt: new Date('2026-10-22T18:00:00Z'),
-          approvedByUserId: 1,
-          goalMembers: 275,
-          freeTextCap: 15000,
-          freeTextsUsed: 0,
-          readyAt: null,
-          pausedAt: null,
-          stoppedAt: null,
-          createdAt: new Date('2026-10-22T18:00:00Z'),
-          updatedAt: new Date('2026-10-22T18:00:00Z'),
-          progress: {
-            members: 0,
-            goalMembers: 275,
-            wavesSent: 0,
-            nextWaveAt: null,
-            firstSendDate: '2026-10-27',
-            readyWeekOf: '2026-11-09',
-          },
-        },
+        panel: builtPanel,
       },
     })
     listMessagesMock.mockResolvedValue([
