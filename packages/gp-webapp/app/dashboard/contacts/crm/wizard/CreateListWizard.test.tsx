@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { fireEvent, screen } from '@testing-library/react'
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
+import { act, fireEvent, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
@@ -110,11 +110,11 @@ const skipBoundaryStep = async (
 const drawBoundary = async (
   user: ReturnType<typeof userEvent.setup>,
 ): Promise<void> => {
-  await user.click(
-    await screen.findByRole('button', {
-      name: /draw shapes|draw another shape/i,
-    }),
-  )
+  const draw = await screen.findByRole('button', {
+    name: /draw shapes|draw another shape/i,
+  })
+  await vi.waitFor(() => expect(draw).toBeEnabled())
+  await user.click(draw)
   for (const label of ['place point 1', 'place point 2', 'place point 3']) {
     await user.click(await screen.findByRole('button', { name: label }))
   }
@@ -170,6 +170,11 @@ const eventCalls = (event: string) =>
   vi.mocked(trackEvent).mock.calls.filter(([name]) => name === event)
 
 beforeEach(() => {
+  vi.useFakeTimers({ shouldAdvanceTime: true })
+  // Testing Library only advances a fake clock inside findBy/waitFor when it
+  // sees a `jest` global. Without it every findBy waits out the 600ms count
+  // and polygon debounces in real time.
+  vi.stubGlobal('jest', { advanceTimersByTime: vi.advanceTimersByTime })
   api.reset()
   vi.clearAllMocks()
   refreshCustomSegments.mockClear()
@@ -199,9 +204,14 @@ beforeEach(() => {
   })
 })
 
+afterEach(() => {
+  vi.unstubAllGlobals()
+  vi.useRealTimers()
+})
+
 describe('CreateListWizard — step navigation', () => {
   it('disables Continue on step 1 until a branch is chosen', async () => {
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     render(<CreateListWizard open onOpenChange={vi.fn()} />)
 
     const next = screen.getByRole('button', { name: 'Continue' })
@@ -216,7 +226,7 @@ describe('CreateListWizard — step navigation', () => {
   })
 
   it('advances to the voter-file step 2 and back to step 1', async () => {
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     render(<CreateListWizard open onOpenChange={vi.fn()} />)
 
     await user.click(
@@ -237,7 +247,7 @@ describe('CreateListWizard — step navigation', () => {
   })
 
   it('shares one mode-aware step-2 heading across both branches (Win)', async () => {
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     render(<CreateListWizard open onOpenChange={vi.fn()} />)
 
     await user.click(
@@ -308,7 +318,7 @@ describe('CreateListWizard — step navigation', () => {
 
   it('gives both products a boundary step between the conditions and the name', async () => {
     setContext({ isWinContext: false, isElectedOfficial: true })
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     const { unmount } = render(<CreateListWizard open onOpenChange={vi.fn()} />)
 
     await user.click(pillForOption('Female'))
@@ -366,14 +376,16 @@ describe('CreateListWizard — step navigation', () => {
         },
       }
     })
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     render(<CreateListWizard open onOpenChange={vi.fn()} />)
 
     await user.click(pillForOption('Female'))
     await user.click(
       await screen.findByRole('button', { name: /build your list \(250\)/i }),
     )
-    await user.click(await screen.findByRole('button', { name: 'Draw shapes' }))
+    const draw = await screen.findByRole('button', { name: 'Draw shapes' })
+    await vi.waitFor(() => expect(draw).toBeEnabled())
+    await user.click(draw)
 
     const map = await screen.findByTestId('contact-map-stub')
     expect(map).toHaveAttribute('data-people', '2')
@@ -385,7 +397,7 @@ describe('CreateListWizard — step navigation', () => {
 
   it('advances Serve to the name step as Step 3 of 3, with Back returning through the boundary', async () => {
     setContext({ isWinContext: false, isElectedOfficial: true })
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     render(<CreateListWizard open onOpenChange={vi.fn()} />)
 
     await user.click(pillForOption('Female'))
@@ -422,7 +434,7 @@ describe('CreateListWizard — step navigation', () => {
 
   it('keeps the drawn ring when Back returns to the boundary step', async () => {
     setContext({ isWinContext: false, isElectedOfficial: true })
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     render(<CreateListWizard open onOpenChange={vi.fn()} />)
 
     await user.click(pillForOption('Female'))
@@ -451,7 +463,7 @@ describe('CreateListWizard — step navigation', () => {
   })
 
   it('advances to the activity step 2 and disables the step-2 CTA until every row has a channel', async () => {
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     render(<CreateListWizard open onOpenChange={vi.fn()} />)
 
     await user.click(
@@ -472,7 +484,7 @@ describe('CreateListWizard — step navigation', () => {
   })
 
   it('resets all state when reopened after being cancelled', async () => {
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     const onOpenChange = vi.fn()
     const { rerender } = render(
       <CreateListWizard open onOpenChange={onOpenChange} />,
@@ -498,7 +510,7 @@ describe('CreateListWizard — step navigation', () => {
 
 describe('CreateListWizard — voter-file branch payload assembly', () => {
   it('sends the exact demographic + support-status request body', async () => {
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     let sentBody: Record<string, unknown> | null = null
     api.mock('POST /v1/voters/voter-file/filter', ({ body }) => {
       sentBody = body as Record<string, unknown>
@@ -543,7 +555,7 @@ describe('CreateListWizard — voter-file branch payload assembly', () => {
   })
 
   it('does not persist a voterCount on create', async () => {
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     let sentBody: Record<string, unknown> | null = null
     api.mock('POST /v1/voters/voter-file/filter', ({ body }) => {
       sentBody = body as Record<string, unknown>
@@ -575,7 +587,7 @@ describe('CreateListWizard — voter-file branch payload assembly', () => {
   })
 
   it('keeps the build CTA (and so the whole flow) blocked while the live count never resolves (ENG-10769/86ajrth65)', async () => {
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     // A count that never settles: pre-86ajrth65, this test reached the name
     // step (the CTA stayed clickable while loading) to prove Save itself
     // gated on the unresolved count — the exact voterCount-omission bug
@@ -611,7 +623,7 @@ describe('CreateListWizard — voter-file branch payload assembly', () => {
 
   it('hides the Political Party section for an elected official', async () => {
     setContext({ isElectedOfficial: true })
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     render(<CreateListWizard open onOpenChange={vi.fn()} />)
 
     await user.click(
@@ -627,7 +639,7 @@ describe('CreateListWizard — voter-file branch payload assembly', () => {
   })
 
   it('shows "Clear filters" only once a pill is selected, and clearing resets the payload', async () => {
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     let sentBody: Record<string, unknown> | null = null
     api.mock('POST /v1/voters/voter-file/filter', ({ body }) => {
       sentBody = body as Record<string, unknown>
@@ -688,7 +700,7 @@ describe('CreateListWizard — activity branch payload assembly', () => {
       data: { count: 250 },
     }))
     api.mock('POST /v1/contacts/count', countHandler)
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     render(<CreateListWizard open onOpenChange={vi.fn()} />)
 
     await user.click(
@@ -700,7 +712,7 @@ describe('CreateListWizard — activity branch payload assembly', () => {
 
     // An incomplete condition serializes to activityConditions: [] — the
     // backend would return the unfiltered total and poison the count cache.
-    await new Promise((resolve) => setTimeout(resolve, 800))
+    await act(() => vi.advanceTimersByTimeAsync(800))
     expect(countHandler).not.toHaveBeenCalled()
 
     await user.click(screen.getByRole('radio', { name: 'Text' }))
@@ -725,7 +737,7 @@ describe('CreateListWizard — activity branch payload assembly', () => {
       sentBody = body as Record<string, unknown>
       return { status: 200, data: { id: 202, name: 'Text + door knock' } }
     })
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
 
     render(<CreateListWizard open onOpenChange={vi.fn()} />)
 
@@ -783,7 +795,7 @@ describe('CreateListWizard — activity branch payload assembly', () => {
 
 describe('CreateListWizard — running total + CTA', () => {
   it('shows the debounced count on the step-2 CTA and in the step-3 count sentence', async () => {
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     render(<CreateListWizard open onOpenChange={vi.fn()} />)
 
     await user.click(
@@ -811,7 +823,7 @@ describe('CreateListWizard — running total + CTA', () => {
         message: 'This filter resolves too many people to apply directly',
       },
     })
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     render(<CreateListWizard open onOpenChange={vi.fn()} />)
 
     await user.click(
@@ -852,7 +864,7 @@ describe('CreateListWizard — running total + CTA', () => {
 
 describe('CreateListWizard — ENG-10751 zero-filter build block', () => {
   it('renders a truly disabled build CTA at zero selections that cannot advance to the name step', async () => {
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     render(<CreateListWizard open onOpenChange={vi.fn()} />)
 
     await user.click(
@@ -875,7 +887,7 @@ describe('CreateListWizard — ENG-10751 zero-filter build block', () => {
   })
 
   it('enables on a single selection and disables again after Clear filters', async () => {
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     render(<CreateListWizard open onOpenChange={vi.fn()} />)
 
     await user.click(
@@ -905,7 +917,7 @@ describe('CreateListWizard — ENG-10751 zero-filter build block', () => {
       data: { count: 118099 },
     }))
     api.mock('POST /v1/contacts/count', countHandler)
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     render(<CreateListWizard open onOpenChange={vi.fn()} />)
 
     await user.click(
@@ -926,7 +938,7 @@ describe('CreateListWizard — ENG-10751 zero-filter build block', () => {
 describe('CreateListWizard — ENG-10781 zero-match build block', () => {
   it('disables the build CTA once a valid selection resolves to zero matches', async () => {
     api.mock('POST /v1/contacts/count', { status: 200, data: { count: 0 } })
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     render(<CreateListWizard open onOpenChange={vi.fn()} />)
 
     await user.click(
@@ -961,7 +973,7 @@ describe('CreateListWizard — ENG-10781 zero-match build block', () => {
         data: { count: payload.partyDemocrat ? 42 : 0 },
       }
     })
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     render(<CreateListWizard open onOpenChange={vi.fn()} />)
 
     await user.click(
@@ -998,7 +1010,7 @@ describe('CreateListWizard — error handling', () => {
       status: 500,
       data: { message: 'server exploded' },
     })
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     const onOpenChange = vi.fn()
 
     render(<CreateListWizard open onOpenChange={onOpenChange} />)
@@ -1039,7 +1051,7 @@ describe('CreateListWizard — error handling', () => {
       status: 400,
       data: { message: capMessage },
     })
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
 
     render(<CreateListWizard open onOpenChange={vi.fn()} />)
 
@@ -1073,7 +1085,7 @@ describe('CreateListWizard — ENG-10709 List Created / Activity List Created an
       status: 200,
       data: { id: 101, name: 'Likely Dem women' },
     })
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
 
     render(<CreateListWizard open onOpenChange={vi.fn()} />)
 
@@ -1114,7 +1126,7 @@ describe('CreateListWizard — ENG-10709 List Created / Activity List Created an
       sentBody = body as Record<string, unknown>
       return { status: 200, data: { id: 102, name: 'Reachable constituents' } }
     })
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
 
     render(<CreateListWizard open onOpenChange={vi.fn()} />)
 
@@ -1161,7 +1173,7 @@ describe('CreateListWizard — ENG-10709 List Created / Activity List Created an
       sentBody = body as Record<string, unknown>
       return { status: 200, data: { id: 103, name: 'Riverside block' } }
     })
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
 
     render(<CreateListWizard open onOpenChange={vi.fn()} />)
     await user.click(pillForOption('Female'))
@@ -1196,7 +1208,7 @@ describe('CreateListWizard — ENG-10709 List Created / Activity List Created an
       sentBody = body as Record<string, unknown>
       return { status: 200, data: { id: 104, name: 'Riverside voters' } }
     })
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
 
     render(<CreateListWizard open onOpenChange={vi.fn()} />)
     await user.click(
@@ -1233,7 +1245,7 @@ describe('CreateListWizard — ENG-10709 List Created / Activity List Created an
 
   it('shows the polygon count on the name step once a boundary is drawn', async () => {
     setContext({ isWinContext: false, isElectedOfficial: true })
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
 
     render(<CreateListWizard open onOpenChange={vi.fn()} />)
     await user.click(pillForOption('Female'))
@@ -1264,7 +1276,7 @@ describe('CreateListWizard — ENG-10709 List Created / Activity List Created an
       status: 200,
       data: { count: 0, audienceEmpty: false },
     })
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
 
     render(<CreateListWizard open onOpenChange={vi.fn()} />)
     await user.click(pillForOption('Female'))
@@ -1295,7 +1307,7 @@ describe('CreateListWizard — ENG-10709 List Created / Activity List Created an
           'boundary or narrow the list.',
       },
     })
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
 
     render(<CreateListWizard open onOpenChange={vi.fn()} />)
     await user.click(pillForOption('Female'))
@@ -1320,7 +1332,7 @@ describe('CreateListWizard — ENG-10709 List Created / Activity List Created an
       status: 200,
       data: { count: 0, audienceEmpty: true },
     })
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
 
     render(<CreateListWizard open onOpenChange={vi.fn()} />)
     await user.click(pillForOption('Female'))
@@ -1352,7 +1364,7 @@ describe('CreateListWizard — ENG-10709 List Created / Activity List Created an
       status: 200,
       data: { id: 202, name: 'Texted GOTV blast' },
     })
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
 
     render(<CreateListWizard open onOpenChange={vi.fn()} />)
 
@@ -1406,7 +1418,7 @@ describe('CreateListWizard — ENG-10709 List Created / Activity List Created an
       status: 200,
       data: { id: 203, name: 'Text + door knock' },
     })
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
 
     render(<CreateListWizard open onOpenChange={vi.fn()} />)
 
@@ -1457,7 +1469,7 @@ describe('CreateListWizard — ENG-10709 List Created / Activity List Created an
   })
 
   it('never fires outcome analytics on wizard abandon (closed via X before completing)', async () => {
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     render(<CreateListWizard open onOpenChange={vi.fn()} />)
 
     await user.click(
@@ -1477,7 +1489,7 @@ describe('CreateListWizard — ENG-10709 List Created / Activity List Created an
 
 describe('CreateListWizard — ENG-10767 stage Viewed/Completed funnel', () => {
   it('fires Method Viewed on open, Method Completed + Conditions Viewed on advance (Win)', async () => {
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     render(<CreateListWizard open onOpenChange={vi.fn()} />)
 
     await vi.waitFor(() =>
@@ -1517,7 +1529,7 @@ describe('CreateListWizard — ENG-10767 stage Viewed/Completed funnel', () => {
   })
 
   it('re-fires the stage Viewed when navigating Back into an already-visited stage', async () => {
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     render(<CreateListWizard open onOpenChange={vi.fn()} />)
 
     await user.click(
@@ -1540,7 +1552,7 @@ describe('CreateListWizard — ENG-10767 stage Viewed/Completed funnel', () => {
       status: 200,
       data: { id: 101, name: 'Funnel list' },
     })
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     render(<CreateListWizard open onOpenChange={vi.fn()} />)
 
     await user.click(
@@ -1630,7 +1642,7 @@ describe('CreateListWizard — ENG-10767 stage Viewed/Completed funnel', () => {
 
 describe('CreateListWizard — dismissed mid-mutation (vaul swipe-close path)', () => {
   it('still completes onSuccess exactly once when the drawer closes while the create is in flight', async () => {
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     const onOpenChange = vi.fn()
 
     let resolveCreate: (data: { id: number; name: string }) => void
@@ -1712,7 +1724,7 @@ describe('CreateListWizard — district gating', () => {
       return { status: 200, data: { count: 250 } }
     })
     setContext({ voterDataUnavailable: false })
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
 
     render(<CreateListWizard open onOpenChange={vi.fn()} />)
     await openVoterFileStep(user)
@@ -1731,11 +1743,11 @@ describe('CreateListWizard — district gating', () => {
       return { status: 200, data: { count: 250 } }
     })
     setContext({ voterDataUnavailable: true })
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
 
     render(<CreateListWizard open onOpenChange={vi.fn()} />)
     await openVoterFileStep(user)
-    await new Promise((resolve) => setTimeout(resolve, 900))
+    await act(() => vi.advanceTimersByTimeAsync(900))
 
     expect(onCount).not.toHaveBeenCalled()
   })
