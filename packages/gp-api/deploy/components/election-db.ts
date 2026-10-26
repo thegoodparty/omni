@@ -3,8 +3,9 @@ import * as pulumi from '@pulumi/pulumi'
 
 // The election Aurora cluster, adopted from the election-api stack by import
 // (election-api consolidation, phase 7). Every physical name below is the one
-// election-api's stack created, and the tags keep its Project tag, so nothing
-// here is recreated or renamed.
+// election-api's stack created, so nothing here is recreated or renamed. The
+// tags are the stack's default ones (Project: gp-api), like every other
+// resource in this stack.
 //
 // The master password is not managed here. The cluster keeps the one it has,
 // and gp-api reads it from ELECTION_DATABASE_URL in its own secret.
@@ -35,7 +36,6 @@ const physical = {
 
 export const createElectionDb = (environment: 'dev' | 'prod') => {
   const p = physical[environment]
-  const tags = { Project: 'election-api' }
   const logGroupName = `/aws/events/rds/${p.cluster}`
 
   const cluster = new aws.rds.Cluster(
@@ -58,7 +58,6 @@ export const createElectionDb = (environment: 'dev' | 'prod') => {
       deletionProtection: true,
       skipFinalSnapshot: false,
       finalSnapshotIdentifier: p.finalSnapshot,
-      tags,
     },
     {
       protect: true,
@@ -81,7 +80,6 @@ export const createElectionDb = (environment: 'dev' | 'prod') => {
       instanceClass: 'db.serverless',
       engine: aws.rds.EngineType.AuroraPostgresql,
       engineVersion: cluster.engineVersion,
-      tags,
     },
     {
       protect: true,
@@ -95,7 +93,6 @@ export const createElectionDb = (environment: 'dev' | 'prod') => {
   const logGroup = new aws.cloudwatch.LogGroup('electionDbEventsLogGroup', {
     name: logGroupName,
     retentionInDays: 365,
-    tags,
   })
 
   new aws.cloudwatch.LogResourcePolicy('electionDbEventsLogPolicy', {
@@ -122,7 +119,6 @@ export const createElectionDb = (environment: 'dev' | 'prod') => {
       source: ['aws.rds'],
       detail: { SourceIdentifier: [p.cluster, p.instance] },
     }),
-    tags,
   })
 
   new aws.cloudwatch.EventTarget('electionDbEventsTarget', {
