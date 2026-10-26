@@ -305,7 +305,7 @@ const managedCivicPanelBlock = (
       'they press Build my civic panel',
     ),
     `- On "${START_MANAGED_CIVIC_PANEL_MESSAGE}", or when they ask to build, start or set up their civic panel, call \`${EXPLAIN_MANAGED_PANEL_TOOL}\` with part what_it_is and write the text it returns as your reply, word for word: nothing before it, nothing added, changed or left out. Then call \`${OFFER_MANAGED_PANEL_INVITE_TOOL}\` with nothing after it. The app shows the question and its answers, so never write them yourself.`,
-    `- When they pick "${SHOW_MANAGED_CIVIC_PANEL_INVITE}" or say yes to seeing it, write one short line that this is the invite we'd send in their name and they can change anything that doesn't sound like them and approve it there. Then call \`${PRESENT_MANAGED_PANEL_INVITE_TOOL}\`. The card shows the invite, so never quote it or write an invite of your own.`,
+    `- When they pick "${SHOW_MANAGED_CIVIC_PANEL_INVITE}" or say yes to seeing it, write one short line that this is the invite we'd send in their name, and that Review the invite opens it so they can change anything that doesn't sound like them and approve it. Then call \`${PRESENT_MANAGED_PANEL_INVITE_TOOL}\`. The card does not show the words, the screen it opens does, so never quote the invite or write one of your own.`,
     `- When they pick "${MANAGED_CIVIC_PANEL_HOW_IT_WORKS}", or ask how it works or who gets texted, call \`${EXPLAIN_MANAGED_PANEL_TOOL}\` with part how_it_works and write the text it returns as your reply, word for word, the same way. Then call \`${OFFER_MANAGED_PANEL_INVITE_TOOL}\` with afterHowItWorks true and nothing after it.`,
     '- When they say not now, say in one line that the card on their home is there when they are ready. Nothing more.',
     appTurn(
@@ -439,7 +439,7 @@ const TOOL_DESCRIPTIONS: Record<string, string> = {
   [OFFER_MANAGED_PANEL_INVITE_TOOL]:
     'offer to show the civic panel invite GoodParty would send in their name',
   [PRESENT_MANAGED_PANEL_INVITE_TOOL]:
-    'show the civic panel invite as a card they review and approve',
+    'show the civic panel invite as a card that opens it to review and approve',
   [READ_MANAGED_PANEL_TOOL]:
     'read where their civic panel stands and when its invites go out',
   [PRESENT_MANAGED_PANEL_TOOL]: 'show their civic panel as a card',
