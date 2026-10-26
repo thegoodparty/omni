@@ -109,8 +109,37 @@ Under `src/shared/test-utils/`:
 - `createMockLogger()` — a fully-stubbed `PinoLogger`
 - `createMockClerkEnricher()` — stub for `ClerkUserEnricherService`
 - `createMockUser()`, `createMockCampaign()`, etc. — factories under `factories/`
+- `appEnvOverrides`, `useAppEnvOverrides()`, `disableVendorCrons()` — flip the deploy-env constants in `appEnvironment.util` (`IS_NON_PROD_DEPLOY`, `VENDOR_MODE`, `VENDOR_CRONS_ENABLED`, `APP_ROOT`, `WEBAPP_ROOT`)
 
 Prefer these over re-rolling stubs.
+
+## Module mocks
+
+Avoid `vi.mock`. Any file that calls it (or `vi.doMock`, `vi.unmock`, `vi.resetModules`) runs in the `fresh-modules` project and re-imports the whole app graph, ~5s per file; see `## Verify` in `../AGENTS.md`. Spy instead:
+
+```ts
+vi.spyOn(service.app.get(S3Service), 'getFile').mockResolvedValue(body)
+
+import * as sleepUtil from '@/shared/util/sleep.util'
+vi.spyOn(sleepUtil, 'sleep').mockResolvedValue(undefined)
+```
+
+The deploy-env constants are evaluated at import, so `vi.stubEnv` can't flip them. `src/test-app-env-mock.ts` mocks `appEnvironment.util` once for every `shared-modules` file, with getters that read `appEnvOverrides` first:
+
+```ts
+import {
+  appEnvOverrides,
+  useAppEnvOverrides,
+} from '@/shared/test-utils/appEnvOverrides'
+
+useAppEnvOverrides({ IS_NON_PROD_DEPLOY: true }) // file default, set before the app boots
+
+it('404s on a prod deploy', async () => {
+  appEnvOverrides.IS_NON_PROD_DEPLOY = false // this test only
+})
+```
+
+Overrides reset after every test and every file. They reach code that reads the constant when it runs; a value captured at import (the Vercel client and Peerly config resolve `vendorBaseUrl` at import) still needs `vi.mock`.
 
 ## Running tests
 

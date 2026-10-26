@@ -27,20 +27,8 @@ import {
   OutreachStatus,
   RobocallSettleState,
 } from '../../generated/prisma'
-import { disableVendorCrons } from '@/shared/test-utils/vendorCronsGate.util'
-
-vi.mock('@/shared/util/appEnvironment.util', async (importOriginal) => {
-  const { withVendorCronsGate } =
-    await import('@/shared/test-utils/vendorCronsGate.util.js')
-  return withVendorCronsGate(await importOriginal<object>())
-})
-
-// The sweep's multi-launch spacing sleep is vestigial under the serial gate (only
-// one run launches per pass), but stub it so a test never waits a real 3s if a
-// future change ever re-enables a second launch.
-vi.mock('@/shared/util/sleep.util', () => ({
-  sleep: vi.fn().mockResolvedValue(undefined),
-}))
+import { disableVendorCrons } from '@/shared/test-utils/appEnvOverrides'
+import * as sleepUtil from '@/shared/util/sleep.util'
 
 const service = useTestService()
 
@@ -75,6 +63,11 @@ const vbWith = (status: number) =>
 
 beforeEach(async () => {
   send = service.app.get(OutreachRobocallSendService)
+
+  // The sweep's multi-launch spacing sleep is vestigial under the serial gate (only
+  // one run launches per pass), but stub it so a test never waits a real 3s if a
+  // future change ever re-enables a second launch.
+  vi.spyOn(sleepUtil, 'sleep').mockResolvedValue(undefined)
 
   launchSpy = vi
     .spyOn(service.app.get(CallhubCampaignService), 'launchVoiceBroadcast')

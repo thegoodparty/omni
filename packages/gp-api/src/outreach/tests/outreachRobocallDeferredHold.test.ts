@@ -14,13 +14,7 @@ import {
 import { OutreachRobocallDeferredHoldService } from '@/outreach/services/outreachRobocallDeferredHold.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import { Campaign, RobocallSettleState } from '../../generated/prisma'
-import { disableVendorCrons } from '@/shared/test-utils/vendorCronsGate.util'
-
-vi.mock('@/shared/util/appEnvironment.util', async (importOriginal) => {
-  const { withVendorCronsGate } =
-    await import('@/shared/test-utils/vendorCronsGate.util.js')
-  return withVendorCronsGate(await importOriginal<object>())
-})
+import { disableVendorCrons } from '@/shared/test-utils/appEnvOverrides'
 
 const service = useTestService()
 

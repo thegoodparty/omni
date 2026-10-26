@@ -13,26 +13,17 @@ import {
 } from './geoapify/services/geoapifyRoutePlanner.service'
 import { PeerlyAccountService } from './peerly/services/peerlyAccount.service'
 import { PeerlyIdentityService } from './peerly/services/peerlyIdentity.service'
-import { recordVendorSchemaMismatch } from './shared/vendorSchema.metrics'
+import * as vendorSchemaMetrics from './shared/vendorSchema.metrics'
 import { SlackService } from './slack/services/slack.service'
 import { SlackChannel } from './slack/slackService.types'
 import { VendorDriftProbeService } from './vendorDriftProbe.service'
 import { VercelService } from './vercel/services/vercel.service'
+import {
+  appEnvOverrides,
+  useAppEnvOverrides,
+} from '@/shared/test-utils/appEnvOverrides'
 
-const appEnv = vi.hoisted(() => ({ vendorMode: 'live' }))
-vi.mock('@/shared/util/appEnvironment.util', async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import('@/shared/util/appEnvironment.util')>()
-  return {
-    ...actual,
-    get VENDOR_MODE() {
-      return appEnv.vendorMode
-    },
-  }
-})
-vi.mock('./shared/vendorSchema.metrics', () => ({
-  recordVendorSchemaMismatch: vi.fn(),
-}))
+useAppEnvOverrides({ VENDOR_MODE: 'live' })
 
 const validIdentity = {
   identity_id: 'id-1',
@@ -78,9 +69,13 @@ describe('VendorDriftProbeService', () => {
   let vercel: { checkDomainPrice: ReturnType<typeof vi.fn> }
   let route53: { listPrices: ReturnType<typeof vi.fn> }
   let logger: PinoLogger
+  let recordVendorSchemaMismatch: ReturnType<typeof vi.spyOn>
 
   beforeEach(async () => {
-    appEnv.vendorMode = 'live'
+    appEnvOverrides.VENDOR_MODE = 'live'
+    recordVendorSchemaMismatch = vi
+      .spyOn(vendorSchemaMetrics, 'recordVendorSchemaMismatch')
+      .mockImplementation(() => undefined)
     vi.stubEnv('DRIFT_PROBE_PEERLY_IDENTITY_ID', 'approved-identity')
     vi.clearAllMocks()
     logger = createMockLogger()
@@ -301,7 +296,7 @@ describe('VendorDriftProbeService', () => {
   })
 
   it('returns immediately in mock mode without claiming the lock or calling a vendor', async () => {
-    appEnv.vendorMode = 'mock'
+    appEnvOverrides.VENDOR_MODE = 'mock'
 
     await service.runNightlyProbe()
 

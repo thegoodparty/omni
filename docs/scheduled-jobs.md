@@ -134,8 +134,8 @@ instead (`isAutomationEnabled()` in `meetingBriefings` / `ordinanceDispatch`);
 use whichever the surrounding feature already uses.
 
 Tests read the constant at import time, so a test cannot flip it with
-`vi.stubEnv`. Mock the module with `withVendorCronsGate` and call
-`disableVendorCrons()` (`shared/test-utils/vendorCronsGate.util.ts`).
+`vi.stubEnv`. Call `disableVendorCrons()`
+(`shared/test-utils/appEnvOverrides.ts`) for the rest of the test.
 
 ### Alerting and Slack-posting crons stay prod-only
 

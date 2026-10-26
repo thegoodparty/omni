@@ -1,22 +1,13 @@
 import { HttpStatus } from '@nestjs/common'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 import { OfficeLevel, VendorMockVendor } from '@/generated/prisma'
 import { useTestService } from '@/test-service'
+import {
+  appEnvOverrides,
+  useAppEnvOverrides,
+} from '@/shared/test-utils/appEnvOverrides'
 
-const { mockMode } = vi.hoisted(() => ({ mockMode: { value: 'mock' } }))
-vi.mock('@/shared/util/appEnvironment.util', async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import('@/shared/util/appEnvironment.util')>()
-  return {
-    ...actual,
-    get IS_NON_PROD_DEPLOY() {
-      return true
-    },
-    get VENDOR_MODE() {
-      return mockMode.value as 'mock' | 'live'
-    },
-  }
-})
+useAppEnvOverrides({ IS_NON_PROD_DEPLOY: true, VENDOR_MODE: 'mock' })
 
 const service = useTestService()
 
@@ -24,11 +15,11 @@ const BASE = '/v1/vendor-mocks/peerly'
 
 describe('POST /v1/vendor-mocks/peerly/token-auth', () => {
   beforeEach(() => {
-    mockMode.value = 'mock'
+    appEnvOverrides.VENDOR_MODE = 'mock'
   })
 
   it('returns 404 when VENDOR_MODE is live', async () => {
-    mockMode.value = 'live'
+    appEnvOverrides.VENDOR_MODE = 'live'
     const res = await service.client.post(`${BASE}/token-auth`, {})
     expect(res.status).toBe(HttpStatus.NOT_FOUND)
   })
@@ -59,7 +50,7 @@ describe('POST /v1/vendor-mocks/peerly/token-auth', () => {
 
 describe('P2P job CRUD', () => {
   beforeEach(() => {
-    mockMode.value = 'mock'
+    appEnvOverrides.VENDOR_MODE = 'mock'
   })
 
   it('creates a job with 201 + Location header', async () => {
@@ -138,7 +129,7 @@ describe('P2P job CRUD', () => {
 
 describe('Phone list upload and status', () => {
   beforeEach(() => {
-    mockMode.value = 'mock'
+    appEnvOverrides.VENDOR_MODE = 'mock'
   })
 
   it('uploads a CSV and returns a token', async () => {
@@ -231,7 +222,7 @@ describe('Phone list upload and status', () => {
 
 describe('POST /v1/vendor-mocks/peerly/phonelists with peerly.phonelist.fail armed', () => {
   beforeEach(() => {
-    mockMode.value = 'mock'
+    appEnvOverrides.VENDOR_MODE = 'mock'
   })
 
   const upload = (identityId?: string) => {
@@ -311,11 +302,11 @@ describe('POST /v1/vendor-mocks/peerly/phonelists with peerly.phonelist.fail arm
 
 describe('GET /v1/vendor-mocks/peerly/accounts/:acct/balance', () => {
   beforeEach(() => {
-    mockMode.value = 'mock'
+    appEnvOverrides.VENDOR_MODE = 'mock'
   })
 
   it('returns 404 when VENDOR_MODE is live', async () => {
-    mockMode.value = 'live'
+    appEnvOverrides.VENDOR_MODE = 'live'
     const res = await service.client.get(`${BASE}/accounts/test/balance`)
     expect(res.status).toBe(HttpStatus.NOT_FOUND)
   })
@@ -329,7 +320,7 @@ describe('GET /v1/vendor-mocks/peerly/accounts/:acct/balance', () => {
 
 describe('peerly.balance.empty mock action', () => {
   beforeEach(() => {
-    mockMode.value = 'mock'
+    appEnvOverrides.VENDOR_MODE = 'mock'
   })
 
   it('sets balance to 0 after the action', async () => {
@@ -360,7 +351,7 @@ describe('peerly.balance.empty mock action', () => {
 
 describe('Media and schedule endpoints', () => {
   beforeEach(() => {
-    mockMode.value = 'mock'
+    appEnvOverrides.VENDOR_MODE = 'mock'
   })
 
   it('POST /v2/media returns a media_id', async () => {

@@ -72,7 +72,18 @@ graph once and reuses it across files. Any file that calls `vi.mock`,
 `vi.doMock`, `vi.unmock` or `vi.resetModules` is detected by a scan of the test
 files at config load and goes to `fresh-modules`, which keeps `isolate: true`,
 because a module mock in a shared graph either misses a copy an earlier file
-cached or leaks into the next file. Between files vitest restores mocks, and
+cached or leaks into the next file. A `fresh-modules` file costs ~5s of
+imports, so prefer `vi.spyOn` on an `app.get()` instance or a module namespace.
+To vary `IS_NON_PROD_DEPLOY`, `VENDOR_MODE`, `VENDOR_CRONS_ENABLED`, `APP_ROOT`
+or `WEBAPP_ROOT`, don't `vi.mock` `appEnvironment.util`:
+`src/test-app-env-mock.ts` already mocks it for every `shared-modules` file
+with getters, so set
+`appEnvOverrides` in a test, or call `useAppEnvOverrides({...})` at the top of
+the file for a file-wide default (`src/shared/test-utils/appEnvOverrides.ts`).
+Overrides reset after every test and file. They only reach code that reads the
+constant when it runs, not a value captured at import (`vercel.service.ts` and
+`peerlyBaseConfig.ts` resolve `vendorBaseUrl` at import), which still needs a
+`vi.mock`. Between files vitest restores mocks, and
 `src/test-file-cleanup.ts` also restores real timers and undoes
 `vi.stubEnv`/`vi.stubGlobal`. A file that left fake timers on used to hang the
 next file's `app.close()` until its hook timed out. Anything else a test leaves

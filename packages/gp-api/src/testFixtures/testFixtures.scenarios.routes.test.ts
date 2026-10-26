@@ -3,18 +3,12 @@ import { useTestService } from '@/test-service'
 import { RaceListItem } from '@goodparty_org/contracts'
 import { HttpStatus } from '@nestjs/common'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import {
+  appEnvOverrides,
+  useAppEnvOverrides,
+} from '@/shared/test-utils/appEnvOverrides'
 
-const { envNonProd } = vi.hoisted(() => ({ envNonProd: { value: true } }))
-vi.mock('@/shared/util/appEnvironment.util', async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import('@/shared/util/appEnvironment.util')>()
-  return {
-    ...actual,
-    get IS_NON_PROD_DEPLOY() {
-      return envNonProd.value
-    },
-  }
-})
+useAppEnvOverrides({ IS_NON_PROD_DEPLOY: true })
 
 const service = useTestService()
 
@@ -74,7 +68,7 @@ const applyElection = (campaignId: number, preset: string) =>
   })
 
 beforeEach(async () => {
-  envNonProd.value = true
+  appEnvOverrides.IS_NON_PROD_DEPLOY = true
   await service.prisma.user.update({
     where: { id: service.user.id },
     data: { email: TEST_USER_EMAIL },
@@ -139,7 +133,7 @@ describe('GET /v1/test-fixtures/races/resolve', () => {
 
   it('404s on a production deploy', async () => {
     stubRaces(PAST_ONLY)
-    envNonProd.value = false
+    appEnvOverrides.IS_NON_PROD_DEPLOY = false
 
     expect((await resolve()).status).toBe(HttpStatus.NOT_FOUND)
   })
@@ -250,7 +244,7 @@ describe('POST /v1/test-fixtures/campaigns/:id/election', () => {
       HttpStatus.FORBIDDEN,
     )
 
-    envNonProd.value = false
+    appEnvOverrides.IS_NON_PROD_DEPLOY = false
     expect((await applyElection(campaign.id, 'in_8_weeks')).status).toBe(
       HttpStatus.NOT_FOUND,
     )
