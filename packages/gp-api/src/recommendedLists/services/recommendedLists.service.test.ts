@@ -63,6 +63,7 @@ describe('RecommendedListsService.recommend', () => {
   let rankPrecincts: ReturnType<typeof vi.fn>
   let getRaceContext: ReturnType<typeof vi.fn>
   let fetchMilestones: ReturnType<typeof vi.fn>
+  let resolveOffer: ReturnType<typeof vi.fn>
   let service: RecommendedListsService
 
   beforeEach(() => {
@@ -92,6 +93,8 @@ describe('RecommendedListsService.recommend', () => {
       electionCode: ElectionCode.General,
     })
     fetchMilestones = vi.fn().mockResolvedValue(null)
+    // Not offered unless a test says so.
+    resolveOffer = vi.fn().mockResolvedValue(null)
 
     service = new RecommendedListsService(
       {
@@ -108,6 +111,7 @@ describe('RecommendedListsService.recommend', () => {
       } as never,
       { getRaceContext } as never,
       { fetchMilestones } as never,
+      { resolveOffer } as never,
       createMockLogger(),
     )
   })
@@ -1221,6 +1225,107 @@ describe('RecommendedListsService.recommend', () => {
       )
 
       expect(first?.filter.voterStatus).toEqual(['Super', 'Likely'])
+    })
+  })
+
+  describe('the free robocall offer', () => {
+    const TREATMENT = ['ALLEGHENY|P1', 'ALLEGHENY|P3']
+
+    it('serves the offer list on its treatment precincts, unpriced', async () => {
+      resolveOffer.mockResolvedValue(TREATMENT)
+      countForFilter.mockResolvedValue(40)
+
+      const results = await service.recommend(
+        organization,
+        campaign,
+        'robocall',
+        null,
+        'freeOfferElectionEveRobocall',
+      )
+
+      expect(results).toHaveLength(1)
+      expect(results[0]).toMatchObject({
+        variant: 'freeOfferElectionEveRobocall',
+        count: 40,
+        filter: {
+          hasLandline: true,
+          votedStatus: ['unknown'],
+          precincts: TREATMENT,
+        },
+      })
+      expect(results[0]?.estimatedCostCents).toBeUndefined()
+    })
+
+    it('serves nothing when the campaign is not offered', async () => {
+      const results = await service.recommend(
+        organization,
+        campaign,
+        'robocall',
+        null,
+        'freeOfferElectionEveRobocall',
+      )
+
+      expect(results).toEqual([])
+      expect(countForFilter).not.toHaveBeenCalled()
+    })
+
+    it('is never one of the election-day recommendations', async () => {
+      resolveOffer.mockResolvedValue(TREATMENT)
+
+      const results = await service.recommend(
+        organization,
+        campaign,
+        'robocall',
+        'electionDay',
+      )
+
+      expect(results.map((result) => result.variant)).not.toContain(
+        'freeOfferElectionEveRobocall',
+      )
+      expect(resolveOffer).not.toHaveBeenCalled()
+    })
+
+    it('is never served on another channel', async () => {
+      resolveOffer.mockResolvedValue(TREATMENT)
+
+      const results = await service.recommend(
+        organization,
+        campaign,
+        'sms',
+        null,
+        'freeOfferElectionEveRobocall',
+      )
+
+      expect(results).toEqual([])
+    })
+
+    it('leads the voter data page set when offered', async () => {
+      resolveOffer.mockResolvedValue(TREATMENT)
+
+      const results = await service.recommend(
+        organization,
+        campaign,
+        null,
+        null,
+      )
+
+      expect(results[0]?.variant).toBe('freeOfferElectionEveRobocall')
+    })
+
+    it('drops out of the voter data page set when it cannot resolve', async () => {
+      resolveOffer.mockRejectedValue(new BadGatewayException('warehouse'))
+
+      const results = await service.recommend(
+        organization,
+        campaign,
+        null,
+        null,
+      )
+
+      expect(results.length).toBeGreaterThan(0)
+      expect(results.map((result) => result.variant)).not.toContain(
+        'freeOfferElectionEveRobocall',
+      )
     })
   })
 })

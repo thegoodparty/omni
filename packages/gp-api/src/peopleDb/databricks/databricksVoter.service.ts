@@ -41,6 +41,7 @@ import {
   buildCountSql,
   buildOverlapCountSql,
   buildPrecinctsSql,
+  buildPrecinctLandlinesSql,
   buildPrecinctMembersSql,
   MAX_PRECINCT_OPTIONS,
   buildPageSql,
@@ -162,6 +163,17 @@ export type RankedPrecinct = {
 export type RankPrecinctsResult = {
   precincts: RankedPrecinct[]
   totalVoters: number
+}
+
+export type PrecinctLandlines = {
+  county: string
+  precinct: string
+  landlines: number
+}
+
+export type PrecinctLandlinesResult = {
+  precincts: PrecinctLandlines[]
+  truncated: boolean
 }
 
 const toRecord = (
@@ -374,6 +386,23 @@ export class DatabricksVoterService {
       voters: Number(row[2] ?? 0),
     }))
     return PeoplePrecinctsResponseSchema.parse({ options, truncated })
+  }
+
+  // Landline voters per (County, Precinct). The Unknown bucket comes back as
+  // precinct '' exactly as in findPrecincts; the caller decides to drop it.
+  async findPrecinctLandlines(
+    district: DbxDistrict,
+  ): Promise<PrecinctLandlinesResult> {
+    const { rows } = await this.run(buildPrecinctLandlinesSql({ district }))
+    const truncated = rows.length > MAX_PRECINCT_OPTIONS
+    const precincts = (
+      truncated ? rows.slice(0, MAX_PRECINCT_OPTIONS) : rows
+    ).map((row) => ({
+      county: row[0] ?? '',
+      precinct: row[1] ?? '',
+      landlines: Number(row[2] ?? 0),
+    }))
+    return { precincts, truncated }
   }
 
   // The given people counted per (County, Precinct). A NULL precinct is ''

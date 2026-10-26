@@ -4,6 +4,7 @@ import { z } from 'zod'
 import {
   encodePrecinctPair,
   RECOMMENDED_LIST_VARIANT_VALUES,
+  ROBOCALL_FREE_OFFER_VARIANT,
   type IdOverrides,
   type RecommendedListChannel,
   type RecommendedListIntent,
@@ -41,6 +42,7 @@ import {
 } from '../recommendedListsEarlyVoteWindow.util'
 import { BallotReadyService } from '@/elections/services/ballotReady.service'
 import { type AffinityColumn } from '@/peopleDb/affinityColumns.const'
+import { RobocallFreeOfferService } from '@/robocallFreeOffer/services/robocallFreeOffer.service'
 
 export type Recommendation = {
   variant: RecommendedListVariant
@@ -112,6 +114,9 @@ const sizeFloor = (
   // is sized by precinct size and not by the race. Judging it against a
   // whole race's vote goal would suppress nearly every one.
   if (channel === 'doorKnocking') return NO_FLOOR
+  // Half the district's precincts by construction, and free: its size is
+  // whatever the random half holds, not something to judge against the race.
+  if (variant === ROBOCALL_FREE_OFFER_VARIANT) return NO_FLOOR
   // Always offered beside a larger recommendation for the same intent, so a
   // small supporter list is additive rather than the candidate's only
   // option.
@@ -159,6 +164,18 @@ const COST_IN_CENTS: Record<
   doorKnocking: null,
 }
 
+// The offer's universe has no precincts of its own. Without the campaign's
+// treatment set it would be every landline in the district, the control
+// half included, so it is dropped rather than served that way.
+const withOfferPrecincts = (
+  variant: RecommendedListVariant,
+  filter: VoterFilterBase | null,
+  offerPrecincts: string[] | null,
+): VoterFilterBase | null => {
+  if (variant !== ROBOCALL_FREE_OFFER_VARIANT || filter === null) return filter
+  return offerPrecincts ? { ...filter, precincts: offerPrecincts } : null
+}
+
 @Injectable()
 export class RecommendedListsService {
   constructor(
@@ -168,6 +185,7 @@ export class RecommendedListsService {
     private readonly reads: VoterRecommendedListsService,
     private readonly raceContextService: RaceContextService,
     private readonly ballotReady: BallotReadyService,
+    private readonly freeOffer: RobocallFreeOfferService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(RecommendedListsService.name)
@@ -222,28 +240,49 @@ export class RecommendedListsService {
     // in with an intent or a variant and is never gated.
     const isGlobal = !variant && !intent && !channel
 
-    const [eligible, ideologyBucket, savedFilters, race, earlyVoteWindow] =
-      await Promise.all([
-        this.contacts.resolveEligibleDistrict(organization),
-        // Never throws: a classification failure returns null, which hides
-        // the ideology variants. That is the common case, not the edge one.
-        needsIdeology ? this.ideology.bucketForCampaign(campaign.id) : null,
-        // Loaded with `activityConditions` included, which the dedupe
-        // comparison reads straight off the row. Rows without the relation
-        // all look condition-free, so two lists differing only in their
-        // conditions would compare equal and the candidate would be handed
-        // someone else's audience.
-        this.voterFileFilters.findByOrganizationSlug(organization.slug),
-        // Once per request, and inside this fan-out rather than ahead of it:
-        // it gates the size floor and the propensity band so it has to land
-        // before the counts, but it is an election-api round-trip and
-        // nothing else here waits on it.
-        this.raceSizingContext(campaign),
-        isGlobal ? this.earlyVoteWindowOpen(campaign) : false,
-      ])
+    // The free robocall offer is never one of an intent's recommendations:
+    // the robocall flow shows it in a section of its own, asked for by
+    // variant, and the voter data page shows it first in the global set.
+    // Other channels never get it.
+    const offerAsked =
+      (variant === ROBOCALL_FREE_OFFER_VARIANT || isGlobal) &&
+      (channel === null || channel === 'robocall')
+
+    const [
+      eligible,
+      ideologyBucket,
+      savedFilters,
+      race,
+      earlyVoteWindow,
+      offerPrecincts,
+    ] = await Promise.all([
+      this.contacts.resolveEligibleDistrict(organization),
+      // Never throws: a classification failure returns null, which hides
+      // the ideology variants. That is the common case, not the edge one.
+      needsIdeology ? this.ideology.bucketForCampaign(campaign.id) : null,
+      // Loaded with `activityConditions` included, which the dedupe
+      // comparison reads straight off the row. Rows without the relation
+      // all look condition-free, so two lists differing only in their
+      // conditions would compare equal and the candidate would be handed
+      // someone else's audience.
+      this.voterFileFilters.findByOrganizationSlug(organization.slug),
+      // Once per request, and inside this fan-out rather than ahead of it:
+      // it gates the size floor and the propensity band so it has to land
+      // before the counts, but it is an election-api round-trip and
+      // nothing else here waits on it.
+      this.raceSizingContext(campaign),
+      isGlobal ? this.earlyVoteWindowOpen(campaign) : false,
+      offerAsked ? this.offerPrecincts(organization, campaign, isGlobal) : null,
+    ])
 
     const { votesNeededToWin, electionCode } = race
-    const ordered = isGlobal ? globalVariantOrder(earlyVoteWindow) : variants
+    const base = (
+      isGlobal ? globalVariantOrder(earlyVoteWindow) : variants
+    ).filter((variant) => variant !== ROBOCALL_FREE_OFFER_VARIANT)
+    const ordered: RecommendedListVariant[] = offerPrecincts
+      ? [ROBOCALL_FREE_OFFER_VARIANT, ...base]
+      : base
+    if (ordered.length === 0) return []
 
     const district = await this.reads.resolveDistrict(
       eligible.districtId,
@@ -255,11 +294,10 @@ export class RecommendedListsService {
     const drafts = ordered
       .map((variant) => ({
         variant,
-        filter: buildVariantFilter(
+        filter: withOfferPrecincts(
           variant,
-          channel,
-          ideologyBucket,
-          electionCode,
+          buildVariantFilter(variant, channel, ideologyBucket, electionCode),
+          offerPrecincts,
         ),
       }))
       .filter((draft): draft is VariantDraft => draft.filter !== null)
@@ -319,7 +357,11 @@ export class RecommendedListsService {
       filter,
       count,
       ...(votesNeededToWin ? { voteGoalShare: count / votesNeededToWin } : {}),
-      ...(costInCents ? { estimatedCostCents: costInCents(count) } : {}),
+      // No price on the free offer: a cost on a card labelled free reads as
+      // a charge.
+      ...(costInCents && variant !== ROBOCALL_FREE_OFFER_VARIANT
+        ? { estimatedCostCents: costInCents(count) }
+        : {}),
       copy: fillCopy(variant, ideologyBucket ? { bucket: ideologyBucket } : {}),
       existingFilterId: findEquivalentFilter(filter, savedFilters),
     }))
@@ -340,13 +382,41 @@ export class RecommendedListsService {
         'Recommended lists are not available for this organization',
       )
     }
-    const [ideologyBucket, { electionCode }] = await Promise.all([
-      RECOMMENDED_LISTS_REGISTRY[variant].requiresIdeologyBucket
-        ? this.ideology.bucketForCampaign(campaign.id)
-        : null,
-      this.raceSizingContext(campaign),
-    ])
-    return buildVariantFilter(variant, null, ideologyBucket, electionCode)
+    const [ideologyBucket, { electionCode }, offerPrecincts] =
+      await Promise.all([
+        RECOMMENDED_LISTS_REGISTRY[variant].requiresIdeologyBucket
+          ? this.ideology.bucketForCampaign(campaign.id)
+          : null,
+        this.raceSizingContext(campaign),
+        variant === ROBOCALL_FREE_OFFER_VARIANT
+          ? this.freeOffer.resolveOffer(organization, campaign)
+          : null,
+      ])
+    return withOfferPrecincts(
+      variant,
+      buildVariantFilter(variant, null, ideologyBucket, electionCode),
+      offerPrecincts,
+    )
+  }
+
+  // The voter data page's global set must not fail because the offer could
+  // not be resolved (it is one card among many); a request for the offer
+  // itself still does.
+  private async offerPrecincts(
+    organization: Organization,
+    campaign: Campaign,
+    isGlobal: boolean,
+  ): Promise<string[] | null> {
+    try {
+      return await this.freeOffer.resolveOffer(organization, campaign)
+    } catch (error) {
+      if (!isGlobal) throw error
+      this.logger.warn(
+        { err: error, campaignId: campaign.id },
+        'Robocall free offer could not be resolved; leaving it out',
+      )
+      return null
+    }
   }
 
   // The two things about the race that shape a recommendation: the vote goal

@@ -483,6 +483,31 @@ export class StripeService {
   // deactivating on consume is what stops a second use, and reactivating on a
   // cancel-before-send hands the reward back. Best-effort: the money state
   // already committed, and our own redemption record is the second guard.
+  // A single-use promotion code on an existing coupon. Stripe never counts a
+  // redemption we apply outside Checkout, so max_redemptions is a label here;
+  // deactivation on consume is what actually stops a second use.
+  async createPromotionCode({
+    couponId,
+    code,
+    metadata,
+  }: {
+    couponId: string
+    code: string
+    metadata: Record<string, string>
+  }): Promise<Stripe.PromotionCode> {
+    try {
+      return await this.stripe.promotionCodes.create({
+        promotion: { type: 'coupon', coupon: couponId },
+        code,
+        max_redemptions: 1,
+        metadata,
+      })
+    } catch (err) {
+      this.logger.error({ err }, 'Failed to create Stripe promotion code')
+      throw new BadGatewayException('Failed to create promotion code')
+    }
+  }
+
   async setPromotionCodeActive(
     promotionCodeId: string,
     active: boolean,

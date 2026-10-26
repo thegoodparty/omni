@@ -918,6 +918,29 @@ export const buildPrecinctsSql = (args: {
   return { sql, params: bag.params }
 }
 
+// Every (County, Precinct) in the district with its landline voters, for the
+// free robocall offer's precinct assignment. The landline test is the one
+// the robocall audience counts by. Same cap as buildPrecinctsSql, so a
+// clipped list is detectable the same way.
+export const buildPrecinctLandlinesSql = (args: {
+  district: DbxDistrict
+}): DbxStatement => {
+  const bag = createBag()
+  const scope = buildScopeSql(bag, {
+    district: args.district,
+    filters: { filters: [], filterValues: {}, filterOperators: {} },
+  })
+  const landline = isPresentSql('VoterTelephones_LandlineFormatted')
+  const sql =
+    `SELECT ${col('County')} AS county, ${col('Precinct')} AS precinct,` +
+    ` COUNT_IF(${landline}) AS landlines` +
+    ` FROM ${args.district.table} v ${scope}` +
+    ` GROUP BY ${col('County')}, ${col('Precinct')}` +
+    ` ORDER BY county ASC, precinct ASC` +
+    ` LIMIT ${bag.bind(MAX_PRECINCT_OPTIONS + 1, 'INT')}`
+  return { sql, params: bag.params }
+}
+
 // How many of the given people are filed in each (County, Precinct): counts
 // per precinct, never a person. The civic panel's seats read it where the
 // district has no tract data.

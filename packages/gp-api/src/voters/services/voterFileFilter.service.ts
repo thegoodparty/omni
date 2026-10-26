@@ -7,6 +7,7 @@ import {
 import {
   type GeoJsonShape,
   type GeoShapeLabels,
+  ROBOCALL_FREE_OFFER_VARIANT,
   shapePartCount,
 } from '@goodparty_org/contracts'
 import { omit } from 'es-toolkit'
@@ -262,6 +263,14 @@ export class VoterFileFilterService extends createPrismaBase(
           organizationSlug,
           ...rest,
           recommendedModified,
+          // The free robocall offer's list is locked from the start: the
+          // run re-resolves the list at authorize and at staging, so an
+          // edit after the code was applied would widen a paid-for call
+          // past the treatment precincts. Duplicating it makes an
+          // ordinary list that gets no code.
+          ...(rest.recommendedVariant === ROBOCALL_FREE_OFFER_VARIANT
+            ? { firstUsedForOutreachAt: new Date() }
+            : {}),
           // A nullable Json column clears with Prisma.DbNull; a plain null
           // would be read as the JSON value `null` instead of no value.
           ...(geoPoly === undefined

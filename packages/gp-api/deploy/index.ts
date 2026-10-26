@@ -651,6 +651,21 @@ jwIDAQAB
         dev: '',
         prod: 'true',
       }),
+      // The free election-eve robocall offer's $400 Stripe coupon, created
+      // with the same id in test and live mode. Empty hides the offer, so
+      // prod stays off until the live coupon exists.
+      ROBOCALL_FREE_OFFER_COUPON_ID: select({
+        preview: 'robocall-free-offer-2026-11',
+        dev: 'robocall-free-offer-2026-11',
+        prod: '',
+      }),
+      // Internal test campaigns the offer may reach in prod despite the
+      // goodparty.org / demo / test-mode exclusion. Comma-separated ids.
+      ROBOCALL_FREE_OFFER_ALLOWED_CAMPAIGN_IDS: select({
+        preview: '',
+        dev: '',
+        prod: '',
+      }),
       // Dev and previews write to prod's HubSpot portal, so the Office Holder
       // sync and its ids are prod only.
       HUBSPOT_OFFICE_HOLDER_SYNC_ENABLED: select({

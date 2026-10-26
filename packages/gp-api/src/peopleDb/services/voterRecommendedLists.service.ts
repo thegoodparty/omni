@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common'
 import type { IdOverrides } from '@goodparty_org/contracts'
 import {
   DatabricksVoterService,
+  type PrecinctLandlinesResult,
   type RankPrecinctsResult,
 } from '../databricks/databricksVoter.service'
 import { VoterReadLogService } from '../databricks/voterReadLog.service'
@@ -69,6 +70,15 @@ export class VoterRecommendedListsService {
           idOverrides,
           affinityColumn,
         ),
+    })
+  }
+
+  precinctLandlines(district: DbxDistrict): Promise<PrecinctLandlinesResult> {
+    return this.readLog.measure({
+      op: 'rec-precinct-landlines',
+      districtId: district.districtId,
+      dataset: district.dataset,
+      read: () => this.databricks.findPrecinctLandlines(district),
     })
   }
 }
