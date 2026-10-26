@@ -173,7 +173,9 @@ const withOfferPrecincts = (
   offerPrecincts: string[] | null,
 ): VoterFilterBase | null => {
   if (variant !== ROBOCALL_FREE_OFFER_VARIANT || filter === null) return filter
-  return offerPrecincts ? { ...filter, precincts: offerPrecincts } : null
+  return offerPrecincts?.length
+    ? { ...filter, precincts: offerPrecincts }
+    : null
 }
 
 @Injectable()
@@ -279,7 +281,7 @@ export class RecommendedListsService {
     const base = (
       isGlobal ? globalVariantOrder(earlyVoteWindow) : variants
     ).filter((variant) => variant !== ROBOCALL_FREE_OFFER_VARIANT)
-    const ordered: RecommendedListVariant[] = offerPrecincts
+    const ordered: RecommendedListVariant[] = offerPrecincts?.length
       ? [ROBOCALL_FREE_OFFER_VARIANT, ...base]
       : base
     if (ordered.length === 0) return []
