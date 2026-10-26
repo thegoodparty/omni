@@ -1269,6 +1269,31 @@ describe('RecommendedListsService.recommend', () => {
       expect(countForFilter).not.toHaveBeenCalled()
     })
 
+    // An empty precinct filter would be the whole district, control half
+    // included, so an empty treatment set is no offer at all.
+    it('serves nothing when the treatment set is empty', async () => {
+      resolveOffer.mockResolvedValue([])
+
+      const variantRequest = await service.recommend(
+        organization,
+        campaign,
+        'robocall',
+        null,
+        'freeOfferElectionEveRobocall',
+      )
+      const globalSet = await service.recommend(
+        organization,
+        campaign,
+        null,
+        null,
+      )
+
+      expect(variantRequest).toEqual([])
+      expect(globalSet.map((result) => result.variant)).not.toContain(
+        'freeOfferElectionEveRobocall',
+      )
+    })
+
     it('is never one of the election-day recommendations', async () => {
       resolveOffer.mockResolvedValue(TREATMENT)
 

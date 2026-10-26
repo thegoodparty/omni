@@ -374,13 +374,18 @@ export class RobocallFreeOfferService extends createPrismaBase(
     )
   }
 
+  // Null, not [], when none of the district's current precincts is
+  // treatment (the warehouse's precinct names can drift after enrollment):
+  // an empty precinct filter would be every landline in the district, the
+  // control half included, so such a campaign simply stays control.
   private async treatmentPairs(
     precincts: DistrictPrecincts,
-  ): Promise<string[]> {
+  ): Promise<string[] | null> {
     const arms = await this.assignmentsFor(precincts)
-    return precincts.known
+    const treatment = precincts.known
       .map(({ county, precinct }) => precinctKey(county, precinct))
       .filter((key) => arms.get(key) === PRECINCT_ARMS.treatment)
+    return treatment.length > 0 ? treatment : null
   }
 
   // Runs once per campaign, after the slow rules passed; the stored arm
