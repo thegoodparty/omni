@@ -44,3 +44,8 @@ GRANT USAGE ON SCHEMA public TO databricks_federation;
 GRANT SELECT ON ALL TABLES IN SCHEMA public TO databricks_federation;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public
   GRANT SELECT ON TABLES TO databricks_federation;
+
+-- Tables holding secrets stay out of Databricks: "user" has the password hash
+-- and the plaintext password reset token, peerly_phone_list a token. A later
+-- migration that adds such a table or column revokes the same way.
+REVOKE SELECT ON TABLE "user", peerly_phone_list FROM databricks_federation;

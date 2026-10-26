@@ -38,7 +38,10 @@ them up on every deploy.
 
 The role can only read: `SELECT` on every table in `public` (including ones
 later migrations create), every transaction read-only, a 60-second
-statement timeout and at most 20 connections.
+statement timeout and at most 20 connections. Tables holding secrets are
+revoked: `user` (password hash, reset token) and `peerly_phone_list`
+(token). A migration that adds a table or column holding a secret (tokens,
+hashes, keys) must `REVOKE SELECT ON <table> FROM databricks_federation`.
 
 ## Security
 

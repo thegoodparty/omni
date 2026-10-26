@@ -44,11 +44,11 @@ if [[ -z "$current_owner" ]]; then
   # RDS Proxy presents an ACM certificate, which chains to the Amazon Trust
   # Services roots, and names the proxy rather than the NLB, so the chain is
   # verified (verify-ca) but not the hostname. See the README's TLS section.
-  ca=$(
-    for root in AmazonRootCA1 AmazonRootCA2 AmazonRootCA3 AmazonRootCA4 SFSRootCAG2; do
-      curl -fsS "https://www.amazontrust.com/repository/$root.pem"
-    done
-  )
+  ca=
+  for root in AmazonRootCA1 AmazonRootCA2 AmazonRootCA3 AmazonRootCA4 SFSRootCAG2; do
+    pem=$(curl -fsS "https://www.amazontrust.com/repository/$root.pem") || exit 1
+    ca+=$pem$'\n'
+  done
   run_sql "CREATE CONNECTION $connection TYPE postgresql
 OPTIONS (
   host '$host',
