@@ -166,6 +166,9 @@ export const createDatabricksFederation = ({
         // A percent of Aurora's max_connections. Low so federated scans can
         // never crowd out gp-api; the role's own limit of 20 binds first.
         maxConnectionsPercent: 10,
+        // The provider sends 50 when unset, and AWS rejects an idle percent
+        // above maxConnectionsPercent.
+        maxIdleConnectionsPercent: 5,
       },
     },
   )
