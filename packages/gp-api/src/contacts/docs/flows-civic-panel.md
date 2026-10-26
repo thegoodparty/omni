@@ -427,11 +427,11 @@ the caller leaves race out unless `raceNameable` holds. The model is
 `priorities/util/mrp.util.ts`. Design and what is left:
 `docs/features/civic-panel-mrp.md`.
 
-**Analytics** (`EVENTS.CivicPanel` in `segment.types.ts`, sent to the
+**Analytics** (`EVENTS.Contacts` in `segment.types.ts`, sent to the
 office's user through `trackForOffice`; ids, counts and enums only).
-`Membership Changed` fires from `ContactStatusService.changeStatus` for every
-civic panel write, with the from and to status, `source` (text, call, door or
-staff, from `MEMBERSHIP_SOURCE`) and `managed` (the office has a managed
-civic panel that is not stopped). The browser fires `Civic Panel - Panel
-Viewed` itself. The managed civic panel's events are in
+`Contacts - Civic Panel Membership Changed` fires from
+`ContactStatusService.changeStatus` for every civic panel write, with the
+from and to status, `source` (text, call, door or manual, from
+`MEMBERSHIP_SOURCE`) and `managed` (the office has a managed civic panel that
+is not stopped). The browser fires `Contacts - Civic Panel Viewed` itself. The managed civic panel's events are in
 `flows-managed-civic-panel.md`.

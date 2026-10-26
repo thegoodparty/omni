@@ -367,21 +367,21 @@ Tool pills: `explain_managed_panel` reads Explaining your civic panel, the
 offer and the invite Getting your civic panel invite, `read_managed_panel`
 and `present_managed_panel` Checking your civic panel (`chatConstants.ts`).
 
-**Analytics** (`EVENTS.CivicPanel`, the setup before gp-api's approval):
+**Analytics** (`EVENTS.Contacts`, the setup before gp-api's approval):
 
-- `Managed Invite Explainer Viewed` when a turn streams the first offer
+- `Contacts - Civic Panel Managed Invite Value Prop Viewed` when a turn streams the first offer
   (`isManagedExplainerOffer`), `source` home_card (the home card's kickoff),
   intro_next_step (the intro's Build my civic panel) or chat.
-- `Managed Invite Explainer Completed` on the next thing the official sends
+- `Contacts - Civic Panel Managed Invite Value Prop Completed` on the next thing the official sends
   while that offer waits, `choice` show_invite, how_it_works, not_now or
   wrote_own (`managedExplainerChoice`).
-- `Managed Invite Viewed` when a turn presents the invite card, never on a
+- `Contacts - Civic Panel Invite Viewed` when a turn presents the invite card, never on a
   replay: `inviteChars` and `inviteSegments` (160 characters each, as the
   text flow counts them).
-- `Managed Invite Review Viewed` on Review the invite, `source` chat_card.
-- `SmsFlow` in its managed mode fires `Managed Invite Submitted` on Set up
+- `Contacts - Civic Panel Invite Review Viewed` on Review the invite, `source` chat_card.
+- `SmsFlow` in its managed mode fires `Contacts - Civic Panel Invite Submitted` on Set up
   my civic panel (`edited`, `usedImproveWithAi`, `usedDictation`,
-  `inviteSegments`) and `Managed Invite Review Dismissed` on a close without
+  `inviteSegments`) and `Contacts - Civic Panel Invite Review Dismissed` on a close without
   setting it up (`edited`).
 
 ## Analytics — one event per message sent

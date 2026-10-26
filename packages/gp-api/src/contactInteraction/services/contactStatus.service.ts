@@ -49,13 +49,13 @@ class CurrentStatusRaceError extends Error {}
 // it. A by-hand change is the office's; the share page has no surface left.
 export const MEMBERSHIP_SOURCE: Record<
   ContactStatusSource,
-  'text' | 'call' | 'door' | 'staff'
+  'text' | 'call' | 'door' | 'manual'
 > = {
   sms: 'text',
   phone_banking: 'call',
   door_knock: 'door',
-  manual: 'staff',
-  share_page: 'staff',
+  manual: 'manual',
+  share_page: 'manual',
 }
 
 // The activity feed (ContactEngagementService, ENG-10835) always needs the
@@ -98,7 +98,7 @@ export class ContactStatusService extends createPrismaBase(
         { organizationSlug: event.organizationSlug },
         [
           [
-            EVENTS.CivicPanel.MembershipChanged,
+            EVENTS.Contacts.CivicPanelMembershipChanged,
             {
               fromStatus: event.fromValue,
               toStatus: event.toValue,

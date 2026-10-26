@@ -17,7 +17,7 @@ export const capitalizeFirst = (words: string): string =>
 
 export const CITIZENS_PANEL_PATH = '/dashboard/contacts/citizens-panel'
 
-// Where the official came to the panel page from, for its Panel Viewed event.
+// Where the official came to the panel page from, for its Civic Panel Viewed event.
 export const CIVIC_PANEL_ENTRY_PARAM = 'from'
 export type CivicPanelEntry =
   | 'chief_of_staff_home'

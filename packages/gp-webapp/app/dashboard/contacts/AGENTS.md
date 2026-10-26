@@ -65,7 +65,7 @@ pads `var(--chat-dock-height)` plus 8rem so the last card clears the bar.
   this page's question, `COPY.chatPlaceholder` ("Ask who still needs to
   join your civic panel", with "civic panel" held together); a page
   placeholder may wrap to two lines on a phone instead of being cut off.
-- **Analytics.** The page fires `Civic Panel - Panel Viewed` once per visit
+- **Analytics.** The page fires `Contacts - Civic Panel Viewed` once per visit
   (members, goal, expected answers, `howCloseStatus` from the summary's
   `balance`, snake case or null while hidden, `managedStatus` none,
   building, paused, ready, exhausted or stopped, and `source` from the

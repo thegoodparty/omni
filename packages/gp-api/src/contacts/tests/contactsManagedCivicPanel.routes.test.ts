@@ -592,10 +592,10 @@ describe('managed civic panel analytics', () => {
 
     await vi.waitFor(() =>
       expect(
-        tracked(track, EVENTS.CivicPanel.ManagedInviteApproved),
+        tracked(track, EVENTS.Contacts.CivicPanelInviteApproved),
       ).toHaveLength(1),
     )
-    expect(tracked(track, EVENTS.CivicPanel.ManagedInviteApproved)[0]).toEqual(
+    expect(tracked(track, EVENTS.Contacts.CivicPanelInviteApproved)[0]).toEqual(
       expect.objectContaining({
         goalMembers: 50,
         freeTextCap: 15000,
@@ -617,7 +617,7 @@ describe('managed civic panel analytics', () => {
     // Every event is fire-and-forget, so wait for each rather than clearing
     // the spy between requests: a late one from the stop would land after.
     await vi.waitFor(() =>
-      expect(tracked(track, EVENTS.CivicPanel.ManagedInviteApproved)).toEqual(
+      expect(tracked(track, EVENTS.Contacts.CivicPanelInviteApproved)).toEqual(
         expect.arrayContaining([
           expect.objectContaining({ reapproval: false }),
           expect.objectContaining({ reapproval: true }),
@@ -625,9 +625,7 @@ describe('managed civic panel analytics', () => {
       ),
     )
     await vi.waitFor(() =>
-      expect(
-        tracked(track, EVENTS.CivicPanel.ManagedPanelStatusChanged),
-      ).toEqual(
+      expect(tracked(track, EVENTS.Contacts.CivicPanelStatusChanged)).toEqual(
         expect.arrayContaining([
           expect.objectContaining({ from: 'building', to: 'stopped' }),
           expect.objectContaining({
@@ -650,9 +648,7 @@ describe('managed civic panel analytics', () => {
     await act(slug, 'pause')
 
     await vi.waitFor(() =>
-      expect(
-        tracked(track, EVENTS.CivicPanel.ManagedPanelStatusChanged),
-      ).toEqual([
+      expect(tracked(track, EVENTS.Contacts.CivicPanelStatusChanged)).toEqual([
         expect.objectContaining({
           from: 'building',
           to: 'paused',
@@ -672,10 +668,12 @@ describe('managed civic panel analytics', () => {
     await joinPanel(slug, 1)
 
     await vi.waitFor(() =>
-      expect(tracked(track, EVENTS.CivicPanel.MembershipChanged)).toEqual([
+      expect(
+        tracked(track, EVENTS.Contacts.CivicPanelMembershipChanged),
+      ).toEqual([
         expect.objectContaining({
           toStatus: 'member',
-          source: 'staff',
+          source: 'manual',
           managed: true,
         }),
       ]),
@@ -692,8 +690,6 @@ describe('managed civic panel analytics', () => {
     const res = await act(slug, 'resume')
 
     expect(res.status).toBe(HttpStatus.CONFLICT)
-    expect(tracked(track, EVENTS.CivicPanel.ManagedPanelStatusChanged)).toEqual(
-      [],
-    )
+    expect(tracked(track, EVENTS.Contacts.CivicPanelStatusChanged)).toEqual([])
   })
 })

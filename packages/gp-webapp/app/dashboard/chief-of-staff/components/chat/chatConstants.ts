@@ -73,7 +73,7 @@ type NextStep =
   | 'something_else'
 
 const trackNextStep = (nextStep: NextStep): void => {
-  void trackEvent(EVENTS.ChiefOfStaff.NextStepPicked, { nextStep })
+  void trackEvent(EVENTS.ChiefOfStaff.IntroductoryNextStepPicked, { nextStep })
 }
 
 export const buildChiefOfStaffNextSteps = ({

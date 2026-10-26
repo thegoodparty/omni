@@ -573,7 +573,7 @@ describe('the managed panel wave job analytics', () => {
     await job().advance(id, WEDNESDAY)
 
     await vi.waitFor(() =>
-      expect(tracked(EVENTS.CivicPanel.ManagedWaveSent)).toEqual([
+      expect(tracked(EVENTS.Contacts.CivicPanelWaveSent)).toEqual([
         expect.objectContaining({
           wave: 1,
           texts: WAVE_SIZE,
@@ -591,9 +591,9 @@ describe('the managed panel wave job analytics', () => {
     expect(await job().advance(id, new Date(2026, 9, 31, 9))).toBe('ready')
 
     await vi.waitFor(() =>
-      expect(tracked(EVENTS.CivicPanel.ManagedPanelReady)).toHaveLength(1),
+      expect(tracked(EVENTS.Contacts.CivicPanelReady)).toHaveLength(1),
     )
-    expect(tracked(EVENTS.CivicPanel.ManagedWaveClosed)).toEqual([
+    expect(tracked(EVENTS.Contacts.CivicPanelWaveClosed)).toEqual([
       {
         organizationSlug: slug,
         wave: 1,
@@ -602,7 +602,7 @@ describe('the managed panel wave job analytics', () => {
         membersAfter: GOAL,
       },
     ])
-    expect(tracked(EVENTS.CivicPanel.ManagedPanelStatusChanged)).toEqual([
+    expect(tracked(EVENTS.Contacts.CivicPanelStatusChanged)).toEqual([
       expect.objectContaining({
         from: 'building',
         to: 'ready',
@@ -610,7 +610,7 @@ describe('the managed panel wave job analytics', () => {
         changedBy: 'system',
       }),
     ])
-    expect(tracked(EVENTS.CivicPanel.ManagedPanelReady)[0]).toEqual(
+    expect(tracked(EVENTS.Contacts.CivicPanelReady)[0]).toEqual(
       expect.objectContaining({
         members: GOAL,
         goalMembers: GOAL,
@@ -630,7 +630,7 @@ describe('the managed panel wave job analytics', () => {
     expect(await job().advance(id, WEDNESDAY)).toBe('paused_at_cap')
 
     await vi.waitFor(() =>
-      expect(tracked(EVENTS.CivicPanel.ManagedPanelStatusChanged)).toEqual([
+      expect(tracked(EVENTS.Contacts.CivicPanelStatusChanged)).toEqual([
         expect.objectContaining({
           from: 'building',
           to: 'paused',
