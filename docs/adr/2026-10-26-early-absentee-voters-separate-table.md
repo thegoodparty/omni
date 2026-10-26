@@ -1,7 +1,7 @@
 ---
 title: Early and absentee voters are a separate daily table, filtered by id subquery
 status: active
-decided_by: [agent]
+decided_by: [hhkarimi]
 date: 2026-10-26
 code: ['thegoodparty/gp-data-platform#1266']
 scope:
