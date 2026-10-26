@@ -191,9 +191,12 @@ export const RECOMMENDED_LISTS_REGISTRY: Record<
     supporterBased: false,
     copy: {
       title: 'Landline voters in a selection of precincts',
+      // The list also leaves out voters who have already voted, like every
+      // non-event recommendation; the summary keeps to what the candidate
+      // needs to know (product, 2026-10-26).
       criteriaSummary:
         'Every landline voter in the precincts chosen for your free ' +
-        'election-eve robocall who has not already voted.',
+        'election-eve robocall.',
     },
   },
 }
