@@ -45,8 +45,8 @@ makes those tests pass here and fail there.
 
 In CI (`.github/workflows/gp-api.yml`) the same work is split for speed: a
 `Checks` job runs lint, typecheck, and `prisma migrate diff ... --exit-code`
-against a shadow DB; a `Test` job fans the vitest suite across 6 shards
-(`--shard=N/6`, no coverage), one runner each, because each runner's 4 cores
+against a shadow DB; a `Test` job fans the vitest suite across 3 shards
+(`--shard=N/3`, no coverage), one runner each, because each runner's 4 cores
 are saturated by its own workers plus Postgres; and an empty `Validate` gate
 `needs` both so the branch-protection-required `Validate` check is green only
 when all of them pass.
