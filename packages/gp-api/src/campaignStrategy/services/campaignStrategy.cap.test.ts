@@ -1570,7 +1570,7 @@ describe('CampaignStrategyService', () => {
       raceContext.getStrategyContext.mockResolvedValue({ candidate_count: 5 })
     })
 
-    it('regenerates only the section researched against a smaller roster, refunding its attempt', async () => {
+    it('regenerates opposition researched against a smaller roster, refunding its attempt', async () => {
       runsSaw(0, 5)
       prisma.campaignStrategy.findUniqueOrThrow.mockResolvedValue(
         persistedPlan({
@@ -1592,7 +1592,6 @@ describe('CampaignStrategyService', () => {
           oppositionAttempts: 1,
         },
         data: {
-          generationStartedAt: null,
           oppositionRunId: null,
           oppositionPersistedAt: null,
           oppositionAttempts: 0,
@@ -1608,8 +1607,8 @@ describe('CampaignStrategyService', () => {
       )
     })
 
-    it('serves the stored plan when the roster has not grown', async () => {
-      runsSaw(5, 5)
+    it('serves the stored plan when opposition research saw the whole roster', async () => {
+      runsSaw(5, 0)
 
       const res = await service.getOrGenerateStrategicLandscape(campaign())
 

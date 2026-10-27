@@ -200,20 +200,20 @@ tracker claim, so the refresh happens either way.
 Opposition research names the candidates the election data held when it ran,
 and many plans are researched before the race's roster fills in. Every run's
 params carry `campaign_strategy_context.candidate_count`, which the params
-byte cap never trims, so `alignPlanWithRoster` compares it per section with
-today's count on each plan read and wipes a section whose run saw fewer
-candidates, for `dispatchPending` to regenerate. A shrinking roster is ignored:
-it can't hide an opponent. The election database being down skips the check
-and serves the stored plan.
+byte cap never trims, so `alignPlanWithRoster` compares the opposition run's
+count with today's on each plan read and, when the run saw fewer candidates,
+wipes that section for `dispatchPending` to regenerate. The opportunities
+section is left alone: its experiment is told not to build on the roster. A
+shrinking roster is ignored, since it can't hide an opponent. If the election
+database is down, the check is skipped and the stored plan is served.
 
-Two exceptions keep it from costing the candidate anything. A plan whose
-opponents were added by hand on the race-opponent page keeps its opposition
-section: that add re-stamps `oppositionPersistedAt` well after the run, and a
-reset would delete the names the candidate typed in. And each reset section
-gets its attempt slot back, so a rebuild the candidate didn't cause never moves
-them toward the cap. Unlike the story and race resets it keeps
-`trackerBootstrapped`: the race and story are unchanged, and the weekly tracker
-run reads the rebuilt plan without a second paid run.
+A plan whose opponents were added by hand on the race-opponent page keeps its
+opposition section. That add re-stamps `oppositionPersistedAt` well after the
+run, and a reset would delete the names the candidate typed in. The rebuild
+also returns the section's attempt slot, so a rebuild the candidate didn't
+cause never moves them toward the cap. Unlike the story and race resets it
+keeps `trackerBootstrapped`: the race and story are unchanged, and the weekly
+tracker run reads the rebuilt plan without a second paid run.
 
 ## Data model
 

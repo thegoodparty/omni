@@ -1057,10 +1057,12 @@ export class CampaignStrategyService extends createPrismaBase(
   }
 
   // A race's roster often fills in after its plan was researched, and nothing
-  // else re-runs a persisted section, so a plan researched against a thin
-  // roster would leave out most of the field for good. Same shape as
-  // alignPlanWithRace, per section: wipe each section whose run saw fewer
-  // candidates than the race has now, and let dispatchPending regenerate it.
+  // else re-runs a persisted section, so opposition research run against a
+  // thin roster would leave out most of the field for good. Same shape as
+  // alignPlanWithRace: when the run saw fewer candidates than the race has
+  // now, wipe the section in place and let dispatchPending regenerate it.
+  // Opportunities are left alone: that experiment is told not to build on the
+  // roster.
   //
   // trackerBootstrapped is kept: the race and story are unchanged, and the
   // weekly tracker run reads the rebuilt plan, without a second paid run here.
@@ -1068,28 +1070,20 @@ export class CampaignStrategyService extends createPrismaBase(
     plan: CampaignStrategy,
     raceId: string,
   ): Promise<StoryAlignment> {
-    const [opposition, opportunities] = await Promise.all([
-      this.runFor(plan.oppositionPersistedAt ? plan.oppositionRunId : null),
-      this.runFor(
-        plan.opportunitiesPersistedAt ? plan.opportunitiesRunId : null,
-      ),
-    ])
+    if (!plan.oppositionPersistedAt) return { plan, lostClaim: false }
+    const run = await this.runFor(plan.oppositionRunId)
 
     // The run's own persist stamps the marker seconds after it completes; a
     // later stamp is a manual opponent add, and a reset would delete the names
     // the candidate typed in.
     const handEdited =
-      opposition !== null &&
-      plan.oppositionPersistedAt !== null &&
+      run !== null &&
       isAfter(
         plan.oppositionPersistedAt,
-        addMinutes(opposition.updatedAt, PERSIST_GRACE_MINUTES),
+        addMinutes(run.updatedAt, PERSIST_GRACE_MINUTES),
       )
-    const oppositionSaw = handEdited ? null : rosterSeenBy(opposition)
-    const opportunitiesSaw = rosterSeenBy(opportunities)
-    if (oppositionSaw === null && opportunitiesSaw === null) {
-      return { plan, lostClaim: false }
-    }
+    const seen = handEdited ? null : rosterSeenBy(run)
+    if (seen === null) return { plan, lostClaim: false }
 
     let rosterSize: number
     try {
@@ -1102,86 +1096,37 @@ export class CampaignStrategyService extends createPrismaBase(
       )
       return { plan, lostClaim: false }
     }
-    const resetOpposition = oppositionSaw !== null && rosterSize > oppositionSaw
-    const resetOpportunities =
-      opportunitiesSaw !== null && rosterSize > opportunitiesSaw
-    if (!resetOpposition && !resetOpportunities) {
-      return { plan, lostClaim: false }
-    }
+    if (rosterSize <= seen) return { plan, lostClaim: false }
 
     // Compare-and-swap on everything read above, so concurrent polls or a
     // manual add landing in between can't double-reset. The candidate didn't
-    // cause this rebuild, so each reset section gets back the attempt slot
+    // cause this rebuild, so the section gets back the attempt slot
     // dispatchPending is about to claim.
     const claimed = await this.client.$transaction(async (tx) => {
       const { count } = await tx.campaignStrategy.updateMany({
         where: {
           id: plan.id,
-          ...(resetOpposition
-            ? {
-                oppositionRunId: plan.oppositionRunId,
-                oppositionPersistedAt: plan.oppositionPersistedAt,
-                oppositionAttempts: plan.oppositionAttempts,
-              }
-            : {}),
-          ...(resetOpportunities
-            ? {
-                opportunitiesRunId: plan.opportunitiesRunId,
-                opportunitiesPersistedAt: plan.opportunitiesPersistedAt,
-                opportunitiesAttempts: plan.opportunitiesAttempts,
-              }
-            : {}),
+          oppositionRunId: plan.oppositionRunId,
+          oppositionPersistedAt: plan.oppositionPersistedAt,
+          oppositionAttempts: plan.oppositionAttempts,
         },
         data: {
-          generationStartedAt: null,
-          ...(resetOpposition
-            ? {
-                oppositionRunId: null,
-                oppositionPersistedAt: null,
-                oppositionAttempts: Math.max(plan.oppositionAttempts - 1, 0),
-              }
-            : {}),
-          ...(resetOpportunities
-            ? {
-                opportunitiesRunId: null,
-                opportunitiesPersistedAt: null,
-                opportunitiesAttempts: Math.max(
-                  plan.opportunitiesAttempts - 1,
-                  0,
-                ),
-              }
-            : {}),
+          oppositionRunId: null,
+          oppositionPersistedAt: null,
+          oppositionAttempts: Math.max(plan.oppositionAttempts - 1, 0),
         },
       })
       if (count === 0) return false
-      if (resetOpposition) {
-        await tx.campaignStrategyOpponent.deleteMany({
-          where: { campaignStrategyId: plan.id },
-        })
-      }
-      if (resetOpportunities) {
-        await tx.campaignStrategyOpportunity.deleteMany({
-          where: { campaignStrategyId: plan.id },
-        })
-        await tx.campaignStrategyChallenge.deleteMany({
-          where: { campaignStrategyId: plan.id },
-        })
-      }
+      await tx.campaignStrategyOpponent.deleteMany({
+        where: { campaignStrategyId: plan.id },
+      })
       return true
     })
 
     if (claimed) {
       this.logger.info(
-        {
-          campaignId: plan.campaignId,
-          planId: plan.id,
-          rosterSize,
-          oppositionSaw,
-          opportunitiesSaw,
-          resetOpposition,
-          resetOpportunities,
-        },
-        'race roster grew since the plan was researched; regenerating',
+        { campaignId: plan.campaignId, planId: plan.id, rosterSize, seen },
+        'race roster grew since opposition research ran; regenerating it',
       )
     }
     return {
