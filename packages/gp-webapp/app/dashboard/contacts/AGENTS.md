@@ -54,8 +54,10 @@ pads `var(--chat-dock-height)` plus 8rem so the last card clears the bar.
   panel that is not stopped): one status line, while building Next invites
   (`managedPanelNextInvitesAt`: `nextWaveAt`, else `firstSendDate` before
   the first wave) and Ready around (`readyWeekOf`, dropped once that week
-  has passed), Pause / Resume and Stop my civic panel (with its confirm)
-  through `PATCH /v1/contacts/civic-panel/managed`. A 409 from it (the
+  has passed), and Pause invites while building or Resume invites while
+  paused through `PATCH /v1/contacts/civic-panel/managed` (ready and
+  exhausted have no button). Pause is the official's only way to hold
+  invites: the card never sends `stop`. A 409 from it (the
   status moved since the page loaded, like a ready civic panel that can't
   resume) reads the enrollment again and redraws the card in its real
   state, with no Try again; any other failure shows the error. Then Members

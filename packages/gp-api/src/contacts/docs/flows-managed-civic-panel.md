@@ -56,8 +56,9 @@ exhausted do not lapse. The read goes through `ManagedCivicPanelService`
 The Chief of Staff (`managedCivicPanelBlock`, `read_managed_panel`)
 answers in each status's words. The civic panel page's rail shows
 `ManagedPanelControls` (the Invites card): the status, the next send day
-and ready week while building, Pause, Resume and Stop (with a confirm),
-each the `PATCH` below.
+and ready week while building, Pause while building and Resume while
+paused, each the `PATCH` below. The webapp never sends `stop`; the route
+keeps it, and a stopped enrollment still reads and re-approves as below.
 
 `ManagedCivicPanel` is one row per office (`organizationSlug` unique), kept
 when stopped so `freeTextsUsed` still counts against `freeTextCap` (15,000)
