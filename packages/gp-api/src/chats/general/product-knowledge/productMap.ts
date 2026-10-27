@@ -179,6 +179,7 @@ const WIN_AREAS: ProductArea[] = [
       'A saved one waits in the outreach history, labeled with what it still needs — Pro needed, Verification needed, Verification in review, PIN needed, or Ready to schedule. A saved text reads Texting closed once the deadline to get verified for texting has passed',
       'Texting needs campaign verification filed and Pro paid for by 19 days before the general election. After that deadline, a campaign that missed it sees the SMS tile marked Not available for this race, and Robocall, Social media, Phone banking and Door knocking stay open',
       'Click that row to reopen the flow and pick up where you left off, or delete it from there',
+      'A robocall whose payment did not go through reads Payment failed in your outreach history; open it to update your card and resend, reusing the same recording and audience, and pick a new send date',
       'One saved text and one saved robocall at a time, kept for 90 days',
       'SMS and Robocall take a promo code on their payment step, in a Promo Code box above the card details. A code that covers the whole cost schedules the send with no card',
       'Phone banking and Door knocking offer Hear from voters as a goal. The flow asks what question to put to people, and the call script or door card is written to ask it',
