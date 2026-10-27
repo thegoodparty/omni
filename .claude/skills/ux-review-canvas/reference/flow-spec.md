@@ -46,8 +46,8 @@ and `build_canvas.py` uses it for layout. Write it from the wireframe's real log
 }
 ```
 
-- `id`: a letter, A onward, in the order the options appear. Close-to-today options
-  come first.
+- `id`: A, B or C, in the order the options appear. Close-to-today options come
+  first.
 - `name`: "<letter> · <two or three words>".
 - `short`: the option's one-line description. 15 words at most, concrete, about what
   the user experiences. No adjectives like "seamless".

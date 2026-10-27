@@ -1,6 +1,6 @@
 ---
 name: ux-review-canvas
-description: Build a UX review canvas for a feature ticket on Claude Design - an overview, every way in, and 8 or more distinct options, each a flow above a clickable wireframe in one neutral wireframe kit, plus the open questions. Use when a ticket moves to Committed (the Delegate trigger) or when someone asks for UX options, wireframes or a review canvas for a ticket, so the team can check the UX direction before agents build it.
+description: Build a UX review canvas for a feature ticket on Claude Design - an overview, every way in, and three distinct options, each a flow above a clickable wireframe in one neutral wireframe kit, plus the open questions. Use when a ticket moves to Committed (the Delegate trigger) or when someone asks for UX options, wireframes or a review canvas for a ticket, so the team can check the UX direction before agents build it.
 ---
 
 Build a Claude Design canvas that lets the team review a feature's UX direction in
@@ -13,7 +13,9 @@ Agents build what a ticket says, and a ticket rarely says enough about the
 experience. A quick human review of the options catches a wrong direction while it's
 still cheap to change. Two things make that review work:
 
-- **Many real options, no recommendation.** AI has a blind spot for system thinking
+- **Three real options, no recommendation.** More than three is more than a person
+  can take in during a quick review, so narrowing the field is your job, not the
+  reviewer's. AI has a blind spot for system thinking
   and broader UX consequences, and it drifts to the safest option even when that
   option isn't good. So the canvas lays out options and trade-offs and leaves the
   call to people. Never rank, score, star or pick a winner, in any page, flow or
@@ -32,16 +34,17 @@ Three pages. Don't add appendix pages, exploration boards or alternate screen se
    feature, a table of the options side by side (name, one line, family, layout,
    doors supported, biggest risk), what was said in meetings, and links to every
    source: the ticket and each doc.
-2. **Options:** the ways in first, then the options lettered A onward, close to
-   today's product first, then new layouts.
+2. **Options:** the ways in first, then the three options lettered A to C, close
+   to today's product first, then new layouts.
    - **Ways in:** one entry board per door (`E-*.dc.html`) showing only its title,
      what we know about the user there, and Current vs Proposed. See
      `reference/flow-spec.md`.
    - **Each option:** a landscape flow board (`Flow-<ID>.dc.html`, generated) above
      one clickable wireframe (`W-<ID>-<Name>.dc.html`). One wireframe per option. A
      very short description, one sentence.
-   - Aim for 8 to 12 options. Include every strong alternative; don't cap the count
-     to look tidy.
+   - Exactly three options. At least one close to today's product and at least one
+     new layout. Never add a fourth; if two candidates share a model, keep the
+     stronger version of it.
 3. **Questions** (`Questions.dc.html`): the questions only people can answer (product
    and system calls), then technical and architecture questions with the code
    detail beside them, file paths included.
@@ -72,8 +75,9 @@ Work in a scratchpad folder, `<work>`, laid out as:
 2. **Find the ways in** and write `doors.json`.
 3. **Research the options.** Look at how other products solve the same job (forms,
    one question at a time, conversation, human-led, calendar, checklist, invitation,
-   letter, agent workspace, search). Pick 8 to 12 that are each a different model.
-   About a third close to today's product, the rest new layouts.
+   letter, agent workspace, search). Consider many, then build three: the three
+   that differ most from each other while each still solving the job. At least one
+   close to today's product and at least one new layout.
 4. **Create the canvas.** `Artifact` with `action: "quickstart"`, `intent: "design"`,
    then create it from the Design type it names. The result tells you how to fill
    it. Read its runtime (`artifact-type/dc-runtime.js`) and run

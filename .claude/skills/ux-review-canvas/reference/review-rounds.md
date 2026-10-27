@@ -1,6 +1,6 @@
 # Review rounds
 
-A first draft of 8 to 12 options always has drift: boards that don't match their
+A first draft of the three options always has drift: boards that don't match their
 flows, a door that opens on the wrong step, chrome that differs from board to board,
 copy that breaks the product rules. Review rounds catch it before people see it.
 
@@ -10,8 +10,8 @@ copy that breaks the product rules. Review rounds catch it before people see it.
    the scenario and sample values (from `docs/design-memory/fixtures.md`), the
    product rules for this ticket, the tools, and every canvas-wide decision so far.
    Reviewers read it first, so a decision made in round 2 holds in round 4.
-2. Split the boards into 3 disjoint groups, mixing close and new layouts, and give
-   each group to one subagent. Disjoint so no two reviewers edit the same file.
+2. Give each option (its wireframe and spec) to one subagent, and the entry boards
+   to the reviewer of option A. Disjoint so no two reviewers edit the same file.
 3. Each reviewer reads the brief, `kit.md`, `flow-spec.md`, the Overview and every
    earlier round log. Then for each board: click through every path in a headless
    render, fix what's wrong in place, and run `check_boards.py`.
