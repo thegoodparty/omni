@@ -15,6 +15,7 @@ enum OutreachType {
   // Serve self-serve poll: the question lives in `message`, the rest on
   // the OutreachPoll satellite.
   poll
+  email
 }
 
 enum OutreachStatus {
@@ -196,6 +197,8 @@ model Outreach {
   robocall                          OutreachRobocall?
   pollDetails                       OutreachPoll?
   p2pSms                            OutreachP2pSms?
+  email                             OutreachEmail?
+  paymentHold                       OutreachPaymentHold?
   optOutReconcile                   OutreachOptOutReconcile?
   textRecipients                    OutreachTextRecipient[]
   textMessages                      PollIndividualMessage[]

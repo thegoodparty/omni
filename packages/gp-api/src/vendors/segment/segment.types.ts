@@ -236,6 +236,19 @@ export const EVENTS = {
     // messageId `<outreachId>:receipt` so a replay dedups to one email.
     Receipt: 'Robocall - Receipt',
   },
+  // Shared outreach payment holds (src/paymentHolds/AGENTS.md); email is the
+  // first channel. HubSpot workflows key on these exact strings to send the
+  // card-declined, reminder, unpaid-cancel and receipt emails, so renaming
+  // one breaks an email. Each carries `channel` and `mode` (win or serve) and
+  // a deterministic messageId, as the Robocall group does:
+  // `<outreachId>:hold_failed`, `<outreachId>:reminder:<yyyy-mm-dd>`,
+  // `<outreachId>:canceled`, `<outreachId>:receipt`.
+  OutreachPayment: {
+    HoldFailed: 'Outreach Payment - Hold Failed',
+    Reminder: 'Outreach Payment - Reminder',
+    Canceled: 'Outreach Payment - Canceled',
+    Receipt: 'Outreach Payment - Receipt',
+  },
   // Native door knocking (Win). One rollup event carrying the org's running
   // canvassing totals, not one event per knock: HubSpot workflows can copy a
   // value onto a property but cannot sum across events, so the running total

@@ -1,0 +1,14 @@
+// Every hold voided outside the normal path (window fit, a lost commit, a
+// failed release) is recorded so a reconcile sweep can confirm the void.
+// outreachId is a plain column: the outreach may be gone.
+model OutreachOrphanedHold {
+  id              Int       @id @default(autoincrement())
+  createdAt       DateTime  @default(now()) @map("created_at")
+  paymentIntentId String    @unique @map("payment_intent_id")
+  outreachId      Int?      @map("outreach_id")
+  reason          String
+  voidedAt        DateTime? @map("voided_at")
+
+  @@index([voidedAt])
+  @@map("outreach_orphaned_hold")
+}

@@ -66,6 +66,10 @@ import {
   OrdinanceQualityLoopMessageSchema,
   OutreachTextSendEventSchema,
   P2pPhoneListBuildMessageSchema,
+  EmailListImportMessageSchema,
+  EmailSendPrepareMessageSchema,
+  EmailEventMessageSchema,
+  EmailInboundMessageSchema,
   PollAnalysisCompleteEvent,
   PollAnalysisCompleteEventSchema,
   PollCreationEvent,
@@ -106,6 +110,7 @@ import type { AgentExperimentResultData } from '../queue.types'
 import { ExperimentRunStatus } from '../../generated/prisma'
 import { isJsonObject } from '@/shared/util/objects.util'
 import { isUndrawnSample } from '@/priorities/util/roundTwo.util'
+import { EmailOutreachQueueService } from '@/emailOutreach/services/emailOutreachQueue.service'
 
 const INITIAL_POLL_SEND_SEQ = 1
 
@@ -200,6 +205,7 @@ export class QueueConsumerService {
     private readonly logger: PinoLogger,
     private readonly feedbackSynthesisIngest: FeedbackSynthesisIngestService,
     private readonly textSendFunding: OutreachTextSendFundingService,
+    private readonly emailOutreachQueue: EmailOutreachQueueService,
   ) {
     this.logger.setContext(QueueConsumerService.name)
   }
@@ -564,6 +570,24 @@ export class QueueConsumerService {
         )
         return await this.p2pPhoneListUpload.handleQueuedBuild(buildId)
       }
+      // Email payloads are parsed so a malformed one throws and ages to the
+      // DLQ rather than being acked.
+      case QueueType.EMAIL_LIST_IMPORT:
+        return await this.emailOutreachQueue.handleListImport(
+          EmailListImportMessageSchema.parse(queueMessage.data),
+        )
+      case QueueType.EMAIL_SEND_PREPARE:
+        return await this.emailOutreachQueue.handleSendPrepare(
+          EmailSendPrepareMessageSchema.parse(queueMessage.data),
+        )
+      case QueueType.EMAIL_EVENT:
+        return await this.emailOutreachQueue.handleEvent(
+          EmailEventMessageSchema.parse(queueMessage.data),
+        )
+      case QueueType.EMAIL_INBOUND:
+        return await this.emailOutreachQueue.handleInbound(
+          EmailInboundMessageSchema.parse(queueMessage.data),
+        )
 
       default:
         this.logger.warn(

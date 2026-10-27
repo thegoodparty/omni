@@ -45,6 +45,7 @@ import { OutreachService } from '@/outreach/services/outreach.service'
 import { OutreachServePollExpansionService } from '@/outreach/services/outreachServePollExpansion.service'
 import { OutreachTextDeliveryService } from '@/outreach/services/outreachTextDelivery.service'
 import { OutreachTextSendFundingService } from '@/outreach/services/outreachTextSendFunding.service'
+import { EmailOutreachQueueService } from '@/emailOutreach/services/emailOutreachQueue.service'
 import { P2pPhoneListUploadService } from '@/vendors/peerly/services/p2pPhoneListUpload.service'
 import { FeedbackSynthesisIngestService } from '@/constituentFeedback/services/feedbackSynthesisIngest.service'
 import { QueueConsumerService } from './queueConsumer.service'
@@ -283,6 +284,7 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
       {} as never,
       {} as never,
       logger,
+      {} as never,
       {} as never,
       {} as never,
     )
@@ -1167,6 +1169,7 @@ describe('QueueConsumerService - handleDomainEmailForwardingMessage', () => {
       createMockLogger(),
       {} as never,
       {} as never,
+      {} as never,
     )
   })
 
@@ -1367,6 +1370,7 @@ describe('QueueConsumerService - triggerPollExecution', () => {
       {} as never,
       {} as never,
       createMockLogger(),
+      {} as never,
       {} as never,
       {} as never,
     )
@@ -1583,6 +1587,7 @@ describe('QueueConsumerService - message type routing', () => {
           provide: OutreachTextSendFundingService,
           useValue: mockTextSendFunding,
         },
+        { provide: EmailOutreachQueueService, useValue: {} },
       ],
     }).compile()
     module = mod
@@ -2362,6 +2367,7 @@ describe('QueueConsumerService - handleTcrComplianceCheckMessage', () => {
         { provide: PinoLogger, useValue: createMockLogger() },
         { provide: FeedbackSynthesisIngestService, useValue: {} },
         { provide: OutreachTextSendFundingService, useValue: {} },
+        { provide: EmailOutreachQueueService, useValue: {} },
       ],
     }).compile()
     service = mod.get(QueueConsumerService)
@@ -2509,6 +2515,7 @@ describe('QueueConsumerService - handleAgentExperimentResult', () => {
         { provide: PinoLogger, useValue: createMockLogger() },
         { provide: FeedbackSynthesisIngestService, useValue: {} },
         { provide: OutreachTextSendFundingService, useValue: {} },
+        { provide: EmailOutreachQueueService, useValue: {} },
       ],
     }).compile()
     service = module.get(QueueConsumerService)
@@ -2637,6 +2644,7 @@ describe('QueueConsumerService - ORDINANCE_QUALITY_LOOP', () => {
       createMockLogger(),
       {} as never,
       {} as never,
+      {} as never,
     )
 
   const loopMessage = (data: unknown): Message => ({
@@ -2720,6 +2728,7 @@ describe('QueueConsumerService - FEEDBACK_SYNTHESIS_COMPLETE', () => {
       {} as never, // p2pPhoneListUpload
       logger,
       { handle } as never,
+      {} as never,
       {} as never,
     )
   }

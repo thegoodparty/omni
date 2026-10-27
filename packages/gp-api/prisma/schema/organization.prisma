@@ -33,6 +33,8 @@ model Organization {
   feedbackSynthesisRuns             FeedbackSynthesisRun[]
   managedCivicPanel                 ManagedCivicPanel?
   priorityAnswers                   PriorityAnswer[]
+  outreachEmailSender               OutreachEmailSender?
+  outreachEmailSuppressions         OutreachEmailSuppression[]
   testModeCreatedAt                 DateTime?                        @map("test_mode_created_at")
 
   @@index([ownerId])

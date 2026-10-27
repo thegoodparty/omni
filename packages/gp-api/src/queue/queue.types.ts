@@ -37,6 +37,13 @@ export enum QueueType {
   // the org) is read back off that row, so a redelivered message can't act
   // on stale content.
   P2P_PHONE_LIST_BUILD = 'p2pPhoneListBuild',
+  // Email outreach (src/emailOutreach/AGENTS.md). The import and prepare
+  // messages carry only row ids; the event and inbound messages are
+  // enqueued by the SNS webhook from SES notifications.
+  EMAIL_LIST_IMPORT = 'emailListImport',
+  EMAIL_SEND_PREPARE = 'emailSendPrepare',
+  EMAIL_EVENT = 'emailEvent',
+  EMAIL_INBOUND = 'emailInbound',
 }
 
 export type QueueMessage =
@@ -111,6 +118,10 @@ export type QueueMessage =
       type: QueueType.P2P_PHONE_LIST_BUILD
       data: P2pPhoneListBuildMessage
     }
+  | { type: QueueType.EMAIL_LIST_IMPORT; data: EmailListImportMessage }
+  | { type: QueueType.EMAIL_SEND_PREPARE; data: EmailSendPrepareMessage }
+  | { type: QueueType.EMAIL_EVENT; data: EmailEventMessage }
+  | { type: QueueType.EMAIL_INBOUND; data: EmailInboundMessage }
 
 export type GenerateAiContentMessageData = {
   slug: string
@@ -255,6 +266,10 @@ export enum MessageGroup {
   extractChatAttachment = 'extractChatAttachment',
   campaignStoryCompleted = 'campaignStoryCompleted',
   p2pPhoneListBuild = 'p2pPhoneListBuild',
+  emailListImport = 'emailListImport',
+  emailSendPrepare = 'emailSendPrepare',
+  emailEvent = 'emailEvent',
+  emailInbound = 'emailInbound',
 }
 
 const PollResponseJsonRowSchema = z.object({
@@ -350,3 +365,52 @@ export const P2pPhoneListBuildMessageSchema = z.object({
 export type P2pPhoneListBuildMessage = z.infer<
   typeof P2pPhoneListBuildMessageSchema
 >
+
+export const EmailListImportMessageSchema = z.object({
+  listId: z.number().int(),
+  attempt: z.number().int(),
+  cursor: z.number().int(),
+})
+export type EmailListImportMessage = z.infer<
+  typeof EmailListImportMessageSchema
+>
+
+export const EmailSendPrepareMessageSchema = z.object({
+  outreachEmailId: z.number().int(),
+})
+export type EmailSendPrepareMessage = z.infer<
+  typeof EmailSendPrepareMessageSchema
+>
+
+const EmailRecipientAddressSchema = z.object({
+  emailAddress: z.string().min(1),
+})
+
+// The fields of an SES event notification the handlers read. SES sends more;
+// the default (non-passthrough) object strips the rest.
+export const EmailEventMessageSchema = z.object({
+  snsMessageId: z.string().min(1),
+  sesEvent: z.object({
+    eventType: z.enum(['Bounce', 'Complaint', 'Reject', 'Rendering Failure']),
+    mail: z.object({ messageId: z.string().min(1) }),
+    bounce: z
+      .object({
+        bounceType: z.string(),
+        bouncedRecipients: z.array(EmailRecipientAddressSchema),
+      })
+      .optional(),
+    complaint: z
+      .object({
+        complainedRecipients: z.array(EmailRecipientAddressSchema),
+      })
+      .optional(),
+  }),
+})
+export type EmailEventMessage = z.infer<typeof EmailEventMessageSchema>
+
+export const EmailInboundMessageSchema = z.object({
+  snsMessageId: z.string().min(1),
+  bucket: z.string().min(1),
+  key: z.string().min(1),
+})
+export type EmailInboundMessage = z.infer<typeof EmailInboundMessageSchema>

@@ -1,0 +1,25 @@
+// One per sending organization (a campaign's or an elected office's). Holds
+// the fixed From address and where replies are forwarded.
+model OutreachEmailSender {
+  id                      Int                      @id @default(autoincrement())
+  createdAt               DateTime                 @default(now()) @map("created_at")
+  updatedAt               DateTime                 @updatedAt @map("updated_at")
+  organizationSlug        String                   @unique @map("organization_slug")
+  organization            Organization             @relation(fields: [organizationSlug], references: [slug], onDelete: Cascade)
+  // Fixed after the first send so replies to old emails still route.
+  localPart               String                   @unique @map("local_part")
+  displayName             String                   @map("display_name")
+  forwardToEmail          String                   @map("forward_to_email")
+  // A changed forward-to address takes effect only after its emailed
+  // confirmation link is used.
+  pendingForwardToEmail   String?                  @map("pending_forward_to_email")
+  pendingForwardTokenHash String?                  @map("pending_forward_token_hash")
+  pendingForwardExpiresAt DateTime?                @map("pending_forward_expires_at")
+  warmingStep             Int                      @default(0) @map("warming_step")
+  lists                   OutreachEmailList[]
+  sends                   OutreachEmail[]
+  recipients              OutreachEmailRecipient[]
+  replies                 OutreachEmailReply[]
+
+  @@map("outreach_email_sender")
+}

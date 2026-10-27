@@ -1,0 +1,17 @@
+model OutreachEmailListMember {
+  id        Int               @id @default(autoincrement())
+  listId    Int               @map("list_id")
+  list      OutreachEmailList @relation(fields: [listId], references: [id], onDelete: Cascade)
+  // Row order in the uploaded file; the last tiebreak when a capped send
+  // picks who to reach.
+  position  Int
+  email     String
+  firstName String?           @map("first_name")
+  lastName  String?           @map("last_name")
+  // Filled later by the L2 merge work; nothing in email reads it.
+  personId  String?           @map("person_id")
+
+  @@unique([listId, email])
+  @@index([listId, position])
+  @@map("outreach_email_list_member")
+}
