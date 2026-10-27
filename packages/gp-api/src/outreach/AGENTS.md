@@ -61,8 +61,13 @@ draft whose satellite is already linked (`peerlyPhoneListId`, stamped by
 recordHold on the paid path) — only such a draft is recoverable by the
 build-ready edge; the hold-less free ($0) path has no link and is never deferred,
 so it can't silently strand. The build-before-pay flow always carries
-`phoneListId` on the draft and never defers. It returns a boolean (false when
-deferred) so the webhook handler logs a deferral rather than a false "finalized". After the projectId is stamped this is
+`phoneListId` on the draft and never defers. It returns an outcome
+(`finalized | deferred | duplicate_refused`) so the webhook handler logs a
+deferral rather than a false "finalized". After the claim, a duplicate guard
+refuses a draft that matches a live submitted p2p send (same campaign, list,
+script, message, date): it cancels the draft, releasing the payment, without
+restoring the free-texts offer (it never applied it), and returns
+`duplicate_refused`; a redelivery sees the `canceled` draft as terminal and returns `duplicate_refused` again. After the projectId is stamped this is
 also where the SMS channel's send terminal fires —
 `EVENTS.Outreach.CampaignScheduled` (`channel: 'sms'`, DATA-2526) — exactly once
 by construction, since every replay returns at the claim above. It is keyed on

@@ -567,6 +567,9 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
       campaignId,
       chargeRef,
     )
+    // A redelivery of a draft the duplicate guard already refused: nothing is
+    // left to record or redeem, the same outcome the first delivery returned.
+    if (claimed === 'canceled') return 'duplicate_refused'
     if (!claimed) return 'deferred'
 
     const outreach = await this.model.findUniqueOrThrow({
@@ -747,6 +750,9 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
       await this.cancelOutreach(outreach.id, campaignId, {
         canceledBy: `system:duplicate-send-guard:${duplicateOfId}`,
         byAdmin: true,
+        // Finalize refuses before redemption, so this draft never applied
+        // the offer; the live send owns the campaign's redemption.
+        restoreFreeTexts: false,
       })
     } catch (err) {
       await this.model.updateMany({
@@ -812,7 +818,7 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
    *
    * True means this call owns the draft and must submit it. False means a
    * concurrent finalize already stamped a Peerly job, so the purchase is
-   * fulfilled. Anything else throws, because a lost claim is not evidence the
+   * fulfilled. `'canceled'` means the duplicate guard already refused it. Anything else throws, because a lost claim is not evidence the
    * work happened and the payment layer must not mark the purchase processed
    * on the strength of a lost race.
    *
@@ -830,7 +836,7 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     outreachId: number,
     campaignId: number,
     chargeRef?: string,
-  ): Promise<boolean> {
+  ): Promise<boolean | 'canceled'> {
     // One takeover only. A second lost claim means something else is racing
     // us, and a redelivery is a better place to resolve that than a loop.
     for (let takeovers = 0; ; takeovers++) {
@@ -849,6 +855,7 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
         campaignId,
       )
       if (observed === 'finalized') return false
+      if (observed === 'canceled') return 'canceled'
       if (observed === 'rearmed' && takeovers === 0) continue
 
       this.logger.error(
@@ -874,13 +881,15 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
    *
    * `finalized` — a stamped projectId, the only proof of fulfillment.
    * `rearmed`   — back at pending_payment: the winner failed and released it.
+   * `canceled`  — terminal: the duplicate guard refused it and released the
+   *               payment, so a redelivery has nothing left to do.
    * `missing`   — no such draft for this campaign (a client-supplied id).
    * `inFlight`  — still held after the poll window.
    */
   private async awaitConcurrentFinalize(
     outreachId: number,
     campaignId: number,
-  ): Promise<'finalized' | 'rearmed' | 'missing' | 'inFlight'> {
+  ): Promise<'finalized' | 'canceled' | 'rearmed' | 'missing' | 'inFlight'> {
     // Covers the winner's inline Peerly submission (~10s worst case observed).
     const POLL_ATTEMPTS = 30
     const POLL_INTERVAL_MS = 1000
@@ -892,6 +901,7 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
       })
       if (!row) return 'missing'
       if (row.projectId) return 'finalized'
+      if (row.status === OutreachStatus.canceled) return 'canceled'
       if (row.status === OutreachStatus.pending_payment) return 'rearmed'
       await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS))
     }
@@ -1256,7 +1266,15 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
   async cancelOutreach(
     outreachId: number,
     campaignId: number,
-    attribution?: { canceledBy: string; byAdmin: boolean },
+    attribution?: {
+      canceledBy: string
+      byAdmin: boolean
+      // False when the caller knows this send never applied the free-texts
+      // offer (the duplicate guard cancels before redemption), so the
+      // shared-body promo restore must not hand one back off the campaign's
+      // redeemed state, which another send of the campaign may own.
+      restoreFreeTexts?: boolean
+    },
   ): Promise<{ outreach: Outreach; refunded: boolean }> {
     const outreach = await this.model.findFirst({
       where: { id: outreachId, campaignId },
@@ -1468,6 +1486,7 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     // early-return wins), so swallowing here would lose the promo for
     // good. The vendor delete and refund are idempotent on retry.
     const consumedFreeTexts =
+      attribution?.restoreFreeTexts !== false &&
       outreach.textCount !== null &&
       outreach.billableTextCount !== null &&
       outreach.billableTextCount < outreach.textCount

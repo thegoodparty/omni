@@ -491,6 +491,7 @@ describe('OutreachService', () => {
         expect(cancel).toHaveBeenCalledWith(87116, 1, {
           canceledBy: 'system:duplicate-send-guard:87122',
           byAdmin: true,
+          restoreFreeTexts: false,
         })
         // The session is recorded first so a non-hold refund can resolve it.
         expect(mockOutreachUpdateMany).toHaveBeenCalledWith({
