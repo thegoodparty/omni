@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { HttpStatus } from '@nestjs/common'
-import { addDays } from 'date-fns'
+import type { ClerkClient } from '@clerk/backend'
+import { addDays, getUnixTime } from 'date-fns'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import Stripe from 'stripe'
 import { useTestService } from '@/test-service'
@@ -13,6 +14,7 @@ import { OutreachRobocallService } from '@/outreach/services/outreachRobocall.se
 import { VoterRecommendedListsService } from '@/peopleDb/services/voterRecommendedLists.service'
 import type { DbxDistrict } from '@/peopleDb/databricks/databricksVoterSql.util'
 import { RobocallFreeOfferService } from '@/robocallFreeOffer/services/robocallFreeOffer.service'
+import { CLERK_CLIENT_PROVIDER_TOKEN } from '@/vendors/clerk/providers/clerk-client.provider'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
 import {
   Campaign,
@@ -52,6 +54,7 @@ const TREATMENT = ['WILLIAMSON|P1', 'WILLIAMSON|P3']
 const promotionCodesList = vi.fn()
 const promotionCodesCreate = vi.fn()
 const promotionCodesUpdate = vi.fn()
+const clerkGetUser = vi.fn()
 
 let campaign: Campaign
 let orgSlug: string
@@ -61,7 +64,12 @@ const orgHeaders = () => ({ headers: { 'x-organization-slug': orgSlug } })
 
 // A promotion code as Stripe lists it, with the coupon expanded.
 const offerPromo = (
-  overrides: { id?: string; code?: string; campaignId?: string } = {},
+  overrides: {
+    id?: string
+    code?: string
+    campaignId?: string
+    coupon?: Partial<Stripe.Coupon>
+  } = {},
 ) =>
   ({
     id: overrides.id ?? 'promo_offer',
@@ -81,9 +89,16 @@ const offerPromo = (
         percent_off: null,
         currency: 'usd',
         valid: true,
+        ...overrides.coupon,
       },
     },
   }) as unknown as Stripe.PromotionCode
+
+// The owner as Clerk has them: staff is decided by the Clerk primary email.
+const clerkUser = (emailAddress: string, status = 'verified') =>
+  ({
+    primaryEmailAddress: { emailAddress, verification: { status } },
+  }) as unknown as Awaited<ReturnType<ClerkClient['users']['getUser']>>
 
 const listResult = (promo: Stripe.PromotionCode | null) =>
   ({
@@ -117,6 +132,9 @@ beforeEach(async () => {
   promotionCodesCreate.mockImplementation(async (params) =>
     offerPromo({ code: params.code }),
   )
+  const clerk = service.app.get<ClerkClient>(CLERK_CLIENT_PROVIDER_TOKEN)
+  vi.spyOn(clerk.users, 'getUser').mockImplementation(clerkGetUser)
+  clerkGetUser.mockResolvedValue(clerkUser('tests@goodparty.org'))
 
   const offer = service.app.get(RobocallFreeOfferService)
   // The coupon id is read from the environment when the service is built.
@@ -379,6 +397,38 @@ describe('GET /v1/campaigns/mine/robocall-offer', () => {
     expect(result.data.eligible).toBe(true)
   })
 
+  it('does not take a goodparty.org email Clerk has not verified as staff', async () => {
+    await service.prisma.campaign.update({
+      where: { id: campaign.id },
+      data: { isPro: false },
+    })
+    clerkGetUser.mockResolvedValue(
+      clerkUser('tests@goodparty.org', 'unverified'),
+    )
+
+    const result = await service.client.get(
+      '/v1/campaigns/mine/robocall-offer',
+      orgHeaders(),
+    )
+
+    expect(result.data.eligible).toBe(false)
+  })
+
+  it('does not take a goodparty.org email set only in gp-api as staff', async () => {
+    await service.prisma.campaign.update({
+      where: { id: campaign.id },
+      data: { isPro: false },
+    })
+    clerkGetUser.mockResolvedValue(clerkUser('candidate@example.com'))
+
+    const result = await service.client.get(
+      '/v1/campaigns/mine/robocall-offer',
+      orgHeaders(),
+    )
+
+    expect(result.data.eligible).toBe(false)
+  })
+
   it('offers to a goodparty.org owner who booked another robocall', async () => {
     await bookRobocall()
 
@@ -458,7 +508,7 @@ describe('GET /v1/campaigns/mine/robocall-offer', () => {
 })
 
 describe('the offer code', () => {
-  it('is minted for a draft on the offer list, then reused', async () => {
+  it('is one code per campaign, expiring after Election Day', async () => {
     await enroll()
     const offer = service.app.get(RobocallFreeOfferService)
     const organization = await service.prisma.organization.findUniqueOrThrow({
@@ -477,17 +527,15 @@ describe('the offer code', () => {
     expect(code).toMatch(/^GPOFFER-[A-Z2-9]{8}$/)
     expect(promotionCodesCreate).toHaveBeenCalledWith(
       expect.objectContaining({
+        code,
         promotion: { type: 'coupon', coupon: 'robocall-free-offer-2026-11' },
         max_redemptions: 1,
+        expires_at: getUnixTime(new Date('2026-11-04T08:00:00Z')),
         metadata: { experiment: EXPERIMENT, campaignId: String(campaign.id) },
       }),
     )
 
-    // The first draft now holds the code, which Stripe still lists as live.
-    await service.prisma.outreachRobocall.update({
-      where: { outreachId: first },
-      data: { promoCode: code, promotionCodeId: 'promo_offer' },
-    })
+    // Stripe now lists the code as live, so the next draft gets it back.
     promotionCodesList.mockResolvedValue(
       listResult(offerPromo({ code: code! })),
     )
@@ -503,6 +551,107 @@ describe('the offer code', () => {
       }),
     ).toBe(code)
     expect(promotionCodesCreate).not.toHaveBeenCalled()
+  })
+
+  it('is shared by two drafts opened at once and pays for only one run', async () => {
+    await enroll()
+    const offer = service.app.get(RobocallFreeOfferService)
+    const organization = await service.prisma.organization.findUniqueOrThrow({
+      where: { slug: orgSlug },
+    })
+    // Stripe's promotion codes as one store: unique by code, `active`
+    // filterable, flipped by update.
+    const codes = new Map<string, Stripe.PromotionCode>()
+    const find = (params: { code: string; active?: boolean }) => {
+      const promo = codes.get(params.code)
+      return listResult(
+        promo && (params.active === undefined || promo.active === params.active)
+          ? promo
+          : null,
+      )
+    }
+    // Both drafts look the code up before either creates it.
+    let lookups = 0
+    const { promise: bothLookedUp, resolve: releaseLookups } =
+      Promise.withResolvers<void>()
+    promotionCodesList.mockImplementation(async (params) => {
+      lookups += 1
+      if (lookups === 2) releaseLookups()
+      if (lookups <= 2) await bothLookedUp
+      return find(params)
+    })
+    promotionCodesCreate.mockImplementation(async (params) => {
+      if (codes.has(params.code)) {
+        throw new Error(`A promotion code ${params.code} already exists`)
+      }
+      const promo = offerPromo({ id: 'promo_offer', code: params.code })
+      codes.set(params.code, promo)
+      return promo
+    })
+    promotionCodesUpdate.mockImplementation(async (id, params) => {
+      for (const promo of codes.values()) {
+        if (promo.id === id) Object.assign(promo, { active: params.active })
+      }
+      return {}
+    })
+
+    const first = await createDraft(offerListId)
+    const second = await createDraft(offerListId)
+    const draftCode = (outreachId: number) =>
+      offer.codeForDraft({
+        organization,
+        campaign,
+        outreachId,
+        voterFileFilterId: offerListId,
+      })
+    const [firstCode, secondCode] = await Promise.all([
+      draftCode(first),
+      draftCode(second),
+    ])
+
+    expect(firstCode).toMatch(/^GPOFFER-/)
+    expect(secondCode).toBe(firstCode)
+    expect(promotionCodesCreate).toHaveBeenCalledTimes(2)
+    expect(codes.size).toBe(1)
+
+    expect((await applyPromo(first, firstCode!)).status).toBe(
+      HttpStatus.CREATED,
+    )
+    expect((await applyPromo(second, secondCode!)).status).toBe(
+      HttpStatus.CREATED,
+    )
+    const results = await Promise.all([authorize(first), authorize(second)])
+
+    expect(results.map((result) => result.status).sort()).toEqual([
+      HttpStatus.CREATED,
+      HttpStatus.BAD_REQUEST,
+    ])
+    const redeemed = await service.prisma.outreachRobocall.findMany({
+      where: { promoRedeemedAt: { not: null } },
+    })
+    expect(redeemed).toHaveLength(1)
+
+    // Canceling the run before it dials hands the code back, and the same
+    // code pays for a fresh draft.
+    const cancel = await service.client.post(
+      `/v1/outreach/${redeemed[0]!.outreachId}/cancel`,
+      {},
+      orgHeaders(),
+    )
+    expect(cancel.status).toBe(HttpStatus.CREATED)
+    promotionCodesCreate.mockClear()
+    const third = await createDraft(offerListId)
+    const restored = await draftCode(third)
+
+    expect(restored).toBe(firstCode)
+    expect(promotionCodesCreate).not.toHaveBeenCalled()
+    expect((await applyPromo(third, restored!)).status).toBe(HttpStatus.CREATED)
+    const rebooked = await authorize(third)
+    expect(rebooked.status).toBe(HttpStatus.CREATED)
+    expect(rebooked.data).toMatchObject({
+      status: 'authorized',
+      authorizedAmountInCents: 0,
+    })
   })
 
   it('applies to the offer list and schedules the run at $0 with no card', async () => {
@@ -567,6 +716,20 @@ describe('the offer code', () => {
     promotionCodesList.mockResolvedValue(
       listResult(offerPromo({ campaignId: '12345' })),
     )
+    const draft = await createDraft(offerListId)
+
+    const result = await applyPromo(draft)
+
+    expect(result.status).toBe(HttpStatus.BAD_REQUEST)
+  })
+
+  it.each([
+    ['worth a different amount', { amount_off: 50_000 }],
+    ['in another currency', { currency: 'cad' }],
+    ['a percent off', { amount_off: null, percent_off: 100 }],
+  ])('is refused when its coupon is %s', async (_, coupon) => {
+    await enroll()
+    promotionCodesList.mockResolvedValue(listResult(offerPromo({ coupon })))
     const draft = await createDraft(offerListId)
 
     const result = await applyPromo(draft)
