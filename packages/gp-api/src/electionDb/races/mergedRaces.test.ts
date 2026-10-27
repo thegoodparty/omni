@@ -307,6 +307,63 @@ describe('races merged in the database', () => {
     )
   })
 
+  // gp-marketing's location pages and featured-cities carousel ask for these
+  // exact raceColumns, none of which is `id` (ENG-11491: every office dropped
+  // when the merged rows were joined back by an id the caller never selected).
+  const PLACE_RACE_COLUMNS =
+    'slug,normalizedPositionName,positionNames,electionDate,positionDescription,positionLevel,isPrimary'
+  const FEATURED_CITY_RACE_COLUMNS = 'slug,electionDate'
+  const slugsOf = (list: unknown) =>
+    [...new Set(((list ?? []) as { slug: string }[]).map((r) => r.slug))].sort()
+  // positionNames always comes back: the merge needs it, as it did before.
+  const expectOnlyColumns = (list: unknown, columns: string) => {
+    const allowed = new Set([...columns.split(','), 'positionNames'])
+    for (const race of (list ?? []) as Record<string, unknown>[]) {
+      expect(Object.keys(race).filter((k) => !allowed.has(k))).toEqual([])
+    }
+  }
+
+  it.each([PLACE_RACE_COLUMNS, FEATURED_CITY_RACE_COLUMNS])(
+    'keeps place, child and parent races when raceColumns is %s',
+    async (raceColumns) => {
+      const [county] = await places.getPlaces({
+        slug: 'ca/la',
+        includeRaces: true,
+        includeChildren: true,
+        includeChildRaces: true,
+        raceColumns,
+      } as PlaceFilterDto)
+      const [city] = await places.getPlaces({
+        slug: 'ca/la/city',
+        includeRaces: true,
+        includeParent: true,
+        raceColumns,
+      } as PlaceFilterDto)
+
+      const countySlugs = slugsOf(
+        await client.race.findMany({ where: { placeId: LA } }),
+      )
+      const citySlugs = slugsOf(
+        await client.race.findMany({ where: { placeId: LA_CITY } }),
+      )
+      expect(countySlugs.length).toBeGreaterThan(0)
+      expect(citySlugs.length).toBeGreaterThan(0)
+
+      const countyRaces = (county as { Races?: unknown }).Races
+      const childRaces = (county?.children?.[0] as { Races?: unknown })?.Races
+      const cityRaces = (city as { Races?: unknown }).Races
+      const parentRaces = (city as { parent?: { Races?: unknown } }).parent
+        ?.Races
+      expect(slugsOf(countyRaces)).toEqual(countySlugs)
+      expect(slugsOf(childRaces)).toEqual(citySlugs)
+      expect(slugsOf(cityRaces)).toEqual(citySlugs)
+      expect(slugsOf(parentRaces)).toEqual(countySlugs)
+      for (const list of [countyRaces, childRaces, cityRaces, parentRaces]) {
+        expectOnlyColumns(list, raceColumns)
+      }
+    },
+  )
+
   it('attaches parent races and drops an id it only loaded to join on', async () => {
     const [place] = await places.getPlaces({
       slug: 'ca/la/city',
