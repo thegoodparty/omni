@@ -260,15 +260,23 @@ export class PlacesService extends createElectionDbBase(ELECTION_MODELS.Place) {
           })
         : await this.client.race.findMany({
             where: { id: { in: headIds } },
-            select: { ...raceInclude.select, positionNames: false },
+            // `id` links each row to its head; a raceColumns selection that
+            // leaves it out would otherwise drop every race.
+            select: {
+              ...raceInclude.select,
+              id: true,
+              positionNames: false,
+            },
             orderBy,
           })
+    const stripRaceId = raceInclude !== true && !raceInclude.select.id
 
     const racesByPlace = new Map<string, unknown[]>()
     for (const row of rows) {
       const head = headById.get(row.id)
       if (!head?.placeId) continue
       const race = { ...row, positionNames: head.positionNames }
+      if (stripRaceId) delete (race as { id?: string }).id
       const list = racesByPlace.get(head.placeId)
       if (list) list.push(race)
       else racesByPlace.set(head.placeId, [race])
