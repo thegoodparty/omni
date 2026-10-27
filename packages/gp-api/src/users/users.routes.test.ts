@@ -140,6 +140,110 @@ describe('PUT /v1/users/me', () => {
   })
 })
 
+describe('PUT /v1/users/me email', () => {
+  beforeEach(() => {
+    vi.spyOn(
+      service.app.get<ClerkClient>(CLERK_CLIENT_PROVIDER_TOKEN).users,
+      'updateUser',
+    ).mockResolvedValue({} as never)
+  })
+
+  it('ignores an email in the body and saves the other fields', async () => {
+    const before = service.user.email
+
+    const res = await service.client.put('/v1/users/me', {
+      email: 'someone@goodparty.org',
+      zip: '94587',
+    })
+
+    expect(res.status).toBe(HttpStatus.OK)
+    const persisted = await service.prisma.user.findUniqueOrThrow({
+      where: { id: service.user.id },
+    })
+    expect(persisted.email).toBe(before)
+    expect(persisted.zip).toBe('94587')
+  })
+})
+
+describe('POST /v1/users/me/sync-email', () => {
+  const clerkGetUser = (
+    primary: { emailAddress: string; status: string } | null,
+  ) =>
+    vi
+      .spyOn(
+        service.app.get<ClerkClient>(CLERK_CLIENT_PROVIDER_TOKEN).users,
+        'getUser',
+      )
+      .mockResolvedValue({
+        primaryEmailAddress: primary && {
+          emailAddress: primary.emailAddress,
+          verification: { status: primary.status },
+        },
+        emailAddresses: primary
+          ? [
+              {
+                emailAddress: primary.emailAddress,
+                verification: { status: primary.status },
+              },
+            ]
+          : [],
+      } as never)
+
+  it('copies the verified Clerk primary email onto the user', async () => {
+    const getUser = clerkGetUser({
+      emailAddress: ' New.Address@Example.com ',
+      status: 'verified',
+    })
+
+    const res = await service.client.post('/v1/users/me/sync-email')
+
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(res.data.email).toBe('new.address@example.com')
+    expect(getUser).toHaveBeenCalledWith(service.user.clerkId)
+    const persisted = await service.prisma.user.findUniqueOrThrow({
+      where: { id: service.user.id },
+    })
+    expect(persisted.email).toBe('new.address@example.com')
+  })
+
+  it('leaves the email alone when Clerk has no verified address', async () => {
+    const before = service.user.email
+    clerkGetUser({ emailAddress: 'staff@goodparty.org', status: 'unverified' })
+
+    const res = await service.client.post('/v1/users/me/sync-email')
+
+    expect(res.status).toBe(HttpStatus.OK)
+    const persisted = await service.prisma.user.findUniqueOrThrow({
+      where: { id: service.user.id },
+    })
+    expect(persisted.email).toBe(before)
+  })
+
+  it('refuses an email another account already holds', async () => {
+    const before = service.user.email
+    await service.prisma.user.create({
+      data: { email: 'taken@example.com', firstName: 'Ta', lastName: 'Ken' },
+    })
+    clerkGetUser({ emailAddress: 'Taken@example.com', status: 'verified' })
+
+    const res = await service.client.post('/v1/users/me/sync-email')
+
+    expect(res.status).toBe(HttpStatus.CONFLICT)
+    const persisted = await service.prisma.user.findUniqueOrThrow({
+      where: { id: service.user.id },
+    })
+    expect(persisted.email).toBe(before)
+  })
+
+  it('rejects an anonymous request', async () => {
+    const res = await service.client.post('/v1/users/me/sync-email', null, {
+      headers: { Authorization: 'Bearer not-a-valid-token' },
+    })
+
+    expect(res.status).toBe(HttpStatus.UNAUTHORIZED)
+  })
+})
+
 describe('POST /v1/users/me/crm-registration', () => {
   const REGISTER_FORM_ID = '37d98f01-7062-405f-b0d1-c95179057db1'
 

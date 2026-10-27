@@ -362,6 +362,13 @@ export type APIEndpoints = {
     Response: User
   }
 
+  // Copies the user's verified Clerk primary email onto the user row. The
+  // body is empty on purpose: email only changes through Clerk.
+  'POST /v1/users/me/sync-email': {
+    Request: {}
+    Response: User
+  }
+
   // Submits the HubSpot registration form with the visitor's hubspotutk so
   // the contact gets web/paid original-source attribution instead of the
   // "offline sources" Segment's server-side destination would assign.
