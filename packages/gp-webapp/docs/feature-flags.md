@@ -66,10 +66,6 @@ The SSR seed is resolved for the authenticated user by gp-api. Client-side, the 
 
 **Anonymous visitors get no flags — every flag reads `off` and the client makes no resolution call.** This is by design: the client never talks to Amplitude, and gp-api only resolves for an authenticated user. A flag that must be on for a logged-out / marketing page therefore will not work through this provider — resolve it another way.
 
-### The one anonymous exception: the sign-up claim panel
-
-`signup-profile-claim-variation` is evaluated for logged-out visitors, outside this provider, by `app/sign-up/profileClaimVariation.ts`. The sign-up page calls it only when `signup_source=profile_claim` (the gp-marketing "Claim this profile" link), before render, so the panel never swaps after first paint. It asks Amplitude server-to-server with `@amplitude/experiment-node-server`, using the server-only `AMPLITUDE_EXPERIMENT_DEPLOYMENT_KEY` and the Segment anonymous id from the `ajs_anonymous_id` cookie (set on `.goodparty.org`, so it arrives from the marketing site) as `device_id`. No key, no cookie, an error or no answer within a second all read as off and show the original panel. Off production, the `e2e-flag-overrides` cookie forces it like any other flag. Don't copy this for another flag without the same narrow trigger; see `docs/adr/2026-10-23-signup-claim-flag-evaluated-anonymously.md`.
-
 ## Org-scoped flags
 
 A few flags roll out by organization, not by person: gp-api's `ORGANIZATION_FLAGS` (`packages/gp-api/src/features/services/features.service.ts`), today only `issue-capture`. Amplitude buckets by user id, so a percentage rollout read per person would split a candidate from their own volunteers. For these, `GET /v1/experiment/variants` returns the value the org's owner gets, for the org the `organization-slug` cookie names (sent as `X-Organization-Slug`). A cookie naming an org the user is not in reads as no org, and the user's own value stands.
