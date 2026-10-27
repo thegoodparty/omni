@@ -17,6 +17,9 @@ interface RecommendedListCardProps {
   // it has no row to highlight, so the selection has to read here.
   selected?: boolean
   onSelect: () => void
+  // A card that should stand apart (the free robocall offer). Applied under
+  // the selected styling, so a pressed card still reads as pressed.
+  className?: string
 }
 
 // Dollars from the server's own cents. The client never derives a money
@@ -34,6 +37,7 @@ export const RecommendedListCard = ({
   channel,
   selected = false,
   onSelect,
+  className,
 }: RecommendedListCardProps) => {
   const { copy, count, voteGoalShare, estimatedCostCents } = recommendation
 
@@ -51,6 +55,7 @@ export const RecommendedListCard = ({
       }}
       className={cn(
         'cursor-pointer gap-1 p-4 text-left transition-colors hover:border-primary/50',
+        className,
         selected && 'border-primary bg-primary/5',
       )}
     >

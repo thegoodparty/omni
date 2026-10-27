@@ -9,6 +9,7 @@ import {
   RobocallPurpose,
   RobocallScriptDraftRequest,
 } from '@goodparty_org/contracts'
+import { differenceInCalendarDays, parseISO } from 'date-fns'
 import { PinoLogger } from 'nestjs-pino'
 import { z } from 'zod'
 import { LlmService } from '@/llm/services/llm.service'
@@ -29,9 +30,20 @@ const PURPOSE_GOALS: Record<RobocallPurpose, string> = {
   persuade_voters: 'persuade a likely voter to support the candidate',
   event_invite: 'invite the voter to a campaign event',
   early_voting: 'encourage the voter to vote early and tell them how',
-  election_day_turnout: 'remind the voter to vote today and tell them how',
+  election_day_turnout:
+    'remind the voter to vote on Election Day and tell them how',
   custom: "deliver the candidate's own message as written",
 }
+
+// An election-day reminder often goes out the day before (the plan task and
+// the free robocall offer both land on the eve), so "today" is only said
+// when the send day is election day itself.
+const electionDayTurnoutStructure = (reminder: string): string =>
+  'Structure: (1) the identification opener, (2) ' +
+  reminder +
+  ', (3) voting logistics as bracketed placeholders — ' +
+  '"[polling hours]", "[polling location]" — never a specific invented ' +
+  'time or address, (4) the ask to vote.'
 
 // Structural shape per purpose — separate from PURPOSE_GOALS because the
 // early-voting / election-day / persuade requirements are about what the
@@ -56,11 +68,10 @@ const PURPOSE_STRUCTURE: Record<RobocallPurpose, string> = {
     'candidate to fill in from local materials — "[early voting dates]", ' +
     '"[early voting hours]", "[early voting location]" — never a specific ' +
     'invented date, time, or address, (4) the ask to vote.',
-  election_day_turnout:
-    'Structure: (1) the identification opener, (2) a reminder that today ' +
-    'is election day, (3) voting logistics as bracketed placeholders — ' +
-    '"[polling hours]", "[polling location]" — never a specific invented ' +
-    'time or address, (4) the ask to vote.',
+  election_day_turnout: electionDayTurnoutStructure(
+    'a reminder to vote on Election Day, with the date as the placeholder ' +
+      '"[election date]" — never "today" or "tomorrow"',
+  ),
   custom:
     "Structure: deliver the candidate's own message as written, polished " +
     'for a recorded call spoken aloud by the candidate.',
@@ -157,6 +168,7 @@ export class OutreachRobocallGenerationService {
     office: string,
     userId: string,
     campaignContext: string[] = [],
+    electionDate?: string,
   ): Promise<string> {
     // Fresh generation only: improve mode polishes the candidate's own
     // words, so it applies to custom-purpose scripts too.
@@ -165,11 +177,28 @@ export class OutreachRobocallGenerationService {
         'Custom-purpose scripts are written by the candidate',
       )
     }
+    const daysBeforeElection =
+      input.scheduledLocalDate && electionDate
+        ? differenceInCalendarDays(
+            parseISO(electionDate),
+            parseISO(input.scheduledLocalDate),
+          )
+        : null
+    const structure =
+      input.purpose !== 'election_day_turnout'
+        ? PURPOSE_STRUCTURE[input.purpose]
+        : daysBeforeElection === 0
+          ? electionDayTurnoutStructure('a reminder that today is Election Day')
+          : daysBeforeElection === 1
+            ? electionDayTurnoutStructure(
+                'a reminder that tomorrow is Election Day',
+              )
+            : PURPOSE_STRUCTURE.election_day_turnout
     const context = [
       `Candidate name: ${candidateName || 'The candidate'}.`,
       `Office sought: ${office || 'local office'}.`,
       `Goal of this call: ${PURPOSE_GOALS[input.purpose]}.`,
-      PURPOSE_STRUCTURE[input.purpose],
+      structure,
       `Tone: ${TONE_STYLES[input.tone]}`,
       ...campaignContext,
     ]

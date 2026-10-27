@@ -250,6 +250,20 @@ export class RecommendedListsService {
       (variant === ROBOCALL_FREE_OFFER_VARIANT || isGlobal) &&
       (channel === null || channel === 'robocall')
 
+    // Asked for by variant, the offer is settled before anything else: the
+    // offer endpoint asks on every page load for every Win campaign, so a
+    // campaign without the offer (every one while the coupon is unset) must
+    // cost nothing past here, and must not fail on a district it lacks.
+    let requestedOfferPrecincts: string[] | null = null
+    if (variant === ROBOCALL_FREE_OFFER_VARIANT) {
+      if (!offerAsked) return []
+      requestedOfferPrecincts = await this.freeOffer.resolveOffer(
+        organization,
+        campaign,
+      )
+      if (!requestedOfferPrecincts?.length) return []
+    }
+
     const [
       eligible,
       ideologyBucket,
@@ -274,7 +288,9 @@ export class RecommendedListsService {
       // nothing else here waits on it.
       this.raceSizingContext(campaign),
       isGlobal ? this.earlyVoteWindowOpen(campaign) : false,
-      offerAsked ? this.offerPrecincts(organization, campaign, isGlobal) : null,
+      isGlobal
+        ? this.globalOfferPrecincts(organization, campaign)
+        : requestedOfferPrecincts,
     ])
 
     const { votesNeededToWin, electionCode } = race
@@ -404,15 +420,13 @@ export class RecommendedListsService {
   // The voter data page's global set must not fail because the offer could
   // not be resolved (it is one card among many); a request for the offer
   // itself still does.
-  private async offerPrecincts(
+  private async globalOfferPrecincts(
     organization: Organization,
     campaign: Campaign,
-    isGlobal: boolean,
   ): Promise<string[] | null> {
     try {
       return await this.freeOffer.resolveOffer(organization, campaign)
     } catch (error) {
-      if (!isGlobal) throw error
       this.logger.warn(
         { err: error, campaignId: campaign.id },
         'Robocall free offer could not be resolved; leaving it out',

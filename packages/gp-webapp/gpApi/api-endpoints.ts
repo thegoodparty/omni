@@ -118,6 +118,7 @@ import type {
   RecommendedListIntent,
   RecommendedListsResponse,
   RecommendedListVariant,
+  RobocallFreeOfferResponse,
   MyAssignmentsResponse,
   TrackerTaskSkipReason,
   TestModeState,
@@ -1536,6 +1537,13 @@ export type APIEndpoints = {
       variant?: RecommendedListVariant
     }
     Response: RecommendedListsResponse
+  }
+  // Whether the campaign gets the free election-eve robocall right now, and
+  // the size of its offer list. The first call for an eligible campaign
+  // assigns its precincts.
+  'GET /v1/campaigns/mine/robocall-offer': {
+    Request: {}
+    Response: RobocallFreeOfferResponse
   }
   'DELETE /v1/voters/voter-file/filter/:id': {
     Request: {}

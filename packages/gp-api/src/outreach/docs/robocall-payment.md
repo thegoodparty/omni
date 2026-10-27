@@ -673,3 +673,22 @@ Stripe call. A pre-dial unwind hands the reward back
 expires never redeemed anything. The deferred sweep applies a remembered code
 the same way when it places the hold. A partial code on a declined card stays
 remembered on the `hold_failed` row for the retry.
+
+**Free election-eve robocall offer (codes bound to a campaign).** The Nov 2026
+precinct experiment (`src/robocallFreeOffer/`) reuses the promo path above with
+one more rule: its codes only pay for the campaign's own offer run.
+`RobocallFreeOfferService.codeForDraft` mints a per-campaign code (`GPOFFER-` +
+8, `max_redemptions 1`, metadata `{ experiment, campaignId }`, coupon
+`ROBOCALL_FREE_OFFER_COUPON_ID`; empty hides the offer) or reuses one still
+active from an earlier offer draft, and `POST /outreach/robocall`
+auto-applies it when the draft's list is the offer list (best-effort; the pay
+step retries). For any code whose metadata names the experiment, `apply` and
+`resolveForAuthorize` also call `assertOfferBinding`: the code's campaign, the
+offer list exactly (saved from the offer card, unmodified, the campaign's
+treatment precincts; locked on save because robocall re-resolves the list at
+authorize and staging), and the campaign still eligible (enrolled, before
+Election Day, no other robocall booked, or for a goodparty.org owner no other
+offer run, with the draft being paid for left out of that count). The Amplitude flag is never rechecked here, so turning it off
+never voids a code already on a draft. Redemption, the unique index and
+`restore` are unchanged. Eligibility, enrollment and precinct assignment are in
+`robocallFreeOffer.service.ts`.

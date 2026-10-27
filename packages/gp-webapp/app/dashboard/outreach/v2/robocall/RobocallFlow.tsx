@@ -1,12 +1,14 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { addDays } from 'date-fns'
-import { useMutation } from '@tanstack/react-query'
+import { addDays, format, parseISO } from 'date-fns'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   deriveRobocallProtectedParts,
   type OutreachDetail,
   type RecommendedListVariant,
+  ROBOCALL_FREE_OFFER_SEND_DATE,
+  ROBOCALL_FREE_OFFER_VARIANT,
   robocallDisclosureLine,
   type RobocallAuthorizeResponse,
   type RobocallComplianceRequest,
@@ -46,6 +48,14 @@ import { useDraftGate } from '../gate/useDraftGate'
 import { useLockedAtOpen } from '../gate/useLockedAtOpen'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { useUser } from '@shared/hooks/useUser'
+import {
+  ROBOCALL_FREE_OFFER_QUERY_KEY,
+  useRobocallFreeOffer,
+} from 'app/dashboard/shared/robocallFreeOffer/useRobocallFreeOffer'
+import {
+  freeOfferAudienceNote,
+  savedRecommendedListName,
+} from 'app/dashboard/shared/robocallFreeOffer/freeOfferCopy'
 import { provisionalCommitteeName } from '../sms/smsCompose.util'
 import { RobocallPurposeStep } from './RobocallPurposeStep'
 import { RobocallScheduleStep } from './RobocallScheduleStep'
@@ -257,6 +267,12 @@ export const RobocallFlow = ({
     ? (savedDraft?.voterFileFilterId ?? undefined)
     : undefined
 
+  const { offer: freeOffer } = useRobocallFreeOffer()
+  const queryClient = useQueryClient()
+  // Whether this open already skipped past the audience step for a
+  // carried-in free offer list (see the effect below handleSelected...).
+  const offerAutoAdvanced = useRef(false)
+
   const audience = useOutreachAudience({
     open,
     active: stepId === 'audience',
@@ -265,6 +281,7 @@ export const RobocallFlow = ({
     recommendedListIntent,
     preselectedListId: resumedListId ?? preselectedListId,
     preselectedRecommendedVariant,
+    freeOfferEnabled: freeOffer !== null,
   })
   const { reset: resetAudience } = audience
 
@@ -487,6 +504,14 @@ export const RobocallFlow = ({
           ...(tracker ? { tracker } : {}),
         }),
       })
+      // A booked robocall ends the free offer for this campaign, so every
+      // surface showing it asks gp-api again.
+      void queryClient.invalidateQueries({
+        queryKey: [ROBOCALL_FREE_OFFER_QUERY_KEY],
+      })
+      void queryClient.invalidateQueries({
+        queryKey: ['recommended-lists'],
+      })
       onScheduled?.()
     }
   }
@@ -520,6 +545,9 @@ export const RobocallFlow = ({
         purpose: p,
         tone: t,
         ...(currentDraft === undefined ? {} : { currentDraft }),
+        ...(scheduledDay === undefined
+          ? {}
+          : { scheduledLocalDate: format(scheduledDay, 'yyyy-MM-dd') }),
       },
       {
         onSuccess: (draft) => {
@@ -576,6 +604,7 @@ export const RobocallFlow = ({
     setPurpose(resumeDraft ? 'custom' : carriedPurpose)
     setCampaignName(resumeDraft?.name ?? '')
     lastAutoName.current = ''
+    offerAutoAdvanced.current = false
     setScheduledDay(undefined)
     setTime('')
     setNow(new Date())
@@ -795,19 +824,58 @@ export const RobocallFlow = ({
   }
 
   // The shell's Continue over a selected recommendation card: saved under
-  // the recommendation's own title, then on to schedule.
+  // the recommendation's own title (the free offer's names it as free), then
+  // on to schedule.
   const handleSelectedRecommendationContinue = async () => {
     if (!audience.selectedRecommendation) return
     try {
       await audience.createRecommendedList(
         audience.selectedRecommendation,
-        audience.selectedRecommendation.copy.title,
+        savedRecommendedListName(audience.selectedRecommendation),
       )
       goToSchedule()
     } catch {
       // createRecommendedListError renders under the cards.
     }
   }
+
+  // Arriving on the free offer's list (its card, its saved list, Home, the
+  // plan task) has already answered "who": the list is set for the
+  // candidate. Once the audience step has applied it, go straight on to
+  // schedule, saving the list first if it isn't saved yet. Once per open, so
+  // Back from schedule stays on the audience step. Only while gp-api says the
+  // offer is live: a link to an ended offer is just a list to pick.
+  useEffect(() => {
+    const preselected = audience.preselectedRecommendation
+    if (
+      !open ||
+      stepId !== 'audience' ||
+      !freeOffer ||
+      preselected?.variant !== ROBOCALL_FREE_OFFER_VARIANT ||
+      offerAutoAdvanced.current ||
+      !audience.preselectedRecommendationApplied
+    ) {
+      return
+    }
+    // The free offer is an election-eve call, so its list lands the schedule
+    // on Nov 2. Prefilled, not locked: the candidate can move it.
+    const prefillOfferDay = () =>
+      setScheduledDay((day) => day ?? parseISO(ROBOCALL_FREE_OFFER_SEND_DATE))
+    if (
+      audience.selectedListId !== null &&
+      audience.selectedListId === preselected.existingFilterId
+    ) {
+      offerAutoAdvanced.current = true
+      prefillOfferDay()
+      goToSchedule()
+    } else if (
+      audience.selectedRecommendation?.variant === ROBOCALL_FREE_OFFER_VARIANT
+    ) {
+      offerAutoAdvanced.current = true
+      prefillOfferDay()
+      void handleSelectedRecommendationContinue()
+    }
+  })
 
   // First AI draft on entry (non-custom, and only if we don't already have one
   // from a prior visit). Custom writes its own words, so it never drafts — but
@@ -1068,6 +1136,7 @@ export const RobocallFlow = ({
         <RobocallPurposeStep
           selected={purpose}
           onSelect={handleSelectPurpose}
+          freeOfferPurpose={freeOffer ? 'election_day_turnout' : null}
         />
       ) : stepId === 'audience' ? (
         <>
@@ -1110,6 +1179,25 @@ export const RobocallFlow = ({
             }
             onPreselectedRecommendationApplied={
               audience.markPreselectedRecommendationApplied
+            }
+            freeOffer={
+              // Only under the election-day purpose, the one the offer's
+              // badge sits on (a carried-in offer list lands on it too).
+              audience.freeOfferRecommendation &&
+              freeOffer &&
+              purpose === 'election_day_turnout'
+                ? {
+                    recommendation: audience.freeOfferRecommendation,
+                    note: freeOfferAudienceNote(
+                      freeOffer.count,
+                      freeOffer.coveredCalls,
+                    ),
+                    // Picking the offer's list lands the schedule on its
+                    // election-eve day, as arriving on it does.
+                    onPicked: () =>
+                      setScheduledDay(parseISO(ROBOCALL_FREE_OFFER_SEND_DATE)),
+                  }
+                : null
             }
             reachableCount={audience.reachableCount}
             reachableLoading={audience.reachableLoading}
