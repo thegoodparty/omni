@@ -91,20 +91,20 @@ describe('SignUpPage', () => {
     expect(
       screen.getByRole('heading', {
         level: 2,
-        name: 'Claim your voter guide profile',
+        name: 'Get started with a free GoodParty.org account',
       }),
     ).toBeInTheDocument()
     expect(
       screen.getByText(
-        'Create an account to claim your GoodParty.org profile and keep your community informed.',
+        'Create your account, then tell us about your race or your office.',
       ),
     ).toBeInTheDocument()
     expect(
       screen.getAllByRole('heading', { level: 3 }).map((h) => h.textContent),
     ).toEqual([
-      'Verify your identity',
-      'Update your profile',
-      'Reach more voters',
+      'Create your free account',
+      'Tell us about your race or office',
+      'Reach your community',
     ])
   })
 
