@@ -49,6 +49,8 @@ const baseProps = {
   onFiltersChange: vi.fn(),
   precincts: [],
   onPrecinctsChange: vi.fn(),
+  votedStatus: [],
+  onVotedStatusChange: vi.fn(),
   precinctOptions: {
     options: [],
     truncated: false,

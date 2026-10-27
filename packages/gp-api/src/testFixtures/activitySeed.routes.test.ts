@@ -27,18 +27,12 @@ import { LlmService } from '@/llm/services/llm.service'
 import { StatsService } from '@/peopleDb/services/stats.service'
 import { PriorityResultsService } from '@/priorities/services/priorityResults.service'
 import { useTestService } from '@/test-service'
+import {
+  appEnvOverrides,
+  useAppEnvOverrides,
+} from '@/shared/test-utils/appEnvOverrides'
 
-const { envNonProd } = vi.hoisted(() => ({ envNonProd: { value: true } }))
-vi.mock('@/shared/util/appEnvironment.util', async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import('@/shared/util/appEnvironment.util')>()
-  return {
-    ...actual,
-    get IS_NON_PROD_DEPLOY() {
-      return envNonProd.value
-    },
-  }
-})
+useAppEnvOverrides({ IS_NON_PROD_DEPLOY: true })
 
 const service = useTestService()
 
@@ -80,7 +74,7 @@ describe('POST /v1/test-fixtures/organizations/:slug/activity', () => {
   let scheduled: Array<Parameters<MockSynthesisEngine['scheduleCompletion']>>
 
   beforeEach(async () => {
-    envNonProd.value = true
+    appEnvOverrides.IS_NON_PROD_DEPLOY = true
     await makeAdmin()
     scheduled = []
     const engine = vi
@@ -364,7 +358,7 @@ describe('POST /v1/test-fixtures/organizations/:slug/activity', () => {
   })
 
   it('404s outside a non-prod deploy', async () => {
-    envNonProd.value = false
+    appEnvOverrides.IS_NON_PROD_DEPLOY = false
     const slug = await createServeOrg(service)
 
     const res = await seed(slug)

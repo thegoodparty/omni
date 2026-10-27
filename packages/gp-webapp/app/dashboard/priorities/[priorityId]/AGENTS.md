@@ -266,7 +266,7 @@ group in the district has answered on it, pooled across texts, calls and
 doors, and a model of the coded answers is sure enough of each. gp-api
 decides it in one place, `mrpReadStatus`
 (`gp-api/src/priorities/util/mrpReadStatus.util.ts`), returning
-`{ answers, needed, groupsHeard, groupsTotal, groupsNext, good, status, underrepresented, unheard }`. A major group holds
+`{ answers, needed, groupsHeard, groupsTotal, groupsNext, representativeAnswers, representativeNeeded, good, status, underrepresented, unheard }`. A major group holds
 3% or more of the district on age band, tract, gender, or race when
 `raceNameable` holds (10 coded answers with a known race, 70% of all); the
 pooled `other` never counts.
@@ -301,7 +301,19 @@ floor; the read is then `notYetRepresentative` with every group heard
 (`groupsHeard` equals `groupsTotal`), and the copy says "Need a few more
 answers overall" (`READ_STATUS_COPY`), even when a group still too unsure is
 in `underrepresented`, since the total is what holds it back. It is a floor, not a promise, and no screen shows it: only analytics
-(`answersFloor`) and sizing read it.
+(`answersFloor`) and sizing read it. What the seats and bar show is
+`representativeAnswers` of `representativeNeeded`: the district's floor
+(at least `answersNeeded` of the smallest major group), and the answers that
+count toward a balanced read of it. On each dimension the major groups
+share the floor by their part of the district (small groups and the pooled
+`other` hold no seats), a major group's answers count up to its share, the
+dimension furthest behind sets the count, and it never passes the people
+heard. So a group heard from plenty fills no extra seats, every group at its
+share means every major group has its three, and a good read fills every
+seat. Uncoded answers
+fill no seat yet. When the district cannot be read it is `answers` of
+`needed`. A read served before the fields existed falls back the same way
+(`representativeCount`).
 `underrepresented` names, in `batchTargets` order (`civicPanelAllocation.util.ts`),
 the one or two groups holding the read back: short of voices, or with a
 range still too wide; every tract reads as `unreachedAreas`
@@ -331,7 +343,7 @@ a model**: only the status, the groups and actions.
   and over" for groups with a few or still too unsure, both in one sentence
   when both kinds are named, "Still unsure what people 65 and over think"
   once every group has three), then a row of its own with a thin
-  bar of groups ("9 of 12 groups heard") and Get answers; or a check, "You've
+  bar ("34 of the 100 answers we need", `READ_STATUS_COPY.progress`) and Get answers; or a check, "You've
   heard from every group" (or "Enough people have answered") with See what we
   heard beside it. Before a check is out with residents (`readStatus.checkOut`) the row
   reads "No one asked yet" with no bar and no button, and while a follow-up
@@ -339,19 +351,19 @@ a model**: only the status, the groups and actions.
   button (`READ_STATUS_COPY.canGetAnswers`). The text links to the results page; the button is the one action.
 - **Desktop**: a 56px bar across the chat and the rail holds back and the
   title, so there is no title in the scroll with the flag on. The rail opens
-  with the status label and dot, the groups seats (below), "9 of 12 groups
-  heard" with a key (Heard, Needs answers next, Not yet), the status line
+  with the status label and dot, the answer seats (below), "34 of the 100
+  answers we need" with a key (Heard, Still needed), the status line
   naming the groups, Get answers, a quiet "What we heard" link, then "Where
   this stands". With a good read the rail has See what we heard and
   no second link to the same page.
-- **The groups seats** (`components/GroupSeats.tsx`) are the civic panel's
-  100-seat arc (`seatSpots` and `allocate` from `citizens-panel/components/
-  panelCharts.ts`, reused, never changed for this), split evenly between
-  `groupsTotal` groups, left to right: `groupsHeard` filled primary blue,
-  `groupsNext` in an orange ring, the rest in a light grey ring. A read only
-  counts groups, so the seats are ordered by state, not by which group is
-  which. They show from `lg` up only; below it the rail block and the
-  results held card keep the groups bar, and the phone strip its thin bar.
+- **The answer seats** (`components/AnswerSeats.tsx`) are the civic panel's
+  100-seat arc (`seatSpots` from `citizens-panel/components/panelCharts.ts`,
+  reused, never changed for this), people, not groups: the share of
+  `representativeNeeded` that `representativeAnswers` fills, left to right,
+  in primary blue, the rest in a light grey ring. The arc is never full while
+  an answer is still needed, nor empty once one counts. They show from `lg`
+  up only; below it the rail block and the results held card keep the bar,
+  and the phone strip its thin bar, with the same numbers.
   The switch is CSS (`hidden lg:block` / `lg:hidden`), never a width check,
   so nothing jumps on load.
 - **Get answers** queues one hidden `GET_ANSWERS_MESSAGE` turn (contracts,
@@ -403,8 +415,8 @@ against the district. The response also carries reach and answers per send; the 
 does not list sends, since the tiles already give those counts.
 
 Before a good read it shows the answered tiles, then a card with the status,
-the groups seats, larger and centered, with their key and "9 of 12 groups
-heard." (the groups bar instead below `lg`), one line (`READ_STATUS_COPY.heldBack`) holding back the themes, the
+the answer seats, larger and centered, with their key and "34 of the 100
+answers we need." (the bar instead below `lg`), one line (`READ_STATUS_COPY.heldBack`) holding back the themes, the
 map and who you're hearing from, "Still need: men and people 65 and over."
 (`READ_STATUS_COPY.stillNeed`; the status line instead while the read is
 getting close), and a Get answers button. It never says nobody

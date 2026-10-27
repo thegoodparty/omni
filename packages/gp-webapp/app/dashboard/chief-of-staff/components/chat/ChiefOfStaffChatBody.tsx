@@ -550,7 +550,7 @@ function ChiefOfStaffChatThread({
           event.type === 'tool_call' &&
           isManagedExplainerOffer(event.toolName, event.args)
         ) {
-          trackEvent(EVENTS.CivicPanel.ManagedInviteExplainerViewed, {
+          trackEvent(EVENTS.Contacts.CivicPanelManagedInviteValuePropViewed, {
             source: managedSourceRef.current,
           })
           managedSourceRef.current = 'chat'
@@ -1186,9 +1186,12 @@ function ChiefOfStaffChatThread({
         lastUserViaRef.current = opts?.via ?? 'composer'
         if (managedOfferActiveRef.current) {
           managedOfferActiveRef.current = false
-          trackEvent(EVENTS.CivicPanel.ManagedInviteExplainerCompleted, {
-            choice: managedExplainerChoice(trimmed),
-          })
+          trackEvent(
+            EVENTS.Contacts.CivicPanelManagedInviteValuePropCompleted,
+            {
+              choice: managedExplainerChoice(trimmed),
+            },
+          )
         }
       }
       const id = await ensureConversationId()

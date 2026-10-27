@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { screen, waitFor } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { act, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import {
   START_MANAGED_CIVIC_PANEL_MESSAGE,
@@ -139,19 +139,23 @@ const completedACard = () =>
   )
 
 describe('DashboardContent: Meet my Chief of Staff', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
   const meet = async () => {
-    const user = userEvent.setup()
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     render(<DashboardContent />)
     await user.click(
       screen.getByRole('button', { name: 'Meet my Chief of Staff' }),
     )
-    // The intro types in on a real interval.
-    await waitFor(
-      () =>
-        expect(
-          screen.getByText('What would you like to start with?'),
-        ).toBeInTheDocument(),
-      { timeout: 8000 },
+    // The intro types in on an interval; run its clock forward.
+    await act(() => vi.advanceTimersByTimeAsync(5000))
+    await waitFor(() =>
+      expect(
+        screen.getByText('What would you like to start with?'),
+      ).toBeInTheDocument(),
     )
     return user
   }

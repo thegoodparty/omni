@@ -1,11 +1,11 @@
 ---
 name: triage-instrumentation-gaps
-description: Run the weekly instrumentation-governance review over five queues, flagged causes (analytics_event_health.py), instrumentation gaps (instrumentation_gaps.py), watchlist proposals (analytics_event_health.py), registry-vs-semantic-layer alignment findings (anchor_alignment.py), and surface relabels (surface_drift.py), entered from the Slack governance digest or a pasted event health console handoff, ending in one PR against main. Also diagnoses the digest's red/yellow health items. Use when the user says "triage instrumentation gaps", "/triage-instrumentation-gaps", "review the watchlist proposals", "triage the alignment findings", picks up the digest's triage line, or asks to look into / diagnose a red, yellow, dormant, flatlined, or misaligned event from the digest. Also use to resolve drift between a governed metric and the product with no digest in hand: an event a semantic-layer metric counts was renamed, moved or stopped firing, or the business group changed what a governed metric means.
+description: Run the weekly instrumentation-governance review over six queues, flagged causes (analytics_event_health.py), instrumentation gaps (instrumentation_gaps.py), watchlist proposals (analytics_event_health.py), registry-vs-semantic-layer alignment findings (anchor_alignment.py), surface relabels (surface_drift.py), and product labels (analytics_event_health.py), entered from the Slack governance digest or a pasted event health console handoff, ending in one PR against main. Also diagnoses the digest's red/yellow health items. Use when the user says "triage instrumentation gaps", "/triage-instrumentation-gaps", "review the watchlist proposals", "triage the alignment findings", picks up the digest's triage line, or asks to look into / diagnose a red, yellow, dormant, flatlined, or misaligned event from the digest. Also use to resolve drift between a governed metric and the product with no digest in hand: an event a semantic-layer metric counts was renamed, moved or stopped firing, or the business group changed what a governed metric means.
 ---
 
 # Triage instrumentation gaps
 
-Weekly governance review over **five re-nagging queues** that share one reviewer, one
+Weekly governance review over **six re-nagging queues** that share one reviewer, one
 session, and one PR:
 
 - **Queue 0 — flagged causes** (`analytics_event_health.py`): the flagged set grouped by
@@ -20,6 +20,8 @@ session, and one PR:
   events count.
 - **Queue D, surface relabels** (`surface_drift.py`): an event whose label (its
   `surface:` tag, or its name prefix) no longer matches where the code fires it.
+- **Queue E, product labels** (`analytics_event_health.py`): an event with no Govern
+  `product:` tag, or with conflicting tags (`label_findings`).
 
 This skill orchestrates existing Python modules and three other skills. It never
 re-implements enumeration, judgment, or proposal detection, and it never edits product
@@ -717,7 +719,7 @@ the one that matters. The events table is `dbt.stg_airbyte_source__amplitude_api
      origin/main -- dbt
    git grep -n "like '<old prefix>" origin/main -- dbt/project/macros   # pattern classifiers
    # omni
-   git grep -n -e '<old>' origin/main -- packages/runbooks packages/prototypes
+   git grep -n -e '<old>' origin/main -- packages/runbooks
    ```
    Macro-derived readers pick up a new leg on their own. Anything that names the event
    literally, keys on one of its properties, or pins the leg list in a test does not.
@@ -880,6 +882,20 @@ A row that event-metadata refused (an OKR event, or one needing a status change)
 
 `surface_drift.json` is state, so these dispositions ride the one triage PR like the gap
 dispositions do. Never hand-edit the JSON.
+
+## Queue E: product labels
+
+**Get the batch:** `label_findings` in the monitor result (the digest thread's "Product
+labels" section). Each row is an event with kind `no_product_label` or
+`product_label_conflict`.
+
+| Verb      | What you do |
+| --------- | ----------- |
+| `label`   | Hand the event to `event-metadata` to write the Govern `product:` tag in Amplitude. |
+| `fix`     | For a conflict, correct the tag (or the name, if the tag is right) via `event-metadata`. |
+| `dismiss` | Add the event to `dismissed:` in `monitored_events.yaml`; the finding stops. |
+
+Labels written in Amplitude need no repo change. A `dismissed:` row rides the one triage PR.
 
 ## Diagnose — red/yellow health items
 

@@ -290,19 +290,20 @@ export const EVENTS = {
     // { answeredCount, themesShared, channel }.
     ReportBackSent: 'Priorities - Report Back Sent',
   },
-  // Serve's civic panel. People join and leave by replying, at a door or on
-  // a call, so all of it is server truth. Attributed to the office's
-  // user; counts, ids and enums only, never who joined.
-  CivicPanel: {
-    MembershipChanged: 'Civic Panel - Membership Changed',
+  // Serve's civic panel, in the Contacts area. People join and leave by
+  // replying, at a door or on a call, so all of it is server truth.
+  // Attributed to the office's user; counts, ids and enums only, never who
+  // joined.
+  Contacts: {
+    CivicPanelMembershipChanged: 'Contacts - Civic Panel Membership Changed',
     // The civic panel GoodParty builds (the managed panel): the approval, its
     // status moves, each wave out and closed, and the goal reached. The
-    // ready email has no event of its own: Managed Panel Ready marks it.
-    ManagedInviteApproved: 'Civic Panel - Managed Invite Approved',
-    ManagedPanelStatusChanged: 'Civic Panel - Managed Panel Status Changed',
-    ManagedWaveSent: 'Civic Panel - Managed Wave Sent',
-    ManagedWaveClosed: 'Civic Panel - Managed Wave Closed',
-    ManagedPanelReady: 'Civic Panel - Managed Panel Ready',
+    // ready email has no event of its own: Civic Panel Ready marks it.
+    CivicPanelInviteApproved: 'Contacts - Civic Panel Invite Approved',
+    CivicPanelStatusChanged: 'Contacts - Civic Panel Status Changed',
+    CivicPanelWaveSent: 'Contacts - Civic Panel Wave Sent',
+    CivicPanelWaveClosed: 'Contacts - Civic Panel Wave Closed',
+    CivicPanelReady: 'Contacts - Civic Panel Ready',
   },
 }
 

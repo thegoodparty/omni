@@ -1,6 +1,6 @@
 import { chunk } from 'es-toolkit'
 import pMap from 'p-map'
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 // Wall-clock benchmark + correctness harness for the daily-briefing cron's two
 // perf wins:
@@ -129,6 +129,21 @@ const buildOffices = (): BenchOffice[] => {
 const LOOP_OPTS = { batchSize: 15, interBatchMs: 20, concurrency: 10 }
 
 describe('dispatchDailyBriefings perf: pre-filter + bounded concurrency', () => {
+  // The simulated latency runs on a fake clock, so the timings are simulated
+  // time and a run costs nothing but the scheduling.
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance'] })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  const onFakeClock = async (run: Promise<void>): Promise<void> => {
+    await vi.runAllTimersAsync()
+    await run
+  }
+
   it('bounded concurrency + pre-filter is dramatically faster than the serial loop', async () => {
     const offices = buildOffices()
     const candidates = offices.filter(passesPrefilter)
@@ -136,16 +151,20 @@ describe('dispatchDailyBriefings perf: pre-filter + bounded concurrency', () => 
     // BEFORE: serial over the entire population.
     const beforeDispatched = new Set<string>()
     const beforeStart = performance.now()
-    await runSerial(offices, LOOP_OPTS, makeProcessor(beforeDispatched))
+    await onFakeClock(
+      runSerial(offices, LOOP_OPTS, makeProcessor(beforeDispatched)),
+    )
     const beforeMs = performance.now() - beforeStart
 
     // AFTER: bounded concurrency over only the pre-filtered candidates.
     const afterDispatched = new Set<string>()
     const afterStart = performance.now()
-    await runBoundedConcurrent(
-      candidates,
-      { concurrency: LOOP_OPTS.concurrency },
-      makeProcessor(afterDispatched),
+    await onFakeClock(
+      runBoundedConcurrent(
+        candidates,
+        { concurrency: LOOP_OPTS.concurrency },
+        makeProcessor(afterDispatched),
+      ),
     )
     const afterMs = performance.now() - afterStart
 
@@ -203,14 +222,16 @@ describe('dispatchDailyBriefings perf: pre-filter + bounded concurrency', () => 
 
     // Old world: serial over ALL offices.
     const serialAll = new Set<string>()
-    await runSerial(offices, LOOP_OPTS, makeProcessor(serialAll))
+    await onFakeClock(runSerial(offices, LOOP_OPTS, makeProcessor(serialAll)))
 
     // New world: bounded concurrency over PRE-FILTERED offices.
     const concurrentFiltered = new Set<string>()
-    await runBoundedConcurrent(
-      candidates,
-      { concurrency: LOOP_OPTS.concurrency },
-      makeProcessor(concurrentFiltered),
+    await onFakeClock(
+      runBoundedConcurrent(
+        candidates,
+        { concurrency: LOOP_OPTS.concurrency },
+        makeProcessor(concurrentFiltered),
+      ),
     )
 
     const expected = offices

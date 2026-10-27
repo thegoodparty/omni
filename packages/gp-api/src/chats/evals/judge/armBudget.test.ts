@@ -6,6 +6,7 @@ import {
   readFileSync,
   writeFileSync,
 } from 'node:fs'
+import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -63,6 +64,10 @@ import {
 // input entirely would still arrive at it.
 
 const REPO_ROOT = join(__dirname, '../../../../../..')
+
+// The same CLI judge.yml's `npx tsx` resolves to, run without npx's own
+// startup on every call.
+const TSX_CLI = createRequire(__filename).resolve('tsx/cli')
 
 // WHAT AN ARM'S ENV SCHEMA LOOKS LIKE, old and new. Today's main carries
 // fifteen real `JUDGE_` keys, so an "old" fixture with none would let a probe
@@ -178,8 +183,8 @@ const baseTree = (spec: {
 const runEntry = (env: NodeJS.ProcessEnv) => {
   const out = join(mkdtempSync(join(tmpdir(), 'budget-')), 'github-output')
   const result = spawnSync(
-    'npx',
-    ['tsx', join(__dirname, 'armBudget.ts'), out],
+    process.execPath,
+    [TSX_CLI, join(__dirname, 'armBudget.ts'), out],
     {
       cwd: join(__dirname, '../../../..'),
       encoding: 'utf8',
@@ -417,16 +422,20 @@ describe('the budget and the admitted list survive the trip to both arms', () =>
   // to the arm rather than to a second copy of the arithmetic.
   it('writes what the arms read when run as the workflow runs it', () => {
     const out = join(mkdtempSync(join(tmpdir(), 'budget-')), 'github-output')
-    execFileSync('npx', ['tsx', join(__dirname, 'armBudget.ts'), out], {
-      cwd: join(__dirname, '../../../..'),
-      stdio: ['ignore', 'ignore', 'pipe'],
-      env: {
-        ...process.env,
-        BASE_DIR: REPO_ROOT,
-        JUDGE_AGENTS:
-          'chief_of_staff,find_existing_ordinances,opposition_research',
+    execFileSync(
+      process.execPath,
+      [TSX_CLI, join(__dirname, 'armBudget.ts'), out],
+      {
+        cwd: join(__dirname, '../../../..'),
+        stdio: ['ignore', 'ignore', 'pipe'],
+        env: {
+          ...process.env,
+          BASE_DIR: REPO_ROOT,
+          JUDGE_AGENTS:
+            'chief_of_staff,find_existing_ordinances,opposition_research',
+        },
       },
-    })
+    )
     const arm = parseArmEnv(intoArmEnv(PARSE(readFileSync(out, 'utf8'))))
     const { attemptsPerCase, maxCases } = DEFAULT_JUDGE_CONFIG.background
     expect(arm.backgroundBudget).toEqual({ attemptsPerCase, maxCases })

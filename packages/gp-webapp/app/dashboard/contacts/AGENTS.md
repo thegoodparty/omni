@@ -22,10 +22,12 @@ pads `var(--chat-dock-height)` plus 8rem so the last card clears the bar.
 
 - **Stage** (`stageOf` in `CitizensPanelView`): `exhausted` or `ready`
   from the managed status (ready also once members reach the goal
-  without one), else `start` at 0 members, else `building`. Paused reads
-  as building.
+  without one), else `paused` from the managed status ("Your civic panel
+  is paused", with Resume invites in its line, the same words as the home
+  card), else `start` at 0 members, else `building`.
 - **Hero** (`CivicPanelHero`): the stage's title and line
-  (`COPY.hero`), the goal as 100 seats (`SeatArc` from `CivicPanelSeats`,
+  (`COPY.hero`; building names the place, "{members} {place} residents
+  are ready to share their views, on the way to {goal}."), the goal as 100 seats (`SeatArc` from `CivicPanelSeats`,
   `quiet`, on `plainSeats`: filled is members over goal, in arc order, in
   bands of the brand's three families) from `lg`, below it a `Progress`
   bar (CSS breakpoints, both always rendered; "{members} of {goal} residents
@@ -52,20 +54,24 @@ pads `var(--chat-dock-height)` plus 8rem so the last card clears the bar.
   panel that is not stopped): one status line, while building Next invites
   (`managedPanelNextInvitesAt`: `nextWaveAt`, else `firstSendDate` before
   the first wave) and Ready around (`readyWeekOf`, dropped once that week
-  has passed), Pause / Resume and Stop my civic panel (with its confirm)
-  through `PATCH /v1/contacts/civic-panel/managed`. A 409 from it (the
+  has passed), and Pause invites while building or Resume invites while
+  paused through `PATCH /v1/contacts/civic-panel/managed` (ready and
+  exhausted have no button). Pause is the official's only way to hold
+  invites: the card never sends `stop`. A 409 from it (the
   status moved since the page loaded, like a ready civic panel that can't
   resume) reads the enrollment again and redraws the card in its real
   state, with no Try again; any other failure shows the error. Then Members
   and Ready to ask (`CitizensPanelStats showReached={false}`) and See
-  members once anyone joined.
+  members once anyone joined, which opens the built-in list's sheet led by
+  its members by name (`crm/lists/CivicPanelMembers.tsx`), each opening
+  `PersonOverlay`.
 - **Chat**: `CivicPanelChatDock` pins the shared `FooterChatBar` and
   `ChiefOfStaffChatSurface` (`analyticsSurface` `civic_panel_dock`), the
   same dock as Ordinances and Community Issues. The bar's `placeholder` is
   this page's question, `COPY.chatPlaceholder` ("Ask who still needs to
   join your civic panel", with "civic panel" held together); a page
   placeholder may wrap to two lines on a phone instead of being cut off.
-- **Analytics.** The page fires `Civic Panel - Panel Viewed` once per visit
+- **Analytics.** The page fires `Contacts - Civic Panel Viewed` once per visit
   (members, goal, expected answers, `howCloseStatus` from the summary's
   `balance`, snake case or null while hidden, `managedStatus` none,
   building, paused, ready, exhausted or stopped, and `source` from the
@@ -76,15 +82,22 @@ pads `var(--chat-dock-height)` plus 8rem so the last card clears the bar.
   `onCivicPanel`. Every join or leave
   is server truth and fires from gp-api (contacts AGENTS.md).
 - **The full seats chart** (`CivicPanelSeats`) is the Constituents page
-  section's (`CitizensPanelSection`), not this page's: the goal as 100
+  section's (`CitizensPanelSection`), not this page's. The section leads
+  with this page's count (`joinedOfGoal`, members over goal), so the two
+  never disagree. The chart is the goal as 100
   seats in six rows, split by each place's district share (largest
   remainder), census tracts or, where the district has no tract data,
   precincts, named by `placeKind` ("Tract 9501.02", "Precinct 01.1") or a
-  tract's human `label`. A place's members fill seats only up to its share,
+  tract's human `label`. A place's members fill seats only up to its share
+  (its count reads "{n} of 100 seats filled, counting each tract only up to
+  its share", never a member total),
   each place one brand family cycled in arc order (`seatHue`, `seatTint`,
   fixed by position so server and client agree). From 30 members a place
   is behind when its progress is under half the panel's, outlined in
-  warning and listed under "Furthest behind"; from 80% of the goal every
+  warning and listed under "Furthest behind" (on a phone each row puts the
+  name, its "X of Y seats filled" and its seats on lines of their own, so a
+  long tract name wraps instead of pushing the count off screen; from `sm`
+  they share one row); from 80% of the goal every
   empty seat is outlined and named or listed. The petals
   (`CivicPanelBloom`) are drawn by the priority results page. Geometry and
   allocation are pure, in `components/panelCharts.ts`. Every drawn

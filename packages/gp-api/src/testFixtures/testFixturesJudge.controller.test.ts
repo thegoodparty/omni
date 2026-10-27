@@ -4,23 +4,15 @@ import { CaseListError } from './judgeChatFixture/accountState'
 import { User } from '@/generated/prisma'
 import { TestFixturesJudgeController } from './testFixturesJudge.controller'
 import { JudgeChatFixtureService } from './services/judgeChatFixture.service'
+import {
+  appEnvOverrides,
+  useAppEnvOverrides,
+} from '@/shared/test-utils/appEnvOverrides'
 
 // IS_NON_PROD_DEPLOY is a module-level constant read inside every handler.
-// Mock the util so the gate is toggleable per-test via a getter. Default true
-// because the unit-test env has no OTEL_SERVICE_ENVIRONMENT (so the real value
-// is false) yet the happy-path cases need a non-prod deploy; other exports pass
-// through untouched.
-const { envNonProd } = vi.hoisted(() => ({ envNonProd: { value: true } }))
-vi.mock('@/shared/util/appEnvironment.util', async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import('@/shared/util/appEnvironment.util')>()
-  return {
-    ...actual,
-    get IS_NON_PROD_DEPLOY() {
-      return envNonProd.value
-    },
-  }
-})
+// Default true because the unit-test env has no OTEL_SERVICE_ENVIRONMENT (so
+// the real value is false) yet the happy-path cases need a non-prod deploy.
+useAppEnvOverrides({ IS_NON_PROD_DEPLOY: true })
 
 const JUDGE_USER = { id: 42 } as User
 const SWEEP_ID = 'judge-19284756312-1'
@@ -33,7 +25,7 @@ describe('TestFixturesJudgeController', () => {
   }
 
   beforeEach(() => {
-    envNonProd.value = true
+    appEnvOverrides.IS_NON_PROD_DEPLOY = true
     service = {
       setUp: vi.fn().mockResolvedValue({ organizationSlug: 'judge-abc' }),
       tearDown: vi.fn().mockResolvedValue(true),
@@ -84,7 +76,7 @@ describe('TestFixturesJudgeController', () => {
   // refusal lands before the service is reached, which is the half that
   // matters: no row is written or removed on the way to the 404.
   it('404s both endpoints outside a known non-prod deploy', async () => {
-    envNonProd.value = false
+    appEnvOverrides.IS_NON_PROD_DEPLOY = false
 
     await expect(
       controller.setUpCase(

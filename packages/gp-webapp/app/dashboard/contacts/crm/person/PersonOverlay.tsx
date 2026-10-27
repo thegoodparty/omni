@@ -425,6 +425,12 @@ export const PersonRecord: React.FC<{
   const details = [person.gender, person.age ? `${person.age} years old` : null]
     .filter(isNotNil)
     .join(', ')
+  // `voted` is Win-only and detail-only (gp-api's VotedStatusService: the
+  // latest will-vote answer this election is Already voted). It sits next to
+  // the two turnout predictions rather than replacing them, so a canvasser
+  // still sees the voter-file score.
+  const withVoted = (value: string | null) =>
+    person.voted ? `${value ?? 'Unknown'} (Already voted)` : value
 
   return (
     <div>
@@ -511,10 +517,10 @@ export const PersonRecord: React.FC<{
             icon={<LuClipboardList size={24} />}
           >
             <Field label="Registered Voter" value={person.registeredVoter} />
-            <Field label="Voter Status" value={person.voterStatus} />
+            <Field label="Voter Status" value={withVoted(person.voterStatus)} />
             <Field
               label="Early Vote Likelihood"
-              value={person.earlyVoteStatus}
+              value={withVoted(person.earlyVoteStatus)}
             />
             <Field label="Political Party" value={person.politicalParty} />
           </InfoSection>

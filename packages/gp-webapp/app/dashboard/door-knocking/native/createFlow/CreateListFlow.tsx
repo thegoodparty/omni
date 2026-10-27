@@ -46,6 +46,7 @@ import {
   type VoterFileFilters,
 } from 'app/dashboard/contacts/crm/shared/voterFileFilterTransform.util'
 import type { SupportStatusRollup } from 'app/dashboard/contacts/crm/shared/contacts-types'
+import type { VotedStatus } from '@goodparty_org/contracts'
 import { audienceEmptyMessage } from './emptiableCriteria'
 import { withoutUnshadeableCriteria } from '../savedListFilters'
 import { isDrawnTurf, type TurfDraft } from '../turfDrafts'
@@ -159,6 +160,12 @@ interface CreateListFlowProps {
   // same reason `filters` is: the address preview is assembled up there.
   precincts: string[]
   onPrecinctsChange: (value: string[]) => void
+  // "Voted in election" (Win only), beside `filters` for the same reason as
+  // precincts. Unlike them it is seeded from a picked list or an accepted
+  // recommendation, because the who step shows it as pills: what is ticked is
+  // what the preview and the create apply.
+  votedStatus: VotedStatus[]
+  onVotedStatusChange: (value: VotedStatus[]) => void
   precinctOptions: PrecinctOptionsResult
   onStepChange: (step: CreateFlowStep) => void
   onClose: () => void
@@ -420,6 +427,8 @@ export default function CreateListFlow({
   onFiltersChange,
   precincts,
   onPrecinctsChange,
+  votedStatus,
+  onVotedStatusChange,
   precinctOptions,
   onStepChange,
   onClose,
@@ -653,13 +662,20 @@ export default function CreateListFlow({
       // `savedListUnshadeableCriteria`, so a hand-cut selection left standing
       // would narrow the preview by precincts the list never names.
       onPrecinctsChange([])
-      onFiltersChange(
+      const list =
         listId === null
-          ? {}
-          : (savedLists.find((list) => list.id === listId)?.filters ?? {}),
-      )
+          ? undefined
+          : savedLists.find((row) => row.id === listId)
+      onVotedStatusChange(list?.votedStatus ?? [])
+      onFiltersChange(list?.filters ?? {})
     },
-    [onFiltersChange, onPrecinctsChange, savedLists, clearRecommendedDraft],
+    [
+      onFiltersChange,
+      onPrecinctsChange,
+      onVotedStatusChange,
+      savedLists,
+      clearRecommendedDraft,
+    ],
   )
 
   // A recommendation that already exists as a saved list selects that list
@@ -723,6 +739,8 @@ export default function CreateListFlow({
       })
       setRecommendedPrecincts(precincts)
       setRecommendedSupportStatus(supportStatus)
+      // Its "not yet voted" screen shows as the who step's own pills.
+      onVotedStatusChange(recommendation.filter.votedStatus ?? [])
       setRecommendedMeta({
         variant: recommendation.variant,
         // The variant's own intent, not this flow's purpose: a recommendation
@@ -734,7 +752,13 @@ export default function CreateListFlow({
         voteGoalShare: recommendation.voteGoalShare,
       })
     },
-    [onFiltersChange, onPrecinctsChange, selectList, savedLists],
+    [
+      onFiltersChange,
+      onPrecinctsChange,
+      onVotedStatusChange,
+      selectList,
+      savedLists,
+    ],
   )
 
   // A list carried in from the outreach hub's door-knocking tile, so "start a
@@ -1266,6 +1290,9 @@ export default function CreateListFlow({
             ...(recommendedSupportStatus.length
               ? { supportStatus: recommendedSupportStatus }
               : {}),
+            // The who step's "Voted in election" pills, which an accepted
+            // recommendation's "not yet voted" screen seeds.
+            ...(votedStatus.length ? { votedStatus } : {}),
             // Sent alongside the submitted criteria purely so gp-api can
             // diff the two and persist recommendedModified — nothing
             // recommendation-time is otherwise saved anywhere to diff
@@ -1914,6 +1941,17 @@ export default function CreateListFlow({
                   // being applied, which is the disclosure lying the other way.
                   onFiltersChange({
                     ...withoutUnshadeableCriteria(next),
+                    ...(precincts.length ? { precincts: true } : {}),
+                  })
+                }}
+                votedStatus={votedStatus}
+                onVotedStatusChange={(next) => {
+                  // Same departure as editing a pill.
+                  setSavedListId(null)
+                  clearRecommendedDraft()
+                  onVotedStatusChange(next)
+                  onFiltersChange({
+                    ...withoutUnshadeableCriteria(filters),
                     ...(precincts.length ? { precincts: true } : {}),
                   })
                 }}

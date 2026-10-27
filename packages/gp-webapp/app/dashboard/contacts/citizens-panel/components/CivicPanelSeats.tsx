@@ -121,12 +121,16 @@ export const SeatArc = ({
       viewBox={`0 0 ${frame.width} ${height}`}
       className={cn('h-auto w-full', className)}
       role="img"
-      aria-label={COPY.seatsSummary(
-        chart.filled,
-        quiet ? 0 : chart.behind.length,
-        words.one,
-        words.many,
-      )}
+      aria-label={
+        quiet
+          ? COPY.seatsSummary(chart.filled, 0, words.one, words.many)
+          : COPY.seatsAtShareSummary(
+              chart.filled,
+              chart.behind.length,
+              words.one,
+              words.many,
+            )
+      }
     >
       {/* Built around (0, 0) and moved into place, so one build serves both
           frames. */}
@@ -198,6 +202,9 @@ export const SeatArc = ({
   )
 }
 
+// On a phone the name, the count and the seats each take a line, so a
+// long tract name wraps instead of pushing the count off the screen. From
+// sm up they share one row.
 const PlaceRow = ({
   place,
   words,
@@ -205,16 +212,16 @@ const PlaceRow = ({
   place: SeatPlace
   words: PlaceWords
 }) => (
-  <li className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 sm:grid-cols-[8.75rem_minmax(0,1fr)_auto]">
+  <li className="grid grid-cols-1 gap-x-3 gap-y-1 sm:grid-cols-[8.75rem_minmax(0,1fr)_auto] sm:items-center">
     <span
-      className="truncate text-sm text-foreground"
+      className="break-words text-sm text-foreground sm:truncate"
       title={placeName(place, words)}
     >
       {placeName(place, words)}
     </span>
     <span
       aria-hidden
-      className="col-span-2 row-start-2 flex flex-wrap gap-1 sm:col-span-1 sm:row-start-1"
+      className="row-start-3 flex flex-wrap gap-1 sm:col-start-2 sm:row-start-1"
     >
       {Array.from({ length: place.count }, (_, k) => (
         <span
@@ -230,7 +237,7 @@ const PlaceRow = ({
     </span>
     <span
       className={cn(
-        'text-right text-sm',
+        'row-start-2 whitespace-nowrap text-sm sm:col-start-3 sm:row-start-1 sm:text-right',
         place.empty > 0 ? 'text-warning-dark' : 'text-muted-foreground',
       )}
     >
@@ -401,8 +408,7 @@ export const CivicPanelSeats = ({
           <SeatArc chart={chart} words={words} labeled={false} />
         )}
         <p className="text-center text-sm text-muted-foreground">
-          <span className="font-semibold text-foreground">{chart.filled}</span>
-          {COPY.seatsFilled}
+          {COPY.seatsAtShare(chart.filled, words.one)}
         </p>
       </div>
       <Legend chart={chart} />

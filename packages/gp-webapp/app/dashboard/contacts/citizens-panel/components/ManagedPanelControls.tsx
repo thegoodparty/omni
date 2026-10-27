@@ -7,7 +7,6 @@ import type {
 } from '@goodparty_org/contracts'
 import { Button, Card } from '@styleguide'
 import { clientRequest } from 'gpApi/typed-request'
-import AlertDialog from '@shared/utils/AlertDialog'
 import { useOrganization } from '@shared/organization-picker'
 import { managedCivicPanelQueryOptions } from '../civicPanelSummary.query'
 import {
@@ -20,20 +19,21 @@ import {
 
 const COPY = MANAGED_PANEL_COPY.controls
 
-type Action = UpdateManagedCivicPanelInput['action']
+// The PATCH route still takes stop, but product chose Pause as the only way
+// an official holds invites, so the card never sends it.
+type Action = Exclude<UpdateManagedCivicPanelInput['action'], 'stop'>
 
 // The panel GoodParty builds for the office: where its invites stand, when
 // the next go out and when it should be ready, and the official's say over
-// them. Pause holds the next invites, Resume lets
-// them go again, and Stop ends the panel. A stopped panel shows nothing
-// here: the home offers it again.
+// them. Pause holds the next invites and Resume lets them go again. A
+// panel that is already stopped shows nothing here: the home offers it
+// again.
 export const ManagedPanelControls = ({
   panel: initialPanel,
 }: {
   panel: ManagedCivicPanel
 }) => {
   const [panel, setPanel] = useState(initialPanel)
-  const [confirmingStop, setConfirmingStop] = useState(false)
   const queryClient = useQueryClient()
   const orgSlug = useOrganization()?.slug
   const update = useMutation({
@@ -103,56 +103,32 @@ export const ManagedPanelControls = ({
         </dl>
       ) : null}
 
-      <div className="flex flex-col gap-2">
-        {canPause ? (
-          <Button
-            type="button"
-            variant="outline"
-            size="medium"
-            disabled={update.isPending}
-            onClick={() => update.mutate('pause')}
-          >
-            {COPY.pause}
-          </Button>
-        ) : null}
-        {canResume ? (
-          <Button
-            type="button"
-            size="medium"
-            disabled={update.isPending}
-            onClick={() => update.mutate('resume')}
-          >
-            {COPY.resume}
-          </Button>
-        ) : null}
+      {canPause ? (
         <Button
           type="button"
-          variant="ghost"
+          variant="outline"
           size="medium"
           disabled={update.isPending}
-          onClick={() => setConfirmingStop(true)}
+          onClick={() => update.mutate('pause')}
         >
-          {COPY.stop}
+          {COPY.pause}
         </Button>
-      </div>
+      ) : null}
+      {canResume ? (
+        <Button
+          type="button"
+          size="medium"
+          disabled={update.isPending}
+          onClick={() => update.mutate('resume')}
+        >
+          {COPY.resume}
+        </Button>
+      ) : null}
       {update.isError ? (
         <p className="text-sm text-destructive" role="alert">
           {COPY.error}
         </p>
       ) : null}
-
-      <AlertDialog
-        open={confirmingStop}
-        title={COPY.stopTitle}
-        description={COPY.stopCaption}
-        cancelLabel={COPY.stopCancel}
-        proceedLabel={COPY.stopConfirm}
-        handleClose={() => setConfirmingStop(false)}
-        handleProceed={() => {
-          setConfirmingStop(false)
-          update.mutate('stop')
-        }}
-      />
     </Card>
   )
 }

@@ -24,9 +24,11 @@ words (`explain_managed_panel`: contracts' `managedCivicPanelExplanation`,
 and `managedCivicPanelHowItWorks` with the place, the seats and the census
 share of adults 65 or older from `ManagedCivicPanelService.explainerFacts`,
 falling back to a sentence without numbers), offers the
-invite (`offer_managed_panel_invite`), shows it
-(`present_managed_panel_invite`), and the webapp's text flow approves it
-(POST, with contracts' `MANAGED_CIVIC_PANEL_CONSENT_VERSION`). The flow's
+invite (`offer_managed_panel_invite`), and shows the invite card
+(`present_managed_panel_invite`: Your civic panel invite, Text to <place>
+residents, Review the invite). The card never shows the words; Review the
+invite opens the webapp's text flow, where they are shown and edited, and
+it approves them (POST, with contracts' `MANAGED_CIVIC_PANEL_CONSENT_VERSION`). The flow's
 close sends a hidden `MANAGED_CIVIC_PANEL_SET_UP_MESSAGE` or
 `MANAGED_CIVIC_PANEL_BACKED_OUT_MESSAGE`; on set up the agent reads
 `read_managed_panel` (status, members, goal, the first send date,
@@ -38,9 +40,11 @@ office one card at a time (`syncManagedPanelProgressCard`,
 `sourceExternalId` from contracts' `managedCivicPanelProgressCardSourceId`,
 `managed-panel-progress:<electedOfficeId>`, `sourceItemId` the phase from
 `managedPanelPhase`): `building` (building or paused: "Your civic panel is
-filling up", or "Your civic panel starts here" at 0 members as on the civic
-panel page, members of the goal and the next send date, or "Invites are
-paused"), `ready` (for `MANAGED_PANEL_READY_CARD_DAYS`, 14, after
+filling up" with "{members} {place} residents are ready to share their
+views" (the place from `ManagedCivicPanelService.districtPlace`, looked up
+only for this card), or "Your civic panel starts here" at 0 members as on
+the civic panel page with members of the goal, then the next send date; or
+"Invites are paused"), `ready` (for `MANAGED_PANEL_READY_CARD_DAYS`, 14, after
 `readyAt`), and `exhausted` ("Every resident we can text has an invite",
 members of the goal, button `MANAGED_CIVIC_PANEL_EXHAUSTED_CARD_CTA`, which
 the home turns into the hidden `MANAGED_CIVIC_PANEL_EXHAUSTED_MESSAGE` so
@@ -52,8 +56,9 @@ exhausted do not lapse. The read goes through `ManagedCivicPanelService`
 The Chief of Staff (`managedCivicPanelBlock`, `read_managed_panel`)
 answers in each status's words. The civic panel page's rail shows
 `ManagedPanelControls` (the Invites card): the status, the next send day
-and ready week while building, Pause, Resume and Stop (with a confirm),
-each the `PATCH` below.
+and ready week while building, Pause while building and Resume while
+paused, each the `PATCH` below. The webapp never sends `stop`; the route
+keeps it, and a stopped enrollment still reads and re-approves as below.
 
 `ManagedCivicPanel` is one row per office (`organizationSlug` unique), kept
 when stopped so `freeTextsUsed` still counts against `freeTextCap` (15,000)
@@ -184,27 +189,28 @@ only gets its wave marked. Paused, stopped, ready and exhausted panels are
 not touched. Decision:
 `docs/adr/2026-10-22-managed-panel-wave-job-derives-each-step.md`.
 
-**Analytics** (`EVENTS.CivicPanel` in `segment.types.ts`, to the office's
+**Analytics** (`EVENTS.Contacts` in `segment.types.ts`, to the office's
 user through `trackForOffice`, fire-and-forget). Each fires only from the
 write that changed the row, so a retry or a second run never counts twice.
 
-- `Managed Invite Approved` (`approve`, only an approval this call made):
+- `Contacts - Civic Panel Invite Approved` (`approve`, only an approval this call made):
   `goalMembers`, `freeTextCap`, `firstSendDate`, `reapproval` (a stopped
   enrollment approved again), `product: serve`.
-- `Managed Panel Status Changed` (`managedPanelStatusChanged` in
+- `Contacts - Civic Panel Status Changed` (`managedPanelStatusChanged` in
   `utils/managedPanelAnalytics.util.ts`): `from`, `to`, `members`,
   `changedBy`. `official` from the PATCH and a re-approval, `system` from the
   wave job (ready, exhausted, paused out of free texts) and `claimFree`'s
-  pause at the cap. Nothing writes `staff` yet: staff have no route.
-- `Managed Wave Sent` (the wave marked sent): `wave`, `texts`, `sendDate`,
+  pause at the cap. Nothing writes `manual` yet: nothing sets it by hand.
+- `Contacts - Civic Panel Wave Sent` (the wave marked sent): `wave`, `texts`, `sendDate`,
   `steeredToward`.
-- `Managed Wave Closed`: `wave`, `invited` (the people its list drew),
+- `Contacts - Civic Panel Wave Closed`: `wave`, `invited` (the people its list drew),
   `joinedMembers`, `membersAfter`.
-- `Managed Panel Ready` (with the status change to ready): `members`,
+- `Contacts - Civic Panel Ready` (with the status change to ready): `members`,
   `goalMembers`, `wavesSent`, `daysToReady` (calendar days from the latest
   approval). The ready email has no event of its own.
 
-The browser fires the setup steps (`EVENTS.CivicPanel` in the webapp's
-`analyticsHelper.ts`): Managed Invite Explainer Viewed and Completed, Managed
-Invite Viewed, Review Viewed, Review Dismissed and Submitted. See the
+The browser fires the setup steps (`EVENTS.Contacts` in the webapp's
+`analyticsHelper.ts`): Civic Panel Managed Invite Value Prop Viewed and
+Completed, then Civic Panel Invite Viewed, Review Viewed, Review Dismissed
+and Submitted. See the
 webapp's `shared/agent-chat/AGENTS.md`.

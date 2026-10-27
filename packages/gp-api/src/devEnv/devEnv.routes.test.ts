@@ -7,23 +7,17 @@ import { HttpStatus } from '@nestjs/common'
 import { mockClient } from 'aws-sdk-client-mock'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
+import {
+  appEnvOverrides,
+  useAppEnvOverrides,
+} from '@/shared/test-utils/appEnvOverrides'
 
 // The unit tests cover each layer's logic. This one exists for the wiring the
 // decorators carry — @PublicAccess() letting a caller with no gp-api session
 // through the global SessionGuard, @UseGuards(GithubOrgMemberGuard) actually
 // being applied, and the response surviving ZodResponseInterceptor — none of
 // which a directly-constructed controller exercises.
-const { envNonProd } = vi.hoisted(() => ({ envNonProd: { value: true } }))
-vi.mock('@/shared/util/appEnvironment.util', async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import('@/shared/util/appEnvironment.util')>()
-  return {
-    ...actual,
-    get IS_NON_PROD_DEPLOY() {
-      return envNonProd.value
-    },
-  }
-})
+useAppEnvOverrides({ IS_NON_PROD_DEPLOY: true })
 
 const secretsMock = mockClient(SecretsManagerClient)
 const s3Mock = mockClient(S3Client)
@@ -40,7 +34,7 @@ const activeMembership = () =>
 
 describe('POST /v1/dev-env/bundle', () => {
   beforeEach(() => {
-    envNonProd.value = true
+    appEnvOverrides.IS_NON_PROD_DEPLOY = true
     process.env.LOCAL_DEV_ENV_SECRET_ID = 'LOCAL_DEV_ENV'
     secretsMock.reset()
     secretsMock.on(GetSecretValueCommand).resolves({
@@ -94,7 +88,7 @@ describe('POST /v1/dev-env/bundle', () => {
   })
 
   it('404s outside a non-prod deploy without calling GitHub', async () => {
-    envNonProd.value = false
+    appEnvOverrides.IS_NON_PROD_DEPLOY = false
     const fetchMock = vi.fn()
     vi.stubGlobal('fetch', fetchMock)
 
@@ -126,7 +120,7 @@ describe('POST /v1/dev-env/election-seed', () => {
   const BUCKET = 'gp-local-election-seed-dev'
 
   beforeEach(() => {
-    envNonProd.value = true
+    appEnvOverrides.IS_NON_PROD_DEPLOY = true
     process.env.LOCAL_ELECTION_SEED_BUCKET = BUCKET
     // The presigner signs with whatever credentials the client resolves. A
     // set AWS_PROFILE makes the SDK skip env credentials entirely, so clear it
@@ -168,7 +162,7 @@ describe('POST /v1/dev-env/election-seed', () => {
   })
 
   it('404s outside a non-prod deploy without calling GitHub', async () => {
-    envNonProd.value = false
+    appEnvOverrides.IS_NON_PROD_DEPLOY = false
     const fetchMock = vi.fn()
     vi.stubGlobal('fetch', fetchMock)
 

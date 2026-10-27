@@ -11,7 +11,7 @@ Joins, all in one pass:
 Runs in the analytics-governance workflow, which commits the result, and by hand:
 
   uv run event_explorer_snapshot.py --series \
-    -o ../../../prototypes/app/p/analytics-event-explorer/data/event-explorer.json
+    -o ../../surfaces/event-explorer/data/event-explorer.json
 """
 
 from __future__ import annotations

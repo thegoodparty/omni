@@ -98,6 +98,14 @@ that no longer exists — the outcomes that prove cancellation moot
 reaches the abort. Deleting a user therefore has two possible outcomes,
 billing stopped or nothing happened, never data gone with billing live.
 
+`DELETE /v1/admin/campaigns/:id` (`AdminCampaignsService.delete`) follows the
+same ordering for one campaign. It deleted the row without touching Stripe
+until ENG-11454, which is how a Pro subscription bought on 2025-10-22 billed
+for a year with no campaign behind it. Its `customer.subscription.deleted`
+webhook then lands as an unmatched cancellation whose account is still live,
+so it logs the "cancellation was never applied" error once; that line is
+expected after an admin campaign delete.
+
 `POST /payments/purchase/checkout-session` is guarded (ENG-10771, PR #992 —
 each guard exists because a customer was double-billed without it):
 
@@ -329,8 +337,12 @@ primary_result = 'lost';` and
 **"Cancelled Pro but Stripe kept billing" (ENG-10657 shape).** The
 portal-cancel → `customer.subscription.deleted` → de-Pro path works; suspect
 (a) two app users for one person with the sub on the other account, or
-(b) admin console `isPro: false` (adminCampaigns.service), which does NOT
-cancel the Stripe subscription (open gap, 86ajenb0v). Also: a passed election
+(b) the paying campaign was deleted through `DELETE /v1/admin/campaigns/:id`
+before ENG-11454, which took `details.subscriptionId` with it. ENG-11454 was
+both: the sub was bought from another account in the household, whose campaign
+no longer exists, so no campaign anywhere carries the id and only Stripe can
+stop it. The admin `isPro: false` toggle cancels Stripe before it de-Pros
+(ENG-10660), so it is not a suspect. Also: a passed election
 with `wonGeneral` null force-redirects every dashboard route to
 `/dashboard/election-result`, hiding Profile → Manage Subscription;
 `ActiveProSubscriptionAlert` on the election-result pages (PR #677) is the

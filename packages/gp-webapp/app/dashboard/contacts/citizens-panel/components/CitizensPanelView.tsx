@@ -38,6 +38,7 @@ const stageOf = (
   if (managed?.status === 'ready' || (goal > 0 && members >= goal)) {
     return 'ready'
   }
+  if (managed?.status === 'paused') return 'paused'
   return members === 0 ? 'start' : 'building'
 }
 
@@ -65,7 +66,7 @@ export const CitizensPanelView = ({
   const source = useSearchParams()?.get(CIVIC_PANEL_ENTRY_PARAM) ?? 'direct'
   // Once per visit, on what the page was given.
   useEffect(() => {
-    trackEvent(EVENTS.CivicPanel.PanelViewed, {
+    trackEvent(EVENTS.Contacts.CivicPanelViewed, {
       members: summary.members,
       goalMembers: progress.goal,
       expectedAnswers: progress.expectedAnswers,
@@ -116,6 +117,7 @@ export const CitizensPanelView = ({
               members={summary.members}
               goal={progress.goal}
               placeKind={composition?.placeKind}
+              place={place}
             />
             {summary.members === 0 ? (
               <CivicPanelFirstJoin

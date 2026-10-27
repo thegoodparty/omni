@@ -35,11 +35,14 @@ import { z } from 'zod'
  * - Id filter: id — Operators: { in: string[] }, { notIn: string[] } (exactly one, each 1-200000 uuids)
  * - Enum filters: voterStatus, earlyVoteStatus, politicalParty, maritalStatus, veteranStatus, educationLevel,
  *   ethnicity, businessOwner, presenceOfChildren, homeowner, gender, language, ideology,
- *   independentAffinity
+ *   independentAffinity, votedInElection
  *   Operators: { in: string[] }, { eq: string }, { is: "not_null" | "null" }
  * - Numeric filters: ageInt, estimatedIncomeAmountInt
  *   Operators: { in: number[] }, { eq: number }, { gte: number }, { lte: number }, { is: "not_null" | "null" }
  *   Options: { _or: [{ gte, lte }] } for OR'd ranges, { _includeNull: boolean } to include null values in results
+ * - votedInElectionReportedIds: { in: string[] } (1-200000 uuids). Not a filter
+ *   on its own: the people the campaign recorded as already voted, OR-ed into
+ *   votedInElection's Yes and excluded by its No.
  */
 export type IncomeRange = { min: number; max: number | null }
 
@@ -118,6 +121,11 @@ export const PEOPLE_FILTER_VALUE_ENUMS = {
   // request. It is NULL only on consumer-only rows of the constituents table,
   // which never see this Win-only filter.
   independentAffinity: ['Yes', 'No'] as const,
+  // "Voted in election": Yes is anyone L2 reports as voting early or absentee
+  // in the current general, or the campaign recorded as already voted
+  // (votedInElectionReportedIds). No is neither, so it includes people whose
+  // state does not report.
+  votedInElection: ['Yes', 'No'] as const,
 } as const
 
 export const createEnumFilterSchema = <T extends readonly string[]>(
@@ -304,6 +312,14 @@ export const PeopleFiltersSchema = z.object({
   independentAffinity: createEnumFilterSchema(
     PEOPLE_FILTER_VALUE_ENUMS.independentAffinity,
   ).optional(),
+  votedInElection: createEnumFilterSchema(
+    PEOPLE_FILTER_VALUE_ENUMS.votedInElection,
+  ).optional(),
+  votedInElectionReportedIds: z
+    .object({
+      in: z.array(z.guid()).min(1).max(MAX_ID_FILTER_VALUES),
+    })
+    .optional(),
   estimatedIncomeAmountInt: createNumericFilterSchema().optional(),
   ageInt: createNumericFilterSchema().optional(),
   precinct: createPrecinctFilterSchema().optional(),

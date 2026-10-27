@@ -1,5 +1,6 @@
 import { kebabCase } from 'es-toolkit'
 import { segmentTrackEvent } from './segmentHelper'
+import { pushSignUpToDataLayer } from './gtmDataLayer'
 import cookie from 'js-cookie'
 import type { Analytics } from '@segment/analytics-next'
 import type { OrganizationRole } from '@goodparty_org/contracts'
@@ -33,6 +34,25 @@ export const setActorRole = (
   value: OrganizationRole | null | undefined,
 ): void => {
   actorRole = value
+}
+
+export type ActiveProduct = 'win' | 'serve'
+
+// Serve when the org has an elected office, else Win. No org yet gives null.
+export const toActiveProduct = (
+  org: { electedOfficeId?: string | null } | undefined,
+): ActiveProduct | null => {
+  if (!org) return null
+  return org.electedOfficeId ? 'serve' : 'win'
+}
+
+// Named differently from `product` on purpose: the governed outreach metrics
+// exclude on `product`, so filling it on every event would change them.
+let activeProduct: ActiveProduct | null | undefined
+export const setActiveProduct = (
+  value: ActiveProduct | null | undefined,
+): void => {
+  activeProduct = value
 }
 
 const UTM_KEYS = [
@@ -510,6 +530,19 @@ export const EVENTS = {
       NameViewed: 'Contacts - List Wizard Name Viewed',
       NameCompleted: 'Contacts - List Wizard Name Completed',
     },
+    // Serve's civic panel page, and setting up the civic panel GoodParty
+    // builds (the managed panel): value prop, invite, review, submit. gp-api
+    // fires the approval and everything after it.
+    CivicPanelViewed: 'Contacts - Civic Panel Viewed',
+    CivicPanelManagedInviteValuePropViewed:
+      'Contacts - Civic Panel Managed Invite Value Prop Viewed',
+    CivicPanelManagedInviteValuePropCompleted:
+      'Contacts - Civic Panel Managed Invite Value Prop Completed',
+    CivicPanelInviteViewed: 'Contacts - Civic Panel Invite Viewed',
+    CivicPanelInviteReviewViewed: 'Contacts - Civic Panel Invite Review Viewed',
+    CivicPanelInviteReviewDismissed:
+      'Contacts - Civic Panel Invite Review Dismissed',
+    CivicPanelInviteSubmitted: 'Contacts - Civic Panel Invite Submitted',
   },
   // ENG-10688: the CRM brief specs the typeahead search events as
   // product-specific by nav surface — "Voter Data" (Win) vs "Constituent
@@ -743,7 +776,8 @@ export const EVENTS = {
     // with `skipChoice` snooze or dismiss.
     TaskActionTaken: 'Chief Of Staff - Task Action Taken',
     // A card under the Chief of Staff's intro, sent with Start: { nextStep }.
-    NextStepPicked: 'Chief Of Staff - Next Step Picked',
+    IntroductoryNextStepPicked:
+      'Chief Of Staff - Introductory Next Step Picked',
   },
   BriefingAssistant: {
     ListViewed: 'Briefing Assistant - List Viewed',
@@ -838,21 +872,6 @@ export const EVENTS = {
     // A proposal card the agent drew on a priority: { round: one |
     // follow_up, sampleSize, targetGroup, channel: text | door | call }.
     OutreachProposed: 'Priorities - Outreach Proposed',
-  },
-  // The civic panel GoodParty builds (the managed panel). Setting it up runs
-  // explainer, invite, review, submit; gp-api fires the approval and
-  // everything after it.
-  CivicPanel: {
-    PanelViewed: 'Civic Panel - Panel Viewed',
-    ManagedInviteExplainerViewed:
-      'Civic Panel - Managed Invite Explainer Viewed',
-    ManagedInviteExplainerCompleted:
-      'Civic Panel - Managed Invite Explainer Completed',
-    ManagedInviteViewed: 'Civic Panel - Managed Invite Viewed',
-    ManagedInviteReviewViewed: 'Civic Panel - Managed Invite Review Viewed',
-    ManagedInviteReviewDismissed:
-      'Civic Panel - Managed Invite Review Dismissed',
-    ManagedInviteSubmitted: 'Civic Panel - Managed Invite Submitted',
   },
   Ordinances: {
     ClarifyViewed: 'Ordinances - Clarify Viewed',
@@ -1020,6 +1039,10 @@ export const trackRegistrationCompleted = async ({
     signUpMethod,
     ...attributionTraits,
   })
+
+  // GA4 only sees what GTM can observe; the Segment event above never
+  // reaches it. See helpers/gtmDataLayer.ts.
+  pushSignUpToDataLayer({ userId, method: signUpMethod })
 }
 
 export const persistUtmsOnce = (): void => {
@@ -1125,6 +1148,7 @@ export const trackEvent = (
       impersonation: isImpersonating,
       actorUserId: actorUserId ?? null,
       actorRole: actorRole ?? null,
+      activeProduct: activeProduct ?? null,
     }
     // Return the segmentTrackEvent promise so callers that need the event to
     // flush before a page unload (e.g. a redirect) can await it.

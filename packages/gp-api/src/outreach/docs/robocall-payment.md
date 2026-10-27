@@ -254,7 +254,7 @@ completion is known. It has one wired signal, the money-SAFE floor:
   `estimateRobocallDialCompletion({ audienceSize: billableCount, callsPerMinute:
 safeRate, startAt: dialedAt })` + `ROBOCALL_DIAL_ESTIMATE_BUFFER_MINUTES` (env,
   default 30), where `safeRate = floor(configuredRate /
-ROBOCALL_DIAL_SAFETY_RATE_DIVISOR)` (env divisor, default 2) and `configuredRate
+ROBOCALL_DIAL_SAFETY_RATE_DIVISOR)` (env divisor, default 1.1) and `configuredRate
 = CallhubCampaignService.getConfiguredCallsPerMinute()` — the SAME source
   `createVoiceBroadcast` dials at. The floor reports done ONLY when the campaign is
   SURELY finished, so it can NEVER abort a still-dialing run; it does not depend on
@@ -278,26 +278,31 @@ run STILL dialing while the 48h capture charges full (under-delivery + full
 charge). The real dial can run SLOWER than the configured rate (vendor pacing,
 AMD, retries), so a flat buffer alone runs short for a large audience. The floor
 therefore WALKS the estimate at a RATE HAIRCUT (`configuredRate / divisor`, default
-÷2, modeling a dial up to 2× slower CORRECTLY through the daily 09:00-21:00 window)
-and adds the flat buffer on top — erring LONG by construction. (Started at ÷3;
-lowered to ÷2 on 2026-10-15 because ÷3 held the pool ~3× the real dial time and,
-one-run-at-a-time, stacked into multi-day backlogs that pushed sends overdue —
-observed slowdowns are ~1.5-2×, so ÷2 keeps a safe margin. The durable fix is the
-count speedup above, which removes the guess entirely.) The flat BUFFER was
-lowered 180 → 30 the same day: at the full-pool 120/min rate the 180 dominated
-the ceiling and over-held the pool for hours on a fast dial. It is safe to cut
-because the up-to-2× slowdown is PROPORTIONAL to dial time and is already covered
-by the ÷2 rate haircut, which scales with list size; the flat buffer need only
-absorb startup/tail slack, which 30 does. Do NOT instead drop the divisor to 1
-and lean on a flat pad — a constant pad under-covers a large list (a 2× slowdown
-on a 7.5k-call run is ~60 min, more than any flat pad we'd set), which is the
-early-abort the haircut exists to prevent. For a large audience
+÷1.1, modeling a dial slightly slower than configured CORRECTLY through the daily
+09:00-21:00 window) and adds the flat buffer on top — erring LONG by construction.
+(Started at ÷3; ÷2 on 2026-10-15; ÷1.1 on 2026-10-27. The ~1.5-2× slowdowns that
+justified ÷2 were measured while CallHub's create CLAMPED every campaign to ~60/min
+— half the configured 120 — so that apparent slowdown was the clamp, not vendor
+pacing. #3263 removed the clamp and campaigns now dial at the configured 120
+(confirmed in CallHub), so ÷1.1 leaves a thin genuine-pacing margin and frees the
+pool close to the real dial time. It is env-overridable and read at call time: if a
+real large run shows the dial materially lags 120, raise the env toward ÷1.5 with no
+deploy. The durable fix is the count speedup above, which removes the guess
+entirely.) The flat BUFFER was lowered 180 → 30 on 2026-10-15: at the full-pool
+120/min rate the 180 dominated the ceiling and over-held the pool for hours on a
+fast dial. Do NOT drop the divisor to 1 and lean on the flat pad alone — at ÷1 the
+haircut vanishes, and a constant pad under-covers a large list if any real pacing
+slowdown remains (a 20% slowdown on a 7.5k-call run is ~15 min, eating most of the
+30-min buffer), which is the early-abort the haircut exists to prevent. For a large
+audience
 the ceiling can exceed the 48h settlement floor, in which case the completion sweep
 settles first and the early free simply does not fire (correct, just not faster).
 
 **R1 — the estimate reads the run's STAGED rate, not the live env.** The rate each
 campaign is created with is FROZEN at stage time onto `OutreachRobocall.stagedCallsPerMinute`
-(`createVoiceBroadcast` returns the `frequency` it stamped), and
+(`createVoiceBroadcast` returns the APPLIED `frequency` — CallHub clamps the create to
+an account default and `createVoiceBroadcast` PATCHes it up and reads the real rate back,
+so this is the rate the run actually dials at, not the one we requested), and
 `dialCompletionCeilingAt` walks the haircut over `run.stagedCallsPerMinute ??
 getConfiguredCallsPerMinute()` — the live value is only the fallback for a run staged
 before the freeze. So raising `CALLHUB_VB_CALLS_PER_MINUTE` for new campaigns can
@@ -324,7 +329,12 @@ during a known CallHub status-read outage). A `dialing` row with NULL
 
 **Frequency.** `CALLHUB_VB_CALLS_PER_MINUTE` default is **120** — the whole
 account pool (10 → 30 → 120 on 2026-10-15 as the serial model let the rate
-climb; a live PATCH confirmed CallHub accepts 120 on a campaign). The serial gate
+climb). It is the rate we TARGET, not necessarily the one that dials: CallHub's
+create endpoint clamps frequency to an account default (observed 60/min, verified
+Oct 2026 across three real campaigns) regardless of what we POST, so
+`createVoiceBroadcast` PATCHes the fresh PAUSED campaign up to this rate on the
+`/v1/voice_broadcasts/{pk}/` detail route (the only method CallHub honors) and
+freezes the APPLIED frequency it reads back — see `callhub/AGENTS.md`. The serial gate
 makes only one campaign dial at a time, so a single run can own the full pool and
 never contends with our own others; it is SAFE for the estimate because R1 freezes
 each run's staged rate (an in-flight run keeps its ceiling) and the completion

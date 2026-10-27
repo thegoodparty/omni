@@ -1139,13 +1139,15 @@ describe('feedback synthesis routes', () => {
         expect.objectContaining({
           conversationCount: 5,
           stanceCounts: { supports: 3, opposes: 3, mixed: 1, unclear: 0 },
-          desiredOutcomes: [
+          // Members are read in no particular order, so neither are their asks.
+          desiredOutcomes: expect.arrayContaining([
             'Clear the drain',
             'A freeze for seniors',
             'Fill the potholes',
-          ],
+          ]),
         }),
       )
+      expect(res.data.themes[0].desiredOutcomes).toHaveLength(3)
       const detail = await service.client.get(
         `/v1/constituent-feedback/themes/${res.data.themes[0].id}`,
         ownerHeaders(slug),

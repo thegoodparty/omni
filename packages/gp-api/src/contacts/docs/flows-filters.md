@@ -193,6 +193,23 @@ unconditionally, so a saved list resolves whatever rendered it. The AI
 assistant therefore advertises these dimensions wherever the catalog reaches,
 independent of any UI.
 
+### Voted in election filter
+
+Win only. The pill saves `votedStatus` (`already_voted` labelled Yes,
+`unknown` labelled No/Unknown). Yes is anyone L2 reports as voting early or
+absentee this general OR anyone whose latest will-vote answer to this org's
+knocks and calls is already voted; No/Unknown is neither. Both, or neither,
+is no constraint. `ContactsService.resolveBaseFilters` (via
+`resolveVotedInElection`) reads the campaign half from `VotedStatusService`
+and emits `votedInElection` plus `votedInElectionReportedIds`, because Yes
+is a union with a Databricks table and the `id` resolution can only
+intersect; see `src/peopleDb/AGENTS.md`. It never empties a list on its
+own, so door knocking's empty-audience message does not name it.
+Recommended lists add No/Unknown (`NOT_YET_VOTED`), so they drop L2 early
+and absentee voters too. The person card's "Already voted" (`person.voted`)
+reads the same two sources, so it agrees with the filter. Door knocking's
+create flow offers the same pills (WhoStep), seeded from a picked list. Separate from `earlyVote`, a modeled likelihood.
+
 ### Door-knock willVote writes a voter_likelihood override (ENG-10841)
 
 The door-knocking tool's `willVote` answer (yes/no/unsure) is the one

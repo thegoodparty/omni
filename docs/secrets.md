@@ -27,7 +27,6 @@ string keys. There is no per-key secret and no SSM parameter for app secrets.
 | Secret                               | Consumed by                              | Environments         |
 | ------------------------------------ | ---------------------------------------- | -------------------- |
 | `GP_API_PROD` / `GP_API_DEV`         | gp-api ECS tasks                         | prod / dev + preview |
-| `ELECTION_API_PROD` / `_DEV`         | the election database's `DATABASE_URL` (runbooks, local seed refresh) | prod / dev |
 | `AI_SECRETS_PROD` / `AI_SECRETS_DEV` | gp-ai Terraform roots (Fargate + Lambda) | prod / dev           |
 | `broker-<env>`                       | PMF broker only                          | prod / dev           |
 | `LOCAL_DEV_ENV`                      | laptops, via `POST /v1/dev-env/bundle`   | dev only             |

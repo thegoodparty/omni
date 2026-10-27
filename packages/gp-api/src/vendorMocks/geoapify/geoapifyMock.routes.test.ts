@@ -4,23 +4,14 @@ import { useTestService } from '@/test-service'
 import { VendorMockRecordService } from '../vendorMockRecord.service'
 import { VendorMockVendor } from '@/generated/prisma'
 import { GEOAPIFY_MOCK_API_KEY } from '@/vendors/geoapify/services/geoapifyRoutePlanner.service'
+import {
+  appEnvOverrides,
+  useAppEnvOverrides,
+} from '@/shared/test-utils/appEnvOverrides'
 
 // VENDOR_MODE and IS_NON_PROD_DEPLOY are module-level constants evaluated at
-// import time. Use getters so they stay mutable per-test.
-const { mockMode } = vi.hoisted(() => ({ mockMode: { value: 'mock' } }))
-vi.mock('@/shared/util/appEnvironment.util', async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import('@/shared/util/appEnvironment.util')>()
-  return {
-    ...actual,
-    get IS_NON_PROD_DEPLOY() {
-      return true
-    },
-    get VENDOR_MODE() {
-      return mockMode.value as 'mock' | 'live'
-    },
-  }
-})
+// import time, so tests flip them through appEnvOverrides.
+useAppEnvOverrides({ IS_NON_PROD_DEPLOY: true, VENDOR_MODE: 'mock' })
 
 const service = useTestService()
 
@@ -52,7 +43,7 @@ const twoJobBody = {
 
 describe('POST /v1/vendor-mocks/geoapify/v1/routeplanner', () => {
   beforeEach(() => {
-    mockMode.value = 'mock'
+    appEnvOverrides.VENDOR_MODE = 'mock'
   })
 
   it('returns waypoints in the order jobs were submitted', async () => {
@@ -118,7 +109,7 @@ describe('POST /v1/vendor-mocks/geoapify/v1/routeplanner', () => {
   })
 
   it('returns 404 when VENDOR_MODE is live', async () => {
-    mockMode.value = 'live'
+    appEnvOverrides.VENDOR_MODE = 'live'
     const res = await service.client.post(
       `${ROUTEPLANNER_PATH}?apiKey=${API_KEY}`,
       twoJobBody,
@@ -187,7 +178,7 @@ describe('POST /v1/vendor-mocks/geoapify/v1/routeplanner', () => {
 
 describe('GET /v1/vendor-mocks/geoapify/v1/routing', () => {
   beforeEach(() => {
-    mockMode.value = 'mock'
+    appEnvOverrides.VENDOR_MODE = 'mock'
   })
 
   it('returns a GeoJSON LineString with the correct coordinate count', async () => {
@@ -223,7 +214,7 @@ describe('GET /v1/vendor-mocks/geoapify/v1/routing', () => {
   })
 
   it('returns 404 when VENDOR_MODE is live', async () => {
-    mockMode.value = 'live'
+    appEnvOverrides.VENDOR_MODE = 'live'
     const res = await service.client.get(
       `${ROUTING_PATH}?waypoints=40.73,-73.935&apiKey=${API_KEY}`,
     )
@@ -257,7 +248,7 @@ describe('GET /v1/vendor-mocks/geoapify/v1/routing', () => {
 
 describe('GET /v1/vendor-mocks/geoapify/v1/geocode/reverse', () => {
   beforeEach(() => {
-    mockMode.value = 'mock'
+    appEnvOverrides.VENDOR_MODE = 'mock'
   })
 
   const REVERSE_PATH = '/v1/vendor-mocks/geoapify/v1/geocode/reverse'
@@ -282,7 +273,7 @@ describe('GET /v1/vendor-mocks/geoapify/v1/geocode/reverse', () => {
     )
     expect(noPoint.status).toBe(HttpStatus.BAD_REQUEST)
 
-    mockMode.value = 'live'
+    appEnvOverrides.VENDOR_MODE = 'live'
     const live = await service.client.get(
       `${REVERSE_PATH}?lat=35.58&lon=-82.55&apiKey=${API_KEY}`,
     )

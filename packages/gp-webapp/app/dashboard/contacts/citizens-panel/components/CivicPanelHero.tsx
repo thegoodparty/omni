@@ -57,11 +57,13 @@ export const CivicPanelHero = ({
   members,
   goal,
   placeKind = 'tract',
+  place = null,
 }: {
   stage: CivicPanelStage
   members: number
   goal: number
   placeKind?: CivicPanelPlaceKind
+  place?: string | null
 }) => {
   const copy = COPY.hero[stage]
   const joined = COPY.joinedOfGoal(members, goal)
@@ -75,7 +77,7 @@ export const CivicPanelHero = ({
           {copy.title}
         </h2>
         <p className="max-w-[28rem] text-base text-muted-foreground">
-          {copy.line(members, goal)}
+          {copy.line(members, goal, place)}
         </p>
       </div>
       {/* The seats need room; below lg a bar says the same. */}

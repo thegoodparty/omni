@@ -165,7 +165,7 @@ export class ManagedCivicPanelService extends createPrismaBase(
         { organizationSlug: organization.slug },
         [
           [
-            EVENTS.CivicPanel.ManagedInviteApproved,
+            EVENTS.Contacts.CivicPanelInviteApproved,
             {
               goalMembers: panel.goalMembers,
               freeTextCap: panel.freeTextCap,

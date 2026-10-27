@@ -101,7 +101,21 @@ export const setupElectedOfficeUser = async (
     race: raceOptions ?? DEFAULT_TEST_RACE,
   })
 
-  await winRaceWithTermDates(page)
+  // The "I won" UI is covered by election-result-flow.spec.ts. Everyone else
+  // needs only its end state, so make the calls ElectionResultPage makes: the
+  // office (pinned to the campaign org by the client's default header), then
+  // the won flag. Driving the page and its two calendar dialogs cost ~10s a
+  // test across ~45 tests.
+  await withGatewayRetry('POST /v1/elected-office', () =>
+    client.post('/v1/elected-office', {
+      termStartDate: '2023-01-01',
+      termEndDate: '2027-01-01',
+      onboardingCompletedAt: new Date().toISOString(),
+    }),
+  )
+  await withGatewayRetry('PUT /v1/campaigns/mine', () =>
+    client.put('/v1/campaigns/mine', { details: { wonGeneral: true } }),
+  )
 
   const electedOfficeOrgSlug = await eventually(
     { that: 'an elected office organization is created' },
@@ -122,6 +136,18 @@ export const setupElectedOfficeUser = async (
     },
   )
   client.defaults.headers['x-organization-slug'] = electedOfficeOrgSlug
+
+  // The page selects the new org by this cookie, then lands on Chief of Staff.
+  await page.context().addCookies([
+    {
+      name: 'organization-slug',
+      value: electedOfficeOrgSlug,
+      domain: new URL(page.url()).hostname,
+      path: '/',
+      sameSite: 'Lax',
+    },
+  ])
+  await page.goto('/dashboard/chief-of-staff')
 
   return { user, client }
 }
