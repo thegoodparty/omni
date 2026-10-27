@@ -50,6 +50,7 @@ import { AreaCodeFromZipService } from '@/ai/util/areaCodeFromZip.util'
 import { CallhubNumbersService } from '@/vendors/callhub/services/callhubNumbers.service'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
 import { S3Service } from '@/vendors/aws/services/s3.service'
+import { RobocallFreeOfferService } from '@/robocallFreeOffer/services/robocallFreeOffer.service'
 import { Campaign, Organization, User } from '../generated/prisma'
 import { OutreachRobocallGenerationService } from './services/outreachRobocallGeneration.service'
 import { OutreachRobocallService } from './services/outreachRobocall.service'
@@ -89,6 +90,7 @@ export class OutreachRobocallController {
     private readonly areaCodeFromZipService: AreaCodeFromZipService,
     private readonly stripe: StripeService,
     private readonly s3: S3Service,
+    private readonly freeOffer: RobocallFreeOfferService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(OutreachRobocallController.name)
@@ -238,7 +240,48 @@ export class OutreachRobocallController {
       throw new BadRequestException('Audio does not belong to this campaign')
     }
 
-    return this.robocallService.createDraft(campaign, organization, input)
+    const draft = await this.robocallService.createDraft(
+      campaign,
+      organization,
+      input,
+    )
+    return this.applyFreeOfferCode(campaign, organization, input, draft)
+  }
+
+  // The free robocall offer applies its own code: a draft on the campaign's
+  // offer list gets the code the pay step would otherwise ask for, so the
+  // candidate sees "No card needed" without typing anything. Best-effort: a
+  // failure leaves an ordinary priced draft, and re-entering the pay step
+  // (which posts again and gets this draft back) retries it.
+  private async applyFreeOfferCode(
+    campaign: Campaign,
+    organization: Organization,
+    input: RobocallDraftCreateRequest,
+    draft: RobocallDraftCreateResponse,
+  ): Promise<RobocallDraftCreateResponse> {
+    if (draft.promoCode) return draft
+    try {
+      const code = await this.freeOffer.codeForDraft({
+        organization,
+        campaign,
+        outreachId: draft.outreachId,
+        voterFileFilterId: input.voterFileFilterId,
+      })
+      if (!code) return draft
+      const promo = await this.promos.apply(
+        campaign,
+        organization,
+        draft.outreachId,
+        code,
+      )
+      return { ...draft, ...promo }
+    } catch (err) {
+      this.logger.error(
+        { err, campaignId: campaign.id, outreachId: draft.outreachId },
+        'robocall free offer: could not apply the offer code to the draft',
+      )
+      return draft
+    }
   }
 
   // Places the pay-time authorization hold (RESERVES REAL MONEY): a
@@ -282,7 +325,7 @@ export class OutreachRobocallController {
     input: RobocallPromoApplyRequest,
   ): Promise<RobocallPromoStateResponse> {
     await this.contacts.assertProAccess(organization)
-    return this.promos.apply(campaign, outreachId, input.code)
+    return this.promos.apply(campaign, organization, outreachId, input.code)
   }
 
   @Delete('robocall/:outreachId/promo')

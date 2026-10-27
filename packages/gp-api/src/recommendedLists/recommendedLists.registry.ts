@@ -182,6 +182,23 @@ export const RECOMMENDED_LISTS_REGISTRY: Record<
         'to test, and who have not already voted.',
     },
   },
+  // Only ever served to a campaign enrolled in the free robocall offer, and
+  // only on robocall or the voter data page; RecommendedListsService gates
+  // it and fills in the campaign's treatment precincts.
+  freeOfferElectionEveRobocall: {
+    intent: 'electionDay',
+    requiresIdeologyBucket: false,
+    supporterBased: false,
+    copy: {
+      title: 'Landline voters in selected precincts',
+      // The list also leaves out voters who have already voted, like every
+      // non-event recommendation; the summary keeps to what the candidate
+      // needs to know (product, 2026-10-26).
+      criteriaSummary:
+        'Every landline voter in the precincts chosen for your free ' +
+        'election-eve robocall.',
+    },
+  },
 }
 
 // Display order is the contracts array's own order, which this filter

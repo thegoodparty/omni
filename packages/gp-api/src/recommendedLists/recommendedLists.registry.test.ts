@@ -35,7 +35,7 @@ describe('variantsForIntent', () => {
     }
   })
 
-  it('covers all five intents and all thirteen variants exactly once', () => {
+  it('covers all five intents and all fourteen variants exactly once', () => {
     const intents = [
       'introduce',
       'persuade',
@@ -44,8 +44,8 @@ describe('variantsForIntent', () => {
       'electionDay',
     ] as const
     const all = intents.flatMap((intent) => variantsForIntent(intent))
-    expect(all).toHaveLength(13)
-    expect(new Set(all).size).toBe(13)
+    expect(all).toHaveLength(14)
+    expect(new Set(all).size).toBe(14)
     expect(new Set(all)).toEqual(
       new Set(Object.keys(RECOMMENDED_LISTS_REGISTRY)),
     )

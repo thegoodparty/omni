@@ -33,7 +33,9 @@ export const RecommendedListIntentSchema = z.enum(
 )
 export type RecommendedListIntent = z.infer<typeof RecommendedListIntentSchema>
 
-// The 13 recommended universes, grouped by intent in display order.
+// The 14 recommended universes, grouped by intent in display order. The last
+// is the free election-eve robocall offer, which gp-api only ever hands to
+// a campaign enrolled in it (see ROBOCALL_FREE_OFFER_VARIANT).
 export const RECOMMENDED_LIST_VARIANT_VALUES = [
   'introNeverIded',
   'persuadeAffinity',
@@ -48,6 +50,7 @@ export const RECOMMENDED_LIST_VARIANT_VALUES = [
   'electionDaySupporters',
   'electionDayAffinity',
   'electionDayIdeology',
+  'freeOfferElectionEveRobocall',
 ] as const
 export const RecommendedListVariantSchema = z.enum(
   RECOMMENDED_LIST_VARIANT_VALUES,
@@ -79,6 +82,7 @@ export const RECOMMENDED_LIST_VARIANT_INTENT: Record<
   electionDaySupporters: 'electionDay',
   electionDayAffinity: 'electionDay',
   electionDayIdeology: 'electionDay',
+  freeOfferElectionEveRobocall: 'electionDay',
 }
 
 // The unsaved `VoterFileFilter` shape a recommendation carries. Only the
@@ -110,7 +114,8 @@ export const RecommendedListFilterSchema = z
     hasLandline: z.boolean().optional(),
     hasAnyPhone: z.boolean().optional(),
     // `county|precinct` pairs (encodePrecinctPair), set only for a
-    // door-knocking variant that survived on its precinct-restricted count.
+    // door-knocking variant that survived on its precinct-restricted count,
+    // and for the free robocall offer (the campaign's treatment precincts).
     precincts: z.array(z.string()).optional(),
   })
   .strict()

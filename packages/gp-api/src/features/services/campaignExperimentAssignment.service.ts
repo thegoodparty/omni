@@ -55,4 +55,36 @@ export class CampaignExperimentAssignmentService extends createPrismaBase(
     })
     return stored.arm
   }
+
+  async findArm(campaignId: number, flagKey: string): Promise<string | null> {
+    const existing = await this.model.findUnique({
+      where: { campaignId_flagKey: { campaignId, flagKey } },
+    })
+    return existing?.arm ?? null
+  }
+
+  // For an experiment whose arm gp-api decides itself rather than taking it
+  // from an Amplitude variant. First writer wins, as in getOrAssign, and the
+  // stored arm is returned.
+  async recordArm({
+    campaign,
+    flagKey,
+    arm,
+  }: {
+    campaign: Pick<Campaign, 'id' | 'userId'>
+    flagKey: string
+    arm: string
+  }): Promise<string> {
+    const stored = await this.model.upsert({
+      where: { campaignId_flagKey: { campaignId: campaign.id, flagKey } },
+      create: {
+        campaignId: campaign.id,
+        flagKey,
+        arm,
+        ownerUserId: campaign.userId,
+      },
+      update: {},
+    })
+    return stored.arm
+  }
 }

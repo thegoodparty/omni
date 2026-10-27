@@ -478,6 +478,31 @@ export class StripeService {
     return found.data[0] ?? null
   }
 
+  // A single-use promotion code on an existing coupon. Stripe never counts a
+  // redemption we apply outside Checkout, so max_redemptions is a label here;
+  // deactivation on consume is what actually stops a second use.
+  async createPromotionCode({
+    couponId,
+    code,
+    metadata,
+  }: {
+    couponId: string
+    code: string
+    metadata: Record<string, string>
+  }): Promise<Stripe.PromotionCode> {
+    try {
+      return await this.stripe.promotionCodes.create({
+        promotion: { type: 'coupon', coupon: couponId },
+        code,
+        max_redemptions: 1,
+        metadata,
+      })
+    } catch (err) {
+      this.logger.error({ err }, 'Failed to create Stripe promotion code')
+      throw new BadGatewayException('Failed to create promotion code')
+    }
+  }
+
   // Marks a promotion code redeemed (or restores it) by flipping `active`.
   // Stripe never counts a redemption for a code we applied outside Checkout, so
   // deactivating on consume is what stops a second use, and reactivating on a

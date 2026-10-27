@@ -1285,6 +1285,12 @@ export {
   type RobocallPromoStateResponse,
 } from './outreach/RobocallPurchase.schema'
 export {
+  ROBOCALL_FREE_OFFER_VARIANT,
+  ROBOCALL_FREE_OFFER_SEND_DATE,
+  RobocallFreeOfferResponseSchema,
+  type RobocallFreeOfferResponse,
+} from './outreach/RobocallFreeOffer.schema'
+export {
   RobocallAuthorizeRequestSchema,
   type RobocallAuthorizeRequest,
   RobocallAuthorizeStatusSchema,
