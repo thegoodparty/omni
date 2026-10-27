@@ -57,10 +57,11 @@ Task Completed` on Mark done, `source: 'campaign_manager'`), so the arms
   outreach is scheduled (see `gp-api/src/campaigns/campaignTracker`). Work
   started from the hub carries no task id and closes nothing; matching it to
   a task by channel was rejected, because it would close a task the
-  candidate never opened. So the next-task card moves an outreach task's
-  "Mark done" under Skip instead of beside its button, and the row keeps it
-  in its menu. Only the story task, which the server ticks however the story
-  gets finished, has none (`taskClosesItself`).
+  candidate never opened. Outreach tasks (an action and no own link) and the
+  story task, which the server ticks however the story gets finished, offer
+  no "Mark done" or "Mark not done" on the card or the row. A task whose
+  outreach went out from the hub stays open until the candidate skips it;
+  closing it from the hub is a gp-api follow-up.
 - **Text tasks after the texting cutoff.** gp-api swaps open text sends for
   robocalls once `smsCompliance` is `'closed'`, so none should reach the
   page. One that still does (no own link, not done) keeps no way into the

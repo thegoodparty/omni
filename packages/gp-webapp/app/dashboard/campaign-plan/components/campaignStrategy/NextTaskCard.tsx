@@ -18,7 +18,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
   Button,
   CalendarIcon,
@@ -430,16 +429,10 @@ const NextTaskCard = ({
     frontRow?.flowType === 'text' &&
     !frontRow.link?.trim()
 
-  // Only a task that closes itself however it gets done (the story) offers no
-  // manual "Mark done". Outreach closes itself only when started from its own
-  // button, so its Mark done moves under Skip: kept for a send made from the
-  // hub, which carries no task id, but no longer competing with the button.
-  const completesItself = taskClosesItself(frontTask?.title ?? '')
+  // A task that closes itself offers no manual "Mark done": the story however
+  // it gets finished, and outreach once it is sent from its own button.
   const outreach = !!action && !frontRow?.link?.trim()
-  const markDoneInSkip = outreach && !completesItself
-  const canPutOff = !!frontTask && canPutOffTask(frontTask.title)
-  const canSetAsideForGood =
-    !!frontTask && canSetTaskAsideForGood(frontTask.title)
+  const completesItself = taskClosesItself(frontTask?.title ?? '') || outreach
   const markDone = () => {
     if (!frontTask) return
     // No confirmation: we trust the candidate, and the plan can reopen it.
@@ -694,10 +687,7 @@ const NextTaskCard = ({
                       )}
                       {!action && !completesItself && renderMarkDone(true)}
                       <div className="flex items-center gap-2 max-sm:mt-2 sm:contents">
-                        {action &&
-                          !outreach &&
-                          !completesItself &&
-                          renderMarkDone(false)}
+                        {action && !completesItself && renderMarkDone(false)}
                         {chat && (
                           <Button
                             type="button"
@@ -715,7 +705,6 @@ const NextTaskCard = ({
                               className={cn(
                                 'size-4',
                                 action &&
-                                  !outreach &&
                                   !completesItself &&
                                   'max-[399px]:hidden',
                               )}
@@ -728,9 +717,8 @@ const NextTaskCard = ({
                           is the confirmation, put it off or (for a task the
                           race can do without) set it aside for good. */}
                         {!leaving &&
-                          (canPutOff ||
-                            canSetAsideForGood ||
-                            markDoneInSkip) && (
+                          (canPutOffTask(frontTask.title) ||
+                            canSetTaskAsideForGood(frontTask.title)) && (
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
                                 <Button
@@ -743,29 +731,19 @@ const NextTaskCard = ({
                                 </Button>
                               </DropdownMenuTrigger>
                               <DropdownMenuContent align="end">
-                                {canPutOff && (
+                                {canPutOffTask(frontTask.title) && (
                                   <DropdownMenuItem
                                     onSelect={() => skipFront('later')}
                                   >
                                     {PUT_OFF_LABEL}
                                   </DropdownMenuItem>
                                 )}
-                                {canSetAsideForGood && (
+                                {canSetTaskAsideForGood(frontTask.title) && (
                                   <DropdownMenuItem
                                     onSelect={() => skipFront('notForMe')}
                                   >
                                     Not for me
                                   </DropdownMenuItem>
-                                )}
-                                {markDoneInSkip && (
-                                  <>
-                                    {(canPutOff || canSetAsideForGood) && (
-                                      <DropdownMenuSeparator />
-                                    )}
-                                    <DropdownMenuItem onSelect={markDone}>
-                                      Mark done
-                                    </DropdownMenuItem>
-                                  </>
                                 )}
                               </DropdownMenuContent>
                             </DropdownMenu>

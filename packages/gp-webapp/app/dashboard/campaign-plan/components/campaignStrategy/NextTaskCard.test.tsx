@@ -112,7 +112,7 @@ describe('NextTaskCard texting cutoff', () => {
 })
 
 describe('NextTaskCard outreach Mark done', () => {
-  it('moves an outreach task’s Mark done under Skip', async () => {
+  it('offers no Mark done on an outreach task, beside its button or under Skip', async () => {
     mockTasks.current = [sendTask('text')]
     render(<NextTaskCard surface="plan" heading="Your next step" />)
 
@@ -120,8 +120,9 @@ describe('NextTaskCard outreach Mark done', () => {
 
     await userEvent.click(screen.getByRole('button', { name: 'Skip' }))
     expect(
-      await screen.findByRole('menuitem', { name: 'Mark done' }),
+      await screen.findByRole('menuitem', { name: 'Show in 3 days' }),
     ).toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: 'Mark done' })).toBeNull()
   })
 
   it('keeps Mark done beside the button of a task with its own link', () => {
