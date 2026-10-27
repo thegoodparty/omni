@@ -139,6 +139,27 @@ describe('OutreachRobocallBacklogAlertService.sweepBacklogAlerts (prod)', () => 
     expect((await readSatellite(outreachId)).backlogAlertedAt).not.toBeNull()
   })
 
+  it('projects a fractional divisor end-to-end (1.1 is read, not truncated)', async () => {
+    // Proves the backlog service's envNumber accepts a fractional divisor: a
+    // half-million-call blocking run spans many window-days even at ÷1.1's faster
+    // safe rate, so the queued run is flagged. A truncation / NaN regression in the
+    // shared parser would throw or mis-rate here rather than alert. (The boundary
+    // case separating ÷1.1 from ÷1 can't be asserted non-flakily — the sweep reads
+    // wall-clock now — so this only asserts the fractional path runs end-to-end.)
+    vi.stubEnv('ROBOCALL_DIAL_SAFETY_RATE_DIVISOR', '1.1')
+    await createRobocall({
+      settleState: RobocallSettleState.dialed,
+      billableCount: 500_000,
+      dialedAt: subHours(new Date(), 1),
+    })
+    const outreachId = await createRobocall({ sendInHours: 1 })
+
+    await backlog.sweepBacklogAlerts()
+
+    expect(alertSpy).toHaveBeenCalledTimes(1)
+    expect((await readSatellite(outreachId)).backlogAlertedAt).not.toBeNull()
+  })
+
   it('does NOT alert when the pool is free before the run is due', async () => {
     // No in-flight run: the queued run starts at its own schedule, same day.
     const outreachId = await createRobocall({ sendInHours: 1 })

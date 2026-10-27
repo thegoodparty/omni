@@ -709,6 +709,23 @@ describe('OutreachRobocallSendService.isDoneDialing (the completion seam)', () =
     expect(seam().isDoneDialing(run, now).done).toBe(false)
   })
 
+  it('a FRACTIONAL divisor survives parsing (1.1 is not truncated to 1)', async () => {
+    // The point of envNumber: a divisor of 1.1 must stay 1.1, not truncate to 1.
+    // staged 11 @ ÷1.1 → safe floor(11/1.1)=10 → 1100/10=110 raw + 180 buffer →
+    // ceiling 18:50Z. If it had truncated to ÷1 (safe 11 → 100 raw) the ceiling
+    // would be 18:40Z. So at 18:45Z the run is NOT done at 1.1 but WOULD read done
+    // under the truncation bug — the exact regression this guards.
+    vi.stubEnv('ROBOCALL_DIAL_SAFETY_RATE_DIVISOR', '1.1')
+    const run = { dialedAt, billableCount: 1100, stagedCallsPerMinute: 11 }
+
+    expect(
+      seam().isDoneDialing(run, new Date('2026-06-01T18:45:00Z')).done,
+    ).toBe(false)
+    expect(
+      seam().isDoneDialing(run, new Date('2026-06-01T18:55:00Z')).done,
+    ).toBe(true)
+  })
+
   it('R1: uses the run STAGED rate, not a later-raised live rate (never frees a slow run early)', async () => {
     // A run staged at 10/min (safe 3/min): billable 600 → 200 raw min + 180
     // buffer → ceiling 20:20Z, so at 18:30Z it is NOT done. Ops then raises the

@@ -78,10 +78,12 @@ const robocallSendLaunchSpacingMs = () =>
 // the rate divisor below; this is the fixed floor on top. Lowered 180 → 30 on
 // 2026-10-15: at the full-pool 120/min rate the flat 180 dominated the ceiling
 // and over-held the pool for hours on a fast dial, re-stacking the serial queue.
-// The ÷2 divisor already covers a proportional (up-to-2x) slowdown — which scales
-// with list size — so a flat 30 need only cover startup/tail slack and never
-// mis-frees a large run. Env-overridable; NEVER set it so short that the
-// completion floor biases toward an early abort. Read at call time.
+// The rate divisor (÷1.1 since 2026-10-27) now only models a ~10% pacing margin —
+// not the up-to-2x it absorbed before #3263 removed the 60/min clamp — so on a
+// large run this flat 30 can be the dominant margin before the pool frees. Keep
+// both in view when tuning either: shrinking this while the divisor is near 1
+// biases the completion floor toward an early abort. Env-overridable; read at
+// call time.
 const robocallDialEstimateBufferMinutes = () =>
   envInt(process.env.ROBOCALL_DIAL_ESTIMATE_BUFFER_MINUTES, 30)
 
