@@ -112,7 +112,8 @@ export class RobocallFreeOfferService extends createPrismaBase(
     assign: boolean,
   ): Promise<string[] | null> {
     if (!this.isConfigured()) return null
-    if (!this.passesCampaignRules(organization, campaign)) return null
+    const internal = await this.hasInternalOwner(campaign)
+    if (!this.passesCampaignRules(organization, campaign, internal)) return null
 
     const arm = await this.experimentAssignments.findArm(
       campaign.id,
@@ -120,16 +121,19 @@ export class RobocallFreeOfferService extends createPrismaBase(
     )
     if (arm === ROBOCALL_FREE_OFFER_ARMS.withdrawn) return null
 
-    const flagOn = await this.features.isFeatureEnabled({
-      user: campaign.userId,
-      feature: ROBOCALL_FREE_OFFER_FLAG,
-    })
-    if (!flagOn) return null
-    if (!(await this.passesOutreachAndOwnerRules(organization, campaign)))
+    if (!internal) {
+      const flagOn = await this.features.isFeatureEnabled({
+        user: campaign.userId,
+        feature: ROBOCALL_FREE_OFFER_FLAG,
+      })
+      if (!flagOn) return null
+    }
+    if (!(await this.passesOutreachRules(organization, campaign, internal)))
       return null
     // Win ICP is a slow rule the stored arm caches, but it is checked ahead
     // of the warehouse read below so a non-ICP campaign never pays for one.
-    if (arm === null && !(await this.isWinIcp(organization))) return null
+    if (arm === null && !internal && !(await this.isWinIcp(organization)))
+      return null
 
     const precincts = await this.districtPrecincts(organization)
     if (!precincts) return null
@@ -152,16 +156,18 @@ export class RobocallFreeOfferService extends createPrismaBase(
     campaign: Campaign,
     excludeOutreachId?: number,
   ): Promise<string[] | null> {
-    if (!this.passesCampaignRules(organization, campaign)) return null
+    const internal = await this.hasInternalOwner(campaign)
+    if (!this.passesCampaignRules(organization, campaign, internal)) return null
     const arm = await this.experimentAssignments.findArm(
       campaign.id,
       ROBOCALL_FREE_OFFER_FLAG,
     )
     if (arm !== ROBOCALL_FREE_OFFER_ARMS.offered) return null
     if (
-      !(await this.passesOutreachAndOwnerRules(
+      !(await this.passesOutreachRules(
         organization,
         campaign,
+        internal,
         excludeOutreachId,
       ))
     ) {
@@ -275,57 +281,75 @@ export class RobocallFreeOfferService extends createPrismaBase(
     return findEquivalentFilter(list, [{ ...expected, id: list.id }]) !== null
   }
 
+  // A goodparty.org owner skips the eligibility rules (Pro, election date,
+  // sent texts, other robocalls booked, demo / test mode, Win ICP and the
+  // flag), so staff can run the offer end to end on any of their Win
+  // campaigns, in a preview or in prod. What the offer itself needs still
+  // applies: Win, before Election Day, the offer used once, and enough
+  // precincts to split. The readout leaves these campaigns out.
+  private async hasInternalOwner(campaign: Campaign): Promise<boolean> {
+    const owner = await this.client.user.findUnique({
+      where: { id: campaign.userId },
+      select: { email: true },
+    })
+    return owner?.email.toLowerCase().endsWith(INTERNAL_EMAIL_DOMAIN) ?? false
+  }
+
   // Rules read straight off the campaign and organization rows.
   private passesCampaignRules(
     organization: Organization,
     campaign: Campaign,
+    internal: boolean,
   ): boolean {
     // A used offer ends with the booked-robocall rule; an unused one ends
     // after Election Day, so its saved list goes back to being a plain list.
     if (isAfterOfferElection(new Date())) return false
-    if (!campaign.isPro) return false
     // Win only: there is no product column, and `eo-` is Serve.
     if (!organization.slug.startsWith('campaign-')) return false
+    if (internal) return true
+    if (!campaign.isPro) return false
     const parsed = CampaignElectionSchema.safeParse(campaign.details)
     const electionDate = parsed.success ? parsed.data.electionDate : null
     return electionDate === ROBOCALL_FREE_OFFER_ELECTION_DATE
   }
 
-  // Rules that need other tables: has sent texts, has booked no robocall,
-  // and is not a demo or test-mode campaign. A goodparty.org owner skips
-  // that last rule, so staff can check the offer end to end in prod; the
-  // readout leaves those campaigns out.
-  private async passesOutreachAndOwnerRules(
+  // Rules that need other tables: has booked no robocall, has sent texts,
+  // and is not a demo or test-mode campaign. For a goodparty.org owner only
+  // a booked offer run counts as a robocall, and the other two are skipped.
+  private async passesOutreachRules(
     organization: Organization,
     campaign: Campaign,
+    internal: boolean,
     excludeOutreachId?: number,
   ): Promise<boolean> {
-    const [sentSms, bookedRobocall, owner] = await Promise.all([
-      this.client.outreach.count({
-        where: {
-          campaignId: campaign.id,
-          outreachType: { in: SMS_OUTREACH_TYPES },
-          status: { notIn: UNSENT_OUTREACH_STATUSES },
-        },
-      }),
-      this.client.outreach.count({
-        where: {
-          campaignId: campaign.id,
-          outreachType: OutreachType.robocall,
-          status: { notIn: UNSENT_OUTREACH_STATUSES },
-          ...(excludeOutreachId === undefined
-            ? {}
-            : { id: { not: excludeOutreachId } }),
-        },
-      }),
-      this.client.user.findUnique({
-        where: { id: campaign.userId },
-        select: { email: true },
-      }),
-    ])
-    if (sentSms === 0 || bookedRobocall > 0) return false
-    if (owner?.email.toLowerCase().endsWith(INTERNAL_EMAIL_DOMAIN)) return true
-    return !campaign.isDemo && organization.testModeCreatedAt === null
+    const bookedRobocall = await this.client.outreach.count({
+      where: {
+        campaignId: campaign.id,
+        outreachType: OutreachType.robocall,
+        status: { notIn: UNSENT_OUTREACH_STATUSES },
+        ...(excludeOutreachId === undefined
+          ? {}
+          : { id: { not: excludeOutreachId } }),
+        ...(internal
+          ? {
+              robocall: {
+                promoCode: { startsWith: ROBOCALL_FREE_OFFER_CODE_PREFIX },
+              },
+            }
+          : {}),
+      },
+    })
+    if (bookedRobocall > 0) return false
+    if (internal) return true
+    if (campaign.isDemo || organization.testModeCreatedAt !== null) return false
+    const sentSms = await this.client.outreach.count({
+      where: {
+        campaignId: campaign.id,
+        outreachType: { in: SMS_OUTREACH_TYPES },
+        status: { notIn: UNSENT_OUTREACH_STATUSES },
+      },
+    })
+    return sentSms > 0
   }
 
   // The district's known precincts (the Unknown bucket dropped) with their
