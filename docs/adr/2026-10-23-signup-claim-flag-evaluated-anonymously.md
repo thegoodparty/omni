@@ -3,7 +3,7 @@ title: The sign-up claim panel flag is evaluated for anonymous visitors by the s
 status: active
 decided_by: [tonypham-goodparty]
 date: 2026-10-23
-code: []
+code: ['#3286']
 scope:
   - packages/gp-webapp/app/sign-up/**
   - packages/gp-webapp/env.schema.ts
