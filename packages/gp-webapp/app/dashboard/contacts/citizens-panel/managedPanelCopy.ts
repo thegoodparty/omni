@@ -70,12 +70,6 @@ export const MANAGED_PANEL_COPY = {
     weekOf: (day: string) => `Week of ${day}`,
     pause: 'Pause invites',
     resume: 'Resume invites',
-    stop: 'Stop my civic panel',
-    stopTitle: 'Stop building your civic panel?',
-    stopCaption:
-      "We won't send any more invites. Everyone who joined stays on your civic panel.",
-    stopConfirm: 'Stop my civic panel',
-    stopCancel: 'Keep building',
     error: "We couldn't change your civic panel. Try again.",
   },
   flow: {

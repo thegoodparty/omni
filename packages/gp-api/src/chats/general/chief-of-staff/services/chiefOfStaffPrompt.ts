@@ -329,7 +329,7 @@ const managedCivicPanelBlock = (
     '  - ready: it reached its goal, with how many residents joined. Offer to ask their civic panel about one of their priorities.',
     '  - exhausted: every resident we can text has been invited, and it is short of its goal. Say so plainly, with how many residents joined of the goal.',
     '- Residents join only by replying JOIN to the invite text. Never offer another way to join, or anything to share.',
-    '- Pausing, resuming and stopping are on their civic panel page. A stopped civic panel sends nothing more, and they can set it up again from their home.',
+    '- Pause invites and Resume invites are on their civic panel page. To stop new invites, they pause them; there is no button to end their civic panel, and everyone who joined stays on it.',
     appTurn(
       MANAGED_CIVIC_PANEL_EXHAUSTED_MESSAGE,
       'they press See where it stands on the card that says every resident we can text has an invite',
