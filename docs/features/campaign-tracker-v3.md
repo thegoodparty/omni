@@ -208,10 +208,11 @@ shrinking roster is ignored, since it can't hide an opponent. If the election
 database is down, the check is skipped and the stored plan is served.
 
 A plan whose opponents were added by hand on the race-opponent page keeps its
-opposition section. That add re-stamps `oppositionPersistedAt` well after the
-run, and a reset would delete the names the candidate typed in. The rebuild
-also returns the section's attempt slot, so a rebuild the candidate didn't
-cause never moves them toward the cap. Unlike the story and race resets it
+opposition section. That add inserts names into the rows the run persisted, so
+any stored name missing from the run's own artifact was typed in, and a reset
+would delete it. CAP artifacts never expire; an unreadable one skips the
+rebuild. The rebuild also returns the section's attempt slot, so a rebuild the
+candidate didn't cause never moves them toward the cap. Unlike the story and race resets it
 keeps `trackerBootstrapped`: the race and story are unchanged, and the weekly
 tracker run reads the rebuilt plan without a second paid run.
 

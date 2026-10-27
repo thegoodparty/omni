@@ -10,7 +10,7 @@ import {
   ExperimentRun,
   ExperimentRunStatus,
 } from '../../generated/prisma'
-import { addMinutes, isAfter, isBefore, subMinutes } from 'date-fns'
+import { isBefore, subMinutes } from 'date-fns'
 import { z } from 'zod'
 import { CampaignWith } from '@/campaigns/campaigns.types'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
@@ -1072,18 +1072,8 @@ export class CampaignStrategyService extends createPrismaBase(
   ): Promise<StoryAlignment> {
     if (!plan.oppositionPersistedAt) return { plan, lostClaim: false }
     const run = await this.runFor(plan.oppositionRunId)
-
-    // The run's own persist stamps the marker seconds after it completes; a
-    // later stamp is a manual opponent add, and a reset would delete the names
-    // the candidate typed in.
-    const handEdited =
-      run !== null &&
-      isAfter(
-        plan.oppositionPersistedAt,
-        addMinutes(run.updatedAt, PERSIST_GRACE_MINUTES),
-      )
-    const seen = handEdited ? null : rosterSeenBy(run)
-    if (seen === null) return { plan, lostClaim: false }
+    const seen = rosterSeenBy(run)
+    if (!run || seen === null) return { plan, lostClaim: false }
 
     let rosterSize: number
     try {
@@ -1097,6 +1087,33 @@ export class CampaignStrategyService extends createPrismaBase(
       return { plan, lostClaim: false }
     }
     if (rosterSize <= seen) return { plan, lostClaim: false }
+
+    // A manual add on the race-opponent page inserts names into the rows the
+    // run persisted, so a stored name the run's own output lacks was typed in
+    // by the candidate, and a reset would delete it. An unreadable artifact
+    // skips the rebuild: keeping a stale list is the safe failure.
+    let generated: string[] | null = null
+    try {
+      const raw =
+        run.artifactBucket && run.artifactKey
+          ? await this.s3.getFile(run.artifactBucket, run.artifactKey)
+          : undefined
+      generated = raw ? parseOpponents(raw).map((o) => o.fullName) : null
+    } catch (err) {
+      this.logger.warn(
+        { err, planId: plan.id, runId: run.runId },
+        'opposition artifact unreadable; skipping the roster rebuild',
+      )
+    }
+    if (generated === null) return { plan, lostClaim: false }
+    const fromRun = new Set(generated.map((n) => n.trim().toLowerCase()))
+    const stored = await this.client.campaignStrategyOpponent.findMany({
+      where: { campaignStrategyId: plan.id },
+      select: { fullName: true },
+    })
+    if (stored.some((o) => !fromRun.has(o.fullName.trim().toLowerCase()))) {
+      return { plan, lostClaim: false }
+    }
 
     // Compare-and-swap on everything read above, so concurrent polls or a
     // manual add landing in between can't double-reset. The candidate didn't

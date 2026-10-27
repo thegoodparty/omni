@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { addDays, subHours } from 'date-fns'
+import { subHours } from 'date-fns'
 import { firstOrThrow } from 'src/shared/test-utils/arrays.util'
 import {
   BadRequestException,
@@ -87,7 +87,10 @@ describe('CampaignStrategyService', () => {
     }
     campaignStrategyOpportunity: { deleteMany: ReturnType<typeof vi.fn> }
     campaignStrategyChallenge: { deleteMany: ReturnType<typeof vi.fn> }
-    campaignStrategyOpponent: { deleteMany: ReturnType<typeof vi.fn> }
+    campaignStrategyOpponent: {
+      deleteMany: ReturnType<typeof vi.fn>
+      findMany: ReturnType<typeof vi.fn>
+    }
     campaign: { findUnique: ReturnType<typeof vi.fn> }
     $transaction: ReturnType<typeof vi.fn>
   }
@@ -146,6 +149,7 @@ describe('CampaignStrategyService', () => {
       },
       campaignStrategyOpponent: {
         deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
+        findMany: vi.fn().mockResolvedValue([]),
       },
       campaign: {
         findUnique: vi.fn().mockResolvedValue({ userId: 7 }),
@@ -1568,6 +1572,20 @@ describe('CampaignStrategyService', () => {
         opponents: [],
       })
       raceContext.getStrategyContext.mockResolvedValue({ candidate_count: 5 })
+      s3.getFile.mockResolvedValue(
+        JSON.stringify({
+          opponents: [
+            {
+              full_name: 'Rival',
+              party_affiliation: 'Nonpartisan',
+              incumbent: false,
+            },
+          ],
+        }),
+      )
+      prisma.campaignStrategyOpponent.findMany.mockResolvedValue([
+        { fullName: 'Rival' },
+      ])
     })
 
     it('regenerates opposition researched against a smaller roster, refunding its attempt', async () => {
@@ -1617,11 +1635,12 @@ describe('CampaignStrategyService', () => {
       expect(experimentRuns.dispatchRun).not.toHaveBeenCalled()
     })
 
-    it('keeps opponents the candidate added by hand', async () => {
+    it('keeps opponents the candidate typed in, however soon after the research landed', async () => {
       runsSaw(0, 5)
-      prisma.campaignStrategy.upsert.mockResolvedValue(
-        persistedPlan({ oppositionPersistedAt: addDays(researchedAt, 2) }),
-      )
+      prisma.campaignStrategyOpponent.findMany.mockResolvedValue([
+        { fullName: 'Rival' },
+        { fullName: 'Typed In' },
+      ])
 
       const res = await service.getOrGenerateStrategicLandscape(campaign())
 
