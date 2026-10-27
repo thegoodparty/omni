@@ -103,15 +103,30 @@ Resume converts that row IN PLACE, never inserting a second one: `POST
 stands) and `POST /outreach/robocall` with `draftOutreachId` re-run the
 fresh-create gates (Peerly identity + script compliance; the compliance/ETag
 bind, schedule guards and server-derived billing, shared via
-`resolveScheduleGates`) and move the same row `draft → pending_payment` — 404
-for another campaign's row, 409 once it is no longer a draft. That transition
-is a CAS on `status: draft` (the spine `updateMany` inside the robocall
-transaction, so a zero count aborts before the satellite is repriced), so two
-concurrent resume submits convert once and the loser 409s instead of silently
-overwriting the winner. A bare robocall
+`resolveScheduleGates`) and move the same row to `pending_payment` — 404 for
+another campaign's row, 409 once it is no longer re-enterable. A robocall
+resume accepts TWO entry states: a saved `draft` (spine `draft`), and a
+`hold_failed` row (spine `pending_payment`, satellite `hold_failed`) — the
+self-serve recovery after a declined pay-time hold, where the candidate
+re-picks a future date and a new card and pays through the SAME convert →
+authorize path, so there is one money path for a draft and a hold-failed
+resend alike (billing always re-derived server-side from the audience, never
+trusted from the client). The convert's single-winner claim is a CAS on the
+satellite settle-state (`draft → pending_payment` or `hold_failed →
+pending_payment`, the `outreachRobocall.updateMany` inside the transaction, so
+a zero count aborts before the spine is repriced), so two concurrent resume
+submits convert once and the loser 409s. Because the cancel-at-deadline sweep
+claims the same `hold_failed` row with its own `hold_failed → cancelled` CAS,
+exactly one of a resume and a mid-flight cancel can win: a resend can never
+land on a row the sweep just cancelled, and a resumed row (now future-dated,
+off `hold_failed`) is no longer a sweep candidate. A bare robocall
 create that reuses a draft's `audioKey` 409s with that draft's `existingId`
 (`findExistingDraft` scopes `draft` + `pending_payment`) instead of tripping
-the unique index: scheduling a saved draft has to be explicit.
+the unique index: scheduling a saved draft has to be explicit. `findByScope`
+hides every `pending_payment` row EXCEPT a `hold_failed` robocall, which it
+surfaces (with the satellite's `settleState`, `audioKey`, `callbackNumber` and
+`billableCount` on the list row, mirroring `OutreachRobocallDetailSchema`) so
+history can show "payment failed" and re-enter the flow.
 A bank-debit (ACH) checkout completes with `payment_status: unpaid`, so the
 completion defers and the draft stays `pending_payment` until Stripe's
 `async_payment_succeeded` runs the same finalize days later. If the debit

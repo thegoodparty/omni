@@ -630,6 +630,29 @@ and the `HoldPlaced`/`HoldFailed` milestones, so a Stripe redelivery is idempote
 failures are isolated. RESERVES REAL MONEY off-session. Ops: the Stripe webhook
 endpoint must subscribe to `payment_method.attached`.
 
+**Self-serve resend (candidate re-enters the flow).** The webhook retry above
+covers a card updated out-of-band; the candidate who left the pay wizard
+recovers through the SAME draft-resume path a saved draft uses.
+`findByScope` surfaces a `hold_failed` robocall in history (the one
+`pending_payment` row it does not hide) with the satellite's `settleState`,
+`audioKey`, `callbackNumber` and `billableCount` on the list row (mirroring
+`OutreachRobocallDetailSchema`), so the row reads "payment failed" and offers
+"update card & resend". The resend re-enters `POST /outreach/robocall` with
+`draftOutreachId` set to the `hold_failed` row: `convertDraft` now accepts a
+`hold_failed` row alongside a `draft` one, re-running the create gates
+(compliance/ETag bind, schedule validation against the NEW future date,
+server-re-derived billing via `resolveScheduleGates`) and transitioning the
+satellite `hold_failed → pending_payment` as the single-owner claim, reusing
+the audio/script/audience. The row lands `pending_payment`, and the existing
+`POST /outreach/robocall/:id/authorize` (which already accepts `pending_payment
+| hold_failed`) places the hold on the new card. One money path: a resend is
+priced and scheduled under the same gates as a fresh create, never a
+client-supplied count. The cancel-at-deadline sweep is naturally safe — the
+resend re-picks a future date and the convert's satellite CAS and the sweep's
+`hold_failed → cancelled` CAS are mutually exclusive, so a resumed row (future,
+off `hold_failed`) is no longer a cancel candidate and a cancel racing a resume
+makes the loser 409.
+
 **Promo codes (reward codes on the pay step).** CAS mints single-use,
 amount-off promotion codes in Stripe (a fixed number of calls at a fixed rate)
 and hands them to candidates. Stripe only APPLIES a code to a Checkout Session

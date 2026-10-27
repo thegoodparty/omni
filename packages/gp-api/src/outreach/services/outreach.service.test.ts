@@ -11,6 +11,7 @@ import {
   Campaign,
   OutreachStatus,
   OutreachType,
+  RobocallSettleState,
   User,
 } from '../../generated/prisma'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -1098,9 +1099,10 @@ describe('OutreachService', () => {
           OR: [
             { status: { not: OutreachStatus.pending_payment } },
             { status: null },
+            { robocall: { settleState: RobocallSettleState.hold_failed } },
           ],
         },
-        include: { voterFileFilter: true },
+        include: { voterFileFilter: true, robocall: true },
       })
       // `findByScope` collapses door-knocking siblings into their anchor and
       // attaches a `turfCount`; a non-door-knocking row passes through as its

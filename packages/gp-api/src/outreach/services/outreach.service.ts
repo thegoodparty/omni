@@ -16,6 +16,7 @@ import {
   OutreachStatus,
   OutreachType,
   Prisma,
+  RobocallSettleState,
   User,
 } from '../../generated/prisma'
 import { FREE_TEXTS_OFFER } from 'src/shared/constants/freeTextsOffer'
@@ -1546,18 +1547,40 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
         ...scope,
         // Unpaid drafts are an implementation detail of the purchase flow.
         // Prisma's `not` also excludes NULL, so nullable legacy rows need the
-        // explicit OR branch.
+        // explicit OR branch. The hold_failed branch is the one exception: a
+        // robocall whose hold was declined sits at pending_payment but is a
+        // real, recoverable send — the candidate updates their card and
+        // resends from here — so it has to surface in history rather than hide
+        // like an abandoned draft.
         OR: [
           { status: { not: OutreachStatus.pending_payment } },
           { status: null },
+          { robocall: { settleState: RobocallSettleState.hold_failed } },
         ],
       },
       include: {
         voterFileFilter: true,
+        robocall: true,
       },
     })
 
-    return collapseDoorKnockingCampaigns(rows)
+    // Mirror the detail's minimal robocall block (OutreachRobocallDetailSchema)
+    // rather than leaking the satellite's billing/settlement columns onto the
+    // list row: the row needs settleState to flag a failed payment and the
+    // resume fields to re-enter the flow, nothing else.
+    const withRobocall = rows.map(({ robocall, ...row }) => ({
+      ...row,
+      robocall: robocall
+        ? {
+            audioKey: robocall.audioKey,
+            callbackNumber: robocall.callbackNumber,
+            billableCount: robocall.billableCount,
+            settleState: robocall.settleState,
+          }
+        : undefined,
+    }))
+
+    return collapseDoorKnockingCampaigns(withRobocall)
   }
 
   async findByCampaignId(campaignId: number) {
