@@ -46,9 +46,14 @@ runs:
       with:
         node-version-file: .nvmrc
 
+    # Restore only. Saving happens below, and only on main: a cache saved on a
+    # pull request is visible to that PR alone, yet it counts against the
+    # repo's 10GB cache limit like any other. PR copies of this ~800MB entry
+    # (and the npm cache below) were filling most of that limit and evicting
+    # main's copies, which every PR restores from.
     - name: Restore node_modules
       id: node-modules-cache
-      uses: actions/cache@v4
+      uses: actions/cache/restore@v4
       with:
         path: |
           node_modules
@@ -70,12 +75,25 @@ runs:
       shell: bash
       run: npm ci --prefer-offline --no-audit --no-fund
 
+    # Saved right after the install, before any build or generate step writes
+    # into the tree, so every saved copy holds exactly what `npm ci` produced.
+    - name: Save node_modules
+      if: steps.node-modules-cache.outputs.cache-hit != 'true' && github.ref == 'refs/heads/main'
+      uses: actions/cache/save@v4
+      with:
+        path: |
+          node_modules
+          packages/*/node_modules
+        key: ${{ steps.node-modules-cache.outputs.cache-primary-key }}
+
     # Save ~/.npm only after a real install populated it. Letting the cache
     # action save unconditionally lets a node_modules-hit job write an empty
     # ~/.npm under the lockfile-hashed key, which is then immutable and forces
-    # every later miss to refetch the whole registry.
+    # every later miss to refetch the whole registry. Main only, for the same
+    # reason as node_modules above; a PR that changes the lockfile still
+    # restores main's newest ~/.npm through the restore-keys prefix.
     - name: Save npm cache
-      if: steps.node-modules-cache.outputs.cache-hit != 'true' && steps.npm-cache.outputs.cache-hit != 'true'
+      if: steps.node-modules-cache.outputs.cache-hit != 'true' && steps.npm-cache.outputs.cache-hit != 'true' && github.ref == 'refs/heads/main'
       uses: actions/cache/save@v4
       with:
         path: ~/.npm

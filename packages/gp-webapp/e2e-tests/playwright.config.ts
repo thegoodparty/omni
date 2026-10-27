@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { config as loadEnv } from 'dotenv'
 import { defineConfig, devices } from '@playwright/test'
+import { WORKERS_PER_SHARD } from './workers'
 
 const e2eRoot = __dirname
 const dotEnv = resolve(e2eRoot, '.env')
@@ -34,7 +35,7 @@ export default defineConfig({
 
   // Improved parallelization with better stability
   fullyParallel: true,
-  workers: process.env.CI ? 4 : 4, // Use 4 workers in CI for faster execution
+  workers: WORKERS_PER_SHARD,
   retries: process.env.CI ? 3 : 2, // Increased retries for flaky tests
 
   // Clean reporting without TestRail dependency

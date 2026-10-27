@@ -71,7 +71,17 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version-file: .nvmrc
-          cache: npm
+
+      # Reads the ~/.npm cache main already keeps (setup-node-workspace saves
+      # it) instead of setup-node's `cache: npm`, which saved a separate
+      # ~900MB entry per PR and pushed shared caches out of the repo's limit.
+      - name: Restore npm cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.npm
+          key: npm-cache-v1-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            npm-cache-v1-${{ runner.os }}-
 
       # A schema-complete fixture "working checkout" for --from: every
       # required var in gp-api's and gp-webapp's schemas already has a

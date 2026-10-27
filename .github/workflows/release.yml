@@ -654,8 +654,10 @@ jobs:
     timeout-minutes: 30
     strategy:
       fail-fast: false
+      # 4 shards x 6 workers (e2e-tests/workers.ts): workers share a
+      # shard's setup, extra shards each pay it again.
       matrix:
-        shard: [1, 2, 3, 4, 5, 6]
+        shard: [1, 2, 3, 4]
     permissions:
       contents: read
       id-token: write

@@ -1,4 +1,5 @@
 import Bottleneck from 'bottleneck'
+import { WORKERS_PER_SHARD } from '../../workers'
 
 type ThrottleConfig = {
   rateLimit: number
@@ -90,19 +91,19 @@ const CLERK_RATE_WINDOW_MS = 10_000
 // out via clerkCall — an OTel span plus a timeout, no rate limiting. The sweep
 // is gated to the dev and prod deploys, so preview stacks no longer each run
 // one. workerCount must therefore count every worker of a whole CI run —
-// E2E_SHARD_TOTAL shards x 4 playwright workers (the workflow's shard matrix
-// x playwright.config workers), not one shard's 4 — or a single run budgets itself the entire
-// instance and any concurrency at all tips Clerk into 429s, which gp-api
-// surfaces as bare 401s on test setup (ENG-11105). Locally there is one
-// unsharded 4-worker process. The 0.5 safety factor then caps one full run
-// at ~48 req/10s, leaving the other half of the budget for everything else.
+// E2E_SHARD_TOTAL shards x WORKERS_PER_SHARD playwright workers (the
+// workflow's shard matrix x workers.ts), not one shard's — or a single run
+// budgets itself the entire instance and any concurrency at all tips Clerk
+// into 429s, which gp-api surfaces as bare 401s on test setup (ENG-11105).
+// Locally there is one unsharded process. The 0.5 safety factor then caps
+// one full run at ~50 req/10s, leaving the other half of the budget for
+// everything else.
 // Residual bursts are absorbed by retries on both paths: withGatewayRetry
 // covers the gp-api HTTP calls, and this limiter's own 429 retry covers the
 // direct Clerk SDK calls (createUser, createSession, getToken) — Clerk
 // errors are not axios errors, so withGatewayRetry never sees them. 7
 // retries x 10s Retry-After give the SDK path a window comparable to
 // withGatewayRetry's ~51s.
-const WORKERS_PER_SHARD = 4
 const TOTAL_RUN_WORKERS = process.env.CI
   ? Number(process.env.E2E_SHARD_TOTAL ?? 4) * WORKERS_PER_SHARD
   : WORKERS_PER_SHARD

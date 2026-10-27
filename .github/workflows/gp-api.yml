@@ -117,8 +117,13 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
+      # 3, not more: each shard pays about a minute of fixed setup (dependency
+      # restore, contracts and Prisma builds, the Postgres pull), and after the
+      # isolate: false change the suite is ~8 runner-minutes of tests. At 3 the
+      # shards still finish before Checks and the PR preview deploy, so more
+      # only adds runner time that other jobs then queue behind.
       matrix:
-        shard: [1, 2, 3, 4, 5, 6]
+        shard: [1, 2, 3]
     # Keyed on the shard as well: a group shared across the matrix would have
     # the shards cancelling each other on every run.
     concurrency:

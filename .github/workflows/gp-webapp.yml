@@ -172,7 +172,7 @@ jobs:
   # across runners to cut wall-clock. Three jobs:
   #   e2e-wait  — gates once on gp-api's (slow) deploy, so the shards don't each
   #               idle on the same multi-minute poll.
-  #   e2e-shard — fans the suite across 6 runners, balanced by the last
+  #   e2e-shard — fans the suite across 4 runners, balanced by the last
   #               run's test durations (e2e-tests/scripts/plan-shards.mjs);
   #               each emits a blob report artifact.
   #   e2e       — merges the shard blobs into one HTML report + results.json,
@@ -447,8 +447,10 @@ jobs:
       # One failing shard must not cancel the others — we want the full result
       # set and a complete merged report.
       fail-fast: false
+      # 4 shards x 6 workers (e2e-tests/workers.ts): workers share a
+      # shard's setup, extra shards each pay it again.
       matrix:
-        shard: [1, 2, 3, 4, 5, 6]
+        shard: [1, 2, 3, 4]
     permissions:
       contents: read
       id-token: write
