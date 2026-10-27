@@ -172,7 +172,7 @@ jobs:
   # across runners to cut wall-clock. Three jobs:
   #   e2e-wait  — gates once on gp-api's (slow) deploy, so the shards don't each
   #               idle on the same multi-minute poll.
-  #   e2e-shard — fans the suite across 6 runners, balanced by the last
+  #   e2e-shard — fans the suite across 4 runners, balanced by the last
   #               run's test durations (e2e-tests/scripts/plan-shards.mjs);
   #               each emits a blob report artifact.
   #   e2e       — merges the shard blobs into one HTML report + results.json,
