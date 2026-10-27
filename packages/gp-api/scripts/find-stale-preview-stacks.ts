@@ -1,12 +1,11 @@
 import { execSync } from 'child_process'
-import { isBefore, parseISO, subDays } from 'date-fns'
 import { writeFileSync } from 'fs'
 import { z } from 'zod'
 
 const pulumiStacksSchema = z.array(z.object({ name: z.string() }))
 
 const openPrsSchema = z.array(
-  z.object({ number: z.number(), updated_at: z.string() }),
+  z.object({ number: z.number() }),
 )
 
 export type OpenPr = z.infer<typeof openPrsSchema>[number]
@@ -14,7 +13,6 @@ export type OpenPr = z.infer<typeof openPrsSchema>[number]
 type FetchFn = (url: string, init: RequestInit) => Promise<Response>
 
 const PER_PAGE = 100
-const DEFAULT_IDLE_DAYS = 21
 
 const getPreviewPulumiStacks = () => {
   const output = execSync('pulumi stack ls --json', {
@@ -33,32 +31,15 @@ const extractPrNumber = (stackName: string) => {
   return match?.[1] ? parseInt(match[1]) : null
 }
 
-export const parseIdleDays = (raw: string | undefined) => {
-  if (raw === undefined || raw.trim() === '') return DEFAULT_IDLE_DAYS
-  const days = Number(raw)
-  if (!Number.isFinite(days) || days <= 0) {
-    throw new Error(`PREVIEW_IDLE_DAYS must be a positive number, got: ${raw}`)
-  }
-  return days
-}
-
-export const selectStaleStacks = (
-  stackNames: string[],
-  openPrs: OpenPr[],
-  now: Date,
-  idleDays: number,
-) => {
-  const lastActivity = new Map(
-    openPrs.map((pr) => [pr.number, parseISO(pr.updated_at)]),
-  )
-  const cutoff = subDays(now, idleDays)
+export const selectStaleStacks = (stackNames: string[], openPrs: OpenPr[]) => {
+  const openPrNumbers = new Set(openPrs.map((pr) => pr.number))
   // A name that is not gp-api-pr-<n> is not a preview this sweep owns, so it
-  // is never selected for destroy.
+  // is never selected for destroy. A stack is stale only once its PR is no
+  // longer open; idle open PRs keep their preview (the daily stale-PR job
+  // closes them, which triggers the normal teardown).
   return stackNames.filter((stack) => {
     const prNumber = extractPrNumber(stack)
-    if (prNumber === null) return false
-    const updatedAt = lastActivity.get(prNumber)
-    return updatedAt === undefined || isBefore(updatedAt, cutoff)
+    return prNumber !== null && !openPrNumbers.has(prNumber)
   })
 }
 
@@ -103,7 +84,6 @@ const main = async () => {
   if (!token) {
     throw new Error('GITHUB_TOKEN environment variable is required')
   }
-  const idleDays = parseIdleDays(process.env.PREVIEW_IDLE_DAYS)
 
   const prStacks = getPreviewPulumiStacks()
   console.log(`Found ${prStacks.length} PR stacks`)
@@ -119,9 +99,9 @@ const main = async () => {
   const openPrs = await fetchAllOpenPrs(fetch, repo, token)
   console.log(`Found ${openPrs.length} open PRs`)
 
-  const staleStacks = selectStaleStacks(prStacks, openPrs, new Date(), idleDays)
+  const staleStacks = selectStaleStacks(prStacks, openPrs)
 
-  console.log(`Stale stacks (PR not open, or idle over ${idleDays} days):`)
+  console.log('Stale stacks (PR not open):')
   console.log(staleStacks.join('\n'))
 
   writeFileSync(outfile, JSON.stringify(staleStacks))
