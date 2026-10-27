@@ -14,7 +14,6 @@ import {
   M2M_TOKEN_PREFIX,
 } from '@/vendors/clerk/clerk.consts'
 import { clerkCall } from '@/vendors/clerk/util/clerkCall.util'
-import { verifiedEmailOf } from '@/vendors/clerk/util/verifiedEmail.util'
 
 const {
   CLERK_SECRET_KEY,
@@ -220,8 +219,12 @@ export class ClerkAuthService implements AuthProvider {
         { 'clerk.user_id': externalUserId },
         () => this.clerkClient.users.getUser(externalUserId),
       )
+      const email =
+        clerkUser.primaryEmailAddress?.emailAddress ??
+        clerkUser.emailAddresses?.[0]?.emailAddress
+
       return {
-        email: verifiedEmailOf(clerkUser),
+        email: email ?? undefined,
         firstName: clerkUser.firstName ?? undefined,
         lastName: clerkUser.lastName ?? undefined,
         // hasImage is false while Clerk is serving a generated placeholder,

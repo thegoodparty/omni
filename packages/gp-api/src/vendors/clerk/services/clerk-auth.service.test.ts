@@ -262,13 +262,8 @@ describe('ClerkAuthService', () => {
     it('maps the Clerk primary email and name', async () => {
       const primary = 'primary@goodparty.org'
       getUser.mockResolvedValue({
-        primaryEmailAddress: {
-          emailAddress: primary,
-          verification: { status: 'verified' },
-        },
-        emailAddresses: [
-          { emailAddress: primary, verification: { status: 'verified' } },
-        ],
+        primaryEmailAddress: { emailAddress: primary },
+        emailAddresses: [{ emailAddress: primary }],
         firstName: 'First',
         lastName: 'Last',
       })
@@ -280,19 +275,10 @@ describe('ClerkAuthService', () => {
       })
     })
 
-    it('falls back to the first verified email when there is no primary', async () => {
+    it('falls back to the first email when there is no primary', async () => {
       getUser.mockResolvedValue({
         primaryEmailAddress: null,
-        emailAddresses: [
-          {
-            emailAddress: 'unverified@goodparty.org',
-            verification: { status: 'unverified' },
-          },
-          {
-            emailAddress: 'fallback@goodparty.org',
-            verification: { status: 'verified' },
-          },
-        ],
+        emailAddresses: [{ emailAddress: 'fallback@goodparty.org' }],
         firstName: null,
         lastName: null,
       })
@@ -304,39 +290,10 @@ describe('ClerkAuthService', () => {
       })
     })
 
-    it('reports no email when no address is verified', async () => {
-      getUser.mockResolvedValue({
-        primaryEmailAddress: {
-          emailAddress: 'staff@goodparty.org',
-          verification: { status: 'unverified' },
-        },
-        emailAddresses: [
-          {
-            emailAddress: 'staff@goodparty.org',
-            verification: { status: 'unverified' },
-          },
-        ],
-        firstName: 'A',
-        lastName: 'B',
-      })
-
-      await expect(service.getUser('user_1')).resolves.toMatchObject({
-        email: undefined,
-      })
-    })
-
     it('reads the sign-up phone out of unsafeMetadata', async () => {
       getUser.mockResolvedValue({
-        primaryEmailAddress: {
-          emailAddress: 'a@goodparty.org',
-          verification: { status: 'verified' },
-        },
-        emailAddresses: [
-          {
-            emailAddress: 'a@goodparty.org',
-            verification: { status: 'verified' },
-          },
-        ],
+        primaryEmailAddress: { emailAddress: 'a@goodparty.org' },
+        emailAddresses: [{ emailAddress: 'a@goodparty.org' }],
         firstName: 'A',
         lastName: 'B',
         unsafeMetadata: { phone: ' 5551234567 ' },
@@ -349,16 +306,8 @@ describe('ClerkAuthService', () => {
 
     it('prefers a verified Clerk phone number over the metadata one', async () => {
       getUser.mockResolvedValue({
-        primaryEmailAddress: {
-          emailAddress: 'a@goodparty.org',
-          verification: { status: 'verified' },
-        },
-        emailAddresses: [
-          {
-            emailAddress: 'a@goodparty.org',
-            verification: { status: 'verified' },
-          },
-        ],
+        primaryEmailAddress: { emailAddress: 'a@goodparty.org' },
+        emailAddresses: [{ emailAddress: 'a@goodparty.org' }],
         primaryPhoneNumber: { phoneNumber: '+15559999999' },
         unsafeMetadata: { phone: '5551234567' },
       })
@@ -370,16 +319,8 @@ describe('ClerkAuthService', () => {
 
     it('reports no phone when unsafeMetadata carries none', async () => {
       getUser.mockResolvedValue({
-        primaryEmailAddress: {
-          emailAddress: 'a@goodparty.org',
-          verification: { status: 'verified' },
-        },
-        emailAddresses: [
-          {
-            emailAddress: 'a@goodparty.org',
-            verification: { status: 'verified' },
-          },
-        ],
+        primaryEmailAddress: { emailAddress: 'a@goodparty.org' },
+        emailAddresses: [{ emailAddress: 'a@goodparty.org' }],
         unsafeMetadata: { somethingElse: true },
       })
 
@@ -392,16 +333,8 @@ describe('ClerkAuthService', () => {
       // unsafeMetadata is user-writable through Clerk's client SDK, so this
       // path must not trust it — PhoneSchema guards only the HTTP routes.
       getUser.mockResolvedValue({
-        primaryEmailAddress: {
-          emailAddress: 'a@goodparty.org',
-          verification: { status: 'verified' },
-        },
-        emailAddresses: [
-          {
-            emailAddress: 'a@goodparty.org',
-            verification: { status: 'verified' },
-          },
-        ],
+        primaryEmailAddress: { emailAddress: 'a@goodparty.org' },
+        emailAddresses: [{ emailAddress: 'a@goodparty.org' }],
         unsafeMetadata: { phone: 'ARBITRARY-INJECTED-VALUE' },
       })
 
@@ -418,16 +351,8 @@ describe('ClerkAuthService', () => {
 
     it('returns the Clerk image url when the user has one', async () => {
       getUser.mockResolvedValue({
-        primaryEmailAddress: {
-          emailAddress: 'a@goodparty.org',
-          verification: { status: 'verified' },
-        },
-        emailAddresses: [
-          {
-            emailAddress: 'a@goodparty.org',
-            verification: { status: 'verified' },
-          },
-        ],
+        primaryEmailAddress: { emailAddress: 'a@goodparty.org' },
+        emailAddresses: [{ emailAddress: 'a@goodparty.org' }],
         firstName: 'A',
         lastName: 'B',
         hasImage: true,
@@ -441,16 +366,8 @@ describe('ClerkAuthService', () => {
 
     it('returns no image url when Clerk has no image', async () => {
       getUser.mockResolvedValue({
-        primaryEmailAddress: {
-          emailAddress: 'a@goodparty.org',
-          verification: { status: 'verified' },
-        },
-        emailAddresses: [
-          {
-            emailAddress: 'a@goodparty.org',
-            verification: { status: 'verified' },
-          },
-        ],
+        primaryEmailAddress: { emailAddress: 'a@goodparty.org' },
+        emailAddresses: [{ emailAddress: 'a@goodparty.org' }],
         firstName: 'A',
         lastName: 'B',
         hasImage: false,

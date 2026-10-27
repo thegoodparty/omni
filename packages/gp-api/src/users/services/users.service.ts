@@ -51,7 +51,6 @@ import { CrmUsersService } from './crmUsers.service'
 import { UserAvatarService } from './userAvatar.service'
 import { clerkThrottle } from '@/vendors/clerk/util/clerkThrottle.util'
 import { clerkCall } from '@/vendors/clerk/util/clerkCall.util'
-import { verifiedEmailOf } from '@/vendors/clerk/util/verifiedEmail.util'
 import { CronLockService } from '@/cron/services/cronLock.service'
 import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
 
@@ -576,9 +575,11 @@ export class UsersService extends createPrismaBase(MODELS.User) {
       this.logger.error({ err, userId: user.id }, 'Failed to read Clerk user')
       throw new BadGatewayException('Failed to read Clerk user')
     })
-    const verified = verifiedEmailOf(clerkUser)
-    if (!verified) return user
-    const email = toLowerAndTrim(verified)
+    // Verified primary only. The dev Clerk instance skips verification at
+    // sign-up, so there an unverified primary is normal and must not count.
+    const primary = clerkUser.primaryEmailAddress
+    if (primary?.verification?.status !== 'verified') return user
+    const email = toLowerAndTrim(primary.emailAddress)
     if (email === user.email) return user
 
     const holder = await this.findUserByEmail(email)

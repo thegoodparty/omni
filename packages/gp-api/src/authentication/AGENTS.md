@@ -140,7 +140,7 @@ Auth state is enforced globally via three guards registered in order. Most route
   (`profileSection__profile`) wherever it opens Clerk's profile modal, so
   there is no Clerk-side writer to drift from. The data pipeline builds the
   public `/people/<slug>` from this name too.
-- **Clerk owns the user's email; gp-api copies only verified addresses.**
+- **Clerk owns the user's email; users cannot write it in gp-api.**
   `User.email` gates staff and test-user affordances (`isInternalUser`,
   `isTestUser`, the `@goodparty.org` checks), so a user must never be able to
   write it. `PUT /v1/users/me` strips `email` from the body. A user changes
@@ -148,6 +148,8 @@ Auth state is enforced globally via three guards registered in order. Most route
   address; the webapp's `UserProvider` then sees Clerk's verified primary
   differ from `User.email` and calls `POST /v1/users/me/sync-email`, which
   re-reads the Clerk user server-side and copies the verified address (409 if
-  another row holds it). Provisioning and the sync both read the address
-  through `verifiedEmailOf` (`vendors/clerk/util/verifiedEmail.util.ts`).
-  `PUT /v1/users/:id` (M2M, gp-admin) can still write it.
+  another row holds it). Provisioning still copies Clerk's primary as is:
+  prod Clerk verifies email at sign-up, dev Clerk does not (so e2e sign-ups
+  skip the code), and requiring a verified address there would stop dev
+  sign-ups from provisioning. `PUT /v1/users/:id` (M2M, gp-admin) can still
+  write it.

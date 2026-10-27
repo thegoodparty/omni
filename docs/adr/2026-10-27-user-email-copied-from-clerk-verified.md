@@ -1,5 +1,5 @@
 ---
-title: User.email changes only by copying a Clerk-verified address
+title: User.email is copied from Clerk, never written by the user
 status: active
 decided_by: [agent]
 date: 2026-10-27
@@ -13,18 +13,23 @@ supersedes: []
 superseded_by:
 ---
 
-# User.email changes only by copying a Clerk-verified address
+# User.email is copied from Clerk, never written by the user
 
 ## Decision
 
 A user cannot write their own `User.email`. `PUT /v1/users/me` strips it.
-gp-api copies an email from Clerk, and only an address Clerk reports as
-verified (`verifiedEmailOf`): once at provisioning, and again through
-`POST /v1/users/me/sync-email`, which takes no body and re-reads the Clerk
-user server-side. The webapp calls it when Clerk's verified primary email
-differs from `User.email`, which is what happens after a user changes their
-email in Clerk's profile modal. M2M `PUT /v1/users/:id` (gp-admin) still
-writes it.
+gp-api copies the email from Clerk: the primary address once at provisioning,
+and afterwards only a verified primary, through `POST /v1/users/me/sync-email`,
+which takes no body and re-reads the Clerk user server-side. The webapp calls
+it when Clerk's verified primary differs from `User.email`, which is what
+happens after a user changes their email in Clerk's profile modal. M2M
+`PUT /v1/users/:id` (gp-admin) still writes it.
+
+Provisioning trusts the primary without checking its status because the prod
+Clerk instance verifies email at sign-up (`verify_at_sign_up: true`). The dev
+instance does not, so e2e sign-ups skip the code; there `User.email` is not a
+trust boundary, and the non-prod test endpoints it unlocks are dev-only by
+design.
 
 ## Context
 
@@ -51,5 +56,6 @@ arrived.
 
 ## Revisit if
 
-Something needs `User.email` current while the user is not using the app (an
+Prod Clerk stops verifying email at sign-up; provisioning would then need to
+check the status too. Or something needs `User.email` current while the user is not using the app (an
 email address changed in Clerk by staff, say). Then add the webhook.
