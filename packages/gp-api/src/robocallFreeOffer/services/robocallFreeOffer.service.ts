@@ -91,8 +91,7 @@ export class RobocallFreeOfferService extends createPrismaBase(
     super()
   }
 
-  // Unset (as in prod until the live coupon exists) hides the offer
-  // everywhere: there would be no code to hand out.
+  // Unset hides the offer everywhere: there would be no code to hand out.
   isConfigured(): boolean {
     return this.couponId !== null
   }
