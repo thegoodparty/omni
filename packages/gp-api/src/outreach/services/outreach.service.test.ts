@@ -1102,7 +1102,17 @@ describe('OutreachService', () => {
             { robocall: { settleState: RobocallSettleState.hold_failed } },
           ],
         },
-        include: { voterFileFilter: true, robocall: true },
+        include: {
+          voterFileFilter: true,
+          robocall: {
+            select: {
+              audioKey: true,
+              callbackNumber: true,
+              billableCount: true,
+              settleState: true,
+            },
+          },
+        },
       })
       // `findByScope` collapses door-knocking siblings into their anchor and
       // attaches a `turfCount`; a non-door-knocking row passes through as its

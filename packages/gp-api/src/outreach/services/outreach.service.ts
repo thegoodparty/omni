@@ -1558,26 +1558,29 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
           { robocall: { settleState: RobocallSettleState.hold_failed } },
         ],
       },
+      // Select only the detail's minimal robocall block
+      // (OutreachRobocallDetailSchema) rather than loading the satellite's
+      // billing/settlement columns onto every history row: the row needs
+      // settleState to flag a failed payment and the resume fields to re-enter
+      // the flow, nothing else.
       include: {
         voterFileFilter: true,
-        robocall: true,
+        robocall: {
+          select: {
+            audioKey: true,
+            callbackNumber: true,
+            billableCount: true,
+            settleState: true,
+          },
+        },
       },
     })
 
-    // Mirror the detail's minimal robocall block (OutreachRobocallDetailSchema)
-    // rather than leaking the satellite's billing/settlement columns onto the
-    // list row: the row needs settleState to flag a failed payment and the
-    // resume fields to re-enter the flow, nothing else.
+    // Prisma yields `null` for a row with no robocall satellite; the list
+    // contract carries the block as optional, so normalize null to undefined.
     const withRobocall = rows.map(({ robocall, ...row }) => ({
       ...row,
-      robocall: robocall
-        ? {
-            audioKey: robocall.audioKey,
-            callbackNumber: robocall.callbackNumber,
-            billableCount: robocall.billableCount,
-            settleState: robocall.settleState,
-          }
-        : undefined,
+      robocall: robocall ?? undefined,
     }))
 
     return collapseDoorKnockingCampaigns(withRobocall)
