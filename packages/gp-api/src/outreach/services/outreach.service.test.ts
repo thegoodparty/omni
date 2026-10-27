@@ -1100,7 +1100,10 @@ describe('OutreachService', () => {
             { status: null },
           ],
         },
-        include: { voterFileFilter: true },
+        include: {
+          voterFileFilter: true,
+          robocall: { select: { settleState: true } },
+        },
       })
       // `findByScope` collapses door-knocking siblings into their anchor and
       // attaches a `turfCount`; a non-door-knocking row passes through as its

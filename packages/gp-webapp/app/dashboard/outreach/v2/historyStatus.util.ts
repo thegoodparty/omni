@@ -252,6 +252,11 @@ export const getHistoryStatusLabel = (
   // and social share that map but have no in_progress lifecycle, so the map is
   // left untouched and only robocall is relabeled here.
   if (row.outreachType === 'robocall') {
+    // The spine stays `pending` when the card hold is declined or lapses, so
+    // the satellite state decides: never read Scheduled for an unpaid send.
+    if (status === 'pending' && row.robocall?.settleState === 'hold_failed') {
+      return 'Payment failed'
+    }
     if (status === 'pending') {
       return 'Scheduled'
     }

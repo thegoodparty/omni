@@ -350,7 +350,7 @@ export const RobocallPayStep = ({
       : settled.status === 'authorized'
         ? `Your card is saved and the estimated cost is authorized. We'll place your calls on ${dateStr}.`
         : settled.status === 'deferred'
-          ? `Your card is saved. We'll authorize the estimated cost a few days before ${dateStr}, then place your calls.`
+          ? `Your card is saved. We'll authorize the estimated cost a few days before ${dateStr}, then place your calls. If the card is declined, we'll email you and flag it on your dashboard so you can use another card.`
           : 'This robocall is already paid for. There is nothing more to do here.'
 
     // Money is shown only from the server-authorized amount, never a client

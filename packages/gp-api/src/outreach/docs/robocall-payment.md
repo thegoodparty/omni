@@ -673,3 +673,5 @@ Stripe call. A pre-dial unwind hands the reward back
 expires never redeemed anything. The deferred sweep applies a remembered code
 the same way when it places the hold. A partial code on a declined card stays
 remembered on the `hold_failed` row for the retry.
+
+**History label vs hold state (ENG-11512).** The spine goes `pending_payment → pending` when the pay step commits, including a deferred card-save with no hold, and history reads `pending` as "Scheduled". A later `hold_failed` (deferred-sweep escalation, decline, or dead hold at dial) leaves the spine `pending`, so `findByScope` now joins `robocall.settleState` and the webapp labels `pending` + `hold_failed` "Payment failed". The hold-failure cancel sweep flips the spine to `canceled`, like the deferred cancel sweep.

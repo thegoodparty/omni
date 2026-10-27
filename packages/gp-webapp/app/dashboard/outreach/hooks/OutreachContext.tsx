@@ -69,6 +69,9 @@ export interface Outreach {
   // other channel is `1` (a campaign of one). Read by the history table's
   // "N turfs" badge and by the drawer's siblings section.
   turfCount?: number
+  // A robocall's satellite state. The spine `status` stays `pending` while the
+  // card hold fails, so the history label reads this to say so.
+  robocall?: { settleState?: string | null } | null
 }
 
 type OutreachContextValue = [Outreach[], (outreaches: Outreach[]) => void]

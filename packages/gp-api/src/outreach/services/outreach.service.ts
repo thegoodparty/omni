@@ -1554,6 +1554,9 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
       },
       include: {
         voterFileFilter: true,
+        // A robocall's spine stays `pending` ("Scheduled") through a payment
+        // failure, so the list needs the satellite state to say so.
+        robocall: { select: { settleState: true } },
       },
     })
 

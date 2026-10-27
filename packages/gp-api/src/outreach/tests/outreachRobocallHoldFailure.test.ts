@@ -63,7 +63,9 @@ const createDraft = async ({
   sendInHours = 24,
   settleState = RobocallSettleState.hold_failed,
   lastReminderSentAt,
+  spineStatus = 'pending_payment',
 }: {
+  spineStatus?: 'pending_payment' | 'pending'
   sendInHours?: number
   settleState?: RobocallSettleState
   lastReminderSentAt?: Date | null
@@ -73,7 +75,7 @@ const createDraft = async ({
       campaignId: campaign.id,
       organizationSlug: orgSlug,
       outreachType: 'robocall',
-      status: 'pending_payment',
+      status: spineStatus,
       date: addHours(new Date(), sendInHours),
       voterFileFilterId: filterId,
     },
@@ -195,6 +197,20 @@ describe('OutreachRobocallHoldFailureService cancel-at-deadline', () => {
       RobocallSettleState.hold_failed,
     )
     expect(trackSpy).not.toHaveBeenCalled()
+  })
+
+  it('flips a scheduled spine to canceled so history stops reading Scheduled', async () => {
+    const outreachId = await createDraft({
+      sendInHours: -1,
+      spineStatus: 'pending',
+    })
+
+    await holdFailure.sweepHoldFailureCancellations()
+
+    const spine = await service.prisma.outreach.findUniqueOrThrow({
+      where: { id: outreachId },
+    })
+    expect(spine.status).toBe('canceled')
   })
 
   it('cancels once under a concurrent double run', async () => {

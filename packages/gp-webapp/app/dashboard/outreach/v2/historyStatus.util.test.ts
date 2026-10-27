@@ -211,6 +211,26 @@ describe('getHistoryStatusLabel — send failures', () => {
   })
 })
 
+describe('getHistoryStatusLabel — robocall payment failure', () => {
+  const robocall = (settleState: string) =>
+    ({
+      id: 3,
+      outreachType: 'robocall',
+      status: 'pending',
+      robocall: { settleState },
+    }) as HistoryRow
+
+  it('labels a pending robocall whose hold failed Payment failed', () => {
+    expect(getHistoryStatusLabel(robocall('hold_failed'))).toBe(
+      'Payment failed',
+    )
+  })
+
+  it('keeps a pending robocall with a live hold Scheduled', () => {
+    expect(getHistoryStatusLabel(robocall('authorized'))).toBe('Scheduled')
+  })
+})
+
 describe('getHistoryStatusLabel — scheduled paid rows', () => {
   it('labels a pending p2p row with a vendor job Scheduled, not Draft', () => {
     expect(

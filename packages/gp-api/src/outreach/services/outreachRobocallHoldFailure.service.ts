@@ -5,7 +5,11 @@ import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
-import { OutreachType, RobocallSettleState } from '../../generated/prisma'
+import {
+  OutreachStatus,
+  OutreachType,
+  RobocallSettleState,
+} from '../../generated/prisma'
 import { VENDOR_CRONS_ENABLED } from 'src/shared/util/appEnvironment.util'
 
 // A failed hold (a declined or dead card) leaves the draft `hold_failed`. This
@@ -193,12 +197,33 @@ export class OutreachRobocallHoldFailureService extends createPrismaBase(
     })
     if (claim.count === 0) return
 
+    // The spine went `pending` ("Scheduled" in history) when the send was
+    // booked; without this flip the cancelled row reads Scheduled forever.
+    await this.markSpineCanceled(outreachId)
+
     await this.emitMilestone(
       draft.outreach.campaign!.userId,
       outreachId,
       EVENTS.Robocall.Canceled,
       `${outreachId}:canceled`,
     )
+  }
+
+  // Guarded on `pending` and best-effort, mirroring the deferred-cancel sweep:
+  // the satellite cancel already committed, so a failure here only leaves a
+  // stale label and must not strand the sweep.
+  private async markSpineCanceled(outreachId: number): Promise<void> {
+    try {
+      await this.client.outreach.updateMany({
+        where: { id: outreachId, status: OutreachStatus.pending },
+        data: { status: OutreachStatus.canceled },
+      })
+    } catch (err) {
+      this.logger.error(
+        { err, outreachId },
+        'robocall: failed to cancel spine after hold-failure cancel',
+      )
+    }
   }
 
   // Emits a milestone with a deterministic Segment messageId so a replay dedups
