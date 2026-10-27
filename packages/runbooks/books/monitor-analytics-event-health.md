@@ -12,6 +12,16 @@ monitor (with `--slack`) Mondays and Thursdays on the shared service identities,
 the log/state back via an auto-merge PR. The manual procedure below remains valid for ad-hoc
 runs and for the stage-2 code investigation, which is agent work the schedule cannot do.
 
+**Dry run**: to check a pipeline change end to end without touching anything shared, dispatch
+the workflow against `main` with `dry_run: true` (`gh workflow run analytics-governance.yml
+--ref main -f dry_run=true`). It runs every read and compute step and uploads the
+`analytics-event-health-report` artifact, but posts no digest or failure notice, commits no
+state, opens or updates no PR, and writes nothing to the sheet or ClickUp. It must target
+`main`: the Databricks federation policy rejects a dispatch from any other branch. Dry runs
+are named "Analytics governance (dry run)", and the heartbeat ignores them, so one cannot
+mask a missed scheduled run. The artifact is a real report on live data, so the triage
+skill's "latest run" download may pick it up; that is fine.
+
 ## Prerequisites
 
 - **Auth**: Databricks OAuth via the SDK profile in `~/.databrickscfg` (`databricks auth login`).
