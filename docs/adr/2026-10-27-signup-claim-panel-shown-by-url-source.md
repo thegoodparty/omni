@@ -3,7 +3,7 @@ title: The sign-up claim panel is shown by the profile claim link's URL source a
 status: active
 decided_by: [tonypham-goodparty]
 date: 2026-10-27
-code: []
+code: ['#3292']
 scope:
   - packages/gp-webapp/app/sign-up/**
   - packages/gp-webapp/env.schema.ts
