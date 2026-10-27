@@ -51,6 +51,7 @@ import { CrmUsersService } from './crmUsers.service'
 import { UserAvatarService } from './userAvatar.service'
 import { clerkThrottle } from '@/vendors/clerk/util/clerkThrottle.util'
 import { clerkCall } from '@/vendors/clerk/util/clerkCall.util'
+import { verifiedEmailOf } from '@/vendors/clerk/util/verifiedEmail.util'
 import { CronLockService } from '@/cron/services/cronLock.service'
 import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
 
@@ -559,6 +560,44 @@ export class UsersService extends createPrismaBase(MODELS.User) {
     }
 
     return updated
+  }
+
+  // The only way a user changes their own User.email: they verify the new
+  // address in Clerk, and the webapp asks us to copy Clerk's verified primary
+  // across. Nothing from the request body is trusted.
+  async syncEmailFromClerk(user: User): Promise<User> {
+    if (!user.clerkId) return user
+    const { clerkId } = user
+    const clerkUser = await clerkCall(
+      'users.getUser',
+      { 'clerk.user_id': clerkId },
+      () => this.clerkClient.users.getUser(clerkId),
+    ).catch((err: unknown) => {
+      this.logger.error({ err, userId: user.id }, 'Failed to read Clerk user')
+      throw new BadGatewayException('Failed to read Clerk user')
+    })
+    const verified = verifiedEmailOf(clerkUser)
+    if (!verified) return user
+    const email = toLowerAndTrim(verified)
+    if (email === user.email) return user
+
+    const holder = await this.findUserByEmail(email)
+    if (holder && holder.id !== user.id) {
+      throw new ConflictException('Email belongs to another account')
+    }
+    try {
+      const updated = await this.model.update({
+        where: { id: user.id },
+        data: { email },
+      })
+      this.logger.info({ userId: user.id }, 'Copied verified email from Clerk')
+      return updated
+    } catch (err) {
+      if (isPrismaError(err, 'P2002')) {
+        throw new ConflictException('Email belongs to another account')
+      }
+      throw err
+    }
   }
 
   // Atomic compare-and-swap on the single tracked checkout session id: the
