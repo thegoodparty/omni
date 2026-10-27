@@ -16,6 +16,7 @@ import { CallhubPhonebookService } from '@/vendors/callhub/services/callhubPhone
 import { CALLHUB_CONTACT_FIELD } from '@/vendors/callhub/schemas/callhubBulkImport.schema'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { sleep } from '@/shared/util/sleep.util'
+import { UsersService } from '@/users/services/users.service'
 import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
 
 // Page the audience a slice at a time (mirrors materialization) and cap the
@@ -60,6 +61,7 @@ export class RobocallPhonebookService {
     private readonly phonebooks: CallhubPhonebookService,
     private readonly bulkImport: CallhubBulkImportService,
     private readonly s3: S3Service,
+    private readonly users: UsersService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(RobocallPhonebookService.name)
@@ -70,13 +72,17 @@ export class RobocallPhonebookService {
     this.bucket = bucket
   }
 
+  // `ownerPhoneOnly` loads the campaign owner's own phone instead of the
+  // list, for a run that must not reach real voters.
   async loadAudienceToPhonebook(
     campaign: Campaign,
     voterFileFilterId: number,
+    ownerPhoneOnly: boolean,
   ): Promise<RobocallPhonebookLoadResult> {
     const numbers = await this.resolveLandlineNumbers(
       campaign,
       voterFileFilterId,
+      ownerPhoneOnly,
     )
     if (numbers.length === 0) {
       throw new BadRequestException(
@@ -112,6 +118,7 @@ export class RobocallPhonebookService {
   private async resolveLandlineNumbers(
     campaign: Campaign,
     voterFileFilterId: number,
+    ownerPhoneOnly: boolean,
   ): Promise<string[]> {
     // TEST OVERRIDE (supervised live-test harness). When
     // ROBOCALL_TEST_OVERRIDE_NUMBER is set, the phonebook is loaded with ONLY
@@ -139,6 +146,31 @@ export class RobocallPhonebookService {
         { filterId: voterFileFilterId, overrideNumber: normalized },
         'ROBOCALL TEST OVERRIDE active: loading ONLY the override number; the ' +
           'real audience is NOT resolved or dialed',
+      )
+      return [normalized]
+    }
+
+    // Fails closed like the override: no usable owner phone loads nothing,
+    // never the list.
+    if (ownerPhoneOnly) {
+      const owner = await this.users.findUnique({
+        where: { id: campaign.userId },
+      })
+      const digits = owner?.phone?.replace(/\D/g, '') ?? ''
+      const normalized =
+        digits.length === 11 && digits.startsWith('1')
+          ? digits.slice(1)
+          : digits
+      if (normalized.length !== 10) {
+        throw new BadRequestException(
+          'This robocall may only call the campaign owner, who has no valid ' +
+            'phone number; refusing to load the voter list',
+        )
+      }
+      this.logger.warn(
+        { campaignId: campaign.id, filterId: voterFileFilterId },
+        'Robocall loading ONLY the campaign owner phone; the voter list ' +
+          'is NOT resolved or dialed',
       )
       return [normalized]
     }

@@ -24,6 +24,13 @@ export const RobocallScriptDraftRequestSchema = z.object({
   // On Improve, the whole script, disclosure line included: gp-api hides the
   // parts deriveRobocallProtectedParts locks from the model and restores them.
   currentDraft: z.string().min(1).max(ROBOCALL_SCRIPT_MAX_LENGTH).optional(),
+  // The campaign-local day the call is set to go out, once one is picked:
+  // an election-day reminder only says "today" or "tomorrow" when this day
+  // is election day or the day before.
+  scheduledLocalDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional(),
 })
 export type RobocallScriptDraftRequest = z.infer<
   typeof RobocallScriptDraftRequestSchema

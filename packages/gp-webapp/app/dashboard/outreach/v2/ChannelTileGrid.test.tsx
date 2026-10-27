@@ -63,6 +63,12 @@ vi.mock('@shared/hooks/useElectedOffice', () => ({
   useElectedOffice: () => mockElectedOffice,
 }))
 
+// The free robocall offer, as gp-api answers it. Not offered by default.
+let mockFreeOffer: { offer: { eligible: true } | null } = { offer: null }
+vi.mock('app/dashboard/shared/robocallFreeOffer/useRobocallFreeOffer', () => ({
+  useRobocallFreeOffer: () => mockFreeOffer,
+}))
+
 const renderGrid = (
   overrides: Partial<{
     onCreateSocial: () => void
@@ -107,6 +113,16 @@ describe('ChannelTileGrid — robocall tile', () => {
     await userEvent.click(screen.getByText('Robocall'))
 
     expect(onCreateRobocall).toHaveBeenCalledTimes(1)
+  })
+
+  it('badges the tile only while the campaign has the free offer', () => {
+    renderGrid()
+    expect(screen.queryByText('Free offer')).not.toBeInTheDocument()
+
+    mockFreeOffer = { offer: { eligible: true } }
+    renderGrid()
+    expect(screen.getByText('Free offer')).toBeInTheDocument()
+    mockFreeOffer = { offer: null }
   })
 })
 

@@ -140,6 +140,7 @@ export class OutreachRobocallHoldService extends createPrismaBase(
       promo = await this.promos.resolveForAuthorize(
         draft,
         calcRobocallTotalInCents(promoBillableCount),
+        { campaign, organization },
       )
       if (promo?.coversTotal) {
         return this.scheduleCoveredRun(

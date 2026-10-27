@@ -1,0 +1,24 @@
+model OutreachEmailReply {
+  id              Int                     @id @default(autoincrement())
+  createdAt       DateTime                @default(now()) @map("created_at")
+  senderId        Int                     @map("sender_id")
+  sender          OutreachEmailSender     @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  outreachEmailId Int?                    @map("outreach_email_id")
+  outreachEmail   OutreachEmail?          @relation(fields: [outreachEmailId], references: [id], onDelete: SetNull)
+  fromEmail       String                  @map("from_email")
+  subject         String?
+  rawObjectKey    String                  @unique @map("raw_object_key")
+  classification  OutreachEmailReplyClass
+  forwardedAt     DateTime?               @map("forwarded_at")
+
+  @@index([senderId, createdAt])
+  @@map("outreach_email_reply")
+}
+
+enum OutreachEmailReplyClass {
+  forwarded
+  auto_reply
+  bounce
+  unsubscribe
+  spam
+}

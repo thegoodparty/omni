@@ -575,3 +575,45 @@ describe('buildPlanData seat-aware win number copy', () => {
     expect(plan.votesCast).toBeNull()
   })
 })
+
+describe('buildPlanData opponents fallback to the race roster', () => {
+  const row = (fullName: string, isIncumbent: boolean | null) => ({
+    gpCandidateId: fullName,
+    firstName: fullName.split(' ')[0] ?? '',
+    lastName: fullName.split(' ').slice(1).join(' '),
+    fullName,
+    email: null,
+    websiteUrl: null,
+    party: null,
+    isIncumbent,
+  })
+
+  it('leaves the candidate out of their own opponents', () => {
+    const plan = buildPlanData(
+      makeInput({
+        candidateName: 'Ben A. Glickman',
+        raceCandidates: [row('Ben Glickman', true), row('Steve Ferry', false)],
+      }),
+    )
+
+    expect(plan.opponents.map((o) => o.fullName)).toEqual(['Steve Ferry'])
+    expect(plan.incumbent).toBeNull()
+  })
+
+  it('leaves the candidate out of the strategic landscape roster too', () => {
+    const plan = buildPlanData(
+      makeInput({
+        candidateName: 'Ben A. Glickman',
+        strategicLandscape: {
+          opponents: [
+            { fullName: 'Ben Glickman', partyAffiliation: '', incumbent: true },
+            { fullName: 'Steve Ferry', partyAffiliation: '', incumbent: false },
+          ],
+        } as never,
+      }),
+    )
+
+    expect(plan.opponents.map((o) => o.fullName)).toEqual(['Steve Ferry'])
+    expect(plan.incumbent).toBeNull()
+  })
+})

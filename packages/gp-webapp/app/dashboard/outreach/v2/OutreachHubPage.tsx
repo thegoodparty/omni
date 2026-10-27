@@ -63,6 +63,13 @@ const GATE_CHANNEL: Record<DraftChannel, string> = {
   robocall: 'robocall',
 }
 
+// A row the flow can pick back up: a saved draft, or — robocall only — a send
+// whose pay-time hold failed. The latter sits at pending_payment rather than
+// draft, but it resumes into the same flow to re-pick a date and pay again.
+const isResumableRow = (row: Outreach, channel: DraftChannel): boolean =>
+  row.status === 'draft' ||
+  (channel === 'robocall' && row.robocall?.settleState === 'hold_failed')
+
 // Where the resume was pressed: the channel tile, a draft row in the
 // history, or a `?compose=` arrival.
 type ResumeSource = 'tile' | 'row' | 'deep_link'
@@ -153,8 +160,8 @@ const OutreachHubContent = ({
       source: ResumeSource,
       row: HistoryRow | undefined = historyRows.find(
         (o) =>
-          o.status === 'draft' &&
-          DRAFT_CHANNELS[o.outreachType ?? ''] === channel,
+          DRAFT_CHANNELS[o.outreachType ?? ''] === channel &&
+          isResumableRow(o, channel),
       ),
     ) => {
       if (openingChannelRef.current) return
@@ -241,8 +248,8 @@ const OutreachHubContent = ({
         channel &&
         historyRows.some(
           (o) =>
-            o.status === 'draft' &&
-            DRAFT_CHANNELS[o.outreachType ?? ''] === channel,
+            DRAFT_CHANNELS[o.outreachType ?? ''] === channel &&
+            isResumableRow(o, channel),
         ),
       )
     },

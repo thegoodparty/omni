@@ -1111,6 +1111,15 @@ export * from './ordinances/redline'
 
 export { P2P_SCRIPT_MAX_LENGTH } from './outreach/OutreachScript.const'
 export {
+  EMAIL_LAYOUTS,
+  EMAIL_THEMES,
+  EmailLayoutKeySchema,
+  EmailThemeKeySchema,
+  type EmailLayoutKey,
+  type EmailThemeKey,
+  type EmailThemeColors,
+} from './outreach/EmailTemplate.const'
+export {
   MERGE_TAGS,
   mergeTagToken,
   type MergeTagChannel,
@@ -1123,6 +1132,8 @@ export {
   HIGH_CONFIDENCE_MIN_SHARE,
   PRICE_PER_TEXT_TENTH_CENTS,
   PRICE_PER_TEXT,
+  PRICE_PER_EMAIL_TENTH_CENTS,
+  EMAIL_MIN_CHARGE_CENTS,
   recommendedSampleSize,
   isHighConfidence,
 } from './outreach/SampleSizing.const'
@@ -1284,6 +1295,12 @@ export {
   RobocallPromoStateResponseSchema,
   type RobocallPromoStateResponse,
 } from './outreach/RobocallPurchase.schema'
+export {
+  ROBOCALL_FREE_OFFER_VARIANT,
+  ROBOCALL_FREE_OFFER_SEND_DATE,
+  RobocallFreeOfferResponseSchema,
+  type RobocallFreeOfferResponse,
+} from './outreach/RobocallFreeOffer.schema'
 export {
   RobocallAuthorizeRequestSchema,
   type RobocallAuthorizeRequest,

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import type { Editor } from '@tiptap/react'
 import userEvent from '@testing-library/user-event'
+import { addDays, format } from 'date-fns'
 import type {
   OutreachDetail,
   RobocallAuthorizeStatus,
@@ -1618,6 +1619,22 @@ describe('RobocallFlow', () => {
     expect(draftBody).not.toHaveProperty('callbackNumber')
   })
 
+  // An election-day reminder says "today" or "tomorrow" only when gp-api
+  // knows which day the call goes out.
+  it('drafts with the scheduled send day', async () => {
+    let draftBody: RobocallScriptDraftRequest | null = null
+    api.mock('POST /v1/outreach/robocall/draft', ({ body }) => {
+      draftBody = body
+      return { status: 200, data: { draft: 'A grounded script.' } }
+    })
+
+    await gotoComposeRaw()
+    await waitFor(() => expect(scriptText()).toMatch(/^A grounded script\./))
+    expect(draftBody).toMatchObject({
+      scheduledLocalDate: format(addDays(new Date(), 60), 'yyyy-MM-dd'),
+    })
+  })
+
   it('does not draft the old purpose if it changes while renting', async () => {
     // Hold the rent open so a purpose change can land mid-flight.
     let releaseRent!: () => void
@@ -3017,6 +3034,129 @@ describe('RobocallFlow', () => {
           }),
         ]),
       )
+    })
+
+    // A hold_failed robocall resends through the same resume path: it lands on
+    // the schedule step with its past send date dropped, so a fresh future
+    // date is required before it converts (draftOutreachId) and authorizes.
+    const holdFailedDetail = (): OutreachDetail =>
+      draftDetail({
+        status: 'pending_payment',
+        robocall: {
+          audioKey: 'robocall/42/clip.webm',
+          callbackNumber: '+12025550147',
+          billableCount: 80,
+          settleState: 'hold_failed',
+        },
+      })
+
+    it('resumes a payment-failed robocall, re-picks a date, converts and authorizes', async () => {
+      gateRef.set(PRO_GATE)
+      mockSavedLists()
+      mockListDetail(80)
+      mockSaveCardIntent()
+      mockAuthorize('authorized', 560, 'authorized')
+      const bodies: Array<Record<string, unknown>> = []
+      api.mock('POST /v1/outreach/robocall', ({ body }) => {
+        bodies.push(body)
+        return {
+          status: 200,
+          data: {
+            outreachId: 88,
+            billableCount: 80,
+            amountInCents: 560,
+            numberFeeInCents: 200,
+            promoCode: null,
+            promoDiscountInCents: 0,
+            amountDueInCents: 560,
+            coversTotal: false,
+          },
+        }
+      })
+
+      render(
+        <RobocallFlow
+          source="outreach_page"
+          open
+          onClose={vi.fn()}
+          resumeStartsOnWizard
+          resumeDraft={holdFailedDetail()}
+        />,
+      )
+
+      // Lands on schedule; the past send date is not pre-filled, so Continue
+      // stays disabled until a fresh future date is picked.
+      await screen.findByLabelText('Campaign name')
+      expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+
+      await user.click(screen.getByText('Pick a date'))
+      await user.click(await screen.findByText('mock-pick-future'))
+      await user.click(screen.getByRole('combobox', { name: /Send time/ }))
+      await user.click(await screen.findByRole('option', { name: '10:00 AM' }))
+      const continueBtn = screen.getByRole('button', { name: 'Continue' })
+      await waitFor(() => expect(continueBtn).toBeEnabled())
+      await user.click(continueBtn)
+
+      await user.click(
+        await screen.findByRole('button', { name: 'Continue to payment' }),
+      )
+      await user.click(
+        await screen.findByRole('button', { name: /Authorize \$5\.60/ }),
+      )
+
+      expect(await screen.findByText("You're all set")).toBeInTheDocument()
+      await waitFor(() =>
+        expect(bodies).toEqual([
+          expect.objectContaining({
+            draftOutreachId: 88,
+            audioKey: 'robocall/42/clip.webm',
+            callbackNumber: '+12025550147',
+            voterFileFilterId: 1,
+          }),
+        ]),
+      )
+    })
+
+    it('shows the decline retry card when a resumed resend is declined again', async () => {
+      gateRef.set(PRO_GATE)
+      mockSavedLists()
+      mockListDetail(80)
+      mockCreateDraft(560, 88)
+      mockSaveCardIntent()
+      mockAuthorize('hold_failed', null, 'hold_failed')
+
+      render(
+        <RobocallFlow
+          source="outreach_page"
+          open
+          onClose={vi.fn()}
+          resumeStartsOnWizard
+          resumeDraft={holdFailedDetail()}
+        />,
+      )
+
+      await screen.findByLabelText('Campaign name')
+      await user.click(screen.getByText('Pick a date'))
+      await user.click(await screen.findByText('mock-pick-future'))
+      await user.click(screen.getByRole('combobox', { name: /Send time/ }))
+      await user.click(await screen.findByRole('option', { name: '10:00 AM' }))
+      const continueBtn = screen.getByRole('button', { name: 'Continue' })
+      await waitFor(() => expect(continueBtn).toBeEnabled())
+      await user.click(continueBtn)
+
+      await user.click(
+        await screen.findByRole('button', { name: 'Continue to payment' }),
+      )
+      await user.click(
+        await screen.findByRole('button', { name: /Authorize \$5\.60/ }),
+      )
+
+      expect(
+        await screen.findByText('Your card was declined'),
+      ).toBeInTheDocument()
+      expect(
+        screen.getByRole('button', { name: 'Try another card' }),
+      ).toBeInTheDocument()
     })
 
     it('reports the saved draft', async () => {

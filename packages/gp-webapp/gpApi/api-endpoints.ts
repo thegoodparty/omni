@@ -118,6 +118,7 @@ import type {
   RecommendedListIntent,
   RecommendedListsResponse,
   RecommendedListVariant,
+  RobocallFreeOfferResponse,
   MyAssignmentsResponse,
   TrackerTaskSkipReason,
   TestModeState,
@@ -358,6 +359,13 @@ export type APIEndpoints = {
   // submits, so HubSpot's contact carries it from the start.
   'PUT /v1/users/me': {
     Request: Partial<Pick<User, 'firstName' | 'lastName' | 'phone' | 'zip'>>
+    Response: User
+  }
+
+  // Copies the user's verified Clerk primary email onto the user row. The
+  // body is empty on purpose: email only changes through Clerk.
+  'POST /v1/users/me/sync-email': {
+    Request: {}
     Response: User
   }
 
@@ -1536,6 +1544,13 @@ export type APIEndpoints = {
       variant?: RecommendedListVariant
     }
     Response: RecommendedListsResponse
+  }
+  // Whether the campaign gets the free election-eve robocall right now, and
+  // the size of its offer list. The first call for an eligible campaign
+  // assigns its precincts.
+  'GET /v1/campaigns/mine/robocall-offer': {
+    Request: {}
+    Response: RobocallFreeOfferResponse
   }
   'DELETE /v1/voters/voter-file/filter/:id': {
     Request: {}

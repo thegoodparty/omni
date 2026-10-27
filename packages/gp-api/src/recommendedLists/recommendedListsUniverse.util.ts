@@ -208,6 +208,11 @@ const buildUniverse = (
         voterStatus: [...VOTER_STATUS_BANDS.mid],
         ...ideologyFilter(ideologyBucket),
       }
+    // No turnout, affinity or supporter screen: the experiment measures the
+    // call across everyone with a landline. The campaign's treatment
+    // precincts are added by RecommendedListsService, which has the campaign.
+    case 'freeOfferElectionEveRobocall':
+      return { hasLandline: true }
   }
 }
 

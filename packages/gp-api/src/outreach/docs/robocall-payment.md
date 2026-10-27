@@ -630,6 +630,29 @@ and the `HoldPlaced`/`HoldFailed` milestones, so a Stripe redelivery is idempote
 failures are isolated. RESERVES REAL MONEY off-session. Ops: the Stripe webhook
 endpoint must subscribe to `payment_method.attached`.
 
+**Self-serve resend (candidate re-enters the flow).** The webhook retry above
+covers a card updated out-of-band; the candidate who left the pay wizard
+recovers through the SAME draft-resume path a saved draft uses.
+`findByScope` surfaces a `hold_failed` robocall in history (the one
+`pending_payment` row it does not hide) with the satellite's `settleState`,
+`audioKey`, `callbackNumber` and `billableCount` on the list row (mirroring
+`OutreachRobocallDetailSchema`), so the row reads "payment failed" and offers
+"update card & resend". The resend re-enters `POST /outreach/robocall` with
+`draftOutreachId` set to the `hold_failed` row: `convertDraft` now accepts a
+`hold_failed` row alongside a `draft` one, re-running the create gates
+(compliance/ETag bind, schedule validation against the NEW future date,
+server-re-derived billing via `resolveScheduleGates`) and transitioning the
+satellite `hold_failed → pending_payment` as the single-owner claim, reusing
+the audio/script/audience. The row lands `pending_payment`, and the existing
+`POST /outreach/robocall/:id/authorize` (which already accepts `pending_payment
+| hold_failed`) places the hold on the new card. One money path: a resend is
+priced and scheduled under the same gates as a fresh create, never a
+client-supplied count. The cancel-at-deadline sweep is naturally safe — the
+resend re-picks a future date and the convert's satellite CAS and the sweep's
+`hold_failed → cancelled` CAS are mutually exclusive, so a resumed row (future,
+off `hold_failed`) is no longer a cancel candidate and a cancel racing a resume
+makes the loser 409.
+
 **Promo codes (reward codes on the pay step).** CAS mints single-use,
 amount-off promotion codes in Stripe (a fixed number of calls at a fixed rate)
 and hands them to candidates. Stripe only APPLIES a code to a Checkout Session
@@ -673,3 +696,22 @@ Stripe call. A pre-dial unwind hands the reward back
 expires never redeemed anything. The deferred sweep applies a remembered code
 the same way when it places the hold. A partial code on a declined card stays
 remembered on the `hold_failed` row for the retry.
+
+**Free election-eve robocall offer (codes bound to a campaign).** The Nov 2026
+precinct experiment (`src/robocallFreeOffer/`) reuses the promo path above with
+one more rule: its codes only pay for the campaign's own offer run.
+`RobocallFreeOfferService.codeForDraft` mints a per-campaign code (`GPOFFER-` +
+8, `max_redemptions 1`, metadata `{ experiment, campaignId }`, coupon
+`ROBOCALL_FREE_OFFER_COUPON_ID`; empty hides the offer) or reuses one still
+active from an earlier offer draft, and `POST /outreach/robocall`
+auto-applies it when the draft's list is the offer list (best-effort; the pay
+step retries). For any code whose metadata names the experiment, `apply` and
+`resolveForAuthorize` also call `assertOfferBinding`: the code's campaign, the
+offer list exactly (saved from the offer card, unmodified, the campaign's
+treatment precincts; locked on save because robocall re-resolves the list at
+authorize and staging), and the campaign still eligible (enrolled, before
+Election Day, no other robocall booked, or for a goodparty.org owner no other
+offer run, with the draft being paid for left out of that count). The Amplitude flag is never rechecked here, so turning it off
+never voids a code already on a draft. Redemption, the unique index and
+`restore` are unchanged. Eligibility, enrollment and precinct assignment are in
+`robocallFreeOffer.service.ts`.

@@ -1,4 +1,9 @@
-import { BadGatewayException, Inject, Injectable } from '@nestjs/common'
+import {
+  BadGatewayException,
+  BadRequestException,
+  Inject,
+  Injectable,
+} from '@nestjs/common'
 import { ClerkClient, Invitation } from '@clerk/backend'
 import { PinoLogger } from 'nestjs-pino'
 import {
@@ -18,6 +23,7 @@ import {
 const MAX_PAGE_ATTEMPTS = 3 // 1 initial try + 2 retries
 const RATE_LIMIT_STATUS = 429
 const RETRY_BACKOFF_MS = 300
+const CLERK_REJECTED_STATUSES = [400, 422]
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms))
@@ -108,7 +114,26 @@ export class ClerkInvitationsService {
           }),
       )
     } catch (err) {
-      this.logger.error({ err }, 'Failed to create Clerk team invitation')
+      const clerkFields = isClerkApiResponseError(err)
+        ? {
+            clerkStatus: err.status,
+            clerkErrorCodes: err.errors.map((error) => error.code),
+            clerkTraceId: err.clerkTraceId,
+          }
+        : {}
+      this.logger.error(
+        { err, ...clerkFields },
+        'Failed to create Clerk team invitation',
+      )
+      if (
+        isClerkApiResponseError(err) &&
+        err.status !== undefined &&
+        CLERK_REJECTED_STATUSES.includes(err.status)
+      ) {
+        throw new BadRequestException(
+          'This invitation could not be created for that email address',
+        )
+      }
       throw new BadGatewayException('Failed to create team invitation')
     }
   }

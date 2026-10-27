@@ -235,6 +235,22 @@ const robocallDraftRow: HistoryRow = {
   status: 'draft',
 }
 
+// A robocall whose pay-time hold was declined: pending_payment on the spine,
+// hold_failed on the satellite. It is resumable like a draft.
+const holdFailedRobocallRow: HistoryRow = {
+  id: 88,
+  createdAt: '2026-09-03T00:00:00Z',
+  outreachType: 'robocall',
+  name: 'Declined call',
+  status: 'pending_payment',
+  robocall: {
+    audioKey: 'audio/88.mp3',
+    callbackNumber: '+15125550188',
+    billableCount: 120,
+    settleState: 'hold_failed',
+  },
+}
+
 const renderHub = (outreaches: HistoryRow[]) =>
   render(
     <OutreachHubPage
@@ -288,6 +304,28 @@ describe('OutreachHubPage — resuming a draft from its drawer', () => {
     expect(await screen.findByTestId('robocall-flow')).toHaveTextContent(
       'resuming 77',
     )
+  })
+
+  // A payment-failed robocall sits at pending_payment, not draft, but it
+  // resends through the same resume path — the drawer's "Update card and
+  // resend" fires onResumeDraft and the hub routes it into the robocall flow.
+  it('resumes the robocall flow from a payment-failed robocall', async () => {
+    mockFetchOutreachDetail.mockResolvedValue({
+      id: 88,
+      name: 'Declined call',
+      robocall: holdFailedRobocallRow.robocall,
+    })
+    renderHub([holdFailedRobocallRow, sentRow])
+
+    await userEvent.click(within(desktopTable()).getByText('Declined call'))
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'resume draft' }),
+    )
+
+    expect(await screen.findByTestId('robocall-flow')).toHaveTextContent(
+      'resuming 88',
+    )
+    expect(mockFetchOutreachDetail).toHaveBeenCalledWith(88)
   })
 
   // A failed detail read must not be a dead end: the flow opens as a new

@@ -16,6 +16,8 @@ import { ContactInteractionModule } from '@/contactInteraction/contactInteractio
 import { DoorKnockingModule } from './doorKnocking/doorKnocking.module'
 import { VendorDriftProbeModule } from './vendors/vendorDriftProbe.module'
 import { PhoneBankingModule } from './phoneBanking/phoneBanking.module'
+import { EmailOutreachModule } from './emailOutreach/emailOutreach.module'
+import { PaymentHoldsModule } from './paymentHolds/paymentHolds.module'
 import { ContactNoteModule } from '@/contactNote/contactNote.module'
 import { ConstituentFeedbackModule } from '@/constituentFeedback/constituentFeedback.module'
 import { ContactsModule } from '@/contacts/contacts.module'
@@ -147,6 +149,8 @@ import { VendorMocksModule } from '@/vendorMocks/vendorMocks.module'
     DoorKnockingModule,
     VendorDriftProbeModule,
     PhoneBankingModule,
+    EmailOutreachModule,
+    PaymentHoldsModule,
     PollsModule,
     PrioritiesModule,
     PersonProfilesModule,

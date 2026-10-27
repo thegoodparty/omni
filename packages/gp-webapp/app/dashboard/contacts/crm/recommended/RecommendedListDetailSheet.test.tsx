@@ -1,9 +1,10 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { RecommendedList } from '@goodparty_org/contracts'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
+import { router } from 'helpers/test-utils/router-mocking'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useContactsTable } from '../ContactsTableProvider'
 import { useContactsDownload } from '../shared/useContactsDownload'
@@ -31,6 +32,12 @@ vi.mock('../shared/useContactsDownload', () => ({
 }))
 const downloadFromHref = vi.fn()
 
+// The free robocall offer, as gp-api answers it. Not offered by default.
+let mockFreeOffer: { offer: { eligible: true } | null } = { offer: null }
+vi.mock('app/dashboard/shared/robocallFreeOffer/useRobocallFreeOffer', () => ({
+  useRobocallFreeOffer: () => mockFreeOffer,
+}))
+
 const RECOMMENDATION: RecommendedList = {
   variant: 'persuadeAffinity',
   intent: 'persuade',
@@ -54,6 +61,10 @@ const DETAIL = {
   },
   outreachHistory: [],
 }
+
+afterEach(() => {
+  mockFreeOffer = { offer: null }
+})
 
 beforeEach(() => {
   testQueryClient.clear()
@@ -243,5 +254,57 @@ describe('RecommendedListDetailSheet', () => {
 
     await userEvent.click(await screen.findByRole('button', { name: /close/i }))
     expect(onClose).toHaveBeenCalled()
+  })
+})
+
+describe('RecommendedListDetailSheet — the free robocall offer', () => {
+  const OFFER_RECOMMENDATION: RecommendedList = {
+    ...RECOMMENDATION,
+    variant: 'freeOfferElectionEveRobocall',
+    intent: 'electionDay',
+    copy: {
+      title: 'Landline voters in selected precincts',
+      criteriaSummary: 'Landline voters in half of your precincts.',
+    },
+  }
+
+  it('goes straight to robocall while the offer is live', async () => {
+    mockFreeOffer = { offer: { eligible: true } }
+    api.mock('POST /v1/contacts/list-detail', { status: 200, data: DETAIL })
+
+    render(
+      <RecommendedListDetailSheet
+        recommendation={OFFER_RECOMMENDATION}
+        onClose={vi.fn()}
+      />,
+    )
+
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Send outreach' }),
+    )
+    expect(router.push).toHaveBeenCalledWith(
+      expect.stringContaining('recommended=freeOfferElectionEveRobocall'),
+    )
+    expect(openChannelPicker).not.toHaveBeenCalled()
+  })
+
+  it('asks for a channel once the offer has ended', async () => {
+    api.mock('POST /v1/contacts/list-detail', { status: 200, data: DETAIL })
+
+    render(
+      <RecommendedListDetailSheet
+        recommendation={OFFER_RECOMMENDATION}
+        onClose={vi.fn()}
+      />,
+    )
+
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Send outreach' }),
+    )
+    expect(openChannelPicker).toHaveBeenCalledWith({
+      kind: 'recommended',
+      recommendation: OFFER_RECOMMENDATION,
+    })
+    expect(router.push).not.toHaveBeenCalled()
   })
 })

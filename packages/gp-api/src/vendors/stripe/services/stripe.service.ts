@@ -16,7 +16,7 @@ import {
   PurchaseIntentPayloadEntry,
 } from 'src/payments/payments.types'
 import { serializeError } from 'serialize-error'
-import { addDays, fromUnixTime } from 'date-fns'
+import { addDays, fromUnixTime, getUnixTime } from 'date-fns'
 import { SlackService } from 'src/vendors/slack/services/slack.service'
 import Stripe from 'stripe'
 
@@ -476,6 +476,34 @@ export class StripeService {
       throw new BadGatewayException('Failed to look up promotion code')
     }
     return found.data[0] ?? null
+  }
+
+  // A single-use promotion code on an existing coupon. Stripe never counts a
+  // redemption we apply outside Checkout, so max_redemptions is a label here;
+  // deactivation on consume is what actually stops a second use.
+  async createPromotionCode({
+    couponId,
+    code,
+    metadata,
+    expiresAt,
+  }: {
+    couponId: string
+    code: string
+    metadata: Record<string, string>
+    expiresAt: Date
+  }): Promise<Stripe.PromotionCode> {
+    try {
+      return await this.stripe.promotionCodes.create({
+        promotion: { type: 'coupon', coupon: couponId },
+        code,
+        max_redemptions: 1,
+        expires_at: getUnixTime(expiresAt),
+        metadata,
+      })
+    } catch (err) {
+      this.logger.error({ err }, 'Failed to create Stripe promotion code')
+      throw new BadGatewayException('Failed to create promotion code')
+    }
   }
 
   // Marks a promotion code redeemed (or restores it) by flipping `active`.
