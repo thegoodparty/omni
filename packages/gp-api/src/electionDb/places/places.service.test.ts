@@ -160,6 +160,25 @@ describe('PlacesService', () => {
       })
     })
 
+    it('keeps races when raceColumns leaves out id', async () => {
+      raceFindMany.mockImplementation(
+        async (args: { select?: { id?: boolean } }) =>
+          args.select?.id ? headRows.map(({ id, slug }) => ({ id, slug })) : [],
+      )
+
+      const [place] = (await service.getPlaces({
+        ...filter,
+        raceColumns: 'slug',
+      } as PlaceFilterDto)) as unknown as CategorizedPlace[]
+
+      expect(place?.counties?.[0]?.Races).toEqual([
+        {
+          slug: 'sheriff',
+          positionNames: ['Sheriff', 'Sheriff (Interim)'],
+        },
+      ])
+    })
+
     it('gives a place with no races an empty list', async () => {
       queryRaw.mockResolvedValue([])
       raceFindMany.mockResolvedValue([])
