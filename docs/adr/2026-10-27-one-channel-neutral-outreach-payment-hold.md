@@ -3,7 +3,7 @@ title: One channel-neutral payment-hold system for outreach; email first, roboca
 status: active
 decided_by: [stephtea]
 date: 2026-10-27
-code: ['#3294']
+code: ['#3309']
 scope:
   - packages/gp-api/src/paymentHolds/**
 supersedes: []
