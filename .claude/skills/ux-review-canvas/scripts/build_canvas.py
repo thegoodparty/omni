@@ -57,6 +57,8 @@ for i, d in enumerate(doors):
 
 sd = os.path.join(work, 'specs')
 specs = sorted((json.load(open(os.path.join(sd, f))) for f in os.listdir(sd) if f.endswith('.json')), key=lambda s: s['id'])
+if [s['id'] for s in specs] != ['A', 'B', 'C']:
+    sys.exit(f'need exactly three options, A to C; found {[s["id"] for s in specs]}')
 y = 280 + tallest + 400
 for gi, (group, rows) in enumerate([("Close to today's product", [s for s in specs if s['layout'] == 'close']),
                                     ('New layouts', [s for s in specs if s['layout'] != 'close'])]):
