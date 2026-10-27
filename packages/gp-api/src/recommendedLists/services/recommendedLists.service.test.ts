@@ -1256,7 +1256,7 @@ describe('RecommendedListsService.recommend', () => {
       expect(results[0]?.estimatedCostCents).toBeUndefined()
     })
 
-    it('serves nothing when the campaign is not offered', async () => {
+    it('serves nothing when the campaign is not offered, reading nothing else', async () => {
       const results = await service.recommend(
         organization,
         campaign,
@@ -1266,7 +1266,24 @@ describe('RecommendedListsService.recommend', () => {
       )
 
       expect(results).toEqual([])
+      expect(resolveEligibleDistrict).not.toHaveBeenCalled()
+      expect(findByOrganizationSlug).not.toHaveBeenCalled()
+      expect(getRaceContext).not.toHaveBeenCalled()
       expect(countForFilter).not.toHaveBeenCalled()
+    })
+
+    it('fails a request for the offer when the offer cannot resolve', async () => {
+      resolveOffer.mockRejectedValue(new BadGatewayException('warehouse'))
+
+      await expect(
+        service.recommend(
+          organization,
+          campaign,
+          'robocall',
+          null,
+          'freeOfferElectionEveRobocall',
+        ),
+      ).rejects.toThrow(BadGatewayException)
     })
 
     // An empty precinct filter would be the whole district, control half
@@ -1322,6 +1339,7 @@ describe('RecommendedListsService.recommend', () => {
       )
 
       expect(results).toEqual([])
+      expect(resolveOffer).not.toHaveBeenCalled()
     })
 
     it('leads the voter data page set when offered', async () => {
