@@ -721,6 +721,12 @@ describe('Outreach submission flow — single API call contract', () => {
         })
         const liveId = firstOrThrow(rows).id
         const retryId = firstOrThrow(rows.slice(1)).id
+        // submitDraft stamps date from Date.now(), so the two drafts differ by
+        // a few ms; a real retry resends the same date the guard matches on.
+        await service.prisma.outreach.update({
+          where: { id: retryId },
+          data: { date: firstOrThrow(rows).date },
+        })
         mockDraftImageInS3()
         await service.app
           .get(OutreachService)
