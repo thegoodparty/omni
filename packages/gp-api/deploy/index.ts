@@ -652,8 +652,8 @@ jwIDAQAB
         prod: 'true',
       }),
       // The free election-eve robocall offer's $400 Stripe coupon, created
-      // with the same id in test and live mode. Empty hides the offer, so
-      // prod stays off until the live coupon exists. The live coupon must be:
+      // with the same id in test and live mode. Empty hides the offer. The
+      // live coupon must be:
       // id robocall-free-offer-2026-11, amount_off 40000 in usd, duration
       // once, redeem_by after Nov 3 2026, and applies_to limited to a product
       // never sold through Stripe Checkout, so a GPOFFER code cannot be
@@ -662,7 +662,7 @@ jwIDAQAB
       ROBOCALL_FREE_OFFER_COUPON_ID: select({
         preview: 'robocall-free-offer-2026-11',
         dev: 'robocall-free-offer-2026-11',
-        prod: '',
+        prod: 'robocall-free-offer-2026-11',
       }),
       // Dev and previews write to prod's HubSpot portal, so the Office Holder
       // sync and its ids are prod only.
