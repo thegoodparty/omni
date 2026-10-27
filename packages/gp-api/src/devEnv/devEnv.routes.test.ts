@@ -26,6 +26,16 @@ const service = useTestService()
 const BEARER = { 'X-GitHub-Token': 'gho_a_github_user_token' }
 const CLERK_DEV_VALUE = 'sk_test_devenvroutestest'
 
+// Calls to GitHub only. Global fetch is shared with the whole worker, so a
+// stray flush from another module (Segment's batched POST to api.segment.io,
+// queued by an earlier test file) can land on the stub mid-test.
+const githubCalls = (fetchMock: ReturnType<typeof vi.fn>) =>
+  fetchMock.mock.calls.filter(([url]) =>
+    String(url instanceof Request ? url.url : url).startsWith(
+      'https://api.github.com/',
+    ),
+  )
+
 const activeMembership = () =>
   new Response(
     JSON.stringify({ state: 'active', user: { login: 'octocat' } }),
@@ -99,7 +109,7 @@ describe('POST /v1/dev-env/bundle', () => {
     )
 
     expect(res.status).toBe(HttpStatus.NOT_FOUND)
-    expect(fetchMock).not.toHaveBeenCalled()
+    expect(githubCalls(fetchMock)).toHaveLength(0)
   })
 
   it('503s when the vending secret is not configured', async () => {
@@ -173,7 +183,7 @@ describe('POST /v1/dev-env/election-seed', () => {
     )
 
     expect(res.status).toBe(HttpStatus.NOT_FOUND)
-    expect(fetchMock).not.toHaveBeenCalled()
+    expect(githubCalls(fetchMock)).toHaveLength(0)
   })
 
   it('503s when no seed bucket is configured', async () => {
