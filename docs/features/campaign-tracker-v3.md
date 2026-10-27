@@ -195,6 +195,26 @@ against the finished plan. That also covers the case where a concurrent plan
 poll wins the `generatedWithStory` claim first: whoever wins releases the
 tracker claim, so the refresh happens either way.
 
+### Regeneration when the race roster grows
+
+Opposition research names the candidates the election data held when it ran,
+and many plans are researched before the race's roster fills in. Every run's
+params carry `campaign_strategy_context.candidate_count`, which the params
+byte cap never trims, so `alignPlanWithRoster` compares it per section with
+today's count on each plan read and wipes a section whose run saw fewer
+candidates, for `dispatchPending` to regenerate. A shrinking roster is ignored:
+it can't hide an opponent. The election database being down skips the check
+and serves the stored plan.
+
+Two exceptions keep it from costing the candidate anything. A plan whose
+opponents were added by hand on the race-opponent page keeps its opposition
+section: that add re-stamps `oppositionPersistedAt` well after the run, and a
+reset would delete the names the candidate typed in. And each reset section
+gets its attempt slot back, so a rebuild the candidate didn't cause never moves
+them toward the cap. Unlike the story and race resets it keeps
+`trackerBootstrapped`: the race and story are unchanged, and the weekly tracker
+run reads the rebuilt plan without a second paid run.
+
 ## Data model
 
 One table, `campaign_tracker_tasks` (`prisma/schema/campaignTrackerTask.prisma`),
@@ -211,7 +231,8 @@ completion / CTA / update-history machinery is reused against it.
 | `completed`     | per-task completion; `updateHistoryId` links voter-contact logging                                                |
 
 `CampaignStrategy.trackerBootstrapped` (boolean) is the one-shot bootstrap
-claim (see Bootstrap below). Both in-place plan resets release it —
+claim (see Bootstrap below). The story and race resets release it (the roster
+rebuild keeps it, see above) —
 `alignPlanWithStory` when the story lands and `alignPlanWithRace` when the
 office changes — because the tasks are built from the plan, so whatever
 stales the plan stales them. A reset that kept the claim would leave the

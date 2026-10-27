@@ -10,7 +10,7 @@ import {
   ExperimentRun,
   ExperimentRunStatus,
 } from '../../generated/prisma'
-import { isBefore, subMinutes } from 'date-fns'
+import { addMinutes, isAfter, isBefore, subMinutes } from 'date-fns'
 import { z } from 'zod'
 import { CampaignWith } from '@/campaigns/campaigns.types'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
@@ -24,7 +24,10 @@ import {
   StrategicLandscapeResponse,
   StrategicLandscapeResult,
 } from '../schemas/strategicLandscape.schema'
-import { RaceContextNotFoundError } from './raceContext.service'
+import {
+  RaceContextNotFoundError,
+  RaceContextService,
+} from './raceContext.service'
 import { StrategicLandscapeParamsService } from './strategicLandscapeParams.service'
 import { StrategicLandscapePersister } from './strategicLandscape.persister'
 import { AnalyticsService } from '@/analytics/analytics.service'
@@ -146,6 +149,20 @@ const electionHasPassed = (details: Campaign['details']): boolean => {
   return dates.length > 0 && dates.every((date) => !isDateTodayOrFuture(date))
 }
 
+// fitToBudget trims the candidate list to fit the params cap but keeps
+// candidate_count at the true race size, so it compares cleanly with today's.
+const RunRosterSchema = z.object({
+  campaign_strategy_context: z.object({ candidate_count: z.number() }),
+})
+
+const rosterSeenBy = (run: ExperimentRun | null): number | null => {
+  if (run?.status !== ExperimentRunStatus.COMPLETED) return null
+  const parsed = RunRosterSchema.safeParse(run.params)
+  return parsed.success
+    ? parsed.data.campaign_strategy_context.candidate_count
+    : null
+}
+
 @Injectable()
 export class CampaignStrategyService extends createPrismaBase(
   MODELS.CampaignStrategy,
@@ -158,6 +175,7 @@ export class CampaignStrategyService extends createPrismaBase(
     private readonly analytics: AnalyticsService,
     private readonly campaignTrackerTasks: CampaignTrackerTasksService,
     private readonly storyState: CampaignStoryStateService,
+    private readonly raceContext: RaceContextService,
   ) {
     super()
   }
@@ -204,7 +222,7 @@ export class CampaignStrategyService extends createPrismaBase(
     // Resolve raceId synchronously so a 400 surfaces to this call rather than
     // a dispatch with no race.
     const brHashId = resolveRaceId(campaign.details)
-    const { plan, lostClaim } = await this.alignPlanWithStory(
+    const story = await this.alignPlanWithStory(
       await this.alignPlanWithRace(
         await this.upsertForCampaign(campaign.id, brHashId),
         brHashId,
@@ -217,6 +235,13 @@ export class CampaignStrategyService extends createPrismaBase(
     // never-generated one, both look exactly like a row that needs
     // dispatching, so nothing downstream can tell the difference. Report what
     // is true: it is generating.
+    if (story.lostClaim) return { status: 'generating' }
+
+    // Same stand-down for the roster claim.
+    const { plan, lostClaim } = await this.alignPlanWithRoster(
+      story.plan,
+      brHashId,
+    )
     if (lostClaim) return { status: 'generating' }
 
     const [opposition, opportunities] = await Promise.all([
@@ -1025,6 +1050,140 @@ export class CampaignStrategyService extends createPrismaBase(
       })
     })
 
+    return {
+      plan: await this.model.findUniqueOrThrow({ where: { id: plan.id } }),
+      lostClaim: !claimed,
+    }
+  }
+
+  // A race's roster often fills in after its plan was researched, and nothing
+  // else re-runs a persisted section, so a plan researched against a thin
+  // roster would leave out most of the field for good. Same shape as
+  // alignPlanWithRace, per section: wipe each section whose run saw fewer
+  // candidates than the race has now, and let dispatchPending regenerate it.
+  //
+  // trackerBootstrapped is kept: the race and story are unchanged, and the
+  // weekly tracker run reads the rebuilt plan, without a second paid run here.
+  private async alignPlanWithRoster(
+    plan: CampaignStrategy,
+    raceId: string,
+  ): Promise<StoryAlignment> {
+    const [opposition, opportunities] = await Promise.all([
+      this.runFor(plan.oppositionPersistedAt ? plan.oppositionRunId : null),
+      this.runFor(
+        plan.opportunitiesPersistedAt ? plan.opportunitiesRunId : null,
+      ),
+    ])
+
+    // The run's own persist stamps the marker seconds after it completes; a
+    // later stamp is a manual opponent add, and a reset would delete the names
+    // the candidate typed in.
+    const handEdited =
+      opposition !== null &&
+      plan.oppositionPersistedAt !== null &&
+      isAfter(
+        plan.oppositionPersistedAt,
+        addMinutes(opposition.updatedAt, PERSIST_GRACE_MINUTES),
+      )
+    const oppositionSaw = handEdited ? null : rosterSeenBy(opposition)
+    const opportunitiesSaw = rosterSeenBy(opportunities)
+    if (oppositionSaw === null && opportunitiesSaw === null) {
+      return { plan, lostClaim: false }
+    }
+
+    let rosterSize: number
+    try {
+      rosterSize = (await this.raceContext.getStrategyContext(raceId))
+        .candidate_count
+    } catch (err) {
+      this.logger.warn(
+        { err, planId: plan.id, raceId },
+        'election data unavailable; serving the plan without a roster check',
+      )
+      return { plan, lostClaim: false }
+    }
+    const resetOpposition = oppositionSaw !== null && rosterSize > oppositionSaw
+    const resetOpportunities =
+      opportunitiesSaw !== null && rosterSize > opportunitiesSaw
+    if (!resetOpposition && !resetOpportunities) {
+      return { plan, lostClaim: false }
+    }
+
+    // Compare-and-swap on everything read above, so concurrent polls or a
+    // manual add landing in between can't double-reset. The candidate didn't
+    // cause this rebuild, so each reset section gets back the attempt slot
+    // dispatchPending is about to claim.
+    const claimed = await this.client.$transaction(async (tx) => {
+      const { count } = await tx.campaignStrategy.updateMany({
+        where: {
+          id: plan.id,
+          ...(resetOpposition
+            ? {
+                oppositionRunId: plan.oppositionRunId,
+                oppositionPersistedAt: plan.oppositionPersistedAt,
+                oppositionAttempts: plan.oppositionAttempts,
+              }
+            : {}),
+          ...(resetOpportunities
+            ? {
+                opportunitiesRunId: plan.opportunitiesRunId,
+                opportunitiesPersistedAt: plan.opportunitiesPersistedAt,
+                opportunitiesAttempts: plan.opportunitiesAttempts,
+              }
+            : {}),
+        },
+        data: {
+          generationStartedAt: null,
+          ...(resetOpposition
+            ? {
+                oppositionRunId: null,
+                oppositionPersistedAt: null,
+                oppositionAttempts: Math.max(plan.oppositionAttempts - 1, 0),
+              }
+            : {}),
+          ...(resetOpportunities
+            ? {
+                opportunitiesRunId: null,
+                opportunitiesPersistedAt: null,
+                opportunitiesAttempts: Math.max(
+                  plan.opportunitiesAttempts - 1,
+                  0,
+                ),
+              }
+            : {}),
+        },
+      })
+      if (count === 0) return false
+      if (resetOpposition) {
+        await tx.campaignStrategyOpponent.deleteMany({
+          where: { campaignStrategyId: plan.id },
+        })
+      }
+      if (resetOpportunities) {
+        await tx.campaignStrategyOpportunity.deleteMany({
+          where: { campaignStrategyId: plan.id },
+        })
+        await tx.campaignStrategyChallenge.deleteMany({
+          where: { campaignStrategyId: plan.id },
+        })
+      }
+      return true
+    })
+
+    if (claimed) {
+      this.logger.info(
+        {
+          campaignId: plan.campaignId,
+          planId: plan.id,
+          rosterSize,
+          oppositionSaw,
+          opportunitiesSaw,
+          resetOpposition,
+          resetOpportunities,
+        },
+        'race roster grew since the plan was researched; regenerating',
+      )
+    }
     return {
       plan: await this.model.findUniqueOrThrow({ where: { id: plan.id } }),
       lostClaim: !claimed,
