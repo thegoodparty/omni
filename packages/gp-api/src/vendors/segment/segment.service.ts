@@ -32,7 +32,14 @@ export class SegmentService {
         'SEGMENT_WRITE_KEY is not defined. Please add it to your .env',
       )
     }
-    this.analytics = new Analytics({ writeKey: SEGMENT_WRITE_KEY })
+    // Under test, events resolve without a request. Otherwise the client's
+    // 10s flush timer outlives the app that made it and, in the shared-modules
+    // vitest project, sends its batch through whatever global fetch a later
+    // file has stubbed, landing in that file's mock.calls.
+    this.analytics = new Analytics({
+      writeKey: SEGMENT_WRITE_KEY,
+      disable: process.env.NODE_ENV === 'test',
+    })
   }
 
   async trackEvent(
