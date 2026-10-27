@@ -63,6 +63,16 @@ export const CitizensPanelSection = () => {
         </h2>
         <p className="text-sm text-muted-foreground">{COPY.caption}</p>
       </div>
+      {/* The civic panel page's headline count, so the two never disagree.
+          The tract chart below counts each tract only up to its share. */}
+      {hasMembers && query.data ? (
+        <p
+          className="text-base font-semibold text-foreground"
+          data-testid="citizens-panel-joined"
+        >
+          {COPY.joinedOfGoal(query.data.members, query.data.progress.goal)}
+        </p>
+      ) : null}
       {hasMembers && composition && composition.places.length > 0 ? (
         <CivicPanelSeats
           placeKind={composition.placeKind}

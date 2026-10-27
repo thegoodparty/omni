@@ -217,6 +217,25 @@ describe('CitizensPanelView', () => {
     expect(screen.queryByTestId('civic-panel-next')).not.toBeInTheDocument()
   })
 
+  it('says one member is ready to share their views', () => {
+    render(
+      <CitizensPanelView
+        summary={{
+          ...SUMMARY,
+          members: 1,
+          progress: { ...SUMMARY.progress, members: 1 },
+        }}
+        managed={managed('building')}
+      />,
+    )
+
+    expect(
+      screen.getByText(
+        '1 Asheville resident is ready to share their views, on the way to 240.',
+      ),
+    ).toBeInTheDocument()
+  })
+
   it('names the groups furthest below their share, never telling the official to invite', () => {
     render(
       <CitizensPanelView summary={SUMMARY} managed={managed('building')} />,
@@ -226,7 +245,9 @@ describe('CitizensPanelView', () => {
       screen.getByRole('heading', { name: 'Your civic panel is filling up' }),
     ).toBeInTheDocument()
     expect(
-      screen.getByText('40 of 240 residents have joined so far.'),
+      screen.getByText(
+        '40 Asheville residents are ready to share their views, on the way to 240.',
+      ),
     ).toBeInTheDocument()
     const next = screen.getByTestId('civic-panel-next')
     expect(
@@ -245,6 +266,22 @@ describe('CitizensPanelView', () => {
     expect(next).not.toHaveTextContent('0002.00')
     expect(screen.queryByText('Furthest behind')).not.toBeInTheDocument()
     expect(screen.queryByTestId('civic-panel-bloom')).not.toBeInTheDocument()
+  })
+
+  it('says a paused civic panel is paused, not filling up', () => {
+    render(<CitizensPanelView summary={SUMMARY} managed={managed('paused')} />)
+
+    expect(
+      screen.getByRole('heading', { name: 'Your civic panel is paused' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        '40 of 240 residents have joined. Resume invites to keep filling it.',
+      ),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('heading', { name: 'Your civic panel is filling up' }),
+    ).not.toBeInTheDocument()
   })
 
   it('expands every group in place, naming tracts by place', async () => {

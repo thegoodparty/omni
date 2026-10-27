@@ -95,7 +95,7 @@ describe('CivicPanelSeats', () => {
     seats(0)
     expect(
       screen.getByRole('img', {
-        name: 'Your district as 100 seats. 0 of 100 seats filled.',
+        name: 'Your district as 100 seats. 0 of 100 seats filled, counting each tract only up to its share.',
       }),
     ).toBeInTheDocument()
     expect(
@@ -195,7 +195,33 @@ describe('CivicPanelSeats', () => {
     expect(
       screen.getByText('Every tract has its share of seats filled.'),
     ).toBeInTheDocument()
-    expect(screen.getByText('100')).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        '100 of 100 seats filled, counting each tract only up to its share',
+      ),
+    ).toBeInTheDocument()
+  })
+
+  it("counts a crowded tract's members only up to its share", () => {
+    render(
+      <CivicPanelSeats
+        placeKind="tract"
+        places={SHARES.map((share, i) => ({
+          key: tractName(i),
+          name: tractName(i),
+          districtShare: share,
+          members: i === 0 ? GOAL : 0,
+        }))}
+        members={GOAL}
+        goal={GOAL}
+      />,
+    )
+    const filled = Math.round((SHARES[0] ?? 0) * 100)
+    expect(
+      screen.getByText(
+        `${filled} of 100 seats filled, counting each tract only up to its share`,
+      ),
+    ).toBeInTheDocument()
   })
 })
 
@@ -251,11 +277,38 @@ describe('CivicPanelSeats with tract names', () => {
     )
     const list = screen.getByRole('list')
     const row = within(list).getByText('West Asheville, around Haywood Rd')
-    expect(row).toHaveClass('truncate')
+    expect(row).toHaveClass('sm:truncate')
+    expect(row).not.toHaveClass('truncate')
     expect(row).toHaveAttribute('title', 'West Asheville, around Haywood Rd')
     expect(within(list).getByText('Tract 14.02')).toBeInTheDocument()
     // A street label starts its line here, so it reads capitalized.
     expect(within(list).getByText('Around Merrimon Ave')).toBeInTheDocument()
+  })
+
+  // jsdom applies no CSS, so this pins the classes that lay a row out.
+  it('puts the count on its own line under a long name on a phone, and beside it from sm up', () => {
+    render(
+      <CivicPanelSeats
+        placeKind="tract"
+        places={named(120)}
+        members={120}
+        goal={GOAL}
+      />,
+    )
+    const name = within(screen.getByRole('list')).getByText(
+      'West Asheville, around Haywood Rd',
+    )
+    const row = name.closest('li')
+    expect(row).toHaveClass('grid-cols-1')
+    const count = within(row as HTMLElement).getByText(/filled$/)
+    expect(count).toHaveClass(
+      'row-start-2',
+      'whitespace-nowrap',
+      'sm:row-start-1',
+      'sm:col-start-3',
+      'sm:text-right',
+    )
+    expect(count).not.toHaveClass('text-right')
   })
 
   it('cuts a long name short around the arc, inside the frame, with the whole name as its tooltip', () => {
@@ -335,7 +388,7 @@ describe('CivicPanelHero', () => {
       screen.getByRole('heading', { name: 'Your civic panel starts here' }),
     ).toBeInTheDocument()
     expect(
-      screen.getByText('Every resident who says yes takes a seat.'),
+      screen.getByText('Every resident who says yes joins your civic panel.'),
     ).toBeInTheDocument()
     expect(filledSeats(container)).toBe(0)
     expect(screen.getByText('First yes')).toHaveTextContent('Next')
@@ -346,7 +399,9 @@ describe('CivicPanelHero', () => {
       <CivicPanelHero stage="building" members={120} goal={GOAL} />,
     )
     expect(
-      screen.getByText('120 of 240 residents have joined so far.'),
+      screen.getByText(
+        '120 residents are ready to share their views, on the way to 240.',
+      ),
     ).toBeInTheDocument()
     expect(filledSeats(container)).toBe(50)
     expect(screen.getByText('Halfway')).toHaveTextContent('Done')
@@ -372,7 +427,9 @@ describe('CivicPanelHero', () => {
     expect(bar).toHaveClass('lg:hidden')
     // The line above already says how many joined, so the bar does not.
     expect(
-      screen.getByText('60 of 240 residents have joined so far.'),
+      screen.getByText(
+        '60 residents are ready to share their views, on the way to 240.',
+      ),
     ).toBeInTheDocument()
     expect(
       within(bar).queryByText('60 of 240 residents have joined'),

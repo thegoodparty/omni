@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { screen, waitFor } from '@testing-library/react'
+import { beforeEach, describe, expect, it, vi, afterEach } from 'vitest'
+import { act, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
@@ -70,9 +70,14 @@ const mockContacts = (people: Person[]) => {
   })
 }
 
-const debounceSettle = () => new Promise((resolve) => setTimeout(resolve, 400))
+const debounceSettle = () => act(() => vi.advanceTimersByTimeAsync(400))
 
 beforeEach(() => {
+  vi.useFakeTimers({ shouldAdvanceTime: true })
+  // Testing Library only advances a fake clock inside findBy/waitFor when it
+  // sees a `jest` global. Without it every findBy waits out the search
+  // debounce in real time.
+  vi.stubGlobal('jest', { advanceTimersByTime: vi.advanceTimersByTime })
   searches = []
   selectPerson.mockClear()
   showProModal.mockClear()
@@ -82,10 +87,15 @@ beforeEach(() => {
   setContext()
 })
 
+afterEach(() => {
+  vi.unstubAllGlobals()
+  vi.useRealTimers()
+})
+
 describe('ContactTypeahead — query threshold and debounce', () => {
   it('renders dropdown results at 3 typed characters', async () => {
     mockContacts([makePerson()])
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     render(<ContactTypeahead />)
 
     await user.type(screen.getByRole('combobox'), 'Jan')
@@ -97,7 +107,7 @@ describe('ContactTypeahead — query threshold and debounce', () => {
 
   it('shows no dropdown and sends no request below 3 characters', async () => {
     mockContacts([makePerson()])
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     render(<ContactTypeahead />)
 
     await user.type(screen.getByRole('combobox'), 'Ja')
@@ -109,7 +119,7 @@ describe('ContactTypeahead — query threshold and debounce', () => {
 
   it('burst typing produces a single request for the final value', async () => {
     mockContacts([makePerson()])
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     render(<ContactTypeahead />)
 
     await user.type(screen.getByRole('combobox'), 'Janet')
@@ -141,7 +151,7 @@ describe('ContactTypeahead — query threshold and debounce', () => {
         ]),
       }
     })
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     render(<ContactTypeahead />)
 
     const input = screen.getByRole('combobox')
@@ -160,7 +170,7 @@ describe('ContactTypeahead — query threshold and debounce', () => {
 
   it('shows the explicit empty state for a no-match query', async () => {
     mockContacts([])
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     render(<ContactTypeahead />)
 
     await user.type(screen.getByRole('combobox'), 'Zzz')
@@ -170,7 +180,7 @@ describe('ContactTypeahead — query threshold and debounce', () => {
 
   it('shows a terminal error state instead of spinning forever when the request fails', async () => {
     api.mock('GET /v1/contacts', { status: 500, data: { message: 'boom' } })
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     render(<ContactTypeahead />)
 
     await user.type(screen.getByRole('combobox'), 'Jan')
@@ -186,7 +196,7 @@ describe('ContactTypeahead — Win vs Serve', () => {
   it('shows the party and voter copy in a Win context', async () => {
     setContext({ isWinContext: true })
     mockContacts([makePerson({ politicalParty: 'Independent' })])
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     render(<ContactTypeahead />)
 
     expect(
@@ -202,7 +212,7 @@ describe('ContactTypeahead — Win vs Serve', () => {
   it('hides the party and uses constituent copy in a Serve context', async () => {
     setContext({ isWinContext: false })
     mockContacts([makePerson({ politicalParty: 'Independent' })])
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     render(<ContactTypeahead />)
 
     expect(
@@ -218,7 +228,7 @@ describe('ContactTypeahead — Win vs Serve', () => {
   it('uses constituent wording for the Serve empty state (ENG-10448)', async () => {
     setContext({ isWinContext: false })
     mockContacts([])
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     render(<ContactTypeahead />)
 
     await user.type(screen.getByRole('combobox'), 'Zzz')
@@ -232,7 +242,7 @@ describe('ContactTypeahead — pro gating', () => {
   it('opens the pro modal on typing and never sends a request for non-pro', async () => {
     setContext({ canUseProFeatures: false })
     mockContacts([makePerson()])
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     render(<ContactTypeahead />)
 
     await user.type(screen.getByRole('combobox'), 'Jan')
@@ -247,7 +257,7 @@ describe('ContactTypeahead — pro gating', () => {
 describe('ContactTypeahead — selection and dismissal', () => {
   it('navigates to the person on click', async () => {
     mockContacts([makePerson({ id: 'p_42' })])
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     render(<ContactTypeahead />)
 
     await user.type(screen.getByRole('combobox'), 'Jan')
@@ -259,7 +269,7 @@ describe('ContactTypeahead — selection and dismissal', () => {
 
   it('navigates to the highlighted person on Enter', async () => {
     mockContacts([makePerson({ id: 'p_42' })])
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     render(<ContactTypeahead />)
 
     await user.type(screen.getByRole('combobox'), 'Jan')
@@ -271,7 +281,7 @@ describe('ContactTypeahead — selection and dismissal', () => {
 
   it('closes the dropdown on Escape and reopens on the next keystroke', async () => {
     mockContacts([makePerson()])
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     render(<ContactTypeahead />)
 
     await user.type(screen.getByRole('combobox'), 'Jan')
@@ -290,7 +300,7 @@ describe('ContactTypeahead — selection and dismissal', () => {
 describe('ContactTypeahead — Contact Searched analytics (ENG-10688)', () => {
   it('fires exactly one Voter Data event with resultCount for a resolved Win search', async () => {
     mockContacts([makePerson()])
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     render(<ContactTypeahead />)
 
     await user.type(screen.getByRole('combobox'), 'Jan')
@@ -307,7 +317,7 @@ describe('ContactTypeahead — Contact Searched analytics (ENG-10688)', () => {
     mockedUseWinVoterContext.mockReturnValue({ isWin: false, isReady: true })
     setContext({ isWinContext: false })
     mockContacts([makePerson()])
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     render(<ContactTypeahead />)
 
     await user.type(screen.getByRole('combobox'), 'Jan')
@@ -322,7 +332,7 @@ describe('ContactTypeahead — Contact Searched analytics (ENG-10688)', () => {
 
   it('fires with resultCount 0 for a resolved empty search', async () => {
     mockContacts([])
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     render(<ContactTypeahead />)
 
     await user.type(screen.getByRole('combobox'), 'Zzz')
@@ -356,7 +366,7 @@ describe('ContactTypeahead — Contact Searched analytics (ENG-10688)', () => {
       }
       return { status: 200, data: listResponse([makePerson({ id: 'fresh' })]) }
     })
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     render(<ContactTypeahead />)
 
     const input = screen.getByRole('combobox')
@@ -378,7 +388,7 @@ describe('ContactTypeahead — Contact Searched analytics (ENG-10688)', () => {
 
   it('does not re-fire on re-render, but fires again for a new distinct search', async () => {
     mockContacts([makePerson()])
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     const { rerender } = render(<ContactTypeahead />)
 
     await user.type(screen.getByRole('combobox'), 'Jan')
@@ -395,7 +405,7 @@ describe('ContactTypeahead — Contact Searched analytics (ENG-10688)', () => {
 
   it('fires again when the same term is cleared and searched a second time', async () => {
     mockContacts([makePerson()])
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     render(<ContactTypeahead />)
 
     const input = screen.getByRole('combobox')
@@ -410,7 +420,7 @@ describe('ContactTypeahead — Contact Searched analytics (ENG-10688)', () => {
   it('does not fire before the Win/Serve context settles, then fires once with the settled mode', async () => {
     mockedUseWinVoterContext.mockReturnValue({ isWin: false, isReady: false })
     mockContacts([makePerson()])
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     const { rerender } = render(<ContactTypeahead />)
 
     await user.type(screen.getByRole('combobox'), 'Jan')
@@ -431,7 +441,7 @@ describe('ContactTypeahead — Contact Searched analytics (ENG-10688)', () => {
   it('does not fire for the non-pro modal path', async () => {
     setContext({ canUseProFeatures: false })
     mockContacts([makePerson()])
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     render(<ContactTypeahead />)
 
     await user.type(screen.getByRole('combobox'), 'Jan')
@@ -442,7 +452,7 @@ describe('ContactTypeahead — Contact Searched analytics (ENG-10688)', () => {
 
   it('does not fire for sub-3-character input', async () => {
     mockContacts([makePerson()])
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     render(<ContactTypeahead />)
 
     await user.type(screen.getByRole('combobox'), 'Ja')
@@ -453,7 +463,7 @@ describe('ContactTypeahead — Contact Searched analytics (ENG-10688)', () => {
 
   it('does not fire when the request fails', async () => {
     api.mock('GET /v1/contacts', { status: 500, data: { message: 'boom' } })
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     render(<ContactTypeahead />)
 
     await user.type(screen.getByRole('combobox'), 'Jan')

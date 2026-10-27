@@ -25,9 +25,9 @@ Don't guess L2 district names. Look them up:
 
 ```bash
 DB_URL=$(AWS_PROFILE=work aws secretsmanager get-secret-value \
-  --secret-id ELECTION_API_DEV --query SecretString --output text \
-  | python3 -c "import json,sys; print(json.load(sys.stdin)['DATABASE_URL'])")
-DB_URL_CLEAN=$(echo "$DB_URL" | sed 's|?schema=[^&]*||')
+  --secret-id GP_API_DEV --query SecretString --output text \
+  | python3 -c "import json,sys; print(json.load(sys.stdin)['ELECTION_DATABASE_URL'])")
+DB_URL_CLEAN=$(echo "$DB_URL" | sed 's|?.*||')
 
 psql "$DB_URL_CLEAN" -c '
 SELECT id, l2_district_type, l2_district_name

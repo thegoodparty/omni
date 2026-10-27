@@ -1089,6 +1089,66 @@ describe('ContactsService', () => {
         expect(result.politicalParty).toBe('Republican')
       })
 
+      describe('Already voted', () => {
+        const winOrg = () =>
+          makeOrganization({
+            slug: 'campaign-1',
+            overrideDistrictId: OVERRIDE_DISTRICT_ID,
+          })
+
+        it('is true when L2 reports an early or absentee vote, without asking the campaign', async () => {
+          mockCampaignsService.findFirst.mockResolvedValue(makeCampaign())
+          mockVoterQueryService.findPerson.mockResolvedValue({
+            id: 'p1',
+            voted: true,
+          })
+
+          const result = await service.findPerson('p1', winOrg())
+
+          expect(result.voted).toBe(true)
+          expect(mockVotedStatusService.votedForPeople).not.toHaveBeenCalled()
+        })
+
+        it('is true when only the campaign recorded the person as voted', async () => {
+          mockCampaignsService.findFirst.mockResolvedValue(makeCampaign())
+          mockVoterQueryService.findPerson.mockResolvedValue({ id: 'p1' })
+          mockVotedStatusService.votedForPeople.mockResolvedValue(
+            new Map([['p1', true]]),
+          )
+
+          const result = await service.findPerson('p1', winOrg())
+
+          expect(result.voted).toBe(true)
+        })
+
+        it('is false when neither source has the person', async () => {
+          mockCampaignsService.findFirst.mockResolvedValue(makeCampaign())
+          mockVoterQueryService.findPerson.mockResolvedValue({ id: 'p1' })
+          mockVotedStatusService.votedForPeople.mockResolvedValue(new Map())
+
+          const result = await service.findPerson('p1', winOrg())
+
+          expect(result.voted).toBe(false)
+        })
+
+        it('never reaches a Serve (eo-) org, even when L2 has the person', async () => {
+          mockVoterQueryService.findPerson.mockResolvedValue({
+            id: 'p1',
+            voted: true,
+          })
+
+          const result = await service.findPerson(
+            'p1',
+            makeOrganization({
+              slug: 'eo-mayor-1',
+              overrideDistrictId: OVERRIDE_DISTRICT_ID,
+            }),
+          )
+
+          expect(result).not.toHaveProperty('voted')
+        })
+      })
+
       it('attaches the supportStatus rollup returned by SupportStatusService', async () => {
         const org = makeOrganization({
           slug: 'eo-mayor-1',
@@ -2221,7 +2281,7 @@ describe('ContactsService', () => {
             overrideDistrictId: OVERRIDE_DISTRICT_ID,
           })
 
-        it('Unknown leaves out everyone who has voted', async () => {
+        it('No/Unknown leaves out L2 early voters and everyone the campaign recorded as voted', async () => {
           mockCampaignsService.findFirst.mockResolvedValue(makeCampaign())
           mockActivityConditionResolutionService.resolveIdFilter.mockResolvedValue(
             { kind: 'none' },
@@ -2241,25 +2301,81 @@ describe('ContactsService', () => {
           expect(result).toEqual({ count: 4 })
           expect(createSpy).toHaveBeenCalledWith(
             expect.objectContaining({
-              filters: { id: { notIn: [PERSON_ID_3] } },
+              filters: {
+                votedInElection: { eq: 'No' },
+                votedInElectionReportedIds: { in: [PERSON_ID_3] },
+              },
             }),
           )
         })
 
-        it('Already voted is an empty list while nobody has voted', async () => {
+        it('Yes reaches people-db even while the campaign has recorded nobody, since L2 still may have', async () => {
           mockCampaignsService.findFirst.mockResolvedValue(makeCampaign())
           mockActivityConditionResolutionService.resolveIdFilter.mockResolvedValue(
             { kind: 'none' },
           )
           mockVotedStatusService.votedPersonIds.mockResolvedValue([])
+          mockVoterQueryService.findPeople.mockResolvedValue({
+            people: [],
+            pagination: { totalResults: 6 },
+          })
+          const createSpy = vi.spyOn(ListPeopleDTO, 'create')
 
           const result = await service.countContacts(
             { votedStatus: ['already_voted'] },
             winOrg(),
           )
 
-          expect(result).toEqual({ count: 0 })
-          expect(mockVoterQueryService.findPeople).not.toHaveBeenCalled()
+          expect(result).toEqual({ count: 6 })
+          expect(createSpy).toHaveBeenCalledWith(
+            expect.objectContaining({
+              filters: { votedInElection: { eq: 'Yes' } },
+            }),
+          )
+        })
+
+        it('Yes carries the campaign-recorded voters alongside L2', async () => {
+          mockCampaignsService.findFirst.mockResolvedValue(makeCampaign())
+          mockActivityConditionResolutionService.resolveIdFilter.mockResolvedValue(
+            { kind: 'none' },
+          )
+          mockVotedStatusService.votedPersonIds.mockResolvedValue([PERSON_ID_3])
+          mockVoterQueryService.findPeople.mockResolvedValue({
+            people: [],
+            pagination: { totalResults: 2 },
+          })
+          const createSpy = vi.spyOn(ListPeopleDTO, 'create')
+
+          await service.countContacts(
+            { votedStatus: ['already_voted'] },
+            winOrg(),
+          )
+
+          expect(createSpy).toHaveBeenCalledWith(
+            expect.objectContaining({
+              filters: {
+                votedInElection: { eq: 'Yes' },
+                votedInElectionReportedIds: { in: [PERSON_ID_3] },
+              },
+            }),
+          )
+        })
+
+        // Recommended lists add votedStatus ['unknown'] (NOT_YET_VOTED) and
+        // size through this same resolution, so they shed L2 voters too.
+        it('a saved No/Unknown list resolves to the L2 exclusion', async () => {
+          mockCampaignsService.findFirst.mockResolvedValue(makeCampaign())
+          mockActivityConditionResolutionService.resolveIdFilter.mockResolvedValue(
+            { kind: 'none' },
+          )
+          mockVotedStatusService.votedPersonIds.mockResolvedValue([])
+
+          const resolved = await service.resolveSavedFilterForQuery(winOrg(), {
+            votedStatus: ['unknown'],
+          })
+
+          expect(resolved.empty).toBe(false)
+          expect(resolved.filters).toEqual({ votedInElection: { eq: 'No' } })
         })
 
         it('both options is no constraint', async () => {

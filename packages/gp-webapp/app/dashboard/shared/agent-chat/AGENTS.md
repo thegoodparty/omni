@@ -24,7 +24,7 @@ nearest reference wrapper.
 | `clarifyWidget.tsx` / `composeHandoffWidget.tsx` | Registry entries for `ask_clarify_question` and `compose_handoff`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | `MessageActionBar.tsx`                           | **The per-message bar.** Copy + thumbs up/down under one assistant turn, with the optional-note bubble a rating opens. Opt-in per surface (`showMessageActions`), and it renders the thumbs only when the client implements the feedback calls.                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `chatHelpers.ts`                                 | `newClientMessageId`, `friendlyError`, and the server's cut-off marker (`CHAT_INTERRUPTED_BEFORE_OUTPUT_MARKER`, `isInterruptedTurn`) that a wrapper turns into a retry.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| `usePinnedAutoScroll.ts`                         | Stick-to-bottom scroll (releases on scroll-up). Pass `{ sending }` so a send re-pins and the reply that starts comes into view; a resize of the container or its content (a card laying out late, a phone keyboard closing) keeps a pinned view at the bottom. Optional — a chat inside a vaul drawer may roll its own scroll instead.                                                                                                                                                                                                                                                                                                                                                                        |
+| `usePinnedAutoScroll.ts`                         | Stick-to-bottom scroll (releases on scroll-up). Pass `{ sending }` so a send re-pins and the reply that starts comes into view; a resize of the container or its content (a card laying out late, a phone keyboard closing) keeps a pinned view at the bottom, and so does a row added without any dep changing (a thinking row, an error). Only a scroll right after a wheel, touch, key or pointer press releases the pin: the browser's own clamp when content shrinks once read as a scroll-up and left new replies below the fold. Optional — a chat inside a vaul drawer may roll its own scroll instead.                                                                                                                                                                                                                                                                                                                                                                        |
 
 ## The recipe (what a wrapper owns)
 
@@ -344,11 +344,13 @@ three tools are widgets in
   words (Want to see the invite? Show me the invite, How does it work?, Not
   now). With `afterHowItWorks: true`, after the how-it-works answer, it drops
   How does it work?. `isQuestionTool` counts it as a clarify question.
-- **`present_managed_panel_invite`** renders `ManagedPanelInviteCard`: the
-  draft (`managedInviteDraft`, the official's first name and grammarized
-  office) composed with its locked lines and a sample first name, and Review
-  the invite, which mounts `SmsFlow` in its `managedInvite` mode over the
-  chat (`outreach/AGENTS.md`). Its close calls the widget context's
+- **`present_managed_panel_invite`** renders `ManagedPanelInviteCard`, a
+  `CompactCardStatic` like the outreach proposal cards: Your civic panel
+  invite, Text to <place> residents, and Review the invite (gone once the
+  panel is set up). The card never shows the message. Review the invite
+  mounts `SmsFlow` in its `managedInvite` mode over the chat
+  (`outreach/AGENTS.md`) on the draft (`managedInviteDraft`, the official's
+  first name and grammarized office), where the words are read and edited. Its close calls the widget context's
   `onManagedPanelInviteClosed`, and the body queues one hidden turn on the
   boundary-note queue: `MANAGED_CIVIC_PANEL_SET_UP_MESSAGE` (after reading the
   enrollment and the home's cards again) or
@@ -376,8 +378,9 @@ and `present_managed_panel` Checking your civic panel (`chatConstants.ts`).
   while that offer waits, `choice` show_invite, how_it_works, not_now or
   wrote_own (`managedExplainerChoice`).
 - `Contacts - Civic Panel Invite Viewed` when a turn presents the invite card, never on a
-  replay: `inviteChars` and `inviteSegments` (160 characters each, as the
-  text flow counts them).
+  replay: `inviteChars` and `inviteSegments` of the composed draft (160
+  characters each, as the text flow counts them), though the card does not
+  show it.
 - `Contacts - Civic Panel Invite Review Viewed` on Review the invite, `source` chat_card.
 - `SmsFlow` in its managed mode fires `Contacts - Civic Panel Invite Submitted` on Set up
   my civic panel (`edited`, `usedImproveWithAi`, `usedDictation`,

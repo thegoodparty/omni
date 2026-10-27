@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { subHours } from 'date-fns'
 import { firstOrThrow } from 'src/shared/test-utils/arrays.util'
 import {
   BadRequestException,
@@ -73,6 +74,7 @@ describe('CampaignStrategyService', () => {
     dispatchGeneration: ReturnType<typeof vi.fn>
   }
   let storyState: { read: ReturnType<typeof vi.fn> }
+  let raceContext: { getStrategyContext: ReturnType<typeof vi.fn> }
   let prisma: {
     campaignStrategy: {
       upsert: ReturnType<typeof vi.fn>
@@ -85,7 +87,10 @@ describe('CampaignStrategyService', () => {
     }
     campaignStrategyOpportunity: { deleteMany: ReturnType<typeof vi.fn> }
     campaignStrategyChallenge: { deleteMany: ReturnType<typeof vi.fn> }
-    campaignStrategyOpponent: { deleteMany: ReturnType<typeof vi.fn> }
+    campaignStrategyOpponent: {
+      deleteMany: ReturnType<typeof vi.fn>
+      findMany: ReturnType<typeof vi.fn>
+    }
     campaign: { findUnique: ReturnType<typeof vi.fn> }
     $transaction: ReturnType<typeof vi.fn>
   }
@@ -125,6 +130,7 @@ describe('CampaignStrategyService', () => {
     // Default: no story, so alignPlanWithStory is a no-op and the existing
     // cases exercise the unchanged paths.
     storyState = { read: vi.fn().mockResolvedValue({ complete: false }) }
+    raceContext = { getStrategyContext: vi.fn() }
     prisma = {
       campaignStrategy: {
         upsert: vi.fn().mockResolvedValue(planRow()),
@@ -143,6 +149,7 @@ describe('CampaignStrategyService', () => {
       },
       campaignStrategyOpponent: {
         deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
+        findMany: vi.fn().mockResolvedValue([]),
       },
       campaign: {
         findUnique: vi.fn().mockResolvedValue({ userId: 7 }),
@@ -163,6 +170,7 @@ describe('CampaignStrategyService', () => {
       analytics as never,
       trackerTasks as never,
       storyState as never,
+      raceContext as never,
     )
     Object.defineProperty(service, '_prisma', { value: prisma })
     Object.assign(service, {
@@ -1518,6 +1526,150 @@ describe('CampaignStrategyService', () => {
         create: { campaignId: 99, raceId: 'br-general' },
         update: {},
       })
+    })
+  })
+
+  describe('race roster alignment', () => {
+    const researchedAt = subHours(new Date(), 1)
+    const sawRoster = (candidateCount: number) => ({
+      race_id: 'br-general',
+      campaign_strategy_context: { candidate_count: candidateCount },
+    })
+    const persistedPlan = (overrides: Record<string, unknown> = {}) =>
+      planRow({
+        oppositionRunId: 'opp-run',
+        opportunitiesRunId: 'oc-run',
+        oppositionPersistedAt: researchedAt,
+        opportunitiesPersistedAt: researchedAt,
+        oppositionAttempts: 1,
+        opportunitiesAttempts: 1,
+        ...overrides,
+      })
+    const runsSaw = (opposition: number, opportunities: number) =>
+      experimentRuns.findUnique.mockImplementation(
+        ({ where }: { where: { runId: string } }) =>
+          Promise.resolve(
+            where.runId === 'opp-run'
+              ? run({
+                  runId: 'opp-run',
+                  updatedAt: researchedAt,
+                  params: sawRoster(opposition),
+                })
+              : run({
+                  runId: 'oc-run',
+                  experimentType: 'opportunities_and_challenges',
+                  updatedAt: researchedAt,
+                  params: sawRoster(opportunities),
+                }),
+          ),
+      )
+
+    beforeEach(() => {
+      prisma.campaignStrategy.upsert.mockResolvedValue(persistedPlan())
+      prisma.campaignStrategy.findUnique.mockResolvedValue({
+        opportunities: [],
+        challenges: [],
+        opponents: [],
+      })
+      raceContext.getStrategyContext.mockResolvedValue({ candidate_count: 5 })
+      s3.getFile.mockResolvedValue(
+        JSON.stringify({
+          opponents: [
+            {
+              full_name: 'Rival',
+              party_affiliation: 'Nonpartisan',
+              incumbent: false,
+            },
+          ],
+        }),
+      )
+      prisma.campaignStrategyOpponent.findMany.mockResolvedValue([
+        { fullName: 'Rival' },
+      ])
+    })
+
+    it('regenerates opposition researched against a smaller roster, refunding its attempt', async () => {
+      runsSaw(0, 5)
+      prisma.campaignStrategy.findUniqueOrThrow.mockResolvedValue(
+        persistedPlan({
+          oppositionRunId: null,
+          oppositionPersistedAt: null,
+          oppositionAttempts: 0,
+        }),
+      )
+      experimentRuns.dispatchRun.mockResolvedValue({ runId: 'opp-run-2' })
+
+      const res = await service.getOrGenerateStrategicLandscape(campaign())
+
+      expect(res).toEqual({ status: 'generating' })
+      expect(prisma.campaignStrategy.updateMany).toHaveBeenCalledWith({
+        where: {
+          id: 42,
+          oppositionRunId: 'opp-run',
+          oppositionPersistedAt: researchedAt,
+          oppositionAttempts: 1,
+        },
+        data: {
+          oppositionRunId: null,
+          oppositionPersistedAt: null,
+          oppositionAttempts: 0,
+        },
+      })
+      expect(prisma.campaignStrategyOpponent.deleteMany).toHaveBeenCalled()
+      expect(
+        prisma.campaignStrategyOpportunity.deleteMany,
+      ).not.toHaveBeenCalled()
+      expect(experimentRuns.dispatchRun).toHaveBeenCalledTimes(1)
+      expect(experimentRuns.dispatchRun).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'opposition_research' }),
+      )
+    })
+
+    it('serves the stored plan when opposition research saw the whole roster', async () => {
+      runsSaw(5, 0)
+
+      const res = await service.getOrGenerateStrategicLandscape(campaign())
+
+      expect(res.status).toBe('ready')
+      expect(prisma.$transaction).not.toHaveBeenCalled()
+      expect(experimentRuns.dispatchRun).not.toHaveBeenCalled()
+    })
+
+    it('keeps opponents the candidate typed in, however soon after the research landed', async () => {
+      runsSaw(0, 5)
+      prisma.campaignStrategyOpponent.findMany.mockResolvedValue([
+        { fullName: 'Rival' },
+        { fullName: 'Typed In' },
+      ])
+
+      const res = await service.getOrGenerateStrategicLandscape(campaign())
+
+      expect(res.status).toBe('ready')
+      expect(prisma.campaignStrategyOpponent.deleteMany).not.toHaveBeenCalled()
+      expect(experimentRuns.dispatchRun).not.toHaveBeenCalled()
+    })
+
+    it('serves the stored plan when election data is unavailable', async () => {
+      runsSaw(0, 0)
+      raceContext.getStrategyContext.mockRejectedValue(
+        new RaceContextNotFoundError('br-general'),
+      )
+
+      const res = await service.getOrGenerateStrategicLandscape(campaign())
+
+      expect(res.status).toBe('ready')
+      expect(prisma.$transaction).not.toHaveBeenCalled()
+    })
+
+    it('stands down without dispatching when another request won the reset', async () => {
+      runsSaw(0, 0)
+      prisma.campaignStrategy.updateMany.mockResolvedValue({ count: 0 })
+
+      const res = await service.getOrGenerateStrategicLandscape(campaign())
+
+      expect(res).toEqual({ status: 'generating' })
+      expect(prisma.campaignStrategyOpponent.deleteMany).not.toHaveBeenCalled()
+      expect(experimentRuns.dispatchRun).not.toHaveBeenCalled()
     })
   })
 })

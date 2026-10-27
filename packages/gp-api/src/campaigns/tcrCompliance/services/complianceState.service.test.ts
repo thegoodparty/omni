@@ -23,20 +23,15 @@ import {
   ComplianceStateService,
   deriveComplianceStage,
 } from './complianceState.service'
+import {
+  appEnvOverrides,
+  useAppEnvOverrides,
+} from '@/shared/test-utils/appEnvOverrides'
 
 // VENDOR_MODE is a module constant, so a test can't flip it through
-// process.env. Default to live mode; the mock-mode tests set `appEnv.mode`.
-const appEnv = vi.hoisted(() => ({ mode: 'live' as 'live' | 'mock' }))
-vi.mock('@/shared/util/appEnvironment.util', async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import('@/shared/util/appEnvironment.util')>()
-  return {
-    ...actual,
-    get VENDOR_MODE() {
-      return appEnv.mode
-    },
-  }
-})
+// process.env. Default to live mode; the mock-mode tests set
+// `appEnvOverrides.VENDOR_MODE`.
+useAppEnvOverrides({ VENDOR_MODE: 'live' })
 
 const mockCampaign = (
   overrides?: Partial<Pick<Campaign, 'formattedAddress'>>,
@@ -523,7 +518,7 @@ describe('ComplianceStateService - findStateForCampaign', () => {
 
   it('reports the CV status from Peerly, not a hardcoded APPROVED, in non-prod mock mode', async () => {
     vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'preview')
-    appEnv.mode = 'mock'
+    appEnvOverrides.VENDOR_MODE = 'mock'
     try {
       mockFindUniqueOrThrow.mockResolvedValue(awaitingPinCampaign())
       mockRetrieveCv.mockResolvedValue({
@@ -536,7 +531,7 @@ describe('ComplianceStateService - findStateForCampaign', () => {
       expect(mockRetrieveCv).toHaveBeenCalled()
       expect(result.peerlyCvStatus).toBe(PeerlyCvVerificationStatus.IN_REVIEW)
     } finally {
-      appEnv.mode = 'live'
+      appEnvOverrides.VENDOR_MODE = 'live'
     }
   })
 

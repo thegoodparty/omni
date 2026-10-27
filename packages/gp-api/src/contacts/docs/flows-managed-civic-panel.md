@@ -24,9 +24,11 @@ words (`explain_managed_panel`: contracts' `managedCivicPanelExplanation`,
 and `managedCivicPanelHowItWorks` with the place, the seats and the census
 share of adults 65 or older from `ManagedCivicPanelService.explainerFacts`,
 falling back to a sentence without numbers), offers the
-invite (`offer_managed_panel_invite`), shows it
-(`present_managed_panel_invite`), and the webapp's text flow approves it
-(POST, with contracts' `MANAGED_CIVIC_PANEL_CONSENT_VERSION`). The flow's
+invite (`offer_managed_panel_invite`), and shows the invite card
+(`present_managed_panel_invite`: Your civic panel invite, Text to <place>
+residents, Review the invite). The card never shows the words; Review the
+invite opens the webapp's text flow, where they are shown and edited, and
+it approves them (POST, with contracts' `MANAGED_CIVIC_PANEL_CONSENT_VERSION`). The flow's
 close sends a hidden `MANAGED_CIVIC_PANEL_SET_UP_MESSAGE` or
 `MANAGED_CIVIC_PANEL_BACKED_OUT_MESSAGE`; on set up the agent reads
 `read_managed_panel` (status, members, goal, the first send date,
@@ -38,9 +40,11 @@ office one card at a time (`syncManagedPanelProgressCard`,
 `sourceExternalId` from contracts' `managedCivicPanelProgressCardSourceId`,
 `managed-panel-progress:<electedOfficeId>`, `sourceItemId` the phase from
 `managedPanelPhase`): `building` (building or paused: "Your civic panel is
-filling up", or "Your civic panel starts here" at 0 members as on the civic
-panel page, members of the goal and the next send date, or "Invites are
-paused"), `ready` (for `MANAGED_PANEL_READY_CARD_DAYS`, 14, after
+filling up" with "{members} {place} residents are ready to share their
+views" (the place from `ManagedCivicPanelService.districtPlace`, looked up
+only for this card), or "Your civic panel starts here" at 0 members as on
+the civic panel page with members of the goal, then the next send date; or
+"Invites are paused"), `ready` (for `MANAGED_PANEL_READY_CARD_DAYS`, 14, after
 `readyAt`), and `exhausted` ("Every resident we can text has an invite",
 members of the goal, button `MANAGED_CIVIC_PANEL_EXHAUSTED_CARD_CTA`, which
 the home turns into the hidden `MANAGED_CIVIC_PANEL_EXHAUSTED_MESSAGE` so
@@ -52,8 +56,9 @@ exhausted do not lapse. The read goes through `ManagedCivicPanelService`
 The Chief of Staff (`managedCivicPanelBlock`, `read_managed_panel`)
 answers in each status's words. The civic panel page's rail shows
 `ManagedPanelControls` (the Invites card): the status, the next send day
-and ready week while building, Pause, Resume and Stop (with a confirm),
-each the `PATCH` below.
+and ready week while building, Pause while building and Resume while
+paused, each the `PATCH` below. The webapp never sends `stop`; the route
+keeps it, and a stopped enrollment still reads and re-approves as below.
 
 `ManagedCivicPanel` is one row per office (`organizationSlug` unique), kept
 when stopped so `freeTextsUsed` still counts against `freeTextCap` (15,000)

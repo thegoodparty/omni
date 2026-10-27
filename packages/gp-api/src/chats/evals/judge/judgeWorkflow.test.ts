@@ -1333,15 +1333,21 @@ describe('judge.yml resolves one set of identifiers for both arms', () => {
   // any invocation but the real one. A failed resolution must leave the
   // outputs empty and the sweep running; a good one must reach them whole.
   describe('the resolver, run', () => {
+    // One executable for both runs, sourcing each run's body: macOS checks a
+    // newly written executable on its first exec, which cost more than the
+    // step.
+    const fakes = mkdtempSync(path.join(tmpdir(), 'judge-identifiers-bin-'))
+    writeFileSync(
+      path.join(fakes, 'npx'),
+      '#!/usr/bin/env bash\n' +
+        '[ "$1" = tsx ] && [ "$2" = the-entry ] || exit 97\n' +
+        '. "$FAKE_NPX_BODY"\n',
+    )
+    chmodSync(path.join(fakes, 'npx'), 0o755)
+
     const runResolver = (npx: string) => {
       const dir = mkdtempSync(path.join(tmpdir(), 'judge-identifiers-'))
-      writeFileSync(
-        path.join(dir, 'npx'),
-        '#!/usr/bin/env bash\n' +
-          '[ "$1" = tsx ] && [ "$2" = the-entry ] || exit 97\n' +
-          `${npx}\n`,
-      )
-      chmodSync(path.join(dir, 'npx'), 0o755)
+      writeFileSync(path.join(dir, 'npx-body'), `${npx}\n`)
       const output = path.join(dir, 'github-output')
       writeFileSync(output, '')
       const script = path.join(dir, 'run.sh')
@@ -1350,7 +1356,8 @@ describe('judge.yml resolves one set of identifiers for both arms', () => {
         cwd: dir,
         encoding: 'utf8',
         env: {
-          PATH: `${dir}:${process.env.PATH}`,
+          PATH: `${fakes}:${process.env.PATH}`,
+          FAKE_NPX_BODY: path.join(dir, 'npx-body'),
           RUNNER_TEMP: dir,
           GITHUB_OUTPUT: output,
           IDENTIFIERS_ENTRY: 'the-entry',
@@ -1544,6 +1551,36 @@ describe('judge.yml sums the prices the CLI puts on the plan', () => {
   const dollars = (cents: number) =>
     `${Math.floor(cents / 100)}.${String(cents % 100).padStart(2, '0')}`
 
+  // Written once for every run rather than per run: macOS checks a newly
+  // written executable on its first exec, which cost more than the step.
+  const fakes = mkdtempSync(path.join(tmpdir(), 'judge-estimate-bin-'))
+  writeFileSync(
+    path.join(fakes, 'npx'),
+    '#!/bin/bash\necho "$*" >> "$FAKE_DIR/npx.args"\n' +
+      'if [ -n "$FAKE_CLI_FAILS" ]; then\n' +
+      '  [[ "$*" == *--reference* ]] || exit 1\n' +
+      'fi\n' +
+      'cat "$FAKE_DIR/plan.fixture"\n' +
+      '[ -z "$FAKE_CLI_FAILS" ] || exit "$FAKE_CLI_FAILS"\n',
+  )
+  // Stands in for the base ref's files; a GitHub API that does not answer
+  // must not fail the step.
+  writeFileSync(
+    path.join(fakes, 'gh'),
+    '#!/bin/bash\necho "$*" >> "$FAKE_DIR/gh.args"\ncase "$FAKE_GH" in\n' +
+      Object.entries({
+        ok: 'echo "// $*"',
+        '404': 'echo "gh: Not Found (HTTP 404)" >&2; exit 1',
+        '403': 'echo "gh: Forbidden (HTTP 403)" >&2; exit 1',
+        error: 'echo "gh: Bad Gateway (HTTP 502)" >&2; exit 1',
+      })
+        .map(([answer, body]) => `  ${answer}) ${body} ;;\n`)
+        .join('') +
+      'esac\n',
+  )
+  chmodSync(path.join(fakes, 'npx'), 0o755)
+  chmodSync(path.join(fakes, 'gh'), 0o755)
+
   // Run, not read, with the WHOLE run block and a fake `npx` standing in for
   // the CLI, so no slice boundary decides what is tested. The step is
   // `set -u`, so a variable read before it is set fails here too.
@@ -1563,32 +1600,7 @@ describe('judge.yml sums the prices the CLI puts on the plan', () => {
     // has to be inside the scratch directory.
     const cli = path.join(dir, 'judge/cli.ts')
     execFileSync('mkdir', [path.dirname(cli)])
-    const bin = path.join(dir, 'bin')
-    execFileSync('mkdir', [bin])
     writeFileSync(path.join(dir, 'plan.fixture'), plan)
-    writeFileSync(
-      path.join(bin, 'npx'),
-      `#!/bin/bash\necho "$*" >> "${path.join(dir, 'npx.args')}"\n` +
-        (cliFails === undefined
-          ? ''
-          : `[[ "$*" == *--reference* ]] || exit 1\n`) +
-        `cat "${path.join(dir, 'plan.fixture')}"\n` +
-        (cliFails === undefined ? '' : `exit ${cliFails}\n`),
-    )
-    // Stands in for the base ref's files; a GitHub API that does not answer
-    // must not fail the step.
-    writeFileSync(
-      path.join(bin, 'gh'),
-      `#!/bin/bash\necho "$*" >> "${path.join(dir, 'gh.args')}"\n` +
-        {
-          ok: `echo "// $*"\n`,
-          '404': 'echo "gh: Not Found (HTTP 404)" >&2; exit 1\n',
-          '403': 'echo "gh: Forbidden (HTTP 403)" >&2; exit 1\n',
-          error: 'echo "gh: Bad Gateway (HTTP 502)" >&2; exit 1\n',
-        }[gh],
-    )
-    chmodSync(path.join(bin, 'npx'), 0o755)
-    chmodSync(path.join(bin, 'gh'), 0o755)
     const output = path.join(dir, 'output')
     writeFileSync(output, '')
     writeFileSync(path.join(dir, 'summary'), '')
@@ -1601,7 +1613,10 @@ describe('judge.yml sums the prices the CLI puts on the plan', () => {
         encoding: 'utf8',
         stdio: 'pipe',
         env: {
-          PATH: `${bin}:${process.env.PATH ?? ''}`,
+          PATH: `${fakes}:${process.env.PATH ?? ''}`,
+          FAKE_DIR: dir,
+          FAKE_GH: gh,
+          FAKE_CLI_FAILS: cliFails === undefined ? '' : String(cliFails),
           RUNNER_TEMP: dir,
           GITHUB_OUTPUT: output,
           GITHUB_STEP_SUMMARY: path.join(dir, 'summary'),

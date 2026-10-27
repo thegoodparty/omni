@@ -10,7 +10,12 @@ import { Cron } from '@nestjs/schedule'
 import { subMinutes } from 'date-fns'
 import { PinoLogger } from 'nestjs-pino'
 import { z } from 'zod'
-import { Campaign, Organization, User } from '../../../generated/prisma'
+import {
+  Campaign,
+  Organization,
+  PhoneListBuildStatus,
+  User,
+} from '../../../generated/prisma'
 import { CampaignTcrComplianceService } from '../../../campaigns/tcrCompliance/services/campaignTcrCompliance.service'
 import { MAX_RESOLVED_ID_SET_SIZE } from '@/contactInteraction/services/activityConditionResolution.service'
 import { ContactInteractionTextService } from '@/contactInteraction/services/contactInteractionText.service'
@@ -341,8 +346,17 @@ export class P2pPhoneListUploadService {
       return true
     } catch (error) {
       if (error instanceof HttpException) {
-        // runBuild already called markBuildFailed before throwing — a
-        // permanent, client-input-shaped failure. Ack; retrying can't help.
+        // Every permanent rejection has already moved the row off `building`
+        // (markBuildFailed). A Peerly upload failure the vendor layer wrapped
+        // as a 502 hasn't: the row is still `building`, so hand it back for
+        // an immediate retry instead of leaving it for the 20-minute reaper.
+        const row = await this.peerlyPhoneListCapture.findFirst({
+          where: { id: buildId },
+          select: { buildStatus: true },
+        })
+        if (row?.buildStatus === PhoneListBuildStatus.building) {
+          await this.reclaimStaleBuild(buildId, new Date())
+        }
         return true
       }
       // Transient (people-db, S3, a Peerly 5xx/network, or anything

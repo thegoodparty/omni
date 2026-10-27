@@ -389,6 +389,45 @@ describe('ClerkAuthService', () => {
       vi.useRealTimers()
     })
 
+    it('does not time out an M2M JWT verified locally with CLERK_JWT_KEY', async () => {
+      vi.stubEnv('CLERK_JWT_KEY', 'pem-public-key')
+      m2mVerify.mockImplementation(
+        () =>
+          new Promise((resolve) =>
+            setTimeout(
+              () =>
+                resolve({
+                  id: 'm2m_1',
+                  subject: 'mch_machine',
+                  expired: false,
+                }),
+              CLERK_API_TIMEOUT_MS * 5,
+            ),
+          ),
+      )
+
+      const pending = service.verifyM2MJwt(jwt.sign({ sub: 'mch_m' }, 'k'))
+      await vi.advanceTimersByTimeAsync(CLERK_API_TIMEOUT_MS * 5)
+
+      await expect(pending).resolves.toEqual({
+        id: 'm2m_1',
+        subject: 'mch_machine',
+      })
+      vi.unstubAllEnvs()
+    })
+
+    it('still times out an M2M JWT when CLERK_JWT_KEY is unset', async () => {
+      vi.stubEnv('CLERK_JWT_KEY', '')
+      m2mVerify.mockReturnValue(hangForever())
+
+      const pending = service.verifyM2MJwt(jwt.sign({ sub: 'mch_m' }, 'k'))
+      const assertion = expect(pending).rejects.toThrow(UnauthorizedException)
+      await vi.advanceTimersByTimeAsync(CLERK_API_TIMEOUT_MS)
+
+      await assertion
+      vi.unstubAllEnvs()
+    })
+
     it('rejects a hung M2M verification rather than hanging', async () => {
       m2mVerify.mockReturnValue(hangForever())
 

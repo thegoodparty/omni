@@ -16,12 +16,12 @@ export const TEMPLATE_PREFIX = 'gp_api_tmpl_'
 // clone takes it in shared mode.
 export const TEMPLATE_LOCK_KEY = 847_213_559
 
-// Durability buys nothing here and costs a lot: the per-test reset TRUNCATEs,
-// and TRUNCATE's commit has to sync a freshly created relation file per table.
-// That measured at ~350-400ms per reset on the defaults versus ~10ms with
-// these off — the margin that decides whether a reset survives a contended CI
-// runner or trips its hook timeout. The container is thrown away after the
-// run, so all that is given up is crash recovery.
+// Durability buys nothing here and costs a lot: every test commits many small
+// writes, and the per-test reset commits a DELETE across every table. Each of
+// those commits otherwise waits on a sync, which on a contended CI runner is
+// the margin between a reset finishing and tripping its hook timeout. The
+// container is thrown away after the run, so all that is given up is crash
+// recovery.
 const NO_DURABILITY = [
   '-c',
   'fsync=off',

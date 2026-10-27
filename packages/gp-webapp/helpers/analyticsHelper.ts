@@ -1,5 +1,6 @@
 import { kebabCase } from 'es-toolkit'
 import { segmentTrackEvent } from './segmentHelper'
+import { pushSignUpToDataLayer } from './gtmDataLayer'
 import cookie from 'js-cookie'
 import type { Analytics } from '@segment/analytics-next'
 import type { OrganizationRole } from '@goodparty_org/contracts'
@@ -33,6 +34,25 @@ export const setActorRole = (
   value: OrganizationRole | null | undefined,
 ): void => {
   actorRole = value
+}
+
+export type ActiveProduct = 'win' | 'serve'
+
+// Serve when the org has an elected office, else Win. No org yet gives null.
+export const toActiveProduct = (
+  org: { electedOfficeId?: string | null } | undefined,
+): ActiveProduct | null => {
+  if (!org) return null
+  return org.electedOfficeId ? 'serve' : 'win'
+}
+
+// Named differently from `product` on purpose: the governed outreach metrics
+// exclude on `product`, so filling it on every event would change them.
+let activeProduct: ActiveProduct | null | undefined
+export const setActiveProduct = (
+  value: ActiveProduct | null | undefined,
+): void => {
+  activeProduct = value
 }
 
 const UTM_KEYS = [
@@ -1019,6 +1039,10 @@ export const trackRegistrationCompleted = async ({
     signUpMethod,
     ...attributionTraits,
   })
+
+  // GA4 only sees what GTM can observe; the Segment event above never
+  // reaches it. See helpers/gtmDataLayer.ts.
+  pushSignUpToDataLayer({ userId, method: signUpMethod })
 }
 
 export const persistUtmsOnce = (): void => {
@@ -1124,6 +1148,7 @@ export const trackEvent = (
       impersonation: isImpersonating,
       actorUserId: actorUserId ?? null,
       actorRole: actorRole ?? null,
+      activeProduct: activeProduct ?? null,
     }
     // Return the segmentTrackEvent promise so callers that need the event to
     // flush before a page unload (e.g. a redirect) can await it.

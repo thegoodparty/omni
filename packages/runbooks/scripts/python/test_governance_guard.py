@@ -210,6 +210,46 @@ def test_a_new_key_with_a_colon_and_no_provenance_row_warns():
     assert rules == ["naming", "no_provenance_row"]
 
 
+def _new_event_snaps(product: str):
+    web = WEB_REG.replace("    Saved: 'Settings - Saved',\n",
+                          "    Saved: 'Settings - Saved',\n    Opened: 'Settings - Opened',\n")
+    prov = "event_type,product\nSettings - Saved,\n"
+    head_prov = prov + f"Settings - Opened,{product}\n"
+    return (gg.build_snapshot(tree({}, provenance=prov)),
+            gg.build_snapshot(tree({}, web=web, provenance=head_prov)))
+
+
+def test_new_event_without_product_warns(tmp_path):
+    web = WEB_REG.replace("    Saved: 'Settings - Saved',\n",
+                          "    Saved: 'Settings - Saved',\n    Opened: 'Settings - Opened',\n")
+    prov = "event_type,product\nSettings - Saved,\nSettings - Opened,\n"
+    _git(tmp_path, "init", "-q")
+    base = _commit(tmp_path, {gg.WEB_REGISTRY: WEB_REG, gg.API_REGISTRY: API_REG,
+                              gg.WATCHLIST: WATCHLIST_YAML, gg.PROVENANCE: "event_type,product\nSettings - Saved,\n"},
+                   "base")
+    head = _commit(tmp_path, {gg.WEB_REGISTRY: web, gg.PROVENANCE: prov}, "head")
+    out = tmp_path / "g.json"
+    code = gg.main(["check", "--base", base, "--head", head, "--repo", str(tmp_path), "--json", str(out)])
+    report = json.loads(out.read_text())
+    assert code == 0 and not report["blocks"]
+    [f] = [w for w in report["warns"] if w["rule"] == "no_product_label"]
+    assert f["event"] == "Settings - Opened" and f["level"] == "warn"
+    assert len(report["warns"]) == 1
+
+
+def test_new_event_with_product_is_quiet():
+    base, head = _new_event_snaps("serve")
+    assert gg.new_key_warnings(base, head) == []
+
+
+def test_a_new_event_with_no_row_warns_once():
+    web = WEB_REG.replace("    Saved: 'Settings - Saved',\n",
+                          "    Saved: 'Settings - Saved',\n    Opened: 'Settings - Opened',\n")
+    base = gg.build_snapshot(tree({}))
+    head = gg.build_snapshot(tree({}, web=web))
+    assert [f.rule for f in gg.new_key_warnings(base, head)] == ["no_provenance_row"]
+
+
 def test_a_directory_surface_counts_as_present_by_its_files():
     story = "packages/gp-webapp/app/dashboard/story"
     page = f"{story}/Page.tsx"

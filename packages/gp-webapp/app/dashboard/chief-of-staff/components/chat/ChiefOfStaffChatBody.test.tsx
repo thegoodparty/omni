@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createRef } from 'react'
-import { fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { router } from 'helpers/test-utils/router-mocking'
@@ -174,6 +174,10 @@ beforeEach(() => {
   window.localStorage.clear()
 })
 
+afterEach(() => {
+  vi.useRealTimers()
+})
+
 describe('<ChiefOfStaffChatBody>', () => {
   describe('message action bar', () => {
     const replayOneTurn = () => {
@@ -233,12 +237,12 @@ describe('<ChiefOfStaffChatBody>', () => {
   })
 
   it('streams the intro on the first chat', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
     listConversationsMock.mockResolvedValue([])
     render(<ChiefOfStaffChatBody active />)
-    await waitFor(
-      () =>
-        expect(screen.getByText(COS_INTRO_MESSAGES[0]!)).toBeInTheDocument(),
-      { timeout: 4000 },
+    await act(() => vi.advanceTimersByTimeAsync(5000))
+    await waitFor(() =>
+      expect(screen.getByText(COS_INTRO_MESSAGES[0]!)).toBeInTheDocument(),
     )
   })
 
@@ -498,7 +502,8 @@ describe('<ChiefOfStaffChatBody>', () => {
   })
 
   it('reveals streamed text gradually instead of dumping the chunk', async () => {
-    const user = userEvent.setup()
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     createMock.mockResolvedValue({ conversationId: 'conv_1' })
     const long = 'word '.repeat(120).trim()
     streamMessageMock.mockReturnValue(
@@ -521,9 +526,8 @@ describe('<ChiefOfStaffChatBody>', () => {
     await waitFor(() => expect(screen.getByText(/^word/)).toBeInTheDocument())
     expect(screen.queryByText(long)).not.toBeInTheDocument()
     // ...and finishes revealing shortly after.
-    await waitFor(() => expect(screen.getByText(long)).toBeInTheDocument(), {
-      timeout: 6000,
-    })
+    await act(() => vi.advanceTimersByTimeAsync(6000))
+    await waitFor(() => expect(screen.getByText(long)).toBeInTheDocument())
   })
 
   it('types in a seeded assistant-only transcript instead of dumping it', async () => {
@@ -540,6 +544,7 @@ describe('<ChiefOfStaffChatBody>', () => {
       },
     ])
 
+    vi.useFakeTimers({ shouldAdvanceTime: true })
     render(<ChiefOfStaffChatBody active conversationIdOverride="conv_greet" />)
 
     // Typing has begun (a prefix is visible) but the full greeting has not
@@ -549,12 +554,10 @@ describe('<ChiefOfStaffChatBody>', () => {
     )
     expect(screen.queryByText(greeting)).not.toBeInTheDocument()
     // It finishes typing and stays (committed to history).
-    await waitFor(
-      () => expect(screen.getByText(greeting)).toBeInTheDocument(),
-      {
-        timeout: 6000,
-      },
-    )
+    await act(async () => {
+      vi.advanceTimersByTime(6000)
+    })
+    await waitFor(() => expect(screen.getByText(greeting)).toBeInTheDocument())
   })
 
   it('surfaces a retryable error when the stream errors', async () => {
@@ -935,6 +938,7 @@ describe('<ChiefOfStaffChatBody>', () => {
       ]),
     )
 
+    vi.useFakeTimers({ shouldAdvanceTime: true })
     render(
       <ChiefOfStaffChatBody
         active
@@ -948,6 +952,7 @@ describe('<ChiefOfStaffChatBody>', () => {
       expect(screen.getByText('earlier answer')).toBeInTheDocument(),
     )
     // ...and the kickoff streams its reply.
+    await act(() => vi.advanceTimersByTimeAsync(5000))
     await waitFor(() =>
       expect(
         screen.getByText('Kickoff into the resumed chat.'),
@@ -1091,6 +1096,7 @@ describe('<ChiefOfStaffChatBody>', () => {
       },
     ])
 
+    vi.useFakeTimers({ shouldAdvanceTime: true })
     render(
       <ChiefOfStaffChatBody
         active
@@ -1101,14 +1107,15 @@ describe('<ChiefOfStaffChatBody>', () => {
     )
 
     // The prior kickoff reply loads (assistant messages, no user turn). Both
-    // bubbles type in on a real interval (~900ms), overrunning waitFor's 1s
-    // default on a loaded CI box.
-    await waitFor(
-      () =>
-        expect(
-          screen.getByText('Here is what I found for your week.'),
-        ).toBeInTheDocument(),
-      { timeout: 6000 },
+    // bubbles type in on an interval.
+    await screen.findByText(/^Welcome/)
+    await act(async () => {
+      vi.advanceTimersByTime(5000)
+    })
+    await waitFor(() =>
+      expect(
+        screen.getByText('Here is what I found for your week.'),
+      ).toBeInTheDocument(),
     )
     // ...and the starter chips do not re-appear.
     expect(
@@ -1287,7 +1294,8 @@ describe('<ChiefOfStaffChatBody>', () => {
     })
 
     it('shows the step under the kickoff’s reply, and sends it into the same conversation', async () => {
-      const user = userEvent.setup()
+      vi.useFakeTimers({ shouldAdvanceTime: true })
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
       render(
         <ChiefOfStaffChatBody
           active
@@ -1302,11 +1310,8 @@ describe('<ChiefOfStaffChatBody>', () => {
         screen.queryByRole('button', { name: 'Build my panel' }),
       ).not.toBeInTheDocument()
 
-      const cta = await screen.findByRole(
-        'button',
-        { name: 'Build my panel' },
-        { timeout: 5000 },
-      )
+      await act(() => vi.advanceTimersByTimeAsync(5000))
+      const cta = await screen.findByRole('button', { name: 'Build my panel' })
       expect(screen.getByText(REPLY)).toBeInTheDocument()
 
       await user.click(cta)
@@ -1320,6 +1325,7 @@ describe('<ChiefOfStaffChatBody>', () => {
         ),
       )
       expect(createMock).toHaveBeenCalledTimes(1)
+      await act(() => vi.advanceTimersByTimeAsync(5000))
       await waitFor(() =>
         expect(screen.getByText('Here is the math.')).toBeInTheDocument(),
       )
@@ -1330,6 +1336,7 @@ describe('<ChiefOfStaffChatBody>', () => {
     })
 
     it('shows nothing when the kickoff has no next step', async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true })
       render(
         <ChiefOfStaffChatBody
           active
@@ -1338,6 +1345,7 @@ describe('<ChiefOfStaffChatBody>', () => {
           suggestions={[]}
         />,
       )
+      await act(() => vi.advanceTimersByTimeAsync(5000))
       await waitFor(() => expect(screen.getByText(REPLY)).toBeInTheDocument())
       // Not the built-in starter chips either.
       expect(
@@ -1406,6 +1414,7 @@ describe('<ChiefOfStaffChatBody>', () => {
       },
     ])
 
+    vi.useFakeTimers({ shouldAdvanceTime: true })
     render(
       <ChiefOfStaffChatBody
         active
@@ -1416,20 +1425,21 @@ describe('<ChiefOfStaffChatBody>', () => {
 
     // The assistant turns render (typed in — only assistant turns remain visible
     // once the sentinel user turn is filtered)...
-    await waitFor(
-      () =>
-        expect(
-          screen.getByText('Welcome back to your campaign.'),
-        ).toBeInTheDocument(),
-      { timeout: 6000 },
+    await screen.findByText(/^Welcome/)
+    await act(async () => {
+      vi.advanceTimersByTime(5000)
+    })
+    await waitFor(() =>
+      expect(
+        screen.getByText('Welcome back to your campaign.'),
+      ).toBeInTheDocument(),
     )
     // ...the raw sentinel user turn is never shown as a bubble...
     expect(screen.queryByText('__start_story__')).not.toBeInTheDocument()
     // ...but its assistant reply still renders (the engine reconciles against
     // the server transcript, so only the raw sentinel string is hidden).
-    await waitFor(
-      () => expect(screen.getByText('Tell me your why.')).toBeInTheDocument(),
-      { timeout: 6000 },
+    await waitFor(() =>
+      expect(screen.getByText('Tell me your why.')).toBeInTheDocument(),
     )
   })
 
@@ -1458,6 +1468,7 @@ describe('<ChiefOfStaffChatBody>', () => {
       },
     ])
 
+    vi.useFakeTimers({ shouldAdvanceTime: true })
     render(
       <ChiefOfStaffChatBody
         active
@@ -1466,12 +1477,14 @@ describe('<ChiefOfStaffChatBody>', () => {
       />,
     )
 
-    await waitFor(
-      () =>
-        expect(
-          screen.getByText('Here is what your campaign manager can do.'),
-        ).toBeInTheDocument(),
-      { timeout: 6000 },
+    await screen.findByText(/^Welcome/)
+    await act(async () => {
+      vi.advanceTimersByTime(5000)
+    })
+    await waitFor(() =>
+      expect(
+        screen.getByText('Here is what your campaign manager can do.'),
+      ).toBeInTheDocument(),
     )
     expect(screen.queryByText('__product_overview__')).not.toBeInTheDocument()
   })
@@ -2467,6 +2480,7 @@ describe('<ChiefOfStaffChatBody> upload racing the status poll', () => {
         resolveUpload = resolve
       }),
     )
+    vi.useFakeTimers({ shouldAdvanceTime: true })
     const { container } = render(
       <ChiefOfStaffChatBody active conversationIdOverride="conv" />,
     )
@@ -2477,7 +2491,8 @@ describe('<ChiefOfStaffChatBody> upload racing the status poll', () => {
         files: [new File(['x'], 'budget.pdf', { type: 'application/pdf' })],
       },
     })
-    await waitFor(() => expect(polled).toHaveBeenCalled(), { timeout: 5_000 })
+    await act(() => vi.advanceTimersByTimeAsync(3_000))
+    await waitFor(() => expect(polled).toHaveBeenCalled())
     await waitFor(() =>
       expect(
         screen.getAllByRole('button', { name: 'Remove budget.pdf' }),
@@ -2492,7 +2507,7 @@ describe('<ChiefOfStaffChatBody> upload racing the status poll', () => {
       failureReason: null,
     })
     // With every row ready the poll stops, so a duplicate would stay put.
-    await new Promise((resolve) => setTimeout(resolve, 3_500))
+    await act(() => vi.advanceTimersByTimeAsync(3_500))
     expect(
       screen.getAllByRole('button', { name: 'Remove budget.pdf' }),
     ).toHaveLength(1)
@@ -3108,7 +3123,8 @@ describe('the managed civic panel explainer', () => {
     trackEventMock.mock.calls.filter(([name]) => name === event)
 
   it('records the explainer from the home card, and how it was answered', async () => {
-    const user = userEvent.setup()
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     listConversationsMock.mockResolvedValue([])
     createMock.mockResolvedValue({ conversationId: 'conv_m' })
     streamExplainer()
@@ -3122,6 +3138,7 @@ describe('the managed civic panel explainer', () => {
       />,
     )
 
+    await act(() => vi.advanceTimersByTimeAsync(5000))
     await waitFor(() =>
       expect(
         screen.getByRole('radio', { name: SHOW_MANAGED_CIVIC_PANEL_INVITE }),
@@ -3218,7 +3235,8 @@ describe('the managed civic panel explainer', () => {
   })
 
   it('completes each offer once: the first, then the follow-up after How does it work?', async () => {
-    const user = userEvent.setup()
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     const howItWorks = 'How does it work?'
     const followUp = [
       ...explainerTurn(),
@@ -3271,6 +3289,7 @@ describe('the managed civic panel explainer', () => {
     )
     listMessagesMock.mockResolvedValue(followUp)
     await user.click(screen.getByRole('radio', { name: howItWorks }))
+    await act(() => vi.advanceTimersByTimeAsync(5000))
     // The follow-up offer is the last Show me the invite, and the only one
     // still open.
     const lastShow = () =>
@@ -3287,11 +3306,13 @@ describe('the managed civic panel explainer', () => {
     streamMessageMock.mockReturnValueOnce(reply('Here is the invite.', 'a3'))
     listMessagesMock.mockResolvedValue(shown)
     await user.click(lastShow())
+    await act(() => vi.advanceTimersByTimeAsync(5000))
     await screen.findByText('Here is the invite.')
 
     streamMessageMock.mockReturnValueOnce(reply('Any time.', 'a4'))
     listMessagesMock.mockResolvedValue(after)
     await user.type(screen.getByRole('textbox'), 'Thanks{Enter}')
+    await act(() => vi.advanceTimersByTimeAsync(5000))
     await screen.findByText('Any time.')
 
     expect(completed()).toEqual([

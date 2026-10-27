@@ -63,7 +63,7 @@ See `src/analytics/analytics.service.test.ts` for a worked example.
 
 ## Pattern 3: `useTestService()`
 
-Spins up a real Postgres in Docker, runs migrations, bootstraps the full Nest app, and exposes an authed Axios client plus a Prisma client. Each test file gets its own database; tables are truncated between tests. Default authenticated user id is `123`.
+Spins up a real Postgres in Docker, runs migrations, bootstraps the full Nest app, and exposes an authed Axios client plus a Prisma client. Each test file gets its own database; every table is emptied between tests. Default authenticated user id is `123`.
 
 ```ts
 import { useTestService } from '@/test-service'
@@ -109,8 +109,37 @@ Under `src/shared/test-utils/`:
 - `createMockLogger()` — a fully-stubbed `PinoLogger`
 - `createMockClerkEnricher()` — stub for `ClerkUserEnricherService`
 - `createMockUser()`, `createMockCampaign()`, etc. — factories under `factories/`
+- `appEnvOverrides`, `useAppEnvOverrides()`, `disableVendorCrons()` — flip the deploy-env constants in `appEnvironment.util` (`IS_NON_PROD_DEPLOY`, `VENDOR_MODE`, `VENDOR_CRONS_ENABLED`, `APP_ROOT`, `WEBAPP_ROOT`)
 
 Prefer these over re-rolling stubs.
+
+## Module mocks
+
+Avoid `vi.mock`. Any file that calls it (or `vi.doMock`, `vi.unmock`, `vi.resetModules`) runs in the `fresh-modules` project and re-imports the whole app graph, ~5s per file; see `## Verify` in `../AGENTS.md`. Spy instead:
+
+```ts
+vi.spyOn(service.app.get(S3Service), 'getFile').mockResolvedValue(body)
+
+import * as sleepUtil from '@/shared/util/sleep.util'
+vi.spyOn(sleepUtil, 'sleep').mockResolvedValue(undefined)
+```
+
+The deploy-env constants are evaluated at import, so `vi.stubEnv` can't flip them. `src/test-app-env-mock.ts` mocks `appEnvironment.util` once for every `shared-modules` file, with getters that read `appEnvOverrides` first:
+
+```ts
+import {
+  appEnvOverrides,
+  useAppEnvOverrides,
+} from '@/shared/test-utils/appEnvOverrides'
+
+useAppEnvOverrides({ IS_NON_PROD_DEPLOY: true }) // file default, set before the app boots
+
+it('404s on a prod deploy', async () => {
+  appEnvOverrides.IS_NON_PROD_DEPLOY = false // this test only
+})
+```
+
+Overrides reset after every test and every file. They reach code that reads the constant when it runs; a value captured at import (the Vercel client and Peerly config resolve `vendorBaseUrl` at import) still needs `vi.mock`.
 
 ## Running tests
 
@@ -127,5 +156,5 @@ npm run verify                                      # lint + tsc + tests
 
 - Mocking Prisma to test SQL behavior. If the test's purpose is "does this query return what I think it returns", use `useTestService()` — a mock just asserts the mock.
 - Asserting on private methods. Test the public surface (controller route, service method).
-- Sharing mutable state between tests in a file. Reset in `beforeEach`. With `useTestService()`, tables are already truncated for you.
+- Sharing mutable state between tests in a file. Reset in `beforeEach`. With `useTestService()`, tables are already emptied for you.
 - Adding a new pattern. If none of the three above fit, raise it before inventing a fourth.

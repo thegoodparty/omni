@@ -28,6 +28,7 @@ import type {
   DoorKnockingTurf,
   ProposalLink,
   RecommendedListVariant,
+  VotedStatus,
 } from '@goodparty_org/contracts'
 import type { TurfDraft } from './turfDrafts'
 import { audienceOptions } from './createFlow/savedListOptions'
@@ -429,6 +430,10 @@ export default function CreateListSurface({
   // no row to look its clauses up in — the flow reports them by value.
   const [recommendedCriteria, setRecommendedCriteria] =
     useState<RecommendedCriteria>(NO_RECOMMENDED_CRITERIA)
+  // The who step's "Voted in election" pills. Held here rather than on the
+  // page beside precincts because nothing outside the flow reads it: the map
+  // cannot shade by it, and this surface unmounts when the flow closes.
+  const [votedStatus, setVotedStatus] = useState<VotedStatus[]>([])
   // Stable, so the flow's own report effect isn't re-run by this component
   // re-rendering. The flow memoises the criteria object it hands over, so
   // both setters bail out when nothing has actually changed.
@@ -493,8 +498,11 @@ export default function CreateListSurface({
       ...(recommendedCriteria.supportStatus.length
         ? { supportStatus: recommendedCriteria.supportStatus }
         : {}),
+      // After the picked list's clause: the pills are seeded from it, so the
+      // two agree until the candidate edits them, which un-picks the list.
+      ...(votedStatus.length ? { votedStatus } : {}),
     }),
-    [filters, selectedList, precincts, recommendedCriteria],
+    [filters, selectedList, precincts, recommendedCriteria, votedStatus],
   )
   // Read back OFF the merged request rather than reassembled from the same
   // three sources, so the map cannot come to shade a different precinct set
@@ -557,6 +565,8 @@ export default function CreateListSurface({
       onFiltersChange={onFiltersChange}
       precincts={precincts}
       onPrecinctsChange={onPrecinctsChange}
+      votedStatus={votedStatus}
+      onVotedStatusChange={setVotedStatus}
       precinctOptions={precinctOptions}
       onStepChange={(next) => {
         // Back to the filters is a re-cut of the audience, and the step

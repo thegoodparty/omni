@@ -425,7 +425,10 @@ const TaskStack = ({
         >
           <div className="flex flex-col gap-1 px-6 py-5">
             {front.managedPanel ? (
-              <ManagedPanelSeats className="mx-auto mb-4 md:max-w-[360px]" />
+              <ManagedPanelSeats
+                place={place}
+                className="mx-auto mb-4 md:max-w-[360px]"
+              />
             ) : null}
             {/* No overline: the title leads. See design-memory learned.md. */}
             <h3 className="font-opensans text-lg font-medium text-card-foreground">

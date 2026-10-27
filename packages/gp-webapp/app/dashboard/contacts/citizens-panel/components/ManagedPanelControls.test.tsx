@@ -47,12 +47,7 @@ const mockPatch = () => {
   const actions: string[] = []
   api.mock('PATCH /v1/contacts/civic-panel/managed', ({ body }) => {
     actions.push(body.action)
-    const next =
-      body.action === 'pause'
-        ? 'paused'
-        : body.action === 'resume'
-          ? 'building'
-          : 'stopped'
+    const next = body.action === 'pause' ? 'paused' : 'building'
     return { status: 200, data: { panel: panel(next) } }
   })
   return actions
@@ -115,32 +110,42 @@ describe('ManagedPanelControls', () => {
     expect(screen.queryByText('Next invites')).toBeNull()
   })
 
-  it('stops the panel only once the official confirms', async () => {
+  it('offers only Pause invites while building', () => {
+    render(<ManagedPanelControls panel={panel('building')} />)
+
+    expect(screen.getAllByRole('button').map((b) => b.textContent)).toEqual([
+      'Pause invites',
+    ])
+  })
+
+  it('resumes a paused panel through the PATCH route, with no other button', async () => {
     const user = userEvent.setup()
     const actions = mockPatch()
     render(<ManagedPanelControls panel={panel('paused')} />)
 
-    await user.click(
-      screen.getByRole('button', { name: 'Stop my civic panel' }),
-    )
+    expect(screen.getAllByRole('button').map((b) => b.textContent)).toEqual([
+      'Resume invites',
+    ])
+    await user.click(screen.getByRole('button', { name: 'Resume invites' }))
+
+    await waitFor(() => expect(actions).toEqual(['resume']))
     expect(
-      screen.getByRole('heading', { name: 'Stop building your civic panel?' }),
+      await screen.findByText("We're sending invites in your name."),
     ).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'Keep building' }))
-    expect(actions).toEqual([])
+    expect(
+      screen.getByRole('button', { name: 'Pause invites' }),
+    ).toBeInTheDocument()
+  })
 
-    await user.click(
-      screen.getByRole('button', { name: 'Stop my civic panel' }),
-    )
-    const dialogButtons = screen.getAllByRole('button', {
-      name: 'Stop my civic panel',
-    })
-    await user.click(dialogButtons[dialogButtons.length - 1] as HTMLElement)
+  it('says a full panel sends no new invites, with no button', () => {
+    render(<ManagedPanelControls panel={panel('ready')} />)
 
-    await waitFor(() => expect(actions).toEqual(['stop']))
-    await waitFor(() =>
-      expect(screen.queryByTestId('managed-panel-controls')).toBeNull(),
-    )
+    expect(
+      screen.getByText(
+        'Your civic panel is full. No new invites are going out.',
+      ),
+    ).toBeInTheDocument()
+    expect(screen.queryAllByRole('button')).toEqual([])
   })
 
   it('redraws the card in its real state when the status moved since the page loaded', async () => {
@@ -185,7 +190,7 @@ describe('ManagedPanelControls', () => {
     ).toBeInTheDocument()
   })
 
-  it('says every resident we can text has an invite, with no link and no pause', () => {
+  it('says every resident we can text has an invite, with no link and no button', () => {
     render(<ManagedPanelControls panel={panel('exhausted')} />)
 
     expect(
@@ -193,7 +198,7 @@ describe('ManagedPanelControls', () => {
     ).toBeInTheDocument()
     expect(screen.queryByTestId('managed-panel-join-link')).toBeNull()
     expect(screen.queryByText(/link/i)).toBeNull()
-    expect(screen.queryByRole('button', { name: 'Pause invites' })).toBeNull()
+    expect(screen.queryAllByRole('button')).toEqual([])
   })
 
   it('shows nothing for a stopped panel', () => {

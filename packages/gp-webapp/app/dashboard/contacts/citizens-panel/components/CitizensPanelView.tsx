@@ -38,6 +38,7 @@ const stageOf = (
   if (managed?.status === 'ready' || (goal > 0 && members >= goal)) {
     return 'ready'
   }
+  if (managed?.status === 'paused') return 'paused'
   return members === 0 ? 'start' : 'building'
 }
 
@@ -116,6 +117,7 @@ export const CitizensPanelView = ({
               members={summary.members}
               goal={progress.goal}
               placeKind={composition?.placeKind}
+              place={place}
             />
             {summary.members === 0 ? (
               <CivicPanelFirstJoin

@@ -968,8 +968,8 @@ describe('VoterFileStep — Voted in election', () => {
       headings.indexOf('Support status') + 1,
     )
     const pills = screen.getByLabelText('Voted in election')
-    expect(within(pills).getByText('Already voted')).toBeInTheDocument()
-    expect(within(pills).getByText('Unknown')).toBeInTheDocument()
+    expect(within(pills).getByText('Yes')).toBeInTheDocument()
+    expect(within(pills).getByText('No/Unknown')).toBeInTheDocument()
   })
 
   it('stays off the surfaces that do not pass it', () => {
@@ -1008,7 +1008,9 @@ describe('VoterFileStep — Voted in election', () => {
     renderStep({ votedStatus: [], onVotedStatusChange })
 
     await user.click(
-      within(screen.getByLabelText('Voted in election')).getByText('Unknown'),
+      within(screen.getByLabelText('Voted in election')).getByText(
+        'No/Unknown',
+      ),
     )
 
     expect(onVotedStatusChange).toHaveBeenCalledWith(['unknown'])

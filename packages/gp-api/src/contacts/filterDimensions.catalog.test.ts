@@ -298,6 +298,17 @@ describe('ContactsService.getFilterDimensions', () => {
     expect(serveKeys).not.toContain('earlyVote')
   })
 
+  it('labels Voted in election Yes and No/Unknown', () => {
+    const voted = buildService()
+      .getFilterDimensions(organization('win-campaign'), PANELS_ON)
+      .find((d) => d.key === 'votedStatus')
+    expect(voted?.kind).toBe('multi-value')
+    expect(
+      voted?.kind === 'multi-value' && voted.values.map((v) => v.label),
+    ).toEqual(['Yes', 'No/Unknown'])
+    expect(voted?.provenance).toBe('observed')
+  })
+
   // Each mode sees the shared dimensions plus only its own. Stated
   // symmetrically because both products now have exclusives — this used to
   // assert Win-minus-win-only === Serve outright, which held only while

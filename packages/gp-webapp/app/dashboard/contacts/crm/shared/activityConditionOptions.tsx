@@ -149,13 +149,14 @@ export const SUPPORT_STATUS_OPTIONS: {
   { value: 'unknown', label: 'Support Unknown' },
 ]
 
-// "Voted in election" (Win only). Already voted is a voter whose latest
-// will-vote answer this election is Already voted; Unknown is everyone else,
-// including people never asked. Same single-source rule as above.
+// "Voted in election" (Win only). Yes is a voter L2 reports as voting early
+// or by mail, or whose latest will-vote answer this election is Already
+// voted; No/Unknown is everyone else, including people never asked. Same
+// single-source rule as above.
 export const VOTED_STATUS_OPTIONS: {
   value: VotedStatus
   label: string
 }[] = [
-  { value: 'already_voted', label: 'Already voted' },
-  { value: 'unknown', label: 'Unknown' },
+  { value: 'already_voted', label: 'Yes' },
+  { value: 'unknown', label: 'No/Unknown' },
 ]

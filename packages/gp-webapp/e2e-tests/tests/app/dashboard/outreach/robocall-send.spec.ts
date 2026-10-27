@@ -1,7 +1,6 @@
 import { readFileSync } from 'fs'
 import { join } from 'path'
 import { expect, test, type Page } from '@playwright/test'
-import { setFlagOverrides } from 'src/helpers/campaignStory.helper'
 import {
   blockSlowScripts,
   NavigationHelper,
@@ -25,7 +24,6 @@ import type { AxiosInstance } from 'axios'
 // pass compliance → authorize via Stripe → run staging/send/completion/capture
 // jobs → assert Outreach.status = 'completed' and robocall.settleState = 'captured'.
 //
-// Gated behind the `vendor-mocks-m2` feature flag (the dark-launch key for M2).
 // Skips when VENDOR_MODE !== 'mock' (only if dev is rolled back with
 // VENDOR_MODE=live; previews, dev and local gp-api run the mock).
 
@@ -257,8 +255,7 @@ const composeAndAuthorizeRobocall = async (
   page: Page,
   client: AxiosInstance,
 ): Promise<{ outreachId: number; audienceSize: number }> => {
-  // ── Gate the M2 feature flag and relay S3 audio uploads ───────────────
-  await setFlagOverrides(page, { 'vendor-mocks-m2': 'on' })
+  // ── Relay S3 audio uploads ────────────────────────────────────────────
   await relayRobocallAudioUploads(page)
 
   // ── 4. Pre-create a voter file filter so the audience picker has a row ───
@@ -502,11 +499,18 @@ test.describe('Robocall send — M2 mock pipeline', () => {
     await NavigationHelper.dismissOverlays(page)
     const row = page.locator(`#outreach-row-${outreachId}`)
     await expect(row).toBeVisible({ timeout: 30_000 })
-    await row.click()
-
+    // The page is loaded on domcontentloaded, so the row click can land before
+    // React hydrates and be dropped, leaving the drawer closed. Retry until the
+    // drawer's footer button shows.
+    //
     // The footer button and the confirm dialog's action share the label, so
     // scope the second to the dialog.
-    await page.getByRole('button', { name: 'Cancel campaign' }).click()
+    const cancelButton = page.getByRole('button', { name: 'Cancel campaign' })
+    await expect(async () => {
+      if (!(await cancelButton.isVisible())) await row.click({ timeout: 2_000 })
+      await expect(cancelButton).toBeVisible({ timeout: 3_000 })
+    }).toPass({ timeout: 30_000 })
+    await cancelButton.click()
     const confirmDialog = page.getByRole('alertdialog')
     await expect(confirmDialog).toContainText('Cancel this campaign?')
     const cancelRequest = page.waitForResponse(

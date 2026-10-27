@@ -299,7 +299,8 @@ test.describe('Win — turf route via Geoapify mock', () => {
           )
           return data.completed
         },
-        { timeout: 10_000 },
+        // The mutation can queue behind a loaded dev gp-api for >10s (ENG-11477).
+        { timeout: 30_000 },
       )
       .toBe(true)
   })
@@ -473,7 +474,8 @@ test.describe('Serve — turf route via Geoapify mock', () => {
           )
           return data.completed
         },
-        { timeout: 10_000 },
+        // The mutation can queue behind a loaded dev gp-api for >10s (ENG-11477).
+        { timeout: 30_000 },
       )
       .toBe(true)
   })

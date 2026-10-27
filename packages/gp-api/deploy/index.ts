@@ -3,6 +3,7 @@ import * as pulumi from '@pulumi/pulumi'
 import { createAnnotationAttachmentsBucket } from './components/annotation-attachments-bucket'
 import { createChatAttachmentsBucket } from './components/chat-attachments-bucket'
 import { createCampaignPlanSharesBucket } from './components/campaign-plan-shares-bucket'
+import { createDatabricksFederation } from './components/databricks-federation'
 import { createAssetsBucket } from './components/assets-bucket'
 import { createAssetsRouter } from './components/assets-router'
 import { createGrafanaResources } from './components/grafana'
@@ -221,6 +222,24 @@ export = async () => {
 
   const skipPerPrRds = environment === 'preview'
 
+  // Databricks Lakehouse Federation's path into Aurora, see
+  // components/databricks-federation.ts. Previews get none.
+  const databricksFederationName = select({
+    preview: undefined,
+    dev: 'gp-api-db-dev-federation',
+    prod: 'gp-api-db-prod-federation',
+  })
+
+  // Created ahead of the RDS security group, whose inline ingress names it.
+  const databricksFederationProxySecurityGroup = databricksFederationName
+    ? new aws.ec2.SecurityGroup('databricksFederationProxySecurityGroup', {
+        name: `${databricksFederationName}-proxy`,
+        description:
+          'Databricks federation RDS Proxy in front of gp-api Aurora',
+        vpcId,
+      })
+    : undefined
+
   // With the shared preview DB the per-PR cluster is skipped, so its security
   // group and subnet group would be orphaned — skip them too.
   const rdsSecurityGroup = skipPerPrRds
@@ -263,6 +282,17 @@ export = async () => {
             description: 'databricks via vpc peering',
             cidrBlocks: ['172.16.0.0/16'],
           },
+          ...(databricksFederationProxySecurityGroup
+            ? [
+                {
+                  protocol: 'tcp',
+                  fromPort: 5432,
+                  toPort: 5432,
+                  description: 'databricks serverless via federation rds proxy',
+                  securityGroups: [databricksFederationProxySecurityGroup.id],
+                },
+              ]
+            : []),
           ...select({
             preview: [],
             // TODOSWAIN: investigate whether these are truly needed in dev
@@ -350,6 +380,22 @@ export = async () => {
         engine: aws.rds.EngineType.AuroraPostgresql,
         engineVersion: rdsCluster!.engineVersion,
       })
+
+  const databricksFederation =
+    databricksFederationName &&
+    databricksFederationProxySecurityGroup &&
+    rdsSecurityGroup &&
+    rdsCluster
+      ? createDatabricksFederation({
+          name: databricksFederationName,
+          vpcId,
+          publicSubnetIds: vpcSubnetIds.public,
+          privateSubnetIds: vpcSubnetIds.private,
+          proxySecurityGroup: databricksFederationProxySecurityGroup,
+          rdsSecurityGroupId: rdsSecurityGroup.id,
+          clusterIdentifier: rdsCluster.clusterIdentifier,
+        })
+      : undefined
 
   // Previews read the shared dev election cluster and must not own it.
   if (environment !== 'preview') {
@@ -845,5 +891,6 @@ jwIDAQAB
 
   return {
     serviceUrl: service.url,
+    databricksFederationHost: databricksFederation?.nlb.dnsName,
   }
 }

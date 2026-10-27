@@ -18,7 +18,7 @@ export const managedCivicPanelOneInN = (share: number): string | null => {
 
 export const managedCivicPanelExplanation = (place: string | null): string =>
   [
-    `Your civic panel is a group of ${place ? `${place} residents` : 'residents'}, from every age group, neighborhood, gender and race, who've said yes to hearing from your office. Before a big vote, you can ask them and hear from the whole city, not just the people at the podium.`,
+    `Your civic panel is a group of ${place ? `${place} residents` : 'residents'}, from every age group, neighborhood, gender and race, who've said yes to hearing from your office. You can turn to them whenever you want to hear from the whole city, not just the people at the podium: before a big vote, while you're shaping a policy, or when you want to understand an issue more deeply.`,
     "Your part is approving one invite. We gather the residents for you, in your name. It's free in early access.",
   ].join('\n\n')
 

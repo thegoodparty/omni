@@ -3,21 +3,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
 import { OutreachType } from '@/generated/prisma'
 import { VendorMockRecordService } from '../vendorMockRecord.service'
+import {
+  appEnvOverrides,
+  useAppEnvOverrides,
+} from '@/shared/test-utils/appEnvOverrides'
 
-const { mockMode } = vi.hoisted(() => ({ mockMode: { value: 'mock' } }))
-vi.mock('@/shared/util/appEnvironment.util', async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import('@/shared/util/appEnvironment.util')>()
-  return {
-    ...actual,
-    get IS_NON_PROD_DEPLOY() {
-      return true
-    },
-    get VENDOR_MODE() {
-      return mockMode.value as 'mock' | 'live'
-    },
-  }
-})
+useAppEnvOverrides({ IS_NON_PROD_DEPLOY: true, VENDOR_MODE: 'mock' })
 
 const service = useTestService()
 
@@ -26,7 +17,7 @@ const AUTH = { headers: { Authorization: 'Token mock-key' } }
 
 describe('POST /v1/vendor-mocks/callhub/v1/numbers/rent', () => {
   beforeEach(() => {
-    mockMode.value = 'mock'
+    appEnvOverrides.VENDOR_MODE = 'mock'
   })
 
   it('returns 201 with phone_number', async () => {
@@ -64,7 +55,7 @@ describe('POST /v1/vendor-mocks/callhub/v1/numbers/rent', () => {
   })
 
   it('returns 404 when VENDOR_MODE is live', async () => {
-    mockMode.value = 'live'
+    appEnvOverrides.VENDOR_MODE = 'live'
     const res = await service.client.post(`${BASE}/v1/numbers/rent`, {}, AUTH)
     expect(res.status).toBe(HttpStatus.NOT_FOUND)
   })
@@ -87,7 +78,7 @@ describe('POST /v1/vendor-mocks/callhub/v1/numbers/rent', () => {
 
 describe('POST phonebooks + bulk_create + numbers_count', () => {
   beforeEach(() => {
-    mockMode.value = 'mock'
+    appEnvOverrides.VENDOR_MODE = 'mock'
   })
 
   it('creates phonebook, bulk_creates, counts correctly', async () => {
@@ -168,7 +159,7 @@ describe('POST phonebooks + bulk_create + numbers_count', () => {
 
 describe('POST /v1/vendor-mocks/callhub/v1/media/upload', () => {
   beforeEach(() => {
-    mockMode.value = 'mock'
+    appEnvOverrides.VENDOR_MODE = 'mock'
   })
 
   it('accepts the multipart upload the CallHub client sends', async () => {
@@ -188,7 +179,7 @@ describe('POST /v1/vendor-mocks/callhub/v1/media/upload', () => {
 
 describe('vb_campaign lifecycle', () => {
   beforeEach(() => {
-    mockMode.value = 'mock'
+    appEnvOverrides.VENDOR_MODE = 'mock'
   })
 
   it('creates, reads, updates, and re-reads a vb_campaign', async () => {
@@ -266,7 +257,7 @@ describe('vb_campaign lifecycle', () => {
 
 describe('callhub.campaign.fail', () => {
   beforeEach(() => {
-    mockMode.value = 'mock'
+    appEnvOverrides.VENDOR_MODE = 'mock'
   })
 
   const seedRobocall = async () => {
@@ -346,7 +337,7 @@ describe('callhub.campaign.fail', () => {
 
 describe('export_data', () => {
   beforeEach(() => {
-    mockMode.value = 'mock'
+    appEnvOverrides.VENDOR_MODE = 'mock'
   })
 
   it('returns total_calls >= rows imported', async () => {
@@ -386,7 +377,7 @@ describe('export_data', () => {
 
 describe('auth and mode guards', () => {
   beforeEach(() => {
-    mockMode.value = 'mock'
+    appEnvOverrides.VENDOR_MODE = 'mock'
   })
 
   it('returns 401 on missing auth for phonebooks', async () => {
@@ -409,7 +400,7 @@ describe('auth and mode guards', () => {
   })
 
   it('returns 404 on live mode for phonebooks', async () => {
-    mockMode.value = 'live'
+    appEnvOverrides.VENDOR_MODE = 'live'
     const res = await service.client.post(
       `${BASE}/v1/phonebooks`,
       { name: 'x' },
@@ -419,7 +410,7 @@ describe('auth and mode guards', () => {
   })
 
   it('returns 404 on live mode for dnc_contacts', async () => {
-    mockMode.value = 'live'
+    appEnvOverrides.VENDOR_MODE = 'live'
     const res = await service.client.get(`${BASE}/v1/dnc_contacts`, AUTH)
     expect(res.status).toBe(HttpStatus.NOT_FOUND)
   })

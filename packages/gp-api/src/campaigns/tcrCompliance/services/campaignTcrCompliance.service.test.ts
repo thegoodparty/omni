@@ -46,20 +46,15 @@ import {
   createMockUser,
   createMockCampaign,
 } from '@/shared/test-utils/mockData.util'
+import {
+  appEnvOverrides,
+  useAppEnvOverrides,
+} from '@/shared/test-utils/appEnvOverrides'
 
 // VENDOR_MODE is a module constant, so a test can't flip it through
-// process.env. Default to live mode; the mock-mode tests set `appEnv.mode`.
-const appEnv = vi.hoisted(() => ({ mode: 'live' as 'live' | 'mock' }))
-vi.mock('@/shared/util/appEnvironment.util', async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import('@/shared/util/appEnvironment.util')>()
-  return {
-    ...actual,
-    get VENDOR_MODE() {
-      return appEnv.mode
-    },
-  }
-})
+// process.env. Default to live mode; the mock-mode tests set
+// `appEnvOverrides.VENDOR_MODE`.
+useAppEnvOverrides({ VENDOR_MODE: 'live' })
 
 // Passes the dispatch gate's publishability check: genuine bio (over
 // MIN_BIO_LENGTH plain chars, not the template) + one genuine issue.
@@ -3307,7 +3302,7 @@ describe('CampaignTcrComplianceService - PIN submission', () => {
   }
 
   it('retrieveCampaignVerifyToken does not accept any PIN in non-prod mock mode', async () => {
-    appEnv.mode = 'mock'
+    appEnvOverrides.VENDOR_MODE = 'mock'
     try {
       await withEnv('preview', async () => {
         await expect(
@@ -3316,7 +3311,7 @@ describe('CampaignTcrComplianceService - PIN submission', () => {
         // peerlyIdentityId is null on the stub, so the real guard ran.
       })
     } finally {
-      appEnv.mode = 'live'
+      appEnvOverrides.VENDOR_MODE = 'live'
     }
   })
 
@@ -3324,14 +3319,14 @@ describe('CampaignTcrComplianceService - PIN submission', () => {
     mockPeerly.submitCampaignVerifyTokenToBrand.mockResolvedValueOnce({
       brand: 'ok',
     })
-    appEnv.mode = 'mock'
+    appEnvOverrides.VENDOR_MODE = 'mock'
     try {
       await withEnv('preview', async () => {
         await service.submitCampaignVerifyToken(tcrCompliance, 'token')
         expect(mockPeerly.submitCampaignVerifyTokenToBrand).toHaveBeenCalled()
       })
     } finally {
-      appEnv.mode = 'live'
+      appEnvOverrides.VENDOR_MODE = 'live'
     }
   })
 

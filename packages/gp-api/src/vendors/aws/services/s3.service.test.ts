@@ -49,17 +49,15 @@ vi.mock('slugify', () => ({
 
 describe('S3Service', () => {
   let service: S3Service
-  let originalEnv: NodeJS.ProcessEnv
 
   beforeEach(() => {
-    originalEnv = { ...process.env }
-    process.env.AWS_REGION = 'us-west-2'
+    vi.stubEnv('AWS_REGION', 'us-west-2')
     s3Mock.reset()
     service = new S3Service(createMockLogger())
   })
 
   afterEach(() => {
-    process.env = originalEnv
+    vi.unstubAllEnvs()
     s3Mock.reset()
   })
 

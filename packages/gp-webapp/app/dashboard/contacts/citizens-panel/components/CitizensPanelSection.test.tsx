@@ -119,6 +119,37 @@ describe('CitizensPanelSection', () => {
     expect(screen.getByText('Ready to ask')).toBeInTheDocument()
   })
 
+  it("leads with the panel page's count, not the tract chart's", async () => {
+    api.mock('GET /v1/contacts/civic-panel', {
+      status: 200,
+      data: summary({
+        members: 120,
+        reachedRecently: 30,
+        askableNow: 90,
+        composition: {
+          placeKind: 'tract',
+          places: [
+            { key: '37021000100', name: '1', districtShare: 0.2, members: 110 },
+            { key: '37021000200', name: '2', districtShare: 0.8, members: 10 },
+          ],
+          groups: [],
+        },
+      }),
+    })
+
+    render(<CitizensPanelSection />)
+
+    expect(
+      await screen.findByTestId('citizens-panel-joined'),
+    ).toHaveTextContent('120 of 240 residents have joined')
+    const seats = screen.getByTestId('civic-panel-seats')
+    expect(
+      within(seats).getByText(
+        /of 100 seats filled, counting each tract only up to its share$/,
+      ),
+    ).not.toHaveTextContent(/^50 /)
+  })
+
   it('leaves the seats out when the district could not be read', async () => {
     api.mock('GET /v1/contacts/civic-panel', {
       status: 200,

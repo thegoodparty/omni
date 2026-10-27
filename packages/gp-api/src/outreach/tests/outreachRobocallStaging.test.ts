@@ -30,13 +30,7 @@ import { OutreachRobocallStrandedService } from '@/outreach/services/outreachRob
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { CLERK_CLIENT_PROVIDER_TOKEN } from '@/vendors/clerk/providers/clerk-client.provider'
 import { Campaign, RobocallSettleState } from '../../generated/prisma'
-import { disableVendorCrons } from '@/shared/test-utils/vendorCronsGate.util'
-
-vi.mock('@/shared/util/appEnvironment.util', async (importOriginal) => {
-  const { withVendorCronsGate } =
-    await import('@/shared/test-utils/vendorCronsGate.util.js')
-  return withVendorCronsGate(await importOriginal<object>())
-})
+import { disableVendorCrons } from '@/shared/test-utils/appEnvOverrides'
 
 const service = useTestService()
 

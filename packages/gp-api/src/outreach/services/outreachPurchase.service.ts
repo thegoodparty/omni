@@ -758,11 +758,21 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
     // Sessions without an outreachId predate draft-first — for those the
     // campaign was (or will be) created by the client's own POST /outreach.
     if (outreachId) {
-      const finalized = await this.outreachService.finalizeOutreachPurchase(
+      const outcome = await this.outreachService.finalizeOutreachPurchase(
         outreachId,
         campaignId,
         paymentIntentId,
       )
+      // A refused duplicate was canceled and its payment released by the
+      // guard: nothing is left to record, redeem or capture.
+      if (outcome === 'duplicate_refused') {
+        this.logger.warn(
+          { outreachId, campaignId, paymentIntentId },
+          'Outreach refused as a duplicate send; payment released',
+        )
+        return
+      }
+      const finalized = outcome === 'finalized'
       // Under the hold flag a pre-build draft defers (finalized === false): the
       // send is submitted later from the build-ready edge, so don't log it as
       // finalized here or the operational trail reads a false confirmation.

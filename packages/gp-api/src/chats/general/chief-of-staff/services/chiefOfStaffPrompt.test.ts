@@ -1,21 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
 import { FILTER_DIMENSION_PROVENANCE_RULES } from '@/contacts/filterDimensions.catalog'
 import { PICKED_NEXT_STEPS_LEAD } from '@goodparty_org/contracts'
-
-// The segmentation method is held to non-prod deploys, so the suite drives
-// that gate directly rather than depending on the runner's environment.
-const { envNonProd } = vi.hoisted(() => ({ envNonProd: { value: true } }))
-vi.mock('@/shared/util/appEnvironment.util', async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import('@/shared/util/appEnvironment.util')>()
-  return {
-    ...actual,
-    get IS_NON_PROD_DEPLOY() {
-      return envNonProd.value
-    },
-  }
-})
-
+import {
+  appEnvOverrides,
+  useAppEnvOverrides,
+} from '@/shared/test-utils/appEnvOverrides'
 import {
   buildChiefOfStaffSystemPrompt,
   COS_GUARDRAIL_DECLINE,
@@ -23,6 +12,10 @@ import {
 import { guardrailLine } from '../../services/guardrailLines'
 import { ChiefOfStaffContext } from './chiefOfStaffContext.service'
 import type { Organization } from '../../../../generated/prisma'
+
+// The segmentation method is held to non-prod deploys, so the suite drives
+// that gate directly rather than depending on the runner's environment.
+useAppEnvOverrides({ IS_NON_PROD_DEPLOY: true })
 
 const baseCtx = (
   overrides: Partial<ChiefOfStaffContext> = {},
@@ -561,7 +554,7 @@ describe('buildChiefOfStaffSystemPrompt', () => {
   // The release train promotes every merge to prod unattended, so this gate is
   // the only thing keeping an unfinished method away from real officials.
   it('withholds the method on a prod deploy even with the tool registered', () => {
-    envNonProd.value = false
+    appEnvOverrides.IS_NON_PROD_DEPLOY = false
     try {
       const prompt = buildChiefOfStaffSystemPrompt({
         ctx: baseCtx(),
@@ -571,7 +564,7 @@ describe('buildChiefOfStaffSystemPrompt', () => {
       // The rest of the saved-list surface is unaffected by the gate.
       expect(prompt).toContain('SAVED LIST RULES')
     } finally {
-      envNonProd.value = true
+      appEnvOverrides.IS_NON_PROD_DEPLOY = true
     }
   })
 

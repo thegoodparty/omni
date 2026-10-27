@@ -1,6 +1,7 @@
 import { spawn, spawnSync } from 'node:child_process'
 import { mkdtempSync, readFileSync } from 'node:fs'
 import { createServer } from 'node:http'
+import { createRequire } from 'node:module'
 import { type AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -361,12 +362,19 @@ describe('the identifiers a sweep resolves', () => {
 // The entry as judge.yml runs it. Every refusal here happens before any
 // network call, so these run offline.
 describe('the judgeIdentifiers entry', () => {
+  // The same CLI judge.yml's `npx tsx` resolves to, run without npx's own
+  // startup on every call.
+  const TSX_CLI = createRequire(__filename).resolve('tsx/cli')
   const run = (args: string[], env: NodeJS.ProcessEnv) =>
-    spawnSync('npx', ['tsx', join(__dirname, 'judgeIdentifiers.ts'), ...args], {
-      cwd: join(__dirname, '../../../..'),
-      encoding: 'utf8',
-      env: { ...process.env, ...env },
-    })
+    spawnSync(
+      process.execPath,
+      [TSX_CLI, join(__dirname, 'judgeIdentifiers.ts'), ...args],
+      {
+        cwd: join(__dirname, '../../../..'),
+        encoding: 'utf8',
+        env: { ...process.env, ...env },
+      },
+    )
 
   it('refuses to run without a sweep id or an output path', () => {
     expect(run([], { JUDGE_SWEEP_ID: 'judge-1-1' }).status).toBe(1)
@@ -405,8 +413,8 @@ describe('the judgeIdentifiers entry', () => {
     const result = await new Promise<{ code: number | null; stdout: string }>(
       (resolve) => {
         const child = spawn(
-          'npx',
-          ['tsx', join(__dirname, 'judgeIdentifiers.ts'), out],
+          process.execPath,
+          [TSX_CLI, join(__dirname, 'judgeIdentifiers.ts'), out],
           {
             cwd: join(__dirname, '../../../..'),
             env: {

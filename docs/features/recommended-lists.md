@@ -475,6 +475,10 @@ Three shapes of request, all optional params:
   channel's cut can take it under (SMS keeps 58%-74% of a list), and dropping
   it here would open the flow with nothing.
 
+The free election-eve robocall offer (`freeOfferElectionEveRobocall`) is the
+one variant that breaks these rules. See
+[The free robocall offer variant](#the-free-robocall-offer-variant).
+
 Returns an ordered array of recommendations. Each carries the unsaved filter
 shape plus everything the card displays:
 
@@ -500,6 +504,39 @@ Behavior:
   size floor gates on it. No caching in v1.
 - **Refuse `eo-` organizations.**
 - **Variants under the floor are omitted**, per the rules above.
+
+### The free robocall offer variant
+
+`freeOfferElectionEveRobocall` is the list for the Nov 3, 2026 precinct
+experiment (`src/robocallFreeOffer/`). It is served only to a campaign
+`RobocallFreeOfferService.resolveOffer` says has the offer, and its filter is
+every landline voter in that campaign's treatment precincts, filled in by
+`withOfferPrecincts`. Without treatment precincts it is never served, so it
+can never widen to the whole district.
+
+- **Never in an intent's set.** A `channel` + `intent` request leaves it out,
+  even for `electionDay`.
+- **Robocall and the voter data page only.** It comes back for
+  `variant=freeOfferElectionEveRobocall` with `channel=robocall` or no channel,
+  and it leads the global set. Any other channel never gets it.
+- **No size floor and no `estimatedCostCents`.** A price on a card labelled
+  free reads as a charge.
+- **The global set never fails because of it.** If the offer can't be
+  resolved, the card is left out and the rest still returns.
+
+`GET campaigns/mine/robocall-offer` is the one answer every webapp surface
+gates on: `{ eligible, variant, count, coveredCalls }`, where `count` is this
+list sized for robocall. The first call for an eligible campaign assigns its
+precincts.
+
+A list saved from the offer is locked (`firstUsedForOutreachAt`), because the
+offer's promotion code is bound to it. Each campaign gets a single-use Stripe
+promotion code on the coupon named by `ROBOCALL_FREE_OFFER_COUPON_ID`, and
+gp-api applies it to the robocall draft automatically. At apply and at
+authorize, the code is checked again against this exact list and the
+campaign. With the env var unset (prod until launch), the offer is off
+everywhere. Payment detail is in
+`packages/gp-api/src/outreach/docs/robocall-payment.md`.
 
 ## The voter data page
 

@@ -128,6 +128,8 @@ const baseProps = {
   onFiltersChange: vi.fn(),
   precincts: [],
   onPrecinctsChange: vi.fn(),
+  votedStatus: [],
+  onVotedStatusChange: vi.fn(),
   precinctOptions: {
     options: [],
     truncated: false,
@@ -340,6 +342,36 @@ describe('CreateListFlow', () => {
     expect(bodies[0]).toMatchObject({
       name: 'Ward 1 evening',
       precincts: ['Laramie|14', 'Laramie|15'],
+    })
+  })
+
+  // Voted in election is an array beside the boolean draft, like precincts,
+  // so it reaches the created list only through the create body.
+  it('creates the list with the Voted in election selection', async () => {
+    const bodies: unknown[] = []
+    api.mock('POST /v1/voters/voter-file/filter', ({ body }) => {
+      bodies.push(body)
+      return { status: 200, data: { id: 79 } }
+    })
+    api.mock('POST /v1/door-knocking/turfs', () => ({
+      status: 200,
+      data: { ...savedTurf, id: 7, voterFileFilterId: 79 },
+    }))
+    const props = {
+      filters: { partyDemocrat: true },
+      votedStatus: ['unknown' as const],
+    }
+
+    const { rerender } = render(
+      <CreateListFlow {...baseProps} {...props} step="name" />,
+    )
+    advanceToDraw(rerender, props, 'Not yet voted')
+    fireEvent.click(screen.getByRole('button', { name: 'Create campaign' }))
+
+    await waitFor(() => expect(bodies).toHaveLength(1))
+    expect(bodies[0]).toMatchObject({
+      name: 'Not yet voted',
+      votedStatus: ['unknown'],
     })
   })
 
@@ -1991,6 +2023,25 @@ describe('CreateListFlow preselected list', () => {
     // A missed preselection is the ordinary flow and nothing else — same
     // audience the flow opens on, same six steps in front of it.
     expectStep(2, 5)
+  })
+
+  it('seeds the Voted in election pills from the carried list', async () => {
+    const onVotedStatusChange = vi.fn()
+    await renderAtWho({
+      savedLists: [
+        {
+          id: 9,
+          name: 'Not yet voted',
+          households: 1_240,
+          filters: { votedStatus: true },
+          votedStatus: ['unknown'],
+        },
+      ],
+      preselectedListId: 9,
+      onVotedStatusChange,
+    })
+
+    expect(onVotedStatusChange).toHaveBeenCalledWith(['unknown'])
   })
 
   it('leaves the flow untouched with no list carried in', async () => {
