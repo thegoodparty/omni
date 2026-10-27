@@ -147,7 +147,9 @@ const savedDetail = {
   },
 }
 
-const user = userEvent.setup()
+// No test here is about hover, and the pointer move user-event makes before
+// every click fires a round of hover events (and re-renders) for nothing.
+const user = userEvent.setup({ skipHover: true })
 
 const openFlow = () => {
   const onClose = vi.fn()

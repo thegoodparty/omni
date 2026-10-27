@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { screen } from '@testing-library/react'
+import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { render } from 'helpers/test-utils/render'
+import { render, testQueryClient } from 'helpers/test-utils/render'
+import { api } from 'helpers/test-utils/api-mocking'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import {
   MANAGED_CIVIC_PANEL_EXHAUSTED_CARD_CTA,
@@ -262,7 +263,7 @@ describe('<TaskStack>', () => {
   const panelCard = card({
     id: 'panel',
     type: 'civic_panel',
-    title: 'Know what your district thinks before you vote',
+    title: 'Hear from all of your district, not just the loudest voices',
     summary:
       'Residents from every part of your district, matched by age, ' +
       'gender and race. Free in early access.',
@@ -394,7 +395,7 @@ describe('<TaskStack>', () => {
       id: 'step',
       type: 'civic_panel',
       title: 'Your civic panel is filling up',
-      ctaLabel: 'See your panel',
+      ctaLabel: 'See your civic panel',
       ctaHref: '/dashboard/contacts/citizens-panel',
       sourceExternalId: 'managed-panel-progress:eo-1',
       sourceItemId: 'building',
@@ -505,7 +506,7 @@ describe('<TaskStack>', () => {
     const managedCard = card({
       id: 'managed-1',
       type: 'civic_panel',
-      title: 'Know what your district thinks before you vote',
+      title: 'Hear from all of your district, not just the loudest voices',
       summary:
         'Residents from every part of your district, matched by age, ' +
         'gender and race. Free in early access.',
@@ -514,7 +515,7 @@ describe('<TaskStack>', () => {
       sourceExternalId: 'managed-panel:office-1',
     })
 
-    it('leads under Every group gets a seat, naming the place', () => {
+    it('leads under Your civic panel, naming the place', () => {
       orgRef.current = {
         slug: 'eo-test',
         district: { l2Name: 'Maplewood City Ward 2' },
@@ -524,11 +525,11 @@ describe('<TaskStack>', () => {
       render(<TaskStack onOpenCard={vi.fn()} onDiscussCard={vi.fn()} />)
 
       expect(
-        screen.getByRole('heading', { name: 'Every group gets a seat' }),
+        screen.getByRole('heading', { name: 'Your civic panel' }),
       ).toBeInTheDocument()
       expect(
         screen.getByRole('heading', {
-          name: 'Know what Maplewood thinks before you vote',
+          name: 'Hear from all of Maplewood, not just the loudest voices',
         }),
       ).toBeInTheDocument()
       expect(
@@ -544,6 +545,22 @@ describe('<TaskStack>', () => {
       expect(screen.queryByText(/due/i)).toBeNull()
     })
 
+    it('title-cases a place that arrives in all caps', () => {
+      orgRef.current = {
+        slug: 'eo-test',
+        district: { l2Name: 'WINSTON-SALEM CITY WARD 2' },
+      }
+      onboardingRef.current = [{ key: 'priorities', status: 'active' }]
+      withCards([managedCard])
+      render(<TaskStack onOpenCard={vi.fn()} onDiscussCard={vi.fn()} />)
+
+      expect(
+        screen.getByRole('heading', {
+          name: 'Hear from all of Winston-Salem, not just the loudest voices',
+        }),
+      ).toBeInTheDocument()
+    })
+
     it('opens the Chief of Staff on the setup, with Ask about this and Skip', async () => {
       const user = userEvent.setup()
       const onDiscussCard = vi.fn()
@@ -556,11 +573,18 @@ describe('<TaskStack>', () => {
       expect(onDiscussCard).toHaveBeenCalledWith(
         START_MANAGED_CIVIC_PANEL_MESSAGE,
       )
+      expect(trackEvent).toHaveBeenCalledWith(
+        EVENTS.ChiefOfStaff.TaskActionTaken,
+        expect.objectContaining({
+          cardVariant: 'managed_offer',
+          action: 'start',
+        }),
+      )
 
       await user.click(screen.getByRole('button', { name: 'Ask about this' }))
       expect(onDiscussCard).toHaveBeenLastCalledWith(
         expect.stringContaining(
-          'Know what your district thinks before you vote',
+          'Hear from all of your district, not just the loudest voices',
         ),
       )
       expect(screen.getByRole('button', { name: 'Skip' })).toBeInTheDocument()
@@ -583,7 +607,7 @@ describe('<TaskStack>', () => {
         title: 'Your civic panel is filling up',
         summary:
           '12 of 250 residents have joined. More invites go out Tuesday, November 3.',
-        ctaLabel: 'See your panel',
+        ctaLabel: 'See your civic panel',
         ctaHref: '/dashboard/contacts/citizens-panel',
         sourceExternalId: 'managed-panel-progress:office-1',
         sourceItemId: phase,
@@ -604,7 +628,7 @@ describe('<TaskStack>', () => {
         ),
       ).toBeInTheDocument()
       expect(
-        screen.getByRole('link', { name: 'See your panel' }),
+        screen.getByRole('link', { name: 'See your civic panel' }),
       ).toHaveAttribute(
         'href',
         expect.stringContaining('/dashboard/contacts/citizens-panel'),
@@ -650,7 +674,7 @@ describe('<TaskStack>', () => {
         screen.getByRole('heading', { name: 'Your civic panel is ready' }),
       ).toBeInTheDocument()
       expect(
-        screen.getByRole('link', { name: 'See your panel' }),
+        screen.getByRole('link', { name: 'See your civic panel' }),
       ).toBeInTheDocument()
     })
   })
@@ -660,5 +684,102 @@ describe('<TaskStack>', () => {
     withCards([card({})])
     const { container } = render(<TaskStack onOpenCard={vi.fn()} />)
     expect(container.textContent).not.toContain('—')
+  })
+
+  describe('Task Viewed', () => {
+    beforeEach(() => {
+      testQueryClient.clear()
+    })
+
+    const viewed = () =>
+      vi
+        .mocked(trackEvent)
+        .mock.calls.filter(
+          ([event]) => event === EVENTS.ChiefOfStaff.TaskViewed,
+        )
+        .map(([, properties]) => properties)
+
+    it('fires once for the front card, with the stack size', () => {
+      withCards([card({}), card({ id: 'c2' })])
+      const { rerender } = render(<TaskStack onOpenCard={vi.fn()} />)
+      rerender(<TaskStack onOpenCard={vi.fn()} />)
+
+      expect(viewed()).toEqual([
+        { cardType: 'briefing', cardVariant: 'other', stackSize: 2 },
+      ])
+    })
+
+    it('fires again when another card comes to the front', () => {
+      withCards([card({}), card({ id: 'c2', type: 'agenda_item' })])
+      const { rerender } = render(<TaskStack onOpenCard={vi.fn()} />)
+      withCards([card({ id: 'c2', type: 'agenda_item' })])
+      rerender(<TaskStack onOpenCard={vi.fn()} />)
+
+      expect(viewed()).toEqual([
+        expect.objectContaining({ cardType: 'briefing' }),
+        expect.objectContaining({ cardType: 'agenda_item', stackSize: 1 }),
+      ])
+    })
+
+    it("carries a report back's priority", () => {
+      withCards([
+        card({
+          id: 'rb',
+          type: 'report_back',
+          sourceExternalId: 'p1',
+          sourceItemId: 'tooEarly',
+        }),
+      ])
+      render(<TaskStack onOpenCard={vi.fn()} />)
+
+      expect(viewed()).toEqual([
+        expect.objectContaining({
+          cardType: 'report_back',
+          cardVariant: 'report_back',
+          priorityId: 'p1',
+        }),
+      ])
+    })
+
+    it("waits for a civic panel card's members and goal", async () => {
+      api.mock('GET /v1/contacts/civic-panel', {
+        status: 200,
+        data: {
+          members: 12,
+          reachedRecently: 0,
+          askableNow: 12,
+          lastOutreachAt: null,
+          progress: {
+            members: 12,
+            goal: 243,
+            answersNeeded: 96,
+            expectedAnswers: 5,
+            groupsCovered: 1,
+            groupsTotal: 12,
+          },
+          balance: null,
+          composition: null,
+        },
+      })
+      withCards([
+        card({
+          id: 'progress',
+          type: 'civic_panel',
+          title: 'Your civic panel is filling up',
+          sourceExternalId: 'managed-panel-progress:eo-1',
+          sourceItemId: 'building',
+        }),
+      ])
+      render(<TaskStack onOpenCard={vi.fn()} />)
+
+      await waitFor(() => expect(viewed()).toHaveLength(1))
+      expect(viewed()[0]).toEqual({
+        cardType: 'civic_panel',
+        cardVariant: 'managed_building',
+        stackSize: 1,
+        members: 12,
+        goalMembers: 243,
+      })
+    })
   })
 })

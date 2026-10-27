@@ -96,6 +96,12 @@ import {
 import { PriorityStatusRail } from './PriorityStatusRail'
 import { StatusChangeMarker } from './StatusChangeMarker'
 import { ReadStatusRailBlock, ReadStatusStrip } from './ReadStatus'
+import {
+  outreachProposedProperties,
+  readProperties,
+} from '../readStatusProperty'
+
+const OUTREACH_PROPOSAL_TOOL = 'present_outreach_proposal'
 
 // Hidden opener for a brand-new conversation, so the official arrives at a
 // thread that has already started rather than an empty box. Filtered out of
@@ -111,7 +117,7 @@ const KICKOFF =
 const GENERATING_LABELS: Record<string, string> = {
   [CLARIFY_TOOL]: 'Preparing your question...',
   present_outside_contact: 'Looking up who to contact...',
-  present_outreach_proposal: 'Building the outreach...',
+  [OUTREACH_PROPOSAL_TOOL]: 'Building the outreach...',
   present_constituents: 'Pulling the list...',
   present_contacts: 'Pulling the list...',
   present_past_outreach: "Checking what you've sent...",
@@ -339,6 +345,18 @@ const PriorityWorkspaceBody = ({
         }
         return true
       }
+      if (
+        event.type === 'tool_call' &&
+        event.toolName === OUTREACH_PROPOSAL_TOOL
+      ) {
+        const proposed = outreachProposedProperties(event.args)
+        if (proposed) {
+          trackEvent(EVENTS.Priorities.OutreachProposed, {
+            priorityId,
+            ...proposed,
+          })
+        }
+      }
       if (event.type === 'tool_call' && priorityWidgets.has(event.toolName)) {
         const instance = priorityWidgets.resolve(
           {
@@ -450,12 +468,16 @@ const PriorityWorkspaceBody = ({
     (source: 'strip' | 'rail'): void => {
       // A second click before the button disables would queue it twice.
       if (pendingSent.current.includes(GET_ANSWERS_MESSAGE)) return
-      trackEvent(EVENTS.Priorities.GetAnswersClicked, { priorityId, source })
+      trackEvent(EVENTS.Priorities.GetAnswersClicked, {
+        priorityId,
+        source,
+        ...readProperties(readStatus),
+      })
       pendingSent.current.push(GET_ANSWERS_MESSAGE)
       setGetAnswersQueued(true)
       setSentTick((tick) => tick + 1)
     },
-    [priorityId],
+    [priorityId, readStatus],
   )
 
   useEffect(() => {
@@ -487,6 +509,7 @@ const PriorityWorkspaceBody = ({
                 : 'direct',
           ...(openedReadRef.current
             ? {
+                readStatus: openedReadRef.current.good ? 'good' : 'waiting',
                 goodRead: openedReadRef.current.good,
                 answers: openedReadRef.current.answers,
                 answersFloor: openedReadRef.current.needed,
@@ -519,6 +542,7 @@ const PriorityWorkspaceBody = ({
           trackEvent(EVENTS.Priorities.GetAnswersClicked, {
             priorityId,
             source: 'results_page',
+            ...readProperties(openedReadRef.current),
           })
         }
         if (history.length === 0) {
@@ -644,11 +668,10 @@ const PriorityWorkspaceBody = ({
     return ids
   }, [messages])
 
-  const { scrollRef, onScroll } = usePinnedAutoScroll([
-    messages,
-    visibleSegments,
-    liveWidgets,
-  ])
+  const { scrollRef, onScroll } = usePinnedAutoScroll(
+    [messages, visibleSegments, liveWidgets],
+    { sending },
+  )
 
   const revealedTextLength = segmentsTextLength(visibleSegments)
   const blocks = liveTurnBlocks(

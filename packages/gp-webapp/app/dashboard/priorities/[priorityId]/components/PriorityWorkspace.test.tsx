@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import {
   PRIORITY_STEP_LABELS,
@@ -177,6 +177,10 @@ beforeEach(() => {
   mocks.citizenPanels = { ready: true, enabled: false }
 })
 
+afterEach(() => {
+  vi.useRealTimers()
+})
+
 describe('PriorityWorkspace', () => {
   it('links to constituent feedback under the rail with serve-citizen-panels on', async () => {
     mocks.citizenPanels = { ready: true, enabled: true }
@@ -252,16 +256,14 @@ describe('PriorityWorkspace', () => {
     mocks.listMessages
       .mockResolvedValueOnce([kickoff])
       .mockResolvedValue([kickoff, reply])
+    vi.useFakeTimers({ shouldAdvanceTime: true })
 
     renderWorkspace()
 
     expect(await screen.findByText('Thinking...')).toBeInTheDocument()
+    await vi.advanceTimersByTimeAsync(2_000)
     expect(
-      await screen.findByText(
-        'Nothing has started on this yet.',
-        {},
-        { timeout: 5_000 },
-      ),
+      await screen.findByText('Nothing has started on this yet.'),
     ).toBeInTheDocument()
     expect(screen.queryByText('Thinking...')).not.toBeInTheDocument()
     expect(mocks.streamMessage).not.toHaveBeenCalled()
@@ -307,6 +309,7 @@ describe('PriorityWorkspace', () => {
         gate.promise,
       ),
     )
+    vi.useFakeTimers({ shouldAdvanceTime: true })
 
     renderWorkspace()
 
@@ -318,6 +321,7 @@ describe('PriorityWorkspace', () => {
     )
     expect(mocks.fetchPriorityStatus).not.toHaveBeenCalled()
     expect(screen.getByText('Pick two blocks to walk')).toBeInTheDocument()
+    await vi.advanceTimersByTimeAsync(2_000)
     expect(
       await screen.findByText('Done with what we know'),
     ).toBeInTheDocument()
@@ -350,6 +354,7 @@ describe('PriorityWorkspace', () => {
       } satisfies ChatMessageDto,
     ])
     gate.resolve()
+    await vi.advanceTimersByTimeAsync(2_000)
 
     await waitFor(() =>
       expect(
@@ -399,9 +404,12 @@ describe('PriorityWorkspace', () => {
         gate.promise,
       ),
     )
+    vi.useFakeTimers({ shouldAdvanceTime: true })
 
     renderWorkspace()
 
+    await screen.findByText(/^Let me/)
+    await vi.advanceTimersByTimeAsync(2_000)
     expect(
       await screen.findByText(/The plan waits on what residents say/),
     ).toBeInTheDocument()
@@ -467,6 +475,36 @@ describe('PriorityWorkspace', () => {
 
     expect(await screen.findByText('Done with the problem')).toBeInTheDocument()
     expect(screen.getByText('Back to your options')).toBeInTheDocument()
+  })
+
+  it('records each outreach the agent proposes as it streams in', async () => {
+    mocks.streamMessage.mockImplementation(
+      streamOf([
+        { type: 'text', delta: 'Here is a call list. ' },
+        {
+          type: 'tool_call',
+          toolName: 'present_outreach_proposal',
+          toolCallId: 'tc-live-proposal',
+          args: proposalArgs,
+        },
+        { type: 'done', assistantMessageId: 'a1' },
+      ]),
+    )
+
+    renderWorkspace()
+
+    await waitFor(() =>
+      expect(trackEvent).toHaveBeenCalledWith(
+        EVENTS.Priorities.OutreachProposed,
+        {
+          priorityId: 'pri-1',
+          round: 'one',
+          sampleSize: 412,
+          targetGroup: 'everyone',
+          channel: 'call',
+        },
+      ),
+    )
   })
 
   it('renders a card tool call through ChatCardRenderer with a derived proposalKey', async () => {
@@ -815,8 +853,11 @@ describe('PriorityWorkspace', () => {
       ),
     )
 
+    vi.useFakeTimers({ shouldAdvanceTime: true })
     renderWorkspace()
 
+    await screen.findByText(/^The co/)
+    await vi.advanceTimersByTimeAsync(2_000)
     expect(await screen.findByText(/The county runs this/)).toBeInTheDocument()
     expect(
       await screen.findByText('Looking up who to contact...'),
@@ -837,8 +878,11 @@ describe('PriorityWorkspace', () => {
       ),
     )
 
+    vi.useFakeTimers({ shouldAdvanceTime: true })
     renderWorkspace()
 
+    await screen.findByText(/^Two/)
+    await vi.advanceTimersByTimeAsync(2_000)
     expect(await screen.findByText(/Two ways to read this/)).toBeInTheDocument()
     expect(
       await screen.findByText('Preparing your question...'),
@@ -860,8 +904,11 @@ describe('PriorityWorkspace', () => {
       ),
     )
 
+    vi.useFakeTimers({ shouldAdvanceTime: true })
     renderWorkspace()
 
+    await screen.findByText(/^Pul/)
+    await vi.advanceTimersByTimeAsync(2_000)
     expect(
       await screen.findByText(/Pulling the renters on those blocks/),
     ).toBeInTheDocument()
@@ -896,8 +943,11 @@ describe('PriorityWorkspace', () => {
       yield { type: 'done', assistantMessageId: 'a1' }
     })
 
+    vi.useFakeTimers({ shouldAdvanceTime: true })
     renderWorkspace()
 
+    await screen.findByText(/^Here/)
+    await vi.advanceTimersByTimeAsync(2_000)
     expect(
       await screen.findByText(/Containers are required/),
     ).toBeInTheDocument()
@@ -932,8 +982,11 @@ describe('PriorityWorkspace', () => {
       ),
     )
 
+    vi.useFakeTimers({ shouldAdvanceTime: true })
     renderWorkspace()
 
+    await screen.findByText(/^One/)
+    await vi.advanceTimersByTimeAsync(2_000)
     expect(
       await screen.findByText('Is the problem trash or garages?'),
     ).toBeInTheDocument()
@@ -952,8 +1005,11 @@ describe('PriorityWorkspace', () => {
       ]),
     )
 
+    vi.useFakeTimers({ shouldAdvanceTime: true })
     renderWorkspace()
 
+    await screen.findByText(/^Here/)
+    await vi.advanceTimersByTimeAsync(2_000)
     expect(
       await screen.findByText(/Here is where this stands/),
     ).toBeInTheDocument()
@@ -1163,17 +1219,22 @@ describe('PriorityWorkspace', () => {
       needed: 96,
       groupsHeard: 3,
       groupsTotal: 12,
+      representativeAnswers: 20,
+      representativeNeeded: 96,
       good: false,
       status: 'tooEarly',
       underrepresented: ['age65plus'],
       unheard: ['age65plus'],
       checkOut: true,
     }
+    // 103 answered, but the groups heard most fill only their share.
     const skewed: PriorityReadStatus = {
       answers: 103,
       needed: 96,
       groupsHeard: 9,
       groupsTotal: 12,
+      representativeAnswers: 70,
+      representativeNeeded: 96,
       good: false,
       status: 'notYetRepresentative',
       underrepresented: ['women', 'age65plus'],
@@ -1227,7 +1288,7 @@ describe('PriorityWorkspace', () => {
       )
       expect(
         within(bar).getByRole('progressbar', {
-          name: '3 of 12 groups heard',
+          name: '20 of the 96 answers we need',
         }),
       ).toBeInTheDocument()
       const getAnswers = within(bar).getByRole('button', {
@@ -1357,7 +1418,9 @@ describe('PriorityWorkspace', () => {
       expect(
         within(rail).getByText('Still need to hear from people 65 and over'),
       ).toBeInTheDocument()
-      expect(within(rail).getByText('3 of 12 groups heard')).toBeInTheDocument()
+      expect(
+        within(rail).getByText('20 of the 96 answers we need'),
+      ).toBeInTheDocument()
       expect(
         within(rail).getByRole('button', { name: 'Get answers' }),
       ).toBeInTheDocument()
@@ -1425,7 +1488,9 @@ describe('PriorityWorkspace', () => {
           'Need a few more answers from women and people 65 and over',
         ),
       ).toBeInTheDocument()
-      expect(within(rail).getByText('9 of 12 groups heard')).toBeInTheDocument()
+      expect(
+        within(rail).getByText('70 of the 96 answers we need'),
+      ).toBeInTheDocument()
       expect(within(rail).queryByText(/weight/i)).not.toBeInTheDocument()
       expect(
         within(rail).getByRole('button', { name: 'Get answers' }),
@@ -1449,7 +1514,12 @@ describe('PriorityWorkspace', () => {
       expect(screen.queryByText(/Help me get more answers/)).toBeNull()
       expect(trackEvent).toHaveBeenCalledWith(
         EVENTS.Priorities.GetAnswersClicked,
-        { priorityId: 'pri-1', source: 'rail' },
+        {
+          priorityId: 'pri-1',
+          source: 'rail',
+          readStatus: 'waiting',
+          groupsShort: 9,
+        },
       )
       expect(
         vi
@@ -1461,6 +1531,20 @@ describe('PriorityWorkspace', () => {
       expect(trackEvent).not.toHaveBeenCalledWith(
         EVENTS.AIChat.MessageSent,
         expect.anything(),
+      )
+    })
+
+    it('records the read the priority opened with', async () => {
+      renderWorkspace(emptyPriorityStatus(), null, { initialReadStatus: thin })
+      await screen.findByText('Here is where this stands.')
+
+      expect(trackEvent).toHaveBeenCalledWith(
+        EVENTS.Priorities.PriorityViewed,
+        expect.objectContaining({
+          readStatus: 'waiting',
+          groupsHeard: 3,
+          groupsTotal: 12,
+        }),
       )
     })
 
@@ -1479,7 +1563,12 @@ describe('PriorityWorkspace', () => {
       expect(router.replace).not.toHaveBeenCalled()
       expect(trackEvent).toHaveBeenCalledWith(
         EVENTS.Priorities.GetAnswersClicked,
-        { priorityId: 'pri-1', source: 'results_page' },
+        {
+          priorityId: 'pri-1',
+          source: 'results_page',
+          readStatus: 'waiting',
+          groupsShort: 9,
+        },
       )
     })
 

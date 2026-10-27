@@ -1,42 +1,34 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { VendorMockVendor } from '@/generated/prisma'
 import { CronLockService } from '@/cron/services/cronLock.service'
+import {
+  appEnvOverrides,
+  useAppEnvOverrides,
+} from '@/shared/test-utils/appEnvOverrides'
 import { useTestService } from '@/test-service'
-import { recordVendorMockRecordRows } from './vendorMockRecord.metrics'
+import * as vendorMockRecordMetrics from './vendorMockRecord.metrics'
 import { VendorMockRecordAuditService } from './vendorMockRecordAudit.service'
 
-const nonProd = vi.hoisted(() => ({ value: false }))
-
-vi.mock('@/shared/util/appEnvironment.util', async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import('@/shared/util/appEnvironment.util')>()
-  return {
-    ...actual,
-    get IS_NON_PROD_DEPLOY() {
-      return nonProd.value
-    },
-  }
-})
-
-vi.mock('./vendorMockRecord.metrics', () => ({
-  recordVendorMockRecordRows: vi.fn(),
-}))
+useAppEnvOverrides({ IS_NON_PROD_DEPLOY: false })
 
 const service = useTestService()
 
 describe('VendorMockRecordAuditService.reportMockRecordRows', () => {
   let audit: VendorMockRecordAuditService
   let cronLock: CronLockService
+  let recordVendorMockRecordRows: ReturnType<typeof vi.spyOn>
 
   beforeEach(() => {
-    nonProd.value = false
+    appEnvOverrides.IS_NON_PROD_DEPLOY = false
+    recordVendorMockRecordRows = vi
+      .spyOn(vendorMockRecordMetrics, 'recordVendorMockRecordRows')
+      .mockImplementation(() => undefined)
     audit = service.app.get(VendorMockRecordAuditService)
     cronLock = service.app.get(CronLockService)
   })
 
   afterEach(async () => {
     vi.restoreAllMocks()
-    vi.mocked(recordVendorMockRecordRows).mockClear()
     await service.prisma.vendorMockRecord.deleteMany()
   })
 
@@ -80,7 +72,7 @@ describe('VendorMockRecordAuditService.reportMockRecordRows', () => {
   })
 
   it('does nothing outside prod', async () => {
-    nonProd.value = true
+    appEnvOverrides.IS_NON_PROD_DEPLOY = true
     const claim = vi.spyOn(cronLock, 'tryClaimDailyRun')
 
     await audit.reportMockRecordRows()

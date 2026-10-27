@@ -273,6 +273,9 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
       civicPanelMembers,
       reportBacks,
       readStatus,
+      // A bound position clears customPositionName, so for most offices the
+      // title only comes from the position the resolver just read.
+      officeTitle: ctx.officeTitle || resolved.positionName || null,
       jurisdiction: `${resolved.l2DistrictName}, ${resolved.state}`,
       state: resolved.state,
       districtFilters: this.districtResolver

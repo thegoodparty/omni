@@ -20,6 +20,13 @@ import {
   withSampleFirstName,
 } from './smsCompose.util'
 
+// No test here is about hover, and the pointer move user-event makes before
+// every click fires a round of hover events (and re-renders) for nothing.
+let user: ReturnType<typeof userEvent.setup>
+beforeEach(() => {
+  user = userEvent.setup({ skipHover: true })
+})
+
 const deleteLine = (editor: Editor, line: string) => {
   let from = -1
   editor.state.doc.descendants((node, pos) => {
@@ -213,7 +220,7 @@ describe('SmsFlow (Serve surface)', () => {
     // introduce_myself is one of the three slugs shared with Win, so a
     // purpose-string check would have mapped it to a Win intent and fired
     // the campaign-scoped endpoint against an eo- org.
-    await userEvent.click(
+    await user.click(
       await screen.findByText('Introduce myself to constituents'),
     )
     await screen.findByText(
@@ -226,7 +233,7 @@ describe('SmsFlow (Serve surface)', () => {
 
   it('frames the audience step for constituents', async () => {
     openServeFlow()
-    await userEvent.click(
+    await user.click(
       await screen.findByText('Introduce myself to constituents'),
     )
 
@@ -246,10 +253,10 @@ describe('SmsFlow (Serve surface)', () => {
     })
     openServeFlow()
 
-    await userEvent.click(await screen.findByText('Explain a recent decision'))
-    await userEvent.click(await screen.findByText('Choose a constituent list'))
-    await userEvent.click(await screen.findByText('Northside residents'))
-    await userEvent.click(
+    await user.click(await screen.findByText('Explain a recent decision'))
+    await user.click(await screen.findByText('Choose a constituent list'))
+    await user.click(await screen.findByText('Northside residents'))
+    await user.click(
       await screen.findByRole('button', { name: /^Continue \(1,200\)$/ }),
     )
 
@@ -260,11 +267,11 @@ describe('SmsFlow (Serve surface)', () => {
       tone: 'warm',
     })
     await screen.findByText(/drafted body/)
-    await userEvent.upload(
+    await user.upload(
       document.querySelector('input[type="file"]') as HTMLInputElement,
       new File(['x'.repeat(100)], 'header.png', { type: 'image/png' }),
     )
-    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
 
     // The serve step: the promise is stated, never picked.
     expect(
@@ -274,7 +281,7 @@ describe('SmsFlow (Serve surface)', () => {
     expect(screen.queryByText(/48 hours/)).toBeNull()
 
     // Friday the 4th — the first day the borrowed polls predicate leaves open.
-    await userEvent.click(
+    await user.click(
       screen.getByRole('button', { name: /^Friday, September 4(?!\d)/ }),
     )
     expect(
@@ -289,30 +296,30 @@ describe('SmsFlow (Serve surface)', () => {
     })
     openServeFlow()
 
-    await userEvent.click(await screen.findByText('Explain a recent decision'))
-    await userEvent.click(await screen.findByText('Choose a constituent list'))
-    await userEvent.click(await screen.findByText('Northside residents'))
-    await userEvent.click(
+    await user.click(await screen.findByText('Explain a recent decision'))
+    await user.click(await screen.findByText('Choose a constituent list'))
+    await user.click(await screen.findByText('Northside residents'))
+    await user.click(
       await screen.findByRole('button', { name: /^Continue \(1,200\)$/ }),
     )
     await screen.findByText(/drafted body/)
-    await userEvent.upload(
+    await user.upload(
       document.querySelector('input[type="file"]') as HTMLInputElement,
       new File(['x'.repeat(100)], 'header.png', { type: 'image/png' }),
     )
-    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
 
     const nameField = await screen.findByLabelText('Campaign name')
     expect(nameField).toHaveValue('Northside residents')
 
-    await userEvent.click(
+    await user.click(
       screen.getByRole('button', { name: /^Friday, September 4(?!\d)/ }),
     )
     expect(nameField).toHaveValue('Northside residents, Sep 4')
 
-    await userEvent.clear(nameField)
-    await userEvent.type(nameField, 'Northside budget, Sep 4')
-    await userEvent.click(
+    await user.clear(nameField)
+    await user.type(nameField, 'Northside budget, Sep 4')
+    await user.click(
       screen.getByRole('button', { name: /^Monday, September 7(?!\d)/ }),
     )
     expect(nameField).toHaveValue('Northside budget, Sep 7')
@@ -341,18 +348,18 @@ describe('SmsFlow (Serve surface)', () => {
       />,
     )
 
-    await userEvent.click(await screen.findByText('Explain a recent decision'))
-    await userEvent.click(await screen.findByText('Choose a constituent list'))
-    await userEvent.click(await screen.findByText('Northside residents'))
-    await userEvent.click(
+    await user.click(await screen.findByText('Explain a recent decision'))
+    await user.click(await screen.findByText('Choose a constituent list'))
+    await user.click(await screen.findByText('Northside residents'))
+    await user.click(
       await screen.findByRole('button', { name: /^Continue \(1,200\)$/ }),
     )
     await screen.findByText(/drafted body/)
-    await userEvent.upload(
+    await user.upload(
       document.querySelector('input[type="file"]') as HTMLInputElement,
       new File(['x'.repeat(100)], 'header.png', { type: 'image/png' }),
     )
-    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
     await screen.findByText(/All messages are sent at 11am local time\./)
 
     expectStandardServeGate()
@@ -365,10 +372,10 @@ describe('SmsFlow (Serve surface)', () => {
     })
     openServeFlow()
 
-    await userEvent.click(await screen.findByText('Explain a recent decision'))
-    await userEvent.click(await screen.findByText('Choose a constituent list'))
-    await userEvent.click(await screen.findByText('Northside residents'))
-    await userEvent.click(
+    await user.click(await screen.findByText('Explain a recent decision'))
+    await user.click(await screen.findByText('Choose a constituent list'))
+    await user.click(await screen.findByText('Northside residents'))
+    await user.click(
       await screen.findByRole('button', { name: /^Continue \(1,200\)$/ }),
     )
 
@@ -383,10 +390,10 @@ describe('SmsFlow (Serve surface)', () => {
     })
     openServeFlow()
 
-    await userEvent.click(await screen.findByText('Explain a recent decision'))
-    await userEvent.click(await screen.findByText('Choose a constituent list'))
-    await userEvent.click(await screen.findByText('Northside residents'))
-    await userEvent.click(
+    await user.click(await screen.findByText('Explain a recent decision'))
+    await user.click(await screen.findByText('Choose a constituent list'))
+    await user.click(await screen.findByText('Northside residents'))
+    await user.click(
       await screen.findByRole('button', { name: /^Continue \(1,200\)$/ }),
     )
     await screen.findByText(OPT_OUT_FOOTER)
@@ -414,7 +421,7 @@ describe('SmsFlow (Serve surface)', () => {
     expect(ask).not.toBeChecked()
     expect(screen.queryByText(/Reply JOIN/)).toBeNull()
 
-    await userEvent.click(ask)
+    await user.click(ask)
 
     expect(
       await screen.findByText(/Reply JOIN to join my civic panel/),
@@ -443,7 +450,7 @@ describe('SmsFlow (Serve surface)', () => {
       />,
     )
 
-    await userEvent.click(
+    await user.click(
       await screen.findByRole('button', { name: /^Continue \(1,200\)$/ }),
     )
 
@@ -481,10 +488,10 @@ describe('SmsFlow (Serve surface)', () => {
     })
     openServeFlow()
 
-    await userEvent.click(await screen.findByText('Explain a recent decision'))
-    await userEvent.click(await screen.findByText('Choose a constituent list'))
-    await userEvent.click(await screen.findByText('Panel not asked lately'))
-    await userEvent.click(
+    await user.click(await screen.findByText('Explain a recent decision'))
+    await user.click(await screen.findByText('Choose a constituent list'))
+    await user.click(await screen.findByText('Panel not asked lately'))
+    await user.click(
       await screen.findByRole('button', { name: /^Continue \(1,200\)$/ }),
     )
 
@@ -506,7 +513,7 @@ describe('SmsFlow (Serve surface)', () => {
     ).toBeInTheDocument()
     expect(editor.getText()).not.toContain('Reply LEAVE')
 
-    await userEvent.click(
+    await user.click(
       screen.getByRole('button', { name: 'Add the civic panel line back' }),
     )
     await waitFor(() =>
@@ -536,7 +543,7 @@ describe('SmsFlow (Serve surface)', () => {
       />,
     )
 
-    await userEvent.click(
+    await user.click(
       await screen.findByRole('button', { name: /^Continue \(1,200\)$/ }),
     )
 
@@ -554,10 +561,10 @@ describe('SmsFlow (Serve surface)', () => {
     })
     openServeFlow()
 
-    await userEvent.click(await screen.findByText('Explain a recent decision'))
-    await userEvent.click(await screen.findByText('Choose a constituent list'))
-    await userEvent.click(await screen.findByText('Panel not asked lately'))
-    await userEvent.click(
+    await user.click(await screen.findByText('Explain a recent decision'))
+    await user.click(await screen.findByText('Choose a constituent list'))
+    await user.click(await screen.findByText('Panel not asked lately'))
+    await user.click(
       await screen.findByRole('button', { name: /^Continue \(1,200\)$/ }),
     )
 
@@ -587,7 +594,7 @@ describe('SmsFlow (Serve surface)', () => {
       />,
     )
 
-    await userEvent.click(
+    await user.click(
       await screen.findByRole('button', { name: /^Continue \(1,200\)$/ }),
     )
 
@@ -654,7 +661,7 @@ describe('SmsFlow (Serve surface)', () => {
     expect(screen.queryByText('Change who gets this')).toBeNull()
 
     // Back walks the standard flow: the card's list, picked, then its purpose.
-    await userEvent.click(screen.getByRole('button', { name: 'Back' }))
+    await user.click(screen.getByRole('button', { name: 'Back' }))
     expect(await screen.findByText('Northside residents')).toBeInTheDocument()
     expect(
       await screen.findByText(/Message 1,200 constituents/),
@@ -663,7 +670,7 @@ describe('SmsFlow (Serve surface)', () => {
       'aria-valuetext',
       'Step 2 of 5',
     )
-    await userEvent.click(screen.getByRole('button', { name: 'Back' }))
+    await user.click(screen.getByRole('button', { name: 'Back' }))
     expect(
       await screen.findByRole('button', { name: /Explain a recent decision/ }),
     ).toHaveAttribute('aria-pressed', 'true')
@@ -690,11 +697,11 @@ describe('SmsFlow (Serve surface)', () => {
     expect(
       await screen.findByText(/The library opens Saturday/),
     ).toBeInTheDocument()
-    await userEvent.upload(
+    await user.upload(
       document.querySelector('input[type="file"]') as HTMLInputElement,
       new File(['x'.repeat(100)], 'header.png', { type: 'image/png' }),
     )
-    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
     expect(
       (await screen.findAllByText('When do you want to send?')).length,
     ).toBeGreaterThan(0)
@@ -702,7 +709,7 @@ describe('SmsFlow (Serve surface)', () => {
       'aria-valuetext',
       'Step 4 of 5',
     )
-    await userEvent.click(screen.getByRole('button', { name: 'Back' }))
+    await user.click(screen.getByRole('button', { name: 'Back' }))
     expect(
       await screen.findByRole('textbox', { name: 'Message body' }),
     ).toBeInTheDocument()
@@ -721,45 +728,45 @@ describe('SmsFlow (Serve surface)', () => {
         `Step ${n} of 5`,
       )
 
-    await userEvent.click(await screen.findByText('Explain a recent decision'))
-    await userEvent.click(await screen.findByText('Choose a constituent list'))
-    await userEvent.click(await screen.findByText('Northside residents'))
+    await user.click(await screen.findByText('Explain a recent decision'))
+    await user.click(await screen.findByText('Choose a constituent list'))
+    await user.click(await screen.findByText('Northside residents'))
     step(2)
-    await userEvent.click(
+    await user.click(
       await screen.findByRole('button', { name: /^Continue \(1,200\)$/ }),
     )
 
     await screen.findByText(/drafted body/)
     expect(screen.getByRole('textbox', { name: 'Message body' })).toBeVisible()
     step(3)
-    await userEvent.upload(
+    await user.upload(
       document.querySelector('input[type="file"]') as HTMLInputElement,
       new File(['x'.repeat(100)], 'header.png', { type: 'image/png' }),
     )
-    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
 
     expect(
       (await screen.findAllByText('When do you want to send?')).length,
     ).toBeGreaterThan(0)
     step(4)
-    await userEvent.click(
+    await user.click(
       screen.getByRole('button', { name: /^Friday, September 4(?!\d)/ }),
     )
-    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
     expect((await screen.findAllByText('Review & pay')).length).toBeGreaterThan(
       0,
     )
     step(5)
 
-    await userEvent.click(screen.getByRole('button', { name: 'Back' }))
+    await user.click(screen.getByRole('button', { name: 'Back' }))
     expect(
       (await screen.findAllByText('When do you want to send?')).length,
     ).toBeGreaterThan(0)
-    await userEvent.click(screen.getByRole('button', { name: 'Back' }))
+    await user.click(screen.getByRole('button', { name: 'Back' }))
     expect(
       await screen.findByRole('textbox', { name: 'Message body' }),
     ).toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: 'Back' }))
+    await user.click(screen.getByRole('button', { name: 'Back' }))
     expect(await screen.findByText('Northside residents')).toBeInTheDocument()
   })
 
@@ -782,7 +789,7 @@ describe('SmsFlow (Serve surface)', () => {
     )
 
     await screen.findByText('Choose a constituent list')
-    await userEvent.click(screen.getByRole('button', { name: 'Back' }))
+    await user.click(screen.getByRole('button', { name: 'Back' }))
     expect(
       await screen.findByRole('button', { name: /Explain a recent decision/ }),
     ).toHaveAttribute('aria-pressed', 'true')
@@ -799,10 +806,10 @@ describe('SmsFlow (Serve surface)', () => {
     })
     openServeFlow()
 
-    await userEvent.click(await screen.findByText('Explain a recent decision'))
-    await userEvent.click(await screen.findByText('Choose a constituent list'))
-    await userEvent.click(await screen.findByText('Northside residents'))
-    await userEvent.click(
+    await user.click(await screen.findByText('Explain a recent decision'))
+    await user.click(await screen.findByText('Choose a constituent list'))
+    await user.click(await screen.findByText('Northside residents'))
+    await user.click(
       await screen.findByRole('button', { name: /^Continue \(1,200\)$/ }),
     )
 
@@ -820,10 +827,10 @@ describe('SmsFlow (Serve surface)', () => {
     })
     openServeFlow()
 
-    await userEvent.click(await screen.findByText('Explain a recent decision'))
-    await userEvent.click(await screen.findByText('Choose a constituent list'))
-    await userEvent.click(await screen.findByText('Northside residents'))
-    await userEvent.click(
+    await user.click(await screen.findByText('Explain a recent decision'))
+    await user.click(await screen.findByText('Choose a constituent list'))
+    await user.click(await screen.findByText('Northside residents'))
+    await user.click(
       await screen.findByRole('button', { name: /^Continue \(1,200\)$/ }),
     )
 
@@ -847,10 +854,10 @@ describe('SmsFlow (Serve surface)', () => {
     })
     openServeFlow()
 
-    await userEvent.click(await screen.findByText('Explain a recent decision'))
-    await userEvent.click(await screen.findByText('Choose a constituent list'))
-    await userEvent.click(await screen.findByText('Northside residents'))
-    await userEvent.click(
+    await user.click(await screen.findByText('Explain a recent decision'))
+    await user.click(await screen.findByText('Choose a constituent list'))
+    await user.click(await screen.findByText('Northside residents'))
+    await user.click(
       await screen.findByRole('button', { name: /^Continue \(1,200\)$/ }),
     )
 
@@ -859,7 +866,7 @@ describe('SmsFlow (Serve surface)', () => {
     expect(next).toBeEnabled()
     expect(screen.queryByText('Add a header image to continue.')).toBeNull()
 
-    await userEvent.click(next)
+    await user.click(next)
     expect(
       await screen.findByText('Add a header image to continue.'),
     ).toBeInTheDocument()
@@ -870,20 +877,20 @@ describe('SmsFlow (Serve surface)', () => {
     expect(dropzone).toHaveAttribute('aria-invalid', 'true')
     expect(screen.getByRole('textbox', { name: 'Message body' })).toBeVisible()
 
-    await userEvent.upload(
+    await user.upload(
       document.querySelector('input[type="file"]') as HTMLInputElement,
       new File(['x'.repeat(100)], 'header.png', { type: 'image/png' }),
     )
     await waitFor(() =>
       expect(screen.queryByText('Add a header image to continue.')).toBeNull(),
     )
-    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
-    await userEvent.click(
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(
       await screen.findByRole('button', {
         name: /^Friday, September 4(?!\d)/,
       }),
     )
-    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
     expect((await screen.findAllByText('Review & pay')).length).toBeGreaterThan(
       0,
     )

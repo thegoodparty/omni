@@ -19,12 +19,21 @@ import {
 import { PeerlyIdentityService } from '../../../vendors/peerly/services/peerlyIdentity.service'
 import { CampaignTcrComplianceService } from './campaignTcrCompliance.service'
 import { CvStatusPollService } from './cvStatusPoll.service'
-import { disableVendorCrons } from '@/shared/test-utils/vendorCronsGate.util'
+import { disableVendorCrons } from '@/shared/test-utils/appEnvOverrides'
 
+// timers/promises below keeps this file in fresh-modules, which does not load
+// src/test-app-env-mock.ts, so it wires the vendor-cron gate itself.
 vi.mock('@/shared/util/appEnvironment.util', async (importOriginal) => {
-  const { withVendorCronsGate } =
-    await import('@/shared/test-utils/vendorCronsGate.util.js')
-  return withVendorCronsGate(await importOriginal<object>())
+  const actual =
+    await importOriginal<typeof import('@/shared/util/appEnvironment.util')>()
+  const { appEnvOverrides } =
+    await import('@/shared/test-utils/appEnvOverrides.js')
+  return {
+    ...actual,
+    get VENDOR_CRONS_ENABLED() {
+      return appEnvOverrides.VENDOR_CRONS_ENABLED ?? actual.VENDOR_CRONS_ENABLED
+    },
+  }
 })
 
 // The scan sleeps RETRIEVE_CV_SPACING_MS (1 minute in prod) between records;

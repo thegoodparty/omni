@@ -1,21 +1,14 @@
 import { HttpStatus } from '@nestjs/common'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
+import { OutreachType } from '@/generated/prisma'
+import { VendorMockRecordService } from '../vendorMockRecord.service'
+import {
+  appEnvOverrides,
+  useAppEnvOverrides,
+} from '@/shared/test-utils/appEnvOverrides'
 
-const { mockMode } = vi.hoisted(() => ({ mockMode: { value: 'mock' } }))
-vi.mock('@/shared/util/appEnvironment.util', async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import('@/shared/util/appEnvironment.util')>()
-  return {
-    ...actual,
-    get IS_NON_PROD_DEPLOY() {
-      return true
-    },
-    get VENDOR_MODE() {
-      return mockMode.value as 'mock' | 'live'
-    },
-  }
-})
+useAppEnvOverrides({ IS_NON_PROD_DEPLOY: true, VENDOR_MODE: 'mock' })
 
 const service = useTestService()
 
@@ -24,7 +17,7 @@ const AUTH = { headers: { Authorization: 'Token mock-key' } }
 
 describe('POST /v1/vendor-mocks/callhub/v1/numbers/rent', () => {
   beforeEach(() => {
-    mockMode.value = 'mock'
+    appEnvOverrides.VENDOR_MODE = 'mock'
   })
 
   it('returns 201 with phone_number', async () => {
@@ -62,7 +55,7 @@ describe('POST /v1/vendor-mocks/callhub/v1/numbers/rent', () => {
   })
 
   it('returns 404 when VENDOR_MODE is live', async () => {
-    mockMode.value = 'live'
+    appEnvOverrides.VENDOR_MODE = 'live'
     const res = await service.client.post(`${BASE}/v1/numbers/rent`, {}, AUTH)
     expect(res.status).toBe(HttpStatus.NOT_FOUND)
   })
@@ -85,7 +78,7 @@ describe('POST /v1/vendor-mocks/callhub/v1/numbers/rent', () => {
 
 describe('POST phonebooks + bulk_create + numbers_count', () => {
   beforeEach(() => {
-    mockMode.value = 'mock'
+    appEnvOverrides.VENDOR_MODE = 'mock'
   })
 
   it('creates phonebook, bulk_creates, counts correctly', async () => {
@@ -166,7 +159,7 @@ describe('POST phonebooks + bulk_create + numbers_count', () => {
 
 describe('POST /v1/vendor-mocks/callhub/v1/media/upload', () => {
   beforeEach(() => {
-    mockMode.value = 'mock'
+    appEnvOverrides.VENDOR_MODE = 'mock'
   })
 
   it('accepts the multipart upload the CallHub client sends', async () => {
@@ -186,7 +179,7 @@ describe('POST /v1/vendor-mocks/callhub/v1/media/upload', () => {
 
 describe('vb_campaign lifecycle', () => {
   beforeEach(() => {
-    mockMode.value = 'mock'
+    appEnvOverrides.VENDOR_MODE = 'mock'
   })
 
   it('creates, reads, updates, and re-reads a vb_campaign', async () => {
@@ -222,6 +215,31 @@ describe('vb_campaign lifecycle', () => {
     expect(getRes2.data.status).toBe(1)
   })
 
+  it('clamps the create frequency and honors a PATCH up', async () => {
+    const createRes = await service.client.post(
+      `${BASE}/v1/vb_campaign`,
+      { name: 'my-campaign', frequency: 120 },
+      AUTH,
+    )
+    const pk = createRes.data.pk_str as string
+    // The create clamps to the account default regardless of the POSTed value.
+    expect(createRes.data.frequency).toBe(60)
+
+    const patchRes = await service.client.patch(
+      `${BASE}/v1/voice_broadcasts/${pk}`,
+      { frequency: 120 },
+      AUTH,
+    )
+    expect(patchRes.status).toBe(HttpStatus.OK)
+    expect(patchRes.data.frequency).toBe(120)
+
+    const getRes = await service.client.get(
+      `${BASE}/v1/voice_broadcasts/${pk}`,
+      AUTH,
+    )
+    expect(getRes.data.frequency).toBe(120)
+  })
+
   it('keeps the phonebook ids the campaign was created with', async () => {
     const createRes = await service.client.post(
       `${BASE}/v1/vb_campaign`,
@@ -237,9 +255,89 @@ describe('vb_campaign lifecycle', () => {
   })
 })
 
+describe('callhub.campaign.fail', () => {
+  beforeEach(() => {
+    appEnvOverrides.VENDOR_MODE = 'mock'
+  })
+
+  const seedRobocall = async () => {
+    const slug = `mock-org-${Math.random().toString(36).slice(2)}`
+    await service.prisma.organization.create({
+      data: { slug, ownerId: service.user.id },
+    })
+    const campaign = await service.prisma.campaign.create({
+      data: { userId: service.user.id, slug, organizationSlug: slug },
+    })
+    const outreach = await service.prisma.outreach.create({
+      data: {
+        outreachType: OutreachType.robocall,
+        campaignId: campaign.id,
+        date: new Date(),
+      },
+    })
+    return { campaign, name: `Robocall ${slug} #${outreach.id}` }
+  }
+
+  it("fails the armed campaign's next create once with CallHub's error shape, then succeeds", async () => {
+    const { campaign, name } = await seedRobocall()
+    await service.app
+      .get(VendorMockRecordService)
+      .armCallhubCreateFail(campaign.id)
+
+    const failRes = await service.client.post(
+      `${BASE}/v1/vb_campaign`,
+      { name },
+      AUTH,
+    )
+    expect(failRes.status).toBe(HttpStatus.SERVICE_UNAVAILABLE)
+    expect(failRes.data.detail).toEqual(expect.any(String))
+    expect(
+      await service.prisma.vendorMockRecord.count({
+        where: { kind: 'vb_campaign' },
+      }),
+    ).toBe(0)
+
+    const okRes = await service.client.post(
+      `${BASE}/v1/vb_campaign`,
+      { name },
+      AUTH,
+    )
+    expect(okRes.status).toBe(HttpStatus.CREATED)
+    expect(okRes.data.pk_str).toBeTruthy()
+  })
+
+  it("never fails a create that isn't the armed campaign's", async () => {
+    const armed = await seedRobocall()
+    const other = await seedRobocall()
+    await service.app
+      .get(VendorMockRecordService)
+      .armCallhubCreateFail(armed.campaign.id)
+
+    const otherRes = await service.client.post(
+      `${BASE}/v1/vb_campaign`,
+      { name: other.name },
+      AUTH,
+    )
+    const unrelatedRes = await service.client.post(
+      `${BASE}/v1/vb_campaign`,
+      { name: 'my-campaign' },
+      AUTH,
+    )
+    const armedRes = await service.client.post(
+      `${BASE}/v1/vb_campaign`,
+      { name: armed.name },
+      AUTH,
+    )
+
+    expect(otherRes.status).toBe(HttpStatus.CREATED)
+    expect(unrelatedRes.status).toBe(HttpStatus.CREATED)
+    expect(armedRes.status).toBe(HttpStatus.SERVICE_UNAVAILABLE)
+  })
+})
+
 describe('export_data', () => {
   beforeEach(() => {
-    mockMode.value = 'mock'
+    appEnvOverrides.VENDOR_MODE = 'mock'
   })
 
   it('returns total_calls >= rows imported', async () => {
@@ -279,7 +377,7 @@ describe('export_data', () => {
 
 describe('auth and mode guards', () => {
   beforeEach(() => {
-    mockMode.value = 'mock'
+    appEnvOverrides.VENDOR_MODE = 'mock'
   })
 
   it('returns 401 on missing auth for phonebooks', async () => {
@@ -302,7 +400,7 @@ describe('auth and mode guards', () => {
   })
 
   it('returns 404 on live mode for phonebooks', async () => {
-    mockMode.value = 'live'
+    appEnvOverrides.VENDOR_MODE = 'live'
     const res = await service.client.post(
       `${BASE}/v1/phonebooks`,
       { name: 'x' },
@@ -312,7 +410,7 @@ describe('auth and mode guards', () => {
   })
 
   it('returns 404 on live mode for dnc_contacts', async () => {
-    mockMode.value = 'live'
+    appEnvOverrides.VENDOR_MODE = 'live'
     const res = await service.client.get(`${BASE}/v1/dnc_contacts`, AUTH)
     expect(res.status).toBe(HttpStatus.NOT_FOUND)
   })

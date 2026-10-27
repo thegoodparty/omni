@@ -675,6 +675,7 @@ describe('RecommendedListsService.recommend', () => {
         // compares normalized payloads, not stored order.
         voterStatus: ['Likely', 'Super'],
         supportStatus: ['unknown'],
+        votedStatus: ['unknown'],
         hasCellPhone: true,
         activityConditions: [],
       },
@@ -702,6 +703,7 @@ describe('RecommendedListsService.recommend', () => {
         audienceSuperVoters: true,
         audienceLikelyVoters: true,
         supportStatus: ['unknown'],
+        votedStatus: ['unknown'],
         hasCellPhone: true,
         activityConditions: [],
       },
@@ -715,6 +717,29 @@ describe('RecommendedListsService.recommend', () => {
     )
 
     expect(first?.existingFilterId).toBe(78)
+  })
+
+  // A list saved before recommendations left out voters who already voted
+  // still holds them, so it is a different audience and must not be reused.
+  it('does not match a list that still includes voters who voted', async () => {
+    findByOrganizationSlug.mockResolvedValue([
+      {
+        id: 80,
+        voterStatus: ['Super', 'Likely'],
+        supportStatus: ['unknown'],
+        hasCellPhone: true,
+        activityConditions: [],
+      },
+    ])
+
+    const [first] = await service.recommend(
+      organization,
+      campaign,
+      'sms',
+      'introduce',
+    )
+
+    expect(first?.existingFilterId).toBeNull()
   })
 
   // The over-match the loaded `activityConditions` relation exists to
@@ -1058,6 +1083,7 @@ describe('RecommendedListsService.recommend', () => {
       expect(filter).toEqual({
         voterStatus: ['Super', 'Likely'],
         independentAffinity: true,
+        votedStatus: ['unknown'],
       })
       expect(countForFilter).not.toHaveBeenCalled()
     })

@@ -87,6 +87,8 @@ describe('mrpReadStatus', () => {
       groupsHeard: 1,
       groupsTotal: 2,
       groupsNext: 1,
+      representativeAnswers: 12,
+      representativeNeeded: 15,
       good: false,
       status: 'tooEarly',
       underrepresented: ['age65plus'],
@@ -122,6 +124,8 @@ describe('mrpReadStatus', () => {
       groupsHeard: 2,
       groupsTotal: 2,
       groupsNext: 0,
+      representativeAnswers: 15,
+      representativeNeeded: 15,
       good: false,
       status: 'gettingClose',
       underrepresented: ['age65plus'],
@@ -140,6 +144,8 @@ describe('mrpReadStatus', () => {
       groupsHeard: 2,
       groupsTotal: 2,
       groupsNext: 0,
+      representativeAnswers: 15,
+      representativeNeeded: 15,
       good: true,
       status: 'representative',
       underrepresented: [],
@@ -273,6 +279,8 @@ describe('mrpReadStatus', () => {
       groupsHeard: 20,
       groupsTotal: 20,
       groupsNext: 0,
+      representativeAnswers: 39,
+      representativeNeeded: 100,
       good: false,
       status: 'notYetRepresentative',
       underrepresented: [],
@@ -308,6 +316,8 @@ describe('mrpReadStatus', () => {
       groupsHeard: 0,
       groupsTotal: 0,
       groupsNext: 0,
+      representativeAnswers: 100,
+      representativeNeeded: 100,
       good: true,
       status: 'enoughAnswers',
       underrepresented: [],
@@ -317,6 +327,55 @@ describe('mrpReadStatus', () => {
       needed: 100,
       good: false,
       status: 'tooEarly',
+    })
+  })
+
+  it('counts an answer only while its group is within its share of the floor', () => {
+    // 65 and over is 20% of the district, so 20 of the 100 the floor needs.
+    // Its 30 answers fill 20 seats; the other 10 count for nothing more.
+    const status = mrpReadStatus({
+      answers: 60,
+      read: read(AGES(30, 30), true, 100),
+    })
+    expect(status).toMatchObject({
+      representativeAnswers: 50,
+      representativeNeeded: 100,
+      status: 'notYetRepresentative',
+    })
+  })
+
+  it('takes the dimension furthest behind, since one answer counts on each', () => {
+    const status = mrpReadStatus({
+      answers: 40,
+      read: read(
+        [
+          ...AGES(32, 8),
+          group('gender', 'female', 0.5, 35),
+          group('gender', 'male', 0.5, 5),
+        ],
+        true,
+        50,
+      ),
+    })
+    // Ages: 32 of 40 and 8 of 10. Gender: 25 of 25 and 5 of 25.
+    expect(status).toMatchObject({
+      representativeAnswers: 30,
+      representativeNeeded: 50,
+    })
+  })
+
+  it('counts the known on a dimension, so unknowns never leave a seat unfillable', () => {
+    const status = mrpReadStatus({
+      answers: 15,
+      read: read([
+        group('age', '18to64', 0.6, 12),
+        group('age', '65plus', 0.15, 3),
+      ]),
+    })
+    // Of the 75% whose age is known: 80% and 20% of the 20 needed.
+    expect(status).toMatchObject({
+      representativeAnswers: 15,
+      representativeNeeded: 20,
     })
   })
 

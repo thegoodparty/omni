@@ -8,6 +8,7 @@ import { VendorMocksModule } from '@/vendorMocks/vendorMocks.module'
 import { WebsitesModule } from '@/websites/websites.module'
 import { Module } from '@nestjs/common'
 import { ActivitySeedModule } from './activitySeed.module'
+import { PollResultsSeedModule } from './pollResultsSeed.module'
 import { TestFixturesController } from './testFixtures.controller'
 import { TestFixturesJudgeController } from './testFixturesJudge.controller'
 import { TestFixturesScenariosController } from './testFixturesScenarios.controller'
@@ -24,6 +25,7 @@ import { StateTransitionsModule } from './stateTransitions.module'
     ElectionsModule,
     OrganizationsModule,
     OutreachModule,
+    PollResultsSeedModule,
     StateTransitionsModule,
     StripeModule,
     VendorMocksModule,

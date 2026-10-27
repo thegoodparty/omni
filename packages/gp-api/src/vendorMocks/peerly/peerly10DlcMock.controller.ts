@@ -66,9 +66,14 @@ const profileStateSchema = z.object({
   request: jsonRecordSchema.default({}),
 })
 
+// Peerly's identity bodies carry no account_id, but the mock needs one to
+// answer listByAccount and get_usecases, so it lives only in stored state.
+const identityStateSchema = peerlyIdentitySchema.extend({
+  account_id: z.string(),
+})
+
 const brandStateSchema = z.object({
   status: z.string(),
-  submissionKey: z.string(),
   request: jsonRecordSchema.default({}),
 })
 
@@ -125,12 +130,13 @@ export class Peerly10DlcMockController {
     this.enter(authorization)
     const identityName = str(body, 'identity_name', 'mock-identity')
     const identityId = await this.freshIdentityId()
-    const state = peerlyIdentitySchema.parse({
+    const state = identityStateSchema.parse({
       identity_id: identityId,
       identity_name: identityName,
       start_date: format(new Date(), 'yyyy-MM-dd'),
       account_id: str(body, 'account_id', MOCK_ACCOUNT_ID),
       tcr_identity_status: null,
+      vetting_expire_date: null,
       usecases: Array.isArray(body['usecases'])
         ? body['usecases'].filter((u) => typeof u === 'string')
         : [PEERLY_USECASE],
@@ -167,7 +173,7 @@ export class Peerly10DlcMockController {
       orderBy: { createdAt: 'asc' },
     })
     const identities = records
-      .map((r) => peerlyIdentitySchema.parse(r.state))
+      .map((r) => identityStateSchema.parse(r.state))
       .filter((i) => !accountId || i.account_id === accountId)
     return peerlyGetIdentitiesResponseBodySchema.parse({ identities })
   }
@@ -222,14 +228,12 @@ export class Peerly10DlcMockController {
       str(body, 'ein'),
     )
     const existing = await this.findBrand(id)
-    const submissionKey = existing?.submissionKey ?? `mock-sub-${randomUUID()}`
     await this.vendorMockRecord.upsert(
       VendorMockVendor.peerly,
       PEERLY_10DLC_KIND.brand,
       id,
       {
         status: existing?.status ?? PEERLY_PROFILE_STATUS_PENDING,
-        submissionKey,
         // Merged, so a later token-only submit (finalized brand re-open)
         // keeps the EIN and address from the first one.
         request: { ...existing?.request, ...body },
@@ -248,9 +252,9 @@ export class Peerly10DlcMockController {
         { status: PEERLY_PROFILE_STATUS_PENDING },
       )
     }
-    return peerly10DLCBrandSubmitResponseBodySchema.parse({
-      submission_key: submissionKey,
-    })
+    // Peerly answers with the brand info and no submission_key, and the
+    // schema keeps only submission_key, so the mock body is empty.
+    return peerly10DLCBrandSubmitResponseBodySchema.parse({})
   }
 
   @Post('v2/tdlc/:id/approve')
@@ -284,7 +288,6 @@ export class Peerly10DlcMockController {
       id,
       {
         status: 'approved',
-        submissionKey: brand?.submissionKey ?? `mock-sub-${randomUUID()}`,
         request: brand?.request ?? {},
       } satisfies Prisma.InputJsonObject,
       campaignId,
@@ -311,7 +314,6 @@ export class Peerly10DlcMockController {
     const source = { ...brand?.request, ...profile.request }
     return approve10DLCBrandResponseBodySchema.parse({
       street: str(source, 'street'),
-      usecases: identity.state.usecases ?? [PEERLY_USECASE],
       phone: str(source, 'phone'),
       legal_entity_type: str(source, 'entityType', PEERLY_ENTITY_TYPE),
       account_id: identity.state.account_id,
@@ -329,7 +331,6 @@ export class Peerly10DlcMockController {
       sample1: str(body, 'sample1'),
       displayName: str(source, 'displayName'),
       status: PEERLY_PROFILE_STATUS_WAITING_TO_FINALIZE,
-      entity_type: str(body, 'entity_type', PEERLY_ENTITY_TYPE),
       city: str(source, 'city'),
       usecase: str(body, 'usecase', PEERLY_USECASE),
       sample2: str(body, 'sample2'),
@@ -554,7 +555,7 @@ export class Peerly10DlcMockController {
     if (!record) throw peerlyError(HttpStatus.NOT_FOUND, 'Identity not found')
     return {
       campaignId: record.campaignId ?? undefined,
-      state: peerlyIdentitySchema.parse(record.state),
+      state: identityStateSchema.parse(record.state),
     }
   }
 
@@ -637,7 +638,6 @@ export class Peerly10DlcMockController {
         account_id: accountId,
         base_account_id: accountId,
         campaignVerifyToken: profile.campaignVerifyToken,
-        campaigns: {},
         city: str(source, 'city'),
         companyName: str(source, 'companyName'),
         country: str(source, 'country', 'US'),
@@ -652,11 +652,12 @@ export class Peerly10DlcMockController {
         state: str(source, 'state'),
         status: profile.status,
         street: str(source, 'street'),
-        usecase: PEERLY_USECASE,
         // Peerly sets `vertical` once a brand exists; submit_to_peerly reads it
-        // to decide whether the brand step can be skipped.
-        ...(brand ? { vertical: PEERLY_USECASE } : {}),
-        usecases: identity.state.usecases ?? [PEERLY_USECASE],
+        // to decide whether the brand step can be skipped. Before that, prod
+        // profiles fail on `campaigns` and `usecase` too, so both are omitted.
+        ...(brand
+          ? { vertical: PEERLY_USECASE, campaigns: {}, usecase: PEERLY_USECASE }
+          : {}),
         website: str(source, 'website'),
       },
     })

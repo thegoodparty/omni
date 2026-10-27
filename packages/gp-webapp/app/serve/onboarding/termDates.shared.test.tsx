@@ -1,8 +1,13 @@
 import { describe, it, expect } from 'vitest'
+import { screen, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import type { ElectedOffice } from 'gpApi/api-endpoints'
+import { render } from 'helpers/test-utils/render'
 import {
   buildDisabledRanges,
   overlapsExisting,
+  startDisabledMatchers,
+  TermDatesFields,
   FAR_FUTURE,
 } from './termDates.shared'
 
@@ -31,6 +36,18 @@ describe('buildDisabledRanges', () => {
       undefined,
     )
     expect(ranges).toHaveLength(0)
+  })
+
+  it('never turns an office with no dates into a range that blocks every date', () => {
+    const ranges = buildDisabledRanges(
+      [office('a', null, null), office('b', 'not-a-date', null)],
+      undefined,
+    )
+    expect(ranges).toEqual([])
+    expect(startDisabledMatchers(ranges)).toEqual([])
+    expect(
+      overlapsExisting(new Date(2025, 0, 1), new Date(2029, 0, 1), ranges),
+    ).toBe(false)
   })
 
   it('blocks a null-end (indefinite) term from its start onward', () => {
@@ -71,5 +88,27 @@ describe('overlapsExisting alignment with the server', () => {
     expect(
       overlapsExisting(new Date(2025, 0, 1), new Date(2029, 0, 1), ranges),
     ).toBe(false)
+  })
+})
+
+describe('TermDatesFields', () => {
+  it('opens the end date on the month the term starts, not today', async () => {
+    const user = userEvent.setup()
+    render(
+      <TermDatesFields
+        termStartDate={new Date(2031, 4, 12)}
+        termEndDate={undefined}
+        onStartChange={() => undefined}
+        onEndChange={() => undefined}
+        otherRanges={[]}
+        error={null}
+      />,
+    )
+
+    await user.click(screen.getByLabelText('Term end date'))
+    const dialog = await screen.findByRole('dialog')
+    const [month, year] = within(dialog).getAllByRole('combobox')
+    expect(month).toHaveDisplayValue('May')
+    expect(year).toHaveDisplayValue('2031')
   })
 })

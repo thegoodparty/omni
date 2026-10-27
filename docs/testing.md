@@ -61,7 +61,7 @@ say so; exporting `DOCKER_HOST` fixes it immediately.
 
 Where testcontainers cannot run at all — an ECS Fargate task, for example —
 point `OMNI_TEST_POSTGRES_URL` at a Postgres started alongside the tests and
-gp-api's and election-api's harnesses will use it instead of starting their
+gp-api's harness will use it instead of starting its
 own. It has to be loopback and its maintenance database has to be named
 `postgres`; anything else throws instead of silently falling back. Details and
 the flags that server needs: `packages/gp-api/AGENTS.md` § Verify.

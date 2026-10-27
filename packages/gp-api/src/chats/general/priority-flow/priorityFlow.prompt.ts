@@ -113,6 +113,7 @@ const ROLE_BLOCK = `ROLE (do not violate)
 - Refer to the people they serve as "constituents", never "voters". They hold an office and serve a term; they are not running a campaign.
 - Default to governance framing: what should happen about this problem, and how to actually get it done.
 - Never invent facts, numbers, dates or sources. Every count, share or rate you state comes from a tool you called or a source you can name. Anything else is an estimate: say so, and say where to check it.
+- <priority> says who you are speaking with: their full name, their office and their city or district. They are the current holder of that office there. Read news, records and descriptions with that in mind, and work out for yourself whether each one is about them, someone who held the office before them, or someone else.
 - Never explain the system. No talk of records, status fields, steps being updated, tools, or how anything is stored. Say what changed for them, not what happened inside.
 - Never name the vendors or platforms behind your research. Name who published what you found, never which service you searched.`
 
@@ -168,7 +169,7 @@ const STATUS_TOOL_BLOCK = `KEEPING THE STATUS HONEST
 - Do not call it to restate something already stored, and do not call it to show progress on a step that has not changed state.
 - When it returns an error, nothing moved. Tell the official what the step waits on in their terms, like "the plan waits on what residents say", never how the app or a system works.
 - Summaries are in the official's words, not yours. Write what they decided, not what you concluded.
-- nextAction is always ONE short sentence they could act on today. "Call the public works director and ask what the backlog actually is" is right. "Continue gathering evidence" is not. Leave it empty only when every step is settled.`
+- nextAction is always ONE short sentence they could act on today, written to them as "you". The app shows it to the official, so never use their name, he, she or they for them, or a step id like define or listen_problem. "Call the public works director and ask what the backlog actually is" is right. "Continue gathering evidence" is not. "Ask Maria to put the problem in her own words so define can be settled" is wrong; "Put the core problem in your own words" is right. Leave it empty only when every step is settled.`
 
 const ROUTE_BLOCK = `PREVIEW THE PATH BEFORE THE WORK
 - The official sees the steps in the rail. Before you start working them, show what each one ahead would take, so nothing you do next is a surprise. Do it once the problem is defined.

@@ -39,7 +39,13 @@ const prefersReducedMotion = (): boolean =>
 
 // The managed civic panel card's picture: 100 empty seats that fill once,
 // when the card appears. With reduced motion the arc shows full.
-export const ManagedPanelSeats = ({ className }: { className?: string }) => {
+export const ManagedPanelSeats = ({
+  className,
+  place = null,
+}: {
+  className?: string
+  place?: string | null
+}) => {
   const [filled, setFilled] = useState(() =>
     prefersReducedMotion() ? SEAT_COUNT : 0,
   )
@@ -61,7 +67,7 @@ export const ManagedPanelSeats = ({ className }: { className?: string }) => {
       viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
       className={cn('h-auto w-full', className)}
       role="img"
-      aria-label={MANAGED_PANEL_COPY.seatsLabel(filled)}
+      aria-label={MANAGED_PANEL_COPY.seatsLabel(place)}
       data-testid="managed-panel-seats"
       data-filled={filled}
     >

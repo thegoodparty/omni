@@ -5,6 +5,21 @@ An elected official's priorities: the record, the agent's seven-step status
 the results page's read of who answered the outreach sent on one
 (`services/priorityResults.service.ts`).
 
+`nextAction` is shown to the official (the priority rail's "Next" line, the
+home Next steps cards), so it is one sentence to them as "you".
+`PriorityStatusService.applyUpdate` drops it to null and logs a warning when it
+names the official (first or last name) or uses a step id as a name ("so
+define can be settled", `listen_problem`). Reads apply the same guard
+(`shownNextAction`): every priorities route that returns a priority (list,
+get, create, update and `/status`) and the home Next steps cards show a value stored before the write
+guard existed as no Next line.
+
+**Report Back Sent** (`EVENTS.Priorities.ReportBackSent`) fires from the Serve
+SMS post-purchase step once a report back text is claimed and queued, only
+from the claim that won: `answeredCount` (everyone who answered the
+priority), `themesShared` (its top themes, at most `MAX_THEMES`) and
+`channel` (`text`).
+
 ## Answer coding
 
 `services/priorityAnswerCoding.service.ts`. Replies stay free text; an AI
@@ -78,8 +93,11 @@ share of the district against its share of the coded answers, unweighted.
 at all (a tract with none makes `unreachedAreas` unheard), and `groupsHeard` of `groupsTotal` (major groups with
 at least three coded answers), which the webapp shows instead of an answer
 count, and `groupsNext`, the major groups short of three that belong to a
-group named in `underrepresented`, which the webapp's groups seats ring as
-needed next. `unreachedAreaFor` takes its tracts from the same model
+group named in `underrepresented`. `representativeAnswers` of
+`representativeNeeded` is what the webapp's seats and bar show, in people:
+the floor, and the answers within their group's share of it on every
+dimension (the one furthest behind sets it), so a group heard from plenty
+never fills more than its share (`representativeOf`). `unreachedAreaFor` takes its tracts from the same model
 (`holdingBackTracts`: major tracts short of three answers or too unsure), so
 the area a list is saved to can never disagree with the status.
 

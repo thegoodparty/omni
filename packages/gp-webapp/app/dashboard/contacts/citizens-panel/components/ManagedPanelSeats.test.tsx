@@ -32,7 +32,7 @@ describe('<ManagedPanelSeats>', () => {
     expect(seats()).toHaveLength(100)
     expect(filledSeats()).toHaveLength(0)
     expect(screen.getByRole('img')).toHaveAccessibleName(
-      '0 of 100 seats filled, one for every group in your district',
+      'A civic panel filling up with residents from every part of your district',
     )
 
     act(() => vi.advanceTimersByTime(SEAT_FILL_MS * 50))
@@ -41,8 +41,13 @@ describe('<ManagedPanelSeats>', () => {
     act(() => vi.advanceTimersByTime(SEAT_FILL_MS * 60))
     expect(filledSeats()).toHaveLength(100)
     expect(SEAT_FILL_MS * 100).toBeLessThanOrEqual(5000)
+  })
+
+  it('names the place in its label', () => {
+    reducedMotion(true)
+    render(<ManagedPanelSeats place="Maplewood" />)
     expect(screen.getByRole('img')).toHaveAccessibleName(
-      '100 of 100 seats filled, one for every group in your district',
+      'A civic panel filling up with residents from every part of Maplewood',
     )
   })
 

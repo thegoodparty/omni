@@ -40,10 +40,7 @@ import digest_triage as dt  # noqa: E402
 GAPS = PY / "instrumentation_data" / "instrumentation_gaps.json"
 REPORT = PY / "instrumentation_data" / "analytics_event_health_report.json"
 CODE_CSV = PY / "instrumentation_data" / "amplitude_event_provenance.csv"
-EXPLORER = (
-    PY.parent.parent.parent
-    / "prototypes/app/p/analytics-event-explorer/data/event-explorer.json"
-)
+EXPLORER = PY.parent.parent / "surfaces/event-explorer/data/event-explorer.json"
 
 # A gap the sweep is still waiting on a ruling for. Everything else has been judged and
 # belongs in `settled`, visible but out of the queue.

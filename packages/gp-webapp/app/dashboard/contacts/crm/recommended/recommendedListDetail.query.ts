@@ -24,6 +24,9 @@ export const recommendedListDetailQueryOptions = (
         ...(filter.supportStatus?.length
           ? { supportStatus: filter.supportStatus }
           : {}),
+        ...(filter.votedStatus?.length
+          ? { votedStatus: filter.votedStatus }
+          : {}),
         ...(filter.precincts?.length ? { precincts: filter.precincts } : {}),
       })
       return data

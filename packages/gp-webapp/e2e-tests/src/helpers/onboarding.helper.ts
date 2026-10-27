@@ -38,22 +38,25 @@ const completePartyAffiliationStep = async (page: Page): Promise<void> => {
   await clickOnboardingContinue(page)
 }
 
+// The Win picker lists general races only. Charlotte's city general (Nov 2027)
+// is the `28202-city-council` reference in real-world-references.json; picking
+// it by name keeps the same office on either side of an earlier election day.
 const completeOfficeSelectionStep = async (page: Page): Promise<void> => {
   await expect(
     page.getByRole('heading', { level: 1, name: /what office/i }),
   ).toBeVisible()
 
-  await page.getByLabel(/zip code/i).fill('82001')
+  await page.getByLabel(/zip code/i).fill('28202')
   await page.getByRole('button', { name: /search/i }).click()
 
   const officeGroup = page.getByRole('radiogroup', {
     name: /available offices/i,
   })
-  await officeGroup
-    .getByRole('radio')
+  const office = officeGroup
+    .getByRole('radio', { name: /Charlotte City Council/i })
     .first()
-    .waitFor({ state: 'visible', timeout: 30000 })
-  await officeGroup.getByRole('radio').first().click()
+  await office.waitFor({ state: 'visible', timeout: 30000 })
+  await office.click()
 
   await wait(1000)
 

@@ -1,5 +1,6 @@
 import { kebabCase } from 'es-toolkit'
 import { segmentTrackEvent } from './segmentHelper'
+import { pushSignUpToDataLayer } from './gtmDataLayer'
 import cookie from 'js-cookie'
 import type { Analytics } from '@segment/analytics-next'
 import type { OrganizationRole } from '@goodparty_org/contracts'
@@ -33,6 +34,25 @@ export const setActorRole = (
   value: OrganizationRole | null | undefined,
 ): void => {
   actorRole = value
+}
+
+export type ActiveProduct = 'win' | 'serve'
+
+// Serve when the org has an elected office, else Win. No org yet gives null.
+export const toActiveProduct = (
+  org: { electedOfficeId?: string | null } | undefined,
+): ActiveProduct | null => {
+  if (!org) return null
+  return org.electedOfficeId ? 'serve' : 'win'
+}
+
+// Named differently from `product` on purpose: the governed outreach metrics
+// exclude on `product`, so filling it on every event would change them.
+let activeProduct: ActiveProduct | null | undefined
+export const setActiveProduct = (
+  value: ActiveProduct | null | undefined,
+): void => {
+  activeProduct = value
 }
 
 const UTM_KEYS = [
@@ -171,12 +191,16 @@ export const EVENTS = {
     // ServeOnboardingFlow). Office Status / Party Designation / Office carry the
     // user's selected card title; the *Completed events fire on Continue.
     WelcomeViewed: 'Serve Onboarding - Welcome Viewed',
+    WelcomeCompleted: 'Serve Onboarding - Welcome Completed',
     OfficeStatusViewed: 'Serve Onboarding - Office Status Viewed',
+    OfficeStatusCompleted: 'Serve Onboarding - Office Status Completed',
     PartyDesignationViewed: 'Serve Onboarding - Party Designation Viewed',
+    PartyDesignationCompleted: 'Serve Onboarding - Party Designation Completed',
     OfficeViewed: 'Serve Onboarding - Office Viewed',
     OfficeCompleted: 'Serve Onboarding - Office Completed',
     ConfirmViewed: 'Serve Onboarding - Confirm Viewed',
     TermDatesViewed: 'Serve Onboarding - Term Dates Viewed',
+    TermDatesCompleted: 'Serve Onboarding - Term Dates Completed',
     PledgeViewed: 'Serve Onboarding - Pledge Viewed',
     PledgeCompleted: 'Serve Onboarding - Pledge Completed',
     // The serve-citizen-panels district story, one pair per step, then the
@@ -197,6 +221,9 @@ export const EVENTS = {
       'Serve Onboarding - Build And Grow Your List Completed',
     PrioritiesViewed: 'Serve Onboarding - Priorities Viewed',
     PrioritiesCompleted: 'Serve Onboarding - Priorities Completed',
+    // The list could not offer anything: { reason: search_failed |
+    // none_found, retried }.
+    PrioritiesErrored: 'Serve Onboarding - Priorities Errored',
   },
   Navigation: {
     Top: {
@@ -503,6 +530,19 @@ export const EVENTS = {
       NameViewed: 'Contacts - List Wizard Name Viewed',
       NameCompleted: 'Contacts - List Wizard Name Completed',
     },
+    // Serve's civic panel page, and setting up the civic panel GoodParty
+    // builds (the managed panel): value prop, invite, review, submit. gp-api
+    // fires the approval and everything after it.
+    CivicPanelViewed: 'Contacts - Civic Panel Viewed',
+    CivicPanelManagedInviteValuePropViewed:
+      'Contacts - Civic Panel Managed Invite Value Prop Viewed',
+    CivicPanelManagedInviteValuePropCompleted:
+      'Contacts - Civic Panel Managed Invite Value Prop Completed',
+    CivicPanelInviteViewed: 'Contacts - Civic Panel Invite Viewed',
+    CivicPanelInviteReviewViewed: 'Contacts - Civic Panel Invite Review Viewed',
+    CivicPanelInviteReviewDismissed:
+      'Contacts - Civic Panel Invite Review Dismissed',
+    CivicPanelInviteSubmitted: 'Contacts - Civic Panel Invite Submitted',
   },
   // ENG-10688: the CRM brief specs the typeahead search events as
   // product-specific by nav surface — "Voter Data" (Win) vs "Constituent
@@ -725,13 +765,19 @@ export const EVENTS = {
     // The front card of the home's task stack. `cardType` is the card's kind
     // (onboarding, briefing, agenda_item, community_issue, civic_panel,
     // report_back), `cardVariant` tells the civic panel cards apart
-    // (panel_managed, panel_managed_progress, priority_next_step),
-    // `stackSize` how many cards were in the stack when the official acted.
+    // (managed_offer, managed_building, managed_ready, managed_exhausted,
+    // priority_next_step), `stackSize` how many cards were in the stack.
+    // Task Viewed fires each time a card becomes the front card; civic panel
+    // cards add members and goalMembers, report backs priorityId.
+    TaskViewed: 'Chief Of Staff - Task Viewed',
     TaskCompleted: 'Chief Of Staff - Task Completed',
     // Every other choice on that card: `action` is start (its main button),
     // ask (open the chat about it) or skip,
     // with `skipChoice` snooze or dismiss.
     TaskActionTaken: 'Chief Of Staff - Task Action Taken',
+    // A card under the Chief of Staff's intro, sent with Start: { nextStep }.
+    IntroductoryNextStepPicked:
+      'Chief Of Staff - Introductory Next Step Picked',
   },
   BriefingAssistant: {
     ListViewed: 'Briefing Assistant - List Viewed',
@@ -823,9 +869,9 @@ export const EVENTS = {
     // that could give every major group its three, and `groupsHeard` of
     // `groupsTotal` the major groups that have them.
     ResultsViewed: 'Priorities - Results Viewed',
-  },
-  CivicPanel: {
-    PanelViewed: 'Civic Panel - Panel Viewed',
+    // A proposal card the agent drew on a priority: { round: one |
+    // follow_up, sampleSize, targetGroup, channel: text | door | call }.
+    OutreachProposed: 'Priorities - Outreach Proposed',
   },
   Ordinances: {
     ClarifyViewed: 'Ordinances - Clarify Viewed',
@@ -906,6 +952,10 @@ export const EVENTS = {
     // name: what a person said is not an analytics payload.
     ReportViewed: 'Issue Capture - Report Viewed',
     SynthesisRequested: 'Issue Capture - Synthesis Requested',
+    // A theme opened from the report: where it ranked and how many
+    // conversations it holds, never its title.
+    ThemeViewed: 'Issue Capture - Theme Viewed',
+    NotesDownloaded: 'Issue Capture - Notes Downloaded',
     // The offline path: a memo recorded with no signal, and the moment it
     // reaches the server.
     MemoQueuedOffline: 'Issue Capture - Memo Queued Offline',
@@ -989,6 +1039,10 @@ export const trackRegistrationCompleted = async ({
     signUpMethod,
     ...attributionTraits,
   })
+
+  // GA4 only sees what GTM can observe; the Segment event above never
+  // reaches it. See helpers/gtmDataLayer.ts.
+  pushSignUpToDataLayer({ userId, method: signUpMethod })
 }
 
 export const persistUtmsOnce = (): void => {
@@ -1094,6 +1148,7 @@ export const trackEvent = (
       impersonation: isImpersonating,
       actorUserId: actorUserId ?? null,
       actorRole: actorRole ?? null,
+      activeProduct: activeProduct ?? null,
     }
     // Return the segmentTrackEvent promise so callers that need the event to
     // flush before a page unload (e.g. a redirect) can await it.

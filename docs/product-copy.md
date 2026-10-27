@@ -1,7 +1,7 @@
 # Product copy rules
 
 Every string a candidate reads is product. This file is the standard for
-writing it: UI copy in `gp-webapp`, `gp-admin`, `prototypes`, and
+writing it: UI copy in `gp-webapp`, `gp-admin` and
 `candidate-sites`, and any user-facing text our AI agents generate.
 
 Our users are first-time candidates and small-town elected officials doing
@@ -58,6 +58,12 @@ If a mechanic genuinely affects their money, their time, or their data,
 say the consequence in one clause and stop. "You are only charged for the
 calls we actually place" is the consequence. A paragraph about how holds and
 releases work is not.
+
+One exception: the Chief of Staff's civic panel explanation and its answer
+to How does it work? say how the civic panel works, on purpose, because an
+official won't approve an invite to a group they can't picture. The words
+are approved and fixed (`packages/contracts/src/people/ManagedCivicPanelExplainer.ts`).
+Change them only with product sign-off, and never mention waves.
 
 ### 4. Use their words, not ours
 
@@ -136,9 +142,9 @@ matters to them. Cost, counts, channels and how it works belong in the flow
 the card opens, never on the card. Cards that show an item (a meeting, an
 agenda item, an issue, a priority's next step) keep the item as the headline.
 
-| Write this                                     | Not this                                         |
-| ---------------------------------------------- | ------------------------------------------------ |
-| Know what your district thinks before you vote | A paid text to up to 3,334 residents, about $117 |
+| Write this                                                  | Not this                                         |
+| ----------------------------------------------------------- | ------------------------------------------------ |
+| Hear from all of your district, not just the loudest voices | A paid text to up to 3,334 residents, about $117 |
 
 Source of truth for the pattern: the managed civic panel card
 (`managedCivicPanelCardContent` in

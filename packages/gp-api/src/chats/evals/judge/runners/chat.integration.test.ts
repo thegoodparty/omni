@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { SlackService } from '@/vendors/slack/services/slack.service'
 import { differenceInMilliseconds, parseISO } from 'date-fns'
 import { useTestService } from '@/test-service'
 import { PRICING_VERSION } from '../pricing'
@@ -50,6 +51,14 @@ import {
 // output, a version nobody pinned is not reported as pinned.
 
 const service = useTestService()
+
+// The campaign assistant's live race lookup posts its election-data misses
+// to Slack, which would otherwise wait on a real webhook.
+beforeEach(() => {
+  vi.spyOn(service.app.get(SlackService), 'message').mockResolvedValue(
+    undefined,
+  )
+})
 
 const TURN_TIMEOUT_MS = 60_000
 

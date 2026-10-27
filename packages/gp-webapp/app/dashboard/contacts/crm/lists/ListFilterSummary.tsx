@@ -14,6 +14,7 @@ import {
   ACTIVITY_CONDITION_ACTION_LABELS,
   ACTIVITY_CONDITION_CHANNELS,
   SUPPORT_STATUS_OPTIONS,
+  VOTED_STATUS_OPTIONS,
 } from '../shared/activityConditionOptions'
 import { decodePrecinctPair } from '@goodparty_org/contracts'
 import type { SegmentResponse } from '../shared/contacts-types'
@@ -220,6 +221,17 @@ export const buildFilterSummary = (
           ?.label ?? value,
     )
     clauses.push(`Support status ${labels.join(' or ')}`)
+  }
+
+  const votedStatus = Array.isArray(segment.votedStatus)
+    ? segment.votedStatus
+    : []
+  // Both options is no constraint, so only a single selection is worth naming.
+  if (votedStatus.length === 1) {
+    const label =
+      VOTED_STATUS_OPTIONS.find((option) => option.value === votedStatus[0])
+        ?.label ?? votedStatus[0]
+    clauses.push(`Voted in election ${label}`)
   }
 
   // A saved list can carry a precinct filter, so the summary has to name it —

@@ -1,6 +1,6 @@
 ---
 name: event-metadata
-description: Write an analytics event's governance metadata (purpose, status, supersession lineage, product tag) into Amplitude — when adding a new client event, retiring or superseding one, or enriching/backfilling an existing event that is missing metadata. Called by instrument-analytics-event after it registers a new event, and runnable standalone for governance updates after an audit. Client (Amplitude) events only.
+description: Write an analytics event's governance metadata (purpose, status, supersession lineage, product tag) into Amplitude — when adding a new event, retiring or superseding one, or enriching/backfilling an existing event that is missing metadata. Called by instrument-analytics-event after it registers a new event, and runnable standalone for governance updates after an audit.
 ---
 
 # Write event metadata to Amplitude
@@ -11,9 +11,9 @@ into Amplitude — as a structured block in the event **description** plus a `pr
 **tag** — at the moment of change. It is the writer; it acts on a **named** event and
 does not scan diffs.
 
-Scope: **client (Amplitude) events only** — those in
-`packages/gp-webapp/helpers/analyticsHelper.ts`. Backend `segment.types.ts` events are
-out of scope (see ClickUp 86aj7bdkp).
+Scope: client events in `packages/gp-webapp/helpers/analyticsHelper.ts`, and backend
+`segment.types.ts` events, which land in the same Amplitude projects and get the same
+metadata.
 
 The CSV provenance artifact in omni
 (`packages/runbooks/scripts/python/instrumentation_data/amplitude_event_provenance.csv`) is

@@ -702,6 +702,8 @@ export class TestFixturesService {
       await this.vendorMockRecord.armRouteFail(campaignId)
     } else if (action === 'callhub.campaign.complete') {
       await this.vendorMockRecord.completeCallhubCampaign(campaignId)
+    } else if (action === 'callhub.campaign.fail') {
+      await this.vendorMockRecord.armCallhubCreateFail(campaignId)
     } else if (action === 'peerly.balance.empty') {
       await this.vendorMockRecord.emptyPeerlyBalance(campaignId)
     } else if (action === 'peerly.cv.approve') {
@@ -727,12 +729,23 @@ export class TestFixturesService {
       await this.vendorMockRecord.setPeerlyCvStatus(campaignId, { pin })
     } else if (action === 'peerly.usecase.activate') {
       await this.vendorMockRecord.activatePeerlyUsecase(campaignId)
+    } else if (action === 'peerly.phonelist.fail') {
+      await this.vendorMockRecord.armPhoneListFail(campaignId)
     } else if (action === 'vercel.order.fail') {
       await this.vendorMockRecord.failVercelOrders(campaignId)
     } else {
       throw new BadRequestException(`Unsupported action: ${action}`)
     }
     return this.getMockRecords(campaignId)
+  }
+
+  async getMockRecordsByOrganization(
+    organizationSlug: string,
+  ): Promise<MockRecordsResponse> {
+    return {
+      vendorMode: VENDOR_MODE,
+      records: await this.vendorMockRecord.findByOrganization(organizationSlug),
+    }
   }
 
   async getMockRecords(campaignId: number): Promise<MockRecordsResponse> {

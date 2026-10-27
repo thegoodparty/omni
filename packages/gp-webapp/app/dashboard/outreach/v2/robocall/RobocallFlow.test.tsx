@@ -387,18 +387,39 @@ const mockComplianceError = () =>
 // whether the on-entry draft succeeds or fails.
 const gotoComposeRaw = async (purposeLabel = 'Persuade likely voters') => {
   await gotoSchedule(purposeLabel)
-  await userEvent.click(screen.getByText('Pick a date'))
-  await userEvent.click(await screen.findByText('mock-pick-future'))
-  await userEvent.click(screen.getByRole('combobox', { name: /Send time/ }))
-  await userEvent.click(await screen.findByRole('option', { name: '10:00 AM' }))
-  await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+  await user.click(screen.getByText('Pick a date'))
+  await user.click(await screen.findByText('mock-pick-future'))
+  await user.click(screen.getByRole('combobox', { name: /Send time/ }))
+  await user.click(await screen.findByRole('option', { name: '10:00 AM' }))
+  await user.click(screen.getByRole('button', { name: 'Continue' }))
 }
 
 // Mocks the presign endpoint and stubs the direct S3 POST. `s3Ok` controls
 // whether the upload succeeds; non-S3 requests fall through to MSW.
 // Restore any global.fetch spy (mockAudioUpload) so it doesn't leak a
 // neutered fetch into later tests.
-afterEach(() => vi.restoreAllMocks())
+afterEach(() => {
+  vi.restoreAllMocks()
+  vi.useRealTimers()
+})
+
+// No test here is about hover, and the pointer move user-event makes before
+// every click fires a round of hover events (and re-renders) for nothing.
+let user: ReturnType<typeof userEvent.setup>
+beforeEach(() => {
+  user = userEvent.setup({ skipHover: true })
+})
+
+// useListWizardCount debounces the builder count by 600ms. A fake clock that
+// still ticks lets the builder tests skip that wait instead of sitting it out.
+const useBuilderClock = () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true })
+  user = userEvent.setup({
+    skipHover: true,
+    advanceTimers: vi.advanceTimersByTime,
+  })
+}
+const skipCountDebounce = () => act(() => vi.advanceTimersByTimeAsync(600))
 
 const mockAudioUpload = (s3Ok = true) => {
   api.mock('POST /v1/outreach/robocall/audio/presign', {
@@ -437,9 +458,9 @@ const gotoSchedule = async (
   mockSavedLists()
   mockListDetail(80)
   await gotoAudience(purposeLabel, onClose)
-  await userEvent.click(await screen.findByText('Choose a voter list'))
-  await userEvent.click(await screen.findByText('Renters in 98103'))
-  await userEvent.click(
+  await user.click(await screen.findByText('Choose a voter list'))
+  await user.click(await screen.findByText('Renters in 98103'))
+  await user.click(
     await screen.findByRole('button', { name: /Continue \(80\)/ }),
   )
   await screen.findByLabelText('Campaign name')
@@ -453,13 +474,13 @@ const gotoCompose = async (
 ) => {
   mockDraft()
   await gotoSchedule(purposeLabel, onClose)
-  await userEvent.click(screen.getByText('Pick a date'))
-  await userEvent.click(await screen.findByText('mock-pick-future'))
-  await userEvent.click(screen.getByRole('combobox', { name: /Send time/ }))
-  await userEvent.click(await screen.findByRole('option', { name: '10:00 AM' }))
+  await user.click(screen.getByText('Pick a date'))
+  await user.click(await screen.findByText('mock-pick-future'))
+  await user.click(screen.getByRole('combobox', { name: /Send time/ }))
+  await user.click(await screen.findByRole('option', { name: '10:00 AM' }))
   const continueBtn = screen.getByRole('button', { name: 'Continue' })
   await waitFor(() => expect(continueBtn).toBeEnabled())
-  await userEvent.click(continueBtn)
+  await user.click(continueBtn)
   // Compose-step landing: keyed on the Intro body (unique to this step; the
   // "What do you want to say?" title also renders in the sheet's a11y title).
   await screen.findByText(/Read the script below into your microphone/)
@@ -473,12 +494,12 @@ const gotoReview = async (
 ) => {
   await gotoCompose(purposeLabel, onClose)
   mockAudioUpload()
-  await userEvent.click(screen.getByRole('button', { name: 'Start recording' }))
-  await userEvent.click(screen.getByRole('button', { name: 'Stop recording' }))
-  await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+  await user.click(screen.getByRole('button', { name: 'Start recording' }))
+  await user.click(screen.getByRole('button', { name: 'Stop recording' }))
+  await user.click(screen.getByRole('button', { name: 'Save' }))
   const continueBtn = screen.getByRole('button', { name: 'Continue' })
   await waitFor(() => expect(continueBtn).toBeEnabled())
-  await userEvent.click(continueBtn)
+  await user.click(continueBtn)
   await screen.findByRole('button', { name: 'Continue to payment' })
 }
 
@@ -486,7 +507,7 @@ const gotoReview = async (
 // create-draft + save-card-intent on entry, so the caller registers those
 // (and the authorize) mocks before calling.
 const enterPay = async () =>
-  userEvent.click(screen.getByRole('button', { name: 'Continue to payment' }))
+  user.click(screen.getByRole('button', { name: 'Continue to payment' }))
 
 describe('RobocallFlow', () => {
   // useElectedOffice fires on mount (no enable guard); 404 => not an elected
@@ -555,8 +576,8 @@ describe('RobocallFlow', () => {
     mockListDetail(80)
     await gotoAudience()
 
-    await userEvent.click(await screen.findByText('Choose a voter list'))
-    await userEvent.click(await screen.findByText('Renters in 98103'))
+    await user.click(await screen.findByText('Choose a voter list'))
+    await user.click(await screen.findByText('Renters in 98103'))
 
     // 80 landline-reachable voters * $0.045 = $3.60
     expect(
@@ -566,7 +587,7 @@ describe('RobocallFlow', () => {
     const continueBtn = await screen.findByRole('button', {
       name: /Continue \(80\)/,
     })
-    await userEvent.click(continueBtn)
+    await user.click(continueBtn)
     // Advancing lands on the schedule ("When") step, not the placeholder.
     expect(await screen.findByLabelText('Campaign name')).toBeInTheDocument()
   })
@@ -599,8 +620,8 @@ describe('RobocallFlow', () => {
     })
     await gotoAudience()
 
-    await userEvent.click(await screen.findByText('Choose a voter list'))
-    await userEvent.click(await screen.findByText('Renters in 98103'))
+    await user.click(await screen.findByText('Choose a voter list'))
+    await user.click(await screen.findByText('Renters in 98103'))
 
     // Mid-fetch: the spinner shows and Continue must stay disabled.
     expect(
@@ -620,8 +641,8 @@ describe('RobocallFlow', () => {
     mockListDetail(null)
     await gotoAudience()
 
-    await userEvent.click(await screen.findByText('Choose a voter list'))
-    await userEvent.click(await screen.findByText('Renters in 98103'))
+    await user.click(await screen.findByText('Choose a voter list'))
+    await user.click(await screen.findByText('Renters in 98103'))
 
     expect(
       await screen.findByText("We couldn't count this list right now."),
@@ -635,8 +656,8 @@ describe('RobocallFlow', () => {
   it('enters the list builder from "Create a new list"', async () => {
     mockSavedLists()
     await gotoAudience()
-    await userEvent.click(await screen.findByText('Choose a voter list'))
-    await userEvent.click(await screen.findByText('Create a new list'))
+    await user.click(await screen.findByText('Choose a voter list'))
+    await user.click(await screen.findByText('Create a new list'))
     expect(screen.getByText('Build a voter list')).toBeInTheDocument()
   })
 
@@ -646,8 +667,8 @@ describe('RobocallFlow', () => {
   it('does not show the phone-banking any-phone-dialing hint', async () => {
     mockSavedLists()
     await gotoAudience()
-    await userEvent.click(await screen.findByText('Choose a voter list'))
-    await userEvent.click(await screen.findByText('Create a new list'))
+    await user.click(await screen.findByText('Choose a voter list'))
+    await user.click(await screen.findByText('Create a new list'))
     expect(screen.getByText('Build a voter list')).toBeInTheDocument()
 
     expect(
@@ -656,17 +677,19 @@ describe('RobocallFlow', () => {
   })
 
   it('builds a list, creates it, and advances to the schedule step', async () => {
+    useBuilderClock()
     mockSavedLists()
     mockBuilderCount(50)
     mockCreateList()
     await gotoAudience()
-    await userEvent.click(await screen.findByText('Choose a voter list'))
-    await userEvent.click(await screen.findByText('Create a new list'))
+    await user.click(await screen.findByText('Choose a voter list'))
+    await user.click(await screen.findByText('Create a new list'))
 
     // A selection makes the landline-overlaid builder count run; wait out the
     // debounce for the settled "Continue (50)".
-    await userEvent.click(screen.getByText('mock-add-filter'))
-    await userEvent.click(
+    await user.click(screen.getByText('mock-add-filter'))
+    await skipCountDebounce()
+    await user.click(
       await screen.findByRole(
         'button',
         { name: /Continue \(50\)/ },
@@ -675,34 +698,30 @@ describe('RobocallFlow', () => {
     )
 
     // Name step -> Create list -> POST /voter-file/filter -> schedule step.
-    await userEvent.type(
-      screen.getByLabelText('mock list name'),
-      'My landline list',
-    )
-    await userEvent.click(screen.getByRole('button', { name: 'Create list' }))
+    await user.type(screen.getByLabelText('mock list name'), 'My landline list')
+    await user.click(screen.getByRole('button', { name: 'Create list' }))
     expect(await screen.findByLabelText('Campaign name')).toBeInTheDocument()
   })
 
   it('surfaces an inline create error without advancing', async () => {
+    useBuilderClock()
     mockSavedLists()
     mockBuilderCount(50)
     mockCreateListError()
     await gotoAudience()
-    await userEvent.click(await screen.findByText('Choose a voter list'))
-    await userEvent.click(await screen.findByText('Create a new list'))
-    await userEvent.click(screen.getByText('mock-add-filter'))
-    await userEvent.click(
+    await user.click(await screen.findByText('Choose a voter list'))
+    await user.click(await screen.findByText('Create a new list'))
+    await user.click(screen.getByText('mock-add-filter'))
+    await skipCountDebounce()
+    await user.click(
       await screen.findByRole(
         'button',
         { name: /Continue \(50\)/ },
         { timeout: 3000 },
       ),
     )
-    await userEvent.type(
-      screen.getByLabelText('mock list name'),
-      'My landline list',
-    )
-    await userEvent.click(screen.getByRole('button', { name: 'Create list' }))
+    await user.type(screen.getByLabelText('mock list name'), 'My landline list')
+    await user.click(screen.getByRole('button', { name: 'Create list' }))
 
     expect(
       await screen.findByText(/We couldn't create this list/),
@@ -713,14 +732,14 @@ describe('RobocallFlow', () => {
 
     // Back to filters must not carry the stale create error (which belongs to
     // the name step and whose retry button lives there).
-    await userEvent.click(screen.getByLabelText('Back'))
+    await user.click(screen.getByLabelText('Back'))
     expect(screen.getByText('Build a voter list')).toBeInTheDocument()
     expect(
       screen.queryByText(/We couldn't create this list/),
     ).not.toBeInTheDocument()
 
     // …and the cleared error must not re-flash when re-entering the name step.
-    await userEvent.click(
+    await user.click(
       await screen.findByRole('button', { name: /Continue \(50\)/ }),
     )
     expect(screen.getByLabelText('mock list name')).toBeInTheDocument()
@@ -732,11 +751,11 @@ describe('RobocallFlow', () => {
   it('clears the builder and returns to the picker on Back from filters', async () => {
     mockSavedLists()
     await gotoAudience()
-    await userEvent.click(await screen.findByText('Choose a voter list'))
-    await userEvent.click(await screen.findByText('Create a new list'))
+    await user.click(await screen.findByText('Choose a voter list'))
+    await user.click(await screen.findByText('Create a new list'))
     expect(screen.getByText('Build a voter list')).toBeInTheDocument()
 
-    await userEvent.click(screen.getByLabelText('Back'))
+    await user.click(screen.getByLabelText('Back'))
     // resetBuilder returns to the picker (mode -> picker); re-opening shows a
     // fresh builder with no carried-over selection.
     expect(await screen.findByText('Choose a voter list')).toBeInTheDocument()
@@ -744,13 +763,15 @@ describe('RobocallFlow', () => {
   })
 
   it('steps Back from the name step to filters, keeping the builder', async () => {
+    useBuilderClock()
     mockSavedLists()
     mockBuilderCount(50)
     await gotoAudience()
-    await userEvent.click(await screen.findByText('Choose a voter list'))
-    await userEvent.click(await screen.findByText('Create a new list'))
-    await userEvent.click(screen.getByText('mock-add-filter'))
-    await userEvent.click(
+    await user.click(await screen.findByText('Choose a voter list'))
+    await user.click(await screen.findByText('Create a new list'))
+    await user.click(screen.getByText('mock-add-filter'))
+    await skipCountDebounce()
+    await user.click(
       await screen.findByRole(
         'button',
         { name: /Continue \(50\)/ },
@@ -760,7 +781,7 @@ describe('RobocallFlow', () => {
     // On the name step; Back returns to filters (not the picker), and the
     // built selection persists (count still shows).
     expect(screen.getByLabelText('mock list name')).toBeInTheDocument()
-    await userEvent.click(screen.getByLabelText('Back'))
+    await user.click(screen.getByLabelText('Back'))
     expect(screen.getByText('Build a voter list')).toBeInTheDocument()
     expect(
       await screen.findByRole('button', { name: /Continue \(50\)/ }),
@@ -773,8 +794,8 @@ describe('RobocallFlow', () => {
     await gotoAudience()
 
     // Pick a list so the selection is live (Continue enabled at 80).
-    await userEvent.click(await screen.findByText('Choose a voter list'))
-    await userEvent.click(await screen.findByText('Renters in 98103'))
+    await user.click(await screen.findByText('Choose a voter list'))
+    await user.click(await screen.findByText('Renters in 98103'))
     await screen.findByRole('button', { name: /Continue \(80\)/ })
 
     // Back to purpose discards the pick; re-entering audience is a fresh picker
@@ -846,9 +867,9 @@ describe('RobocallFlow', () => {
     // Back to the picker, choose a different saved list, continue again: the
     // untouched auto-name follows the new list rather than going stale.
     fireEvent.click(screen.getByLabelText('Back'))
-    await userEvent.click(await screen.findByText('Renters in 98103'))
-    await userEvent.click(await screen.findByText('All registered voters'))
-    await userEvent.click(
+    await user.click(await screen.findByText('Renters in 98103'))
+    await user.click(await screen.findByText('All registered voters'))
+    await user.click(
       await screen.findByRole('button', { name: /Continue \(80\)/ }),
     )
 
@@ -862,16 +883,14 @@ describe('RobocallFlow', () => {
     await gotoSchedule()
 
     // Open the date popover and pick a comfortably-future day, then a time.
-    await userEvent.click(screen.getByText('Pick a date'))
-    await userEvent.click(await screen.findByText('mock-pick-future'))
-    await userEvent.click(screen.getByRole('combobox', { name: /Send time/ }))
-    await userEvent.click(
-      await screen.findByRole('option', { name: '10:00 AM' }),
-    )
+    await user.click(screen.getByText('Pick a date'))
+    await user.click(await screen.findByText('mock-pick-future'))
+    await user.click(screen.getByRole('combobox', { name: /Send time/ }))
+    await user.click(await screen.findByRole('option', { name: '10:00 AM' }))
 
     const continueBtn = screen.getByRole('button', { name: 'Continue' })
     await waitFor(() => expect(continueBtn).toBeEnabled())
-    await userEvent.click(continueBtn)
+    await user.click(continueBtn)
     expect(
       await screen.findByText(/Read the script below into your microphone/),
     ).toBeInTheDocument()
@@ -883,12 +902,10 @@ describe('RobocallFlow', () => {
     // The send only has to be in the future (no lead-time buffer), so a past
     // instant is the gate — enforced by the combined-instant check, not the
     // calendar.
-    await userEvent.click(screen.getByText('Pick a date'))
-    await userEvent.click(await screen.findByText('mock-pick-past'))
-    await userEvent.click(screen.getByRole('combobox', { name: /Send time/ }))
-    await userEvent.click(
-      await screen.findByRole('option', { name: '10:00 AM' }),
-    )
+    await user.click(screen.getByText('Pick a date'))
+    await user.click(await screen.findByText('mock-pick-past'))
+    await user.click(screen.getByRole('combobox', { name: /Send time/ }))
+    await user.click(await screen.findByRole('option', { name: '10:00 AM' }))
 
     expect(
       await screen.findByText(/Pick a send date and time in the future/),
@@ -899,12 +916,10 @@ describe('RobocallFlow', () => {
   it('warns and blocks when the chosen day is more than 85 days out', async () => {
     await gotoSchedule()
 
-    await userEvent.click(screen.getByText('Pick a date'))
-    await userEvent.click(await screen.findByText('mock-pick-too-far'))
-    await userEvent.click(screen.getByRole('combobox', { name: /Send time/ }))
-    await userEvent.click(
-      await screen.findByRole('option', { name: '10:00 AM' }),
-    )
+    await user.click(screen.getByText('Pick a date'))
+    await user.click(await screen.findByText('mock-pick-too-far'))
+    await user.click(screen.getByRole('combobox', { name: /Send time/ }))
+    await user.click(await screen.findByRole('option', { name: '10:00 AM' }))
 
     expect(
       await screen.findByText(/Pick a send date within the next 85 days/),
@@ -917,12 +932,10 @@ describe('RobocallFlow', () => {
     await gotoSchedule()
 
     // mock-pick-future is 60 days out — comfortably inside the 85-day cap.
-    await userEvent.click(screen.getByText('Pick a date'))
-    await userEvent.click(await screen.findByText('mock-pick-future'))
-    await userEvent.click(screen.getByRole('combobox', { name: /Send time/ }))
-    await userEvent.click(
-      await screen.findByRole('option', { name: '10:00 AM' }),
-    )
+    await user.click(screen.getByText('Pick a date'))
+    await user.click(await screen.findByText('mock-pick-future'))
+    await user.click(screen.getByRole('combobox', { name: /Send time/ }))
+    await user.click(await screen.findByRole('option', { name: '10:00 AM' }))
 
     expect(
       screen.queryByText(/Pick a send date within the next 85 days/),
@@ -945,26 +958,22 @@ describe('RobocallFlow', () => {
     expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
 
     // Record -> the live timer shows elapsed over the 60s cap ("0:00 / 1:00").
-    await userEvent.click(
-      screen.getByRole('button', { name: 'Start recording' }),
-    )
+    await user.click(screen.getByRole('button', { name: 'Start recording' }))
     expect(screen.getByText('0:00 / 1:00')).toBeInTheDocument()
 
     // -> stop lands on preview (not yet committed): still disabled.
-    await userEvent.click(
-      screen.getByRole('button', { name: 'Stop recording' }),
-    )
+    await user.click(screen.getByRole('button', { name: 'Stop recording' }))
     expect(
       await screen.findByText('Preview your recording'),
     ).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
 
     // Save uploads to S3 then commits -> Continue enables and advances.
-    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await user.click(screen.getByRole('button', { name: 'Save' }))
     expect(await screen.findByText('Recording saved')).toBeInTheDocument()
     const continueBtn = screen.getByRole('button', { name: 'Continue' })
     await waitFor(() => expect(continueBtn).toBeEnabled())
-    await userEvent.click(continueBtn)
+    await user.click(continueBtn)
     // Advancing lands on the review step, not the placeholder.
     expect(
       await screen.findByRole('button', { name: 'Continue to payment' }),
@@ -976,13 +985,9 @@ describe('RobocallFlow', () => {
     mockAudioUpload(false)
     await screen.findByText(/Hi, this is Alex, and I am running/)
 
-    await userEvent.click(
-      screen.getByRole('button', { name: 'Start recording' }),
-    )
-    await userEvent.click(
-      screen.getByRole('button', { name: 'Stop recording' }),
-    )
-    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await user.click(screen.getByRole('button', { name: 'Start recording' }))
+    await user.click(screen.getByRole('button', { name: 'Stop recording' }))
+    await user.click(screen.getByRole('button', { name: 'Save' }))
 
     // Upload failed: surface the error, stay in preview, keep Continue locked.
     expect(
@@ -996,20 +1001,16 @@ describe('RobocallFlow', () => {
     await gotoCompose()
     mockAudioUpload()
 
-    await userEvent.click(
-      screen.getByRole('button', { name: 'Start recording' }),
-    )
-    await userEvent.click(
-      screen.getByRole('button', { name: 'Stop recording' }),
-    )
-    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await user.click(screen.getByRole('button', { name: 'Start recording' }))
+    await user.click(screen.getByRole('button', { name: 'Stop recording' }))
+    await user.click(screen.getByRole('button', { name: 'Save' }))
     await screen.findByText('Recording saved')
 
     // Back to schedule, then re-advance: the saved clip is gone, so Continue
     // is locked again until the user re-records (no stale-clip pass-through).
-    await userEvent.click(screen.getByLabelText('Back'))
+    await user.click(screen.getByLabelText('Back'))
     await screen.findByLabelText('Campaign name')
-    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
     await screen.findByText(/Read the script below into your microphone/)
 
     expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
@@ -1024,20 +1025,16 @@ describe('RobocallFlow', () => {
     await gotoCompose()
     mockAudioUpload()
 
-    await userEvent.click(
-      screen.getByRole('button', { name: 'Start recording' }),
-    )
-    await userEvent.click(
-      screen.getByRole('button', { name: 'Stop recording' }),
-    )
-    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await user.click(screen.getByRole('button', { name: 'Start recording' }))
+    await user.click(screen.getByRole('button', { name: 'Stop recording' }))
+    await user.click(screen.getByRole('button', { name: 'Save' }))
     await screen.findByText('Recording saved')
     expect(
       screen.queryByText(/Your script changed after you recorded/),
     ).not.toBeInTheDocument()
 
     mockDraft('A punchier take for the urgent tone.')
-    await userEvent.click(screen.getByText('Urgent'))
+    await user.click(screen.getByText('Urgent'))
 
     expect(
       await screen.findByText(/Your script changed after you recorded/),
@@ -1055,20 +1052,16 @@ describe('RobocallFlow', () => {
     await gotoCompose()
     mockAudioUpload()
 
-    await userEvent.click(
-      screen.getByRole('button', { name: 'Start recording' }),
-    )
-    await userEvent.click(
-      screen.getByRole('button', { name: 'Stop recording' }),
-    )
-    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await user.click(screen.getByRole('button', { name: 'Start recording' }))
+    await user.click(screen.getByRole('button', { name: 'Stop recording' }))
+    await user.click(screen.getByRole('button', { name: 'Save' }))
     await screen.findByText('Recording saved')
     expect(
       screen.queryByText(/Your script changed after you recorded/),
     ).not.toBeInTheDocument()
 
     mockDraft('A fresh take after the recording.')
-    await userEvent.click(screen.getByRole('button', { name: /Regenerate/ }))
+    await user.click(screen.getByRole('button', { name: /Regenerate/ }))
 
     expect(
       await screen.findByText(/Your script changed after you recorded/),
@@ -1085,26 +1078,22 @@ describe('RobocallFlow', () => {
     await gotoCompose()
     mockAudioUpload()
 
-    await userEvent.click(
-      screen.getByRole('button', { name: 'Start recording' }),
-    )
-    await userEvent.click(
-      screen.getByRole('button', { name: 'Stop recording' }),
-    )
+    await user.click(screen.getByRole('button', { name: 'Start recording' }))
+    await user.click(screen.getByRole('button', { name: 'Stop recording' }))
     await screen.findByText('Preview your recording')
     expect(
       screen.queryByText(/Your script changed after you recorded/),
     ).not.toBeInTheDocument()
 
     mockDraft('A fresh take before the recording is saved.')
-    await userEvent.click(screen.getByRole('button', { name: /Regenerate/ }))
+    await user.click(screen.getByRole('button', { name: /Regenerate/ }))
 
     // Still unsaved (preview) at this point, and the note already shows.
     expect(
       await screen.findByText(/Your script changed after you recorded/),
     ).toBeInTheDocument()
 
-    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await user.click(screen.getByRole('button', { name: 'Save' }))
     await screen.findByText('Recording saved')
 
     expect(
@@ -1119,7 +1108,7 @@ describe('RobocallFlow', () => {
 
     const input = document.querySelector<HTMLInputElement>('input[type="file"]')
     if (!input) throw new Error('no file input')
-    await userEvent.upload(
+    await user.upload(
       input,
       new File(['x'], 'sarah-chen.webm', { type: 'audio/webm' }),
     )
@@ -1129,7 +1118,7 @@ describe('RobocallFlow', () => {
     ).not.toBeInTheDocument()
 
     mockDraft('A fresh take after the upload.')
-    await userEvent.click(screen.getByRole('button', { name: /Regenerate/ }))
+    await user.click(screen.getByRole('button', { name: /Regenerate/ }))
 
     expect(
       await screen.findByText(/Your script changed after you recorded/),
@@ -1144,7 +1133,7 @@ describe('RobocallFlow', () => {
 
     // A tone-pill click re-requests a draft; the new copy replaces the old.
     mockDraft('Friends, election day is almost here — make your plan to vote.')
-    await userEvent.click(screen.getByText('Direct'))
+    await user.click(screen.getByText('Direct'))
     expect(
       await screen.findByText(/election day is almost here/),
     ).toBeInTheDocument()
@@ -1157,7 +1146,7 @@ describe('RobocallFlow', () => {
     ).toBeInTheDocument()
 
     mockDraft('A fresh take on why your vote matters this November.')
-    await userEvent.click(screen.getByRole('button', { name: /Regenerate/ }))
+    await user.click(screen.getByRole('button', { name: /Regenerate/ }))
     expect(
       await screen.findByText(/A fresh take on why your vote matters/),
     ).toBeInTheDocument()
@@ -1174,7 +1163,7 @@ describe('RobocallFlow', () => {
 
     // Try again with a working draft: the script renders and the card clears.
     mockDraft('A recovered draft for you.')
-    await userEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    await user.click(screen.getByRole('button', { name: 'Try again' }))
     expect(
       await screen.findByText(/A recovered draft for you/),
     ).toBeInTheDocument()
@@ -1215,7 +1204,7 @@ describe('RobocallFlow', () => {
         ' Vote early.',
       )
     })
-    await userEvent.click(
+    await user.click(
       await screen.findByRole('button', { name: 'Improve with AI' }),
     )
 
@@ -1225,7 +1214,7 @@ describe('RobocallFlow', () => {
     const typedDraft = bodies[1]?.currentDraft
     expect(typedDraft).toMatch(/Vote early\./)
 
-    await userEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    await user.click(screen.getByRole('button', { name: 'Try again' }))
 
     // The retry carries the SAME currentDraft (their words), not a fresh,
     // purpose-only draft request.
@@ -1262,22 +1251,22 @@ describe('RobocallFlow', () => {
     ).toBeInTheDocument()
 
     // Back to the purpose step: compose -> schedule -> audience -> purpose.
-    await userEvent.click(screen.getByLabelText('Back'))
+    await user.click(screen.getByLabelText('Back'))
     await screen.findByLabelText('Campaign name')
-    await userEvent.click(screen.getByLabelText('Back'))
-    await userEvent.click(screen.getByLabelText('Back'))
+    await user.click(screen.getByLabelText('Back'))
+    await user.click(screen.getByLabelText('Back'))
     await screen.findByText('Write my own script')
 
     // Custom never drafts, so only the purpose-change reset can clear the
     // error. Switch to custom and return to compose (schedule kept its date).
-    await userEvent.click(screen.getByText('Write my own script'))
-    await userEvent.click(await screen.findByText('Choose a voter list'))
-    await userEvent.click(await screen.findByText('Renters in 98103'))
-    await userEvent.click(
+    await user.click(screen.getByText('Write my own script'))
+    await user.click(await screen.findByText('Choose a voter list'))
+    await user.click(await screen.findByText('Renters in 98103'))
+    await user.click(
       await screen.findByRole('button', { name: /Continue \(80\)/ }),
     )
     await screen.findByLabelText('Campaign name')
-    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
 
     // Custom textarea shows and the stale error card is gone.
     expect(
@@ -1386,7 +1375,7 @@ describe('RobocallFlow', () => {
     // renders (the number itself now lives inside that script's disclosure).
     mockRentNumber()
     mockDraft()
-    await userEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    await user.click(screen.getByRole('button', { name: 'Try again' }))
     expect(
       await screen.findByText(
         'Hi, this is Alex, and I am running for City Council.',
@@ -1422,7 +1411,7 @@ describe('RobocallFlow', () => {
         ' Vote early.',
       )
     })
-    await userEvent.click(
+    await user.click(
       await screen.findByRole('button', { name: 'Improve with AI' }),
     )
 
@@ -1464,7 +1453,7 @@ describe('RobocallFlow', () => {
         ' Vote early.',
       )
     })
-    await userEvent.click(
+    await user.click(
       await screen.findByRole('button', { name: 'Improve with AI' }),
     )
     act(() => {
@@ -1510,7 +1499,7 @@ describe('RobocallFlow', () => {
         ' Vote early.',
       )
     })
-    await userEvent.click(
+    await user.click(
       await screen.findByRole('button', { name: 'Improve with AI' }),
     )
     act(() => {
@@ -1564,7 +1553,7 @@ describe('RobocallFlow', () => {
         ' Edited.',
       )
     })
-    await userEvent.click(
+    await user.click(
       await screen.findByRole('button', { name: 'Improve with AI' }),
     )
 
@@ -1604,7 +1593,7 @@ describe('RobocallFlow', () => {
           ' Edited.',
         )
       })
-      await userEvent.click(
+      await user.click(
         await screen.findByRole('button', { name: 'Improve with AI' }),
       )
 
@@ -1655,11 +1644,11 @@ describe('RobocallFlow', () => {
     ).toBeInTheDocument()
 
     // Back out to the purpose step and switch to "Introduce".
-    await userEvent.click(screen.getByLabelText('Back')) // -> schedule
+    await user.click(screen.getByLabelText('Back')) // -> schedule
     await screen.findByLabelText('Campaign name')
-    await userEvent.click(screen.getByLabelText('Back')) // -> audience
-    await userEvent.click(screen.getByLabelText('Back')) // -> purpose
-    await userEvent.click(screen.getByText('Introduce myself to voters'))
+    await user.click(screen.getByLabelText('Back')) // -> audience
+    await user.click(screen.getByLabelText('Back')) // -> purpose
+    await user.click(screen.getByText('Introduce myself to voters'))
 
     // The gated rent resolves after the purpose changed; the guard must skip
     // the stale persuade draft.
@@ -1668,13 +1657,13 @@ describe('RobocallFlow', () => {
     // Navigate forward into compose for Introduce and wait for ITS draft to
     // render. That synchronizes on the resolved rent, so the assertion runs
     // only after any (buggy) stale persuade draft would already have fired.
-    await userEvent.click(await screen.findByText('Choose a voter list'))
-    await userEvent.click(await screen.findByText('Renters in 98103'))
-    await userEvent.click(
+    await user.click(await screen.findByText('Choose a voter list'))
+    await user.click(await screen.findByText('Renters in 98103'))
+    await user.click(
       await screen.findByRole('button', { name: /Continue \(80\)/ }),
     )
     await screen.findByLabelText('Campaign name')
-    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
     await screen.findByText('a draft')
 
     // Only the current purpose was ever drafted — never the stale persuade one.
@@ -1685,13 +1674,9 @@ describe('RobocallFlow', () => {
     await gotoCompose()
     mockAudioUpload()
 
-    await userEvent.click(
-      screen.getByRole('button', { name: 'Start recording' }),
-    )
-    await userEvent.click(
-      screen.getByRole('button', { name: 'Stop recording' }),
-    )
-    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await user.click(screen.getByRole('button', { name: 'Start recording' }))
+    await user.click(screen.getByRole('button', { name: 'Stop recording' }))
+    await user.click(screen.getByRole('button', { name: 'Save' }))
 
     // The compliance verdict renders and Continue unlocks.
     expect(
@@ -1708,13 +1693,9 @@ describe('RobocallFlow', () => {
       'The recording must name the organization behind the call.',
     ])
 
-    await userEvent.click(
-      screen.getByRole('button', { name: 'Start recording' }),
-    )
-    await userEvent.click(
-      screen.getByRole('button', { name: 'Stop recording' }),
-    )
-    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await user.click(screen.getByRole('button', { name: 'Start recording' }))
+    await user.click(screen.getByRole('button', { name: 'Stop recording' }))
+    await user.click(screen.getByRole('button', { name: 'Save' }))
 
     expect(
       await screen.findByText('Your recording is missing:'),
@@ -1728,13 +1709,9 @@ describe('RobocallFlow', () => {
     mockAudioUpload()
     mockComplianceError()
 
-    await userEvent.click(
-      screen.getByRole('button', { name: 'Start recording' }),
-    )
-    await userEvent.click(
-      screen.getByRole('button', { name: 'Stop recording' }),
-    )
-    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await user.click(screen.getByRole('button', { name: 'Start recording' }))
+    await user.click(screen.getByRole('button', { name: 'Stop recording' }))
+    await user.click(screen.getByRole('button', { name: 'Save' }))
 
     expect(
       await screen.findByText(/couldn't check your recording/),
@@ -1743,7 +1720,7 @@ describe('RobocallFlow', () => {
 
     // Retry succeeds -> the verdict passes and Continue unlocks.
     mockCompliance(true)
-    await userEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    await user.click(screen.getByRole('button', { name: 'Try again' }))
     await waitFor(() =>
       expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
     )
@@ -1754,13 +1731,9 @@ describe('RobocallFlow', () => {
     mockAudioUpload()
 
     const record = async () => {
-      await userEvent.click(
-        screen.getByRole('button', { name: 'Start recording' }),
-      )
-      await userEvent.click(
-        screen.getByRole('button', { name: 'Stop recording' }),
-      )
-      await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+      await user.click(screen.getByRole('button', { name: 'Start recording' }))
+      await user.click(screen.getByRole('button', { name: 'Stop recording' }))
+      await user.click(screen.getByRole('button', { name: 'Save' }))
     }
 
     await record()
@@ -1773,7 +1746,7 @@ describe('RobocallFlow', () => {
 
     // Re-record drops the passed verdict — a stale pass must not keep Continue
     // enabled against a recording the candidate replaced.
-    await userEvent.click(screen.getByRole('button', { name: 'Re-record' }))
+    await user.click(screen.getByRole('button', { name: 'Re-record' }))
     expect(
       screen.queryByText(/has everything it needs/),
     ).not.toBeInTheDocument()
@@ -1810,13 +1783,9 @@ describe('RobocallFlow', () => {
 
     await gotoCompose()
     mockAudioUpload()
-    await userEvent.click(
-      screen.getByRole('button', { name: 'Start recording' }),
-    )
-    await userEvent.click(
-      screen.getByRole('button', { name: 'Stop recording' }),
-    )
-    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await user.click(screen.getByRole('button', { name: 'Start recording' }))
+    await user.click(screen.getByRole('button', { name: 'Stop recording' }))
+    await user.click(screen.getByRole('button', { name: 'Save' }))
 
     await screen.findByText(/has everything it needs/)
     // No spurious re-fire from the effect's dependency array.
@@ -1853,6 +1822,7 @@ describe('RobocallFlow', () => {
   // the server independently found the real landline total. The reachable count
   // and its estimated cost must resolve for a built list, not fall back to 0.
   it('resolves the reachable count on review for a list built in the flow', async () => {
+    useBuilderClock()
     mockSavedLists()
     mockBuilderCount(50)
     mockCreateList() // -> { id: 99, name: 'My landline list' }
@@ -1860,47 +1830,39 @@ describe('RobocallFlow', () => {
     mockDraft()
 
     await gotoAudience()
-    await userEvent.click(await screen.findByText('Choose a voter list'))
-    await userEvent.click(await screen.findByText('Create a new list'))
-    await userEvent.click(screen.getByText('mock-add-filter'))
-    await userEvent.click(
+    await user.click(await screen.findByText('Choose a voter list'))
+    await user.click(await screen.findByText('Create a new list'))
+    await user.click(screen.getByText('mock-add-filter'))
+    await skipCountDebounce()
+    await user.click(
       await screen.findByRole(
         'button',
         { name: /Continue \(50\)/ },
         { timeout: 3000 },
       ),
     )
-    await userEvent.type(
-      screen.getByLabelText('mock list name'),
-      'My landline list',
-    )
-    await userEvent.click(screen.getByRole('button', { name: 'Create list' }))
+    await user.type(screen.getByLabelText('mock list name'), 'My landline list')
+    await user.click(screen.getByRole('button', { name: 'Create list' }))
 
     // Schedule: set a comfortably-future date + time and advance.
     await screen.findByLabelText('Campaign name')
-    await userEvent.click(screen.getByText('Pick a date'))
-    await userEvent.click(await screen.findByText('mock-pick-future'))
-    await userEvent.click(screen.getByRole('combobox', { name: /Send time/ }))
-    await userEvent.click(
-      await screen.findByRole('option', { name: '10:00 AM' }),
-    )
+    await user.click(screen.getByText('Pick a date'))
+    await user.click(await screen.findByText('mock-pick-future'))
+    await user.click(screen.getByRole('combobox', { name: /Send time/ }))
+    await user.click(await screen.findByRole('option', { name: '10:00 AM' }))
     const toCompose = screen.getByRole('button', { name: 'Continue' })
     await waitFor(() => expect(toCompose).toBeEnabled())
-    await userEvent.click(toCompose)
+    await user.click(toCompose)
 
     // Compose: record + save (passes compliance via the beforeEach mock).
     await screen.findByText(/Read the script below into your microphone/)
     mockAudioUpload()
-    await userEvent.click(
-      screen.getByRole('button', { name: 'Start recording' }),
-    )
-    await userEvent.click(
-      screen.getByRole('button', { name: 'Stop recording' }),
-    )
-    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await user.click(screen.getByRole('button', { name: 'Start recording' }))
+    await user.click(screen.getByRole('button', { name: 'Stop recording' }))
+    await user.click(screen.getByRole('button', { name: 'Save' }))
     const toReview = screen.getByRole('button', { name: 'Continue' })
     await waitFor(() => expect(toReview).toBeEnabled())
-    await userEvent.click(toReview)
+    await user.click(toReview)
 
     // Review: the People row shows the resolved landline count (12), not 0, and
     // the estimated cost is 12 * $0.045 = $0.54, not $0.00.
@@ -1980,7 +1942,7 @@ describe('RobocallFlow', () => {
     const submit = await screen.findByRole('button', {
       name: /Authorize \$5\.60/,
     })
-    await userEvent.click(submit)
+    await user.click(submit)
 
     // The success screen renders with the SERVER's authorized amount.
     expect(await screen.findByText("You're all set")).toBeInTheDocument()
@@ -2016,7 +1978,7 @@ describe('RobocallFlow', () => {
 
     await gotoReview('Persuade likely voters', onClose)
     await enterPay()
-    await userEvent.click(
+    await user.click(
       await screen.findByRole('button', { name: /Authorize \$5\.60/ }),
     )
     await screen.findByText("You're all set")
@@ -2024,7 +1986,7 @@ describe('RobocallFlow', () => {
     // The pay step owns no footer button once settled; the shell renders Done —
     // the only way out of the flow after paying.
     const done = screen.getByRole('button', { name: 'Done' })
-    await userEvent.click(done)
+    await user.click(done)
     expect(onClose).toHaveBeenCalled()
   })
 
@@ -2050,11 +2012,8 @@ describe('RobocallFlow', () => {
     await enterPay()
     await screen.findByRole('button', { name: /Authorize \$5\.60/ })
 
-    await userEvent.type(
-      screen.getByPlaceholderText('Enter promo code'),
-      'CALLS100',
-    )
-    await userEvent.click(screen.getByRole('button', { name: 'Apply' }))
+    await user.type(screen.getByPlaceholderText('Enter promo code'), 'CALLS100')
+    await user.click(screen.getByRole('button', { name: 'Apply' }))
 
     // The server-priced discount and remainder replace the estimate; nothing
     // is computed client-side.
@@ -2094,11 +2053,11 @@ describe('RobocallFlow', () => {
     await gotoReview()
     await enterPay()
     await screen.findByRole('button', { name: /Authorize \$5\.60/ })
-    await userEvent.type(
+    await user.type(
       screen.getByPlaceholderText('Enter promo code'),
       'CALLS1000',
     )
-    await userEvent.click(screen.getByRole('button', { name: 'Apply' }))
+    await user.click(screen.getByRole('button', { name: 'Apply' }))
 
     // The card form gives way to a plain schedule button.
     const schedule = await screen.findByRole('button', {
@@ -2107,7 +2066,7 @@ describe('RobocallFlow', () => {
     expect(
       screen.queryByRole('button', { name: /Authorize/ }),
     ).not.toBeInTheDocument()
-    await userEvent.click(schedule)
+    await user.click(schedule)
 
     expect(await screen.findByText("You're all set")).toBeInTheDocument()
     expect(
@@ -2149,7 +2108,7 @@ describe('RobocallFlow', () => {
 
     await gotoReview()
     await enterPay()
-    await userEvent.click(
+    await user.click(
       await screen.findByRole('button', { name: /Authorize \$5\.60/ }),
     )
 
@@ -2186,18 +2145,14 @@ describe('RobocallFlow', () => {
       'data-client-secret',
       'seti_secret_1',
     )
-    await userEvent.click(
-      screen.getByRole('button', { name: /Authorize \$5\.60/ }),
-    )
+    await user.click(screen.getByRole('button', { name: /Authorize \$5\.60/ }))
 
     expect(
       await screen.findByText('Your card was declined'),
     ).toBeInTheDocument()
 
     // Try another card re-fetches a fresh SetupIntent and re-mounts against it.
-    await userEvent.click(
-      screen.getByRole('button', { name: 'Try another card' }),
-    )
+    await user.click(screen.getByRole('button', { name: 'Try another card' }))
     await waitFor(() =>
       expect(screen.getByTestId('stripe-elements')).toHaveAttribute(
         'data-client-secret',
@@ -2222,7 +2177,7 @@ describe('RobocallFlow', () => {
     const submit = await screen.findByRole('button', {
       name: /Authorize \$5\.60/,
     })
-    await userEvent.click(submit)
+    await user.click(submit)
 
     // A friendly inline message, not a raw error, and still on the form.
     expect(
@@ -2265,7 +2220,7 @@ describe('RobocallFlow', () => {
     const submit = await screen.findByRole('button', {
       name: /Authorize \$5\.60/,
     })
-    await userEvent.click(submit)
+    await user.click(submit)
 
     // The button is disabled while in flight, and firing the form submit again
     // (the internal guard) does not start a second confirm.
@@ -2307,7 +2262,7 @@ describe('RobocallFlow', () => {
     })
 
     // First attempt: confirmSetup succeeds (card vaulted), then authorize throws.
-    await userEvent.click(submit)
+    await user.click(submit)
     expect(
       await screen.findByText(/couldn't authorize your card/),
     ).toBeInTheDocument()
@@ -2315,9 +2270,7 @@ describe('RobocallFlow', () => {
 
     // Retry: must NOT re-confirm the already-vaulted card (a SetupIntent
     // confirms once), and must re-authorize with that same payment method.
-    await userEvent.click(
-      screen.getByRole('button', { name: /Authorize \$5\.60/ }),
-    )
+    await user.click(screen.getByRole('button', { name: /Authorize \$5\.60/ }))
     expect(await screen.findByText("You're all set")).toBeInTheDocument()
     expect(confirmSetupMock).toHaveBeenCalledTimes(1)
     expect(authorizeCalls).toBe(2)
@@ -2346,7 +2299,7 @@ describe('RobocallFlow', () => {
 
     await gotoReview()
     await enterPay()
-    await userEvent.click(
+    await user.click(
       await screen.findByRole('button', { name: /Authorize \$5\.60/ }),
     )
 
@@ -2378,7 +2331,7 @@ describe('RobocallFlow', () => {
 
     await gotoReview()
     await enterPay()
-    await userEvent.click(
+    await user.click(
       await screen.findByRole('button', { name: /Authorize \$5\.60/ }),
     )
 
@@ -2419,7 +2372,7 @@ describe('RobocallFlow', () => {
     ).toBeInTheDocument()
 
     // Try again re-creates the draft and the estimate + form appear.
-    await userEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    await user.click(screen.getByRole('button', { name: 'Try again' }))
     expect(await screen.findByText('Amount to authorize')).toBeInTheDocument()
   })
 
@@ -2453,7 +2406,7 @@ describe('RobocallFlow', () => {
 
     await gotoReview()
     await enterPay()
-    await userEvent.click(
+    await user.click(
       await screen.findByRole('button', { name: /Authorize \$5\.60/ }),
     )
     expect(await screen.findByText("You're all set")).toBeInTheDocument()
@@ -2462,8 +2415,8 @@ describe('RobocallFlow', () => {
 
     // Back to review, then re-enter pay: the authorized result shows again —
     // no Authorize form, and no second create-draft / save-card-intent.
-    await userEvent.click(screen.getByLabelText('Back'))
-    await userEvent.click(
+    await user.click(screen.getByLabelText('Back'))
+    await user.click(
       await screen.findByRole('button', { name: 'Continue to payment' }),
     )
 
@@ -2482,7 +2435,7 @@ describe('RobocallFlow', () => {
 
     await gotoReview()
     await enterPay()
-    await userEvent.click(
+    await user.click(
       await screen.findByRole('button', { name: /Authorize \$5\.60/ }),
     )
 
@@ -2492,7 +2445,7 @@ describe('RobocallFlow', () => {
 
   it('returns to compose from review, keeping the saved recording', async () => {
     await gotoReview()
-    await userEvent.click(screen.getByLabelText('Back'))
+    await user.click(screen.getByLabelText('Back'))
 
     // Back lands on compose with the saved clip intact (no re-record needed).
     expect(
@@ -2542,7 +2495,7 @@ describe('RobocallFlow', () => {
       const manage = await screen.findByRole('button', {
         name: /Manage payment methods/,
       })
-      await userEvent.click(manage)
+      await user.click(manage)
 
       await waitFor(() => expect(portalCalls).toBe(1))
       await waitFor(() =>
@@ -2565,7 +2518,7 @@ describe('RobocallFlow', () => {
 
     await gotoReview()
     await enterPay()
-    await userEvent.click(
+    await user.click(
       await screen.findByRole('button', { name: /Authorize \$5\.60/ }),
     )
     await screen.findByText('Your card was declined')
@@ -2727,26 +2680,22 @@ describe('RobocallFlow', () => {
       mockFreeAudience()
       render(<RobocallFlow source="outreach_page" open onClose={onClose} />)
       fireEvent.click(screen.getByText('Persuade likely voters'))
-      await userEvent.click(await screen.findByText('Persuadable independents'))
-      await userEvent.click(
+      await user.click(await screen.findByText('Persuadable independents'))
+      await user.click(
         await screen.findByRole('button', { name: /Continue \(900\)/ }),
       )
       await screen.findByText(/Read the script below into your microphone/)
       mockAudioUpload()
-      await userEvent.click(
-        screen.getByRole('button', { name: 'Start recording' }),
-      )
-      await userEvent.click(
-        screen.getByRole('button', { name: 'Stop recording' }),
-      )
-      await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+      await user.click(screen.getByRole('button', { name: 'Start recording' }))
+      await user.click(screen.getByRole('button', { name: 'Stop recording' }))
+      await user.click(screen.getByRole('button', { name: 'Save' }))
       await waitFor(() =>
         expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
       )
     }
 
     const saveDraft = () =>
-      userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+      user.click(screen.getByRole('button', { name: 'Continue' }))
 
     // The banner rides every build-mode step, so its explainer can open the
     // gate long before there is a draft. Finishing there must hand the
@@ -2761,18 +2710,14 @@ describe('RobocallFlow', () => {
       render(<RobocallFlow source="outreach_page" open onClose={vi.fn()} />)
 
       fireEvent.click(screen.getByText('Persuade likely voters'))
-      await userEvent.click(await screen.findByText('Persuadable independents'))
+      await user.click(await screen.findByText('Persuadable independents'))
 
-      await userEvent.click(screen.getByText(GATE_LINE))
-      await userEvent.click(
-        await screen.findByRole('button', { name: 'Join Pro' }),
-      )
+      await user.click(screen.getByText(GATE_LINE))
+      await user.click(await screen.findByRole('button', { name: 'Join Pro' }))
       expect(await screen.findByTestId('pro-upgrade-flow')).toBeInTheDocument()
 
       act(() => gateRef.set(PRO_GATE))
-      await userEvent.click(
-        screen.getByRole('button', { name: 'Finish upgrade' }),
-      )
+      await user.click(screen.getByRole('button', { name: 'Finish upgrade' }))
 
       // Back on the audience step with the audience still picked, not dropped
       // on schedule against a draft that was never written.
@@ -2818,22 +2763,16 @@ describe('RobocallFlow', () => {
       fireEvent.click(screen.getByText('Persuade likely voters'))
       // A card with no saved list behind it opens the naming drawer, and its
       // Continue is what creates the list.
-      await userEvent.click(await screen.findByText('Undecided persuadables'))
+      await user.click(await screen.findByText('Undecided persuadables'))
       expect(await screen.findByLabelText('List name')).toHaveValue(
         'Undecided persuadables',
       )
-      await userEvent.click(
-        await screen.findByRole('button', { name: 'Continue' }),
-      )
+      await user.click(await screen.findByRole('button', { name: 'Continue' }))
       await screen.findByText(/Read the script below into your microphone/)
       mockAudioUpload()
-      await userEvent.click(
-        screen.getByRole('button', { name: 'Start recording' }),
-      )
-      await userEvent.click(
-        screen.getByRole('button', { name: 'Stop recording' }),
-      )
-      await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+      await user.click(screen.getByRole('button', { name: 'Start recording' }))
+      await user.click(screen.getByRole('button', { name: 'Stop recording' }))
+      await user.click(screen.getByRole('button', { name: 'Save' }))
       await waitFor(() =>
         expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
       )
@@ -2852,17 +2791,13 @@ describe('RobocallFlow', () => {
       render(<RobocallFlow source="outreach_page" open onClose={onClose} />)
 
       fireEvent.click(screen.getByText('Persuade likely voters'))
-      await userEvent.click(await screen.findByText('Persuadable independents'))
+      await user.click(await screen.findByText('Persuadable independents'))
 
-      await userEvent.click(screen.getByText(GATE_LINE))
-      await userEvent.click(
-        await screen.findByRole('button', { name: 'Join Pro' }),
-      )
+      await user.click(screen.getByText(GATE_LINE))
+      await user.click(await screen.findByRole('button', { name: 'Join Pro' }))
       expect(await screen.findByTestId('pro-upgrade-flow')).toBeInTheDocument()
 
-      await userEvent.click(
-        screen.getByRole('button', { name: 'Finish later' }),
-      )
+      await user.click(screen.getByRole('button', { name: 'Finish later' }))
 
       expect(
         await screen.findByText('Persuadable independents'),
@@ -2933,9 +2868,7 @@ describe('RobocallFlow', () => {
       // Still on the upgrade's success screen, not dumped back into the flow.
       expect(screen.getByTestId('pro-upgrade-flow')).toBeInTheDocument()
 
-      await userEvent.click(
-        screen.getByRole('button', { name: 'Finish upgrade' }),
-      )
+      await user.click(screen.getByRole('button', { name: 'Finish upgrade' }))
 
       expect(await screen.findByLabelText('Campaign name')).toBeInTheDocument()
       expect(
@@ -3015,12 +2948,10 @@ describe('RobocallFlow', () => {
           'The voter list for this call is no longer available.',
         ),
       ).toBeInTheDocument()
-      await userEvent.click(screen.getByText('Pick a date'))
-      await userEvent.click(await screen.findByText('mock-pick-future'))
-      await userEvent.click(screen.getByRole('combobox', { name: /Send time/ }))
-      await userEvent.click(
-        await screen.findByRole('option', { name: '10:00 AM' }),
-      )
+      await user.click(screen.getByText('Pick a date'))
+      await user.click(await screen.findByText('mock-pick-future'))
+      await user.click(screen.getByRole('combobox', { name: /Send time/ }))
+      await user.click(await screen.findByRole('option', { name: '10:00 AM' }))
       expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
     })
 
@@ -3063,17 +2994,15 @@ describe('RobocallFlow', () => {
       expect(
         screen.queryByRole('button', { name: 'Back' }),
       ).not.toBeInTheDocument()
-      await userEvent.click(screen.getByText('Pick a date'))
-      await userEvent.click(await screen.findByText('mock-pick-future'))
-      await userEvent.click(screen.getByRole('combobox', { name: /Send time/ }))
-      await userEvent.click(
-        await screen.findByRole('option', { name: '10:00 AM' }),
-      )
+      await user.click(screen.getByText('Pick a date'))
+      await user.click(await screen.findByText('mock-pick-future'))
+      await user.click(screen.getByRole('combobox', { name: /Send time/ }))
+      await user.click(await screen.findByRole('option', { name: '10:00 AM' }))
       const continueBtn = screen.getByRole('button', { name: 'Continue' })
       await waitFor(() => expect(continueBtn).toBeEnabled())
-      await userEvent.click(continueBtn)
+      await user.click(continueBtn)
 
-      await userEvent.click(
+      await user.click(
         await screen.findByRole('button', { name: 'Continue to payment' }),
       )
 
@@ -3134,9 +3063,9 @@ describe('RobocallFlow', () => {
       mockListDetail(80)
       render(<RobocallFlow source="outreach_page" open onClose={vi.fn()} />)
       fireEvent.click(screen.getByText('Persuade likely voters'))
-      await userEvent.click(await screen.findByText('Choose a voter list'))
-      await userEvent.click(await screen.findByText('Renters in 98103'))
-      await userEvent.click(
+      await user.click(await screen.findByText('Choose a voter list'))
+      await user.click(await screen.findByText('Renters in 98103'))
+      await user.click(
         await screen.findByRole('button', { name: /Continue \(80\)/ }),
       )
 

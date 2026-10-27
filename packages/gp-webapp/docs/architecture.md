@@ -52,7 +52,6 @@ JWT in HTTP-only cookie issued by gp-api. Frontend attaches it via `credentials:
 | Direction | Service                              | Protocol                                   | Auth                    |
 | --------- | ------------------------------------ | ------------------------------------------ | ----------------------- |
 | outbound  | gp-api (NestJS, ECS)                 | HTTP via `clientRequest` / `serverRequest` | Cookie or Bearer        |
-| outbound  | election-api                         | HTTP                                       | Configured baseURL      |
 | outbound  | Stripe (Checkout Sessions, redirect) | HTTP via gp-api                            | gp-api owns Stripe keys |
 | outbound  | Amplitude                            | JS SDK                                     | Public key              |
 | outbound  | Sentry                               | JS SDK                                     | Public DSN              |

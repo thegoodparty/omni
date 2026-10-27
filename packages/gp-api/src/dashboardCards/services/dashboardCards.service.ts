@@ -31,6 +31,7 @@ import {
   type PriorityReadStatus,
 } from '@goodparty_org/contracts'
 import { PriorityResultsService } from '@/priorities/services/priorityResults.service'
+import { shownNextAction } from '@/priorities/services/priorityStatus.service'
 import { currentStepOf } from '@/priorities/util/priority.util'
 import {
   briefingItemHref,
@@ -108,8 +109,14 @@ const reportBackCardContent = (
   ctaHref: reportBackCardHref(priorityId, outreachId),
 })
 
-// The managed panel's card. Stored without the place: the home draws its
-// words with the office's place, which it knows and this sync does not.
+type ManagedPanelRead = {
+  panel: ManagedCivicPanel | null
+  place: string | null
+}
+
+// The managed panel's offer card is stored without the place: the home
+// draws its words with the office's place, which it knows without a
+// district lookup.
 type CardWords = {
   title: string
   summary: string
@@ -153,6 +160,7 @@ export const managedPanelPhase = (
 // the next send date are the item, the way a meeting card shows its date.
 export const managedPanelProgressCardContent = (
   panel: Pick<ManagedCivicPanel, 'status' | 'progress'>,
+  place: string | null = null,
 ): CardWords => {
   const { members, goalMembers, nextWaveAt } = panel.progress
   const joined = `${members} of ${goalMembers} residents have joined`
@@ -175,14 +183,36 @@ export const managedPanelProgressCardContent = (
       ctaHref: CIVIC_PANEL_PAGE_HREF,
     }
   }
+  // Matches the civic panel page's paused lead card.
+  if (panel.status === 'paused') {
+    return {
+      title: 'Your civic panel is paused',
+      summary:
+        members === 0
+          ? 'Nobody has joined yet. Resume invites to start filling it.'
+          : `${joined}. Resume invites to keep filling it.`,
+      ...see,
+    }
+  }
+  if (members === 0) {
+    // Matches the civic panel page, which has not started filling at 0.
+    return {
+      title: 'Your civic panel starts here',
+      summary: nextWaveAt
+        ? `${joined}. More invites go out ${format(nextWaveAt, 'EEEE, MMMM d')}.`
+        : `${joined} so far.`,
+      ...see,
+    }
+  }
+  const who = members === 1 ? 'resident is' : 'residents are'
+  const ready = place
+    ? `${members} ${place} ${who} ready to share their views`
+    : `${members} ${who} ready to share their views`
   return {
     title: 'Your civic panel is filling up',
-    summary:
-      panel.status === 'paused'
-        ? `${joined}. Invites are paused.`
-        : nextWaveAt
-          ? `${joined}. More invites go out ${format(nextWaveAt, 'EEEE, MMMM d')}.`
-          : `${joined} so far.`,
+    summary: nextWaveAt
+      ? `${ready}. More invites go out ${format(nextWaveAt, 'EEEE, MMMM d')}.`
+      : `${ready}.`,
     ...see,
   }
 }
@@ -450,7 +480,7 @@ export class DashboardCardsService extends createPrismaBase(
   // it is.
   private async readManagedCivicPanel(
     electedOffice: Pick<ElectedOffice, 'organizationSlug'>,
-  ): Promise<ManagedCivicPanel | null | undefined> {
+  ): Promise<ManagedPanelRead | undefined> {
     try {
       const organization = await this.client.organization.findUniqueOrThrow({
         where: { slug: electedOffice.organizationSlug },
@@ -460,7 +490,14 @@ export class DashboardCardsService extends createPrismaBase(
       const panels = this.moduleRef.get(ManagedCivicPanelService, {
         strict: false,
       })
-      return (await panels.read(organization)).panel
+      const { panel } = await panels.read(organization)
+      // Only the filling-up card names the place, which takes a district
+      // lookup.
+      const place =
+        panel?.status === 'building' && panel.progress.members > 0
+          ? await panels.districtPlace(organization)
+          : null
+      return { panel, place }
     } catch (err) {
       this.logger.warn(
         { err, organizationSlug: electedOffice.organizationSlug },
@@ -479,9 +516,10 @@ export class DashboardCardsService extends createPrismaBase(
   private async syncManagedPanelProgressCard(
     tx: Prisma.TransactionClient,
     electedOfficeId: string,
-    panel: ManagedCivicPanel | null | undefined,
+    managed: ManagedPanelRead | undefined,
   ): Promise<void> {
-    if (panel === undefined) return
+    if (managed === undefined) return
+    const { panel, place } = managed
     const now = new Date()
     const phase = panel ? managedPanelPhase(panel, now) : null
     const sourceExternalId =
@@ -496,7 +534,7 @@ export class DashboardCardsService extends createPrismaBase(
       },
     })
     if (!panel || !phase) return
-    const content = managedPanelProgressCardContent(panel)
+    const content = managedPanelProgressCardContent(panel, place)
     const dueDate =
       phase === 'ready' && panel.readyAt
         ? addDays(panel.readyAt, MANAGED_PANEL_READY_CARD_DAYS)
@@ -611,7 +649,17 @@ export class DashboardCardsService extends createPrismaBase(
       },
     })
     const openIds = open.map((priority) => priority.id)
-    const priorities = open.filter((priority) => !isPlanReady(priority))
+    const official = await tx.electedOffice.findUnique({
+      where: { id: electedOfficeId },
+      select: { user: { select: { firstName: true, lastName: true } } },
+    })
+    const names = [official?.user?.firstName, official?.user?.lastName]
+    const priorities = open
+      .filter((priority) => !isPlanReady(priority))
+      .map((priority) => ({
+        ...priority,
+        nextAction: shownNextAction(priority.nextAction, names),
+      }))
     const liveIds = priorities.map((priority) => priority.id)
 
     await tx.dashboardCard.deleteMany({

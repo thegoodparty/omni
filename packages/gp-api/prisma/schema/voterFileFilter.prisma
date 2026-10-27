@@ -1,3 +1,9 @@
+// The two answers to "Voted in election" on a saved list (Win only).
+enum VotedStatus {
+  already_voted
+  unknown
+}
+
 model VoterFileFilter {
   id                         Int                                @id @default(autoincrement())
   createdAt                  DateTime                           @default(now()) @map("created_at")
@@ -128,6 +134,12 @@ model VoterFileFilter {
   organizationSlug           String                             @map("organization_slug")
   organization               Organization                       @relation(fields: [organizationSlug], references: [slug], onDelete: Cascade)
   supportStatus              SupportStatusRollup[]              @default([]) @map("support_status")
+  /// Win only. "Voted in election": already_voted (Yes) selects people L2
+  /// reports as voting early or absentee, or whose latest will-vote answer
+  /// this election is already_voted; unknown (No/Unknown) selects everyone
+  /// else. Both, or neither, is no constraint. Derived on read, so a saved
+  /// list sheds people as they vote.
+  votedStatus                VotedStatus[]                      @default([]) @map("voted_status")
   firstUsedForOutreachAt     DateTime?                          @map("first_used_for_outreach_at")
   activityConditions         VoterFileFilterActivityCondition[]
   /// [GeoJsonShape]

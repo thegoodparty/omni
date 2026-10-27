@@ -21,6 +21,7 @@ import type {
   SegmentResponse,
   SupportStatusRollup,
 } from '../shared/contacts-types'
+import type { VotedStatus } from '@goodparty_org/contracts'
 import {
   countSelectedFilterCategories,
   hasAnyVoterFileSelection,
@@ -114,6 +115,7 @@ export default function CreateListWizard({
   const [demographicFilters, setDemographicFilters] =
     useState<VoterFileFilters>({})
   const [supportStatus, setSupportStatus] = useState<SupportStatusRollup[]>([])
+  const [votedStatus, setVotedStatus] = useState<VotedStatus[]>([])
   const [precincts, setPrecincts] = useState<string[]>([])
   // Gated on `open` because this component never unmounts — CrmContactsPage
   // always renders it and only toggles `open` — so an ungated fetch ran on
@@ -164,6 +166,7 @@ export default function CreateListWizard({
       editingSegment ? segmentToVoterFileFilters(editingSegment) : {},
     )
     setSupportStatus(editingSegment?.supportStatus ?? [])
+    setVotedStatus(editingSegment?.votedStatus ?? [])
     setPrecincts(
       Array.isArray(editingSegment?.precincts)
         ? (editingSegment.precincts as string[])
@@ -241,6 +244,7 @@ export default function CreateListWizard({
         ...(isEditing ? CLEARED_VOTER_FILE_FILTERS : {}),
         ...transformVoterFileFiltersForBackend(demographicFilters),
         ...(supportStatus.length ? { supportStatus } : {}),
+        ...(votedStatus.length ? { votedStatus } : {}),
         ...(precincts.length ? { precincts } : {}),
         ...(editingSearch ? { search: editingSearch } : {}),
       }
@@ -261,6 +265,7 @@ export default function CreateListWizard({
     activeBranch,
     demographicFilters,
     supportStatus,
+    votedStatus,
     precincts,
     activityConditions,
     isEditing,
@@ -272,7 +277,12 @@ export default function CreateListWizard({
   // the ENG-10725 valid-unfiltered-submission stance).
   const isConditionsStepValid =
     activeBranch === 'voterFile'
-      ? hasAnyVoterFileSelection(demographicFilters, supportStatus, precincts)
+      ? hasAnyVoterFileSelection(
+          demographicFilters,
+          supportStatus,
+          precincts,
+          votedStatus,
+        )
       : activeBranch === 'activity'
         ? isActivityStepValid(activityConditions)
         : false
@@ -460,7 +470,8 @@ export default function CreateListWizard({
         if (activeBranch === 'voterFile') {
           const variableCount =
             countSelectedFilterCategories(demographicFilters) +
-            (supportStatus.length > 0 ? 1 : 0)
+            (supportStatus.length > 0 ? 1 : 0) +
+            (votedStatus.length > 0 ? 1 : 0)
           trackEvent(
             isWinContext
               ? EVENTS.VoterData.ListCreated
@@ -815,6 +826,8 @@ export default function CreateListWizard({
           onFiltersChange={setDemographicFilters}
           supportStatus={supportStatus}
           onSupportStatusChange={setSupportStatus}
+          votedStatus={votedStatus}
+          onVotedStatusChange={setVotedStatus}
           precincts={precincts}
           onPrecinctsChange={setPrecincts}
           precinctOptions={precinctOptions}
