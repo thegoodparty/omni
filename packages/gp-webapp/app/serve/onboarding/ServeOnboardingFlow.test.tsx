@@ -823,12 +823,18 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
     expect(screen.queryByLabelText(/Other/)).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
     expect(saves).toBe(0)
-    expect(eventProps(PRIORITIES_ERRORED)).toEqual([
-      expect.objectContaining({ reason: 'search_failed', retried: false }),
-    ])
-    expect(eventProps(PRIORITIES_VIEWED)).toEqual([
-      expect.objectContaining({ loadMs: expect.any(Number) }),
-    ])
+    // Both events fire from effects that run after the error renders, so a
+    // slow runner can reach these before the effects have.
+    await waitFor(() =>
+      expect(eventProps(PRIORITIES_ERRORED)).toEqual([
+        expect.objectContaining({ reason: 'search_failed', retried: false }),
+      ]),
+    )
+    await waitFor(() =>
+      expect(eventProps(PRIORITIES_VIEWED)).toEqual([
+        expect.objectContaining({ loadMs: expect.any(Number) }),
+      ]),
+    )
 
     failing = false
     await user.click(screen.getByRole('button', { name: 'Try again' }))
