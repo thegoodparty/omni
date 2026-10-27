@@ -27,6 +27,7 @@ import {
 import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
 import { FREE_OFFER_BADGE } from 'app/dashboard/shared/robocallFreeOffer/freeOfferCopy'
 import { isFreeOfferTaskHref } from 'app/dashboard/shared/robocallFreeOffer/isFreeOfferTask'
+import { useRobocallFreeOffer } from 'app/dashboard/shared/robocallFreeOffer/useRobocallFreeOffer'
 import type {
   CampaignStrategyTask,
   TaskChannel,
@@ -87,7 +88,8 @@ const CampaignStrategyTaskRow = ({
   const textClosed = composeChannel === 'text' && smsCompliance === 'closed'
   // The free robocall offer's task reads as the offer: its own color and
   // badge, and the same "Start outreach" link as the other outreach tasks.
-  const freeOffer = isFreeOfferTaskHref(task.href)
+  const { offer } = useRobocallFreeOffer()
+  const freeOffer = offer !== null && isFreeOfferTaskHref(task.href)
 
   const markerClassName = cn(
     'mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold tabular-nums',
@@ -153,7 +155,7 @@ const CampaignStrategyTaskRow = ({
             {task.title}
           </span>
           {task.isNext && <Badge>Do this next</Badge>}
-          {freeOffer && <Badge>{FREE_OFFER_BADGE}</Badge>}
+          {freeOffer && !task.completed && <Badge>{FREE_OFFER_BADGE}</Badge>}
           {task.proRequired && !freeOffer && (
             <Badge className="border-transparent bg-secondary text-secondary-foreground">
               Pro

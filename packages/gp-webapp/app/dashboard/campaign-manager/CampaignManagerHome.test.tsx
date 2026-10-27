@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render } from 'helpers/test-utils/render'
 import { act, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -65,6 +65,16 @@ vi.mock('next/navigation', () => ({
   usePathname: () => '/dashboard',
   useSearchParams: () => new URLSearchParams(window.location.search),
 }))
+
+// The free robocall offer, as gp-api answers it. Not offered by default.
+let mockFreeOffer: { offer: { eligible: true } | null } = { offer: null }
+vi.mock('app/dashboard/shared/robocallFreeOffer/useRobocallFreeOffer', () => ({
+  useRobocallFreeOffer: () => mockFreeOffer,
+}))
+
+afterEach(() => {
+  mockFreeOffer = { offer: null }
+})
 
 const surfacePropsMock = vi.fn<(props: SurfaceProps) => void>()
 
@@ -713,5 +723,54 @@ describe('CampaignManagerHome skipping a task', () => {
     expect(
       screen.queryByRole('menuitem', { name: 'Show in 3 days' }),
     ).not.toBeInTheDocument()
+  })
+})
+
+describe('CampaignManagerHome free robocall offer card', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-10-08T12:00:00'))
+    return () => vi.useRealTimers()
+  })
+
+  const offerTask: CampaignTrackerTask = {
+    ...doorsTask,
+    id: 'offer',
+    title:
+      'Send a free promotional robocall to landline voters in selected precincts',
+    flowType: 'robocall',
+    link: '/dashboard/outreach?compose=robocall&source=campaign_tracker&recommended=freeOfferElectionEveRobocall',
+  }
+
+  it('shows the offer beside a next task that is not the offer', async () => {
+    mockFreeOffer = { offer: { eligible: true } }
+    mockTasks = [doorsTask]
+    renderHome()
+
+    expect(
+      await screen.findByRole('heading', { level: 3, name: 'Knock on Doors' }),
+    ).toBeInTheDocument()
+    expect(screen.getByTestId('robocall-free-offer-card')).toBeInTheDocument()
+  })
+
+  it('shows the offer once when the next task is already the offer', async () => {
+    mockFreeOffer = { offer: { eligible: true } }
+    mockTasks = [offerTask]
+    renderHome()
+
+    expect(
+      await screen.findByRole('heading', { level: 3, name: offerTask.title }),
+    ).toBeInTheDocument()
+    expect(screen.queryByTestId('robocall-free-offer-card')).toBeNull()
+  })
+
+  it('shows no offer card once the offer has ended', async () => {
+    mockTasks = [doorsTask]
+    renderHome()
+
+    expect(
+      await screen.findByRole('heading', { level: 3, name: 'Knock on Doors' }),
+    ).toBeInTheDocument()
+    expect(screen.queryByTestId('robocall-free-offer-card')).toBeNull()
   })
 })

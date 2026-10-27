@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render } from 'helpers/test-utils/render'
 import { act, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -6,6 +6,7 @@ import {
   CAMPAIGN_MANAGER_PRODUCT_OVERVIEW_SENTINEL,
   CAMPAIGN_MANAGER_START_STORY_SENTINEL,
 } from '@goodparty_org/contracts'
+import type { CampaignTrackerTask } from 'gpApi/api-endpoints'
 import type { TrackerTasksResult } from '../../campaign-plan/components/campaignStrategy/useTrackerTasks'
 import type { ChatStreamEvent } from '../../chief-of-staff/data/contracts'
 import type ChiefOfStaffChatSurfaceComponent from '../../chief-of-staff/components/chat/ChiefOfStaffChatSurface'
@@ -92,6 +93,19 @@ const latestSurfaceProps = (): SurfaceProps => {
   return call[0]
 }
 
+let mockTasks: CampaignTrackerTask[] = []
+
+// The free robocall offer, as gp-api answers it. Not offered by default.
+let mockFreeOffer: { offer: { eligible: true } | null } = { offer: null }
+vi.mock('app/dashboard/shared/robocallFreeOffer/useRobocallFreeOffer', () => ({
+  useRobocallFreeOffer: () => mockFreeOffer,
+}))
+
+afterEach(() => {
+  mockTasks = []
+  mockFreeOffer = { offer: null }
+})
+
 vi.mock(
   '../../campaign-plan/components/campaignStrategy/useTrackerTasks',
   async (importOriginal) => ({
@@ -99,7 +113,7 @@ vi.mock(
       typeof import('../../campaign-plan/components/campaignStrategy/useTrackerTasks')
     >()),
     useTrackerTasks: (): TrackerTasksResult => ({
-      tasks: [],
+      tasks: mockTasks,
       isPending: false,
       isError: false,
       isGeneratingDynamic: false,
@@ -541,5 +555,45 @@ describe('CampaignManagerHome meet-card dismissal', () => {
     unmount()
     renderHome()
     expect(meetHeading()).not.toBeInTheDocument()
+  })
+})
+
+describe('CampaignManagerHome free robocall offer card', () => {
+  const offerTask: CampaignTrackerTask = {
+    id: 'offer',
+    title:
+      'Send a free promotional robocall to landline voters in selected precincts',
+    description: 'Reach voters the day before Election Day.',
+    cta: null,
+    link: '/dashboard/outreach?compose=robocall&source=campaign_tracker&recommended=freeOfferElectionEveRobocall',
+    flowType: 'robocall',
+    week: 1,
+    date: '2026-11-02T00:00:00.000Z',
+    completed: false,
+    phase: 'active',
+    proRequired: true,
+    isDefaultTask: false,
+  }
+
+  it('shows the offer while it is live and not among the priorities', () => {
+    mockFreeOffer = { offer: { eligible: true } }
+    renderHome()
+
+    expect(screen.getByTestId('robocall-free-offer-card')).toBeInTheDocument()
+  })
+
+  it('shows the offer once when the priorities already list its task', () => {
+    mockFreeOffer = { offer: { eligible: true } }
+    mockTasks = [offerTask]
+    renderHome()
+
+    expect(screen.getByText(offerTask.title)).toBeInTheDocument()
+    expect(screen.queryByTestId('robocall-free-offer-card')).toBeNull()
+  })
+
+  it('shows no offer card once the offer has ended', () => {
+    renderHome()
+
+    expect(screen.queryByTestId('robocall-free-offer-card')).toBeNull()
   })
 })
