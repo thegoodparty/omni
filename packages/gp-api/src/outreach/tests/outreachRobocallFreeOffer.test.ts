@@ -90,7 +90,16 @@ const listResult = (promo: Stripe.PromotionCode | null) =>
     data: promo ? [promo] : [],
   }) as unknown as Stripe.ApiList<Stripe.PromotionCode>
 
+// The offer ends after Election Day (Nov 3, Eastern) on the real clock, so
+// the clock is pinned before it. Only Date is faked: HTTP and Prisma keep
+// real timers.
+const BEFORE_ELECTION = new Date('2026-10-30T16:00:00Z')
+const AFTER_ELECTION = new Date('2026-11-04T06:00:00Z')
+
 beforeEach(async () => {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(BEFORE_ELECTION)
+
   const stripeClient = (
     service.app.get(StripeService) as unknown as { stripe: Stripe }
   ).stripe
@@ -521,6 +530,36 @@ describe('the offer code', () => {
     expect(promotionCodesUpdate).toHaveBeenCalledWith('promo_offer', {
       active: false,
     })
+  })
+
+  it('is refused after Election Day', async () => {
+    await enroll()
+    const draft = await createDraft(offerListId)
+    vi.setSystemTime(AFTER_ELECTION)
+
+    const result = await applyPromo(draft)
+
+    expect(result.status).toBe(HttpStatus.BAD_REQUEST)
+  })
+
+  it('is refused at authorize when Election Day passed after apply', async () => {
+    await enroll()
+    const draft = await createDraft(offerListId)
+    expect((await applyPromo(draft)).status).toBe(HttpStatus.CREATED)
+    vi.setSystemTime(AFTER_ELECTION)
+    // Still a future send date, so only the offer's end can refuse it.
+    await service.prisma.outreach.update({
+      where: { id: draft },
+      data: { date: addDays(new Date(), 2) },
+    })
+
+    const result = await authorize(draft)
+
+    expect(result.status).toBe(HttpStatus.BAD_REQUEST)
+    const satellite = await service.prisma.outreachRobocall.findUniqueOrThrow({
+      where: { outreachId: draft },
+    })
+    expect(satellite.promoRedeemedAt).toBeNull()
   })
 
   it('is refused when it names another campaign', async () => {
