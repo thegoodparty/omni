@@ -108,6 +108,8 @@ const SMS_STANDARDS_FIXES: Record<SmsStandardsRule, string> = {
   restricted_word: 'remove the words our texting provider rejects',
 }
 
+export type FinalizeOutcome = 'finalized' | 'deferred' | 'duplicate_refused'
+
 @Injectable()
 export class OutreachService extends createPrismaBase(MODELS.Outreach) {
   constructor(
@@ -520,7 +522,7 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     // to decide whether to refund, and the draft row does not record a charge
     // that never produced a send.
     chargeRef?: string,
-  ): Promise<boolean> {
+  ): Promise<FinalizeOutcome> {
     // Win SMS hold pre-build rendezvous: a p2p draft paid before its
     // phone-list build finished carries no numeric phoneListId yet, and
     // submitDraftToPeerly needs it. Defer finalize to the build-ready edge
@@ -557,7 +559,7 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
         { outreachId, campaignId },
         'p2p finalize deferred: phone-list build not ready; the build-ready edge will finalize',
       )
-      return false
+      return 'deferred'
     }
 
     const claimed = await this.claimDraftForFinalize(
@@ -565,7 +567,7 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
       campaignId,
       chargeRef,
     )
-    if (!claimed) return false
+    if (!claimed) return 'deferred'
 
     const outreach = await this.model.findUniqueOrThrow({
       where: { id: outreachId },
@@ -578,6 +580,12 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     // reaches an org-only (social) row, the only kind with no campaign.
     const campaign = outreach.campaign!
     const user = campaign.user
+
+    const duplicateOfId = await this.findLiveDuplicateId(outreach)
+    if (duplicateOfId !== null) {
+      await this.refuseDuplicateFinalize(outreach, duplicateOfId, chargeRef)
+      return 'duplicate_refused'
+    }
 
     let jobId: string
     try {
@@ -648,7 +656,7 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
         { outreachId, campaignId: campaign.id },
         'Campaign has no user — skipping finalize notifications',
       )
-      return true
+      return 'finalized'
     }
 
     await this.tryNotifySuccess(user, campaign, finalized, {
@@ -658,7 +666,104 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
       billableTextCount: outreach.billableTextCount ?? undefined,
     })
 
-    return true
+    return 'finalized'
+  }
+
+  /**
+   * The campaign's other live send of the same message, if any. A retry after a
+   * post-payment failure creates a second draft while the first is still
+   * payable: Stripe later redelivers the first payment and both would reach
+   * Peerly (ENG-11510). "Live" means already submitted (projectId stamped) and
+   * not canceled or failed, so two drafts finalizing at once cannot both see
+   * the other mid-claim and both refuse.
+   */
+  private async findLiveDuplicateId(
+    outreach: Pick<
+      Outreach,
+      | 'id'
+      | 'campaignId'
+      | 'outreachType'
+      | 'phoneListId'
+      | 'script'
+      | 'message'
+      | 'date'
+    >,
+  ): Promise<number | null> {
+    if (
+      outreach.outreachType !== OutreachType.p2p ||
+      outreach.campaignId === null ||
+      outreach.phoneListId === null
+    ) {
+      return null
+    }
+    const duplicate = await this.model.findFirst({
+      where: {
+        id: { not: outreach.id },
+        campaignId: outreach.campaignId,
+        outreachType: OutreachType.p2p,
+        phoneListId: outreach.phoneListId,
+        script: outreach.script,
+        message: outreach.message,
+        date: outreach.date,
+        projectId: { not: null },
+        status: {
+          in: [
+            OutreachStatus.pending,
+            OutreachStatus.in_progress,
+            OutreachStatus.completed,
+          ],
+        },
+      },
+      select: { id: true },
+      orderBy: { id: 'asc' },
+    })
+    return duplicate?.id ?? null
+  }
+
+  /**
+   * Cancels a draft that would be a second copy of a live send, releasing the
+   * payment (void the hold, or refund the charge) through the normal cancel
+   * path. The claim is handed back on failure so a Stripe redelivery retries
+   * the guard instead of leaving the draft stuck in `pending`.
+   */
+  private async refuseDuplicateFinalize(
+    outreach: { id: number; campaignId: number | null },
+    duplicateOfId: number,
+    chargeRef?: string,
+  ): Promise<void> {
+    const campaignId = outreach.campaignId!
+    this.logger.error(
+      { outreachId: outreach.id, campaignId, duplicateOfId, chargeRef },
+      'CRITICAL win sms duplicate send refused: the campaign already has a ' +
+        'live send with the same script, phone list and date; releasing the ' +
+        'payment instead of submitting a second copy (win-sms-critical alert)',
+    )
+    try {
+      // The cancel refund resolves off the stored session, which the
+      // post-purchase handler records only after finalize returns.
+      if (chargeRef?.startsWith('cs_')) {
+        await this.recordCheckoutSession(outreach.id, campaignId, chargeRef)
+      }
+      await this.cancelOutreach(outreach.id, campaignId, {
+        canceledBy: `system:duplicate-send-guard:${duplicateOfId}`,
+        byAdmin: true,
+      })
+    } catch (err) {
+      await this.model.updateMany({
+        where: {
+          id: outreach.id,
+          status: OutreachStatus.pending,
+          projectId: null,
+        },
+        data: { status: OutreachStatus.pending_payment },
+      })
+      this.logger.error(
+        { err, outreachId: outreach.id, campaignId, duplicateOfId, chargeRef },
+        'CRITICAL win sms duplicate send refusal could not release the ' +
+          'payment; draft re-armed so a redelivery retries (win-sms-critical alert)',
+      )
+      throw err
+    }
   }
 
   /**
