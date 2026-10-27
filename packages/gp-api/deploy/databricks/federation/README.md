@@ -38,10 +38,17 @@ them up on every deploy.
 
 The role can only read: `SELECT` on every table in `public` (including ones
 later migrations create), every transaction read-only, a 60-second
-statement timeout and at most 20 connections. Tables holding secrets are
-revoked: `user` (password hash, reset token) and `peerly_phone_list`
-(token). A migration that adds a table or column holding a secret (tokens,
-hashes, keys) must `REVOKE SELECT ON <table> FROM databricks_federation`.
+statement timeout and at most 20 connections. Secret columns are left out:
+`user.password`, `user.password_reset_token` and `peerly_phone_list.token`.
+Those two tables carry a column-level grant of every other column, so a
+column added to either later stays unreadable until a migration grants it
+(`GRANT SELECT (<column>) ON <table> TO databricks_federation`). A migration
+that adds a secret column (token, hash, key) to any other table revokes the
+table and grants its other columns the same way.
+
+Check `SELECT * FROM gp_api_pg_dev.public.user LIMIT 1` once federation is
+live. If Databricks lists the hidden columns, it fails with a permission
+error, and readers must name columns (or the table moves behind a view).
 
 ## Security
 

@@ -45,7 +45,38 @@ GRANT SELECT ON ALL TABLES IN SCHEMA public TO databricks_federation;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public
   GRANT SELECT ON TABLES TO databricks_federation;
 
--- Tables holding secrets stay out of Databricks: "user" has the password hash
--- and the plaintext password reset token, peerly_phone_list a token. A later
--- migration that adds such a table or column revokes the same way.
-REVOKE SELECT ON TABLE "user", peerly_phone_list FROM databricks_federation;
+-- Secret columns stay out of Databricks: "user".password (hash) and
+-- password_reset_token (plaintext), peerly_phone_list.token. Their tables
+-- get a column-level grant of everything else instead. Columns added to
+-- these tables later are not readable until a migration grants them, and a
+-- migration that adds a secret column to any other table revokes that table
+-- and grants its other columns the same way.
+DO $$
+DECLARE
+  secret record;
+  readable text;
+BEGIN
+  FOR secret IN
+    SELECT * FROM (VALUES
+      ('user', ARRAY['password', 'password_reset_token']),
+      ('peerly_phone_list', ARRAY['token'])
+    ) AS t(table_name, columns)
+  LOOP
+    EXECUTE format(
+      'REVOKE SELECT ON TABLE public.%I FROM databricks_federation',
+      secret.table_name
+    );
+    SELECT string_agg(quote_ident(column_name), ', ' ORDER BY ordinal_position)
+    INTO readable
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = secret.table_name
+      AND column_name <> ALL (secret.columns);
+    EXECUTE format(
+      'GRANT SELECT (%s) ON TABLE public.%I TO databricks_federation',
+      readable,
+      secret.table_name
+    );
+  END LOOP;
+END
+$$;
