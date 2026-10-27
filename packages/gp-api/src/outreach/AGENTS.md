@@ -23,7 +23,8 @@ with `draft: true` BEFORE payment → row stored `pending_payment` (hidden from
 `outreachId`. On payment completion the Stripe webhook path calls
 `finalizeOutreachPurchase`: atomic claim
 `pending_payment → pending`, then `submitDraftToPeerly` (re-reads the image
-from S3); a Peerly failure reverts the status and rethrows so Stripe retries
+from S3); a Peerly failure, or a failed read of the claimed draft, reverts the
+status and rethrows so Stripe retries
 (except a content rejection, which propagates as a 400 carrying Peerly's own
 message — the webhook handler acks it rather than retrying a permanent error).
 `schemas/createOutreachSchema.ts`: only p2p may be a draft, EVERY p2p create

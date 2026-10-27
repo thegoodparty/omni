@@ -573,6 +573,34 @@ describe('OutreachService', () => {
           data: { status: OutreachStatus.pending_payment },
         })
       })
+
+      it('re-arms the draft and rethrows when the duplicate lookup fails', async () => {
+        mockOutreachFindFirst
+          .mockResolvedValueOnce({
+            phoneListId: 3236000,
+            outreachType: OutreachType.p2p,
+            p2pSms: null,
+          })
+          .mockRejectedValueOnce(new Error('connection reset'))
+        mockOutreachUpdateMany.mockResolvedValue({ count: 1 })
+        mockOutreachFindUniqueOrThrow.mockResolvedValue(dupDraft)
+        const cancel = vi.spyOn(service, 'cancelOutreach')
+
+        await expect(
+          service.finalizeOutreachPurchase(87116, 1, 'cs_live_abc'),
+        ).rejects.toThrow('connection reset')
+
+        expect(mockPeerlyCreateJob).not.toHaveBeenCalled()
+        expect(cancel).not.toHaveBeenCalled()
+        expect(mockOutreachUpdateMany).toHaveBeenLastCalledWith({
+          where: {
+            id: 87116,
+            status: OutreachStatus.pending,
+            projectId: null,
+          },
+          data: { status: OutreachStatus.pending_payment },
+        })
+      })
     })
 
     it('materializes on finalize even when the campaign has no user', async () => {

@@ -572,19 +572,35 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     if (claimed === 'canceled') return 'duplicate_refused'
     if (!claimed) return 'deferred'
 
-    const outreach = await this.model.findUniqueOrThrow({
-      where: { id: outreachId },
-      include: {
-        voterFileFilter: true,
-        campaign: { include: { user: true } },
-      },
-    })
+    let outreach
+    let duplicateOfId
+    try {
+      outreach = await this.model.findUniqueOrThrow({
+        where: { id: outreachId },
+        include: {
+          voterFileFilter: true,
+          campaign: { include: { user: true } },
+        },
+      })
+      duplicateOfId = await this.findLiveDuplicateId(outreach)
+    } catch (err) {
+      // Hand the claim back: the stranded-draft sweep skips `pending`, and a
+      // redelivery would only wait out the poll and throw.
+      await this.model.updateMany({
+        where: {
+          id: outreachId,
+          status: OutreachStatus.pending,
+          projectId: null,
+        },
+        data: { status: OutreachStatus.pending_payment },
+      })
+      throw err
+    }
     // The claim above matched a real campaignId — text/p2p finalize never
     // reaches an org-only (social) row, the only kind with no campaign.
     const campaign = outreach.campaign!
     const user = campaign.user
 
-    const duplicateOfId = await this.findLiveDuplicateId(outreach)
     if (duplicateOfId !== null) {
       await this.refuseDuplicateFinalize(outreach, duplicateOfId, chargeRef)
       return 'duplicate_refused'
