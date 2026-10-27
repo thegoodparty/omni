@@ -259,6 +259,39 @@ const authorize = (outreachId: number) =>
     orgHeaders(),
   )
 
+// The test user's email is tests@goodparty.org, and a goodparty.org owner
+// skips most eligibility rules, so the tests of those rules move the owner
+// outside it first.
+const asCandidate = () =>
+  service.prisma.user.update({
+    where: { id: service.user.id },
+    data: { email: 'candidate@example.com' },
+  })
+
+const bookRobocall = (promoCode?: string) =>
+  service.prisma.outreach.create({
+    data: {
+      campaignId: campaign.id,
+      organizationSlug: orgSlug,
+      outreachType: 'robocall',
+      status: OutreachStatus.pending,
+      ...(promoCode
+        ? {
+            robocall: {
+              create: {
+                audioKey: `robocall/${campaign.id}/${randomUUID()}.webm`,
+                callbackNumber: '+15125550123',
+                billableCount: 180,
+                amountInCents: 0,
+                settleState: RobocallSettleState.pending_payment,
+                promoCode,
+              },
+            },
+          }
+        : {}),
+    },
+  })
+
 describe('GET /v1/campaigns/mine/robocall-offer', () => {
   it('enrolls an eligible campaign and returns the offer list size', async () => {
     const result = await service.client.get(
@@ -287,14 +320,8 @@ describe('GET /v1/campaigns/mine/robocall-offer', () => {
   })
 
   it('does not offer to a campaign that already booked a robocall', async () => {
-    await service.prisma.outreach.create({
-      data: {
-        campaignId: campaign.id,
-        organizationSlug: orgSlug,
-        outreachType: 'robocall',
-        status: OutreachStatus.pending,
-      },
-    })
+    await asCandidate()
+    await bookRobocall()
 
     const result = await service.client.get(
       '/v1/campaigns/mine/robocall-offer',
@@ -314,6 +341,110 @@ describe('GET /v1/campaigns/mine/robocall-offer', () => {
     )
 
     expect(result.data.eligible).toBe(false)
+  })
+
+  it('offers to a goodparty.org owner whatever the eligibility rules say', async () => {
+    await service.prisma.outreach.deleteMany({
+      where: { campaignId: campaign.id },
+    })
+    await service.prisma.campaign.update({
+      where: { id: campaign.id },
+      data: {
+        isPro: false,
+        isDemo: true,
+        details: { state: 'TX', electionDate: '2026-12-08' },
+      },
+    })
+    vi.mocked(
+      service.app.get(FeaturesService).isFeatureEnabled,
+    ).mockResolvedValue(false)
+    vi.mocked(
+      service.app.get(ElectionsService).getPositionById,
+    ).mockResolvedValue({ isWinIcp: false } as never)
+
+    const result = await service.client.get(
+      '/v1/campaigns/mine/robocall-offer',
+      orgHeaders(),
+    )
+
+    expect(result.data.eligible).toBe(true)
+  })
+
+  it('offers to a goodparty.org owner who booked another robocall', async () => {
+    await bookRobocall()
+
+    const result = await service.client.get(
+      '/v1/campaigns/mine/robocall-offer',
+      orgHeaders(),
+    )
+
+    expect(result.data.eligible).toBe(true)
+  })
+
+  it('does not offer to a goodparty.org owner who booked the offer run', async () => {
+    await bookRobocall('GPOFFER-TESTCODE')
+
+    const result = await service.client.get(
+      '/v1/campaigns/mine/robocall-offer',
+      orgHeaders(),
+    )
+
+    expect(result.data.eligible).toBe(false)
+  })
+
+  describe('for an owner outside goodparty.org', () => {
+    beforeEach(async () => {
+      await asCandidate()
+    })
+
+    it('offers to a campaign that meets every rule', async () => {
+      const result = await service.client.get(
+        '/v1/campaigns/mine/robocall-offer',
+        orgHeaders(),
+      )
+
+      expect(result.data.eligible).toBe(true)
+    })
+
+    it('does not offer to a campaign that is not Pro', async () => {
+      await service.prisma.campaign.update({
+        where: { id: campaign.id },
+        data: { isPro: false },
+      })
+
+      const result = await service.client.get(
+        '/v1/campaigns/mine/robocall-offer',
+        orgHeaders(),
+      )
+
+      expect(result.data.eligible).toBe(false)
+    })
+
+    it('does not offer to a campaign that has sent no texts', async () => {
+      await service.prisma.outreach.deleteMany({
+        where: { campaignId: campaign.id },
+      })
+
+      const result = await service.client.get(
+        '/v1/campaigns/mine/robocall-offer',
+        orgHeaders(),
+      )
+
+      expect(result.data.eligible).toBe(false)
+    })
+
+    it('does not offer while the flag is off', async () => {
+      vi.mocked(
+        service.app.get(FeaturesService).isFeatureEnabled,
+      ).mockResolvedValue(false)
+
+      const result = await service.client.get(
+        '/v1/campaigns/mine/robocall-offer',
+        orgHeaders(),
+      )
+
+      expect(result.data.eligible).toBe(false)
+    })
   })
 })
 
@@ -437,15 +568,9 @@ describe('the offer code', () => {
   })
 
   it('is refused once the campaign has booked another robocall', async () => {
+    await asCandidate()
     await enroll()
-    await service.prisma.outreach.create({
-      data: {
-        campaignId: campaign.id,
-        organizationSlug: orgSlug,
-        outreachType: 'robocall',
-        status: OutreachStatus.pending,
-      },
-    })
+    await bookRobocall()
     const draft = await createDraft(offerListId)
 
     const result = await applyPromo(draft)
@@ -463,17 +588,11 @@ describe('the offer code', () => {
   })
 
   it('is refused at authorize when another robocall was booked after apply', async () => {
+    await asCandidate()
     await enroll()
     const draft = await createDraft(offerListId)
     expect((await applyPromo(draft)).status).toBe(HttpStatus.CREATED)
-    await service.prisma.outreach.create({
-      data: {
-        campaignId: campaign.id,
-        organizationSlug: orgSlug,
-        outreachType: 'robocall',
-        status: OutreachStatus.pending,
-      },
-    })
+    await bookRobocall()
 
     const result = await authorize(draft)
 
