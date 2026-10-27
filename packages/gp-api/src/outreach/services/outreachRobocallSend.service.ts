@@ -59,6 +59,14 @@ const envInt = (value: string | undefined, fallback: number): number => {
   // expects an Int). A non-finite / negative value falls back to the default.
   return Number.isFinite(parsed) && parsed >= 0 ? Math.trunc(parsed) : fallback
 }
+// Float-preserving sibling of envInt for the one knob that takes a fractional
+// value (the safety divisor): truncating 1.1 to 1 would silently remove the
+// haircut entirely. A non-finite / non-positive value falls back.
+const envNumber = (value: string | undefined, fallback: number): number => {
+  if (value === undefined || value === '') return fallback
+  const parsed = Number(value)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
+}
 const robocallSendMaxPerSweep = () =>
   envInt(process.env.ROBOCALL_SEND_MAX_PER_SWEEP, 2)
 const robocallSendLaunchSpacingMs = () =>
@@ -70,10 +78,12 @@ const robocallSendLaunchSpacingMs = () =>
 // the rate divisor below; this is the fixed floor on top. Lowered 180 → 30 on
 // 2026-10-15: at the full-pool 120/min rate the flat 180 dominated the ceiling
 // and over-held the pool for hours on a fast dial, re-stacking the serial queue.
-// The ÷2 divisor already covers a proportional (up-to-2x) slowdown — which scales
-// with list size — so a flat 30 need only cover startup/tail slack and never
-// mis-frees a large run. Env-overridable; NEVER set it so short that the
-// completion floor biases toward an early abort. Read at call time.
+// The rate divisor (÷1.1 since 2026-10-27) now only models a ~10% pacing margin —
+// not the up-to-2x it absorbed before #3263 removed the 60/min clamp — so on a
+// large run this flat 30 can be the dominant margin before the pool frees. Keep
+// both in view when tuning either: shrinking this while the divisor is near 1
+// biases the completion floor toward an early abort. Env-overridable; read at
+// call time.
 const robocallDialEstimateBufferMinutes = () =>
   envInt(process.env.ROBOCALL_DIAL_ESTIMATE_BUFFER_MINUTES, 30)
 
@@ -85,17 +95,24 @@ const robocallDialEstimateBufferMinutes = () =>
 // estimate (under-delivery + full charge). To err LONG, the completion ceiling is
 // walked at `configuredCallsPerMinute / divisor` — modeling a dial up to `divisor`
 // times slower, correctly through the daily 09:00-21:00 window — so the floor only
-// reports done when the campaign is SURELY finished. 2 covers a dial half the
-// configured rate; raise it to free later and safer, lower to free sooner. Started
-// at 3, lowered to 2 (2026-10-15): at 3 a big list held the pool ~3x its real dial
-// time, and with the serial queue dialing one at a time that stacked into multi-day
-// backlogs that pushed sends overdue; observed real slowdowns are ~1.5-2x, so 2
-// keeps a safe margin while freeing the pool roughly a third sooner. For a large
+// reports done when the campaign is SURELY finished. A divisor of D covers a dial
+// 1/D the configured rate; raise it to free later and safer, lower to free sooner.
+// 3 → 2 (2026-10-15) → 1.1 (2026-10-27): the ~1.5-2x slowdowns that justified 2
+// were measured while CallHub's create CLAMPED every campaign to ~60/min — half
+// the configured 120 — which #3263 removed, so that apparent "slowdown" was the
+// clamp, not vendor pacing. Campaigns now dial at the configured 120 (confirmed in
+// CallHub), so 1.1 leaves a thin genuine-pacing margin on top of the flat buffer
+// and frees the pool close to the real dial time. This trusts stagedCallsPerMinute
+// as the REAL dial rate — true since #3263 froze the APPLIED frequency, not the
+// requested one; a row staged BEFORE #3263 froze the requested 120 while dialing
+// the ~60 clamp, so a divisor near 1 is only safe once no such pre-#3263 run is
+// still in flight. Fractional, so read through
+// envNumber. Env-overridable (read at call time): if a real large run shows the
+// dial materially lags 120, raise this env toward 1.5 without a deploy. For a large
 // audience the ceiling can exceed the 48h settlement floor, in which case the
-// completion sweep settles first and the early free simply does not fire (correct,
-// just not faster). Env-overridable; read at call time.
+// completion sweep settles first and the early free simply does not fire.
 const robocallDialSafetyRateDivisor = () =>
-  Math.max(1, envInt(process.env.ROBOCALL_DIAL_SAFETY_RATE_DIVISOR, 2))
+  Math.max(1, envNumber(process.env.ROBOCALL_DIAL_SAFETY_RATE_DIVISOR, 1.1))
 
 // A `dialing` row whose dialingStartedAt is older than this is DEADLOCKED and is
 // force-failed (via the existing failSend path), so a never-resolving dialing row
