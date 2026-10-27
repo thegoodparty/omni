@@ -23,6 +23,7 @@ Postgres schema, migrations, and the Prisma client surface. Schema is split per-
 ## Gotchas
 
 - **Migrations are immutable.** Editing a file in `schema/migrations/<timestamp>/` after it's been applied will desync prod from dev. If you need to fix a bad migration, write a new one.
+- **Secrets stay out of Databricks.** The `databricks_federation` role reads every table in `public`, including future ones, except `user.password`, `user.password_reset_token` and `peerly_phone_list.token`. Those two tables have column-level grants instead, so a new column on either is unreadable until a migration runs `GRANT SELECT (<column>) ON <table> TO databricks_federation`. A migration that adds a secret column (token, hash, key) to any other table must revoke that table and grant its other columns. See `deploy/databricks/federation/README.md`.
 - **`map:` and snake_case** — DB columns are `snake_case`, Prisma fields are `camelCase`, joined by `@map()`. Match the existing style on adjacent fields when adding columns.
 - **`Json` columns are an anti-pattern** for known-shape data (Rule 25). Several legacy models (`Campaign.data`, `Campaign.details`, `Campaign.aiContent`) use them — don't replicate that for new models. Prefer proper columns or relations.
 - **Don't bypass `npm run generate`.** `prisma generate` alone misses the route-types step (`scripts/generate-route-types.ts`) that the `generate` script also runs.

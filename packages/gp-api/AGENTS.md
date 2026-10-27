@@ -213,6 +213,7 @@ Per-area `AGENTS.md` files cover purpose, key files, patterns, and gotchas for t
 | Schema / migrations                                      | `prisma/AGENTS.md`                                   |
 | `@goodparty_org/contracts`                               | `contracts/AGENTS.md` + `docs/contracts.md`          |
 | Pulumi / Docker / Grafana                                | `deploy/AGENTS.md`                                   |
+| Databricks reading gp-api Postgres (federation)          | `deploy/databricks/federation/README.md`             |
 | One-off / build scripts                                  | `scripts/AGENTS.md`                                  |
 | Seed data / factories / scenarios                        | `seed/AGENTS.md`                                     |
 | QA test-user fixtures (dev/preview only)                 | `src/testFixtures/AGENTS.md`                         |

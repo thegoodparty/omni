@@ -13,6 +13,26 @@ describe('clerkCall', () => {
     ).resolves.toBe('ok')
   })
 
+  it('never races a timer when timeoutMs is null', async () => {
+    vi.useFakeTimers()
+    try {
+      const pending = clerkCall(
+        'op',
+        {},
+        () =>
+          new Promise<string>((resolve) =>
+            setTimeout(() => resolve('ok'), 60_000),
+          ),
+        null,
+      )
+      await vi.advanceTimersByTimeAsync(60_000)
+
+      await expect(pending).resolves.toBe('ok')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   describe('timeout', () => {
     beforeEach(() => {
       vi.useFakeTimers()
