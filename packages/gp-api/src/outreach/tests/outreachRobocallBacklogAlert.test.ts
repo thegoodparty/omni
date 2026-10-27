@@ -23,6 +23,10 @@ const originalEnv = process.env.OTEL_SERVICE_ENVIRONMENT
 
 beforeEach(async () => {
   process.env.OTEL_SERVICE_ENVIRONMENT = 'prod'
+  // The blocking-run fixture's audience is sized to spill a multi-day backlog at
+  // a divisor of 2; pin it so these tests assert the projection BEHAVIOR, not the
+  // shipping default (lowered to 1.1). The file-scope afterEach unstubs.
+  vi.stubEnv('ROBOCALL_DIAL_SAFETY_RATE_DIVISOR', '2')
   backlog = service.app.get(OutreachRobocallBacklogAlertService)
   alertSpy = vi
     .spyOn(

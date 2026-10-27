@@ -664,11 +664,13 @@ describe('OutreachRobocallSendService.isDoneDialing (the completion seam)', () =
   const seam = () => send as unknown as Seam
   const dialedAt = new Date('2026-06-01T14:00:00Z')
 
-  // These tests encode the pre-2026-10-15 180-minute flat buffer in their ceiling
-  // math; pin it so they assert the haircut / R1 floor behavior rather than the
-  // default value (lowered to 30). The file-scope afterEach unstubs.
+  // These tests encode the pre-2026-10-15 180-minute flat buffer AND a divisor of
+  // 2 in their ceiling math; pin both so they assert the haircut / R1 floor
+  // behavior rather than the shipping defaults (buffer lowered to 30, divisor to
+  // 1.1). The file-scope afterEach unstubs.
   beforeEach(() => {
     vi.stubEnv('ROBOCALL_DIAL_ESTIMATE_BUFFER_MINUTES', '180')
+    vi.stubEnv('ROBOCALL_DIAL_SAFETY_RATE_DIVISOR', '2')
   })
 
   it('reports done (source estimate) once the conservative ceiling has passed', async () => {
