@@ -21,6 +21,16 @@ name: Analytics governance
 # - Failures notify the same Slack channel the digest posts to. The dead man's
 #   switch (analytics-governance-heartbeat.yml) covers the "workflow stopped
 #   firing" case that failure notifications structurally cannot.
+#
+# Dry run (DATA-2715): a dispatch with dry_run: true runs every step that reads
+# and computes, and uploads the report artifact, but writes nothing shared: no
+# Slack digest, no state commit or PR, no sheet refresh, no ClickUp write-back,
+# and no failure notice, since whoever dispatched it is watching the run. Use it
+# to check a pipeline change end to end. It has to be dispatched against main,
+# because the Databricks federation policy below only trusts main. The run is
+# named "(dry run)" so the heartbeat does not count it as a real success.
+
+run-name: ${{ inputs.dry_run && 'Analytics governance (dry run)' || 'Analytics governance' }}
 
 on:
   schedule:
@@ -30,6 +40,10 @@ on:
     inputs:
       walk:
         description: 'Also run the provenance walk'
+        type: boolean
+        default: false
+      dry_run:
+        description: 'Dry run: skip the Slack digest, state PR, sheet and ClickUp writes'
         type: boolean
         default: false
 
@@ -55,6 +69,8 @@ jobs:
       DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_CLIENT_ID }}
       DATABRICKS_AUTH_TYPE: github-oidc
       DATABRICKS_TOKEN_AUDIENCE: https://github.com/thegoodparty
+      # Always 'true' or 'false': a scheduled run has no inputs, and null == true is false.
+      DRY_RUN: ${{ inputs.dry_run == true }}
       SLACK_APP_BOT_TOKEN: ${{ secrets.SLACK_APP_BOT_TOKEN }}
       SLACK_EVENT_LIFECYCLE_CHANNEL_ID: ${{ vars.SLACK_EVENT_LIFECYCLE_CHANNEL_ID }}
       # Interim sheet identity until the Google service account (DATA-2072):
@@ -90,6 +106,9 @@ jobs:
             exit 1
           fi
           [ -n "$SLACK_APP_BOT_TOKEN" ] || echo "::warning::secrets.SLACK_APP_BOT_TOKEN unset — digest and failure notifications will be skipped"
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "Dry run: no Slack digest or failure notice, no state commit or PR, no sheet refresh, no ClickUp write-back. The report artifact still uploads." >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Generate app token
         id: app-token
@@ -174,8 +193,11 @@ jobs:
           GP_DATA_PLATFORM_READ_TOKEN: ${{ secrets.GP_DATA_PLATFORM_READ_TOKEN }}
         run: |
           # --gap-slack degrades to a health-only post when the file is absent (e.g. the
-          # gap sweep step above failed) — never fails this step.
-          uv run analytics_event_health.py --slack \
+          # gap sweep step above failed) — never fails this step. --gap-slack is only read
+          # inside the --slack post, so a dry run leaves the gap file written but unread.
+          slack=--slack
+          if [ "$DRY_RUN" = "true" ]; then slack=; fi
+          uv run analytics_event_health.py $slack \
             --gap-slack "$RUNNER_TEMP/gap_slack.json" \
             --json instrumentation_data/analytics_event_health_report.json
 
@@ -270,6 +292,7 @@ jobs:
           fi
 
       - name: Commit state and keep the auto-merge PR fresh
+        if: env.DRY_RUN != 'true'
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
@@ -311,6 +334,7 @@ jobs:
       # exists, an expired/revoked token fails the step (and so notifies
       # Slack) rather than skipping.
       - name: Event-state sheet refresh
+        if: env.DRY_RUN != 'true'
         working-directory: packages/runbooks/scripts/python
         env:
           GP_SHEETS_TOKEN_PATH: ${{ runner.temp }}/gsheet_token.pickle
@@ -332,6 +356,7 @@ jobs:
           uv run event_state_gsheet.py refresh-questions
 
       - name: Question answer-state write-back
+        if: env.DRY_RUN != 'true'
         working-directory: packages/runbooks/scripts/python
         env:
           CLICKUP_API_KEY: ${{ secrets.CLICKUP_API_TOKEN }}
@@ -370,6 +395,7 @@ jobs:
             || steps.surface_drift.outcome == 'failure')
           && env.SLACK_APP_BOT_TOKEN != ''
           && env.SLACK_EVENT_LIFECYCLE_CHANNEL_ID != ''
+          && env.DRY_RUN != 'true'
         run: |
           curl -sf -X POST https://slack.com/api/chat.postMessage \
             -H "Authorization: Bearer $SLACK_APP_BOT_TOKEN" \
