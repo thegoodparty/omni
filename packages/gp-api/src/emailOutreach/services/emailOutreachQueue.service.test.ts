@@ -11,24 +11,9 @@ describe('EmailOutreachQueueService (not built yet)', () => {
   } as Partial<PinoLogger> as PinoLogger
   const service = new EmailOutreachQueueService(logger)
 
-  it('never acks a list import', async () => {
-    await expect(
-      service.handleListImport({ listId: 1, attempt: 0, cursor: 0 }),
-    ).resolves.toBe(false)
-  })
-
   it('never acks a send prepare', async () => {
     await expect(
       service.handleSendPrepare({ outreachEmailId: 1 }),
-    ).resolves.toBe(false)
-  })
-
-  it('never acks an SES event', async () => {
-    await expect(
-      service.handleEvent({
-        snsMessageId: 'sns-1',
-        sesEvent: { eventType: 'Bounce', mail: { messageId: 'ses-1' } },
-      }),
     ).resolves.toBe(false)
   })
 

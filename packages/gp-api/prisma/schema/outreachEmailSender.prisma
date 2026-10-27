@@ -16,7 +16,9 @@ model OutreachEmailSender {
   pendingForwardTokenHash String?                  @map("pending_forward_token_hash")
   pendingForwardExpiresAt DateTime?                @map("pending_forward_expires_at")
   warmingStep             Int                      @default(0) @map("warming_step")
-  lists                   OutreachEmailList[]
+  // The organization's SES tenant, which SES tracks and pauses separately.
+  // Dev and prod share one AWS account, so the name carries the environment.
+  sesTenantName           String?                  @unique @map("ses_tenant_name")
   sends                   OutreachEmail[]
   recipients              OutreachEmailRecipient[]
   replies                 OutreachEmailReply[]

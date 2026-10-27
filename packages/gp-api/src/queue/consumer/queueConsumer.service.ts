@@ -66,9 +66,7 @@ import {
   OrdinanceQualityLoopMessageSchema,
   OutreachTextSendEventSchema,
   P2pPhoneListBuildMessageSchema,
-  EmailListImportMessageSchema,
   EmailSendPrepareMessageSchema,
-  EmailEventMessageSchema,
   EmailInboundMessageSchema,
   PollAnalysisCompleteEvent,
   PollAnalysisCompleteEventSchema,
@@ -572,17 +570,9 @@ export class QueueConsumerService {
       }
       // Email payloads are parsed so a malformed one throws and ages to the
       // DLQ rather than being acked.
-      case QueueType.EMAIL_LIST_IMPORT:
-        return await this.emailOutreachQueue.handleListImport(
-          EmailListImportMessageSchema.parse(queueMessage.data),
-        )
       case QueueType.EMAIL_SEND_PREPARE:
         return await this.emailOutreachQueue.handleSendPrepare(
           EmailSendPrepareMessageSchema.parse(queueMessage.data),
-        )
-      case QueueType.EMAIL_EVENT:
-        return await this.emailOutreachQueue.handleEvent(
-          EmailEventMessageSchema.parse(queueMessage.data),
         )
       case QueueType.EMAIL_INBOUND:
         return await this.emailOutreachQueue.handleInbound(

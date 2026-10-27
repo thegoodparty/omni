@@ -1,8 +1,5 @@
 -- CreateEnum
-CREATE TYPE "OutreachEmailPauseReason" AS ENUM ('bounce_rate', 'complaint_rate', 'ses_account', 'daily_quota', 'manual');
-
--- CreateEnum
-CREATE TYPE "OutreachEmailListStatus" AS ENUM ('queued', 'importing', 'ready', 'failed');
+CREATE TYPE "OutreachEmailPauseReason" AS ENUM ('bounce_rate', 'complaint_rate', 'ses_account', 'ses_tenant', 'daily_quota', 'manual');
 
 -- CreateEnum
 CREATE TYPE "OutreachEmailRecipientStatus" AS ENUM ('queued', 'sending', 'sent', 'bounced', 'complained', 'failed');
@@ -11,7 +8,7 @@ CREATE TYPE "OutreachEmailRecipientStatus" AS ENUM ('queued', 'sending', 'sent',
 CREATE TYPE "OutreachEmailReplyClass" AS ENUM ('forwarded', 'auto_reply', 'bounce', 'unsubscribe', 'spam');
 
 -- CreateEnum
-CREATE TYPE "OutreachEmailSuppressionReason" AS ENUM ('link', 'one_click', 'reply', 'bounce', 'complaint');
+CREATE TYPE "OutreachEmailSuppressionReason" AS ENUM ('link', 'one_click', 'reply');
 
 -- CreateEnum
 CREATE TYPE "OutreachHoldState" AS ENUM ('scheduled', 'placing', 'held', 'hold_failed', 'capturing', 'captured', 'releasing', 'released', 'uncollectable', 'disputed');
@@ -35,7 +32,8 @@ CREATE TABLE "outreach_email" (
     "updated_at" TIMESTAMP(3) NOT NULL,
     "outreach_id" INTEGER NOT NULL,
     "sender_id" INTEGER NOT NULL,
-    "list_id" INTEGER,
+    "consent_confirmed_at" TIMESTAMP(3),
+    "consent_confirmed_by_user_id" INTEGER,
     "goal" TEXT NOT NULL,
     "layout" TEXT NOT NULL,
     "theme" TEXT NOT NULL,
@@ -51,54 +49,12 @@ CREATE TABLE "outreach_email" (
     "prepared_at" TIMESTAMP(3),
     "stopping_at" TIMESTAMP(3),
     "sent_count" INTEGER NOT NULL DEFAULT 0,
-    "bounced_count" INTEGER NOT NULL DEFAULT 0,
-    "complained_count" INTEGER NOT NULL DEFAULT 0,
     "unsubscribed_count" INTEGER NOT NULL DEFAULT 0,
     "paused_at" TIMESTAMP(3),
     "pause_reason" "OutreachEmailPauseReason",
     "resumed_at" TIMESTAMP(3),
-    "resume_sent_base" INTEGER NOT NULL DEFAULT 0,
-    "resume_bounced_base" INTEGER NOT NULL DEFAULT 0,
-    "resume_complained_base" INTEGER NOT NULL DEFAULT 0,
 
     CONSTRAINT "outreach_email_pkey" PRIMARY KEY ("id")
-);
-
--- CreateTable
-CREATE TABLE "outreach_email_list" (
-    "id" SERIAL NOT NULL,
-    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
-    "sender_id" INTEGER NOT NULL,
-    "name" TEXT NOT NULL,
-    "source_file_key" TEXT NOT NULL,
-    "status" "OutreachEmailListStatus" NOT NULL DEFAULT 'queued',
-    "import_cursor" INTEGER NOT NULL DEFAULT 0,
-    "import_attempts" INTEGER NOT NULL DEFAULT 0,
-    "import_claimed_at" TIMESTAMP(3),
-    "import_error" TEXT,
-    "row_count" INTEGER NOT NULL DEFAULT 0,
-    "valid_count" INTEGER NOT NULL DEFAULT 0,
-    "invalid_count" INTEGER NOT NULL DEFAULT 0,
-    "duplicate_count" INTEGER NOT NULL DEFAULT 0,
-    "suppressed_count" INTEGER NOT NULL DEFAULT 0,
-    "consent_confirmed_at" TIMESTAMP(3) NOT NULL,
-    "consent_confirmed_by_user_id" INTEGER NOT NULL,
-
-    CONSTRAINT "outreach_email_list_pkey" PRIMARY KEY ("id")
-);
-
--- CreateTable
-CREATE TABLE "outreach_email_list_member" (
-    "id" SERIAL NOT NULL,
-    "list_id" INTEGER NOT NULL,
-    "position" INTEGER NOT NULL,
-    "email" TEXT NOT NULL,
-    "first_name" TEXT,
-    "last_name" TEXT,
-    "person_id" TEXT,
-
-    CONSTRAINT "outreach_email_list_member_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -145,6 +101,7 @@ CREATE TABLE "outreach_email_sender" (
     "pending_forward_token_hash" TEXT,
     "pending_forward_expires_at" TIMESTAMP(3),
     "warming_step" INTEGER NOT NULL DEFAULT 0,
+    "ses_tenant_name" TEXT,
 
     CONSTRAINT "outreach_email_sender_pkey" PRIMARY KEY ("id")
 );
@@ -202,18 +159,6 @@ CREATE TABLE "outreach_payment_hold" (
 CREATE UNIQUE INDEX "outreach_email_outreach_id_key" ON "outreach_email"("outreach_id");
 
 -- CreateIndex
-CREATE INDEX "outreach_email_list_sender_id_idx" ON "outreach_email_list"("sender_id");
-
--- CreateIndex
-CREATE INDEX "outreach_email_list_status_import_claimed_at_idx" ON "outreach_email_list"("status", "import_claimed_at");
-
--- CreateIndex
-CREATE INDEX "outreach_email_list_member_list_id_position_idx" ON "outreach_email_list_member"("list_id", "position");
-
--- CreateIndex
-CREATE UNIQUE INDEX "outreach_email_list_member_list_id_email_key" ON "outreach_email_list_member"("list_id", "email");
-
--- CreateIndex
 CREATE UNIQUE INDEX "outreach_email_recipient_ses_message_id_key" ON "outreach_email_recipient"("ses_message_id");
 
 -- CreateIndex
@@ -241,6 +186,9 @@ CREATE UNIQUE INDEX "outreach_email_sender_organization_slug_key" ON "outreach_e
 CREATE UNIQUE INDEX "outreach_email_sender_local_part_key" ON "outreach_email_sender"("local_part");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "outreach_email_sender_ses_tenant_name_key" ON "outreach_email_sender"("ses_tenant_name");
+
+-- CreateIndex
 CREATE INDEX "outreach_email_suppression_organization_slug_idx" ON "outreach_email_suppression"("organization_slug");
 
 -- CreateIndex
@@ -266,15 +214,6 @@ ALTER TABLE "outreach_email" ADD CONSTRAINT "outreach_email_outreach_id_fkey" FO
 
 -- AddForeignKey
 ALTER TABLE "outreach_email" ADD CONSTRAINT "outreach_email_sender_id_fkey" FOREIGN KEY ("sender_id") REFERENCES "outreach_email_sender"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "outreach_email" ADD CONSTRAINT "outreach_email_list_id_fkey" FOREIGN KEY ("list_id") REFERENCES "outreach_email_list"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "outreach_email_list" ADD CONSTRAINT "outreach_email_list_sender_id_fkey" FOREIGN KEY ("sender_id") REFERENCES "outreach_email_sender"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "outreach_email_list_member" ADD CONSTRAINT "outreach_email_list_member_list_id_fkey" FOREIGN KEY ("list_id") REFERENCES "outreach_email_list"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "outreach_email_recipient" ADD CONSTRAINT "outreach_email_recipient_outreach_email_id_fkey" FOREIGN KEY ("outreach_email_id") REFERENCES "outreach_email"("id") ON DELETE CASCADE ON UPDATE CASCADE;

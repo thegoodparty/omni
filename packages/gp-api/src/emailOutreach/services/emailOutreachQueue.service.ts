@@ -1,9 +1,7 @@
 import { Injectable } from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
 import {
-  EmailEventMessage,
   EmailInboundMessage,
-  EmailListImportMessage,
   EmailSendPrepareMessage,
 } from '@/queue/queue.types'
 
@@ -16,18 +14,8 @@ export class EmailOutreachQueueService {
     this.logger.setContext(EmailOutreachQueueService.name)
   }
 
-  async handleListImport(message: EmailListImportMessage): Promise<boolean> {
-    this.logger.warn({ message }, 'emailListImport is not implemented yet')
-    return false
-  }
-
   async handleSendPrepare(message: EmailSendPrepareMessage): Promise<boolean> {
     this.logger.warn({ message }, 'emailSendPrepare is not implemented yet')
-    return false
-  }
-
-  async handleEvent(message: EmailEventMessage): Promise<boolean> {
-    this.logger.warn({ message }, 'emailEvent is not implemented yet')
     return false
   }
 
