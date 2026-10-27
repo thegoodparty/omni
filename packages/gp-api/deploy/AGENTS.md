@@ -4,28 +4,28 @@ Pulumi (TypeScript) infrastructure-as-code, the production Dockerfile, and the `
 
 ## Key files
 
-| Path                                        | Purpose                                                                              |
-| ------------------------------------------- | ------------------------------------------------------------------------------------ | --------------------------------- |
-| `index.ts`                                  | Pulumi program entry — wires VPC, service, asset bucket, Grafana resources           |
-| `Pulumi.yaml`                               | Stack metadata (`name: gp-api`, `runtime: nodejs`)                                   |
-| `infra-cli.ts`                              | yargs-based CLI wrapping `pulumi`; `npm run infra <diff                              | deploy> <env>` shells out to this |
-| `Dockerfile`                                | Production image build (Node 22 Alpine, multi-copy with prebuilt `dist/`)            |
-| `docker-entrypoint.sh`                      | Container bootstrap (env validation, migration check, app start; preview also runs `node dist/content/syncContent.cli.js`) |
-| `components/service.ts`                     | ECS Fargate service + ALB target group                                               |
-| `components/vpc.ts`                         | VPC selection (existing VPC, hardcoded subnets/SGs)                                  |
-| `components/assets-bucket.ts`               | S3 bucket for user uploads                                                           |
-| `components/assets-router.ts`               | CloudFront fronting the assets bucket                                                |
-| `components/campaign-plan-shares-bucket.ts` | Private bucket for shared campaign-plan PDFs (per env; preview reuses dev)           |
-| `components/robocall-audio-bucket.ts`       | Private bucket for recorded robocall audio (per env; preview reuses dev; 90-day object expiry, CORS POST for presigned-POST upload) |
+| Path                                        | Purpose                                                                                                                                                      |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------- |
+| `index.ts`                                  | Pulumi program entry — wires VPC, service, asset bucket, Grafana resources                                                                                   |
+| `Pulumi.yaml`                               | Stack metadata (`name: gp-api`, `runtime: nodejs`)                                                                                                           |
+| `infra-cli.ts`                              | yargs-based CLI wrapping `pulumi`; `npm run infra <diff                                                                                                      | deploy> <env>` shells out to this |
+| `Dockerfile`                                | Production image build (Node 22 Alpine, multi-copy with prebuilt `dist/`)                                                                                    |
+| `docker-entrypoint.sh`                      | Container bootstrap (env validation, migration check, app start; preview also runs `node dist/content/syncContent.cli.js`)                                   |
+| `components/service.ts`                     | ECS Fargate service + ALB target group                                                                                                                       |
+| `components/vpc.ts`                         | VPC selection (existing VPC, hardcoded subnets/SGs)                                                                                                          |
+| `components/assets-bucket.ts`               | S3 bucket for user uploads                                                                                                                                   |
+| `components/assets-router.ts`               | CloudFront fronting the assets bucket                                                                                                                        |
+| `components/campaign-plan-shares-bucket.ts` | Private bucket for shared campaign-plan PDFs (per env; preview reuses dev)                                                                                   |
+| `components/robocall-audio-bucket.ts`       | Private bucket for recorded robocall audio (per env; preview reuses dev; 90-day object expiry, CORS POST for presigned-POST upload)                          |
 | `components/sitemaps-bucket.ts`             | Public-read `gp-marketing-sitemaps` bucket + the GitHub OIDC role gp-marketing's hourly sitemap workflow publishes with (prod stack only, one global bucket) |
-| `components/grafana.ts`                     | Grafana data sources, dashboards, contact points                                     |
-| `components/alerting/` + `alerts.ts`        | Grafana alert rules and routing                                                      |
-| `pulumi/`                                   | `node_modules` for Pulumi's runtime (separate dependency tree)                       |
-| `components/preview-shared-cluster.ts`      | Shared preview Aurora cluster (`gp-api-preview-shared-db`); created by the dev stack |
-| `components/election-db.ts`                 | The election Aurora cluster (`election-api-db-develop` / `-prod`) and its RDS-event log copy; dev and prod stacks only |
-| `components/preview-shared-alb.ts`          | Shared preview ALB (`gp-api-previews`) + `*.preview.goodparty.org`; created by the dev stack |
-| `components/databricks-federation.ts`       | Databricks Lakehouse Federation's path into Aurora (allowlisted internet-facing NLB, RDS Proxy); dev and prod stacks only |
-| `databricks/federation/`                    | Runbook and `create-connection.sh` for the Unity Catalog connection                   |
+| `components/grafana.ts`                     | Grafana data sources, dashboards, contact points                                                                                                             |
+| `components/alerting/` + `alerts.ts`        | Grafana alert rules and routing                                                                                                                              |
+| `pulumi/`                                   | `node_modules` for Pulumi's runtime (separate dependency tree)                                                                                               |
+| `components/preview-shared-cluster.ts`      | Shared preview Aurora cluster (`gp-api-preview-shared-db`); created by the dev stack                                                                         |
+| `components/election-db.ts`                 | The election Aurora cluster (`election-api-db-develop` / `-prod`) and its RDS-event log copy; dev and prod stacks only                                       |
+| `components/preview-shared-alb.ts`          | Shared preview ALB (`gp-api-previews`) + `*.preview.goodparty.org`; created by the dev stack                                                                 |
+| `components/databricks-federation.ts`       | Databricks Lakehouse Federation's path into Aurora (allowlisted internet-facing NLB, RDS Proxy); dev and prod stacks only                                    |
+| `databricks/federation/`                    | Runbook for the Unity Catalog federation path (NLB, RDS Proxy)                                                                                               |
 
 ## Patterns
 

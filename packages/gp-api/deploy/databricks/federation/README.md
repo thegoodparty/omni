@@ -33,7 +33,7 @@ them up on every deploy.
 | NLB, RDS Proxy, empty proxy secret (dev and prod stacks only)                 | `deploy/components/databricks-federation.ts`                                                        | Pulumi, on deploy         |
 | Role password and `LOGIN`                                                     | step 2                                                                                              | DB admin                  |
 | Credentials in the proxy secret and in secret scope `gp-api-federation-<env>` | step 3                                                                                              | AWS and Databricks admins |
-| Connection `gp_api_<env>`                                                     | `create-connection.sh`, step 4                                                                      | Databricks admin          |
+| Connection `gp_api_<env>`                                                     | Created outside this repo, step 4                                                                   | Databricks admin          |
 | Secret scopes, foreign catalogs, readers groups, grants                       | [thegoodparty/gp-terraform-dataplatform](https://github.com/thegoodparty/gp-terraform-dataplatform) | Terraform                 |
 
 The role can only read: `SELECT` on every table in `public` (including ones
@@ -173,22 +173,11 @@ unset FEDERATION_PASSWORD
 
 ### 4. Create the connection (Databricks admin)
 
-From this folder, with step 1's DNS name:
-
-```bash
-./create-connection.sh dev gp-api-db-dev-federation-....elb.us-west-2.amazonaws.com
-```
-
-It creates `gp_api_dev` through the SQL Statement API on the Starter
-warehouse (`DATABRICKS_WAREHOUSE_ID` overrides it), with the password
-resolved from the secret inside Databricks, `sslmode` `verify-ca` and the
-Amazon root CAs (see TLS). Then it makes the `github-action` service
-principal (application id `a04e9e24-aac3-4308-9a65-d88fa34e444f`, override
-with `CONNECTION_OWNER`) the owner. That is the identity that applies
-gp-terraform-dataplatform: as owner it can grant on the connection and build
-the foreign catalog on it, whoever ran this script. Metastore admins can
-still manage it. It ends with `gp_api_dev is owned by a04e9e24-...`.
-Re-running it only fixes the owner.
+Create the Unity Catalog connection `gp_api_dev` (PostgreSQL) to step 1's NLB
+DNS name, port 5432, user `databricks_federation`, with `sslmode`
+`verify-ca` and the Amazon root CAs (see TLS). How it gets created is
+handled outside this repo. Terraform only needs a connection by that name
+that the `github-action` service principal can grant on.
 
 ### 5. Turn the env on in Terraform (engineer, then Terraform owner)
 
@@ -229,11 +218,10 @@ was created, so the new secret alone changes nothing.
 | ------------------------------------------------------- | ---------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
 | Connection timeout                                      | Databricks changed its ranges, or the NLB has no healthy target              | Check the ranges (Updating the ranges) and the target health (step 1)                                             |
 | `password authentication failed`                        | The proxy secret, the Databricks secret and the role disagree, or no `LOGIN` | Steps 2 and 3, then Rotating the password. The proxy targets' `Reason` (step 3) says which side failed            |
-| Certificate or hostname error                           | Connection lacks `sslmode` `verify-ca` or the Amazon root CAs                | Drop and recreate it with `create-connection.sh`                                                                  |
+| Certificate or hostname error                           | Connection lacks `sslmode` `verify-ca` or the Amazon root CAs                | Drop and recreate it with `verify-ca` and the Amazon root CAs                                                     |
 | `canceling statement due to statement timeout`          | Query ran over 60 seconds in Postgres                                        | Filter on indexed columns so it pushes down, or copy the rows to Delta once. Raising the limit is a new migration |
 | `too many connections for role "databricks_federation"` | More than 20 concurrent federated scans                                      | Wait, or run fewer concurrent queries                                                                             |
 | `cannot execute ... in a read-only transaction`         | A write through the catalog                                                  | By design                                                                                                         |
-| `Connection ... already exists` from the script         | It exists and you have no privilege on it, so it looked missing              | Ask a metastore admin to check its owner is `github-action`                                                       |
 
 ## Teardown
 
