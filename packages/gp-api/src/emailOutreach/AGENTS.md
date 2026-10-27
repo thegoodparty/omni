@@ -2,17 +2,21 @@
 
 Candidates (Win) and elected officials (Serve) email their opted-in contacts through Amazon SES. Until the shared contact lists land, a small test upload writes recipients straight onto a send. Design: TDD "2026-10-26 | Email outreach channel v1" (ClickUp doc `2ky4jq2q-20493`, page `2ky4jq2q-157273`); step lists, infrastructure and testing are on its Implementation Notes page (`2ky4jq2q-157293`). Payment goes through `src/paymentHolds/` (see its AGENTS.md).
 
-Under construction: the module currently holds only the queue entry points, which return `false` until each workstream replaces them.
+Under construction: the module holds the sender, the draft send, the test upload and the queue entry points. Sending, replies and staff controls come in later PRs; their queue entry points return `false` until then.
 
 ## Key files
 
-| Path                                                            | Purpose                                                                                                      |
-| --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| `prisma/schema/outreachEmail*.prisma`, `emailSweepLease.prisma` | The sender, send, recipient, suppression, reply and sweep-lease models                                       |
-| `services/emailOutreachQueue.service.ts`                        | Handlers for the two queue messages, called from `queueConsumer.service.ts`                                  |
-| `src/queue/queue.types.ts`                                      | `EMAIL_SEND_PREPARE`, `EMAIL_INBOUND` and their Zod schemas                                                  |
-| `@goodparty_org/contracts` `EmailTemplate.const.ts`             | `EMAIL_LAYOUTS` and `EMAIL_THEMES`, the registries `OutreachEmail.layout` and `.theme` are validated against |
-| `@goodparty_org/contracts` `SampleSizing.const.ts`              | `PRICE_PER_EMAIL_TENTH_CENTS`, `EMAIL_MIN_CHARGE_CENTS`                                                      |
+| Path                                                              | Purpose                                                                                                                                                                                |
+| ----------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `prisma/schema/outreachEmail*.prisma`, `emailSweepLease.prisma`   | The sender, send, recipient, suppression, reply and sweep-lease models                                                                                                                 |
+| `outreachEmail.controller.ts`, `outreachServeEmail.controller.ts` | Win (`/v1/outreach/email/*`) and Serve (`/v1/outreach/serve/email/*`): `GET, PATCH /sender`, `POST /` (create or update the draft), `GET /:id`, `POST /:id/recipients` (multipart CSV) |
+| `services/outreachEmailScope.service.ts`                          | Turns a campaign or elected office into the `EmailSendScope` every service takes (organization, unsubscribe scopes, sender name, forward-to defaults, paid-for-by)                     |
+| `services/outreachEmailSender.service.ts`                         | Creates the organization's sender on first use (`first.last`, numbered on a clash) and starts a forward-to confirmation                                                                |
+| `services/outreachEmailRecipient.service.ts`                      | The test upload: parse, validate, dedupe, MX check, skip unsubscribes, replace the draft's recipients in one transaction                                                               |
+| `services/emailOutreachQueue.service.ts`                          | Handlers for the two queue messages, called from `queueConsumer.service.ts`                                                                                                            |
+| `src/queue/queue.types.ts`                                        | `EMAIL_SEND_PREPARE`, `EMAIL_INBOUND` and their Zod schemas                                                                                                                            |
+| `@goodparty_org/contracts` `EmailTemplate.const.ts`               | `EMAIL_LAYOUTS` and `EMAIL_THEMES`, the registries `OutreachEmail.layout` and `.theme` are validated against                                                                           |
+| `@goodparty_org/contracts` `SampleSizing.const.ts`                | `PRICE_PER_EMAIL_TENTH_CENTS`, `EMAIL_MIN_CHARGE_CENTS`                                                                                                                                |
 
 ## Invariants: do not break these
 
@@ -30,6 +34,10 @@ Under construction: the module currently holds only the queue entry points, whic
 - **Copy is mode-keyed** (`docs/product-vocabulary.md`): voters and a campaign on Win, constituents and an office on Serve.
 
 ## Gotchas
+
+- Email drafts are `Outreach` rows with `status: draft`; the generic `POST /outreach` rejects `outreachType: email` (`createOutreachSchema`), so this module is the only way to make one.
+- `POST /` is a full replace: omitted optional fields are cleared.
+- The test upload is the only recipient source until the shared lists land. It writes consent onto the send, and it is refused once the send leaves `draft` (the transaction claims the `Outreach` row, so it serializes with a confirm).
 
 - `src/scheduled-messaging/` and `EmailService` (Mailgun) are transactional email. Don't build outreach on them.
 - Which address bounced isn't tracked per message. SES's `ListSuppressedDestinations` keeps every hard bounce and complaint with its date, so they can be matched back to recipient rows later.

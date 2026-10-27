@@ -1119,6 +1119,7 @@ export {
   type EmailThemeKey,
   type EmailThemeColors,
 } from './outreach/EmailTemplate.const'
+export * from './outreach/OutreachEmail.schema'
 export {
   MERGE_TAGS,
   mergeTagToken,
