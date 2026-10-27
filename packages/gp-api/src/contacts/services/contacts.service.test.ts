@@ -130,6 +130,10 @@ describe('ContactsService', () => {
       resolveContactsMade: ReturnType<typeof vi.fn>
       lastReachedAt: ReturnType<typeof vi.fn>
     }
+    let mockVotedStatusService: {
+      votedPersonIds: ReturnType<typeof vi.fn>
+      votedForPeople: ReturnType<typeof vi.fn>
+    }
 
     beforeEach(() => {
       mockVoterFileFilterService = {
@@ -187,6 +191,11 @@ describe('ContactsService', () => {
         lastReachedAt: vi.fn().mockResolvedValue(null),
       }
 
+      mockVotedStatusService = {
+        votedPersonIds: vi.fn().mockResolvedValue([]),
+        votedForPeople: vi.fn().mockResolvedValue(new Map()),
+      }
+
       service = new ContactsService(
         mockVoterFileFilterService as never,
         {} as never,
@@ -209,6 +218,7 @@ describe('ContactsService', () => {
         {
           resolve: vi.fn().mockResolvedValue('Voter_Independent_Affinity'),
         } as never,
+        mockVotedStatusService as never,
         createMockLogger(),
       )
       vi.clearAllMocks()
@@ -1077,6 +1087,66 @@ describe('ContactsService', () => {
         const result = await service.findPerson('p1', org)
 
         expect(result.politicalParty).toBe('Republican')
+      })
+
+      describe('Already voted', () => {
+        const winOrg = () =>
+          makeOrganization({
+            slug: 'campaign-1',
+            overrideDistrictId: OVERRIDE_DISTRICT_ID,
+          })
+
+        it('is true when L2 reports an early or absentee vote, without asking the campaign', async () => {
+          mockCampaignsService.findFirst.mockResolvedValue(makeCampaign())
+          mockVoterQueryService.findPerson.mockResolvedValue({
+            id: 'p1',
+            voted: true,
+          })
+
+          const result = await service.findPerson('p1', winOrg())
+
+          expect(result.voted).toBe(true)
+          expect(mockVotedStatusService.votedForPeople).not.toHaveBeenCalled()
+        })
+
+        it('is true when only the campaign recorded the person as voted', async () => {
+          mockCampaignsService.findFirst.mockResolvedValue(makeCampaign())
+          mockVoterQueryService.findPerson.mockResolvedValue({ id: 'p1' })
+          mockVotedStatusService.votedForPeople.mockResolvedValue(
+            new Map([['p1', true]]),
+          )
+
+          const result = await service.findPerson('p1', winOrg())
+
+          expect(result.voted).toBe(true)
+        })
+
+        it('is false when neither source has the person', async () => {
+          mockCampaignsService.findFirst.mockResolvedValue(makeCampaign())
+          mockVoterQueryService.findPerson.mockResolvedValue({ id: 'p1' })
+          mockVotedStatusService.votedForPeople.mockResolvedValue(new Map())
+
+          const result = await service.findPerson('p1', winOrg())
+
+          expect(result.voted).toBe(false)
+        })
+
+        it('never reaches a Serve (eo-) org, even when L2 has the person', async () => {
+          mockVoterQueryService.findPerson.mockResolvedValue({
+            id: 'p1',
+            voted: true,
+          })
+
+          const result = await service.findPerson(
+            'p1',
+            makeOrganization({
+              slug: 'eo-mayor-1',
+              overrideDistrictId: OVERRIDE_DISTRICT_ID,
+            }),
+          )
+
+          expect(result).not.toHaveProperty('voted')
+        })
       })
 
       it('attaches the supportStatus rollup returned by SupportStatusService', async () => {
@@ -2202,6 +2272,130 @@ describe('ContactsService', () => {
             filters: { id: { notIn: [PERSON_ID_3] } },
           }),
         )
+      })
+
+      describe('voted in election', () => {
+        const winOrg = () =>
+          makeOrganization({
+            slug: 'campaign-1',
+            overrideDistrictId: OVERRIDE_DISTRICT_ID,
+          })
+
+        it('No/Unknown leaves out L2 early voters and everyone the campaign recorded as voted', async () => {
+          mockCampaignsService.findFirst.mockResolvedValue(makeCampaign())
+          mockActivityConditionResolutionService.resolveIdFilter.mockResolvedValue(
+            { kind: 'none' },
+          )
+          mockVotedStatusService.votedPersonIds.mockResolvedValue([PERSON_ID_3])
+          mockVoterQueryService.findPeople.mockResolvedValue({
+            people: [],
+            pagination: { totalResults: 4 },
+          })
+          const createSpy = vi.spyOn(ListPeopleDTO, 'create')
+
+          const result = await service.countContacts(
+            { votedStatus: ['unknown'] },
+            winOrg(),
+          )
+
+          expect(result).toEqual({ count: 4 })
+          expect(createSpy).toHaveBeenCalledWith(
+            expect.objectContaining({
+              filters: {
+                votedInElection: { eq: 'No' },
+                votedInElectionReportedIds: { in: [PERSON_ID_3] },
+              },
+            }),
+          )
+        })
+
+        it('Yes reaches people-db even while the campaign has recorded nobody, since L2 still may have', async () => {
+          mockCampaignsService.findFirst.mockResolvedValue(makeCampaign())
+          mockActivityConditionResolutionService.resolveIdFilter.mockResolvedValue(
+            { kind: 'none' },
+          )
+          mockVotedStatusService.votedPersonIds.mockResolvedValue([])
+          mockVoterQueryService.findPeople.mockResolvedValue({
+            people: [],
+            pagination: { totalResults: 6 },
+          })
+          const createSpy = vi.spyOn(ListPeopleDTO, 'create')
+
+          const result = await service.countContacts(
+            { votedStatus: ['already_voted'] },
+            winOrg(),
+          )
+
+          expect(result).toEqual({ count: 6 })
+          expect(createSpy).toHaveBeenCalledWith(
+            expect.objectContaining({
+              filters: { votedInElection: { eq: 'Yes' } },
+            }),
+          )
+        })
+
+        it('Yes carries the campaign-recorded voters alongside L2', async () => {
+          mockCampaignsService.findFirst.mockResolvedValue(makeCampaign())
+          mockActivityConditionResolutionService.resolveIdFilter.mockResolvedValue(
+            { kind: 'none' },
+          )
+          mockVotedStatusService.votedPersonIds.mockResolvedValue([PERSON_ID_3])
+          mockVoterQueryService.findPeople.mockResolvedValue({
+            people: [],
+            pagination: { totalResults: 2 },
+          })
+          const createSpy = vi.spyOn(ListPeopleDTO, 'create')
+
+          await service.countContacts(
+            { votedStatus: ['already_voted'] },
+            winOrg(),
+          )
+
+          expect(createSpy).toHaveBeenCalledWith(
+            expect.objectContaining({
+              filters: {
+                votedInElection: { eq: 'Yes' },
+                votedInElectionReportedIds: { in: [PERSON_ID_3] },
+              },
+            }),
+          )
+        })
+
+        // Recommended lists add votedStatus ['unknown'] (NOT_YET_VOTED) and
+        // size through this same resolution, so they shed L2 voters too.
+        it('a saved No/Unknown list resolves to the L2 exclusion', async () => {
+          mockCampaignsService.findFirst.mockResolvedValue(makeCampaign())
+          mockActivityConditionResolutionService.resolveIdFilter.mockResolvedValue(
+            { kind: 'none' },
+          )
+          mockVotedStatusService.votedPersonIds.mockResolvedValue([])
+
+          const resolved = await service.resolveSavedFilterForQuery(winOrg(), {
+            votedStatus: ['unknown'],
+          })
+
+          expect(resolved.empty).toBe(false)
+          expect(resolved.filters).toEqual({ votedInElection: { eq: 'No' } })
+        })
+
+        it('both options is no constraint', async () => {
+          mockCampaignsService.findFirst.mockResolvedValue(makeCampaign())
+          mockActivityConditionResolutionService.resolveIdFilter.mockResolvedValue(
+            { kind: 'none' },
+          )
+          mockVoterQueryService.findPeople.mockResolvedValue({
+            people: [],
+            pagination: { totalResults: 9 },
+          })
+
+          const result = await service.countContacts(
+            { votedStatus: ['already_voted', 'unknown'] },
+            winOrg(),
+          )
+
+          expect(result).toEqual({ count: 9 })
+          expect(mockVotedStatusService.votedPersonIds).not.toHaveBeenCalled()
+        })
       })
 
       it('downloadContacts writes an empty CSV response without calling people-db when the resolution is empty', async () => {

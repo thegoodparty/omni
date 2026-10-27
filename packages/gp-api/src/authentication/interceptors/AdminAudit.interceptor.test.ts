@@ -40,6 +40,7 @@ describe('AdminAuditInterceptor', () => {
     new AdminAuditInterceptor(
       {
         getAllAndOverride: vi.fn().mockReturnValue(roles),
+        getAllAndMerge: vi.fn().mockReturnValue([]),
       } as unknown as Reflector,
       logger,
     )

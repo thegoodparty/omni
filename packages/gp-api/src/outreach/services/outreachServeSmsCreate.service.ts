@@ -189,6 +189,15 @@ export const roundTwoDrawCutoff = (now: Date): string =>
     'yyyy-MM-dd',
   )
 
+// The earliest send date assertServeSmsSendDateAllowed accepts: the third
+// business day, so staff get their full lead to set the text up. A managed
+// civic panel wave goes out on it.
+export const nextManagedSendDate = (now: Date): string =>
+  format(
+    addBusinessDays(referenceToday(now), MIN_SERVE_SMS_LEAD_BUSINESS_DAYS + 1),
+    'yyyy-MM-dd',
+  )
+
 @Injectable()
 export class OutreachServeSmsCreateService extends createPrismaBase(
   MODELS.Outreach,

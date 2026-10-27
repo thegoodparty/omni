@@ -238,6 +238,16 @@ describe('convertVoterFileFilterToFilters early vote status', () => {
   })
 })
 
+describe('convertVoterFileFilterToFilters voted in election', () => {
+  // ContactsService.resolveBaseFilters owns it, since its campaign half is a
+  // person-id set the generic loop cannot resolve.
+  it('never sends votedStatus as a raw filter key', () => {
+    expect(
+      convertVoterFileFilterToFilters({ votedStatus: ['unknown'] }),
+    ).toEqual({})
+  })
+})
+
 // The precincts branch is the converter's most failure-prone path: the saved
 // column is `precincts` but the filter key is `precinct`, and the filter
 // accepts only `in`. Falling through to the generic array branch would emit

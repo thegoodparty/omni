@@ -28,6 +28,7 @@ import { OutreachRobocallHoldService } from '@/outreach/services/outreachRobocal
 import { OutreachRobocallStrandedService } from '@/outreach/services/outreachRobocallStranded.service'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { Campaign, RobocallSettleState } from '../../generated/prisma'
+import { disableVendorCrons } from '@/shared/test-utils/appEnvOverrides'
 
 const service = useTestService()
 
@@ -799,16 +800,28 @@ describe('OutreachRobocallStagingService.sweepRobocallStaging (prod)', () => {
 })
 
 describe('OutreachRobocallStagingService.sweepRobocallStaging guard', () => {
-  it('no-ops off prod', async () => {
+  it('no-ops on a non-prod deploy in live mode', async () => {
+    disableVendorCrons()
+    const outreachId = await createDraft({ sendInHours: 1 })
+
+    await staging.sweepRobocallStaging()
+
+    expect(createVbSpy).not.toHaveBeenCalled()
+    expect((await readSatellite(outreachId)).callhubCampaignPkStr).toBeNull()
+  })
+
+  it('stages on a non-prod deploy in mock mode (preview)', async () => {
     const original = process.env.OTEL_SERVICE_ENVIRONMENT
-    process.env.OTEL_SERVICE_ENVIRONMENT = 'dev'
+    process.env.OTEL_SERVICE_ENVIRONMENT = 'preview'
     try {
       const outreachId = await createDraft({ sendInHours: 1 })
 
       await staging.sweepRobocallStaging()
 
-      expect(createVbSpy).not.toHaveBeenCalled()
-      expect((await readSatellite(outreachId)).callhubCampaignPkStr).toBeNull()
+      expect(createVbSpy).toHaveBeenCalled()
+      expect(
+        (await readSatellite(outreachId)).callhubCampaignPkStr,
+      ).not.toBeNull()
     } finally {
       if (original === undefined) {
         delete process.env.OTEL_SERVICE_ENVIRONMENT

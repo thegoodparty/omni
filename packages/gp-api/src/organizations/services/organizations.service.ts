@@ -1,7 +1,11 @@
 import { ElectionsService } from '@/elections/services/elections.service'
 import { VoterIssueLevel } from '@/elections/types/elections.types'
 import { getVoterIssueLevelFromPositionLevel } from '@/elections/util/getVoterIssueLevelFromPositionLevel.util'
-import { BallotReadyPositionLevel } from '@goodparty_org/contracts'
+import {
+  BallotReadyPositionLevel,
+  cityFromDistrictName,
+  cityNameCase,
+} from '@goodparty_org/contracts'
 import {
   BadGatewayException,
   BadRequestException,
@@ -171,7 +175,7 @@ export class OrganizationsService extends createPrismaBase(
     return await Promise.all(
       sortOrganizations(orgs, new Date()).map(async (org) => {
         const friendly = await this.makeFriendly(org, {
-          tolerateElectionApiFailure: true,
+          tolerateElectionDbFailure: true,
         })
         return {
           ...friendly,
@@ -483,53 +487,11 @@ export class OrganizationsService extends createPrismaBase(
     return `${citySlug}-${state.toUpperCase()}`
   }
 
-  /**
-   * Extracts a clean city name from an L2DistrictName string.
-   *
-   * Handles known patterns:
-   *   "Fayetteville Ward 4"          → "Fayetteville"
-   *   "Kyle District 3"              → "Kyle"
-   *   "City of Kyle"                 → "Kyle"
-   *   "Town of Chapel Hill"          → "Chapel Hill"
-   *   "Fayetteville"                 → "Fayetteville"  (already clean)
-   *   "Pocatello City (Est.)"        → "Pocatello"
-   *   "North Port City (Est.)"       → "North Port"
-   *   "West Mifflin Boro"            → "West Mifflin"
-   *   "Alvin City Cncl D"            → "Alvin"
-   *   "Dubuque City Ward 3"          → "Dubuque"
-   *
-   * Returns null if the result is empty or looks like a non-city name.
-   */
+  // Extracts a clean city name from an L2DistrictName string. Lives in
+  // contracts so the webapp names the same place.
   static extractCityFromDistrictName(districtName: string): string | null {
-    let name = districtName.trim()
-
-    // Strip leading "City of", "Town of", "Village of", "Borough of"
-    name = name.replace(/^(City|Town|Village|Borough|Township)\s+of\s+/i, '')
-
-    // Strip trailing parenthetical qualifiers: "(Est.)", "(Ind.)", "(Pt.)", etc.
-    name = name.replace(/\s*\([^)]*\)\.?\s*$/i, '')
-
-    // Strip trailing abbreviated council/district suffixes before ward/district stripping:
-    // "Cncl D", "Cncl Dist", "Council D", "Council Dist"
-    name = name.replace(/\s+Cncl\s*(D(ist)?\.?)?\s*$/i, '')
-    name = name.replace(/\s+Council\s+D(ist)?\.?\s*$/i, '')
-
-    // Strip trailing ward/district/precinct suffixes: "Ward 4", "District 3", "Precinct 2A"
-    name = name.replace(
-      /\s+(Ward|District|Precinct|Division|At-Large)\s*[\w-]*$/i,
-      '',
-    )
-
-    // Strip trailing municipality type: "Johnstown City" → "Johnstown"
-    // Includes "Boro" as a short form of "Borough"
-    name = name.replace(/\s+(City|Town|Village|Borough|Boro|Township)$/i, '')
-
-    name = name.trim()
-
-    // Reject if empty or looks non-city (pure number, single char, etc.)
-    if (!name || name.length < 2 || /^\d+$/.test(name)) return null
-
-    return name
+    const city = cityFromDistrictName(districtName)
+    return city ? cityNameCase(city) : null
   }
 
   async getDistrictForOrgSlug(slug: string): Promise<OrgDistrict | null> {
@@ -735,14 +697,14 @@ export class OrganizationsService extends createPrismaBase(
       campaign: Campaign | null
       electedOffice: ElectedOffice | null
     },
-    options?: { tolerateElectionApiFailure?: boolean },
+    options?: { tolerateElectionDbFailure?: boolean },
   ): Promise<FriendlyOrganization> {
     const lookup = async <T>(fetch: () => Promise<T | null>) => {
       try {
         return { value: await fetch(), failed: false }
       } catch (error) {
         if (
-          options?.tolerateElectionApiFailure &&
+          options?.tolerateElectionDbFailure &&
           error instanceof BadGatewayException
         ) {
           this.logger.warn(

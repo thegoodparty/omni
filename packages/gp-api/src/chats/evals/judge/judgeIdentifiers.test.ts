@@ -1,6 +1,7 @@
 import { spawn, spawnSync } from 'node:child_process'
 import { mkdtempSync, readFileSync } from 'node:fs'
 import { createServer } from 'node:http'
+import { createRequire } from 'node:module'
 import { type AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -24,20 +25,23 @@ import { JUDGE_FIXTURE_RACE } from './sweepFixture'
 // refuses any slug that is not `judge-*`. Checked end to end, because a value
 // of any other shape passes every check short of that one.
 
+const raceRow = (office: string, id: string, electionDay = '2026-11-03') => ({
+  id,
+  brPositionId: 'br-position-1',
+  position: { name: office, level: 'city', state: 'WY' },
+  election: { electionDay },
+})
+
+// A fresh Response per call: a body reads once, and a lookup that finds no
+// upcoming race asks a second time for past ones.
 const races = (office: string, id: string) =>
-  vi.fn<typeof fetch>().mockResolvedValue(
-    new Response(
-      JSON.stringify([
-        {
-          id,
-          brPositionId: 'br-position-1',
-          position: { name: office, level: 'city', state: 'WY' },
-          election: { electionDay: '2026-11-03' },
-        },
-      ]),
-      { status: 200 },
-    ),
-  )
+  vi
+    .fn<typeof fetch>()
+    .mockImplementation(() =>
+      Promise.resolve(
+        new Response(JSON.stringify([raceRow(office, id)]), { status: 200 }),
+      ),
+    )
 
 const PARSE = (lines: string): Record<string, string> =>
   Object.fromEntries(
@@ -128,6 +132,31 @@ describe('resolveRaceId', () => {
     await expect(
       resolveRaceId('http://localhost:3000', fetchImpl),
     ).rejects.toThrow()
+  })
+
+  // The office's election passing must not lose the id: with no upcoming
+  // race, the most recent past one stands in.
+  it('falls back to the most recent past race once the election passed', async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockImplementation((input) => {
+      const past =
+        new URL(String(input)).searchParams.get('timeframe') === 'past'
+      const body = past
+        ? [
+            raceRow(JUDGE_FIXTURE_RACE.office, 'older', '2022-11-08'),
+            raceRow(JUDGE_FIXTURE_RACE.office, 'latest', '2026-11-03'),
+            raceRow(JUDGE_FIXTURE_RACE.office, 'primary', '2026-08-18'),
+          ]
+        : []
+      return Promise.resolve(
+        new Response(JSON.stringify(body), { status: 200 }),
+      )
+    })
+    expect(await resolveRaceId('http://localhost:3000', fetchImpl)).toBe(
+      'latest',
+    )
+    expect(String(fetchImpl.mock.calls[1]?.[0])).toBe(
+      `http://localhost:3000/v1/elections/races-by-year?zipcode=${JUDGE_FIXTURE_RACE.zip}&timeframe=past`,
+    )
   })
 
   it('refuses when no race matches the office', async () => {
@@ -333,12 +362,19 @@ describe('the identifiers a sweep resolves', () => {
 // The entry as judge.yml runs it. Every refusal here happens before any
 // network call, so these run offline.
 describe('the judgeIdentifiers entry', () => {
+  // The same CLI judge.yml's `npx tsx` resolves to, run without npx's own
+  // startup on every call.
+  const TSX_CLI = createRequire(__filename).resolve('tsx/cli')
   const run = (args: string[], env: NodeJS.ProcessEnv) =>
-    spawnSync('npx', ['tsx', join(__dirname, 'judgeIdentifiers.ts'), ...args], {
-      cwd: join(__dirname, '../../../..'),
-      encoding: 'utf8',
-      env: { ...process.env, ...env },
-    })
+    spawnSync(
+      process.execPath,
+      [TSX_CLI, join(__dirname, 'judgeIdentifiers.ts'), ...args],
+      {
+        cwd: join(__dirname, '../../../..'),
+        encoding: 'utf8',
+        env: { ...process.env, ...env },
+      },
+    )
 
   it('refuses to run without a sweep id or an output path', () => {
     expect(run([], { JUDGE_SWEEP_ID: 'judge-1-1' }).status).toBe(1)
@@ -377,8 +413,8 @@ describe('the judgeIdentifiers entry', () => {
     const result = await new Promise<{ code: number | null; stdout: string }>(
       (resolve) => {
         const child = spawn(
-          'npx',
-          ['tsx', join(__dirname, 'judgeIdentifiers.ts'), out],
+          process.execPath,
+          [TSX_CLI, join(__dirname, 'judgeIdentifiers.ts'), out],
           {
             cwd: join(__dirname, '../../../..'),
             env: {

@@ -10,20 +10,26 @@ import {
   setUserEmail,
   setActorUserId,
   setActorRole,
+  setActiveProduct,
 } from 'helpers/analyticsHelper'
 import { buildUserTraits } from 'helpers/buildUserTraits'
 
 let mockUser: User | null = null
+let mockIsUserLoading = false
 let mockSearchParamsValue: URLSearchParams | null = new URLSearchParams()
 let mockOrganizationRole: 'owner' | 'campaignAdmin' | 'volunteer' | undefined =
   undefined
+let mockElectedOfficeId: string | null = null
 
 vi.mock('@shared/hooks/useUser', () => ({
-  useUser: () => [mockUser, vi.fn()],
+  useUser: () => [mockUser, vi.fn(), mockIsUserLoading],
 }))
 
 vi.mock('@shared/organization-picker', () => ({
-  useOrganizationRole: () => mockOrganizationRole,
+  useOrganization: () =>
+    mockOrganizationRole
+      ? { role: mockOrganizationRole, electedOfficeId: mockElectedOfficeId }
+      : undefined,
 }))
 
 vi.mock('next/navigation', () => ({
@@ -43,6 +49,10 @@ vi.mock('helpers/analyticsHelper', () => ({
   setUserEmail: vi.fn(),
   setActorUserId: vi.fn(),
   setActorRole: vi.fn(),
+  setActiveProduct: vi.fn(),
+  toActiveProduct: vi.fn((org) =>
+    org ? (org.electedOfficeId ? 'serve' : 'win') : null,
+  ),
 }))
 
 vi.mock('helpers/buildUserTraits', () => ({
@@ -73,8 +83,10 @@ const fullUserTraits = {
 
 beforeEach(() => {
   mockUser = null
+  mockIsUserLoading = false
   mockSearchParamsValue = new URLSearchParams()
   mockOrganizationRole = undefined
+  mockElectedOfficeId = null
   vi.mocked(identifyUser).mockReset().mockResolvedValue(true)
   vi.mocked(persistUtmsOnce).mockReset()
   vi.mocked(getPersistedUtms).mockReset().mockReturnValue({})
@@ -87,6 +99,50 @@ beforeEach(() => {
 })
 
 describe('SegmentIdentify', () => {
+  it('mirrors the signed-in user id into the GTM dataLayer', async () => {
+    const w = window as unknown as {
+      dataLayer?: Record<string, unknown>[]
+    }
+    delete w.dataLayer
+    mockUser = fullUser
+
+    render(<SegmentIdentify />)
+
+    await vi.waitFor(() => {
+      expect(w.dataLayer).toContainEqual({ user_id: '42' })
+    })
+  })
+
+  it('clears the dataLayer user id when there is no user', async () => {
+    const w = window as unknown as {
+      dataLayer?: Record<string, unknown>[]
+    }
+    delete w.dataLayer
+    mockUser = null
+
+    render(<SegmentIdentify />)
+
+    await vi.waitFor(() => {
+      expect(w.dataLayer).toContainEqual({ user_id: null })
+    })
+  })
+
+  it('does not touch the dataLayer user id while the user is loading', async () => {
+    const w = window as unknown as {
+      dataLayer?: Record<string, unknown>[]
+    }
+    delete w.dataLayer
+    mockUser = null
+    mockIsUserLoading = true
+
+    render(<SegmentIdentify />)
+
+    await vi.waitFor(() => {
+      expect(identifyUser).toHaveBeenCalled()
+    })
+    expect(w.dataLayer).toBeUndefined()
+  })
+
   it('calls identifyUser with buildUserTraits output when user is logged in', async () => {
     mockUser = fullUser
 
@@ -258,6 +314,18 @@ describe('SegmentIdentify', () => {
 
     await vi.waitFor(() => {
       expect(setActorUserId).toHaveBeenCalledWith(undefined)
+    })
+  })
+
+  it('sets the active product from the selected org', async () => {
+    mockUser = fullUser
+    mockOrganizationRole = 'owner'
+    mockElectedOfficeId = 'eo1'
+
+    render(<SegmentIdentify />)
+
+    await vi.waitFor(() => {
+      expect(setActiveProduct).toHaveBeenCalledWith('serve')
     })
   })
 })

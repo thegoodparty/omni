@@ -127,11 +127,9 @@ import type {
   PriorityReadStatus,
   CivicPanelSummary,
   CIVIC_PANEL_SEGMENT,
-  CivicPanelBuildPlanResponse,
-  CreateCivicPanelBuildPlanInput,
-  UpdateCivicPanelBuildPlanInput,
-  MarkCivicPanelBuildStepInput,
-  PrepareCivicPanelBuildStepResponse,
+  ApproveManagedCivicPanelInput,
+  ManagedCivicPanelResponse,
+  UpdateManagedCivicPanelInput,
 } from '@goodparty_org/contracts'
 import type { Race } from 'app/onboarding/[slug]/[step]/components/ballotOffices/types'
 import type {
@@ -1571,31 +1569,19 @@ export type APIEndpoints = {
     Request: {}
     Response: CivicPanelSummary
   }
-  // The plan that builds the panel across texts, calls and doors. Reading
-  // it is what moves it on (links, dates, the next wave).
-  'GET /v1/contacts/civic-panel/plan': {
+  // The panel GoodParty builds for the office. GET is { panel: null } before
+  // the official approves; POST approves the invite in their name.
+  'GET /v1/contacts/civic-panel/managed': {
     Request: {}
-    Response: CivicPanelBuildPlanResponse
+    Response: ManagedCivicPanelResponse
   }
-  'POST /v1/contacts/civic-panel/plan': {
-    Request: CreateCivicPanelBuildPlanInput
-    Response: CivicPanelBuildPlanResponse
+  'POST /v1/contacts/civic-panel/managed': {
+    Request: ApproveManagedCivicPanelInput
+    Response: ManagedCivicPanelResponse
   }
-  'PATCH /v1/contacts/civic-panel/plan': {
-    Request: UpdateCivicPanelBuildPlanInput
-    Response: CivicPanelBuildPlanResponse
-  }
-  'POST /v1/contacts/civic-panel/plan/steps/:id/prepare': {
-    Request: {}
-    Response: PrepareCivicPanelBuildStepResponse
-  }
-  'POST /v1/contacts/civic-panel/plan/steps/:id/skip': {
-    Request: {}
-    Response: CivicPanelBuildPlanResponse
-  }
-  'POST /v1/contacts/civic-panel/plan/steps/:id/mark': {
-    Request: MarkCivicPanelBuildStepInput
-    Response: CivicPanelBuildPlanResponse
+  'PATCH /v1/contacts/civic-panel/managed': {
+    Request: UpdateManagedCivicPanelInput
+    Response: ManagedCivicPanelResponse
   }
   'GET /v1/contacts/:id': {
     Request: {}

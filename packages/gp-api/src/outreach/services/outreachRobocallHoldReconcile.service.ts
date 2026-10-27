@@ -4,6 +4,7 @@ import { PinoLogger } from 'nestjs-pino'
 import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
 import { RobocallOrphanedHoldService } from './robocallOrphanedHold.service'
+import { VENDOR_CRONS_ENABLED } from 'src/shared/util/appEnvironment.util'
 
 // A Stripe-only slot free of the other robocall crons (capture :02, send :04,
 // fresh-charge :05, staging :07, hold-recovery :08, completion :09, cleanup :00).
@@ -21,7 +22,7 @@ const ROBOCALL_HOLD_RECONCILE_JOB = 'robocallHoldReconcileSweep'
 // only ever touches intent ids recorded at a real void site (never an
 // account-wide scan), so it can NEVER void a hold a live run still needs. Never
 // captures — only voids (releases money), the safe direction — so it needs no
-// gate beyond prod-only: an orphan can arise whenever a void fails, and
+// gate beyond VENDOR_CRONS_ENABLED: an orphan can arise whenever a void fails, and
 // stranded reserved money is the harm.
 @Injectable()
 export class OutreachRobocallHoldReconcileService {
@@ -35,13 +36,13 @@ export class OutreachRobocallHoldReconcileService {
 
   // No CronLockService: idempotent per record behind the markVoided CAS, so two
   // replicas racing both re-read + (idempotently) cancel but only one stamps.
-  // Prod-only (real Stripe calls, stubbed on dev/preview).
+  // VENDOR_CRONS_ENABLED (real Stripe calls on prod, test mode elsewhere).
   @Cron(ROBOCALL_HOLD_RECONCILE_CRON, {
     name: ROBOCALL_HOLD_RECONCILE_JOB,
     timeZone: EASTERN_TIMEZONE,
   })
   async sweepOrphanedHolds(): Promise<void> {
-    if (process.env.OTEL_SERVICE_ENVIRONMENT !== 'prod') return
+    if (!VENDOR_CRONS_ENABLED) return
 
     const orphans = await this.orphans.findUnvoided()
     for (const orphan of orphans) {

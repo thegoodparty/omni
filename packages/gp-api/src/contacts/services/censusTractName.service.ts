@@ -13,13 +13,13 @@ const GEOCODE_CONCURRENCY = 4
 
 // A census tract's human name for the civic panel's seats. Each tract is
 // named once, ever, and the name kept in census_tract_name: reads only look
-// it up, and only fillMissing, run after a plan write's response, calls
-// Geoapify.
+// it up, and only fillMissing, run on a managed panel approval and after a
+// civic panel summary read's response, calls Geoapify.
 @Injectable()
 export class CensusTractNameService extends createPrismaBase(
   MODELS.CensusTractName,
 ) {
-  // Tracts being named in this process, so two writes at once do not pay
+  // Tracts being named in this process, so two reads at once do not pay
   // for the same tract twice.
   private readonly naming = new Set<string>()
 
@@ -43,7 +43,7 @@ export class CensusTractNameService extends createPrismaBase(
   }
 
   // Names the given tracts that have no row yet. Never throws: a failure
-  // leaves the tract unnamed, to be tried on a later write.
+  // leaves the tract unnamed, to be tried on a later read.
   async fillMissing(
     district: { districtId: string; dataset: PeopleDataset },
     tracts: string[],
@@ -88,7 +88,7 @@ export class CensusTractNameService extends createPrismaBase(
 
   // The street name is written first, claiming the tract, so a second
   // process sees the row and never geocodes it too. A neighborhood then
-  // replaces it; a failed geocode removes the claim so a later write tries
+  // replaces it; a failed geocode removes the claim so a later read tries
   // again.
   private async name(tract: string, place: TractPlace | null): Promise<void> {
     const street = place ? streetName(place) : null

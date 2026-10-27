@@ -21,6 +21,7 @@ import {
   type ListDetailContactsResponse,
   type PeopleOverlapCountResponse,
   type SupportStatusRollup,
+  type VotedStatus,
   type UpdateContactStatusInput,
   type VoterLikelihood,
   type PeoplePrecinctsResponse,
@@ -61,6 +62,7 @@ import {
   hasDayRange,
 } from 'src/contactInteraction/services/civicPanelHistory.service'
 import { SupportStatusService } from 'src/contactInteraction/services/supportStatus.service'
+import { VotedStatusService } from 'src/contactInteraction/services/votedStatus.service'
 import { ElectionsService } from 'src/elections/services/elections.service'
 import { OrganizationsService } from 'src/organizations/services/organizations.service'
 import { VoterFileDownloadAccessService } from '@/shared/services/voterFileDownloadAccess.service'
@@ -323,6 +325,7 @@ export type ContactsFilterResolutionInput = Partial<
 > & {
   activityConditions?: ActivityCondition[]
   supportStatus?: SupportStatusRollup[]
+  votedStatus?: VotedStatus[]
   search?: string | null
 }
 
@@ -348,6 +351,7 @@ export class ContactsService {
     private readonly contactsMadeResolutionService: ContactsMadeResolutionService,
     private readonly civicPanelHistory: CivicPanelHistoryService,
     private readonly independentAffinityColumn: IndependentAffinityColumnService,
+    private readonly votedStatusService: VotedStatusService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(ContactsService.name)
@@ -411,6 +415,8 @@ export class ContactsService {
     // an `eo-` org — and the Serve readers drop the row rather than printing
     // the null (PersonOverlay, demographicFacts).
     stripped.ethnicityGroup = null
+    // The people layer sets it from L2; Serve never asks who voted.
+    delete stripped.voted
     return stripped
   }
 
@@ -639,7 +645,10 @@ export class ContactsService {
     )
     this.assertNoContactsMadeFilterForElectedOffice(organization, filterInput)
     this.assertNoFollowUpFilterForCampaign(organization, filterInput)
-    return this.resolveVoterLikelihoodFilter(organization, baseFilters)
+    return this.resolveVoterLikelihoodFilter(organization, {
+      ...baseFilters,
+      ...(await this.resolveVotedInElection(organization, filterInput)),
+    })
   }
 
   // Composes activity-condition/support-status resolution with the
@@ -730,7 +739,7 @@ export class ContactsService {
     // boundary is a Serve feature and that return is the Serve path. Applied
     // after it, the boundary would hold on the CSV and the counts and
     // nowhere a holder actually looks.
-    const idResolution = await this.resolveNotContactedRecently(
+    const sharedResolution = await this.resolveNotContactedRecently(
       organization,
       filterInput,
       intersectIdFilterResolutions(
@@ -752,11 +761,13 @@ export class ContactsService {
           await this.resolveFollowUpRequested(
             organization,
             filterInput,
-            idResolution,
+            sharedResolution,
           ),
         ),
       }
     }
+
+    const idResolution = sharedResolution
 
     const selected = extractContactsMadeSelection(filterInput)
     if (selected.size === 0) {
@@ -785,6 +796,32 @@ export class ContactsService {
         idResolution,
         contactsMadeResolution,
       ),
+    }
+  }
+
+  // "Voted in election" (Win only). Yes is L2's early and absentee voters
+  // OR the people this org's knocks and calls recorded as already voted; No
+  // is neither. The L2 half is a Databricks table and the campaign half a
+  // Postgres id set, so the two travel together as votedInElection plus its
+  // sibling id set and are OR-ed in one SQL clause, rather than as an `id`
+  // resolution, which can only intersect. Both, or neither, is no
+  // constraint, the same as selecting every Support status pill.
+  private async resolveVotedInElection(
+    organization: Organization,
+    filterInput: Pick<ContactsFilterResolutionInput, 'votedStatus'>,
+  ): Promise<FilterObject> {
+    if (this.hasElectedOfficeAccess(organization)) return {}
+    const selected = new Set(filterInput.votedStatus ?? [])
+    const wantsVoted = selected.has('already_voted')
+    if (wantsVoted === selected.has('unknown')) return {}
+    const reported = await this.votedStatusService.votedPersonIds(
+      organization.slug,
+    )
+    return {
+      votedInElection: { eq: wantsVoted ? 'Yes' : 'No' },
+      ...(reported.length > 0
+        ? { votedInElectionReportedIds: { in: reported } }
+        : {}),
     }
   }
 
@@ -1760,7 +1797,10 @@ export class ContactsService {
 
     const resolved = await Promise.all(
       capped.map(async (savedFilter) => {
-        const savedBaseFilters = convertVoterFileFilterToFilters(savedFilter)
+        const savedBaseFilters = {
+          ...convertVoterFileFilterToFilters(savedFilter),
+          ...(await this.resolveVotedInElection(organization, savedFilter)),
+        }
         // Party never reaches Serve (ENG-10696) — the write path doesn't
         // assert this on every saved-filter create/update, so a legacy or
         // otherwise-tainted row can still carry `politicalParty`. Every
@@ -2207,8 +2247,8 @@ export class ContactsService {
       excludeOutreachIds?: number[]
       panelSize?: number
       recipientsOfOutreachId?: number
-      // Server-side only: people to leave out by id, such as who the civic
-      // panel build plan already drew. Passing it always freezes the draw.
+      // Server-side only: people to leave out by id, such as who an earlier
+      // managed civic panel wave already drew. Passing it always freezes the draw.
       excludePersonIds?: string[]
       // Server-side only: draw only from these people, such as who a
       // boundary gp-api drew encloses.
@@ -2563,6 +2603,7 @@ export class ContactsService {
       followUpOrNull,
       civicPanelOrNull,
       civicPanelActivityOrNull,
+      votedOrNull,
     ] = await Promise.all([
       this.contactInteractionTextService.latestOptOutAt(
         organization.slug,
@@ -2596,6 +2637,17 @@ export class ContactsService {
       this.hasElectedOfficeAccess(organization)
         ? this.civicPanelActivity(organization.slug, person.id)
         : Promise.resolve(null),
+      // Win-only, like voterLikelihood: Serve never asks whether anyone voted.
+      // True when L2 reports an early or absentee vote (set on the person by
+      // the people layer) or the campaign recorded the person as already
+      // voted, the same two sources as the Voted in election filter.
+      this.hasElectedOfficeAccess(organization)
+        ? Promise.resolve(null)
+        : person.voted === true
+          ? Promise.resolve(true)
+          : this.votedStatusService
+              .votedForPeople(organization.slug, [person.id])
+              .then((voted) => voted.get(person.id) ?? false),
     ])
     const base = {
       ...this.stripWinOnlyFieldsIfElectedOffice(organization, person),
@@ -2605,7 +2657,11 @@ export class ContactsService {
     const withLikelihood =
       voterLikelihoodOrNull === null
         ? base
-        : { ...base, voterLikelihood: voterLikelihoodOrNull }
+        : {
+            ...base,
+            voterLikelihood: voterLikelihoodOrNull,
+            ...(votedOrNull === null ? {} : { voted: votedOrNull }),
+          }
     return followUpOrNull === null ||
       civicPanelOrNull === null ||
       civicPanelActivityOrNull === null
@@ -3126,10 +3182,10 @@ export class ContactsService {
     this.assertNoFollowUpFilterForCampaign(organization, customSegment)
 
     const { filters: baseFilters, idOverrides } =
-      await this.resolveVoterLikelihoodFilter(
-        organization,
-        convertVoterFileFilterToFilters(customSegment),
-      )
+      await this.resolveVoterLikelihoodFilter(organization, {
+        ...convertVoterFileFilterToFilters(customSegment),
+        ...(await this.resolveVotedInElection(organization, customSegment)),
+      })
     const { idResolution, contactsMadeIdOverrides } =
       await this.resolveIdFilterWithContactsMade(organization, customSegment)
     if (idResolution.kind === 'empty') {

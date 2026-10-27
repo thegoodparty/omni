@@ -7,7 +7,7 @@ import {
   NotFoundException,
 } from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
-import { ElectionApiDistrictService } from '../services/electionApiDistrict.service'
+import { ElectionDistrictService } from '../services/electionDistrict.service'
 import {
   PeopleAggregatesResponse,
   PeopleAggregatesResponseSchema,
@@ -192,7 +192,7 @@ export class DatabricksVoterService {
   constructor(
     private readonly logger: PinoLogger,
     private readonly client: PeopleDbxStatementClient,
-    private readonly districtService: ElectionApiDistrictService,
+    private readonly districtService: ElectionDistrictService,
   ) {
     this.logger.setContext(DatabricksVoterService.name)
   }
@@ -351,7 +351,12 @@ export class DatabricksVoterService {
       }
       throw new NotFoundException(`Person with ID ${id} not found`)
     }
-    return transformToPersonOutput(toDbPerson(columnNames, row))
+    const person = transformToPersonOutput(toDbPerson(columnNames, row))
+    // The trailing L2 early/absentee column buildPersonSql adds. Set only
+    // when true, so a person L2 has not reported keeps its old shape.
+    return row[columnNames.length] === 'true'
+      ? { ...person, voted: true }
+      : person
   }
 
   async findPrecincts(

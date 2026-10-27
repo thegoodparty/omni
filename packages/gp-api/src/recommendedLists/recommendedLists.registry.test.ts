@@ -124,8 +124,8 @@ describe('fillCopy', () => {
     expect(copy).toEqual({
       title: 'Voters who may lean progressive',
       criteriaSummary:
-        'Moderate to high propensity voters whose behavior suggests a ' +
-        'progressive lean — a hypothesis worth testing with your message.',
+        'Moderate to high propensity voters who may lean progressive, a ' +
+        'hypothesis to test, and who have not already voted.',
     })
   })
 

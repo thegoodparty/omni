@@ -1,6 +1,5 @@
 import { randomUUID } from 'node:crypto'
 import {
-  ConflictException,
   Inject,
   Injectable,
   NotFoundException,
@@ -15,8 +14,6 @@ import {
   type SeedTestFixtureActivityResponse,
 } from '@goodparty_org/contracts'
 import {
-  CivicPanelBuildChannel,
-  CivicPanelBuildPlanStatus,
   CivicPanelStatus,
   ConstituentFeedbackChannel,
   ContactStatusField,
@@ -30,7 +27,6 @@ import {
   PhoneBankCallOutcome,
   PhoneBankingPurpose,
   PollIndividualMessageSender,
-  Prisma,
   PriorityAnswerSource,
   PrioritySource,
   SupportAnswer,
@@ -41,7 +37,6 @@ import { ContactInteractionDoorKnockService } from '@/contactInteraction/service
 import { ContactInteractionRobocallService } from '@/contactInteraction/services/contactInteractionRobocall.service'
 import { ContactInteractionTextService } from '@/contactInteraction/services/contactInteractionText.service'
 import { ContactStatusService } from '@/contactInteraction/services/contactStatus.service'
-import { CivicPanelBuildPlanService } from '@/contacts/services/civicPanelBuildPlan.service'
 import { ContactsService } from '@/contacts/services/contacts.service'
 import {
   memoRow,
@@ -77,7 +72,6 @@ const DOOR_QUESTION =
   'What is the one thing you want fixed in the neighborhood?'
 const PHONE_QUESTION = 'What should the city tackle first this year?'
 
-const PANEL_HOURS_PER_WEEK = 2
 const PANEL_INVITE_DAYS_AGO = 14
 // Far above the 3% a cold invite assumes, so a seeded panel lands near 60
 // to 100 members with the door and call joins.
@@ -127,7 +121,6 @@ export class ActivitySeedService extends createPrismaBase(MODELS.Outreach) {
     private readonly robocalls: ContactInteractionRobocallService,
     private readonly synthesis: FeedbackSynthesisService,
     private readonly statuses: ContactStatusService,
-    private readonly panelPlans: CivicPanelBuildPlanService,
     private readonly textIngest: OutreachTextIngestService,
     private readonly priorities: PrioritiesService,
     private readonly voters: VoterQueryService,
@@ -512,7 +505,7 @@ export class ActivitySeedService extends createPrismaBase(MODELS.Outreach) {
     return effortSummary(outreach, people.length, 0)
   }
 
-  // Serve's whole panel loop: a build plan, an invite text whose JOIN
+  // Serve's whole panel loop: an invite text whose JOIN
   // replies go through the real reply ingest, and a priority ask answered
   // well enough for a good read. Returns the priority to pool.
   private async seedPanelAndPriority(
@@ -522,10 +515,7 @@ export class ActivitySeedService extends createPrismaBase(MODELS.Outreach) {
     efforts: Effort[],
     answers: Pick<SeedTestFixtureActivityRequest, 'answers' | 'split'>,
   ): Promise<string> {
-    const textStepId = await this.seedPanelPlan(organization)
-    efforts.push(await this.seedPanelInvite(context, people, textStepId))
-    // Reading the plan is what links its text step to the invite send.
-    await this.panelPlans.read(organization)
+    efforts.push(await this.seedPanelInvite(context, people))
     const { effort, priorityId } = await this.seedPriorityAsk(
       organization,
       context,
@@ -536,42 +526,9 @@ export class ActivitySeedService extends createPrismaBase(MODELS.Outreach) {
     return priorityId
   }
 
-  // A rerun finds the plan from the last one; that is not a failure.
-  private async seedPanelPlan(
-    organization: Organization,
-  ): Promise<string | null> {
-    try {
-      await this.panelPlans.create(
-        organization,
-        PANEL_HOURS_PER_WEEK,
-        'panel_page',
-      )
-    } catch (error) {
-      if (!(error instanceof ConflictException)) throw error
-    }
-    const step = await this.client.civicPanelBuildStep.findFirst({
-      where: {
-        plan: {
-          organizationSlug: organization.slug,
-          status: CivicPanelBuildPlanStatus.active,
-        },
-        channel: CivicPanelBuildChannel.text,
-        voterFileFilterId: null,
-        skippedAt: null,
-      },
-      orderBy: [
-        { wave: Prisma.SortOrder.asc },
-        { position: Prisma.SortOrder.asc },
-      ],
-      select: { id: true },
-    })
-    return step?.id ?? null
-  }
-
   private async seedPanelInvite(
     context: ActivityContext,
     people: Array<Person & { cellPhone: string }>,
-    textStepId: string | null,
   ): Promise<Effort> {
     const sentAt = subDays(new Date(), PANEL_INVITE_DAYS_AGO)
     const [optedOut, members] = await this.optedOutAndMembers(context)
@@ -590,12 +547,6 @@ export class ActivitySeedService extends createPrismaBase(MODELS.Outreach) {
         },
       },
     })
-    if (textStepId !== null) {
-      await this.client.civicPanelBuildStep.updateMany({
-        where: { id: textStepId, voterFileFilterId: null },
-        data: { voterFileFilterId: list.id, preparedAt: sentAt },
-      })
-    }
     const outreach = await this.createTextSend(context, invitees, {
       name: 'Civic panel invite',
       message: PANEL_INVITE_MESSAGE,

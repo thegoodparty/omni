@@ -63,6 +63,8 @@ import {
 } from './interfaces/textDeliveryHandoff.interface'
 import { sendTextDeliverySlackMessage } from './util/textDeliverySlack.util'
 import { OutreachTextIngestService } from './services/outreachTextIngest.service'
+import { OutreachTextSendFundingService } from './services/outreachTextSendFunding.service'
+import { ManagedPanelFundingReconcileService } from './services/managedPanelFundingReconcile.service'
 import { OutreachSocialService } from './services/outreachSocial.service'
 import { OutreachSocialGenerationService } from './services/outreachSocialGeneration.service'
 import { OutreachPhoneBankingGenerationService } from './services/outreachPhoneBankingGeneration.service'
@@ -190,6 +192,9 @@ import { OutreachP2pSmsFreeTextsService } from './services/outreachP2pSmsFreeTex
     // of them declares it as a dependency.
     OutreachTextDeliveryService,
     OutreachTextIngestService,
+    // The funding gate on every text send, and its daily reconciliation.
+    OutreachTextSendFundingService,
+    ManagedPanelFundingReconcileService,
     // Binds the delivery layer's handoff port to today's implementation:
     // post the recipient CSV to the fulfilment Slack channel for a human to
     // send. The port exists so this is the only line that changes when a real
@@ -283,15 +288,21 @@ import { OutreachP2pSmsFreeTextsService } from './services/outreachP2pSmsFreeTex
     // The queue consumer's `outreachTextSend` case calls `requestSend` on
     // this; QueueConsumerModule imports OutreachModule to reach it.
     OutreachTextDeliveryService,
+    // The consumer refuses an unfunded send before it builds an audience.
+    OutreachTextSendFundingService,
     // The dev activity seed writes its Serve replies through the real
     // ingest, so panel joins land the way production writes them.
     OutreachTextIngestService,
     OutreachServePollExpansionService,
+    // The managed civic panel wave job counts and dates each wave's send
+    // the way a Serve text draft is counted and dated.
+    OutreachServeSmsCreateService,
     // Exported so TestFixturesModule can inject them into the run-job allowlist.
     OutreachRobocallStagingService,
     OutreachRobocallSendService,
     OutreachRobocallCompletionService,
     OutreachRobocallCaptureService,
+    OutreachRobocallCallhubCleanupService,
     // Exported so TestFixturesModule can call admin actions as test fixtures.
     OutreachCompletionService,
     OutreachSmsAdminService,

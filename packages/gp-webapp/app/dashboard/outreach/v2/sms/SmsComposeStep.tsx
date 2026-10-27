@@ -8,6 +8,7 @@ import {
   MERGE_TAGS,
   type MergeTagChannel,
   mergeTagToken,
+  SMS_RESTRICTED_WORDS,
   type SmsStandardsRule,
   SOCIAL_TONE_VALUES,
   type SocialTone,
@@ -31,6 +32,7 @@ import {
   ClockIcon,
   ImageIcon,
   Loader2Icon,
+  LockIcon,
   MicIcon,
   RefreshIcon,
   SmileIcon,
@@ -99,6 +101,9 @@ interface SmsComposeStepProps {
   tone: SocialTone
   onToneChange: (tone: SocialTone) => void
   standardsFailures: SmsRequiredPart[]
+  // The restricted words the message actually contains, so the error names
+  // only those.
+  restrictedWords?: string[]
   unfilledBrackets: string[]
   identificationExample: string
   // The exact "Paid for by" line the message should carry, or null on a
@@ -135,6 +140,21 @@ interface SmsComposeStepProps {
     locked?: boolean
     onChange: (checked: boolean) => void
   }
+  // Serve's civic panel invite that GoodParty sends in the official's name:
+  // its own title, no tone, image or panel ask, the JOIN line and opt-out
+  // locked under the editable body, and the official's approval below.
+  // A dictated passage landed in the message.
+  onDictated?: () => void
+  managedInvite?: {
+    title: string
+    caption: string
+    lockedLines: string
+    consent: {
+      label: string
+      checked: boolean
+      onChange: (checked: boolean) => void
+    }
+  }
 }
 
 // What a send needs beyond the standards rules: the civic panel line the
@@ -166,7 +186,12 @@ export const standardsFailureCopy = (
   {
     identificationExample,
     paidForByText,
-  }: { identificationExample: string; paidForByText: string | null },
+    restrictedWords = [],
+  }: {
+    identificationExample: string
+    paidForByText: string | null
+    restrictedWords?: readonly string[]
+  },
 ): StandardsFailureCopy => {
   if (rule === 'candidate_name') {
     return {
@@ -224,6 +249,14 @@ export const standardsFailureCopy = (
       fix: 'Paste the full web address instead.',
     }
   }
+  if (rule === 'restricted_word') {
+    const words =
+      restrictedWords.length > 0 ? restrictedWords : SMS_RESTRICTED_WORDS
+    return {
+      problem: 'Your text has a word our texting provider won\u2019t send.',
+      fix: `Reword it without ${words.map((word) => `\u201c${word}\u201d`).join(' or ')}.`,
+    }
+  }
   return {
     problem: 'Your text is over the length limit.',
     fix: 'Shorten it to continue.',
@@ -235,6 +268,7 @@ export const SmsComposeStep = ({
   tone,
   onToneChange,
   standardsFailures,
+  restrictedWords,
   unfilledBrackets,
   identificationExample,
   paidForByText,
@@ -256,19 +290,23 @@ export const SmsComposeStep = ({
   onImageError,
   continueAttempts,
   civicPanelAsk,
+  onDictated,
+  managedInvite,
 }: SmsComposeStepProps) => {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const dropzoneRef = useRef<HTMLButtonElement>(null)
   const fieldRef = useRef<TokenFieldRef>(null)
   const attempted = continueAttempts > 0
-  const imageMissing = attempted && !imagePreviewUrl
+  const imageMissing = attempted && !imagePreviewUrl && !managedInvite
   const messageMissing = attempted && !hasWrittenBody
   // Dictation lands at the cursor, not at the end: the end of the message is
   // the opt-out line, and nothing may follow it.
   const dictation = useDictation({
     analyticsLabel: 'outreach-sms-compose',
     onFinalTranscript: (text) => {
-      if (text) fieldRef.current?.insertText(` ${text}`)
+      if (!text) return
+      fieldRef.current?.insertText(` ${text}`)
+      onDictated?.()
     },
   })
   const isRecording = dictation.status === 'recording'
@@ -294,7 +332,7 @@ export const SmsComposeStep = ({
   // the message. Keyed on the press count alone so typing never steals focus.
   useEffect(() => {
     if (continueAttempts === 0) return
-    if (!imagePreviewUrl) {
+    if (!imagePreviewUrl && !managedInvite) {
       dropzoneRef.current?.scrollIntoView?.({
         behavior: 'smooth',
         block: 'center',
@@ -333,22 +371,27 @@ export const SmsComposeStep = ({
     <div className="space-y-6">
       <Intro
         channel="text"
-        title="What do you want to say?"
-        body="Start from a draft, dictate your own, or improve with AI."
+        title={managedInvite?.title ?? 'What do you want to say?'}
+        body={
+          managedInvite?.caption ??
+          'Start from a draft, dictate your own, or improve with AI.'
+        }
       />
 
-      <FilterPillGroup
-        type="single"
-        value={tone}
-        onValueChange={(value) => value && onToneChange(value as SocialTone)}
-      >
-        {SOCIAL_TONE_VALUES.map((t) => (
-          <FilterPill key={t} value={t} className="gap-1.5">
-            {TONE_ICONS[t]}
-            {TONE_LABELS[t]}
-          </FilterPill>
-        ))}
-      </FilterPillGroup>
+      {managedInvite ? null : (
+        <FilterPillGroup
+          type="single"
+          value={tone}
+          onValueChange={(value) => value && onToneChange(value as SocialTone)}
+        >
+          {SOCIAL_TONE_VALUES.map((t) => (
+            <FilterPill key={t} value={t} className="gap-1.5">
+              {TONE_ICONS[t]}
+              {TONE_LABELS[t]}
+            </FilterPill>
+          ))}
+        </FilterPillGroup>
+      )}
 
       <div className="space-y-3">
         {isDraftError && (
@@ -364,7 +407,7 @@ export const SmsComposeStep = ({
         )}
 
         <Card className={cn('gap-0 p-4', seamlessFieldHost)}>
-          {imagePreviewUrl ? (
+          {managedInvite ? null : imagePreviewUrl ? (
             <div className="relative mb-4">
               {/* eslint-disable-next-line @next/next/no-img-element -- local
                     object URL preview of an unuploaded file */}
@@ -465,6 +508,17 @@ export const SmsComposeStep = ({
           {messageMissing && (
             <p className="text-xs text-destructive">{MESSAGE_REQUIRED_ERROR}</p>
           )}
+          {managedInvite ? (
+            <div
+              className="mt-2 flex items-start gap-2 rounded-lg bg-muted px-3 py-2 text-sm text-muted-foreground"
+              data-testid="managed-invite-locked-lines"
+            >
+              <LockIcon className="mt-0.5 size-4 shrink-0" aria-hidden />
+              <span className="whitespace-pre-line">
+                {managedInvite.lockedLines}
+              </span>
+            </div>
+          ) : null}
 
           <div className="-mx-4 -mb-4 mt-4 flex items-center justify-end gap-1 border-t border-border p-2">
             {canUndo && (
@@ -520,7 +574,25 @@ export const SmsComposeStep = ({
             </IconButton>
           </div>
         </Card>
-        {civicPanelAsk && (
+        {managedInvite && (
+          <div className="flex min-h-11 items-start gap-3">
+            <Checkbox
+              id="managed-invite-consent"
+              checked={managedInvite.consent.checked}
+              onCheckedChange={(value) =>
+                managedInvite.consent.onChange(value === true)
+              }
+              className="mt-0.5"
+            />
+            <Label
+              htmlFor="managed-invite-consent"
+              className="block text-sm font-normal"
+            >
+              {managedInvite.consent.label}
+            </Label>
+          </div>
+        )}
+        {civicPanelAsk && !managedInvite && (
           <div className="flex items-start gap-3">
             <Checkbox
               id="civic-panel-ask"
@@ -536,7 +608,7 @@ export const SmsComposeStep = ({
                 Ask them to join your civic panel
               </span>
               <span className="mt-0.5 block text-xs font-normal text-muted-foreground">
-                People who reply JOIN are added to your panel for future
+                People who reply JOIN are added to your civic panel for future
                 questions.
               </span>
             </Label>
@@ -556,6 +628,7 @@ export const SmsComposeStep = ({
               const copy = standardsFailureCopy(rule, {
                 identificationExample,
                 paidForByText,
+                restrictedWords,
               })
               return (
                 <div

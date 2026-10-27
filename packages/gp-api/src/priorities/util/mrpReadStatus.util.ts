@@ -71,6 +71,46 @@ const answersMissing = (
     ),
   )
 
+// Answers within their group's share of the floor count toward a balanced
+// read; past it, a group's extra answers count for nothing more. One answer
+// counts on every dimension, so the dimension furthest behind sets it. The
+// floor is never under the answers its smallest major group needs, so a
+// read with every group at its share has every major group heard.
+const representativeOf = (
+  groups: readonly MrpGroupEstimate[],
+  majors: readonly MrpGroupEstimate[],
+  dimensions: TargetedDimension[],
+  answers: number,
+  floor: number,
+): { representativeAnswers: number; representativeNeeded: number } => {
+  const needed = Math.max(
+    1,
+    floor,
+    answersNeeded(Math.min(...majors.map((group) => group.share))),
+  )
+  const counted = Math.min(
+    ...dimensions.flatMap((dimension) => {
+      const on = groups.filter((group) => group.dimension === dimension)
+      const known = on.reduce((sum, group) => sum + group.share, 0)
+      if (known <= 0) return []
+      return on.reduce(
+        (sum, group) =>
+          sum + Math.min(group.answers, (group.share / known) * needed),
+        0,
+      )
+    }),
+  )
+  return {
+    // Rounded to six places first so float noise never drops a whole answer.
+    representativeAnswers: Math.min(
+      answers,
+      needed,
+      Math.floor(Number(counted.toFixed(6))),
+    ),
+    representativeNeeded: needed,
+  }
+}
+
 // The one place a "good read" is decided, so every surface that reads it
 // changes together. A good read is a representative one: the district's
 // answersNeeded heard in all, every group holding MAJOR_GROUP_SHARE of the
@@ -95,6 +135,9 @@ export const mrpReadStatus = (input: {
       needed,
       groupsHeard: 0,
       groupsTotal: 0,
+      groupsNext: 0,
+      representativeAnswers: Math.min(answers, needed),
+      representativeNeeded: needed,
       good,
       status: good ? 'enoughAnswers' : 'tooEarly',
       underrepresented: [],
@@ -155,6 +198,24 @@ export const mrpReadStatus = (input: {
     groupsHeard: majors.filter((group) => group.answers >= MIN_VOICES_PER_GROUP)
       .length,
     groupsTotal: majors.length,
+    // Every tract stands for one named group, so naming it puts each tract
+    // still short in the count.
+    groupsNext: majors.filter((group) => {
+      if (group.answers >= MIN_VOICES_PER_GROUP) return false
+      const named = underrepresentedGroupOf(
+        group.dimension,
+        group.value,
+        read?.raceNameable ?? false,
+      )
+      return named !== null && underrepresented.includes(named)
+    }).length,
+    ...representativeOf(
+      groups,
+      majors,
+      dimensions,
+      answers,
+      read?.answersNeeded ?? 0,
+    ),
     good: status === 'representative',
     status,
     underrepresented,

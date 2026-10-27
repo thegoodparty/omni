@@ -73,13 +73,22 @@ const RootLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => (
 
       <VwoScript />
 
+      {/* GTM owns the GA4 tags (helpers/gtmDataLayer.ts). Gated on the served
+          hostname rather than IS_PROD because main deploys to
+          dev.goodparty.org and every PR to a *.vercel.app preview, and the
+          E2E suite drives both: those sessions were landing in the one GA4
+          property as real traffic (in Sep-Oct 2026 dev logged more dashboard
+          views than production). Only the request host tells the truth about
+          which deployment is being served. */}
       <Script strategy="afterInteractive" id="gtm">
         {`
+        if (window.location.hostname === 'app.goodparty.org') {
         (function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
 new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
 j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
 'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
 })(window,document,'script','dataLayer','GTM-M53W2ZV');
+        }
       `}
       </Script>
 
@@ -108,14 +117,16 @@ j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
       </Suspense>
       <AnalyticsSessionReplayMiddleware />
       <PageWrapper>{children}</PageWrapper>
-      <noscript>
-        <iframe
-          src="https://www.googletagmanager.com/ns.html?id=GTM-M53W2ZV"
-          height="0"
-          width="0"
-          style={{ display: 'none', visibility: 'hidden' }}
-        />
-      </noscript>
+      {IS_PROD && (
+        <noscript>
+          <iframe
+            src="https://www.googletagmanager.com/ns.html?id=GTM-M53W2ZV"
+            height="0"
+            width="0"
+            style={{ display: 'none', visibility: 'hidden' }}
+          />
+        </noscript>
+      )}
     </body>
   </html>
 )

@@ -1,0 +1,32 @@
+name: E2E horizon check
+
+# Daily early warning for the real-world data the e2e suite still leans on.
+# Test campaigns declare their election dates, but some specs still pick real
+# offices (the default office, the onboarding and office-picker specs). Those
+# break the day a race passes, on every PR and on the release train at once.
+# This asks dev's public races route about each reference in
+# packages/gp-webapp/e2e-tests/src/real-world-references.json and goes red,
+# with a job summary, when one no longer resolves or its next election is
+# under 30 days away. Not run on PRs: a red result is about the calendar, not
+# about the diff.
+
+on:
+  schedule:
+    - cron: '0 13 * * *' # daily, US morning
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Real-world references
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+      - name: Check every reference against dev
+        run: node packages/gp-webapp/scripts/check-e2e-horizon.mjs

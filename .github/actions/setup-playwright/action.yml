@@ -1,0 +1,86 @@
+name: Setup Playwright
+description: >-
+  Install Playwright's Chromium and its system packages, with the browser and
+  the downloaded .deb files cached so a slow Ubuntu mirror does not stall E2E.
+
+inputs:
+  working-directory:
+    description: Directory whose node_modules resolves @playwright/test.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Resolve Playwright version
+      id: version
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        echo "version=$(node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+        echo "image=$ImageOS" >> "$GITHUB_OUTPUT"
+
+    # The browser download takes seconds. What stalls is apt pulling the
+    # system packages (fonts, libglib, libnss3) from Azure's Ubuntu mirror,
+    # which sometimes crawls at a few kB/s. The cached .debs are copied into
+    # apt's archive dir rather than installed directly, so apt still picks the
+    # versions from the live index and only downloads what the cache lacks.
+    - name: Restore Playwright cache
+      id: cache
+      uses: actions/cache/restore@v4
+      with:
+        path: |
+          ~/.cache/ms-playwright
+          ~/.cache/playwright-apt
+        key: playwright-v1-${{ runner.os }}-${{ steps.version.outputs.image }}-${{ steps.version.outputs.version }}
+
+    - name: Seed apt archive from cache
+      if: steps.cache.outputs.cache-hit == 'true'
+      shell: bash
+      run: |
+        if compgen -G "$HOME/.cache/playwright-apt/*.deb" > /dev/null; then
+          sudo cp "$HOME"/.cache/playwright-apt/*.deb /var/cache/apt/archives/
+        fi
+
+    - name: Install Playwright browsers
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      # --with-deps runs apt, and a mirror that stops responding makes apt wait
+      # forever until the job is cancelled. Time out a stalled download rather
+      # than the whole install (the mirror can be slow and still finish), and
+      # wait for the dpkg lock so a retry does not fail on a leftover apt.
+      # Each attempt gets 6 minutes: a stalled browser download otherwise holds
+      # the first attempt until the step times out, and the retries never run.
+      # A killed attempt can leave its apt holding the dpkg lock, so the lock
+      # wait stays well inside one attempt.
+      run: |
+        printf 'Acquire::http::Timeout "60";\nAcquire::https::Timeout "60";\nAcquire::Retries "5";\nDPkg::Lock::Timeout "120";\nAPT::Keep-Downloaded-Packages "true";\n' | sudo tee /etc/apt/apt.conf.d/99-ci-timeouts > /dev/null
+        for attempt in 1 2 3; do
+          timeout 360 npx playwright install --with-deps chromium && exit 0
+          echo "Playwright install attempt $attempt failed"
+          # timeout only kills npx; the apt-get it started keeps the dpkg lock
+          # and the next attempt would wait on it, so clear it first.
+          sudo pkill -9 -x apt-get || true
+          sudo dpkg --configure -a || true
+        done
+        exit 1
+
+    # Only main saves. A PR-scoped cache is invisible to every other PR, and at
+    # ~300 MB each they push shared caches out of the repo's storage limit.
+    - name: Collect downloaded apt packages
+      if: steps.cache.outputs.cache-hit != 'true' && github.ref == 'refs/heads/main'
+      shell: bash
+      run: |
+        mkdir -p "$HOME/.cache/playwright-apt"
+        if compgen -G "/var/cache/apt/archives/*.deb" > /dev/null; then
+          cp /var/cache/apt/archives/*.deb "$HOME/.cache/playwright-apt/"
+        fi
+        ls -la "$HOME/.cache/playwright-apt"
+
+    - name: Save Playwright cache
+      if: steps.cache.outputs.cache-hit != 'true' && github.ref == 'refs/heads/main'
+      uses: actions/cache/save@v4
+      with:
+        path: |
+          ~/.cache/ms-playwright
+          ~/.cache/playwright-apt
+        key: ${{ steps.cache.outputs.cache-primary-key }}

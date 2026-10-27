@@ -1,9 +1,8 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { screen, waitFor } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { act, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import {
-  BUILD_CITIZENS_PANEL_MESSAGE,
-  EXPLAIN_CIVIC_PANEL_MESSAGE,
+  START_MANAGED_CIVIC_PANEL_MESSAGE,
   pickedNextStepsMessage,
 } from '@goodparty_org/contracts'
 import { render } from 'helpers/test-utils/render'
@@ -49,9 +48,9 @@ vi.mock('@shared/organization-picker', async (importOriginal) => ({
 }))
 vi.mock('@shared/sentry', () => ({ reportErrorToSentry: vi.fn() }))
 
-// The civic panel summary decides the panel step; nothing else on this page
-// may call the API, so a completed get-started card would show up here.
-const panelSummary = { members: 0 }
+// The managed panel decides the panel step; nothing else on this page may
+// call the API, so a completed get-started card would show up here.
+const managed: { panel: { status: string } | null } = { panel: null }
 const clientRequestMock = vi.fn()
 vi.mock('gpApi/typed-request', () => ({
   clientRequest: (...args: unknown[]) => clientRequestMock(...args),
@@ -64,32 +63,21 @@ vi.mock('helpers/useSnackbar', () => ({
   }),
 }))
 
-// The deck, the banner and the footer read their own endpoints; the build
-// card's buttons are covered in TaskStack.test.tsx. The stand-in deck only
-// presses the build card's What's a civic panel? and the meet card's button
-// (whose own completion is TaskStack's, not the chat's).
-vi.mock('./TaskStack', async () => {
-  const { EXPLAIN_CIVIC_PANEL_MESSAGE: explain } =
-    await import('@goodparty_org/contracts')
-  return {
-    default: ({
-      onDiscussCard,
-      onOpenCard,
-    }: {
-      onDiscussCard?: (message: string) => void
-      onOpenCard?: (key: 'meet' | 'priorities') => void
-    }) => (
-      <>
-        <button type="button" onClick={() => onDiscussCard?.(explain)}>
-          Explain the panel
-        </button>
-        <button type="button" onClick={() => onOpenCard?.('meet')}>
-          Meet my Chief of Staff
-        </button>
-      </>
-    ),
-  }
-})
+// The deck, the banner and the footer read their own endpoints; the cards'
+// buttons are covered in TaskStack.test.tsx. The stand-in deck only presses
+// the meet card's button (whose own completion is TaskStack's, not the
+// chat's).
+vi.mock('./TaskStack', () => ({
+  default: ({
+    onOpenCard,
+  }: {
+    onOpenCard?: (key: 'meet' | 'priorities') => void
+  }) => (
+    <button type="button" onClick={() => onOpenCard?.('meet')}>
+      Meet my Chief of Staff
+    </button>
+  ),
+}))
 vi.mock('./BriefingDispatchBanner', () => ({ default: () => null }))
 vi.mock('./chat/FooterChatBar', () => ({ default: () => null }))
 vi.mock('../data/use-briefing-dispatch', () => ({
@@ -127,26 +115,17 @@ beforeEach(() => {
       { type: 'done', assistantMessageId: 'a1' },
     ]),
   )
-  panelSummary.members = 0
+  managed.panel = null
   clientRequestMock.mockReset().mockImplementation(async (endpoint: string) => {
-    if (endpoint === 'GET /v1/contacts/civic-panel') {
-      return {
-        ok: true,
-        status: 200,
-        data: {
-          members: panelSummary.members,
-          reachedRecently: 0,
-          askableNow: 0,
-          lastOutreachAt: null,
-        },
-      }
+    if (endpoint === 'GET /v1/contacts/civic-panel/managed') {
+      return { ok: true, status: 200, data: { panel: managed.panel } }
     }
     throw new Error(`unexpected request ${endpoint}`)
   })
   listMessagesMock
     .mockReset()
     .mockResolvedValue([
-      message('u1', 'user', BUILD_CITIZENS_PANEL_MESSAGE),
+      message('u1', 'user', START_MANAGED_CIVIC_PANEL_MESSAGE),
       message('a1', 'assistant', REPLY),
     ])
   panelsFlag.ready = true
@@ -154,106 +133,29 @@ beforeEach(() => {
   window.localStorage.clear()
 })
 
-describe("DashboardContent: What's a civic panel? on the build card", () => {
-  it('opens the chat on a turn the official never sees', async () => {
-    const user = userEvent.setup()
-    listMessagesMock.mockResolvedValue([
-      message('u1', 'user', EXPLAIN_CIVIC_PANEL_MESSAGE),
-      message('a1', 'assistant', REPLY),
-    ])
-    render(<DashboardContent />)
-
-    await user.click(screen.getByRole('button', { name: 'Explain the panel' }))
-
-    await waitFor(() =>
-      expect(streamMessageMock).toHaveBeenCalledWith(
-        expect.objectContaining({ content: EXPLAIN_CIVIC_PANEL_MESSAGE }),
-      ),
-    )
-    await waitFor(
-      () => {
-        expect(listMessagesMock).toHaveBeenCalled()
-        expect(screen.getByText(REPLY)).toBeInTheDocument()
-      },
-      { timeout: 5000 },
-    )
-    expect(screen.queryByText(/What is a civic panel\?/)).toBeNull()
-  })
-})
-
 const completedACard = () =>
   clientRequestMock.mock.calls.some(([endpoint]) =>
     String(endpoint).includes('complete'),
   )
 
-describe("DashboardContent: What's a civic panel? ends on its next step", () => {
-  const explain = async () => {
-    const user = userEvent.setup()
-    listMessagesMock.mockResolvedValue([
-      message('u1', 'user', EXPLAIN_CIVIC_PANEL_MESSAGE),
-      message('a1', 'assistant', REPLY),
-    ])
-    render(<DashboardContent />)
-    await user.click(screen.getByRole('button', { name: 'Explain the panel' }))
-    await waitFor(() => expect(screen.getByText(REPLY)).toBeInTheDocument(), {
-      timeout: 5000,
-    })
-    return user
-  }
-
-  it('offers Build my panel to an office with no panel, which builds it in this chat', async () => {
-    vi.mocked(router.push!).mockClear()
-    const user = await explain()
-
-    const cta = await screen.findByRole('button', { name: 'Build my panel' })
-    await user.click(cta)
-
-    await waitFor(() =>
-      expect(streamMessageMock).toHaveBeenLastCalledWith(
-        expect.objectContaining({
-          conversationId: 'conv-panel',
-          content: BUILD_CITIZENS_PANEL_MESSAGE,
-        }),
-      ),
-    )
-    expect(router.push).not.toHaveBeenCalled()
-    expect(completedACard()).toBe(false)
-  })
-
-  it('offers Grow your civic panel once the panel has members, sending the same build turn', async () => {
-    panelSummary.members = 12
-    const user = await explain()
-
-    expect(screen.queryByRole('button', { name: 'Build my panel' })).toBeNull()
-    await user.click(
-      await screen.findByRole('button', { name: 'Grow your civic panel' }),
-    )
-
-    await waitFor(() =>
-      expect(streamMessageMock).toHaveBeenLastCalledWith(
-        expect.objectContaining({
-          conversationId: 'conv-panel',
-          content: BUILD_CITIZENS_PANEL_MESSAGE,
-        }),
-      ),
-    )
-  })
-})
-
 describe('DashboardContent: Meet my Chief of Staff', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
   const meet = async () => {
-    const user = userEvent.setup()
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     render(<DashboardContent />)
     await user.click(
       screen.getByRole('button', { name: 'Meet my Chief of Staff' }),
     )
-    // The intro types in on a real interval.
-    await waitFor(
-      () =>
-        expect(
-          screen.getByText('What would you like to start with?'),
-        ).toBeInTheDocument(),
-      { timeout: 8000 },
+    // The intro types in on an interval; run its clock forward.
+    await act(() => vi.advanceTimersByTimeAsync(5000))
+    await waitFor(() =>
+      expect(
+        screen.getByText('What would you like to start with?'),
+      ).toBeInTheDocument(),
     )
     return user
   }
@@ -276,7 +178,7 @@ describe('DashboardContent: Meet my Chief of Staff', () => {
     }
     for (const label of [
       'See what matters in your community',
-      'Build your civic panel',
+      'Build my civic panel',
       'Get ready for your next meeting',
       'Something else',
     ]) {
@@ -312,39 +214,59 @@ describe('DashboardContent: Meet my Chief of Staff', () => {
     },
   )
 
-  it('Build your civic panel alone builds it in this chat, as a hidden turn', async () => {
+  it('Build my civic panel alone starts the managed setup in this chat, as a hidden turn', async () => {
+    listMessagesMock.mockResolvedValue([
+      message('u1', 'user', START_MANAGED_CIVIC_PANEL_MESSAGE),
+      message('a1', 'assistant', REPLY),
+    ])
     vi.mocked(router.push!).mockClear()
     const user = await meet()
-    await pickAndStart(user, 'Build your civic panel')
+    await pickAndStart(user, 'Build my civic panel')
 
     await waitFor(() =>
       expect(streamMessageMock).toHaveBeenCalledWith(
-        expect.objectContaining({ content: BUILD_CITIZENS_PANEL_MESSAGE }),
+        expect.objectContaining({
+          content: START_MANAGED_CIVIC_PANEL_MESSAGE,
+        }),
       ),
     )
     expect(router.push).not.toHaveBeenCalled()
-    expect(screen.queryByText(BUILD_CITIZENS_PANEL_MESSAGE)).toBeNull()
+    expect(screen.queryByText(START_MANAGED_CIVIC_PANEL_MESSAGE)).toBeNull()
     expect(completedACard()).toBe(false)
   })
 
-  it('grows the panel instead once it has members, in the same chat', async () => {
-    panelSummary.members = 5
-    const user = await meet()
+  it('still offers to build the panel when the enrollment cannot be read', async () => {
+    const answer = clientRequestMock.getMockImplementation()
+    clientRequestMock.mockImplementation(async (endpoint: string) => {
+      if (endpoint === 'GET /v1/contacts/civic-panel/managed') {
+        throw new Error('read failed')
+      }
+      return answer?.(endpoint)
+    })
+    await meet()
 
-    await screen.findByRole('checkbox', { name: /Grow your civic panel/ })
     expect(
-      screen.queryByRole('checkbox', { name: /Build your civic panel/ }),
-    ).toBeNull()
+      await screen.findByRole('checkbox', { name: /Build my civic panel/ }),
+    ).toBeInTheDocument()
     expect(
-      screen.queryByRole('checkbox', { name: /Ask your civic panel/ }),
+      screen.queryByRole('checkbox', { name: /Hear from your constituents/ }),
     ).toBeNull()
-    await pickAndStart(user, 'Grow your civic panel')
-    await waitFor(() =>
-      expect(streamMessageMock).toHaveBeenCalledWith(
-        expect.objectContaining({ content: BUILD_CITIZENS_PANEL_MESSAGE }),
-      ),
-    )
-    expect(screen.queryByText(BUILD_CITIZENS_PANEL_MESSAGE)).toBeNull()
+  })
+
+  it('offers hearing from constituents once GoodParty is building the panel', async () => {
+    managed.panel = { status: 'building' }
+    await meet()
+
+    await screen.findByRole('checkbox', {
+      name: /Hear from your constituents/,
+    })
+    for (const label of [
+      /Build my civic panel/,
+      /Build your civic panel/,
+      /Grow your civic panel/,
+    ]) {
+      expect(screen.queryByRole('checkbox', { name: label })).toBeNull()
+    }
   })
 
   it('Start waits for a pick, and the picks toggle', async () => {
@@ -377,7 +299,7 @@ describe('DashboardContent: Meet my Chief of Staff', () => {
   it('sends several picks as one message, in the order shown', async () => {
     const sent = pickedNextStepsMessage([
       'See what matters in your community',
-      'Build your civic panel',
+      'Build my civic panel',
       'Get ready for your next meeting',
     ])
     listMessagesMock.mockResolvedValue([
@@ -390,7 +312,7 @@ describe('DashboardContent: Meet my Chief of Staff', () => {
       user,
       'Get ready for your next meeting',
       'See what matters in your community',
-      'Build your civic panel',
+      'Build my civic panel',
     )
 
     await waitFor(() =>
@@ -400,7 +322,7 @@ describe('DashboardContent: Meet my Chief of Staff', () => {
     )
     expect(streamMessageMock).toHaveBeenCalledTimes(1)
     expect(streamMessageMock).not.toHaveBeenCalledWith(
-      expect.objectContaining({ content: BUILD_CITIZENS_PANEL_MESSAGE }),
+      expect.objectContaining({ content: START_MANAGED_CIVIC_PANEL_MESSAGE }),
     )
     await waitFor(() =>
       expect(

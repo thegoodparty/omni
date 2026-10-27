@@ -1,5 +1,5 @@
 import pmap from 'p-map'
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 // Benchmark for the poll-analysis People-DB fallback fan-out. The consumer
 // looks up every unmapped phone via contactsService.findPersonByPhone, which
@@ -11,7 +11,8 @@ import { describe, expect, it } from 'vitest'
 // bound (and at what value) is driven by data, not a hunch.
 //
 // It is a deterministic simulation (no network) so it stays stable in CI while
-// still exercising the real trade-off: burst protection vs. latency.
+// still exercising the real trade-off: burst protection vs. latency. The
+// downstream's latency runs on a fake clock, so wall time is simulated time.
 
 const LATENCY_MS = 30
 // Past this many simultaneous in-flight requests the downstream degrades
@@ -149,15 +150,28 @@ const formatTable = (results: RunResult[]): string => {
 }
 
 describe('poll-analysis fan-out benchmark', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance'] })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  const onFakeClock = async (run: Promise<RunResult>): Promise<RunResult> => {
+    await vi.runAllTimersAsync()
+    return run
+  }
+
   it('measures unbounded vs bounded fan-out and records the decision', async () => {
     const ns = [50, 200, 500]
     const concurrencies = [5, 10, 20]
     const results: RunResult[] = []
 
     for (const n of ns) {
-      results.push(await runUnbounded(n))
+      results.push(await onFakeClock(runUnbounded(n)))
       for (const c of concurrencies) {
-        results.push(await runBounded(n, c))
+        results.push(await onFakeClock(runBounded(n, c)))
       }
     }
 

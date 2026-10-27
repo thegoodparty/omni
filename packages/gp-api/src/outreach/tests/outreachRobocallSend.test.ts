@@ -27,13 +27,8 @@ import {
   OutreachStatus,
   RobocallSettleState,
 } from '../../generated/prisma'
-
-// The sweep's multi-launch spacing sleep is vestigial under the serial gate (only
-// one run launches per pass), but stub it so a test never waits a real 3s if a
-// future change ever re-enables a second launch.
-vi.mock('@/shared/util/sleep.util', () => ({
-  sleep: vi.fn().mockResolvedValue(undefined),
-}))
+import { disableVendorCrons } from '@/shared/test-utils/appEnvOverrides'
+import * as sleepUtil from '@/shared/util/sleep.util'
 
 const service = useTestService()
 
@@ -68,6 +63,11 @@ const vbWith = (status: number) =>
 
 beforeEach(async () => {
   send = service.app.get(OutreachRobocallSendService)
+
+  // The sweep's multi-launch spacing sleep is vestigial under the serial gate (only
+  // one run launches per pass), but stub it so a test never waits a real 3s if a
+  // future change ever re-enables a second launch.
+  vi.spyOn(sleepUtil, 'sleep').mockResolvedValue(undefined)
 
   launchSpy = vi
     .spyOn(service.app.get(CallhubCampaignService), 'launchVoiceBroadcast')
@@ -1177,8 +1177,8 @@ describe('OutreachRobocallSendService.sweepRobocallSend guards', () => {
     else process.env.OTEL_SERVICE_ENVIRONMENT = originalEnv
   })
 
-  it('no-ops off prod', async () => {
-    process.env.OTEL_SERVICE_ENVIRONMENT = 'dev'
+  it('no-ops on a non-prod deploy in live mode', async () => {
+    disableVendorCrons()
     const outreachId = await createDraft({ sendInHours: -1 })
 
     await send.sweepRobocallSend()

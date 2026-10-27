@@ -4,7 +4,10 @@ import {
   type CivicPanelPlaceKind,
 } from '@goodparty_org/contracts'
 import { cn } from '@styleguide/lib/utils'
-import { SERVE_CITIZENS_PANEL_COPY as COPY } from '../citizensPanelCopy'
+import {
+  capitalizeFirst,
+  SERVE_CITIZENS_PANEL_COPY as COPY,
+} from '../citizensPanelCopy'
 import {
   buildSeats,
   LABEL_ALL_UP_TO,
@@ -23,7 +26,7 @@ import {
 
 // Darkest tint first. Each seat is outlined in its family's darkest tint so
 // the light ones still read on white.
-const SEAT_FILL: Record<SeatHue, [string, string, string]> = {
+export const SEAT_FILL: Record<SeatHue, [string, string, string]> = {
   red: ['fill-brand-red-500', 'fill-brand-red-400', 'fill-brand-red-300'],
   blue: ['fill-brand-blue-600', 'fill-brand-blue-500', 'fill-brand-blue-300'],
   lavender: [
@@ -32,7 +35,7 @@ const SEAT_FILL: Record<SeatHue, [string, string, string]> = {
     'fill-brand-lavender-600',
   ],
 }
-const SEAT_OUTLINE: Record<SeatHue, string> = {
+export const SEAT_OUTLINE: Record<SeatHue, string> = {
   red: 'stroke-brand-red-500',
   blue: 'stroke-brand-blue-600',
   lavender: 'stroke-brand-lavender-800',
@@ -52,13 +55,13 @@ const PLAIN = {
 const LABELED = { width: 2 * (SEAT_R_OUT + 120), top: SEAT_R_OUT + 52 }
 const LABEL_GAP = 10
 
-type PlaceWords = (typeof COPY.seatPlaces)[CivicPanelPlaceKind]
+export type PlaceWords = (typeof COPY.seatPlaces)[CivicPanelPlaceKind]
 
 const LABEL_R = SEAT_R_OUT + SEAT_SIZE / 2 + LABEL_GAP
 
 // A tract's human name where it has one, else its number.
 const placeName = (place: SeatPlace, words: PlaceWords): string =>
-  place.label ?? words.name(place.name)
+  place.label ? capitalizeFirst(place.label) : words.name(place.name)
 
 // Names around the arc have no room to wrap, so a long one is cut short
 // there; the full name is its tooltip.
@@ -93,40 +96,48 @@ const placeLabels = (chart: SeatChart) => {
   return labels
 }
 
-const SeatArc = ({
+// `quiet` draws the seats filling and nothing else: no place outlined as
+// behind or empty, for the panel page's lead card, which has no legend.
+export const SeatArc = ({
   chart,
   words,
   labeled,
+  quiet = false,
   className,
 }: {
   chart: SeatChart
   words: PlaceWords
   labeled: boolean
+  quiet?: boolean
   className?: string
 }) => {
   const frame = labeled ? LABELED : PLAIN
   const cx = frame.width / 2
   const cy = frame.top
   const height = cy + SEAT_SIZE / 2 + (labeled ? 30 : 4)
-  const nearFull = chart.stage === 'nearFull'
+  const nearFull = !quiet && chart.stage === 'nearFull'
   return (
     <svg
       viewBox={`0 0 ${frame.width} ${height}`}
       className={cn('h-auto w-full', className)}
       role="img"
-      aria-label={COPY.seatsSummary(
-        chart.filled,
-        chart.behind.length,
-        words.one,
-        words.many,
-      )}
+      aria-label={
+        quiet
+          ? COPY.seatsSummary(chart.filled, 0, words.one, words.many)
+          : COPY.seatsAtShareSummary(
+              chart.filled,
+              chart.behind.length,
+              words.one,
+              words.many,
+            )
+      }
     >
       {/* Built around (0, 0) and moved into place, so one build serves both
           frames. */}
       <g transform={`translate(${cx} ${cy})`}>
         {chart.seats.map((seat, i) => {
           const place = chart.places[seat.place]
-          const warn = nearFull || (place?.behind ?? false)
+          const warn = nearFull || (!quiet && (place?.behind ?? false))
           const hue = place?.hue ?? 'red'
           return seat.filled ? (
             <circle
@@ -191,6 +202,9 @@ const SeatArc = ({
   )
 }
 
+// On a phone the name, the count and the seats each take a line, so a
+// long tract name wraps instead of pushing the count off the screen. From
+// sm up they share one row.
 const PlaceRow = ({
   place,
   words,
@@ -198,16 +212,16 @@ const PlaceRow = ({
   place: SeatPlace
   words: PlaceWords
 }) => (
-  <li className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 sm:grid-cols-[8.75rem_minmax(0,1fr)_auto]">
+  <li className="grid grid-cols-1 gap-x-3 gap-y-1 sm:grid-cols-[8.75rem_minmax(0,1fr)_auto] sm:items-center">
     <span
-      className="truncate text-sm text-foreground"
+      className="break-words text-sm text-foreground sm:truncate"
       title={placeName(place, words)}
     >
       {placeName(place, words)}
     </span>
     <span
       aria-hidden
-      className="col-span-2 row-start-2 flex flex-wrap gap-1 sm:col-span-1 sm:row-start-1"
+      className="row-start-3 flex flex-wrap gap-1 sm:col-start-2 sm:row-start-1"
     >
       {Array.from({ length: place.count }, (_, k) => (
         <span
@@ -223,7 +237,7 @@ const PlaceRow = ({
     </span>
     <span
       className={cn(
-        'text-right text-sm',
+        'row-start-2 whitespace-nowrap text-sm sm:col-start-3 sm:row-start-1 sm:text-right',
         place.empty > 0 ? 'text-warning-dark' : 'text-muted-foreground',
       )}
     >
@@ -394,8 +408,7 @@ export const CivicPanelSeats = ({
           <SeatArc chart={chart} words={words} labeled={false} />
         )}
         <p className="text-center text-sm text-muted-foreground">
-          <span className="font-semibold text-foreground">{chart.filled}</span>
-          {COPY.seatsFilled}
+          {COPY.seatsAtShare(chart.filled, words.one)}
         </p>
       </div>
       <Legend chart={chart} />

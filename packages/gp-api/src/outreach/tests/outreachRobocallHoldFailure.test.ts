@@ -6,6 +6,7 @@ import { OutreachRobocallHoldFailureService } from '@/outreach/services/outreach
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import { Campaign, RobocallSettleState } from '../../generated/prisma'
+import { disableVendorCrons } from '@/shared/test-utils/appEnvOverrides'
 
 const service = useTestService()
 
@@ -212,8 +213,8 @@ describe('OutreachRobocallHoldFailureService cancel-at-deadline', () => {
 })
 
 describe('OutreachRobocallHoldFailureService prod guard', () => {
-  it('no-ops both sweeps off prod', async () => {
-    process.env.OTEL_SERVICE_ENVIRONMENT = 'dev'
+  it('no-ops both sweeps on a non-prod deploy in live mode', async () => {
+    disableVendorCrons()
     const reminded = await createDraft({ sendInHours: 24 })
     const expired = await createDraft({ sendInHours: -1 })
 

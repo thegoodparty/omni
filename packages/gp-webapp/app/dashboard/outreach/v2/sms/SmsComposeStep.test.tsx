@@ -73,6 +73,7 @@ describe('standardsFailureCopy', () => {
       CIVIC_PANEL_LEAVE_LINE,
     ],
     ['link_shortener', 'Your text has a shortened link', undefined],
+    ['restricted_word', 'texting provider won\u2019t send', undefined],
   ])('says what happened and what to do for %s', (rule, problem, line) => {
     const copy = standardsFailureCopy(rule, context)
     expect(copy.problem).toContain(problem)
@@ -84,6 +85,17 @@ describe('standardsFailureCopy', () => {
       expect(text).not.toMatch(/\bjust\b/i)
       expect(text).not.toMatch(/\{first_name\}|token/)
     }
+  })
+
+  it('names only the restricted words the message contains', () => {
+    const copy = standardsFailureCopy('restricted_word', {
+      identificationExample: INTRO,
+      paidForByText: null,
+      restrictedWords: ['transfer'],
+    })
+    expect(copy.fix).toContain('\u201ctransfer\u201d')
+    expect(copy.fix).not.toContain('sexual')
+    expect(copy.fix).not.toContain('stop2end')
   })
 
   it('offers no disclaimer to add back when there is no committee to name', () => {

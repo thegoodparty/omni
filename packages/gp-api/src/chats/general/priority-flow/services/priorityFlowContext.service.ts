@@ -1,7 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
 import {
   ChatScope,
-  CivicPanelBuildPlanStatus,
   CivicPanelStatus,
   ContactStatusField,
   PrioritySource,
@@ -17,10 +16,7 @@ import { PriorityStatusService } from '@/priorities/services/priorityStatus.serv
 import type { MandatoryFilter } from '@/llm/tools/districtInsights.tool'
 import type { PeopleDataset } from '@/peopleDb/services/peopleDataset.service'
 import type { ReportBackSend } from '@/outreach/services/outreachReportBack.service'
-import {
-  PriorityFlowOutreachService,
-  type PriorityAnchorSummary,
-} from './priorityFlowOutreach.service'
+import type { PriorityAnchorSummary } from './priorityFlowOutreach.service'
 
 export interface PriorityFlowContext {
   conversationId: string
@@ -53,10 +49,6 @@ export interface PriorityFlowContext {
   // flag. Undefined while it is off, so nothing about a panel reaches the
   // prompt.
   civicPanelMembers?: number
-  // The hours a week the official gives their civic panel plan, read per
-  // turn behind the same flag: null without an active plan. Sizes the doors
-  // and calls of a check's first round.
-  panelHoursPerWeek?: number | null
   // This priority's texts whose replies are in, and whether each has been
   // reported back on. Read per turn behind the same flag; undefined while
   // it is off.
@@ -68,23 +60,21 @@ export interface PriorityFlowContext {
 }
 
 // Loads the priority_flow context: the conversation's anchored priority, the
-// office that owns it, the durable seven-step status, and a resolved line per
-// card the thread has already left.
+// office that owns it and the durable seven-step status. The line per card the
+// thread has already left is read by the handler, once the office's state is
+// known, against that state's day.
 @Injectable()
 export class PriorityFlowContextService extends createPrismaBase(
   MODELS.ChatConversation,
 ) {
-  constructor(
-    private readonly outreach: PriorityFlowOutreachService,
-    private readonly priorityStatus: PriorityStatusService,
-  ) {
+  constructor(private readonly priorityStatus: PriorityStatusService) {
     super()
   }
 
   async load(
     conversationId: string,
     userId: number,
-  ): Promise<PriorityFlowContext> {
+  ): Promise<Omit<PriorityFlowContext, 'anchorSummaries'>> {
     const conversation = await this.findFirst({
       where: {
         id: conversationId,
@@ -141,7 +131,6 @@ export class PriorityFlowContextService extends createPrismaBase(
       source: priority.source,
       sourceCommunityIssueId: priority.sourceCommunityIssueId,
       status,
-      anchorSummaries: await this.outreach.summarizeAnchors(priority.id),
       districtFilters: null,
       constituentToolEnabled: false,
       peopleDataset: 'voters',
@@ -160,14 +149,6 @@ export class PriorityFlowContextService extends createPrismaBase(
         value: CivicPanelStatus.member,
       },
     })
-  }
-
-  async panelHoursPerWeek(electedOfficeId: string): Promise<number | null> {
-    const plan = await this.client.civicPanelBuildPlan.findFirst({
-      where: { electedOfficeId, status: CivicPanelBuildPlanStatus.active },
-      select: { hoursPerWeek: true },
-    })
-    return plan?.hoursPerWeek ?? null
   }
 
   async assertPriorityOwnership(

@@ -24,7 +24,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / "shared"))
 from partials import inline, inline_payload  # noqa: E402
 
-EXPLORER = HERE.parents[2] / "prototypes/app/p/analytics-event-explorer"
+EXPLORER = HERE.parent / "event-explorer"
 ANCHORS = HERE.parents[1] / "scripts/python/instrumentation_data/event_anchors.json"
 
 
@@ -54,7 +54,7 @@ def build() -> Path:
         }
     }
     html = inline(
-        (EXPLORER / "standalone" / "template.html").read_text(),
+        (EXPLORER / "template.html").read_text(),
         {
             "__PAGE_TITLE__": "Product map",
             "/* __MAP_CSS__ */": (HERE / "map.css").read_text(),

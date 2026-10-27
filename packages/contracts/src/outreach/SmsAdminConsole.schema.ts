@@ -46,6 +46,7 @@ export const SMS_STANDARDS_RULE_VALUES = [
   'paid_for_by',
   'length',
   'link_shortener',
+  'restricted_word',
 ] as const
 export const SmsStandardsRuleSchema = z.enum(SMS_STANDARDS_RULE_VALUES)
 export type SmsStandardsRule = z.infer<typeof SmsStandardsRuleSchema>
@@ -105,6 +106,29 @@ const LINK_SHORTENER_PATTERN = new RegExp(
   ).join('|')})(?![\\w-])(?!\\.[a-z])`,
   'i',
 )
+
+// Words the texting vendor refuses outright. Like the shortener hosts above,
+// the vendor checks this only at job creation, after the candidate has paid:
+// "Message cannot contain the content-restricted word(s): 'sexual'" put a
+// $192.61 hold on a candidate's card with nothing scheduled, and they paid
+// again to send the reworded text (2026-10-15, ENG-11310). The vendor does
+// not publish its list and has no endpoint to check a message before a job
+// exists, so this list holds only the words prod has seen it refuse, and the
+// vendor stays the backstop for the rest. "transfer" was refused the same
+// way on 2026-10-22 (ENG-11439).
+//
+// Whole words, case-insensitive, matched as `findWords` matches a name:
+// "(Stop2End)" is caught, "sexuality" is not, because nothing shows the vendor
+// refuses it.
+export const SMS_RESTRICTED_WORDS = ['sexual', 'stop2end', 'transfer'] as const
+
+// The restricted words a script contains, so a refusal can name them.
+export const findSmsRestrictedWords = (script: string): string[] =>
+  SMS_RESTRICTED_WORDS.filter((word) =>
+    new RegExp(`(?<![\\p{L}\\p{N}])${word}(?![\\p{L}\\p{N}])`, 'iu').test(
+      script,
+    ),
+  )
 
 // A name's words of 3+ letters, in their original case. Whole-word
 // matching (`findWords`) is already case-insensitive, and lowercasing first
@@ -169,6 +193,9 @@ export const checkSmsStandards = (
   }
   if (LINK_SHORTENER_PATTERN.test(script)) {
     failures.push('link_shortener')
+  }
+  if (findSmsRestrictedWords(script).length > 0) {
+    failures.push('restricted_word')
   }
 
   return { passed: failures.length === 0, failures }

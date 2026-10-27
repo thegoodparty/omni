@@ -5,6 +5,7 @@ import { useTestService } from '@/test-service'
 import { OutreachRobocallHoldService } from '@/outreach/services/outreachRobocallHold.service'
 import { OutreachRobocallStrandedService } from '@/outreach/services/outreachRobocallStranded.service'
 import { Campaign, RobocallSettleState } from '../../generated/prisma'
+import { disableVendorCrons } from '@/shared/test-utils/appEnvOverrides'
 
 const service = useTestService()
 
@@ -179,8 +180,8 @@ describe('OutreachRobocallStrandedService.sweepStrandedAuthorized (prod)', () =>
     expect(failSendSpy).toHaveBeenCalledTimes(2)
   })
 
-  it('no-ops off prod', async () => {
-    process.env.OTEL_SERVICE_ENVIRONMENT = 'dev'
+  it('no-ops on a non-prod deploy in live mode', async () => {
+    disableVendorCrons()
     await createDraft({ sendInDays: -1 })
 
     await stranded.sweepStrandedAuthorized()

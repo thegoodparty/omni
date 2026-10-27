@@ -19,6 +19,7 @@ import { OutreachType, RobocallSettleState } from '../../generated/prisma'
 import { RobocallPhonebookService } from './robocallPhonebook.service'
 import { RobocallOrphanedCampaignService } from './robocallOrphanedCampaign.service'
 import { OutreachRobocallHoldService } from './outreachRobocallHold.service'
+import { VENDOR_CRONS_ENABLED } from 'src/shared/util/appEnvironment.util'
 
 // How far ahead of the scheduled send a draft becomes eligible to stage. The
 // rented CallHub caller-ID number gets spam-flagged / auto-un-rented if it sits
@@ -100,10 +101,9 @@ export class OutreachRobocallStagingService extends createPrismaBase(
   // deliberately omitted. @Cron (not @Interval) so the schedule survives deploys
   // and every replica fires on the same instant.
   //
-  // Prod-only (docs/scheduled-jobs.md § Prod-only guard): the sweep creates real
-  // external CallHub state against a rate-limited vendor, so it must not fire on
-  // dev/preview where the flow is stubbed and every call still counts against
-  // the budget. The Pro/paywall gate is inherited, not re-checked here: a draft
+  // VENDOR_CRONS_ENABLED (docs/scheduled-jobs.md § Vendor-cron gate): the sweep
+  // creates real external CallHub state against a rate-limited vendor, so it
+  // must not fire off prod unless vendors are mocked. The Pro/paywall gate is inherited, not re-checked here: a draft
   // only reaches `authorized` by passing the Pro-gated authorize endpoint that
   // reserved the hold, so the eligibility filter below is itself the gate,
   // matching how the sibling robocall endpoints gate.
@@ -117,7 +117,7 @@ export class OutreachRobocallStagingService extends createPrismaBase(
     timeZone: EASTERN_TIMEZONE,
   })
   async sweepRobocallStaging(): Promise<void> {
-    if (process.env.OTEL_SERVICE_ENVIRONMENT !== 'prod') return
+    if (!VENDOR_CRONS_ENABLED) return
     return this.runStaging()
   }
 

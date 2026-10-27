@@ -3,6 +3,8 @@ enum ManagedCivicPanelStatus {
   ready
   paused
   stopped
+  // Nobody is left to invite by text before the goal.
+  exhausted
 }
 
 /// An office's civic panel that GoodParty builds for it, once the official
@@ -30,6 +32,9 @@ model ManagedCivicPanel {
   readyAt          DateTime?               @map("ready_at")
   pausedAt         DateTime?               @map("paused_at")
   stoppedAt        DateTime?               @map("stopped_at")
+  /// Set when the wave job claims the "your panel is ready" email, so it
+  /// goes once each time the panel reaches its goal.
+  readyEmailSentAt DateTime?               @map("ready_email_sent_at")
   waves            ManagedPanelWave[]
 
   @@map("managed_civic_panel")
@@ -46,13 +51,19 @@ model ManagedPanelWave {
   wave              Int
   voterFileFilterId Int?              @map("voter_file_filter_id")
   voterFileFilter   VoterFileFilter?  @relation(fields: [voterFileFilterId], references: [id], onDelete: SetNull)
-  outreachId        Int?              @unique @map("outreach_id")
-  outreach          Outreach?         @relation(fields: [outreachId], references: [id], onDelete: SetNull)
+  /// The send made from the wave. The link lives on Outreach
+  /// (`managedPanelWaveId`) so a free send's funding and its wave sit on one
+  /// row, where a CHECK can hold them together.
+  outreach          Outreach?
   /// The group the drawn list leaned toward (contracts'
-  /// UnderrepresentedGroup), as on CivicPanelBuildStep. Null: no lean.
+  /// UnderrepresentedGroup). Null: no lean.
   steeredToward     String?           @map("steered_toward")
   sentAt            DateTime?         @map("sent_at")
   replyWindowEndsAt DateTime?         @map("reply_window_ends_at")
+  /// Set once the reply window has passed; a wave is open until then.
+  closedAt          DateTime?         @map("closed_at")
+  /// The residents the wave's list drew who were members when it closed.
+  joinedMembers     Int?              @map("joined_members")
 
   @@unique([enrollmentId, wave])
   @@index([voterFileFilterId])

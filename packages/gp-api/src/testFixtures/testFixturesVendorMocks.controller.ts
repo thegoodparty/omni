@@ -72,8 +72,13 @@ export class TestFixturesVendorMocksController {
     @ReqUser() user: User,
   ) {
     this.assertNonProdDeploy()
-    await this.assertCampaignOwner(q.campaignId, user.id)
-    return this.testFixtures.getMockRecords(q.campaignId)
+    if (q.organizationSlug !== undefined) {
+      await this.assertOrganizationOwner(q.organizationSlug, user.id)
+      return this.testFixtures.getMockRecordsByOrganization(q.organizationSlug)
+    }
+    // The schema guarantees exactly one of the two is present.
+    await this.assertCampaignOwner(q.campaignId!, user.id)
+    return this.testFixtures.getMockRecords(q.campaignId!)
   }
 
   // Test-user variant of the admin run-job route. These sweeps are global,
@@ -147,9 +152,6 @@ export class TestFixturesVendorMocksController {
     @ReqUser() user: User,
   ) {
     this.assertNonProdDeploy()
-    if (!user.email || !isTestUser({ email: user.email })) {
-      throw new ForbiddenException('Test users only')
-    }
     await this.assertOutreachOwner(outreachId, user.id)
     return this.testFixtures.applyOutreachAdminAction(
       outreachId,
@@ -157,6 +159,22 @@ export class TestFixturesVendorMocksController {
       body.payload,
       user.id,
     )
+  }
+
+  // Same contract as assertCampaignOwner, for a Serve org: 403 unless the
+  // signed-in user owns it, 404 when it doesn't exist.
+  private async assertOrganizationOwner(slug: string, userId: number) {
+    const org = await this.campaigns.client.organization.findUnique({
+      where: { slug },
+    })
+    if (!org) {
+      throw new NotFoundException()
+    }
+    if (org.ownerId !== userId) {
+      throw new ForbiddenException(
+        'You do not have permission to access this organization',
+      )
+    }
   }
 
   // Checks that the campaign belongs to the signed-in user; 403 otherwise.

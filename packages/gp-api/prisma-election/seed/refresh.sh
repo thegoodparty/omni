@@ -7,6 +7,9 @@
 #
 #   ELECTION_SEED_SOURCE_URL=postgresql://... bash refresh.sh [--upload]
 #
+# The dev election database URL is ELECTION_DATABASE_URL in the GP_API_DEV
+# secret.
+#
 # --upload copies the result to the private dev bucket gp-api presigns for
 # POST /v1/dev-env/election-seed, which is how everyone else gets it. Needs
 # AWS credentials that can write gp-local-election-seed-dev.

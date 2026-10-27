@@ -24,6 +24,7 @@ import { CampaignTcrComplianceService } from 'src/campaigns/tcrCompliance/servic
 import { isBefore, parseISO } from 'date-fns'
 import {
   checkSmsStandards,
+  findSmsRestrictedWords,
   type SmsOutreachResults,
   type SmsStandardsRule,
 } from '@goodparty_org/contracts'
@@ -102,6 +103,9 @@ const SMS_STANDARDS_FIXES: Record<SmsStandardsRule, string> = {
   link_shortener:
     'use the full link instead of a shortener like bit.ly — our texting ' +
     'provider rejects shortened links',
+  // requireCompliantScript names the words it found instead; this is the
+  // fallback the record needs.
+  restricted_word: 'remove the words our texting provider rejects',
 }
 
 @Injectable()
@@ -173,8 +177,14 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
       committeeName: tcr?.committeeName ?? null,
     })
     if (verdict.passed) return
+    const restricted = findSmsRestrictedWords(script)
     const fixes = verdict.failures
-      .map((rule) => SMS_STANDARDS_FIXES[rule])
+      .map((rule) =>
+        rule === 'restricted_word'
+          ? `remove ${restricted.map((word) => `"${word}"`).join(' and ')} — ` +
+            'our texting provider rejects messages that contain it'
+          : SMS_STANDARDS_FIXES[rule],
+      )
       .filter((fix): fix is string => !!fix)
     throw new BadRequestException(
       `The message does not meet texting compliance standards: ${fixes.join(

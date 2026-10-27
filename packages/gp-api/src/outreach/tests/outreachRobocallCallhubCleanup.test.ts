@@ -3,6 +3,7 @@ import { useTestService } from '@/test-service'
 import { OutreachRobocallCallhubCleanupService } from '@/outreach/services/outreachRobocallCallhubCleanup.service'
 import { RobocallOrphanedCampaignService } from '@/outreach/services/robocallOrphanedCampaign.service'
 import { CallhubCampaignService } from '@/vendors/callhub/services/callhubCampaign.service'
+import { disableVendorCrons } from '@/shared/test-utils/appEnvOverrides'
 
 const service = useTestService()
 
@@ -105,8 +106,8 @@ describe('OutreachRobocallCallhubCleanupService.sweepOrphanedCampaigns', () => {
     expect((await readOrphan('vb_race'))?.abortedAt).not.toBeNull()
   })
 
-  it('no-ops off prod', async () => {
-    process.env.OTEL_SERVICE_ENVIRONMENT = 'dev'
+  it('no-ops on a non-prod deploy in live mode', async () => {
+    disableVendorCrons()
     await orphans.record('vb_dev', 1, 'reauth_restage')
 
     await cleanup.sweepOrphanedCampaigns()

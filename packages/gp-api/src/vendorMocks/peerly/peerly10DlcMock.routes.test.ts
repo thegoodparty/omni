@@ -29,21 +29,12 @@ import {
 import { PeerlyIdentityService } from '@/vendors/peerly/services/peerlyIdentity.service'
 import { isPeerlyCvPinRejection } from '@/vendors/peerly/utils/peerlyCvPinRejection.util'
 import { signHs256Jwt } from './peerlyMockAuth.util'
+import {
+  appEnvOverrides,
+  useAppEnvOverrides,
+} from '@/shared/test-utils/appEnvOverrides'
 
-const { mockMode } = vi.hoisted(() => ({ mockMode: { value: 'mock' } }))
-vi.mock('@/shared/util/appEnvironment.util', async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import('@/shared/util/appEnvironment.util')>()
-  return {
-    ...actual,
-    get IS_NON_PROD_DEPLOY() {
-      return true
-    },
-    get VENDOR_MODE() {
-      return mockMode.value as 'mock' | 'live'
-    },
-  }
-})
+useAppEnvOverrides({ IS_NON_PROD_DEPLOY: true, VENDOR_MODE: 'mock' })
 
 const service = useTestService()
 
@@ -170,7 +161,7 @@ const submitBrand = (
   )
 
 beforeEach(() => {
-  mockMode.value = 'mock'
+  appEnvOverrides.VENDOR_MODE = 'mock'
   vi.spyOn(
     service.app.get(AreaCodeFromZipService),
     'getAreaCodeFromZip',
@@ -179,7 +170,7 @@ beforeEach(() => {
 
 describe('Peerly 10DLC mock: gating and auth', () => {
   it('returns 404 when VENDOR_MODE is live', async () => {
-    mockMode.value = 'live'
+    appEnvOverrides.VENDOR_MODE = 'live'
     const res = await service.client.get(`${BASE}/identities/listByAccount`, {
       headers: await mintJwt(),
       validateStatus: () => true,
@@ -258,6 +249,7 @@ describe('Peerly 10DLC mock: identity, profile and brand (M4-3)', () => {
       { headers },
     )
     const { Data } = peerlyIdentityCreateResponseBodySchema.parse(created.data)
+    expect(created.data.Data).not.toHaveProperty('account_id')
     const listed = await service.client.get(
       `${BASE}/identities/listByAccount`,
       { headers, params: { account_id: '12345678' } },
@@ -266,6 +258,8 @@ describe('Peerly 10DLC mock: identity, profile and brand (M4-3)', () => {
       listed.data,
     )
     expect(identities.map((i) => i.identity_id)).toContain(Data.identity_id)
+    expect(listed.data.identities[0]).not.toHaveProperty('account_id')
+    expect(listed.data.identities[0].vetting_expire_date).toBeNull()
 
     const submitted = await service.client.post(
       `${BASE}/identities/${Data.identity_id}/submitProfile`,
@@ -284,6 +278,8 @@ describe('Peerly 10DLC mock: identity, profile and brand (M4-3)', () => {
       peerlyIdentityProfileResponseBodySchema.parse(fetched.data).profile
         ?.campaignVerifyToken,
     ).toBeNull()
+    expect(fetched.data.profile).not.toHaveProperty('campaigns')
+    expect(fetched.data.profile).not.toHaveProperty('usecase')
   })
 
   it('reports the profile vertical only once a brand is submitted', async () => {
@@ -334,7 +330,8 @@ describe('Peerly 10DLC mock: identity, profile and brand (M4-3)', () => {
     )
 
     expect(profile?.profile?.status).toBe('pending')
-    expect(submissionKey).toBeTruthy()
+    // Peerly's submit body is the brand info, with no submission_key.
+    expect(submissionKey).toBeUndefined()
     const records = await getRecords(seeded.campaign.id)
     expect(records.map((r) => r.kind).sort()).toEqual([
       'brand',
@@ -393,6 +390,8 @@ describe('Peerly 10DLC mock: identity, profile and brand (M4-3)', () => {
       { headers },
     )
     const body = approve10DLCBrandResponseBodySchema.parse(approved.data)
+    expect(approved.data).not.toHaveProperty('usecases')
+    expect(approved.data).not.toHaveProperty('entity_type')
     expect(body.campaign_verify_token).toBe('cv-token')
     expect(body.ein).toBe(seeded.ein)
     expect(
@@ -835,7 +834,13 @@ describe('Peerly 10DLC mock: CV request, PIN and use cases (M4-4)', () => {
       { headers },
     )
     expect(peerlyIdentityUseCaseResponseBodySchema.parse(pending.data)).toEqual(
-      [expect.objectContaining({ usecase: 'POLITICAL', activated: 0 })],
+      [
+        expect.objectContaining({
+          usecase: 'POLITICAL',
+          activated: 0,
+          tcr_campaign_id: null,
+        }),
+      ],
     )
 
     const activate = await applyAction(campaign.id, 'peerly.usecase.activate')

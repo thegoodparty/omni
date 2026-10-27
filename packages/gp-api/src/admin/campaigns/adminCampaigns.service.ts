@@ -9,6 +9,8 @@ import { PinoLogger } from 'nestjs-pino'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
 import { StripeService } from 'src/vendors/stripe/services/stripe.service'
 
+const DELETE_CAMPAIGN_TX_TIMEOUT_MS = 60_000
+
 @Injectable()
 export class AdminCampaignsService {
   constructor(
@@ -86,6 +88,24 @@ export class AdminCampaignsService {
       }
     }
     return updatedCampaign
+  }
+
+  // details.subscriptionId is the only link from a live Pro subscription back
+  // to an account, and it is deleted with the row. Deleting without a cancel
+  // left Stripe billing a campaign nobody could see or cancel (ENG-11454).
+  // Same ordering as UsersService.deleteUser: the delete goes first so a
+  // cascade the DB refuses never reaches Stripe, and the cancel runs before
+  // the commit so a Stripe failure rolls the delete back.
+  async delete(id: number) {
+    await this.campaigns.client.$transaction(
+      async (tx) => {
+        const { details } = await tx.campaign.delete({ where: { id } })
+        if (details?.subscriptionId) {
+          await this.stripe.cancelSubscription(details.subscriptionId)
+        }
+      },
+      { timeout: DELETE_CAMPAIGN_TX_TIMEOUT_MS },
+    )
   }
 
   async proNoVoterFile() {

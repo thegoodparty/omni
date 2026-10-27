@@ -1,8 +1,6 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import Link from 'next/link'
-import { civicPanelHref } from 'app/dashboard/contacts/citizens-panel/citizensPanelCopy'
 import { parseISO } from 'date-fns'
 import { formatInTimeZone } from 'date-fns-tz'
 import { useMutation, useQuery } from '@tanstack/react-query'
@@ -24,9 +22,11 @@ import type { TcrCompliance } from 'helpers/types'
 import {
   BUILD_CITIZENS_PANEL_PURPOSE,
   checkSmsStandards,
+  findSmsRestrictedWords,
   findCivicPanelJoinLine,
   findCivicPanelLeaveLine,
   isCivicPanelOnlyList,
+  MANAGED_CIVIC_PANEL_CONSENT_VERSION,
   mergeTagToken,
   PRICE_PER_TEXT,
   REPORT_BACK_PURPOSE,
@@ -34,7 +34,11 @@ import {
   type ServeSmsCreateResponse,
 } from '@goodparty_org/contracts'
 import { Button, Card } from '@styleguide'
-import { CircleCheckIcon, DownloadIcon } from '@styleguide/components/ui/icons'
+import {
+  CircleCheckIcon,
+  DownloadIcon,
+  MessagesSquareIcon,
+} from '@styleguide/components/ui/icons'
 import { clientRequest } from 'gpApi/typed-request'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import {
@@ -115,12 +119,16 @@ import { SmsComposeStep, type SmsRequiredPart } from './SmsComposeStep'
 import { SmsReviewStep } from './SmsReviewStep'
 import { PHONE_LIST_BUILD_POLL_LIMIT } from './smsPhoneListPollLimit'
 import { useServeCitizenPanelsFlag } from 'app/shared/experiments/serveCitizenPanelsFlag'
+import { MANAGED_PANEL_COPY } from 'app/dashboard/contacts/citizens-panel/managedPanelCopy'
 import {
   addGreetingBack,
   addIdentificationBack,
   addOptOutBack,
   addPaidForByBack,
+  composeManagedInvite,
   composeScript,
+  MANAGED_INVITE_LOCKED_LINES,
+  managedInviteBody,
   composeServeScript,
   paidForByLine,
   withCivicPanelJoin,
@@ -393,6 +401,12 @@ interface SmsFlowProps {
   resumeStartsOnWizard?: boolean
   // The label of the button that resumed the draft, for the Pro gate.
   resumeCta?: string
+  // Serve: the civic panel invite GoodParty sends in the official's name
+  // (the managed panel), with `initialScript` as its body. Only the message
+  // step: no audience, date, checkout or payment, and no Outreach row. Its
+  // button approves the invite (POST /v1/contacts/civic-panel/managed) and
+  // then calls `onSetUp`.
+  managedInvite?: { place: string | null; onSetUp: () => void }
 }
 
 const successDate = (d: Date) =>
@@ -417,16 +431,6 @@ const sendTimeLabel = (d: Date, timeZone?: string) =>
 const cardBrandLabel = (brand: string) =>
   brand.charAt(0).toUpperCase() + brand.slice(1)
 
-// The first civic panel text ends on what it set in motion, and goes back
-// to the panel it is building rather than to the outreach page.
-const SERVE_PANEL_SEED_SUCCESS_COPY = {
-  title: 'Your panel invite is scheduled',
-  reach: (count: string, when: string) =>
-    `It goes to ${count} residents${when}.`,
-  next: 'Replies come in over the next few days. Anyone who replies JOIN is added to your panel.',
-  action: 'See your civic panel',
-}
-
 // Exported for its component test — the paid branch is unreachable through
 // the flow in jsdom (CheckoutPayment mounts real Stripe elements).
 export const SuccessScreen = ({
@@ -435,7 +439,6 @@ export const SuccessScreen = ({
   timeZone,
   outreachId,
   paid,
-  seedsPanel = false,
   onDone,
 }: {
   contactCount: number
@@ -445,8 +448,6 @@ export const SuccessScreen = ({
   // Free-texts sends skip the receipt entirely — there is no charge, and
   // the endpoint 404s rows without a checkout session.
   paid: boolean
-  // A build_citizens_panel send, which gets its own copy and next step.
-  seedsPanel?: boolean
   onDone: () => void
 }) => {
   const receiptQuery = useQuery({
@@ -469,35 +470,18 @@ export const SuccessScreen = ({
           <CircleCheckIcon className="size-8 text-primary" />
         </span>
       </div>
-      {seedsPanel ? (
-        <div className="space-y-2">
-          <h2 className="text-2xl font-semibold text-foreground">
-            {SERVE_PANEL_SEED_SUCCESS_COPY.title}
-          </h2>
-          <p className="text-muted-foreground">
-            {SERVE_PANEL_SEED_SUCCESS_COPY.reach(
-              contactCount.toLocaleString(),
-              sendAt ? ` on ${sendDateLabel(sendAt, timeZone)}` : '',
-            )}
-          </p>
-          <p className="text-muted-foreground">
-            {SERVE_PANEL_SEED_SUCCESS_COPY.next}
-          </p>
-        </div>
-      ) : (
-        <div className="space-y-2">
-          <h2 className="text-2xl font-semibold text-foreground">
-            {paid ? 'Payment successful!' : 'Scheduled!'}
-          </h2>
-          <p className="text-muted-foreground">
-            Your sms campaign will reach {contactCount.toLocaleString()}{' '}
-            recipients
-            {sendAt
-              ? ` starting ${sendDateLabel(sendAt, timeZone)} at ${sendTimeLabel(sendAt, timeZone)}.`
-              : ' soon.'}
-          </p>
-        </div>
-      )}
+      <div className="space-y-2">
+        <h2 className="text-2xl font-semibold text-foreground">
+          {paid ? 'Payment successful!' : 'Scheduled!'}
+        </h2>
+        <p className="text-muted-foreground">
+          Your sms campaign will reach {contactCount.toLocaleString()}{' '}
+          recipients
+          {sendAt
+            ? ` starting ${sendDateLabel(sendAt, timeZone)} at ${sendTimeLabel(sendAt, timeZone)}.`
+            : ' soon.'}
+        </p>
+      </div>
       {receipt && (
         <Card className="gap-0 p-0 text-left">
           <div className="flex items-center justify-between px-4 py-4">
@@ -557,17 +541,9 @@ export const SuccessScreen = ({
           Download receipt
         </Button>
       )}
-      {seedsPanel ? (
-        <Button asChild size="large" className="w-full">
-          <Link href={civicPanelHref('outreach')} onClick={onDone}>
-            {SERVE_PANEL_SEED_SUCCESS_COPY.action}
-          </Link>
-        </Button>
-      ) : (
-        <Button size="large" className="w-full" onClick={onDone}>
-          Done
-        </Button>
-      )}
+      <Button size="large" className="w-full" onClick={onDone}>
+        Done
+      </Button>
     </div>
   )
 }
@@ -601,7 +577,23 @@ export const SmsFlow = ({
   onDraftSaved,
   resumeStartsOnWizard = false,
   resumeCta,
+  managedInvite,
 }: SmsFlowProps) => {
+  const managed = managedInvite !== undefined && surface.isServe
+  const [managedConsent, setManagedConsent] = useState(false)
+  const [managedError, setManagedError] = useState(false)
+  const managedApprove = useMutation({
+    mutationFn: async (inviteMessage: string) => {
+      const { data } = await clientRequest(
+        'POST /v1/contacts/civic-panel/managed',
+        { inviteMessage, consentVersion: MANAGED_CIVIC_PANEL_CONSENT_VERSION },
+      )
+      return data
+    },
+  })
+  // What the official used on the managed invite, for its Submitted event.
+  const managedUsedAiRef = useRef(false)
+  const managedUsedDictationRef = useRef(false)
   const [campaign] = useCampaign()
   const [user] = useUser()
   const gate = useOutreachGate('sms')
@@ -643,9 +635,8 @@ export const SmsFlow = ({
     asksToJoinCivicPanelRef.current = asks
     setAsksToJoinCivicPanelState(asks)
   }
-  // A text that builds the panel is its ask, so the ask cannot be unticked.
-  const civicPanelAskLocked =
-    surface.isServe && purpose === BUILD_CITIZENS_PANEL_PURPOSE
+  // The managed panel's invite is its ask, so the ask cannot be unticked.
+  const civicPanelAskLocked = managed
   // A report back goes to the people already asked, so it never asks them
   // to join the panel.
   const isReportBack = surface.isServe && purpose === REPORT_BACK_PURPOSE
@@ -655,11 +646,11 @@ export const SmsFlow = ({
     (asksToJoinCivicPanel || civicPanelAskLocked)
   // A report back's audience is one earlier send, which only its card can
   // name, so the picker never offers it.
-  const purposes = (
-    citizenPanelsEnabled
-      ? surface.purposes
-      : surface.purposes.filter(({ id }) => id !== BUILD_CITIZENS_PANEL_PURPOSE)
-  ).filter(({ id }) => id !== REPORT_BACK_PURPOSE)
+  // The panel invite only goes out in the managed panel's waves.
+  const purposes = surface.purposes.filter(
+    ({ id }) =>
+      id !== REPORT_BACK_PURPOSE && id !== BUILD_CITIZENS_PANEL_PURPOSE,
+  )
   // Whether the words are the candidate's (typed, seeded or polished) rather
   // than an untouched fresh draft. Picks the one AI action: Regenerate, or
   // Improve with AI.
@@ -802,11 +793,13 @@ export const SmsFlow = ({
     messageSettled: Boolean(initialScript),
   })
   const opensOnMessage = landing === 'message' && !resumeDraft
-  const stepOrder: StepId[] = isEventInvite(purpose)
-    ? baseStepOrder.flatMap((id) =>
-        id === 'purpose' ? ['purpose', 'details'] : [id],
-      )
-    : baseStepOrder
+  const stepOrder: StepId[] = managed
+    ? ['compose']
+    : isEventInvite(purpose)
+      ? baseStepOrder.flatMap((id) =>
+          id === 'purpose' ? ['purpose', 'details'] : [id],
+        )
+      : baseStepOrder
 
   // Reference equality against the Win singleton, not a purpose check:
   // recommended lists are Win-only (the endpoint 400s an eo- org outright),
@@ -907,6 +900,24 @@ export const SmsFlow = ({
     // built, so it opens on the one thing still missing.
     // An event invite still asks its details first, even with the audience
     // settled: the draft is written from them.
+    setManagedConsent(false)
+    setManagedError(false)
+    if (managed) {
+      draftRequestRef.current += 1
+      setStepId('compose')
+      setPurpose(BUILD_CITIZENS_PANEL_PURPOSE)
+      setTone('warm')
+      setMessage(initialScript ?? '')
+      seedUncheckedRef.current = null
+      setOwnWords(true)
+      asksToJoinCivicPanelRef.current = true
+      setAsksToJoinCivicPanelState(true)
+      setUndoText(null)
+      setToneDrafts({})
+      setComposeContinueAttempts(0)
+      resetDraftMutation()
+      return
+    }
     setStepId(
       resumeDraft
         ? 'schedule'
@@ -918,10 +929,9 @@ export const SmsFlow = ({
               ? 'compose'
               : 'audience',
     )
-    // A card that names its purpose as well as its words (the Chief of
-    // Staff's panel invite, a report back) keeps that purpose, so the flow
-    // treats the send as the purpose's own: a report back never gets the
-    // panel ask, and a panel invite always does.
+    // A card that names its purpose as well as its words (a report back)
+    // keeps that purpose, so the flow treats the send as the purpose's own:
+    // a report back never gets the panel ask.
     setPurpose(initialPurpose ?? (initialScript ? 'custom' : carriedPurpose))
     resetEventDetails()
     confirmedEventRef.current = null
@@ -929,8 +939,7 @@ export const SmsFlow = ({
     const asks =
       surface.isServe &&
       carriedPurpose !== REPORT_BACK_PURPOSE &&
-      (initialAsksToJoinCivicPanel ||
-        carriedPurpose === BUILD_CITIZENS_PANEL_PURPOSE)
+      initialAsksToJoinCivicPanel
     const seeded = initialScript
       ? withCivicPanelJoin(surface.composeMessage(initialScript, null), asks)
       : ''
@@ -979,6 +988,7 @@ export const SmsFlow = ({
     surface,
     landing,
     carriedPurpose,
+    managed,
   ])
 
   // A fresh text starts with the sender's profile photo attached. Win reads
@@ -1111,8 +1121,11 @@ export const SmsFlow = ({
   // Only the system footer is upgraded: a draft saved before verification has
   // no paid-for-by line, and scheduling's server-side compliance check will
   // demand it against the committee that exists by resume time.
-  const composedMessage =
-    resumed && savedDraft?.script ? upgradeFooter(savedDraft.script) : message
+  const composedMessage = managed
+    ? composeManagedInvite(message)
+    : resumed && savedDraft?.script
+      ? upgradeFooter(savedDraft.script)
+      : message
   const composedLength = composedMessage.length
   // Every message the flow writes (a draft, a seed, an undo) names the
   // committee it should. A message the candidate edits is left as they wrote
@@ -1138,9 +1151,10 @@ export const SmsFlow = ({
   }, [footerCommittee])
   // The message with nothing written between its required parts.
   const emptyMessage = composeMessage('', footerCommittee)
-  const hasWrittenBody =
-    message.replace(/\s+/g, '') !== '' &&
-    message.replace(/\s+/g, '') !== emptyMessage.replace(/\s+/g, '')
+  const hasWrittenBody = managed
+    ? message.trim() !== ''
+    : message.replace(/\s+/g, '') !== '' &&
+      message.replace(/\s+/g, '') !== emptyMessage.replace(/\s+/g, '')
   const rawStandards = checkSmsStandards(composedMessage, {
     candidateNames: identificationNames,
     committeeName,
@@ -1346,8 +1360,9 @@ export const SmsFlow = ({
           // the whole message back as is: gp-api locks the name, so a reply
           // cannot drop it, and repairing the identification here would put
           // an intro in front of the greeting.
-          const full =
-            currentDraft === undefined
+          const full = managed
+            ? managedInviteBody(generated)
+            : currentDraft === undefined
               ? composeMessage(
                   openWithSmsIdentification(
                     generated,
@@ -1378,11 +1393,6 @@ export const SmsFlow = ({
 
   const handleSelectPurpose = (selected: SmsFlowPurpose) => {
     setPurpose(selected)
-    // Kept ticked on the way to another purpose, so the box still matches
-    // the message.
-    if (surface.isServe && selected === BUILD_CITIZENS_PANEL_PURPOSE) {
-      setAsksToJoinCivicPanel(true)
-    }
     setTone('warm')
     setUndoText(null)
     // A custom message starts as its required parts, written between.
@@ -1459,12 +1469,44 @@ export const SmsFlow = ({
 
   const aiAction = ownWords ? 'improve' : 'regenerate'
   const handleAiAction = () => {
+    if (managed) managedUsedAiRef.current = true
     if (aiAction === 'regenerate') {
       requestDraft(purpose, tone, message, ownWords)
       return
     }
     if (!hasWrittenBody) return
-    requestDraft(purpose, tone, message, ownWords, message)
+    // The invite's locked lines go along, so the rewrite reads them, and
+    // come off again with the reply.
+    requestDraft(
+      purpose,
+      tone,
+      message,
+      ownWords,
+      managed ? composedMessage : message,
+    )
+  }
+
+  const handleManagedSetUp = () => {
+    const ready =
+      hasWrittenBody &&
+      standards.passed &&
+      bracketsToFill.length === 0 &&
+      composedLength <= SMS_COMPOSED_MAX_LENGTH
+    if (!ready) {
+      setComposeContinueAttempts((n) => n + 1)
+      return
+    }
+    setManagedError(false)
+    trackEvent(EVENTS.Contacts.CivicPanelInviteSubmitted, {
+      edited: message !== (initialScript ?? ''),
+      usedImproveWithAi: managedUsedAiRef.current,
+      usedDictation: managedUsedDictationRef.current,
+      inviteSegments: Math.max(1, Math.ceil(composedLength / 160)),
+    })
+    managedApprove.mutate(composedMessage, {
+      onSuccess: () => managedInvite?.onSetUp(),
+      onError: () => setManagedError(true),
+    })
   }
 
   // A required line the official deleted, put back where the flow writes it.
@@ -1968,8 +2010,22 @@ export const SmsFlow = ({
     if (previous) setStepId(previous)
   }
 
+  // Closing the managed invite without setting it up sends nothing.
+  const closeFlow = managed
+    ? () => {
+        if (!managedApprove.isSuccess) {
+          trackEvent(EVENTS.Contacts.CivicPanelInviteReviewDismissed, {
+            edited: message !== (initialScript ?? ''),
+          })
+        }
+        onClose()
+      }
+    : onClose
+
   // A saved draft is the opposite of unsaved work: closing loses nothing.
-  const dirty = !scheduled && purpose !== null && savedDraft === null
+  const dirty = managed
+    ? message !== (initialScript ?? '') || managedConsent
+    : !scheduled && purpose !== null && savedDraft === null
 
   const reviewGateCta =
     gate.requirement !== null ? REVIEW_GATE_CTA[gate.requirement] : undefined
@@ -2115,8 +2171,14 @@ export const SmsFlow = ({
                       }
                     : null
 
-  const cta: FlowShellCta | null =
-    stepId === 'details' && !scheduled && !gateOpen
+  const cta: FlowShellCta | null = managed
+    ? {
+        label: MANAGED_PANEL_COPY.flow.submit,
+        onClick: handleManagedSetUp,
+        disabled: !managedConsent || draftMutation.isPending,
+        loading: managedApprove.isPending,
+      }
+    : stepId === 'details' && !scheduled && !gateOpen
       ? {
           label: 'Continue',
           onClick: handleEventDetailsContinue,
@@ -2154,22 +2216,29 @@ export const SmsFlow = ({
   return (
     <OutreachFlowShell
       open={open}
-      onClose={onClose}
+      onClose={closeFlow}
       title={
-        scheduled
-          ? 'Done'
-          : showGateChrome
-            ? gateChrome.overline
-            : stepId === 'schedule' && buildMode
-              ? NAME_ONLY_COPY.title
-              : stepId === 'review' && buildMode
-                ? 'Review and verify'
-                : stepId === 'review' && isFreeSend
-                  ? 'Review and send'
-                  : STEP_TITLES[stepId]
+        managed
+          ? MANAGED_PANEL_COPY.flow.title
+          : scheduled
+            ? 'Done'
+            : showGateChrome
+              ? gateChrome.overline
+              : stepId === 'schedule' && buildMode
+                ? NAME_ONLY_COPY.title
+                : stepId === 'review' && buildMode
+                  ? 'Review and verify'
+                  : stepId === 'review' && isFreeSend
+                    ? 'Review and send'
+                    : STEP_TITLES[stepId]
       }
       headerBadge={
-        showGateChrome ? (
+        managed ? (
+          <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-foreground">
+            <MessagesSquareIcon className="size-4" aria-hidden />
+            {MANAGED_PANEL_COPY.flow.header}
+          </span>
+        ) : showGateChrome ? (
           gateChrome.overline
         ) : (
           <ChannelBadge
@@ -2191,14 +2260,17 @@ export const SmsFlow = ({
             ? gateChrome.totalSteps
             : stepOrder.length
       }
+      backExits={managed}
       onBack={
-        // A resume has no reachable step behind it at all: purpose, audience
-        // and compose were settled when the draft was saved, and compose
-        // could never advance again (its Continue needs a local image file
-        // the saved row cannot supply).
-        !scheduled && !gateOpen && !resumed && stepIndex > 0
-          ? handleBack
-          : undefined
+        managed
+          ? closeFlow
+          : // A resume has no reachable step behind it at all: purpose, audience
+            // and compose were settled when the draft was saved, and compose
+            // could never advance again (its Continue needs a local image file
+            // the saved row cannot supply).
+            !scheduled && !gateOpen && !resumed && stepIndex > 0
+            ? handleBack
+            : undefined
       }
       cta={cta}
       // A React element is truthy even when it renders null, so the caller
@@ -2284,7 +2356,6 @@ export const SmsFlow = ({
           timeZone={fixedMorningSchedule ? undefined : timeZone}
           outreachId={draftOutreachId}
           paid={paidSend}
-          seedsPanel={civicPanelAskLocked}
           onDone={onClose}
         />
       ) : gateOpen ? (
@@ -2454,49 +2525,74 @@ export const SmsFlow = ({
           </>
         )
       ) : stepId === 'compose' ? (
-        <SmsComposeStep
-          isServe={surface.isServe}
-          tone={tone}
-          onToneChange={handleToneChange}
-          standardsFailures={standards.failures}
-          unfilledBrackets={bracketsToFill}
-          identificationExample={introFor(tone)}
-          paidForByText={
-            footerCommittee ? paidForByLine(footerCommittee) : null
-          }
-          onAddRequiredBack={handleAddRequiredBack}
-          message={message}
-          onMessageChange={handleMessageChange}
-          mergeTagChannel={surface.isServe ? 'serve' : 'peerly'}
-          hasWrittenBody={hasWrittenBody}
-          composedLength={composedLength}
-          aiAction={aiAction}
-          onAiAction={handleAiAction}
-          isDrafting={draftMutation.isPending}
-          isDraftError={draftMutation.isError}
-          canUndo={undoText !== null}
-          onUndo={handleUndo}
-          imagePreviewUrl={imagePreviewUrl}
-          onImageChange={setImage}
-          imageError={imageError}
-          onImageError={setImageError}
-          continueAttempts={composeContinueAttempts}
-          civicPanelAsk={
-            surface.isServe &&
-            citizenPanelsEnabled &&
-            !isReportBack &&
-            !offersCivicPanelLeave
-              ? {
-                  checked: asksToJoin,
-                  locked: civicPanelAskLocked,
-                  onChange: (checked) => {
-                    setAsksToJoinCivicPanel(checked)
-                    loadMessage(withCivicPanelJoin(message, checked))
-                  },
-                }
-              : undefined
-          }
-        />
+        <>
+          <SmsComposeStep
+            isServe={surface.isServe}
+            tone={tone}
+            onToneChange={handleToneChange}
+            standardsFailures={standards.failures}
+            restrictedWords={findSmsRestrictedWords(composedMessage)}
+            unfilledBrackets={bracketsToFill}
+            identificationExample={introFor(tone)}
+            paidForByText={
+              footerCommittee ? paidForByLine(footerCommittee) : null
+            }
+            onAddRequiredBack={handleAddRequiredBack}
+            message={message}
+            onMessageChange={handleMessageChange}
+            mergeTagChannel={surface.isServe ? 'serve' : 'peerly'}
+            hasWrittenBody={hasWrittenBody}
+            composedLength={composedLength}
+            aiAction={aiAction}
+            onAiAction={handleAiAction}
+            isDrafting={draftMutation.isPending}
+            isDraftError={draftMutation.isError}
+            canUndo={undoText !== null}
+            onUndo={handleUndo}
+            imagePreviewUrl={imagePreviewUrl}
+            onImageChange={setImage}
+            imageError={imageError}
+            onImageError={setImageError}
+            continueAttempts={composeContinueAttempts}
+            {...(managed && {
+              onDictated: () => {
+                managedUsedDictationRef.current = true
+              },
+              managedInvite: {
+                title: MANAGED_PANEL_COPY.flow.title,
+                caption: MANAGED_PANEL_COPY.flow.caption(
+                  managedInvite?.place ?? null,
+                ),
+                lockedLines: MANAGED_INVITE_LOCKED_LINES,
+                consent: {
+                  label: MANAGED_PANEL_COPY.flow.consent,
+                  checked: managedConsent,
+                  onChange: setManagedConsent,
+                },
+              },
+            })}
+            civicPanelAsk={
+              surface.isServe &&
+              citizenPanelsEnabled &&
+              !isReportBack &&
+              !offersCivicPanelLeave
+                ? {
+                    checked: asksToJoin,
+                    locked: civicPanelAskLocked,
+                    onChange: (checked) => {
+                      setAsksToJoinCivicPanel(checked)
+                      loadMessage(withCivicPanelJoin(message, checked))
+                    },
+                  }
+                : undefined
+            }
+          />
+          {managed && managedError ? (
+            <p className="mt-4 text-sm text-destructive" role="alert">
+              {MANAGED_PANEL_COPY.flow.error}
+            </p>
+          ) : null}
+        </>
       ) : (
         <CheckoutSessionProvider
           key={draftOutreachId ?? 'pending'}

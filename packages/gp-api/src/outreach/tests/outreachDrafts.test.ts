@@ -26,6 +26,7 @@ import { CampaignTcrComplianceService } from '@/campaigns/tcrCompliance/services
 import { ContactsService } from '@/contacts/services/contacts.service'
 import { PeopleListResponse } from '@/contacts/schemas/person.schema'
 import { S3Service } from '@/vendors/aws/services/s3.service'
+import { SlackService } from '@/vendors/slack/services/slack.service'
 import { ASSET_DOMAIN } from '@/shared/util/appEnvironment.util'
 import {
   calcRobocallTotalInCents,
@@ -75,6 +76,11 @@ beforeEach(async () => {
     contentLength: 1,
     etag: AUDIO_ETAG,
   })
+  // A refused /v1/outreach posts its failure notice to Slack, which would
+  // otherwise wait on a real webhook.
+  vi.spyOn(service.app.get(SlackService), 'message').mockResolvedValue(
+    undefined,
+  )
 
   orgSlug = `campaign-${CAMPAIGN_ID}`
 
