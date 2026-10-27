@@ -5,6 +5,7 @@ import { ContactInteractionTextService } from '@/contactInteraction/services/con
 import { VoterQueryService } from '@/peopleDb/services/voterQuery.service'
 import { QueueProducerService } from '@/queue/producer/queueProducer.service'
 import { QueueType } from '@/queue/queue.types'
+import { BadGatewayException } from '@nestjs/common'
 import { AxiosError, AxiosHeaders } from 'axios'
 import { subMinutes } from 'date-fns'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -1767,6 +1768,65 @@ describe('P2P phone-list async build (Voter Outreach 2.0 S3b, managed flag gated
       // the stale-building reaper (or SQS redelivery once the row is reset)
       // is what retries it.
       expect(row).toMatchObject({ buildStatus: 'building', buildAttempts: 1 })
+    })
+
+    it('a Peerly upload failure wrapped as a 502 re-enqueues the build at once instead of waiting for the reaper', async () => {
+      const campaign = await seedWinCampaign()
+      stubPeopleApi([personPayload()])
+      vi.spyOn(
+        service.app.get(PeerlyPhoneListService),
+        'uploadPhoneList',
+      ).mockRejectedValue(
+        new BadGatewayException(
+          'Peerly API error: Failed to upload the file: Request failed with status code 400',
+        ),
+      )
+      const enqueue = vi
+        .spyOn(service.app.get(QueueProducerService), 'sendMessage')
+        .mockResolvedValue(undefined)
+      const build = await createQueuedRow(campaign.id)
+
+      const acked = await service.app
+        .get(P2pPhoneListUploadService)
+        .handleQueuedBuild(build.id)
+
+      expect(acked).toBe(true)
+      expect(
+        await service.prisma.peerlyPhoneList.findUnique({
+          where: { id: build.id },
+        }),
+      ).toMatchObject({ buildStatus: 'queued', buildAttempts: 1 })
+      expect(enqueue).toHaveBeenCalledTimes(1)
+    })
+
+    it('a Peerly upload failure on the last attempt parks the build failed', async () => {
+      const campaign = await seedWinCampaign()
+      stubPeopleApi([personPayload()])
+      vi.spyOn(
+        service.app.get(PeerlyPhoneListService),
+        'uploadPhoneList',
+      ).mockRejectedValue(new BadGatewayException('Peerly API error'))
+      const build = await service.prisma.peerlyPhoneList.create({
+        data: {
+          organizationSlug: WIN_SLUG,
+          campaignId: campaign.id,
+          buildAttempts: 2,
+          requestSnapshot: { name: 'Last attempt' },
+        },
+      })
+
+      await service.app
+        .get(P2pPhoneListUploadService)
+        .handleQueuedBuild(build.id)
+
+      expect(
+        await service.prisma.peerlyPhoneList.findUnique({
+          where: { id: build.id },
+        }),
+      ).toMatchObject({
+        buildStatus: 'failed',
+        buildError: 'Phone list build exceeded its retry limit',
+      })
     })
   })
 
