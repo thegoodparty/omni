@@ -17,6 +17,7 @@ import {
 } from '@goodparty_org/contracts'
 import { FREE_OFFER_BADGE } from 'app/dashboard/shared/robocallFreeOffer/freeOfferCopy'
 import { freeOfferHref } from 'app/dashboard/shared/robocallFreeOffer/freeOfferHref'
+import { useRobocallFreeOffer } from 'app/dashboard/shared/robocallFreeOffer/useRobocallFreeOffer'
 import { useOpenChannelPicker } from '../shared/channelPicker/ChannelPickerProvider'
 import { trackRecommendedSendOutreach } from './recommendedListOutreach.util'
 
@@ -34,7 +35,9 @@ export default function RecommendedVoterListCard({
 }: RecommendedVoterListCardProps) {
   const { copy, count } = recommendation
   const openChannelPicker = useOpenChannelPicker()
-  const isFreeOffer = recommendation.variant === ROBOCALL_FREE_OFFER_VARIANT
+  const { offer } = useRobocallFreeOffer()
+  const isFreeOffer =
+    offer !== null && recommendation.variant === ROBOCALL_FREE_OFFER_VARIANT
 
   return (
     <Card

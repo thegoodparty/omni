@@ -26,6 +26,7 @@ export const useRobocallFreeOffer = (): {
     },
     enabled: !!orgSlug,
     refetchOnWindowFocus: false,
+    retry: false,
   })
 
   return { offer: query.data?.eligible ? query.data : null }

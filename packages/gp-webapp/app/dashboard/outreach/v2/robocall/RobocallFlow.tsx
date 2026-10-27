@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { addDays, parseISO } from 'date-fns'
+import { addDays, format, parseISO } from 'date-fns'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   deriveRobocallProtectedParts,
@@ -509,6 +509,9 @@ export const RobocallFlow = ({
       void queryClient.invalidateQueries({
         queryKey: [ROBOCALL_FREE_OFFER_QUERY_KEY],
       })
+      void queryClient.invalidateQueries({
+        queryKey: ['recommended-lists'],
+      })
       onScheduled?.()
     }
   }
@@ -542,6 +545,9 @@ export const RobocallFlow = ({
         purpose: p,
         tone: t,
         ...(currentDraft === undefined ? {} : { currentDraft }),
+        ...(scheduledDay === undefined
+          ? {}
+          : { scheduledLocalDate: format(scheduledDay, 'yyyy-MM-dd') }),
       },
       {
         onSuccess: (draft) => {
@@ -599,13 +605,7 @@ export const RobocallFlow = ({
     setCampaignName(resumeDraft?.name ?? '')
     lastAutoName.current = ''
     offerAutoAdvanced.current = false
-    // The free offer is an election-eve call, so arriving on its list lands
-    // the schedule on Nov 2. Prefilled, not locked: the candidate can move it.
-    setScheduledDay(
-      preselectedRecommendedVariant === ROBOCALL_FREE_OFFER_VARIANT
-        ? parseISO(ROBOCALL_FREE_OFFER_SEND_DATE)
-        : undefined,
-    )
+    setScheduledDay(undefined)
     setTime('')
     setNow(new Date())
     setTone('warm')
@@ -843,24 +843,36 @@ export const RobocallFlow = ({
   // plan task) has already answered "who": the list is set for the
   // candidate. Once the audience step has applied it, go straight on to
   // schedule, saving the list first if it isn't saved yet. Once per open, so
-  // Back from schedule stays on the audience step.
+  // Back from schedule stays on the audience step. Only while gp-api says the
+  // offer is live: a link to an ended offer is just a list to pick.
   useEffect(() => {
+    const preselected = audience.preselectedRecommendation
     if (
       !open ||
       stepId !== 'audience' ||
-      preselectedRecommendedVariant !== ROBOCALL_FREE_OFFER_VARIANT ||
+      !freeOffer ||
+      preselected?.variant !== ROBOCALL_FREE_OFFER_VARIANT ||
       offerAutoAdvanced.current ||
       !audience.preselectedRecommendationApplied
     ) {
       return
     }
-    if (audience.selectedListId !== null) {
+    // The free offer is an election-eve call, so its list lands the schedule
+    // on Nov 2. Prefilled, not locked: the candidate can move it.
+    const prefillOfferDay = () =>
+      setScheduledDay((day) => day ?? parseISO(ROBOCALL_FREE_OFFER_SEND_DATE))
+    if (
+      audience.selectedListId !== null &&
+      audience.selectedListId === preselected.existingFilterId
+    ) {
       offerAutoAdvanced.current = true
+      prefillOfferDay()
       goToSchedule()
     } else if (
       audience.selectedRecommendation?.variant === ROBOCALL_FREE_OFFER_VARIANT
     ) {
       offerAutoAdvanced.current = true
+      prefillOfferDay()
       void handleSelectedRecommendationContinue()
     }
   })

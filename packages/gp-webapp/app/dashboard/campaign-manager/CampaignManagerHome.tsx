@@ -7,6 +7,7 @@ import { useTrackerTasks } from '../campaign-plan/components/campaignStrategy/us
 import { useNewTrackerTasks } from '../campaign-plan/components/campaignStrategy/useNewTrackerTasks'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import RobocallFreeOfferCard from '../shared/robocallFreeOffer/RobocallFreeOfferCard'
+import { isFreeOfferTaskHref } from '../shared/robocallFreeOffer/isFreeOfferTask'
 import { FIRST_LANDING_PARAM } from './homeHeadlines'
 
 /**
@@ -33,6 +34,7 @@ export default function CampaignManagerHome(): React.JSX.Element {
   const [firstLanding] = useState(
     () => searchParams?.get(FIRST_LANDING_PARAM) === '1',
   )
+  const [frontTaskLink, setFrontTaskLink] = useState<string | null>(null)
   // A reload or a shared link must not greet them again.
   useEffect(() => {
     if (!firstLanding || !pathname) return
@@ -50,8 +52,12 @@ export default function CampaignManagerHome(): React.JSX.Element {
     // grey doesn't show through above it.
     <div className="flex min-h-screen flex-col bg-muted lg:-mb-24 lg:min-h-[calc(100dvh-3.5rem)] lg:pb-24">
       <div className="mx-auto flex w-full max-w-[720px] flex-col gap-4 px-4 pt-6 lg:my-auto lg:py-6">
-        <NextTaskCard surface="manager" firstLanding={firstLanding} />
-        <RobocallFreeOfferCard />
+        <NextTaskCard
+          surface="manager"
+          firstLanding={firstLanding}
+          onFrontTaskLinkChange={setFrontTaskLink}
+        />
+        {!isFreeOfferTaskHref(frontTaskLink) && <RobocallFreeOfferCard />}
       </div>
     </div>
   )

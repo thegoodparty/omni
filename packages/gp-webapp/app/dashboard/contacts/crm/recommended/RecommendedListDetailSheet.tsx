@@ -17,6 +17,7 @@ import {
 } from '@goodparty_org/contracts'
 import { useOrganization } from '@shared/organization-picker'
 import { freeOfferHref } from 'app/dashboard/shared/robocallFreeOffer/freeOfferHref'
+import { useRobocallFreeOffer } from 'app/dashboard/shared/robocallFreeOffer/useRobocallFreeOffer'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { getContactsLabels } from '../../../shared/contactsLabels'
 import { useContactsTable } from '../ContactsTableProvider'
@@ -55,6 +56,7 @@ export default function RecommendedListDetailSheet({
   const labels = getContactsLabels(isWinContext)
   const openChannelPicker = useOpenChannelPicker()
   const router = useRouter()
+  const { offer } = useRobocallFreeOffer()
   // A non-pro user has no upsell wired here — like ListDetailSheet, the
   // button communicates the lock through its icon alone.
   const { downloadFromHref, isPreparing } = useContactsDownload({
@@ -143,7 +145,10 @@ export default function RecommendedListDetailSheet({
                 // full-height sheets never stack.
                 onClose()
                 // The free robocall offer goes straight to robocall.
-                if (recommendation.variant === ROBOCALL_FREE_OFFER_VARIANT) {
+                if (
+                  offer &&
+                  recommendation.variant === ROBOCALL_FREE_OFFER_VARIANT
+                ) {
                   router.push(freeOfferHref('voter_data'))
                   return
                 }

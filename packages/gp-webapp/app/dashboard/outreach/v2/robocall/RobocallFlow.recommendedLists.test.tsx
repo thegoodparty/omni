@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
@@ -13,6 +13,24 @@ vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
 vi.mock('@shared/organization-picker', () => ({
   useOrganization: () => ({ slug: 'test-org' }),
 }))
+
+// The free robocall offer, as gp-api answers it. Not offered by default.
+let mockFreeOffer: {
+  offer: {
+    eligible: true
+    variant: 'freeOfferElectionEveRobocall'
+    count: number
+    coveredCalls: number
+  } | null
+} = { offer: null }
+vi.mock('app/dashboard/shared/robocallFreeOffer/useRobocallFreeOffer', () => ({
+  ROBOCALL_FREE_OFFER_QUERY_KEY: 'robocall-free-offer',
+  useRobocallFreeOffer: () => mockFreeOffer,
+}))
+
+afterEach(() => {
+  mockFreeOffer = { offer: null }
+})
 
 const RECOMMENDATION = {
   variant: 'persuadeAffinity' as const,
@@ -179,5 +197,92 @@ describe('RobocallFlow — recommended lists', () => {
     expect(
       screen.getByText(/Choose a voter list|View your lists here/),
     ).toBeInTheDocument()
+  })
+})
+
+describe('RobocallFlow — a link to the free robocall offer', () => {
+  const OFFER_RECOMMENDATION = {
+    variant: 'freeOfferElectionEveRobocall' as const,
+    intent: 'electionDay' as const,
+    filter: { voterStatus: ['Super', 'Likely'] },
+    count: 852,
+    copy: {
+      title: 'Landline voters in selected precincts',
+      criteriaSummary: 'Landline voters in half of your precincts.',
+    },
+    existingFilterId: 501,
+  }
+
+  beforeEach(() => {
+    api.mock('GET /v1/voters/voter-file/filters', {
+      status: 200,
+      data: [
+        {
+          id: 501,
+          name: 'Promotional robocall: landline voters in selected precincts',
+        },
+      ],
+    })
+    api.mock('GET /v1/campaigns/mine/recommended-lists', ({ query }) => ({
+      status: 200,
+      data:
+        query.variant === 'freeOfferElectionEveRobocall'
+          ? [OFFER_RECOMMENDATION]
+          : [],
+    }))
+    api.mock('GET /v1/contacts/list-detail', {
+      status: 200,
+      data: {
+        demographics: { people: 852, avgAge: null, avgIncome: null },
+        reachability: {
+          sms: null,
+          robocall: 852,
+          phoneBanking: null,
+          doorKnocking: null,
+          polls: null,
+        },
+        outreachHistory: [],
+      },
+    })
+  })
+
+  const renderOfferLink = () =>
+    render(
+      <RobocallFlow
+        source="campaign_manager"
+        open
+        onClose={vi.fn()}
+        preselectedRecommendedVariant="freeOfferElectionEveRobocall"
+      />,
+    )
+
+  it('goes on to schedule with election eve filled in while the offer is live', async () => {
+    mockFreeOffer = {
+      offer: {
+        eligible: true,
+        variant: 'freeOfferElectionEveRobocall',
+        count: 852,
+        coveredCalls: 8844,
+      },
+    }
+    renderOfferLink()
+
+    expect(await screen.findByText('Mon, Nov 2, 2026')).toBeInTheDocument()
+  })
+
+  it('stays on the audience step with no date filled in once the offer has ended', async () => {
+    renderOfferLink()
+
+    expect(
+      await screen.findByText(/Reach 852 supporters with landlines/),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Send date')).not.toBeInTheDocument()
+
+    await userEvent.click(
+      await screen.findByRole('button', { name: /^Continue/ }),
+    )
+
+    expect(await screen.findByText('Pick a date')).toBeInTheDocument()
+    expect(screen.queryByText('Mon, Nov 2, 2026')).not.toBeInTheDocument()
   })
 })

@@ -2,6 +2,7 @@ import { forwardRef, Module } from '@nestjs/common'
 import { ContactsModule } from '@/contacts/contacts.module'
 import { ElectionsModule } from '@/elections/elections.module'
 import { PeopleQueryModule } from '@/peopleDb/peopleQuery.module'
+import { ClerkModule } from '@/vendors/clerk/clerk.module'
 import { StripeModule } from 'src/vendors/stripe/stripe.module'
 import { RobocallFreeOfferService } from './services/robocallFreeOffer.service'
 
@@ -13,6 +14,7 @@ import { RobocallFreeOfferService } from './services/robocallFreeOffer.service'
     // ContactsModule pulls in CampaignsModule and onward to Peerly, which
     // loops back to Outreach, which imports this module.
     forwardRef(() => ContactsModule),
+    ClerkModule,
     ElectionsModule,
     PeopleQueryModule,
     StripeModule,

@@ -1,5 +1,11 @@
-import { BadRequestException, Injectable } from '@nestjs/common'
-import { randomInt } from 'node:crypto'
+import {
+  BadGatewayException,
+  BadRequestException,
+  Inject,
+  Injectable,
+} from '@nestjs/common'
+import { createHmac, randomInt } from 'node:crypto'
+import type { ClerkClient } from '@clerk/backend'
 import type Stripe from 'stripe'
 import { z } from 'zod'
 import {
@@ -7,7 +13,7 @@ import {
   ROBOCALL_FREE_OFFER_VARIANT,
 } from '@goodparty_org/contracts'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
-import { getEnv } from 'src/shared/util/env.util'
+import { getEnv, requireEnv } from 'src/shared/util/env.util'
 import { ContactsService } from '@/contacts/services/contacts.service'
 import { ElectionsService } from '@/elections/services/elections.service'
 import { CampaignExperimentAssignmentService } from '@/features/services/campaignExperimentAssignment.service'
@@ -17,6 +23,8 @@ import type { PrecinctLandlines } from '@/peopleDb/databricks/databricksVoter.se
 import type { DbxDistrict } from '@/peopleDb/databricks/databricksVoterSql.util'
 import { VoterRecommendedListsService } from '@/peopleDb/services/voterRecommendedLists.service'
 import { findEquivalentFilter } from '@/recommendedLists/recommendedListsDedupe.util'
+import { CLERK_CLIENT_PROVIDER_TOKEN } from '@/vendors/clerk/providers/clerk-client.provider'
+import { clerkCall } from '@/vendors/clerk/util/clerkCall.util'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
 import { Campaign, Organization, OutreachType } from '../../generated/prisma'
 import {
@@ -24,6 +32,8 @@ import {
   PRECINCT_ARMS,
   ROBOCALL_FREE_OFFER_ADVISORY_LOCK_KEY,
   ROBOCALL_FREE_OFFER_ARMS,
+  ROBOCALL_FREE_OFFER_CAP_CENTS,
+  ROBOCALL_FREE_OFFER_CODE_EXPIRES_AT,
   ROBOCALL_FREE_OFFER_CODE_PREFIX,
   ROBOCALL_FREE_OFFER_ELECTION_DATE,
   ROBOCALL_FREE_OFFER_EXPERIMENT_KEY,
@@ -66,6 +76,7 @@ export class RobocallFreeOfferService extends createPrismaBase(
   MODELS.RobocallExperimentPrecinct,
 ) {
   private readonly couponId = getEnv('ROBOCALL_FREE_OFFER_COUPON_ID') || null
+  private readonly codeSecret = requireEnv('AUTH_SECRET')
 
   constructor(
     private readonly features: FeaturesService,
@@ -74,6 +85,8 @@ export class RobocallFreeOfferService extends createPrismaBase(
     private readonly reads: VoterRecommendedListsService,
     private readonly elections: ElectionsService,
     private readonly stripe: StripeService,
+    @Inject(CLERK_CLIENT_PROVIDER_TOKEN)
+    private readonly clerk: ClerkClient,
   ) {
     super()
   }
@@ -197,6 +210,22 @@ export class RobocallFreeOfferService extends createPrismaBase(
         'This free offer code only works on your free offer robocall list',
       )
     if (promo.metadata?.campaignId !== String(campaign.id)) throw refuse()
+    // A live coupon created with the wrong amount or currency would otherwise
+    // be honored as whatever Stripe says it is worth.
+    const coupon = promo.promotion.coupon
+    if (
+      typeof coupon !== 'object' ||
+      coupon === null ||
+      coupon.amount_off !== ROBOCALL_FREE_OFFER_CAP_CENTS ||
+      coupon.currency !== 'usd' ||
+      coupon.percent_off != null
+    ) {
+      this.logger.error(
+        { promotionCodeId: promo.id, campaignId: campaign.id },
+        'robocall free offer: the offer coupon is not $400 off in usd',
+      )
+      throw refuse()
+    }
     if (voterFileFilterId === null) throw refuse()
     const precincts = await this.enrolledTreatmentPrecincts(
       organization,
@@ -210,8 +239,9 @@ export class RobocallFreeOfferService extends createPrismaBase(
   }
 
   // The code to apply to a fresh robocall draft, or null when the draft is
-  // not the campaign's offer run. Reuses the code from an earlier offer draft
-  // while it is still live in Stripe, else mints one.
+  // not the campaign's offer run. A campaign has exactly one code, derived
+  // from its id, so two drafts opened at once share it and the redeemed-code
+  // unique index lets only one of them spend it.
   async codeForDraft(params: {
     organization: Organization
     campaign: Campaign
@@ -230,28 +260,53 @@ export class RobocallFreeOfferService extends createPrismaBase(
       return null
     }
 
-    const earlier = await this.client.outreachRobocall.findFirst({
-      where: {
-        promoCode: { startsWith: ROBOCALL_FREE_OFFER_CODE_PREFIX },
-        outreach: { campaignId: campaign.id },
-      },
-      orderBy: { outreachId: 'desc' },
-      select: { promoCode: true },
-    })
-    if (earlier?.promoCode) {
-      const live = await this.stripe.findActivePromotionCode(earlier.promoCode)
-      if (live) return live.code
+    const code = this.campaignCode(campaign)
+    const live = await this.stripe.findActivePromotionCode(code)
+    if (live) return live.code
+    try {
+      const created = await this.stripe.createPromotionCode({
+        couponId: this.couponId,
+        code,
+        metadata: {
+          experiment: ROBOCALL_FREE_OFFER_EXPERIMENT_KEY,
+          campaignId: String(campaign.id),
+        },
+        expiresAt: ROBOCALL_FREE_OFFER_CODE_EXPIRES_AT,
+      })
+      return created.code
+    } catch (err) {
+      // A concurrent draft created the same code first; Stripe refuses the
+      // duplicate, so read the one it kept.
+      const raced = await this.stripe.findActivePromotionCode(code)
+      if (raced) return raced.code
+      throw err
     }
+  }
 
-    const created = await this.stripe.createPromotionCode({
-      couponId: this.couponId,
-      code: this.newCode(),
-      metadata: {
-        experiment: ROBOCALL_FREE_OFFER_EXPERIMENT_KEY,
-        campaignId: String(campaign.id),
-      },
+  // An offer run on a staff, demo or test-mode campaign loads only the
+  // owner's own phone: those campaigns sit in real districts and the run is
+  // free, so it must never reach real voters. Leans toward staff on purpose
+  // (either email counts, verified or not), because a wrong yes costs one
+  // call to the owner and a wrong no calls a district.
+  async dialsOwnerOnly(campaign: Campaign): Promise<boolean> {
+    if (campaign.isDemo) return true
+    const organization = await this.client.organization.findUnique({
+      where: { slug: campaign.organizationSlug },
+      select: { testModeCreatedAt: true },
     })
-    return created.code
+    if (organization?.testModeCreatedAt != null) return true
+    const owner = await this.client.user.findUnique({
+      where: { id: campaign.userId },
+      select: { email: true, clerkId: true },
+    })
+    if (!owner) return true
+    if (owner.email.toLowerCase().endsWith(INTERNAL_EMAIL_DOMAIN)) return true
+    if (!owner.clerkId) return false
+    const primary = await this.clerkPrimaryEmail(owner.clerkId)
+    return (
+      primary?.emailAddress.toLowerCase().endsWith(INTERNAL_EMAIL_DOMAIN) ??
+      false
+    )
   }
 
   // "THE list": saved from the offer card, untouched, and holding exactly
@@ -287,12 +342,43 @@ export class RobocallFreeOfferService extends createPrismaBase(
   // campaigns, in a preview or in prod. What the offer itself needs still
   // applies: Win, before Election Day, the offer used once, and enough
   // precincts to split. The readout leaves these campaigns out.
+  //
+  // Staff is the owner's Clerk primary email, verified, on goodparty.org.
+  // User.email does not count because PUT /v1/users/me sets it with no
+  // verification; it only spares everyone else a Clerk round-trip.
   private async hasInternalOwner(campaign: Campaign): Promise<boolean> {
     const owner = await this.client.user.findUnique({
       where: { id: campaign.userId },
-      select: { email: true },
+      select: { email: true, clerkId: true },
     })
-    return owner?.email.toLowerCase().endsWith(INTERNAL_EMAIL_DOMAIN) ?? false
+    if (!owner?.clerkId) return false
+    if (!owner.email.toLowerCase().endsWith(INTERNAL_EMAIL_DOMAIN)) return false
+    // A Clerk outage must not fail every staff dashboard load; not-staff only
+    // means the candidate rules apply.
+    const primary = await this.clerkPrimaryEmail(owner.clerkId).catch(
+      () => null,
+    )
+    return (
+      primary?.verification?.status === 'verified' &&
+      primary.emailAddress.toLowerCase().endsWith(INTERNAL_EMAIL_DOMAIN)
+    )
+  }
+
+  private async clerkPrimaryEmail(clerkId: string) {
+    try {
+      const user = await clerkCall(
+        'users.getUser',
+        { 'clerk.user_id': clerkId },
+        () => this.clerk.users.getUser(clerkId),
+      )
+      return user.primaryEmailAddress
+    } catch (err) {
+      this.logger.error(
+        { err, clerkId },
+        'robocall free offer: could not read the owner from Clerk',
+      )
+      throw new BadGatewayException('Failed to read the campaign owner')
+    }
   }
 
   // Rules read straight off the campaign and organization rows.
@@ -501,11 +587,16 @@ export class RobocallFreeOfferService extends createPrismaBase(
     return position?.isWinIcp === true
   }
 
-  private newCode(): string {
-    let suffix = ''
-    for (let i = 0; i < CODE_LENGTH; i++) {
-      suffix += CODE_ALPHABET[randomInt(CODE_ALPHABET.length)]
-    }
+  // Keyed with a server secret so a code cannot be worked out from a
+  // campaign id. 256 is a multiple of the alphabet's 32, so every letter is
+  // equally likely.
+  private campaignCode(campaign: Campaign): string {
+    const digest = createHmac('sha256', this.codeSecret)
+      .update(`${ROBOCALL_FREE_OFFER_EXPERIMENT_KEY}:${campaign.id}`)
+      .digest()
+    const suffix = [...digest.subarray(0, CODE_LENGTH)]
+      .map((byte) => CODE_ALPHABET[byte % CODE_ALPHABET.length])
+      .join('')
     return `${ROBOCALL_FREE_OFFER_CODE_PREFIX}${suffix}`
   }
 }

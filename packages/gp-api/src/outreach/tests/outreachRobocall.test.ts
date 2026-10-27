@@ -327,6 +327,91 @@ describe('POST /v1/outreach/robocall/draft', () => {
     expect(res.status).toBe(HttpStatus.BAD_GATEWAY)
   })
 
+  describe('election-day reminder timing', () => {
+    beforeEach(async () => {
+      await service.prisma.campaign.update({
+        where: { id: campaign.id },
+        data: { details: { ...campaign.details, electionDate: '2026-11-03' } },
+      })
+      mockDraft('A script.')
+    })
+
+    const expectDateNeutral = (userPrompt: string) => {
+      expect(userPrompt).toContain('a reminder to vote on Election Day')
+      expect(userPrompt).toContain('"[election date]"')
+      expect(userPrompt).not.toContain('today is Election Day')
+      expect(userPrompt).not.toContain('tomorrow is Election Day')
+      expect(userPrompt).not.toContain('vote today')
+    }
+
+    it('says today is Election Day when the call goes out on election day', async () => {
+      const res = await postDraft({
+        purpose: 'election_day_turnout',
+        tone: 'warm',
+        scheduledLocalDate: '2026-11-03',
+      })
+
+      expect(res.status).toBe(HttpStatus.CREATED)
+      expect(userContent()).toContain('a reminder that today is Election Day')
+      expect(userContent()).not.toContain('tomorrow is Election Day')
+    })
+
+    it('says tomorrow is Election Day when the call goes out the day before', async () => {
+      const res = await postDraft({
+        purpose: 'election_day_turnout',
+        tone: 'warm',
+        scheduledLocalDate: '2026-11-02',
+      })
+
+      expect(res.status).toBe(HttpStatus.CREATED)
+      expect(userContent()).toContain(
+        'a reminder that tomorrow is Election Day',
+      )
+      expect(userContent()).not.toContain('today is Election Day')
+    })
+
+    it.each([
+      ['an earlier send day', { scheduledLocalDate: '2026-10-30' }],
+      ['no send day', {}],
+    ])('keeps the wording date-neutral with %s', async (_label, extra) => {
+      const res = await postDraft({
+        purpose: 'election_day_turnout',
+        tone: 'warm',
+        ...extra,
+      })
+
+      expect(res.status).toBe(HttpStatus.CREATED)
+      expectDateNeutral(userContent())
+    })
+
+    it('keeps the wording date-neutral when the campaign has no election date', async () => {
+      await service.prisma.campaign.update({
+        where: { id: campaign.id },
+        data: { details: campaign.details },
+      })
+
+      const res = await postDraft({
+        purpose: 'election_day_turnout',
+        tone: 'warm',
+        scheduledLocalDate: '2026-11-03',
+      })
+
+      expect(res.status).toBe(HttpStatus.CREATED)
+      expectDateNeutral(userContent())
+    })
+
+    it('rejects a malformed send day without calling the LLM', async () => {
+      const res = await postDraft({
+        purpose: 'election_day_turnout',
+        tone: 'warm',
+        scheduledLocalDate: '2026-11-03T09:00:00Z',
+      })
+
+      expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+      expect(jsonCompletion).not.toHaveBeenCalled()
+    })
+  })
+
   // Not Pro-gated (outreach-pro-gating-v2): the free build path drafts a
   // script before upgrading, exactly as the sms script draft already does.
   it('allows a non-Pro campaign to draft a script', async () => {

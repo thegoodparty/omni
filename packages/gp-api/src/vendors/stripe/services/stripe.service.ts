@@ -16,7 +16,7 @@ import {
   PurchaseIntentPayloadEntry,
 } from 'src/payments/payments.types'
 import { serializeError } from 'serialize-error'
-import { addDays, fromUnixTime } from 'date-fns'
+import { addDays, fromUnixTime, getUnixTime } from 'date-fns'
 import { SlackService } from 'src/vendors/slack/services/slack.service'
 import Stripe from 'stripe'
 
@@ -485,16 +485,19 @@ export class StripeService {
     couponId,
     code,
     metadata,
+    expiresAt,
   }: {
     couponId: string
     code: string
     metadata: Record<string, string>
+    expiresAt: Date
   }): Promise<Stripe.PromotionCode> {
     try {
       return await this.stripe.promotionCodes.create({
         promotion: { type: 'coupon', coupon: couponId },
         code,
         max_redemptions: 1,
+        expires_at: getUnixTime(expiresAt),
         metadata,
       })
     } catch (err) {

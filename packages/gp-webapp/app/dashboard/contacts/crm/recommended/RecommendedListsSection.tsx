@@ -41,11 +41,12 @@ export default function RecommendedListsSection() {
 
   if (!isWin) return null
 
-  const freeOffer =
-    recommendations.find(
-      (recommendation) =>
-        recommendation.variant === ROBOCALL_FREE_OFFER_VARIANT,
-    ) ?? null
+  const freeOffer = offer
+    ? (recommendations.find(
+        (recommendation) =>
+          recommendation.variant === ROBOCALL_FREE_OFFER_VARIANT,
+      ) ?? null)
+    : null
   const otherRecommendations = recommendations.filter(
     (recommendation) => recommendation.variant !== ROBOCALL_FREE_OFFER_VARIANT,
   )

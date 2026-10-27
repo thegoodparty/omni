@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import type { ClerkClient } from '@clerk/backend'
 import { BadGatewayException, BadRequestException } from '@nestjs/common'
 import {
   addHours,
@@ -27,6 +28,7 @@ import { CallhubPermanentError } from '@/vendors/callhub/services/callhubErrorHa
 import { OutreachRobocallHoldService } from '@/outreach/services/outreachRobocallHold.service'
 import { OutreachRobocallStrandedService } from '@/outreach/services/outreachRobocallStranded.service'
 import { S3Service } from '@/vendors/aws/services/s3.service'
+import { CLERK_CLIENT_PROVIDER_TOKEN } from '@/vendors/clerk/providers/clerk-client.provider'
 import { Campaign, RobocallSettleState } from '../../generated/prisma'
 import { disableVendorCrons } from '@/shared/test-utils/vendorCronsGate.util'
 
@@ -673,6 +675,88 @@ describe('OutreachRobocallStagingService.stageCampaign', () => {
     const satellite = await readSatellite(outreachId)
     expect(satellite.settleState).toBe(RobocallSettleState.staging)
     expect(satellite.callhubCampaignPkStr).toBeNull()
+  })
+})
+
+// The free robocall offer: a run paid by its code on a staff, demo or
+// test-mode campaign sits in a real district and costs nothing, so it may
+// only ever call the owner.
+describe('OutreachRobocallStagingService.stageCampaign for a free offer run', () => {
+  const createOfferRun = async () => {
+    const outreachId = await createDraft()
+    await service.prisma.outreachRobocall.update({
+      where: { outreachId },
+      data: { promoCode: 'GPOFFER-TESTCODE', promoCoversTotal: true },
+    })
+    return outreachId
+  }
+
+  const asCandidate = async () => {
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { email: 'candidate@example.com' },
+    })
+    const clerk = service.app.get<ClerkClient>(CLERK_CLIENT_PROVIDER_TOKEN)
+    vi.spyOn(clerk.users, 'getUser').mockResolvedValue({
+      primaryEmailAddress: {
+        emailAddress: 'candidate@example.com',
+        verification: { status: 'verified' },
+      },
+    } as unknown as Awaited<ReturnType<ClerkClient['users']['getUser']>>)
+  }
+
+  it('loads only the owner phone for a goodparty.org owner', async () => {
+    const outreachId = await createOfferRun()
+
+    await staging.stageCampaign(outreachId)
+
+    expect(loadAudienceSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ id: campaign.id }),
+      filterId,
+      true,
+    )
+  })
+
+  it('loads only the owner phone on a demo campaign', async () => {
+    await asCandidate()
+    await service.prisma.campaign.update({
+      where: { id: campaign.id },
+      data: { isDemo: true },
+    })
+    const outreachId = await createOfferRun()
+
+    await staging.stageCampaign(outreachId)
+
+    expect(loadAudienceSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ id: campaign.id }),
+      filterId,
+      true,
+    )
+  })
+
+  it('loads the voter list for a candidate', async () => {
+    await asCandidate()
+    const outreachId = await createOfferRun()
+
+    await staging.stageCampaign(outreachId)
+
+    expect(loadAudienceSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ id: campaign.id }),
+      filterId,
+      false,
+    )
+  })
+
+  it('loads the voter list for a paid run on a goodparty.org campaign', async () => {
+    const outreachId = await createDraft()
+
+    await staging.stageCampaign(outreachId)
+
+    expect(loadAudienceSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ id: campaign.id }),
+      filterId,
+      false,
+    )
   })
 })
 
