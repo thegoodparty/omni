@@ -3,7 +3,7 @@ title: User.email changes only by copying a Clerk-verified address
 status: active
 decided_by: [agent]
 date: 2026-10-27
-code: ['#PR_NUMBER']
+code: ['#3306']
 scope:
   - packages/gp-api/src/users/**
   - packages/gp-api/src/vendors/clerk/**
