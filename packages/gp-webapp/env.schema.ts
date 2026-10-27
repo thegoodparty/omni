@@ -88,12 +88,6 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
   // unusable, not open — so it's a setting, not a boot dependency.
   REVALIDATE_SECRET: { tier: 'optional' },
 
-  // Server-only Amplitude Experiment deployment key, read by the sign-up
-  // page to evaluate signup-profile-claim-variation for an anonymous visitor
-  // (app/sign-up/profileClaimVariation.ts). Never NEXT_PUBLIC_. Unset means
-  // every visitor sees the original sign-up panel.
-  AMPLITUDE_EXPERIMENT_DEPLOYMENT_KEY: { tier: 'optional' },
-
   // Build-time only: Sentry source-map upload during `next build`.
   SENTRY_AUTH_TOKEN: { tier: 'optional' },
 }

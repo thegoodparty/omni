@@ -5,25 +5,24 @@ import {
   UserRoundIcon,
 } from '@styleguide/components/ui/icons'
 
-// Layout from Figma: Sign-up page - Voter Guide (2636:129481 desktop,
-// 2643:130227 mobile). The copy promises only what sign-up does today: no
-// identity check, and the account is not linked to the profile the visitor
-// came from, which the page does not know.
+// Figma: Sign-up page - Voter Guide (2636:129481 desktop, 2643:130227 mobile),
+// copy included, as approved by tonypham-goodparty. Not personalized: the page
+// does not know which profile the visitor came from.
 const FEATURES = [
   {
     Icon: UserRoundIcon,
-    title: 'Create your free account',
-    description: 'Sign up with your email or your Google account.',
+    title: 'Verify your identity',
+    description: "Confirm you're the elected official or candidate.",
   },
   {
     Icon: PenLineIcon,
-    title: 'Tell us about your race or office',
-    description: "Pick the office you're running for or serving in.",
+    title: 'Update your profile',
+    description: 'Keep your bio, positions, and accomplishments up to date.',
   },
   {
     Icon: ChartColumnIncreasingIcon,
-    title: 'Reach your community',
-    description: 'Get tools to connect with the people in your community.',
+    title: 'Reach more voters',
+    description: 'Help your community learn more about your work and views.',
   },
 ]
 
@@ -45,10 +44,11 @@ export default function ClaimProfilePanel({
           Claim your profile
         </p>
         <h2 className="font-outfit text-[2.5rem] leading-13 font-semibold text-base-foreground lg:max-w-130 lg:text-5xl lg:leading-15">
-          Get started with a free GoodParty.org account
+          Claim your voter guide profile
         </h2>
         <p className="text-xl text-black lg:max-w-131">
-          Create your account, then tell us about your race or your office.
+          Create an account to claim your GoodParty.org profile and keep your
+          community informed.
         </p>
       </header>
 

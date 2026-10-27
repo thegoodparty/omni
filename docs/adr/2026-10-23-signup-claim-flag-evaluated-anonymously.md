@@ -1,6 +1,6 @@
 ---
 title: The sign-up claim panel flag is evaluated for anonymous visitors by the sign-up page itself
-status: active
+status: superseded
 decided_by: [tonypham-goodparty]
 date: 2026-10-23
 code: ['#3286']
@@ -8,7 +8,7 @@ scope:
   - packages/gp-webapp/app/sign-up/**
   - packages/gp-webapp/env.schema.ts
 supersedes: []
-superseded_by:
+superseded_by: 2026-10-27-signup-claim-panel-shown-by-url-source.md
 ---
 
 # The sign-up claim panel flag is evaluated for anonymous visitors by the sign-up page itself
