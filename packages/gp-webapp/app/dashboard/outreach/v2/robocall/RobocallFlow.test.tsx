@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import type { Editor } from '@tiptap/react'
 import userEvent from '@testing-library/user-event'
+import { addDays, format } from 'date-fns'
 import type {
   OutreachDetail,
   RobocallAuthorizeStatus,
@@ -1627,6 +1628,22 @@ describe('RobocallFlow', () => {
     await gotoComposeRaw()
     await waitFor(() => expect(scriptText()).toMatch(/^A grounded script\./))
     expect(draftBody).not.toHaveProperty('callbackNumber')
+  })
+
+  // An election-day reminder says "today" or "tomorrow" only when gp-api
+  // knows which day the call goes out.
+  it('drafts with the scheduled send day', async () => {
+    let draftBody: RobocallScriptDraftRequest | null = null
+    api.mock('POST /v1/outreach/robocall/draft', ({ body }) => {
+      draftBody = body
+      return { status: 200, data: { draft: 'A grounded script.' } }
+    })
+
+    await gotoComposeRaw()
+    await waitFor(() => expect(scriptText()).toMatch(/^A grounded script\./))
+    expect(draftBody).toMatchObject({
+      scheduledLocalDate: format(addDays(new Date(), 60), 'yyyy-MM-dd'),
+    })
   })
 
   it('does not draft the old purpose if it changes while renting', async () => {

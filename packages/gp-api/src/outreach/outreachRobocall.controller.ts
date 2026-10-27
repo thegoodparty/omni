@@ -216,6 +216,7 @@ export class OutreachRobocallController {
         await this.resolveOffice(campaign),
         String(user.id),
         await this.composeContext.buildCampaignContext(campaign),
+        campaign.details?.electionDate,
       ),
     }
   }

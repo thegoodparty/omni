@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { addDays, parseISO } from 'date-fns'
+import { addDays, format, parseISO } from 'date-fns'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   deriveRobocallProtectedParts,
@@ -542,6 +542,9 @@ export const RobocallFlow = ({
         purpose: p,
         tone: t,
         ...(currentDraft === undefined ? {} : { currentDraft }),
+        ...(scheduledDay === undefined
+          ? {}
+          : { scheduledLocalDate: format(scheduledDay, 'yyyy-MM-dd') }),
       },
       {
         onSuccess: (draft) => {
