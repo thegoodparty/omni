@@ -72,25 +72,30 @@ const answersMissing = (
   )
 
 // Answers within their group's share of the floor count toward a balanced
-// read; past it, a group's extra answers count for nothing more. One answer
-// counts on every dimension, so the dimension furthest behind sets it. The
-// floor is never under the answers its smallest major group needs, so a
-// read with every group at its share has every major group heard.
+// read; past it, a group's extra answers count for nothing more. Only the
+// major groups the read decides on hold seats, shared out by their part of
+// the district on each dimension, so a small group or the pooled rest never
+// holds a seat empty. One answer counts on every dimension, so the
+// dimension furthest behind sets it. The floor is never under the answers
+// its smallest major group needs, so every group at its share has every
+// major group heard, and a good read fills every seat.
 const representativeOf = (
-  groups: readonly MrpGroupEstimate[],
   majors: readonly MrpGroupEstimate[],
   dimensions: TargetedDimension[],
   answers: number,
   floor: number,
+  good: boolean,
 ): { representativeAnswers: number; representativeNeeded: number } => {
   const needed = Math.max(
     1,
     floor,
     answersNeeded(Math.min(...majors.map((group) => group.share))),
   )
+  if (good)
+    return { representativeAnswers: needed, representativeNeeded: needed }
   const counted = Math.min(
     ...dimensions.flatMap((dimension) => {
-      const on = groups.filter((group) => group.dimension === dimension)
+      const on = majors.filter((group) => group.dimension === dimension)
       const known = on.reduce((sum, group) => sum + group.share, 0)
       if (known <= 0) return []
       return on.reduce(
@@ -210,11 +215,11 @@ export const mrpReadStatus = (input: {
       return named !== null && underrepresented.includes(named)
     }).length,
     ...representativeOf(
-      groups,
       majors,
       dimensions,
       answers,
       read?.answersNeeded ?? 0,
+      status === 'representative',
     ),
     good: status === 'representative',
     status,
