@@ -1,3 +1,4 @@
+import type { ClerkClient } from '@clerk/backend'
 import { HttpStatus } from '@nestjs/common'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
@@ -7,6 +8,7 @@ import { ElectionsService } from '@/elections/services/elections.service'
 import { FeaturesService } from '@/features/services/features.service'
 import { VoterRecommendedListsService } from '@/peopleDb/services/voterRecommendedLists.service'
 import { RobocallFreeOfferService } from '@/robocallFreeOffer/services/robocallFreeOffer.service'
+import { CLERK_CLIENT_PROVIDER_TOKEN } from '@/vendors/clerk/providers/clerk-client.provider'
 
 // The webapp asks this on every Home, outreach, voter data and plan load for
 // every Win campaign, so a campaign without the offer has to be answered
@@ -40,6 +42,13 @@ const stubRaceContext = () =>
     } as never)
 
 beforeEach(async () => {
+  const clerk = service.app.get<ClerkClient>(CLERK_CLIENT_PROVIDER_TOKEN)
+  vi.spyOn(clerk.users, 'getUser').mockResolvedValue({
+    primaryEmailAddress: {
+      emailAddress: service.user.email,
+      verification: { status: 'verified' },
+    },
+  } as unknown as Awaited<ReturnType<ClerkClient['users']['getUser']>>)
   // No overrideDistrictId and no positionId: a Win campaign without voter
   // data.
   await service.prisma.organization.create({

@@ -353,7 +353,11 @@ export class RobocallFreeOfferService extends createPrismaBase(
     })
     if (!owner?.clerkId) return false
     if (!owner.email.toLowerCase().endsWith(INTERNAL_EMAIL_DOMAIN)) return false
-    const primary = await this.clerkPrimaryEmail(owner.clerkId)
+    // A Clerk outage must not fail every staff dashboard load; not-staff only
+    // means the candidate rules apply.
+    const primary = await this.clerkPrimaryEmail(owner.clerkId).catch(
+      () => null,
+    )
     return (
       primary?.verification?.status === 'verified' &&
       primary.emailAddress.toLowerCase().endsWith(INTERNAL_EMAIL_DOMAIN)
