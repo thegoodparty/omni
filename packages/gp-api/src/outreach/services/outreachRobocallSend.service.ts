@@ -102,7 +102,11 @@ const robocallDialEstimateBufferMinutes = () =>
 // the configured 120 — which #3263 removed, so that apparent "slowdown" was the
 // clamp, not vendor pacing. Campaigns now dial at the configured 120 (confirmed in
 // CallHub), so 1.1 leaves a thin genuine-pacing margin on top of the flat buffer
-// and frees the pool close to the real dial time. Fractional, so read through
+// and frees the pool close to the real dial time. This trusts stagedCallsPerMinute
+// as the REAL dial rate — true since #3263 froze the APPLIED frequency, not the
+// requested one; a row staged BEFORE #3263 froze the requested 120 while dialing
+// the ~60 clamp, so a divisor near 1 is only safe once no such pre-#3263 run is
+// still in flight. Fractional, so read through
 // envNumber. Env-overridable (read at call time): if a real large run shows the
 // dial materially lags 120, raise this env toward 1.5 without a deploy. For a large
 // audience the ceiling can exceed the 48h settlement floor, in which case the
