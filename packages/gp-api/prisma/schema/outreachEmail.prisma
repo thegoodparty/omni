@@ -1,0 +1,58 @@
+// Email outreach channel. Design: TDD "2026-10-26 | Email outreach channel
+// v1" (ClickUp page 2ky4jq2q-157273) and src/emailOutreach/AGENTS.md.
+
+// The 1:1 satellite of an Outreach row with outreachType = email. The send
+// time is Outreach.date.
+model OutreachEmail {
+  id                       Int                       @id @default(autoincrement())
+  createdAt                DateTime                  @default(now()) @map("created_at")
+  updatedAt                DateTime                  @updatedAt @map("updated_at")
+  outreachId               Int                       @unique @map("outreach_id")
+  outreach                 Outreach                  @relation(fields: [outreachId], references: [id], onDelete: Cascade)
+  senderId                 Int                       @map("sender_id")
+  sender                   OutreachEmailSender       @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  // Recipients are written straight onto the send by a test upload until
+  // the shared contact lists land; consent is confirmed per send meanwhile.
+  consentConfirmedAt       DateTime?                 @map("consent_confirmed_at")
+  consentConfirmedByUserId Int?                      @map("consent_confirmed_by_user_id")
+  goal                     String
+  // Keys into EMAIL_LAYOUTS and EMAIL_THEMES in @goodparty_org/contracts.
+  // Strings, not enums, so a new theme needs no migration. A shipped theme
+  // key is never edited in place; a changed theme gets a new key.
+  layout                   String
+  theme                    String
+  subject                  String
+  headline                 String?
+  body                     String
+  imageUrl                 String?                   @map("image_url")
+  buttonLabel              String?                   @map("button_label")
+  buttonUrl                String?                   @map("button_url")
+  paidForBy                String?                   @map("paid_for_by")
+  // Frozen at confirm; never raised afterward, so the estimate, the hold
+  // and the send agree.
+  recipientCap             Int?                      @map("recipient_cap")
+  sesTemplateName          String?                   @map("ses_template_name")
+  preparedAt               DateTime?                 @map("prepared_at")
+  stoppingAt               DateTime?                 @map("stopping_at")
+  sentCount                Int                       @default(0) @map("sent_count")
+  unsubscribedCount        Int                       @default(0) @map("unsubscribed_count")
+  pausedAt                 DateTime?                 @map("paused_at")
+  pauseReason              OutreachEmailPauseReason? @map("pause_reason")
+  // Bounce and complaint rates come from SES's CloudWatch metrics, not
+  // counters here. Auto-pause reads them from the last staff resume on, so a
+  // resume doesn't immediately re-pause.
+  resumedAt                DateTime?                 @map("resumed_at")
+  recipients               OutreachEmailRecipient[]
+  replies                  OutreachEmailReply[]
+
+  @@map("outreach_email")
+}
+
+enum OutreachEmailPauseReason {
+  bounce_rate
+  complaint_rate
+  ses_account
+  ses_tenant
+  daily_quota
+  manual
+}
