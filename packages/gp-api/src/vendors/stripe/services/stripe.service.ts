@@ -16,7 +16,7 @@ import {
   PurchaseIntentPayloadEntry,
 } from 'src/payments/payments.types'
 import { serializeError } from 'serialize-error'
-import { addDays, fromUnixTime, getUnixTime } from 'date-fns'
+import { addDays, addHours, fromUnixTime, getUnixTime } from 'date-fns'
 import { SlackService } from 'src/vendors/slack/services/slack.service'
 import Stripe from 'stripe'
 
@@ -29,6 +29,18 @@ export class StripeHoldDeclinedError extends Error {
   constructor(message: string) {
     super(message)
     this.name = 'StripeHoldDeclinedError'
+  }
+}
+
+// An outreach payment hold the card refused. Carries Stripe's decline code so
+// the hold row can record why.
+export class StripeOutreachHoldDeclinedError extends StripeHoldDeclinedError {
+  constructor(
+    message: string,
+    readonly declineCode: string | null,
+  ) {
+    super(message)
+    this.name = 'StripeOutreachHoldDeclinedError'
   }
 }
 
@@ -326,6 +338,80 @@ export class StripeService {
       captureBefore: captureBeforeUnix
         ? fromUnixTime(captureBeforeUnix)
         : addDays(new Date(), 7),
+    }
+  }
+
+  // The shared outreach hold (src/paymentHolds/). On-session when the user is
+  // there to see a decline, off-session from a sweep. Stripe refuses a replayed
+  // idempotency key whose parameters differ, so a retry of one attempt must
+  // pass the same offSession as the attempt it replays.
+  async createOutreachManualCaptureHold({
+    customerId,
+    paymentMethodId,
+    amountInCents,
+    outreachId,
+    holdAttempt,
+    offSession,
+    metadata,
+  }: {
+    customerId: string
+    paymentMethodId: string
+    amountInCents: number
+    outreachId: number
+    holdAttempt: number
+    offSession: boolean
+    metadata: Record<string, string>
+  }): Promise<{ paymentIntentId: string; captureBefore: Date }> {
+    let intent: Stripe.PaymentIntent
+    try {
+      intent = await this.stripe.paymentIntents.create(
+        {
+          amount: amountInCents,
+          currency: 'usd',
+          customer: customerId,
+          payment_method: paymentMethodId,
+          capture_method: 'manual',
+          confirm: true,
+          ...(offSession ? { off_session: true } : {}),
+          metadata,
+          expand: ['latest_charge'],
+        },
+        {
+          idempotencyKey: `outreach-hold-${customerId}-${outreachId}-${holdAttempt}`,
+        },
+      )
+    } catch (err) {
+      if (err instanceof Stripe.errors.StripeCardError) {
+        throw new StripeOutreachHoldDeclinedError(
+          err.message,
+          err.decline_code ?? err.code ?? null,
+        )
+      }
+      this.logger.error({ err }, 'Failed to place outreach payment hold')
+      throw new BadGatewayException('Failed to place payment hold')
+    }
+
+    // A confirmed intent short of requires_capture (requires_action with no
+    // one to authenticate, requires_payment_method) holds no funds.
+    if (intent.status !== 'requires_capture') {
+      throw new StripeOutreachHoldDeclinedError(
+        `Hold did not authorize: status ${intent.status}`,
+        intent.last_payment_error?.decline_code ?? intent.status,
+      )
+    }
+
+    // Stripe puts the deadline on the charge's card details, not the intent.
+    // Without it, assume the shortest card window (Visa off-session, 4 days
+    // 18 hours) rather than overstate how long the hold lasts.
+    const charge =
+      typeof intent.latest_charge === 'object' ? intent.latest_charge : null
+    const captureBeforeUnix =
+      charge?.payment_method_details?.card?.capture_before
+    return {
+      paymentIntentId: intent.id,
+      captureBefore: captureBeforeUnix
+        ? fromUnixTime(captureBeforeUnix)
+        : addHours(new Date(), 4 * 24 + 18),
     }
   }
 
