@@ -69,7 +69,7 @@ import { EmailOutreachModule } from '@/emailOutreach/emailOutreach.module'
     // For FeedbackSynthesisIngestService, the `feedbackSynthesisComplete`
     // handler.
     ConstituentFeedbackModule,
-    // For EmailOutreachQueueService, the four email handlers.
+    // For EmailOutreachQueueService, the email handlers.
     EmailOutreachModule,
   ],
   providers: [QueueConsumerService],
