@@ -1,4 +1,12 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+  type Mock,
+} from 'vitest'
 import {
   PeopleDbxClientAbortedError,
   PeopleDbxStatementClient,
@@ -35,7 +43,7 @@ const succeeded = (dataArray: Array<Array<string | null>>) => ({
 
 describe('PeopleDbxStatementClient', () => {
   const original = new Map<string, string | undefined>()
-  let fetchMock: ReturnType<typeof vi.fn>
+  let fetchMock: Mock<(url: string, init?: RequestInit) => Promise<object>>
   let client: PeopleDbxStatementClient
 
   // Read through mock.calls rather than a side array: a test that overrides
@@ -56,7 +64,14 @@ describe('PeopleDbxStatementClient', () => {
     process.env.PEOPLE_DATABRICKS_API_KEY = 'pat-token'
 
     fetchMock = vi.fn(() => Promise.resolve(jsonResponse(succeeded([['1']]))))
-    vi.stubGlobal('fetch', fetchMock)
+    // A Segment client another file in this worker started can flush on its
+    // timer mid-test; letting it reach fetchMock shifts callAt indexes and
+    // eats a queued Once response.
+    vi.stubGlobal('fetch', (url: string, init?: RequestInit) =>
+      String(url).startsWith('https://api.segment.io/')
+        ? Promise.resolve(new Response(null, { status: 200 }))
+        : fetchMock(url, init),
+    )
     client = new PeopleDbxStatementClient({
       setContext: vi.fn(),
       info: vi.fn(),
