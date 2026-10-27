@@ -325,6 +325,24 @@ candidate's saved `draft` row in place (`draftOutreachId`) and discarding its
 id would send the re-entry into a 409. Robocall runs the same shape through its own contract
 (`POST /v1/outreach/robocall` + the pay step's authorization hold).
 
+A robocall whose pay-time hold is DECLINED lands `pending_payment` on the spine
+and `hold_failed` on the satellite, and that row stays visible in history (the
+one `pending_payment` row the backend no longer hides). It carries a `robocall`
+block (`OutreachRobocallDetail` on the list row — `audioKey`, `callbackNumber`,
+`billableCount`, `settleState`), and `row.robocall?.settleState ===
+'hold_failed'` is how every surface flags it: `historyStatus.util.ts` labels it
+"Payment failed", and `OutreachDetailsDrawer` renders a payment-failed note plus
+an "Update card and resend" footer. That footer calls the same `onResumeDraft`
+path a saved draft's does, so the hub routes it into `RobocallFlow` as a resume
+(`isResumableRow` in `OutreachHubPage.tsx` treats a `hold_failed` robocall as
+resumable alongside `draft` rows). The resume lands on the schedule step with
+its PAST send date dropped — the candidate must pick a fresh future date — then
+the pay step re-posts `POST /v1/outreach/robocall` with `draftOutreachId`, which
+`convertDraft` now accepts for a `hold_failed` row, re-deriving billing and
+landing it back at `pending_payment` for a new authorization hold. A repeat
+decline shows the pay step's existing retry card. No re-record: the recording,
+script, caller-ID number and audience are reused.
+
 The pay step's Stripe session comes from `CheckoutSessionProvider`
 (`app/dashboard/purchase/components/`). When gp-api refuses to create it, the
 provider shows the 4xx `message` as-is (Stripe's own validation text
