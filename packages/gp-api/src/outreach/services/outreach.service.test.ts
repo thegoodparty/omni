@@ -436,12 +436,12 @@ describe('OutreachService', () => {
 
     describe('duplicate send guard (ENG-11510)', () => {
       const dupDraft = {
-        id: 87116,
+        id: 47,
         campaignId: 1,
         outreachType: OutreachType.p2p,
         status: OutreachStatus.pending,
         imageUrl: 'https://assets.goodparty.org/outreach/img.png',
-        phoneListId: 3236000,
+        phoneListId: 100,
         script: 'hello voter',
         message: null,
         identityId: 'ident-1',
@@ -463,7 +463,7 @@ describe('OutreachService', () => {
         // 1st findFirst is the defer peek, 2nd is the duplicate lookup.
         mockOutreachFindFirst
           .mockResolvedValueOnce({
-            phoneListId: 3236000,
+            phoneListId: 100,
             outreachType: OutreachType.p2p,
             p2pSms: null,
           })
@@ -475,49 +475,49 @@ describe('OutreachService', () => {
       }
 
       it('refuses to submit a second copy and releases the payment through cancel', async () => {
-        stubClaimedDraft({ id: 87122 })
+        stubClaimedDraft({ id: 48 })
         const cancel = vi
           .spyOn(service, 'cancelOutreach')
           .mockResolvedValue({ outreach: dupDraft as never, refunded: false })
 
         const outcome = await service.finalizeOutreachPurchase(
-          87116,
+          47,
           1,
           'cs_live_abc',
         )
 
         expect(outcome).toBe('duplicate_refused')
         expect(mockPeerlyCreateJob).not.toHaveBeenCalled()
-        expect(cancel).toHaveBeenCalledWith(87116, 1, {
-          canceledBy: 'system:duplicate-send-guard:87122',
+        expect(cancel).toHaveBeenCalledWith(47, 1, {
+          canceledBy: 'system:duplicate-send-guard:48',
           byAdmin: true,
           restoreFreeTexts: false,
         })
         // The session is recorded first so a non-hold refund can resolve it.
         expect(mockOutreachUpdateMany).toHaveBeenCalledWith({
-          where: { id: 87116, campaignId: 1 },
+          where: { id: 47, campaignId: 1 },
           data: { stripeCheckoutSessionId: 'cs_live_abc' },
         })
         expect(mockMaterializeOutreach).not.toHaveBeenCalled()
       })
 
       it('looks only for a submitted, live send of the same message to the same list and date', async () => {
-        stubClaimedDraft({ id: 87122 })
+        stubClaimedDraft({ id: 48 })
         vi.spyOn(service, 'cancelOutreach').mockResolvedValue({
           outreach: dupDraft as never,
           refunded: false,
         })
 
-        await service.finalizeOutreachPurchase(87116, 1, 'cs_live_abc')
+        await service.finalizeOutreachPurchase(47, 1, 'cs_live_abc')
 
         expect(mockOutreachFindFirst).toHaveBeenNthCalledWith(
           2,
           expect.objectContaining({
             where: {
-              id: { not: 87116 },
+              id: { not: 47 },
               campaignId: 1,
               outreachType: OutreachType.p2p,
-              phoneListId: 3236000,
+              phoneListId: 100,
               script: 'hello voter',
               message: null,
               date: dupDraft.date,
@@ -543,7 +543,7 @@ describe('OutreachService', () => {
         })
 
         const outcome = await service.finalizeOutreachPurchase(
-          87116,
+          47,
           1,
           'cs_live_abc',
         )
@@ -554,19 +554,19 @@ describe('OutreachService', () => {
       })
 
       it('re-arms the draft and rethrows when the payment cannot be released', async () => {
-        stubClaimedDraft({ id: 87122 })
+        stubClaimedDraft({ id: 48 })
         vi.spyOn(service, 'cancelOutreach').mockRejectedValue(
           new BadGatewayException('refund failed'),
         )
 
         await expect(
-          service.finalizeOutreachPurchase(87116, 1, 'cs_live_abc'),
+          service.finalizeOutreachPurchase(47, 1, 'cs_live_abc'),
         ).rejects.toThrow('refund failed')
 
         expect(mockPeerlyCreateJob).not.toHaveBeenCalled()
         expect(mockOutreachUpdateMany).toHaveBeenLastCalledWith({
           where: {
-            id: 87116,
+            id: 47,
             status: OutreachStatus.pending,
             projectId: null,
           },
@@ -577,7 +577,7 @@ describe('OutreachService', () => {
       it('re-arms the draft and rethrows when the duplicate lookup fails', async () => {
         mockOutreachFindFirst
           .mockResolvedValueOnce({
-            phoneListId: 3236000,
+            phoneListId: 100,
             outreachType: OutreachType.p2p,
             p2pSms: null,
           })
@@ -587,14 +587,14 @@ describe('OutreachService', () => {
         const cancel = vi.spyOn(service, 'cancelOutreach')
 
         await expect(
-          service.finalizeOutreachPurchase(87116, 1, 'cs_live_abc'),
+          service.finalizeOutreachPurchase(47, 1, 'cs_live_abc'),
         ).rejects.toThrow('connection reset')
 
         expect(mockPeerlyCreateJob).not.toHaveBeenCalled()
         expect(cancel).not.toHaveBeenCalled()
         expect(mockOutreachUpdateMany).toHaveBeenLastCalledWith({
           where: {
-            id: 87116,
+            id: 47,
             status: OutreachStatus.pending,
             projectId: null,
           },
