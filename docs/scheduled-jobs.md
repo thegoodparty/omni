@@ -113,6 +113,24 @@ Choose the stale window to comfortably exceed the longest _legitimate_ run. The
 6h daily window is sized for the meeting-briefings loop (batched with 20-minute
 sleeps). Don't reuse a long window for a short slot: 6h spans six hourly slots.
 
+## Lease a row for runs longer than a minute
+
+A minute `CronLockService` claim goes stale after 30 seconds, which is shorter
+than a job that runs for most of its minute. For a per-minute job that must have
+exactly one runner across replicas and keeps working for up to 50 seconds, take
+a lease on a single row instead. The email send sweep does this with
+`email_sweep_lease` (`src/emailOutreach/services/outreachEmailSendSweep.service.ts`):
+
+- **Take** with one `UPDATE ... WHERE expires_at < now() OR holder = $me`. Zero
+  rows updated means another replica holds it, so return.
+- **Renew** on every batch, and **release** in a `finally` by setting
+  `expires_at = now()`.
+- **Check for work first,** before taking the lease, so an idle minute costs one
+  query.
+
+The test database reset deletes every row, including the seeded lease row, so
+tests that touch the sweep insert it themselves.
+
 ## Vendor-cron gate
 
 Jobs that spend money or hit a vendor rate limit gate on `VENDOR_CRONS_ENABLED`
