@@ -1,10 +1,11 @@
 import { EMAIL_VARIABLES, emailVariableToken } from './emailTemplate.const'
 
-const VARIABLE_OPEN = ''
-const VARIABLE_CLOSE = ''
-const BRACE_OPEN = ''
-const BRACE_CLOSE = ''
-const ZERO_WIDTH_SPACE = '​'
+const VARIABLE_OPEN = '\uE000'
+const VARIABLE_CLOSE = '\uE001'
+const BRACE_OPEN = '\uE002'
+const BRACE_CLOSE = '\uE003'
+const BACKSLASH_GUARD = '\uE004'
+const ZERO_WIDTH_SPACE = '\u200B'
 
 const USER_VARIABLES = [EMAIL_VARIABLES.firstName, EMAIL_VARIABLES.lastName]
 
@@ -20,9 +21,12 @@ const sentinel = (name: string): string =>
 
 // Turns user-typed text into a string that survives React's escaping with the
 // two merge tags marked and every other brace neutralized. SES templates are
-// Handlebars, so a `{{` typed by a user would otherwise become a variable.
+// Handlebars, so a `{{` typed by a user would otherwise become a variable, and
+// a backslash before a brace would escape one, so it is followed by a
+// zero-width space.
 export const protectUserText = (text: string): string =>
   text
+    .replace(/\\(?=\{)/g, `\\${BACKSLASH_GUARD}`)
     .replace(USER_VARIABLE_PATTERN, (match) => sentinel(match.slice(2, -2)))
     .replace(/\{/g, BRACE_OPEN)
     .replace(/\}/g, BRACE_CLOSE)
@@ -42,8 +46,10 @@ export const restoreHtml = (html: string): string =>
   restoreVariables(html)
     .replaceAll(BRACE_OPEN, '&#123;')
     .replaceAll(BRACE_CLOSE, '&#125;')
+    .replaceAll(BACKSLASH_GUARD, ZERO_WIDTH_SPACE)
 
 export const restorePlainText = (text: string): string =>
   restoreVariables(text)
     .replaceAll(BRACE_OPEN, `{${ZERO_WIDTH_SPACE}`)
     .replaceAll(BRACE_CLOSE, `}${ZERO_WIDTH_SPACE}`)
+    .replaceAll(BACKSLASH_GUARD, ZERO_WIDTH_SPACE)

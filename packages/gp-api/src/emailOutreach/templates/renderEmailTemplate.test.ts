@@ -191,4 +191,32 @@ describe('renderEmailTemplate', () => {
     expect(text).toContain('RSVP')
     expect(text).toContain('https://example.com/rsvp?a=1&b=2')
   })
+
+  it.each(LAYOUTS)(
+    'keeps merge tags and the headline case in the %s plain text',
+    async (layout) => {
+      const { text } = await renderEmailTemplate(
+        layout,
+        'classic_blue',
+        content({ headline: 'Hello {{first_name}} from Renee' }),
+      )
+      expect(text).toContain('Hello {{first_name}} from Renee')
+      expect(text).not.toMatch(/[\uE000-\uE004]/)
+    },
+  )
+
+  it('does not let a backslash escape a merge tag', async () => {
+    const { html, text, subject } = await renderEmailTemplate(
+      'newsletter',
+      'classic_blue',
+      content({
+        subject: '\\{{first_name}}',
+        body: 'Hi \\{{first_name}} and \\{{x}}',
+      }),
+    )
+    for (const value of [html, text, subject]) {
+      expect(value).not.toContain('\\{{first_name}}')
+      expect(value).toContain('\\\u200B{{first_name}}')
+    }
+  })
 })

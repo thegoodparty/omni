@@ -95,7 +95,7 @@ const Block = ({
               : {}),
           }}
         >
-          {children ?? (height ? ' ' : null)}
+          {children ?? (height ? <>&nbsp;</> : null)}
         </td>
       </tr>
     </tbody>

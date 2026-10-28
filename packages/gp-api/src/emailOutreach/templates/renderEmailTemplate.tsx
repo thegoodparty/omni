@@ -73,7 +73,16 @@ export const renderEmailTemplate = async (
   )
   const [html, text] = await Promise.all([
     render(element),
-    render(element, { plainText: true }),
+    render(element, {
+      plainText: true,
+      htmlToTextOptions: {
+        selectors: [
+          { selector: 'img', format: 'skip' },
+          { selector: '#__react-email-preview', format: 'skip' },
+          { selector: 'h1', options: { uppercase: false } },
+        ],
+      },
+    }),
   ])
   return {
     html: restoreHtml(html),
