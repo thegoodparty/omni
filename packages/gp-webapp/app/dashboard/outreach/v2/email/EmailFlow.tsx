@@ -186,6 +186,7 @@ export const EmailFlow = ({
           issues={issues}
           showIssues={composeAttempted}
           senderName={sender?.displayName ?? ''}
+          goal={goalText}
         />
       )}
       {step === 'audience' && draftId !== null && (
@@ -213,6 +214,7 @@ export const EmailFlow = ({
           surface={surface}
           compose={compose}
           result={upload}
+          draftId={draftId}
           sendLabel={sendLabel}
         />
       )}

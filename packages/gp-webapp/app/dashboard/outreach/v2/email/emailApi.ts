@@ -1,9 +1,13 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type {
+  EmailAiDraftRequest,
+  EmailAiDraftResponse,
   EmailDraft,
   EmailDraftSave,
+  EmailImagePresignRequest,
   EmailRecipientUploadResponse,
   EmailSender,
+  EmailTestSendResponse,
 } from '@goodparty_org/contracts'
 import { clientRequest } from 'gpApi/typed-request'
 
@@ -61,6 +65,49 @@ export const uploadEmailRecipients = async (
         body,
       })
     : clientRequest('POST /v1/outreach/email/:id/recipients', id, { body }))
+  return data
+}
+
+export const draftEmailWithAi = async (
+  serve: boolean,
+  input: EmailAiDraftRequest,
+): Promise<EmailAiDraftResponse> =>
+  (
+    await (serve
+      ? clientRequest('POST /v1/outreach/serve/email/draft', input)
+      : clientRequest('POST /v1/outreach/email/draft', input))
+  ).data
+
+// The saved imageUrl must be the publicUrl gp-api presigned, so the file goes
+// straight to S3 with the returned form fields and the URL comes from here.
+export const uploadEmailImage = async (
+  serve: boolean,
+  file: File,
+  contentType: EmailImagePresignRequest['contentType'],
+): Promise<string> => {
+  const { data: presign } = await (serve
+    ? clientRequest('POST /v1/outreach/serve/email/images/presign', {
+        contentType,
+      })
+    : clientRequest('POST /v1/outreach/email/images/presign', { contentType }))
+  const body = new FormData()
+  Object.entries(presign.fields).forEach(([key, value]) =>
+    body.append(key, value),
+  )
+  body.append('file', file)
+  const response = await fetch(presign.url, { method: 'POST', body })
+  if (!response.ok) throw new Error('Image upload failed')
+  return presign.publicUrl
+}
+
+export const sendEmailTest = async (
+  serve: boolean,
+  draftId: number,
+): Promise<EmailTestSendResponse> => {
+  const id = { id: String(draftId) }
+  const { data } = await (serve
+    ? clientRequest('POST /v1/outreach/serve/email/:id/test', id)
+    : clientRequest('POST /v1/outreach/email/:id/test', id))
   return data
 }
 

@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { api } from 'helpers/test-utils/api-mocking'
@@ -69,7 +69,9 @@ beforeAll(() => {
 })
 
 describe('EmailFlow', () => {
-  it('holds the goal step until a goal is picked and names the placeholders', async () => {
+  afterEach(() => vi.restoreAllMocks())
+
+  it('holds the goal step until a goal is picked and shows the compose controls', async () => {
     mockApi()
     render(<EmailFlow open onClose={vi.fn()} />)
 
@@ -80,8 +82,110 @@ describe('EmailFlow', () => {
       .click(screen.getByText('Introduce myself to voters'))
 
     expect(await screen.findByLabelText('Subject')).toBeInTheDocument()
-    expect(screen.getByTestId('email-coming-soon-ai-draft')).toBeInTheDocument()
-    expect(screen.getByTestId('email-coming-soon-image')).toBeInTheDocument()
+    expect(screen.getByTestId('email-ai-draft')).toBeInTheDocument()
+    expect(screen.getByTestId('email-image')).toBeInTheDocument()
+  })
+
+  it('drafts with AI, sending the goal and tone, and fills the fields', async () => {
+    mockApi()
+    const requests: unknown[] = []
+    api.mock('POST /v1/outreach/email/draft', ({ body }) => {
+      requests.push(body)
+      return {
+        status: 200,
+        data: {
+          subject: 'Meet your neighbor',
+          headline: 'Hello',
+          body: 'Hi {{first_name}}, I am running.',
+          buttonLabel: null,
+        },
+      }
+    })
+    const user = userEvent.setup()
+    render(<EmailFlow open onClose={vi.fn()} />)
+
+    await user.click(screen.getByText('Introduce myself to voters'))
+    await user.click(await screen.findByText('Urgent'))
+    await user.click(screen.getByRole('button', { name: 'Draft it with AI' }))
+
+    await waitFor(() =>
+      expect(screen.getByLabelText('Subject')).toHaveValue(
+        'Meet your neighbor',
+      ),
+    )
+    expect(requests[0]).toEqual({
+      goal: 'Introduce myself to voters',
+      tone: 'urgent',
+      layout: 'newsletter',
+    })
+    expect(
+      screen.getByRole('button', { name: 'Regenerate' }),
+    ).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Improve with AI' }))
+    await waitFor(() => expect(requests).toHaveLength(2))
+    expect(requests[1]).toMatchObject({
+      currentDraft: { subject: 'Meet your neighbor', headline: 'Hello' },
+    })
+  })
+
+  it('shows the API error when the AI draft fails', async () => {
+    mockApi()
+    api.mock('POST /v1/outreach/email/draft', {
+      status: 502,
+      data: { message: 'We could not draft that. Try again.' },
+    })
+    const user = userEvent.setup()
+    render(<EmailFlow open onClose={vi.fn()} />)
+
+    await user.click(screen.getByText('Introduce myself to voters'))
+    await user.click(
+      await screen.findByRole('button', { name: 'Draft it with AI' }),
+    )
+
+    expect(
+      await screen.findByText('We could not draft that. Try again.'),
+    ).toBeInTheDocument()
+  })
+
+  it('uploads the image to the presigned URL and saves the public URL', async () => {
+    const saves = mockApi()
+    const publicUrl = 'https://assets.example.com/email-images/org/abc.png'
+    api.mock('POST /v1/outreach/email/images/presign', {
+      status: 200,
+      data: {
+        url: 'https://s3.example.com/bucket',
+        fields: {
+          key: 'email-images/org/abc.png',
+          'Content-Type': 'image/png',
+        },
+        publicUrl,
+        expiresIn: 600,
+      },
+    })
+    const posted: FormData[] = []
+    const realFetch = globalThis.fetch
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      if (String(input) === 'https://s3.example.com/bucket') {
+        posted.push(init?.body as FormData)
+        return new Response(null, { status: 204 })
+      }
+      return realFetch(input, init)
+    })
+    const user = userEvent.setup()
+    render(<EmailFlow open onClose={vi.fn()} />)
+
+    await fillCompose(user)
+    await user.upload(
+      screen.getByLabelText('Image (optional)'),
+      new File(['x'], 'logo.png', { type: 'image/png' }),
+    )
+    await screen.findByRole('button', { name: 'Remove image' })
+    expect([...posted[0]!.keys()]).toEqual(['key', 'Content-Type', 'file'])
+
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await waitFor(() => expect(saves).toHaveLength(1))
+    expect(saves[0]).toMatchObject({ imageUrl: publicUrl })
   })
 
   it('saves the draft, uploads the list and shows the cap copy', async () => {
@@ -147,11 +251,45 @@ describe('EmailFlow', () => {
       await screen.findByText(/Replies go to renee@example.com/),
     ).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Change' })).toBeInTheDocument()
-    for (const feature of ['test-send', 'price', 'pay']) {
+    for (const feature of ['price', 'pay']) {
       expect(
         screen.getByTestId(`email-coming-soon-${feature}`),
       ).toBeInTheDocument()
     }
+  })
+
+  it('sends a test email for the saved draft from the review step', async () => {
+    mockApi()
+    api.mock('POST /v1/outreach/email/:id/test', {
+      status: 200,
+      data: { sentTo: 'renee@example.com' },
+    })
+    const user = userEvent.setup()
+    render(<EmailFlow open onClose={vi.fn()} />)
+
+    await fillCompose(user)
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await screen.findByText('Who do you want to reach?')
+    await user.upload(
+      screen.getByLabelText('Your list (CSV)'),
+      new File(['email\na@b.com'], 'list.csv', { type: 'text/csv' }),
+    )
+    await user.click(
+      screen.getByLabelText(
+        'These people agreed to get email from my campaign.',
+      ),
+    )
+    await user.click(screen.getByRole('button', { name: 'Check my list' }))
+    await screen.findByTestId('email-upload-summary')
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await screen.findByText('When should it go out?')
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await screen.findByText('Ready to send?')
+
+    await user.click(screen.getByRole('button', { name: 'Send me a test' }))
+    expect(
+      await screen.findByText('Test sent to renee@example.com.'),
+    ).toBeInTheDocument()
   })
 
   it('sends the Serve surface through the office-scoped routes with constituent copy', async () => {

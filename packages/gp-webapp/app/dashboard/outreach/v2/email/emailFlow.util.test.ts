@@ -68,6 +68,24 @@ describe('composeIssues', () => {
 })
 
 describe('toDraftSave', () => {
+  it('includes the uploaded image url', () => {
+    expect(
+      toDraftSave(
+        'Intro',
+        {
+          ...initialCompose,
+          subject: 'S',
+          body: 'B',
+          imageUrl: 'https://assets.example.com/email-images/o/x.png',
+        },
+        null,
+        undefined,
+      ),
+    ).toMatchObject({
+      imageUrl: 'https://assets.example.com/email-images/o/x.png',
+    })
+  })
+
   it('omits empty optionals so the full-replace save clears them', () => {
     expect(
       toDraftSave(

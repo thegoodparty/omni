@@ -12,6 +12,7 @@ The email stepper. Win opens at `/dashboard/outreach/email` behind `win-email-ou
 | `emailApi.ts`             | Typed calls to `/v1/outreach/email/*`, or `/v1/outreach/serve/email/*` when `surface.isServe`                                                             |
 | `EmailComingSoon.tsx`     | Placeholder for a feature whose backend has not shipped                                           |
 | `EmailPreview.tsx`        | Approximate preview from the theme's color roles                                                  |
+| `app/dev/email-templates` | Dev-only gallery of every layout and theme through `EmailPreview`; its Playwright test attaches screenshots |
 
 ## Gotchas
 
@@ -19,4 +20,5 @@ The email stepper. Win opens at `/dashboard/outreach/email` behind `win-email-ou
 - `POST /v1/outreach/email` is a full replace. The flow re-sends every field on each save.
 - The audience step is a stopgap (CSV test upload) until shared lists land. It is one component, `EmailAudienceStep`, so it swaps out cleanly.
 - The warming cap on the audience and review steps is the TDD ladder indexed by `sender.warmingStep`. gp-api freezes the real cap at confirm.
-- Placeholders are found by `data-testid="email-coming-soon-<feature>"`: `ai-draft`, `image`, `test-send`, `price`, `pay`, `status`. Replace the usage when its backend merges.
+- The AI draft, image upload and test send call C2's routes (`/draft`, `/images/presign`, `/:id/test`). The image goes straight to S3 with the presigned form fields, and the saved `imageUrl` must be the returned `publicUrl`; gp-api rejects any other URL. The test send needs the saved draft id, so it lives on the review step.
+- Placeholders are found by `data-testid="email-coming-soon-<feature>"`: `price`, `pay`, `status`. Replace the usage when its backend merges.
