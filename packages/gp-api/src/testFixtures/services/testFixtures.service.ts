@@ -71,6 +71,7 @@ import Stripe from 'stripe'
 import {
   Campaign,
   DomainSource,
+  OutreachType,
   TcrComplianceStatus,
   User,
   WebsiteStatus,
@@ -783,6 +784,12 @@ export class TestFixturesService {
     let poolFreedAt = outreach.robocall?.poolFreedAt ?? null
 
     if (
+      body.action.startsWith('email.') &&
+      outreach.outreachType !== OutreachType.email
+    ) {
+      throw new BadRequestException(`${body.action} needs an email send`)
+    }
+    if (
       body.action === 'robocall.send_due_now' ||
       body.action === 'email.send_due_now'
     ) {
@@ -809,14 +816,16 @@ export class TestFixturesService {
       poolFreedAt = outreach.robocall.poolFreedAt !== null ? backdated : null
     } else if (body.action === 'email.sent_6m_ago') {
       // The settle sweep waits 5 minutes after a send's last email for SES's
-      // numbers before it finishes the send.
-      await this.campaigns.client.outreachEmailRecipient.updateMany({
-        where: {
-          outreachEmail: { outreachId: outreach.id },
-          sentAt: { not: null },
-        },
-        data: { sentAt: subMinutes(new Date(), 6) },
-      })
+      // numbers before it finishes the send. Shifting keeps the send's own
+      // window, which warming reads back from CloudWatch.
+      await this.campaigns.client.$executeRaw`
+        UPDATE outreach_email_recipient r
+        SET sent_at = r.sent_at - interval '6 minutes'
+        FROM outreach_email e
+        WHERE e.id = r.outreach_email_id
+          AND e.outreach_id = ${outreach.id}
+          AND r.sent_at IS NOT NULL
+      `
     } else if (
       body.action === 'sms.start_date_today' ||
       body.action === 'sms.start_date_passed'
@@ -861,6 +870,14 @@ export class TestFixturesService {
       if (!campaign) throw new NotFoundException('No campaign for caller')
       return campaign
     }
+    // Live mode keeps the email crons off on purpose; run here, they would
+    // send real email and capture real holds.
+    const emailMockOnly = async (run: () => Promise<void>) => {
+      if (VENDOR_MODE !== 'mock') {
+        throw new NotFoundException(`${name} runs only against vendor mocks`)
+      }
+      await run()
+    }
     const jobs: Record<string, () => Promise<void>> = {
       'robocall.staging': () => this.robocallStaging.runStaging(),
       'robocall.send': async () => {
@@ -889,17 +906,23 @@ export class TestFixturesService {
       // beside its cron is safe: due and settle claim per row, and the send
       // sweep holds the lease.
       'email.due': () =>
-        this.moduleRef
-          .get(OutreachEmailLifecycleService, { strict: false })
-          .startDueSends(),
+        emailMockOnly(() =>
+          this.moduleRef
+            .get(OutreachEmailLifecycleService, { strict: false })
+            .startDueSends(),
+        ),
       'email.sweep': () =>
-        this.moduleRef
-          .get(OutreachEmailSendSweepService, { strict: false })
-          .runTick(),
+        emailMockOnly(() =>
+          this.moduleRef
+            .get(OutreachEmailSendSweepService, { strict: false })
+            .runTick(),
+        ),
       'email.settle': () =>
-        this.moduleRef
-          .get(OutreachEmailLifecycleService, { strict: false })
-          .settleFinishedSends(),
+        emailMockOnly(() =>
+          this.moduleRef
+            .get(OutreachEmailLifecycleService, { strict: false })
+            .settleFinishedSends(),
+        ),
       'tcr.complianceSweep': async () => {
         const campaign = await callerCampaign()
         await this.checkCampaignUsecaseActivation(campaign.id)

@@ -169,6 +169,7 @@ const isAlreadyExists = (err: Error): boolean =>
 @Injectable()
 export class SesService extends AwsService {
   private readonly client: SESv2Client
+  private readonly bulkClient: SESv2Client
   private readonly cloudwatch: CloudWatchClient
 
   constructor(protected readonly logger: PinoLogger) {
@@ -183,18 +184,18 @@ export class SesService extends AwsService {
       requestTimeout: SES_REQUEST_TIMEOUT_MS,
       connectionTimeout: SES_CONNECTION_TIMEOUT_MS,
     }
-    this.client = new SESv2Client({
+    const sesConfig = {
       region: SES_REGION,
       requestHandler,
-      // SendBulkEmail isn't idempotent: the SDK's own retry of a timeout or
-      // 5xx can resend a batch SES already accepted. The sweep requeues a
-      // failed batch for its next tick, and every other call here is either
-      // safe to repeat or retried by its caller.
-      maxAttempts: 1,
       ...(mock
         ? { endpoint: vendorBaseUrl('ses', ''), credentials: mockCredentials }
         : {}),
-    })
+    }
+    this.client = new SESv2Client(sesConfig)
+    // SendBulkEmail isn't idempotent: the SDK's own retry of a timeout or
+    // 5xx can resend a batch SES already accepted. The sweep requeues a
+    // failed batch for its next tick instead.
+    this.bulkClient = new SESv2Client({ ...sesConfig, maxAttempts: 1 })
     this.cloudwatch = new CloudWatchClient({
       region: SES_REGION,
       requestHandler,
@@ -345,7 +346,7 @@ export class SesService extends AwsService {
 
   async sendBulk(input: SesBulkInput): Promise<SesBulkOutcome> {
     try {
-      const result = await this.client.send(
+      const result = await this.bulkClient.send(
         new SendBulkEmailCommand({
           FromEmailAddress: input.from,
           ConfigurationSetName: outreachConfigurationSet(),

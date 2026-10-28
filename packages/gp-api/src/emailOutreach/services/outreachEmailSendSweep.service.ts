@@ -80,6 +80,7 @@ type ActiveSend = {
   outreachId: number
   organizationSlug: string
   campaignId: number | null
+  preparedAt: Date
   tenantName: string
   templateName: string
   from: string
@@ -317,7 +318,7 @@ export class OutreachEmailSendSweepService extends createPrismaBase(
     const active: ActiveSend[] = []
     for (const row of rows) {
       const tenantName = row.sender.sesTenantName
-      if (!tenantName || !row.sesTemplateName) {
+      if (!tenantName || !row.sesTemplateName || !row.preparedAt) {
         this.logger.error(
           { outreachEmailId: row.id },
           'A prepared email send has no tenant or template',
@@ -331,6 +332,7 @@ export class OutreachEmailSendSweepService extends createPrismaBase(
         organizationSlug:
           row.outreach.organizationSlug ?? row.sender.organizationSlug,
         campaignId: row.outreach.campaignId,
+        preparedAt: row.preparedAt,
         tenantName,
         templateName: row.sesTemplateName,
         from: formatFrom(row.sender.displayName, address),
@@ -568,7 +570,9 @@ export class OutreachEmailSendSweepService extends createPrismaBase(
   }
 
   // Prepare drops unsubscribes once. Someone who unsubscribes while a send
-  // runs, or while it sits paused, must not get the rest of it.
+  // runs, or while it sits paused, must not get the rest of it. Only
+  // suppressions written since prepare can match, so the join starts there
+  // rather than probing every queued row each tick.
   private async dropUnsubscribed(send: ActiveSend): Promise<void> {
     const slugs = await this.prepare.suppressionSlugsFor(
       send.organizationSlug,
@@ -576,14 +580,13 @@ export class OutreachEmailSendSweepService extends createPrismaBase(
     )
     await this.client.$executeRaw`
       DELETE FROM outreach_email_recipient r
-      WHERE r.outreach_email_id = ${send.id}
+      USING outreach_email_suppression s
+      WHERE s.organization_slug = ANY(${slugs})
+        AND s.revoked_at IS NULL
+        AND s.updated_at >= ${send.preparedAt}
+        AND r.outreach_email_id = ${send.id}
+        AND r.email = s.email
         AND r.status = 'queued'
-        AND EXISTS (
-          SELECT 1 FROM outreach_email_suppression s
-          WHERE s.email = r.email
-            AND s.organization_slug = ANY(${slugs})
-            AND s.revoked_at IS NULL
-        )
     `
   }
 

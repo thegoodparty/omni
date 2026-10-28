@@ -1,5 +1,6 @@
 import { HttpStatus } from '@nestjs/common'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { subMinutes } from 'date-fns'
 import {
   OfficeLevel,
   OutreachStatus,
@@ -629,7 +630,7 @@ describe('the email fixture hooks', () => {
     })
   })
 
-  it('backdates a send so the settle sweep can finish it', async () => {
+  const seedEmailSend = async (sentAt: Date) => {
     const campaign = await seedCampaign(service.user.id)
     const sender = await service.prisma.outreachEmailSender.create({
       data: {
@@ -662,9 +663,15 @@ describe('the email fixture hooks', () => {
         outreachEmailId: outreach.email!.id,
         senderId: sender.id,
         email: 'success@simulator.amazonses.com',
-        sentAt: new Date(),
+        sentAt,
       },
     })
+    return outreach
+  }
+
+  it('shifts a send back 6 minutes so the settle sweep can finish it', async () => {
+    const sentAt = subMinutes(new Date(), 2)
+    const outreach = await seedEmailSend(sentAt)
 
     const res = await service.client.post(
       '/v1/test-fixtures/vendor-mocks/time-travel',
@@ -677,9 +684,35 @@ describe('the email fixture hooks', () => {
       await service.prisma.outreachEmailRecipient.findFirstOrThrow({
         where: { outreachEmailId: outreach.email!.id },
       })
-    expect(Date.now() - recipient.sentAt!.getTime()).toBeGreaterThan(
-      5 * 60 * 1000,
+    expect(sentAt.getTime() - recipient.sentAt!.getTime()).toBe(6 * 60 * 1000)
+  })
+
+  it('refuses an email time travel on a send of another channel', async () => {
+    const campaign = await seedCampaign(service.user.id)
+    const outreach = await service.prisma.outreach.create({
+      data: { outreachType: OutreachType.robocall, campaignId: campaign.id },
+    })
+    const res = await service.client.post(
+      '/v1/test-fixtures/vendor-mocks/time-travel',
+      { outreachId: outreach.id, action: 'email.send_due_now' },
+      { validateStatus: () => true },
     )
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+  })
+
+  it('refuses the email jobs outside vendor-mock mode', async () => {
+    appEnvOverrides.VENDOR_MODE = 'live'
+    const run = vi.spyOn(
+      service.app.get(OutreachEmailSendSweepService),
+      'runTick',
+    )
+    const res = await service.client.post(
+      '/v1/test-fixtures/vendor-mocks/jobs/email.sweep/run',
+      {},
+      { validateStatus: () => true },
+    )
+    expect(res.status).toBe(HttpStatus.NOT_FOUND)
+    expect(run).not.toHaveBeenCalled()
   })
 
   it.each([

@@ -63,7 +63,7 @@ import {
   ListObjectsV2Command,
   S3Client,
 } from '@aws-sdk/client-s3'
-import { addDays } from 'date-fns'
+import { addDays, subMinutes } from 'date-fns'
 import {
   OutreachEmailPauseReason,
   OutreachEmailRecipientStatus,
@@ -107,6 +107,7 @@ const PARTIAL_TICK_MS = 45_000
 const METRICS_WAIT_MS = 15 * 60_000
 const INBOUND_WAIT_MS = 10 * 60_000
 const POLL_MS = 20_000
+const INBOUND_CLOCK_SLACK_MINUTES = 5
 
 // The script's own copy of the services it drives. The lifecycle service's
 // hold and queue dependencies are never reached by `finish`, so they are
@@ -443,7 +444,13 @@ const findInboundFor = async (
       )
       for (const object of page.Contents ?? []) {
         if (!object.Key || seen.has(object.Key)) continue
-        if (!object.LastModified || object.LastModified < since) continue
+        // Slack for a laptop clock ahead of S3's.
+        if (
+          !object.LastModified ||
+          object.LastModified < subMinutes(since, INBOUND_CLOCK_SLACK_MINUTES)
+        ) {
+          continue
+        }
         seen.add(object.Key)
         const fetched = await services.s3.send(
           new GetObjectCommand({ Bucket: bucket, Key: object.Key }),
