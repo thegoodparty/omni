@@ -257,6 +257,27 @@ The primary validate job is named **"Validate"** across all
 packages. Shared steps are factored into `.github/actions/` (setup-node-workspace,
 vercel-deploy, pulumi-deploy).
 
+### Credentials and the `production` environment
+
+A job that runs only from `main` (push, schedule or dispatch) and holds a
+credential that can change production declares the `production` GitHub
+environment, with `deployment: false` so it stays out of the deployment history
+`finalize` writes. Today that is the train's six Vercel deploy jobs (dev and
+prod alike, since `VERCEL_TOKEN` can deploy every target), `dependabot-merge.yml`
+and `sync.yml`. A secret that only those jobs read can live in the environment
+rather than at repo scope, where (once the environment is limited to `main`)
+a pull request run cannot read it.
+
+Two things to check before adding the environment to a job. It changes the
+job's OIDC subject from `ref:refs/heads/main` to `environment:production`, so
+every role or federation policy the job authenticates to must accept that
+subject (the judge sweep role and the Databricks federation policy in
+`analytics-governance.yml` are pinned to the ref and do not). And a secret the
+job reads must not also be read on a pull request, or moving it breaks that run.
+
+PR preview deploys read `VERCEL_PREVIEW_TOKEN`, falling back to `VERCEL_TOKEN`
+while the preview token is unset.
+
 ### Base images
 
 Every Dockerfile `FROM`, and the buildx builder image, pulls from ECR Public

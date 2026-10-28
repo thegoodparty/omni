@@ -24,6 +24,11 @@ jobs:
   sync:
     if: vars.SYNC_DISABLED != 'true'
     runs-on: ubuntu-latest
+    # The production environment holds the sync app key, which can write to
+    # omni. deployment: false: this job deploys nothing.
+    environment:
+      name: production
+      deployment: false
     env:
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
     steps:
