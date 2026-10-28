@@ -1,15 +1,15 @@
 # Win email flow
 
-The Win email stepper, opened at `/dashboard/outreach/email` behind the `win-email-outreach` flag (UI-only; gp-api's routes are not gated). Backend: `packages/gp-api/src/emailOutreach/AGENTS.md`. The hub card arrives with the Serve surface; until then the route is the only way in.
+The email stepper. Win opens at `/dashboard/outreach/email` behind `win-email-outreach`; the Win hub's Email tile navigates there. Serve mounts `EmailFlow` with `SERVE_EMAIL_SURFACE` from the Serve hub's Email card, behind `serve-email-outreach`. Both flags are UI-only; gp-api's routes are not gated. Backend: `packages/gp-api/src/emailOutreach/AGENTS.md`.
 
 ## Key files
 
 | Path                      | Purpose                                                                                           |
 | ------------------------- | ------------------------------------------------------------------------------------------------- |
 | `EmailFlow.tsx`           | Step state and the shell. Order: goal, compose, audience, schedule, review                        |
-| `emailSurface.ts`         | `EmailSurface`: every string that names the people. Win is `WIN_EMAIL_SURFACE`; Serve adds its own |
+| `emailSurface.ts`         | `EmailSurface`: every string that names the people, plus `isServe`. `WIN_EMAIL_SURFACE` and `SERVE_EMAIL_SURFACE` |
 | `emailFlow.util.ts`       | Compose validation, draft payload, schedule check, upload summary, warming cap ladder             |
-| `emailApi.ts`             | Typed calls to `/v1/outreach/email/*`                                                             |
+| `emailApi.ts`             | Typed calls to `/v1/outreach/email/*`, or `/v1/outreach/serve/email/*` when `surface.isServe`                                                             |
 | `EmailComingSoon.tsx`     | Placeholder for a feature whose backend has not shipped                                           |
 | `EmailPreview.tsx`        | Approximate preview from the theme's color roles                                                  |
 

@@ -127,3 +127,15 @@ describe('checkSchedule', () => {
     expect(checkSchedule(false, '2026-11-28', '09:00', now).ok).toBe(false)
   })
 })
+
+describe('email surfaces', () => {
+  it('keeps Win and Serve nouns apart', async () => {
+    const { WIN_EMAIL_SURFACE, SERVE_EMAIL_SURFACE } =
+      await import('./emailSurface')
+    const text = (s: object) => JSON.stringify(s)
+    expect(text(SERVE_EMAIL_SURFACE)).not.toMatch(/voter|campaign/i)
+    expect(text(WIN_EMAIL_SURFACE)).not.toMatch(/constituent|office/i)
+    expect(SERVE_EMAIL_SURFACE.isServe).toBe(true)
+    expect(SERVE_EMAIL_SURFACE.goals.map((g) => g.id)).toContain('custom')
+  })
+})

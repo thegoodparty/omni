@@ -26,8 +26,8 @@ export const EmailReviewStep = ({
   result,
   sendLabel,
 }: EmailReviewStepProps) => {
-  const { data: sender } = useEmailSender()
-  const changeForwardTo = useChangeForwardTo()
+  const { data: sender } = useEmailSender(surface.isServe)
+  const changeForwardTo = useChangeForwardTo(surface.isServe)
   const [editing, setEditing] = useState(false)
   const [address, setAddress] = useState('')
   const [saving, setSaving] = useState(false)

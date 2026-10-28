@@ -540,6 +540,32 @@ export type APIEndpoints = {
     Response: EmailRecipientUploadResponse
   }
 
+  // Serve email: the same four routes, scoped to the elected office.
+  'GET /v1/outreach/serve/email/sender': {
+    Request: {}
+    Response: EmailSender
+  }
+
+  'PATCH /v1/outreach/serve/email/sender': {
+    Request: EmailSenderUpdate
+    Response: EmailSender
+  }
+
+  'POST /v1/outreach/serve/email': {
+    Request: EmailDraftSave
+    Response: EmailDraft
+  }
+
+  'GET /v1/outreach/serve/email/:id': {
+    Request: {}
+    Response: EmailDraft
+  }
+
+  'POST /v1/outreach/serve/email/:id/recipients': {
+    Request: {}
+    Response: EmailRecipientUploadResponse
+  }
+
   // Serve self-serve polls, behind `serve-self-serve-polls`. The draft
   // returns only the question: the greeting and opt-out line are composed by
   // the create. The create writes the pending_payment row the SERVE_TEXT
