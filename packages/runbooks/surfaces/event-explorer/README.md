@@ -128,8 +128,9 @@ wrong answer this page can give.
 ## Things that will surprise you
 
 - **`where_it_fires` does not come from Amplitude.** Govern has it for 2 of 592 events.
-  The rest come from the accepted rows of the anchor review queue, via the assembler
-  fallback, because the Govern write-back does not exist yet (DATA-2434).
+  The rest come from `event_anchors.json`, the frozen accepted rows of a one-time
+  backfill in September 2026, via the assembler fallback. Events added since have none
+  unless Govern does, and nothing drafts new ones (DATA-2718).
 - **Product is the tag first, the code path second.** A directory cannot settle it:
   `CreateListWizard.tsx` fires a Win event and a Serve event from the same file. The
   path only fills gaps where no tag exists, never overrides one. 385 of 592 known.

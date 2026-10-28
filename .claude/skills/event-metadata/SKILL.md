@@ -66,8 +66,6 @@ outside the marker survives:
 ```
 <!-- gp-meta -->
 <one line: the question this event answers>
-fires_on: <one plain-English line: the surface and the trigger>
-url: <the product path where it happens, app named when it is not the candidate webapp>
 supersession: original | supersedes <event> | superseded by <event> (reason)
 in use: <YYYY-MM-DD> (#PR)    (or)   not in use: <YYYY-MM-DD> (reason, #PR)
 change-set: <id or PRD link>         # optional
@@ -78,17 +76,11 @@ Rules:
 
 - **Purpose line** — drafted by you and confirmed/edited by the human at creation; then
   **immutable** (preserved verbatim on every later run, never regenerated).
-- **`fires_on:`** — one plain-English line naming the surface and the trigger, written so
-  a non-engineer can go and see it: "Admin SMS outreach queue, Approve & book send on a
-  campaign detail page." This is what lets a reader confirm an event is the one they mean,
-  which is the whole reason the field exists (DATA-2426). Drafted by you from the call
-  site, confirmed by the human. Unlike the purpose line it is **mutable** — when the UI
-  moves, the anchor should be corrected, because a stale anchor is worse than a blank one.
-- **`url:`** — the product path where the action happens, e.g. `/dashboard/campaign-plan`.
-  Paths collide across apps, so name the app whenever it is not the candidate webapp:
-  `/dashboard/sms-outreach/:id (gp-admin)`. For global chrome that fires from everywhere,
-  leave the value as a short reason rather than a guessed path: `url: n/a (global nav)`.
-  Never invent a path you have not seen in the router.
+- **`fires_on:` / `url:`** — older events carry these two location lines inside the
+  block. Do not draft them for a new event: the explorer and the product map place events
+  by area and `surface:` tag, and nothing reads the lines beyond showing them on the card.
+  When you touch an event that has them and its surface has moved, correct or delete
+  them, because a stale location is worse than a blank one.
 - **`supersession:`** — always present with an explicit value, including `original` for
   a net-new standalone event. Never leave lineage to be inferred from a blank line.
 - **A named successor must exist in code.** Before writing `superseded by <event>`,
@@ -161,10 +153,7 @@ front.
 ### Mode: NEW (add)
 
 1. Draft the one-line purpose from the event name + surrounding code; human confirms or
-   edits. Draft `fires_on` and `url` the same way, from the call site you found — the
-   route file or page component the call site sits in gives the path. If you cannot locate
-   a call site, or the event fires from global chrome with no single path, say so and
-   leave the field with an explicit reason rather than a guess.
+   edits.
 2. Propose `product:*` from the event name; human confirms or edits. Optionally accept
    cross-cutting tags and a `change-set`.
 3. Ask: net-new, or supersedes an existing event? **A removal elsewhere in the same PR
@@ -192,8 +181,8 @@ retire are optional transitions on top.
 
 1. Fetch the event via `get_events`; parse any existing `gp-meta` block.
 2. **Enrich**: draft+confirm the purpose if absent (preserve it verbatim if already
-   set); draft+confirm `fires_on` and `url` if absent, or correct them if the surface has
-   moved; propose+confirm `product:*` if absent; fill missing fields.
+   set); correct or delete existing `fires_on` / `url` lines if the surface has moved
+   (never add them); propose+confirm `product:*` if absent; fill missing fields.
 3. Optional status transition:
    - **None** → stays `in use`; metadata just enriched.
    - **Superseded by another event** → name the successor; require a reason; write
@@ -209,14 +198,15 @@ row of `instrumentation_data/surface_drift.json` (or a `relabels:` row): the eve
 proposed `surface:` slug, display name, `fires_on` and `url`.
 
 1. Fetch the event via `get_events` in both projects; parse the `gp-meta` block.
-2. Show the human the proposed display name, `fires_on` and `url`. The display name and
-   the trigger half of `fires_on` are drafts: confirm or edit both. The `surface:` slug
+2. Show the human the proposed display name, and the proposed `fires_on` and `url` when
+   the block already carries those lines. The display name is a draft: confirm or edit it. The `surface:` slug
    is mechanical unless the row lists `surface_options`: then the area has more than one
    name (Win and Serve vocabulary for the same page), and the human picks which one the
    event belongs under. Otherwise change it only if the human says so.
 3. Write, per project:
    - replace any existing `surface:` tag with the new one; keep every other tag;
-   - set `fires_on:` and `url:` inside the `gp-meta` block (they are mutable);
+   - if the `gp-meta` block already has `fires_on:` / `url:`, replace them with the
+     proposed values; do not add them to a block that lacks them;
    - add one line **outside** the block: `Previously shown as <old display name>.`, so
      Amplitude's semantic search, which matches descriptions, still finds the event by
      its old name;
@@ -253,8 +243,8 @@ other — that is normal given different data volumes):
    `<!-- gp-meta -->…<!-- /gp-meta -->` block (append the block if there is none yet).
    - Human prose **outside** the markers is preserved untouched.
    - An already-set **purpose line inside** the block is read and kept verbatim (it is
-     immutable); only the status, supersession, and anchor (`fires_on` / `url`) lines
-     change.
+     immutable); only the status and supersession lines, and any existing
+     `fires_on` / `url` lines, change.
    - Pass the full merged string — never just the block. Re-runs update the block in
      place (never duplicate it) and never drop human content.
 3. Apply, branching on the event's `isInSchema` flag in the `get_events` response (the

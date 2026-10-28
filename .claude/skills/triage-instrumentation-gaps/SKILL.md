@@ -835,12 +835,6 @@ the one that matters. The events table is `dbt.stg_airbyte_source__amplitude_api
         definition is exactly what a definition change makes false.
       - **Tests naming the old leg stay** while the leg is declared `era: historical`;
         they are still true. Add one for any new qualifier the parser has to keep.
-      - **Anchors:** keep the old names' rows, and draft the new names with
-        `event_anchors.py --only "<new names>"` (`ANTHROPIC_API_KEY`), then
-        `--review-artifact`. They land queued, not accepted. For an event with several
-        call sites, check the judge's `evidence` against the metric's exclusions: it can
-        pick the one call site the metric excludes (the self-report modal, on
-        DATA-2584).
    5. **Watching CI.** Read the dbt Cloud run itself
       (`/api/v2/accounts/<acct>/runs/<run>/?include_related=["run_steps"]`, token in
       `~/.dbt/dbt_cloud.yml`, never printed): the GitHub badge lags the run by minutes

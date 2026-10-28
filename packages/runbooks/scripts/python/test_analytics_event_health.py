@@ -2851,7 +2851,6 @@ def test_main_posts_a_removal_once_and_is_quiet_on_the_next_identical_run(monkey
     )
     monkeypatch.setattr(dbc, "run_query", _fake_query(catalog, []))
     monkeypatch.setattr(sa, "load_anchors", lambda *a, **k: ({}, []))
-    monkeypatch.setattr(slk, "load_anchor_queue", lambda *a, **k: {})
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.setenv(slk.TOKEN_ENV, "t")
     monkeypatch.setenv(slk.CHANNEL_ENV, "c")

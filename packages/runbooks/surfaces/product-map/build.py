@@ -8,10 +8,9 @@ event card and "What's next" are the explorer's, so an improvement to any of the
 on both pages from one change. What only the map has is `map.js` and `map.css` here,
 passed in as page parts (see shared/partials.py).
 
-Two inputs, both refreshed by the governance run. The explorer snapshot, whole: the map
+One input, refreshed by the governance run: the explorer snapshot, whole. The map
 searches every event the explorer does, and each step's status, volume and route come
-from the same rows its cards render. And `event_anchors.json`, for the one fact the
-snapshot does not carry: whether an event has an anchor record, and what kind.
+from the same rows its cards render.
 
 Deliberately dependency-free, like the other two builds: a bare interpreter, no
 credentials, no network.
@@ -25,34 +24,11 @@ sys.path.insert(0, str(HERE.parent / "shared"))
 from partials import inline, inline_payload  # noqa: E402
 
 EXPLORER = HERE.parent / "event-explorer"
-ANCHORS = HERE.parents[1] / "scripts/python/instrumentation_data/event_anchors.json"
-
-
-def anchor_state(record) -> str:
-    """ok | none | nosite | noroute, for the map's anchor tag.
-
-    Any anchor that has not been dismissed counts, including ones still under review: the
-    tag answers "is there a record of where this fires", and an open record is one. The
-    kind is read from the record's own `url`, which says "n/a (...)" when there is no route
-    and names the reason. Checked against all 105 hand-seeded rows it replaced: 105 agree.
-    """
-    if not record or record.get("disposition") == "dismissed":
-        return "none"
-    url = (record.get("url") or "").lower()
-    if url.startswith("n/a"):
-        return "nosite" if any(w in url for w in ("call site", "dynamic", "dispatch")) else "noroute"
-    return "ok"
 
 
 def build() -> Path:
     doc = json.loads((EXPLORER / "data" / "event-explorer.json").read_text())
-    anchors = json.loads(ANCHORS.read_text())
     doc["page"] = "map"
-    doc["map"] = {
-        "anchor_state": {
-            e["event_type"]: anchor_state(anchors.get(e["event_type"])) for e in doc["events"]
-        }
-    }
     html = inline(
         (EXPLORER / "template.html").read_text(),
         {
