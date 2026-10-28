@@ -45,13 +45,17 @@ const runDecision = async (
   return { error: null }
 }
 
-export const resumeEmailSend = (id: number) =>
+export const resumeEmailSend = async (
+  id: number
+): Promise<EmailSendActionResult> =>
   runDecision(
     () => gpAction(async (client) => client.emailOutreachAdmin.resume(id)),
     'Failed to resume send'
   )
 
-export const cancelEmailSend = (id: number) =>
+export const cancelEmailSend = async (
+  id: number
+): Promise<EmailSendActionResult> =>
   runDecision(
     () => gpAction(async (client) => client.emailOutreachAdmin.cancel(id)),
     'Failed to cancel send'
