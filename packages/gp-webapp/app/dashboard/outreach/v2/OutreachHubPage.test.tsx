@@ -239,7 +239,7 @@ const robocallDraftRow: HistoryRow = {
 }
 
 // A robocall whose pay-time hold was declined: pending_payment on the spine,
-// hold_failed on the satellite. It is resumable like a draft.
+// hold_failed on the satellite. Only its drawer's CTA resumes it.
 const holdFailedRobocallRow: HistoryRow = {
   id: 88,
   createdAt: '2026-09-03T00:00:00Z',
