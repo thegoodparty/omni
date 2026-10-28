@@ -104,7 +104,9 @@ Work in a scratch folder outside any repo, `<work>/`, and keep the page in
    one question at a time, conversation, human-led, calendar, checklist,
    invitation, agent workspace, search). Pick three that are each a different
    model. Write the one-sentence description and the Sends line for each before
-   you build.
+   you build. Then list the styleguide components each option uses, from
+   `packages/styleguide/COMPONENTS.md`. A part no listed component covers is a
+   new component: name it, because someone has to build it.
 5. **Build the page.** Copy `assets/page-template.html` to
    `<work>/page/src.html`, fill in the three options, then run
    `python3 scripts/build.py <work>/page/src.html <work>/page`. It inlines the
@@ -123,8 +125,9 @@ Work in a scratch folder outside any repo, `<work>/`, and keep the page in
 8. **Publish.** `scripts/publish.sh <work>/page <slug>`, where the slug is
    `ux-<ClickUp task id>`. Rules and commands are in `reference/publishing.md`.
 9. **Post back.** Comment on the ticket (and reply in the Slack thread, if one
-   asked) with the artifact link, one line per option, the feedback we want, and
-   every "Unknown" from the brief as a question for a person. Add any cheap
+   asked) with the artifact link, one line per option, the feedback we want, the new
+   components each option needs (or "None"), and every "Unknown" from the brief
+   as a question for a person. Add any cheap
    variants worth testing later. Say that viewing needs a Good Party Vercel
    sign-in.
 

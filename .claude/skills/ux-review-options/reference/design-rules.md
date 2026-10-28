@@ -6,8 +6,10 @@ what gets built.
 
 ## Where the system lives
 
-`packages/styleguide` (`@goodparty_org/styleguide`, shadcn/ui based). Read its
-`AGENTS.md`, then the source of any component you use in
+`packages/styleguide` (`@goodparty_org/styleguide`, shadcn/ui based). Start with
+`packages/styleguide/COMPONENTS.md`: every component and when to use it. Choose
+from it before you draw anything, so each option is built from parts that exist.
+Then read the package's `AGENTS.md` and the source of any component you use in
 `packages/styleguide/src/components/ui/<name>.tsx` for its real variants and sizes.
 Tokens are in `packages/styleguide/src/design-tokens.css`, the source of truth.
 

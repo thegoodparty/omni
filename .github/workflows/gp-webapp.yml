@@ -76,6 +76,12 @@ jobs:
       - name: Guard animation assets
         run: npm run check:animation-assets -w ${{ env.WORKSPACE }}
 
+      # Agents skip a rule in AGENTS.md once they stop reading it; they can't
+      # skip a red check. Raw form elements, hex color classes and direct
+      # lucide-react imports are grandfathered at their count and can't grow.
+      - name: Guard design system usage
+        run: npm run check:design-system -w ${{ env.WORKSPACE }}
+
       - name: Check env contract
         run: npm run check:env-contract -w ${{ env.WORKSPACE }}
 

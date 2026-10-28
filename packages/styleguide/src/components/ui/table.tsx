@@ -2,6 +2,13 @@ import * as React from 'react'
 
 import { cn } from '@styleguide/lib/utils'
 
+/**
+ * Pair it with Pagination when the server returns one page at a time.
+ * OutreachHistoryTable does this.
+ *
+ * @summary Use for a table where you control the rows, sorting and paging, such
+ * as server-paged data. For built-in sort, filter and paging, use DataTable.
+ */
 function Table({ className, ...props }: React.ComponentProps<'table'>) {
   return (
     <div
