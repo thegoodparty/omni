@@ -187,8 +187,15 @@ export class OutreachRobocallHoldFailureService extends createPrismaBase(
     // `hold_failed` draft carries no live Stripe hold — a decline placed none,
     // and the dial-time dead-hold path already cleared the intent — so there is
     // nothing to void; just mark cancelled + email. No Stripe is touched.
+    // updatedAt pins the CAS to the row read above: a resend stays
+    // hold_failed while it moves the date forward, so settle-state alone
+    // would let a stale past-date read cancel a just-resumed send.
     const claim = await this.model.updateMany({
-      where: { outreachId, settleState: RobocallSettleState.hold_failed },
+      where: {
+        outreachId,
+        settleState: RobocallSettleState.hold_failed,
+        updatedAt: draft.updatedAt,
+      },
       data: { settleState: RobocallSettleState.cancelled },
     })
     if (claim.count === 0) return

@@ -5,6 +5,7 @@ import {
   Injectable,
   InternalServerErrorException,
   NotFoundException,
+  ServiceUnavailableException,
   Type,
 } from '@nestjs/common'
 import { ModuleRef } from '@nestjs/core'
@@ -563,10 +564,12 @@ export class PaymentHoldsService
     outreachId,
     userId,
     paymentMethodId,
+    offSession = false,
   }: {
     outreachId: number
     userId: number
     paymentMethodId: string
+    offSession?: boolean
   }): Promise<SaveCardAndPlanResult> {
     const row = await this.model.findUnique({
       where: { outreachId },
@@ -608,8 +611,89 @@ export class PaymentHoldsService
       )
     }
     return placeNow
-      ? this.placeHold(outreachId, { offSession: false })
+      ? this.placeHold(outreachId, { offSession })
       : { outcome: 'scheduled' }
+  }
+
+  // payment_method.attached: a card landed on the customer, so a declined
+  // hold whose send is still ahead is retried on it. Goes through updateCard,
+  // which owns the claim. Nobody is present to complete 3-D Secure in a
+  // webhook, so the placement is off-session, like the sweep's.
+  async retryHoldFailedForAttachedCard(
+    customerId: string,
+    paymentMethodId: string,
+  ): Promise<void> {
+    const rows = await this.model.findMany({
+      where: {
+        state: OutreachHoldState.hold_failed,
+        stripeCustomerId: customerId,
+        outreach: { date: { gt: new Date() } },
+      },
+      select: { outreachId: true },
+    })
+    if (rows.length === 0) return
+    const user = await this.users.findByCustomerId(customerId)
+    if (!user) return
+    for (const { outreachId } of rows) {
+      try {
+        await this.updateCard({
+          outreachId,
+          userId: user.id,
+          paymentMethodId,
+          offSession: true,
+        })
+      } catch (err) {
+        this.logger.warn(
+          { err, outreachId, customerId },
+          'Could not retry the declined payment hold on the attached card',
+        )
+      }
+    }
+  }
+
+  // payment_method.detached: a scheduled hold's card is gone. Stripe refuses
+  // to place a hold on it without creating an intent, which the placement
+  // path would retry until the send. Failing the hold now is what sends the
+  // user the decline email. The row's attempt was never sent to Stripe, so
+  // it keeps its holdAttempt, and a new card retries under the same key.
+  async flagScheduledHoldsForDetachedCard(
+    paymentMethodId: string,
+  ): Promise<void> {
+    const failed = await this.model.updateMany({
+      where: { state: OutreachHoldState.scheduled, paymentMethodId },
+      data: {
+        state: OutreachHoldState.hold_failed,
+        declineCode: 'payment_method_detached',
+      },
+    })
+    if (failed.count > 0) {
+      this.logger.warn(
+        { paymentMethodId, count: failed.count },
+        'The card on scheduled payment holds was removed; holds marked failed',
+      )
+    }
+  }
+
+  // charge.dispute.created. A dispute needs a charge, so only a captured hold
+  // moves. A capturing row will be captured within the recovery window, so the
+  // webhook is asked to redeliver rather than losing the dispute.
+  async markDisputedByIntent(paymentIntentId: string): Promise<void> {
+    const moved = await this.model.updateMany({
+      where: { paymentIntentId, state: OutreachHoldState.captured },
+      data: { state: OutreachHoldState.disputed },
+    })
+    if (moved.count > 0) return
+    const row = await this.model.findFirst({ where: { paymentIntentId } })
+    if (!row || row.state === OutreachHoldState.disputed) return
+    if (row.state === OutreachHoldState.capturing) {
+      throw new ServiceUnavailableException(
+        'The payment hold is still being captured',
+      )
+    }
+    this.logger.error(
+      { outreachId: row.outreachId, paymentIntentId, state: row.state },
+      'A dispute arrived for a payment hold that was not captured',
+    )
   }
 
   private async commitPlacedHold(
