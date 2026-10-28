@@ -48,10 +48,12 @@ export const ROBOCALL_FREE_OFFER_COVERED_CALLS = Math.floor(
 
 export const ROBOCALL_FREE_OFFER_CODE_PREFIX = 'GPOFFER-'
 
-// Every minted code dies just after Election Day (3am Eastern on Nov 4), so a
-// code that leaks out of the pay step is worthless once the offer is over.
+// Every minted code dies on election night (8pm Eastern on Nov 3), so a code
+// that leaks out of the pay step is worthless once the offer is over. Stripe
+// refuses a code that outlives its coupon, and the live coupon's redeem_by is
+// 2026-11-04T00:01:00Z, so this must stay at or before that.
 export const ROBOCALL_FREE_OFFER_CODE_EXPIRES_AT = new Date(
-  '2026-11-04T08:00:00Z',
+  '2026-11-04T00:00:00Z',
 )
 
 // The plan task the invite script adds. Tracker rows carry no catalog id, so

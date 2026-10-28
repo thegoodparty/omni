@@ -530,7 +530,7 @@ describe('the offer code', () => {
         code,
         promotion: { type: 'coupon', coupon: 'robocall-free-offer-2026-11' },
         max_redemptions: 1,
-        expires_at: getUnixTime(new Date('2026-11-04T08:00:00Z')),
+        expires_at: getUnixTime(new Date('2026-11-04T00:00:00Z')),
         metadata: { experiment: EXPERIMENT, campaignId: String(campaign.id) },
       }),
     )

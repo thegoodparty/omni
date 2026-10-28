@@ -713,7 +713,9 @@ jwIDAQAB
       // with the same id in test and live mode. Empty hides the offer. The
       // live coupon must be:
       // id robocall-free-offer-2026-11, amount_off 40000 in usd, duration
-      // once, redeem_by after Nov 3 2026, and applies_to limited to a product
+      // once, redeem_by no earlier than ROBOCALL_FREE_OFFER_CODE_EXPIRES_AT
+      // (Stripe refuses a code that outlives its coupon; live is
+      // 2026-11-04T00:01Z), and applies_to limited to a product
       // never sold through Stripe Checkout, so a GPOFFER code cannot be
       // redeemed on a text purchase or the Pro subscription. gp-api refuses
       // the code unless the coupon is exactly $400 off in usd.
