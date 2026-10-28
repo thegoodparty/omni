@@ -181,6 +181,7 @@ export const createEmailOutreach = ({
         'ses:CreateTenant',
         'ses:GetTenant',
         'ses:CreateTenantResourceAssociation',
+        'ses:DeleteTenantResourceAssociation',
       ],
       Resource: [
         arn(`tenant/${environment}-*/*`),

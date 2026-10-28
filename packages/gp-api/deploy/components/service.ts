@@ -37,6 +37,7 @@ export interface ServiceConfig {
 }
 
 type ServiceOutput = {
+  ecsService: aws.ecs.Service
   url: pulumi.Output<string>
   logGroupName: pulumi.Output<string>
   logGroupArn: pulumi.Output<string>
@@ -486,6 +487,7 @@ export function createService({
 
   return {
     url: pulumi.interpolate`https://${domain}`,
+    ecsService,
     logGroupName: logGroup.name,
     logGroupArn: logGroup.arn,
   }
