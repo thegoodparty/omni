@@ -69,7 +69,9 @@ const ACTIVE_DICTATION: ReadonlySet<DictationStatus> = new Set([
 interface EmailComposeStepProps {
   surface: EmailSurface
   value: EmailComposeState
-  onChange: (next: EmailComposeState) => void
+  onChange: (
+    next: EmailComposeState | ((prev: EmailComposeState) => EmailComposeState),
+  ) => void
   issues: ComposeIssues
   showIssues: boolean
   senderName: string
@@ -136,13 +138,13 @@ export const EmailComposeStep = ({
             }
           : {}),
       })
-      onChange({
-        ...value,
+      onChange((prev) => ({
+        ...prev,
         subject: draft.subject,
         headline: draft.headline ?? '',
         body: draft.body,
-        buttonLabel: draft.buttonLabel ?? value.buttonLabel,
-      })
+        buttonLabel: draft.buttonLabel ?? prev.buttonLabel,
+      }))
     } catch (e) {
       setAiError(apiErrorMessage(e))
     } finally {
@@ -166,7 +168,8 @@ export const EmailComposeStep = ({
     setImageBusy(true)
     setImageError(null)
     try {
-      set('imageUrl', await uploadEmailImage(surface.isServe, file, type))
+      const imageUrl = await uploadEmailImage(surface.isServe, file, type)
+      onChange((prev) => ({ ...prev, imageUrl }))
     } catch (e) {
       setImageError(apiErrorMessage(e))
     } finally {
