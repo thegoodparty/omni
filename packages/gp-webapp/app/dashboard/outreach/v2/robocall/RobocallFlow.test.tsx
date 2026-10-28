@@ -3006,11 +3006,9 @@ describe('RobocallFlow', () => {
 
       await screen.findByLabelText('Campaign name')
       expect(screen.queryByText(GATE_LINE)).not.toBeInTheDocument()
-      // Purpose, audience and compose were settled when the draft was saved,
-      // so there is nowhere to go back to.
-      expect(
-        screen.queryByRole('button', { name: 'Back' }),
-      ).not.toBeInTheDocument()
+      // Purpose and compose were settled when the draft was saved; Back
+      // reaches only the audience step, to send to a different list.
+      expect(screen.getByRole('button', { name: 'Back' })).toBeInTheDocument()
       await user.click(screen.getByText('Pick a date'))
       await user.click(await screen.findByText('mock-pick-future'))
       await user.click(screen.getByRole('combobox', { name: /Send time/ }))
@@ -3115,6 +3113,120 @@ describe('RobocallFlow', () => {
           }),
         ]),
       )
+    })
+
+    // A resend can swap its list: Back reaches the audience step and stops
+    // there, so the recording and script stay the ones already approved.
+    it('lets a resumed robocall go back to the audience step and send to another list', async () => {
+      gateRef.set(PRO_GATE)
+      mockSavedLists()
+      mockListDetail(80)
+      mockSaveCardIntent()
+      mockAuthorize('authorized', 560, 'authorized')
+      const bodies: Array<Record<string, unknown>> = []
+      api.mock('POST /v1/outreach/robocall', ({ body }) => {
+        bodies.push(body)
+        return {
+          status: 200,
+          data: {
+            outreachId: 88,
+            billableCount: 80,
+            amountInCents: 560,
+            numberFeeInCents: 200,
+            promoCode: null,
+            promoDiscountInCents: 0,
+            amountDueInCents: 560,
+            coversTotal: false,
+          },
+        }
+      })
+
+      render(
+        <RobocallFlow
+          source="outreach_page"
+          open
+          onClose={vi.fn()}
+          resumeStartsOnWizard
+          resumeDraft={holdFailedDetail()}
+        />,
+      )
+
+      await screen.findByLabelText('Campaign name')
+      await user.click(screen.getByLabelText('Back'))
+
+      // The audience step is as far back as a resume goes.
+      expect(
+        await screen.findByRole('heading', {
+          level: 3,
+          name: 'Who do you want to reach?',
+        }),
+      ).toBeInTheDocument()
+      expect(screen.queryByLabelText('Back')).not.toBeInTheDocument()
+
+      await user.click(await screen.findByText('Renters in 98103'))
+      await user.click(await screen.findByText('All registered voters'))
+      await user.click(
+        await screen.findByRole('button', { name: /Continue \(80\)/ }),
+      )
+
+      await screen.findByLabelText('Campaign name')
+      await user.click(screen.getByText('Pick a date'))
+      await user.click(await screen.findByText('mock-pick-future'))
+      await user.click(screen.getByRole('combobox', { name: /Send time/ }))
+      await user.click(await screen.findByRole('option', { name: '10:00 AM' }))
+      const continueBtn = screen.getByRole('button', { name: 'Continue' })
+      await waitFor(() => expect(continueBtn).toBeEnabled())
+      await user.click(continueBtn)
+
+      await user.click(
+        await screen.findByRole('button', { name: 'Continue to payment' }),
+      )
+      await user.click(
+        await screen.findByRole('button', { name: /Authorize \$5\.60/ }),
+      )
+
+      expect(await screen.findByText("You're all set")).toBeInTheDocument()
+      await waitFor(() =>
+        expect(bodies).toEqual([
+          expect.objectContaining({
+            draftOutreachId: 88,
+            audioKey: 'robocall/42/clip.webm',
+            voterFileFilterId: 2,
+          }),
+        ]),
+      )
+    })
+
+    // Back from review lands on schedule, never on compose, whose Continue a
+    // resumed row could not satisfy.
+    it('walks a resumed robocall back from review to schedule, not compose', async () => {
+      gateRef.set(PRO_GATE)
+      mockSavedLists()
+      mockListDetail(80)
+
+      render(
+        <RobocallFlow
+          source="outreach_page"
+          open
+          onClose={vi.fn()}
+          resumeStartsOnWizard
+          resumeDraft={holdFailedDetail()}
+        />,
+      )
+
+      await screen.findByLabelText('Campaign name')
+      await user.click(screen.getByText('Pick a date'))
+      await user.click(await screen.findByText('mock-pick-future'))
+      await user.click(screen.getByRole('combobox', { name: /Send time/ }))
+      await user.click(await screen.findByRole('option', { name: '10:00 AM' }))
+      const continueBtn = screen.getByRole('button', { name: 'Continue' })
+      await waitFor(() => expect(continueBtn).toBeEnabled())
+      await user.click(continueBtn)
+
+      await screen.findByRole('button', { name: 'Continue to payment' })
+      await user.click(screen.getByLabelText('Back'))
+
+      expect(await screen.findByLabelText('Campaign name')).toBeInTheDocument()
     })
 
     it('shows the decline retry card when a resumed resend is declined again', async () => {
