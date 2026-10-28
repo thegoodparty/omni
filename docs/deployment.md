@@ -257,6 +257,13 @@ The primary validate job is named **"Validate"** across all
 packages. Shared steps are factored into `.github/actions/` (setup-node-workspace,
 vercel-deploy, pulumi-deploy).
 
+Every third-party `uses:` is pinned to a full commit SHA with its tag as a
+trailing comment (`actions/checkout@<sha> # v5`), so a moved tag cannot change
+what CI runs. Pin a new one the same way: resolve the tag with
+`gh api repos/<owner>/<repo>/commits/<tag> --jq .sha`. Dependabot's weekly
+`github-actions` PR moves the SHA and the comment together. Local `./` actions
+are not pinned.
+
 ### Base images
 
 Every Dockerfile `FROM`, and the buildx builder image, pulls from ECR Public
@@ -322,10 +329,11 @@ backoff for the cache-miss path.
 
 ## Dependency updates (Dependabot)
 
-Policy: **security updates only** — no version-bump PRs. Version updates are
-disabled in `.github/dependabot.yml` (`open-pull-requests-limit: 0`); security
-PRs are driven by Dependabot alerts (enabled in repo settings) and target
-`main` (`--base main`).
+Policy for npm: **security updates only** — no version-bump PRs. Version
+updates are disabled in `.github/dependabot.yml` (`open-pull-requests-limit:
+0`); security PRs are driven by Dependabot alerts (enabled in repo settings) and
+target `main` (`--base main`). Docker base images and GitHub Actions do get
+version updates; the comments in `.github/dependabot.yml` say why and how.
 
 Security PRs merge themselves: the `dependabot-merge.yml` workflow sweeps every
 30 minutes and squash-merges any Dependabot PR that is approved (delegate

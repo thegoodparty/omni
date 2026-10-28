@@ -6,6 +6,12 @@
 # never open a PR. Base images get version updates instead, so a Node security
 # patch (22.23.4 -> 22.23.5) arrives as a PR. Majors (Node 22 -> 24) and Python
 # minors (3.12 -> 3.13) are runtime upgrades, so a human makes those.
+#
+# github-actions: weekly version updates in one grouped PR. Every third-party
+# action is pinned to a commit SHA with its tag in a trailing comment, so a new
+# release reaches CI only through that PR, which moves the SHA and the comment
+# together. The root directory covers .github/workflows only, so the composite
+# actions under .github/actions are listed too.
 version: 2
 updates:
   - package-ecosystem: npm
@@ -33,3 +39,12 @@ updates:
       base-images:
         patterns: ["*"]
         group-by: dependency-name
+  - package-ecosystem: github-actions
+    directories:
+      - /
+      - /.github/actions/*
+    schedule:
+      interval: weekly
+    groups:
+      github-actions:
+        patterns: ["*"]
