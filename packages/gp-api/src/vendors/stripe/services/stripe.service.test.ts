@@ -530,6 +530,126 @@ describe('StripeService.createManualCaptureHold', () => {
   })
 })
 
+describe('StripeService.createOutreachManualCaptureHold', () => {
+  let service: StripeService
+
+  beforeEach(() => {
+    service = new StripeService(
+      {} as unknown as SlackService,
+      {} as unknown as UsersService,
+      createMockLogger(),
+    )
+  })
+
+  const holdArgs = {
+    customerId: 'cus_1',
+    paymentMethodId: 'pm_1',
+    amountInCents: 5000,
+    outreachId: 42,
+    holdAttempt: 2,
+    offSession: false,
+    metadata: { outreachId: '42', holdAttempt: '2' },
+  }
+
+  it('places an on-session hold under the outreach hold key', async () => {
+    const captureBeforeUnix = 1893456000
+    paymentIntentsCreate.mockResolvedValue({
+      id: 'pi_hold',
+      status: 'requires_capture',
+      latest_charge: {
+        payment_method_details: {
+          card: { capture_before: captureBeforeUnix },
+        },
+      },
+    })
+
+    const result = await service.createOutreachManualCaptureHold(holdArgs)
+
+    expect(result).toEqual({
+      paymentIntentId: 'pi_hold',
+      captureBefore: fromUnixTime(captureBeforeUnix),
+    })
+    const [body, opts] = firstOrThrow(paymentIntentsCreate.mock.calls)
+    expect(body).toMatchObject({
+      amount: 5000,
+      customer: 'cus_1',
+      payment_method: 'pm_1',
+      capture_method: 'manual',
+      confirm: true,
+      metadata: { outreachId: '42', holdAttempt: '2' },
+      expand: ['latest_charge'],
+    })
+    expect(body).not.toHaveProperty('off_session')
+    expect(opts).toEqual({ idempotencyKey: 'outreach-hold-cus_1-42-2' })
+  })
+
+  it('sends off_session for a sweep placement', async () => {
+    paymentIntentsCreate.mockResolvedValue({
+      id: 'pi_hold',
+      status: 'requires_capture',
+    })
+
+    await service.createOutreachManualCaptureHold({
+      ...holdArgs,
+      offSession: true,
+    })
+
+    const [body] = firstOrThrow(paymentIntentsCreate.mock.calls)
+    expect(body).toMatchObject({ off_session: true })
+  })
+
+  it('assumes the shortest card window when the charge has no capture_before', async () => {
+    paymentIntentsCreate.mockResolvedValue({
+      id: 'pi_hold',
+      status: 'requires_capture',
+    })
+
+    const before = Date.now()
+    const result = await service.createOutreachManualCaptureHold(holdArgs)
+    const after = Date.now()
+
+    const shortest = (4 * 24 + 18) * 60 * 60 * 1000
+    const captured = result.captureBefore.getTime()
+    expect(captured).toBeGreaterThanOrEqual(before + shortest)
+    expect(captured).toBeLessThanOrEqual(after + shortest)
+  })
+
+  it('maps a card decline to a decline carrying its code', async () => {
+    const declined = new MockStripeCardError('declined')
+    Object.assign(declined, { decline_code: 'insufficient_funds' })
+    paymentIntentsCreate.mockRejectedValue(declined)
+
+    await expect(
+      service.createOutreachManualCaptureHold(holdArgs),
+    ).rejects.toMatchObject({
+      name: 'StripeOutreachHoldDeclinedError',
+      declineCode: 'insufficient_funds',
+    })
+  })
+
+  it('treats an intent short of requires_capture as a decline', async () => {
+    paymentIntentsCreate.mockResolvedValue({
+      id: 'pi_pending',
+      status: 'requires_action',
+    })
+
+    await expect(
+      service.createOutreachManualCaptureHold(holdArgs),
+    ).rejects.toMatchObject({
+      name: 'StripeOutreachHoldDeclinedError',
+      declineCode: 'requires_action',
+    })
+  })
+
+  it('maps a non-card Stripe failure to a 502', async () => {
+    paymentIntentsCreate.mockRejectedValue(new Error('stripe down'))
+
+    await expect(
+      service.createOutreachManualCaptureHold(holdArgs),
+    ).rejects.toBeInstanceOf(BadGatewayException)
+  })
+})
+
 describe('StripeService.cancelSubscription', () => {
   let service: StripeService
 
