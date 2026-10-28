@@ -589,6 +589,14 @@ describe('PriorityFlowHandler', () => {
     expect(prompt).toContain('Never use a pronoun for someone you found')
   })
 
+  it('asks for a linked source on every step, not just research', () => {
+    const prompt = build().buildSystemPrompt(baseCtx())
+    expect(prompt).toContain('This holds on every step and every turn')
+    expect(prompt).toContain('A paragraph of findings with no links')
+    expect(prompt).toContain('with a link to the text')
+    expect(prompt).toContain("or other place's solution you name has its link")
+  })
+
   it('offers the finding cards as display-only tools', async () => {
     const tools = build().buildTools(baseCtx())
     for (const name of [
