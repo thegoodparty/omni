@@ -13,6 +13,8 @@ import { OutreachRobocallSendService } from '@/outreach/services/outreachRobocal
 import { OutreachRobocallStagingService } from '@/outreach/services/outreachRobocallStaging.service'
 import { OutreachSmsAdminService } from '@/outreach/services/outreachSmsAdmin.service'
 import { PaymentEventsService } from '@/payments/services/paymentEventsService'
+import { OutreachEmailLifecycleService } from '@/emailOutreach/services/outreachEmailLifecycle.service'
+import { OutreachEmailSendSweepService } from '@/emailOutreach/services/outreachEmailSendSweep.service'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
 import { UsersService } from '@/users/services/users.service'
 import { VENDOR_MODE } from '@/shared/util/appEnvironment.util'
@@ -780,7 +782,10 @@ export class TestFixturesService {
     let dialedAt = outreach.robocall?.dialedAt ?? null
     let poolFreedAt = outreach.robocall?.poolFreedAt ?? null
 
-    if (body.action === 'robocall.send_due_now') {
+    if (
+      body.action === 'robocall.send_due_now' ||
+      body.action === 'email.send_due_now'
+    ) {
       const sendDue = subMinutes(new Date(), 1)
       await this.campaigns.client.outreach.update({
         where: { id: outreach.id },
@@ -802,6 +807,16 @@ export class TestFixturesService {
       })
       dialedAt = backdated
       poolFreedAt = outreach.robocall.poolFreedAt !== null ? backdated : null
+    } else if (body.action === 'email.sent_6m_ago') {
+      // The settle sweep waits 5 minutes after a send's last email for SES's
+      // numbers before it finishes the send.
+      await this.campaigns.client.outreachEmailRecipient.updateMany({
+        where: {
+          outreachEmail: { outreachId: outreach.id },
+          sentAt: { not: null },
+        },
+        data: { sentAt: subMinutes(new Date(), 6) },
+      })
     } else if (
       body.action === 'sms.start_date_today' ||
       body.action === 'sms.start_date_passed'
@@ -870,6 +885,21 @@ export class TestFixturesService {
       // Skips the hourly CronLockService claim on purpose; only this fixture
       // path may (the @Cron wrapper keeps the lock).
       'tcr.usecaseSweep': () => this.tcrCompliance.runUnsubmittedUsecaseSweep(),
+      // The email sweeps are global, like the robocall ones. Running one
+      // beside its cron is safe: due and settle claim per row, and the send
+      // sweep holds the lease.
+      'email.due': () =>
+        this.moduleRef
+          .get(OutreachEmailLifecycleService, { strict: false })
+          .startDueSends(),
+      'email.sweep': () =>
+        this.moduleRef
+          .get(OutreachEmailSendSweepService, { strict: false })
+          .runTick(),
+      'email.settle': () =>
+        this.moduleRef
+          .get(OutreachEmailLifecycleService, { strict: false })
+          .settleFinishedSends(),
       'tcr.complianceSweep': async () => {
         const campaign = await callerCampaign()
         await this.checkCampaignUsecaseActivation(campaign.id)

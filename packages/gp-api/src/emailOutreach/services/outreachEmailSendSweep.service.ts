@@ -47,6 +47,7 @@ import {
   unsubscribeSigningKey,
 } from '../util/unsubscribeToken.util'
 import { OutreachEmailPauseAlertService } from './outreachEmailPauseAlert.service'
+import { OutreachEmailPrepareService } from './outreachEmailPrepare.service'
 import { SesAccountState, SesBulkEntryResult, SesService } from './ses.service'
 
 const SWEEP_JOB = 'emailSendSweep'
@@ -78,6 +79,7 @@ type ActiveSend = {
   id: number
   outreachId: number
   organizationSlug: string
+  campaignId: number | null
   tenantName: string
   templateName: string
   from: string
@@ -108,6 +110,7 @@ export class OutreachEmailSendSweepService extends createPrismaBase(
   constructor(
     private readonly ses: SesService,
     private readonly pauseAlert: OutreachEmailPauseAlertService,
+    private readonly prepare: OutreachEmailPrepareService,
   ) {
     super()
   }
@@ -254,6 +257,9 @@ export class OutreachEmailSendSweepService extends createPrismaBase(
       await this.checkAutoPause(send)
     }
     active = await this.listActive()
+    for (const send of active) {
+      await this.dropUnsubscribed(send)
+    }
 
     const perSecond = Math.max(1, account.maxSendRate * SEND_RATE_HEADROOM)
     while (active.length > 0 && !outOfTime()) {
@@ -304,7 +310,7 @@ export class OutreachEmailSendSweepService extends createPrismaBase(
       },
       include: {
         sender: true,
-        outreach: { select: { organizationSlug: true } },
+        outreach: { select: { organizationSlug: true, campaignId: true } },
       },
       orderBy: { id: 'asc' },
     })
@@ -324,6 +330,7 @@ export class OutreachEmailSendSweepService extends createPrismaBase(
         outreachId: row.outreachId,
         organizationSlug:
           row.outreach.organizationSlug ?? row.sender.organizationSlug,
+        campaignId: row.outreach.campaignId,
         tenantName,
         templateName: row.sesTemplateName,
         from: formatFrom(row.sender.displayName, address),
@@ -558,6 +565,26 @@ export class OutreachEmailSendSweepService extends createPrismaBase(
     }
     if (retry.length > 0) return { kind: 'end_tick' }
     return { kind: 'sent', attempted: ids.length }
+  }
+
+  // Prepare drops unsubscribes once. Someone who unsubscribes while a send
+  // runs, or while it sits paused, must not get the rest of it.
+  private async dropUnsubscribed(send: ActiveSend): Promise<void> {
+    const slugs = await this.prepare.suppressionSlugsFor(
+      send.organizationSlug,
+      send.campaignId,
+    )
+    await this.client.$executeRaw`
+      DELETE FROM outreach_email_recipient r
+      WHERE r.outreach_email_id = ${send.id}
+        AND r.status = 'queued'
+        AND EXISTS (
+          SELECT 1 FROM outreach_email_suppression s
+          WHERE s.email = r.email
+            AND s.organization_slug = ANY(${slugs})
+            AND s.revoked_at IS NULL
+        )
+    `
   }
 
   // Reads SES's numbers for the send since the later of its first email and

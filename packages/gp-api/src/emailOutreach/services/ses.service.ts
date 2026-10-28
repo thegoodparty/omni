@@ -186,6 +186,11 @@ export class SesService extends AwsService {
     this.client = new SESv2Client({
       region: SES_REGION,
       requestHandler,
+      // SendBulkEmail isn't idempotent: the SDK's own retry of a timeout or
+      // 5xx can resend a batch SES already accepted. The sweep requeues a
+      // failed batch for its next tick, and every other call here is either
+      // safe to repeat or retried by its caller.
+      maxAttempts: 1,
       ...(mock
         ? { endpoint: vendorBaseUrl('ses', ''), credentials: mockCredentials }
         : {}),

@@ -71,6 +71,8 @@ export const TimeTravelSchema = z.object({
     'robocall.dialed_48h_ago',
     'sms.start_date_today',
     'sms.start_date_passed',
+    'email.send_due_now',
+    'email.sent_6m_ago',
   ]),
 })
 export type TimeTravel = z.infer<typeof TimeTravelSchema>

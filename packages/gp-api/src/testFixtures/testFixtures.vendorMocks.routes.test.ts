@@ -10,6 +10,8 @@ import {
   VendorMockVendor,
 } from '@/generated/prisma'
 import { OutreachRobocallSendService } from '@/outreach/services/outreachRobocallSend.service'
+import { OutreachEmailLifecycleService } from '@/emailOutreach/services/outreachEmailLifecycle.service'
+import { OutreachEmailSendSweepService } from '@/emailOutreach/services/outreachEmailSendSweep.service'
 import { PeerlyIdentityService } from '@/vendors/peerly/services/peerlyIdentity.service'
 import { PEERLY_USECASE } from '@/vendors/peerly/services/peerly.const'
 import { PeerlyCvVerificationStatus } from '@/vendors/peerly/peerly.types'
@@ -615,6 +617,98 @@ describe('POST /v1/test-fixtures/vendor-mocks/jobs/:name/run', () => {
     )
 
     expect(res.status).toBe(HttpStatus.NOT_FOUND)
+  })
+})
+
+describe('the email fixture hooks', () => {
+  beforeEach(async () => {
+    appEnvOverrides.IS_NON_PROD_DEPLOY = true
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { email: 'qa-00000000-0000-0000-0000-000000000000@goodparty.org' },
+    })
+  })
+
+  it('backdates a send so the settle sweep can finish it', async () => {
+    const campaign = await seedCampaign(service.user.id)
+    const sender = await service.prisma.outreachEmailSender.create({
+      data: {
+        organizationSlug: campaign.organizationSlug,
+        localPart: `fixture.${campaign.id}`,
+        displayName: 'Fixture',
+        forwardToEmail: 'fixture@example.com',
+      },
+    })
+    const outreach = await service.prisma.outreach.create({
+      data: {
+        outreachType: OutreachType.email,
+        campaignId: campaign.id,
+        organizationSlug: campaign.organizationSlug,
+        email: {
+          create: {
+            senderId: sender.id,
+            goal: 'Fixture',
+            layout: 'newsletter',
+            theme: 'classic_blue',
+            subject: 'Fixture',
+            body: 'Fixture',
+          },
+        },
+      },
+      include: { email: true },
+    })
+    await service.prisma.outreachEmailRecipient.create({
+      data: {
+        outreachEmailId: outreach.email!.id,
+        senderId: sender.id,
+        email: 'success@simulator.amazonses.com',
+        sentAt: new Date(),
+      },
+    })
+
+    const res = await service.client.post(
+      '/v1/test-fixtures/vendor-mocks/time-travel',
+      { outreachId: outreach.id, action: 'email.sent_6m_ago' },
+      { validateStatus: () => true },
+    )
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    const recipient =
+      await service.prisma.outreachEmailRecipient.findFirstOrThrow({
+        where: { outreachEmailId: outreach.email!.id },
+      })
+    expect(Date.now() - recipient.sentAt!.getTime()).toBeGreaterThan(
+      5 * 60 * 1000,
+    )
+  })
+
+  it.each([
+    ['email.due', 'startDueSends'],
+    ['email.settle', 'settleFinishedSends'],
+  ] as const)('runs %s', async (job, method) => {
+    const run = vi
+      .spyOn(service.app.get(OutreachEmailLifecycleService), method)
+      .mockResolvedValue()
+    const res = await service.client.post(
+      `/v1/test-fixtures/vendor-mocks/jobs/${job}/run`,
+      {},
+      { validateStatus: () => true },
+    )
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(run).toHaveBeenCalledTimes(1)
+  })
+
+  it('runs email.sweep', async () => {
+    const run = vi
+      .spyOn(service.app.get(OutreachEmailSendSweepService), 'runTick')
+      .mockResolvedValue()
+    const res = await service.client.post(
+      '/v1/test-fixtures/vendor-mocks/jobs/email.sweep/run',
+      {},
+      { validateStatus: () => true },
+    )
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(run).toHaveBeenCalledTimes(1)
   })
 })
 
