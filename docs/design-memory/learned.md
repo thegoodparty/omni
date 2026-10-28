@@ -7,7 +7,8 @@ Apply all of them on the first pass.
 Entries marked `(seeded)` were inferred from written conventions rather than earned
 from a real correction. Delete any that turn out to be wrong. That is expected.
 Entries marked `(earned)` came from corrections in product design sessions, first
-captured 2026-10-07 from the candidate Home and Game Plan work.
+captured 2026-10-07 from the candidate Home and Game Plan work. Rules 31 to 41 were
+added 2026-10-28 from the head of product's distilled design review notes.
 
 ---
 
@@ -40,6 +41,13 @@ captured 2026-10-07 from the candidate Home and Game Plan work.
     description, not a badge. It turns warning (never red, which means an
     error) and says so in words only when it is close or past: "Due today",
     "3 days overdue". At most one badge per card. (earned)
+31. A call to action names the specific thing the user gets: "5,000 free texts"
+    beats "Free bonus offer". Flat, vague or template-sounding copy gets
+    rewritten. (earned)
+32. Show the value inside the flow, not only in a feature table. Upgrade and
+    paywall screens say what the user gets in dollars or outcomes ("Here's what
+    you get for $10 a month"). Any outcome claim follows rules 10 and 29: true,
+    and cited. (earned)
 
 ## Content
 
@@ -66,6 +74,15 @@ captured 2026-10-07 from the candidate Home and Game Plan work.
     title leads. (earned)
 20. Card and section titles sit below the page title in size and weight. A
     question on a form page is a label, not a second page title. (earned)
+33. If a heading or step indicator takes more than a second to read, simplify it.
+    One line, dark text, large: "Tells me what step I'm on." Three lines of gray
+    text is the failure case. (earned)
+34. A list of six or more items gets grouped, the groups get names, and the
+    hierarchy shows. If you can't say how the screen is organized in one
+    sentence, it isn't ready. (earned)
+35. People don't read. Show the top one to three things, then a "See more" or
+    "Details" path for anyone who wants depth. Lead with a headline that pulls
+    them in ("Top 3 things to prepare for this week's meeting"). (earned)
 
 ## Form
 
@@ -88,6 +105,24 @@ captured 2026-10-07 from the candidate Home and Game Plan work.
 27. A page you step into and back out of (a story, a profile) drops the sidebar
     and opens on a back arrow and its title. The back arrow sits in the margin,
     so the title lines up with the content under it. (earned)
+36. Mobile first, fold first. Design the phone screen before the desktop one, and
+    decide what sits above the fold on the phone before anything else. (earned)
+37. Buttons go on the right of their row, unless long content or a branded image
+    displaces where they would normally sit. (earned)
+38. Short, consistent flows use a horizontal stepper. Flows where steps need
+    explaining use a vertical stepper, so the user always knows where they are.
+    (earned)
+39. A long or demanding flow opens with a prep screen that says what the user
+    needs before they begin. Never hide instructions as small gray text inside
+    accordion items. (earned)
+
+## Review
+
+40. Make rules, not one-off calls. When a design makes a choice, write it as "the
+    rule is X, unless Y", so the next design makes the same call without a
+    review. (earned)
+41. When there isn't enough traffic for a test to mean anything, pick the option
+    that is simplest to understand, ship it, and learn. (earned)
 
 ---
 
