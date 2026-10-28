@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{TITLE}}: design options</title>
+<link href="https://fonts.googleapis.com/css2?family=Open+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&amp;display=swap" rel="stylesheet">
+<style>
+/*GP_TOKENS*/
+/*GP_UI*/
+body { margin: 0; background: var(--brand-surface-secondary); }
+.page { max-width: 1280px; margin: 0 auto; padding: 0 24px 96px; }
+.page-bar {
+  position: sticky; top: 0; z-index: 10; display: flex; gap: 16px; align-items: center; flex-wrap: wrap;
+  padding: 12px 24px; background: #fff; border-bottom: 1px solid var(--brand-border-primary);
+  font-family: 'Open Sans', system-ui, sans-serif;
+}
+.page-bar strong { font-size: 15px; font-weight: 600; margin-right: auto; }
+.page-bar a { color: var(--goodparty-blue-500); font-size: 14px; font-weight: 600; text-decoration: underline; text-underline-offset: 4px; padding: 12px 4px; }
+.option { padding-top: 56px; font-family: 'Open Sans', system-ui, sans-serif; }
+.option > h2 { font-size: 24px; font-weight: 700; margin: 0 0 8px; }
+.option > p { font-size: 16px; color: var(--brand-text-secondary); margin: 0 0 24px; max-width: 70ch; }
+.frame-head { display: flex; justify-content: flex-end; margin-bottom: 8px; }
+/* A frame is the screen the wireframe lives in. Desktop is 1200px wide, phone is 390px. */
+.frame { background: #fff; border: 1px solid var(--brand-border-primary); border-radius: 12px; overflow: hidden; }
+.frame--desktop { width: 100%; max-width: 1200px; }
+.frame--phone { width: 390px; max-width: 100%; border-radius: 28px; }
+.topbar { display: flex; align-items: center; gap: 16px; height: 64px; padding: 0 24px; border-bottom: 1px solid var(--brand-border-secondary); background: #fff; }
+.topbar .ctx { font-size: 15px; font-weight: 600; margin-right: auto; display: flex; gap: 16px; align-items: center; }
+.screen { padding: 32px 24px; min-height: 480px; }
+.screen[hidden] { display: none; }
+</style>
+</head>
+<body class="gp">
+<nav class="page-bar" aria-label="Options">
+  <strong>{{TITLE}}</strong>
+  <a href="#option-a">A: {{NAME_A}}</a>
+  <a href="#option-b">B: {{NAME_B}}</a>
+  <a href="#option-c">C: {{NAME_C}}</a>
+</nav>
+<main class="page">
+
+<!-- Repeat this section for option-b and option-c. Each option is one wireframe in one
+     frame. Show one .screen at a time; buttons change state, Restart resets it. -->
+<section class="option" id="option-a">
+  <h2>A: {{NAME_A}}</h2>
+  <p>{{ONE_SENTENCE_A}}</p>
+  <div class="frame-head"><button class="gp-btn gp-btn--ghost gp-btn--sm" id="a-restart" type="button">Restart</button></div>
+  <div class="frame frame--desktop" id="a-frame">
+    <div class="topbar">
+      <div class="ctx">{{HEART_LOGO_SVG}} <span>Context label</span></div>
+      <button class="gp-btn gp-btn--ghost gp-btn--sm" type="button">Talk to Jared</button>
+    </div>
+    <div class="screen" id="a-step-1">
+      <div class="gp-field" style="max-width:420px">
+        <h3 style="font-size:30px;font-weight:700;margin-bottom:16px">Screen heading</h3>
+        <label class="gp-label" for="a-office">Which office did you win, Sarah?</label>
+        <input class="gp-input" id="a-office" value="City council, Maplewood">
+        <button class="gp-btn gp-btn--lg" id="a-next" type="button" style="margin-top:16px">Confirm office</button>
+      </div>
+    </div>
+    <div class="screen" id="a-step-2" hidden>
+      <h3 style="font-size:30px;font-weight:700">Landing state</h3>
+    </div>
+  </div>
+</section>
+
+</main>
+<script>
+// One state object per option, prefixed so options can't collide.
+const a = { step: 1 }
+function aRender() {
+  document.querySelectorAll('#a-frame .screen').forEach((el) => {
+    el.hidden = el.id !== 'a-step-' + a.step
+  })
+}
+document.getElementById('a-next').addEventListener('click', () => { a.step = 2; aRender() })
+document.getElementById('a-restart').addEventListener('click', () => { a.step = 1; aRender() })
+aRender()
+</script>
+</body>
+</html>
