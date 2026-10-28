@@ -68,6 +68,7 @@ describe('certificate URLs', () => {
     'https://user@sns.us-west-2.amazonaws.com/SimpleNotificationService-a.pem',
     'https://sns.us-west-2.amazonaws.com:8443/SimpleNotificationService-a.pem',
     'https://sns.us-west-2.amazonaws.com/other.pem',
+    'https://sns.us-west-2.amazonaws.com/SimpleNotificationService-a.pem?n=1',
     'not a url',
   ])('rejects %s', (url) => {
     expect(isSigningCertUrl(url)).toBe(false)

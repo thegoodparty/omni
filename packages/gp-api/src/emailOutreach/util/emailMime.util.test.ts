@@ -105,6 +105,33 @@ describe('headers and addresses', () => {
   })
 })
 
+describe('hostile input', () => {
+  it('parses an enormous header and body in linear time', () => {
+    const started = Date.now()
+    const raw = Buffer.from(
+      [
+        `From: a${' '.repeat(40_000)}b`,
+        'Content-Type: text/html',
+        '',
+        '<style'.repeat(50_000) + '<'.repeat(50_000),
+      ].join('\r\n'),
+    )
+    parseMime(raw)
+    parseAddresses(`${'a'.repeat(40_000)}`)
+    expect(Date.now() - started).toBeLessThan(1000)
+  })
+
+  it('drops style and script content from html', () => {
+    expect(
+      parseMime(
+        Buffer.from(
+          'Content-Type: text/html\r\n\r\n<style>p{}</style><p>Hi</p><script>x()</script>',
+        ),
+      ).text,
+    ).toBe('Hi')
+  })
+})
+
 describe('stripQuotedReply', () => {
   it('keeps what the sender wrote', () => {
     expect(

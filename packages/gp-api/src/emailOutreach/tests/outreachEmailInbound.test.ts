@@ -30,6 +30,7 @@ const message = (headers: string[], body = 'Thanks for the update!') =>
       `To: Jane Doe <${localPart}@${EMAIL_OUTREACH_DOMAIN}>`,
       'From: Pat Voter <pat@example.com>',
       'Subject: Re: Town hall on Thursday',
+      'X-SES-SPF-Verdict: PASS',
       ...headers,
       '',
       body,
@@ -237,11 +238,44 @@ describe('stop and unsubscribe replies', () => {
     expect(send.unsubscribedCount).toBe(1)
   })
 
+  it('forwards a stop reply SES could not authenticate, without unsubscribing', async () => {
+    const { key } = deliver(
+      Buffer.from(
+        [
+          `To: ${localPart}@${EMAIL_OUTREACH_DOMAIN}`,
+          'From: pat@example.com',
+          'X-SES-SPF-Verdict: FAIL',
+          'X-SES-DKIM-Verdict: FAIL',
+          'Subject: hi',
+          '',
+          'stop',
+        ].join('\r\n'),
+      ),
+    )
+    await service.app
+      .get(EmailOutreachQueueService)
+      .handleInbound({ snsMessageId: 'f', bucket: BUCKET, key })
+    expect(await suppression()).toBeNull()
+    expect((await replyRow(key))?.classification).toBe('forwarded')
+  })
+
+  it('does not unsubscribe again when a delivered stop is redelivered after an undo', async () => {
+    const { key } = deliver(message([], 'stop'))
+    const queue = service.app.get(EmailOutreachQueueService)
+    await queue.handleInbound({ snsMessageId: '1', bucket: BUCKET, key })
+    await service.prisma.outreachEmailSuppression.updateMany({
+      data: { revokedAt: new Date() },
+    })
+    await queue.handleInbound({ snsMessageId: '2', bucket: BUCKET, key })
+    expect((await suppression())?.revokedAt).not.toBeNull()
+  })
+
   it('reads the mailto unsubscribe link: subject only, no body', async () => {
     const raw = Buffer.from(
       [
         `To: ${localPart}@${EMAIL_OUTREACH_DOMAIN}`,
         'From: pat@example.com',
+        'X-SES-DKIM-Verdict: PASS',
         'Subject: unsubscribe',
         '',
         '',

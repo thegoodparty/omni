@@ -81,6 +81,16 @@ export class OutreachEmailInboundService extends createPrismaBase(
     const classification = this.classify(mime, from, subject)
     const outreachEmailId = await this.matchSend(sender.id, from.address)
 
+    // Suppress before saving the reply, so a saved unsubscribe reply means
+    // it was applied. A redelivery then never re-applies it after an undo.
+    if (!existing && classification === OutreachEmailReplyClass.unsubscribe) {
+      await this.unsubscribes.suppress({
+        email: from.address,
+        organizationSlug: sender.organizationSlug,
+        outreachEmailId,
+        reason: 'reply',
+      })
+    }
     const reply =
       existing ??
       (await this.saveReply(
@@ -91,16 +101,7 @@ export class OutreachEmailInboundService extends createPrismaBase(
         key,
         classification,
       ))
-    if (!reply) return
-
-    if (reply.classification === OutreachEmailReplyClass.unsubscribe) {
-      await this.unsubscribes.suppress({
-        email: from.address,
-        organizationSlug: sender.organizationSlug,
-        outreachEmailId,
-        reason: 'reply',
-      })
-    } else if (reply.classification === OutreachEmailReplyClass.forwarded) {
+    if (reply?.classification === OutreachEmailReplyClass.forwarded) {
       await this.forward(reply, sender, from, subject, mime)
     }
   }
@@ -144,6 +145,12 @@ export class OutreachEmailInboundService extends createPrismaBase(
     ) {
       return OutreachEmailReplyClass.auto_reply
     }
+    // A stop reply counts only from an address SES could authenticate, so a
+    // forged one can't unsubscribe someone else.
+    const authenticated =
+      headerValue(headers, 'x-ses-spf-verdict')?.toUpperCase() === 'PASS' ||
+      headerValue(headers, 'x-ses-dkim-verdict')?.toUpperCase() === 'PASS'
+    if (!authenticated) return OutreachEmailReplyClass.forwarded
     const written = stripQuotedReply(mime.text)
     const firstLine = written.split('\n').find((line) => line.trim()) ?? ''
     if (
@@ -155,13 +162,10 @@ export class OutreachEmailInboundService extends createPrismaBase(
     return OutreachEmailReplyClass.forwarded
   }
 
-  // An unsubscribe is safe to apply again, so a retry after a failure
-  // between saving the reply and suppressing the address finishes the job.
   private needsWork(reply: OutreachEmailReply): boolean {
     return (
-      reply.classification === OutreachEmailReplyClass.unsubscribe ||
-      (reply.classification === OutreachEmailReplyClass.forwarded &&
-        reply.forwardedAt === null)
+      reply.classification === OutreachEmailReplyClass.forwarded &&
+      reply.forwardedAt === null
     )
   }
 

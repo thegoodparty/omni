@@ -79,6 +79,9 @@ export class EmailSnsWebhookService {
     const response = await fetch(url, {
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     })
+    if (response.status >= 400 && response.status < 500) {
+      throw new ForbiddenException()
+    }
     if (!response.ok) {
       throw new Error(`Certificate fetch answered ${response.status}`)
     }
@@ -105,6 +108,7 @@ export class EmailSnsWebhookService {
     try {
       certificate = await this.fetchCertificate(message.SigningCertURL)
     } catch (err) {
+      if (err instanceof ForbiddenException) throw err
       this.logger.error({ err }, 'could not fetch the SNS signing certificate')
       throw new ServiceUnavailableException()
     }

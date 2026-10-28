@@ -47,8 +47,12 @@ export const isSnsUrl = (value: string, pathPattern: RegExp): boolean => {
   }
 }
 
+// No query or fragment, so the certificate cache can't be filled with
+// variants of one URL.
 export const isSigningCertUrl = (value: string): boolean =>
-  isSnsUrl(value, /^\/SimpleNotificationService-[A-Za-z0-9-]+\.pem$/)
+  isSnsUrl(value, /^\/SimpleNotificationService-[A-Za-z0-9-]+\.pem$/) &&
+  new URL(value).search === '' &&
+  new URL(value).hash === ''
 
 // The fields SNS signs, in the order AWS documents, each as "name\nvalue\n".
 export const snsStringToSign = (message: SnsMessage): string => {

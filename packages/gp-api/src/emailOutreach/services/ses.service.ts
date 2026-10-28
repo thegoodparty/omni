@@ -50,6 +50,13 @@ export const forwardsConfigurationSet = (): string =>
 // never forwarded again.
 export const FORWARD_MARKER_HEADER = 'X-GoodParty-Forwarded'
 
+// SES rejects a raw non-ASCII display name, so it goes out as an RFC 2047
+// encoded word.
+const displayName = (name: string): string =>
+  /^[\x20-\x7e]*$/.test(name)
+    ? `"${name}"`
+    : `=?UTF-8?B?${Buffer.from(name, 'utf8').toString('base64')}?=`
+
 const SES_NAME_PATTERN = /^[A-Za-z0-9_-]{1,64}$/
 
 export const sesTenantNameFor = (organizationSlug: string): string => {
@@ -226,7 +233,7 @@ export class SesService extends AwsService {
       const result = await this.client.send(
         new SendEmailCommand({
           FromEmailAddress: input.fromName
-            ? `"${input.fromName}" <${input.from}>`
+            ? `${displayName(input.fromName)} <${input.from}>`
             : input.from,
           Destination: { ToAddresses: [input.to] },
           ReplyToAddresses: [input.replyTo],

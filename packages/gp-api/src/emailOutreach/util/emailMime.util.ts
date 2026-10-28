@@ -11,6 +11,8 @@ export type ParsedMime = {
 
 const MAX_DEPTH = 5
 const MAX_PARTS = 50
+const MAX_HEADER_CHARS = 2_000
+const MAX_BODY_CHARS = 400_000
 
 const decodeBytes = (bytes: Buffer, charset: string | undefined): string => {
   try {
@@ -36,7 +38,10 @@ const parseHeaders = (head: string): Map<string, string[]> => {
     const colon = line.indexOf(':')
     if (colon <= 0) continue
     const name = line.slice(0, colon).trim().toLowerCase()
-    const value = line.slice(colon + 1).trim()
+    const value = line
+      .slice(colon + 1)
+      .trim()
+      .slice(0, MAX_HEADER_CHARS)
     headers.set(name, [...(headers.get(name) ?? []), value])
   }
   return headers
@@ -85,21 +90,56 @@ const paramOf = (value: string, param: string): string | undefined => {
 const mediaType = (value: string | undefined): string =>
   (value ?? 'text/plain').split(';')[0]?.trim().toLowerCase() ?? 'text/plain'
 
-const stripHtml = (html: string): string =>
-  html
-    .replace(/<(style|script)[\s\S]*?<\/\1>/gi, '')
-    .replace(/<br\s*\/?>|<\/(p|div|li|tr)>/gi, '\n')
-    .replace(/<[^>]+>/g, '')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&amp;/g, '&')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim()
+const HTML_ENTITIES: [string, string][] = [
+  ['&nbsp;', ' '],
+  ['&lt;', '<'],
+  ['&gt;', '>'],
+  ['&quot;', '"'],
+  ['&#39;', "'"],
+  ['&amp;', '&'],
+]
 
-const decodeBody = (body: string, headers: Map<string, string[]>): string => {
+// A single pass with indexOf, so hostile markup can't make it quadratic.
+const stripHtml = (html: string): string => {
+  const lower = html.toLowerCase()
+  let out = ''
+  let i = 0
+  while (i < html.length) {
+    const open = html.indexOf('<', i)
+    if (open === -1) {
+      out += html.slice(i)
+      break
+    }
+    out += html.slice(i, open)
+    const close = html.indexOf('>', open)
+    if (close === -1) break
+    const tag = html.slice(open + 1, close).toLowerCase()
+    const name = /^\/?([a-z0-9]+)/.exec(tag.slice(0, 20))?.[1]
+    if ((name === 'style' || name === 'script') && !tag.startsWith('/')) {
+      const end = lower.indexOf(`</${name}`, close)
+      i = end === -1 ? html.length : end
+      continue
+    }
+    if (
+      name === 'br' ||
+      (tag.startsWith('/') && /^\/(p|div|li|tr)$/.test(tag))
+    ) {
+      out += '\n'
+    }
+    i = close + 1
+  }
+  const decoded = HTML_ENTITIES.reduce(
+    (text, [entity, char]) => text.split(entity).join(char),
+    out,
+  )
+  return decoded.replace(/\n{3,}/g, '\n\n').trim()
+}
+
+const decodeBody = (
+  fullBody: string,
+  headers: Map<string, string[]>,
+): string => {
+  const body = fullBody.slice(0, MAX_BODY_CHARS)
   const encoding = (
     headerValue(headers, 'content-transfer-encoding') ?? '7bit'
   ).toLowerCase()
@@ -168,7 +208,7 @@ export const readHeader = (
 }
 
 const ADDRESS = /([^\s<>"',;]+@[^\s<>"',;]+)/
-const NAMED_ADDRESS = /^(?:"?([^"<]*?)"?\s*)?<([^<>\s]+@[^<>\s]+)>/
+const ANGLE_ADDRESS = /^<?([^<>\s]+@[^<>\s]+)>?$/
 
 const splitAddressList = (value: string): string[] => {
   const parts: string[] = []
@@ -189,15 +229,24 @@ const splitAddressList = (value: string): string[] => {
 export const parseAddresses = (value: string | undefined): MimeAddress[] => {
   if (!value) return []
   const found: MimeAddress[] = []
-  for (const part of splitAddressList(value)) {
-    const named = NAMED_ADDRESS.exec(part.trim())
-    if (named) {
-      const name = named[1]?.trim()
-      found.push({
-        address: (named[2] ?? '').toLowerCase(),
-        name: name ? name : null,
-      })
-      continue
+  for (const part of splitAddressList(value.slice(0, MAX_HEADER_CHARS))) {
+    const trimmed = part.trim()
+    const open = trimmed.lastIndexOf('<')
+    const close = trimmed.lastIndexOf('>')
+    if (open !== -1 && close > open) {
+      const address = ANGLE_ADDRESS.exec(trimmed.slice(open, close + 1))?.[1]
+      if (address) {
+        const name = trimmed
+          .slice(0, open)
+          .trim()
+          .replace(/^"(.*)"$/, '$1')
+          .trim()
+        found.push({
+          address: address.toLowerCase(),
+          name: name ? name : null,
+        })
+        continue
+      }
     }
     const bare = ADDRESS.exec(part)?.[1]
     if (bare) found.push({ address: bare.toLowerCase(), name: null })
