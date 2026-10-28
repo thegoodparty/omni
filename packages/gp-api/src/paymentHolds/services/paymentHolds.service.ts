@@ -9,7 +9,7 @@ import {
   Type,
 } from '@nestjs/common'
 import { ModuleRef } from '@nestjs/core'
-import { addDays, addHours, isAfter } from 'date-fns'
+import { addDays, addHours, isAfter, subMinutes } from 'date-fns'
 import Stripe from 'stripe'
 import {
   OutreachHoldState,
@@ -24,6 +24,7 @@ import {
   StripeService,
 } from 'src/vendors/stripe/services/stripe.service'
 import {
+  HOLD_CLAIM_STALE_MINUTES,
   HOLD_PLACEMENT_LEAD_DAYS,
   HOLD_SETTLE_MARGIN_HOURS,
   OrphanedHoldReason,
@@ -208,56 +209,149 @@ export class PaymentHoldsService
       throw err
     }
 
-    if (!fitsCaptureWindow(sendAt, held.captureBefore)) {
-      this.logger.error(
-        { outreachId, sendAt, captureBefore: held.captureBefore },
-        'Payment hold lapses before the send can settle; voiding it',
-      )
-      await this.voidHold(held.paymentIntentId, outreachId, 'window_fit')
-      await this.model.updateMany({
-        where: { outreachId, state: OutreachHoldState.placing },
-        data: {
-          state: OutreachHoldState.released,
-          holdAttempt: { increment: 1 },
-          claimedAt: null,
-        },
-      })
-      throw new ConflictException(
-        'The card hold would expire before this send can be charged',
-      )
+    return this.commitPlacedHold(outreachId, sendAt, row.estimateCents, held)
+  }
+
+  // The placement sweep's claim. It places off-session: no one is there to
+  // see a decline, which goes to hold_failed for the card-update email.
+  async placeScheduledHold(
+    outreachId: number,
+  ): Promise<SaveCardAndPlanResult | null> {
+    const claim = await this.model.updateMany({
+      where: { outreachId, state: OutreachHoldState.scheduled },
+      data: { state: OutreachHoldState.placing, claimedAt: new Date() },
+    })
+    return claim.count === 1
+      ? this.placeHold(outreachId, { offSession: true })
+      : null
+  }
+
+  // A placement that never resolved. Recovery reads what the attempt left at
+  // Stripe instead of replaying its key: the replay would have to repeat the
+  // attempt's offSession, which isn't stored, and claimedAt is refreshed on
+  // each retry, so it can't tell when Stripe's 24-hour key window has passed.
+  async recoverStalePlacement(outreachId: number): Promise<void> {
+    const row = await this.model.findUnique({
+      where: { outreachId },
+      include: { outreach: { select: { date: true } } },
+    })
+    if (
+      row?.state !== OutreachHoldState.placing ||
+      !(await this.reclaimStale(row))
+    ) {
+      return
     }
 
-    const commit = await this.model.updateMany({
-      where: {
+    const intents = await this.stripe.findOutreachHolds({
+      customerId: row.stripeCustomerId,
+      outreachId,
+      holdAttempt: row.holdAttempt,
+    })
+    const [live, ...extra] = intents.filter(
+      (intent) => intent.status === 'requires_capture',
+    )
+    for (const intent of extra) {
+      await this.voidHold(intent.paymentIntentId, outreachId, 'lost_commit')
+    }
+    if (live) {
+      this.logger.warn(
+        { outreachId, paymentIntentId: live.paymentIntentId },
+        'Adopting a payment hold a stalled placement left at Stripe',
+      )
+      if (row.outreach.date) {
+        await this.commitPlacedHold(
+          outreachId,
+          row.outreach.date,
+          row.estimateCents,
+          live,
+        )
+        return
+      }
+      const current = await this.findUnique({ where: { outreachId } })
+      if (current?.paymentIntentId === live.paymentIntentId) return
+      await this.voidHold(live.paymentIntentId, outreachId, 'lost_commit')
+      await this.returnStalePlacement(outreachId)
+      return
+    }
+    const declined = intents.find(
+      (intent) =>
+        intent.status === 'requires_payment_method' ||
+        intent.status === 'requires_action',
+    )
+    if (declined) {
+      await this.recordDecline(
         outreachId,
-        state: OutreachHoldState.placing,
-        releaseRequested: false,
-      },
-      data: {
-        state: OutreachHoldState.held,
-        paymentIntentId: held.paymentIntentId,
-        authorizedCents: row.estimateCents,
-        captureBefore: held.captureBefore,
-        declineCode: null,
-        claimedAt: null,
-      },
-    })
-    if (commit.count === 1) {
-      return { outcome: 'held', captureBefore: held.captureBefore }
+        declined.declineCode ?? declined.status,
+      )
+      return
+    }
+    await this.returnStalePlacement(outreachId)
+  }
+
+  // A capture that never resolved: the channel may have stopped, and the
+  // capture may have landed with its commit lost.
+  async recoverStaleCapture(outreachId: number): Promise<void> {
+    const row = await this.findUnique({ where: { outreachId } })
+    if (
+      row?.state !== OutreachHoldState.capturing ||
+      !(await this.reclaimStale(row))
+    ) {
+      return
+    }
+    if (!row.paymentIntentId) {
+      this.logger.error({ outreachId }, 'Capturing payment hold has no intent')
+      return
     }
 
-    // A release arrived while Stripe was placing, or the send was deleted.
-    // The hold must not stand.
-    await this.voidHold(held.paymentIntentId, outreachId, 'lost_commit')
-    await this.model.updateMany({
-      where: { outreachId, state: OutreachHoldState.placing },
-      data: {
-        state: OutreachHoldState.released,
-        holdAttempt: { increment: 1 },
-        claimedAt: null,
-      },
-    })
-    throw new ConflictException('This send was canceled')
+    let intent: Stripe.PaymentIntent
+    try {
+      intent = await this.stripe.retrievePaymentIntent(row.paymentIntentId)
+    } catch (err) {
+      this.logger.error({ err, outreachId }, 'Failed to read payment hold')
+      throw new BadGatewayException('Failed to read payment hold')
+    }
+    switch (intent.status) {
+      case 'requires_capture':
+        return this.completeSettle(outreachId)
+      case 'succeeded':
+        await this.model.updateMany({
+          where: { outreachId, state: OutreachHoldState.capturing },
+          data: {
+            state: OutreachHoldState.captured,
+            capturedCents: intent.amount_received,
+            claimedAt: null,
+          },
+        })
+        return
+      case 'canceled':
+        // Our own void of a $0 settle that stopped before its commit.
+        if (intent.cancellation_reason !== 'automatic') {
+          await this.model.updateMany({
+            where: { outreachId, state: OutreachHoldState.capturing },
+            data: {
+              state: OutreachHoldState.released,
+              capturedCents: 0,
+              holdAttempt: { increment: 1 },
+              claimedAt: null,
+            },
+          })
+          return
+        }
+        this.logger.error(
+          { outreachId, paymentIntentId: row.paymentIntentId },
+          'CRITICAL payment hold lapsed before capture; marked uncollectable',
+        )
+        await this.model.updateMany({
+          where: { outreachId, state: OutreachHoldState.capturing },
+          data: { state: OutreachHoldState.uncollectable, claimedAt: null },
+        })
+        return
+      default:
+        this.logger.error(
+          { outreachId, stripeStatus: intent.status },
+          'Capturing payment hold is in an unexpected Stripe state',
+        )
+    }
   }
 
   async getHold(outreachId: number): Promise<HoldView | null> {
@@ -386,85 +480,7 @@ export class PaymentHoldsService
       )
     }
 
-    const row = await this.model.findUniqueOrThrow({ where: { outreachId } })
-    const { paymentIntentId, authorizedCents } = row
-    const adapterType = this.settlementAdapters.get(row.channel)
-    if (!paymentIntentId || authorizedCents == null || !adapterType) {
-      await this.revertCapturingToHeld(outreachId)
-      throw new InternalServerErrorException(
-        `Can't settle the ${row.channel} payment hold for this send`,
-      )
-    }
-
-    // A throw here leaves the row in capturing for the recovery sweep.
-    const report = await this.moduleRef
-      .get(adapterType, { strict: false })
-      .stopAndReport(outreachId)
-    if (!report.ready) {
-      await this.revertCapturingToHeld(outreachId)
-      return
-    }
-    if (!Number.isInteger(report.amountCents) || report.amountCents < 0) {
-      throw new InternalServerErrorException(
-        `The ${row.channel} channel reported an invalid amount`,
-      )
-    }
-
-    const amountCents = Math.min(report.amountCents, authorizedCents)
-    if (amountCents === 0) {
-      await this.voidHold(paymentIntentId, outreachId)
-      await this.model.updateMany({
-        where: { outreachId, state: OutreachHoldState.capturing },
-        data: {
-          state: OutreachHoldState.released,
-          capturedCents: 0,
-          holdAttempt: { increment: 1 },
-          claimedAt: null,
-        },
-      })
-      return
-    }
-
-    // Keyed on the intent, so a replay after a lost response returns the
-    // first capture. That holds only while stopAndReport reports the same
-    // amount once drained, which the adapter contract requires.
-    let captured: Stripe.PaymentIntent
-    try {
-      captured = await this.stripe.capturePaymentIntent(
-        paymentIntentId,
-        amountCents,
-        `outreach-capture-${paymentIntentId}`,
-      )
-    } catch (err) {
-      this.logger.error(
-        { err, outreachId, paymentIntentId, amountCents },
-        'Payment capture failed; left in capturing for recovery',
-      )
-      throw new BadGatewayException('Failed to capture payment')
-    }
-    if (captured.status !== 'succeeded') {
-      this.logger.error(
-        { outreachId, paymentIntentId, stripeStatus: captured.status },
-        'Payment capture did not succeed; left in capturing for recovery',
-      )
-      throw new BadGatewayException('Payment capture did not succeed')
-    }
-
-    const commit = await this.model.updateMany({
-      where: { outreachId, state: OutreachHoldState.capturing },
-      data: {
-        state: OutreachHoldState.captured,
-        capturedCents: captured.amount_received,
-        claimedAt: null,
-      },
-    })
-    if (commit.count === 0) {
-      this.logger.error(
-        { outreachId, paymentIntentId, amountCents },
-        'CRITICAL payment captured at Stripe but the hold row was not ' +
-          'capturing; the charge may be unrecorded',
-      )
-    }
+    return this.completeSettle(outreachId)
   }
 
   async release({ outreachId }: { outreachId: number }): Promise<void> {
@@ -586,6 +602,209 @@ export class PaymentHoldsService
     return placeNow
       ? this.placeHold(outreachId, { offSession: false })
       : { outcome: 'scheduled' }
+  }
+
+  private async commitPlacedHold(
+    outreachId: number,
+    sendAt: Date,
+    estimateCents: number,
+    held: { paymentIntentId: string; captureBefore: Date },
+  ): Promise<SaveCardAndPlanResult> {
+    if (!fitsCaptureWindow(sendAt, held.captureBefore)) {
+      this.logger.error(
+        { outreachId, sendAt, captureBefore: held.captureBefore },
+        'Payment hold lapses before the send can settle; voiding it',
+      )
+      await this.voidHold(held.paymentIntentId, outreachId, 'window_fit')
+      await this.model.updateMany({
+        where: { outreachId, state: OutreachHoldState.placing },
+        data: {
+          state: OutreachHoldState.released,
+          holdAttempt: { increment: 1 },
+          claimedAt: null,
+        },
+      })
+      throw new ConflictException(
+        'The card hold would expire before this send can be charged',
+      )
+    }
+
+    const commit = await this.model.updateMany({
+      where: {
+        outreachId,
+        state: OutreachHoldState.placing,
+        releaseRequested: false,
+      },
+      data: {
+        state: OutreachHoldState.held,
+        paymentIntentId: held.paymentIntentId,
+        authorizedCents: estimateCents,
+        captureBefore: held.captureBefore,
+        declineCode: null,
+        claimedAt: null,
+      },
+    })
+    if (commit.count === 1) {
+      return { outcome: 'held', captureBefore: held.captureBefore }
+    }
+
+    // A stalled placer and recovery can both hold this same intent; whichever
+    // committed it first owns it, and the other must not void it. The owner
+    // may since have released it.
+    const current = await this.findUnique({ where: { outreachId } })
+    if (current?.paymentIntentId === held.paymentIntentId) {
+      if (current.state === OutreachHoldState.released) {
+        throw new ConflictException('This send was canceled')
+      }
+      return { outcome: 'held', captureBefore: held.captureBefore }
+    }
+
+    // A release arrived while Stripe was placing, or the send was deleted.
+    // The hold must not stand.
+    await this.voidHold(held.paymentIntentId, outreachId, 'lost_commit')
+    await this.model.updateMany({
+      where: { outreachId, state: OutreachHoldState.placing },
+      data: {
+        state: OutreachHoldState.released,
+        holdAttempt: { increment: 1 },
+        claimedAt: null,
+      },
+    })
+    throw new ConflictException('This send was canceled')
+  }
+
+  // The half of settle that runs under the capturing claim. Recovery re-enters
+  // here for a capture that stalled.
+  private async completeSettle(outreachId: number): Promise<void> {
+    const row = await this.model.findUniqueOrThrow({ where: { outreachId } })
+    const { paymentIntentId, authorizedCents } = row
+    const adapterType = this.settlementAdapters.get(row.channel)
+    if (!paymentIntentId || authorizedCents == null || !adapterType) {
+      await this.revertCapturingToHeld(outreachId)
+      throw new InternalServerErrorException(
+        `Can't settle the ${row.channel} payment hold for this send`,
+      )
+    }
+
+    // A throw here leaves the row in capturing for the recovery sweep.
+    const report = await this.moduleRef
+      .get(adapterType, { strict: false })
+      .stopAndReport(outreachId)
+    if (!report.ready) {
+      await this.revertCapturingToHeld(outreachId)
+      return
+    }
+    if (!Number.isInteger(report.amountCents) || report.amountCents < 0) {
+      throw new InternalServerErrorException(
+        `The ${row.channel} channel reported an invalid amount`,
+      )
+    }
+
+    const amountCents = Math.min(report.amountCents, authorizedCents)
+    if (amountCents === 0) {
+      await this.voidHold(paymentIntentId, outreachId)
+      await this.model.updateMany({
+        where: { outreachId, state: OutreachHoldState.capturing },
+        data: {
+          state: OutreachHoldState.released,
+          capturedCents: 0,
+          holdAttempt: { increment: 1 },
+          claimedAt: null,
+        },
+      })
+      return
+    }
+
+    // Keyed on the intent, so a replay after a lost response returns the
+    // first capture. That holds only while stopAndReport reports the same
+    // amount once drained, which the adapter contract requires.
+    let captured: Stripe.PaymentIntent
+    try {
+      captured = await this.stripe.capturePaymentIntent(
+        paymentIntentId,
+        amountCents,
+        `outreach-capture-${paymentIntentId}`,
+      )
+    } catch (err) {
+      this.logger.error(
+        { err, outreachId, paymentIntentId, amountCents },
+        'Payment capture failed; left in capturing for recovery',
+      )
+      throw new BadGatewayException('Failed to capture payment')
+    }
+    if (captured.status !== 'succeeded') {
+      this.logger.error(
+        { outreachId, paymentIntentId, stripeStatus: captured.status },
+        'Payment capture did not succeed; left in capturing for recovery',
+      )
+      throw new BadGatewayException('Payment capture did not succeed')
+    }
+
+    const commit = await this.model.updateMany({
+      where: { outreachId, state: OutreachHoldState.capturing },
+      data: {
+        state: OutreachHoldState.captured,
+        capturedCents: captured.amount_received,
+        claimedAt: null,
+      },
+    })
+    if (commit.count === 0) {
+      const current = await this.findUnique({ where: { outreachId } })
+      if (current?.state === OutreachHoldState.captured) return
+      this.logger.error(
+        { outreachId, paymentIntentId, amountCents },
+        'CRITICAL payment captured at Stripe but the hold row was not ' +
+          'capturing; the charge may be unrecorded',
+      )
+    }
+  }
+
+  // Takes over a placing or capturing claim older than the stale window. The
+  // compare-and-set on the old claimedAt elects one recoverer.
+  private async reclaimStale(row: OutreachPaymentHold): Promise<boolean> {
+    if (
+      !row.claimedAt ||
+      isAfter(row.claimedAt, subMinutes(new Date(), HOLD_CLAIM_STALE_MINUTES))
+    ) {
+      return false
+    }
+    const reclaim = await this.model.updateMany({
+      where: {
+        outreachId: row.outreachId,
+        state: row.state,
+        claimedAt: row.claimedAt,
+      },
+      data: { claimedAt: new Date() },
+    })
+    return reclaim.count === 1
+  }
+
+  // Stripe shows no intent under this attempt, so a fresh attempt can't stack
+  // a second hold. Bumping also avoids replaying a key whose saved response
+  // can't be reproduced.
+  private async returnStalePlacement(outreachId: number): Promise<void> {
+    const rescheduled = await this.model.updateMany({
+      where: {
+        outreachId,
+        state: OutreachHoldState.placing,
+        releaseRequested: false,
+      },
+      data: {
+        state: OutreachHoldState.scheduled,
+        holdAttempt: { increment: 1 },
+        claimedAt: null,
+      },
+    })
+    if (rescheduled.count === 0) {
+      await this.model.updateMany({
+        where: { outreachId, state: OutreachHoldState.placing },
+        data: {
+          state: OutreachHoldState.released,
+          holdAttempt: { increment: 1 },
+          claimedAt: null,
+        },
+      })
+    }
   }
 
   private planOutcome(row: OutreachPaymentHold): SaveCardAndPlanResult {

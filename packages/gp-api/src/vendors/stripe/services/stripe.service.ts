@@ -16,7 +16,7 @@ import {
   PurchaseIntentPayloadEntry,
 } from 'src/payments/payments.types'
 import { serializeError } from 'serialize-error'
-import { addDays, addHours, fromUnixTime, getUnixTime } from 'date-fns'
+import { addDays, addHours, fromUnixTime, getUnixTime, subDays } from 'date-fns'
 import { SlackService } from 'src/vendors/slack/services/slack.service'
 import Stripe from 'stripe'
 
@@ -42,6 +42,21 @@ export class StripeOutreachHoldDeclinedError extends StripeHoldDeclinedError {
     super(message)
     this.name = 'StripeOutreachHoldDeclinedError'
   }
+}
+
+// Stripe puts a manual-capture deadline on the charge's card details, not the
+// intent. Without it, assume the shortest card window (Visa off-session, 4
+// days 18 hours from placement) rather than overstate how long the hold lasts.
+const outreachHoldCaptureBefore = (
+  intent: Stripe.PaymentIntent,
+  placedAt: Date,
+): Date => {
+  const charge =
+    typeof intent.latest_charge === 'object' ? intent.latest_charge : null
+  const captureBeforeUnix = charge?.payment_method_details?.card?.capture_before
+  return captureBeforeUnix
+    ? fromUnixTime(captureBeforeUnix)
+    : addHours(placedAt, 4 * 24 + 18)
 }
 
 // A declined off-session robocall fresh charge. Carries the declined Payment
@@ -400,19 +415,64 @@ export class StripeService {
       )
     }
 
-    // Stripe puts the deadline on the charge's card details, not the intent.
-    // Without it, assume the shortest card window (Visa off-session, 4 days
-    // 18 hours) rather than overstate how long the hold lasts.
-    const charge =
-      typeof intent.latest_charge === 'object' ? intent.latest_charge : null
-    const captureBeforeUnix =
-      charge?.payment_method_details?.card?.capture_before
     return {
       paymentIntentId: intent.id,
-      captureBefore: captureBeforeUnix
-        ? fromUnixTime(captureBeforeUnix)
-        : addHours(new Date(), 4 * 24 + 18),
+      captureBefore: outreachHoldCaptureBefore(intent, new Date()),
     }
+  }
+
+  // Every intent placed for one attempt of an outreach hold, whatever its
+  // status, so recovery can see what a placement that never committed left at
+  // Stripe. A list, not a search: search is eventually consistent, and an
+  // empty answer here lets recovery place a fresh attempt, so a lagging index
+  // would stack a second hold on the card.
+  async findOutreachHolds({
+    customerId,
+    outreachId,
+    holdAttempt,
+  }: {
+    customerId: string
+    outreachId: number
+    holdAttempt: number
+  }): Promise<
+    {
+      paymentIntentId: string
+      status: Stripe.PaymentIntent.Status
+      captureBefore: Date
+      declineCode: string | null
+    }[]
+  > {
+    let intents: Stripe.PaymentIntent[]
+    try {
+      // No card holds an authorization longer than 7 days, so an older
+      // intent can't be live.
+      intents = await this.stripe.paymentIntents
+        .list({
+          customer: customerId,
+          created: { gte: getUnixTime(subDays(new Date(), 8)) },
+          limit: 100,
+          expand: ['data.latest_charge'],
+        })
+        .autoPagingToArray({ limit: 10000 })
+    } catch (err) {
+      this.logger.error({ err, outreachId }, 'Failed to list payment holds')
+      throw new BadGatewayException('Failed to list payment holds')
+    }
+    return intents
+      .filter(
+        (intent) =>
+          intent.metadata.outreachId === String(outreachId) &&
+          intent.metadata.holdAttempt === String(holdAttempt),
+      )
+      .map((intent) => ({
+        paymentIntentId: intent.id,
+        status: intent.status,
+        captureBefore: outreachHoldCaptureBefore(
+          intent,
+          fromUnixTime(intent.created),
+        ),
+        declineCode: intent.last_payment_error?.decline_code ?? null,
+      }))
   }
 
   // Charges the saved card off-session for a DELIVERED robocall run whose
