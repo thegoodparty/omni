@@ -1,6 +1,10 @@
 import { UnsubscribePage } from './UnsubscribePage'
 
-export const metadata = { title: 'Unsubscribe', robots: 'noindex' }
+export const metadata = {
+  title: 'Unsubscribe',
+  robots: 'noindex',
+  referrer: 'no-referrer',
+}
 
 export default async function Page({
   params,

@@ -16,7 +16,11 @@ vi.mock('@stripe/react-stripe-js', () => ({
     <div>{children}</div>
   ),
   PaymentElement: () => <div data-testid="payment-element" />,
-  useStripe: () => ({ confirmSetup: vi.fn() }),
+  useStripe: () => ({
+    confirmSetup: vi.fn().mockResolvedValue({
+      setupIntent: { payment_method: 'pm_new' },
+    }),
+  }),
   useElements: () => ({}),
 }))
 
@@ -72,8 +76,17 @@ describe('emailStatusCopy', () => {
     )
   })
 
-  it('has nothing to say about a draft', () => {
-    expect(emailStatusCopy(send({ status: 'draft' }))).toBeNull()
+  it('does not say a failed send that sent some was not charged', () => {
+    expect(
+      emailStatusCopy(send({ status: 'failed', sentCount: 12 }))?.caption,
+    ).toBe('12 went out before it stopped.')
+  })
+
+  it('says a draft is a draft, and has no copy for an unknown status', () => {
+    expect(emailStatusCopy(send({ status: 'draft' }))?.title).toBe(
+      'This email is still a draft.',
+    )
+    expect(emailStatusCopy(send({ status: 'mystery' }))).toBeNull()
   })
 })
 
@@ -109,6 +122,37 @@ describe('EmailStatus', () => {
 
     expect(await screen.findByText('Update your card')).toBeInTheDocument()
     expect(await screen.findByTestId('payment-element')).toBeInTheDocument()
+  })
+
+  it('sends a new card to the hold, then confirms the send', async () => {
+    api.mock('GET /v1/outreach/email/:id', {
+      status: 200,
+      data: send({ status: 'pending_payment' }),
+    })
+    api.mock('POST /v1/outreach/holds/card-intent', {
+      status: 200,
+      data: { clientSecret: 'seti_secret_1' },
+    })
+    const cards: unknown[] = []
+    api.mock('POST /v1/outreach/holds/:outreachId/card', ({ body }) => {
+      cards.push(body)
+      return { status: 200, data: { outcome: 'scheduled' } }
+    })
+    api.mock('POST /v1/outreach/email/:id/confirm', {
+      status: 200,
+      data: {
+        outcome: 'scheduled',
+        declineCode: null,
+        email: send({ status: 'pending' }),
+      },
+    })
+    render(<EmailStatus surface={WIN_EMAIL_SURFACE} id={11} />)
+
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Pay and send' }),
+    )
+    expect(await screen.findByText('Scheduled.')).toBeInTheDocument()
+    expect(cards).toEqual([{ paymentMethodId: 'pm_new' }])
   })
 
   it('reads a Serve send through the office-scoped route', async () => {

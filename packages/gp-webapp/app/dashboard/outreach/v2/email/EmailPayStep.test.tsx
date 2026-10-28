@@ -70,8 +70,14 @@ describe('EmailPayStep', () => {
       }
     })
     const onPaid = vi.fn()
+    const onConfirmAttempted = vi.fn()
     render(
-      <EmailPayStep surface={WIN_EMAIL_SURFACE} draftId={11} onPaid={onPaid} />,
+      <EmailPayStep
+        surface={WIN_EMAIL_SURFACE}
+        draftId={11}
+        onPaid={onPaid}
+        onConfirmAttempted={onConfirmAttempted}
+      />,
     )
 
     expect(await screen.findByTestId('email-pay-price')).toHaveTextContent(
@@ -83,6 +89,7 @@ describe('EmailPayStep', () => {
 
     await waitFor(() => expect(onPaid).toHaveBeenCalledTimes(1))
     expect(bodies).toEqual([{ paymentMethodId: 'pm_new' }])
+    expect(onConfirmAttempted).toHaveBeenCalled()
   })
 
   it('keeps the card form up after a decline', async () => {
@@ -95,8 +102,14 @@ describe('EmailPayStep', () => {
       },
     })
     const onPaid = vi.fn()
+    const onConfirmAttempted = vi.fn()
     render(
-      <EmailPayStep surface={WIN_EMAIL_SURFACE} draftId={11} onPaid={onPaid} />,
+      <EmailPayStep
+        surface={WIN_EMAIL_SURFACE}
+        draftId={11}
+        onPaid={onPaid}
+        onConfirmAttempted={onConfirmAttempted}
+      />,
     )
 
     await userEvent.click(
@@ -106,5 +119,6 @@ describe('EmailPayStep', () => {
       'That card has expired. Try another.',
     )
     expect(onPaid).not.toHaveBeenCalled()
+    expect(onConfirmAttempted).toHaveBeenCalled()
   })
 })

@@ -144,4 +144,7 @@ export const checkSchedule = (
 }
 
 export const formatDollars = (cents: number): string =>
-  `$${(cents / 100).toFixed(2)}`
+  `$${(cents / 100).toLocaleString('en-US', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`

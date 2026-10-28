@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import type { EmailSend } from '@goodparty_org/contracts'
 import {
@@ -16,6 +16,7 @@ import { PaymentHoldCard } from 'app/dashboard/shared/payment-hold/PaymentHoldCa
 import { Intro } from '../social/Intro'
 import {
   apiErrorMessage,
+  CARD_ON_FILE,
   cancelEmail,
   confirmEmail,
   emailSendQueryKey,
@@ -23,8 +24,6 @@ import {
 } from './emailApi'
 import { formatCount } from './emailFlow.util'
 import type { EmailSurface } from './emailSurface'
-
-const CARD_ON_FILE = 'card-on-file'
 
 const SELF_CLEARING_PAUSES = ['ses_account', 'daily_quota']
 
@@ -93,7 +92,15 @@ export const emailStatusCopy = (send: EmailSend): StatusCopy | null => {
     case 'failed':
       return {
         title: "It didn't go out.",
-        caption: 'Your card was not charged.',
+        caption:
+          send.sentCount > 0
+            ? `${formatCount(send.sentCount)} went out before it stopped.`
+            : 'Your card was not charged.',
+      }
+    case 'draft':
+      return {
+        title: 'This email is still a draft.',
+        caption: 'Open Email from your outreach to finish and send it.',
       }
     default:
       return null
@@ -113,7 +120,6 @@ export const EmailStatus = ({ surface, id }: EmailStatusProps) => {
   const [confirmingCancel, setConfirmingCancel] = useState(false)
   const [canceling, setCanceling] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const confirmedRef = useRef(false)
 
   if (isError) {
     return (
@@ -124,8 +130,10 @@ export const EmailStatus = ({ surface, id }: EmailStatusProps) => {
     )
   }
   if (!send) return null
-  const copy = emailStatusCopy(send)
-  if (!copy) return null
+  const copy = emailStatusCopy(send) ?? {
+    title: 'Something is off with this email.',
+    caption: 'Go back to your outreach and try again.',
+  }
 
   const refresh = (next: EmailSend) =>
     queryClient.setQueryData(emailSendQueryKey(surface.isServe, id), next)
@@ -143,11 +151,10 @@ export const EmailStatus = ({ surface, id }: EmailStatusProps) => {
     }
   }
 
-  // A card change on a declined send goes to the hold, which leaves the send
-  // waiting on a confirm. Confirm ignores the card id once the hold exists.
+  // A send waits on a card only after a decline, so its hold exists and the
+  // card goes to the hold's route. That leaves the send waiting on a confirm.
   const cardUpdated = async () => {
     setError(null)
-    if (confirmedRef.current) return
     try {
       refresh((await confirmEmail(surface.isServe, id, CARD_ON_FILE)).email)
     } catch (e) {
@@ -167,21 +174,6 @@ export const EmailStatus = ({ surface, id }: EmailStatusProps) => {
             mode={surface.isServe ? 'serve' : 'win'}
             outreachId={id}
             submitLabel="Pay and send"
-            savePaymentMethod={async (paymentMethodId) => {
-              const result = await confirmEmail(
-                surface.isServe,
-                id,
-                paymentMethodId,
-              )
-              if (result.outcome === 'declined') {
-                return { outcome: 'declined', declineCode: result.declineCode }
-              }
-              confirmedRef.current = true
-              refresh(result.email)
-              return result.outcome === 'held'
-                ? { outcome: 'held', captureBefore: '' }
-                : { outcome: 'scheduled' }
-            }}
             onOutcome={() => void cardUpdated()}
           />
         </div>

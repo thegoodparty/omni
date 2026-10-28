@@ -1,6 +1,10 @@
 import { ForwardConfirmPage } from './ForwardConfirmPage'
 
-export const metadata = { title: 'Confirm reply address', robots: 'noindex' }
+export const metadata = {
+  title: 'Confirm reply address',
+  robots: 'noindex',
+  referrer: 'no-referrer',
+}
 
 export default async function Page({
   params,

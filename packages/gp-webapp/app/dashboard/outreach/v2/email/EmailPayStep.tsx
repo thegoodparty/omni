@@ -1,12 +1,15 @@
 import { useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import type { EmailSend } from '@goodparty_org/contracts'
+import type {
+  EmailSend,
+  PaymentHoldCardResponse,
+} from '@goodparty_org/contracts'
 import { PaymentHoldCard } from 'app/dashboard/shared/payment-hold/PaymentHoldCard'
-import type { PaymentHoldCardResponse } from '@goodparty_org/contracts'
 import { Button } from '@styleguide'
 import { Intro } from '../social/Intro'
 import {
   apiErrorMessage,
+  CARD_ON_FILE,
   confirmEmail,
   emailSendQueryKey,
   useEmailSend,
@@ -14,21 +17,20 @@ import {
 import { formatDollars } from './emailFlow.util'
 import type { EmailSurface } from './emailSurface'
 
-// Once a send has a hold, confirm answers from the stored hold and never reads
-// the card id. A new card goes to the hold's own route, so this call only
-// moves the send out of pending_payment.
-const CARD_ON_FILE = 'card-on-file'
-
 interface EmailPayStepProps {
   surface: EmailSurface
   draftId: number
   onPaid: (send: EmailSend) => void
+  // Fired once confirm has been tried, so the flow can stop offering Back:
+  // a later confirm would ignore a different card.
+  onConfirmAttempted: () => void
 }
 
 export const EmailPayStep = ({
   surface,
   draftId,
   onPaid,
+  onConfirmAttempted,
 }: EmailPayStepProps) => {
   const queryClient = useQueryClient()
   const { data: send } = useEmailSend(surface.isServe, draftId)
@@ -41,6 +43,7 @@ export const EmailPayStep = ({
     paymentMethodId: string,
   ): Promise<PaymentHoldCardResponse> => {
     const result = await confirmEmail(surface.isServe, draftId, paymentMethodId)
+    onConfirmAttempted()
     if (result.outcome === 'declined') {
       return { outcome: 'declined', declineCode: result.declineCode }
     }
