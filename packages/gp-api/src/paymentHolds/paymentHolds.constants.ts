@@ -16,6 +16,10 @@ export const HOLD_EXPIRY_GUARD_HOURS = 12
 // A hold still not placed this close to its send is alerted on.
 export const HOLD_UNPLACED_ALERT_HOURS = 24
 
+// A declined hold isn't reminded about until it has been failed this long, so
+// the reminder never lands beside the decline email.
+export const HOLD_REMINDER_QUIET_HOURS = 20
+
 // Why a hold was voided outside a clean release. The reconcile sweep re-voids
 // any of these Stripe has not confirmed canceled.
 export type OrphanedHoldReason = 'window_fit' | 'lost_commit' | 'release_failed'

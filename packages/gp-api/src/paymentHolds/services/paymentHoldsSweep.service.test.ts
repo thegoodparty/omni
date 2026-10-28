@@ -3,6 +3,7 @@ import { ModuleRef } from '@nestjs/core'
 import { addDays, addHours, subMinutes } from 'date-fns'
 import type Stripe from 'stripe'
 import { beforeEach, describe, expect, it, MockInstance, vi } from 'vitest'
+import { AnalyticsService } from '@/analytics/analytics.service'
 import { useTestService } from '@/test-service'
 import {
   OutreachHoldState,
@@ -37,6 +38,7 @@ let findSpy: MockInstance<StripeService['findOutreachHolds']>
 let retrieveIntentSpy: MockInstance<StripeService['retrievePaymentIntent']>
 let captureSpy: MockInstance<StripeService['capturePaymentIntent']>
 let cancelSpy: MockInstance<StripeService['cancelHold']>
+let trackSpy: MockInstance<AnalyticsService['track']>
 
 const intent = (
   overrides: Partial<Stripe.PaymentIntent>,
@@ -78,6 +80,9 @@ beforeEach(async () => {
       intent({ status: 'succeeded', amount_received: amount }),
     )
   cancelSpy = vi.spyOn(stripe, 'cancelHold').mockResolvedValue(undefined)
+  trackSpy = vi
+    .spyOn(service.app.get(AnalyticsService), 'track')
+    .mockImplementation(async () => undefined as never)
 
   adapter = new TestSettlementAdapter()
   holds.registerSettlementAdapter(OutreachType.email, TestSettlementAdapter)
@@ -200,21 +205,6 @@ describe('sweepPlacements', () => {
     ]
     expect(states).toContain(OutreachHoldState.placing)
     expect(states).toContain(OutreachHoldState.held)
-  })
-
-  it('alerts on holds still scheduled after their send time', async () => {
-    const overdue = await createHold(OutreachHoldState.scheduled, {
-      date: subMinutes(new Date(), 5),
-    })
-    const errorSpy = vi.spyOn(sweeps.logger, 'error')
-
-    await sweeps.sweepPlacements()
-
-    expect(placeSpy).not.toHaveBeenCalled()
-    expect(errorSpy).toHaveBeenCalledWith(
-      { outreachIds: [overdue] },
-      expect.stringContaining('past their send time'),
-    )
   })
 
   it('does nothing when vendor crons are off', async () => {
@@ -392,6 +382,8 @@ describe('sweepStaleClaims: capturing', () => {
       state: OutreachHoldState.captured,
       capturedCents: 3100,
     })
+    expect(trackSpy).toHaveBeenCalledTimes(1)
+    expect(trackSpy.mock.calls[0]?.[1]).toBe('Outreach Payment - Receipt')
   })
 
   it('finishes a capture that never reached Stripe', async () => {
@@ -507,5 +499,86 @@ describe('reconcileOrphanedHolds', () => {
       where: { id: orphan.id },
     })
     expect(row.voidedAt).toBeNull()
+  })
+})
+
+describe('releaseUnpaidHolds', () => {
+  it('releases holds still scheduled or failed at their send time and emails once', async () => {
+    const neverPlaced = await createHold(OutreachHoldState.scheduled, {
+      date: subMinutes(new Date(), 5),
+    })
+    const declined = await createHold(OutreachHoldState.hold_failed, {
+      date: subMinutes(new Date(), 5),
+    })
+    const ahead = await createHold(OutreachHoldState.hold_failed)
+    const placed = await createHold(OutreachHoldState.held, {
+      date: subMinutes(new Date(), 5),
+    })
+    const errorSpy = vi.spyOn(sweeps.logger, 'error')
+
+    await Promise.all([
+      sweeps.releaseUnpaidHolds(),
+      sweeps.releaseUnpaidHolds(),
+    ])
+
+    expect((await readHold(neverPlaced)).state).toBe(OutreachHoldState.released)
+    expect((await readHold(declined)).state).toBe(OutreachHoldState.released)
+    expect((await readHold(ahead)).state).toBe(OutreachHoldState.hold_failed)
+    expect((await readHold(placed)).state).toBe(OutreachHoldState.held)
+    expect(
+      trackSpy.mock.calls.map(([, name, , , id]) => [name, id]).sort(),
+    ).toEqual(
+      [
+        ['Outreach Payment - Canceled', `${neverPlaced}:canceled`],
+        ['Outreach Payment - Canceled', `${declined}:canceled`],
+      ].sort(),
+    )
+    expect(errorSpy).toHaveBeenCalledWith(
+      { outreachId: neverPlaced },
+      expect.stringContaining('never placed'),
+    )
+  })
+
+  it('does nothing when vendor crons are off', async () => {
+    disableVendorCrons()
+    const outreachId = await createHold(OutreachHoldState.scheduled, {
+      date: subMinutes(new Date(), 5),
+    })
+
+    await sweeps.releaseUnpaidHolds()
+
+    expect((await readHold(outreachId)).state).toBe(OutreachHoldState.scheduled)
+  })
+})
+
+describe('remindFailedHolds', () => {
+  it('reminds a declined hold with its send ahead, once a day', async () => {
+    const outreachId = await createHold(OutreachHoldState.hold_failed)
+    await service.prisma
+      .$executeRaw`UPDATE outreach_payment_hold SET updated_at = now() - interval '30 hours' WHERE outreach_id = ${outreachId}`
+
+    await sweeps.remindFailedHolds()
+    await sweeps.remindFailedHolds()
+
+    const day = new Date().toISOString().slice(0, 10)
+    expect(trackSpy).toHaveBeenCalledTimes(2)
+    for (const call of trackSpy.mock.calls) {
+      expect(call[1]).toBe('Outreach Payment - Reminder')
+      expect(call[4]).toBe(`${outreachId}:reminder:${day}`)
+    }
+  })
+
+  it('skips a hold that just failed, one past its send, and a placed one', async () => {
+    await createHold(OutreachHoldState.hold_failed)
+    const past = await createHold(OutreachHoldState.hold_failed, {
+      date: subMinutes(new Date(), 5),
+    })
+    const placed = await createHold(OutreachHoldState.held)
+    await service.prisma
+      .$executeRaw`UPDATE outreach_payment_hold SET updated_at = now() - interval '30 hours' WHERE outreach_id IN (${past}, ${placed})`
+
+    await sweeps.remindFailedHolds()
+
+    expect(trackSpy).not.toHaveBeenCalled()
   })
 })

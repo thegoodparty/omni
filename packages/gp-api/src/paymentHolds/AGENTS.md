@@ -2,7 +2,7 @@
 
 A channel-neutral Stripe authorize-then-capture system for outreach sends: hold the card, capture only what actually sent, release on cancel (never refund). Email is the first channel; robocall is intended to move here later (it still has its own hold code). Design: "Outreach payment holds (shared)" (ClickUp doc `2ky4jq2q-20493`, page `2ky4jq2q-157473`).
 
-Under construction: nothing yet releases a hold still unresolved at its send time. Never make a call report success early. Channel endpoints aren't behind a server-side flag, so a fake hold would let a send go out unpaid. Channels test against the service with `vi.spyOn`.
+Never make a call report success early. Channel endpoints aren't behind a server-side flag, so a fake hold would let a send go out unpaid. Channels test against the service with `vi.spyOn`.
 
 Decision record: `docs/adr/2026-10-27-one-channel-neutral-outreach-payment-hold.md`.
 
@@ -12,9 +12,10 @@ Decision record: `docs/adr/2026-10-27-one-channel-neutral-outreach-payment-hold.
 | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
 | `paymentHolds.types.ts`                                                   | `PaymentHoldsApi`, the interface channels call, and `SettlementAdapter`, the one call into a channel                |
 | `services/paymentHolds.service.ts`                                        | The service behind the interface, the settlement-adapter registry, and `placeHold` for the crons                    |
-| `services/paymentHoldsSweep.service.ts`                                   | The four crons (below)                                                                                              |
+| `services/paymentHoldsSweep.service.ts`                                   | The crons (below)                                                                                                   |
 | `paymentHolds.controller.ts`, `paymentHoldsServe.controller.ts`           | `POST outreach/holds/card-intent` and `POST outreach/holds/:outreachId/card`, mirrored under `outreach/serve/holds` |
 | `services/paymentHoldsCard.service.ts`                                    | Scopes the send to the caller (a send outside it is a 404), then calls `updateCard`                                 |
+| `services/paymentHoldEvents.service.ts`                                   | Fires the four `OutreachPayment` Segment events, best-effort, from the winning transition only                      |
 | `services/outreachOrphanedHold.service.ts`                                | Records voids for the reconcile sweep                                                                               |
 | `paymentHolds.constants.ts`                                               | The 3-day lead, the 24-hour settle margin, the orphaned-hold reasons                                                |
 | `prisma/schema/outreachPaymentHold.prisma`, `outreachOrphanedHold.prisma` | The hold row with its `OutreachHoldState` machine, and voided-hold tracking                                         |
@@ -42,8 +43,23 @@ All in `PaymentHoldsSweepService`, gated on `VENDOR_CRONS_ENABLED`, with no `Cro
 | `paymentHoldRecoverySweep`  | `:06` every 10m | Takes over `placing` and `capturing` claims older than 10 minutes and resolves them from Stripe               |
 | `paymentHoldExpiryGuard`    | `:38` hourly    | Settles `held` holds within 12 hours of `captureBefore`                                                       |
 | `paymentHoldReconcileSweep` | `:24` hourly    | Re-voids `OutreachOrphanedHold` rows Stripe still shows as live                                               |
+| `paymentHoldUnpaidSweep`    | `:05` every 10m | Releases `scheduled` and `hold_failed` holds whose send time has passed, and emits `Canceled`                 |
+| `paymentHoldReminderSweep`  | 10:18 ET daily  | Emits `Reminder` for `hold_failed` holds with the send still ahead, 20+ hours after the decline               |
 
 A stale `capturing` row whose intent Stripe shows `canceled` becomes `uncollectable` with a CRITICAL log; there is no automatic recharge.
+
+## Payment events
+
+`PaymentHoldEventsService.emit` fires the `OutreachPayment` events through `AnalyticsService.track`, only from the transition that won, never throwing. HubSpot sends the emails (Win and Serve versions), so the names, the `messageId`s and the property keys are load-bearing.
+
+| Event        | Fires from                                                                                                                                                                                                                                                                                                                                        | messageId                            |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------ |
+| `HoldFailed` | An off-session decline in `recordDecline` (placement sweep, recovery), and a detached card on a `scheduled` hold. A decline at confirm or on the card endpoint is shown to the user and never emails, and neither does the attach webhook's retry (it races the user's own card save; the reminder covers it). A window-fit release sends nothing | `<outreachId>:hold_failed`           |
+| `Reminder`   | `paymentHoldReminderSweep`                                                                                                                                                                                                                                                                                                                        | `<outreachId>:reminder:<yyyy-mm-dd>` |
+| `Canceled`   | `releaseUnpaid`, when the unpaid sweep releases a hold at its send time                                                                                                                                                                                                                                                                           | `<outreachId>:canceled`              |
+| `Receipt`    | The `capturing` to `captured` commit in `completeSettle` and in recovery's already-succeeded branch. A $0 settle releases and sends no receipt                                                                                                                                                                                                    | `<outreachId>:receipt`               |
+
+Every event carries `outreachId`, `channel`, `mode` (`win` when the send has a campaign, else `serve`), `sendName`, `sendDate`, `estimateCents`, `estimateDollars` and `link` (the Win or Serve outreach hub). `HoldFailed` adds `declineCode`; `Receipt` adds `capturedCents`, `capturedDollars` and `recipientsSent`. The event goes to the organization's owner. The channel must treat a hold that is `released` at send time as a failed send; the hold system only releases the hold.
 
 ## Stripe webhooks
 
