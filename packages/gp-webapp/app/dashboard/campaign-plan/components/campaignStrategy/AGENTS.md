@@ -54,10 +54,14 @@ falls in. The cards are dated, prioritized tasks the candidate checks off. Featu
 - **Work done through a task's button closes the task.** `taskAction` puts
   the task's id on the flow's URL (`trackerTaskId` + `phase`), each flow
   sends it with the record it creates, and gp-api ticks the task once that
-  outreach is scheduled (see `gp-api/src/campaigns/campaignTracker`). They
-  keep "Mark done" all the same, since work started from the hub or done
-  offline carries no task id. Only the story task, which the server ticks
-  however the story gets finished, has none (`taskClosesItself`).
+  outreach is scheduled (see `gp-api/src/campaigns/campaignTracker`). Work
+  started from the hub carries no task id and closes nothing; matching it to
+  a task by channel was rejected, because it would close a task the
+  candidate never opened. Outreach tasks (an action and no own link) and the
+  story task, which the server ticks however the story gets finished, offer
+  no "Mark done" or "Mark not done" on the card or the row. A task whose
+  outreach went out from the hub stays open until the candidate skips it;
+  closing it from the hub is a gp-api follow-up.
 - **Text tasks after the texting cutoff.** gp-api swaps open text sends for
   robocalls once `smsCompliance` is `'closed'`, so none should reach the
   page. One that still does (no own link, not done) keeps no way into the

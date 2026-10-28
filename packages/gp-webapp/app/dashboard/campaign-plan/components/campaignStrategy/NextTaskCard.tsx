@@ -437,10 +437,10 @@ const NextTaskCard = ({
     frontRow?.flowType === 'text' &&
     !frontRow.link?.trim()
 
-  // Only a task that closes itself however it gets done (the story) offers no
-  // manual "Mark done". Outreach closes itself only when started from its own
-  // button, so it keeps Mark done for sends made elsewhere or offline.
-  const completesItself = taskClosesItself(frontTask?.title ?? '')
+  // A task that closes itself offers no manual "Mark done": the story however
+  // it gets finished, and outreach once it is sent from its own button.
+  const outreach = !!action && !frontRow?.link?.trim()
+  const completesItself = taskClosesItself(frontTask?.title ?? '') || outreach
   const markDone = () => {
     if (!frontTask) return
     // No confirmation: we trust the candidate, and the plan can reopen it.

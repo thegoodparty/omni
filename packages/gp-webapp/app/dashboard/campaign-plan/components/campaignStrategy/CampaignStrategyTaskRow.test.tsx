@@ -306,11 +306,10 @@ describe('the order of a task’s menu', () => {
           external: false,
         }),
       }),
-      // Work started elsewhere carries no task id, so Mark done stays.
+      // Outreach closes itself once sent from its button, so no Mark done.
     ).toEqual([
       'Plan your door knocking',
       'Ask about this',
-      'Mark done',
       'Show in 3 days',
       'Not for me',
     ])
@@ -486,14 +485,9 @@ describe('a text task once texting is closed', () => {
         .length,
     ).toBeGreaterThan(0)
 
-    await user.click(screen.getByRole('button', { name: 'More options' }))
-    expect(
-      await screen.findByRole('menuitem', { name: 'Mark done' }),
-    ).toBeInTheDocument()
-    expect(screen.queryByRole('menuitem', { name: 'Send a text' })).toBeNull()
-    expect(
-      screen.queryByRole('menuitem', { name: /start outreach/i }),
-    ).toBeNull()
+    // No way into the text flow and, as outreach, no Mark done: nothing is
+    // left for the menu.
+    expect(screen.queryByRole('button', { name: 'More options' })).toBeNull()
   })
 
   it('keeps the text action while texting is open', async () => {
