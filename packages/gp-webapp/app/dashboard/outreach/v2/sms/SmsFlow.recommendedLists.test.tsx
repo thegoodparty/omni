@@ -269,13 +269,14 @@ describe('SmsFlow — a recommendation carried in from the voter data page', () 
       />,
     )
 
-    // The saved list is what gets selected — never the stale card.
+    // The saved list is what gets selected — never the stale card — and the
+    // fresh card naming that list reads as picked.
     expect(
       await screen.findByRole('button', { name: 'Continue (17,000)' }),
     ).toBeEnabled()
     expect(screen.getByTestId('recommended-list-card')).toHaveAttribute(
       'aria-pressed',
-      'false',
+      'true',
     )
     await userEvent.click(
       screen.getByRole('button', { name: 'Continue (17,000)' }),

@@ -493,7 +493,10 @@ export const OutreachAudienceStep = ({
                   recommendation={recommendation}
                   channel={recommendedListsChannel}
                   selected={
-                    selectedRecommendation?.variant === recommendation.variant
+                    selectedRecommendation?.variant ===
+                      recommendation.variant ||
+                    (recommendation.existingFilterId !== null &&
+                      recommendation.existingFilterId === selectedId)
                   }
                   onSelect={() => pickRecommendation(recommendation)}
                 />

@@ -57,7 +57,10 @@ export const RecommendedListCard = ({
         onSelect()
       }}
       className={cn(
-        'cursor-pointer gap-1 p-4 text-left transition-colors hover:border-primary/50',
+        'cursor-pointer gap-1 p-4 text-left transition-colors outline-none focus-visible:ring-[3px] focus-visible:ring-primary-focus',
+        // A hover rule outranks the selected border, so a picked card would
+        // fade back to unpicked under the pointer.
+        !selected && 'hover:border-primary/50',
         className,
         selected && 'border-primary bg-primary/5',
       )}
