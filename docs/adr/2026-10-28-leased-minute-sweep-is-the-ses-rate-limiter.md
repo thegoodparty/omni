@@ -3,7 +3,7 @@ title: A leased minute sweep is the global SES rate limiter
 status: active
 decided_by: [agent]
 date: 2026-10-28
-code: ['#PR']
+code: ['#3330']
 scope:
   - packages/gp-api/src/emailOutreach/services/outreachEmailSendSweep.service.ts
   - packages/gp-api/prisma/schema/emailSweepLease.prisma
