@@ -38,6 +38,10 @@ export interface ElectionResultChat {
   suggestions: ChatSuggestion[]
   // Called when the chat closes, so the next open is the usual manager.
   reset: () => void
+  // The answers, shared with the Home card so both act the same way.
+  answerWon: () => void
+  saveLoss: () => Promise<boolean>
+  snooze: () => void
 }
 
 /**
@@ -70,13 +74,13 @@ export const useElectionResultChat = (): ElectionResultChat => {
   const [answer, setAnswer] = useState<Answer | null>(null)
   const pending = !held && isElectionResultPending(campaign)
 
-  const answerLost = useCallback(async (): Promise<void> => {
+  const saveLoss = useCallback(async (): Promise<boolean> => {
     const updated = await updateCampaign([
       { key: 'details.wonGeneral', value: false },
     ])
     if (!updated) {
       errorSnackbar(CHAT_ASK_COPY.saveFailed)
-      return
+      return false
     }
     if (campaign) {
       queryClient.setQueryData(CAMPAIGN_QUERY_KEY, {
@@ -84,14 +88,26 @@ export const useElectionResultChat = (): ElectionResultChat => {
         details: { ...campaign.details, wonGeneral: false },
       })
     }
-    setAnswer('lost')
+    return true
   }, [campaign, errorSnackbar, queryClient])
 
-  const answerNotFinal = useCallback((): void => {
+  const answerLost = useCallback(async (): Promise<void> => {
+    if (await saveLoss()) setAnswer('lost')
+  }, [saveLoss])
+
+  const snooze = useCallback((): void => {
     if (campaign) snoozeElectionResult(campaign.id)
     setHeld(true)
-    setAnswer('not-final')
   }, [campaign])
+
+  const answerWon = useCallback((): void => {
+    router.push('/dashboard/election-result?result=won')
+  }, [router])
+
+  const answerNotFinal = useCallback((): void => {
+    snooze()
+    setAnswer('not-final')
+  }, [snooze])
 
   const opener = useMemo(() => {
     if (answer === 'lost') {
@@ -120,21 +136,27 @@ export const useElectionResultChat = (): ElectionResultChat => {
     return [
       {
         label: CHAT_ASK_COPY.won,
-        onSelect: () => router.push('/dashboard/election-result?result=won'),
+        onSelect: answerWon,
       },
       { label: CHAT_ASK_COPY.lost, onSelect: () => void answerLost() },
       { label: CHAT_ASK_COPY.notFinal, onSelect: answerNotFinal },
     ]
-  }, [answer, router, answerLost, answerNotFinal])
+  }, [answer, answerWon, answerLost, answerNotFinal])
 
   const reset = useCallback(() => setAnswer(null), [])
 
-  return {
-    asking: pending || answer !== null,
-    pending,
-    opener,
-    openerKey: `election-result-${answer ?? 'ask'}`,
-    suggestions,
-    reset,
-  }
+  return useMemo(
+    () => ({
+      asking: pending || answer !== null,
+      pending,
+      opener,
+      openerKey: `election-result-${answer ?? 'ask'}`,
+      suggestions,
+      reset,
+      answerWon,
+      saveLoss,
+      snooze,
+    }),
+    [pending, answer, opener, suggestions, reset, answerWon, saveLoss, snooze],
+  )
 }

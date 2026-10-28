@@ -187,7 +187,7 @@ describe('ElectionResultPage', () => {
     render(<ElectionResultPage startWithWin />)
 
     expect(
-      await screen.findByRole('heading', { name: 'Congratulations, you won.' }),
+      await screen.findByRole('heading', { name: 'Congratulations, you won!' }),
     ).toBeInTheDocument()
     expect(mockUpdateCampaign).toHaveBeenCalledWith([
       { key: 'details.wonGeneral', value: true },
@@ -250,7 +250,7 @@ describe('ElectionResultPage', () => {
     answerWon()
 
     expect(
-      await screen.findByRole('heading', { name: 'Congratulations, you won.' }),
+      await screen.findByRole('heading', { name: 'Congratulations, you won!' }),
     ).toBeInTheDocument()
     expect(mockUpdateCampaign).toHaveBeenCalledWith([
       { key: 'details.wonGeneral', value: true },
@@ -274,7 +274,7 @@ describe('ElectionResultPage', () => {
     answerWon()
 
     expect(
-      await screen.findByRole('heading', { name: 'Congratulations, you won.' }),
+      await screen.findByRole('heading', { name: 'Congratulations, you won!' }),
     ).toBeInTheDocument()
     expect(screen.getByText('You represent all of your district')).toBeVisible()
     expect(

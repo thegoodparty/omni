@@ -20,6 +20,11 @@ ask while it holds; answering either saves `wonGeneral`, which closes both.
   (`startWithWin`). "I didn't win" saves the loss and swaps the opener for
   the thank you (C4) with the community as its one card. The candidate's
   answer is not echoed as a bubble: the opener is display-only.
+- Home also shows `campaign-manager/ElectionResultHomeCard.tsx` (the free
+  offer card's look) while the question is open, so it survives closing the
+  chat. It reads the chat hook's state through the chat context, so it only
+  appears where that chat mounts, and its three answers are the chat's
+  handlers, except "I didn't win this time" routes to `loss/` as the page does.
 - Results aren't final yet snoozes both for 3 days (`snoozeElectionResult`
   in `dismissal.ts`): localStorage, keyed to the campaign, the meet card's
   pattern. Test mode's Apply clears it with the impersonation dismissal.

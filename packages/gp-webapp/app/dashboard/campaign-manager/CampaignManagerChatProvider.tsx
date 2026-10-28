@@ -28,7 +28,10 @@ import {
   buildCampaignManagerIntro,
   campaignManagerChatApi,
 } from './campaignManagerChat'
-import { useElectionResultChat } from './useElectionResultChat'
+import {
+  useElectionResultChat,
+  type ElectionResultChat,
+} from './useElectionResultChat'
 
 // The first-run "meet your campaign manager" card (rendered on the manager home)
 // is dismissed once the candidate opens the manager in its GENERAL mode (the
@@ -66,6 +69,9 @@ interface CampaignManagerChatContextValue {
   // stay in sync across the (layout-level) dock and the (page-level) card.
   meetDismissed: boolean
   dismissMeetCard: () => void
+  // The election result question, for the Home card that asks it while the
+  // chat is closed.
+  electionResult: ElectionResultChat
 }
 
 const CampaignManagerChatContext =
@@ -346,6 +352,7 @@ export function CampaignManagerChatProvider({
       discussTask,
       meetDismissed,
       dismissMeetCard,
+      electionResult,
     }),
     [
       openManager,
@@ -355,6 +362,7 @@ export function CampaignManagerChatProvider({
       discussTask,
       meetDismissed,
       dismissMeetCard,
+      electionResult,
     ],
   )
 

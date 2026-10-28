@@ -66,7 +66,7 @@ export interface WonPoint {
 }
 
 export const WON_COPY = {
-  title: 'Congratulations, you won.',
+  title: 'Congratulations, you won!',
   pro: {
     description: (place: string | null): string =>
       `Now it's time to prepare to serve, and serving starts with staying connected to ${place ?? DEFAULT_PLACE}.`,

@@ -1,10 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, waitFor } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import { usePathname } from 'next/navigation'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { router } from 'helpers/test-utils/router-mocking'
 import { updateCampaign } from 'app/onboarding/shared/ajaxActions'
 import { CampaignManagerChatProvider } from './CampaignManagerChatProvider'
+import ElectionResultHomeCard from './ElectionResultHomeCard'
 import { CAMPAIGN_MANAGER_HISTORY_KEY } from './campaignManagerChat'
 import type { ChatSuggestion } from '../chief-of-staff/components/chat/ChiefOfStaffChatBody'
 
@@ -186,5 +187,94 @@ describe('the campaign manager asks how the election went', () => {
 
     await new Promise((resolve) => setTimeout(resolve, 20))
     expect(surface().open).toBe(false)
+  })
+})
+
+describe('the Home card asks while the question is open', () => {
+  const renderHome = () => {
+    surfaceProps.length = 0
+    testQueryClient.setQueryData(CAMPAIGN_MANAGER_HISTORY_KEY, [])
+    render(
+      <CampaignManagerChatProvider>
+        <ElectionResultHomeCard />
+      </CampaignManagerChatProvider>,
+    )
+  }
+  const card = () => screen.queryByTestId('election-result-home-card')
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    window.localStorage.clear()
+    campaign.current = { id: 9, details: { electionDate: '2026-11-03' } }
+    vi.mocked(usePathname).mockReturnValue('/dashboard')
+  })
+
+  it('stays on Home after the chat is closed, with the page’s question', async () => {
+    renderHome()
+    await waitFor(() => expect(surface().open).toBe(true))
+
+    act(() => surface().onOpenChange?.(false))
+
+    expect(
+      await screen.findByRole('heading', {
+        name: 'Did you win your race for Maplewood City Council?',
+      }),
+    ).toBeInTheDocument()
+  })
+
+  it('opens the congratulations for "I won"', async () => {
+    renderHome()
+    fireEvent.click(await screen.findByRole('button', { name: 'I won' }))
+
+    expect(router.push).toHaveBeenCalledWith(
+      '/dashboard/election-result?result=won',
+    )
+  })
+
+  it('saves a loss and goes to the thank you, as the page does', async () => {
+    vi.mocked(updateCampaign).mockResolvedValue({ id: 9 } as never)
+    renderHome()
+    fireEvent.click(
+      await screen.findByRole('button', { name: "I didn't win this time" }),
+    )
+
+    await waitFor(() =>
+      expect(router.replace).toHaveBeenCalledWith(
+        '/dashboard/election-result/loss',
+      ),
+    )
+    expect(updateCampaign).toHaveBeenCalledWith([
+      { key: 'details.wonGeneral', value: false },
+    ])
+  })
+
+  it('goes away for 3 days when results are not final', async () => {
+    renderHome()
+    fireEvent.click(
+      await screen.findByRole('button', { name: "Results aren't final yet" }),
+    )
+
+    await waitFor(() => expect(card()).toBeNull())
+    expect(
+      window.localStorage.getItem('gp:electionResultSnoozedUntil'),
+    ).toMatch(/^9:\d+$/)
+  })
+
+  it('is not shown once the result is saved', async () => {
+    campaign.current = {
+      id: 9,
+      details: { electionDate: '2026-11-03', wonGeneral: false },
+    }
+    renderHome()
+
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(card()).toBeNull()
+  })
+
+  it('is not shown where the campaign manager chat does not mount', async () => {
+    render(<ElectionResultHomeCard />)
+
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(card()).toBeNull()
   })
 })
