@@ -19,10 +19,8 @@ export default async function Page() {
     redirect('/dashboard/users')
   }
 
-  const [{ items }, canDecide] = await Promise.all([
-    getPausedEmailSends(),
-    Promise.resolve(Boolean(has({ role: 'org:admin' }))),
-  ])
+  const { items } = await getPausedEmailSends()
+  const canDecide = Boolean(has({ role: 'org:admin' }))
 
   return (
     <Container size="4">
