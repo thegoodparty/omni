@@ -343,8 +343,9 @@ both: the sub was bought from another account in the household, whose campaign
 no longer exists, so no campaign anywhere carries the id and only Stripe can
 stop it. The admin `isPro: false` toggle cancels Stripe before it de-Pros
 (ENG-10660), so it is not a suspect. Also: a passed election
-with `wonGeneral` null force-redirects every dashboard route to
-`/dashboard/election-result`, hiding Profile → Manage Subscription;
+with `wonGeneral` null force-redirects every dashboard route but the campaign
+manager home to `/dashboard/election-result`, hiding Profile → Manage
+Subscription;
 `ActiveProSubscriptionAlert` on the election-result pages (PR #677) is the
 escape hatch.
 

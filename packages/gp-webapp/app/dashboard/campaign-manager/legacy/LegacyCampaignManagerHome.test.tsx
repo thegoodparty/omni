@@ -143,6 +143,17 @@ vi.mock(
 
 // The story card transitively renders here too; default to an incomplete
 // story so both first-run cards are present for this smoke test.
+// The election-result question only asks once an election has passed.
+vi.mock('app/dashboard/campaign-manager/useElectionResultChat', () => ({
+  useElectionResultChat: () => ({
+    asking: false,
+    pending: false,
+    opener: [],
+    openerKey: 'election-result-ask',
+    suggestions: [],
+    reset: () => undefined,
+  }),
+}))
 vi.mock('app/dashboard/campaign-story/useCampaignStoryComplete', () => ({
   useCampaignStoryComplete: vi.fn(() => ({
     isComplete: false,

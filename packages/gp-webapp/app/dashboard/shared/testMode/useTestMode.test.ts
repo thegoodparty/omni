@@ -10,12 +10,14 @@ const {
   mockPush,
   mockRefresh,
   mockClearDismissed,
+  mockClearSnooze,
 } = vi.hoisted(() => ({
   mockClientRequest: vi.fn(),
   mockSetSelectedSlug: vi.fn(),
   mockPush: vi.fn(),
   mockRefresh: vi.fn(),
   mockClearDismissed: vi.fn(),
+  mockClearSnooze: vi.fn(),
 }))
 
 vi.mock('gpApi/typed-request', () => ({
@@ -29,6 +31,7 @@ vi.mock('next/navigation', () => ({
 }))
 vi.mock('app/dashboard/election-result/dismissal', () => ({
   clearElectionResultDismissed: () => mockClearDismissed(),
+  clearElectionResultSnooze: () => mockClearSnooze(),
 }))
 
 const makeWrapper = () => {
@@ -199,6 +202,7 @@ describe('useTestMode', () => {
       )
 
       expect(mockClearDismissed).toHaveBeenCalled()
+      expect(mockClearSnooze).toHaveBeenCalled()
       expect(mockRefresh).toHaveBeenCalled()
       expect(mockPush).not.toHaveBeenCalled()
     })

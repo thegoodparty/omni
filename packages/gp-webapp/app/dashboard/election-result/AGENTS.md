@@ -2,7 +2,27 @@
 
 `/dashboard/election-result`: what a candidate sees once their election date
 has passed and `details.wonGeneral` is not saved. `DashboardLayout` sends them
-here.
+here from every dashboard route except the campaign manager home
+(`/dashboard`), where the manager's chat asks instead.
+
+## Two places ask, the first answer wins
+
+`electionResultQuestion.ts` (`isElectionResultPending`) is the one rule: from
+the day after election day until `wonGeneral` is a boolean. Both the page (A1)
+and the campaign manager chat (C1, `campaign-manager/useElectionResultChat.ts`)
+ask while it holds; answering either saves `wonGeneral`, which closes both.
+
+- The page asks "Did you win your race for {office}?" with I won, I didn't
+  win this time, and Results aren't final yet.
+- The chat opens itself on Home, once per visit, on a new chat whose opener
+  is the question and whose starter chips are the answers. "I won" opens
+  `/dashboard/election-result?result=won`, which skips the question
+  (`startWithWin`). "I didn't win" saves the loss and swaps the opener for
+  the thank you (C4) with the community as its one card. The candidate's
+  answer is not echoed as a bubble: the opener is display-only.
+- Results aren't final yet snoozes both for 3 days (`snoozeElectionResult`
+  in `dismissal.ts`): localStorage, keyed to the campaign, the meet card's
+  pattern. Test mode's Apply clears it with the impersonation dismissal.
 
 | Answer | Pro                                                                                               | Without Pro                                                           |
 | ------ | ------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |

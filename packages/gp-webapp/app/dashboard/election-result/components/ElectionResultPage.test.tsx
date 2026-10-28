@@ -18,11 +18,13 @@ const {
   mockErrorSnackbar,
   mockIsImpersonating,
   mockDismissElectionResult,
+  mockSnoozeElectionResult,
   mockCampaign,
 } = vi.hoisted(() => ({
   mockErrorSnackbar: vi.fn(),
   mockIsImpersonating: vi.fn(() => false),
   mockDismissElectionResult: vi.fn(),
+  mockSnoozeElectionResult: vi.fn(),
   mockCampaign: {
     current: { id: 1, details: { electionDate: '2025-05-20' } } as {
       id: number
@@ -50,6 +52,7 @@ vi.mock('@shared/hooks/useIsImpersonating', () => ({
 
 vi.mock('../dismissal', () => ({
   dismissElectionResult: mockDismissElectionResult,
+  snoozeElectionResult: mockSnoozeElectionResult,
 }))
 
 vi.mock('@shared/hooks/CampaignProvider', () => ({
@@ -107,7 +110,7 @@ const eoFixture = {
 }
 
 const answerWon = (): void => {
-  fireEvent.click(screen.getByRole('button', { name: 'I won my race' }))
+  fireEvent.click(screen.getByRole('button', { name: 'I won' }))
 }
 
 const startServing = async (): Promise<void> => {
@@ -147,6 +150,50 @@ describe('ElectionResultPage', () => {
     ).toBeInTheDocument()
   })
 
+  it('asks about the race by office and election day', () => {
+    render(<ElectionResultPage />)
+
+    expect(
+      screen.getByRole('heading', { name: 'Did you win your race for Mayor?' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText('Your election was on May 20. Tell us how it went.'),
+    ).toBeInTheDocument()
+  })
+
+  it('hides the question for 3 days when results are not final', () => {
+    render(<ElectionResultPage />)
+    fireEvent.click(
+      screen.getByRole('button', { name: "Results aren't final yet" }),
+    )
+
+    expect(mockSnoozeElectionResult).toHaveBeenCalledWith(1)
+    expect(router.replace).toHaveBeenCalledWith('/dashboard')
+    expect(mockUpdateCampaign).not.toHaveBeenCalled()
+  })
+
+  it('opens on the congratulations when the chat answered "I won"', async () => {
+    mockCampaign.current = proCampaign()
+    render(<ElectionResultPage startWithWin />)
+
+    expect(
+      await screen.findByRole('button', { name: 'Start preparing to serve' }),
+    ).toBeInTheDocument()
+    expect(mockUpdateCampaign).not.toHaveBeenCalled()
+  })
+
+  it('saves the win and congratulates a winner without Pro who answered in chat', async () => {
+    mockUpdateCampaign.mockResolvedValue({ id: 1 } as never)
+    render(<ElectionResultPage startWithWin />)
+
+    expect(
+      await screen.findByRole('heading', { name: 'Congratulations, you won.' }),
+    ).toBeInTheDocument()
+    expect(mockUpdateCampaign).toHaveBeenCalledWith([
+      { key: 'details.wonGeneral', value: true },
+    ])
+  })
+
   it('shows no subscription alert for a non-Pro campaign', () => {
     render(<ElectionResultPage />)
 
@@ -176,7 +223,9 @@ describe('ElectionResultPage', () => {
     })
 
     render(<ElectionResultPage />)
-    fireEvent.click(screen.getByRole('button', { name: 'I lost my race' }))
+    fireEvent.click(
+      screen.getByRole('button', { name: "I didn't win this time" }),
+    )
 
     await waitFor(() => {
       expect(router.replace).toHaveBeenCalledWith(

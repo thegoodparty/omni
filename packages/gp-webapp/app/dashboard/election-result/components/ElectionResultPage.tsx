@@ -1,10 +1,10 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { updateCampaign } from 'app/onboarding/shared/ajaxActions'
 import { useSnackbar } from 'helpers/useSnackbar'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
-import { LuTrophy, LuFrown } from 'react-icons/lu'
+import { LuTrophy } from 'react-icons/lu'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import ResultOptionButton from './ResultOptionButton'
 import { clientRequest } from 'gpApi/typed-request'
@@ -24,14 +24,17 @@ import {
   AlertAction,
 } from '@styleguide/components/ui/alert'
 import { Button } from '@styleguide/components/ui/button'
-import { InfoIcon } from '@styleguide/components/ui/icons'
+import { ClockIcon, HeartIcon, InfoIcon } from '@styleguide/components/ui/icons'
 import { SERVE_ONBOARDING_PATH } from 'helpers/resolvePostAuthRedirectPath.util'
-import { dismissElectionResult } from '../dismissal'
+import { dismissElectionResult, snoozeElectionResult } from '../dismissal'
+import { ASK_COPY, electionDayLabel } from '../electionResultCopy'
+import { electionDateOf } from '../electionResultQuestion'
 import { ActiveProSubscriptionAlert } from './ActiveProSubscriptionAlert'
 import { CongratulationsStep } from './CongratulationsStep'
 
 const RESULT_WON = 'won'
 const RESULT_LOST = 'lost'
+const RESULT_NOT_FINAL = 'not-final'
 
 interface ResultOption {
   key: string
@@ -40,11 +43,20 @@ interface ResultOption {
 }
 
 const options: ResultOption[] = [
-  { key: RESULT_WON, label: 'I won my race', icon: <LuTrophy size={24} /> },
+  {
+    key: RESULT_WON,
+    label: ASK_COPY.won,
+    icon: <LuTrophy size={24} className="text-primary" />,
+  },
   {
     key: RESULT_LOST,
-    label: 'I lost my race',
-    icon: <LuFrown size={24} />,
+    label: ASK_COPY.lost,
+    icon: <HeartIcon size={24} className="text-muted-foreground" />,
+  },
+  {
+    key: RESULT_NOT_FINAL,
+    label: ASK_COPY.notFinal,
+    icon: <ClockIcon size={24} className="text-muted-foreground" />,
   },
 ]
 
@@ -66,7 +78,13 @@ export const servePartyFromCampaign = (
   return 'independent'
 }
 
-export default function ElectionResultPage(): React.JSX.Element {
+export default function ElectionResultPage({
+  startWithWin = false,
+}: {
+  // Set when the campaign manager chat's "I won" opens this page, so it goes
+  // straight to the congratulations instead of asking again.
+  startWithWin?: boolean
+}): React.JSX.Element {
   const router = useRouter()
   const [campaign] = useCampaign()
   const isImpersonating = useIsImpersonating()
@@ -175,6 +193,11 @@ export default function ElectionResultPage(): React.JSX.Element {
 
   async function handleSelection(selection: string) {
     setSelectedOption(selection)
+    if (selection === RESULT_NOT_FINAL) {
+      if (campaign) snoozeElectionResult(campaign.id)
+      router.replace('/dashboard')
+      return
+    }
     if (selection === RESULT_WON && campaign?.isPro) {
       setView('won')
       return
@@ -203,11 +226,22 @@ export default function ElectionResultPage(): React.JSX.Element {
     window.scrollTo(0, 0)
   }, [view])
 
+  const startedWithWinRef = useRef(false)
+  useEffect(() => {
+    if (!startWithWin || !campaign || startedWithWinRef.current) return
+    startedWithWinRef.current = true
+    void handleSelection(RESULT_WON)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once, when the campaign loads
+  }, [startWithWin, campaign])
+
+  const electionDay = electionDayLabel(electionDateOf(campaign))
+
   useEffect(() => {
     trackEvent(EVENTS.Candidacy.DidYouWinModalViewed)
   }, [])
 
-  const isLoading = !campaign
+  const isLoading =
+    !campaign || (startWithWin && view === 'ask' && !requestState.error)
 
   return (
     <div className="flex flex-col">
@@ -251,6 +285,7 @@ export default function ElectionResultPage(): React.JSX.Element {
                 <div className="flex flex-col gap-4 mt-8 w-full">
                   <div className="h-[72px] rounded-xl border border-slate-200 bg-slate-100" />
                   <div className="h-[72px] rounded-xl border border-slate-200 bg-slate-100" />
+                  <div className="h-[72px] rounded-xl border border-slate-200 bg-slate-100" />
                 </div>
               </div>
             ) : (
@@ -259,17 +294,14 @@ export default function ElectionResultPage(): React.JSX.Element {
                   id="election-results-heading"
                   className="text-left md:text-center font-semibold text-2xl md:text-4xl w-full"
                 >
-                  Election Results:
-                  <br />
-                  {positionName || 'Your Office'}
+                  {ASK_COPY.title(positionName || null)}
                 </h1>
-                <p className="text-left md:text-center mt-4 text-lg font-normal text-muted-foreground w-full">
-                  It looks like your general election date has passed. Please
-                  confirm the outcome of your election.
+                <p className="text-left md:text-center mt-3 text-lg font-normal text-muted-foreground w-full">
+                  {ASK_COPY.description(electionDay)}
                 </p>
 
                 <div
-                  className="flex flex-col gap-4 mt-8"
+                  className="flex flex-col gap-3 mt-8"
                   role="radiogroup"
                   aria-labelledby="election-results-heading"
                 >

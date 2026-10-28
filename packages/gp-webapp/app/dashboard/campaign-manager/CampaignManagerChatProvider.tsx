@@ -28,6 +28,7 @@ import {
   buildCampaignManagerIntro,
   campaignManagerChatApi,
 } from './campaignManagerChat'
+import { useElectionResultChat } from './useElectionResultChat'
 
 // The first-run "meet your campaign manager" card (rendered on the manager home)
 // is dismissed once the candidate opens the manager in its GENERAL mode (the
@@ -134,6 +135,11 @@ export function CampaignManagerChatProvider({
   )
   const latestConversationId = conversations?.[0]?.conversationId ?? null
 
+  // Once the election has passed, the manager asks how it went before
+  // anything else, on a new chat.
+  const electionResult = useElectionResultChat()
+  const askingResult = electionResult.asking
+
   // Default to showing the card (the common case: a new candidate who has not
   // dismissed it) so it renders immediately with no pop-in. The effect flips it
   // to dismissed only when the persisted key is present. A dismissed candidate
@@ -227,9 +233,9 @@ export function CampaignManagerChatProvider({
     dismissMeetCard()
     setPendingFile(undefined)
     setPendingKickoff(undefined)
-    setConversationId(latestConversationId)
+    setConversationId(askingResult ? null : latestConversationId)
     setChatOpen(true)
-  }, [dismissMeetCard, latestConversationId])
+  }, [dismissMeetCard, latestConversationId, askingResult])
 
   // The footer paperclip: the same open as the footer bar, with the picked
   // file attached to whichever conversation that resumes.
@@ -305,9 +311,31 @@ export function CampaignManagerChatProvider({
   // effect dependency of the typed-in intro — a fresh array every render would
   // restart the typing interval on every keystroke of it.
   const greetingOpener = useMemo(
-    () => (conversationId || pendingKickoff ? undefined : greetingIntro),
-    [conversationId, pendingKickoff, greetingIntro],
+    () =>
+      conversationId || pendingKickoff
+        ? undefined
+        : askingResult
+          ? electionResult.opener
+          : greetingIntro,
+    [
+      conversationId,
+      pendingKickoff,
+      greetingIntro,
+      askingResult,
+      electionResult.opener,
+    ],
   )
+  const askingResultHere = askingResult && greetingOpener !== undefined
+
+  // On the manager home the chat asks in place of the election result page,
+  // so it opens on the question once per visit.
+  const resultAskOpenedRef = useRef(false)
+  useEffect(() => {
+    if (!electionResult.pending || pathname !== '/dashboard') return
+    if (resultAskOpenedRef.current) return
+    resultAskOpenedRef.current = true
+    openNewChat()
+  }, [electionResult.pending, pathname, openNewChat])
 
   const contextValue = useMemo(
     () => ({
@@ -356,6 +384,7 @@ export function CampaignManagerChatProvider({
           if (!next) {
             setPendingKickoff(undefined)
             setPendingFile(undefined)
+            electionResult.reset()
           }
         }}
         initialConversationId={conversationId}
@@ -368,7 +397,13 @@ export function CampaignManagerChatProvider({
         // entry, where the kickoff's own reply is the opening message, and on
         // a conversation reopened from history, which replays its transcript.
         opener={greetingOpener}
-        openerKey={greetingOpener ? 'manager-greeting' : null}
+        openerKey={
+          askingResultHere
+            ? electionResult.openerKey
+            : greetingOpener
+              ? 'manager-greeting'
+              : null
+        }
         title="Campaign manager"
         subtitle="Always on, focused on your week"
         chatApi={campaignManagerChatApi}
@@ -381,12 +416,18 @@ export function CampaignManagerChatProvider({
         // type the general hello in while its own create is still in flight
         // and then greet a second time.
         defaultIntro={greetingOpener ?? NO_INTRO}
-        suggestions={suggestions}
+        suggestions={
+          askingResultHere ? electionResult.suggestions : suggestions
+        }
         showSuggestionsWithGreeting
-        quickPrompts={[
-          'What should I focus on to win?',
-          'Which voters should I reach this week?',
-        ]}
+        quickPrompts={
+          askingResultHere
+            ? []
+            : [
+                'What should I focus on to win?',
+                'Which voters should I reach this week?',
+              ]
+        }
         composerPlaceholder={
           firstName ? `Hi ${firstName}, how can I help?` : 'How can I help?'
         }

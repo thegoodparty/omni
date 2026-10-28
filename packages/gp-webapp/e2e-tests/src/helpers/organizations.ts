@@ -54,7 +54,7 @@ export const winRaceAsPro = async (page: Page): Promise<void> => {
   await page.goto('/dashboard/election-result')
   await wait(250)
   await page
-    .getByRole('button', { name: 'I won my race' })
+    .getByRole('button', { name: 'I won', exact: true })
     .click({ timeout: 10_000 })
   await page
     .getByRole('button', { name: 'Start preparing to serve' })

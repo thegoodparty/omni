@@ -3,6 +3,8 @@
 // the Pro winner's screen previews Serve, so it uses "you represent" the way
 // Serve onboarding's district story does (SERVE_STORY_COPY).
 
+import { format, isValid, parseISO } from 'date-fns'
+
 export const COMMUNITY_URL = 'https://community.goodparty.org'
 
 const DEFAULT_PLACE = 'your district'
@@ -12,6 +14,51 @@ export const roundPopulation = (population: number): string =>
   new Intl.NumberFormat('en-US', { maximumSignificantDigits: 2 }).format(
     population,
   )
+
+// "November 3" from the campaign's yyyy-MM-dd election date.
+export const electionDayLabel = (
+  electionDate: string | undefined,
+): string | null => {
+  if (!electionDate) return null
+  const date = parseISO(electionDate)
+  return isValid(date) ? format(date, 'MMMM d') : null
+}
+
+export const ASK_COPY = {
+  title: (office: string | null): string =>
+    office ? `Did you win your race for ${office}?` : 'Did you win your race?',
+  description: (electionDay: string | null): string =>
+    electionDay
+      ? `Your election was on ${electionDay}. Tell us how it went.`
+      : 'Tell us how it went.',
+  won: 'I won',
+  lost: "I didn't win this time",
+  notFinal: "Results aren't final yet",
+}
+
+// The campaign manager asks the same question in its chat.
+export const CHAT_ASK_COPY = {
+  opener: (electionDay: string | null, office: string | null): string[] => [
+    `${electionDay ? `Election day was ${electionDay}.` : 'Election day has passed.'} Whatever happened, you ran a real race${office ? ` for ${office}` : ''}.`,
+    'How did it go?',
+  ],
+  won: 'I won',
+  lost: "I didn't win",
+  notFinal: ASK_COPY.notFinal,
+  lostReply: (
+    firstName: string | null | undefined,
+    place: string | null,
+  ): string[] => [
+    `We appreciate you for running${firstName ? `, ${firstName}` : ''}. Putting your name on the ballot takes courage. Great work.`,
+    `If you want to run again, or help the officials serving ${place ?? DEFAULT_PLACE}, the GoodParty.org community is a good place to start.`,
+  ],
+  notFinalReply: ["Got it. I'll ask again in 3 days."],
+  community: {
+    label: 'Join the GoodParty.org community',
+    description: "Independents who've run, are running, or serve.",
+  },
+  saveFailed: "We couldn't save your result. Try again.",
+}
 
 export interface WonPoint {
   title: string

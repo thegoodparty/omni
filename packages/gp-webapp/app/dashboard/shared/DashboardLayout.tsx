@@ -10,7 +10,6 @@ import { useUser } from '@shared/hooks/useUser'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { ProUpgradePrompt } from './ProUpgradePrompt'
 import { usePathname, useRouter } from 'next/navigation'
-import { weeksTill } from 'helpers/dateHelper'
 import { Campaign } from 'helpers/types'
 import {
   Separator,
@@ -24,7 +23,11 @@ import { useOrganization } from '@shared/organization-picker'
 import ImpersonationBanner from '@shared/user/ImpersonationBanner'
 import { ElectedOfficeTermDatesModalController } from './ElectedOfficeTermDatesModalController'
 import { useIsImpersonating } from '@shared/hooks/useIsImpersonating'
-import { isElectionResultDismissed } from '../election-result/dismissal'
+import {
+  isElectionResultDismissed,
+  isElectionResultSnoozed,
+} from '../election-result/dismissal'
+import { isElectionResultPending } from '../election-result/electionResultQuestion'
 import { CONTACTS_DATA_TITLE } from './contactsLabels'
 import { useWinVoterContext } from './useWinVoterContext'
 import { MembershipChip } from './membership/MembershipChip'
@@ -98,24 +101,17 @@ const DashboardLayout = ({
 
   const currentPath = pathname || hookPathname
   const activeCampaign = campaign || hookCampaign
-  const details = activeCampaign?.details
-  const goals =
-    activeCampaign && 'goals' in activeCampaign
-      ? activeCampaign.goals
-      : undefined
-  const goalsObj = goals && typeof goals === 'object' ? goals : null
-  const goalsElectionDate =
-    goalsObj &&
-    'electionDate' in goalsObj &&
-    typeof goalsObj.electionDate === 'string'
-      ? goalsObj.electionDate
-      : undefined
-  const electionDate = details?.electionDate || goalsElectionDate
+  const resultPending = isElectionResultPending(activeCampaign)
+  const campaignId = activeCampaign?.id
 
   useEffect(() => {
+    if (!resultPending) return
     if (currentPath?.startsWith('/dashboard/election-result')) {
       return
     }
+    // The campaign manager home asks in its chat instead, so the candidate
+    // can answer there first.
+    if (currentPath === '/dashboard') return
 
     // An impersonating admin can dismiss the forced election-result gate
     // without answering it; don't bounce them back to it for the rest of
@@ -123,18 +119,10 @@ const DashboardLayout = ({
     if (isImpersonating && isElectionResultDismissed()) {
       return
     }
+    if (isElectionResultSnoozed(campaignId)) return
 
-    const weeksResult = weeksTill(electionDate)
-    const shouldRedirect =
-      typeof details?.wonGeneral !== 'boolean' &&
-      weeksResult &&
-      typeof weeksResult === 'object' &&
-      weeksResult.weeks < 0
-
-    if (shouldRedirect) {
-      router.push('/dashboard/election-result')
-    }
-  }, [currentPath, details?.wonGeneral, electionDate, router, isImpersonating])
+    router.push('/dashboard/election-result')
+  }, [currentPath, resultPending, campaignId, router, isImpersonating])
 
   // A Pro winner's office starts unfinished and Serve onboarding's pledge
   // finishes it. Sign-in routing still lands them here, so the dashboard is

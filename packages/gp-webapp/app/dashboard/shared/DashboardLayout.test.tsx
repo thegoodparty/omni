@@ -32,8 +32,10 @@ vi.mock('@shared/hooks/useCampaign', () => ({
 vi.mock('@shared/hooks/useIsImpersonating', () => ({
   useIsImpersonating: () => mockIsImpersonating(),
 }))
+const mockIsSnoozed = vi.hoisted(() => vi.fn(() => false))
 vi.mock('../election-result/dismissal', () => ({
   isElectionResultDismissed: () => mockIsDismissed(),
+  isElectionResultSnoozed: () => mockIsSnoozed(),
 }))
 vi.mock('helpers/dateHelper', () => ({
   weeksTill: () => mockWeeksTill(),
@@ -142,6 +144,22 @@ describe('DashboardLayout election-result redirect', () => {
     await waitFor(() =>
       expect(router.push).toHaveBeenCalledWith('/dashboard/election-result'),
     )
+  })
+
+  it('does not redirect while results are not final yet', async () => {
+    mockIsSnoozed.mockReturnValue(true)
+    renderLayout()
+    await screen.findByText('dashboard content')
+    expect(router.push).not.toHaveBeenCalled()
+    mockIsSnoozed.mockReturnValue(false)
+  })
+
+  it('leaves the campaign manager home to ask in its chat', async () => {
+    vi.mocked(usePathname).mockReturnValue('/dashboard')
+    renderLayout()
+    await screen.findByText('dashboard content')
+    expect(router.push).not.toHaveBeenCalled()
+    vi.mocked(usePathname).mockReturnValue('/')
   })
 })
 
