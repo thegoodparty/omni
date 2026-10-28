@@ -527,7 +527,9 @@ can never widen to the whole district.
 `GET campaigns/mine/robocall-offer` is the one answer every webapp surface
 gates on: `{ eligible, variant, count, coveredCalls }`, where `count` is this
 list sized for robocall. The first call for an eligible campaign assigns its
-precincts.
+precincts. Every call that finds the offer also makes sure the campaign has
+the offer's plan task (the webapp's Home shows the offer as that task), once
+the plan's default rows exist; the launch script relies on the same call.
 
 A list saved from the offer is locked (`firstUsedForOutreachAt`), because the
 offer's promotion code is bound to it. Each campaign gets a single-use Stripe

@@ -7,6 +7,7 @@ import { EmptyState, Progress, Spinner, cn } from '@styleguide'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { buildTrackerStrategy } from './buildTrackerStrategy'
 import { useSetTrackerTaskAside, useTrackerTasks } from './useTrackerTasks'
+import { useRobocallFreeOffer } from 'app/dashboard/shared/robocallFreeOffer/useRobocallFreeOffer'
 import {
   trackTaskAction,
   trackerOrigin,
@@ -40,6 +41,7 @@ const CampaignStrategySection = ({
 }): React.JSX.Element => {
   const [campaign] = useCampaign()
   const { tasks, isPending, isError } = useTrackerTasks()
+  const { offer: freeOffer } = useRobocallFreeOffer()
   const router = useRouter()
   // "Start outreach" links into the hub rather than opening a flow here: the
   // hub owns the one mount of each channel flow and the gate in front of it,
@@ -270,7 +272,9 @@ const CampaignStrategySection = ({
                         onToggleComplete(id, completed)
                       }}
                       onStartOutreach={openOutreachFlow}
-                      getAction={(task) => taskAction(rowFor(task.id), 'plan')}
+                      getAction={(task) =>
+                        taskAction(rowFor(task.id), 'plan', freeOffer !== null)
+                      }
                       onSetAside={(task, reason) => {
                         trackTaskAction(
                           rowFor(task.id),

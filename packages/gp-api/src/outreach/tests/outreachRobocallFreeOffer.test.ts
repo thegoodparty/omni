@@ -346,6 +346,71 @@ describe('GET /v1/campaigns/mine/robocall-offer', () => {
     expect(arms.every((row) => row.pTreatment === 0.5)).toBe(true)
   })
 
+  describe('the offer plan task', () => {
+    const TITLE =
+      'Send a free promotional robocall to landline voters in selected precincts'
+
+    const addDefaultRow = () =>
+      service.prisma.campaignTrackerTask.create({
+        data: {
+          campaignId: campaign.id,
+          title: 'Get your EIN',
+          description: 'Apply free on the IRS website.',
+          week: 0,
+          date: new Date('2026-09-01T00:00:00Z'),
+          isDefaultTask: true,
+          phase: 'preLaunch',
+        },
+      })
+
+    const offerTasks = () =>
+      service.prisma.campaignTrackerTask.findMany({
+        where: { campaignId: campaign.id, title: TITLE },
+      })
+
+    it('is added once the campaign has the offer, and only once', async () => {
+      await addDefaultRow()
+
+      await service.client.get(
+        '/v1/campaigns/mine/robocall-offer',
+        orgHeaders(),
+      )
+      await service.client.get(
+        '/v1/campaigns/mine/robocall-offer',
+        orgHeaders(),
+      )
+
+      const tasks = await offerTasks()
+      expect(tasks).toHaveLength(1)
+      const [task] = tasks
+      expect(task?.isDefaultTask).toBe(true)
+      expect(task?.phase).toBe('gotv')
+      expect(task?.link).toContain(`recommended=${VARIANT}`)
+      expect(task?.link).toContain(`trackerTaskId=${task?.id}`)
+    })
+
+    it('waits for the plan to have its default rows', async () => {
+      await service.client.get(
+        '/v1/campaigns/mine/robocall-offer',
+        orgHeaders(),
+      )
+
+      expect(await offerTasks()).toHaveLength(0)
+    })
+
+    it('is not added when the campaign has no offer', async () => {
+      await addDefaultRow()
+      await enroll('withdrawn')
+
+      await service.client.get(
+        '/v1/campaigns/mine/robocall-offer',
+        orgHeaders(),
+      )
+
+      expect(await offerTasks()).toHaveLength(0)
+    })
+  })
+
   it('does not offer to a campaign that already booked a robocall', async () => {
     await asCandidate()
     await bookRobocall()

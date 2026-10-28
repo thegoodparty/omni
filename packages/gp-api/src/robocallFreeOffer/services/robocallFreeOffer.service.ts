@@ -5,6 +5,7 @@ import {
   Injectable,
 } from '@nestjs/common'
 import { createHmac, randomInt } from 'node:crypto'
+import { differenceInCalendarWeeks } from 'date-fns'
 import type { ClerkClient } from '@clerk/backend'
 import type Stripe from 'stripe'
 import { z } from 'zod'
@@ -13,6 +14,7 @@ import {
   ROBOCALL_FREE_OFFER_VARIANT,
 } from '@goodparty_org/contracts'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
+import { TRACKER_STATIC_TASKS_ADVISORY_LOCK_KEY } from '@/campaigns/campaigns.consts'
 import { getEnv, requireEnv } from 'src/shared/util/env.util'
 import { ContactsService } from '@/contacts/services/contacts.service'
 import { ElectionsService } from '@/elections/services/elections.service'
@@ -26,7 +28,13 @@ import { findEquivalentFilter } from '@/recommendedLists/recommendedListsDedupe.
 import { CLERK_CLIENT_PROVIDER_TOKEN } from '@/vendors/clerk/providers/clerk-client.provider'
 import { clerkCall } from '@/vendors/clerk/util/clerkCall.util'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
-import { Campaign, Organization, OutreachType } from '../../generated/prisma'
+import {
+  Campaign,
+  CampaignTaskType,
+  Organization,
+  OutreachType,
+  Prisma,
+} from '../../generated/prisma'
 import {
   MIN_KNOWN_PRECINCTS,
   PRECINCT_ARMS,
@@ -38,6 +46,8 @@ import {
   ROBOCALL_FREE_OFFER_ELECTION_DATE,
   ROBOCALL_FREE_OFFER_EXPERIMENT_KEY,
   ROBOCALL_FREE_OFFER_FLAG,
+  ROBOCALL_FREE_OFFER_TASK_DESCRIPTION,
+  ROBOCALL_FREE_OFFER_TASK_TITLE,
 } from '../robocallFreeOffer.consts'
 import {
   assignPrecincts,
@@ -105,7 +115,62 @@ export class RobocallFreeOfferService extends createPrismaBase(
     organization: Organization,
     campaign: Campaign,
   ): Promise<string[] | null> {
-    return this.resolve(organization, campaign, true)
+    const treatment = await this.resolve(organization, campaign, true)
+    if (treatment) await this.ensureOfferTask(campaign)
+    return treatment
+  }
+
+  // Home shows the offer as its plan task, so a campaign that has the offer
+  // gets the task the moment gp-api first says so, not only from a launch
+  // script that misses whoever enrolls later. Under the static tasks' lock
+  // and only once the default rows exist: an early default row would stop
+  // materializeStaticTasks from ever building the rest of the plan.
+  private async ensureOfferTask(campaign: Campaign): Promise<void> {
+    await this.client.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${TRACKER_STATIC_TASKS_ADVISORY_LOCK_KEY}::integer, ${campaign.id}::integer)`
+      const existing = await tx.campaignTrackerTask.findFirst({
+        where: {
+          campaignId: campaign.id,
+          title: ROBOCALL_FREE_OFFER_TASK_TITLE,
+        },
+        select: { id: true },
+      })
+      if (existing) return
+      const hasDefaultRows = await tx.campaignTrackerTask.count({
+        where: { campaignId: campaign.id, isDefaultTask: true },
+      })
+      if (hasDefaultRows === 0) return
+      const anchor = await tx.campaignTrackerTask.findFirst({
+        where: {
+          campaignId: campaign.id,
+          isDefaultTask: true,
+          phase: 'preLaunch',
+        },
+        orderBy: { date: Prisma.SortOrder.asc },
+        select: { date: true },
+      })
+      const today = new Date()
+      const row = await tx.campaignTrackerTask.create({
+        data: {
+          campaignId: campaign.id,
+          title: ROBOCALL_FREE_OFFER_TASK_TITLE,
+          description: ROBOCALL_FREE_OFFER_TASK_DESCRIPTION,
+          cta: 'Send outreach',
+          flowType: CampaignTaskType.robocall,
+          week: anchor
+            ? Math.max(0, differenceInCalendarWeeks(today, anchor.date))
+            : 0,
+          date: today,
+          proRequired: true,
+          isDefaultTask: true,
+          phase: 'gotv',
+        },
+      })
+      await tx.campaignTrackerTask.update({
+        where: { id: row.id },
+        data: { link: offerTaskLink(row.id) },
+      })
+    })
   }
 
   // The same answer without assigning or enrolling anything, for a dry run.
@@ -598,6 +663,19 @@ export class RobocallFreeOfferService extends createPrismaBase(
       .join('')
     return `${ROBOCALL_FREE_OFFER_CODE_PREFIX}${suffix}`
   }
+}
+
+// The task's button opens the robocall flow on the offer list. trackerTaskId
+// and phase let the run complete the task once it is scheduled.
+export const offerTaskLink = (trackerTaskId: string): string => {
+  const params = new URLSearchParams({
+    compose: 'robocall',
+    recommended: ROBOCALL_FREE_OFFER_VARIANT,
+    source: 'campaign_tracker',
+    trackerTaskId,
+    phase: 'gotv',
+  })
+  return `/dashboard/outreach?${params.toString()}`
 }
 
 // The offer list's saved shape: every landline voter in the treatment

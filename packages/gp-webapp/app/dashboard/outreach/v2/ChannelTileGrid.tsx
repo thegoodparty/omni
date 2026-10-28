@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation'
 import { useQueryClient } from '@tanstack/react-query'
 import { MessageSquareOff } from 'lucide-react'
 import {
-  Badge,
   ChannelCard,
   Tooltip,
   TooltipContent,
@@ -31,8 +30,8 @@ import {
   formatSmsCutoffDate,
 } from 'app/dashboard/campaign-verification/verificationCopy'
 import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
+import { FreeOfferLabel } from 'app/dashboard/shared/robocallFreeOffer/FreeOfferLabel'
 import { useRobocallFreeOffer } from 'app/dashboard/shared/robocallFreeOffer/useRobocallFreeOffer'
-import { FREE_OFFER_BADGE } from 'app/dashboard/shared/robocallFreeOffer/freeOfferCopy'
 import { MailIcon } from '@styleguide/components/ui/icons'
 import { CHANNEL_META } from './channelMeta'
 import type { AudiencePreselect } from './audiencePreselect'
@@ -301,17 +300,29 @@ export const ChannelTileGrid = ({
               key={type}
               icon={textClosed ? <MessageSquareOff /> : meta.icon}
               iconClassName={textClosed ? 'bg-grayscale-200' : meta.iconTint}
-              label={meta.label}
+              label={
+                type === OUTREACH_TYPES.robocall && freeOffer ? (
+                  <>
+                    {/* In the lock's corner, out of the flow, so the icon
+                        and name stay level with the tiles beside it. */}
+                    <FreeOfferLabel
+                      icon={false}
+                      className="absolute top-3 left-3"
+                    />
+                    {meta.label}
+                  </>
+                ) : (
+                  meta.label
+                )
+              }
               subCopy={
-                textClosed ? (
-                  SMS_TILE_CLOSED_COPY
-                ) : isText && smsCompliance === 'closing' && smsCutoffDate ? (
-                  SMS_CUTOFF_COPY.countdownChip(
-                    formatSmsCutoffDate(smsCutoffDate),
-                  )
-                ) : type === OUTREACH_TYPES.robocall && freeOffer ? (
-                  <Badge className="mt-1">{FREE_OFFER_BADGE}</Badge>
-                ) : undefined
+                textClosed
+                  ? SMS_TILE_CLOSED_COPY
+                  : isText && smsCompliance === 'closing' && smsCutoffDate
+                    ? SMS_CUTOFF_COPY.countdownChip(
+                        formatSmsCutoffDate(smsCutoffDate),
+                      )
+                    : undefined
               }
               aria-disabled={textClosed || undefined}
               className={cn(

@@ -1,8 +1,8 @@
 'use client'
 
-import { Badge, Card, cn } from '@styleguide'
+import { Card, cn } from '@styleguide'
 import { ChevronRightIcon } from '@styleguide/components/ui/icons'
-import { FREE_OFFER_BADGE } from 'app/dashboard/shared/robocallFreeOffer/freeOfferCopy'
+import { FreeOfferLabel } from 'app/dashboard/shared/robocallFreeOffer/FreeOfferLabel'
 import { ROBOCALL_PURPOSES, type RobocallPurpose } from '../robocallPurposes'
 // Intro is a channel-generic v2 component that currently lives under social/;
 // reused here read-only (a later refactor can relocate it to v2/).
@@ -47,11 +47,9 @@ export const RobocallPurposeStep = ({
               : 'hover:border-primary/50',
           )}
         >
-          <span className="flex flex-wrap items-center gap-2 font-medium text-foreground">
+          <span className="flex flex-col items-start gap-1 font-medium text-foreground">
+            {purpose.id === freeOfferPurpose && <FreeOfferLabel />}
             {purpose.label}
-            {purpose.id === freeOfferPurpose && (
-              <Badge>{FREE_OFFER_BADGE}</Badge>
-            )}
           </span>
           <ChevronRightIcon className="size-5 shrink-0 text-muted-foreground" />
         </Card>
