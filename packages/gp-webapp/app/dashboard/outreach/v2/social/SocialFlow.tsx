@@ -334,6 +334,7 @@ export const SocialFlow = ({
           outreachCampaignId: detail.id,
           ...(tracker ? { tracker } : {}),
           launchSource,
+          ...(purpose ? { purpose } : {}),
         }),
       )
       // Save is social's completion: the assets exist and the candidate has
@@ -349,6 +350,7 @@ export const SocialFlow = ({
           outreachCampaignId: detail.id,
           ...(tracker ? { tracker } : {}),
           launchSource,
+          ...(purpose ? { purpose } : {}),
         }),
         platformCount: assets?.length ?? 0,
       })

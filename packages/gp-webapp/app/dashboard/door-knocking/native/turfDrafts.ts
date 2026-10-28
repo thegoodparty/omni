@@ -158,6 +158,7 @@ export const draftAsTurfLike = (draft: TurfDraft): DoorKnockingTurf => {
     loggedCount: 0,
     routeSeconds: 0,
     priorityId: null,
+    purpose: null,
     completed: false,
     archivedAt: null,
     createdAt: now,

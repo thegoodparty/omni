@@ -99,6 +99,7 @@ const turf = (id: number, outreachId: number): DoorKnockingTurf => ({
   loggedCount: 9,
   routeSeconds: 900,
   priorityId: null,
+  purpose: null,
   completed: true,
   archivedAt: null,
   createdAt: new Date('2026-08-10T00:00:00Z'),
