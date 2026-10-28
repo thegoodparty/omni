@@ -160,6 +160,17 @@ vi.mock('../chief-of-staff/data/use-chat-history', async (importOriginal) => ({
 }))
 
 // An incomplete story, so the manager still offers to personalize.
+// The election-result question only asks once an election has passed.
+vi.mock('app/dashboard/campaign-manager/useElectionResultChat', () => ({
+  useElectionResultChat: () => ({
+    asking: false,
+    pending: false,
+    opener: [],
+    openerKey: 'election-result-ask',
+    suggestions: [],
+    reset: () => undefined,
+  }),
+}))
 vi.mock('app/dashboard/campaign-story/useCampaignStoryComplete', () => ({
   useCampaignStoryComplete: vi.fn(() => ({
     isComplete: false,

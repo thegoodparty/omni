@@ -11,8 +11,13 @@ const meta = pageMetaData({
 export const metadata = meta
 export const dynamic = 'force-dynamic'
 
-export default async function Page(): Promise<React.JSX.Element> {
+export default async function Page({
+  searchParams,
+}: {
+  searchParams: Promise<{ result?: string | string[] }>
+}): Promise<React.JSX.Element> {
   await candidateAccess()
+  const { result } = await searchParams
 
-  return <ElectionResultPage />
+  return <ElectionResultPage startWithWin={result === 'won'} />
 }
