@@ -117,15 +117,15 @@ self-serve recovery after a declined pay-time hold, where the candidate
 re-picks a future date and a new card and pays through the SAME convert →
 authorize path, so there is one money path for a draft and a hold-failed
 resend alike (billing always re-derived server-side from the audience, never
-trusted from the client). The convert's single-winner claim is a CAS on the
-satellite settle-state (`draft → pending_payment` or `hold_failed →
-pending_payment`, the `outreachRobocall.updateMany` inside the transaction, so
-a zero count aborts before the spine is repriced), so two concurrent resume
-submits convert once and the loser 409s. Because the cancel-at-deadline sweep
-claims the same `hold_failed` row with its own `hold_failed → cancelled` CAS,
-exactly one of a resume and a mid-flight cancel can win: a resend can never
-land on a row the sweep just cancelled, and a resumed row (now future-dated,
-off `hold_failed`) is no longer a sweep candidate. A bare robocall
+trusted from the client). A `hold_failed` resume keeps the satellite at
+`hold_failed` until a hold lands, so an abandoned resend stays in history as
+"payment failed" and can be resent again. The convert's single-winner claim is
+a CAS on the satellite's settle-state and `updatedAt` as read (the
+`outreachRobocall.updateMany` inside the transaction, so a zero count aborts
+before the spine is repriced): two concurrent resume submits convert once and
+the loser 409s. The cancel-at-deadline sweep's `hold_failed → cancelled` CAS is
+pinned to its own read `updatedAt`, so a cancel that read the old past date
+cannot take a row a resend has just moved forward. A bare robocall
 create that reuses a draft's `audioKey` 409s with that draft's `existingId`
 (`findExistingDraft` scopes `draft` + `pending_payment`) instead of tripping
 the unique index: scheduling a saved draft has to be explicit. `findByScope`

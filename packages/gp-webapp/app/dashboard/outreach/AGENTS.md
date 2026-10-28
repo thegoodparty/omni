@@ -340,9 +340,10 @@ path a saved draft's does, so the hub routes it into `RobocallFlow` as a resume
 resumable alongside `draft` rows). The resume lands on the schedule step with
 its PAST send date dropped — the candidate must pick a fresh future date — then
 the pay step re-posts `POST /v1/outreach/robocall` with `draftOutreachId`, which
-`convertDraft` now accepts for a `hold_failed` row, re-deriving billing and
-landing it back at `pending_payment` for a new authorization hold. A repeat
-decline shows the pay step's existing retry card. No re-record: the recording,
+`convertDraft` now accepts for a `hold_failed` row, re-deriving billing while
+the row stays `hold_failed` until a new authorization hold lands. A candidate
+who leaves the pay step unpaid still sees "Payment failed" and can resend
+again. A repeat decline shows the pay step's existing retry card. No re-record: the recording,
 script, caller-ID number and audience are reused.
 
 The pay step's Stripe session comes from `CheckoutSessionProvider`

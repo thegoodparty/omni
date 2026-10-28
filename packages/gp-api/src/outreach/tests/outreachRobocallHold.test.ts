@@ -602,6 +602,33 @@ describe('POST /v1/outreach/robocall/:outreachId/authorize', () => {
     ).toHaveLength(0)
   })
 
+  // A payment-failed resend rescheduled beyond the window: the new card is
+  // saved and the row leaves hold_failed for the deferred sweep, rather than
+  // the card being dropped and the candidate told it failed again.
+  it('defers a hold_failed resend beyond the hold window, saving the new card', async () => {
+    const outreachId = await createDraft({
+      sendInDays: 10,
+      settleState: RobocallSettleState.hold_failed,
+      payAttempt: 1,
+    })
+    paymentMethodsRetrieve.mockResolvedValue({
+      id: 'pm_1',
+      customer: 'cus_test',
+      type: 'card',
+    })
+
+    const res = await postAuthorize(outreachId)
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(res.data.status).toBe('deferred')
+    expect(paymentIntentsCreate).not.toHaveBeenCalled()
+    const satellite = await readSatellite(outreachId)
+    expect(satellite.settleState).toBe(RobocallSettleState.pending_payment)
+    expect(satellite.paymentMethodId).toBe('pm_1')
+    const spine = await readSpine(outreachId)
+    expect(spine.status).toBe('pending')
+  })
+
   it('rejects an estimate over the per-run ceiling and reverts to pending_payment', async () => {
     const outreachId = await createDraft({ sendInDays: 2 })
     // 250000 landlines → $11,252, over the $10,000 sanity cap.

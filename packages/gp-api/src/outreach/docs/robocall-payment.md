@@ -41,9 +41,10 @@ This RESERVES REAL MONEY. Invariants, in order:
   first validate the chosen card the same way the immediate path does
   (`ensureCustomer` → `retrievePaymentMethod` → `pm.customer` match →
   `type === 'card'`; a bad PM throws 400/502 and persists nothing) and persist
-  `paymentMethodId` + `stripeCustomerId` onto the still-`pending_payment` draft
-  so the deferred sweep bills exactly that card. The persist is a CAS
-  (`updateMany` guarded on `settleState = pending_payment`): after the two async
+  `paymentMethodId` + `stripeCustomerId` onto the draft (moving a
+  `hold_failed` resend to `pending_payment`) so the deferred sweep bills
+  exactly that card. The persist is a CAS (`updateMany` guarded on
+  `settleState in (pending_payment, hold_failed)`): after the two async
   Stripe validations a concurrent reschedule-into-window + placement could have
   advanced the row, and the guard means the chosen card is never written onto an
   already-`authorized` row. When that CAS matches 0 rows (the row advanced under
@@ -622,9 +623,9 @@ for that customer's `hold_failed` robocall drafts whose send is IN the window
 (`now < date <= now + ROBOCALL_HOLD_WINDOW_DAYS`), calling `authorizeHold` with
 the newly attached card. The lower bound honors "a card update after send time
 does not revive it"; the upper bound keeps authorizeHold on its placement retry
-path (`hold_failed` + null intent → `hold_pending`) and off the defer branch,
-whose persist CAS is `pending_payment`-only and would silently drop the new card
-on an out-of-window `hold_failed` row. authorizeHold owns the single-owner claim, the Stripe hold,
+path (`hold_failed` + null intent → `hold_pending`) rather than the defer
+branch: an out-of-window row needs no hold yet, and the candidate's own resend
+reschedules it. authorizeHold owns the single-owner claim, the Stripe hold,
 and the `HoldPlaced`/`HoldFailed` milestones, so a Stripe redelivery is idempotent
 (a draft already advanced out of `hold_failed` is not re-selected) and per-draft
 failures are isolated. RESERVES REAL MONEY off-session. Ops: the Stripe webhook
@@ -641,17 +642,19 @@ recovers through the SAME draft-resume path a saved draft uses.
 `draftOutreachId` set to the `hold_failed` row: `convertDraft` now accepts a
 `hold_failed` row alongside a `draft` one, re-running the create gates
 (compliance/ETag bind, schedule validation against the NEW future date,
-server-re-derived billing via `resolveScheduleGates`) and transitioning the
-satellite `hold_failed → pending_payment` as the single-owner claim, reusing
-the audio/script/audience. The row lands `pending_payment`, and the existing
+server-re-derived billing via `resolveScheduleGates`), reusing the
+audio/script/audience. The satellite STAYS `hold_failed`: only a hold that
+lands (or a deferral that saves the new card) moves it on, so a candidate who
+reaches the pay step and leaves still sees "Payment failed" and can resend
+again, instead of the row going hidden at `pending_payment`. The existing
 `POST /outreach/robocall/:id/authorize` (which already accepts `pending_payment
-| hold_failed`) places the hold on the new card. One money path: a resend is
-priced and scheduled under the same gates as a fresh create, never a
-client-supplied count. The cancel-at-deadline sweep is naturally safe — the
-resend re-picks a future date and the convert's satellite CAS and the sweep's
-`hold_failed → cancelled` CAS are mutually exclusive, so a resumed row (future,
-off `hold_failed`) is no longer a cancel candidate and a cancel racing a resume
-makes the loser 409.
+| hold_failed`) places the hold on the new card, or defers it when the new date
+is beyond the window. One money path: a resend is priced and scheduled under
+the same gates as a fresh create, never a client-supplied count. The convert's
+claim and the cancel-at-deadline sweep's `hold_failed → cancelled` CAS are both
+pinned to the satellite's `updatedAt` as each read it, so concurrent resends
+convert once (the loser 409s), and a cancel that read the old past date cannot
+take a row a resend has just moved forward.
 
 **Promo codes (reward codes on the pay step).** CAS mints single-use,
 amount-off promotion codes in Stripe (a fixed number of calls at a fixed rate)

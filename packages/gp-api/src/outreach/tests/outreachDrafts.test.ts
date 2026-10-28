@@ -1045,8 +1045,8 @@ describe('resuming a draft', () => {
 
   // A declined pay-time hold leaves the row pending_payment + hold_failed. The
   // self-serve resend re-enters this SAME convert path with a fresh future
-  // date, re-deriving billing and landing it back on pending_payment for the
-  // pay step — one money path for a draft and a hold-failed resend alike.
+  // date and re-derived billing, but the satellite STAYS hold_failed until a
+  // hold lands, so a resend abandoned on the pay step still shows in history.
   const seedHoldFailed = async (sendDate: Date) => {
     const created = await postRobocall(robocallCreateBody())
     expect(created.status).toBe(HttpStatus.CREATED)
@@ -1086,8 +1086,8 @@ describe('resuming a draft', () => {
       coversTotal: false,
     })
 
-    // Converted in place — no second row — back onto pending_payment with the
-    // re-picked date and the freshly derived count.
+    // Converted in place — no second row — onto the re-picked date and the
+    // freshly derived count, still flagged hold_failed until a hold lands.
     expect(await service.prisma.outreach.count()).toBe(1)
     const spine = await service.prisma.outreach.findUniqueOrThrow({
       where: { id: outreachId },
@@ -1097,7 +1097,7 @@ describe('resuming a draft', () => {
     const satellite = await service.prisma.outreachRobocall.findUniqueOrThrow({
       where: { outreachId },
     })
-    expect(satellite.settleState).toBe(RobocallSettleState.pending_payment)
+    expect(satellite.settleState).toBe(RobocallSettleState.hold_failed)
     expect(satellite.billableCount).toBe(400)
     expect(satellite.amountInCents).toBe(calcRobocallTotalInCents(400))
   })
@@ -1114,8 +1114,8 @@ describe('resuming a draft', () => {
     })
     expect(res.status).toBe(HttpStatus.CREATED)
 
-    // The resend moved the row off hold_failed onto a future date, so the
-    // sweep's hold_failed + past-date claim no longer matches it.
+    // The resend moved the row onto a future date, so the sweep's past-date
+    // read no longer selects it.
     await service.app
       .get(OutreachRobocallHoldFailureService)
       .cancelExpiredHoldFailure(outreachId)
@@ -1123,11 +1123,59 @@ describe('resuming a draft', () => {
     const satellite = await service.prisma.outreachRobocall.findUniqueOrThrow({
       where: { outreachId },
     })
-    expect(satellite.settleState).toBe(RobocallSettleState.pending_payment)
+    expect(satellite.settleState).toBe(RobocallSettleState.hold_failed)
     const spine = await service.prisma.outreach.findUniqueOrThrow({
       where: { id: outreachId },
     })
     expect(spine.status).toBe(OutreachStatus.pending_payment)
+  })
+
+  // The candidate reached the pay step and left without paying. The row must
+  // stay listed as a failed payment and accept another resend, rather than
+  // vanish into a hidden pending_payment row.
+  it('keeps an abandoned hold_failed resend in history and resendable', async () => {
+    const outreachId = await seedHoldFailed(new Date(Date.now() + 86_400_000))
+    const body = {
+      ...robocallCreateBody(),
+      scheduledAt: resendAt,
+      draftOutreachId: outreachId,
+    }
+
+    expect((await postRobocall(body)).status).toBe(HttpStatus.CREATED)
+
+    const list = await service.client.get('/v1/outreach', orgHeaders())
+    expect(list.status).toBe(HttpStatus.OK)
+    expect(
+      list.data.find((row: { id: number }) => row.id === outreachId)?.robocall
+        ?.settleState,
+    ).toBe(RobocallSettleState.hold_failed)
+
+    expect((await postRobocall(body)).status).toBe(HttpStatus.CREATED)
+  })
+
+  // A stale past-date read must not cancel a row a resend has just moved
+  // forward: the sweep's CAS is pinned to the row it read.
+  it('does not cancel a hold_failed row a resend updated after the sweep read it', async () => {
+    const outreachId = await seedHoldFailed(new Date(Date.now() - 86_400_000))
+    const sweep = service.app.get(OutreachRobocallHoldFailureService)
+    const stale = await sweep.findFirst({
+      where: { outreachId },
+      include: { outreach: { include: { campaign: true } } },
+    })
+    const resend = await postRobocall({
+      ...robocallCreateBody(),
+      scheduledAt: resendAt,
+      draftOutreachId: outreachId,
+    })
+    expect(resend.status).toBe(HttpStatus.CREATED)
+    vi.spyOn(sweep, 'findFirst').mockResolvedValueOnce(stale)
+
+    await sweep.cancelExpiredHoldFailure(outreachId)
+
+    const satellite = await service.prisma.outreachRobocall.findUniqueOrThrow({
+      where: { outreachId },
+    })
+    expect(satellite.settleState).toBe(RobocallSettleState.hold_failed)
   })
 
   it('403s a p2p resume for a campaign that is not Pro', async () => {

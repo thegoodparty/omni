@@ -307,19 +307,22 @@ export class OutreachRobocallService extends createPrismaBase(
 
     try {
       await this.client.$transaction(async (tx) => {
-        // The satellite settle-state transition is the claim: two resume
-        // submits both clear the read above, so the loser's CAS counts 0 and
-        // aborts before the row is repriced, rather than letting the last
-        // write win. It serializes a draft (`draft → pending_payment`) and a
-        // declined hold (`hold_failed → pending_payment`) alike, and — since
-        // the cancel-at-deadline sweep claims the same `hold_failed` row with
-        // its own `hold_failed → cancelled` CAS — exactly one of a resume and
-        // a mid-flight cancel can win, so a resend can never land on a row the
-        // sweep just cancelled.
+        // The claim is a CAS on the satellite row as it was read
+        // (settle-state AND updatedAt): two resume submits both clear the read
+        // above, so the loser's CAS counts 0 and aborts before the row is
+        // repriced, rather than letting the last write win. A draft moves
+        // `draft → pending_payment`. A declined hold STAYS `hold_failed` until
+        // a hold actually lands (authorize accepts it), so a candidate who
+        // reaches the pay step and leaves still sees "Payment failed" in
+        // history instead of a hidden pending_payment row. The cancel-at-
+        // deadline sweep CASes the same row on its own read updatedAt, so a
+        // resume and a mid-flight cancel can't both win: a resend never lands
+        // on a cancelled row, and a cancel never takes a just-resumed one.
         const claimed = await tx.outreachRobocall.updateMany({
           where: {
             outreachId: draftOutreachId,
             settleState: draft.settleState,
+            updatedAt: draft.updatedAt,
           },
           data: {
             // A resume can carry a re-recorded clip, and the compliance bind
@@ -330,7 +333,9 @@ export class OutreachRobocallService extends createPrismaBase(
             amountInCents,
             compliancePassedAt: compliance.checkedAt,
             complianceAudioEtag: compliance.audioEtag,
-            settleState: RobocallSettleState.pending_payment,
+            settleState: isHoldFailed
+              ? RobocallSettleState.hold_failed
+              : RobocallSettleState.pending_payment,
           },
         })
         if (claimed.count === 0) {
