@@ -3,7 +3,7 @@ title: A Pro winner's office starts unfinished, and the dashboard routes it to S
 status: active
 decided_by: [bryclevgp]
 date: 2026-10-28
-code: ['#PR']
+code: ['#3322']
 scope:
   - packages/gp-webapp/app/dashboard/election-result/**
   - packages/gp-webapp/app/dashboard/shared/DashboardLayout.tsx
