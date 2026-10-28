@@ -62,6 +62,26 @@ Cards are 12px radius with a 1px border. Don't change those.
 - **The logo.** The heart (`packages/gp-webapp/public/images/logo/heart.svg`), never
   the wordmark as text. `assets/heart-logo.svg` is a ready copy to paste inline.
 
+## Existing screens
+
+When an option touches a screen that exists today, replicate it before you change
+it. Don't redraw it from memory or from the ticket.
+
+1. **Find the source.** Start from the route (`packages/gp-webapp/app/dashboard/<area>`
+   and its `AGENTS.md`), then the page component, its sheets and drawers, and the
+   copy file (`contactsLabels.ts`, `navLabels.ts` and similar). Today's headings,
+   labels and empty states come from there, word for word.
+2. **Copy the structure.** Same shell (sidebar items and order from
+   `DashboardMenu.tsx`, page title bar, top bar), same column widths, same cards,
+   same row layout, same sheet pattern. If the product shows a list as cards, don't
+   show it as a table. Drill-in screens use the product's own pattern, such as a
+   `CrmSheet` drawer with a Back control at its top-left, not a new link in the
+   page body.
+3. **Mark what is new.** Show only the new parts as new, and say in the comment you
+   post back which parts are today's and which are added.
+4. **Check the data.** Show only fields the product has today (for example the
+   person panel's real sections), and flag any field the feature adds.
+
 ## Every option must have
 
 - Working interactions: every button does something, no `href="#"`, no dead ends.

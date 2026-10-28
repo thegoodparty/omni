@@ -70,7 +70,10 @@ Work in a scratch folder outside any repo, `<work>/`, and keep the page in
 1. **Read everything.** The ticket and its comments, every linked doc, meeting
    notes. Then read the code the feature touches: routes, modals, emails, the data
    it stores. Today's behavior is the starting point for the close-to-today option,
-   and code facts often kill or reshape an option.
+   and code facts often kill or reshape an option. If the feature changes a screen
+   that exists today, find that screen's source (page, sheets, nav, copy labels) and
+   rebuild it from the code before you design the change. Rules in
+   `reference/design-rules.md`, "Existing screens".
 2. **Pick three options.** Think about how other products solve the same job (form,
    one question at a time, conversation, human-led, calendar, checklist,
    invitation, agent workspace, search). Pick three that are each a different
@@ -95,6 +98,13 @@ Work in a scratch folder outside any repo, `<work>/`, and keep the page in
    Vercel sign-in.
 
 ## Pitfalls
+
+- **Invented screens.** When a design shows something that exists in the product
+  (a page, a panel, the navigation, a wizard), replicate it faithfully from its
+  source: same layout, same components, same labels, same navigation pattern. A
+  reviewer who can't recognize today's screen can't judge the change. Never add a
+  navigation pattern the product doesn't have (a "Back to X" link in a page body, a
+  tab strip, a side sheet where the product uses a full-height drawer).
 
 - **Convergence.** Rounds of fixing pull options toward the same safe middle. Each
   option should become the best version of itself, not more like the others.
