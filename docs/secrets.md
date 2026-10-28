@@ -70,7 +70,14 @@ adding one needs a code change:
 - **gp-api needs no code change.** The Pulumi program reads the
   live secret and enumerates its keys, wiring every one it finds
   (`Object.keys(secret)` in `packages/*/deploy/index.ts`). A key that exists in
-  the blob is in the task definition on the next deploy.
+  the blob is in the task definition on the next deploy. The ECS agent reads
+  those values through the execution role, which may read only the secrets the
+  task definition names (`executionRoleSecretArns` in
+  `packages/gp-api/deploy/components/service.ts`, derived from the
+  `valueFrom` entries). A key in `GP_API_<ENV>` is covered already; a
+  container secret drawn from any other secret gets its grant by being added
+  to `containerSecrets` in `deploy/index.ts`, and an SSM parameter as a
+  source fails the deploy.
 - **gp-ai needs a Terraform edit.** Each key is listed explicitly in the module's
   `secrets` array, so a new one means a new `valueFrom` entry plus an
   `AI_SECRETS_<ENV>` resource in the task role's IAM policy.
