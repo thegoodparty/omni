@@ -41,12 +41,13 @@ describe('EmailOutreachQueueService', () => {
     snsMessageId: 'sns-2',
     bucket: 'email-inbound-dev',
     key: 'reply-1',
+    fromAuthenticated: true,
   }
 
   it('acks a handled reply', async () => {
     process.mockResolvedValueOnce(undefined)
     await expect(service.handleInbound(inboundMessage)).resolves.toBe(true)
-    expect(process).toHaveBeenCalledWith('email-inbound-dev', 'reply-1')
+    expect(process).toHaveBeenCalledWith('email-inbound-dev', 'reply-1', true)
   })
 
   it('redelivers a reply that failed', async () => {

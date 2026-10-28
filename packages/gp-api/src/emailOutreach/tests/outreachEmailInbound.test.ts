@@ -30,20 +30,26 @@ const message = (headers: string[], body = 'Thanks for the update!') =>
       `To: Jane Doe <${localPart}@${EMAIL_OUTREACH_DOMAIN}>`,
       'From: Pat Voter <pat@example.com>',
       'Subject: Re: Town hall on Thursday',
-      'X-SES-SPF-Verdict: PASS',
       ...headers,
       '',
       body,
     ].join('\r\n'),
   )
 
-const deliver = (raw: Buffer | undefined, key = `inbound/${Math.random()}`) => {
+const deliver = (
+  raw: Buffer | undefined,
+  key = `inbound/${Math.random()}`,
+  fromAuthenticated = true,
+) => {
   getFileBytes.mockResolvedValue(raw)
   return {
     key,
-    result: service.app
-      .get(EmailOutreachQueueService)
-      .handleInbound({ snsMessageId: 'sns-1', bucket: BUCKET, key }),
+    result: service.app.get(EmailOutreachQueueService).handleInbound({
+      snsMessageId: 'sns-1',
+      bucket: BUCKET,
+      key,
+      fromAuthenticated,
+    }),
   }
 }
 
@@ -114,12 +120,20 @@ describe('a real reply', () => {
   it('is not forwarded twice when SNS delivers it again', async () => {
     const raw = message([])
     const { key } = deliver(raw)
-    await service.app
-      .get(EmailOutreachQueueService)
-      .handleInbound({ snsMessageId: 'a', bucket: BUCKET, key })
+    await service.app.get(EmailOutreachQueueService).handleInbound({
+      snsMessageId: 'a',
+      bucket: BUCKET,
+      key,
+      fromAuthenticated: true,
+    })
     const again = await service.app
       .get(EmailOutreachQueueService)
-      .handleInbound({ snsMessageId: 'b', bucket: BUCKET, key })
+      .handleInbound({
+        snsMessageId: 'b',
+        bucket: BUCKET,
+        key,
+        fromAuthenticated: true,
+      })
     expect(again).toBe(true)
     expect(forwardReply).toHaveBeenCalledTimes(1)
   })
@@ -132,7 +146,12 @@ describe('a real reply', () => {
 
     const retry = await service.app
       .get(EmailOutreachQueueService)
-      .handleInbound({ snsMessageId: 'c', bucket: BUCKET, key })
+      .handleInbound({
+        snsMessageId: 'c',
+        bucket: BUCKET,
+        key,
+        fromAuthenticated: true,
+      })
     expect(retry).toBe(true)
     expect(forwardReply).toHaveBeenCalledTimes(2)
     expect((await replyRow(key))?.forwardedAt).not.toBeNull()
@@ -188,9 +207,12 @@ describe('replies that are not forwarded', () => {
 
   it('drops a message SES marked as spam', async () => {
     const { key } = deliver(message(['X-SES-Spam-Verdict: FAIL']))
-    await service.app
-      .get(EmailOutreachQueueService)
-      .handleInbound({ snsMessageId: 's', bucket: BUCKET, key })
+    await service.app.get(EmailOutreachQueueService).handleInbound({
+      snsMessageId: 's',
+      bucket: BUCKET,
+      key,
+      fromAuthenticated: true,
+    })
     expect(forwardReply).not.toHaveBeenCalled()
     expect((await replyRow(key))?.classification).toBe('spam')
   })
@@ -239,34 +261,65 @@ describe('stop and unsubscribe replies', () => {
   })
 
   it('forwards a stop reply SES could not authenticate, without unsubscribing', async () => {
-    const { key } = deliver(
-      Buffer.from(
-        [
-          `To: ${localPart}@${EMAIL_OUTREACH_DOMAIN}`,
-          'From: pat@example.com',
-          'X-SES-SPF-Verdict: FAIL',
-          'X-SES-DKIM-Verdict: FAIL',
-          'Subject: hi',
-          '',
-          'stop',
-        ].join('\r\n'),
-      ),
-    )
-    await service.app
-      .get(EmailOutreachQueueService)
-      .handleInbound({ snsMessageId: 'f', bucket: BUCKET, key })
+    const { key } = deliver(message([], 'stop'), undefined, false)
+    await service.app.get(EmailOutreachQueueService).handleInbound({
+      snsMessageId: 'f',
+      bucket: BUCKET,
+      key,
+      fromAuthenticated: false,
+    })
     expect(await suppression()).toBeNull()
     expect((await replyRow(key))?.classification).toBe('forwarded')
   })
 
+  it('ignores verdict headers the sender wrote into the message', async () => {
+    const { key } = deliver(
+      message(['X-SES-SPF-Verdict: PASS', 'X-SES-DKIM-Verdict: PASS'], 'stop'),
+      undefined,
+      false,
+    )
+    await service.app.get(EmailOutreachQueueService).handleInbound({
+      snsMessageId: 'g',
+      bucket: BUCKET,
+      key,
+      fromAuthenticated: false,
+    })
+    expect(await suppression()).toBeNull()
+  })
+
+  it.each(['Stop by my office Tuesday', 'Remove the yard sign please'])(
+    'forwards "%s" instead of unsubscribing',
+    async (body) => {
+      const { key } = deliver(message([], body))
+      await service.app.get(EmailOutreachQueueService).handleInbound({
+        snsMessageId: 'h',
+        bucket: BUCKET,
+        key,
+        fromAuthenticated: true,
+      })
+      expect((await replyRow(key))?.classification).toBe('forwarded')
+      expect(await suppression()).toBeNull()
+    },
+  )
+
   it('does not unsubscribe again when a delivered stop is redelivered after an undo', async () => {
     const { key } = deliver(message([], 'stop'))
     const queue = service.app.get(EmailOutreachQueueService)
-    await queue.handleInbound({ snsMessageId: '1', bucket: BUCKET, key })
+    await queue.handleInbound({
+      snsMessageId: '1',
+      bucket: BUCKET,
+      key,
+      fromAuthenticated: true,
+    })
     await service.prisma.outreachEmailSuppression.updateMany({
       data: { revokedAt: new Date() },
     })
-    await queue.handleInbound({ snsMessageId: '2', bucket: BUCKET, key })
+    await queue.handleInbound({
+      snsMessageId: '2',
+      bucket: BUCKET,
+      key,
+      fromAuthenticated: true,
+    })
     expect((await suppression())?.revokedAt).not.toBeNull()
   })
 
@@ -275,7 +328,6 @@ describe('stop and unsubscribe replies', () => {
       [
         `To: ${localPart}@${EMAIL_OUTREACH_DOMAIN}`,
         'From: pat@example.com',
-        'X-SES-DKIM-Verdict: PASS',
         'Subject: unsubscribe',
         '',
         '',
@@ -331,6 +383,7 @@ describe('messages that cannot be handled', () => {
         snsMessageId: 'x',
         bucket: 'some-other-bucket',
         key: 'k',
+        fromAuthenticated: true,
       })
     expect(result).toBe(true)
     expect(getFileBytes).not.toHaveBeenCalled()

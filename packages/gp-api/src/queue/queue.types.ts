@@ -371,5 +371,8 @@ export const EmailInboundMessageSchema = z.object({
   snsMessageId: z.string().min(1),
   bucket: z.string().min(1),
   key: z.string().min(1),
+  // SES's DMARC verdict for the sender, from the SNS notification. It lives
+  // there and not in the stored message, whose headers the sender controls.
+  fromAuthenticated: z.boolean().default(false),
 })
 export type EmailInboundMessage = z.infer<typeof EmailInboundMessageSchema>

@@ -338,11 +338,28 @@ describe('SNS webhook', () => {
           snsMessageId: 'm-9',
           bucket: 'email-inbound-test',
           key: 'inbound/abc',
+          fromAuthenticated: false,
         },
       },
       'emailInbound-inbound/abc',
       { throwOnError: true, deduplicationId: 'emailInbound-m-9' },
     )
+  })
+
+  it("passes SES's DMARC verdict along", async () => {
+    const withVerdict = JSON.stringify({
+      notificationType: 'Received',
+      receipt: {
+        dmarcVerdict: { status: 'PASS' },
+        action: {
+          type: 'S3',
+          bucketName: 'email-inbound-test',
+          objectKey: 'inbound/abc',
+        },
+      },
+    })
+    await post(signer.sign({ Message: withVerdict }))
+    expect(sendMessage.mock.calls[0]?.[0].data.fromAuthenticated).toBe(true)
   })
 
   it('does not answer 200 when the enqueue fails, so SNS retries', async () => {

@@ -25,7 +25,7 @@ const INBOUND_BUCKET_PREFIX = 'email-inbound-'
 const MAX_FORWARD_CHARS = 100_000
 const MAX_DISPLAY_NAME_CHARS = 60
 const STOP_WORDS =
-  /^(please\s+)?(stop|unsubscribe|remove me|remove|opt[\s-]?out)\b/i
+  /^(please\s+)?(stop|unsubscribe|remove me|remove|opt[\s-]?out)(\s+(me|this|these|emails?|messages?))*\s*[.!]*$/i
 const STOP_MAX_CHARS = 200
 const AUTO_REPLY_SUBJECT =
   /^\s*(automatic reply|auto[\s-]?reply|autoreply|out of (the )?office)/i
@@ -55,7 +55,11 @@ export class OutreachEmailInboundService extends createPrismaBase(
 
   // Idempotent on the object key: a redelivered message finds its reply row
   // and only finishes work that hadn't gone through.
-  async process(bucket: string, key: string): Promise<void> {
+  async process(
+    bucket: string,
+    key: string,
+    fromAuthenticated: boolean,
+  ): Promise<void> {
     if (!bucket.startsWith(INBOUND_BUCKET_PREFIX)) {
       this.logger.error({ bucket, key }, 'inbound reply from an unknown bucket')
       return
@@ -78,7 +82,7 @@ export class OutreachEmailInboundService extends createPrismaBase(
     }
 
     const subject = readHeader(mime.headers, 'subject') ?? null
-    const classification = this.classify(mime, from, subject)
+    const classification = this.classify(mime, from, subject, fromAuthenticated)
     const outreachEmailId = await this.matchSend(sender.id, from.address)
 
     // Suppress before saving the reply, so a saved unsubscribe reply means
@@ -110,6 +114,7 @@ export class OutreachEmailInboundService extends createPrismaBase(
     mime: ParsedMime,
     from: MimeAddress,
     subject: string | null,
+    fromAuthenticated: boolean,
   ): OutreachEmailReplyClass {
     const { headers } = mime
     const localPart = from.address.split('@')[0] ?? ''
@@ -145,12 +150,9 @@ export class OutreachEmailInboundService extends createPrismaBase(
     ) {
       return OutreachEmailReplyClass.auto_reply
     }
-    // A stop reply counts only from an address SES could authenticate, so a
-    // forged one can't unsubscribe someone else.
-    const authenticated =
-      headerValue(headers, 'x-ses-spf-verdict')?.toUpperCase() === 'PASS' ||
-      headerValue(headers, 'x-ses-dkim-verdict')?.toUpperCase() === 'PASS'
-    if (!authenticated) return OutreachEmailReplyClass.forwarded
+    // A stop reply counts only when SES's DMARC check passed for the From
+    // address, so a forged one can't unsubscribe someone else.
+    if (!fromAuthenticated) return OutreachEmailReplyClass.forwarded
     const written = stripQuotedReply(mime.text)
     const firstLine = written.split('\n').find((line) => line.trim()) ?? ''
     if (

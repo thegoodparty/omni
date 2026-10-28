@@ -32,7 +32,11 @@ export class EmailOutreachQueueService {
 
   async handleInbound(message: EmailInboundMessage): Promise<boolean> {
     try {
-      await this.inbound.process(message.bucket, message.key)
+      await this.inbound.process(
+        message.bucket,
+        message.key,
+        message.fromAuthenticated,
+      )
       return true
     } catch (err) {
       this.logger.error({ err, message }, 'Handling an email reply failed')

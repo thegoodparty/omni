@@ -27,6 +27,7 @@ const MAX_GROUP_KEY_CHARS = 100
 const ReceivedSchema = z.object({
   notificationType: z.literal('Received'),
   receipt: z.object({
+    dmarcVerdict: z.object({ status: z.string() }).optional(),
     action: z.object({
       type: z.literal('S3'),
       bucketName: z.string().min(1),
@@ -138,7 +139,8 @@ export class EmailSnsWebhookService {
       )
       return
     }
-    const { bucketName, objectKey } = received.data.receipt.action
+    const { action, dmarcVerdict } = received.data.receipt
+    const { bucketName, objectKey } = action
     await this.queueProducer.sendMessage(
       {
         type: QueueType.EMAIL_INBOUND,
@@ -146,6 +148,7 @@ export class EmailSnsWebhookService {
           snsMessageId: message.MessageId,
           bucket: bucketName,
           key: objectKey,
+          fromAuthenticated: dmarcVerdict?.status.toUpperCase() === 'PASS',
         },
       },
       `emailInbound-${objectKey.slice(0, MAX_GROUP_KEY_CHARS)}`,
