@@ -10,7 +10,6 @@ import { useUser } from '@shared/hooks/useUser'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { ProUpgradePrompt } from './ProUpgradePrompt'
 import { usePathname, useRouter } from 'next/navigation'
-import { weeksTill } from 'helpers/dateHelper'
 import { Campaign } from 'helpers/types'
 import {
   Separator,
@@ -24,11 +23,20 @@ import { useOrganization } from '@shared/organization-picker'
 import ImpersonationBanner from '@shared/user/ImpersonationBanner'
 import { ElectedOfficeTermDatesModalController } from './ElectedOfficeTermDatesModalController'
 import { useIsImpersonating } from '@shared/hooks/useIsImpersonating'
-import { isElectionResultDismissed } from '../election-result/dismissal'
+import {
+  isElectionResultDismissed,
+  isElectionResultSnoozed,
+} from '../election-result/dismissal'
+import { isElectionResultPending } from '../election-result/electionResultQuestion'
 import { CONTACTS_DATA_TITLE } from './contactsLabels'
 import { useWinVoterContext } from './useWinVoterContext'
 import { MembershipChip } from './membership/MembershipChip'
 import { DashboardCampaignManagerChat } from '../campaign-manager/CampaignManagerChatProvider'
+import { useQuery } from '@tanstack/react-query'
+import { clientRequest } from 'gpApi/typed-request'
+import { SERVE_ONBOARDING_PATH } from 'helpers/resolvePostAuthRedirectPath.util'
+
+import { MY_ELECTED_OFFICES_QUERY_KEY } from './myElectedOfficesQuery'
 
 export interface DashboardNavHeaderConfig {
   // Omitted = label-only bar (the Voter Outreach design carries no icon).
@@ -93,24 +101,22 @@ const DashboardLayout = ({
 
   const currentPath = pathname || hookPathname
   const activeCampaign = campaign || hookCampaign
-  const details = activeCampaign?.details
-  const goals =
-    activeCampaign && 'goals' in activeCampaign
-      ? activeCampaign.goals
-      : undefined
-  const goalsObj = goals && typeof goals === 'object' ? goals : null
-  const goalsElectionDate =
-    goalsObj &&
-    'electionDate' in goalsObj &&
-    typeof goalsObj.electionDate === 'string'
-      ? goalsObj.electionDate
-      : undefined
-  const electionDate = details?.electionDate || goalsElectionDate
+  const resultPending = isElectionResultPending(activeCampaign)
+  const campaignId = activeCampaign?.id
+  const managerAsksHere =
+    currentPath === '/dashboard' &&
+    !hideChatDock &&
+    !organization?.electedOfficeId
 
   useEffect(() => {
+    if (!resultPending) return
     if (currentPath?.startsWith('/dashboard/election-result')) {
       return
     }
+    // The campaign manager home asks in its chat instead, so the candidate
+    // can answer there first. Only where that chat mounts: a Win org with
+    // the dock.
+    if (managerAsksHere) return
 
     // An impersonating admin can dismiss the forced election-result gate
     // without answering it; don't bounce them back to it for the rest of
@@ -118,18 +124,41 @@ const DashboardLayout = ({
     if (isImpersonating && isElectionResultDismissed()) {
       return
     }
+    if (isElectionResultSnoozed(campaignId)) return
 
-    const weeksResult = weeksTill(electionDate)
-    const shouldRedirect =
-      typeof details?.wonGeneral !== 'boolean' &&
-      weeksResult &&
-      typeof weeksResult === 'object' &&
-      weeksResult.weeks < 0
+    router.push('/dashboard/election-result')
+  }, [
+    currentPath,
+    resultPending,
+    campaignId,
+    managerAsksHere,
+    router,
+    isImpersonating,
+  ])
 
-    if (shouldRedirect) {
-      router.push('/dashboard/election-result')
+  // A Pro winner's office starts unfinished and Serve onboarding's pledge
+  // finishes it. Sign-in routing still lands them here, so the dashboard is
+  // what brings them back to onboarding, every time, until the pledge.
+  const { data: myOffices } = useQuery({
+    queryKey: MY_ELECTED_OFFICES_QUERY_KEY,
+    queryFn: () =>
+      clientRequest('GET /v1/elected-office/mine', {}).then((res) => res.data),
+    enabled: !!user,
+  })
+  const hasUnfinishedWinOffice = !!myOffices?.some(
+    (office) => office.campaignId != null && !office.onboardingCompletedAt,
+  )
+  useEffect(() => {
+    if (!hasUnfinishedWinOffice) return
+    if (
+      currentPath?.startsWith('/serve') ||
+      currentPath?.startsWith('/dashboard/election-result')
+    ) {
+      return
     }
-  }, [currentPath, details?.wonGeneral, electionDate, router, isImpersonating])
+    if (isImpersonating && isElectionResultDismissed()) return
+    router.push(SERVE_ONBOARDING_PATH)
+  }, [hasUnfinishedWinOffice, currentPath, router, isImpersonating])
 
   const pageBody = (
     <div className={`flex flex-1 flex-col p-2 md:p-4 ${wrapperClassName}`}>

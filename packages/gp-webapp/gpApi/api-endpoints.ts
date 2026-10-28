@@ -3162,9 +3162,9 @@ export type ElectedOffice = {
   onboardingStep: string | null
   // The campaign this office was created from, when the holder reached office by
   // winning a GoodParty.org campaign (the "I won" flow). Null for a net-new serve
-  // lead (sales/magic-link/BallotReady) who was never a candidate. Marks a
-  // win-origin official who already onboarded as a candidate, so post-auth
-  // routing must NOT send them into serve onboarding for a missing term/date.
+  // lead (sales/magic-link/BallotReady) who was never a candidate. Sign-in
+  // routing never sends a win-origin office into serve onboarding; the
+  // dashboard does, while its onboardingCompletedAt is still null.
   campaignId: number | null
 }
 

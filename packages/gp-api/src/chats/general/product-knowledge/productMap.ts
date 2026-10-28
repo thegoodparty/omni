@@ -141,6 +141,8 @@ const WIN_AREAS: ProductArea[] = [
       'A list shown on a map here has Draw shapes / Edit shapes beside Open list, which narrows that list to the shapes without leaving the conversation',
       'Asking how an earlier send did gets its numbers in the reply, and can leave cards for those sends that open each one in Voter Outreach',
       'Where What we heard is on, asking what voters said at the doors or on calls gets the notes from the campaign’s recent door knocking and phone banking in the reply, with the themes found in them',
+      'Once election day has passed and the candidate has not said how it went, this chat opens on Home with How did it go? and three answers: I won opens the election result page on its congratulations, I didn’t win saves the result and replies with a thank you and a Join the GoodParty.org community card, and Results aren’t final yet asks again in 3 days',
+      'Until they answer, Home also shows a card asking Did you win your race for <their office>? with the same three answers, and it stays there after the chat is closed',
     ],
   },
   {
@@ -279,6 +281,22 @@ const WIN_AREAS: ProductArea[] = [
       'The deadline to get verified for texting is 19 days before the general election. A candidate who has not filed and paid for Pro by then cannot get verified for this race. They can still save their filing details. Door knocking, robocalls, phone banking and social media stay open',
     ],
     gate: 'No tab, and not every candidate is offered it. Filing details can be submitted before paying, but carrier registration only starts once Pro is paid for.',
+  },
+  {
+    // No tab: the dashboard sends a candidate here once their election date
+    // has passed and they have not said how it went.
+    navId: null,
+    name: 'Election result',
+    path: '/dashboard/election-result',
+    modes: ['win'],
+    does: 'Where a candidate says whether they won, once their election day has passed.',
+    inside: [
+      'From the day after election day, every page but Home brings the candidate here until they answer Did you win your race for <their office>? with I won, I didn’t win this time, or Results aren’t final yet. Home asks the same question in this chat instead, and whichever they answer first counts. Home also keeps a card with the question and its three answers until they answer',
+      'Results aren’t final yet, on this page or in the chat, stops both asking for 3 days, then they ask again',
+      'A Pro candidate who won sees Congratulations, you won! with their office for a few seconds (Continue skips it), then Get ready to serve <their place>, with a short video (Who gets the mic) on who speaks at public comment and why hearing from the whole district matters, and one button, Start preparing to serve. It sets up their office and opens the setup for it, starting with Does this look right? on their office, party and term; leaving partway, the dashboard brings them back to it until they take the pledge at the end',
+      'A candidate without Pro who won sees Congratulations, you won! with a link to the GoodParty.org community and Back to dashboard. Their result is saved and nothing else changes',
+      'A candidate who did not win sees Thank you for running, with a Join the community link to the GoodParty.org community (it opens in a new tab) and Back to dashboard. A Pro candidate whose subscription is still active also sees Manage subscription there, since it keeps renewing until they cancel it',
+    ],
   },
   {
     navId: 'nav-dash-team',

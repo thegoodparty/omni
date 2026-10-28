@@ -11,6 +11,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ForbiddenException, UnauthorizedException } from '@nestjs/common'
 import { ElectedOfficeController } from './electedOffice.controller'
 import { CrmOfficeHolderService } from './services/crmOfficeHolder.service'
+import { WinTermService } from './services/winTerm.service'
 
 const service = useTestService()
 
@@ -539,6 +540,107 @@ describe('ElectedOfficeController', () => {
         where: { userId: service.user.id },
       })
       expect(offices).toHaveLength(1)
+    })
+
+    it("fills a win's term from the winner's own BallotReady record", async () => {
+      const forWinner = vi
+        .spyOn(service.app.get(WinTermService), 'forWinner')
+        .mockResolvedValue({
+          termStartDate: new Date('2026-12-01'),
+          termEndDate: new Date('2030-12-01'),
+        })
+
+      const won = await createElectedOffice({
+        party: 'independent',
+        onboardingStep: 'confirm',
+      })
+
+      expect(won.status).toBe(200)
+      expect(won.data).toMatchObject({
+        campaignId: campaign.id,
+        termStartDate: '2026-12-01',
+        termEndDate: '2030-12-01',
+        onboardingCompletedAt: null,
+      })
+      expect(forWinner).toHaveBeenCalledWith(
+        '2875e5f3-ecf0-6fae-f270-6951f85e8468',
+        expect.objectContaining({ id: service.user.id }),
+      )
+    })
+
+    it('creates the win term-less when the looked-up term collides with a held office', async () => {
+      await service.client.post('/v1/elected-office', {
+        termStartDate: '2025-01-01',
+        termEndDate: '2029-01-01',
+      })
+      vi.spyOn(service.app.get(WinTermService), 'forWinner').mockResolvedValue({
+        termStartDate: new Date('2026-12-01'),
+        termEndDate: new Date('2030-12-01'),
+      })
+
+      const won = await createElectedOffice({ onboardingStep: 'confirm' })
+
+      // No 409: the win goes ahead without the looked-up term.
+      expect(won.status).toBe(200)
+      expect(won.data.termStartDate).not.toBe('2026-12-01')
+    })
+
+    it('asks for the term when no record is found, and never for a non-win create', async () => {
+      const forWinner = vi
+        .spyOn(service.app.get(WinTermService), 'forWinner')
+        .mockResolvedValue(null)
+
+      const won = await createElectedOffice({ onboardingStep: 'confirm' })
+      expect(won.data.termStartDate).toBeNull()
+
+      forWinner.mockClear()
+      await service.client.post('/v1/elected-office', {})
+      expect(forWinner).not.toHaveBeenCalled()
+    })
+
+    it("links a lead's term-less office to the campaign a win comes from", async () => {
+      // A magic-link lead already holds a term-less office with no campaign.
+      const lead = await service.client.post('/v1/elected-office', {})
+      expect(lead.status).toBe(200)
+      expect(lead.data.campaignId).toBeNull()
+
+      const won = await createElectedOffice({
+        party: 'independent',
+        onboardingStep: 'confirm',
+      })
+
+      expect(won.status).toBe(200)
+      expect(won.data).toMatchObject({
+        id: lead.data.id,
+        campaignId: campaign.id,
+        party: 'independent',
+        onboardingStep: 'confirm',
+        onboardingCompletedAt: null,
+      })
+      const org = await service.prisma.organization.findUnique({
+        where: { slug: `eo-${lead.data.id}` },
+      })
+      expect(org?.positionId).toBe('2875e5f3-ecf0-6fae-f270-6951f85e8468')
+    })
+
+    it("keeps a mid-onboarding lead's own party and checkpoint when a win links it", async () => {
+      const lead = await service.client.post('/v1/elected-office', {
+        party: 'nonpartisan',
+        onboardingStep: 'party',
+      })
+      expect(lead.status).toBe(200)
+
+      const won = await createElectedOffice({
+        party: 'independent',
+        onboardingStep: 'confirm',
+      })
+
+      expect(won.data).toMatchObject({
+        id: lead.data.id,
+        campaignId: campaign.id,
+        party: 'nonpartisan',
+        onboardingStep: 'party',
+      })
     })
 
     it('creates a campaign-less elected office when user has no campaign', async () => {
