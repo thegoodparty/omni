@@ -45,6 +45,10 @@ All in `PaymentHoldsSweepService`, gated on `VENDOR_CRONS_ENABLED`, with no `Cro
 
 A stale `capturing` row whose intent Stripe shows `canceled` becomes `uncollectable` with a CRITICAL log; there is no automatic recharge.
 
+## Stripe webhooks
+
+`PaymentEventsService` resolves `PaymentHoldsService` through `ModuleRef` and calls it after robocall's handler, which is unchanged. `payment_method.attached` retries the customer's `hold_failed` holds whose send is still ahead, through `updateCard`, one row at a time with errors isolated. `payment_method.detached` only logs a `scheduled` hold's lost card: its placement declines and becomes `hold_failed`. `charge.dispute.created` moves a `captured` hold to `disputed`, found by the unique `paymentIntentId`; a `capturing` row answers 503 so Stripe redelivers.
+
 ## Card endpoints
 
 `card-intent` returns a SetupIntent client secret; `:outreachId/card` changes the card on an existing hold and returns the `saveCardAndPlan` outcome (`held`, `scheduled`, `declined`). It never creates a hold: a first card goes through the channel's own confirm call. The webapp side is `packages/gp-webapp/app/dashboard/shared/payment-hold/PaymentHoldCard.tsx`, which takes a `savePaymentMethod` override for that first card. A 409 with "still being placed" means a placement is being resolved and the component says to wait; any other 409 means the hold is final and no card can change it.

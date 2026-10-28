@@ -5,6 +5,7 @@ import {
   Injectable,
   InternalServerErrorException,
   NotFoundException,
+  ServiceUnavailableException,
   Type,
 } from '@nestjs/common'
 import { ModuleRef } from '@nestjs/core'
@@ -610,6 +611,76 @@ export class PaymentHoldsService
     return placeNow
       ? this.placeHold(outreachId, { offSession: false })
       : { outcome: 'scheduled' }
+  }
+
+  // payment_method.attached: a card landed on the customer, so a declined
+  // hold whose send is still ahead is retried on it. Goes through updateCard,
+  // which owns the claim and places on-session or saves for the sweep.
+  async retryHoldFailedForAttachedCard(
+    customerId: string,
+    paymentMethodId: string,
+  ): Promise<void> {
+    const rows = await this.model.findMany({
+      where: {
+        state: OutreachHoldState.hold_failed,
+        stripeCustomerId: customerId,
+        outreach: { date: { gt: new Date() } },
+      },
+      select: { outreachId: true },
+    })
+    if (rows.length === 0) return
+    const user = await this.users.findByCustomerId(customerId)
+    if (!user) return
+    for (const { outreachId } of rows) {
+      try {
+        await this.updateCard({ outreachId, userId: user.id, paymentMethodId })
+      } catch (err) {
+        this.logger.warn(
+          { err, outreachId, customerId },
+          'Could not retry the declined payment hold on the attached card',
+        )
+      }
+    }
+  }
+
+  // payment_method.detached: a scheduled hold's card is gone, so its
+  // placement will decline. Surfaced in the logs now; the placement sweep
+  // turns it into hold_failed, which is what emails the user.
+  async flagScheduledHoldsForDetachedCard(
+    paymentMethodId: string,
+  ): Promise<void> {
+    const rows = await this.model.findMany({
+      where: { state: OutreachHoldState.scheduled, paymentMethodId },
+      select: { outreachId: true },
+    })
+    for (const { outreachId } of rows) {
+      this.logger.warn(
+        { outreachId, paymentMethodId },
+        'The card on a scheduled payment hold was removed',
+      )
+    }
+  }
+
+  // charge.dispute.created. A dispute needs a charge, so only a captured hold
+  // moves. A capturing row will be captured within the recovery window, so the
+  // webhook is asked to redeliver rather than losing the dispute.
+  async markDisputedByIntent(paymentIntentId: string): Promise<void> {
+    const moved = await this.model.updateMany({
+      where: { paymentIntentId, state: OutreachHoldState.captured },
+      data: { state: OutreachHoldState.disputed },
+    })
+    if (moved.count > 0) return
+    const row = await this.model.findFirst({ where: { paymentIntentId } })
+    if (!row || row.state === OutreachHoldState.disputed) return
+    if (row.state === OutreachHoldState.capturing) {
+      throw new ServiceUnavailableException(
+        'The payment hold is still being captured',
+      )
+    }
+    this.logger.error(
+      { outreachId: row.outreachId, paymentIntentId, state: row.state },
+      'A dispute arrived for a payment hold that was not captured',
+    )
   }
 
   private async commitPlacedHold(
