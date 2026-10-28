@@ -579,6 +579,7 @@ describe('StripeService.createOutreachManualCaptureHold', () => {
       payment_method: 'pm_1',
       capture_method: 'manual',
       confirm: true,
+      automatic_payment_methods: { enabled: true, allow_redirects: 'never' },
       metadata: { outreachId: '42', holdAttempt: '2' },
       expand: ['latest_charge'],
     })

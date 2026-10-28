@@ -387,6 +387,13 @@ export class StripeService {
           payment_method: paymentMethodId,
           capture_method: 'manual',
           confirm: true,
+          // Stripe refuses an on-session confirm with no return_url unless
+          // redirect-based methods are off. A card that needs 3-D Secure
+          // then comes back requires_action, which is recorded as a decline.
+          automatic_payment_methods: {
+            enabled: true,
+            allow_redirects: 'never',
+          },
           ...(offSession ? { off_session: true } : {}),
           metadata,
           expand: ['latest_charge'],
