@@ -1,4 +1,4 @@
-import { BadGatewayException } from '@nestjs/common'
+import { BadGatewayException, ConflictException } from '@nestjs/common'
 import { ModuleRef } from '@nestjs/core'
 import { addDays, addHours, subMinutes } from 'date-fns'
 import type Stripe from 'stripe'
@@ -330,6 +330,28 @@ describe('sweepStaleClaims: placing', () => {
       paymentIntentId: INTENT_ID,
     })
     expect(await service.prisma.outreachOrphanedHold.count()).toBe(0)
+  })
+
+  it('reports a cancel, not a hold, to a placer that stalled past recovery and a release', async () => {
+    const outreachId = await createHold(OutreachHoldState.placing, {
+      claimedAt: staleClaim(),
+    })
+    findSpy.mockResolvedValue([stripeHold('requires_capture')])
+    placeSpy.mockImplementation(async () => {
+      await sweeps.sweepStaleClaims()
+      await holds.release({ outreachId })
+      return {
+        paymentIntentId: INTENT_ID,
+        captureBefore: addDays(new Date(), 4),
+      }
+    })
+
+    await expect(
+      holds.placeHold(outreachId, { offSession: true }),
+    ).rejects.toBeInstanceOf(ConflictException)
+
+    expect(cancelSpy).toHaveBeenCalledTimes(1)
+    expect((await readHold(outreachId)).state).toBe(OutreachHoldState.released)
   })
 
   it('leaves a row that moved on from placing before recovery reached it', async () => {

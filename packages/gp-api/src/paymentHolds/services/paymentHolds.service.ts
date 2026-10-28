@@ -267,6 +267,8 @@ export class PaymentHoldsService
         )
         return
       }
+      const current = await this.findUnique({ where: { outreachId } })
+      if (current?.paymentIntentId === live.paymentIntentId) return
       await this.voidHold(live.paymentIntentId, outreachId, 'lost_commit')
       await this.returnStalePlacement(outreachId)
       return
@@ -647,9 +649,13 @@ export class PaymentHoldsService
     }
 
     // A stalled placer and recovery can both hold this same intent; whichever
-    // committed it first owns it, and the other must not void it.
+    // committed it first owns it, and the other must not void it. The owner
+    // may since have released it.
     const current = await this.findUnique({ where: { outreachId } })
     if (current?.paymentIntentId === held.paymentIntentId) {
+      if (current.state === OutreachHoldState.released) {
+        throw new ConflictException('This send was canceled')
+      }
       return { outcome: 'held', captureBefore: held.captureBefore }
     }
 
