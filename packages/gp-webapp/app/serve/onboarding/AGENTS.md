@@ -27,6 +27,24 @@ the `confirm` hub) and `net-new` (`office` then `term-dates`).
   `/post-auth-redirect?next=...&org=eo-<id>`; `org` names the office just
   finished so a user with several lands in it, not the first on the list.
 
+## Pro winners (the Win to Serve handoff)
+
+A Pro candidate who wins (`app/dashboard/election-result/`) gets an office
+created from the campaign org: `campaignId` set, the campaign's position on
+the new `eo-<id>` org, its party mapped to Serve's values when it has one,
+an `onboardingStep` of `confirm`, and no `onboardingCompletedAt` or term
+dates. So the flow resolves the prefill branch and lands on the term step
+(then `confirm`), or straight on `confirm` once dates are known; with no
+party it starts at `party`. The pledge stamps it like any other office.
+
+Sign-in routing is unchanged and lands a winner on the dashboard;
+`DashboardLayout` sends any user holding a `campaignId` office with no
+`onboardingCompletedAt` to `/serve/onboarding`, every time, until the
+pledge (never from `/serve/*` or `/dashboard/election-result*`). The page
+guard prefers an unfinished office over a finished one, so someone who
+already serves and wins another seat lands on the new seat. An impersonating
+admin can Dismiss the handoff (the election-result dismissal flag).
+
 Every step change (and the end of loading) scrolls the window to the top, so
 each step, the pledge included, opens with its headline in view. The window is
 the only scroller around a step.

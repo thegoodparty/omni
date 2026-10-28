@@ -1,7 +1,16 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { Button, Checkbox, Input, Label, Textarea } from '@styleguide'
+import {
+  Alert,
+  AlertAction,
+  AlertDescription,
+} from '@styleguide/components/ui/alert'
+import { InfoIcon } from '@styleguide/components/ui/icons'
+import { useIsImpersonating } from '@shared/hooks/useIsImpersonating'
+import { dismissElectionResult } from 'app/dashboard/election-result/dismissal'
 import { cn } from '@styleguide/lib/utils'
 import { LoaderCircle, Pencil } from 'lucide-react'
 import { clientRequest } from 'gpApi/typed-request'
@@ -99,6 +108,11 @@ const SERVE_STEP_VIEWED_EVENTS: Partial<Record<ServeStepId, string>> = {
 
 export default function ServeOnboardingFlow(): React.JSX.Element {
   const { errorSnackbar } = useSnackbar()
+  const router = useRouter()
+  // An impersonating admin can leave a winner's handoff without finishing it,
+  // the way they can leave the election-result question; the dashboard reads
+  // the same flag before sending them back here.
+  const isImpersonating = useIsImpersonating()
   // The load effect waits on `ready`, so the step list and resume target are
   // chosen once with the real answer and the wrong welcome never flashes.
   const { ready: flagReady, enabled: citizenPanels } =
@@ -1260,6 +1274,27 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
       />
 
       <main className="mx-auto w-full max-w-4xl px-4 pt-24 pb-6 sm:px-8 sm:pt-28 sm:pb-8">
+        {isImpersonating && currentEO?.campaignId != null && (
+          <Alert variant="info" icon={<InfoIcon />} className="mb-8">
+            <AlertDescription>
+              Impersonation mode: leave this without finishing it. It won&apos;t
+              change the account, and they&apos;ll still see it next time.
+            </AlertDescription>
+            <AlertAction>
+              <Button
+                type="button"
+                variant="alertFilled"
+                size="small"
+                onClick={() => {
+                  dismissElectionResult()
+                  router.push('/dashboard')
+                }}
+              >
+                Dismiss
+              </Button>
+            </AlertAction>
+          </Alert>
+        )}
         <div
           className={cn(
             'grid grid-cols-1 gap-8',

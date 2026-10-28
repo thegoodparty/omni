@@ -25,16 +25,7 @@ import {
 } from '@styleguide/components/ui/alert'
 import { Button } from '@styleguide/components/ui/button'
 import { InfoIcon } from '@styleguide/components/ui/icons'
-import {
-  buildDisabledRanges,
-  CALENDAR_END,
-  CALENDAR_START,
-  TermDatesFields,
-  termDateError,
-  termDatesValid,
-  toApiDate,
-  type DisabledRange,
-} from 'app/serve/onboarding/termDates.shared'
+import { SERVE_ONBOARDING_PATH } from 'helpers/resolvePostAuthRedirectPath.util'
 import { dismissElectionResult } from '../dismissal'
 import { ActiveProSubscriptionAlert } from './ActiveProSubscriptionAlert'
 
@@ -54,11 +45,6 @@ const options: ResultOption[] = [
     label: 'I lost my race',
     icon: <LuFrown size={24} />,
   },
-  // {
-  //   key: 'runoff',
-  //   label: 'Neither, I am in a run-off election',
-  //   icon: <LuMeh size={24} />,
-  // },
 ]
 
 interface RequestState {
@@ -66,24 +52,24 @@ interface RequestState {
   error: boolean
 }
 
-type ResultView = 'select' | 'term-dates'
+// The campaign keeps Win onboarding's party values; the office takes Serve's.
+// A major party is left off so Serve onboarding asks, and blocks, at its own
+// party step.
+export const servePartyFromCampaign = (
+  campaignParty: string | undefined,
+): string | undefined => {
+  const party = campaignParty?.trim().toLowerCase()
+  if (!party) return undefined
+  if (party === 'nonpartisan') return 'nonpartisan'
+  if (['democrat', 'democratic', 'republican'].includes(party)) return undefined
+  return 'independent'
+}
 
 export default function ElectionResultPage(): React.JSX.Element {
   const router = useRouter()
   const [campaign] = useCampaign()
   const isImpersonating = useIsImpersonating()
   const [selectedOption, setSelectedOption] = useState<string | null>(null)
-  // Winning surfaces an inline term-dates step before the elected office is
-  // created, so the EO is never left in the term-date-less / not-yet-onboarded
-  // limbo that post-auth routing treats as "needs serve onboarding".
-  const [view, setView] = useState<ResultView>('select')
-  const [termStartDate, setTermStartDate] = useState<Date | undefined>(
-    undefined,
-  )
-  const [termEndDate, setTermEndDate] = useState<Date | undefined>(undefined)
-  // The user's OTHER offices as disabled ranges, so the picker enforces the same
-  // no-overlap rule the gp-api create() endpoint does (avoids a 409 on submit).
-  const [otherRanges, setOtherRanges] = useState<DisabledRange[]>([])
 
   function handleDismiss() {
     dismissElectionResult()
@@ -101,151 +87,95 @@ export default function ElectionResultPage(): React.JSX.Element {
 
   const queryClient = useQueryClient()
 
-  const datesValid = termDatesValid(termStartDate, termEndDate, otherRanges)
-  const dateError = termDateError(termStartDate, termEndDate, otherRanges)
-
-  async function handleSelection(selection: string) {
-    setSelectedOption(selection)
-
-    // Winning: collect term dates first (next step), then create the office.
-    // Defer persisting the campaign result until the dates are confirmed AND the
-    // office is created so an abandoned (or failed) flow never leaves a "won"
-    // campaign with no elected office.
-    if (selection === RESULT_WON) {
-      setRequestState({ submitting: true, error: false })
-      // Best-effort: load any other offices the user holds so the picker can
-      // block overlapping ranges. A failure (HTTP or network) just leaves the
-      // ranges empty — the backend still enforces the no-overlap invariant on
-      // submit, so this must never block reaching the term-dates step.
-      try {
-        const mineRes = await clientRequest(
-          'GET /v1/elected-office/mine',
-          {},
-          { ignoreResponseError: true },
-        )
-        const mine = mineRes.ok ? (mineRes.data as ElectedOffice[]) : []
-        setOtherRanges(buildDisabledRanges(mine, undefined))
-      } catch (e) {
-        console.error('Error loading existing offices:', e)
-      }
-      setRequestState({ submitting: false, error: false })
-      setView('term-dates')
-      return
+  const saveResult = async (wonGeneral: boolean): Promise<void> => {
+    const updated = await updateCampaign([
+      { key: 'details.wonGeneral', value: wonGeneral },
+    ])
+    if (!updated) {
+      throw new Error('Failed to save election result')
     }
-
-    // Lost: persist the result and route to the loss flow (unchanged).
-    setRequestState({ submitting: true, error: false })
-    try {
-      const updated = await updateCampaign([
-        { key: 'details.wonGeneral', value: false },
-      ])
-      if (!updated) {
-        throw new Error('Failed to save election result')
-      }
-
-      if (campaign) {
-        queryClient.setQueryData(CAMPAIGN_QUERY_KEY, {
-          ...campaign,
-          details: {
-            ...campaign.details!,
-            wonGeneral: false,
-          },
-        })
-      }
-
-      trackEvent(EVENTS.Candidacy.DidYouWinModalCompleted, {
-        status: selection,
+    if (campaign) {
+      queryClient.setQueryData(CAMPAIGN_QUERY_KEY, {
+        ...campaign,
+        details: {
+          ...campaign.details!,
+          wonGeneral,
+        },
       })
-      router.replace('/dashboard/election-result/loss')
-    } catch (e) {
-      console.error('Error submitting General Result:', e)
-      errorSnackbar('Failed to submit election result.')
-      setRequestState({ submitting: false, error: true })
     }
   }
 
-  // Confirm the win: create the elected office WITH its term dates and a
-  // completion marker FIRST, then mark the campaign won. Creating it
-  // already-onboarded (term dates + onboardingCompletedAt) is what keeps
-  // post-auth routing on the dashboard instead of dumping a just-won official
-  // into the serve onboarding flow. The office must be created before the
-  // campaign is flagged won — if the create failed after flagging, the campaign
-  // would be stuck "won" with no office (the very limbo this fix removes).
-  async function handleWonConfirm() {
-    if (!datesValid) return
+  // A Pro winner moves into Serve onboarding. The office is created first and
+  // left unfinished (no onboardingCompletedAt): onboarding's pledge finishes
+  // it, and until then the dashboard sends them back to onboarding. It is
+  // created before the campaign is flagged won, so a failed create never
+  // leaves a won campaign with no office.
+  const startServeHandoff = async (): Promise<void> => {
+    // Pinned to the campaign org: the backend links campaignId and copies the
+    // campaign's position from this header. The cookie can point at another
+    // `eo-<id>` org the user already holds, which would link no campaign.
+    const created = await clientRequest(
+      'POST /v1/elected-office',
+      {
+        party: servePartyFromCampaign(campaign?.details?.party),
+        onboardingStep: 'confirm',
+      },
+      campaign
+        ? { headers: { [ORG_SLUG_HEADER]: `campaign-${campaign.id}` } }
+        : undefined,
+    )
+    if (!created.ok || !created.data) {
+      throw new Error('Failed to create elected office')
+    }
+    const newOffice = created.data as ElectedOffice
+
+    await saveResult(true)
+    trackEvent(EVENTS.Candidacy.DidYouWinModalCompleted, {
+      status: RESULT_WON,
+    })
+
+    // Best-effort: the office and result are saved, so a failed org refresh
+    // must not read as an error. Serve onboarding's own guard switches to the
+    // office's org when the cookie still names the campaign.
+    try {
+      const organizations = await clientRequest(
+        'GET /v1/organizations',
+        {},
+      ).then((res) => res.data.organizations)
+      queryClient.setQueryData(ORGANIZATIONS_QUERY_KEY, organizations)
+
+      const newOrg = organizations.find(
+        (org) => org.electedOfficeId === newOffice.id,
+      )
+      if (newOrg) {
+        setSelectedSlug(newOrg.slug)
+      }
+    } catch (e) {
+      console.error('Error switching to elected-office org:', e)
+    }
+
+    setRequestState({ submitting: false, error: false })
+    router.replace(SERVE_ONBOARDING_PATH)
+  }
+
+  async function handleSelection(selection: string) {
+    setSelectedOption(selection)
     setRequestState({ submitting: true, error: false })
     try {
-      // Pin the request to the campaign org explicitly. The backend resolves the
-      // new office's campaignId from the X-Organization-Slug header; relying on
-      // the cookie can point at an existing `eo-<id>` org (for a user who already
-      // holds an office), which resolves NO campaign and stores campaignId=null —
-      // exactly the broken win-origin link that this fix depends on to keep the
-      // official out of serve onboarding.
-      const created = await clientRequest(
-        'POST /v1/elected-office',
-        {
-          termStartDate: toApiDate(termStartDate),
-          termEndDate: toApiDate(termEndDate),
-          onboardingCompletedAt: new Date().toISOString(),
-        },
-        campaign
-          ? { headers: { [ORG_SLUG_HEADER]: `campaign-${campaign.id}` } }
-          : undefined,
-      )
-      if (!created.ok || !created.data) {
-        throw new Error('Failed to create elected office')
+      if (selection === RESULT_WON && campaign?.isPro) {
+        await startServeHandoff()
+        return
       }
-      const newOffice = created.data as ElectedOffice
-
-      const updated = await updateCampaign([
-        { key: 'details.wonGeneral', value: true },
-      ])
-      if (!updated) {
-        throw new Error('Failed to save election result')
-      }
-
-      if (campaign) {
-        queryClient.setQueryData(CAMPAIGN_QUERY_KEY, {
-          ...campaign,
-          details: {
-            ...campaign.details!,
-            wonGeneral: true,
-          },
-        })
-      }
-
+      // Without Pro a win saves the result only: no office, no Serve.
+      await saveResult(selection === RESULT_WON)
       trackEvent(EVENTS.Candidacy.DidYouWinModalCompleted, {
-        status: RESULT_WON,
+        status: selection,
       })
-
-      // Best-effort org switch: the office + campaign are already persisted, so
-      // a failure to refresh the org list or resolve the new org slug must NOT
-      // mask the success as an error (which would prompt a confusing retry).
-      // Chief of Staff runs behind serveAccess, which routes through
-      // /post-auth-redirect to pin the elected-office org slug if it isn't set
-      // here — so navigation always succeeds.
-      try {
-        const organizations = await clientRequest(
-          'GET /v1/organizations',
-          {},
-        ).then((res) => res.data.organizations)
-        queryClient.setQueryData(ORGANIZATIONS_QUERY_KEY, organizations)
-
-        const newOrg = organizations.find(
-          (org) => org.electedOfficeId === newOffice.id,
-        )
-        if (newOrg) {
-          setSelectedSlug(newOrg.slug)
-        }
-      } catch (e) {
-        console.error('Error switching to elected-office org:', e)
-      }
-
-      // Clear the in-flight state before navigating: if router.replace is
-      // deferred or the destination's data fetch throws, the component stays
-      // mounted and must not be stuck with a permanently-disabled button.
-      setRequestState({ submitting: false, error: false })
-      router.replace('/dashboard/chief-of-staff')
+      router.replace(
+        selection === RESULT_WON
+          ? '/dashboard'
+          : '/dashboard/election-result/loss',
+      )
     } catch (e) {
       console.error('Error submitting General Result:', e)
       errorSnackbar('Failed to submit election result.')
@@ -282,9 +212,7 @@ export default function ElectionResultPage(): React.JSX.Element {
               </AlertAction>
             </Alert>
           )}
-          {view !== 'term-dates' && (
-            <ActiveProSubscriptionAlert className="mb-8" />
-          )}
+          <ActiveProSubscriptionAlert className="mb-8" />
           <div className="flex flex-col items-center md:justify-center">
             {isLoading ? (
               <div
@@ -296,65 +224,7 @@ export default function ElectionResultPage(): React.JSX.Element {
                 <div className="flex flex-col gap-4 mt-8 w-full">
                   <div className="h-[72px] rounded-xl border border-slate-200 bg-slate-100" />
                   <div className="h-[72px] rounded-xl border border-slate-200 bg-slate-100" />
-                  <div className="h-[72px] rounded-xl border border-slate-200 bg-slate-100" />
                 </div>
-              </div>
-            ) : view === 'term-dates' ? (
-              <div className="pt-4 pb-4 max-w-[450px] mx-auto w-full">
-                <h1 className="text-left md:text-center font-semibold text-2xl md:text-4xl w-full">
-                  Congratulations!
-                </h1>
-                <p className="text-left md:text-center mt-4 text-lg font-normal text-muted-foreground w-full">
-                  Add your term start and end dates so we can tailor your
-                  GoodParty.org tools to your time in office.
-                </p>
-
-                <div className="mt-8">
-                  <TermDatesFields
-                    termStartDate={termStartDate}
-                    termEndDate={termEndDate}
-                    onStartChange={setTermStartDate}
-                    onEndChange={setTermEndDate}
-                    otherRanges={otherRanges}
-                    calendarStart={CALENDAR_START}
-                    calendarEnd={CALENDAR_END}
-                    error={dateError}
-                  />
-                </div>
-
-                <Button
-                  type="button"
-                  variant="default"
-                  size="large"
-                  className="mt-8 w-full"
-                  onClick={handleWonConfirm}
-                  disabled={!datesValid || requestState.submitting}
-                  loading={requestState.submitting}
-                >
-                  Continue
-                </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="large"
-                  className="mt-2 w-full"
-                  disabled={requestState.submitting}
-                  onClick={() => {
-                    setView('select')
-                    setSelectedOption(null)
-                    // Clear any failed-confirm error so the select view doesn't
-                    // show a stale "saving failed" message before re-submitting.
-                    setRequestState({ submitting: false, error: false })
-                  }}
-                >
-                  Go back
-                </Button>
-                {requestState.error ? (
-                  <p className="text-red text-center mt-4">
-                    An error occurred when saving your election result, please
-                    try again later.
-                  </p>
-                ) : null}
               </div>
             ) : (
               <div className="pt-4 pb-4 max-w-[450px] mx-auto">

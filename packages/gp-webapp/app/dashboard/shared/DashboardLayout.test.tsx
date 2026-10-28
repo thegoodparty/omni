@@ -1,7 +1,9 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { waitFor, screen } from '@testing-library/react'
 import { usePathname } from 'next/navigation'
 import { render } from 'helpers/test-utils/render'
+import { api } from 'helpers/test-utils/api-mocking'
+import type { MyElectedOffice } from 'gpApi/api-endpoints'
 import { router } from 'helpers/test-utils/router-mocking'
 import DashboardLayout from './DashboardLayout'
 import DashboardNavHeaderAction from './DashboardNavHeaderAction'
@@ -37,7 +39,10 @@ vi.mock('helpers/dateHelper', () => ({
   weeksTill: () => mockWeeksTill(),
 }))
 
-vi.mock('@shared/hooks/useUser', () => ({ useUser: () => [null] }))
+const mockUser = vi.hoisted(() => ({ current: null as { id: number } | null }))
+vi.mock('@shared/hooks/useUser', () => ({
+  useUser: () => [mockUser.current],
+}))
 vi.mock('@shared/organization-picker', () => ({ useOrganization: () => null }))
 vi.mock('./DashboardMenu', () => ({ default: () => null }))
 vi.mock('./ProUpgradePrompt', () => ({ ProUpgradePrompt: () => null }))
@@ -137,6 +142,94 @@ describe('DashboardLayout election-result redirect', () => {
     await waitFor(() =>
       expect(router.push).toHaveBeenCalledWith('/dashboard/election-result'),
     )
+  })
+})
+
+describe('DashboardLayout unfinished winner redirect', () => {
+  const winOffice = (
+    overrides: Partial<MyElectedOffice> = {},
+  ): MyElectedOffice => ({
+    id: 'eo-1',
+    swornInDate: null,
+    electedDate: null,
+    termStartDate: null,
+    termEndDate: null,
+    termLengthDays: null,
+    isActive: false,
+    party: null,
+    pledgedAt: null,
+    onboardingCompletedAt: null,
+    selfReported: false,
+    onboardingStep: 'confirm',
+    campaignId: 7,
+    hasWinIssues: false,
+    ...overrides,
+  })
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    api.reset()
+    mockUser.current = { id: 1 }
+    mockUseCampaign.mockReturnValue([{ details: { wonGeneral: true } }])
+    mockIsImpersonating.mockReturnValue(false)
+    mockIsDismissed.mockReturnValue(false)
+    mockWeeksTill.mockReturnValue({ weeks: -1 })
+    vi.mocked(usePathname).mockReturnValue('/dashboard/chief-of-staff')
+  })
+
+  afterEach(() => {
+    mockUser.current = null
+    vi.mocked(usePathname).mockReturnValue('/')
+  })
+
+  it('sends a winner whose office is not finished back to Serve onboarding', async () => {
+    api.mock('GET /v1/elected-office/mine', {
+      status: 200,
+      data: [winOffice()],
+    })
+    renderLayout()
+    await waitFor(() =>
+      expect(router.push).toHaveBeenCalledWith('/serve/onboarding'),
+    )
+  })
+
+  it('leaves a winner who finished onboarding, and a Serve lead, alone', async () => {
+    api.mock('GET /v1/elected-office/mine', {
+      status: 200,
+      data: [
+        winOffice({ onboardingCompletedAt: '2026-01-01T00:00:00.000Z' }),
+        winOffice({ id: 'eo-2', campaignId: null }),
+      ],
+    })
+    renderLayout()
+    await screen.findByText('dashboard content')
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(router.push).not.toHaveBeenCalled()
+  })
+
+  it('does not redirect from the election result page', async () => {
+    vi.mocked(usePathname).mockReturnValue('/dashboard/election-result')
+    api.mock('GET /v1/elected-office/mine', {
+      status: 200,
+      data: [winOffice()],
+    })
+    renderLayout()
+    await screen.findByText('dashboard content')
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(router.push).not.toHaveBeenCalled()
+  })
+
+  it('does not redirect an impersonating admin who dismissed the handoff', async () => {
+    mockIsImpersonating.mockReturnValue(true)
+    mockIsDismissed.mockReturnValue(true)
+    api.mock('GET /v1/elected-office/mine', {
+      status: 200,
+      data: [winOffice()],
+    })
+    renderLayout()
+    await screen.findByText('dashboard content')
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(router.push).not.toHaveBeenCalled()
   })
 })
 

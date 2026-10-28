@@ -1,55 +1,43 @@
 import { expect, test } from '@playwright/test'
-import { authenticateTestUser } from 'tests/utils/api-registration'
-import {
-  blockSlowScripts,
-  NavigationHelper,
-} from 'src/helpers/navigation.helper'
-import {
-  getSelectedOrgName,
-  getOrgPickerOptions,
-  winRaceWithTermDates,
-} from 'src/helpers/organizations'
-import { waitForDashboardReady } from 'src/helpers/dashboard'
+import { blockSlowScripts } from 'src/helpers/navigation.helper'
+import { setupProCampaignUser, winRaceAsPro } from 'src/helpers/organizations'
 
 test.beforeEach(async ({ page }) => {
   await blockSlowScripts(page)
 })
 
-test('"I won my race" creates an EO org and auto-selects it', async ({
+test('"I won" hands a Pro winner to Serve onboarding until they finish it', async ({
   page,
 }) => {
-  await authenticateTestUser(page, {
-    isolated: true,
-    race: { zip: '82001', office: 'Cheyenne City Council - Ward 1' },
+  const { client } = await setupProCampaignUser(page, {
+    zip: '82001',
+    office: 'Cheyenne City Council - Ward 1',
   })
 
-  await NavigationHelper.navigateToPage(page, '/dashboard')
-  await NavigationHelper.dismissOverlays(page)
-  // The dashboard home can have a stray task modal open that aria-hides the
-  // sidebar, so the org switcher button isn't in the a11y tree. Settle the
-  // dashboard (and close any such modal) before opening the picker.
-  await waitForDashboardReady(page)
+  await winRaceAsPro(page)
+  await expect(
+    page
+      .getByRole('heading', { level: 1 })
+      .filter({ hasText: /party designation|term run|look right/i }),
+  ).toBeVisible({ timeout: 15_000 })
 
-  const orgsBefore = await getOrgPickerOptions(page)
-  expect(orgsBefore).toHaveLength(1)
+  // The office is linked to the campaign and starts unfinished: the pledge at
+  // the end of onboarding finishes it.
+  const { data: offices } = await client.get<
+    { campaignId: number | null; onboardingCompletedAt: string | null }[]
+  >('/v1/elected-office/mine')
+  expect(offices).toHaveLength(1)
+  expect(offices[0]?.campaignId).not.toBeNull()
+  expect(offices[0]?.onboardingCompletedAt).toBeNull()
 
-  // Winning now collects term dates inline before the office is created.
-  await winRaceWithTermDates(page)
+  const { data } = await client.get<{ organizations: { slug: string }[] }>(
+    '/v1/organizations',
+  )
+  expect(data.organizations.some((org) => org.slug.startsWith('eo-'))).toBe(
+    true,
+  )
 
-  await NavigationHelper.navigateToPage(page, '/dashboard/polls')
-  await NavigationHelper.dismissOverlays(page)
-
-  const orgsAfter = await getOrgPickerOptions(page)
-  expect(orgsAfter).toHaveLength(2)
-
-  const selectedOrg = await getSelectedOrgName(page)
-  expect(selectedOrg).toBeTruthy()
-
-  const sidebar = page.locator('[data-sidebar="content"]')
-  await expect(sidebar.getByText('Constituents', { exact: true })).toBeVisible({
-    timeout: 10_000,
-  })
-  await expect(sidebar.getByText('Outreach', { exact: true })).toBeVisible({
-    timeout: 10_000,
-  })
+  // Leaving partway, the dashboard brings them back.
+  await page.goto('/dashboard/polls')
+  await page.waitForURL('**/serve/onboarding', { timeout: 15_000 })
 })

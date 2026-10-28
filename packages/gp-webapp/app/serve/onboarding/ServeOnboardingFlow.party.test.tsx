@@ -11,6 +11,9 @@ import { isServeMajorParty } from './serveOnboardingConfig'
 // both keeps us on the net-new branch (no prefill) so we can drive the party
 // step deterministically.
 vi.mock('gpApi/typed-request', () => ({ clientRequest: vi.fn() }))
+vi.mock('@shared/hooks/useIsImpersonating', () => ({
+  useIsImpersonating: () => false,
+}))
 vi.mock('helpers/useSnackbar', () => ({
   useSnackbar: () => ({ errorSnackbar: vi.fn(), successSnackbar: vi.fn() }),
 }))

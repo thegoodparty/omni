@@ -29,6 +29,11 @@ import { CONTACTS_DATA_TITLE } from './contactsLabels'
 import { useWinVoterContext } from './useWinVoterContext'
 import { MembershipChip } from './membership/MembershipChip'
 import { DashboardCampaignManagerChat } from '../campaign-manager/CampaignManagerChatProvider'
+import { useQuery } from '@tanstack/react-query'
+import { clientRequest } from 'gpApi/typed-request'
+import { SERVE_ONBOARDING_PATH } from 'helpers/resolvePostAuthRedirectPath.util'
+
+export const MY_ELECTED_OFFICES_QUERY_KEY = ['elected-office', 'mine'] as const
 
 export interface DashboardNavHeaderConfig {
   // Omitted = label-only bar (the Voter Outreach design carries no icon).
@@ -130,6 +135,30 @@ const DashboardLayout = ({
       router.push('/dashboard/election-result')
     }
   }, [currentPath, details?.wonGeneral, electionDate, router, isImpersonating])
+
+  // A Pro winner's office starts unfinished and Serve onboarding's pledge
+  // finishes it. Sign-in routing still lands them here, so the dashboard is
+  // what brings them back to onboarding, every time, until the pledge.
+  const { data: myOffices } = useQuery({
+    queryKey: MY_ELECTED_OFFICES_QUERY_KEY,
+    queryFn: () =>
+      clientRequest('GET /v1/elected-office/mine', {}).then((res) => res.data),
+    enabled: !!user,
+  })
+  const hasUnfinishedWinOffice = !!myOffices?.some(
+    (office) => office.campaignId != null && !office.onboardingCompletedAt,
+  )
+  useEffect(() => {
+    if (!hasUnfinishedWinOffice) return
+    if (
+      currentPath?.startsWith('/serve') ||
+      currentPath?.startsWith('/dashboard/election-result')
+    ) {
+      return
+    }
+    if (isImpersonating && isElectionResultDismissed()) return
+    router.push(SERVE_ONBOARDING_PATH)
+  }, [hasUnfinishedWinOffice, currentPath, router, isImpersonating])
 
   const pageBody = (
     <div className={`flex flex-1 flex-col p-2 md:p-4 ${wrapperClassName}`}>

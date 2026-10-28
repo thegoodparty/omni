@@ -22,6 +22,11 @@ vi.mock('@shared/experiments/serveCitizenPanelsFlag', () => ({
   useServeCitizenPanelsFlag: () => citizenPanelsFlag,
 }))
 
+const impersonation = vi.hoisted(() => ({ active: false }))
+vi.mock('@shared/hooks/useIsImpersonating', () => ({
+  useIsImpersonating: () => impersonation.active,
+}))
+
 import { trackEvent } from 'helpers/analyticsHelper'
 import ServeOnboardingFlow from './ServeOnboardingFlow'
 
@@ -1429,6 +1434,85 @@ describe('ServeOnboardingFlow', () => {
     // The confirmed office renders as a plain value (the old red error state is
     // gone now that confirm is only shown when complete).
     expect(screen.getByText('Mayor')).toBeInTheDocument()
+  })
+
+  describe('for a Pro winner handed off from the election result', () => {
+    // What the "I won" handoff creates: the campaign's office and party, a
+    // `confirm` checkpoint, no term dates and no completion stamp.
+    const winnerEO = () =>
+      buildEO({
+        party: 'independent',
+        onboardingStep: 'confirm',
+        campaignId: 7,
+      })
+    const winnerOrg = () =>
+      buildOrg({
+        positionName: 'Maplewood City Council',
+        position: { id: 'p1', brPositionId: 'br-1', state: 'NJ' },
+      })
+
+    afterEach(() => {
+      impersonation.active = false
+    })
+
+    it('asks for the term first, then lands on the prefilled confirm step', async () => {
+      mockLoad(winnerEO(), winnerOrg())
+      api.mock('PUT /v1/elected-office/:id', {
+        status: 200,
+        data: winnerEO(),
+      })
+      const user = userEvent.setup({ skipHover: true })
+      renderFlow()
+
+      expect(
+        await screen.findByText('When does your term run?'),
+      ).toBeInTheDocument()
+      expect(
+        screen.queryByText('Meet your virtual chief of staff in 5 minutes'),
+      ).not.toBeInTheDocument()
+
+      await fillTermDates(user)
+      await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+      expect(
+        await screen.findByText('Does this look right?'),
+      ).toBeInTheDocument()
+      expect(screen.getByText('Maplewood City Council')).toBeInTheDocument()
+    })
+
+    it('lands straight on the confirm step when the term is already known', async () => {
+      mockLoad(
+        buildEO({
+          party: 'independent',
+          onboardingStep: 'confirm',
+          campaignId: 7,
+          termStartDate: '2027-01-01',
+          termEndDate: '2031-01-01',
+        }),
+        winnerOrg(),
+      )
+      renderFlow()
+
+      expect(
+        await screen.findByText('Does this look right?'),
+      ).toBeInTheDocument()
+    })
+
+    it('lets an impersonating admin leave without finishing', async () => {
+      impersonation.active = true
+      mockLoad(winnerEO(), winnerOrg())
+      const user = userEvent.setup({ skipHover: true })
+      renderFlow()
+
+      await user.click(await screen.findByRole('button', { name: 'Dismiss' }))
+
+      expect(
+        window.sessionStorage.getItem(
+          'gp:electionResultDismissedDuringImpersonation',
+        ),
+      ).toBe('true')
+      window.sessionStorage.clear()
+    })
   })
 
   it('does not stamp selfReported when answering party in the prefill branch', async () => {
