@@ -19,6 +19,15 @@ describe('RobocallReviewStep', () => {
     render(<RobocallReviewStep {...base} transcript="What I really said" />)
     expect(screen.getByText('What I really said')).toBeInTheDocument()
     expect(screen.queryByText('AI drafted script text')).toBeNull()
+    expect(screen.getByText('What we heard')).toBeInTheDocument()
+    expect(screen.getByText(/can miss names/)).toBeInTheDocument()
+  })
+
+  it('falls back to the script when the transcript is blank', () => {
+    render(<RobocallReviewStep {...base} transcript="   " />)
+    expect(screen.getByText('AI drafted script text')).toBeInTheDocument()
+    expect(screen.getByText('Your recording')).toBeInTheDocument()
+    expect(screen.queryByText('What we heard')).toBeNull()
   })
 
   it('falls back to the script when there is no transcript', () => {

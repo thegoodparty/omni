@@ -83,7 +83,8 @@ export const RobocallReviewStep = ({
   // The clip is the deliverable: show what was said in it, not the script it
   // was meant to follow. No transcript (a resumed draft, no local clip) falls
   // back to the script.
-  const spokenText = transcript?.trim() || script.trim()
+  const heardText = transcript?.trim()
+  const spokenText = heardText || script.trim()
   const estimatedCost = (reachCount ?? 0) * pricePerContact
 
   const rows: [string, string][] = [
@@ -147,7 +148,7 @@ export const RobocallReviewStep = ({
       {(recording || spokenText) && (
         <Card className="gap-3 p-4">
           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Your recording
+            {heardText ? 'What we heard' : 'Your recording'}
           </p>
           {recording && (
             <div className="flex items-center gap-3">
@@ -180,6 +181,11 @@ export const RobocallReviewStep = ({
           {spokenText && (
             <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">
               {spokenText}
+            </p>
+          )}
+          {heardText && (
+            <p className="text-xs text-muted-foreground">
+              Automatic transcripts can miss names. Play the clip to check.
             </p>
           )}
         </Card>
