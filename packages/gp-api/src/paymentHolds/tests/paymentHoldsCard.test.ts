@@ -224,3 +224,50 @@ describe('isolation between Win and Serve', () => {
     expect((await readHold(serveId)).paymentMethodId).toBe(OLD_CARD)
   })
 })
+
+describe('scope and state', () => {
+  it("answers 404 for another organization's send and leaves it alone", async () => {
+    const otherSlug = `eo-other-${unique()}`
+    await service.prisma.organization.create({
+      data: { slug: otherSlug, ownerId: service.user.id },
+    })
+    const outreach = await service.prisma.outreach.create({
+      data: {
+        organizationSlug: otherSlug,
+        outreachType: OutreachType.email,
+        status: OutreachStatus.pending_payment,
+        date: addDays(new Date(), 10),
+      },
+    })
+    await service.prisma.outreachPaymentHold.create({
+      data: {
+        outreachId: outreach.id,
+        channel: OutreachType.email,
+        state: OutreachHoldState.scheduled,
+        stripeCustomerId: CUSTOMER_ID,
+        paymentMethodId: OLD_CARD,
+        estimateCents: 5000,
+      },
+    })
+
+    const win = await postCard('holds', outreach.id)
+    const serve = await postCard('serve/holds', outreach.id)
+
+    expect(win.status).toBe(HttpStatus.NOT_FOUND)
+    expect(serve.status).toBe(HttpStatus.NOT_FOUND)
+    expect((await readHold(outreach.id)).paymentMethodId).toBe(OLD_CARD)
+  })
+
+  it.each([OutreachHoldState.placing, OutreachHoldState.released])(
+    'refuses a %s hold with 409 and keeps its card',
+    async (state) => {
+      const outreachId = await createHold('win', state, 2)
+
+      const res = await postCard('holds', outreachId)
+
+      expect(res.status).toBe(HttpStatus.CONFLICT)
+      expect(placeSpy).not.toHaveBeenCalled()
+      expect((await readHold(outreachId)).paymentMethodId).toBe(OLD_CARD)
+    },
+  )
+})

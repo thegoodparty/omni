@@ -13,6 +13,7 @@ import { FetchError } from 'ofetch'
 import type { PaymentHoldCardResponse } from '@goodparty_org/contracts'
 import { Button } from '@styleguide'
 import { clientRequest } from 'gpApi/typed-request'
+import { extractApiErrorInfo } from 'helpers/extractApiErrorInfo'
 import { NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY } from 'appEnv'
 
 const stripePromise = loadStripe(NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY)
@@ -51,14 +52,24 @@ const DECLINE_MESSAGES: Record<string, string> = {
 
 const DECLINE_FALLBACK = 'Your card was declined. Try another card.'
 
-const messageForStatus = (status: number | undefined): string => {
+const isStillPlacing = (message: string | undefined): boolean =>
+  !!message && /still being placed|try again/.test(message)
+
+const messageForError = (err: Error | null): string => {
+  const status = err instanceof FetchError ? err.status : undefined
   switch (status) {
     case 400:
-      return "This send can't take a new card anymore."
+      return "We couldn't use that card for this send. Try another card."
     case 404:
       return "We couldn't find this send."
     case 409:
-      return "We're still finishing your last try. Wait a minute, then try again."
+      return isStillPlacing(
+        err instanceof FetchError
+          ? extractApiErrorInfo(err.data).message
+          : undefined,
+      )
+        ? "We're still finishing your last try. Wait a minute, then try again."
+        : "This send can't take a new card anymore."
     case 502:
       return "We couldn't reach our payment provider. Try again in a moment."
     default:
@@ -66,15 +77,13 @@ const messageForStatus = (status: number | undefined): string => {
   }
 }
 
-const statusOf = (err: Error | null): number | undefined =>
-  err instanceof FetchError ? err.status : undefined
-
 interface PaymentHoldCardProps {
   mode: PaymentHoldCardMode
   outreachId: number
   submitLabel: string
   // Saves the card for a send that has no hold yet. Left out, the card goes to
-  // the send's existing hold, which is how a declined or expiring one is fixed.
+  // the send's existing hold, which is how a declined one is fixed. Once any
+  // attempt has been declined the hold exists, so retries use that route.
   savePaymentMethod?: (
     paymentMethodId: string,
   ) => Promise<PaymentHoldCardResponse>
@@ -92,6 +101,7 @@ export const PaymentHoldCard = ({
   const [declineCode, setDeclineCode] = useState<string | null | undefined>(
     undefined,
   )
+  const [holdExists, setHoldExists] = useState(false)
   const startedRef = useRef(false)
 
   const cardIntentMutation = useMutation({
@@ -124,6 +134,7 @@ export const PaymentHoldCard = ({
 
   const handleResult = (result: PaymentHoldCardResponse) => {
     if (result.outcome === 'declined') {
+      setHoldExists(true)
       setDeclineCode(result.declineCode)
       return
     }
@@ -178,8 +189,9 @@ export const PaymentHoldCard = ({
         mode={mode}
         outreachId={outreachId}
         submitLabel={submitLabel}
-        savePaymentMethod={savePaymentMethod}
+        savePaymentMethod={holdExists ? undefined : savePaymentMethod}
         onResult={handleResult}
+        onUseDifferentCard={tryAnotherCard}
       />
     </Elements>
   )
@@ -191,6 +203,7 @@ interface PaymentHoldCardFormProps {
   submitLabel: string
   savePaymentMethod?: PaymentHoldCardProps['savePaymentMethod']
   onResult: (result: PaymentHoldCardResponse) => void
+  onUseDifferentCard: () => void
 }
 
 const PaymentHoldCardForm = ({
@@ -199,6 +212,7 @@ const PaymentHoldCardForm = ({
   submitLabel,
   savePaymentMethod,
   onResult,
+  onUseDifferentCard,
 }: PaymentHoldCardFormProps) => {
   const stripe = useStripe()
   const elements = useElements()
@@ -222,7 +236,7 @@ const PaymentHoldCardForm = ({
       return data
     },
     onSuccess: onResult,
-    onError: (err) => setSubmitError(messageForStatus(statusOf(err))),
+    onError: (err) => setSubmitError(messageForError(err)),
   })
 
   const pending = confirming || saveMutation.isPending
@@ -271,6 +285,11 @@ const PaymentHoldCardForm = ({
         <p role="alert" className="text-sm text-destructive">
           {submitError}
         </p>
+      )}
+      {submitError && vaultedPaymentMethodId && (
+        <Button type="button" variant="link" onClick={onUseDifferentCard}>
+          Use a different card
+        </Button>
       )}
       <Button
         type="submit"

@@ -47,7 +47,7 @@ A stale `capturing` row whose intent Stripe shows `canceled` becomes `uncollecta
 
 ## Card endpoints
 
-`card-intent` returns a SetupIntent client secret; `:outreachId/card` changes the card on an existing hold and returns the `saveCardAndPlan` outcome (`held`, `scheduled`, `declined`). It never creates a hold: a first card goes through the channel's own confirm call. The webapp side is `packages/gp-webapp/app/dashboard/shared/payment-hold/PaymentHoldCard.tsx`, which takes a `savePaymentMethod` override for that first card. A 409 means a placement is still being resolved; the component tells the user to wait and retry.
+`card-intent` returns a SetupIntent client secret; `:outreachId/card` changes the card on an existing hold and returns the `saveCardAndPlan` outcome (`held`, `scheduled`, `declined`). It never creates a hold: a first card goes through the channel's own confirm call. The webapp side is `packages/gp-webapp/app/dashboard/shared/payment-hold/PaymentHoldCard.tsx`, which takes a `savePaymentMethod` override for that first card. A 409 with "still being placed" means a placement is being resolved and the component says to wait; any other 409 means the hold is final and no card can change it.
 
 ## Reuse
 

@@ -171,7 +171,7 @@ describe('PaymentHoldCard', () => {
     mockIntent('win')
     mockCard('win', {
       status: 409,
-      data: { message: 'busy' },
+      data: { message: 'The payment hold is still being placed' },
     })
 
     render(
@@ -188,5 +188,59 @@ describe('PaymentHoldCard', () => {
       await screen.findByText(/still finishing your last try/),
     ).toBeInTheDocument()
     expect(onOutcome).not.toHaveBeenCalled()
+  })
+
+  it('sends the retry after a first-card decline to the hold route', async () => {
+    mockIntent('win')
+    mockCard('win', {
+      status: 200,
+      data: { outcome: 'held', captureBefore: '2026-11-05T00:00:00.000Z' },
+    })
+    const savePaymentMethod = vi
+      .fn()
+      .mockResolvedValue({ outcome: 'declined', declineCode: null })
+
+    render(
+      <PaymentHoldCard
+        mode="win"
+        outreachId={7}
+        submitLabel="Save card"
+        savePaymentMethod={savePaymentMethod}
+        onOutcome={onOutcome}
+      />,
+    )
+    await submit()
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Use a different card' }),
+    )
+    await submit()
+
+    await waitFor(() => expect(onOutcome).toHaveBeenCalled())
+    expect(savePaymentMethod).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not ask to wait on a final 409 and offers another card', async () => {
+    mockIntent('win')
+    mockCard('win', {
+      status: 409,
+      data: { message: "This send's payment is released" },
+    })
+
+    render(
+      <PaymentHoldCard
+        mode="win"
+        outreachId={7}
+        submitLabel="Save card"
+        onOutcome={onOutcome}
+      />,
+    )
+    await submit()
+
+    expect(
+      await screen.findByText(/can't take a new card anymore/),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: 'Use a different card' }),
+    ).toBeInTheDocument()
   })
 })
