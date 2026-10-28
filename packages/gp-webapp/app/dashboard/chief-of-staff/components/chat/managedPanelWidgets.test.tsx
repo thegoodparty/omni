@@ -265,6 +265,102 @@ describe('the managed civic panel in the Chief of Staff chat', () => {
     )
   })
 
+  describe('the Who gets the mic video', () => {
+    const explainTurn = (part: 'what_it_is' | 'how_it_works') =>
+      turn([
+        {
+          kind: 'tool',
+          toolName: 'explain_managed_panel',
+          payload: { part },
+        },
+        { kind: 'text', text: 'Members hear from your office once a month.' },
+        {
+          kind: 'tool',
+          toolName: 'offer_managed_panel_invite',
+          payload: part === 'how_it_works' ? { afterHowItWorks: true } : {},
+        },
+      ])
+
+    it('plays on the answer to How does it work?, landscape and square, never on its own', async () => {
+      listMessagesMock.mockResolvedValue([explainTurn('how_it_works')])
+      const { container } = render(
+        <ChiefOfStaffChatBody active conversationIdOverride="conv" />,
+      )
+
+      const video = await screen.findByTestId('managed-panel-video')
+      const players = video.querySelectorAll('video')
+      expect(players).toHaveLength(2)
+      expect(
+        [...players].map((p) => p.querySelector('source')?.getAttribute('src')),
+      ).toEqual([
+        '/videos/who-gets-the-mic-landscape.mp4',
+        '/videos/who-gets-the-mic-square.mp4',
+      ])
+      for (const player of players) {
+        expect(player).toHaveAttribute('controls')
+        expect(player).toHaveAttribute('playsinline')
+        expect(player).toHaveAttribute('preload', 'metadata')
+        expect(player).not.toHaveAttribute('autoplay')
+        expect(player).toHaveAttribute(
+          'aria-label',
+          'Who gets the mic, a 1 minute video',
+        )
+        expect(player).toHaveAccessibleDescription(
+          /^What the video says: You represent every resident in the district\./,
+        )
+      }
+      expect(players[0]).toHaveClass('hidden', 'md:block')
+      expect(players[1]).toHaveClass('md:hidden')
+      expect(
+        screen.getByText('Members hear from your office once a month.'),
+      ).toBeInTheDocument()
+      expect(container).not.toHaveTextContent('Explaining your civic panel')
+    })
+
+    it('stays off the explanation after Build my civic panel', async () => {
+      listMessagesMock.mockResolvedValue([explainTurn('what_it_is')])
+      render(<ChiefOfStaffChatBody active conversationIdOverride="conv" />)
+
+      expect(await screen.findByText('Want to see the invite?')).toBeVisible()
+      expect(
+        screen.getByText('Explaining your civic panel'),
+      ).toBeInTheDocument()
+      expect(screen.queryByTestId('managed-panel-video')).toBeNull()
+    })
+
+    it('stays off the invite and the panel cards', async () => {
+      render(<ChiefOfStaffChatBody active conversationIdOverride="conv" />)
+
+      await screen.findByTestId('managed-panel-invite')
+      expect(screen.queryByTestId('managed-panel-video')).toBeNull()
+    })
+
+    it('shows on a streaming answer to How does it work?', async () => {
+      listMessagesMock.mockReset().mockResolvedValue([])
+      streamMessageMock.mockImplementation(() =>
+        makeStream([
+          {
+            type: 'tool_call',
+            toolName: 'explain_managed_panel',
+            toolCallId: 'tc-explain',
+            args: { part: 'how_it_works' },
+          },
+          { type: 'text', delta: 'Members hear from your office.' },
+          { type: 'done', assistantMessageId: 'a1' },
+        ]),
+      )
+      render(
+        <ChiefOfStaffChatBody
+          active
+          conversationIdOverride="conv"
+          pendingKickoff="How does it work?"
+        />,
+      )
+
+      expect(await screen.findByTestId('managed-panel-video')).toBeVisible()
+    })
+  })
+
   it('draws nothing for a refused call', async () => {
     listMessagesMock.mockResolvedValue([
       turn([

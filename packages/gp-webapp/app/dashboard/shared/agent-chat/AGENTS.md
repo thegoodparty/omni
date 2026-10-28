@@ -24,7 +24,7 @@ nearest reference wrapper.
 | `clarifyWidget.tsx` / `composeHandoffWidget.tsx` | Registry entries for `ask_clarify_question` and `compose_handoff`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | `MessageActionBar.tsx`                           | **The per-message bar.** Copy + thumbs up/down under one assistant turn, with the optional-note bubble a rating opens. Opt-in per surface (`showMessageActions`), and it renders the thumbs only when the client implements the feedback calls.                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `chatHelpers.ts`                                 | `newClientMessageId`, `friendlyError`, and the server's cut-off marker (`CHAT_INTERRUPTED_BEFORE_OUTPUT_MARKER`, `isInterruptedTurn`) that a wrapper turns into a retry.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| `usePinnedAutoScroll.ts`                         | Stick-to-bottom scroll (releases on scroll-up). Pass `{ sending }` so a send re-pins and the reply that starts comes into view; a resize of the container or its content (a card laying out late, a phone keyboard closing) keeps a pinned view at the bottom, and so does a row added without any dep changing (a thinking row, an error). Only a scroll right after a wheel, touch, key or pointer press releases the pin: the browser's own clamp when content shrinks once read as a scroll-up and left new replies below the fold. Optional — a chat inside a vaul drawer may roll its own scroll instead.                                                                                                                                                                                                                                                                                                                                                                        |
+| `usePinnedAutoScroll.ts`                         | Stick-to-bottom scroll (releases on scroll-up). Pass `{ sending }` so a send re-pins and the reply that starts comes into view; a resize of the container or its content (a card laying out late, a phone keyboard closing) keeps a pinned view at the bottom, and so does a row added without any dep changing (a thinking row, an error). Only a scroll right after a wheel, touch, key or pointer press releases the pin: the browser's own clamp when content shrinks once read as a scroll-up and left new replies below the fold. Optional — a chat inside a vaul drawer may roll its own scroll instead.                                                                                               |
 
 ## The recipe (what a wrapper owns)
 
@@ -336,10 +336,16 @@ nothing).
 Where GoodParty builds the panel (gp-api's contacts AGENTS.md, "Managed civic
 panel"), the home card's Build my civic panel and the intro's step of the
 same name send the hidden `START_MANAGED_CIVIC_PANEL_MESSAGE`. The agent
-writes gp-api's fixed explanation (`explain_managed_panel`, no widget), and
-three tools are widgets in
-`chief-of-staff/components/chat/managedPanelWidgets.tsx`:
+writes gp-api's fixed explanation (`explain_managed_panel`), and four tools
+are widgets in `chief-of-staff/components/chat/managedPanelWidgets.tsx`:
 
+- **`explain_managed_panel`** with `part: how_it_works` (the answer to How
+  does it work?) renders `ManagedPanelVideo` above the fixed words: Who gets
+  the mic from `public/videos/`, the landscape cut from `md` up and the square
+  one below (two native `<video>`s toggled by `hidden md:block` / `md:hidden`),
+  controls, no autoplay, `preload="metadata"`, a poster, and a visually hidden
+  text alternative of the video's own lines (`MANAGED_PANEL_COPY.video`).
+  `part: what_it_is` fails to parse and stays a pill (`onParseFailure: 'inline'`).
 - **`offer_managed_panel_invite`** renders `ClarifyQuestionWidget` with fixed
   words (Want to see the invite? Show me the invite, How does it work?, Not
   now). With `afterHowItWorks: true`, after the how-it-works answer, it drops
