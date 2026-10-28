@@ -3,7 +3,7 @@ title: gp-ai Terraform plans read no secret values
 status: active
 decided_by: [agent]
 date: 2026-10-28
-code: ['#PR']
+code: ['#3349']
 scope:
   - packages/gp-ai/infrastructure/**
 supersedes: []
