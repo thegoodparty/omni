@@ -737,7 +737,7 @@ describe('CampaignManagerHome skipping a task', () => {
   })
 })
 
-describe('CampaignManagerHome free robocall offer card', () => {
+describe('CampaignManagerHome free robocall offer', () => {
   beforeEach(() => {
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(new Date('2026-10-08T12:00:00'))
@@ -750,23 +750,13 @@ describe('CampaignManagerHome free robocall offer card', () => {
     title:
       'Send a free promotional robocall to landline voters in selected precincts',
     flowType: 'robocall',
+    date: '2026-10-08T00:00:00.000Z',
     link: '/dashboard/outreach?compose=robocall&source=campaign_tracker&recommended=freeOfferElectionEveRobocall',
   }
 
-  it('shows the offer beside a next task that is not the offer', async () => {
+  it('leads with the offer as the one card, ahead of the plan', async () => {
     mockFreeOffer = { offer: { eligible: true } }
-    mockTasks = [doorsTask]
-    renderHome()
-
-    expect(
-      await screen.findByRole('heading', { level: 3, name: 'Knock on Doors' }),
-    ).toBeInTheDocument()
-    expect(screen.getByTestId('robocall-free-offer-card')).toBeInTheDocument()
-  })
-
-  it('shows the offer once when the next task is already the offer', async () => {
-    mockFreeOffer = { offer: { eligible: true } }
-    mockTasks = [offerTask]
+    mockTasks = [doorsTask, offerTask]
     renderHome()
 
     expect(

@@ -15,7 +15,10 @@ import {
 } from '@goodparty_org/contracts'
 
 const TRACKER_TASKS_ROUTE = 'GET /v1/campaigns/tracker-tasks' as const
-const TRACKER_TASKS_QUERY_KEY = ['campaign-tracker-tasks', 'mine'] as const
+export const TRACKER_TASKS_QUERY_KEY = [
+  'campaign-tracker-tasks',
+  'mine',
+] as const
 
 // Stable reference so consumers can memoize on `tasks` without re-running on
 // every render while the query is pending.

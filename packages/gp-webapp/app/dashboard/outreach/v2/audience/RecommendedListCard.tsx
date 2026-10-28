@@ -20,6 +20,8 @@ interface RecommendedListCardProps {
   // A card that should stand apart (the free robocall offer). Applied under
   // the selected styling, so a pressed card still reads as pressed.
   className?: string
+  // A tag above the title (the free robocall offer's label).
+  overline?: React.ReactNode
 }
 
 // Dollars from the server's own cents. The client never derives a money
@@ -38,6 +40,7 @@ export const RecommendedListCard = ({
   selected = false,
   onSelect,
   className,
+  overline,
 }: RecommendedListCardProps) => {
   const { copy, count, voteGoalShare, estimatedCostCents } = recommendation
 
@@ -59,6 +62,7 @@ export const RecommendedListCard = ({
         selected && 'border-primary bg-primary/5',
       )}
     >
+      {overline}
       <p className="font-medium text-foreground">{copy.title}</p>
       <p className="text-sm text-muted-foreground">{copy.criteriaSummary}</p>
       <p className="text-sm text-muted-foreground">

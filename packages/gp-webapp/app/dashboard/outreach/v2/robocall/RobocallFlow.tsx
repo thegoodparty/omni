@@ -1314,6 +1314,14 @@ export const RobocallFlow = ({
           callbackNumber={callbackNumber}
           recording={recorder.recording}
           script={script}
+          onFreeOfferList={
+            freeOffer !== null &&
+            (audience.selectedRecommendation?.variant ===
+              ROBOCALL_FREE_OFFER_VARIANT ||
+              (audience.freeOfferRecommendation?.existingFilterId != null &&
+                audience.freeOfferRecommendation.existingFilterId ===
+                  audience.selectedListId))
+          }
         />
       ) : (
         <RobocallPayStep

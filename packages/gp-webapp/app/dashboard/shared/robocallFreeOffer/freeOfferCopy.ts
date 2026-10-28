@@ -16,6 +16,11 @@ export const FREE_OFFER_TITLE =
 // card eyebrows render it uppercase, like their "Recommended" siblings.
 export const FREE_OFFER_BADGE = 'Free offer'
 
+// The button wherever the offer opens its flow: the next-task card, the plan
+// rows and the legacy Home card. Same shape as a robocall task's "Set up a
+// robocall", so the free one reads as that action, not generic outreach.
+export const FREE_OFFER_CTA = 'Set up your free robocall'
+
 // Home sells the outcome; the count and the date live in the flow it opens.
 export const FREE_OFFER_HOME_BODY =
   'Reach voters the day before Election Day, at no cost to your campaign.'
