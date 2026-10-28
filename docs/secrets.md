@@ -80,14 +80,18 @@ adding one needs a code change:
 blob is automatically scrubbed from logs. That only covers the Node services —
 gp-ai does its own redaction.
 
-**Don't copy the one pattern that breaks this.**
-`packages/gp-ai/infrastructure/environments/prod/shared-infra/main.tf` pulls the
-whole `AI_SECRETS_PROD` blob through `data "aws_secretsmanager_secret_version"`.
-Terraform writes data source results to state in **plaintext**, so that one root
-puts every prod AI secret into the state bucket. Never add a data source, a
-`TF_VAR_*`, or a Pulumi config value that carries a secret value — use
-`valueFrom` and let the runtime resolve it. Closing that specific leak is Phase 4
-of `docs/secrets-iac-plan.md`.
+**Never read a secret value in IaC.** A `data "aws_secretsmanager_secret_version"`
+writes the whole blob to state in **plaintext** and makes every plan need
+`GetSecretValue`, and a managed `aws_secretsmanager_secret_version` is refreshed
+on every plan the same way. Never add one, a `TF_VAR_*`, or a Pulumi config value
+that carries a secret value — use `valueFrom` and let the runtime resolve it.
+
+The one exception is `SERVE_API_KEY` in gp-ai's `shared-infra` roots. Its ALB
+listener rules match the `x-api-key` header against a literal, so the value sits
+in the rule and in state whatever supplies it. It arrives as
+`TF_VAR_serve_api_key` from `ci-apply-root.sh` (Secrets Manager) and
+`ci-plan-root.sh` (the root's own state), which keeps the rest of
+`AI_SECRETS_<ENV>` out of state and lets a plan run with no secret access.
 
 ## Adding or rotating a secret
 
@@ -108,9 +112,9 @@ Do everything except the value write, in one PR.
      `packages/gp-ai/infrastructure/modules/<service>/main.tf`.
 4. **Declare the key where a human can see it.** Add it to the secret's
    description list if the secret is Terraform-managed (the `broker` module is the
-   reference — `modules/broker/main.tf` creates the container with
-   `jsonencode({})` and `ignore_changes = [secret_string]`, and names every key an
-   operator must populate). Otherwise say it in the PR body.
+   reference — `modules/broker/main.tf` creates the container, manages no
+   secret version, and names every key an operator must populate). Otherwise say
+   it in the PR body.
 5. **Handle the missing-value case gracefully.** Your PR merges and deploys before
    the value exists, so the code must not crash-loop on a missing key — the ECS
    circuit breaker will roll the service back and the deploy looks like an
