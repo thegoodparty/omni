@@ -8,6 +8,7 @@ import { ModuleRef } from '@nestjs/core'
 import { addDays, addHours } from 'date-fns'
 import type Stripe from 'stripe'
 import { beforeEach, describe, expect, it, MockInstance, vi } from 'vitest'
+import { AnalyticsService } from '@/analytics/analytics.service'
 import { UsersService } from '@/users/services/users.service'
 import { useTestService } from '@/test-service'
 import {
@@ -40,6 +41,7 @@ let placeSpy: MockInstance<StripeService['createOutreachManualCaptureHold']>
 let retrieveIntentSpy: MockInstance<StripeService['retrievePaymentIntent']>
 let captureSpy: MockInstance<StripeService['capturePaymentIntent']>
 let cancelSpy: MockInstance<StripeService['cancelHold']>
+let trackSpy: MockInstance<AnalyticsService['track']>
 
 const intent = (
   overrides: Partial<Stripe.PaymentIntent>,
@@ -73,6 +75,9 @@ beforeEach(async () => {
       intent({ status: 'succeeded', amount_received: amount }),
     )
   cancelSpy = vi.spyOn(stripe, 'cancelHold').mockResolvedValue(undefined)
+  trackSpy = vi
+    .spyOn(service.app.get(AnalyticsService), 'track')
+    .mockImplementation(async () => undefined as never)
 
   adapter = new TestSettlementAdapter()
   holds.registerSettlementAdapter(OutreachType.email, TestSettlementAdapter)
@@ -736,5 +741,148 @@ describe('createCardSetupIntent', () => {
       holds.createCardSetupIntent({ userId: service.user.id }),
     ).resolves.toEqual({ clientSecret: 'seti_secret' })
     expect(setupSpy).toHaveBeenCalledWith(CUSTOMER_ID)
+  })
+})
+
+const trackedEvents = () => trackSpy.mock.calls.map(([, name]) => name)
+
+describe('payment events', () => {
+  it('emits Hold Failed once for an off-session decline, with the email fields', async () => {
+    const outreachId = await createHold(OutreachHoldState.scheduled, {
+      date: addDays(new Date(), 2),
+    })
+    await service.prisma.outreach.update({
+      where: { id: outreachId },
+      data: { name: 'Spring update' },
+    })
+    placeSpy.mockRejectedValue(
+      new StripeOutreachHoldDeclinedError('declined', 'insufficient_funds'),
+    )
+
+    await holds.placeScheduledHold(outreachId)
+
+    expect(trackSpy).toHaveBeenCalledTimes(1)
+    expect(trackSpy).toHaveBeenCalledWith(
+      service.user.id,
+      'Outreach Payment - Hold Failed',
+      expect.objectContaining({
+        outreachId,
+        channel: OutreachType.email,
+        mode: 'serve',
+        sendName: 'Spring update',
+        estimateCents: 5000,
+        estimateDollars: '50.00',
+        declineCode: 'insufficient_funds',
+        link: expect.stringContaining('/dashboard/constituent-outreach'),
+      }),
+      undefined,
+      `${outreachId}:hold_failed`,
+    )
+  })
+
+  it('does not email a decline the user saw at confirm', async () => {
+    const outreachId = await createSend(addDays(new Date(), 2))
+    placeSpy.mockRejectedValue(
+      new StripeOutreachHoldDeclinedError('declined', 'card_declined'),
+    )
+
+    await plan(outreachId)
+
+    expect(trackSpy).not.toHaveBeenCalled()
+  })
+
+  it('stays quiet when the attach webhook retry is declined', async () => {
+    await createHold(OutreachHoldState.hold_failed, { holdAttempt: 1 })
+    placeSpy.mockRejectedValue(
+      new StripeOutreachHoldDeclinedError('declined', 'card_declined'),
+    )
+
+    await holds.retryHoldFailedForAttachedCard(CUSTOMER_ID, 'pm_new')
+
+    expect(trackSpy).not.toHaveBeenCalled()
+  })
+
+  it('emits Hold Failed when a scheduled hold loses its card', async () => {
+    const outreachId = await createHold(OutreachHoldState.scheduled)
+
+    await holds.flagScheduledHoldsForDetachedCard(CARD_ID)
+
+    expect(trackedEvents()).toEqual(['Outreach Payment - Hold Failed'])
+    expect(trackSpy.mock.calls[0]?.[4]).toBe(`${outreachId}:hold_failed`)
+  })
+
+  it('emits a Win-mode Receipt with the charged amount and recipients sent', async () => {
+    const outreachId = await createHold(OutreachHoldState.held)
+    const campaign = await service.prisma.campaign.create({
+      data: {
+        slug: 'receipt-campaign',
+        userId: service.user.id,
+        organizationSlug: ORG_SLUG,
+      },
+    })
+    await service.prisma.outreach.update({
+      where: { id: outreachId },
+      data: { campaignId: campaign.id },
+    })
+    adapter.stopAndReport.mockResolvedValue({ ready: true, amountCents: 3200 })
+
+    await holds.settle({ outreachId })
+
+    expect(trackSpy).toHaveBeenCalledTimes(1)
+    expect(trackSpy).toHaveBeenCalledWith(
+      service.user.id,
+      'Outreach Payment - Receipt',
+      expect.objectContaining({
+        mode: 'win',
+        capturedCents: 3200,
+        capturedDollars: '32.00',
+        link: expect.stringMatching(/\/dashboard\/outreach$/),
+      }),
+      undefined,
+      `${outreachId}:receipt`,
+    )
+  })
+
+  it('emits no Receipt when the send reported nothing to charge', async () => {
+    const outreachId = await createHold(OutreachHoldState.held)
+    adapter.stopAndReport.mockResolvedValue({ ready: true, amountCents: 0 })
+
+    await holds.settle({ outreachId })
+
+    expect(trackSpy).not.toHaveBeenCalled()
+  })
+
+  it('keeps the payment result when Segment fails', async () => {
+    const outreachId = await createHold(OutreachHoldState.held)
+    adapter.stopAndReport.mockResolvedValue({ ready: true, amountCents: 3200 })
+    trackSpy.mockRejectedValue(new Error('segment down'))
+
+    await expect(holds.settle({ outreachId })).resolves.toBeUndefined()
+
+    expect((await readHold(outreachId)).state).toBe(OutreachHoldState.captured)
+  })
+
+  it('emits Canceled once for an unpaid hold at its send time, never twice', async () => {
+    const outreachId = await createHold(OutreachHoldState.hold_failed, {
+      date: addHours(new Date(), -1),
+    })
+
+    await expect(holds.releaseUnpaid(outreachId)).resolves.toBe(true)
+    await expect(holds.releaseUnpaid(outreachId)).resolves.toBe(false)
+
+    expect((await readHold(outreachId)).state).toBe(OutreachHoldState.released)
+    expect(trackedEvents()).toEqual(['Outreach Payment - Canceled'])
+    expect(trackSpy.mock.calls[0]?.[4]).toBe(`${outreachId}:canceled`)
+  })
+
+  it('does not release an unpaid hold whose send is still ahead', async () => {
+    const outreachId = await createHold(OutreachHoldState.hold_failed)
+
+    await expect(holds.releaseUnpaid(outreachId)).resolves.toBe(false)
+
+    expect((await readHold(outreachId)).state).toBe(
+      OutreachHoldState.hold_failed,
+    )
+    expect(trackSpy).not.toHaveBeenCalled()
   })
 })

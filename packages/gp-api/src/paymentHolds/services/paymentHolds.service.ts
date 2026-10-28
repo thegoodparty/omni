@@ -38,6 +38,7 @@ import {
   SettlementAdapter,
 } from '../paymentHolds.types'
 import { OutreachOrphanedHoldService } from './outreachOrphanedHold.service'
+import { PaymentHoldEventsService } from './paymentHoldEvents.service'
 
 // Bounds release's re-read loop: each pass loses a compare-and-set only to a
 // transition that moves the row forward, so a few passes always settle it.
@@ -75,6 +76,7 @@ export class PaymentHoldsService
     private readonly stripe: StripeService,
     private readonly users: UsersService,
     private readonly orphanedHolds: OutreachOrphanedHoldService,
+    private readonly events: PaymentHoldEventsService,
     private readonly moduleRef: ModuleRef,
   ) {
     super()
@@ -168,7 +170,10 @@ export class PaymentHoldsService
   // has to find the intent by its metadata instead.
   async placeHold(
     outreachId: number,
-    { offSession }: { offSession: boolean },
+    {
+      offSession,
+      notifyDecline = offSession,
+    }: { offSession: boolean; notifyDecline?: boolean },
   ): Promise<SaveCardAndPlanResult> {
     const row = await this.model.findUnique({
       where: { outreachId },
@@ -213,7 +218,7 @@ export class PaymentHoldsService
       })
     } catch (err) {
       if (err instanceof StripeOutreachHoldDeclinedError) {
-        return this.recordDecline(outreachId, err.declineCode)
+        return this.recordDecline(outreachId, err.declineCode, notifyDecline)
       }
       throw err
     }
@@ -291,6 +296,7 @@ export class PaymentHoldsService
       await this.recordDecline(
         outreachId,
         declined.declineCode ?? declined.status,
+        true,
       )
       return
     }
@@ -322,8 +328,8 @@ export class PaymentHoldsService
     switch (intent.status) {
       case 'requires_capture':
         return this.completeSettle(outreachId)
-      case 'succeeded':
-        await this.model.updateMany({
+      case 'succeeded': {
+        const committed = await this.model.updateMany({
           where: { outreachId, state: OutreachHoldState.capturing },
           data: {
             state: OutreachHoldState.captured,
@@ -331,7 +337,11 @@ export class PaymentHoldsService
             claimedAt: null,
           },
         })
+        if (committed.count === 1) {
+          await this.events.emit('receipt', outreachId)
+        }
         return
+      }
       case 'canceled':
         // Our own void of a $0 settle that stopped before its commit.
         if (intent.cancellation_reason !== 'automatic') {
@@ -565,11 +575,13 @@ export class PaymentHoldsService
     userId,
     paymentMethodId,
     offSession = false,
+    notifyDecline,
   }: {
     outreachId: number
     userId: number
     paymentMethodId: string
     offSession?: boolean
+    notifyDecline?: boolean
   }): Promise<SaveCardAndPlanResult> {
     const row = await this.model.findUnique({
       where: { outreachId },
@@ -611,7 +623,7 @@ export class PaymentHoldsService
       )
     }
     return placeNow
-      ? this.placeHold(outreachId, { offSession })
+      ? this.placeHold(outreachId, { offSession, notifyDecline })
       : { outcome: 'scheduled' }
   }
 
@@ -641,6 +653,7 @@ export class PaymentHoldsService
           userId: user.id,
           paymentMethodId,
           offSession: true,
+          notifyDecline: false,
         })
       } catch (err) {
         this.logger.warn(
@@ -659,16 +672,31 @@ export class PaymentHoldsService
   async flagScheduledHoldsForDetachedCard(
     paymentMethodId: string,
   ): Promise<void> {
-    const failed = await this.model.updateMany({
+    const rows = await this.model.findMany({
       where: { state: OutreachHoldState.scheduled, paymentMethodId },
-      data: {
-        state: OutreachHoldState.hold_failed,
-        declineCode: 'payment_method_detached',
-      },
+      select: { outreachId: true },
     })
-    if (failed.count > 0) {
+    let failed = 0
+    for (const { outreachId } of rows) {
+      const moved = await this.model.updateMany({
+        where: {
+          outreachId,
+          state: OutreachHoldState.scheduled,
+          paymentMethodId,
+        },
+        data: {
+          state: OutreachHoldState.hold_failed,
+          declineCode: 'payment_method_detached',
+        },
+      })
+      if (moved.count === 1) {
+        failed += 1
+        await this.events.emit('hold_failed', outreachId)
+      }
+    }
+    if (failed > 0) {
       this.logger.warn(
-        { paymentMethodId, count: failed.count },
+        { paymentMethodId, count: failed },
         'The card on scheduled payment holds was removed; holds marked failed',
       )
     }
@@ -694,6 +722,25 @@ export class PaymentHoldsService
       { outreachId: row.outreachId, paymentIntentId, state: row.state },
       'A dispute arrived for a payment hold that was not captured',
     )
+  }
+
+  // The send time came and no hold was ever placed: the user's card never
+  // went through. The row is released so the channel finds nothing to send
+  // against, and the user is told. Returns whether this call released it.
+  async releaseUnpaid(outreachId: number): Promise<boolean> {
+    const released = await this.model.updateMany({
+      where: {
+        outreachId,
+        state: {
+          in: [OutreachHoldState.scheduled, OutreachHoldState.hold_failed],
+        },
+        outreach: { date: { lte: new Date() } },
+      },
+      data: { state: OutreachHoldState.released, claimedAt: null },
+    })
+    if (released.count === 0) return false
+    await this.events.emit('canceled', outreachId)
+    return true
   }
 
   private async commitPlacedHold(
@@ -840,6 +887,10 @@ export class PaymentHoldsService
         claimedAt: null,
       },
     })
+    if (commit.count === 1) {
+      await this.events.emit('receipt', outreachId)
+      return
+    }
     if (commit.count === 0) {
       const current = await this.findUnique({ where: { outreachId } })
       if (current?.state === OutreachHoldState.captured) return
@@ -937,9 +988,14 @@ export class PaymentHoldsService
     return customerId
   }
 
+  // A decline at confirm or on a card change is shown to the user who is
+  // present, so only an off-session one emails. The attach webhook also
+  // stays quiet: it races the user's own card save, and the daily reminder
+  // covers a decline it finds.
   private async recordDecline(
     outreachId: number,
     declineCode: string | null,
+    notify: boolean,
   ): Promise<SaveCardAndPlanResult> {
     const failed = await this.model.updateMany({
       where: {
@@ -954,6 +1010,9 @@ export class PaymentHoldsService
         claimedAt: null,
       },
     })
+    if (failed.count === 1 && notify) {
+      await this.events.emit('hold_failed', outreachId)
+    }
     if (failed.count === 0) {
       await this.model.updateMany({
         where: { outreachId, state: OutreachHoldState.placing },

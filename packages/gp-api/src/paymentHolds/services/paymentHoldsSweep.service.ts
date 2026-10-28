@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common'
 import { Cron } from '@nestjs/schedule'
-import { addDays, addHours, isAfter, subMinutes } from 'date-fns'
+import { addDays, addHours, isAfter, subHours, subMinutes } from 'date-fns'
 import { OutreachHoldState } from '@/generated/prisma'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { VENDOR_CRONS_ENABLED } from 'src/shared/util/appEnvironment.util'
@@ -10,9 +10,11 @@ import {
   HOLD_CLAIM_STALE_MINUTES,
   HOLD_EXPIRY_GUARD_HOURS,
   HOLD_PLACEMENT_LEAD_DAYS,
+  HOLD_REMINDER_QUIET_HOURS,
   HOLD_UNPLACED_ALERT_HOURS,
 } from '../paymentHolds.constants'
 import { OutreachOrphanedHoldService } from './outreachOrphanedHold.service'
+import { PaymentHoldEventsService } from './paymentHoldEvents.service'
 import { PaymentHoldsService } from './paymentHolds.service'
 
 // Every minute of the ten-minute family already has a job. Recovery sits
@@ -26,6 +28,10 @@ const EXPIRY_GUARD_CRON = '38 * * * *'
 const EXPIRY_GUARD_JOB = 'paymentHoldExpiryGuard'
 const RECONCILE_CRON = '24 * * * *'
 const RECONCILE_JOB = 'paymentHoldReconcileSweep'
+const UNPAID_CRON = '5,15,25,35,45,55 * * * *'
+const UNPAID_JOB = 'paymentHoldUnpaidSweep'
+const REMINDER_CRON = '18 10 * * *'
+const REMINDER_JOB = 'paymentHoldReminderSweep'
 
 // No CronLockService: every unit of work is behind a per-row compare-and-set
 // in PaymentHoldsService, so a second replica's pass claims nothing. Gated on
@@ -39,6 +45,7 @@ export class PaymentHoldsSweepService extends createPrismaBase(
     private readonly holds: PaymentHoldsService,
     private readonly orphanedHolds: OutreachOrphanedHoldService,
     private readonly stripe: StripeService,
+    private readonly events: PaymentHoldEventsService,
   ) {
     super()
   }
@@ -57,20 +64,6 @@ export class PaymentHoldsSweepService extends createPrismaBase(
       },
       select: { outreachId: true, outreach: { select: { date: true } } },
     })
-    const overdue = await this.model.findMany({
-      where: {
-        state: OutreachHoldState.scheduled,
-        outreach: { date: { lte: now } },
-      },
-      select: { outreachId: true },
-    })
-    if (overdue.length > 0) {
-      this.logger.error(
-        { outreachIds: overdue.map(({ outreachId }) => outreachId) },
-        'CRITICAL payment holds never placed and now past their send time',
-      )
-    }
-
     for (const { outreachId, outreach } of due) {
       try {
         await this.holds.placeScheduledHold(outreachId)
@@ -163,6 +156,59 @@ export class PaymentHoldsSweepService extends createPrismaBase(
           'Re-voiding an orphaned payment hold failed; the next sweep retries',
         )
       }
+    }
+  }
+
+  // A hold still scheduled or failed at its send time never got paid for.
+  // Releasing it is what makes the channel find nothing to send against.
+  @Cron(UNPAID_CRON, { name: UNPAID_JOB, timeZone: EASTERN_TIMEZONE })
+  async releaseUnpaidHolds(): Promise<void> {
+    if (!VENDOR_CRONS_ENABLED) return
+
+    const unpaid = await this.model.findMany({
+      where: {
+        state: {
+          in: [OutreachHoldState.scheduled, OutreachHoldState.hold_failed],
+        },
+        outreach: { date: { lte: new Date() } },
+      },
+      select: { outreachId: true, state: true },
+    })
+    for (const { outreachId, state } of unpaid) {
+      try {
+        if (!(await this.holds.releaseUnpaid(outreachId))) continue
+        if (state === OutreachHoldState.scheduled) {
+          this.logger.error(
+            { outreachId },
+            'CRITICAL payment hold never placed and released at its send time',
+          )
+        }
+      } catch (err) {
+        this.logger.error(
+          { err, outreachId },
+          'Releasing an unpaid payment hold failed; the next sweep retries it',
+        )
+      }
+    }
+  }
+
+  // Daily while a declined hold is waiting on a new card and its send is
+  // still ahead. The date in the messageId keeps a replay to one email a day.
+  @Cron(REMINDER_CRON, { name: REMINDER_JOB, timeZone: EASTERN_TIMEZONE })
+  async remindFailedHolds(): Promise<void> {
+    if (!VENDOR_CRONS_ENABLED) return
+
+    const now = new Date()
+    const failed = await this.model.findMany({
+      where: {
+        state: OutreachHoldState.hold_failed,
+        updatedAt: { lt: subHours(now, HOLD_REMINDER_QUIET_HOURS) },
+        outreach: { date: { gt: now } },
+      },
+      select: { outreachId: true },
+    })
+    for (const { outreachId } of failed) {
+      await this.events.emit('reminder', outreachId, { day: now })
     }
   }
 }
