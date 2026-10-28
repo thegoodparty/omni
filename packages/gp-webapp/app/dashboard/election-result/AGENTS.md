@@ -4,10 +4,10 @@
 has passed and `details.wonGeneral` is not saved. `DashboardLayout` sends them
 here.
 
-| Answer | Pro                                                         | Without Pro                     |
-| ------ | ----------------------------------------------------------- | ------------------------------- |
-| Won    | Congratulations (A2); its button creates the office unfinished, then Serve onboarding | `wonGeneral: true`, then congratulations with the community card (N1) |
-| Lost   | `wonGeneral: false`, then `loss/`                           | Same                            |
+| Answer | Pro                                                                                               | Without Pro                                                           |
+| ------ | ------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| Won    | Congratulations (A2); its button creates the office unfinished, then Serve onboarding             | `wonGeneral: true`, then congratulations with the community card (N1) |
+| Lost   | `wonGeneral: false`, then `loss/`: thank you, the community card, and the subscription alert (A4) | Same, without the alert (N2)                                          |
 
 The Pro win creates the office before saving `wonGeneral`, pinned to the
 `campaign-<id>` org header so gp-api links `campaignId` and copies the
