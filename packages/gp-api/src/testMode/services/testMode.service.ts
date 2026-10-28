@@ -55,6 +55,7 @@ import {
 } from '../../generated/prisma'
 
 export const TEST_ORGANIZATION_CAP = 15
+export const DELETE_TEST_ORGANIZATION_TX_TIMEOUT_MS = 60_000
 const TEST_MODE_PLACEHOLDER = 'test-mode'
 const TEST_MODE_FILING_HOLD_REASON = 'Test mode filing hold'
 const ENDING_SOON_WINDOW_DAYS = 90
@@ -244,15 +245,18 @@ export class TestModeService {
       )
     }
 
-    await this.organizations.client.$transaction(async (tx) => {
-      if (campaign) {
-        await tx.electedOffice.updateMany({
-          where: { campaignId: campaign.id },
-          data: { campaignId: null },
-        })
-      }
-      await tx.organization.delete({ where: { slug: org.slug } })
-    })
+    await this.organizations.client.$transaction(
+      async (tx) => {
+        if (campaign) {
+          await tx.electedOffice.updateMany({
+            where: { campaignId: campaign.id },
+            data: { campaignId: null },
+          })
+        }
+        await tx.organization.delete({ where: { slug: org.slug } })
+      },
+      { timeout: DELETE_TEST_ORGANIZATION_TX_TIMEOUT_MS },
+    )
 
     this.logger.info(
       { userId: user.id, email: user.email, orgSlug: slug, action: 'delete' },
