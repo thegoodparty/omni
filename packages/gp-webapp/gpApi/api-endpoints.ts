@@ -1,4 +1,9 @@
 import type {
+  EmailDraft,
+  EmailDraftSave,
+  EmailRecipientUploadResponse,
+  EmailSender,
+  EmailSenderUpdate,
   CreateDoorKnockingTurf,
   CreateServeDoorKnockingTurf,
   DoorKnockingAddressPreviewResponse,
@@ -510,6 +515,35 @@ export type APIEndpoints = {
   // returns only the question: the greeting and opt-out line are composed by
   // the create. The create writes the pending_payment row the SERVE_TEXT
   // checkout then bills.
+  // Win email. The draft save is a full replace: omitted optional fields are
+  // cleared. The recipient upload is multipart (`file` + `consentConfirmed`):
+  // pass `{}` as the typed payload and the FormData as `{ body }` in the
+  // overrides argument of clientRequest.
+  'GET /v1/outreach/email/sender': {
+    Request: {}
+    Response: EmailSender
+  }
+
+  'PATCH /v1/outreach/email/sender': {
+    Request: EmailSenderUpdate
+    Response: EmailSender
+  }
+
+  'POST /v1/outreach/email': {
+    Request: EmailDraftSave
+    Response: EmailDraft
+  }
+
+  'GET /v1/outreach/email/:id': {
+    Request: {}
+    Response: EmailDraft
+  }
+
+  'POST /v1/outreach/email/:id/recipients': {
+    Request: {}
+    Response: EmailRecipientUploadResponse
+  }
+
   'POST /v1/outreach/serve/poll/draft': {
     Request: ServePollDraftRequest
     Response: ServePollDraftResponse
