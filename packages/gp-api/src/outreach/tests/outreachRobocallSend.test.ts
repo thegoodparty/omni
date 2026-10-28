@@ -27,20 +27,8 @@ import {
   OutreachStatus,
   RobocallSettleState,
 } from '../../generated/prisma'
-import { disableVendorCrons } from '@/shared/test-utils/vendorCronsGate.util'
-
-vi.mock('@/shared/util/appEnvironment.util', async (importOriginal) => {
-  const { withVendorCronsGate } =
-    await import('@/shared/test-utils/vendorCronsGate.util.js')
-  return withVendorCronsGate(await importOriginal<object>())
-})
-
-// The sweep's multi-launch spacing sleep is vestigial under the serial gate (only
-// one run launches per pass), but stub it so a test never waits a real 3s if a
-// future change ever re-enables a second launch.
-vi.mock('@/shared/util/sleep.util', () => ({
-  sleep: vi.fn().mockResolvedValue(undefined),
-}))
+import { disableVendorCrons } from '@/shared/test-utils/appEnvOverrides'
+import * as sleepUtil from '@/shared/util/sleep.util'
 
 const service = useTestService()
 
@@ -75,6 +63,11 @@ const vbWith = (status: number) =>
 
 beforeEach(async () => {
   send = service.app.get(OutreachRobocallSendService)
+
+  // The sweep's multi-launch spacing sleep is vestigial under the serial gate (only
+  // one run launches per pass), but stub it so a test never waits a real 3s if a
+  // future change ever re-enables a second launch.
+  vi.spyOn(sleepUtil, 'sleep').mockResolvedValue(undefined)
 
   launchSpy = vi
     .spyOn(service.app.get(CallhubCampaignService), 'launchVoiceBroadcast')
@@ -671,11 +664,13 @@ describe('OutreachRobocallSendService.isDoneDialing (the completion seam)', () =
   const seam = () => send as unknown as Seam
   const dialedAt = new Date('2026-06-01T14:00:00Z')
 
-  // These tests encode the pre-2026-10-15 180-minute flat buffer in their ceiling
-  // math; pin it so they assert the haircut / R1 floor behavior rather than the
-  // default value (lowered to 30). The file-scope afterEach unstubs.
+  // These tests encode the pre-2026-10-15 180-minute flat buffer AND a divisor of
+  // 2 in their ceiling math; pin both so they assert the haircut / R1 floor
+  // behavior rather than the shipping defaults (buffer lowered to 30, divisor to
+  // 1.1). The file-scope afterEach unstubs.
   beforeEach(() => {
     vi.stubEnv('ROBOCALL_DIAL_ESTIMATE_BUFFER_MINUTES', '180')
+    vi.stubEnv('ROBOCALL_DIAL_SAFETY_RATE_DIVISOR', '2')
   })
 
   it('reports done (source estimate) once the conservative ceiling has passed', async () => {
@@ -712,6 +707,23 @@ describe('OutreachRobocallSendService.isDoneDialing (the completion seam)', () =
 
     vi.stubEnv('ROBOCALL_DIAL_SAFETY_RATE_DIVISOR', '2')
     expect(seam().isDoneDialing(run, now).done).toBe(false)
+  })
+
+  it('a FRACTIONAL divisor survives parsing (1.1 is not truncated to 1)', async () => {
+    // The point of envNumber: a divisor of 1.1 must stay 1.1, not truncate to 1.
+    // staged 11 @ ÷1.1 → safe floor(11/1.1)=10 → 1100/10=110 raw + 180 buffer →
+    // ceiling 18:50Z. If it had truncated to ÷1 (safe 11 → 100 raw) the ceiling
+    // would be 18:40Z. So at 18:45Z the run is NOT done at 1.1 but WOULD read done
+    // under the truncation bug — the exact regression this guards.
+    vi.stubEnv('ROBOCALL_DIAL_SAFETY_RATE_DIVISOR', '1.1')
+    const run = { dialedAt, billableCount: 1100, stagedCallsPerMinute: 11 }
+
+    expect(
+      seam().isDoneDialing(run, new Date('2026-06-01T18:45:00Z')).done,
+    ).toBe(false)
+    expect(
+      seam().isDoneDialing(run, new Date('2026-06-01T18:55:00Z')).done,
+    ).toBe(true)
   })
 
   it('R1: uses the run STAGED rate, not a later-raised live rate (never frees a slow run early)', async () => {

@@ -152,4 +152,6 @@ export {
   LocateOff as LocateOffIcon,
   Activity as ActivityIcon,
   FlaskConical as FlaskConicalIcon,
+  PenLine as PenLineIcon,
+  ChartColumnIncreasing as ChartColumnIncreasingIcon,
 } from 'lucide-react'

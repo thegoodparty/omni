@@ -7,16 +7,12 @@ import {
 import { DEFAULT_PLACE_PAGE_SIZE, PlaceFilterDto } from './places.schema'
 import { Prisma } from '@/generated/election-prisma'
 import {
-  hasChildren,
-  hasParent,
-  hasPlaceCategories,
-  hasRaces,
   PlaceCore,
   PlaceWithCategories,
   POSITION_NAMES_COLUMN_NAME,
   SLUG_COLUMN_NAME,
 } from './place.types'
-import { getDedupedRacesBySlug } from '@/electionDb/races/races.util'
+import { findMergedRaceHeads } from '@/electionDb/races/races.util'
 
 const COUNTY_MTFCC: Record<string, boolean> = { G4020: true }
 const DISTRICT_MTFCC: Record<string, boolean> = {
@@ -24,6 +20,8 @@ const DISTRICT_MTFCC: Record<string, boolean> = {
   G5410: true,
   G5400: true,
 }
+
+type PlaceTree = PlaceWithCategories & { parent?: PlaceCore | null }
 
 @Injectable()
 export class PlacesService extends createElectionDbBase(ELECTION_MODELS.Place) {
@@ -54,54 +52,69 @@ export class PlacesService extends createElectionDbBase(ELECTION_MODELS.Place) {
       ...(slug ? { slug } : {}),
     }
 
-    const placeSelectBase: Prisma.PlaceSelect | undefined = placeColumns
+    let placeSelectBase: Prisma.PlaceSelect | undefined = placeColumns
       ? (buildColumnSelect(placeColumns) as Prisma.PlaceSelect)
       : undefined
+    // Races are attached by place id, so a column selection that leaves `id`
+    // out has to load it anyway and drop it again before returning.
+    const stripPlaceId = Boolean(
+      includeRaces && placeSelectBase && !placeSelectBase.id,
+    )
+    if (stripPlaceId && placeSelectBase) {
+      placeSelectBase = { ...placeSelectBase, id: true }
+    }
 
     const raceInclude = this.buildRaceInclude(raceColumns, includeRaces)
     const childRaceInclude = this.buildRaceInclude(
       raceColumns,
       includeChildRaces,
     )
+    // Races under the place, its parent and (when races are merged) its
+    // children are not loaded through the nested relation. That would pull
+    // every Race row per slug and merge them in JS, which froze the event
+    // loop on large counties. They are merged in Postgres and attached below.
+    // Children loaded with races but without `includeRaces` never were merged,
+    // so they keep the plain nested read.
+    const mergeChildRaces = includeChildRaces && includeRaces
     const placeSelection = this.makePlaceSelection(
-      includeRaces,
+      false,
       placeSelectBase,
       raceInclude,
     )
 
     const childrenPlaceSelection = this.makePlaceSelection(
-      includeChildRaces,
+      includeChildRaces && !mergeChildRaces,
       placeSelectBase,
       childRaceInclude,
     )
 
     const placeQueryObj = {
       ...(placeSelectBase ?? {}),
-      ...(includeRaces && { Races: raceInclude }),
       ...(includeChildren && { children: childrenPlaceSelection }),
       ...(includeParent && { parent: placeSelection }),
     }
 
     this.logger.debug(placeQueryObj)
-    let places: PlaceWithCategories[] = []
+    let places: PlaceTree[] = []
 
-    if (!categorizeChildren) {
-      places = await this.runQuery(
-        baseWhere,
-        placeSelectBase,
-        placeQueryObj,
-        page,
-        pageSize,
-      )
-    } else {
-      places = await this.runQuery(
-        baseWhere,
-        placeSelectBase,
-        placeQueryObj,
-        page,
-        pageSize,
-      )
+    places = await this.runQuery(
+      baseWhere,
+      placeSelectBase,
+      placeQueryObj,
+      page,
+      pageSize,
+    )
 
+    if (includeRaces) {
+      await this.attachMergedRaces(
+        places,
+        raceInclude,
+        includeChildren && mergeChildRaces,
+        includeParent,
+      )
+    }
+
+    if (categorizeChildren) {
       for (const place of places) {
         place.counties = []
         place.districts = []
@@ -125,14 +138,25 @@ export class PlacesService extends createElectionDbBase(ELECTION_MODELS.Place) {
         `No places found for query: ${JSON.stringify(baseWhere)}`,
       )
     }
-    this.dedupeRacesInTree({
-      places,
-      includeRaces,
-      includeChildren,
-      includeParent,
-    })
+    if (stripPlaceId) this.stripPlaceIds(places)
 
     return places
+  }
+
+  private stripPlaceIds(places: PlaceTree[]) {
+    for (const place of places) {
+      const related = [
+        place.parent,
+        ...(place.children ?? []),
+        ...(place.counties ?? []),
+        ...(place.districts ?? []),
+        ...(place.others ?? []),
+      ]
+      for (const node of related) {
+        if (node) delete (node as { id?: string }).id
+      }
+      delete (place as { id?: string }).id
+    }
   }
 
   async getPlacesWithMostElections(minRaces: number, count: number) {
@@ -197,49 +221,69 @@ export class PlacesService extends createElectionDbBase(ELECTION_MODELS.Place) {
     return { select: sel }
   }
 
-  // We modify the passed in array for performance
-  private dedupeRacesInTree(obj: {
-    places: PlaceCore[]
-    includeRaces: boolean
-    includeChildren: boolean
-    includeParent: boolean
-  }) {
-    const { places, includeChildren, includeParent, includeRaces } = obj
-    if (!includeRaces) return
+  // Loads each place's races merged by slug in Postgres (see
+  // findMergedRaceHeads) and sets `Races` on the places, and on their children
+  // and parent when asked. Modifies the passed in places for performance.
+  private async attachMergedRaces(
+    places: PlaceTree[],
+    raceInclude: true | { select: Prisma.RaceSelect },
+    withChildren: boolean,
+    withParent: boolean,
+  ) {
+    const targets: { id: string; Races?: unknown }[] = [...places]
     for (const place of places) {
-      if (includeRaces && hasRaces(place)) {
-        place.Races = getDedupedRacesBySlug(place.Races)
-      }
+      if (withChildren) targets.push(...(place.children ?? []))
+      if (withParent && place.parent) targets.push(place.parent)
+    }
+    const placeIds = [...new Set(targets.map((t) => t.id))]
 
-      if (includeChildren && hasChildren(place)) {
-        for (const child of place.children ?? []) {
-          if (hasRaces(child)) {
-            child.Races = getDedupedRacesBySlug(child.Races)
-          }
-        }
-      } else if (includeChildren && hasPlaceCategories(place)) {
-        for (const district of place.districts ?? []) {
-          if (hasRaces(district)) {
-            district.Races = getDedupedRacesBySlug(district.Races)
-          }
-        }
-        for (const county of place.counties ?? []) {
-          if (hasRaces(county)) {
-            county.Races = getDedupedRacesBySlug(county.Races)
-          }
-        }
-        for (const other of place.others ?? []) {
-          if (hasRaces(other)) {
-            other.Races = getDedupedRacesBySlug(other.Races)
-          }
-        }
-      }
+    const heads = placeIds.length
+      ? await findMergedRaceHeads(
+          this.client,
+          Prisma.sql`place_id = ANY(${placeIds}::uuid[])`,
+          true,
+        )
+      : []
+    const headById = new Map(heads.map((h) => [h.id, h]))
 
-      if (includeParent && hasParent(place) && hasRaces(place.parent)) {
-        if (hasRaces(place.parent)) {
-          place.parent.Races = getDedupedRacesBySlug(place.parent.Races)
-        }
-      }
+    const orderBy: Prisma.RaceOrderByWithRelationInput[] = [
+      { slug: 'asc' },
+      { id: 'asc' },
+    ]
+    const headIds = heads.map((h) => h.id)
+    const rows =
+      raceInclude === true
+        ? await this.client.race.findMany({
+            where: { id: { in: headIds } },
+            omit: { positionNames: true },
+            orderBy,
+          })
+        : await this.client.race.findMany({
+            where: { id: { in: headIds } },
+            // `id` links each row to its head; a raceColumns selection that
+            // leaves it out would otherwise drop every race.
+            select: {
+              ...raceInclude.select,
+              id: true,
+              positionNames: false,
+            },
+            orderBy,
+          })
+    const stripRaceId = raceInclude !== true && !raceInclude.select.id
+
+    const racesByPlace = new Map<string, unknown[]>()
+    for (const row of rows) {
+      const head = headById.get(row.id)
+      if (!head?.placeId) continue
+      const race = { ...row, positionNames: head.positionNames }
+      if (stripRaceId) delete (race as { id?: string }).id
+      const list = racesByPlace.get(head.placeId)
+      if (list) list.push(race)
+      else racesByPlace.set(head.placeId, [race])
+    }
+
+    for (const target of targets) {
+      target.Races = [...(racesByPlace.get(target.id) ?? [])]
     }
   }
 

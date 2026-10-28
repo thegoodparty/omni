@@ -31,3 +31,6 @@ jobs:
 
       - name: Verify AGENTS.md is the source of truth
         run: bash ai-rules/scripts/agents-md-sync.sh --check
+
+      - name: Verify no AGENTS.md exceeds the 100 KB cap
+        run: bash scripts/check-agents-md-size.sh

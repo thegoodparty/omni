@@ -1,4 +1,14 @@
 import type {
+  EmailDraft,
+  EmailDraftSave,
+  EmailAiDraftRequest,
+  EmailAiDraftResponse,
+  EmailImagePresignRequest,
+  EmailImagePresignResponse,
+  EmailRecipientUploadResponse,
+  EmailTestSendResponse,
+  EmailSender,
+  EmailSenderUpdate,
   CreateDoorKnockingTurf,
   CreateServeDoorKnockingTurf,
   DoorKnockingAddressPreviewResponse,
@@ -103,6 +113,9 @@ import type {
   RobocallDraftCreateRequest,
   RobocallDraftCreateResponse,
   RobocallSaveCardIntentResponse,
+  PaymentHoldCardIntentResponse,
+  PaymentHoldCardRequest,
+  PaymentHoldCardResponse,
   RobocallAuthorizeRequest,
   RobocallAuthorizeResponse,
   RobocallPromoApplyRequest,
@@ -118,6 +131,7 @@ import type {
   RecommendedListIntent,
   RecommendedListsResponse,
   RecommendedListVariant,
+  RobocallFreeOfferResponse,
   MyAssignmentsResponse,
   TrackerTaskSkipReason,
   TestModeState,
@@ -361,6 +375,13 @@ export type APIEndpoints = {
     Response: User
   }
 
+  // Copies the user's verified Clerk primary email onto the user row. The
+  // body is empty on purpose: email only changes through Clerk.
+  'POST /v1/users/me/sync-email': {
+    Request: {}
+    Response: User
+  }
+
   // Submits the HubSpot registration form with the visitor's hubspotutk so
   // the contact gets web/paid original-source attribution instead of the
   // "offline sources" Segment's server-side destination would assign.
@@ -496,6 +517,91 @@ export type APIEndpoints = {
   'POST /v1/outreach/serve/sms': {
     Request: ServeSmsCreateRequest
     Response: ServeSmsCreateResponse
+  }
+
+  // Win email. The draft save is a full replace: omitted optional fields are
+  // cleared. The recipient upload is multipart (`file` + `consentConfirmed`):
+  // pass `{}` as the typed payload and the FormData as `{ body }` in the
+  // overrides argument of clientRequest.
+  'GET /v1/outreach/email/sender': {
+    Request: {}
+    Response: EmailSender
+  }
+
+  'PATCH /v1/outreach/email/sender': {
+    Request: EmailSenderUpdate
+    Response: EmailSender
+  }
+
+  'POST /v1/outreach/email': {
+    Request: EmailDraftSave
+    Response: EmailDraft
+  }
+
+  'GET /v1/outreach/email/:id': {
+    Request: {}
+    Response: EmailDraft
+  }
+
+  'POST /v1/outreach/email/:id/recipients': {
+    Request: {}
+    Response: EmailRecipientUploadResponse
+  }
+
+  'POST /v1/outreach/email/draft': {
+    Request: EmailAiDraftRequest
+    Response: EmailAiDraftResponse
+  }
+
+  'POST /v1/outreach/email/images/presign': {
+    Request: EmailImagePresignRequest
+    Response: EmailImagePresignResponse
+  }
+
+  'POST /v1/outreach/email/:id/test': {
+    Request: {}
+    Response: EmailTestSendResponse
+  }
+
+  // Serve email: the same four routes, scoped to the elected office.
+  'GET /v1/outreach/serve/email/sender': {
+    Request: {}
+    Response: EmailSender
+  }
+
+  'PATCH /v1/outreach/serve/email/sender': {
+    Request: EmailSenderUpdate
+    Response: EmailSender
+  }
+
+  'POST /v1/outreach/serve/email': {
+    Request: EmailDraftSave
+    Response: EmailDraft
+  }
+
+  'GET /v1/outreach/serve/email/:id': {
+    Request: {}
+    Response: EmailDraft
+  }
+
+  'POST /v1/outreach/serve/email/:id/recipients': {
+    Request: {}
+    Response: EmailRecipientUploadResponse
+  }
+
+  'POST /v1/outreach/serve/email/draft': {
+    Request: EmailAiDraftRequest
+    Response: EmailAiDraftResponse
+  }
+
+  'POST /v1/outreach/serve/email/images/presign': {
+    Request: EmailImagePresignRequest
+    Response: EmailImagePresignResponse
+  }
+
+  'POST /v1/outreach/serve/email/:id/test': {
+    Request: {}
+    Response: EmailTestSendResponse
   }
 
   // Serve self-serve polls, behind `serve-self-serve-polls`. The draft
@@ -707,6 +813,26 @@ export type APIEndpoints = {
   'POST /v1/outreach/robocall': {
     Request: RobocallDraftCreateRequest
     Response: RobocallDraftCreateResponse
+  }
+
+  'POST /v1/outreach/holds/card-intent': {
+    Request: Record<string, never>
+    Response: PaymentHoldCardIntentResponse
+  }
+
+  'POST /v1/outreach/holds/:outreachId/card': {
+    Request: PaymentHoldCardRequest
+    Response: PaymentHoldCardResponse
+  }
+
+  'POST /v1/outreach/serve/holds/card-intent': {
+    Request: Record<string, never>
+    Response: PaymentHoldCardIntentResponse
+  }
+
+  'POST /v1/outreach/serve/holds/:outreachId/card': {
+    Request: PaymentHoldCardRequest
+    Response: PaymentHoldCardResponse
   }
 
   // Vaults the card off-session: returns a Stripe SetupIntent clientSecret the
@@ -1536,6 +1662,13 @@ export type APIEndpoints = {
       variant?: RecommendedListVariant
     }
     Response: RecommendedListsResponse
+  }
+  // Whether the campaign gets the free election-eve robocall right now, and
+  // the size of its offer list. The first call for an eligible campaign
+  // assigns its precincts.
+  'GET /v1/campaigns/mine/robocall-offer': {
+    Request: {}
+    Response: RobocallFreeOfferResponse
   }
   'DELETE /v1/voters/voter-file/filter/:id': {
     Request: {}

@@ -10,7 +10,12 @@ import { Cron } from '@nestjs/schedule'
 import { subMinutes } from 'date-fns'
 import { PinoLogger } from 'nestjs-pino'
 import { z } from 'zod'
-import { Campaign, Organization, User } from '../../../generated/prisma'
+import {
+  Campaign,
+  Organization,
+  PhoneListBuildStatus,
+  User,
+} from '../../../generated/prisma'
 import { CampaignTcrComplianceService } from '../../../campaigns/tcrCompliance/services/campaignTcrCompliance.service'
 import { MAX_RESOLVED_ID_SET_SIZE } from '@/contactInteraction/services/activityConditionResolution.service'
 import { ContactInteractionTextService } from '@/contactInteraction/services/contactInteractionText.service'
@@ -36,6 +41,7 @@ import { OutreachP2pSmsCaptureService } from '@/outreach/services/outreachP2pSms
 import { PeerlyPhoneListCaptureService } from './peerlyPhoneListCapture.service'
 import { PeerlyPhoneListService } from './peerlyPhoneList.service'
 import { PhoneListState } from '../peerly.types'
+import { peerlyScrubCounts } from '../utils/peerlyScrubCounts.util'
 import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
 import { WIN_SMS_HOLD_BILLING_FLAG } from '@/shared/util/winSmsHold.util'
 import { FeaturesService } from '@/features/services/features.service'
@@ -340,8 +346,17 @@ export class P2pPhoneListUploadService {
       return true
     } catch (error) {
       if (error instanceof HttpException) {
-        // runBuild already called markBuildFailed before throwing — a
-        // permanent, client-input-shaped failure. Ack; retrying can't help.
+        // Every permanent rejection has already moved the row off `building`
+        // (markBuildFailed). A Peerly upload failure the vendor layer wrapped
+        // as a 502 hasn't: the row is still `building`, so hand it back for
+        // an immediate retry instead of leaving it for the 20-minute reaper.
+        const row = await this.peerlyPhoneListCapture.findFirst({
+          where: { id: buildId },
+          select: { buildStatus: true },
+        })
+        if (row?.buildStatus === PhoneListBuildStatus.building) {
+          await this.reclaimStaleBuild(buildId, new Date())
+        }
         return true
       }
       // Transient (people-db, S3, a Peerly 5xx/network, or anything
@@ -521,6 +536,10 @@ export class P2pPhoneListUploadService {
       leadsSupplied: details.leads_supplied,
     })
     if (!stable) return
+    this.logger.info(
+      { buildId, listId, ...peerlyScrubCounts(details) },
+      'Peerly phone list ready',
+    )
 
     // Single-owner CAS (peerlyListId IS NULL): a no-op if a browser poll or
     // another replica stamped it first.

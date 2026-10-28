@@ -11,6 +11,7 @@ import {
   Campaign,
   OutreachStatus,
   OutreachType,
+  RobocallSettleState,
   User,
 } from '../../generated/prisma'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -361,7 +362,7 @@ describe('OutreachService', () => {
 
       // The defer returns false before claiming (pending_payment -> pending)
       // and before any Peerly submission, so the draft is never transitioned.
-      expect(finalized).toBe(false)
+      expect(finalized).toBe('deferred')
       expect(mockOutreachUpdateMany).not.toHaveBeenCalled()
       expect(mockPeerlyCreateJob).not.toHaveBeenCalled()
       expect(mockMaterializeOutreach).not.toHaveBeenCalled()
@@ -383,7 +384,7 @@ describe('OutreachService', () => {
 
       const finalized = await service.finalizeOutreachPurchase(55, 1)
 
-      expect(finalized).toBe(false)
+      expect(finalized).toBe('deferred')
       // It attempted the claim (did not defer).
       expect(mockOutreachUpdateMany).toHaveBeenCalled()
     })
@@ -432,6 +433,175 @@ describe('OutreachService', () => {
         draft.campaign,
         expect.objectContaining({ id: 77, projectId: 'job-770' }),
       )
+    })
+
+    describe('duplicate send guard (ENG-11510)', () => {
+      const dupDraft = {
+        id: 47,
+        campaignId: 1,
+        outreachType: OutreachType.p2p,
+        status: OutreachStatus.pending,
+        imageUrl: 'https://assets.goodparty.org/outreach/img.png',
+        phoneListId: 100,
+        script: 'hello voter',
+        message: null,
+        identityId: 'ident-1',
+        title: 'P2P Title',
+        name: null,
+        didState: null,
+        didNpaSubset: null,
+        date: new Date('2025-02-01T12:00:00.000Z'),
+        audienceRequest: null,
+        campaignPlanDueDate: null,
+        textCount: null,
+        billableTextCount: null,
+        voterFileFilterId: 7,
+        voterFileFilter: null,
+        campaign: { ...mockCampaign, user: mockUser },
+      }
+
+      const stubClaimedDraft = (liveDuplicate: { id: number } | null) => {
+        // 1st findFirst is the defer peek, 2nd is the duplicate lookup.
+        mockOutreachFindFirst
+          .mockResolvedValueOnce({
+            phoneListId: 100,
+            outreachType: OutreachType.p2p,
+            p2pSms: null,
+          })
+          .mockResolvedValueOnce(liveDuplicate)
+        mockOutreachUpdateMany.mockResolvedValue({ count: 1 })
+        mockOutreachFindUniqueOrThrow.mockResolvedValue(dupDraft)
+        mockPeerlyCreateJob.mockResolvedValue('job-new')
+        mockOutreachUpdate.mockResolvedValue({})
+      }
+
+      it('refuses to submit a second copy and releases the payment through cancel', async () => {
+        stubClaimedDraft({ id: 48 })
+        const cancel = vi
+          .spyOn(service, 'cancelOutreach')
+          .mockResolvedValue({ outreach: dupDraft as never, refunded: false })
+
+        const outcome = await service.finalizeOutreachPurchase(
+          47,
+          1,
+          'cs_live_abc',
+        )
+
+        expect(outcome).toBe('duplicate_refused')
+        expect(mockPeerlyCreateJob).not.toHaveBeenCalled()
+        expect(cancel).toHaveBeenCalledWith(47, 1, {
+          canceledBy: 'system:duplicate-send-guard:48',
+          byAdmin: true,
+          restoreFreeTexts: false,
+        })
+        // The session is recorded first so a non-hold refund can resolve it.
+        expect(mockOutreachUpdateMany).toHaveBeenCalledWith({
+          where: { id: 47, campaignId: 1 },
+          data: { stripeCheckoutSessionId: 'cs_live_abc' },
+        })
+        expect(mockMaterializeOutreach).not.toHaveBeenCalled()
+      })
+
+      it('looks only for a submitted, live send of the same message to the same list and date', async () => {
+        stubClaimedDraft({ id: 48 })
+        vi.spyOn(service, 'cancelOutreach').mockResolvedValue({
+          outreach: dupDraft as never,
+          refunded: false,
+        })
+
+        await service.finalizeOutreachPurchase(47, 1, 'cs_live_abc')
+
+        expect(mockOutreachFindFirst).toHaveBeenNthCalledWith(
+          2,
+          expect.objectContaining({
+            where: {
+              id: { not: 47 },
+              campaignId: 1,
+              outreachType: OutreachType.p2p,
+              phoneListId: 100,
+              script: 'hello voter',
+              message: null,
+              date: dupDraft.date,
+              projectId: { not: null },
+              status: {
+                in: [
+                  OutreachStatus.pending,
+                  OutreachStatus.in_progress,
+                  OutreachStatus.completed,
+                ],
+              },
+            },
+          }),
+        )
+      })
+
+      it('submits as usual when no live duplicate exists', async () => {
+        stubClaimedDraft(null)
+        const cancel = vi.spyOn(service, 'cancelOutreach')
+        mockGetFileBytes.mockResolvedValue({
+          bytes: Buffer.from('img'),
+          contentType: 'image/png',
+        })
+
+        const outcome = await service.finalizeOutreachPurchase(
+          47,
+          1,
+          'cs_live_abc',
+        )
+
+        expect(outcome).toBe('finalized')
+        expect(mockPeerlyCreateJob).toHaveBeenCalled()
+        expect(cancel).not.toHaveBeenCalled()
+      })
+
+      it('re-arms the draft and rethrows when the payment cannot be released', async () => {
+        stubClaimedDraft({ id: 48 })
+        vi.spyOn(service, 'cancelOutreach').mockRejectedValue(
+          new BadGatewayException('refund failed'),
+        )
+
+        await expect(
+          service.finalizeOutreachPurchase(47, 1, 'cs_live_abc'),
+        ).rejects.toThrow('refund failed')
+
+        expect(mockPeerlyCreateJob).not.toHaveBeenCalled()
+        expect(mockOutreachUpdateMany).toHaveBeenLastCalledWith({
+          where: {
+            id: 47,
+            status: OutreachStatus.pending,
+            projectId: null,
+          },
+          data: { status: OutreachStatus.pending_payment },
+        })
+      })
+
+      it('re-arms the draft and rethrows when the duplicate lookup fails', async () => {
+        mockOutreachFindFirst
+          .mockResolvedValueOnce({
+            phoneListId: 100,
+            outreachType: OutreachType.p2p,
+            p2pSms: null,
+          })
+          .mockRejectedValueOnce(new Error('connection reset'))
+        mockOutreachUpdateMany.mockResolvedValue({ count: 1 })
+        mockOutreachFindUniqueOrThrow.mockResolvedValue(dupDraft)
+        const cancel = vi.spyOn(service, 'cancelOutreach')
+
+        await expect(
+          service.finalizeOutreachPurchase(47, 1, 'cs_live_abc'),
+        ).rejects.toThrow('connection reset')
+
+        expect(mockPeerlyCreateJob).not.toHaveBeenCalled()
+        expect(cancel).not.toHaveBeenCalled()
+        expect(mockOutreachUpdateMany).toHaveBeenLastCalledWith({
+          where: {
+            id: 47,
+            status: OutreachStatus.pending,
+            projectId: null,
+          },
+          data: { status: OutreachStatus.pending_payment },
+        })
+      })
     })
 
     it('materializes on finalize even when the campaign has no user', async () => {
@@ -587,7 +757,7 @@ describe('OutreachService', () => {
         // A lost claim (a concurrent finalize already stamped the job) returns
         // false — not finalized by THIS caller.
         await expect(service.finalizeOutreachPurchase(46, 1)).resolves.toBe(
-          false,
+          'deferred',
         )
 
         expect(mockOutreachFindUniqueOrThrow).not.toHaveBeenCalled()
@@ -1129,9 +1299,20 @@ describe('OutreachService', () => {
           OR: [
             { status: { not: OutreachStatus.pending_payment } },
             { status: null },
+            { robocall: { settleState: RobocallSettleState.hold_failed } },
           ],
         },
-        include: { voterFileFilter: true },
+        include: {
+          voterFileFilter: true,
+          robocall: {
+            select: {
+              audioKey: true,
+              callbackNumber: true,
+              billableCount: true,
+              settleState: true,
+            },
+          },
+        },
       })
       // `findByScope` collapses door-knocking siblings into their anchor and
       // attaches a `turfCount`; a non-door-knocking row passes through as its

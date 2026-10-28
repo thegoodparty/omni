@@ -3,13 +3,7 @@ import { useTestService } from '@/test-service'
 import { OutreachRobocallCallhubCleanupService } from '@/outreach/services/outreachRobocallCallhubCleanup.service'
 import { RobocallOrphanedCampaignService } from '@/outreach/services/robocallOrphanedCampaign.service'
 import { CallhubCampaignService } from '@/vendors/callhub/services/callhubCampaign.service'
-import { disableVendorCrons } from '@/shared/test-utils/vendorCronsGate.util'
-
-vi.mock('@/shared/util/appEnvironment.util', async (importOriginal) => {
-  const { withVendorCronsGate } =
-    await import('@/shared/test-utils/vendorCronsGate.util.js')
-  return withVendorCronsGate(await importOriginal<object>())
-})
+import { disableVendorCrons } from '@/shared/test-utils/appEnvOverrides'
 
 const service = useTestService()
 

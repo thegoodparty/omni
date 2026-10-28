@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { firstOrThrow } from 'src/shared/test-utils/arrays.util'
 import { EVENTS } from 'src/vendors/segment/segment.types'
 import { CheckoutSessionMode, WebhookEventType } from '../payments.types'
+import { PaymentHoldsService } from '../../paymentHolds/services/paymentHolds.service'
 import { OutreachRobocallWebhookService } from '../../outreach/services/outreachRobocallWebhook.service'
 import { PaymentEventsService } from './paymentEventsService'
 
@@ -55,6 +56,11 @@ describe('PaymentEventsService', () => {
     cancelNotYetDialedForDetachedPaymentMethod: vi.fn(),
     markDisputedByIntent: vi.fn(),
     retryHoldFailedForAttachedCard: vi.fn(),
+  }
+  const paymentHoldsService = {
+    flagScheduledHoldsForDetachedCard: vi.fn(),
+    retryHoldFailedForAttachedCard: vi.fn(),
+    markDisputedByIntent: vi.fn(),
   }
   const moduleRef = { get: vi.fn() }
 
@@ -146,11 +152,20 @@ describe('PaymentEventsService', () => {
     robocallWebhookService.retryHoldFailedForAttachedCard.mockResolvedValue(
       undefined,
     )
-    moduleRef.get.mockImplementation((token) =>
-      token === OutreachRobocallWebhookService
-        ? robocallWebhookService
-        : raceOpponentService,
+    paymentHoldsService.flagScheduledHoldsForDetachedCard.mockResolvedValue(
+      undefined,
     )
+    paymentHoldsService.retryHoldFailedForAttachedCard.mockResolvedValue(
+      undefined,
+    )
+    paymentHoldsService.markDisputedByIntent.mockResolvedValue(undefined)
+    moduleRef.get.mockImplementation((token) => {
+      if (token === OutreachRobocallWebhookService) {
+        return robocallWebhookService
+      }
+      if (token === PaymentHoldsService) return paymentHoldsService
+      return raceOpponentService
+    })
     analytics.trackProPayment.mockResolvedValue(undefined)
     analytics.track.mockResolvedValue(undefined)
     slackService.message.mockResolvedValue(undefined)
@@ -1128,6 +1143,9 @@ describe('PaymentEventsService', () => {
       expect(
         robocallWebhookService.cancelNotYetDialedForDetachedPaymentMethod,
       ).toHaveBeenCalledExactlyOnceWith('pm_gone')
+      expect(
+        paymentHoldsService.flagScheduledHoldsForDetachedCard,
+      ).toHaveBeenCalledExactlyOnceWith('pm_gone')
     })
   })
 
@@ -1147,6 +1165,9 @@ describe('PaymentEventsService', () => {
       expect(
         robocallWebhookService.retryHoldFailedForAttachedCard,
       ).toHaveBeenCalledExactlyOnceWith('cus_1', 'pm_new')
+      expect(
+        paymentHoldsService.retryHoldFailedForAttachedCard,
+      ).toHaveBeenCalledExactlyOnceWith('cus_1', 'pm_new')
     })
 
     it('unwraps an expanded customer object to its id', async () => {
@@ -1162,6 +1183,9 @@ describe('PaymentEventsService', () => {
 
       expect(
         robocallWebhookService.retryHoldFailedForAttachedCard,
+      ).not.toHaveBeenCalled()
+      expect(
+        paymentHoldsService.retryHoldFailedForAttachedCard,
       ).not.toHaveBeenCalled()
     })
 
@@ -1189,6 +1213,9 @@ describe('PaymentEventsService', () => {
       expect(
         robocallWebhookService.markDisputedByIntent,
       ).toHaveBeenCalledExactlyOnceWith('pi_hold_1')
+      expect(
+        paymentHoldsService.markDisputedByIntent,
+      ).toHaveBeenCalledExactlyOnceWith('pi_hold_1')
     })
 
     it('skips and warns when the dispute carries no payment intent', async () => {
@@ -1197,6 +1224,7 @@ describe('PaymentEventsService', () => {
       ).resolves.not.toThrow()
 
       expect(robocallWebhookService.markDisputedByIntent).not.toHaveBeenCalled()
+      expect(paymentHoldsService.markDisputedByIntent).not.toHaveBeenCalled()
       expect(logger.warn).toHaveBeenCalledWith(
         expect.objectContaining({ disputeId: 'dp_1' }),
         expect.stringContaining('no payment_intent'),

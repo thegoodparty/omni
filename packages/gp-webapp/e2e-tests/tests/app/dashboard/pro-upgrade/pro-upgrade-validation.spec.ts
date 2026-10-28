@@ -7,6 +7,7 @@ import {
 import {
   seedEinAndFiled,
   seedFilingComplete,
+  uniqueEin,
 } from 'src/helpers/pro-upgrade.helper'
 import { setFlagOverrides } from 'src/helpers/campaignStory.helper'
 
@@ -84,7 +85,7 @@ test.describe('pro-upgrade front-end validation gates', () => {
     expect(afterBlocked.details?.einNumber ?? null).toBeNull()
 
     // A shape-valid, IRS-prefix EIN passes sanity and advances to filing-details.
-    await einField.fill('47-1234567')
+    await einField.fill(uniqueEin())
     await page.getByRole('button', { name: 'Continue' }).click()
 
     await page.waitForURL(`**${PRO_UPGRADE_PATH}/filing-details`, {
@@ -162,8 +163,8 @@ test.describe('pro-upgrade front-end validation gates', () => {
 
     // Seed EIN + filing-status + a complete filing record so derivation lands
     // directly on candidate-profile (the only remaining incomplete step).
-    await seedEinAndFiled(client)
-    await seedFilingComplete(client, user.email)
+    const ein = await seedEinAndFiled(client)
+    await seedFilingComplete(client, user.email, ein)
 
     await page.goto(PRO_UPGRADE_PATH)
     await NavigationHelper.dismissOverlays(page)

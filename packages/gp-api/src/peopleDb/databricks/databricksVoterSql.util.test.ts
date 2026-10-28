@@ -296,12 +296,18 @@ describe('buildVoterFiltersSql', () => {
       precinct: { in: ['ORANGE|711'] },
       ideology: { in: ['Conservative'] },
       independentAffinity: { in: ['Yes'] },
+      votedInElection: { in: ['No'] },
+      votedInElectionReportedIds: {
+        in: ['0b3f1c1e-8f7a-4c1b-9d2e-3a4b5c6d7e8f'],
+      },
     }
 
     expect(Object.keys(sample).sort()).toEqual(
       Object.keys(PeopleFiltersSchema.shape).sort(),
     )
     for (const [key, value] of Object.entries(sample)) {
+      // Applied inside votedInElection; alone it constrains nothing.
+      if (key === 'votedInElectionReportedIds') continue
       expect(
         buildVoterFiltersSql(createBag(), parseFilters({ [key]: value })),
       ).not.toBeNull()
@@ -459,6 +465,88 @@ describe('buildVoterFiltersSql', () => {
         parseFilters({ independentAffinity: { in: ['Yes', 'No'] } }),
       ),
     ).toBeNull()
+  })
+
+  describe('votedInElection', () => {
+    const REPORTED = '0b3f1c1e-8f7a-4c1b-9d2e-3a4b5c6d7e8f'
+
+    it('Yes is membership in the L2 table when the campaign recorded nobody', () => {
+      const bag = createBag()
+      expect(
+        buildVoterFiltersSql(
+          bag,
+          parseFilters({ votedInElection: { eq: 'Yes' } }),
+        ),
+      ).toBe(
+        'v.`id` IN (SELECT id FROM goodparty_data_catalog.mart_gp_api.gp_api_voter_eav_general_2026)',
+      )
+      expect(bag.params).toEqual([])
+    })
+
+    it('Yes ORs the campaign-recorded voters into the L2 table', () => {
+      expect(
+        buildVoterFiltersSql(
+          createBag(),
+          parseFilters({
+            votedInElection: { eq: 'Yes' },
+            votedInElectionReportedIds: { in: [REPORTED] },
+          }),
+        ),
+      ).toBe(
+        "(v.`id` IN (SELECT id FROM goodparty_data_catalog.mart_gp_api.gp_api_voter_eav_general_2026) OR v.`id` IN ('" +
+          REPORTED +
+          "'))",
+      )
+    })
+
+    // NOT IN against a NULL id would match nobody.
+    it('No excludes L2 voters with a null-safe NOT IN', () => {
+      expect(
+        buildVoterFiltersSql(
+          createBag(),
+          parseFilters({ votedInElection: { eq: 'No' } }),
+        ),
+      ).toBe(
+        'v.`id` NOT IN (SELECT id FROM goodparty_data_catalog.mart_gp_api.gp_api_voter_eav_general_2026 WHERE id IS NOT NULL)',
+      )
+    })
+
+    it('No also excludes the campaign-recorded voters', () => {
+      expect(
+        buildVoterFiltersSql(
+          createBag(),
+          parseFilters({
+            votedInElection: { eq: 'No' },
+            votedInElectionReportedIds: { in: [REPORTED] },
+          }),
+        ),
+      ).toBe(
+        "(v.`id` NOT IN (SELECT id FROM goodparty_data_catalog.mart_gp_api.gp_api_voter_eav_general_2026 WHERE id IS NOT NULL) AND v.`id` NOT IN ('" +
+          REPORTED +
+          "'))",
+      )
+    })
+
+    it('emits no clause when both values are selected', () => {
+      expect(
+        buildVoterFiltersSql(
+          createBag(),
+          parseFilters({
+            votedInElection: { in: ['Yes', 'No'] },
+            votedInElectionReportedIds: { in: [REPORTED] },
+          }),
+        ),
+      ).toBeNull()
+    })
+
+    it('ignores a reported id set without votedInElection', () => {
+      expect(
+        buildVoterFiltersSql(
+          createBag(),
+          parseFilters({ votedInElectionReportedIds: { in: [REPORTED] } }),
+        ),
+      ).toBeNull()
+    })
   })
 
   it('builds the political-party Other predicate with an explicit null', () => {
@@ -1098,6 +1186,14 @@ describe('buildPersonSql', () => {
     expect(sql).toContain('v.`id` = :p2')
     expect(sql).toContain('LIMIT 1')
     expect(params.map(({ value }) => value)).toEqual(['CA', '29', ID])
+  })
+
+  it('trails the named columns with the L2 early/absentee flag', () => {
+    const { sql } = buildPersonSql({ ...scope, columns: ['id'], id: ID })
+
+    expect(sql).toContain(
+      'SELECT v.`id` AS `id`, (v.`id` IN (SELECT id FROM goodparty_data_catalog.mart_gp_api.gp_api_voter_eav_general_2026)) AS `early_absentee_voted` FROM',
+    )
   })
 
   // Postgres cast to `uuid` and folded case; this column is a STRING that does

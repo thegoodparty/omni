@@ -19,27 +19,40 @@ export class ClerkTimeoutError extends Error {
 // ClerkOptions exposes no fetcher to abort through. The socket is left to
 // finish on its own, which is acceptable because the point is to free the
 // request path, not to save the connection.
+//
+// Pass `timeoutMs: null` for a call that makes no network request (a JWT
+// verified locally against CLERK_JWT_KEY). It keeps the span but skips the
+// race, because there the timer can only fire when the event loop itself was
+// frozen, which would 403 a request whose token is fine.
 export const clerkCall = <T>(
   operation: string,
   attributes: Attributes,
   op: () => Promise<T>,
-  timeoutMs: number = CLERK_API_TIMEOUT_MS,
+  timeoutMs: number | null = CLERK_API_TIMEOUT_MS,
 ): Promise<T> =>
   tracer.startActiveSpan(
     `clerk.${operation}`,
-    { attributes: { ...attributes, 'clerk.timeout_ms': timeoutMs } },
+    {
+      attributes: {
+        ...attributes,
+        ...(timeoutMs === null ? {} : { 'clerk.timeout_ms': timeoutMs }),
+      },
+    },
     async (span) => {
       let timer: NodeJS.Timeout | undefined
       try {
-        const result = await Promise.race([
-          op(),
-          new Promise<never>((_, reject) => {
-            timer = setTimeout(
-              () => reject(new ClerkTimeoutError(timeoutMs)),
-              timeoutMs,
-            )
-          }),
-        ])
+        const result =
+          timeoutMs === null
+            ? await op()
+            : await Promise.race([
+                op(),
+                new Promise<never>((_, reject) => {
+                  timer = setTimeout(
+                    () => reject(new ClerkTimeoutError(timeoutMs)),
+                    timeoutMs,
+                  )
+                }),
+              ])
         span.setStatus({ code: SpanStatusCode.OK })
         return result
       } catch (err) {

@@ -11,6 +11,11 @@ import {
 
 const MAX_REQUESTS = 10
 const ROUTE_FAIL_KIND = 'route_fail'
+const PHONE_LIST_FAIL_KIND = 'phone_list_fail'
+const CALLHUB_CREATE_FAIL_KIND = 'create_fail'
+// Staging names a CallHub broadcast `Robocall <slug> #<outreachId>`; the create
+// request carries no other link back to the campaign.
+const ROBOCALL_BROADCAST_NAME = /^Robocall .+ #(\d+)$/
 const VERCEL_ORDER_KIND = 'domain_order'
 const VERCEL_ORDER_FAIL_KIND = 'order_fail'
 export const VERCEL_ORDER_COMPLETION_DELAY_SECONDS = 30
@@ -77,6 +82,16 @@ export class VendorMockRecordService extends createPrismaBase(
     return this.model.findMany({ where: { campaignId } })
   }
 
+  // Serve has no Campaign, so its Geoapify records carry no campaignId; the
+  // mock stamps the organization slug on `state` instead.
+  async findByOrganization(organizationSlug: string) {
+    return this.model.findMany({
+      where: {
+        state: { path: ['organizationSlug'], equals: organizationSlug },
+      },
+    })
+  }
+
   // Returns the vb_campaign mock records for a campaign's robocalls.
   // CallHub records are stored without a campaignId (they're global to the
   // mock controller), so we resolve them via the campaign's OutreachRobocall
@@ -90,13 +105,33 @@ export class VendorMockRecordService extends createPrismaBase(
       .map((r) => r.callhubCampaignPkStr)
       .filter((pk): pk is string => pk !== null)
     if (pkStrs.length === 0) return []
-    return this.model.findMany({
+    const campaigns = await this.model.findMany({
       where: {
         vendor: VendorMockVendor.callhub,
         kind: 'vb_campaign',
         externalId: { in: pkStrs },
       },
     })
+    // Include the phonebooks those campaigns were created against.
+    const phonebookIds = campaigns.flatMap((c) => {
+      const state = c.state
+      if (typeof state !== 'object' || state === null || Array.isArray(state)) {
+        return []
+      }
+      const phonebooks: unknown = Object.entries(state).find(
+        ([key]) => key === 'phonebooks',
+      )?.[1]
+      return Array.isArray(phonebooks) ? phonebooks.map(String) : []
+    })
+    if (phonebookIds.length === 0) return campaigns
+    const phonebooks = await this.model.findMany({
+      where: {
+        vendor: VendorMockVendor.callhub,
+        kind: 'phonebook',
+        externalId: { in: phonebookIds },
+      },
+    })
+    return [...campaigns, ...phonebooks]
   }
 
   // Peerly p2p jobs carry no campaignId (the mock controller is global), so
@@ -202,6 +237,45 @@ export class VendorMockRecordService extends createPrismaBase(
       data: { state: { routeFail: false } },
     })
     return count > 0
+  }
+
+  // One row per campaign, so an armed failure only ever reaches that
+  // campaign's next CallHub broadcast create, never another test's.
+  async armCallhubCreateFail(campaignId: number) {
+    return this.upsert(
+      VendorMockVendor.callhub,
+      CALLHUB_CREATE_FAIL_KIND,
+      String(campaignId),
+      { createFail: true },
+      campaignId,
+    )
+  }
+
+  // Conditional update so two concurrent creates can't both consume it.
+  async consumeCallhubCreateFail(campaignId: number) {
+    this.assertNonProdDeploy()
+    const { count } = await this.model.updateMany({
+      where: {
+        vendor: VendorMockVendor.callhub,
+        kind: CALLHUB_CREATE_FAIL_KIND,
+        externalId: String(campaignId),
+        state: { path: ['createFail'], equals: true },
+      },
+      data: { state: { createFail: false } },
+    })
+    return count > 0
+  }
+
+  // The campaign a CallHub broadcast was staged for, read off the name the
+  // staging service gives it. Undefined for any other name.
+  async campaignIdForRobocallBroadcast(name: string) {
+    const outreachId = Number(ROBOCALL_BROADCAST_NAME.exec(name)?.[1])
+    if (!Number.isSafeInteger(outreachId)) return undefined
+    const outreach = await this.client.outreach.findUnique({
+      where: { id: outreachId },
+      select: { campaignId: true },
+    })
+    return outreach?.campaignId ?? undefined
   }
 
   // The campaign that owns a candidate domain, via its website. Undefined
@@ -362,6 +436,33 @@ export class VendorMockRecordService extends createPrismaBase(
       where: { vendor_kind_externalId: { vendor, kind, externalId } },
       data: { state: nextState },
     })
+  }
+
+  // One row per campaign, so a seeded failure only reaches that campaign's
+  // next Peerly phone-list upload.
+  async armPhoneListFail(campaignId: number) {
+    return this.upsert(
+      VendorMockVendor.peerly,
+      PHONE_LIST_FAIL_KIND,
+      String(campaignId),
+      { phoneListFail: true },
+      campaignId,
+    )
+  }
+
+  // Conditional update so two concurrent uploads can't both consume it.
+  async consumePhoneListFail(campaignId: number) {
+    this.assertNonProdDeploy()
+    const { count } = await this.model.updateMany({
+      where: {
+        vendor: VendorMockVendor.peerly,
+        kind: PHONE_LIST_FAIL_KIND,
+        externalId: String(campaignId),
+        state: { path: ['phoneListFail'], equals: true },
+      },
+      data: { state: { phoneListFail: false } },
+    })
+    return count > 0
   }
 
   // Sets balance to 0 for the Peerly mock by creating a sentinel record.

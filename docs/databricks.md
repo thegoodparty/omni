@@ -27,6 +27,16 @@ with 460+ models, and the results land here and get written back to the Postgres
 databases. If you need to change what a table contains or add one, that work happens
 in `gp-data-platform`, not here. This repo only _reads_ Databricks.
 
+### gp-api Postgres, live (Lakehouse Federation)
+
+The foreign catalogs `gp_api_pg_dev` and `gp_api_pg` read gp-api's Aurora
+database live, as the read-only Postgres role `databricks_federation`. Serverless
+warehouses reach Aurora through an internet-facing NLB, allowlisted to
+Databricks' us-west-2 ranges, and an RDS Proxy, both created by gp-api's
+Pulumi. Access is through the readers groups `gp_api_pg_dev_readers` and
+`gp_api_pg_readers`. Setup, access and failure modes:
+`packages/gp-api/deploy/databricks/federation/README.md`.
+
 ## Access — use the CLI
 
 The Databricks CLI authenticates with OAuth (browser login, token stored in your OS
@@ -133,10 +143,11 @@ rebuild performs. Table-level grants on the `dbt` objects do not -- they were
 granted directly once and silently vanished, taking every voter read with them.
 
 Scoping a voter read needs the district's `type`, `name`, and `state`, and those
-come from **election-api**, which owns that table. Resolving it from the
-warehouse instead put a keyed single-row lookup at the head of every read, for a
-p90 an order of magnitude worse than the HTTP hop. The result is memoized per
-process, so it is one hop per district per task.
+come from the **election database**, which owns that table (gp-api reads it in
+process, `src/electionDb/`). Resolving it from the warehouse instead put a keyed
+single-row lookup at the head of every read, for a p90 an order of magnitude
+worse than the database read. The result is memoized per process, so it is one
+read per district per task.
 
 The hostname and HTTP path are workspace identifiers, not secrets. The credentials
 are — never commit them; pull service-principal secrets from the deployment env, not

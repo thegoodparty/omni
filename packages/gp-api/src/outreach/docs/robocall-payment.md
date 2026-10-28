@@ -41,9 +41,10 @@ This RESERVES REAL MONEY. Invariants, in order:
   first validate the chosen card the same way the immediate path does
   (`ensureCustomer` → `retrievePaymentMethod` → `pm.customer` match →
   `type === 'card'`; a bad PM throws 400/502 and persists nothing) and persist
-  `paymentMethodId` + `stripeCustomerId` onto the still-`pending_payment` draft
-  so the deferred sweep bills exactly that card. The persist is a CAS
-  (`updateMany` guarded on `settleState = pending_payment`): after the two async
+  `paymentMethodId` + `stripeCustomerId` onto the draft (moving a
+  `hold_failed` resend to `pending_payment`) so the deferred sweep bills
+  exactly that card. The persist is a CAS (`updateMany` guarded on
+  `settleState in (pending_payment, hold_failed)`): after the two async
   Stripe validations a concurrent reschedule-into-window + placement could have
   advanced the row, and the guard means the chosen card is never written onto an
   already-`authorized` row. When that CAS matches 0 rows (the row advanced under
@@ -254,7 +255,7 @@ completion is known. It has one wired signal, the money-SAFE floor:
   `estimateRobocallDialCompletion({ audienceSize: billableCount, callsPerMinute:
 safeRate, startAt: dialedAt })` + `ROBOCALL_DIAL_ESTIMATE_BUFFER_MINUTES` (env,
   default 30), where `safeRate = floor(configuredRate /
-ROBOCALL_DIAL_SAFETY_RATE_DIVISOR)` (env divisor, default 2) and `configuredRate
+ROBOCALL_DIAL_SAFETY_RATE_DIVISOR)` (env divisor, default 1.1) and `configuredRate
 = CallhubCampaignService.getConfiguredCallsPerMinute()` — the SAME source
   `createVoiceBroadcast` dials at. The floor reports done ONLY when the campaign is
   SURELY finished, so it can NEVER abort a still-dialing run; it does not depend on
@@ -278,26 +279,31 @@ run STILL dialing while the 48h capture charges full (under-delivery + full
 charge). The real dial can run SLOWER than the configured rate (vendor pacing,
 AMD, retries), so a flat buffer alone runs short for a large audience. The floor
 therefore WALKS the estimate at a RATE HAIRCUT (`configuredRate / divisor`, default
-÷2, modeling a dial up to 2× slower CORRECTLY through the daily 09:00-21:00 window)
-and adds the flat buffer on top — erring LONG by construction. (Started at ÷3;
-lowered to ÷2 on 2026-10-15 because ÷3 held the pool ~3× the real dial time and,
-one-run-at-a-time, stacked into multi-day backlogs that pushed sends overdue —
-observed slowdowns are ~1.5-2×, so ÷2 keeps a safe margin. The durable fix is the
-count speedup above, which removes the guess entirely.) The flat BUFFER was
-lowered 180 → 30 the same day: at the full-pool 120/min rate the 180 dominated
-the ceiling and over-held the pool for hours on a fast dial. It is safe to cut
-because the up-to-2× slowdown is PROPORTIONAL to dial time and is already covered
-by the ÷2 rate haircut, which scales with list size; the flat buffer need only
-absorb startup/tail slack, which 30 does. Do NOT instead drop the divisor to 1
-and lean on a flat pad — a constant pad under-covers a large list (a 2× slowdown
-on a 7.5k-call run is ~60 min, more than any flat pad we'd set), which is the
-early-abort the haircut exists to prevent. For a large audience
+÷1.1, modeling a dial slightly slower than configured CORRECTLY through the daily
+09:00-21:00 window) and adds the flat buffer on top — erring LONG by construction.
+(Started at ÷3; ÷2 on 2026-10-15; ÷1.1 on 2026-10-27. The ~1.5-2× slowdowns that
+justified ÷2 were measured while CallHub's create CLAMPED every campaign to ~60/min
+— half the configured 120 — so that apparent slowdown was the clamp, not vendor
+pacing. #3263 removed the clamp and campaigns now dial at the configured 120
+(confirmed in CallHub), so ÷1.1 leaves a thin genuine-pacing margin and frees the
+pool close to the real dial time. It is env-overridable and read at call time: if a
+real large run shows the dial materially lags 120, raise the env toward ÷1.5 with no
+deploy. The durable fix is the count speedup above, which removes the guess
+entirely.) The flat BUFFER was lowered 180 → 30 on 2026-10-15: at the full-pool
+120/min rate the 180 dominated the ceiling and over-held the pool for hours on a
+fast dial. Do NOT drop the divisor to 1 and lean on the flat pad alone — at ÷1 the
+haircut vanishes, and a constant pad under-covers a large list if any real pacing
+slowdown remains (a 20% slowdown on a 7.5k-call run is ~15 min, eating most of the
+30-min buffer), which is the early-abort the haircut exists to prevent. For a large
+audience
 the ceiling can exceed the 48h settlement floor, in which case the completion sweep
 settles first and the early free simply does not fire (correct, just not faster).
 
 **R1 — the estimate reads the run's STAGED rate, not the live env.** The rate each
 campaign is created with is FROZEN at stage time onto `OutreachRobocall.stagedCallsPerMinute`
-(`createVoiceBroadcast` returns the `frequency` it stamped), and
+(`createVoiceBroadcast` returns the APPLIED `frequency` — CallHub clamps the create to
+an account default and `createVoiceBroadcast` PATCHes it up and reads the real rate back,
+so this is the rate the run actually dials at, not the one we requested), and
 `dialCompletionCeilingAt` walks the haircut over `run.stagedCallsPerMinute ??
 getConfiguredCallsPerMinute()` — the live value is only the fallback for a run staged
 before the freeze. So raising `CALLHUB_VB_CALLS_PER_MINUTE` for new campaigns can
@@ -324,7 +330,12 @@ during a known CallHub status-read outage). A `dialing` row with NULL
 
 **Frequency.** `CALLHUB_VB_CALLS_PER_MINUTE` default is **120** — the whole
 account pool (10 → 30 → 120 on 2026-10-15 as the serial model let the rate
-climb; a live PATCH confirmed CallHub accepts 120 on a campaign). The serial gate
+climb). It is the rate we TARGET, not necessarily the one that dials: CallHub's
+create endpoint clamps frequency to an account default (observed 60/min, verified
+Oct 2026 across three real campaigns) regardless of what we POST, so
+`createVoiceBroadcast` PATCHes the fresh PAUSED campaign up to this rate on the
+`/v1/voice_broadcasts/{pk}/` detail route (the only method CallHub honors) and
+freezes the APPLIED frequency it reads back — see `callhub/AGENTS.md`. The serial gate
 makes only one campaign dial at a time, so a single run can own the full pool and
 never contends with our own others; it is SAFE for the estimate because R1 freezes
 each run's staged rate (an in-flight run keeps its ceiling) and the completion
@@ -612,13 +623,39 @@ for that customer's `hold_failed` robocall drafts whose send is IN the window
 (`now < date <= now + ROBOCALL_HOLD_WINDOW_DAYS`), calling `authorizeHold` with
 the newly attached card. The lower bound honors "a card update after send time
 does not revive it"; the upper bound keeps authorizeHold on its placement retry
-path (`hold_failed` + null intent → `hold_pending`) and off the defer branch,
-whose persist CAS is `pending_payment`-only and would silently drop the new card
-on an out-of-window `hold_failed` row. authorizeHold owns the single-owner claim, the Stripe hold,
+path (`hold_failed` + null intent → `hold_pending`) rather than the defer
+branch: an out-of-window row needs no hold yet, and the candidate's own resend
+reschedules it. authorizeHold owns the single-owner claim, the Stripe hold,
 and the `HoldPlaced`/`HoldFailed` milestones, so a Stripe redelivery is idempotent
 (a draft already advanced out of `hold_failed` is not re-selected) and per-draft
 failures are isolated. RESERVES REAL MONEY off-session. Ops: the Stripe webhook
 endpoint must subscribe to `payment_method.attached`.
+
+**Self-serve resend (candidate re-enters the flow).** The webhook retry above
+covers a card updated out-of-band; the candidate who left the pay wizard
+recovers through the SAME draft-resume path a saved draft uses.
+`findByScope` surfaces a `hold_failed` robocall in history (the one
+`pending_payment` row it does not hide) with the satellite's `settleState`,
+`audioKey`, `callbackNumber` and `billableCount` on the list row (mirroring
+`OutreachRobocallDetailSchema`), so the row reads "payment failed" and offers
+"update card & resend". The resend re-enters `POST /outreach/robocall` with
+`draftOutreachId` set to the `hold_failed` row: `convertDraft` now accepts a
+`hold_failed` row alongside a `draft` one, re-running the create gates
+(compliance/ETag bind, schedule validation against the NEW future date,
+server-re-derived billing via `resolveScheduleGates`), reusing the
+audio/script/audience. The satellite STAYS `hold_failed`: only a hold that
+lands (or a deferral that saves the new card) moves it on, so a candidate who
+reaches the pay step and leaves still sees "Payment failed" and can resend
+again, instead of the row going hidden at `pending_payment`. The existing
+`POST /outreach/robocall/:id/authorize` (which already accepts `pending_payment
+| hold_failed`) places the hold on the new card, or defers it when the new date
+is beyond the window. One money path: a resend is priced and scheduled under
+the same gates as a fresh create, never a client-supplied count. The
+cancel-at-deadline sweep's `hold_failed → cancelled` CAS is pinned to the
+satellite's `updatedAt` as it read it, so a cancel that read the old past date
+cannot take a row a resend has just moved forward. The convert's own claim is
+settle-state only: the daily reminder stamps the row, and pinning the convert
+to `updatedAt` would 409 a resend submitted just after it.
 
 **Promo codes (reward codes on the pay step).** CAS mints single-use,
 amount-off promotion codes in Stripe (a fixed number of calls at a fixed rate)
@@ -663,3 +700,22 @@ Stripe call. A pre-dial unwind hands the reward back
 expires never redeemed anything. The deferred sweep applies a remembered code
 the same way when it places the hold. A partial code on a declined card stays
 remembered on the `hold_failed` row for the retry.
+
+**Free election-eve robocall offer (codes bound to a campaign).** The Nov 2026
+precinct experiment (`src/robocallFreeOffer/`) reuses the promo path above with
+one more rule: its codes only pay for the campaign's own offer run.
+`RobocallFreeOfferService.codeForDraft` mints a per-campaign code (`GPOFFER-` +
+8, `max_redemptions 1`, metadata `{ experiment, campaignId }`, coupon
+`ROBOCALL_FREE_OFFER_COUPON_ID`; empty hides the offer) or reuses one still
+active from an earlier offer draft, and `POST /outreach/robocall`
+auto-applies it when the draft's list is the offer list (best-effort; the pay
+step retries). For any code whose metadata names the experiment, `apply` and
+`resolveForAuthorize` also call `assertOfferBinding`: the code's campaign, the
+offer list exactly (saved from the offer card, unmodified, the campaign's
+treatment precincts; locked on save because robocall re-resolves the list at
+authorize and staging), and the campaign still eligible (enrolled, before
+Election Day, no other robocall booked, or for a goodparty.org owner no other
+offer run, with the draft being paid for left out of that count). The Amplitude flag is never rechecked here, so turning it off
+never voids a code already on a draft. Redemption, the unique index and
+`restore` are unchanged. Eligibility, enrollment and precinct assignment are in
+`robocallFreeOffer.service.ts`.

@@ -277,6 +277,7 @@ const NextTaskCard = ({
   surface,
   tone = 'default',
   className,
+  onFrontTaskLinkChange,
 }: {
   // The plan names its section. Without one, the heading follows the card in
   // front: a line for its kind of task, switching when the card does.
@@ -292,6 +293,9 @@ const NextTaskCard = ({
   // and the collapse toggle switch to light text; the card stays white.
   tone?: 'default' | 'inverse'
   className?: string
+  // Home hides its free robocall offer card while the card in front is the
+  // offer's own task, so the offer never shows twice.
+  onFrontTaskLinkChange?: (link: string | null) => void
 }): React.JSX.Element | null => {
   const [campaign] = useCampaign()
   const { tasks } = useTrackerTasks()
@@ -385,6 +389,10 @@ const NextTaskCard = ({
     : deck
   const frontTask = stack[0]
   const frontRow = tasks.find((row) => row.id === frontTask?.id)
+  const frontLink = frontRow?.link ?? null
+  useEffect(() => {
+    onFrontTaskLinkChange?.(frontLink)
+  }, [frontLink, onFrontTaskLinkChange])
 
   const activeWeeks =
     strategy?.phases.find((phase) => phase.key === 'active')?.weeks ?? []
@@ -429,10 +437,10 @@ const NextTaskCard = ({
     frontRow?.flowType === 'text' &&
     !frontRow.link?.trim()
 
-  // Only a task that closes itself however it gets done (the story) offers no
-  // manual "Mark done". Outreach closes itself only when started from its own
-  // button, so it keeps Mark done for sends made elsewhere or offline.
-  const completesItself = taskClosesItself(frontTask?.title ?? '')
+  // A task that closes itself offers no manual "Mark done": the story however
+  // it gets finished, and outreach once it is sent from its own button.
+  const outreach = !!action && !frontRow?.link?.trim()
+  const completesItself = taskClosesItself(frontTask?.title ?? '') || outreach
   const markDone = () => {
     if (!frontTask) return
     // No confirmation: we trust the candidate, and the plan can reopen it.

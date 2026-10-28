@@ -9,6 +9,8 @@ const READ: PriorityReadStatus = {
   needed: 40,
   groupsHeard: 9,
   groupsTotal: 12,
+  representativeAnswers: 10,
+  representativeNeeded: 40,
   good: false,
   status: 'notYetRepresentative',
   underrepresented: ['age65plus'],
@@ -54,6 +56,55 @@ describe('ReadStatusRailBlock', () => {
   })
 })
 
+describe('the rail seats', () => {
+  it('draws the answers that count as seats, with a key and the groups named', () => {
+    renderBlock({ ...READ, groupsNext: 1 })
+    const arc = screen.getByRole('img', {
+      name: '10 of the 40 answers we need',
+    })
+    expect(arc.querySelectorAll('circle')).toHaveLength(100)
+    expect(arc.querySelectorAll('[data-state="heard"]')).toHaveLength(25)
+    expect(arc.querySelectorAll('[data-state="needed"]')).toHaveLength(75)
+    expect(screen.getByText('10 of the 40 answers we need')).toBeInTheDocument()
+    expect(screen.queryByText(/groups heard/)).not.toBeInTheDocument()
+    expect(screen.getByText('Heard')).toBeInTheDocument()
+    expect(screen.getByText('Still needed')).toBeInTheDocument()
+    expect(
+      screen.getByText('Need a few more answers from people 65 and over'),
+    ).toBeInTheDocument()
+  })
+
+  // jsdom applies no CSS, so this pins the classes that pick one by width.
+  it('shows the seats from lg up and the bar below it', () => {
+    renderBlock(READ)
+    const arc = screen.getByRole('img', {
+      name: '10 of the 40 answers we need',
+    })
+    expect(arc).toHaveClass('hidden', 'lg:block')
+    expect(screen.getByText('Heard').closest('ul')).toHaveClass(
+      'hidden',
+      'lg:flex',
+    )
+    const bar = screen.getByRole('progressbar', {
+      name: '10 of the 40 answers we need',
+    })
+    expect(bar).toHaveClass('lg:hidden')
+    expect(bar).not.toHaveClass('hidden')
+  })
+
+  it('keeps a good read as it is, with no seats', () => {
+    renderBlock({
+      ...READ,
+      good: true,
+      status: 'representative',
+      groupsHeard: 12,
+      underrepresented: [],
+    })
+    expect(screen.getByText('Every group heard')).toBeInTheDocument()
+    expect(screen.queryByRole('img')).not.toBeInTheDocument()
+  })
+})
+
 describe('Get answers', () => {
   const rail = (readStatus: PriorityReadStatus) => renderBlock(readStatus)
   const button = () => screen.queryByRole('button', { name: 'Get answers' })
@@ -67,7 +118,7 @@ describe('Get answers', () => {
     rail({ ...READ, checkOut: undefined, groupsHeard: 0 })
     expect(screen.getByText('No one asked yet')).toBeInTheDocument()
     expect(button()).not.toBeInTheDocument()
-    expect(screen.queryByText(/groups heard/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/answers we need/)).not.toBeInTheDocument()
   })
 
   it('gives way to the follow-up text while it is scheduled', () => {
@@ -148,7 +199,7 @@ describe('ReadStatusStrip on a phone', () => {
     expect(link).not.toContainElement(button)
     expect(button).toBeEnabled()
     expect(
-      screen.getByRole('progressbar', { name: '9 of 12 groups heard' }),
+      screen.getByRole('progressbar', { name: '10 of the 40 answers we need' }),
     ).toBeInTheDocument()
   })
 

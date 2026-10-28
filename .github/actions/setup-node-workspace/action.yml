@@ -101,8 +101,8 @@ runs:
     # the restored node_modules if whichever job saved that cache happened to
     # run generate first. Otherwise every generate downloads it into
     # ~/.cache/prisma, and one dropped connection crashes the CLI even though
-    # its downloader reports retries left. Keyed per script because the
-    # gp-api and election-api schemas name different musl targets.
+    # its downloader reports retries left. Keyed per script because
+    # different schemas can name different musl targets.
     - name: Restore Prisma engines
       id: prisma-engines-cache
       if: inputs.prisma-generate-script != ''

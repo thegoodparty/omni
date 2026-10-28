@@ -7,10 +7,12 @@ import type { RobocallPromoStateResponse } from '@goodparty_org/contracts'
 import type Stripe from 'stripe'
 import {
   Campaign,
+  Organization,
   OutreachType,
   RobocallSettleState,
 } from '../../generated/prisma'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
+import { RobocallFreeOfferService } from '@/robocallFreeOffer/services/robocallFreeOffer.service'
 import { calcRobocallTotalInCents } from 'src/shared/util/robocallPricing.util'
 import {
   robocallDiscountInCents,
@@ -44,18 +46,31 @@ const PROMO_EDITABLE_STATES: RobocallSettleState[] = [
 export class OutreachRobocallPromoService extends createPrismaBase(
   MODELS.OutreachRobocall,
 ) {
-  constructor(private readonly stripe: StripeService) {
+  constructor(
+    private readonly stripe: StripeService,
+    private readonly freeOffer: RobocallFreeOfferService,
+  ) {
     super()
   }
 
   async apply(
     campaign: Campaign,
+    organization: Organization,
     outreachId: number,
     code: string,
   ): Promise<RobocallPromoStateResponse> {
     const draft = await this.findEditableDraft(campaign, outreachId)
     const promo = await this.lookup(code)
     await this.assertUnredeemed(promo.id, outreachId)
+    if (this.freeOffer.isOfferPromotionCode(promo)) {
+      await this.freeOffer.assertOfferBinding({
+        promo,
+        organization,
+        campaign,
+        outreachId,
+        voterFileFilterId: draft.outreach.voterFileFilterId,
+      })
+    }
 
     const coupon = this.couponOf(promo)
     const minimum = promo.restrictions.minimum_amount
@@ -111,8 +126,10 @@ export class OutreachRobocallPromoService extends createPrismaBase(
       outreachId: number
       promotionCodeId: string | null
       promoCode: string | null
+      outreach: { voterFileFilterId: number | null }
     },
     estimateInCents: number,
+    owner: { campaign: Campaign; organization: Organization },
   ): Promise<ResolvedRobocallPromo | null> {
     if (!draft.promotionCodeId || !draft.promoCode) return null
     const promo = await this.stripe.findActivePromotionCode(draft.promoCode)
@@ -122,6 +139,17 @@ export class OutreachRobocallPromoService extends createPrismaBase(
       )
     }
     await this.assertUnredeemed(promo.id, draft.outreachId)
+    // Rechecked here, not only at apply: the campaign can book another
+    // robocall, or stop qualifying, between applying the code and paying.
+    if (this.freeOffer.isOfferPromotionCode(promo)) {
+      await this.freeOffer.assertOfferBinding({
+        promo,
+        organization: owner.organization,
+        campaign: owner.campaign,
+        outreachId: draft.outreachId,
+        voterFileFilterId: draft.outreach.voterFileFilterId,
+      })
+    }
     const discount = robocallDiscountInCents(
       this.couponOf(promo),
       estimateInCents,
@@ -170,6 +198,7 @@ export class OutreachRobocallPromoService extends createPrismaBase(
           outreachType: OutreachType.robocall,
         },
       },
+      include: { outreach: { select: { voterFileFilterId: true } } },
     })
     if (!draft) {
       throw new NotFoundException('Robocall draft not found for this campaign')

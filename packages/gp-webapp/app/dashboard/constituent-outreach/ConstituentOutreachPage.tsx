@@ -36,6 +36,9 @@ import {
 import type { HistoryRow } from 'app/dashboard/outreach/v2/historyStatus.util'
 import { useServeSmsFlag } from '@shared/experiments/serveSmsFlag'
 import { useServeSelfServePollsFlag } from '@shared/experiments/serveSelfServePollsFlag'
+import { useServeEmailOutreachFlag } from '@shared/experiments/serveEmailOutreachFlag'
+import { EmailFlow } from 'app/dashboard/outreach/v2/email/EmailFlow'
+import { SERVE_EMAIL_SURFACE } from 'app/dashboard/outreach/v2/email/emailSurface'
 import { PollFlow } from 'app/dashboard/outreach/v2/poll/PollFlow'
 import { clientRequest } from 'gpApi/typed-request'
 
@@ -114,6 +117,10 @@ const ConstituentOutreachContent = () => {
   // Until it resolves this surface is the pre-SMS one, unchanged.
   const { ready: smsFlagReady, enabled: smsFlagEnabled } = useServeSmsFlag()
   const smsMounted = smsFlagReady && smsFlagEnabled
+  const [emailFlowOpen, setEmailFlowOpen] = useState(false)
+  const { ready: emailFlagReady, enabled: emailFlagEnabled } =
+    useServeEmailOutreachFlag()
+  const emailMounted = emailFlagReady && emailFlagEnabled
   const [pollFlowOpen, setPollFlowOpen] = useState(false)
   // Same shape as SMS: the tile is the treatment surface, and the flow is
   // mounted only on `ready && enabled`.
@@ -271,6 +278,7 @@ const ConstituentOutreachContent = () => {
         // keeps the card out of the grid entirely.
         onSmsClick={smsMounted ? () => setSmsFlowOpen(true) : undefined}
         onPollClick={pollsMounted ? () => setPollFlowOpen(true) : undefined}
+        onEmailClick={emailMounted ? () => setEmailFlowOpen(true) : undefined}
         // A navigation, not a flow: door knocking's create wizard is drawn
         // over its own map, which is a route rather than a drawer, and the map
         // is most of what the flow is for. `?create=1` so the card still opens
@@ -317,6 +325,13 @@ const ConstituentOutreachContent = () => {
           onScheduled={refetchOutreaches}
           surface={SERVE_SMS_SURFACE}
           source="outreach_page"
+        />
+      )}
+      {emailMounted && (
+        <EmailFlow
+          open={emailFlowOpen}
+          onClose={() => setEmailFlowOpen(false)}
+          surface={SERVE_EMAIL_SURFACE}
         />
       )}
       {pollsMounted && (

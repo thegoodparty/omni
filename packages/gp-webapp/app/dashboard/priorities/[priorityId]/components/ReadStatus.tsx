@@ -10,6 +10,7 @@ import {
   readPercent,
   resultsHref,
 } from '../readStatusCopy'
+import { AnswerSeatsArc, AnswerSeatsLegend } from './AnswerSeats'
 
 type ReadStatusProps = {
   priorityId: string
@@ -194,18 +195,28 @@ export const ReadStatusRailBlock = ({
             {READ_STATUS_COPY.label(readStatus)}
           </span>
         </div>
+        {readStatus.checkOut && readStatus.groupsTotal > 0 ? (
+          <div className="flex flex-col items-start gap-1.5">
+            {/* Seats on a computer, the bar below lg, by CSS alone so the
+                rail never jumps. */}
+            <AnswerSeatsArc
+              readStatus={readStatus}
+              className="hidden max-w-44 lg:block"
+            />
+            <span className="text-sm text-muted-foreground">
+              {READ_STATUS_COPY.progress(readStatus)}
+            </span>
+            <ReadProgress readStatus={readStatus} className="h-2 lg:hidden" />
+            <AnswerSeatsLegend
+              readStatus={readStatus}
+              className="hidden lg:flex"
+            />
+          </div>
+        ) : null}
         {readStatus.checkOut && READ_STATUS_COPY.namesGroups(readStatus) ? (
           <span className="text-sm text-foreground">
             {READ_STATUS_COPY.statusLine(readStatus)}
           </span>
-        ) : null}
-        {readStatus.checkOut && readStatus.groupsTotal > 0 ? (
-          <>
-            <span className="text-sm text-muted-foreground">
-              {READ_STATUS_COPY.progress(readStatus)}
-            </span>
-            <ReadProgress readStatus={readStatus} className="h-2" />
-          </>
         ) : null}
         {READ_STATUS_COPY.canGetAnswers(readStatus) ? (
           <GetAnswers

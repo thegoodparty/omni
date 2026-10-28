@@ -134,8 +134,8 @@ instead (`isAutomationEnabled()` in `meetingBriefings` / `ordinanceDispatch`);
 use whichever the surrounding feature already uses.
 
 Tests read the constant at import time, so a test cannot flip it with
-`vi.stubEnv`. Mock the module with `withVendorCronsGate` and call
-`disableVendorCrons()` (`shared/test-utils/vendorCronsGate.util.ts`).
+`vi.stubEnv`. Call `disableVendorCrons()`
+(`shared/test-utils/appEnvOverrides.ts`) for the rest of the test.
 
 ### Alerting and Slack-posting crons stay prod-only
 
@@ -233,3 +233,6 @@ public so run-job can call them synchronously, scoped to the caller's campaign.
       `communityIssues/services/communityIssueDispatch.service.test.ts` shows how
       callers fake the lock; `cron/services/cronLock.service.test.ts` covers the
       real Postgres race.
+- [ ] Tests call the job's method directly. `useTestService()` registers no
+      schedules, so the decorator never fires in a suite unless it opts in with
+      `useTestService({ scheduler: true })` (`packages/gp-api/docs/writing-tests.md`).

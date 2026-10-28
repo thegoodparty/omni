@@ -24,7 +24,10 @@ import {
   StrategicLandscapeResponse,
   StrategicLandscapeResult,
 } from '../schemas/strategicLandscape.schema'
-import { ElectionApiRaceNotFoundError } from './electionApi.service'
+import {
+  RaceContextNotFoundError,
+  RaceContextService,
+} from './raceContext.service'
 import { StrategicLandscapeParamsService } from './strategicLandscapeParams.service'
 import { StrategicLandscapePersister } from './strategicLandscape.persister'
 import { AnalyticsService } from '@/analytics/analytics.service'
@@ -90,7 +93,7 @@ type DispatchBase = {
 // Defensive Zod parse over Campaign.details — the column is Prisma JSON,
 // so we can't trust the shadow type at runtime. Only the keys we read here
 // are declared; everything else passes through silently. raceId is the
-// BallotReady race hash that election-api keys on.
+// BallotReady race hash that the election database keys on.
 //
 // Every field is independently fault-tolerant (`.catch(null)`): a single
 // off-shape value anywhere in details must never fail the whole parse,
@@ -146,6 +149,20 @@ const electionHasPassed = (details: Campaign['details']): boolean => {
   return dates.length > 0 && dates.every((date) => !isDateTodayOrFuture(date))
 }
 
+// fitToBudget trims the candidate list to fit the params cap but keeps
+// candidate_count at the true race size, so it compares cleanly with today's.
+const RunRosterSchema = z.object({
+  campaign_strategy_context: z.object({ candidate_count: z.number() }),
+})
+
+const rosterSeenBy = (run: ExperimentRun | null): number | null => {
+  if (run?.status !== ExperimentRunStatus.COMPLETED) return null
+  const parsed = RunRosterSchema.safeParse(run.params)
+  return parsed.success
+    ? parsed.data.campaign_strategy_context.candidate_count
+    : null
+}
+
 @Injectable()
 export class CampaignStrategyService extends createPrismaBase(
   MODELS.CampaignStrategy,
@@ -158,6 +175,7 @@ export class CampaignStrategyService extends createPrismaBase(
     private readonly analytics: AnalyticsService,
     private readonly campaignTrackerTasks: CampaignTrackerTasksService,
     private readonly storyState: CampaignStoryStateService,
+    private readonly raceContext: RaceContextService,
   ) {
     super()
   }
@@ -204,7 +222,7 @@ export class CampaignStrategyService extends createPrismaBase(
     // Resolve raceId synchronously so a 400 surfaces to this call rather than
     // a dispatch with no race.
     const brHashId = resolveRaceId(campaign.details)
-    const { plan, lostClaim } = await this.alignPlanWithStory(
+    const story = await this.alignPlanWithStory(
       await this.alignPlanWithRace(
         await this.upsertForCampaign(campaign.id, brHashId),
         brHashId,
@@ -217,6 +235,13 @@ export class CampaignStrategyService extends createPrismaBase(
     // never-generated one, both look exactly like a row that needs
     // dispatching, so nothing downstream can tell the difference. Report what
     // is true: it is generating.
+    if (story.lostClaim) return { status: 'generating' }
+
+    // Same stand-down for the roster claim.
+    const { plan, lostClaim } = await this.alignPlanWithRoster(
+      story.plan,
+      brHashId,
+    )
     if (lostClaim) return { status: 'generating' }
 
     const [opposition, opportunities] = await Promise.all([
@@ -254,7 +279,7 @@ export class CampaignStrategyService extends createPrismaBase(
   // discovery lives in exactly one place and the two paths can't drift.
   //
   // Degrades to 'unavailable' (logged, never thrown) when there's no race,
-  // election-api is down, or the attempt cap / SQS send fails, so the
+  // the election database is down, or the attempt cap / SQS send fails, so the
   // race-opponent collect path never 500s on a setup gap.
   async ensureOppositionResearch(campaign: CampaignWith<'user'>): Promise<{
     disposition: 'inflight' | 'persisted' | 'unavailable'
@@ -294,18 +319,18 @@ export class CampaignStrategyService extends createPrismaBase(
       return { disposition: 'inflight', oppositionRunId: plan.oppositionRunId }
     }
 
-    // 'redispatch': build params (election-api) then claim+dispatch opposition.
+    // 'redispatch': build params (election database) then claim+dispatch opposition.
     let params: StrategicLandscapeParams
     try {
       params = await this.params.build(campaign, brHashId)
     } catch (error) {
       if (
-        error instanceof ElectionApiRaceNotFoundError ||
+        error instanceof RaceContextNotFoundError ||
         error instanceof BadGatewayException
       ) {
         this.logger.warn(
           { error, campaignId: campaign.id, raceId: brHashId },
-          'election-api unavailable while discovering opponents; reporting unavailable',
+          'election database unavailable while discovering opponents; reporting unavailable',
         )
         return { disposition: 'unavailable', oppositionRunId: null }
       }
@@ -572,21 +597,21 @@ export class CampaignStrategyService extends createPrismaBase(
       )
     }
 
-    // Building params calls election-api. If the race isn't found (404) or
-    // election-api is otherwise unavailable, there's nothing to dispatch —
+    // Building params reads the election database. If the race isn't found or
+    // the database is otherwise unavailable, there's nothing to dispatch —
     // report a terminal 'failed' so the client stops polling instead of
-    // re-hammering election-api with a 500/502 on every poll.
+    // re-hammering the election database with a 500/502 on every poll.
     let params: StrategicLandscapeParams
     try {
       params = await this.params.build(campaign, brHashId)
     } catch (error) {
       if (
-        error instanceof ElectionApiRaceNotFoundError ||
+        error instanceof RaceContextNotFoundError ||
         error instanceof BadGatewayException
       ) {
         this.logger.warn(
           { error, campaignId: campaign.id, raceId: brHashId },
-          'election-api unavailable while building strategy params; reporting failed',
+          'election database unavailable while building strategy params; reporting failed',
         )
         return { status: 'failed', reason: 'race_lookup_failed' }
       }
@@ -1025,6 +1050,102 @@ export class CampaignStrategyService extends createPrismaBase(
       })
     })
 
+    return {
+      plan: await this.model.findUniqueOrThrow({ where: { id: plan.id } }),
+      lostClaim: !claimed,
+    }
+  }
+
+  // A race's roster often fills in after its plan was researched, and nothing
+  // else re-runs a persisted section, so opposition research run against a
+  // thin roster would leave out most of the field for good. Same shape as
+  // alignPlanWithRace: when the run saw fewer candidates than the race has
+  // now, wipe the section in place and let dispatchPending regenerate it.
+  // Opportunities are left alone: that experiment is told not to build on the
+  // roster.
+  //
+  // trackerBootstrapped is kept: the race and story are unchanged, and the
+  // weekly tracker run reads the rebuilt plan, without a second paid run here.
+  private async alignPlanWithRoster(
+    plan: CampaignStrategy,
+    raceId: string,
+  ): Promise<StoryAlignment> {
+    if (!plan.oppositionPersistedAt) return { plan, lostClaim: false }
+    const run = await this.runFor(plan.oppositionRunId)
+    const seen = rosterSeenBy(run)
+    if (!run || seen === null) return { plan, lostClaim: false }
+
+    let rosterSize: number
+    try {
+      rosterSize = (await this.raceContext.getStrategyContext(raceId))
+        .candidate_count
+    } catch (err) {
+      this.logger.warn(
+        { err, planId: plan.id, raceId },
+        'election data unavailable; serving the plan without a roster check',
+      )
+      return { plan, lostClaim: false }
+    }
+    if (rosterSize <= seen) return { plan, lostClaim: false }
+
+    // A manual add on the race-opponent page inserts names into the rows the
+    // run persisted, so a stored name the run's own output lacks was typed in
+    // by the candidate, and a reset would delete it. An unreadable artifact
+    // skips the rebuild: keeping a stale list is the safe failure.
+    let generated: string[] | null = null
+    try {
+      const raw =
+        run.artifactBucket && run.artifactKey
+          ? await this.s3.getFile(run.artifactBucket, run.artifactKey)
+          : undefined
+      generated = raw ? parseOpponents(raw).map((o) => o.fullName) : null
+    } catch (err) {
+      this.logger.warn(
+        { err, planId: plan.id, runId: run.runId },
+        'opposition artifact unreadable; skipping the roster rebuild',
+      )
+    }
+    if (generated === null) return { plan, lostClaim: false }
+    const fromRun = new Set(generated.map((n) => n.trim().toLowerCase()))
+    const stored = await this.client.campaignStrategyOpponent.findMany({
+      where: { campaignStrategyId: plan.id },
+      select: { fullName: true },
+    })
+    if (stored.some((o) => !fromRun.has(o.fullName.trim().toLowerCase()))) {
+      return { plan, lostClaim: false }
+    }
+
+    // Compare-and-swap on everything read above, so concurrent polls or a
+    // manual add landing in between can't double-reset. The candidate didn't
+    // cause this rebuild, so the section gets back the attempt slot
+    // dispatchPending is about to claim.
+    const claimed = await this.client.$transaction(async (tx) => {
+      const { count } = await tx.campaignStrategy.updateMany({
+        where: {
+          id: plan.id,
+          oppositionRunId: plan.oppositionRunId,
+          oppositionPersistedAt: plan.oppositionPersistedAt,
+          oppositionAttempts: plan.oppositionAttempts,
+        },
+        data: {
+          oppositionRunId: null,
+          oppositionPersistedAt: null,
+          oppositionAttempts: Math.max(plan.oppositionAttempts - 1, 0),
+        },
+      })
+      if (count === 0) return false
+      await tx.campaignStrategyOpponent.deleteMany({
+        where: { campaignStrategyId: plan.id },
+      })
+      return true
+    })
+
+    if (claimed) {
+      this.logger.info(
+        { campaignId: plan.campaignId, planId: plan.id, rosterSize, seen },
+        'race roster grew since opposition research ran; regenerating it',
+      )
+    }
     return {
       plan: await this.model.findUniqueOrThrow({ where: { id: plan.id } }),
       lostClaim: !claimed,

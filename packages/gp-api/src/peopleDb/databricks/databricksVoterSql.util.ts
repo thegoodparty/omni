@@ -351,6 +351,43 @@ const buildIndependentAffinityFilter = (
   return null
 }
 
+// L2's early and absentee voters for the current general, rebuilt daily
+// from an upload, apart from the monthly voter table so the filter tracks
+// returns as they come in. Same ids as both people tables; a consumer-only
+// constituent is never in it.
+const EARLY_ABSENTEE_VOTED_TABLE = TABLE('gp_api_voter_eav_general_2026')
+
+// "Voted in election": L2's early and absentee voters OR the people the
+// campaign recorded as already voted. The campaign half is resolved in
+// Postgres and arrives as a sibling id set, which is why this one clause
+// reads two filter keys: an OR across the two sources cannot be split into
+// independently AND-ed filters.
+const buildVotedInElectionFilter = (
+  op: FilterOperator | undefined,
+  reportedIdsOp: FilterOperator | undefined,
+): string | null => {
+  if (!op) return null
+  const selected =
+    op.operator === 'in' && op.values
+      ? op.values.map(String)
+      : op.operator === 'eq' && op.value !== undefined
+        ? [String(op.value)]
+        : []
+  const hasYes = selected.includes('Yes')
+  const hasNo = selected.includes('No')
+  if (hasYes === hasNo) return null
+  const reported =
+    reportedIdsOp?.operator === 'in' && reportedIdsOp.values?.length
+      ? idList(reportedIdsOp.values)
+      : null
+  if (hasYes) {
+    const l2 = `${col('id')} IN (SELECT id FROM ${EARLY_ABSENTEE_VOTED_TABLE})`
+    return reported ? `(${l2} OR ${col('id')} IN (${reported}))` : l2
+  }
+  const l2 = `${col('id')} NOT IN (SELECT id FROM ${EARLY_ABSENTEE_VOTED_TABLE} WHERE id IS NOT NULL)`
+  return reported ? `(${l2} AND ${col('id')} NOT IN (${reported}))` : l2
+}
+
 const buildLanguageFilter = (bag: Bag, op?: FilterOperator): string | null => {
   if (!op) return null
   const target = col('Language_Code')
@@ -636,6 +673,15 @@ export const buildVoterFiltersSql = (
       case 'independentAffinity':
         sql = buildIndependentAffinityFilter(op, affinityColumn)
         break
+      case 'votedInElection':
+        sql = buildVotedInElectionFilter(
+          op,
+          filterOperators.votedInElectionReportedIds,
+        )
+        break
+      case 'votedInElectionReportedIds':
+        // Applied inside votedInElection; alone it constrains nothing.
+        break
       case 'estimatedIncomeAmountInt':
         sql = buildNumericFilter(bag, 'Estimated_Income_Amount_Int', op)
         break
@@ -868,13 +914,20 @@ export const buildOverlapCountSql = (
 // One voter by id, still scoped to the district. The scope is not redundant:
 // an id from one district must not resolve through another office's drawer, so
 // the same predicate the list uses also gates the detail read.
+export const PERSON_EARLY_ABSENTEE_VOTED_COLUMN = 'early_absentee_voted'
+
 export const buildPersonSql = (
   args: DbxScopeArgs & { columns: readonly string[]; id: string },
 ): DbxStatement => {
   const bag = createBag()
-  const projection = args.columns
-    .map((column) => `${col(column)} AS ${ident(column)}`)
-    .join(', ')
+  // Trailing the column list so the row's named columns keep their
+  // positions: whether L2 reports this person voting early or absentee, for
+  // the detail's "Already voted". Folded in here rather than asked
+  // separately, which would add a warehouse round trip to every open.
+  const projection = [
+    ...args.columns.map((column) => `${col(column)} AS ${ident(column)}`),
+    `(${col('id')} IN (SELECT id FROM ${EARLY_ABSENTEE_VOTED_TABLE})) AS ${ident(PERSON_EARLY_ABSENTEE_VOTED_COLUMN)}`,
+  ].join(', ')
   const scope = buildScopeSql(bag, args)
   const sql =
     `SELECT ${projection} FROM ${args.district.table} v ${scope}` +
@@ -914,6 +967,29 @@ export const buildPrecinctsSql = (args: {
     ` FROM ${args.district.table} v ${scope}` +
     ` GROUP BY ${col('County')}, ${col('Precinct')}` +
     ` ORDER BY voters DESC, county ASC, precinct ASC` +
+    ` LIMIT ${bag.bind(MAX_PRECINCT_OPTIONS + 1, 'INT')}`
+  return { sql, params: bag.params }
+}
+
+// Every (County, Precinct) in the district with its landline voters, for the
+// free robocall offer's precinct assignment. The landline test is the one
+// the robocall audience counts by. Same cap as buildPrecinctsSql, so a
+// clipped list is detectable the same way.
+export const buildPrecinctLandlinesSql = (args: {
+  district: DbxDistrict
+}): DbxStatement => {
+  const bag = createBag()
+  const scope = buildScopeSql(bag, {
+    district: args.district,
+    filters: { filters: [], filterValues: {}, filterOperators: {} },
+  })
+  const landline = isPresentSql('VoterTelephones_LandlineFormatted')
+  const sql =
+    `SELECT ${col('County')} AS county, ${col('Precinct')} AS precinct,` +
+    ` COUNT_IF(${landline}) AS landlines` +
+    ` FROM ${args.district.table} v ${scope}` +
+    ` GROUP BY ${col('County')}, ${col('Precinct')}` +
+    ` ORDER BY county ASC, precinct ASC` +
     ` LIMIT ${bag.bind(MAX_PRECINCT_OPTIONS + 1, 'INT')}`
   return { sql, params: bag.params }
 }

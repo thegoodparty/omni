@@ -122,6 +122,9 @@ export {
   type TrackerTaskSkipReason,
   TRACKER_TASK_SKIP_REASON_VALUES,
   TrackerTaskSkipReasonSchema,
+  type VotedStatus,
+  VOTED_STATUS_VALUES,
+  VotedStatusSchema,
 } from './generated/enums'
 
 export {
@@ -229,6 +232,12 @@ export {
   MANAGED_CIVIC_PANEL_EXHAUSTED_MARKER,
   MANAGED_CIVIC_PANEL_EXHAUSTED_MESSAGE,
 } from './people/ManagedCivicPanel.schema'
+export {
+  MANAGED_CIVIC_PANEL_HOW_IT_WORKS,
+  managedCivicPanelOneInN,
+  managedCivicPanelExplanation,
+  managedCivicPanelHowItWorks,
+} from './people/ManagedCivicPanelExplainer'
 export {
   isCivicPanelOnlyList,
   type CivicPanelOnlyCriteria,
@@ -553,7 +562,7 @@ export {
   OrganizationWithStatusSchema,
   type OrganizationWithStatus,
 } from './campaigns/Organization.schema'
-export { cityFromDistrictName } from './campaigns/DistrictCity'
+export { cityFromDistrictName, cityNameCase } from './campaigns/DistrictCity'
 
 export {
   ElectedOfficeSchema,
@@ -1102,6 +1111,17 @@ export * from './ordinances/redline'
 
 export { P2P_SCRIPT_MAX_LENGTH } from './outreach/OutreachScript.const'
 export {
+  EMAIL_LAYOUTS,
+  EMAIL_THEMES,
+  EmailLayoutKeySchema,
+  EmailThemeKeySchema,
+  type EmailLayoutKey,
+  type EmailThemeKey,
+  type EmailThemeColors,
+} from './outreach/EmailTemplate.const'
+export * from './outreach/OutreachEmail.schema'
+export * from './outreach/EmailPublic.schema'
+export {
   MERGE_TAGS,
   mergeTagToken,
   type MergeTagChannel,
@@ -1114,6 +1134,8 @@ export {
   HIGH_CONFIDENCE_MIN_SHARE,
   PRICE_PER_TEXT_TENTH_CENTS,
   PRICE_PER_TEXT,
+  PRICE_PER_EMAIL_TENTH_CENTS,
+  EMAIL_MIN_CHARGE_CENTS,
   recommendedSampleSize,
   isHighConfidence,
 } from './outreach/SampleSizing.const'
@@ -1122,6 +1144,7 @@ export {
   MAJOR_GROUP_SHARE,
   answersNeeded,
 } from './outreach/AnswersNeeded.const'
+export { outreachHasGoneOut } from './outreach/OutreachGoneOut'
 export {
   OUTREACH_PURPOSE_VALUES,
   OutreachPurposeSchema,
@@ -1243,6 +1266,14 @@ export {
   type RobocallNumberResponse,
 } from './outreach/RobocallNumber.schema'
 export {
+  PaymentHoldCardIntentResponseSchema,
+  type PaymentHoldCardIntentResponse,
+  PaymentHoldCardRequestSchema,
+  type PaymentHoldCardRequest,
+  PaymentHoldCardResponseSchema,
+  type PaymentHoldCardResponse,
+} from './outreach/PaymentHoldCard.schema'
+export {
   RobocallSaveCardIntentResponseSchema,
   type RobocallSaveCardIntentResponse,
 } from './outreach/RobocallSaveCard.schema'
@@ -1274,6 +1305,12 @@ export {
   RobocallPromoStateResponseSchema,
   type RobocallPromoStateResponse,
 } from './outreach/RobocallPurchase.schema'
+export {
+  ROBOCALL_FREE_OFFER_VARIANT,
+  ROBOCALL_FREE_OFFER_SEND_DATE,
+  RobocallFreeOfferResponseSchema,
+  type RobocallFreeOfferResponse,
+} from './outreach/RobocallFreeOffer.schema'
 export {
   RobocallAuthorizeRequestSchema,
   type RobocallAuthorizeRequest,
@@ -1738,6 +1775,12 @@ export {
   TestFixtureActivityEffortSchema,
   SeedTestFixtureActivityResponseSchema,
   type SeedTestFixtureActivityResponse,
+  TestFixtureRaceQuerySchema,
+  type TestFixtureRaceQuery,
+  ApplyTestFixtureElectionRequestSchema,
+  type ApplyTestFixtureElectionRequest,
+  ApplyTestFixtureElectionResponseSchema,
+  type ApplyTestFixtureElectionResponse,
 } from './testFixtures/testFixtures.schema'
 
 export {
@@ -1766,6 +1809,13 @@ export {
   AdminOutreachActionResponseSchema,
   type AdminOutreachActionResponse,
 } from './testFixtures/vendorMocks'
+
+export {
+  SeedPollResultsRequestSchema,
+  type SeedPollResultsRequest,
+  SeedPollResultsResponseSchema,
+  type SeedPollResultsResponse,
+} from './testFixtures/pollResults'
 
 export {
   DEV_ENV_PACKAGE_VALUES,

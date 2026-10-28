@@ -205,11 +205,27 @@ together.
 match the capture and outreach events. Counts only, never a memo's words or
 a tag's name.
 
-| Event                | Fires                               | Properties                                                   |
-| -------------------- | ----------------------------------- | ------------------------------------------------------------ |
-| `ReportViewed`       | Once per visit, on the first report | `scope: 'effort'`, `channel`, `themeCount`, `confirmedCount` |
-| `SynthesisRequested` | On the button's press               | `scope: 'effort'`, `channel`, `confirmedCount`               |
+| Event                | Fires                                          | Properties                                                                     |
+| -------------------- | ---------------------------------------------- | ------------------------------------------------------------------------------ |
+| `ReportViewed`       | Once per visit, on the first report            | `scope: 'effort'`, `channel`, `themeCount`, `confirmedCount`                   |
+| `SynthesisRequested` | On the button's press                          | `scope: 'effort'`, `channel`, `confirmedCount`                                 |
+| `ThemeViewed`        | Once per theme opened, once the report is read | `channel`, `themeRank` (the report's order), `themeCount`, `conversationCount` |
+| `NotesDownloaded`    | On Download's click                            | `channel`                                                                      |
+
+`ThemeViewed` waits for the report because the rank it sends is the one the
+page shows, the report's order, not the run's own `rank`. It never sends the
+theme's title or summary.
 
 The offline path's other two, `MemoQueuedOffline` (`channel`) and
 `MemoUploaded` (`channel`, `queuedForMs`), fire from
 `app/dashboard/shared/dictation/useOfflineMemo.ts`.
+
+Three moments nobody in the browser sees are gp-api's: `Synthesis Completed`,
+`Memo Auto Confirmed` (an offline memo once transcribed, or a confirm step
+abandoned for two hours) and `Memo Transcription Failed`. The webapp never
+fires those (`packages/gp-api/src/constituentFeedback/AGENTS.md`).
+
+The person record's "What they told us" fires nothing of its own. It is read
+only, shown inside a record whose open `Voter Data - Contact Viewed` /
+`Constituent Data - Contact Viewed` already counts, and an event on its render
+would count records that had notes, not anyone reading them.

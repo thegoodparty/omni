@@ -3,6 +3,7 @@ import * as pulumi from '@pulumi/pulumi'
 import { createAnnotationAttachmentsBucket } from './components/annotation-attachments-bucket'
 import { createChatAttachmentsBucket } from './components/chat-attachments-bucket'
 import { createCampaignPlanSharesBucket } from './components/campaign-plan-shares-bucket'
+import { createDatabricksFederation } from './components/databricks-federation'
 import { createAssetsBucket } from './components/assets-bucket'
 import { createAssetsRouter } from './components/assets-router'
 import { createGrafanaResources } from './components/grafana'
@@ -12,6 +13,7 @@ import {
   PREVIEW_SHARED_ALB_NAME,
 } from './components/preview-shared-alb'
 import { createPreviewSharedCluster } from './components/preview-shared-cluster'
+import { createEmailOutreach } from './components/email-outreach'
 import { createElectionDb } from './components/election-db'
 import { createRobocallAudioBucket } from './components/robocall-audio-bucket'
 import { createService } from './components/service'
@@ -221,6 +223,24 @@ export = async () => {
 
   const skipPerPrRds = environment === 'preview'
 
+  // Databricks Lakehouse Federation's path into Aurora, see
+  // components/databricks-federation.ts. Previews get none.
+  const databricksFederationName = select({
+    preview: undefined,
+    dev: 'gp-api-db-dev-federation',
+    prod: 'gp-api-db-prod-federation',
+  })
+
+  // Created ahead of the RDS security group, whose inline ingress names it.
+  const databricksFederationProxySecurityGroup = databricksFederationName
+    ? new aws.ec2.SecurityGroup('databricksFederationProxySecurityGroup', {
+        name: `${databricksFederationName}-proxy`,
+        description:
+          'Databricks federation RDS Proxy in front of gp-api Aurora',
+        vpcId,
+      })
+    : undefined
+
   // With the shared preview DB the per-PR cluster is skipped, so its security
   // group and subnet group would be orphaned — skip them too.
   const rdsSecurityGroup = skipPerPrRds
@@ -263,6 +283,17 @@ export = async () => {
             description: 'databricks via vpc peering',
             cidrBlocks: ['172.16.0.0/16'],
           },
+          ...(databricksFederationProxySecurityGroup
+            ? [
+                {
+                  protocol: 'tcp',
+                  fromPort: 5432,
+                  toPort: 5432,
+                  description: 'databricks serverless via federation rds proxy',
+                  securityGroups: [databricksFederationProxySecurityGroup.id],
+                },
+              ]
+            : []),
           ...select({
             preview: [],
             // TODOSWAIN: investigate whether these are truly needed in dev
@@ -351,6 +382,22 @@ export = async () => {
         engineVersion: rdsCluster!.engineVersion,
       })
 
+  const databricksFederation =
+    databricksFederationName &&
+    databricksFederationProxySecurityGroup &&
+    rdsSecurityGroup &&
+    rdsCluster
+      ? createDatabricksFederation({
+          name: databricksFederationName,
+          vpcId,
+          publicSubnetIds: vpcSubnetIds.public,
+          privateSubnetIds: vpcSubnetIds.private,
+          proxySecurityGroup: databricksFederationProxySecurityGroup,
+          rdsSecurityGroupId: rdsSecurityGroup.id,
+          clusterIdentifier: rdsCluster.clusterIdentifier,
+        })
+      : undefined
+
   // Previews read the shared dev election cluster and must not own it.
   if (environment !== 'preview') {
     createElectionDb(environment)
@@ -412,6 +459,17 @@ export = async () => {
   // not every bucket/queue in the account.
   const region = 'us-west-2'
   const accountId = '333022194791'
+
+  // Previews send through the vendor mock and get no SES resources.
+  const emailOutreach =
+    environment !== 'preview'
+      ? createEmailOutreach({
+          environment,
+          hostedZoneId,
+          region,
+          accountId,
+        })
+      : undefined
 
   const serveAnalysisBucketName = `serve-analyze-data-${
     environment === 'preview' ? 'dev' : environment
@@ -651,6 +709,19 @@ jwIDAQAB
         dev: '',
         prod: 'true',
       }),
+      // The free election-eve robocall offer's $400 Stripe coupon, created
+      // with the same id in test and live mode. Empty hides the offer. The
+      // live coupon must be:
+      // id robocall-free-offer-2026-11, amount_off 40000 in usd, duration
+      // once, redeem_by after Nov 3 2026, and applies_to limited to a product
+      // never sold through Stripe Checkout, so a GPOFFER code cannot be
+      // redeemed on a text purchase or the Pro subscription. gp-api refuses
+      // the code unless the coupon is exactly $400 off in usd.
+      ROBOCALL_FREE_OFFER_COUPON_ID: select({
+        preview: 'robocall-free-offer-2026-11',
+        dev: 'robocall-free-offer-2026-11',
+        prod: 'robocall-free-offer-2026-11',
+      }),
       // Dev and previews write to prod's HubSpot portal, so the Office Holder
       // sync and its ids are prod only.
       HUBSPOT_OFFICE_HOLDER_SYNC_ENABLED: select({
@@ -797,6 +868,7 @@ jwIDAQAB
         Action: ['textract:DetectDocumentText', 'textract:AnalyzeDocument'],
         Resource: ['*'],
       },
+      ...(emailOutreach?.taskRolePermissions ?? []),
       ...(localDevEnvSecretArns.length > 0
         ? [
             {
@@ -832,5 +904,6 @@ jwIDAQAB
 
   return {
     serviceUrl: service.url,
+    databricksFederationHost: databricksFederation?.nlb.dnsName,
   }
 }

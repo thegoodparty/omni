@@ -9,25 +9,30 @@ Four auth tiers. Most routes live in `TestFixturesController` and require
 `AdminOrM2MGuard`. The vendor-mock routes live in
 `TestFixturesVendorMocksController` and require only a normal signed-in session
 plus campaign ownership — so Playwright E2E specs can call them using the test
-user's own token without admin credentials. The judge chat-case routes live in
+user's own token without admin credentials. The scenario routes
+(`TestFixturesScenariosController`: race resolution and election presets) are
+the same tier, for test users only. The judge chat-case routes live in
 `TestFixturesJudgeController` and require only a normal signed-in session,
 scoping every row to the caller (see below).
 
-| Route                                                            | Auth                         | Purpose                                                                                                                        |
-| ---------------------------------------------------------------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `POST /v1/test-fixtures/users`                                   | `AdminOrM2MGuard`            | Mint a `qa-<uuid>@goodparty.org` user in a state: `free-win`, `pro-win`, `pro-win-10dlc-mock`, `serve`, `serve-won-race`       |
-| `DELETE /v1/test-fixtures/users`                                 | `AdminOrM2MGuard`            | On-demand cleanup (DB + Clerk); the hourly `sweepTestUsers` cron is the safety net                                             |
-| `POST /v1/test-fixtures/users/:id/session`                       | `AdminOrM2MGuard`            | Re-mint the 1h session token for runs longer than an hour                                                                      |
-| `POST /v1/test-fixtures/organizations/:slug/activity`            | `AdminOrM2MGuard`            | Fill an existing org with weeks of outreach on every channel (see below)                                                       |
-| `POST /v1/test-fixtures/users/:id/states/pro-win-10dlc-mock`     | session + isTestUser, own id | Run the caller's real 10DLC registration against the vendor mocks to `tcr_approved` (see below)                                |
-| `POST /v1/test-fixtures/vendor-mocks/actions`                    | session + ownership          | Apply a mock action (`geoapify.route.fail`, `callhub.campaign.complete`) for a campaign                                        |
-| `GET /v1/test-fixtures/vendor-mocks/records`                     | session + ownership          | List a campaign's `VendorMockRecord` rows (incl. CallHub) and the deploy's `vendorMode`                                        |
-| `POST /v1/test-fixtures/vendor-mocks/jobs/:name/run`             | session + isTestUser         | Test-user run-job: triggers a sweep by name; `robocall.send` and the 10DLC jobs act on the caller's campaign only              |
-| `POST /v1/test-fixtures/vendor-mocks/time-travel`                | session + ownership          | Shift outreach timing for E2E: `robocall.send_due_now`, `robocall.dialed_48h_ago`, `sms.start_date_today`                      |
-| `POST /v1/test-fixtures/vendor-mocks/outreach/:id/admin-actions` | session + outreach ownership | `cas.approve` or `results.upload` on an outreach the caller owns (Win campaign or Serve org); any account, not only test users |
-| `POST /v1/test-fixtures/jobs/:name/run`                          | `AdminOrM2MGuard`            | Run a named background job on demand (robocall.staging/send/completion/capture)                                                |
-| `POST /v1/test-fixtures/judge-chat-cases`                        | session                      | Stage one Universal Judge chat case for the caller (see below)                                                                 |
-| `DELETE /v1/test-fixtures/judge-chat-cases/:slug`                | session                      | Remove one, and only one the caller owns under a `judge-` slug                                                                 |
+| Route                                                            | Auth                         | Purpose                                                                                                                                        |
+| ---------------------------------------------------------------- | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /v1/test-fixtures/users`                                   | `AdminOrM2MGuard`            | Mint a `qa-<uuid>@goodparty.org` user in a state: `free-win`, `pro-win`, `pro-win-10dlc-mock`, `serve`, `serve-won-race`                       |
+| `DELETE /v1/test-fixtures/users`                                 | `AdminOrM2MGuard`            | On-demand cleanup (DB + Clerk); the hourly `sweepTestUsers` cron is the safety net                                                             |
+| `POST /v1/test-fixtures/users/:id/session`                       | `AdminOrM2MGuard`            | Re-mint the 1h session token for runs longer than an hour                                                                                      |
+| `POST /v1/test-fixtures/organizations/:slug/activity`            | `AdminOrM2MGuard`            | Fill an existing org with weeks of outreach on every channel (see below)                                                                       |
+| `POST /v1/test-fixtures/users/:id/states/pro-win-10dlc-mock`     | session + isTestUser, own id | Run the caller's real 10DLC registration against the vendor mocks to `tcr_approved` (see below)                                                |
+| `GET /v1/test-fixtures/races/resolve?zip&office`                 | session + isTestUser         | Resolve a pinned office to a race whatever the date (see "Dates come from presets")                                                            |
+| `POST /v1/test-fixtures/campaigns/:id/election`                  | session + isTestUser, own id | Declare a campaign's election state with a Test mode preset (`{ preset: 'in_8_weeks' }`); `passed_won` 409s without an office                  |
+| `POST /v1/test-fixtures/vendor-mocks/actions`                    | session + ownership          | Apply a mock action (`geoapify.route.fail`, `callhub.campaign.complete`, `callhub.campaign.fail`, `peerly.phonelist.fail`) for a campaign      |
+| `GET /v1/test-fixtures/vendor-mocks/records`                     | session + ownership          | List a campaign's (or, for Serve, an owned org's via `organizationSlug`) `VendorMockRecord` rows (incl. CallHub) and the deploy's `vendorMode` |
+| `POST /v1/test-fixtures/vendor-mocks/jobs/:name/run`             | session + isTestUser         | Test-user run-job: triggers a sweep by name; `robocall.send` and the 10DLC jobs act on the caller's campaign only                              |
+| `POST /v1/test-fixtures/vendor-mocks/time-travel`                | session + ownership          | Shift outreach timing for E2E: `robocall.send_due_now`, `robocall.dialed_48h_ago`, `sms.start_date_today`                                      |
+| `POST /v1/test-fixtures/vendor-mocks/outreach/:id/admin-actions` | session + outreach ownership | `cas.approve` or `results.upload` on an outreach the caller owns (Win campaign or Serve org); any account, not only test users                 |
+| `POST /v1/test-fixtures/polls/results`                           | session + isTestUser, own EO | Seed a completed poll: one issue, one person's sent and replied messages (see below)                                                           |
+| `POST /v1/test-fixtures/jobs/:name/run`                          | `AdminOrM2MGuard`            | Run a named background job on demand (robocall.staging/send/completion/capture/callhubCleanup)                                                 |
+| `POST /v1/test-fixtures/judge-chat-cases`                        | session                      | Stage one Universal Judge chat case for the caller (see below)                                                                                 |
+| `DELETE /v1/test-fixtures/judge-chat-cases/:slug`                | session                      | Remove one, and only one the caller owns under a `judge-` slug                                                                                 |
 
 The create/session responses carry credentials by contract (password, session
 token, a single-use Clerk `signInToken`, and a cookie triple) — **never log a
@@ -65,6 +70,18 @@ and the activation check. It ends by asserting stage `tcr_approved` and a
 - Only the campaign's own activation check runs (`tcr.complianceSweep`'s body),
   not the global `tcr.usecaseSweep`.
 
+## Seeded poll results
+
+`PollResultsSeedService` (`services/pollResultsSeed.service.ts`, its own
+`PollResultsSeedModule` and `TestFixturesPollResultsController`) writes, in
+one transaction, the rows the `pollAnalysisComplete` consumer leaves for one
+respondent: a completed `Poll`, one `PollIssue`, and the office's outbound
+`PollIndividualMessage` plus the person's reply linked to that issue. The
+office comes from `x-organization-slug` through `UseElectedOffice`, so a
+caller can only seed its own. It exists so the Constituents overlay's Top
+Issues and poll activity run on PR previews, which never run the analysis
+pipeline (`e2e-tests/tests/app/polls/poll-respondent-overlay.spec.ts`).
+
 ## Shared state transitions
 
 `StateTransitionsService` (`services/stateTransitions.service.ts`, exported by
@@ -73,6 +90,23 @@ launched campaign, create an elected office, promote a won race. The fixtures
 and the staff Test mode module (`src/testMode/`) both call it, and Test mode
 runs it in **prod**. So the env gate belongs on the fixtures controller,
 never in this service, and a recipe change ships to both callers.
+
+### Dates come from presets
+
+Test state borrows a real office for its district and voter data, never its
+election date. Two rules keep a real election passing from breaking anything:
+
+- **Resolution never depends on the date.** `findRace` (via
+  `util/fixtureRace.util.ts`, which the judge sweep also imports) takes the
+  office's next upcoming race, else its most recent past one. It fails only
+  when the office does not exist at that zip.
+- **The date is a preset, computed on the server's clock.**
+  `electionPresetDate` is the one place a preset becomes a date
+  (`in_8_weeks` = today + 56, `in_1_week` = + 7, `passed_unanswered` /
+  `passed_lost` = - 14, `passed_won` = - 30). `createLaunchedCampaign` writes
+  it before launch (default `in_8_weeks`, outside the 19-day texting cutoff),
+  and `applyElectionPreset` rewrites an existing campaign into a preset. Test
+  mode and the `campaigns/:id/election` route both call it.
 
 ## Seeded activity
 

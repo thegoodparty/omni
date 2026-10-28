@@ -6,24 +6,24 @@ Auth state is enforced globally via three guards registered in order. Most route
 
 ## Key files
 
-| Path                                     | Purpose                                                                                         |
-| ---------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| `authentication.module.ts`               | Registers global guards as `APP_GUARD`, requires `AUTH_SECRET` at boot                          |
-| `authentication.controller.ts`           | `POST /authentication/set-password-email`, `/reset-password`, `/recover-password`               |
-| `authentication.service.ts`              | JWT sign/verify, password reset token issuance, bcrypt compare                                  |
-| `authentication.consts.ts`               | `M2M_TOKEN_PREFIX = 'mt_'`                                                                      |
-| `decorators/PublicAccess.decorator.ts`   | Skip auth on a controller or route                                                              |
-| `decorators/Roles.decorator.ts`          | `@Roles(UserRole.ADMIN, ...)` — role gate via `RolesGuard`                                      |
-| `decorators/ReqUser.decorator.ts`        | Inject the authed `User`                                                                        |
-| `guards/Session.guard.ts`                | `SessionGuard` — accepts user JWTs from cookies; also verifies Clerk M2M tokens (global)        |
-| `guards/Roles.guard.ts`                  | `RolesGuard` — reads `@Roles()` metadata and enforces                                           |
-| `guards/AdminOrM2M.guard.ts`             | Route-level: admin user OR M2M token                                                            |
-| `guards/M2MOnly.guard.ts`                | Route-level: M2M only                                                                           |
-| `guards/ServiceRead.guard.ts`            | Route-level: JWT-format M2M service reader, `mt_*` M2M, or admin                                |
-| `guards/ServiceReadOrOwner.guard.ts`     | `ServiceReadGuard` plus the user whose `personId` matches the `personId` query param            |
-| `interceptors/AdminAudit.interceptor.ts` | Logs admin actions for the audit trail                                                          |
-| `util/setTokenCookie.util.ts`            | Cookie writer used after login/refresh                                                          |
-| `util/effectiveUser.util.ts`             | Resolves the acting human (the admin, when impersonating) for global-role checks                |
+| Path                                     | Purpose                                                                                  |
+| ---------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `authentication.module.ts`               | Registers global guards as `APP_GUARD`, requires `AUTH_SECRET` at boot                   |
+| `authentication.controller.ts`           | `POST /authentication/set-password-email`, `/reset-password`, `/recover-password`        |
+| `authentication.service.ts`              | JWT sign/verify, password reset token issuance, bcrypt compare                           |
+| `authentication.consts.ts`               | `M2M_TOKEN_PREFIX = 'mt_'`                                                               |
+| `decorators/PublicAccess.decorator.ts`   | Skip auth on a controller or route                                                       |
+| `decorators/Roles.decorator.ts`          | `@Roles(UserRole.ADMIN, ...)` — role gate via `RolesGuard`                               |
+| `decorators/ReqUser.decorator.ts`        | Inject the authed `User`                                                                 |
+| `guards/Session.guard.ts`                | `SessionGuard` — accepts user JWTs from cookies; also verifies Clerk M2M tokens (global) |
+| `guards/Roles.guard.ts`                  | `RolesGuard` — reads `@Roles()` metadata and enforces                                    |
+| `guards/AdminOrM2M.guard.ts`             | Route-level: admin user OR M2M token                                                     |
+| `guards/M2MOnly.guard.ts`                | Route-level: M2M only                                                                    |
+| `guards/ServiceRead.guard.ts`            | Route-level: JWT-format M2M service reader, `mt_*` M2M, or admin                         |
+| `guards/ServiceReadOrOwner.guard.ts`     | `ServiceReadGuard` plus the user whose `personId` matches the `personId` query param     |
+| `interceptors/AdminAudit.interceptor.ts` | Logs admin actions for the audit trail                                                   |
+| `util/setTokenCookie.util.ts`            | Cookie writer used after login/refresh                                                   |
+| `util/effectiveUser.util.ts`             | Resolves the acting human (the admin, when impersonating) for global-role checks         |
 
 ## Patterns
 
@@ -59,7 +59,7 @@ Auth state is enforced globally via three guards registered in order. Most route
   `effectiveUser` would authorize the impersonating admin instead of the
   impersonated subject, 404ing every org-scoped route for admins
   mid-impersonation — `RolesGuard`/`AdminOrM2MGuard` use `effectiveUser`
-  deliberately because they check the acting human's *global* roles, a
+  deliberately because they check the acting human's _global_ roles, a
   different question from org membership.
 - **The team-role line is `OrganizationRoleGuard`
   (`src/organizations/guards/OrganizationRole.guard.ts`)**, appended to
@@ -88,7 +88,12 @@ Auth state is enforced globally via three guards registered in order. Most route
   when an actor claim is present, not the impersonated user. Audit logging
   needs both — pull the real admin from `effectiveUser`, the impersonated
   subject from `req.user`.
-- `AdminAudit.interceptor.ts` is registered **globally** as an `APP_INTERCEPTOR` in `app.module.ts` and fires on every route whose `@Roles()` includes `admin` — no opt-in needed. It logs `userId`/`userEmail` from `effectiveUser` (the accountable admin), adding `impersonatedUserId`/`impersonatedUserEmail` only while impersonating, and `unresolvedActorSub` when an `act` claim did not resolve to a local user. A couple of controllers also list it in `@UseInterceptors()`; that is redundant, not load-bearing.
+- `AdminAudit.interceptor.ts` is registered **globally** as an `APP_INTERCEPTOR` in `app.module.ts` and fires on every route whose `@Roles()` includes `admin` or whose `@UseGuards()` names `AdminOrM2MGuard` or `M2MOnly` — no opt-in needed. It writes one `Admin route accessed` log line (that log is the audit store; there is no table) with the endpoint, method, IP, user agent and body, plus `authSource`:
+  - `session`: `userId`/`userEmail` from `effectiveUser` (the accountable admin), adding `impersonatedUserId`/`impersonatedUserEmail` only while impersonating, and `unresolvedActorSub` when an `act` claim did not resolve to a local user.
+  - `m2m`: `machineId` is the verified token's Clerk `subject` (the `mch_` machine). `suppliedActorEmail` is the `actorEmail` the caller put in the body or query string (gp-admin names the staff member that way); nothing verifies it, and it is `null` when none was sent.
+
+  It logs before pipes and the handler run, so a request that then fails validation is still recorded. A couple of controllers also list it in `@UseInterceptors()`; that is redundant, not load-bearing.
+
 - The `services/` directory exists but is empty. Don't be surprised; the only service lives at the module root for historical reasons.
 - **The sign-up phone arrives in Clerk `unsafeMetadata`, not as a Clerk
   phone attribute.** Enabling the real attribute would force SMS
@@ -118,7 +123,10 @@ Auth state is enforced globally via three guards registered in order. Most route
   instrument, so a call made without that wrapper is invisible in Tempo.
   Session tokens and M2M JWTs verify locally against `CLERK_JWT_KEY`, the
   instance's PEM public key, set per environment in `deploy/index.ts`; opaque
-  `mt_` M2M tokens still call Clerk. Without the key the SDK refetches
+  `mt_` M2M tokens still call Clerk. A JWT M2M token verified locally (key
+  set) skips the `CLERK_API_TIMEOUT_MS` race (`clerkCall(..., null)`), since
+  the timer there only fires when the event loop was frozen; `mt_` tokens
+  keep it. Without the key the SDK refetches
   Clerk's JWKS every 5 minutes on the request path, and a fetch slower than
   2s rejects the request (about 0.06% of gp-marketing's M2M calls on
   2026-10-19).
@@ -132,3 +140,16 @@ Auth state is enforced globally via three guards registered in order. Most route
   (`profileSection__profile`) wherever it opens Clerk's profile modal, so
   there is no Clerk-side writer to drift from. The data pipeline builds the
   public `/people/<slug>` from this name too.
+- **Clerk owns the user's email; users cannot write it in gp-api.**
+  `User.email` gates staff and test-user affordances (`isInternalUser`,
+  `isTestUser`, the `@goodparty.org` checks), so a user must never be able to
+  write it. `PUT /v1/users/me` strips `email` from the body. A user changes
+  their email in Clerk's profile modal ("Manage sign-in"), which verifies the
+  address; the webapp's `UserProvider` then sees Clerk's verified primary
+  differ from `User.email` and calls `POST /v1/users/me/sync-email`, which
+  re-reads the Clerk user server-side and copies the verified address (409 if
+  another row holds it). Provisioning still copies Clerk's primary as is:
+  prod Clerk verifies email at sign-up, dev Clerk does not (so e2e sign-ups
+  skip the code), and requiring a verified address there would stop dev
+  sign-ups from provisioning. `PUT /v1/users/:id` (M2M, gp-admin) can still
+  write it.

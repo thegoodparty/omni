@@ -37,6 +37,11 @@ export enum QueueType {
   // the org) is read back off that row, so a redelivered message can't act
   // on stale content.
   P2P_PHONE_LIST_BUILD = 'p2pPhoneListBuild',
+  // Email outreach (src/emailOutreach/AGENTS.md). The prepare message
+  // carries only a row id; the inbound message is enqueued by the SNS
+  // webhook from SES reply notifications.
+  EMAIL_SEND_PREPARE = 'emailSendPrepare',
+  EMAIL_INBOUND = 'emailInbound',
 }
 
 export type QueueMessage =
@@ -111,6 +116,8 @@ export type QueueMessage =
       type: QueueType.P2P_PHONE_LIST_BUILD
       data: P2pPhoneListBuildMessage
     }
+  | { type: QueueType.EMAIL_SEND_PREPARE; data: EmailSendPrepareMessage }
+  | { type: QueueType.EMAIL_INBOUND; data: EmailInboundMessage }
 
 export type GenerateAiContentMessageData = {
   slug: string
@@ -255,6 +262,8 @@ export enum MessageGroup {
   extractChatAttachment = 'extractChatAttachment',
   campaignStoryCompleted = 'campaignStoryCompleted',
   p2pPhoneListBuild = 'p2pPhoneListBuild',
+  emailSendPrepare = 'emailSendPrepare',
+  emailInbound = 'emailInbound',
 }
 
 const PollResponseJsonRowSchema = z.object({
@@ -350,3 +359,20 @@ export const P2pPhoneListBuildMessageSchema = z.object({
 export type P2pPhoneListBuildMessage = z.infer<
   typeof P2pPhoneListBuildMessageSchema
 >
+
+export const EmailSendPrepareMessageSchema = z.object({
+  outreachEmailId: z.number().int(),
+})
+export type EmailSendPrepareMessage = z.infer<
+  typeof EmailSendPrepareMessageSchema
+>
+
+export const EmailInboundMessageSchema = z.object({
+  snsMessageId: z.string().min(1),
+  bucket: z.string().min(1),
+  key: z.string().min(1),
+  // SES's DMARC verdict for the sender, from the SNS notification. It lives
+  // there and not in the stored message, whose headers the sender controls.
+  fromAuthenticated: z.boolean().default(false),
+})
+export type EmailInboundMessage = z.infer<typeof EmailInboundMessageSchema>

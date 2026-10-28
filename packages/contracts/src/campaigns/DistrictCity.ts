@@ -48,3 +48,35 @@ export const cityFromDistrictName = (districtName: string): string | null => {
 
   return name
 }
+
+const LOWERCASE_WORDS = new Set(['of', 'on', 'the'])
+
+const capitalizePart = (part: string): string => {
+  const lower = part.toLowerCase()
+  const apostrophe = /^([od])['’](.+)$/.exec(lower)
+  if (apostrophe) {
+    const [, prefix, rest] = apostrophe
+    return `${prefix.toUpperCase()}'${capitalizePart(rest)}`
+  }
+  if (/^mc[a-z]/.test(lower)) {
+    return `Mc${lower.charAt(2).toUpperCase()}${lower.slice(3)}`
+  }
+  return lower.charAt(0).toUpperCase() + lower.slice(1)
+}
+
+/**
+ * Title-cases a place name that arrives in ALL CAPS ("WINSTON-SALEM" →
+ * "Winston-Salem", "MCALLEN" → "McAllen", "O'FALLON" → "O'Fallon"). A name
+ * with any lowercase letter is left alone, since its casing was chosen.
+ */
+export const cityNameCase = (name: string): string => {
+  if (!/[A-Z]/.test(name) || /[a-z]/.test(name)) return name
+  return name
+    .split(' ')
+    .map((word, index) => {
+      const lower = word.toLowerCase()
+      if (index > 0 && LOWERCASE_WORDS.has(lower)) return lower
+      return word.split('-').map(capitalizePart).join('-')
+    })
+    .join(' ')
+}

@@ -172,6 +172,9 @@ export const convertVoterFileFilterToFilters = (
     // a meaningless FilterObject entry.
     'activityConditions',
     'supportStatus',
+    // Same reason: ContactsService.resolveBaseFilters turns it into
+    // votedInElection, since its campaign half is a person-id set.
+    'votedStatus',
     // Provenance metadata (Task 7, recommended lists), not filter criteria.
     // recommendedModified is a plain boolean and would otherwise fall into
     // the generic boolean branch below and pollute the query payload for

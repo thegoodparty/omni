@@ -1,10 +1,19 @@
 import { useTestService } from '@/test-service'
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { SlackService } from '@/vendors/slack/services/slack.service'
 import { CampaignsService } from './campaigns.service'
 
 const KNOWN_ELECTION_DATE = '2025-11-03'
 
 const service = useTestService()
+
+// A failed election lookup posts to Slack, which would otherwise wait on a
+// real webhook.
+beforeEach(() => {
+  vi.spyOn(service.app.get(SlackService), 'message').mockResolvedValue(
+    undefined,
+  )
+})
 
 describe('CampaignsService.fetchLiveRaceTargetMetrics (election-api integration)', () => {
   it('returns null when org has no positionId and no overrideDistrictId', async () => {

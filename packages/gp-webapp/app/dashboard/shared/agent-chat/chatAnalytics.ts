@@ -7,6 +7,7 @@ export type ChatSurface =
   | 'contacts_assistant'
   | 'community_issues_dock'
   | 'ordinances_dock'
+  | 'civic_panel_dock'
   | 'priority_workspace'
   | 'ordinance_draft'
 

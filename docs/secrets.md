@@ -27,7 +27,6 @@ string keys. There is no per-key secret and no SSM parameter for app secrets.
 | Secret                               | Consumed by                              | Environments         |
 | ------------------------------------ | ---------------------------------------- | -------------------- |
 | `GP_API_PROD` / `GP_API_DEV`         | gp-api ECS tasks                         | prod / dev + preview |
-| `ELECTION_API_PROD` / `_DEV`         | election-api ECS tasks                   | prod / dev           |
 | `AI_SECRETS_PROD` / `AI_SECRETS_DEV` | gp-ai Terraform roots (Fargate + Lambda) | prod / dev           |
 | `broker-<env>`                       | PMF broker only                          | prod / dev           |
 | `LOCAL_DEV_ENV`                      | laptops, via `POST /v1/dev-env/bundle`   | dev only             |
@@ -68,7 +67,7 @@ image, not in a `.env`, not in Pulumi or Terraform state.
 The two stacks differ in how a key gets into that block, which decides whether
 adding one needs a code change:
 
-- **gp-api and election-api need no code change.** The Pulumi program reads the
+- **gp-api needs no code change.** The Pulumi program reads the
   live secret and enumerates its keys, wiring every one it finds
   (`Object.keys(secret)` in `packages/*/deploy/index.ts`). A key that exists in
   the blob is in the task definition on the next deploy.
@@ -96,13 +95,13 @@ Do everything except the value write, in one PR.
 
 1. **Check whether it needs to be a secret at all.** A hostname, a bucket name, an
    ARN, a feature flag, or anything already public is an environment variable, not
-   a secret. Put it in `environmentVariables` (gp-api/election-api) or a
+   a secret. Put it in `environmentVariables` (gp-api) or a
    Terraform variable and skip the rest of this.
 2. **Name it** in `SCREAMING_SNAKE_CASE`, matching whatever the vendor calls it
    (`BRAINTRUST_API_KEY`, not `BT_KEY`). The same name is used in every
    environment; the environment is the secret, not the key.
 3. **Wire it in code.**
-   - gp-api / election-api: nothing to wire. Read it via `process.env.YOUR_KEY`
+   - gp-api: nothing to wire. Read it via `process.env.YOUR_KEY`
      and add it to whatever env validation the service does at boot.
    - gp-ai: add the `valueFrom` entry to the module's `secrets` array and extend
      the task role's `secretsmanager:GetSecretValue` statement. Both live in

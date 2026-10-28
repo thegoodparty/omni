@@ -331,13 +331,23 @@ const RepresentText = ({
   return (
     <>
       <Title
-        title={copy.title(final)}
+        title={copy.title(final, place)}
         accentClass="text-primary"
         accent={
           <>
-            <span aria-hidden="true" className="tabular-nums">
-              {shown.toLocaleString('en-US')}
-            </span>
+            {/* The count-up opens on 0, which reads as nobody living there,
+                so the number holds a placeholder until it starts. */}
+            {shown === 0 ? (
+              <span
+                aria-hidden="true"
+                className="inline-block h-[0.8em] w-[3ch] animate-pulse rounded-md bg-primary/20 align-baseline"
+                data-testid="district-population-loading"
+              />
+            ) : (
+              <span aria-hidden="true" className="tabular-nums">
+                {shown.toLocaleString('en-US')}
+              </span>
+            )}
             <span className="sr-only">{final}</span>
           </>
         }
@@ -379,7 +389,7 @@ const StoryText = ({
     }
     return (
       <>
-        <h1 className={TITLE_CLASS}>{copy.titleWithoutCount}</h1>
+        <h1 className={TITLE_CLASS}>{copy.titleWithoutCount(place)}</h1>
         <Description>{copy.descriptionWithoutCount(place)}</Description>
       </>
     )

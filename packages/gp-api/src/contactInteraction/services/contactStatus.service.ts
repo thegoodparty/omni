@@ -3,6 +3,7 @@ import {
   ContactStatusEvent,
   ContactStatusField,
   ContactStatusSource,
+  ManagedCivicPanelStatus,
   Prisma,
   User,
 } from '@/generated/prisma'
@@ -44,6 +45,19 @@ export type ChangeStatusInput = {
 // unique) still propagates as a real Prisma error instead of being retried.
 class CurrentStatusRaceError extends Error {}
 
+// How someone joined or left the civic panel, as Membership Changed spells
+// it. A by-hand change is the office's; the share page has no surface left.
+export const MEMBERSHIP_SOURCE: Record<
+  ContactStatusSource,
+  'text' | 'call' | 'door' | 'manual'
+> = {
+  sms: 'text',
+  phone_banking: 'call',
+  door_knock: 'door',
+  manual: 'manual',
+  share_page: 'manual',
+}
+
 // The activity feed (ContactEngagementService, ENG-10835) always needs the
 // writer's name alongside each event — this is the one shape it reads.
 export type ContactStatusEventWithActor = ContactStatusEvent & {
@@ -72,17 +86,26 @@ export class ContactStatusService extends createPrismaBase(
     // Every way onto or off the civic panel (a JOIN, LEAVE or STOP reply, a
     // call or door answer, the official's own edit) writes through here.
     if (event && event.field === ContactStatusField.civic_panel) {
+      const managedPanel = await this.client.managedCivicPanel
+        .findUnique({
+          where: { organizationSlug: event.organizationSlug },
+          select: { status: true },
+        })
+        .catch(() => null)
       await trackForOffice(
         this.client,
         this.analytics,
         { organizationSlug: event.organizationSlug },
         [
           [
-            EVENTS.CivicPanel.MembershipChanged,
+            EVENTS.Contacts.CivicPanelMembershipChanged,
             {
               fromStatus: event.fromValue,
               toStatus: event.toValue,
-              source: event.source,
+              source: MEMBERSHIP_SOURCE[event.source],
+              managed:
+                managedPanel !== null &&
+                managedPanel.status !== ManagedCivicPanelStatus.stopped,
             },
           ],
         ],

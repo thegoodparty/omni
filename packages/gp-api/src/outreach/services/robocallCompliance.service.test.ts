@@ -8,22 +8,14 @@ import {
   SYSTEM_PROMPT,
 } from './robocallCompliance.service'
 import { RobocallTranscriptionService } from './robocallTranscription.service'
+import {
+  appEnvOverrides,
+  useAppEnvOverrides,
+} from '@/shared/test-utils/appEnvOverrides'
 
-// VENDOR_MODE is a module-level constant evaluated at import time.
-// Use a getter so it stays mutable per-test.
-const { mockMode } = vi.hoisted(() => ({
-  mockMode: { value: 'live' as 'live' | 'mock' },
-}))
-vi.mock('@/shared/util/appEnvironment.util', async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import('@/shared/util/appEnvironment.util')>()
-  return {
-    ...actual,
-    get VENDOR_MODE() {
-      return mockMode.value
-    },
-  }
-})
+// VENDOR_MODE is a module-level constant evaluated at import time, so tests
+// flip it through appEnvOverrides.
+useAppEnvOverrides({ VENDOR_MODE: 'live' })
 
 const params = {
   audioKey: 'robocall/1/clip.webm',
@@ -49,7 +41,7 @@ describe('RobocallComplianceService', () => {
   let logger: { debug: ReturnType<typeof vi.fn> }
 
   beforeEach(() => {
-    mockMode.value = 'live'
+    appEnvOverrides.VENDOR_MODE = 'live'
     transcription = { transcribe: vi.fn() }
     llm = { jsonCompletion: vi.fn() }
     const mockLogger = createMockLogger()
@@ -230,7 +222,7 @@ describe('RobocallComplianceService', () => {
 
   describe('mock mode', () => {
     beforeEach(() => {
-      mockMode.value = 'mock'
+      appEnvOverrides.VENDOR_MODE = 'mock'
     })
 
     it('skips transcription.transcribe and passes a synthesized transcript to the LLM', async () => {

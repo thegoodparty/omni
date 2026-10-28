@@ -109,7 +109,8 @@ GPMETA = re.compile(r"<!--\s*gp-meta\s*-->(.*?)<!--\s*/gp-meta\s*-->", re.DOTALL
 
 CATALOG_SQL = f"""
 select event_type, family, is_win, first_seen_date, last_seen_date,
-       event_count, event_count_30d, govern_description, in_govern_taxonomy
+       event_count, event_count_30d, govern_description, in_govern_taxonomy,
+       govern_product, product_label_conflict
 from {CATALOG_TABLE}
 """
 
@@ -652,6 +653,50 @@ def propose_watchlist_additions(
     return sorted(out, key=lambda r: (r["first_seen_date"], r["event_type"]), reverse=True)
 
 
+def label_findings(
+    catalog: Sequence[Mapping[str, Any]],
+    today: date,
+    dismissed_events: Iterable[str] = (),
+    window_days: int = PROPOSAL_WINDOW_DAYS,
+) -> list[dict]:
+    """Events whose Govern product label is missing or contradicts another signal.
+
+    ``no_product_label``: an unplaced (``other``) event with no ``govern_product`` that is
+    firing and new, so old tail events do not bury the ones an engineer just shipped.
+    ``product_label_conflict``: the catalog flag, at any age, since a contradiction stays
+    wrong however old the event is. Dismissed events are skipped for both kinds.
+
+    Returns ``[{event_type, kind, family, first_seen_date}]``, conflicts first, then newest.
+    """
+    dismissed_events = set(dismissed_events)
+    cutoff = today - timedelta(days=window_days)
+    out: list[dict] = []
+    for row in catalog:
+        event_type = row["event_type"]
+        family = row["family"]
+        if event_type in dismissed_events:
+            continue
+        first_seen = to_date(row.get("first_seen_date"))
+        if row.get("product_label_conflict"):
+            kind = "product_label_conflict"
+        elif (
+            family == "other"
+            and not row.get("govern_product")
+            and not is_system(family, event_type)
+            and int(row.get("event_count_30d") or 0) > 0
+            and first_seen is not None
+            and first_seen >= cutoff
+        ):
+            kind = "no_product_label"
+        else:
+            continue
+        out.append({"event_type": event_type, "kind": kind, "family": family, "first_seen_date": first_seen})
+    return sorted(
+        out,
+        key=lambda r: (r["kind"] != "product_label_conflict", -(r["first_seen_date"] or date.min).toordinal(), r["event_type"]),
+    )
+
+
 def propose_watchlist_removals(
     watched_rows: Iterable[str],
     code: Mapping[str, Mapping[str, Any]],
@@ -843,6 +888,7 @@ def reconcile(
         "status_counts": dict(status_counts),
         "metadata_coverage": metadata_coverage,
         "proposals": proposals,
+        "label_findings": label_findings(catalog, today, dismissed_events),
         "unneeded_proposal_count": len(eligible) - len(proposals),
         "removal_proposals": removals,
         "flagged": flagged,
@@ -1136,6 +1182,26 @@ def render_digest_section(result: Mapping[str, Any], changes: Mapping[str, list[
             "",
             f"{unneeded} new event(s) in watched families with no question; see the JSON report.",
         ]
+
+    labels = result.get("label_findings") or []
+    if labels:
+        lines += [
+            "",
+            "### Labels",
+            "",
+            f"{len(labels)} event(s) with a missing or conflicting product label. Label each "
+            "in Amplitude with the `event-metadata` skill, or add it to `dismissed:` in "
+            "`monitored_events.yaml`:",
+            "",
+            "| event | finding | family | first seen |",
+            "|---|---|---|---|",
+            *[
+                f"| {r['event_type']} | {r['kind']} | {r['family'] or ''} | {r['first_seen_date'] or ''} |"
+                for r in labels[:PROPOSAL_CAP]
+            ],
+        ]
+        if len(labels) > PROPOSAL_CAP:
+            lines.append(f"({len(labels) - PROPOSAL_CAP} more; see the JSON report.)")
 
     removals = result.get("removal_proposals") or []
     if removals:

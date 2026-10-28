@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common'
 import { FastifyReply } from 'fastify'
+import { PinoLogger } from 'nestjs-pino'
 import { Campaign, User } from '../../generated/prisma'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { OutreachP2pSmsCaptureService } from '@/outreach/services/outreachP2pSmsCapture.service'
@@ -69,6 +70,7 @@ describe('P2pController', () => {
     finalizeDraftsForReadyList: ReturnType<typeof vi.fn>
   }
   let mockRes: FastifyReply
+  let mockLogger: PinoLogger
 
   beforeEach(() => {
     mockPeerlyPhoneListService = {
@@ -96,12 +98,13 @@ describe('P2pController', () => {
       finalizeDraftsForReadyList: vi.fn().mockResolvedValue(undefined),
     }
     mockRes = createMockReply()
+    mockLogger = createMockLogger()
     controller = new P2pController(
       mockPeerlyPhoneListService as unknown as PeerlyPhoneListService,
       mockPeerlyPhoneListCapture as unknown as PeerlyPhoneListCaptureService,
       mockP2pPhoneListUploadService as unknown as P2pPhoneListUploadService,
       mockP2pSmsCapture as unknown as OutreachP2pSmsCaptureService,
-      createMockLogger(),
+      mockLogger,
     )
   })
 
@@ -273,6 +276,19 @@ describe('P2pController', () => {
       expect(mockP2pSmsCapture.captureHoldsForReadyList).toHaveBeenCalledWith(
         123,
       )
+      expect(mockLogger.info).toHaveBeenCalledWith(
+        expect.objectContaining({
+          buildId: 1,
+          listId: 123,
+          leadsSupplied: 520,
+          leadsLoaded: 500,
+          leadsDuplicate: 10,
+          leadsMasterDnc: 5,
+          leadsCellDnc: 2,
+          leadsMalformed: 3,
+        }),
+        'Peerly phone list ready',
+      )
     })
 
     it('returns 202 (still loading) when leads_loaded has not stabilized, without stamping', async () => {
@@ -345,6 +361,10 @@ describe('P2pController', () => {
         mockP2pSmsCapture.finalizeDraftsForReadyList,
       ).not.toHaveBeenCalled()
       expect(mockP2pSmsCapture.captureHoldsForReadyList).not.toHaveBeenCalled()
+      expect(mockLogger.info).not.toHaveBeenCalledWith(
+        expect.anything(),
+        'Peerly phone list ready',
+      )
       expect(mockRes.status).not.toHaveBeenCalled()
       expect(result).toEqual({
         phoneListId: 123,

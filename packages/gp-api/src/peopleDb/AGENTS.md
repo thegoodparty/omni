@@ -72,6 +72,26 @@ the parsed `Residence_Addresses_StreetName` and
 `Residence_Addresses_Designator`. Aggregates only; the civic panel stores
 the name (see the contacts AGENTS.md, "Tract names").
 
+## Early and absentee voters are a separate table, not a column
+
+The `votedInElection` filter ("Voted in election") reads
+`gp_api_voter_eav_general_2026`: the ids L2 reports as having already
+voted early or absentee in the 2026 General, rebuilt twice daily from a
+manual upload (gp-data-platform#1266). Its sibling key
+`votedInElectionReportedIds` carries the people the campaign recorded as
+already voted, and the one clause ORs them in for Yes,
+`(id IN (SELECT id ...) OR id IN (...))`, and excludes both for No, with the
+subquery's `WHERE id IS NOT NULL` keeping `NOT IN` null-safe. Alone, the
+sibling key emits nothing. It works the same on both people tables; a
+consumer-only constituent is never in the L2 table. It is apart from
+`gp_api_voters` because that table rebuilds monthly
+(`docs/adr/2026-10-26-voted-in-election-includes-l2-early-absentee.md`).
+Not every state reports, so No does not mean the voter has yet to vote.
+`buildPersonSql` reads the same table as a trailing
+`early_absentee_voted` column, so a person's detail can show "Already
+voted" without a second warehouse round trip; `findPerson` sets
+`voted: true` from it and ContactsService ORs in the campaign's answer.
+
 Consumer-only rows are NULL in every voter-only column (party,
 `Voter_Status`, `StateVoterID`, vote history, `Voter_Independent_Affinity`,
 `hf_ideology_general`, every `hs_*` score) and most have no `LALVOTERID`,
@@ -394,7 +414,7 @@ signatures rather than callers reaching into `databricks/` directly.
 | `services/stats.service.ts`                     | District aggregate stats from the voter rows; census composition                                           |
 | `databricks/districtCensusSql.util.ts`          | Census mart SQL: population, ACS composition, people's block groups, model cells                           |
 | `services/peopleDataset.service.ts`             | Which people table an organization reads (`PeopleDataset`)                                                 |
-| `services/electionApiDistrict.service.ts`       | District resolution/scoping, from `src/electionDb/`                                                        |
+| `services/electionDistrict.service.ts`          | District resolution/scoping, from `src/electionDb/`                                                        |
 | `services/voterDoorKnocking.service.ts`         | Door-knocking cap guards + roster shaping                                                                  |
 | `services/voterPack.service.ts`                 | Encoded voter-pack build/read                                                                              |
 | `services/voterRecommendedLists.service.ts`     | Recommended-list counts + door precinct ranking                                                            |

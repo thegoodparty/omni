@@ -172,8 +172,9 @@ jobs:
   # across runners to cut wall-clock. Three jobs:
   #   e2e-wait  — gates once on gp-api's (slow) deploy, so the shards don't each
   #               idle on the same multi-minute poll.
-  #   e2e-shard — fans the suite across 4 runners via Playwright --shard; each
-  #               emits a blob report artifact.
+  #   e2e-shard — fans the suite across 6 runners, balanced by the last
+  #               run's test durations (e2e-tests/scripts/plan-shards.mjs);
+  #               each emits a blob report artifact.
   #   e2e       — merges the shard blobs into one HTML report + results.json,
   #               publishes to S3, upserts the PR comment, and fails iff any
   #               shard failed. This is the single required status check the
@@ -482,27 +483,19 @@ jobs:
           app: gp-webapp
 
       - name: Install Playwright browsers
-        working-directory: ${{ env.WORKSPACE }}/e2e-tests
-        # --with-deps runs apt, and a mirror that stops responding makes apt wait
-        # forever until the job is cancelled. Time out a stalled download rather
-        # than the whole install (the mirror can be slow and still finish), and
-        # wait for the dpkg lock so a retry does not fail on a leftover apt.
-        # Each attempt gets 6 minutes: a stalled browser download otherwise holds
-        # the first attempt until the step times out, and the retries never run.
-        # A killed attempt can leave its apt holding the dpkg lock, so the lock
-        # wait stays well inside one attempt.
         timeout-minutes: 20
-        run: |
-          printf 'Acquire::http::Timeout "60";\nAcquire::https::Timeout "60";\nAcquire::Retries "5";\nDPkg::Lock::Timeout "120";\n' | sudo tee /etc/apt/apt.conf.d/99-ci-timeouts > /dev/null
-          for attempt in 1 2 3; do
-            timeout 360 npx playwright install --with-deps chromium && exit 0
-            echo "Playwright install attempt $attempt failed"
-            # timeout only kills npx; the apt-get it started keeps the dpkg lock
-            # and the next attempt would wait on it, so clear it first.
-            sudo pkill -9 -x apt-get || true
-            sudo dpkg --configure -a || true
-          done
-          exit 1
+        uses: ./.github/actions/setup-playwright
+        with:
+          working-directory: ${{ env.WORKSPACE }}/e2e-tests
+
+      # The newest durations the E2E job recorded: this PR's last run if it
+      # has one, else main's. A miss only degrades the plan to a count split.
+      - name: Restore test durations
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.WORKSPACE }}/e2e-tests/e2e-durations.json
+          key: e2e-durations-v1-${{ github.run_id }}
+          restore-keys: e2e-durations-v1-
 
       # Each shard runs its file subset and emits a blob report the E2E summary
       # job merges; --reporter=blob deliberately overrides the config's
@@ -516,13 +509,24 @@ jobs:
       # live pipelines: SQS analyze round-trip, Stripe webhook). Exclude them on
       # PRs, where an ephemeral per-PR preview can't drive those pipelines. See
       # e2e-tests/CLAUDE.md.
+      # Not Playwright's --shard, which splits by test count in file order and
+      # left one shard running minutes after the rest. Every shard lists the
+      # same suite and runs the slice plan-shards.mjs assigns it, so the
+      # shards together still cover every test exactly once.
       - name: Run Playwright tests
         working-directory: ${{ env.WORKSPACE }}/e2e-tests
-        run: >-
-          npx playwright test --config="$PWD/playwright.config.ts" tests/
-          --shard=${{ matrix.shard }}/${{ strategy.job-total }} --reporter=blob
-          ${{ github.event_name == 'pull_request' && '--grep-invert @dev-only' || '' }}
+        run: |
+          set -euo pipefail
+          npx playwright test --config="$PWD/playwright.config.ts" tests/ --grep-invert @dev-only --list --reporter=json > "$RUNNER_TEMP/e2e-list.json"
+          node scripts/plan-shards.mjs plan "$RUNNER_TEMP/e2e-list.json" e2e-durations.json ${{ matrix.shard }} ${{ strategy.job-total }} > "$RUNNER_TEMP/e2e-shard.txt"
+          if [ ! -s "$RUNNER_TEMP/e2e-shard.txt" ]; then
+            echo "::notice::no tests planned for shard ${{ matrix.shard }}"
+            exit 0
+          fi
+          mapfile -t locations < "$RUNNER_TEMP/e2e-shard.txt"
+          npx playwright test --config="$PWD/playwright.config.ts" "${locations[@]}" --grep-invert @dev-only --reporter=blob
         env:
+          PLAYWRIGHT_BLOB_OUTPUT_NAME: report-${{ matrix.shard }}.zip
           TEST_RUN_NAME: 'E2E Tests - PR Preview'
           CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
           CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
@@ -565,18 +569,17 @@ jobs:
       # shards actually tested — see the e2e-shard BASE_URL comment.
       BASE_URL: ${{ github.event_name == 'push' && 'https://dev.goodparty.org' || needs.deploy.outputs.url }}
     steps:
+      # Only the merge config, the shard planner and the root lockfile are
+      # read here.
       - uses: actions/checkout@v5
         with:
           persist-credentials: false
+          sparse-checkout: ${{ env.WORKSPACE }}/e2e-tests
 
       - uses: aws-actions/configure-aws-credentials@v5
         with:
           role-to-assume: arn:aws:iam::333022194791:role/web-app-e2e-tests
           aws-region: us-west-2
-
-      - uses: ./.github/actions/setup-node-workspace
-        with:
-          app: gp-webapp
 
       # Only when the shards actually ran. Skipping this (and merge/comment
       # below) when they were skipped/cancelled keeps the result-producing
@@ -627,15 +630,32 @@ jobs:
       # path.resolve(process.cwd(), dir), so a relative arg is cwd-sensitive;
       # absolute paths are not. The merged html + json land in the config's
       # dir (e2e-tests) — exactly where the S3/parse steps below look.
+      # Playwright comes from npx at the lockfile's version rather than from a
+      # workspace install: restoring the 900 MB node_modules cache took ~40s
+      # of this job's ~65s, all on the path to the required check.
       - name: Merge shard reports
         if: >-
           needs.e2e-shard.result == 'success'
           || needs.e2e-shard.result == 'failure'
         working-directory: ${{ env.WORKSPACE }}/e2e-tests
-        run: >-
-          npx playwright merge-reports
-          --config="${{ github.workspace }}/${{ env.WORKSPACE }}/e2e-tests/playwright.merge.config.ts"
-          "${{ github.workspace }}/${{ env.WORKSPACE }}/e2e-tests/blob-report"
+        run: |
+          version=$(jq -r '.packages["node_modules/@playwright/test"].version' "$GITHUB_WORKSPACE/package-lock.json")
+          npx --yes "@playwright/test@$version" merge-reports \
+            --config="${{ github.workspace }}/${{ env.WORKSPACE }}/e2e-tests/playwright.merge.config.ts" \
+            "${{ github.workspace }}/${{ env.WORKSPACE }}/e2e-tests/blob-report"
+
+      # Feeds the next run's shard plan (see Restore test durations).
+      - name: Record test durations
+        id: durations
+        if: hashFiles(format('{0}/e2e-tests/test-results/results.json', env.WORKSPACE)) != ''
+        working-directory: ${{ env.WORKSPACE }}/e2e-tests
+        run: node scripts/plan-shards.mjs durations test-results/results.json > e2e-durations.json
+      - name: Save test durations
+        if: steps.durations.outcome == 'success'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ env.WORKSPACE }}/e2e-tests/e2e-durations.json
+          key: e2e-durations-v1-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Upload Playwright report
         if: ${{ !cancelled() }}

@@ -9,7 +9,7 @@ configured in `.mcp.json`; required env vars are in `docs/mcp.md`.
 - **Datasource UIDs:** Loki `grafanacloud-logs`, Tempo `grafanacloud-traces`,
   Prometheus `grafanacloud-prom`
 - **Stream labels, and there are only these two:**
-  - `service_name`: `gp-api` | `election-api`
+  - `service_name`: `gp-api`
   - `deployment_environment_name`: `dev` | `prod`
 
 That is the entire set you can narrow on. Everything else a log line carries —
@@ -119,7 +119,7 @@ widening the metric query.
 
 ## Log redaction
 
-Every log line gp-api and election-api write passes through `redactLine`
+Every log line gp-api writes passes through `redactLine`
 (`packages/nest-common/src/observability/log-redaction.ts`), wired in as pino's
 `hooks.streamWrite`. It scrubs the literal values of the env vars named in
 `SECRETS_MANAGER_KEYS`, sensitive query parameters, connection-string passwords, and

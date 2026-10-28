@@ -1,7 +1,7 @@
 # Dev environment: simulated vendors
 
 Dev uses mock vendors. No traffic reaches Peerly, CallHub, Geoapify, Vercel,
-or Route53.
+Route53, or SES.
 
 ## Auto-progress timings
 

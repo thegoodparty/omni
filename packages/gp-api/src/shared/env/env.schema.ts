@@ -58,6 +58,19 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
     tier: 'degradable',
     feature: 'campaign-email-forwarding',
   },
+  // Signs the unsubscribe links in outreach email. Without it the send
+  // sweep sends nothing.
+  EMAIL_UNSUBSCRIBE_SIGNING_KEY: {
+    tier: 'degradable',
+    feature: 'email-outreach-sending',
+  },
+
+  // The SNS topic that delivers replies to outreach email. The webhook
+  // accepts messages from this topic only.
+  EMAIL_INBOUND_TOPIC_ARN: {
+    tier: 'degradable',
+    feature: 'email-outreach-replies',
+  },
 
   PEERLY_MD5_EMAIL: { tier: 'degradable', feature: 'peerly-texting' },
   PEERLY_MD5_PASSWORD: { tier: 'degradable', feature: 'peerly-texting' },
@@ -331,6 +344,9 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
 
   ROBOCALL_AUDIO_BUCKET: { tier: 'optional' },
   ROBOCALL_TEST_OVERRIDE_NUMBER: { tier: 'optional' },
+  // The free election-eve robocall offer's Stripe coupon. Unset hides the
+  // offer, which is how prod stays dark until the live coupon exists.
+  ROBOCALL_FREE_OFFER_COUPON_ID: { tier: 'optional' },
   SERVE_ANALYSIS_BUCKET_NAME: { tier: 'optional' },
   // Issue capture synthesis (constituentFeedback/). Unset means the
   // deployed pipeline; `mock` keeps everything in-process.

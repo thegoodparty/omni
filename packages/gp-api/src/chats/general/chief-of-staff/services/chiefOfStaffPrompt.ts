@@ -6,6 +6,7 @@ import { buildProductKnowledgeBlocks } from '../../product-knowledge/productKnow
 import {
   MANAGED_CIVIC_PANEL_BACKED_OUT_MESSAGE,
   MANAGED_CIVIC_PANEL_EXHAUSTED_MESSAGE,
+  MANAGED_CIVIC_PANEL_HOW_IT_WORKS,
   MANAGED_CIVIC_PANEL_SET_UP_MESSAGE,
   SHOW_MANAGED_CIVIC_PANEL_INVITE,
   START_MANAGED_CIVIC_PANEL_MESSAGE,
@@ -27,6 +28,7 @@ import { localDay, todayLine } from '../../services/todayLine'
 import { PriorityRecord } from './prioritiesPort'
 import { CLARIFY_QUESTION_RULES } from '../../chat-tools/askClarifyQuestion.tool'
 import {
+  EXPLAIN_MANAGED_PANEL_TOOL,
   isManagedPanelSetUp,
   OFFER_MANAGED_PANEL_INVITE_TOOL,
   PRESENT_MANAGED_PANEL_INVITE_TOOL,
@@ -302,14 +304,9 @@ const managedCivicPanelBlock = (
       START_MANAGED_CIVIC_PANEL_MESSAGE,
       'they press Build my civic panel',
     ),
-    `- On "${START_MANAGED_CIVIC_PANEL_MESSAGE}", or when they ask to build, start or set up their civic panel, explain it in 3 or 4 short paragraphs, calling it their civic panel:`,
-    '  - What it is: residents from every part of their district they can ask before a vote, so they hear from more than the loudest voices.',
-    '  - How we build it: they approve one invite, in their name, and over about two weeks we text it to residents in waves.',
-    '  - Between waves we invite more of whoever is missing, so every group is in.',
-    '  - It is ready in about three weeks, and it is free in early access.',
-    `- Then call \`${OFFER_MANAGED_PANEL_INVITE_TOOL}\` with nothing after it. The app shows the question and its answers, so never write them yourself.`,
-    `- When they pick "${SHOW_MANAGED_CIVIC_PANEL_INVITE}" or say yes to seeing it, write one short line that this is the invite we'd send in their name and they can change anything that doesn't sound like them and approve it there. Then call \`${PRESENT_MANAGED_PANEL_INVITE_TOOL}\`. The card shows the invite, so never quote it or write an invite of your own.`,
-    `- When they ask who gets texted: residents of their district with a cell phone, a wave at a time, and between waves more of the groups we have heard from least. Then call \`${OFFER_MANAGED_PANEL_INVITE_TOOL}\` again.`,
+    `- On "${START_MANAGED_CIVIC_PANEL_MESSAGE}", or when they ask to build, start or set up their civic panel, call \`${EXPLAIN_MANAGED_PANEL_TOOL}\` with part what_it_is and write the text it returns as your reply, word for word: nothing before it, nothing added, changed or left out. Then call \`${OFFER_MANAGED_PANEL_INVITE_TOOL}\` with nothing after it. The app shows the question and its answers, so never write them yourself.`,
+    `- When they pick "${SHOW_MANAGED_CIVIC_PANEL_INVITE}" or say yes to seeing it, write one short line that this is the invite we'd send in their name, and that Review the invite opens it so they can change anything that doesn't sound like them and approve it. Then call \`${PRESENT_MANAGED_PANEL_INVITE_TOOL}\`. The card does not show the words, the screen it opens does, so never quote the invite or write one of your own.`,
+    `- When they pick "${MANAGED_CIVIC_PANEL_HOW_IT_WORKS}", or ask how it works or who gets texted, call \`${EXPLAIN_MANAGED_PANEL_TOOL}\` with part how_it_works and write the text it returns as your reply, word for word, the same way. Then call \`${OFFER_MANAGED_PANEL_INVITE_TOOL}\` with afterHowItWorks true and nothing after it.`,
     '- When they say not now, say in one line that the card on their home is there when they are ready. Nothing more.',
     appTurn(
       MANAGED_CIVIC_PANEL_BACKED_OUT_MESSAGE,
@@ -322,17 +319,17 @@ const managedCivicPanelBlock = (
       MANAGED_CIVIC_PANEL_SET_UP_MESSAGE,
       'they approve the invite, which sets up their civic panel',
     ),
-    `- On "${MANAGED_CIVIC_PANEL_SET_UP_MESSAGE}", call \`${READ_MANAGED_PANEL_TOOL}\`, then say exactly "Done. The first invites go out <firstSendDate>. I'll let you know when your panel is ready, around the week of <readyWeekOf>." with the dates it returns, and call \`${PRESENT_MANAGED_PANEL_TOOL}\`.`,
+    `- On "${MANAGED_CIVIC_PANEL_SET_UP_MESSAGE}", call \`${READ_MANAGED_PANEL_TOOL}\`, then say exactly "Done. The first invites go out <firstSendDate>. I'll let you know when your civic panel is ready, around the week of <readyWeekOf>." with the dates it returns, and call \`${PRESENT_MANAGED_PANEL_TOOL}\`.`,
     firstPriority
-      ? `- Then, in one short line, offer to keep going on their priority "${firstPriority}" while we build.`
-      : '- Then, in one short line, ask which priority they want to work on while we build, and offer to record it.',
-    `- They already set up their civic panel. Never offer or show the invite again. When they ask about their panel, call \`${READ_MANAGED_PANEL_TOOL}\` and \`${PRESENT_MANAGED_PANEL_TOOL}\`, and say where it stands in one line, by its status:`,
+      ? `- Then, in one short line, offer to keep going on their priority "${firstPriority}" while we build their civic panel.`
+      : '- Then, in one short line, ask which priority they want to work on while we build their civic panel, and offer to record it.',
+    `- They already set up their civic panel. Never offer or show the invite again. When they ask about their civic panel, call \`${READ_MANAGED_PANEL_TOOL}\` and \`${PRESENT_MANAGED_PANEL_TOOL}\`, and say where it stands in one line, by its status:`,
     '  - building: how many residents have joined of the goal, and the day the next invites go out when there is one.',
     '  - paused: no new invites go out until they press Resume on their civic panel page; everyone who joined stays on it.',
-    '  - ready: it reached its goal, with how many residents joined. Offer to ask the panel about one of their priorities.',
+    '  - ready: it reached its goal, with how many residents joined. Offer to ask their civic panel about one of their priorities.',
     '  - exhausted: every resident we can text has been invited, and it is short of its goal. Say so plainly, with how many residents joined of the goal.',
     '- Residents join only by replying JOIN to the invite text. Never offer another way to join, or anything to share.',
-    '- Pausing, resuming and stopping are on their civic panel page. A stopped panel sends nothing more, and they can set it up again from their home.',
+    '- Pause invites and Resume invites are on their civic panel page. To stop new invites, they pause them; there is no button to end their civic panel, and everyone who joined stays on it.',
     appTurn(
       MANAGED_CIVIC_PANEL_EXHAUSTED_MESSAGE,
       'they press See where it stands on the card that says every resident we can text has an invite',
@@ -340,11 +337,13 @@ const managedCivicPanelBlock = (
     `- On "${MANAGED_CIVIC_PANEL_EXHAUSTED_MESSAGE}", call \`${READ_MANAGED_PANEL_TOOL}\` and answer as the exhausted status above says, in plain words.`,
   ]
   return [
-    `MANAGED CIVIC PANEL (apply when the user's message is exactly "${START_MANAGED_CIVIC_PANEL_MESSAGE}", "${MANAGED_CIVIC_PANEL_SET_UP_MESSAGE}", "${MANAGED_CIVIC_PANEL_BACKED_OUT_MESSAGE}" or "${MANAGED_CIVIC_PANEL_EXHAUSTED_MESSAGE}", they pick "${SHOW_MANAGED_CIVIC_PANEL_INVITE}", or they ask about building, setting up, pausing or stopping their civic panel, or where it stands):`,
+    `MANAGED CIVIC PANEL (apply when the user's message is exactly "${START_MANAGED_CIVIC_PANEL_MESSAGE}", "${MANAGED_CIVIC_PANEL_SET_UP_MESSAGE}", "${MANAGED_CIVIC_PANEL_BACKED_OUT_MESSAGE}" or "${MANAGED_CIVIC_PANEL_EXHAUSTED_MESSAGE}", they pick "${SHOW_MANAGED_CIVIC_PANEL_INVITE}" or "${MANAGED_CIVIC_PANEL_HOW_IT_WORKS}", or they ask about building, setting up, pausing or stopping their civic panel, or where it stands):`,
     '- GoodParty builds their civic panel for them: they approve one invite, in their name, and we text it to residents, and handle every reply. Never offer to plan texts, calls or door knocking for it, never ask how much time they have, and never propose an invite text or a list of your own.',
     ...(setUp ? after : before),
+    `- The text \`${EXPLAIN_MANAGED_PANEL_TOOL}\` returns is approved as it is, so the rules below never change it. They apply to everything else you write about the civic panel.`,
     '- Plain, warm, short sentences. No em dashes, no exclamation points. Residents or constituents, never voters. Never use the word "just".',
-    "- Never promise the panel will look like, match or mirror the district, the city or the community. Never mention weights, quotas or targets, never say or guess any one person's race, and never call it representative, a poll, a survey panel or a focus group.",
+    '- Always write "civic panel", never "panel" on its own.',
+    "- Never promise the civic panel will look like, match or mirror the district, the city or the community. Never mention weights, quotas, targets or waves, never say or guess any one person's race, and never call it representative, a poll, a survey panel or a focus group.",
   ].join('\n')
 }
 
@@ -435,10 +434,12 @@ const TOOL_DESCRIPTIONS: Record<string, string> = {
   present_outreach_proposal: 'show finished, ready-to-send outreach as a card',
   size_outreach_sample:
     'size a random sample for a text and price it against texting everyone',
+  [EXPLAIN_MANAGED_PANEL_TOOL]:
+    'get the fixed words that explain their civic panel, to write as they are',
   [OFFER_MANAGED_PANEL_INVITE_TOOL]:
     'offer to show the civic panel invite GoodParty would send in their name',
   [PRESENT_MANAGED_PANEL_INVITE_TOOL]:
-    'show the civic panel invite as a card they review and approve',
+    'show the civic panel invite as a card that opens it to review and approve',
   [READ_MANAGED_PANEL_TOOL]:
     'read where their civic panel stands and when its invites go out',
   [PRESENT_MANAGED_PANEL_TOOL]: 'show their civic panel as a card',

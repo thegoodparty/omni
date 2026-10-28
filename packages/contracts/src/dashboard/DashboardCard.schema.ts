@@ -79,7 +79,7 @@ export const MANAGED_CIVIC_PANEL_CARD_CTA = 'Build my civic panel'
 export const managedCivicPanelCardContent = (place: string | null) => {
   const where = place?.trim() || 'your district'
   return {
-    title: `Know what ${where} thinks before you vote`,
+    title: `Hear from all of ${where}, not just the loudest voices`,
     summary: `Residents from every part of ${where}, matched by age, gender and race. Free in early access.`,
   }
 }
@@ -115,7 +115,7 @@ export const managedPanelProgressPhase = (
 // The exhausted card's button: the home opens the Chief of Staff, which says
 // where the panel stands, rather than following the card's link.
 export const MANAGED_CIVIC_PANEL_EXHAUSTED_CARD_CTA = 'See where it stands'
-export const MANAGED_CIVIC_PANEL_PROGRESS_CARD_CTA = 'See your panel'
+export const MANAGED_CIVIC_PANEL_PROGRESS_CARD_CTA = 'See your civic panel'
 
 export const DashboardCardsResponseSchema = z.object({
   bucket: DashboardCardBucketSchema,

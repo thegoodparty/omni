@@ -172,6 +172,9 @@ const STATUS_DISPLAY: Record<
   Sending: { icon: <CircleDotIcon />, tone: 'primary' },
   Done: { icon: <CheckCircleIcon />, tone: 'primary' },
   'Pending payment': { icon: <ClockIcon />, tone: 'warning' },
+  // A robocall whose pay-time hold was declined. Destructive tone marks it as
+  // needing the candidate to act — they update their card and resend.
+  'Payment failed': { icon: <ShieldAlertIcon />, tone: 'destructive' },
   Canceled: { icon: <XCircleIcon />, tone: 'muted' },
   // A robocall the send chain could not deliver (a CallHub failure). The
   // candidate was not charged; destructive tone marks it as needing attention.

@@ -951,3 +951,48 @@ def test_gap_thread_shows_an_extend_fix_in_place_of_the_question():
                                          "extend_event": "E", "extend_property": "p"}]}
     text = _flatten_text(slk.build_gap_thread_blocks(gap))
     assert "extend `E` with `p`" in text and " — q" not in text
+
+
+# --- product label findings ---------------------------------------------------
+
+
+def _label_row(i, kind="no_product_label"):
+    return {"event_type": f"lbl_{i}", "kind": kind, "family": "other", "first_seen_date": "2026-10-01"}
+
+
+def test_digest_renders_label_findings_in_parent_and_thread():
+    result = {**RESULT, "label_findings": [_label_row(1), _label_row(2, "product_label_conflict")]}
+    parent, thread = slk.build_digest_blocks(result, CHANGES, PRIOR)
+    assert "2 label findings" in _flatten_text(parent)
+    text = _flatten_text(thread)
+    assert "*Product labels*" in text
+    assert "lbl_1" in text and "product_label_conflict" in text
+
+
+def test_digest_omits_label_findings_when_empty():
+    parent, thread = slk.build_digest_blocks({**RESULT, "label_findings": []}, CHANGES, PRIOR)
+    assert "label finding" not in _flatten_text(parent)
+    assert "Product labels" not in _flatten_text(thread)
+
+
+def test_digest_label_findings_truncate_with_overflow():
+    many = {**RESULT, "label_findings": [_label_row(i) for i in range(slk.TRANSITION_CAP + 3)]}
+    _, thread = slk.build_digest_blocks(many, CHANGES, PRIOR)
+    text = _flatten_text(thread)
+    assert "…and 3 more" in text
+    assert f"lbl_{slk.TRANSITION_CAP}`" not in text
+
+
+def test_tiered_digest_renders_label_findings_only_when_present():
+    triage = _triage([_titem("PlainEvent", "fyi")])
+    with_labels = _tiered_result(label_findings=[_label_row(1)])
+    parent, thread = slk.build_digest_blocks(with_labels, NOCHG, {}, set(), triage=triage)
+    assert "1 label finding" in _flatten_text(parent)
+    assert "*Product labels*" in _flatten_text(thread) and "lbl_1" in _flatten_text(thread)
+    parent, thread = slk.build_digest_blocks(_tiered_result(), NOCHG, {}, set(), triage=triage)
+    assert "label finding" not in _flatten_text(parent)
+    assert "Product labels" not in _flatten_text(thread)
+
+
+def test_should_post_ignores_label_findings():
+    assert not slk.should_post(_tiered_result(label_findings=[_label_row(1)]), NOCHG, set(), None)
