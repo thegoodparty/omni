@@ -541,6 +541,9 @@ describe('stripe webhook handlers', () => {
 
     await holds.retryHoldFailedForAttachedCard(CUSTOMER_ID, 'pm_new')
 
+    expect(placeSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ offSession: true }),
+    )
     expect(await readHold(future)).toMatchObject({
       state: OutreachHoldState.held,
       paymentMethodId: 'pm_new',
@@ -568,12 +571,28 @@ describe('stripe webhook handlers', () => {
     expect(states).toContain(OutreachHoldState.held)
   })
 
-  it('leaves a scheduled hold alone when its card is detached', async () => {
+  it('fails a scheduled hold when its card is detached, keeping its attempt', async () => {
     const outreachId = await createHold(OutreachHoldState.scheduled)
+    const other = await createHold(OutreachHoldState.scheduled, {
+      paymentMethodId: 'pm_other',
+    })
 
     await holds.flagScheduledHoldsForDetachedCard(CARD_ID)
 
-    expect((await readHold(outreachId)).state).toBe(OutreachHoldState.scheduled)
+    expect(await readHold(outreachId)).toMatchObject({
+      state: OutreachHoldState.hold_failed,
+      declineCode: 'payment_method_detached',
+      holdAttempt: 0,
+    })
+    expect((await readHold(other)).state).toBe(OutreachHoldState.scheduled)
+  })
+
+  it('leaves a held hold alone when its card is detached', async () => {
+    const outreachId = await createHold(OutreachHoldState.held)
+
+    await holds.flagScheduledHoldsForDetachedCard(CARD_ID)
+
+    expect((await readHold(outreachId)).state).toBe(OutreachHoldState.held)
   })
 
   it('marks a captured hold disputed, and a redelivery changes nothing', async () => {

@@ -47,7 +47,7 @@ A stale `capturing` row whose intent Stripe shows `canceled` becomes `uncollecta
 
 ## Stripe webhooks
 
-`PaymentEventsService` resolves `PaymentHoldsService` through `ModuleRef` and calls it after robocall's handler, which is unchanged. `payment_method.attached` retries the customer's `hold_failed` holds whose send is still ahead, through `updateCard`, one row at a time with errors isolated. `payment_method.detached` only logs a `scheduled` hold's lost card: its placement declines and becomes `hold_failed`. `charge.dispute.created` moves a `captured` hold to `disputed`, found by the unique `paymentIntentId`; a `capturing` row answers 503 so Stripe redelivers.
+`PaymentEventsService` resolves `PaymentHoldsService` through `ModuleRef` and calls it after robocall's handler, which is unchanged. `payment_method.attached` retries the customer's `hold_failed` holds whose send is still ahead, through `updateCard`, one row at a time with errors isolated. The retry places off-session. `payment_method.detached` moves a `scheduled` hold on that card to `hold_failed` (`declineCode: payment_method_detached`, same `holdAttempt`), because Stripe errors without creating an intent and the placement would otherwise cycle. `charge.dispute.created` moves a `captured` hold to `disputed`, found by the unique `paymentIntentId`; a `capturing` row answers 503 so Stripe redelivers.
 
 ## Card endpoints
 

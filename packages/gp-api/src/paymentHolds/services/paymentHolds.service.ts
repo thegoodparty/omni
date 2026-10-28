@@ -564,10 +564,12 @@ export class PaymentHoldsService
     outreachId,
     userId,
     paymentMethodId,
+    offSession = false,
   }: {
     outreachId: number
     userId: number
     paymentMethodId: string
+    offSession?: boolean
   }): Promise<SaveCardAndPlanResult> {
     const row = await this.model.findUnique({
       where: { outreachId },
@@ -609,13 +611,14 @@ export class PaymentHoldsService
       )
     }
     return placeNow
-      ? this.placeHold(outreachId, { offSession: false })
+      ? this.placeHold(outreachId, { offSession })
       : { outcome: 'scheduled' }
   }
 
   // payment_method.attached: a card landed on the customer, so a declined
   // hold whose send is still ahead is retried on it. Goes through updateCard,
-  // which owns the claim and places on-session or saves for the sweep.
+  // which owns the claim. Nobody is present to complete 3-D Secure in a
+  // webhook, so the placement is off-session, like the sweep's.
   async retryHoldFailedForAttachedCard(
     customerId: string,
     paymentMethodId: string,
@@ -633,7 +636,12 @@ export class PaymentHoldsService
     if (!user) return
     for (const { outreachId } of rows) {
       try {
-        await this.updateCard({ outreachId, userId: user.id, paymentMethodId })
+        await this.updateCard({
+          outreachId,
+          userId: user.id,
+          paymentMethodId,
+          offSession: true,
+        })
       } catch (err) {
         this.logger.warn(
           { err, outreachId, customerId },
@@ -643,20 +651,25 @@ export class PaymentHoldsService
     }
   }
 
-  // payment_method.detached: a scheduled hold's card is gone, so its
-  // placement will decline. Surfaced in the logs now; the placement sweep
-  // turns it into hold_failed, which is what emails the user.
+  // payment_method.detached: a scheduled hold's card is gone. Stripe refuses
+  // to place a hold on it without creating an intent, which the placement
+  // path would retry until the send. Failing the hold now is what sends the
+  // user the decline email. The row's attempt was never sent to Stripe, so
+  // it keeps its holdAttempt, and a new card retries under the same key.
   async flagScheduledHoldsForDetachedCard(
     paymentMethodId: string,
   ): Promise<void> {
-    const rows = await this.model.findMany({
+    const failed = await this.model.updateMany({
       where: { state: OutreachHoldState.scheduled, paymentMethodId },
-      select: { outreachId: true },
+      data: {
+        state: OutreachHoldState.hold_failed,
+        declineCode: 'payment_method_detached',
+      },
     })
-    for (const { outreachId } of rows) {
+    if (failed.count > 0) {
       this.logger.warn(
-        { outreachId, paymentMethodId },
-        'The card on a scheduled payment hold was removed',
+        { paymentMethodId, count: failed.count },
+        'The card on scheduled payment holds was removed; holds marked failed',
       )
     }
   }
