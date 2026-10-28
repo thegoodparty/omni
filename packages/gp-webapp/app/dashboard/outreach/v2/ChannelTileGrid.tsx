@@ -33,6 +33,7 @@ import {
 import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
 import { useRobocallFreeOffer } from 'app/dashboard/shared/robocallFreeOffer/useRobocallFreeOffer'
 import { FREE_OFFER_BADGE } from 'app/dashboard/shared/robocallFreeOffer/freeOfferCopy'
+import { MailIcon } from '@styleguide/components/ui/icons'
 import { CHANNEL_META } from './channelMeta'
 import type { AudiencePreselect } from './audiencePreselect'
 
@@ -47,6 +48,9 @@ interface ChannelTileGridProps {
   onCreateSms: (preselect?: AudiencePreselect) => void
   onCreateRobocall: (preselect?: AudiencePreselect) => void
   onCreatePhoneBanking: (preselect?: AudiencePreselect) => void
+  // Undefined while `win-email-outreach` is off or resolving, which keeps
+  // the tile out of the grid.
+  onCreateEmail?: () => void
 }
 
 const toPreselect = (
@@ -87,6 +91,7 @@ export const ChannelTileGrid = ({
   onCreateSms,
   onCreateRobocall,
   onCreatePhoneBanking,
+  onCreateEmail,
 }: ChannelTileGridProps) => {
   const router = useRouter()
   const queryClient = useQueryClient()
@@ -272,7 +277,12 @@ export const ChannelTileGrid = ({
           Pick a channel to draft and send a new campaign.
         </p>
       </div>
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+      <div
+        className={cn(
+          'grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5',
+          onCreateEmail && 'xl:grid-cols-6',
+        )}
+      >
         {TILE_ORDER.map((type) => {
           const option = OUTREACH_OPTIONS.find((o) => o.type === type)
           const meta = CHANNEL_META[type]
@@ -334,6 +344,17 @@ export const ChannelTileGrid = ({
             card
           )
         })}
+        {onCreateEmail && (
+          <ChannelCard
+            icon={<MailIcon />}
+            iconClassName="bg-brand-lavender-200"
+            label="Email"
+            onClick={() => {
+              trackEvent(EVENTS.Outreach.ClickCreate, { type: 'email' })
+              onCreateEmail()
+            }}
+          />
+        )}
       </div>
       <ProUpgradeModal
         {...{

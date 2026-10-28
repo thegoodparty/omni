@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { api } from 'helpers/test-utils/api-mocking'
 import { render } from 'helpers/test-utils/render'
 import { EmailFlow } from './EmailFlow'
+import { SERVE_EMAIL_SURFACE } from './emailSurface'
 
 const sender = {
   localPart: 'renee.wells',
@@ -151,5 +152,38 @@ describe('EmailFlow', () => {
         screen.getByTestId(`email-coming-soon-${feature}`),
       ).toBeInTheDocument()
     }
+  })
+
+  it('sends the Serve surface through the office-scoped routes with constituent copy', async () => {
+    api.mock('GET /v1/outreach/serve/email/sender', {
+      status: 200,
+      data: sender,
+    })
+    api.mock('POST /v1/outreach/serve/email', { status: 200, data: draft })
+    api.mock('POST /v1/outreach/serve/email/:id/recipients', {
+      status: 200,
+      data: { ready: 40, invalid: 0, unsubscribed: 0, duplicate: 0 },
+    })
+    const user = userEvent.setup()
+    render(<EmailFlow open onClose={vi.fn()} surface={SERVE_EMAIL_SURFACE} />)
+
+    await user.click(screen.getByText('Introduce myself to constituents'))
+    await user.type(await screen.findByLabelText('Subject'), 'Hello')
+    await user.click(screen.getByLabelText('Message body'))
+    await user.keyboard('Hi there')
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+
+    await screen.findByText('Who do you want to reach?')
+    await user.upload(
+      screen.getByLabelText('Your list (CSV)'),
+      new File(['email\na@b.com'], 'list.csv', { type: 'text/csv' }),
+    )
+    await user.click(
+      screen.getByLabelText('These people agreed to get email from my office.'),
+    )
+    await user.click(screen.getByRole('button', { name: 'Check my list' }))
+    expect(
+      await screen.findByText('40 ready, 0 skipped, 0 duplicates'),
+    ).toBeInTheDocument()
   })
 })

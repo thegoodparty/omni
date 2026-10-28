@@ -75,6 +75,7 @@ const renderGrid = (
     onCreateSms: (preselect?: AudiencePreselect) => void
     onCreateRobocall: (preselect?: AudiencePreselect) => void
     onCreatePhoneBanking: (preselect?: AudiencePreselect) => void
+    onCreateEmail: () => void
     preselectedListId: number
     preselectedRecommendedVariant: RecommendedListVariant
   }> = {},
@@ -87,6 +88,7 @@ const renderGrid = (
       onCreateSms={overrides.onCreateSms ?? vi.fn()}
       onCreateRobocall={overrides.onCreateRobocall ?? vi.fn()}
       onCreatePhoneBanking={overrides.onCreatePhoneBanking ?? vi.fn()}
+      onCreateEmail={overrides.onCreateEmail}
     />,
   )
 
@@ -98,6 +100,19 @@ describe('ChannelTileGrid — social tile', () => {
     await userEvent.click(screen.getByText('Social media'))
 
     expect(onCreateSocial).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('ChannelTileGrid — email tile', () => {
+  it('is absent without a handler and opens the email flow with one', async () => {
+    const { unmount } = renderGrid()
+    expect(screen.queryByText('Email')).not.toBeInTheDocument()
+    unmount()
+
+    const onCreateEmail = vi.fn()
+    renderGrid({ onCreateEmail })
+    await userEvent.click(screen.getByText('Email'))
+    expect(onCreateEmail).toHaveBeenCalledTimes(1)
   })
 })
 

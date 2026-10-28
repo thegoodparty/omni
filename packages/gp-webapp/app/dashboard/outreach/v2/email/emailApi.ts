@@ -7,43 +7,60 @@ import type {
 } from '@goodparty_org/contracts'
 import { clientRequest } from 'gpApi/typed-request'
 
-export const EMAIL_SENDER_QUERY_KEY = ['outreach', 'email', 'sender']
+export const emailSenderQueryKey = (serve: boolean) => [
+  'outreach',
+  serve ? 'serve-email' : 'email',
+  'sender',
+]
 
-export const useEmailSender = () =>
+export const useEmailSender = (serve: boolean) =>
   useQuery({
-    queryKey: EMAIL_SENDER_QUERY_KEY,
+    queryKey: emailSenderQueryKey(serve),
     queryFn: async (): Promise<EmailSender> =>
-      (await clientRequest('GET /v1/outreach/email/sender', {})).data,
+      (
+        await (serve
+          ? clientRequest('GET /v1/outreach/serve/email/sender', {})
+          : clientRequest('GET /v1/outreach/email/sender', {}))
+      ).data,
   })
 
-export const useChangeForwardTo = () => {
+export const useChangeForwardTo = (serve: boolean) => {
   const queryClient = useQueryClient()
   return async (forwardToEmail: string): Promise<EmailSender> => {
-    const { data } = await clientRequest('PATCH /v1/outreach/email/sender', {
-      forwardToEmail,
-    })
-    queryClient.setQueryData(EMAIL_SENDER_QUERY_KEY, data)
+    const { data } = await (serve
+      ? clientRequest('PATCH /v1/outreach/serve/email/sender', {
+          forwardToEmail,
+        })
+      : clientRequest('PATCH /v1/outreach/email/sender', { forwardToEmail }))
+    queryClient.setQueryData(emailSenderQueryKey(serve), data)
     return data
   }
 }
 
 export const saveEmailDraft = async (
+  serve: boolean,
   input: EmailDraftSave,
 ): Promise<EmailDraft> =>
-  (await clientRequest('POST /v1/outreach/email', input)).data
+  (
+    await (serve
+      ? clientRequest('POST /v1/outreach/serve/email', input)
+      : clientRequest('POST /v1/outreach/email', input))
+  ).data
 
 export const uploadEmailRecipients = async (
+  serve: boolean,
   draftId: number,
   file: File,
 ): Promise<EmailRecipientUploadResponse> => {
   const body = new FormData()
   body.append('consentConfirmed', 'true')
   body.append('file', file)
-  const { data } = await clientRequest(
-    'POST /v1/outreach/email/:id/recipients',
-    { id: String(draftId) },
-    { body },
-  )
+  const id = { id: String(draftId) }
+  const { data } = await (serve
+    ? clientRequest('POST /v1/outreach/serve/email/:id/recipients', id, {
+        body,
+      })
+    : clientRequest('POST /v1/outreach/email/:id/recipients', id, { body }))
   return data
 }
 

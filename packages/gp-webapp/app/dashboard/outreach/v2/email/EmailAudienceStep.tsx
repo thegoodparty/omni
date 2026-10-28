@@ -24,7 +24,7 @@ export const EmailAudienceStep = ({
   result,
   onUploaded,
 }: EmailAudienceStepProps) => {
-  const { data: sender } = useEmailSender()
+  const { data: sender } = useEmailSender(surface.isServe)
   const inputRef = useRef<HTMLInputElement>(null)
   const [file, setFile] = useState<File | null>(null)
   const [consent, setConsent] = useState(false)
@@ -39,7 +39,7 @@ export const EmailAudienceStep = ({
     setUploading(true)
     setError(null)
     try {
-      onUploaded(await uploadEmailRecipients(draftId, file))
+      onUploaded(await uploadEmailRecipients(surface.isServe, draftId, file))
     } catch (e) {
       setError(apiErrorMessage(e))
     } finally {

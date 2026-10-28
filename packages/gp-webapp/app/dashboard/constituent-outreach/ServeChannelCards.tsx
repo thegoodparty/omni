@@ -7,6 +7,7 @@ import {
   ClipboardListIcon,
   DoorOpenIcon,
   HeadsetIcon,
+  MailIcon,
   MessageSquareIcon,
   Share2Icon,
 } from '@styleguide/components/ui/icons'
@@ -68,6 +69,12 @@ const SERVE_CHANNELS: ServeChannelDefinition[] = [
     iconClassName: 'bg-brand-bright-yellow-200',
   },
   {
+    key: 'email',
+    label: 'Email',
+    icon: <MailIcon />,
+    iconClassName: 'bg-brand-lavender-200',
+  },
+  {
     key: 'phoneBanking',
     label: 'Phone banking',
     icon: <HeadsetIcon />,
@@ -92,6 +99,8 @@ interface ServeChannelCardsProps {
   onSmsClick?: () => void
   // Same contract for the Poll / Survey card and `serve-self-serve-polls`.
   onPollClick?: () => void
+  // Same contract for the Email card and `serve-email-outreach`.
+  onEmailClick?: () => void
 }
 
 const ServeChannelCards = ({
@@ -100,11 +109,13 @@ const ServeChannelCards = ({
   onDoorKnockingClick,
   onSmsClick,
   onPollClick,
+  onEmailClick,
 }: ServeChannelCardsProps): React.JSX.Element => {
   const handlers: Record<string, (() => void) | undefined> = {
     socialMedia: onSocialClick,
     sms: onSmsClick,
     poll: onPollClick,
+    email: onEmailClick,
     phoneBanking: onPhoneBankingClick,
     doorKnocking: onDoorKnockingClick,
   }
@@ -133,11 +144,13 @@ const ServeChannelCards = ({
           interpolated one. */}
       <div
         className={
-          channels.length > 4
-            ? 'grid max-w-5xl grid-cols-2 gap-3 sm:grid-cols-5'
-            : channels.length > 3
-              ? 'grid max-w-4xl grid-cols-2 gap-3 sm:grid-cols-4'
-              : 'grid max-w-3xl grid-cols-2 gap-3 sm:grid-cols-3'
+          channels.length > 5
+            ? 'grid max-w-6xl grid-cols-2 gap-3 sm:grid-cols-6'
+            : channels.length > 4
+              ? 'grid max-w-5xl grid-cols-2 gap-3 sm:grid-cols-5'
+              : channels.length > 3
+                ? 'grid max-w-4xl grid-cols-2 gap-3 sm:grid-cols-4'
+                : 'grid max-w-3xl grid-cols-2 gap-3 sm:grid-cols-3'
         }
       >
         {channels.map((channel) => (

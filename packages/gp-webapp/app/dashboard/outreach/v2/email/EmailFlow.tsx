@@ -42,7 +42,7 @@ export const EmailFlow = ({
   onClose,
   surface = WIN_EMAIL_SURFACE,
 }: EmailFlowProps) => {
-  const { data: sender } = useEmailSender()
+  const { data: sender } = useEmailSender(surface.isServe)
   const [step, setStep] = useState<EmailStep>('goal')
   const [saved, setSaved] = useState(false)
   const [goalId, setGoalId] = useState<string | null>(null)
@@ -78,6 +78,7 @@ export const EmailFlow = ({
     setError(null)
     try {
       const draft = await saveEmailDraft(
+        surface.isServe,
         toDraftSave(goalText, compose, draftId, date),
       )
       setDraftId(draft.id)
