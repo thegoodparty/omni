@@ -71,6 +71,18 @@ def main():
                 problems.append(f'{oid}: desktop frame without data-desktop-reason (phone first)')
         if section.count('class="fold"') < len(frames):
             problems.append(f'{oid}: a frame has no fold line')
+    for m in re.finditer(r'<(\w+)\b[^>]*\bclass="([^"]*)"[^>]*>', html):
+        tag, cls = m.group(1), m.group(2).split()
+        whole = m.group(0)
+        if 'data-earned=' in whole:
+            continue
+        if tag == 'p' and 'muted' in cls:
+            problems.append('unearned .muted paragraph (add data-earned="why" or remove)')
+        if any(c in ('banner', 'alert', 'gp-alert', 'callout') for c in cls):
+            problems.append(f'unearned banner <{tag} class="{m.group(2)}"> (add data-earned="why" or remove)')
+    for m in re.finditer(r'<svg\b[^>]*>(.*?)</svg>', html, flags=re.S | re.I):
+        if not re.search(r'<(path|circle|rect|line|polyline|polygon|ellipse)\b', m.group(1)):
+            problems.append('blank icon: <svg> with no shapes')
     if re.search(r'id="option-d"', html):
         problems.append('more than three options')
     if '<iframe' in html.lower():
