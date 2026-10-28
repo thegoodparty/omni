@@ -18,7 +18,7 @@ export const sesReputationAlerts: Alert[] = [
     expr: 'Reputation.BounceRate',
     threshold: 0.03,
     for: '5m',
-    timeRangeSeconds: 1800,
+    timeRangeSeconds: 10800,
     message: [
       'The SES account bounce rate is above **3%**. SES puts an account under review at 5%.',
       'Outreach email sends as one SES tenant per organization, so find the send driving it: in CloudWatch, `AWS/SES` `Bounce` by the `outreachEmailId` dimension, then pause that send from the gp-admin Email sends page.',
@@ -32,7 +32,7 @@ export const sesReputationAlerts: Alert[] = [
     expr: 'Reputation.ComplaintRate',
     threshold: 0.0006,
     for: '5m',
-    timeRangeSeconds: 1800,
+    timeRangeSeconds: 10800,
     message: [
       'The SES account complaint rate is above **0.06%**. SES puts an account under review at 0.1%.',
       'Outreach email sends as one SES tenant per organization, so find the send driving it: in CloudWatch, `AWS/SES` `Complaint` by the `outreachEmailId` dimension, then pause that send from the gp-admin Email sends page.',

@@ -149,7 +149,7 @@ export const createEmailOutreach = ({
     arn(`identity/${identity}`),
     arn(`configuration-set/${outreachSetName}`),
     arn(`configuration-set/${forwardsSetName}`),
-    arn('template/*'),
+    arn(`template/${environment}-*`),
     arn(`tenant/${environment}-*/*`),
   ]
 
@@ -167,8 +167,13 @@ export const createEmailOutreach = ({
     },
     {
       Effect: 'Allow',
-      Action: ['ses:CreateEmailTemplate', 'ses:DeleteEmailTemplate'],
-      Resource: [arn('template/*')],
+      Action: [
+        'ses:CreateEmailTemplate',
+        'ses:DeleteEmailTemplate',
+        'ses:GetEmailTemplate',
+        'ses:UpdateEmailTemplate',
+      ],
+      Resource: [arn(`template/${environment}-*`)],
     },
     {
       Effect: 'Allow',
@@ -182,6 +187,7 @@ export const createEmailOutreach = ({
         arn(`identity/${identity}`),
         arn(`configuration-set/${outreachSetName}`),
         arn(`configuration-set/${forwardsSetName}`),
+        arn(`template/${environment}-*`),
       ],
     },
     {
