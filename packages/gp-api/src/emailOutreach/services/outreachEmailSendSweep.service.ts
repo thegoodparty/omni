@@ -46,6 +46,7 @@ import {
   signUnsubscribeToken,
   unsubscribeSigningKey,
 } from '../util/unsubscribeToken.util'
+import { OutreachEmailPauseAlertService } from './outreachEmailPauseAlert.service'
 import { SesAccountState, SesBulkEntryResult, SesService } from './ses.service'
 
 const SWEEP_JOB = 'emailSendSweep'
@@ -104,7 +105,10 @@ export class OutreachEmailSendSweepService extends createPrismaBase(
   private readonly lastChecked = new Map<number, Date>()
   private running = false
 
-  constructor(private readonly ses: SesService) {
+  constructor(
+    private readonly ses: SesService,
+    private readonly pauseAlert: OutreachEmailPauseAlertService,
+  ) {
     super()
   }
 
@@ -633,6 +637,7 @@ export class OutreachEmailSendSweepService extends createPrismaBase(
         },
         'Email send paused',
       )
+      await this.pauseAlert.notify(send.id, reason)
     }
   }
 

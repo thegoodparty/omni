@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { OutreachEmailPauseReasonSchema } from '../generated/enums'
 import { SocialToneSchema } from './OutreachSocial.schema'
 import {
   EMAIL_LAYOUTS,
@@ -209,3 +210,34 @@ export type EmailImagePresignResponse = z.infer<
 
 export const EmailTestSendResponseSchema = z.object({ sentTo: z.string() })
 export type EmailTestSendResponse = z.infer<typeof EmailTestSendResponseSchema>
+
+// Staff controls (gp-admin): paused sends with SES's rates since the send's
+// last resume. The rates are null when CloudWatch couldn't be read.
+export const EmailPausedSendSchema = z.object({
+  outreachId: z.number().int(),
+  organizationSlug: z.string(),
+  senderName: z.string(),
+  subject: z.string(),
+  pauseReason: OutreachEmailPauseReasonSchema,
+  pausedAt: z.string(),
+  resumedAt: z.string().nullable(),
+  sentCount: z.number().int().nonnegative(),
+  recipientCap: z.number().int().nonnegative().nullable(),
+  metrics: z
+    .object({
+      send: z.number().nonnegative(),
+      bounce: z.number().nonnegative(),
+      complaint: z.number().nonnegative(),
+      bounceRate: z.number().nonnegative(),
+      complaintRate: z.number().nonnegative(),
+    })
+    .nullable(),
+})
+export type EmailPausedSend = z.infer<typeof EmailPausedSendSchema>
+
+export const EmailPausedSendsResponseSchema = z.object({
+  items: z.array(EmailPausedSendSchema),
+})
+export type EmailPausedSendsResponse = z.infer<
+  typeof EmailPausedSendsResponseSchema
+>
