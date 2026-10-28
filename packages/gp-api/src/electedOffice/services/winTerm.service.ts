@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
+import { compareDesc, isAfter } from 'date-fns'
 import { OfficeHoldersService } from '@/electionDb/officeHolders/officeHolders.service'
 
 export type WinTerm = { termStartDate: Date; termEndDate: Date }
@@ -49,14 +50,14 @@ export class WinTermService {
       sameName(holder.Person.lastName, user.lastName) &&
       holder.startAt &&
       holder.endAt &&
-      holder.endAt.getTime() > now.getTime() &&
+      isAfter(holder.endAt, now) &&
       // A year-only record would put a made-up day on the term.
       !holder.termDateSpecificity?.toLowerCase().includes('year')
         ? [{ termStartDate: holder.startAt, termEndDate: holder.endAt }]
         : [],
     )
-    const [latest] = terms.sort(
-      (a, b) => b.termStartDate.getTime() - a.termStartDate.getTime(),
+    const [latest] = terms.sort((a, b) =>
+      compareDesc(a.termStartDate, b.termStartDate),
     )
     return latest ?? null
   }
