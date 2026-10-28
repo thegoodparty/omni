@@ -189,11 +189,25 @@ export class OutreachRobocallHoldService extends createPrismaBase(
       }
       // CAS-guarded persist: after the two async Stripe validations a concurrent
       // request could have rescheduled this send into the window and advanced
-      // the row past pending_payment. Only write while still pending_payment, so
-      // we never clobber the chosen card on an already-authorized row.
+      // the row past pending_payment. Only write while no hold exists yet, so
+      // we never clobber the chosen card on an already-authorized row. A
+      // hold_failed resend rescheduled out of the window lands here too: the
+      // new card is saved and the row leaves hold_failed for the deferred sweep.
       const persisted = await this.model.updateMany({
-        where: { outreachId, settleState: RobocallSettleState.pending_payment },
-        data: { paymentMethodId, stripeCustomerId: customerId },
+        where: {
+          outreachId,
+          settleState: {
+            in: [
+              RobocallSettleState.pending_payment,
+              RobocallSettleState.hold_failed,
+            ],
+          },
+        },
+        data: {
+          paymentMethodId,
+          stripeCustomerId: customerId,
+          settleState: RobocallSettleState.pending_payment,
+        },
       })
       // count 0 means the row advanced under us (a concurrent in-window
       // authorize placed or failed the hold). Report its live state, not a stale
