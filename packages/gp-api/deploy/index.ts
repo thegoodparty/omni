@@ -15,7 +15,7 @@ import {
 import { createPreviewSharedCluster } from './components/preview-shared-cluster'
 import {
   createEmailInbound,
-  emailInboundName,
+  emailInboundBucketName,
   emailInboundTopicArn,
 } from './components/email-inbound'
 import { createEmailOutreach } from './components/email-outreach'
@@ -526,7 +526,7 @@ export = async () => {
   // already whole-bucket, so no judge prefix needs widening on this side.
   const taskRoleReadOnlyBucketNames: pulumi.Input<string>[] = [
     agentArtifactsBucketName,
-    ...(environment !== 'preview' ? [emailInboundName(environment)] : []),
+    ...(environment !== 'preview' ? [emailInboundBucketName(environment)] : []),
   ]
   const taskRoleReadOnlyObjectArns = taskRoleReadOnlyBucketNames.map(
     (name) => pulumi.interpolate`arn:aws:s3:::${name}/*`,

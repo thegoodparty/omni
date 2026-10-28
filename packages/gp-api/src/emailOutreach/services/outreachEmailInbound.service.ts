@@ -21,7 +21,7 @@ import {
 import { OutreachEmailUnsubscribeService } from './outreachEmailUnsubscribe.service'
 import { FORWARD_MARKER_HEADER, SesService } from './ses.service'
 
-const INBOUND_BUCKET_PREFIX = 'email-inbound-'
+const INBOUND_BUCKET_PREFIX = 'goodparty-email-inbound-'
 const MAX_FORWARD_CHARS = 100_000
 const MAX_DISPLAY_NAME_CHARS = 60
 const STOP_WORDS =

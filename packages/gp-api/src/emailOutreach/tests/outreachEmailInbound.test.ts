@@ -22,7 +22,7 @@ let senderId: number
 let localPart: string
 let outreachEmailId: number
 
-const BUCKET = 'email-inbound-test'
+const BUCKET = 'goodparty-email-inbound-test'
 
 const message = (headers: string[], body = 'Thanks for the update!') =>
   Buffer.from(

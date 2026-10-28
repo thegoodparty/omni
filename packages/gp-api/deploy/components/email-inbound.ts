@@ -10,6 +10,13 @@ const RECEIPT_RULE_SET_NAME = 'outreach-inbound'
 export const emailInboundName = (environment: EmailEnvironment) =>
   `email-inbound-${environment}`
 
+// S3 bucket names are global across all AWS accounts, and the bare
+// `email-inbound-dev` was already taken, so the bucket is namespaced under
+// goodparty (as the chat-attachments bucket is). The topic is account-scoped
+// and keeps the short name.
+export const emailInboundBucketName = (environment: EmailEnvironment) =>
+  `goodparty-${emailInboundName(environment)}`
+
 export const emailInboundTopicArn = (
   environment: EmailEnvironment,
   region: string,
@@ -50,6 +57,7 @@ export const createEmailInbound = ({
   service,
 }: EmailInboundConfig) => {
   const name = emailInboundName(environment)
+  const bucketName = emailInboundBucketName(environment)
   const identity = emailOutreachIdentity(environment)
   const topicArn = emailInboundTopicArn(environment, region, accountId)
   const sesSourceAccount = { 'AWS:SourceAccount': accountId }
@@ -97,7 +105,7 @@ export const createEmailInbound = ({
   )
 
   const bucket = new aws.s3.Bucket('email-inbound-bucket', {
-    bucket: name,
+    bucket: bucketName,
     forceDestroy: false,
   })
 
@@ -136,7 +144,7 @@ export const createEmailInbound = ({
           Effect: 'Allow',
           Principal: { Service: 'ses.amazonaws.com' },
           Action: 's3:PutObject',
-          Resource: `arn:aws:s3:::${name}/*`,
+          Resource: `arn:aws:s3:::${bucketName}/*`,
           Condition: {
             StringEquals: sesSourceAccount,
             StringLike: {
@@ -177,7 +185,7 @@ export const createEmailInbound = ({
           s3Actions: [
             {
               position: 1,
-              bucketName: emailInboundName(ruleEnvironment),
+              bucketName: emailInboundBucketName(ruleEnvironment),
               topicArn: emailInboundTopicArn(
                 ruleEnvironment,
                 region,
@@ -191,5 +199,5 @@ export const createEmailInbound = ({
     })
   }
 
-  return { bucketName: name }
+  return { bucketName }
 }
