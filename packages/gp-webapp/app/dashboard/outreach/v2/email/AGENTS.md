@@ -12,6 +12,7 @@ The email stepper. Win opens at `/dashboard/outreach/email` behind `win-email-ou
 | `emailApi.ts`             | Typed calls to `/v1/outreach/email/*`, or `/v1/outreach/serve/email/*` when `surface.isServe`                                                             |
 | `EmailComingSoon.tsx`     | Placeholder for a feature whose backend has not shipped                                           |
 | `EmailPreview.tsx`        | Approximate preview from the theme's color roles                                                  |
+| `app/dev/email-templates` | Dev-only gallery of every layout and theme through `EmailPreview`; its Playwright test attaches screenshots |
 
 ## Gotchas
 
