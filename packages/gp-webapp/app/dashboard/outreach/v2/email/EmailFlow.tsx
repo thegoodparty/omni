@@ -100,6 +100,7 @@ export const EmailFlow = ({
           day: 'numeric',
           hour: 'numeric',
           minute: '2-digit',
+          timeZoneName: 'short',
         })
 
   const next = async () => {
@@ -231,7 +232,9 @@ export const EmailFlow = ({
       currentStep={saved ? 0 : index + 1}
       totalSteps={saved ? 0 : STEP_ORDER.length}
       onBack={
-        saved || index === 0 ? undefined : () => goTo(STEP_ORDER[index - 1]!)
+        saved || busy || index === 0
+          ? undefined
+          : () => goTo(STEP_ORDER[index - 1]!)
       }
       cta={saved ? { label: 'Done', onClick: onClose } : ctaByStep[step]}
       dirty={!saved && goalId !== null}

@@ -511,10 +511,6 @@ export type APIEndpoints = {
     Response: ServeSmsCreateResponse
   }
 
-  // Serve self-serve polls, behind `serve-self-serve-polls`. The draft
-  // returns only the question: the greeting and opt-out line are composed by
-  // the create. The create writes the pending_payment row the SERVE_TEXT
-  // checkout then bills.
   // Win email. The draft save is a full replace: omitted optional fields are
   // cleared. The recipient upload is multipart (`file` + `consentConfirmed`):
   // pass `{}` as the typed payload and the FormData as `{ body }` in the
@@ -544,6 +540,10 @@ export type APIEndpoints = {
     Response: EmailRecipientUploadResponse
   }
 
+  // Serve self-serve polls, behind `serve-self-serve-polls`. The draft
+  // returns only the question: the greeting and opt-out line are composed by
+  // the create. The create writes the pending_payment row the SERVE_TEXT
+  // checkout then bills.
   'POST /v1/outreach/serve/poll/draft': {
     Request: ServePollDraftRequest
     Response: ServePollDraftResponse

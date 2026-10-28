@@ -94,7 +94,11 @@ export const EmailAudienceStep = ({
       )}
 
       {result && (
-        <div className="space-y-2" data-testid="email-upload-summary">
+        <div
+          className="space-y-2"
+          role="status"
+          data-testid="email-upload-summary"
+        >
           <p className="text-base font-medium text-foreground">
             {uploadSummary(result)}
           </p>

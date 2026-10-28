@@ -51,6 +51,10 @@ export const apiErrorMessage = (error: unknown): string => {
   if (typeof error === 'object' && error !== null && 'data' in error) {
     const data = (error as { data?: { message?: unknown } }).data
     if (typeof data?.message === 'string') return data.message
+    if (Array.isArray(data?.message)) {
+      const first: unknown = data.message[0]
+      if (typeof first === 'string') return first
+    }
   }
   return 'Something went wrong. Try again.'
 }
