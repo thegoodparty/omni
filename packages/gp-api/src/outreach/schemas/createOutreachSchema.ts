@@ -174,6 +174,15 @@ export class CreateOutreachSchema extends createZodDto(
             'transaction, not the client',
         })
       }
+      if (data.outreachType === OutreachType.email) {
+        ctx.addIssue({
+          path: ['outreachType'],
+          code: z.ZodIssueCode.custom,
+          message:
+            'email outreach is created only through /outreach/email, not ' +
+            'the generic create',
+        })
+      }
       if (data.outreachType === OutreachType.nativePhoneBanking) {
         ctx.addIssue({
           path: ['outreachType'],
