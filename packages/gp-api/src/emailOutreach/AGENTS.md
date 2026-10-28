@@ -2,8 +2,6 @@
 
 Candidates (Win) and elected officials (Serve) email their opted-in contacts through Amazon SES. Until the shared contact lists land, a small test upload writes recipients straight onto a send. Design: TDD "2026-10-26 | Email outreach channel v1" (ClickUp doc `2ky4jq2q-20493`, page `2ky4jq2q-157273`); step lists, infrastructure and testing are on its Implementation Notes page (`2ky4jq2q-157293`). Payment goes through `src/paymentHolds/` (see its AGENTS.md).
 
-Under construction: the module holds the sender, the draft send, the test upload, the AI draft, image upload, the test send, confirm and cancel, sending, unsubscribes, replies and the forward-to confirmation and the staff controls.
-
 ## Key files
 
 | Path                                                                         | Purpose                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
