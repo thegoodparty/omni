@@ -10,6 +10,10 @@ import {
   UseInterceptors,
 } from '@nestjs/common'
 import {
+  EmailAiDraftRequest,
+  EmailAiDraftRequestSchema,
+  EmailAiDraftResponse,
+  EmailAiDraftResponseSchema,
   EmailDraft,
   EmailDraftSave,
   EmailDraftSaveSchema,
@@ -17,10 +21,16 @@ import {
   EmailRecipientUploadRequestSchema,
   EmailRecipientUploadResponse,
   EmailRecipientUploadResponseSchema,
+  EmailImagePresignRequest,
+  EmailImagePresignRequestSchema,
+  EmailImagePresignResponse,
+  EmailImagePresignResponseSchema,
   EmailSender,
   EmailSenderSchema,
   EmailSenderUpdate,
   EmailSenderUpdateSchema,
+  EmailTestSendResponse,
+  EmailTestSendResponseSchema,
 } from '@goodparty_org/contracts'
 import { ZodValidationPipe } from 'nestjs-zod'
 import { ReqUser } from '@/authentication/decorators/ReqUser.decorator'
@@ -33,6 +43,9 @@ import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interceptor'
 import { ElectedOffice, User } from '../generated/prisma'
 import { EMAIL_UPLOAD_MAX_BYTES } from './emailOutreach.const'
+import { OutreachEmailGenerationService } from './services/outreachEmailGeneration.service'
+import { OutreachEmailImageService } from './services/outreachEmailImage.service'
+import { OutreachEmailTestService } from './services/outreachEmailTest.service'
 import { OutreachEmailService } from './services/outreachEmail.service'
 import { OutreachEmailRecipientService } from './services/outreachEmailRecipient.service'
 import { OutreachEmailScopeService } from './services/outreachEmailScope.service'
@@ -47,6 +60,9 @@ export class OutreachServeEmailController {
     private readonly senders: OutreachEmailSenderService,
     private readonly emails: OutreachEmailService,
     private readonly recipients: OutreachEmailRecipientService,
+    private readonly generation: OutreachEmailGenerationService,
+    private readonly images: OutreachEmailImageService,
+    private readonly tests: OutreachEmailTestService,
   ) {}
 
   @Get('sender')
@@ -70,6 +86,45 @@ export class OutreachServeEmailController {
     const scope = await this.scopes.forOffice(electedOffice, user)
     return this.senders.toView(
       await this.senders.startForwardChange(scope, input.forwardToEmail),
+    )
+  }
+
+  @Post('draft')
+  @ResponseSchema(EmailAiDraftResponseSchema)
+  async aiDraft(
+    @ReqUser() user: User,
+    @ReqElectedOffice() electedOffice: ElectedOffice,
+    @Body(new ZodValidationPipe(EmailAiDraftRequestSchema))
+    input: EmailAiDraftRequest,
+  ): Promise<EmailAiDraftResponse> {
+    return this.generation.draftForOffice(electedOffice, user, input)
+  }
+
+  @Post('images/presign')
+  @ResponseSchema(EmailImagePresignResponseSchema)
+  async presignImage(
+    @ReqUser() user: User,
+    @ReqElectedOffice() electedOffice: ElectedOffice,
+    @Body(new ZodValidationPipe(EmailImagePresignRequestSchema))
+    input: EmailImagePresignRequest,
+  ): Promise<EmailImagePresignResponse> {
+    return this.images.createUploadUrl(
+      await this.scopes.forOffice(electedOffice, user),
+      input,
+    )
+  }
+
+  @Post(':id/test')
+  @ResponseSchema(EmailTestSendResponseSchema)
+  async sendTest(
+    @ReqUser() user: User,
+    @ReqElectedOffice() electedOffice: ElectedOffice,
+    @Param('id', ParseIntPipe) id: number,
+  ): Promise<EmailTestSendResponse> {
+    return this.tests.sendTest(
+      await this.scopes.forOffice(electedOffice, user),
+      id,
+      user,
     )
   }
 

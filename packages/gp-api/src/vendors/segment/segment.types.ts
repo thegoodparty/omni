@@ -249,6 +249,11 @@ export const EVENTS = {
     Canceled: 'Outreach Payment - Canceled',
     Receipt: 'Outreach Payment - Receipt',
   },
+  // Email outreach (src/emailOutreach/AGENTS.md). Each carries `mode` (win
+  // or serve).
+  Email: {
+    DraftCompleted: 'Email - Draft Completed',
+  },
   // Native door knocking (Win). One rollup event carrying the org's running
   // canvassing totals, not one event per knock: HubSpot workflows can copy a
   // value onto a property but cannot sum across events, so the running total

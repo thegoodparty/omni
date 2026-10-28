@@ -47,7 +47,7 @@ export class OutreachDraftExpiryService {
     const cutoff = subDays(now, DRAFT_RETENTION_DAYS)
     const rows = await this.prisma.outreach.findMany({
       where: { status: OutreachStatus.draft, createdAt: { lt: cutoff } },
-      include: { robocall: true },
+      include: { robocall: true, email: { select: { imageUrl: true } } },
     })
     for (const row of rows) {
       try {

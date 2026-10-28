@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { SocialToneSchema } from './OutreachSocial.schema'
 import {
   EMAIL_LAYOUTS,
   EmailLayoutKeySchema,
@@ -121,3 +122,56 @@ export const EmailRecipientUploadResponseSchema = z.object({
 export type EmailRecipientUploadResponse = z.infer<
   typeof EmailRecipientUploadResponseSchema
 >
+
+export const EMAIL_IMAGE_MAX_BYTES = 1_000_000
+export const EMAIL_IMAGE_ALLOWED_MIME_TYPES = [
+  'image/jpeg',
+  'image/png',
+  'image/gif',
+] as const
+
+export const EmailAiDraftFieldsSchema = z.object({
+  subject: z.string().trim().min(1).max(EMAIL_SUBJECT_MAX_LENGTH),
+  headline: z.string().trim().min(1).max(EMAIL_HEADLINE_MAX_LENGTH).nullable(),
+  body: z.string().trim().min(1).max(EMAIL_BODY_MAX_LENGTH),
+  buttonLabel: z
+    .string()
+    .trim()
+    .min(1)
+    .max(EMAIL_BUTTON_LABEL_MAX_LENGTH)
+    .nullable(),
+})
+export type EmailAiDraftFields = z.infer<typeof EmailAiDraftFieldsSchema>
+
+export const EmailAiDraftRequestSchema = z
+  .object({
+    goal: z.string().trim().min(1).max(EMAIL_GOAL_MAX_LENGTH),
+    tone: SocialToneSchema,
+    layout: EmailLayoutKeySchema,
+    currentDraft: EmailAiDraftFieldsSchema.optional(),
+  })
+  .strict()
+export type EmailAiDraftRequest = z.infer<typeof EmailAiDraftRequestSchema>
+
+export const EmailAiDraftResponseSchema = EmailAiDraftFieldsSchema
+export type EmailAiDraftResponse = EmailAiDraftFields
+
+export const EmailImagePresignRequestSchema = z
+  .object({ contentType: z.enum(EMAIL_IMAGE_ALLOWED_MIME_TYPES) })
+  .strict()
+export type EmailImagePresignRequest = z.infer<
+  typeof EmailImagePresignRequestSchema
+>
+
+export const EmailImagePresignResponseSchema = z.object({
+  url: z.string(),
+  fields: z.record(z.string(), z.string()),
+  publicUrl: z.string(),
+  expiresIn: z.number().int().positive(),
+})
+export type EmailImagePresignResponse = z.infer<
+  typeof EmailImagePresignResponseSchema
+>
+
+export const EmailTestSendResponseSchema = z.object({ sentTo: z.string() })
+export type EmailTestSendResponse = z.infer<typeof EmailTestSendResponseSchema>
