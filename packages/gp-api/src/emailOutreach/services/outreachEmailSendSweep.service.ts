@@ -572,7 +572,8 @@ export class OutreachEmailSendSweepService extends createPrismaBase(
   // Prepare drops unsubscribes once. Someone who unsubscribes while a send
   // runs, or while it sits paused, must not get the rest of it. Only
   // suppressions written since prepare can match, so the join starts there
-  // rather than probing every queued row each tick.
+  // rather than probing every queued row each tick. preparedAt is stamped
+  // after prepare's own check, so the window reaches back past it.
   private async dropUnsubscribed(send: ActiveSend): Promise<void> {
     const slugs = await this.prepare.suppressionSlugsFor(
       send.organizationSlug,
@@ -583,7 +584,7 @@ export class OutreachEmailSendSweepService extends createPrismaBase(
       USING outreach_email_suppression s
       WHERE s.organization_slug = ANY(${slugs})
         AND s.revoked_at IS NULL
-        AND s.updated_at >= ${send.preparedAt}
+        AND s.updated_at >= ${subMinutes(send.preparedAt, 5)}
         AND r.outreach_email_id = ${send.id}
         AND r.email = s.email
         AND r.status = 'queued'
