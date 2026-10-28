@@ -1251,6 +1251,8 @@ describe('door-knocking routes', () => {
       })
       expect(turf.purpose).toBe('election_day_turnout')
       expect((await envelopeFor(turf.id)).script).toBe(talkingPoints)
+      // Returned too, so the completion event can report it.
+      expect(res.data.purpose).toBe('election_day_turnout')
     })
 
     // "Hear from voters" asks one question, kept on the turf so issue capture

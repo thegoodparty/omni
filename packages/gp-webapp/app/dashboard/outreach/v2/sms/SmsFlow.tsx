@@ -758,6 +758,7 @@ export const SmsFlow = ({
             : 'savedList',
           ...(tracker ? { tracker } : {}),
           ...(launchSource ? { launchSource } : {}),
+          ...(purpose ? { purpose } : {}),
         }),
       ),
     onClose,
@@ -1887,6 +1888,7 @@ export const SmsFlow = ({
                   : 'savedList',
                 ...(tracker ? { tracker } : {}),
                 ...(launchSource ? { launchSource } : {}),
+                ...(purpose ? { purpose } : {}),
               }),
             )
         } else {

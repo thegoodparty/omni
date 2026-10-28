@@ -250,11 +250,16 @@ export const RobocallFlow = ({
             ? 'recommended'
             : 'savedList',
           ...(tracker ? { tracker } : {}),
+          ...(purpose ? { purpose } : {}),
         }),
       }),
     onClose,
   })
   const { savedDraft, resumed, gateOpen, explainerOpen } = draftGate
+  // A resume opens on `custom` only because the row does not persist the
+  // purpose that wrote it, so a resumed send reports no purpose, never that
+  // one.
+  const trackedPurpose = resumed ? null : purpose
   // While a gate screen is up the sheet header is the gate's (design:
   // renderSgModal's "Upgrade to Pro" overline and its own stepper), not the
   // flow's channel badge and step count.
@@ -484,6 +489,7 @@ export const RobocallFlow = ({
           ? 'recommended'
           : 'savedList',
         ...(tracker ? { tracker } : {}),
+        ...(trackedPurpose ? { purpose: trackedPurpose } : {}),
       }),
     })
   }
@@ -517,6 +523,7 @@ export const RobocallFlow = ({
             ? 'recommended'
             : 'savedList',
           ...(tracker ? { tracker } : {}),
+          ...(trackedPurpose ? { purpose: trackedPurpose } : {}),
         }),
       })
       // A booked robocall ends the free offer for this campaign, so every
