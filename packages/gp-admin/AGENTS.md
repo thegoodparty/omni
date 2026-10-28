@@ -57,3 +57,7 @@ npm run build -w packages/contracts        # build the in-tree contracts gp-admi
 npm run lint -w packages/gp-admin          # eslint .
 npm run test:coverage -w packages/gp-admin # vitest run --coverage
 ```
+
+## Email sends page
+
+`src/app/dashboard/email-sends/` lists paused email sends (gp-api `/admin/outreach/email`, keyed on the Outreach id) with SES's bounce and complaint rates since the last resume. Resume and Cancel are `org:admin` only; Resume is hidden for `ses_tenant`, which only AWS can clear.
