@@ -4,7 +4,12 @@ import { Button, Input, Label } from '@styleguide'
 import { Intro } from '../social/Intro'
 import { EmailComingSoon } from './EmailComingSoon'
 import { EmailPreview } from './EmailPreview'
-import { apiErrorMessage, useChangeForwardTo, useEmailSender } from './emailApi'
+import {
+  apiErrorMessage,
+  sendEmailTest,
+  useChangeForwardTo,
+  useEmailSender,
+} from './emailApi'
 import {
   formatCount,
   nextWarmingCap,
@@ -17,6 +22,7 @@ interface EmailReviewStepProps {
   surface: EmailSurface
   compose: EmailComposeState
   result: EmailRecipientUploadResponse
+  draftId: number | null
   sendLabel: string
 }
 
@@ -24,6 +30,7 @@ export const EmailReviewStep = ({
   surface,
   compose,
   result,
+  draftId,
   sendLabel,
 }: EmailReviewStepProps) => {
   const { data: sender } = useEmailSender(surface.isServe)
@@ -32,6 +39,25 @@ export const EmailReviewStep = ({
   const [address, setAddress] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  const [testing, setTesting] = useState(false)
+  const [testResult, setTestResult] = useState<string | null>(null)
+  const [testError, setTestError] = useState<string | null>(null)
+
+  const sendTest = async () => {
+    if (draftId === null) return
+    setTesting(true)
+    setTestError(null)
+    setTestResult(null)
+    try {
+      const { sentTo } = await sendEmailTest(surface.isServe, draftId)
+      setTestResult(`Test sent to ${sentTo}.`)
+    } catch (e) {
+      setTestError(apiErrorMessage(e))
+    } finally {
+      setTesting(false)
+    }
+  }
 
   const cap = sender ? warmingCap(sender.warmingStep) : null
   const capped = cap !== null && result.ready > cap
@@ -62,6 +88,7 @@ export const EmailReviewStep = ({
         body={compose.body}
         buttonLabel={compose.buttonLabel}
         buttonUrl={compose.buttonUrl}
+        imageUrl={compose.imageUrl}
       />
 
       <dl className="space-y-3 text-sm">
@@ -152,7 +179,24 @@ export const EmailReviewStep = ({
       )}
 
       <div className="space-y-3">
-        <EmailComingSoon feature="test-send" label="Send me a test" />
+        <div className="space-y-2" data-testid="email-test-send">
+          <Button
+            type="button"
+            size="small"
+            variant="outline"
+            loading={testing}
+            disabled={draftId === null}
+            onClick={() => {
+              void sendTest()
+            }}
+          >
+            Send me a test
+          </Button>
+          {testResult && (
+            <p className="text-xs text-muted-foreground">{testResult}</p>
+          )}
+          {testError && <p className="text-xs text-destructive">{testError}</p>}
+        </div>
         <EmailComingSoon feature="price" label="Price" />
         <EmailComingSoon feature="pay" label="Pay and send" />
       </div>

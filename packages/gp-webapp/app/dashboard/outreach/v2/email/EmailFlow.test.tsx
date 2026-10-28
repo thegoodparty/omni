@@ -69,7 +69,7 @@ beforeAll(() => {
 })
 
 describe('EmailFlow', () => {
-  it('holds the goal step until a goal is picked and names the placeholders', async () => {
+  it('holds the goal step until a goal is picked and shows the compose controls', async () => {
     mockApi()
     render(<EmailFlow open onClose={vi.fn()} />)
 
@@ -80,8 +80,51 @@ describe('EmailFlow', () => {
       .click(screen.getByText('Introduce myself to voters'))
 
     expect(await screen.findByLabelText('Subject')).toBeInTheDocument()
-    expect(screen.getByTestId('email-coming-soon-ai-draft')).toBeInTheDocument()
-    expect(screen.getByTestId('email-coming-soon-image')).toBeInTheDocument()
+    expect(screen.getByTestId('email-ai-draft')).toBeInTheDocument()
+    expect(screen.getByTestId('email-image')).toBeInTheDocument()
+  })
+
+  it('drafts with AI, sending the goal and tone, and fills the fields', async () => {
+    mockApi()
+    const requests: unknown[] = []
+    api.mock('POST /v1/outreach/email/draft', ({ body }) => {
+      requests.push(body)
+      return {
+        status: 200,
+        data: {
+          subject: 'Meet your neighbor',
+          headline: 'Hello',
+          body: 'Hi {{first_name}}, I am running.',
+          buttonLabel: null,
+        },
+      }
+    })
+    const user = userEvent.setup()
+    render(<EmailFlow open onClose={vi.fn()} />)
+
+    await user.click(screen.getByText('Introduce myself to voters'))
+    await user.click(await screen.findByText('Urgent'))
+    await user.click(screen.getByRole('button', { name: 'Draft it with AI' }))
+
+    await waitFor(() =>
+      expect(screen.getByLabelText('Subject')).toHaveValue(
+        'Meet your neighbor',
+      ),
+    )
+    expect(requests[0]).toEqual({
+      goal: 'Introduce myself to voters',
+      tone: 'urgent',
+      layout: 'newsletter',
+    })
+    expect(
+      screen.getByRole('button', { name: 'Regenerate' }),
+    ).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Improve with AI' }))
+    await waitFor(() => expect(requests).toHaveLength(2))
+    expect(requests[1]).toMatchObject({
+      currentDraft: { subject: 'Meet your neighbor', headline: 'Hello' },
+    })
   })
 
   it('saves the draft, uploads the list and shows the cap copy', async () => {
@@ -147,11 +190,45 @@ describe('EmailFlow', () => {
       await screen.findByText(/Replies go to renee@example.com/),
     ).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Change' })).toBeInTheDocument()
-    for (const feature of ['test-send', 'price', 'pay']) {
+    for (const feature of ['price', 'pay']) {
       expect(
         screen.getByTestId(`email-coming-soon-${feature}`),
       ).toBeInTheDocument()
     }
+  })
+
+  it('sends a test email for the saved draft from the review step', async () => {
+    mockApi()
+    api.mock('POST /v1/outreach/email/:id/test', {
+      status: 200,
+      data: { sentTo: 'renee@example.com' },
+    })
+    const user = userEvent.setup()
+    render(<EmailFlow open onClose={vi.fn()} />)
+
+    await fillCompose(user)
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await screen.findByText('Who do you want to reach?')
+    await user.upload(
+      screen.getByLabelText('Your list (CSV)'),
+      new File(['email\na@b.com'], 'list.csv', { type: 'text/csv' }),
+    )
+    await user.click(
+      screen.getByLabelText(
+        'These people agreed to get email from my campaign.',
+      ),
+    )
+    await user.click(screen.getByRole('button', { name: 'Check my list' }))
+    await screen.findByTestId('email-upload-summary')
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await screen.findByText('When should it go out?')
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await screen.findByText('Ready to send?')
+
+    await user.click(screen.getByRole('button', { name: 'Send me a test' }))
+    expect(
+      await screen.findByText('Test sent to renee@example.com.'),
+    ).toBeInTheDocument()
   })
 
   it('sends the Serve surface through the office-scoped routes with constituent copy', async () => {

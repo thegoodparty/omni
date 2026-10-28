@@ -1,12 +1,6 @@
 // One placeholder per feature whose backend has not shipped. Each later PR
 // replaces the usage that carries its `feature` id with the real control.
-export type EmailPlaceholderFeature =
-  | 'ai-draft'
-  | 'image'
-  | 'test-send'
-  | 'price'
-  | 'pay'
-  | 'status'
+export type EmailPlaceholderFeature = 'price' | 'pay' | 'status'
 
 export const EmailComingSoon = ({
   feature,

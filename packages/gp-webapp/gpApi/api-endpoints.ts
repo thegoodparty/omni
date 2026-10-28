@@ -1,7 +1,12 @@
 import type {
   EmailDraft,
   EmailDraftSave,
+  EmailAiDraftRequest,
+  EmailAiDraftResponse,
+  EmailImagePresignRequest,
+  EmailImagePresignResponse,
   EmailRecipientUploadResponse,
+  EmailTestSendResponse,
   EmailSender,
   EmailSenderUpdate,
   CreateDoorKnockingTurf,
@@ -540,6 +545,21 @@ export type APIEndpoints = {
     Response: EmailRecipientUploadResponse
   }
 
+  'POST /v1/outreach/email/draft': {
+    Request: EmailAiDraftRequest
+    Response: EmailAiDraftResponse
+  }
+
+  'POST /v1/outreach/email/images/presign': {
+    Request: EmailImagePresignRequest
+    Response: EmailImagePresignResponse
+  }
+
+  'POST /v1/outreach/email/:id/test': {
+    Request: {}
+    Response: EmailTestSendResponse
+  }
+
   // Serve email: the same four routes, scoped to the elected office.
   'GET /v1/outreach/serve/email/sender': {
     Request: {}
@@ -564,6 +584,21 @@ export type APIEndpoints = {
   'POST /v1/outreach/serve/email/:id/recipients': {
     Request: {}
     Response: EmailRecipientUploadResponse
+  }
+
+  'POST /v1/outreach/serve/email/draft': {
+    Request: EmailAiDraftRequest
+    Response: EmailAiDraftResponse
+  }
+
+  'POST /v1/outreach/serve/email/images/presign': {
+    Request: EmailImagePresignRequest
+    Response: EmailImagePresignResponse
+  }
+
+  'POST /v1/outreach/serve/email/:id/test': {
+    Request: {}
+    Response: EmailTestSendResponse
   }
 
   // Serve self-serve polls, behind `serve-self-serve-polls`. The draft

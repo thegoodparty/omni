@@ -35,6 +35,7 @@ export interface EmailComposeState {
   body: string
   buttonLabel: string
   buttonUrl: string
+  imageUrl: string
 }
 
 export const initialCompose: EmailComposeState = {
@@ -45,6 +46,7 @@ export const initialCompose: EmailComposeState = {
   body: '',
   buttonLabel: '',
   buttonUrl: '',
+  imageUrl: '',
 }
 
 const isHttps = (value: string): boolean => {
@@ -94,6 +96,7 @@ export const toDraftSave = (
     subject: state.subject,
     ...(headline ? { headline } : {}),
     body: state.body,
+    ...(state.imageUrl ? { imageUrl: state.imageUrl } : {}),
     ...(hasButton
       ? {
           buttonLabel: state.buttonLabel.trim(),

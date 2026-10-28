@@ -1,4 +1,4 @@
-import { useCallback, useRef } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import {
   EMAIL_BODY_MAX_LENGTH,
   EMAIL_BUTTON_LABEL_MAX_LENGTH,
@@ -8,15 +8,21 @@ import {
   EMAIL_THEMES,
   EmailLayoutKeySchema,
   EmailThemeKeySchema,
+  EMAIL_IMAGE_ALLOWED_MIME_TYPES,
+  EMAIL_IMAGE_MAX_BYTES,
   MERGE_TAGS,
   mergeTagToken,
+  SOCIAL_TONE_VALUES,
   type EmailLayoutKey,
   type EmailThemeKey,
+  type SocialTone,
 } from '@goodparty_org/contracts'
 import {
   Button,
   Card,
   cn,
+  FilterPill,
+  FilterPillGroup,
   IconButton,
   Input,
   Label,
@@ -35,12 +41,24 @@ import {
   useDictation,
 } from 'app/dashboard/shared/dictation/useDictation'
 import { Intro } from '../social/Intro'
-import { EmailComingSoon } from './EmailComingSoon'
 import { EmailPreview } from './EmailPreview'
+import { apiErrorMessage, draftEmailWithAi, uploadEmailImage } from './emailApi'
 import type { ComposeIssues, EmailComposeState } from './emailFlow.util'
 import type { EmailSurface } from './emailSurface'
 
 const FIRST_NAME_TAG = MERGE_TAGS[0]
+
+const TONE_LABELS: Record<SocialTone, string> = {
+  warm: 'Warm',
+  direct: 'Direct',
+  urgent: 'Urgent',
+  friendly: 'Friendly',
+}
+
+type ImageType = (typeof EMAIL_IMAGE_ALLOWED_MIME_TYPES)[number]
+
+const imageType = (file: File): ImageType | undefined =>
+  EMAIL_IMAGE_ALLOWED_MIME_TYPES.find((type) => type === file.type)
 
 const ACTIVE_DICTATION: ReadonlySet<DictationStatus> = new Set([
   'requesting_mic',
@@ -55,6 +73,7 @@ interface EmailComposeStepProps {
   issues: ComposeIssues
   showIssues: boolean
   senderName: string
+  goal: string
 }
 
 export const EmailComposeStep = ({
@@ -64,7 +83,13 @@ export const EmailComposeStep = ({
   issues,
   showIssues,
   senderName,
+  goal,
 }: EmailComposeStepProps) => {
+  const [tone, setTone] = useState<SocialTone>('warm')
+  const [aiBusy, setAiBusy] = useState(false)
+  const [aiError, setAiError] = useState<string | null>(null)
+  const [imageBusy, setImageBusy] = useState(false)
+  const [imageError, setImageError] = useState<string | null>(null)
   const fieldRef = useRef<TokenFieldRef>(null)
   const set = <K extends keyof EmailComposeState>(
     key: K,
@@ -92,6 +117,65 @@ export const EmailComposeStep = ({
     },
   ]
 
+  const runDraft = async (improve: boolean) => {
+    setAiBusy(true)
+    setAiError(null)
+    try {
+      const draft = await draftEmailWithAi(surface.isServe, {
+        goal,
+        tone,
+        layout: value.layout,
+        ...(improve
+          ? {
+              currentDraft: {
+                subject: value.subject.trim(),
+                headline: value.headline.trim() || null,
+                body: value.body.trim(),
+                buttonLabel: value.buttonLabel.trim() || null,
+              },
+            }
+          : {}),
+      })
+      onChange({
+        ...value,
+        subject: draft.subject,
+        headline: draft.headline ?? '',
+        body: draft.body,
+        buttonLabel: draft.buttonLabel ?? value.buttonLabel,
+      })
+    } catch (e) {
+      setAiError(apiErrorMessage(e))
+    } finally {
+      setAiBusy(false)
+    }
+  }
+
+  const pickImage = async (file: File | undefined) => {
+    if (!file) return
+    const type = imageType(file)
+    if (!type) {
+      setImageError('Use a JPG, PNG or GIF.')
+      return
+    }
+    if (file.size > EMAIL_IMAGE_MAX_BYTES) {
+      setImageError(
+        `Use an image under ${EMAIL_IMAGE_MAX_BYTES / 1_000_000} MB.`,
+      )
+      return
+    }
+    setImageBusy(true)
+    setImageError(null)
+    try {
+      set('imageUrl', await uploadEmailImage(surface.isServe, file, type))
+    } catch (e) {
+      setImageError(apiErrorMessage(e))
+    } finally {
+      setImageBusy(false)
+    }
+  }
+
+  const hasDraft = value.subject.trim() !== '' && value.body.trim() !== ''
+
   const pickLayout = (layout: EmailLayoutKey) =>
     onChange({
       ...value,
@@ -103,7 +187,47 @@ export const EmailComposeStep = ({
     <div className="space-y-6">
       <Intro title={surface.compose.title} body={surface.compose.caption} />
 
-      <EmailComingSoon feature="ai-draft" label="Draft it with AI" />
+      <div className="space-y-3" data-testid="email-ai-draft">
+        <FilterPillGroup
+          type="single"
+          value={tone}
+          onValueChange={(next) => next && setTone(next as SocialTone)}
+        >
+          {SOCIAL_TONE_VALUES.map((t) => (
+            <FilterPill key={t} value={t}>
+              {TONE_LABELS[t]}
+            </FilterPill>
+          ))}
+        </FilterPillGroup>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            type="button"
+            size="small"
+            variant="outline"
+            loading={aiBusy}
+            disabled={!goal}
+            onClick={() => {
+              void runDraft(false)
+            }}
+          >
+            {hasDraft ? 'Regenerate' : 'Draft it with AI'}
+          </Button>
+          {hasDraft && (
+            <Button
+              type="button"
+              size="small"
+              variant="outline"
+              loading={aiBusy}
+              onClick={() => {
+                void runDraft(true)
+              }}
+            >
+              Improve with AI
+            </Button>
+          )}
+        </div>
+        {aiError && <p className="text-xs text-destructive">{aiError}</p>}
+      </div>
 
       <div className="space-y-2">
         <Label htmlFor="email-subject">Subject</Label>
@@ -179,7 +303,30 @@ export const EmailComposeStep = ({
         )}
       </div>
 
-      <EmailComingSoon feature="image" label="Add an image" />
+      <div className="space-y-2" data-testid="email-image">
+        <Label htmlFor="email-image-file">Image (optional)</Label>
+        <Input
+          id="email-image-file"
+          type="file"
+          accept={EMAIL_IMAGE_ALLOWED_MIME_TYPES.join(',')}
+          disabled={imageBusy}
+          onChange={(e) => {
+            void pickImage(e.target.files?.[0])
+            e.target.value = ''
+          }}
+        />
+        {value.imageUrl && (
+          <Button
+            type="button"
+            size="small"
+            variant="ghost"
+            onClick={() => set('imageUrl', '')}
+          >
+            Remove image
+          </Button>
+        )}
+        {imageError && <p className="text-xs text-destructive">{imageError}</p>}
+      </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div className="space-y-2">
@@ -254,6 +401,7 @@ export const EmailComposeStep = ({
           body={value.body}
           buttonLabel={value.buttonLabel}
           buttonUrl={value.buttonUrl}
+          imageUrl={value.imageUrl}
         />
       </div>
     </div>

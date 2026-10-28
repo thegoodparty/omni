@@ -13,6 +13,7 @@ interface EmailPreviewProps {
   body: string
   buttonLabel: string
   buttonUrl: string
+  imageUrl?: string
 }
 
 const FIRST_NAME = MERGE_TAGS[0]
@@ -30,6 +31,7 @@ export const EmailPreview = ({
   body,
   buttonLabel,
   buttonUrl,
+  imageUrl,
 }: EmailPreviewProps) => {
   const c = EMAIL_THEMES[theme].colors
   const hasButton = buttonLabel.trim() !== '' && buttonUrl.trim() !== ''
@@ -65,6 +67,10 @@ export const EmailPreview = ({
             >
               {headline}
             </h4>
+          )}
+          {imageUrl && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={imageUrl} alt="" className="w-full rounded" />
           )}
           {layout === 'reminder' && (
             <div
