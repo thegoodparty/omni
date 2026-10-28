@@ -72,6 +72,12 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
     feature: 'email-outreach-replies',
   },
 
+  // The only bucket the reply handler reads inbound mail from.
+  EMAIL_INBOUND_BUCKET: {
+    tier: 'degradable',
+    feature: 'email-outreach-replies',
+  },
+
   PEERLY_MD5_EMAIL: { tier: 'degradable', feature: 'peerly-texting' },
   PEERLY_MD5_PASSWORD: { tier: 'degradable', feature: 'peerly-texting' },
   PEERLY_API_BASE_URL: { tier: 'degradable', feature: 'peerly-texting' },

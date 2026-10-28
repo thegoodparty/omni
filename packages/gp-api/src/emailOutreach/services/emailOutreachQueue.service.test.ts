@@ -39,7 +39,7 @@ describe('EmailOutreachQueueService', () => {
 
   const inboundMessage = {
     snsMessageId: 'sns-2',
-    bucket: 'email-inbound-dev',
+    bucket: 'goodparty-email-inbound-dev',
     key: 'reply-1',
     fromAuthenticated: true,
   }
@@ -47,7 +47,11 @@ describe('EmailOutreachQueueService', () => {
   it('acks a handled reply', async () => {
     process.mockResolvedValueOnce(undefined)
     await expect(service.handleInbound(inboundMessage)).resolves.toBe(true)
-    expect(process).toHaveBeenCalledWith('email-inbound-dev', 'reply-1', true)
+    expect(process).toHaveBeenCalledWith(
+      'goodparty-email-inbound-dev',
+      'reply-1',
+      true,
+    )
   })
 
   it('redelivers a reply that failed', async () => {

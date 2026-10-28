@@ -40,6 +40,7 @@ Candidates (Win) and elected officials (Serve) email their opted-in contacts thr
 - **The warming cap (`recipientCap`) is frozen at confirm** and never raised.
 - **The shared SQS queue is never reconfigured** (encryption, deduplication or new producers). Replies arrive by SNS at `POST /v1/email/webhooks/sns`, which enqueues them like any other producer. Other systems send to this queue too.
 - **The SNS webhook is public and trusts nothing it hasn't verified:** signature, certificate host, then topic (`EMAIL_INBOUND_TOPIC_ARN`). It does no processing; it answers 200 only after the enqueue succeeds.
+- **Replies are read only from this environment's bucket:** `process` rejects any `bucketName` other than `EMAIL_INBOUND_BUCKET` (`goodparty-email-inbound-<env>`, set by Pulumi).
 - **Never forward a message from our own domain, or one carrying `X-GoodParty-Forwarded`.** That is the forwarding loop guard.
 - **Per-email SES events never go through the queue.** Bounce, complaint and send counts come from SES's CloudWatch metrics, tagged per send. If delivery, open or click data is ever needed, add a configuration-set event destination to Firehose and S3; one message per email would back up every other job on the queue.
 - **Each organization sends as its own SES tenant** (`OutreachEmailSender.sesTenantName`), so SES pauses one organization instead of the account. Every send passes `TenantName`.
