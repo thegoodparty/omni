@@ -56,7 +56,11 @@ const args = process.argv.slice(2)
 const flag = (name: string) => args.includes(`--${name}`)
 const stringArg = (name: string): string | undefined => {
   const index = args.indexOf(`--${name}`)
-  return index === -1 ? undefined : args[index + 1]
+  const value = index === -1 ? undefined : args[index + 1]
+  if (index !== -1 && (!value || value.startsWith('--'))) {
+    throw new Error(`--${name} needs a value`)
+  }
+  return value
 }
 
 const escapeHtml = (value: string): string =>
@@ -161,24 +165,24 @@ const main = async () => {
   const tenant = await ses.send(
     new CreateTenantCommand({ TenantName: tenantName }),
   )
-  const accountId = tenant.TenantArn?.split(':').at(4)
-  if (!accountId) throw new Error(`Unexpected tenant ARN ${tenant.TenantArn}`)
-  for (const resource of [
-    `identity/${IDENTITY}`,
-    `configuration-set/${CONFIGURATION_SET}`,
-  ]) {
-    await ses.send(
-      new CreateTenantResourceAssociationCommand({
-        TenantName: tenantName,
-        ResourceArn: `arn:aws:ses:${REGION}:${accountId}:${resource}`,
-      }),
-    )
-  }
-  log(`tenant ${tenantName} ready`)
-
   let sent = 0
   const failures: string[] = []
   try {
+    const accountId = tenant.TenantArn?.split(':').at(4)
+    if (!accountId) throw new Error(`Unexpected tenant ARN ${tenant.TenantArn}`)
+    for (const resource of [
+      `identity/${IDENTITY}`,
+      `configuration-set/${CONFIGURATION_SET}`,
+    ]) {
+      await ses.send(
+        new CreateTenantResourceAssociationCommand({
+          TenantName: tenantName,
+          ResourceArn: `arn:aws:ses:${REGION}:${accountId}:${resource}`,
+        }),
+      )
+    }
+    log(`tenant ${tenantName} ready`)
+
     for (const recipient of recipients) {
       const values = {
         [EMAIL_VARIABLES.firstName]: recipient.split('@')[0] ?? 'there',
