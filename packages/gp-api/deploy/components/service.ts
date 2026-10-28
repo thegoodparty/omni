@@ -36,6 +36,13 @@ export interface ServiceConfig {
   dependsOn: pulumi.ResourceOptions['dependsOn']
 }
 
+// Owned by thegoodparty/ops (step 6a of its docs/deploy-role-trust.md). The
+// role preview deploys run under may create or edit a role only when it
+// carries this boundary, so a preview role is capped by it whatever its own
+// policies say. Dev and prod roles carry none.
+const PREVIEW_ROLE_PERMISSIONS_BOUNDARY =
+  'arn:aws:iam::333022194791:policy/GpApiPreviewRoleBoundary'
+
 type ServiceOutput = {
   ecsService: aws.ecs.Service
   url: pulumi.Output<string>
@@ -232,8 +239,12 @@ export function createService({
     retentionInDays: isProd ? 60 : 30,
   })
 
+  const permissionsBoundary =
+    environment === 'preview' ? PREVIEW_ROLE_PERMISSIONS_BOUNDARY : undefined
+
   const executionRole = new aws.iam.Role('executionRole', {
     name: `gp-${stage}-gpapi${stage}ExecutionRole-uswest2`,
+    permissionsBoundary,
     assumeRolePolicy: JSON.stringify({
       Version: '2012-10-17',
       Statement: [
@@ -273,6 +284,7 @@ export function createService({
 
   const taskRole = new aws.iam.Role('taskRole', {
     name: `gp-${stage}-gpapi${stage}TaskRole-uswest2`,
+    permissionsBoundary,
     assumeRolePolicy: JSON.stringify({
       Version: '2012-10-17',
       Statement: [
