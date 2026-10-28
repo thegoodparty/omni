@@ -3,7 +3,7 @@ title: Replies by SNS webhook into the existing queue; no per-email SES events o
 status: active
 decided_by: [agent]
 date: 2026-10-28
-code: ['#PR']
+code: ['#3333']
 scope:
   - packages/gp-api/src/emailOutreach/services/emailSnsWebhook.service.ts
   - packages/gp-api/src/emailOutreach/services/outreachEmailInbound.service.ts
