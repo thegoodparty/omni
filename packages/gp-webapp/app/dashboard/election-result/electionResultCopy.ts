@@ -60,42 +60,17 @@ export const CHAT_ASK_COPY = {
   saveFailed: "We couldn't save your result. Try again.",
 }
 
-export interface WonPoint {
-  title: string
-  description: string
-}
-
 export const WON_COPY = {
   title: 'Congratulations, you won!',
   pro: {
-    description: (place: string | null): string =>
-      `Now it's time to prepare to serve, and serving starts with staying connected to ${place ?? DEFAULT_PLACE}.`,
-    points: ({
-      place,
-      population,
-      topIssue,
-    }: {
-      place: string | null
-      population: number | null
-      topIssue: string | null
-    }): WonPoint[] => [
-      {
-        title: `You represent all of ${place ?? DEFAULT_PLACE}`,
-        description: population
-          ? `About ${roundPopulation(population)} people live there, and you speak for all of them.`
-          : 'You speak for everyone who lives there.',
-      },
-      {
-        title: 'Hear from more than the loudest voices',
-        description: `A few residents from every group tell you where ${place ?? DEFAULT_PLACE} stands.`,
-      },
-      {
-        title: 'Ask about what you ran on',
-        description: topIssue
-          ? `Learn where residents stand on ${topIssue} before you take office.`
-          : 'Learn where residents stand on the issues you ran on before you take office.',
-      },
-    ],
+    // The celebration's skip button; it moves on by itself after 3 seconds.
+    continue: 'Continue',
+    nextTitle: (place: string | null): string =>
+      `Get ready to serve ${place ?? DEFAULT_PLACE}`,
+    nextCaption: (population: number | null): string =>
+      population
+        ? `You're about to represent all ${roundPopulation(population)} people who live there, not just the ones at the mic.`
+        : "You're about to represent everyone who lives there, not just the ones at the mic.",
     // The video's own lines are its text alternative, so they keep the
     // video's words (it names the civic panel; the page around it does not).
     video: {
@@ -103,8 +78,6 @@ export const WON_COPY = {
       textAlternative:
         'What the video says: You represent every resident in the district. Speakers at public comment skew older, a median age of 61 against 50 for their neighbors. And they don’t reflect the whole community. Residents who reflect the whole district. Your civic panel is your community pulse.',
     },
-    briefingNote:
-      "Once you're sworn in, your chief of staff adds a briefing before every meeting.",
     start: 'Start preparing to serve',
   },
   withoutPro: {

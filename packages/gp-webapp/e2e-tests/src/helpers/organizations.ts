@@ -56,6 +56,7 @@ export const winRaceAsPro = async (page: Page): Promise<void> => {
   await page
     .getByRole('button', { name: 'I won', exact: true })
     .click({ timeout: 10_000 })
+  // The celebration moves on to the next step by itself after 3 seconds.
   await page
     .getByRole('button', { name: 'Start preparing to serve' })
     .click({ timeout: 10_000 })

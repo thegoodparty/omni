@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { screen, fireEvent, waitFor } from '@testing-library/react'
+import { act, screen, fireEvent, waitFor } from '@testing-library/react'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { router } from 'helpers/test-utils/router-mocking'
@@ -115,6 +115,7 @@ const answerWon = (): void => {
 
 const startServing = async (): Promise<void> => {
   answerWon()
+  fireEvent.click(await screen.findByRole('button', { name: 'Continue' }))
   fireEvent.click(
     await screen.findByRole('button', { name: 'Start preparing to serve' }),
   )
@@ -177,7 +178,7 @@ describe('ElectionResultPage', () => {
     render(<ElectionResultPage startWithWin />)
 
     expect(
-      await screen.findByRole('button', { name: 'Start preparing to serve' }),
+      await screen.findByRole('heading', { name: 'Congratulations, you won!' }),
     ).toBeInTheDocument()
     expect(mockUpdateCampaign).not.toHaveBeenCalled()
   })
@@ -273,14 +274,31 @@ describe('ElectionResultPage', () => {
     render(<ElectionResultPage />)
     answerWon()
 
+    // Step 1 celebrates the win and names the office, with nothing to do
+    // but move on.
     expect(
       await screen.findByRole('heading', { name: 'Congratulations, you won!' }),
     ).toBeInTheDocument()
-    expect(screen.getByText('You represent all of your district')).toBeVisible()
+    expect(screen.getByText('Mayor')).toBeInTheDocument()
+    expect(document.querySelector('video')).toBeNull()
+    expect(
+      screen.queryByRole('button', { name: 'Start preparing to serve' }),
+    ).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+    // Step 2 says what's next, and takes focus so it is read first.
+    const heading = await screen.findByRole('heading', {
+      name: 'Get ready to serve your district',
+    })
+    await waitFor(() => expect(heading).toHaveFocus())
     expect(
       screen.getByText(
-        'Learn where residents stand on the issues you ran on before you take office.',
+        "You're about to represent everyone who lives there, not just the ones at the mic.",
       ),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: 'Start preparing to serve' }),
     ).toBeInTheDocument()
     expect(
       screen.queryByRole('link', { name: /Join the community/ }),
@@ -310,6 +328,28 @@ describe('ElectionResultPage', () => {
       '',
     )
     expect(visibleText).not.toMatch(/civic panel/i)
+  })
+
+  it('moves from the celebration to what comes next on its own after 3 seconds', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      mockCampaign.current = proCampaign()
+      render(<ElectionResultPage />)
+      answerWon()
+      await screen.findByRole('heading', { name: 'Congratulations, you won!' })
+
+      act(() => {
+        vi.advanceTimersByTime(3_000)
+      })
+
+      expect(
+        await screen.findByRole('heading', {
+          name: 'Get ready to serve your district',
+        }),
+      ).toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('creates an unfinished office for a Pro winner and hands off to Serve onboarding', async () => {

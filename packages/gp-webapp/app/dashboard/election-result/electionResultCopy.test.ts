@@ -11,38 +11,22 @@ describe('roundPopulation', () => {
   })
 })
 
-describe('WON_COPY.pro.points', () => {
-  it('names the place, the population and what they ran on', () => {
-    const [represent, loudest, ranOn] = WON_COPY.pro.points({
-      place: 'Maplewood',
-      population: 32_456,
-      topIssue: 'the splash pad',
-    })
-    expect(represent).toEqual({
-      title: 'You represent all of Maplewood',
-      description:
-        'About 32,000 people live there, and you speak for all of them.',
-    })
-    expect(loudest?.description).toBe(
-      'A few residents from every group tell you where Maplewood stands.',
+describe('the Pro winner’s what-comes-next copy', () => {
+  it('names the place and the population', () => {
+    expect(WON_COPY.pro.nextTitle('Maplewood')).toBe(
+      'Get ready to serve Maplewood',
     )
-    expect(ranOn?.description).toBe(
-      'Learn where residents stand on the splash pad before you take office.',
+    expect(WON_COPY.pro.nextCaption(32_456)).toBe(
+      "You're about to represent all 32,000 people who live there, not just the ones at the mic.",
     )
   })
 
-  it('drops the number and the issue when they are unknown', () => {
-    const [represent, , ranOn] = WON_COPY.pro.points({
-      place: null,
-      population: null,
-      topIssue: null,
-    })
-    expect(represent?.title).toBe('You represent all of your district')
-    expect(represent?.description).toBe(
-      'You speak for everyone who lives there.',
+  it('drops the place and the number when they are unknown', () => {
+    expect(WON_COPY.pro.nextTitle(null)).toBe(
+      'Get ready to serve your district',
     )
-    expect(ranOn?.description).toBe(
-      'Learn where residents stand on the issues you ran on before you take office.',
+    expect(WON_COPY.pro.nextCaption(null)).toBe(
+      "You're about to represent everyone who lives there, not just the ones at the mic.",
     )
   })
 })

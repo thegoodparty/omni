@@ -31,6 +31,7 @@ import { ASK_COPY, electionDayLabel } from '../electionResultCopy'
 import { electionDateOf } from '../electionResultQuestion'
 import { ActiveProSubscriptionAlert } from './ActiveProSubscriptionAlert'
 import { CongratulationsStep } from './CongratulationsStep'
+import { PrepareToServe } from './PrepareToServe'
 import { MY_ELECTED_OFFICES_QUERY_KEY } from 'app/dashboard/shared/myElectedOfficesQuery'
 
 const RESULT_WON = 'won'
@@ -247,12 +248,19 @@ export default function ElectionResultPage({
   const isLoading =
     !campaign || (startWithWin && view === 'ask' && !requestState.error)
 
+  if (view === 'won' && campaign?.isPro) {
+    return (
+      <PrepareToServe
+        submitting={requestState.submitting}
+        onStartServing={() => void handleStartServing()}
+      />
+    )
+  }
+
   return (
     <div className="flex flex-col">
       <main className="flex-1 pb-24 md:pb-0">
-        <section
-          className={`${view === 'won' && campaign?.isPro ? 'max-w-4xl lg:p-10' : 'max-w-screen-md lg:p-16'} mx-auto p-4 sm:p-8 bg-white md:border md:border-slate-200 md:rounded-xl md:mt-12`}
-        >
+        <section className="max-w-screen-md mx-auto p-4 sm:p-8 lg:p-16 bg-white md:border md:border-slate-200 md:rounded-xl md:mt-12">
           {isImpersonating && (
             <Alert variant="info" icon={<InfoIcon />} className="mb-8">
               <AlertDescription>
@@ -276,9 +284,6 @@ export default function ElectionResultPage({
           <div className="flex flex-col items-center md:justify-center">
             {view === 'won' ? (
               <CongratulationsStep
-                isPro={!!campaign?.isPro}
-                submitting={requestState.submitting}
-                onStartServing={() => void handleStartServing()}
                 onBackToDashboard={() => router.replace('/dashboard')}
               />
             ) : isLoading ? (
