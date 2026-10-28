@@ -37,6 +37,7 @@ export interface ServiceConfig {
 }
 
 type ServiceOutput = {
+  ecsService: aws.ecs.Service
   url: pulumi.Output<string>
   logGroupName: pulumi.Output<string>
   logGroupArn: pulumi.Output<string>
