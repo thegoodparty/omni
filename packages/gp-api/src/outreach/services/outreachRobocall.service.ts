@@ -307,22 +307,21 @@ export class OutreachRobocallService extends createPrismaBase(
 
     try {
       await this.client.$transaction(async (tx) => {
-        // The claim is a CAS on the satellite row as it was read
-        // (settle-state AND updatedAt): two resume submits both clear the read
-        // above, so the loser's CAS counts 0 and aborts before the row is
-        // repriced, rather than letting the last write win. A draft moves
-        // `draft → pending_payment`. A declined hold STAYS `hold_failed` until
-        // a hold actually lands (authorize accepts it), so a candidate who
-        // reaches the pay step and leaves still sees "Payment failed" in
-        // history instead of a hidden pending_payment row. The cancel-at-
-        // deadline sweep CASes the same row on its own read updatedAt, so a
-        // resume and a mid-flight cancel can't both win: a resend never lands
-        // on a cancelled row, and a cancel never takes a just-resumed one.
+        // The claim is a CAS on the satellite settle-state as read. A draft
+        // moves `draft → pending_payment`, so of two concurrent resume submits
+        // the loser counts 0 and aborts before the row is repriced. A declined
+        // hold STAYS `hold_failed` until a hold actually lands (authorize
+        // accepts it), so a candidate who reaches the pay step and leaves
+        // still sees "Payment failed" in history; two concurrent resends of it
+        // both write, last one wins, and authorize still places one hold. Not
+        // pinned to updatedAt: the daily reminder stamps the row, and that
+        // must not 409 a resend. A cancel that already landed fails this CAS
+        // (`cancelled`), and the cancel sweep pins ITS CAS to its own read
+        // updatedAt, so it can never take a row a resend just moved forward.
         const claimed = await tx.outreachRobocall.updateMany({
           where: {
             outreachId: draftOutreachId,
             settleState: draft.settleState,
-            updatedAt: draft.updatedAt,
           },
           data: {
             // A resume can carry a re-recorded clip, and the compliance bind

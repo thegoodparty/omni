@@ -650,11 +650,12 @@ again, instead of the row going hidden at `pending_payment`. The existing
 `POST /outreach/robocall/:id/authorize` (which already accepts `pending_payment
 | hold_failed`) places the hold on the new card, or defers it when the new date
 is beyond the window. One money path: a resend is priced and scheduled under
-the same gates as a fresh create, never a client-supplied count. The convert's
-claim and the cancel-at-deadline sweep's `hold_failed → cancelled` CAS are both
-pinned to the satellite's `updatedAt` as each read it, so concurrent resends
-convert once (the loser 409s), and a cancel that read the old past date cannot
-take a row a resend has just moved forward.
+the same gates as a fresh create, never a client-supplied count. The
+cancel-at-deadline sweep's `hold_failed → cancelled` CAS is pinned to the
+satellite's `updatedAt` as it read it, so a cancel that read the old past date
+cannot take a row a resend has just moved forward. The convert's own claim is
+settle-state only: the daily reminder stamps the row, and pinning the convert
+to `updatedAt` would 409 a resend submitted just after it.
 
 **Promo codes (reward codes on the pay step).** CAS mints single-use,
 amount-off promotion codes in Stripe (a fixed number of calls at a fixed rate)

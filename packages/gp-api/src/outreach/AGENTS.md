@@ -119,11 +119,13 @@ authorize path, so there is one money path for a draft and a hold-failed
 resend alike (billing always re-derived server-side from the audience, never
 trusted from the client). A `hold_failed` resume keeps the satellite at
 `hold_failed` until a hold lands, so an abandoned resend stays in history as
-"payment failed" and can be resent again. The convert's single-winner claim is
-a CAS on the satellite's settle-state and `updatedAt` as read (the
-`outreachRobocall.updateMany` inside the transaction, so a zero count aborts
-before the spine is repriced): two concurrent resume submits convert once and
-the loser 409s. The cancel-at-deadline sweep's `hold_failed → cancelled` CAS is
+"payment failed" and can be resent again. The convert's claim is a CAS on the
+satellite's settle-state as read (the `outreachRobocall.updateMany` inside the
+transaction, so a zero count aborts before the spine is repriced): two
+concurrent resumes of a `draft` convert once and the loser 409s; two of a
+`hold_failed` row both write, and authorize still places one hold. It is not
+pinned to `updatedAt`, because the daily reminder stamps the row and must not
+409 a resend. The cancel-at-deadline sweep's `hold_failed → cancelled` CAS IS
 pinned to its own read `updatedAt`, so a cancel that read the old past date
 cannot take a row a resend has just moved forward. A bare robocall
 create that reuses a draft's `audioKey` 409s with that draft's `existingId`
