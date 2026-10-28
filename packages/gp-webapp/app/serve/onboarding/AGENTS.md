@@ -158,7 +158,12 @@ find issues" empty line only when the search succeeded with nothing.
 - **Fallback**: no EO, no position, a 4xx/5xx, under 100 points, or no data
   within 8 seconds draws a stand-in district (its own outline and a City Hall
   marker, no tiles). The
-  map never swaps once drawn, and the step never errors.
+  map never swaps once drawn, and the step never errors. Because a
+  district-wide points read can outlast that wait, the flow prefetches the
+  points and stats (`districtPointsQueryOptions`, keyed by office and
+  position) as soon as an office is on the org at load, as it is for a
+  winner or a prefill; an office picked this session is read when the story
+  mounts.
 - **The picks are illustrative**: the loud cluster is the 12 dots nearest the
   middle; the sample is a few dots (`SAMPLE_PER_CELL`, 4) picked at random in
   each part of a 4 by 4 grid over the district, so it spreads across the map;

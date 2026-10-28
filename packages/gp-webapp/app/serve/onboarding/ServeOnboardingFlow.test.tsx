@@ -399,6 +399,52 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
     ).toBeInTheDocument()
   })
 
+  it("starts a winner's district read before the story, so its real map is ready", async () => {
+    // A winner lands on the term step with the office already on the org.
+    // The story gives up on slow data and keeps the stand-in, so the read
+    // starts now rather than when the story mounts.
+    let pointsRequests = 0
+    api.mock('POST /v1/contacts/points', () => {
+      pointsRequests += 1
+      return {
+        status: 200,
+        data: { points: districtPoints(400), truncated: false },
+      }
+    })
+    mockLoad(
+      buildEO({
+        party: 'independent',
+        onboardingStep: 'confirm',
+        campaignId: 7,
+      }),
+      buildOrg({
+        positionName: 'Mayor',
+        position: { id: 'p1', brPositionId: 'br-1', state: 'NC' },
+      }),
+    )
+    api.mock('PUT /v1/elected-office/:id', { status: 200, data: buildEO() })
+    const user = userEvent.setup({ skipHover: true })
+    renderFlow()
+
+    expect(
+      await screen.findByText('When does your term run?'),
+    ).toBeInTheDocument()
+    await waitFor(() => expect(pointsRequests).toBe(1))
+
+    await fillTermDates(user)
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findByText('Does this look right?')
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    await findStoryHeading(storyHeading.represent)
+    expect(screen.getByTestId('district-story-map')).toHaveAttribute(
+      'data-abstract',
+      'false',
+    )
+    // The story reuses the read already in hand.
+    expect(pointsRequests).toBe(1)
+  })
+
   it("draws the official's district from its locations", async () => {
     mockDistrict({ points: districtPoints(400) })
     resumedAt('story-represent')

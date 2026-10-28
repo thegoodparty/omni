@@ -37,7 +37,12 @@ import { PRIORITY_FORM_COPY } from 'app/dashboard/priorities/priorityFormCopy'
 import { useServeCitizenPanelsFlag } from '@shared/experiments/serveCitizenPanelsFlag'
 import { servePlaceOf } from 'app/dashboard/contacts/citizens-panel/managedPanelCopy'
 import ServeOfficePicker, { type OfficePick } from './ServeOfficePicker'
-import { DistrictStoryStep } from './districtStory/DistrictStoryStep'
+import {
+  DistrictStoryStep,
+  districtPointsQueryOptions,
+} from './districtStory/DistrictStoryStep'
+import { onboardingDistrictStatsQueryOptions } from 'app/onboarding/components/VoterDemographicsStep'
+import { useQueryClient } from '@tanstack/react-query'
 import {
   buildDisabledRanges,
   CALENDAR_END,
@@ -134,6 +139,7 @@ const SERVE_STEP_VIEWED_EVENTS: Partial<Record<ServeStepId, string>> = {
 export default function ServeOnboardingFlow(): React.JSX.Element {
   const { errorSnackbar } = useSnackbar()
   const router = useRouter()
+  const queryClient = useQueryClient()
   // An impersonating admin can leave a winner's handoff without finishing it,
   // the way they can leave the election-result question; the dashboard reads
   // the same flag before sending them back here.
@@ -630,6 +636,35 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
   // position pointer (param-less) — the same path the Win flow uses — instead
   // of campaign-scoped resolution an EO has no campaign for.
   const storyPositionId = office?.positionId ?? orgPositionId
+
+  // The story draws its stand-in district if its data is not back within
+  // DISTRICT_DATA_WAIT_MS of the first story step, and never swaps it after.
+  // A district-wide read can take longer than that, so it starts as soon as
+  // the office is already on the org when the flow loads (a winner or a
+  // prefill) instead of when the story mounts. Only that office: a pick made
+  // this session reaches the org later, and reading before then would cache
+  // the old district under the new office.
+  const eoId = currentEO?.id
+  const prefetchPositionId = office ? undefined : orgPositionId
+  useEffect(() => {
+    if (loading || !citizenPanels || !officeOnOrg) return
+    if (!eoId || !prefetchPositionId) return
+    void queryClient.prefetchQuery(
+      districtPointsQueryOptions(eoId, prefetchPositionId),
+    )
+    void queryClient.prefetchQuery(
+      onboardingDistrictStatsQueryOptions({
+        orgPositionId: prefetchPositionId,
+      }),
+    )
+  }, [
+    loading,
+    citizenPanels,
+    officeOnOrg,
+    eoId,
+    prefetchPositionId,
+    queryClient,
+  ])
 
   const progress = getServeProgress(branch, step, citizenPanels)
   const afterTerm = firstStepAfterTerm(citizenPanels)
