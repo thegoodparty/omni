@@ -459,6 +459,20 @@ describe('OutreachAudienceStep — a preselected recommendation', () => {
     expect(cards[1]).toHaveAttribute('aria-pressed', 'false')
   })
 
+  it('paints a recommendation pressed when its saved list is the one picked', () => {
+    render(
+      <OutreachAudienceStep
+        {...baseProps()}
+        recommendations={[RECOMMENDATION, EXISTING_RECOMMENDATION]}
+        selectedId={EXISTING_RECOMMENDATION.existingFilterId}
+      />,
+    )
+
+    const cards = screen.getAllByTestId('recommended-list-card')
+    expect(cards[0]).toHaveAttribute('aria-pressed', 'false')
+    expect(cards[1]).toHaveAttribute('aria-pressed', 'true')
+  })
+
   it('shows why a Continue that saves the selected recommendation failed', () => {
     render(
       <OutreachAudienceStep

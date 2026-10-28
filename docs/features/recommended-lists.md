@@ -587,6 +587,9 @@ The card is listed under "Recommended for you" whatever purpose was picked.
 
 Don't recommend a list the organization already has; return the existing one
 instead, so accepting a recommendation twice doesn't create a duplicate.
+A card that names a saved list reads pressed whenever that list is the
+picked one, on every channel and in door knocking, so taking it never looks
+like a tap that did nothing.
 
 **Compare normalized filter payloads, not rows.** `voterFileFilter.utils.ts`
 already converts a saved row into the voter filter payload — a small object
