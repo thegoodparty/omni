@@ -3,7 +3,7 @@ title: SES for outreach email; Mailgun stays transactional; one SES tenant per o
 status: active
 decided_by: [stephtea]
 date: 2026-10-27
-code: ['#PR']
+code: ['#3313']
 scope:
   - packages/gp-api/deploy/components/email-outreach.ts
   - packages/gp-api/src/emailOutreach/**
