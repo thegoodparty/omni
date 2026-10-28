@@ -45,8 +45,8 @@ Cards are 12px radius with a 1px border. Don't change those.
   primary) shows only on the single main action per screen and on links and focus
   rings. No red, lavender or green except the system's alert and status uses.
 - **No imagery.** A photo, avatar picture, map or chart is a `gp-box` with a plain
-  label ("Map of Maplewood", "Vote count chart"). No stock art, emoji or icon sets
-  beyond simple inline stroke SVG.
+  label ("Map of Maplewood", "Vote count chart"). No stock art or emoji. Icons follow
+  the Icons rules below.
 - **No decoration.** No gradients, drop shadows, blur, animation beyond focus and
   state changes, or brand flourishes. Status is words plus shape (a check, bold
   text, a heavier border), never color alone.
@@ -77,6 +77,58 @@ Cards are 12px radius with a 1px border. Don't change those.
   prep screen that says what the user needs before they begin.
 - **The logo.** The heart (`packages/gp-webapp/public/images/logo/heart.svg`), never
   the wordmark as text. `assets/heart-logo.svg` is a ready copy to paste inline.
+
+## Existing screens
+
+When an option touches a screen that exists today, replicate it before you change
+it. Don't redraw it from memory or from the ticket.
+
+0. **List first.** Write down every existing screen the flow touches and its source
+   file. Never invent one (a contact panel, a Constituents page, a "Back to uploads"
+   link, a table where the product uses cards). After building, render today's
+   screen and the page's version side by side and compare.
+1. **Find the source.** Start from the route (`packages/gp-webapp/app/dashboard/<area>`
+   and its `AGENTS.md`), then the page component, its sheets and drawers, and the
+   copy file (`contactsLabels.ts`, `navLabels.ts` and similar). Today's headings,
+   labels and empty states come from there, word for word.
+2. **Copy the structure.** Same shell (sidebar items and order from
+   `DashboardMenu.tsx`, page title bar, top bar), same column widths, same cards,
+   same row layout, same sheet pattern. If the product shows a list as cards, don't
+   show it as a table. Drill-in screens use the product's own pattern, such as a
+   `CrmSheet` drawer with a Back control at its top-left, not a new link in the
+   page body.
+3. **Mark what is new.** Show only the new parts as new, and say in the comment you
+   post back which parts are today's and which are added.
+4. **Check the data.** Show only fields the product has today (for example the
+   person panel's real sections), and flag any field the feature adds.
+
+## Information architecture
+
+Think about the information architecture before any screen. It is guidance, not a
+mandate: not every set of records needs its own list and detail page.
+
+- Prefer the product's standard list UI and its top-level pages over modals and
+  sheets.
+- Put stats where the product puts them, not in a new summary strip.
+
+| The job | Container |
+|---|---|
+| Something people return to, browse or manage | Top-level page |
+| Look at or edit one record while keeping the list in view | Drawer |
+| A multi-step task with a start and an end | Wizard, with a stepper, inside the nav shell |
+| A short confirmation or one blocking choice | Modal, as a last resort |
+
+## Earn every element
+
+No helper text, banner or summary number unless the product has it today or the
+ticket asks for it. `check.py` flags `.muted` paragraphs and banner or alert
+elements; add `data-earned="why"` to one you can defend.
+
+## Icons
+
+Use only inline SVGs from the styleguide's lucide set, with `stroke="currentColor"`
+and a viewBox. Never an emoji, an icon font or a hand-drawn path. Screenshot every
+screen in review and confirm no icon is blank.
 
 ## Every option must have
 

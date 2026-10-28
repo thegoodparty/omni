@@ -91,39 +91,65 @@ Work in a scratch folder outside any repo, `<work>/`, and keep the page in
    it stores. Today's behavior is the starting point for the close-to-today option,
    and code facts often kill or reshape an option. Find the entry point: the route
    and the button or link that starts the flow today.
-2. **Write the brief.** Answer the questions in `reference/review-lens.md` from the
+2. **Pass the source gate.** Before you design, list every existing screen the flow
+   touches and the source file of each. Build today's version of each from that
+   source, render it next to the version on the page, and compare layout, labels
+   and navigation. Never invent a screen. Rules in `reference/design-rules.md`,
+   "Existing screens".
+3. **Write the brief.** Answer the questions in `reference/review-lens.md` from the
    ticket, the code and, if you have it, Amplitude (device split, baseline). Write
    "Unknown" where you can't answer, never a guess. If this turns out to be a
    product or marketing problem rather than a design one, say so in the post-back.
-3. **Pick three options.** Think about how other products solve the same job (form,
+4. **Pick three options.** Think about how other products solve the same job (form,
    one question at a time, conversation, human-led, calendar, checklist,
    invitation, agent workspace, search). Pick three that are each a different
    model. Write the one-sentence description and the Sends line for each before
    you build.
-4. **Build the page.** Copy `assets/page-template.html` to
+5. **Build the page.** Copy `assets/page-template.html` to
    `<work>/page/src.html`, fill in the three options, then run
    `python3 scripts/build.py <work>/page/src.html <work>/page`. It inlines the
    design tokens and component CSS and writes `index.html`.
-5. **Check.** `python3 scripts/check.py <work>/page/index.html` catches banned words,
+6. **Check.** `python3 scripts/check.py <work>/page/index.html` catches banned words,
    dead links, external requests and a missing brief, entry point, Sends line or
-   fold. Then render it with `agent-browser` (headless Chromium) at 1280px and
-   390px and click every path in every option. Fix anything clipped, overlapping,
-   dead or off-system.
-6. **Review.** One round with a subagent that reads only the page, the ticket,
+   fold, and flags unearned muted text, banners and blank icons. Then render it with
+   `agent-browser` (headless Chromium) at 1280px and 390px and click every path in
+   every option. Screenshot every screen and confirm no icon is blank. Fix anything
+   clipped, overlapping, dead or off-system.
+7. **Review.** One round with a subagent that reads only the page, the ticket,
    `reference/review-lens.md` and `reference/design-rules.md`. It clicks every path,
    answers every question in the review lens against the page, checks the options
    are distinct and the copy rules hold, and fixes what it finds. Don't let it pull
    the options toward each other.
-7. **Publish.** `scripts/publish.sh <work>/page <slug>`, where the slug is
+8. **Publish.** `scripts/publish.sh <work>/page <slug>`, where the slug is
    `ux-<ClickUp task id>`. Rules and commands are in `reference/publishing.md`.
-8. **Post back.** Comment on the ticket (and reply in the Slack thread, if one
+9. **Post back.** Comment on the ticket (and reply in the Slack thread, if one
    asked) with the artifact link, one line per option, the feedback we want, and
    every "Unknown" from the brief as a question for a person. Add any cheap
    variants worth testing later. Say that viewing needs a Good Party Vercel
    sign-in.
 
+## Revision rounds
+
+When people comment after the first publish:
+
+1. Once a direction is picked, drop the other options. Keep only the chosen one.
+2. Read every open thread, on Vercel and on the ticket. Reply to each and resolve
+   it.
+3. Ambiguity: apply a comment's fix everywhere the same pattern appears and say so
+   in the reply, or ask. Never take the narrowest reading.
+4. Post which screens are today's and which are new, and ping the Slack thread.
+
 ## Pitfalls
 
+- **Invented screens.** When a design shows something that exists in the product
+  (a page, a panel, the navigation, a wizard), replicate it faithfully from its
+  source: same layout, same components, same labels, same navigation pattern. A
+  reviewer who can't recognize today's screen can't judge the change. Never add a
+  navigation pattern the product doesn't have (a "Back to X" link in a page body, a
+  tab strip, a side sheet where the product uses a full-height drawer).
+
+- **Unearned elements.** Helper text, banners and summary numbers appear only if
+  the product has them or the ticket asks. Each one is a thing to defend.
 - **Convergence.** Rounds of fixing pull options toward the same safe middle. Each
   option should become the best version of itself, not more like the others.
 - **Dead interactions.** Every button does something, Restart returns to the first

@@ -9,6 +9,7 @@ from a real correction. Delete any that turn out to be wrong. That is expected.
 Entries marked `(earned)` came from corrections in product design sessions, first
 captured 2026-10-07 from the candidate Home and Game Plan work. Rules 31 to 41 were
 added 2026-10-28 from the head of product's distilled design review notes.
+Rules 42 to 46 came from the same day's review of the import contacts prototype.
 
 ---
 
@@ -123,6 +124,16 @@ added 2026-10-28 from the head of product's distilled design review notes.
     review. (earned)
 41. When there isn't enough traffic for a test to mean anything, pick the option
     that is simplest to understand, ship it, and learn. (earned)
+42. Earn every element. No helper text, banner or summary number unless the
+    product has it or the ticket asks for it. (earned)
+43. Icons come only from the styleguide's lucide set, as inline SVG. Check every
+    screen to confirm none renders blank. (earned)
+44. When a comment's fix applies to a pattern, apply it everywhere that pattern
+    appears and say so, or ask. Never take the narrowest reading. (earned)
+45. Once a direction is picked, drop the other options. Reply to and resolve every
+    open thread, say what is today's and what is new, and ping Slack. (earned)
+46. Never invent a screen. Build today's screens from their source and compare
+    them to the page before changing anything. (earned)
 
 ---
 
