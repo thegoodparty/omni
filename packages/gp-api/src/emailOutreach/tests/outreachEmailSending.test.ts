@@ -1,4 +1,11 @@
-import { addDays, addMinutes, startOfMinute, subMinutes } from 'date-fns'
+import { ConflictException } from '@nestjs/common'
+import {
+  addDays,
+  addMinutes,
+  startOfMinute,
+  subHours,
+  subMinutes,
+} from 'date-fns'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { PaymentHoldsService } from '@/paymentHolds/services/paymentHolds.service'
 import { QueueProducerService } from '@/queue/producer/queueProducer.service'
@@ -217,7 +224,6 @@ describe('send sweep', () => {
       (await recipientStatuses(service.prisma, outreachEmailId)).counts,
     ).toEqual({ queued: 10 })
 
-    sweep.clearCaches()
     await sweep.runTick()
     expect(await emailRow(outreachEmailId)).toMatchObject({
       pausedAt: null,
@@ -279,6 +285,34 @@ describe('send sweep', () => {
     const { counts } = await recipientStatuses(service.prisma, outreachEmailId)
     expect(counts).toEqual({ sent: 2, failed: 1 })
     expect((await emailRow(outreachEmailId)).sentCount).toBe(2)
+  })
+
+  it('pauses a send SES rejects outright, and keeps sending the others', async () => {
+    const broken = await runningSend(10)
+    const other = await runningSend(10, {
+      organizationSlug: orgs.officeSlug,
+      campaignId: null,
+    })
+    sendBulk.mockImplementation(async (input) =>
+      input.outreachEmailId === broken.outreachEmailId
+        ? { kind: 'rejected', message: 'BadRequestException: bad data' }
+        : succeedAll(input),
+    )
+    await sweep.runTick()
+    expect((await emailRow(broken.outreachEmailId)).pauseReason).toBe(
+      OutreachEmailPauseReason.manual,
+    )
+    expect((await emailRow(other.outreachEmailId)).sentCount).toBe(10)
+  })
+
+  it('never runs two ticks at once in one process', async () => {
+    sendBulk.mockImplementation(async (input) => {
+      await new Promise((resolve) => setTimeout(resolve, 100))
+      return succeedAll(input)
+    })
+    await runningSend(50)
+    await Promise.all([sweep.runTick(), sweep.runTick()])
+    expect(sendBulk).toHaveBeenCalledTimes(1)
   })
 
   it('stops a tick at its time budget', async () => {
@@ -675,6 +709,55 @@ describe('starting due sends', () => {
       }
     },
   )
+
+  it('fails a send whose held hold Stripe no longer shows as capturable', async () => {
+    vi.spyOn(service.app.get(PaymentHoldsService), 'getHold').mockRejectedValue(
+      new ConflictException('The payment hold is no longer active'),
+    )
+    const { outreachId } = await dueSend()
+    await service.app.get(OutreachEmailLifecycleService).startDueSends()
+    expect(
+      (
+        await service.prisma.outreach.findUniqueOrThrow({
+          where: { id: outreachId },
+        })
+      ).status,
+    ).toBe(OutreachStatus.failed)
+  })
+
+  it('fails a send that still has not prepared hours after its send time', async () => {
+    const release = vi
+      .spyOn(service.app.get(PaymentHoldsService), 'release')
+      .mockResolvedValue()
+    const sendMessage = vi.spyOn(
+      service.app.get(QueueProducerService),
+      'sendMessage',
+    )
+    const sender = await createSender(service.prisma, orgs.winSlug)
+    const { outreachId } = await createSend(service.prisma, {
+      organizationSlug: orgs.winSlug,
+      campaignId: orgs.campaignId,
+      senderId: sender.id,
+      emails: emails(2),
+      status: OutreachStatus.in_progress,
+      date: subHours(new Date(), 7),
+      recipientCap: 2,
+    })
+    await service.prisma.outreach.update({
+      where: { id: outreachId },
+      data: { updatedAt: subMinutes(new Date(), 20) },
+    })
+    await service.app.get(OutreachEmailLifecycleService).retryStalledPrepares()
+    expect(
+      (
+        await service.prisma.outreach.findUniqueOrThrow({
+          where: { id: outreachId },
+        })
+      ).status,
+    ).toBe(OutreachStatus.failed)
+    expect(release).toHaveBeenCalledWith({ outreachId })
+    expect(sendMessage).not.toHaveBeenCalled()
+  })
 })
 
 describe('settling and finishing', () => {
@@ -765,6 +848,22 @@ describe('settling and finishing', () => {
         })
       ).warmingStep,
     ).toBe(1)
+  })
+
+  it('settles a send that was paused after its last batch', async () => {
+    const settle = vi
+      .spyOn(service.app.get(PaymentHoldsService), 'settle')
+      .mockResolvedValue()
+    const { outreachId, outreachEmailId } = await finishedSend(10)
+    await service.prisma.outreachEmail.update({
+      where: { id: outreachEmailId },
+      data: {
+        pausedAt: new Date(),
+        pauseReason: OutreachEmailPauseReason.bounce_rate,
+      },
+    })
+    await service.app.get(OutreachEmailLifecycleService).settleFinishedSends()
+    expect(settle).toHaveBeenCalledWith({ outreachId })
   })
 
   it('keeps the warming step after a send with too many bounces', async () => {

@@ -102,6 +102,7 @@ export class OutreachEmailSendSweepService extends createPrismaBase(
   private readonly holder = `${hostname()}-${randomUUID()}`
   private account: { state: SesAccountState; readAt: Date } | null = null
   private readonly lastChecked = new Map<number, Date>()
+  private running = false
 
   constructor(private readonly ses: SesService) {
     super()
@@ -127,13 +128,22 @@ export class OutreachEmailSendSweepService extends createPrismaBase(
   }
 
   async runTick(budgetMs: number = SEND_TICK_BUDGET_MS): Promise<void> {
-    const startedAt = new Date()
-    if (!(await this.hasWork())) return
-    if (!(await this.takeLease())) return
+    // The scheduler doesn't wait for a run to finish, and the lease lets its
+    // own holder back in, so a tick that overran would otherwise run beside
+    // the next one and double the send rate.
+    if (this.running) return
+    this.running = true
     try {
-      await this.tick(startedAt, budgetMs)
+      const startedAt = new Date()
+      if (!(await this.hasWork())) return
+      if (!(await this.takeLease())) return
+      try {
+        await this.tick(startedAt, budgetMs)
+      } finally {
+        await this.releaseLease()
+      }
     } finally {
-      await this.releaseLease()
+      this.running = false
     }
   }
 
@@ -627,6 +637,9 @@ export class OutreachEmailSendSweepService extends createPrismaBase(
   }
 
   private async pauseActive(reason: OutreachEmailPauseReason): Promise<void> {
+    // The cached account read predates this refusal; reusing it would clear
+    // the pause on the next tick.
+    this.account = null
     const paused = await this.model.updateMany({
       where: {
         pausedAt: null,

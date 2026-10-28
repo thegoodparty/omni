@@ -1,6 +1,6 @@
-import { Injectable } from '@nestjs/common'
+import { ConflictException, Injectable } from '@nestjs/common'
 import { Cron } from '@nestjs/schedule'
-import { isAfter, subMinutes } from 'date-fns'
+import { isAfter, isBefore, subHours, subMinutes } from 'date-fns'
 import { PaymentHoldsService } from '@/paymentHolds/services/paymentHolds.service'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { QueueProducerService } from '@/queue/producer/queueProducer.service'
@@ -14,6 +14,7 @@ import {
   OutreachType,
 } from '../../generated/prisma'
 import {
+  PREPARE_GIVE_UP_HOURS,
   PREPARE_RETRY_MINUTES,
   WARMING_ADVANCE_MAX_BOUNCE_RATE,
   WARMING_ADVANCE_MAX_COMPLAINT_RATE,
@@ -105,7 +106,16 @@ export class OutreachEmailLifecycleService extends createPrismaBase(
     status: OutreachStatus,
     outreachEmailId: number,
   ): Promise<void> {
-    const hold = await this.holds.getHold(outreachId)
+    let hold: Awaited<ReturnType<PaymentHoldsService['getHold']>>
+    try {
+      hold = await this.holds.getHold(outreachId)
+    } catch (err) {
+      if (!(err instanceof ConflictException)) throw err
+      // Held here but no longer capturable at Stripe. Retrying can't fix it,
+      // and the send would keep its warming reservation.
+      await this.fail(outreachId, status, 'payment hold no longer active')
+      return
+    }
     if (!hold) {
       await this.fail(outreachId, status, 'no payment hold')
       return
@@ -139,6 +149,10 @@ export class OutreachEmailLifecycleService extends createPrismaBase(
 
   // A prepare message lost or aged to the DLQ would leave the send started
   // but never sending.
+  // A prepare message lost or aged to the DLQ would leave the send started
+  // but never sending, so it is enqueued again. One that still hasn't
+  // prepared hours after its send time is broken (a template that won't
+  // render, a tenant SES refuses), so it fails and its hold is released.
   async retryStalledPrepares(): Promise<void> {
     const stalled = await this.model.findMany({
       where: {
@@ -149,9 +163,34 @@ export class OutreachEmailLifecycleService extends createPrismaBase(
           updatedAt: { lt: subMinutes(new Date(), PREPARE_RETRY_MINUTES) },
         },
       },
-      select: { id: true, outreachId: true },
+      select: {
+        id: true,
+        outreachId: true,
+        outreach: { select: { date: true } },
+      },
     })
+    const giveUpBefore = subHours(new Date(), PREPARE_GIVE_UP_HOURS)
     for (const row of stalled) {
+      if (row.outreach.date && isBefore(row.outreach.date, giveUpBefore)) {
+        this.logger.error(
+          { outreachEmailId: row.id, outreachId: row.outreachId },
+          'CRITICAL email send never prepared; failing it',
+        )
+        await this.fail(
+          row.outreachId,
+          OutreachStatus.in_progress,
+          'the send could not be prepared',
+        )
+        try {
+          await this.holds.release({ outreachId: row.outreachId })
+        } catch (err) {
+          this.logger.error(
+            { err, outreachId: row.outreachId },
+            'Releasing a failed email send hold failed',
+          )
+        }
+        continue
+      }
       this.logger.warn(
         { outreachEmailId: row.id },
         'Email send never prepared; enqueueing it again',
@@ -204,7 +243,6 @@ export class OutreachEmailLifecycleService extends createPrismaBase(
           { stoppingAt: { not: null } },
           {
             preparedAt: { not: null },
-            pausedAt: null,
             recipients: {
               none: {
                 status: {

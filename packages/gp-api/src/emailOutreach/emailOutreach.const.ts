@@ -35,6 +35,7 @@ export const ACCOUNT_CACHE_SECONDS = 60
 export const SEND_RATE_HEADROOM = 0.9
 export const DAILY_QUOTA_HEADROOM = 0.9
 export const PREPARE_RETRY_MINUTES = 10
+export const PREPARE_GIVE_UP_HOURS = 6
 
 // Dev calls real SES, so it may reach only the team and the SES mailbox
 // simulator.

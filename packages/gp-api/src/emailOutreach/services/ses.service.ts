@@ -132,6 +132,11 @@ const METRIC_PERIOD_SECONDS = 60
 
 const TENANT_ARN = /:tenant\//
 
+// Shorter than the sweep lease (90 seconds), so a hung call can't outlive
+// the runner's claim on sending.
+const SES_REQUEST_TIMEOUT_MS = 30_000
+const SES_CONNECTION_TIMEOUT_MS = 5_000
+
 const errorName = (err: Error): string =>
   err instanceof ServiceException ? err.name : ''
 
@@ -151,14 +156,20 @@ export class SesService extends AwsService {
     // run has no AWS session to resolve credentials from.
     const mock = VENDOR_MODE === 'mock'
     const mockCredentials = { accessKeyId: 'mock', secretAccessKey: 'mock' }
+    const requestHandler = {
+      requestTimeout: SES_REQUEST_TIMEOUT_MS,
+      connectionTimeout: SES_CONNECTION_TIMEOUT_MS,
+    }
     this.client = new SESv2Client({
       region: SES_REGION,
+      requestHandler,
       ...(mock
         ? { endpoint: vendorBaseUrl('ses', ''), credentials: mockCredentials }
         : {}),
     })
     this.cloudwatch = new CloudWatchClient({
       region: SES_REGION,
+      requestHandler,
       ...(mock
         ? {
             endpoint: `${vendorBaseUrl('ses', '')}/cloudwatch`,
@@ -320,7 +331,11 @@ export class SesService extends AwsService {
             ? { kind: 'tenant_paused', message: err.message }
             : { kind: 'rejected', message: err.message }
         default:
-          return { kind: 'error', err }
+          // A client fault won't succeed on a retry, so the send is paused
+          // rather than retried every tick ahead of everyone else's.
+          return err instanceof ServiceException && err.$fault === 'client'
+            ? { kind: 'rejected', message: `${err.name}: ${err.message}` }
+            : { kind: 'error', err }
       }
     }
   }
