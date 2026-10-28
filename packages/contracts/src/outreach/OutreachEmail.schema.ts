@@ -101,6 +101,40 @@ export const EmailDraftSchema = z.object({
 })
 export type EmailDraft = z.infer<typeof EmailDraftSchema>
 
+// A draft plus what happens once it is confirmed: GET /:id, confirm and
+// cancel return this.
+export const EmailSendSchema = EmailDraftSchema.extend({
+  // Frozen at confirm: how many of the recipients this send can reach.
+  recipientCap: z.number().int().nonnegative().nullable(),
+  sentCount: z.number().int().nonnegative(),
+  pauseReason: z.string().nullable(),
+  stopping: z.boolean(),
+  // What confirming now would freeze and hold, shown on the review step.
+  // Null once the send has left draft.
+  estimate: z
+    .object({
+      warmingCap: z.number().int().nonnegative(),
+      recipientCap: z.number().int().nonnegative(),
+      priceCents: z.number().int().nonnegative(),
+    })
+    .nullable(),
+})
+export type EmailSend = z.infer<typeof EmailSendSchema>
+
+export const EmailConfirmRequestSchema = z
+  .object({ paymentMethodId: z.string().trim().min(1).max(255) })
+  .strict()
+export type EmailConfirmRequest = z.infer<typeof EmailConfirmRequestSchema>
+
+export const EmailConfirmResponseSchema = z.object({
+  // held or scheduled confirm the send; declined leaves it awaiting a new
+  // card through the payment hold's card route.
+  outcome: z.enum(['held', 'scheduled', 'declined']),
+  declineCode: z.string().nullable(),
+  email: EmailSendSchema,
+})
+export type EmailConfirmResponse = z.infer<typeof EmailConfirmResponseSchema>
+
 export const EmailRecipientUploadRequestSchema = z
   .object({
     consentConfirmed: z.union([

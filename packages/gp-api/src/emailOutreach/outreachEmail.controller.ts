@@ -11,6 +11,10 @@ import {
 } from '@nestjs/common'
 import {
   EmailAiDraftRequest,
+  EmailConfirmRequest,
+  EmailConfirmRequestSchema,
+  EmailConfirmResponse,
+  EmailConfirmResponseSchema,
   EmailAiDraftRequestSchema,
   EmailAiDraftResponse,
   EmailAiDraftResponseSchema,
@@ -18,6 +22,8 @@ import {
   EmailDraftSave,
   EmailDraftSaveSchema,
   EmailDraftSchema,
+  EmailSend,
+  EmailSendSchema,
   EmailRecipientUploadRequestSchema,
   EmailRecipientUploadResponse,
   EmailRecipientUploadResponseSchema,
@@ -44,6 +50,7 @@ import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interceptor'
 import { User } from '../generated/prisma'
 import { EMAIL_UPLOAD_MAX_BYTES } from './emailOutreach.const'
+import { OutreachEmailConfirmService } from './services/outreachEmailConfirm.service'
 import { OutreachEmailGenerationService } from './services/outreachEmailGeneration.service'
 import { OutreachEmailImageService } from './services/outreachEmailImage.service'
 import { OutreachEmailTestService } from './services/outreachEmailTest.service'
@@ -64,6 +71,7 @@ export class OutreachEmailController {
     private readonly generation: OutreachEmailGenerationService,
     private readonly images: OutreachEmailImageService,
     private readonly tests: OutreachEmailTestService,
+    private readonly confirms: OutreachEmailConfirmService,
   ) {}
 
   @Get('sender')
@@ -129,6 +137,38 @@ export class OutreachEmailController {
     )
   }
 
+  @Post(':id/confirm')
+  @ResponseSchema(EmailConfirmResponseSchema)
+  async confirm(
+    @ReqUser() user: User,
+    @ReqCampaign() campaign: CampaignWith<'user'>,
+    @Param('id', ParseIntPipe) id: number,
+    @Body(new ZodValidationPipe(EmailConfirmRequestSchema))
+    input: EmailConfirmRequest,
+  ): Promise<EmailConfirmResponse> {
+    return this.confirms.confirm({
+      scope: await this.scopes.forCampaign(campaign, user),
+      outreachId: id,
+      user,
+      mode: 'win',
+      isPro: campaign.isPro === true,
+      paymentMethodId: input.paymentMethodId,
+    })
+  }
+
+  @Post(':id/cancel')
+  @ResponseSchema(EmailSendSchema)
+  async cancel(
+    @ReqUser() user: User,
+    @ReqCampaign() campaign: CampaignWith<'user'>,
+    @Param('id', ParseIntPipe) id: number,
+  ): Promise<EmailSend> {
+    return this.confirms.cancel(
+      await this.scopes.forCampaign(campaign, user),
+      id,
+    )
+  }
+
   @Post()
   @ResponseSchema(EmailDraftSchema)
   async saveDraft(
@@ -143,12 +183,12 @@ export class OutreachEmailController {
   }
 
   @Get(':id')
-  @ResponseSchema(EmailDraftSchema)
+  @ResponseSchema(EmailSendSchema)
   async getDraft(
     @ReqUser() user: User,
     @ReqCampaign() campaign: CampaignWith<'user'>,
     @Param('id', ParseIntPipe) id: number,
-  ): Promise<EmailDraft> {
+  ): Promise<EmailSend> {
     return this.emails.get(await this.scopes.forCampaign(campaign, user), id)
   }
 
