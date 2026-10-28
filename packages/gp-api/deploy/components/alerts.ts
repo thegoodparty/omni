@@ -1,6 +1,7 @@
 import { ControllerName } from '../../src/generated/route-types'
 import { Alert } from './alerting/alerts.types'
 import { geoapifyBudgetAlerts } from './alerting/geoapify-budget-alerts'
+import { sesReputationAlerts } from './alerting/ses-reputation-alerts'
 import { vendorDriftAlerts } from './alerting/vendor-drift-alerts'
 import { doorKnockingCredits } from './alerting/door-knocking-spend'
 
@@ -558,6 +559,7 @@ export const GLOBAL_ALERTS: Alert[] = [
   // why that matters to the read cost.
   ...geoapifyBudgetAlerts,
   ...vendorDriftAlerts,
+  ...sesReputationAlerts,
   {
     slug: 'door-knocking-pack-build-failed',
     name: '[Win] Door-knocking pack build failed mid-response',

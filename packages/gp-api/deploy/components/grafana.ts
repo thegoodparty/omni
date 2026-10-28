@@ -46,6 +46,7 @@ const datasourceConfig = {
   log: { uid: LOKI_DATASOURCE_UID, queryType: 'instant' },
   metric: { uid: PROM_DATASOURCE_UID, queryType: 'instant' },
   usage: { uid: USAGE_DATASOURCE_UID, queryType: 'instant' },
+  cloudwatch: { uid: CLOUDWATCH_DATASOURCE_UID, queryType: '' },
 } as const
 
 /**
@@ -85,25 +86,43 @@ export const alertTimeRange = (alert: Alert) => {
  * is the only place the instant-versus-range decision is visible.
  */
 export const alertQueryModel = (alert: Alert, environment: string) =>
-  JSON.stringify({
-    expr: alert.expr.replace(/\$ENV/g, environment),
-    refId: 'A',
-    // INSTANT, AND THE KEY HAS TO BE IN THE MODEL. Loki's backend reads
-    // `queryType` from here, not from the rule's DataQuery-level field, and
-    // without it every log rule ran as a range query: a point per second
-    // across the whole fetch window, each re-reading its own range vector,
-    // so a `[10m]` count over a 600s fetch read twenty minutes of logs to
-    // produce the one value `reduce: last` kept. Measured on 2026-10-09
-    // against prod: a range query read 2.4x what the instant query over the
-    // same vector read, and 3x on a one-hour vector. Only the vector is read
-    // now, ending `timeRangeOffsetSeconds` before the evaluation.
-    //
-    // Not on metric or usage rules: Prometheus ignores the key, and those
-    // queries are not billed by bytes.
-    ...(alert.type === 'log'
-      ? { queryType: 'instant', instant: true, range: false }
-      : {}),
-  })
+  alert.type === 'cloudwatch'
+    ? JSON.stringify({
+        refId: 'A',
+        datasource: { type: 'cloudwatch', uid: CLOUDWATCH_DATASOURCE_UID },
+        queryMode: 'Metrics',
+        metricQueryType: 0,
+        metricEditorMode: 0,
+        region: 'us-west-2',
+        namespace: alert.cloudwatchNamespace,
+        metricName: alert.expr,
+        dimensions: {},
+        statistic: 'Average',
+        period: '300',
+        matchExact: true,
+        id: '',
+        expression: '',
+        label: '',
+      })
+    : JSON.stringify({
+        expr: alert.expr.replace(/\$ENV/g, environment),
+        refId: 'A',
+        // INSTANT, AND THE KEY HAS TO BE IN THE MODEL. Loki's backend reads
+        // `queryType` from here, not from the rule's DataQuery-level field, and
+        // without it every log rule ran as a range query: a point per second
+        // across the whole fetch window, each re-reading its own range vector,
+        // so a `[10m]` count over a 600s fetch read twenty minutes of logs to
+        // produce the one value `reduce: last` kept. Measured on 2026-10-09
+        // against prod: a range query read 2.4x what the instant query over the
+        // same vector read, and 3x on a one-hour vector. Only the vector is read
+        // now, ending `timeRangeOffsetSeconds` before the evaluation.
+        //
+        // Not on metric or usage rules: Prometheus ignores the key, and those
+        // queries are not billed by bytes.
+        ...(alert.type === 'log'
+          ? { queryType: 'instant', instant: true, range: false }
+          : {}),
+      })
 
 /**
  * The snapshot, read rather than imported.

@@ -13,6 +13,7 @@ import {
   PREVIEW_SHARED_ALB_NAME,
 } from './components/preview-shared-alb'
 import { createPreviewSharedCluster } from './components/preview-shared-cluster'
+import { createEmailOutreach } from './components/email-outreach'
 import { createElectionDb } from './components/election-db'
 import { createRobocallAudioBucket } from './components/robocall-audio-bucket'
 import { createService } from './components/service'
@@ -459,6 +460,17 @@ export = async () => {
   const region = 'us-west-2'
   const accountId = '333022194791'
 
+  // Previews send through the vendor mock and get no SES resources.
+  const emailOutreach =
+    environment !== 'preview'
+      ? createEmailOutreach({
+          environment,
+          hostedZoneId,
+          region,
+          accountId,
+        })
+      : undefined
+
   const serveAnalysisBucketName = `serve-analyze-data-${
     environment === 'preview' ? 'dev' : environment
   }`
@@ -856,6 +868,7 @@ jwIDAQAB
         Action: ['textract:DetectDocumentText', 'textract:AnalyzeDocument'],
         Resource: ['*'],
       },
+      ...(emailOutreach?.taskRolePermissions ?? []),
       ...(localDevEnvSecretArns.length > 0
         ? [
             {
