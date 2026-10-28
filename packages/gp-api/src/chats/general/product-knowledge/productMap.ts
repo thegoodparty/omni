@@ -273,6 +273,19 @@ const WIN_AREAS: ProductArea[] = [
     gate: 'No tab, and not every candidate is offered it. Filing details can be submitted before paying, but carrier registration only starts once Pro is paid for.',
   },
   {
+    // No tab: the dashboard sends a candidate here once their election date
+    // has passed and they have not said how it went.
+    navId: null,
+    name: 'Election result',
+    path: '/dashboard/election-result',
+    modes: ['win'],
+    does: 'Where a candidate says whether they won, once their election day has passed.',
+    inside: [
+      'A Pro candidate who won sees Congratulations, you won., with what serving their community looks like, and one button, Start preparing to serve. It sets up their office and opens the setup for it, starting with Does this look right? on their office, party and term; leaving partway, the dashboard brings them back to it until they take the pledge at the end',
+      'A candidate without Pro who won sees Congratulations, you won. with a link to the GoodParty.org community and Back to dashboard. Their result is saved and nothing else changes',
+    ],
+  },
+  {
     navId: 'nav-dash-team',
     name: 'Team',
     path: '/dashboard/team',

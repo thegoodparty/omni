@@ -60,6 +60,7 @@ const mockSetSelectedSlug = vi.fn()
 vi.mock('@shared/organization-picker', () => ({
   ORGANIZATIONS_QUERY_KEY: ['organizations'],
   useSetOrganizationSlug: () => mockSetSelectedSlug,
+  useOrganization: () => null,
 }))
 
 vi.mock('helpers/useSnackbar', () => ({
@@ -103,6 +104,17 @@ const eoFixture = {
   selfReported: false,
   onboardingStep: 'confirm',
   campaignId: 1,
+}
+
+const answerWon = (): void => {
+  fireEvent.click(screen.getByRole('button', { name: 'I won my race' }))
+}
+
+const startServing = async (): Promise<void> => {
+  answerWon()
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Start preparing to serve' }),
+  )
 }
 
 const proCampaign = (party?: string): MockCampaign => ({
@@ -186,14 +198,44 @@ describe('ElectionResultPage', () => {
     })
 
     render(<ElectionResultPage />)
-    fireEvent.click(screen.getByRole('button', { name: 'I won my race' }))
+    answerWon()
 
-    await waitFor(() => {
-      expect(mockUpdateCampaign).toHaveBeenCalledWith([
-        { key: 'details.wonGeneral', value: true },
-      ])
-    })
+    expect(
+      await screen.findByRole('heading', { name: 'Congratulations, you won.' }),
+    ).toBeInTheDocument()
+    expect(mockUpdateCampaign).toHaveBeenCalledWith([
+      { key: 'details.wonGeneral', value: true },
+    ])
     expect(electedOfficeCreated).toBe(false)
+    expect(
+      screen.getByRole('link', { name: /Join the community/ }),
+    ).toHaveAttribute('href', 'https://community.goodparty.org')
+    expect(
+      screen.queryByRole('button', { name: 'Start preparing to serve' }),
+    ).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Back to dashboard' }))
+    expect(router.replace).toHaveBeenCalledWith('/dashboard')
+  })
+
+  it('congratulates a Pro winner before saving anything', async () => {
+    mockCampaign.current = proCampaign()
+    render(<ElectionResultPage />)
+    answerWon()
+
+    expect(
+      await screen.findByRole('heading', { name: 'Congratulations, you won.' }),
+    ).toBeInTheDocument()
+    expect(screen.getByText('You represent all of your district')).toBeVisible()
+    expect(
+      screen.getByText(
+        'Learn where residents stand on the issues you ran on before you take office.',
+      ),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('link', { name: /Join the community/ }),
+    ).toBeNull()
+    expect(mockUpdateCampaign).not.toHaveBeenCalled()
   })
 
   it('creates an unfinished office for a Pro winner and hands off to Serve onboarding', async () => {
@@ -213,7 +255,7 @@ describe('ElectionResultPage', () => {
     })
 
     render(<ElectionResultPage />)
-    fireEvent.click(screen.getByRole('button', { name: 'I won my race' }))
+    await startServing()
 
     await waitFor(() => {
       expect(router.replace).toHaveBeenCalledWith('/serve/onboarding')
@@ -240,7 +282,7 @@ describe('ElectionResultPage', () => {
     }))
 
     render(<ElectionResultPage />)
-    fireEvent.click(screen.getByRole('button', { name: 'I won my race' }))
+    await startServing()
 
     await waitFor(() => {
       expect(mockErrorSnackbar).toHaveBeenCalled()
@@ -258,7 +300,7 @@ describe('ElectionResultPage', () => {
     }))
 
     render(<ElectionResultPage />)
-    fireEvent.click(screen.getByRole('button', { name: 'I won my race' }))
+    await startServing()
 
     await waitFor(() => {
       expect(mockErrorSnackbar).toHaveBeenCalled()
@@ -279,7 +321,7 @@ describe('ElectionResultPage', () => {
     })
 
     render(<ElectionResultPage />)
-    fireEvent.click(screen.getByRole('button', { name: 'I won my race' }))
+    await startServing()
 
     await waitFor(() => {
       expect(router.replace).toHaveBeenCalledWith('/serve/onboarding')

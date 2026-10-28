@@ -28,6 +28,7 @@ import { InfoIcon } from '@styleguide/components/ui/icons'
 import { SERVE_ONBOARDING_PATH } from 'helpers/resolvePostAuthRedirectPath.util'
 import { dismissElectionResult } from '../dismissal'
 import { ActiveProSubscriptionAlert } from './ActiveProSubscriptionAlert'
+import { CongratulationsStep } from './CongratulationsStep'
 
 const RESULT_WON = 'won'
 const RESULT_LOST = 'lost'
@@ -70,6 +71,7 @@ export default function ElectionResultPage(): React.JSX.Element {
   const [campaign] = useCampaign()
   const isImpersonating = useIsImpersonating()
   const [selectedOption, setSelectedOption] = useState<string | null>(null)
+  const [view, setView] = useState<'ask' | 'won'>('ask')
 
   function handleDismiss() {
     dismissElectionResult()
@@ -158,30 +160,48 @@ export default function ElectionResultPage(): React.JSX.Element {
     router.replace(SERVE_ONBOARDING_PATH)
   }
 
-  async function handleSelection(selection: string) {
-    setSelectedOption(selection)
+  // A Pro winner's result is saved by the congratulations screen's button,
+  // together with the office.
+  const handleStartServing = async (): Promise<void> => {
     setRequestState({ submitting: true, error: false })
     try {
-      if (selection === RESULT_WON && campaign?.isPro) {
-        await startServeHandoff()
-        return
-      }
-      // Without Pro a win saves the result only: no office, no Serve.
-      await saveResult(selection === RESULT_WON)
-      trackEvent(EVENTS.Candidacy.DidYouWinModalCompleted, {
-        status: selection,
-      })
-      router.replace(
-        selection === RESULT_WON
-          ? '/dashboard'
-          : '/dashboard/election-result/loss',
-      )
+      await startServeHandoff()
     } catch (e) {
       console.error('Error submitting General Result:', e)
       errorSnackbar('Failed to submit election result.')
       setRequestState({ submitting: false, error: true })
     }
   }
+
+  async function handleSelection(selection: string) {
+    setSelectedOption(selection)
+    if (selection === RESULT_WON && campaign?.isPro) {
+      setView('won')
+      return
+    }
+    setRequestState({ submitting: true, error: false })
+    try {
+      // Without Pro a win saves the result only: no office, no Serve.
+      await saveResult(selection === RESULT_WON)
+      trackEvent(EVENTS.Candidacy.DidYouWinModalCompleted, {
+        status: selection,
+      })
+      if (selection === RESULT_WON) {
+        setRequestState({ submitting: false, error: false })
+        setView('won')
+        return
+      }
+      router.replace('/dashboard/election-result/loss')
+    } catch (e) {
+      console.error('Error submitting General Result:', e)
+      errorSnackbar('Failed to submit election result.')
+      setRequestState({ submitting: false, error: true })
+    }
+  }
+
+  useEffect(() => {
+    window.scrollTo(0, 0)
+  }, [view])
 
   useEffect(() => {
     trackEvent(EVENTS.Candidacy.DidYouWinModalViewed)
@@ -212,9 +232,16 @@ export default function ElectionResultPage(): React.JSX.Element {
               </AlertAction>
             </Alert>
           )}
-          <ActiveProSubscriptionAlert className="mb-8" />
+          {view === 'ask' && <ActiveProSubscriptionAlert className="mb-8" />}
           <div className="flex flex-col items-center md:justify-center">
-            {isLoading ? (
+            {view === 'won' ? (
+              <CongratulationsStep
+                isPro={!!campaign?.isPro}
+                submitting={requestState.submitting}
+                onStartServing={() => void handleStartServing()}
+                onBackToDashboard={() => router.replace('/dashboard')}
+              />
+            ) : isLoading ? (
               <div
                 className="pt-4 md:pt-16 pb-8 max-w-[450px] mx-auto w-full animate-pulse"
                 aria-hidden

@@ -47,13 +47,17 @@ export const closeOrgSwitcher = async (page: Page) => {
   await page.keyboard.press('Escape')
 }
 
-// Drive the "I won" answer for a Pro candidate: it creates the office
-// unfinished and hands the winner to Serve onboarding.
+// Drive the "I won" answer for a Pro candidate: the congratulations screen's
+// button creates the office unfinished and hands the winner to Serve
+// onboarding.
 export const winRaceAsPro = async (page: Page): Promise<void> => {
   await page.goto('/dashboard/election-result')
   await wait(250)
   await page
     .getByRole('button', { name: 'I won my race' })
+    .click({ timeout: 10_000 })
+  await page
+    .getByRole('button', { name: 'Start preparing to serve' })
     .click({ timeout: 10_000 })
   await page.waitForURL('**/serve/onboarding', { timeout: 15_000 })
 }
