@@ -21,6 +21,10 @@
 - **The footer is inside the card.** Win passes `paidForBy` and gets "Paid for by"; Serve passes null and gets no line. The postal address and the reason line are always there. The reason line uses no Win or Serve nouns, so it needs no mode-keyed copy.
 - **A new layout needs a registry entry in contracts and a case in `LAYOUT_COMPONENTS`.** A new theme is a contracts entry only; never edit a shipped theme key in place.
 
+## Manual rendering pass
+
+`scripts/send-all-email-templates.ts` sends every layout and theme to team inboxes through dev SES (`npx tsx scripts/send-all-email-templates.ts --confirm-dev --to you@goodparty.org`, from a dev AWS session). Run it after any layout or theme change and look at the results in Gmail, Outlook and Apple Mail, light and dark.
+
 ## Gotchas
 
 - These are `.tsx` files. `tsconfig.json` sets `jsx: react-jsx`, and the `.swcrc` plus `nest-cli.json`'s `extensions` make `nest build` compile them. Without those, `.tsx` files silently stay out of `dist`.
