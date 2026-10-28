@@ -637,7 +637,8 @@ export class OutreachEmailSendSweepService extends createPrismaBase(
         },
         'Email send paused',
       )
-      await this.pauseAlert.notify(send.id, reason)
+      // Not awaited: notify never throws, and Slack must not slow the tick.
+      void this.pauseAlert.notify(send.id, reason)
     }
   }
 
