@@ -335,10 +335,10 @@ block (`OutreachRobocallDetail` on the list row — `audioKey`, `callbackNumber`
 'hold_failed'` is how every surface flags it: `historyStatus.util.ts` labels it
 "Payment failed", and `OutreachDetailsDrawer` renders a payment-failed note plus
 an "Update card and resend" footer. That footer calls the same `onResumeDraft`
-path a saved draft's does, so the hub routes it into `RobocallFlow` as a resume
-(`isResumableRow` in `OutreachHubPage.tsx` treats a `hold_failed` robocall as
-resumable alongside `draft` rows). The resume lands on the schedule step with
-its PAST send date dropped — the candidate must pick a fresh future date — then
+path a saved draft's does, so the hub routes it into `RobocallFlow` as a resume.
+That footer is the ONLY way into it: the robocall tile and `?compose=robocall`
+resume `draft` rows only, so a payment-failed call never blocks starting a new
+one. The resume lands on the schedule step with its PAST send date dropped — the candidate must pick a fresh future date — then
 the pay step re-posts `POST /v1/outreach/robocall` with `draftOutreachId`, which
 `convertDraft` now accepts for a `hold_failed` row, re-deriving billing and
 landing it back at `pending_payment` for a new authorization hold. A repeat

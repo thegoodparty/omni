@@ -112,6 +112,9 @@ vi.mock('app/dashboard/outreach/components/OutreachComposeDeepLink', () => ({
       <button type="button" onClick={() => onCompose({ type: 'text' })}>
         compose text
       </button>
+      <button type="button" onClick={() => onCompose({ type: 'robocall' })}>
+        compose robocall
+      </button>
       <button
         type="button"
         onClick={() => onCompose({ type: 'text', source: 'campaign_tracker' })}
@@ -326,6 +329,22 @@ describe('OutreachHubPage — resuming a draft from its drawer', () => {
       'resuming 88',
     )
     expect(mockFetchOutreachDetail).toHaveBeenCalledWith(88)
+  })
+
+  // Only the drawer's CTA resends a payment-failed robocall. Starting a
+  // robocall anywhere else must open a new one, or the candidate can never
+  // send a different call while the failed one sits in history.
+  it('opens a fresh robocall when a payment-failed one is in history', async () => {
+    renderHub([holdFailedRobocallRow, sentRow])
+
+    await userEvent.click(
+      screen.getByRole('button', { name: 'compose robocall' }),
+    )
+
+    expect(await screen.findByTestId('robocall-flow')).toHaveTextContent(
+      'fresh',
+    )
+    expect(mockFetchOutreachDetail).not.toHaveBeenCalled()
   })
 
   // A failed detail read must not be a dead end: the flow opens as a new
