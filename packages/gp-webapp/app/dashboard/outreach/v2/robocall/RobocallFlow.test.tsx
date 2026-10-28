@@ -1824,13 +1824,15 @@ describe('RobocallFlow', () => {
     expect(screen.getByText('+12025550147')).toBeInTheDocument()
     expect(screen.getByText('Estimated cost')).toBeInTheDocument()
     expect(screen.getByText('$3.60')).toBeInTheDocument()
-    // The saved recording is playable and the read script is shown back.
+    // The saved recording is playable and what was actually said in it (the
+    // compliance transcript) is shown back, not the AI-drafted script.
     expect(screen.getByRole('button', { name: 'Play' })).toBeInTheDocument()
+    expect(screen.getByText('Hi, this is Alex...')).toBeInTheDocument()
     expect(
-      screen.getByText(
+      screen.queryByText(
         /^Hi, this is Alex, and I am running for City Council\./,
       ),
-    ).toBeInTheDocument()
+    ).not.toBeInTheDocument()
   })
 
   // Regression: a list BUILT in the flow is selected as the flow leaves the

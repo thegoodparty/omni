@@ -38,6 +38,9 @@ interface RobocallReviewStepProps {
   // The saved clip (playback here) and the script it was read against.
   recording: RobocallRecording | null
   script: string
+  // What the compliance check heard in the saved clip. When present it is
+  // what the candidate actually recorded, so it wins over the script.
+  transcript?: string | null
 }
 
 // The pre-send summary (after compose, before payment): reads back the
@@ -56,6 +59,7 @@ export const RobocallReviewStep = ({
   callbackNumber,
   recording,
   script,
+  transcript,
 }: RobocallReviewStepProps) => {
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const [playing, setPlaying] = useState(false)
@@ -76,6 +80,10 @@ export const RobocallReviewStep = ({
   const timeStr = scheduledAt
     ? `${formatInTimeZone(scheduledAt, timeZone, 'h:mm a')} ${timeZoneShortLabel(timeZone, scheduledAt)}`
     : '—'
+  // The clip is the deliverable: show what was said in it, not the script it
+  // was meant to follow. No transcript (a resumed draft, no local clip) falls
+  // back to the script.
+  const spokenText = transcript?.trim() || script.trim()
   const estimatedCost = (reachCount ?? 0) * pricePerContact
 
   const rows: [string, string][] = [
@@ -134,9 +142,9 @@ export const RobocallReviewStep = ({
         </div>
       </Card>
 
-      {/* A resume has no local clip, and a draft saved with no script has
+      {/* A resume has no local clip, and a draft saved with no script or transcript has
           nothing here at all — the heading alone is not a section. */}
-      {(recording || script.trim()) && (
+      {(recording || spokenText) && (
         <Card className="gap-3 p-4">
           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             Your recording
@@ -169,9 +177,9 @@ export const RobocallReviewStep = ({
               />
             </div>
           )}
-          {script.trim() && (
+          {spokenText && (
             <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">
-              {script}
+              {spokenText}
             </p>
           )}
         </Card>
