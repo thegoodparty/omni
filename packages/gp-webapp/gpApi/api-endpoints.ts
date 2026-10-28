@@ -108,6 +108,9 @@ import type {
   RobocallDraftCreateRequest,
   RobocallDraftCreateResponse,
   RobocallSaveCardIntentResponse,
+  PaymentHoldCardIntentResponse,
+  PaymentHoldCardRequest,
+  PaymentHoldCardResponse,
   RobocallAuthorizeRequest,
   RobocallAuthorizeResponse,
   RobocallPromoApplyRequest,
@@ -749,6 +752,26 @@ export type APIEndpoints = {
   'POST /v1/outreach/robocall': {
     Request: RobocallDraftCreateRequest
     Response: RobocallDraftCreateResponse
+  }
+
+  'POST /v1/outreach/holds/card-intent': {
+    Request: Record<string, never>
+    Response: PaymentHoldCardIntentResponse
+  }
+
+  'POST /v1/outreach/holds/:outreachId/card': {
+    Request: PaymentHoldCardRequest
+    Response: PaymentHoldCardResponse
+  }
+
+  'POST /v1/outreach/serve/holds/card-intent': {
+    Request: Record<string, never>
+    Response: PaymentHoldCardIntentResponse
+  }
+
+  'POST /v1/outreach/serve/holds/:outreachId/card': {
+    Request: PaymentHoldCardRequest
+    Response: PaymentHoldCardResponse
   }
 
   // Vaults the card off-session: returns a Stripe SetupIntent clientSecret the

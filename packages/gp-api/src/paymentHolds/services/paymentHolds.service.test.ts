@@ -2,7 +2,6 @@ import {
   BadGatewayException,
   BadRequestException,
   ConflictException,
-  NotImplementedException,
 } from '@nestjs/common'
 import { ModuleRef } from '@nestjs/core'
 import { addDays, addHours } from 'date-fns'
@@ -618,9 +617,14 @@ describe('settle', () => {
 })
 
 describe('createCardSetupIntent', () => {
-  it('still refuses until the card endpoints land', async () => {
-    await expect(holds.createCardSetupIntent()).rejects.toBeInstanceOf(
-      NotImplementedException,
-    )
+  it("creates a SetupIntent on the user's Stripe customer", async () => {
+    const setupSpy = vi
+      .spyOn(service.app.get(StripeService), 'createSetupIntent')
+      .mockResolvedValue({ clientSecret: 'seti_secret' })
+
+    await expect(
+      holds.createCardSetupIntent({ userId: service.user.id }),
+    ).resolves.toEqual({ clientSecret: 'seti_secret' })
+    expect(setupSpy).toHaveBeenCalledWith(CUSTOMER_ID)
   })
 })

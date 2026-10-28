@@ -5,7 +5,6 @@ import {
   Injectable,
   InternalServerErrorException,
   NotFoundException,
-  NotImplementedException,
   Type,
 } from '@nestjs/common'
 import { ModuleRef } from '@nestjs/core'
@@ -90,8 +89,17 @@ export class PaymentHoldsService
     this.settlementAdapters.set(channel, adapter)
   }
 
-  async createCardSetupIntent(): Promise<CardSetupIntent> {
-    throw new NotImplementedException('Card setup is not built yet')
+  async createCardSetupIntent({
+    userId,
+  }: {
+    userId: number
+  }): Promise<CardSetupIntent> {
+    const user = await this.users.findUser({ id: userId })
+    if (!user) {
+      throw new NotFoundException('User not found')
+    }
+    const customerId = await this.stripe.ensureCustomer(user)
+    return this.stripe.createSetupIntent(customerId)
   }
 
   async saveCardAndPlan({

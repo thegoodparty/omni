@@ -2,21 +2,23 @@
 
 A channel-neutral Stripe authorize-then-capture system for outreach sends: hold the card, capture only what actually sent, release on cancel (never refund). Email is the first channel; robocall is intended to move here later (it still has its own hold code). Design: "Outreach payment holds (shared)" (ClickUp doc `2ky4jq2q-20493`, page `2ky4jq2q-157473`).
 
-Under construction: `createCardSetupIntent` still refuses until the card endpoints land, and nothing yet releases a hold still unresolved at its send time. Never make a call report success early. Channel endpoints aren't behind a server-side flag, so a fake hold would let a send go out unpaid. Channels test against the service with `vi.spyOn`.
+Under construction: nothing yet releases a hold still unresolved at its send time. Never make a call report success early. Channel endpoints aren't behind a server-side flag, so a fake hold would let a send go out unpaid. Channels test against the service with `vi.spyOn`.
 
 Decision record: `docs/adr/2026-10-27-one-channel-neutral-outreach-payment-hold.md`.
 
 ## Key files
 
-| Path                                                                      | Purpose                                                                                              |
-| ------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| `paymentHolds.types.ts`                                                   | `PaymentHoldsApi`, the interface channels call, and `SettlementAdapter`, the one call into a channel |
-| `services/paymentHolds.service.ts`                                        | The service behind the interface, the settlement-adapter registry, and `placeHold` for the crons     |
-| `services/paymentHoldsSweep.service.ts`                                   | The four crons (below)                                                                               |
-| `services/outreachOrphanedHold.service.ts`                                | Records voids for the reconcile sweep                                                                |
-| `paymentHolds.constants.ts`                                               | The 3-day lead, the 24-hour settle margin, the orphaned-hold reasons                                 |
-| `prisma/schema/outreachPaymentHold.prisma`, `outreachOrphanedHold.prisma` | The hold row with its `OutreachHoldState` machine, and voided-hold tracking                          |
-| `src/vendors/segment/segment.types.ts` `OutreachPayment`                  | Event names HubSpot workflows key on for the payment emails                                          |
+| Path                                                                      | Purpose                                                                                                             |
+| ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `paymentHolds.types.ts`                                                   | `PaymentHoldsApi`, the interface channels call, and `SettlementAdapter`, the one call into a channel                |
+| `services/paymentHolds.service.ts`                                        | The service behind the interface, the settlement-adapter registry, and `placeHold` for the crons                    |
+| `services/paymentHoldsSweep.service.ts`                                   | The four crons (below)                                                                                              |
+| `paymentHolds.controller.ts`, `paymentHoldsServe.controller.ts`           | `POST outreach/holds/card-intent` and `POST outreach/holds/:outreachId/card`, mirrored under `outreach/serve/holds` |
+| `services/paymentHoldsCard.service.ts`                                    | Scopes the send to the caller (a send outside it is a 404), then calls `updateCard`                                 |
+| `services/outreachOrphanedHold.service.ts`                                | Records voids for the reconcile sweep                                                                               |
+| `paymentHolds.constants.ts`                                               | The 3-day lead, the 24-hour settle margin, the orphaned-hold reasons                                                |
+| `prisma/schema/outreachPaymentHold.prisma`, `outreachOrphanedHold.prisma` | The hold row with its `OutreachHoldState` machine, and voided-hold tracking                                         |
+| `src/vendors/segment/segment.types.ts` `OutreachPayment`                  | Event names HubSpot workflows key on for the payment emails                                                         |
 
 ## Invariants: do not break these
 
@@ -42,6 +44,10 @@ All in `PaymentHoldsSweepService`, gated on `VENDOR_CRONS_ENABLED`, with no `Cro
 | `paymentHoldReconcileSweep` | `:24` hourly    | Re-voids `OutreachOrphanedHold` rows Stripe still shows as live                                               |
 
 A stale `capturing` row whose intent Stripe shows `canceled` becomes `uncollectable` with a CRITICAL log; there is no automatic recharge.
+
+## Card endpoints
+
+`card-intent` returns a SetupIntent client secret; `:outreachId/card` changes the card on an existing hold and returns the `saveCardAndPlan` outcome (`held`, `scheduled`, `declined`). It never creates a hold: a first card goes through the channel's own confirm call. The webapp side is `packages/gp-webapp/app/dashboard/shared/payment-hold/PaymentHoldCard.tsx`, which takes a `savePaymentMethod` override for that first card. A 409 means a placement is still being resolved; the component tells the user to wait and retry.
 
 ## Reuse
 
