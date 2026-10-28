@@ -40,9 +40,14 @@ an unfinished winner back.
 Copy lives in `electionResultCopy.ts`. The Pro congratulations names the
 place (`useServePlace`), the district population (rounded, dropped when
 unknown) and the campaign's first custom issue (a generic line without one).
-It never says "civic panel". The "Who gets the mic" video in the design has
-no hosted source yet, so the screen ships without it. Confetti is the Pro
-upgrade's `ConfettiField`, hidden under reduced motion.
+It never says "civic panel". Beside the points (stacked above them on a
+phone) is the "Who gets the mic" video, served from `public/videos/`: the
+landscape cut from `md` up and the square one below, as two native
+`<video>`s toggled by responsive classes, each with its poster JPG, controls,
+no autoplay and `preload="metadata"`. A visually hidden paragraph carries the
+video's own lines as its description; those lines name the civic panel, the
+page's copy does not. The winner without Pro gets no video. Confetti is the
+Pro upgrade's `ConfettiField`, hidden under reduced motion.
 
 `dismissal.ts` lets an impersonating admin leave the question, and the Serve
 handoff, without answering (sessionStorage, cleared at every impersonation

@@ -96,6 +96,13 @@ export const WON_COPY = {
           : 'Learn where residents stand on the issues you ran on before you take office.',
       },
     ],
+    // The video's own lines are its text alternative, so they keep the
+    // video's words (it names the civic panel; the page around it does not).
+    video: {
+      label: 'Who gets the mic, a 1 minute video',
+      textAlternative:
+        'What the video says: You represent every resident in the district. Speakers at public comment skew older, a median age of 61 against 50 for their neighbors. And they don’t reflect the whole community. Residents who reflect the whole district. Your civic panel is your community pulse.',
+    },
     briefingNote:
       "Once you're sworn in, your chief of staff adds a briefing before every meeting.",
     start: 'Start preparing to serve',

@@ -250,7 +250,9 @@ export default function ElectionResultPage({
   return (
     <div className="flex flex-col">
       <main className="flex-1 pb-24 md:pb-0">
-        <section className="max-w-screen-md mx-auto p-4 sm:p-8 lg:p-16 bg-white md:border md:border-slate-200 md:rounded-xl md:mt-12">
+        <section
+          className={`${view === 'won' && campaign?.isPro ? 'max-w-4xl lg:p-10' : 'max-w-screen-md lg:p-16'} mx-auto p-4 sm:p-8 bg-white md:border md:border-slate-200 md:rounded-xl md:mt-12`}
+        >
           {isImpersonating && (
             <Alert variant="info" icon={<InfoIcon />} className="mb-8">
               <AlertDescription>

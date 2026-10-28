@@ -16,6 +16,30 @@ import { CommunityCard } from './CommunityCard'
 
 const POINT_ICONS = [FileTextIcon, UsersRoundIcon, TargetIcon]
 
+const VIDEO_TEXT_ID = 'who-gets-the-mic-text'
+
+const WhoGetsTheMic = ({
+  src,
+  poster,
+  className,
+}: {
+  src: string
+  poster: string
+  className: string
+}): React.JSX.Element => (
+  <video
+    controls
+    playsInline
+    preload="metadata"
+    poster={poster}
+    aria-label={WON_COPY.pro.video.label}
+    aria-describedby={VIDEO_TEXT_ID}
+    className={`w-full rounded-xl bg-muted object-cover ${className}`}
+  >
+    <source src={src} type="video/mp4" />
+  </video>
+)
+
 interface CongratulationsStepProps {
   isPro: boolean
   submitting: boolean
@@ -63,25 +87,47 @@ export const CongratulationsStep = ({
 
       {isPro ? (
         <>
-          <ul className="relative flex flex-col gap-5">
-            {points.map((point, index) => {
-              const Icon = POINT_ICONS[index] ?? TargetIcon
-              return (
-                <li key={point.title} className="flex items-start gap-3">
-                  <Icon className="size-6 shrink-0 text-primary" aria-hidden />
-                  <span>
-                    <span className="block font-semibold">{point.title}</span>
-                    <span className="block text-muted-foreground">
-                      {point.description}
+          <div className="relative grid grid-cols-1 items-start gap-7 md:grid-cols-2 md:gap-8">
+            {/* One source per frame: the landscape cut from md up, the
+                square one below. */}
+            <div>
+              <WhoGetsTheMic
+                src="/videos/who-gets-the-mic-landscape.mp4"
+                poster="/videos/who-gets-the-mic-landscape.jpg"
+                className="hidden aspect-video md:block"
+              />
+              <WhoGetsTheMic
+                src="/videos/who-gets-the-mic-square.mp4"
+                poster="/videos/who-gets-the-mic-square.jpg"
+                className="aspect-square md:hidden"
+              />
+              <p id={VIDEO_TEXT_ID} className="sr-only">
+                {WON_COPY.pro.video.textAlternative}
+              </p>
+            </div>
+            <ul className="flex flex-col gap-5">
+              {points.map((point, index) => {
+                const Icon = POINT_ICONS[index] ?? TargetIcon
+                return (
+                  <li key={point.title} className="flex items-start gap-3">
+                    <Icon
+                      className="size-6 shrink-0 text-primary"
+                      aria-hidden
+                    />
+                    <span>
+                      <span className="block font-semibold">{point.title}</span>
+                      <span className="block text-muted-foreground">
+                        {point.description}
+                      </span>
                     </span>
-                  </span>
-                </li>
-              )
-            })}
-            <li className="border-t border-base-border pt-4 text-sm text-muted-foreground">
-              {WON_COPY.pro.briefingNote}
-            </li>
-          </ul>
+                  </li>
+                )
+              })}
+              <li className="hidden border-t border-base-border pt-4 text-sm text-muted-foreground md:list-item">
+                {WON_COPY.pro.briefingNote}
+              </li>
+            </ul>
+          </div>
           <div className="relative flex justify-end border-t border-base-border pt-6">
             <Button
               type="button"

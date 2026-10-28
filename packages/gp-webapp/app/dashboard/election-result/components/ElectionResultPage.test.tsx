@@ -262,6 +262,7 @@ describe('ElectionResultPage', () => {
     expect(
       screen.queryByRole('button', { name: 'Start preparing to serve' }),
     ).toBeNull()
+    expect(document.querySelector('video')).toBeNull()
 
     fireEvent.click(screen.getByRole('button', { name: 'Back to dashboard' }))
     expect(router.replace).toHaveBeenCalledWith('/dashboard')
@@ -285,6 +286,30 @@ describe('ElectionResultPage', () => {
       screen.queryByRole('link', { name: /Join the community/ }),
     ).toBeNull()
     expect(mockUpdateCampaign).not.toHaveBeenCalled()
+
+    // One video per frame (landscape from md up, square below), never
+    // playing on its own, each named and described for screen readers.
+    const videos = document.querySelectorAll('video')
+    expect(videos).toHaveLength(2)
+    videos.forEach((video) => {
+      expect(video).toHaveAttribute('controls')
+      expect(video).toHaveAttribute('preload', 'metadata')
+      expect(video).not.toHaveAttribute('autoplay')
+      expect(video).toHaveAccessibleName('Who gets the mic, a 1 minute video')
+      expect(video).toHaveAccessibleDescription(/You represent every resident/)
+    })
+    expect(
+      [...videos].map((video) => video.querySelector('source')?.src),
+    ).toEqual([
+      expect.stringContaining('/videos/who-gets-the-mic-landscape.mp4'),
+      expect.stringContaining('/videos/who-gets-the-mic-square.mp4'),
+    ])
+    // The page itself never names the civic panel; only the video does.
+    const visibleText = document.body.textContent?.replace(
+      document.getElementById('who-gets-the-mic-text')?.textContent ?? '',
+      '',
+    )
+    expect(visibleText).not.toMatch(/civic panel/i)
   })
 
   it('creates an unfinished office for a Pro winner and hands off to Serve onboarding', async () => {
