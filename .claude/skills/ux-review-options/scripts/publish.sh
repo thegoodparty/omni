@@ -22,5 +22,5 @@ cd "$folder"
 url=$(vc deploy --yes --json --meta "artifact=$slug" \
   | python3 -c "import json,sys;d=json.load(sys.stdin);print((d.get('deployment') or d)['url'])")
 vc alias set "$url" "$host" >/dev/null || { echo "deployed $url but could not alias $host; report this, do not share the raw URL" >&2; exit 1; }
-vc curl / --deployment "https://$host" | head -c 300 >/dev/null
+vc curl / --deployment "https://$host" >/dev/null
 echo "https://$host"
