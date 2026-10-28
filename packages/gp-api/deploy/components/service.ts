@@ -486,6 +486,7 @@ export function createService({
 
   return {
     url: pulumi.interpolate`https://${domain}`,
+    ecsService,
     logGroupName: logGroup.name,
     logGroupArn: logGroup.arn,
   }

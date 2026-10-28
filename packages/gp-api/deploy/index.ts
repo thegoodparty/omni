@@ -13,6 +13,11 @@ import {
   PREVIEW_SHARED_ALB_NAME,
 } from './components/preview-shared-alb'
 import { createPreviewSharedCluster } from './components/preview-shared-cluster'
+import {
+  createEmailInbound,
+  emailInboundName,
+  emailInboundTopicArn,
+} from './components/email-inbound'
 import { createEmailOutreach } from './components/email-outreach'
 import { createElectionDb } from './components/election-db'
 import { createRobocallAudioBucket } from './components/robocall-audio-bucket'
@@ -521,6 +526,7 @@ export = async () => {
   // already whole-bucket, so no judge prefix needs widening on this side.
   const taskRoleReadOnlyBucketNames: pulumi.Input<string>[] = [
     agentArtifactsBucketName,
+    ...(environment !== 'preview' ? [emailInboundName(environment)] : []),
   ]
   const taskRoleReadOnlyObjectArns = taskRoleReadOnlyBucketNames.map(
     (name) => pulumi.interpolate`arn:aws:s3:::${name}/*`,
@@ -768,6 +774,16 @@ jwIDAQAB
         ? `gpdb_pr_${prNumber}`
         : rdsCluster!.databaseName,
       SECRETS_MANAGER_KEYS: Object.keys(containerSecrets).join(','),
+      // An ARN, not a credential. The webhook accepts only this topic.
+      ...(environment !== 'preview'
+        ? {
+            EMAIL_INBOUND_TOPIC_ARN: emailInboundTopicArn(
+              environment,
+              region,
+              accountId,
+            ),
+          }
+        : {}),
       ...(environment === 'preview' ? { IS_PREVIEW: 'true' } : {}),
       // One known approved Peerly identity for the nightly vendor drift probe.
       // An id, not a credential, so a plain env var rather than the secret.
@@ -899,6 +915,14 @@ jwIDAQAB
   })
 
   if (environment !== 'preview') {
+    createEmailInbound({
+      environment,
+      hostedZoneId,
+      region,
+      accountId,
+      webhookUrl: `https://${domain}/v1/email/webhooks/sns`,
+      service: service.ecsService,
+    })
     await createGrafanaResources({ environment, domain })
   }
 
