@@ -9,6 +9,10 @@ import { LlmModule } from '@/llm/llm.module'
 import { OrganizationsModule } from '@/organizations/organizations.module'
 import { OutreachModule } from '@/outreach/outreach.module'
 import { AwsModule } from '@/vendors/aws/aws.module'
+import { OutreachEmailAdminController } from './outreachEmailAdmin.controller'
+import { OutreachEmailAdminService } from './services/outreachEmailAdmin.service'
+import { OutreachEmailPauseAlertService } from './services/outreachEmailPauseAlert.service'
+import { SlackModule } from '@/vendors/slack/slack.module'
 import { EmailPublicController } from './emailPublic.controller'
 import { OutreachEmailController } from './outreachEmail.controller'
 import { OutreachServeEmailController } from './outreachServeEmail.controller'
@@ -41,11 +45,13 @@ import { OutreachEmailSenderService } from './services/outreachEmailSender.servi
     AwsModule,
     PaymentHoldsModule,
     QueueProducerModule,
+    SlackModule,
   ],
   controllers: [
     OutreachEmailController,
     OutreachServeEmailController,
     EmailPublicController,
+    OutreachEmailAdminController,
   ],
   providers: [
     EmailDomainCheckService,
@@ -66,6 +72,8 @@ import { OutreachEmailSenderService } from './services/outreachEmailSender.servi
     OutreachEmailSendSweepService,
     OutreachEmailLifecycleService,
     OutreachEmailSettlementAdapter,
+    OutreachEmailAdminService,
+    OutreachEmailPauseAlertService,
   ],
   exports: [EmailOutreachQueueService],
 })
