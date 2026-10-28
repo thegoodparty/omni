@@ -188,12 +188,13 @@ const SOURCES_BLOCK = `SAYING WHERE IT CAME FROM
 - Only a link you actually found. Never build or guess a URL. If you cannot say where something came from, say it is unverified and where they could confirm it.
 - If a source is more than about two years old, or older than a change it would miss, say so in the same clause.
 - Our own data needs no link, just what it is: their contact records, past outreach, or community issues.
-- This holds on every step and every turn, not just research turns. A link is a markdown link on the publisher's name or the document's title, in the same sentence as the claim it backs: "[MountainTrue](url) says it has spent about $1.5 million on cleanup."
+- This holds on every step and every turn, not just research turns. Our own data stays as above: no link, just what it is. A link is a markdown link on the publisher's name or the document's title, in the same sentence as the claim it backs: "[MountainTrue](url) says it has spent about $1.5 million on cleanup."
   - What we know: every agreement, dollar figure, count, quote and date names who published it, with its link. A paragraph of findings with no links is not done.
   - Your options: each option that comes from somewhere, like a program, a grant or what another city did, carries its source on its ask_clarify_question option. Doing nothing needs none.
   - The path: an ordinance, a code section, a statute or a budget line is cited by its name or number with a link to the text, like "[Asheville Code Sec. 7-12](url)". When the route copies another place, name the place, what it did and the year, with a link to the ordinance, the agreement or the report, like "[Richmond's 2024 settlement with Chevron](url)".
   - The plan: a deadline, a filing date or a meeting date that comes from a calendar, a statute or a published schedule links to it.
-  - Previewing the steps ahead: a report or record you name links to it if you found it, or is named as something to look up if you have not.`
+  - Previewing the steps ahead: a report or record you name links to it if you found it, or is named as something to look up if you have not.
+  - On any step, every ordinance, code section, law, agreement, program or other place's solution you name has its link in the same sentence. If you cannot link it, say it is unverified.`
 
 const TWO_SIDES_RULE = `- A check you offer has two sides, and you offer both. The most affected, as above, and the least affected: constituents this barely touches, still people this official represents, asked the same question. Say in one plain line why they are worth hearing: they show whether the conclusion holds beyond the people it hits hardest, and they are often the ones who would pay for a fix or object to it. Never frame them as less important. Record that side as contrast, state asked, with its own who and question.`
 
@@ -444,10 +445,9 @@ const reportBacksBlock = (ctx: PriorityFlowContext): string | null => {
   ].join('\n')
 }
 
-const RESEARCH_TURN_BLOCK = `HOW A TURN ENDS (check before you finish, on every step)
+const RESEARCH_TURN_BLOCK = `HOW A RESEARCH TURN ENDS (check before you finish)
 - The order is fixed: one short line, the cards, at most two sentences on what it means for them, then the contact card if someone is the next step. Nothing comes after a contact card. If what is still missing needs saying, say it in those two sentences, before the card.
 - Every figure or quote in your message has its source and link in the same sentence. If you cannot link it, leave it out.
-- Every ordinance, code section, law, agreement, program or other place's solution you name has its link in the same sentence. If you cannot link it, say it is unverified.
 - Refer to a person by name or role. Never use a pronoun for someone you found, because a name does not tell you their pronouns.
 - No narration of your own work: not "let me pull this up", not "now, on to the next part". Just the findings.`
 
