@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Catch what review misses: banned words, dead links, external requests.
+"""Catch what review misses: banned words, dead links, external requests, and a
+missing brief, entry screen, Sends line, phone frame or fold.
 
 Usage: check.py <index.html>
 Exits 1 and lists problems if any are found.
@@ -47,9 +48,29 @@ def main():
     if '!' in text:
         problems.append('exclamation point in copy')
 
+    for bid in ('brief', 'brief-user', 'brief-problem', 'brief-solution', 'brief-data',
+                'brief-measure', 'brief-entry', 'feedback-ask'):
+        if f'id="{bid}"' not in html:
+            problems.append(f'missing brief block id="{bid}"')
+
     for oid in ('option-a', 'option-b', 'option-c'):
         if f'id="{oid}"' not in html:
             problems.append(f'missing section id="{oid}"')
+            continue
+        x = oid[-1]
+        section = html.split(f'id="{oid}"', 1)[1].split('<section', 1)[0]
+        if f'id="{x}-entry"' not in section:
+            problems.append(f'{oid}: no entry screen id="{x}-entry" (start where the user starts)')
+        if f'id="{x}-sends"' not in section:
+            problems.append(f'{oid}: no Sends line id="{x}-sends"')
+        frames = re.findall(r'<div[^>]*class="(?:[^"]*\s)?frame(?:\s[^"]*)?"[^>]*>', section)
+        if not frames:
+            problems.append(f'{oid}: no wireframe frame')
+        for f in frames:
+            if 'frame--phone' not in f and 'data-desktop-reason=' not in f:
+                problems.append(f'{oid}: desktop frame without data-desktop-reason (phone first)')
+        if section.count('class="fold"') < len(frames):
+            problems.append(f'{oid}: a frame has no fold line')
     if re.search(r'id="option-d"', html):
         problems.append('more than three options')
     if '<iframe' in html.lower():

@@ -56,9 +56,25 @@ Cards are 12px radius with a 1px border. Don't change those.
 - **Type.** Open Sans (the webapp's body font), loaded from Google Fonts. Use the
   system's scale: 14px for labels and helper text, 16px for body, 20 to 24px for
   section titles, 30 to 36px for a screen title. Sentence case everywhere.
-- **Layout.** A desktop wireframe sits in a 1200px frame, a phone wireframe in a 390
-  by 844 frame with a 28px radius. Use the product's real shell (top bar, sidebar,
-  page header) for the close-to-today option; use any layout for the others.
+- **Phone first.** Every wireframe sits in a 390px phone frame with a 28px radius,
+  unless the feature is desktop-only. Then it sits in a 1200px desktop frame with
+  `data-desktop-reason="..."` saying why.
+- **The fold.** Every frame carries a `<div class="fold">`, the dashed line where
+  the first screen ends: 660px down in a phone frame (Safari's visible height on a
+  390 by 844 phone) and 720px in a desktop frame. Decide what goes above it
+  first.
+- **Out of scope is a block.** Navigation, sidebars and any UI the feature doesn't
+  change are `gp-box` blocks labeled with what they are ("App navigation"). Only
+  the feature gets drawn. The close-to-today option keeps the real page around the
+  feature as blocks, so the reviewer sees where it sits.
+- **Entry point first.** The first screen in every option is where the user is
+  before they start (`#a-entry`), with the button or link that starts the flow.
+  Where the feature changes an existing screen, show today's version there and the
+  change on the next step.
+- **Buttons on the right** of their row, unless long content or a branded image
+  displaces them. Short, consistent flows use a horizontal stepper. Flows whose
+  steps need explaining use a vertical one. A long or demanding flow opens with a
+  prep screen that says what the user needs before they begin.
 - **The logo.** The heart (`packages/gp-webapp/public/images/logo/heart.svg`), never
   the wordmark as text. `assets/heart-logo.svg` is a ready copy to paste inline.
 
@@ -74,6 +90,10 @@ Cards are 12px radius with a 1px border. Don't change those.
 - Real `<button>`, `<input>` and `<label>`, 44px minimum touch targets, a visible
   focus ring, and 4.5:1 text contrast.
 - A landing state inside the frame. Never link to anything outside the page.
+- A Sends line above the frame (`#a-sends`): every email, text or notification the
+  flow triggers, and when. "Nothing" if it triggers none.
+- Where the user decides to pay or commit, the value in dollars or outcomes, on
+  the screen where they decide.
 
 ## Words
 
@@ -93,3 +113,6 @@ term). On a screen that mocks a Win screen, Win's nouns are correct.
   names per option (`a`, `b`, `c`) so they can't collide on the shared page.
 - No recommendation anywhere: no stars, "best", "recommended", ranking or order
   that implies one beyond A, B, C.
+- The brief (`#brief`) comes first, with `#brief-user`, `#brief-problem`,
+  `#brief-solution`, `#brief-data`, `#brief-measure`, `#brief-entry` and
+  `#feedback-ask`. One or two sentences each. "Unknown" is a valid answer.
