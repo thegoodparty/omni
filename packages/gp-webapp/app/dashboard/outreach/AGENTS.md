@@ -344,7 +344,9 @@ the pay step re-posts `POST /v1/outreach/robocall` with `draftOutreachId`, which
 the row stays `hold_failed` until a new authorization hold lands. A candidate
 who leaves the pay step unpaid still sees "Payment failed" and can resend
 again. A repeat decline shows the pay step's existing retry card. No re-record: the recording,
-script, caller-ID number and audience are reused.
+script and caller-ID number are reused. The audience is too, unless the candidate
+presses Back from the schedule step, which reaches the audience step (and no
+further) so the resend can go to a different list, repriced server-side.
 
 The pay step's Stripe session comes from `CheckoutSessionProvider`
 (`app/dashboard/purchase/components/`). When gp-api refuses to create it, the
