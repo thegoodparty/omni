@@ -45,7 +45,12 @@ const mockUser = vi.hoisted(() => ({ current: null as { id: number } | null }))
 vi.mock('@shared/hooks/useUser', () => ({
   useUser: () => [mockUser.current],
 }))
-vi.mock('@shared/organization-picker', () => ({ useOrganization: () => null }))
+const mockOrganization = vi.hoisted(() => ({
+  current: null as { electedOfficeId: string } | null,
+}))
+vi.mock('@shared/organization-picker', () => ({
+  useOrganization: () => mockOrganization.current,
+}))
 vi.mock('./DashboardMenu', () => ({ default: () => null }))
 vi.mock('./ProUpgradePrompt', () => ({ ProUpgradePrompt: () => null }))
 vi.mock('@shared/user/ImpersonationBanner', () => ({ default: () => null }))
@@ -159,6 +164,30 @@ describe('DashboardLayout election-result redirect', () => {
     renderLayout()
     await screen.findByText('dashboard content')
     expect(router.push).not.toHaveBeenCalled()
+    vi.mocked(usePathname).mockReturnValue('/')
+  })
+
+  it('still redirects from home when no campaign manager chat mounts there', async () => {
+    vi.mocked(usePathname).mockReturnValue('/dashboard')
+    mockOrganization.current = { electedOfficeId: 'eo-1' }
+    renderLayout()
+    await waitFor(() =>
+      expect(router.push).toHaveBeenCalledWith('/dashboard/election-result'),
+    )
+    mockOrganization.current = null
+    vi.mocked(usePathname).mockReturnValue('/')
+  })
+
+  it('still redirects from home when the page drops the chat dock', async () => {
+    vi.mocked(usePathname).mockReturnValue('/dashboard')
+    render(
+      <DashboardLayout hideChatDock>
+        <div>dashboard content</div>
+      </DashboardLayout>,
+    )
+    await waitFor(() =>
+      expect(router.push).toHaveBeenCalledWith('/dashboard/election-result'),
+    )
     vi.mocked(usePathname).mockReturnValue('/')
   })
 })

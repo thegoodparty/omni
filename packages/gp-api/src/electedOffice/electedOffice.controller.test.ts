@@ -541,6 +541,51 @@ describe('ElectedOfficeController', () => {
       expect(offices).toHaveLength(1)
     })
 
+    it("links a lead's term-less office to the campaign a win comes from", async () => {
+      // A magic-link lead already holds a term-less office with no campaign.
+      const lead = await service.client.post('/v1/elected-office', {})
+      expect(lead.status).toBe(200)
+      expect(lead.data.campaignId).toBeNull()
+
+      const won = await createElectedOffice({
+        party: 'independent',
+        onboardingStep: 'confirm',
+      })
+
+      expect(won.status).toBe(200)
+      expect(won.data).toMatchObject({
+        id: lead.data.id,
+        campaignId: campaign.id,
+        party: 'independent',
+        onboardingStep: 'confirm',
+        onboardingCompletedAt: null,
+      })
+      const org = await service.prisma.organization.findUnique({
+        where: { slug: `eo-${lead.data.id}` },
+      })
+      expect(org?.positionId).toBe('2875e5f3-ecf0-6fae-f270-6951f85e8468')
+    })
+
+    it("keeps a mid-onboarding lead's own party and checkpoint when a win links it", async () => {
+      const lead = await service.client.post('/v1/elected-office', {
+        party: 'nonpartisan',
+        onboardingStep: 'party',
+      })
+      expect(lead.status).toBe(200)
+
+      const won = await createElectedOffice({
+        party: 'independent',
+        onboardingStep: 'confirm',
+      })
+
+      expect(won.data).toMatchObject({
+        id: lead.data.id,
+        campaignId: campaign.id,
+        party: 'nonpartisan',
+        onboardingStep: 'party',
+      })
+    })
+
     it('creates a campaign-less elected office when user has no campaign', async () => {
       await service.prisma.campaign.deleteMany({
         where: { userId: service.user.id },

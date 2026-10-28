@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen, fireEvent, waitFor } from '@testing-library/react'
-import { render } from 'helpers/test-utils/render'
+import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { router } from 'helpers/test-utils/router-mocking'
 import ElectionResultPage, {
@@ -303,11 +303,16 @@ describe('ElectionResultPage', () => {
       data: { organizations: [electedOfficeOrg] },
     })
 
+    const invalidate = vi.spyOn(testQueryClient, 'invalidateQueries')
     render(<ElectionResultPage />)
     await startServing()
 
     await waitFor(() => {
       expect(router.replace).toHaveBeenCalledWith('/serve/onboarding')
+    })
+    // The dashboard's unfinished-winner redirect reads this list.
+    expect(invalidate).toHaveBeenCalledWith({
+      queryKey: ['elected-office', 'mine'],
     })
     // Onboarding's pledge finishes the office, so it starts with no completion
     // stamp and no guessed term, checkpointed on the prefilled confirm step.

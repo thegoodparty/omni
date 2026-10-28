@@ -36,13 +36,21 @@ an `onboardingStep` of `confirm`, and no `onboardingCompletedAt` or term
 dates. So the flow resolves the prefill branch and lands on the term step
 (then `confirm`), or straight on `confirm` once dates are known; with no
 party it starts at `party`. The pledge stamps it like any other office.
+A winner who already holds a lead's term-less office with no campaign (a
+magic link, or Serve onboarding started and left) gets that office linked
+instead: gp-api's `create()` sets `campaignId` on it and keeps its own party
+and checkpoint, filling them from the win only when empty.
 
 Sign-in routing is unchanged and lands a winner on the dashboard;
 `DashboardLayout` sends any user holding a `campaignId` office with no
 `onboardingCompletedAt` to `/serve/onboarding`, every time, until the
 pledge (never from `/serve/*` or `/dashboard/election-result*`). The page
-guard prefers an unfinished office over a finished one, so someone who
-already serves and wins another seat lands on the new seat. An impersonating
+guard prefers an unfinished win office (`campaignId` set) over a finished
+one, so someone who already serves and wins another seat lands on the new
+seat; a stray unfinished lead office does not pull a finished official away
+from the chief of staff. The `/dashboard` exemption from the election-result
+redirect holds only where the campaign manager chat mounts (a Win org, dock
+not hidden). An impersonating
 admin can Dismiss the handoff (the election-result dismissal flag).
 
 Every step change (and the end of loading) scrolls the window to the top, so

@@ -31,6 +31,7 @@ import { ASK_COPY, electionDayLabel } from '../electionResultCopy'
 import { electionDateOf } from '../electionResultQuestion'
 import { ActiveProSubscriptionAlert } from './ActiveProSubscriptionAlert'
 import { CongratulationsStep } from './CongratulationsStep'
+import { MY_ELECTED_OFFICES_QUERY_KEY } from 'app/dashboard/shared/myElectedOfficesQuery'
 
 const RESULT_WON = 'won'
 const RESULT_LOST = 'lost'
@@ -148,6 +149,9 @@ export default function ElectionResultPage({
       throw new Error('Failed to create elected office')
     }
     const newOffice = created.data as ElectedOffice
+    await queryClient.invalidateQueries({
+      queryKey: MY_ELECTED_OFFICES_QUERY_KEY,
+    })
 
     await saveResult(true)
     trackEvent(EVENTS.Candidacy.DidYouWinModalCompleted, {

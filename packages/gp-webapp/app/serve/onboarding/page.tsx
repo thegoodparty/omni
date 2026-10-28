@@ -23,7 +23,7 @@ const switchToOrg = (slug?: string): never => {
  *    flow resolves the EO (the elected-office endpoints resolve by the selected
  *    org's X-Organization-Slug). If the user owns an EO org that isn't the
  *    active slug, route through /post-auth-redirect to switch it and return —
- *    the same trick as `serveAccess`. An unfinished office wins over a
+ *    the same trick as `serveAccess`. An unfinished office from a win wins over a
  *    finished one, so a user who already serves and wins another seat lands
  *    on the seat still to set up (the dashboard sends them here until then).
  *  - If onboarding is already complete, send them to the Chief of Staff home
@@ -45,12 +45,16 @@ export default async function ServeOnboardingPage(): Promise<React.JSX.Element> 
     ),
   ])
   const mine = mineRes.ok ? (mineRes.data as ElectedOffice[]) : []
-  const unfinished = mine.find((office) => !office.onboardingCompletedAt)
+  // Only a win's office overrides the selected one: a finished official with
+  // a stray unfinished lead office still belongs on the chief of staff.
+  const unfinishedWin = mine.find(
+    (office) => office.campaignId != null && !office.onboardingCompletedAt,
+  )
 
   if (currentRes.ok) {
     const eo = currentRes.data as ElectedOffice
     if (eo.onboardingCompletedAt) {
-      if (unfinished) switchToOrg(`eo-${unfinished.id}`)
+      if (unfinishedWin) switchToOrg(`eo-${unfinishedWin.id}`)
       redirect('/dashboard/chief-of-staff')
     }
   } else {
@@ -63,11 +67,11 @@ export default async function ServeOnboardingPage(): Promise<React.JSX.Element> 
       cookies(),
     ])
     const currentSlug = cookieStore.get(ORG_SLUG_COOKIE)?.value
-    const targetSlug = unfinished
-      ? `eo-${unfinished.id}`
+    const targetSlug = unfinishedWin
+      ? `eo-${unfinishedWin.id}`
       : organizations.find((org) => org.electedOfficeId)?.slug
     if (targetSlug && targetSlug !== currentSlug) {
-      switchToOrg(unfinished ? targetSlug : undefined)
+      switchToOrg(unfinishedWin ? targetSlug : undefined)
     }
   }
 

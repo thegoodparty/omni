@@ -36,7 +36,7 @@ import { useQuery } from '@tanstack/react-query'
 import { clientRequest } from 'gpApi/typed-request'
 import { SERVE_ONBOARDING_PATH } from 'helpers/resolvePostAuthRedirectPath.util'
 
-export const MY_ELECTED_OFFICES_QUERY_KEY = ['elected-office', 'mine'] as const
+import { MY_ELECTED_OFFICES_QUERY_KEY } from './myElectedOfficesQuery'
 
 export interface DashboardNavHeaderConfig {
   // Omitted = label-only bar (the Voter Outreach design carries no icon).
@@ -103,6 +103,10 @@ const DashboardLayout = ({
   const activeCampaign = campaign || hookCampaign
   const resultPending = isElectionResultPending(activeCampaign)
   const campaignId = activeCampaign?.id
+  const managerAsksHere =
+    currentPath === '/dashboard' &&
+    !hideChatDock &&
+    !organization?.electedOfficeId
 
   useEffect(() => {
     if (!resultPending) return
@@ -110,8 +114,9 @@ const DashboardLayout = ({
       return
     }
     // The campaign manager home asks in its chat instead, so the candidate
-    // can answer there first.
-    if (currentPath === '/dashboard') return
+    // can answer there first. Only where that chat mounts: a Win org with
+    // the dock.
+    if (managerAsksHere) return
 
     // An impersonating admin can dismiss the forced election-result gate
     // without answering it; don't bounce them back to it for the rest of
@@ -122,7 +127,14 @@ const DashboardLayout = ({
     if (isElectionResultSnoozed(campaignId)) return
 
     router.push('/dashboard/election-result')
-  }, [currentPath, resultPending, campaignId, router, isImpersonating])
+  }, [
+    currentPath,
+    resultPending,
+    campaignId,
+    managerAsksHere,
+    router,
+    isImpersonating,
+  ])
 
   // A Pro winner's office starts unfinished and Serve onboarding's pledge
   // finishes it. Sign-in routing still lands them here, so the dashboard is
