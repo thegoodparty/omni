@@ -142,3 +142,6 @@ export const checkSchedule = (
   }
   return { ok: true, iso: when.toISOString() }
 }
+
+export const formatDollars = (cents: number): string =>
+  `$${(cents / 100).toFixed(2)}`

@@ -5,13 +5,13 @@ import type { EmailRecipientUploadResponse } from '@goodparty_org/contracts'
 import { Alert, AlertDescription } from '@styleguide'
 import { CircleAlertIcon } from '@styleguide/components/ui/icons'
 import { OutreachFlowShell, type FlowShellCta } from '../OutreachFlowShell'
-import { Intro } from '../social/Intro'
 import { EmailAudienceStep } from './EmailAudienceStep'
-import { EmailComingSoon } from './EmailComingSoon'
 import { EmailComposeStep } from './EmailComposeStep'
 import { EmailGoalStep } from './EmailGoalStep'
+import { EmailPayStep } from './EmailPayStep'
 import { EmailReviewStep } from './EmailReviewStep'
 import { EmailScheduleStep } from './EmailScheduleStep'
+import { EmailStatus } from './EmailStatus'
 import { apiErrorMessage, saveEmailDraft, useEmailSender } from './emailApi'
 import {
   checkSchedule,
@@ -28,6 +28,7 @@ const STEP_ORDER = [
   'audience',
   'schedule',
   'review',
+  'pay',
 ] as const
 type EmailStep = (typeof STEP_ORDER)[number]
 
@@ -44,7 +45,7 @@ export const EmailFlow = ({
 }: EmailFlowProps) => {
   const { data: sender } = useEmailSender(surface.isServe)
   const [step, setStep] = useState<EmailStep>('goal')
-  const [saved, setSaved] = useState(false)
+  const [paid, setPaid] = useState(false)
   const [goalId, setGoalId] = useState<string | null>(null)
   const [customGoal, setCustomGoal] = useState('')
   const [compose, setCompose] = useState<EmailComposeState>(initialCompose)
@@ -123,7 +124,7 @@ export const EmailFlow = ({
       if (await save(check.iso)) goTo('review')
       return
     }
-    setSaved(true)
+    goTo('pay')
   }
 
   const ctaByStep: Record<EmailStep, FlowShellCta | null> = {
@@ -151,80 +152,83 @@ export const EmailFlow = ({
       loading: busy,
     },
     review: {
-      label: 'Save and exit',
+      label: 'Continue to payment',
       onClick: () => void next(),
     },
+    pay: null,
   }
 
-  const body = saved ? (
-    <div className="space-y-6">
-      <Intro
-        title="Your email is saved."
-        body="It stays in your drafts until you pay and send it."
-      />
-      <EmailComingSoon feature="status" label="Track this send" />
-    </div>
-  ) : (
-    <div className="space-y-4">
-      {step === 'goal' && (
-        <EmailGoalStep
-          surface={surface}
-          goalId={goalId}
-          customGoal={customGoal}
-          onSelect={(id) => {
-            setGoalId(id)
-            if (id !== surface.customGoalId) goTo('compose')
-          }}
-          onCustomGoalChange={setCustomGoal}
-        />
-      )}
-      {step === 'compose' && (
-        <EmailComposeStep
-          surface={surface}
-          value={compose}
-          onChange={setCompose}
-          issues={issues}
-          showIssues={composeAttempted}
-          senderName={sender?.displayName ?? ''}
-          goal={goalText}
-        />
-      )}
-      {step === 'audience' && draftId !== null && (
-        <EmailAudienceStep
-          surface={surface}
-          draftId={draftId}
-          result={upload}
-          onUploaded={setUpload}
-        />
-      )}
-      {step === 'schedule' && (
-        <EmailScheduleStep
-          surface={surface}
-          sendNow={sendNow}
-          day={day}
-          time={time}
-          error={scheduleError}
-          onSendNowChange={setSendNow}
-          onDayChange={setDay}
-          onTimeChange={setTime}
-        />
-      )}
-      {step === 'review' && upload && (
-        <EmailReviewStep
-          surface={surface}
-          compose={compose}
-          result={upload}
-          draftId={draftId}
-          sendLabel={sendLabel}
-        />
-      )}
-      {error && (
-        <Alert variant="destructive" icon={<CircleAlertIcon />}>
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      )}
-    </div>
-  )
+  const body =
+    paid && draftId !== null ? (
+      <EmailStatus surface={surface} id={draftId} />
+    ) : (
+      <div className="space-y-4">
+        {step === 'goal' && (
+          <EmailGoalStep
+            surface={surface}
+            goalId={goalId}
+            customGoal={customGoal}
+            onSelect={(id) => {
+              setGoalId(id)
+              if (id !== surface.customGoalId) goTo('compose')
+            }}
+            onCustomGoalChange={setCustomGoal}
+          />
+        )}
+        {step === 'compose' && (
+          <EmailComposeStep
+            surface={surface}
+            value={compose}
+            onChange={setCompose}
+            issues={issues}
+            showIssues={composeAttempted}
+            senderName={sender?.displayName ?? ''}
+            goal={goalText}
+          />
+        )}
+        {step === 'audience' && draftId !== null && (
+          <EmailAudienceStep
+            surface={surface}
+            draftId={draftId}
+            result={upload}
+            onUploaded={setUpload}
+          />
+        )}
+        {step === 'schedule' && (
+          <EmailScheduleStep
+            surface={surface}
+            sendNow={sendNow}
+            day={day}
+            time={time}
+            error={scheduleError}
+            onSendNowChange={setSendNow}
+            onDayChange={setDay}
+            onTimeChange={setTime}
+          />
+        )}
+        {step === 'review' && upload && (
+          <EmailReviewStep
+            surface={surface}
+            compose={compose}
+            result={upload}
+            draftId={draftId}
+            sendLabel={sendLabel}
+          />
+        )}
+        {step === 'pay' && draftId !== null && (
+          <EmailPayStep
+            surface={surface}
+            draftId={draftId}
+            onPaid={() => setPaid(true)}
+          />
+        )}
+        {error && (
+          <Alert variant="destructive" icon={<CircleAlertIcon />}>
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+      </div>
+    )
 
   return (
     <OutreachFlowShell
@@ -232,15 +236,15 @@ export const EmailFlow = ({
       onClose={onClose}
       title="Email"
       headerBadge="Email"
-      currentStep={saved ? 0 : index + 1}
-      totalSteps={saved ? 0 : STEP_ORDER.length}
+      currentStep={paid ? 0 : index + 1}
+      totalSteps={paid ? 0 : STEP_ORDER.length}
       onBack={
-        saved || busy || index === 0
+        paid || busy || index === 0
           ? undefined
           : () => goTo(STEP_ORDER[index - 1]!)
       }
-      cta={saved ? { label: 'Done', onClick: onClose } : ctaByStep[step]}
-      dirty={!saved && goalId !== null}
+      cta={paid ? { label: 'Done', onClick: onClose } : ctaByStep[step]}
+      dirty={!paid && goalId !== null}
     >
       {body}
     </OutreachFlowShell>
