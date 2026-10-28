@@ -103,6 +103,7 @@ export type MockedVendor =
   | 'peerly'
   | 'vercel'
   | 'route53'
+  | 'ses'
 
 // Pure so it can be unit-tested without module-reset gymnastics.
 // Prod is always live. Every other env defaults to mock; VENDOR_MODE=live

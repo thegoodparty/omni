@@ -312,6 +312,9 @@ import { OutreachP2pSmsFreeTextsService } from './services/outreachP2pSmsFreeTex
     OutreachCompletionService,
     OutreachSmsAdminService,
     OutreachResultsAdminService,
+    // The email AI draft reads the same Win and Serve prompt context.
+    OutreachComposeContextService,
+    OutreachServeComposeContextService,
   ],
 })
 export class OutreachModule {

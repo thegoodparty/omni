@@ -18,6 +18,7 @@ import {
   Prisma,
 } from '../../generated/prisma'
 import { EmailSendScope } from '../emailOutreach.types'
+import { assertEmailImageUrl } from './outreachEmailImage.service'
 import { OutreachEmailSenderService } from './outreachEmailSender.service'
 
 type DraftRow = OutreachEmail & {
@@ -66,6 +67,20 @@ export class OutreachEmailService extends createPrismaBase(
     return row
   }
 
+  async findWithSenderOrThrow(scope: EmailSendScope, outreachId: number) {
+    const row = await this.model.findFirst({
+      where: this.scopeWhere(scope, outreachId),
+      include: {
+        outreach: { select: { status: true, date: true } },
+        sender: true,
+      },
+    })
+    if (!row) {
+      throw new NotFoundException('Email not found')
+    }
+    return row
+  }
+
   async get(scope: EmailSendScope, outreachId: number): Promise<EmailDraft> {
     return this.toView(await this.findDraftOrThrow(scope, outreachId))
   }
@@ -74,6 +89,7 @@ export class OutreachEmailService extends createPrismaBase(
     scope: EmailSendScope,
     input: EmailDraftSave,
   ): Promise<EmailDraft> {
+    assertEmailImageUrl(scope, input.imageUrl)
     const content = {
       goal: input.goal,
       layout: input.layout,
