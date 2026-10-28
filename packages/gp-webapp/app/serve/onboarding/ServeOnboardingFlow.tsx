@@ -21,7 +21,11 @@ import type {
 } from 'gpApi/api-endpoints'
 import type { OnboardingPriorityOption } from '@goodparty_org/contracts'
 import { setCookie } from 'helpers/cookieHelper'
-import { ORG_SLUG_COOKIE } from '@shared/organizations/constants'
+import {
+  ORG_SLUG_COOKIE,
+  ORG_SLUG_HEADER,
+} from '@shared/organizations/constants'
+import { servePartyFromCampaign } from './winParty'
 import { reportErrorToSentry } from '@shared/sentry'
 import { useSnackbar } from 'helpers/useSnackbar'
 import type { SelectedOffice } from 'app/onboarding/components/onboardingTypes'
@@ -83,6 +87,27 @@ import {
 } from './serveOnboardingConfig'
 
 const DEFAULT_OFFICE_LABEL = 'your elected office'
+
+// An office from a win with no party of its own still has the campaign's, so
+// the party step comes preselected. Best-effort: a miss leaves it to them.
+const campaignParty = async (
+  eo: ElectedOffice,
+): Promise<string | undefined> => {
+  if (eo.campaignId == null) return undefined
+  try {
+    const res = await clientRequest(
+      'GET /v1/campaigns/mine',
+      {},
+      {
+        headers: { [ORG_SLUG_HEADER]: `campaign-${eo.campaignId}` },
+        ignoreResponseError: true,
+      },
+    )
+    return res.ok ? servePartyFromCampaign(res.data.details) : undefined
+  } catch {
+    return undefined
+  }
+}
 
 // The priorities step waits this long for starter issues, then shows what it
 // has and keeps checking in the background so late issues still appear.
@@ -246,7 +271,7 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
           // from this org's position) targets `eo-<id>` rather than a stale
           // candidate org — not just at persist().
           setCookie(ORG_SLUG_COOKIE, `eo-${eo.id}`)
-          setParty(eo.party ?? null)
+          setParty(eo.party ?? (await campaignParty(eo)) ?? null)
           setTermStartDate(toDate(eo.termStartDate))
           setTermEndDate(toDate(eo.termEndDate))
 
@@ -280,7 +305,10 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
         // real answer (welcome/inOffice persist nothing), so it signals the
         // user has started; term dates count as set only when BOTH bounds are
         // present, mirroring the flow's both-bounds requirement.
-        const hasParty = !!eo?.party
+        // A major party does not count: GoodParty doesn't serve partisan
+        // officials, and only the party step's own gate can say so. A win
+        // carries the campaign's party onto the office, majors included.
+        const hasParty = !!eo?.party && !isServeMajorParty(eo.party)
         const hasDates = !!(eo?.termStartDate && eo?.termEndDate)
 
         // Branch off the explicit `selfReported` marker rather than inferring

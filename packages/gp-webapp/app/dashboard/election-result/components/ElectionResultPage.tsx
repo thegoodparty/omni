@@ -32,6 +32,7 @@ import { electionDateOf } from '../electionResultQuestion'
 import { ActiveProSubscriptionAlert } from './ActiveProSubscriptionAlert'
 import { CongratulationsStep } from './CongratulationsStep'
 import { PrepareToServe } from './PrepareToServe'
+import { servePartyFromCampaign } from 'app/serve/onboarding/winParty'
 import { MY_ELECTED_OFFICES_QUERY_KEY } from 'app/dashboard/shared/myElectedOfficesQuery'
 
 const RESULT_WON = 'won'
@@ -65,19 +66,6 @@ const options: ResultOption[] = [
 interface RequestState {
   submitting: boolean
   error: boolean
-}
-
-// The campaign keeps Win onboarding's party values; the office takes Serve's.
-// A major party is left off so Serve onboarding asks, and blocks, at its own
-// party step.
-export const servePartyFromCampaign = (
-  campaignParty: string | undefined,
-): string | undefined => {
-  const party = campaignParty?.trim().toLowerCase()
-  if (!party) return undefined
-  if (party === 'nonpartisan') return 'nonpartisan'
-  if (['democrat', 'democratic', 'republican'].includes(party)) return undefined
-  return 'independent'
 }
 
 export default function ElectionResultPage({
@@ -139,7 +127,7 @@ export default function ElectionResultPage({
     const created = await clientRequest(
       'POST /v1/elected-office',
       {
-        party: servePartyFromCampaign(campaign?.details?.party),
+        party: servePartyFromCampaign(campaign?.details),
         onboardingStep: 'confirm',
       },
       campaign

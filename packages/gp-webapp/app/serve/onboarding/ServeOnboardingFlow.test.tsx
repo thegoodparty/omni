@@ -1455,6 +1455,55 @@ describe('ServeOnboardingFlow', () => {
       impersonation.active = false
     })
 
+    it("preselects the campaign's party when the office has none", async () => {
+      mockLoad(buildEO({ ...winnerEO(), party: null }), winnerOrg())
+      let campaignHeader: string | undefined
+      api.mock('GET /v1/campaigns/mine', ({ headers }) => {
+        campaignHeader = headers['x-organization-slug']
+        return {
+          status: 200,
+          data: { details: { otherParty: 'Independent' } } as never,
+        }
+      })
+      renderFlow()
+
+      expect(
+        await screen.findByText("What's your party designation?"),
+      ).toBeInTheDocument()
+      expect(
+        screen.getByRole('radio', { name: /Independent \/ Non-major party/ }),
+      ).toBeChecked()
+      expect(campaignHeader).toBe('campaign-7')
+    })
+
+    it('shows a major party preselected and blocked, never skipping its step', async () => {
+      mockLoad(buildEO({ ...winnerEO(), party: 'democratic' }), winnerOrg())
+      renderFlow()
+
+      expect(
+        await screen.findByText("What's your party designation?"),
+      ).toBeInTheDocument()
+      expect(screen.getByRole('radio', { name: /Democrat/ })).toBeChecked()
+      expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+    })
+
+    it('prefills the term when the office already has one', async () => {
+      mockLoad(
+        buildEO({
+          ...winnerEO(),
+          termStartDate: '2026-12-01',
+          termEndDate: '2030-12-01',
+        }),
+        winnerOrg(),
+      )
+      renderFlow()
+
+      expect(
+        await screen.findByText('Does this look right?'),
+      ).toBeInTheDocument()
+      expect(screen.queryByText('When does your term run?')).toBeNull()
+    })
+
     it('asks for the term first, then lands on the prefilled confirm step', async () => {
       mockLoad(winnerEO(), winnerOrg())
       api.mock('PUT /v1/elected-office/:id', {

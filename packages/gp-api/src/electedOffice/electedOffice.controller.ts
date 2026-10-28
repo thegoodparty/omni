@@ -41,6 +41,7 @@ import {
   ElectedOfficeService,
 } from './services/electedOffice.service'
 import { SupportEstimateService } from './services/supportEstimate.service'
+import { WinTermService } from './services/winTerm.service'
 import { CrmOfficeHolderService } from './services/crmOfficeHolder.service'
 import { electedOfficeToApi } from './util/electedOffice.util'
 import { PrioritiesService } from '@/priorities/services/priorities.service'
@@ -60,6 +61,7 @@ export class ElectedOfficeController {
     private readonly crmOfficeHolder: CrmOfficeHolderService,
     @Inject(forwardRef(() => PrioritiesService))
     private readonly prioritiesService: PrioritiesService,
+    private readonly winTerm: WinTermService,
   ) {}
 
   private toApi(record: Prisma.ElectedOfficeGetPayload<object>) {
@@ -191,12 +193,39 @@ export class ElectedOfficeController {
       )
     }
 
-    const created = await this.electedOfficeService.create({
+    // A win sends no term: fill it from the winner's own BallotReady record
+    // when there is one, so Serve onboarding's term step comes prefilled.
+    const winTerm =
+      campaignId != null &&
+      !eoFields.termStartDate &&
+      !eoFields.termEndDate &&
+      eoFields.onboardingCompletedAt == null
+        ? await this.winTerm
+            .forWinner(orgData.positionId, user)
+            .catch(() => null)
+        : null
+
+    const createArgs = {
       ...eoFields,
       userId: user.id,
       campaignId,
       orgData,
-    })
+    }
+    if (winTerm) {
+      try {
+        return this.toApi(
+          await this.electedOfficeService.create({
+            ...createArgs,
+            ...winTerm,
+          }),
+        )
+      } catch (err) {
+        // A looked-up term that collides with an office they already hold
+        // must not cost them the win: create it term-less and let them say.
+        if (!(err instanceof ConflictException)) throw err
+      }
+    }
+    const created = await this.electedOfficeService.create(createArgs)
     return this.toApi(created)
   }
 

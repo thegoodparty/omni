@@ -107,10 +107,9 @@ describe('serve onboarding party step', () => {
     expect(blockedCalls).toHaveLength(1)
   })
 
-  it('does not fire the disqualification event at load when a returning EO hydrates a major party', async () => {
-    // A returning lead whose stored party is a major value would set `party`
-    // via setParty(eo.party) on mount; the event must stay gated to the party
-    // step so this load-time hydrate doesn't pollute the funnel.
+  it('does not skip the party step for a returning EO with a stored major party', async () => {
+    // A stored major party (a win carries the campaign's onto the office) never
+    // counts as answered, or resume would skip the one step that blocks it.
     const mockImpl = ((endpoint: string) => {
       if (endpoint === 'GET /v1/elected-office/current') {
         return Promise.resolve({
@@ -123,16 +122,12 @@ describe('serve onboarding party step', () => {
     mockClientRequest.mockImplementation(mockImpl)
 
     renderFlow()
-    // The party is already answered, so resume skips welcome/party and lands on
-    // the (net-new) office step — the party-block effect is gated to the party
-    // step, so it must not fire during this load-time hydration.
+    // With no checkpoint an unanswered party restarts the intro.
     expect(
-      await screen.findByText('What office do you currently hold?'),
+      await screen.findByText('Meet your virtual chief of staff in 5 minutes'),
     ).toBeInTheDocument()
-
-    const blockedAtLoad = trackEvent.mock.calls.filter(
-      ([name]) => name === 'Serve Onboarding - Party Designation Blocked',
-    )
-    expect(blockedAtLoad).toHaveLength(0)
+    expect(
+      screen.queryByText('What office do you currently hold?'),
+    ).not.toBeInTheDocument()
   })
 })

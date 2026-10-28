@@ -36,6 +36,21 @@ an `onboardingStep` of `confirm`, and no `onboardingCompletedAt` or term
 dates. So the flow resolves the prefill branch and lands on the term step
 (then `confirm`), or straight on `confirm` once dates are known; with no
 party it starts at `party`. The pledge stamps it like any other office.
+What a win knows is filled in, and its steps still show:
+
+- **Party**: the campaign's party (`winParty.ts`, reading `details.party`,
+  or `otherParty` when that is empty or "Other") goes onto the office, and
+  the flow falls back to reading the campaign when the office has none. A
+  major party is carried too, so the party step shows it selected and
+  blocked; a major party never counts as answered on resume, so that step
+  can't be skipped.
+- **Term**: gp-api fills the dates from the winner's own BallotReady
+  office-holder record for the seat (`WinTermService`: same position, the
+  user's first and last name, full dates not yet past), and drops them if
+  they collide with an office the user already holds. Nothing is derived
+  from the election date and a term length; without a record the term step
+  asks.
+
 A winner who already holds a lead's term-less office with no campaign (a
 magic link, or Serve onboarding started and left) gets that office linked
 instead: gp-api's `create()` sets `campaignId` on it and keeps its own party

@@ -3,9 +3,7 @@ import { act, screen, fireEvent, waitFor } from '@testing-library/react'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { router } from 'helpers/test-utils/router-mocking'
-import ElectionResultPage, {
-  servePartyFromCampaign,
-} from './ElectionResultPage'
+import ElectionResultPage from './ElectionResultPage'
 import { updateCampaign } from 'app/onboarding/shared/ajaxActions'
 
 type MockCampaign = {
@@ -446,19 +444,5 @@ describe('ElectionResultPage', () => {
       expect(router.replace).toHaveBeenCalledWith('/serve/onboarding')
     })
     expect(mockErrorSnackbar).not.toHaveBeenCalled()
-  })
-})
-
-describe('servePartyFromCampaign', () => {
-  it.each([
-    ['independent', 'independent'],
-    ['nonpartisan', 'nonpartisan'],
-    ['Libertarian', 'independent'],
-    ['democrat', undefined],
-    ['republican', undefined],
-    [undefined, undefined],
-    ['', undefined],
-  ])('maps %s to %s', (campaignParty, expected) => {
-    expect(servePartyFromCampaign(campaignParty)).toBe(expected)
   })
 })
