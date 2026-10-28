@@ -300,7 +300,7 @@ describe('SNS webhook', () => {
       receipt: {
         action: {
           type: 'S3',
-          bucketName: 'email-inbound-test',
+          bucketName: 'goodparty-email-inbound-test',
           objectKey: key,
         },
       },
@@ -336,7 +336,7 @@ describe('SNS webhook', () => {
         type: QueueType.EMAIL_INBOUND,
         data: {
           snsMessageId: 'm-9',
-          bucket: 'email-inbound-test',
+          bucket: 'goodparty-email-inbound-test',
           key: 'inbound/abc',
           fromAuthenticated: false,
         },
@@ -353,7 +353,7 @@ describe('SNS webhook', () => {
         dmarcVerdict: { status: 'PASS' },
         action: {
           type: 'S3',
-          bucketName: 'email-inbound-test',
+          bucketName: 'goodparty-email-inbound-test',
           objectKey: 'inbound/abc',
         },
       },
