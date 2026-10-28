@@ -76,7 +76,10 @@ falls in. The cards are dated, prioritized tasks the candidate checks off. Featu
   by its link, `isFreeOfferTaskHref`) is the card's front task whenever it
   is open, due and not Not for me; the plan's own next task stands behind
   it. Home shows no separate offer card, so it stays one card. "Show in 3
-  days" dates it later and it steps back until then. The card and the row
+  days" dates it later and it steps back until then; only a put-off
+  offer task waits on its date. If the offer arrives with no task (gp-api
+  skips writing it before the plan has rows), the card asks for the offer
+  again, then rereads the plan. The card and the row
   carry the shared `FreeOfferLabel` above the title, the card takes the
   offer's tint (`FREE_OFFER_CARD_CLASS`), its button reads
   `FREE_OFFER_CTA`, and it has no Mark done (the task closes itself once the

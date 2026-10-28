@@ -24,6 +24,7 @@ vi.mock('app/dashboard/shared/smsCutoff/useSmsCompliance', () => ({
   useSmsCompliance: () => mockSmsCompliance.current,
 }))
 vi.mock('app/dashboard/shared/robocallFreeOffer/useRobocallFreeOffer', () => ({
+  ROBOCALL_FREE_OFFER_QUERY_KEY: 'robocall-free-offer',
   useRobocallFreeOffer: () => mockFreeOffer.current,
 }))
 vi.mock('@shared/hooks/useCampaign', () => ({
@@ -201,12 +202,30 @@ describe('NextTaskCard free robocall offer', () => {
     ).toBeNull()
   })
 
+  it('leads even when gp-api dated it tomorrow', () => {
+    mockFreeOffer.current = { offer: { eligible: true } }
+    const tomorrow = new Date()
+    tomorrow.setDate(tomorrow.getDate() + 1)
+    mockTasks.current = [
+      sendTask('text'),
+      offerTask({ date: `${format(tomorrow, 'yyyy-MM-dd')}T00:00:00.000Z` }),
+    ]
+    render(<NextTaskCard surface="manager" />)
+
+    expect(
+      screen.getByRole('heading', { name: offerTask().title }),
+    ).toBeInTheDocument()
+  })
+
   it('steps back when the offer is put off or set aside', () => {
     mockFreeOffer.current = { offer: { eligible: true } }
     const later = new Date()
     later.setDate(later.getDate() + 3)
     for (const task of [
-      offerTask({ date: `${later.toISOString().slice(0, 10)}T00:00:00.000Z` }),
+      offerTask({
+        date: `${format(later, 'yyyy-MM-dd')}T00:00:00.000Z`,
+        skipReason: 'later',
+      }),
       offerTask({ skipReason: 'notForMe' }),
     ]) {
       mockTasks.current = [sendTask('text'), task]

@@ -385,6 +385,7 @@ describe('GET /v1/campaigns/mine/robocall-offer', () => {
       const [task] = tasks
       expect(task?.isDefaultTask).toBe(true)
       expect(task?.phase).toBe('gotv')
+      expect(task?.date.toISOString()).toMatch(/T00:00:00\.000Z$/)
       expect(task?.link).toContain(`recommended=${VARIANT}`)
       expect(task?.link).toContain(`trackerTaskId=${task?.id}`)
     })

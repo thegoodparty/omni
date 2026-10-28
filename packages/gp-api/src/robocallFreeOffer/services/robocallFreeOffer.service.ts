@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common'
 import { createHmac, randomInt } from 'node:crypto'
 import { differenceInCalendarWeeks } from 'date-fns'
+import { toZonedTime } from 'date-fns-tz'
 import type { ClerkClient } from '@clerk/backend'
 import type Stripe from 'stripe'
 import { z } from 'zod'
@@ -15,6 +16,7 @@ import {
 } from '@goodparty_org/contracts'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { TRACKER_STATIC_TASKS_ADVISORY_LOCK_KEY } from '@/campaigns/campaigns.consts'
+import { CENTRAL_TIMEZONE } from 'src/shared/util/date.util'
 import { getEnv, requireEnv } from 'src/shared/util/env.util'
 import { ContactsService } from '@/contacts/services/contacts.service'
 import { ElectionsService } from '@/elections/services/elections.service'
@@ -149,7 +151,15 @@ export class RobocallFreeOfferService extends createPrismaBase(
         orderBy: { date: Prisma.SortOrder.asc },
         select: { date: true },
       })
-      const today = new Date()
+      // Task dates are naive UTC midnights, read as the candidate's own day.
+      const nowCentral = toZonedTime(new Date(), CENTRAL_TIMEZONE)
+      const today = new Date(
+        Date.UTC(
+          nowCentral.getFullYear(),
+          nowCentral.getMonth(),
+          nowCentral.getDate(),
+        ),
+      )
       const row = await tx.campaignTrackerTask.create({
         data: {
           campaignId: campaign.id,

@@ -70,7 +70,10 @@ import { FREE_OFFER_CTA } from 'app/dashboard/shared/robocallFreeOffer/freeOffer
 import { FREE_OFFER_CARD_CLASS } from 'app/dashboard/shared/robocallFreeOffer/freeOfferStyles'
 import { FreeOfferLabel } from 'app/dashboard/shared/robocallFreeOffer/FreeOfferLabel'
 import { isFreeOfferTaskHref } from 'app/dashboard/shared/robocallFreeOffer/isFreeOfferTask'
-import { useRobocallFreeOffer } from 'app/dashboard/shared/robocallFreeOffer/useRobocallFreeOffer'
+import {
+  ROBOCALL_FREE_OFFER_QUERY_KEY,
+  useRobocallFreeOffer,
+} from 'app/dashboard/shared/robocallFreeOffer/useRobocallFreeOffer'
 import type {
   CampaignStrategyData,
   CampaignStrategyPhase,
@@ -98,7 +101,9 @@ const findNextTask = (
 // The free robocall offer's task leads the stack while the offer is open: it
 // ends on Election Day and the rest of the plan can wait, so Home shows it as
 // the one next task rather than as a second card. Put off, it is dated later
-// and steps back until that day; set aside, it stays out.
+// and steps back until that day; set aside, it stays out. Only a put-off
+// task waits on its date: gp-api stamps a fresh one with its own day, which
+// can already be tomorrow for a candidate west of it.
 const findFreeOfferTask = (
   tasks: CampaignTrackerTask[],
   now: Date,
@@ -108,7 +113,8 @@ const findFreeOfferTask = (
       isFreeOfferTaskHref(row.link) &&
       !row.completed &&
       !isTrackerTaskSetAside({ skipReason: row.skipReason ?? null }) &&
-      new Date(row.date.slice(0, 10).replace(/-/g, '/')) <= now,
+      (row.skipReason !== 'later' ||
+        new Date(row.date.slice(0, 10).replace(/-/g, '/')) <= now),
   )
 
 // What the plan has after the next task: the open tasks that follow it in its
@@ -330,14 +336,20 @@ const NextTaskCard = ({
   const queryClient = useQueryClient()
   // gp-api writes the offer's plan task while answering the offer request,
   // which runs beside the plan's own fetch, so a first load can see the
-  // offer before its task. Read the plan again rather than wait for its poll.
+  // offer before its task. It also skips the write when the plan has no rows
+  // yet, so ask for the offer again (writing the task now that the plan
+  // exists), then read the plan, rather than wait for the next visit.
   const offerTaskMissing =
     freeOffer !== null &&
     tasks.length > 0 &&
     !tasks.some((row) => isFreeOfferTaskHref(row.link))
   useEffect(() => {
     if (!offerTaskMissing) return
-    void queryClient.invalidateQueries({ queryKey: TRACKER_TASKS_QUERY_KEY })
+    void queryClient
+      .invalidateQueries({ queryKey: [ROBOCALL_FREE_OFFER_QUERY_KEY] })
+      .then(() =>
+        queryClient.invalidateQueries({ queryKey: TRACKER_TASKS_QUERY_KEY }),
+      )
   }, [offerTaskMissing, queryClient])
   const chat = useCampaignManagerChat()
   const { smsCompliance, smsCutoffDate } = useSmsCompliance()
