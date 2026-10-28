@@ -140,6 +140,13 @@ Both stages call the same composite deploy action, only with different env input
   (`gp-api-cleanup-preview.yml`). Stale means the PR is closed or has been idle
   for `PREVIEW_IDLE_DAYS` days (repo variable, default 21); pushing a commit to
   an open PR brings its preview back.
+- PR preview deploys and their teardown assume `vars.AWS_PREVIEW_DEPLOY_ROLE_ARN`
+  (`github-actions-preview-deploy`, owned by `thegoodparty/ops`), never the
+  admin deploy role. It is trusted by `pull_request` runs only, reaches
+  `gp-pr-*`/`pr-*`-named or preview-tagged resources, reads only `GP_API_DEV`,
+  and can create a role only with the preview permissions boundary. A preview
+  that needs a new kind of AWS resource needs that role widened in ops first.
+  The scheduled cleanup runs from `main` and keeps `vars.AWS_ROLE_ARN`.
 - `gp-api-infrastructure-diffs.yml` posts a Pulumi diff on infra-touching PRs.
 - CI must run `prisma generate` before the Docker build or the image fails at
   runtime with missing native engines.

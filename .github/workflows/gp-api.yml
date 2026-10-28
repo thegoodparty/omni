@@ -220,10 +220,16 @@ jobs:
           prisma-generate-script: generate:prisma:gp-api
           route-types: 'true'
 
+      # The preview deploy role, not the admin deploy role: the workflow and
+      # the Pulumi program both come from the pull request. It can build and
+      # destroy preview resources and nothing in dev or prod, and the roles a
+      # preview creates are capped by a permissions boundary
+      # (packages/gp-api/deploy/AGENTS.md). Step 7 of thegoodparty/ops
+      # docs/deploy-role-trust.md.
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v5
         with:
-          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          role-to-assume: ${{ vars.AWS_PREVIEW_DEPLOY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Login to Amazon ECR
