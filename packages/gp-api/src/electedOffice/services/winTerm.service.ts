@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common'
+import { PinoLogger } from 'nestjs-pino'
 import { OfficeHoldersService } from '@/electionDb/officeHolders/officeHolders.service'
 
 export type WinTerm = { termStartDate: Date; termEndDate: Date }
@@ -15,7 +16,12 @@ const sameName = (a: string | null | undefined, b: string | null | undefined) =>
  */
 @Injectable()
 export class WinTermService {
-  constructor(private readonly officeHolders: OfficeHoldersService) {}
+  constructor(
+    private readonly officeHolders: OfficeHoldersService,
+    private readonly logger: PinoLogger,
+  ) {
+    this.logger.setContext(WinTermService.name)
+  }
 
   async forWinner(
     positionId: string | null,
@@ -23,10 +29,21 @@ export class WinTermService {
     now: Date = new Date(),
   ): Promise<WinTerm | null> {
     if (!positionId || !user.firstName || !user.lastName) return null
-    const holders = await this.officeHolders.model.findMany({
-      where: { positionId, isVacant: { not: true } },
-      include: { Person: true },
-    })
+    // The term is a convenience, so a failed read logs and asks instead of
+    // failing the win.
+    let holders
+    try {
+      holders = await this.officeHolders.model.findMany({
+        where: { positionId, isVacant: { not: true } },
+        include: { Person: true },
+      })
+    } catch (err) {
+      this.logger.error(
+        { err, positionId },
+        'Win term lookup failed; onboarding will ask for the term',
+      )
+      return null
+    }
     const terms = holders.flatMap((holder): WinTerm[] =>
       sameName(holder.Person.firstName, user.firstName) &&
       sameName(holder.Person.lastName, user.lastName) &&

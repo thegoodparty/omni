@@ -130,4 +130,51 @@ describe('serve onboarding party step', () => {
       screen.queryByText('What office do you currently hold?'),
     ).not.toBeInTheDocument()
   })
+
+  it("blocks a winner's carried-over major party exactly as if they had picked it, and lets them change it", async () => {
+    const mockImpl = ((endpoint: string) => {
+      if (endpoint === 'GET /v1/elected-office/current') {
+        return Promise.resolve({
+          ok: true,
+          data: {
+            id: 'eo-1',
+            party: 'democratic',
+            onboardingStep: 'confirm',
+            campaignId: 7,
+            selfReported: false,
+          },
+        })
+      }
+      if (endpoint === 'GET /v1/organizations/:slug') {
+        return Promise.resolve({
+          ok: true,
+          data: {
+            slug: 'eo-eo-1',
+            positionName: 'Mayor',
+            position: { id: 'p1', brPositionId: 'br-1', state: 'NC' },
+          },
+        })
+      }
+      return Promise.resolve({ ok: false })
+    }) as unknown as typeof clientRequest
+    mockClientRequest.mockImplementation(mockImpl)
+
+    renderFlow()
+
+    // Resume never treats the major party as answered, so they land on the
+    // party step with it selected and the same block a picked one gets.
+    expect(
+      await screen.findByRole('heading', {
+        level: 1,
+        name: /party designation/i,
+      }),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: /Democrat/ })).toBeChecked()
+    const continueButton = screen.getByRole('button', { name: /continue/i })
+    expect(continueButton).toBeDisabled()
+
+    // Not a dead end: another answer opens Continue, as it does for anyone.
+    fireEvent.click(screen.getByText('Independent / Non-major party'))
+    expect(continueButton).toBeEnabled()
+  })
 })

@@ -200,9 +200,7 @@ export class ElectedOfficeController {
       !eoFields.termStartDate &&
       !eoFields.termEndDate &&
       eoFields.onboardingCompletedAt == null
-        ? await this.winTerm
-            .forWinner(orgData.positionId, user)
-            .catch(() => null)
+        ? await this.winTerm.forWinner(orgData.positionId, user)
         : null
 
     const createArgs = {

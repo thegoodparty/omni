@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { OfficeHoldersService } from '@/electionDb/officeHolders/officeHolders.service'
+import type { PinoLogger } from 'nestjs-pino'
 import { WinTermService } from './winTerm.service'
 
 const NOW = new Date('2026-11-10T00:00:00Z')
@@ -12,12 +13,23 @@ const holder = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 })
 
-const serviceWith = (holders: unknown[]) => {
-  const findMany = vi.fn().mockResolvedValue(holders)
+const serviceWith = (holders: unknown[] | Error) => {
+  const findMany =
+    holders instanceof Error
+      ? vi.fn().mockRejectedValue(holders)
+      : vi.fn().mockResolvedValue(holders)
   const officeHolders = {
     model: { findMany },
   } as unknown as OfficeHoldersService
-  return { service: new WinTermService(officeHolders), findMany }
+  const logger = {
+    setContext: vi.fn(),
+    error: vi.fn(),
+  } as unknown as PinoLogger
+  return {
+    service: new WinTermService(officeHolders, logger),
+    findMany,
+    logger,
+  }
 }
 
 const sarah = { firstName: 'Sarah', lastName: 'Chen' }
@@ -68,6 +80,17 @@ describe('WinTermService.forWinner', () => {
     const { service } = serviceWith([holder(overrides)])
 
     await expect(service.forWinner('pos-1', sarah, NOW)).resolves.toBeNull()
+  })
+
+  it('logs a failed lookup and asks instead of failing the win', async () => {
+    const err = new Error('election db down')
+    const { service, logger } = serviceWith(err)
+
+    await expect(service.forWinner('pos-1', sarah, NOW)).resolves.toBeNull()
+    expect(logger.error).toHaveBeenCalledWith(
+      { err, positionId: 'pos-1' },
+      expect.any(String),
+    )
   })
 
   it('never looks without a position or a full name', async () => {
