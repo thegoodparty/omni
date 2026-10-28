@@ -28,7 +28,7 @@ Decision record: `docs/adr/2026-10-27-one-channel-neutral-outreach-payment-hold.
 - **Every state move is a compare-and-set** from the expected state. Holds placed at confirm are created directly in `placing`.
 - **Every void outside the normal path** is written to `OutreachOrphanedHold` for the reconcile sweep: a window-fit or lost-commit void always, a release or reschedule void only when Stripe refused the cancel.
 - **A `scheduled` or `hold_failed` row's `holdAttempt` has never been sent to Stripe.** That is what lets `updateCard` change the card under the same key. A Stripe failure that might have placed the hold leaves the row in `placing`, never back in `scheduled`: a release there would skip the void a live hold needs.
-- **Recovery reads Stripe; it never replays a placement.** Stripe refuses a reused idempotency key whose parameters differ, and on- and off-session placements differ in `off_session` (confirm and `updateCard` place on-session, the placement sweep off-session), which the row doesn't record. So a stale `placing` row is resolved from `findOutreachHolds` (customer, `outreachId`, `holdAttempt`): a live intent is adopted, or voided if a release arrived; a declined one is recorded as a decline; none means a fresh attempt. `findOutreachHolds` lists the customer's last 8 days of intents rather than using Stripe search: search is eventually consistent, and a false empty answer would stack a second hold.
+- **Recovery reads Stripe; it never replays a placement.** Stripe refuses a reused idempotency key whose parameters differ, and on- and off-session placements differ in `off_session` (confirm and the card endpoint place on-session; the placement sweep and the attach webhook place off-session, the latter through `updateCard`'s `offSession` option), which the row doesn't record. So a stale `placing` row is resolved from `findOutreachHolds` (customer, `outreachId`, `holdAttempt`): a live intent is adopted, or voided if a release arrived; a declined one is recorded as a decline; none means a fresh attempt. `findOutreachHolds` lists the customer's last 8 days of intents rather than using Stripe search: search is eventually consistent, and a false empty answer would stack a second hold.
 - **A channel registers its adapter from its module's constructor** (`registerSettlementAdapter(OutreachType.x, AdapterClass)`), resolved through `ModuleRef` at settle time. `stopAndReport` must report the same amount every time once drained: the capture key is per intent (`outreach-capture-<paymentIntentId>`), so a replay with a different amount fails.
 - **Payment emails come from HubSpot workflows** on the `OutreachPayment` Segment events, each with a deterministic messageId. The event strings are load-bearing.
 
@@ -44,6 +44,10 @@ All in `PaymentHoldsSweepService`, gated on `VENDOR_CRONS_ENABLED`, with no `Cro
 | `paymentHoldReconcileSweep` | `:24` hourly    | Re-voids `OutreachOrphanedHold` rows Stripe still shows as live                                               |
 
 A stale `capturing` row whose intent Stripe shows `canceled` becomes `uncollectable` with a CRITICAL log; there is no automatic recharge.
+
+## Stripe webhooks
+
+`PaymentEventsService` resolves `PaymentHoldsService` through `ModuleRef` and calls it after robocall's handler, which is unchanged. `payment_method.attached` retries the customer's `hold_failed` holds whose send is still ahead, through `updateCard`, one row at a time with errors isolated. The retry places off-session. `payment_method.detached` moves a `scheduled` hold on that card to `hold_failed` (`declineCode: payment_method_detached`, same `holdAttempt`), because Stripe errors without creating an intent and the placement would otherwise cycle. `charge.dispute.created` moves a `captured` hold to `disputed`, found by the unique `paymentIntentId`; a `capturing` row answers 503 so Stripe redelivers.
 
 ## Card endpoints
 

@@ -2,11 +2,13 @@ import {
   BadGatewayException,
   BadRequestException,
   ConflictException,
+  ServiceUnavailableException,
 } from '@nestjs/common'
 import { ModuleRef } from '@nestjs/core'
 import { addDays, addHours } from 'date-fns'
 import type Stripe from 'stripe'
 import { beforeEach, describe, expect, it, MockInstance, vi } from 'vitest'
+import { UsersService } from '@/users/services/users.service'
 import { useTestService } from '@/test-service'
 import {
   OutreachHoldState,
@@ -513,6 +515,114 @@ describe('updateCard', () => {
     const outreachId = await createHold(OutreachHoldState.released)
 
     await expect(update(outreachId)).rejects.toBeInstanceOf(ConflictException)
+  })
+})
+
+describe('stripe webhook handlers', () => {
+  beforeEach(() => {
+    vi.spyOn(
+      service.app.get(UsersService),
+      'findByCustomerId',
+    ).mockResolvedValue(service.user)
+  })
+
+  it('retries every declined hold for the customer on the attached card', async () => {
+    const future = await createHold(OutreachHoldState.hold_failed, {
+      holdAttempt: 1,
+    })
+    const past = await createHold(OutreachHoldState.hold_failed, {
+      date: addDays(new Date(), -1),
+      holdAttempt: 1,
+    })
+    const other = await createHold(OutreachHoldState.hold_failed, {
+      stripeCustomerId: 'cus_other',
+      holdAttempt: 1,
+    })
+
+    await holds.retryHoldFailedForAttachedCard(CUSTOMER_ID, 'pm_new')
+
+    expect(placeSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ offSession: true }),
+    )
+    expect(await readHold(future)).toMatchObject({
+      state: OutreachHoldState.held,
+      paymentMethodId: 'pm_new',
+    })
+    expect((await readHold(past)).state).toBe(OutreachHoldState.hold_failed)
+    expect((await readHold(other)).state).toBe(OutreachHoldState.hold_failed)
+  })
+
+  it('keeps going when one retry fails', async () => {
+    const first = await createHold(OutreachHoldState.hold_failed, {
+      holdAttempt: 1,
+    })
+    const second = await createHold(OutreachHoldState.hold_failed, {
+      holdAttempt: 1,
+    })
+    placeSpy.mockRejectedValueOnce(new Error('stripe down'))
+
+    await expect(
+      holds.retryHoldFailedForAttachedCard(CUSTOMER_ID, 'pm_new'),
+    ).resolves.toBeUndefined()
+
+    const states = [await readHold(first), await readHold(second)].map(
+      (r) => r.state,
+    )
+    expect(states).toContain(OutreachHoldState.held)
+  })
+
+  it('fails a scheduled hold when its card is detached, keeping its attempt', async () => {
+    const outreachId = await createHold(OutreachHoldState.scheduled)
+    const other = await createHold(OutreachHoldState.scheduled, {
+      paymentMethodId: 'pm_other',
+    })
+
+    await holds.flagScheduledHoldsForDetachedCard(CARD_ID)
+
+    expect(await readHold(outreachId)).toMatchObject({
+      state: OutreachHoldState.hold_failed,
+      declineCode: 'payment_method_detached',
+      holdAttempt: 0,
+    })
+    expect((await readHold(other)).state).toBe(OutreachHoldState.scheduled)
+  })
+
+  it('leaves a held hold alone when its card is detached', async () => {
+    const outreachId = await createHold(OutreachHoldState.held)
+
+    await holds.flagScheduledHoldsForDetachedCard(CARD_ID)
+
+    expect((await readHold(outreachId)).state).toBe(OutreachHoldState.held)
+  })
+
+  it('marks a captured hold disputed, and a redelivery changes nothing', async () => {
+    const outreachId = await createHold(OutreachHoldState.captured, {
+      paymentIntentId: INTENT_ID,
+      capturedCents: 4000,
+    })
+
+    await holds.markDisputedByIntent(INTENT_ID)
+    await holds.markDisputedByIntent(INTENT_ID)
+
+    expect(await readHold(outreachId)).toMatchObject({
+      state: OutreachHoldState.disputed,
+      capturedCents: 4000,
+    })
+  })
+
+  it('asks for a redelivery while the capture is still being recorded', async () => {
+    const outreachId = await createHold(OutreachHoldState.capturing)
+
+    await expect(holds.markDisputedByIntent(INTENT_ID)).rejects.toBeInstanceOf(
+      ServiceUnavailableException,
+    )
+    expect((await readHold(outreachId)).state).toBe(OutreachHoldState.capturing)
+  })
+
+  it('ignores an intent with no hold row', async () => {
+    await expect(
+      holds.markDisputedByIntent('pi_robocall'),
+    ).resolves.toBeUndefined()
   })
 })
 
