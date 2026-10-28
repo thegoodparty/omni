@@ -65,6 +65,13 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
     feature: 'email-outreach-sending',
   },
 
+  // The SNS topic that delivers replies to outreach email. The webhook
+  // accepts messages from this topic only.
+  EMAIL_INBOUND_TOPIC_ARN: {
+    tier: 'degradable',
+    feature: 'email-outreach-replies',
+  },
+
   PEERLY_MD5_EMAIL: { tier: 'degradable', feature: 'peerly-texting' },
   PEERLY_MD5_PASSWORD: { tier: 'degradable', feature: 'peerly-texting' },
   PEERLY_API_BASE_URL: { tier: 'degradable', feature: 'peerly-texting' },

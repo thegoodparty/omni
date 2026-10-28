@@ -9,9 +9,13 @@ import { LlmModule } from '@/llm/llm.module'
 import { OrganizationsModule } from '@/organizations/organizations.module'
 import { OutreachModule } from '@/outreach/outreach.module'
 import { AwsModule } from '@/vendors/aws/aws.module'
+import { EmailPublicController } from './emailPublic.controller'
 import { OutreachEmailController } from './outreachEmail.controller'
 import { OutreachServeEmailController } from './outreachServeEmail.controller'
 import { EmailDomainCheckService } from './services/emailDomainCheck.service'
+import { EmailSnsWebhookService } from './services/emailSnsWebhook.service'
+import { OutreachEmailInboundService } from './services/outreachEmailInbound.service'
+import { OutreachEmailUnsubscribeService } from './services/outreachEmailUnsubscribe.service'
 import { EmailOutreachQueueService } from './services/emailOutreachQueue.service'
 import { OutreachEmailGenerationService } from './services/outreachEmailGeneration.service'
 import { OutreachEmailImageService } from './services/outreachEmailImage.service'
@@ -38,10 +42,17 @@ import { OutreachEmailSenderService } from './services/outreachEmailSender.servi
     PaymentHoldsModule,
     QueueProducerModule,
   ],
-  controllers: [OutreachEmailController, OutreachServeEmailController],
+  controllers: [
+    OutreachEmailController,
+    OutreachServeEmailController,
+    EmailPublicController,
+  ],
   providers: [
     EmailDomainCheckService,
     EmailOutreachQueueService,
+    EmailSnsWebhookService,
+    OutreachEmailInboundService,
+    OutreachEmailUnsubscribeService,
     OutreachEmailScopeService,
     OutreachEmailSenderService,
     OutreachEmailService,

@@ -43,6 +43,20 @@ export const sesEnvironment = (): string => {
 export const outreachConfigurationSet = (): string =>
   `outreach-${sesEnvironment()}`
 
+export const forwardsConfigurationSet = (): string =>
+  `forwards-${sesEnvironment()}`
+
+// Marks our own forwards, so one that comes back to an inbox of ours is
+// never forwarded again.
+export const FORWARD_MARKER_HEADER = 'X-GoodParty-Forwarded'
+
+// SES rejects a raw non-ASCII display name, so it goes out as an RFC 2047
+// encoded word.
+const displayName = (name: string): string =>
+  /^[\x20-\x7e]*$/.test(name)
+    ? `"${name}"`
+    : `=?UTF-8?B?${Buffer.from(name, 'utf8').toString('base64')}?=`
+
 const SES_NAME_PATTERN = /^[A-Za-z0-9_-]{1,64}$/
 
 export const sesTenantNameFor = (organizationSlug: string): string => {
@@ -67,6 +81,15 @@ export interface SesSendInput {
   html: string
   text: string
   tenantName?: string
+}
+
+export interface SesForwardInput {
+  from: string
+  fromName: string
+  replyTo: string
+  to: string
+  subject: string
+  text: string
 }
 
 export type SesTemplateContent = {
@@ -200,6 +223,32 @@ export class SesService extends AwsService {
       )
       return result.MessageId
     }, 'sesSendEmail')
+  }
+
+  // A reply passed on to the sender's forward-to address. It uses the
+  // forwards configuration set, which has no event destination, and no
+  // tenant, so replies never touch a send's CloudWatch numbers.
+  async forwardReply(input: SesForwardInput): Promise<string | undefined> {
+    return this.executeAwsOperation(async () => {
+      const result = await this.client.send(
+        new SendEmailCommand({
+          FromEmailAddress: input.fromName
+            ? `${displayName(input.fromName)} <${input.from}>`
+            : input.from,
+          Destination: { ToAddresses: [input.to] },
+          ReplyToAddresses: [input.replyTo],
+          ConfigurationSetName: forwardsConfigurationSet(),
+          Content: {
+            Simple: {
+              Subject: { Data: input.subject, Charset: 'UTF-8' },
+              Body: { Text: { Data: input.text, Charset: 'UTF-8' } },
+              Headers: [{ Name: FORWARD_MARKER_HEADER, Value: '1' }],
+            },
+          },
+        }),
+      )
+      return result.MessageId
+    }, 'sesForwardReply')
   }
 
   // Creates the tenant and associates the identity and the outreach
