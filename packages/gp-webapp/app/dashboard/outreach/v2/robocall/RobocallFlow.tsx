@@ -290,7 +290,12 @@ export const RobocallFlow = ({
     countOverlay: ROBOCALL_COUNT_OVERLAY,
     recommendedListIntent,
     preselectedListId: resumedListId ?? preselectedListId,
-    preselectedRecommendedVariant,
+    // A resumed row already names its list, and Back can now reach the
+    // audience step: a carried-in recommendation (a free-offer link landing on
+    // a saved draft) must not be applied over it there.
+    preselectedRecommendedVariant: resumed
+      ? undefined
+      : preselectedRecommendedVariant,
     freeOfferEnabled: freeOffer !== null,
   })
   const { reset: resetAudience } = audience

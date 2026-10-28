@@ -148,6 +148,19 @@ vi.mock('./useRobocallRecorder', async () => {
 })
 
 // useListWizardCount (reached only in the builder) reads the active org slug.
+let mockFreeOffer: {
+  offer: {
+    eligible: true
+    variant: 'freeOfferElectionEveRobocall'
+    count: number
+    coveredCalls: number
+  } | null
+} = { offer: null }
+vi.mock('app/dashboard/shared/robocallFreeOffer/useRobocallFreeOffer', () => ({
+  ROBOCALL_FREE_OFFER_QUERY_KEY: 'robocall-free-offer',
+  useRobocallFreeOffer: () => mockFreeOffer,
+}))
+
 vi.mock('@shared/organization-picker', () => ({
   useOrganization: () => ({ slug: 'test-org' }),
 }))
@@ -3227,6 +3240,73 @@ describe('RobocallFlow', () => {
       await user.click(screen.getByLabelText('Back'))
 
       expect(await screen.findByLabelText('Campaign name')).toBeInTheDocument()
+    })
+
+    // A free-offer link that lands on a saved draft carries the offer's
+    // list too. Back to the audience step keeps the draft's own list there
+    // rather than letting the offer swap its list in and bounce on.
+    it('keeps a resumed robocall on the audience step when a free-offer link opened it', async () => {
+      gateRef.set(PRO_GATE)
+      mockFreeOffer = {
+        offer: {
+          eligible: true,
+          variant: 'freeOfferElectionEveRobocall',
+          count: 852,
+          coveredCalls: 8844,
+        },
+      }
+      api.mock('GET /v1/voters/voter-file/filters', {
+        status: 200,
+        data: [
+          { id: 1, name: 'Renters in 98103' },
+          { id: 501, name: 'Promotional robocall' },
+        ],
+      })
+      api.mock('GET /v1/campaigns/mine/recommended-lists', ({ query }) => ({
+        status: 200,
+        data:
+          query.variant === 'freeOfferElectionEveRobocall'
+            ? [
+                {
+                  variant: 'freeOfferElectionEveRobocall',
+                  intent: 'electionDay',
+                  filter: { voterStatus: ['Super', 'Likely'] },
+                  count: 852,
+                  copy: {
+                    title: 'Landline voters in selected precincts',
+                    criteriaSummary: 'Landline voters in half your precincts.',
+                  },
+                  existingFilterId: 501,
+                },
+              ]
+            : [],
+      }))
+      mockListDetail(80)
+
+      render(
+        <RobocallFlow
+          source="outreach_page"
+          open
+          onClose={vi.fn()}
+          resumeStartsOnWizard
+          resumeDraft={holdFailedDetail()}
+          preselectedRecommendedVariant="freeOfferElectionEveRobocall"
+        />,
+      )
+
+      await screen.findByLabelText('Campaign name')
+      await user.click(screen.getByLabelText('Back'))
+
+      expect(
+        await screen.findByRole('heading', {
+          level: 3,
+          name: 'Who do you want to reach?',
+        }),
+      ).toBeInTheDocument()
+      expect(await screen.findByText('Renters in 98103')).toBeInTheDocument()
+      await new Promise((resolve) => setTimeout(resolve, 300))
+      expect(screen.queryByLabelText('Campaign name')).not.toBeInTheDocument()
+      mockFreeOffer = { offer: null }
     })
 
     it('shows the decline retry card when a resumed resend is declined again', async () => {
