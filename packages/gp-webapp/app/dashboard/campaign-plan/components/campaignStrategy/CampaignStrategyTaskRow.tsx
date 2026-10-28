@@ -130,9 +130,11 @@ const CampaignStrategyTaskRow = ({
   const href = task.href
   const resolvedAction = getAction ? getAction(task) : null
   const action = task.completed || textClosed ? null : resolvedAction
-  // Same rule as the next-task card: only a task that closes itself whatever
-  // happens (the story) goes without a manual toggle.
-  const completesItself = taskClosesItself(task.title)
+  // Same rule as the next-task card: the story, which closes itself whatever
+  // happens, and outreach, which closes once sent from its own button, go
+  // without a manual toggle.
+  const outreach = !href && !!resolvedAction
+  const completesItself = taskClosesItself(task.title) || outreach
   // The task's own action: the mapped one, or for rows without one, starting
   // outreach or opening its link.
   const actionItems = [
