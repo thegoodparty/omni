@@ -68,6 +68,10 @@ const isPublicRoute = createRouteMatcher([
   // redirect_url where nothing can redeem it. The ticket is redeemed
   // client-side on the page (same pattern as /serve/welcome).
   '/team-invite(.*)',
+  // Unsubscribe and reply-address confirmation pages, opened from outreach
+  // email by people with no account. Each GET only loads state; the action is
+  // a button POST.
+  '/email/(.*)',
   // Machine endpoint: gated by its own REVALIDATE_SECRET (see
   // app/api/revalidate/route.ts), not a Clerk user session.
   '/api/revalidate',

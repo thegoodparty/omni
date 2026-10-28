@@ -6,6 +6,19 @@ import { render } from 'helpers/test-utils/render'
 import { EmailFlow } from './EmailFlow'
 import { SERVE_EMAIL_SURFACE } from './emailSurface'
 
+vi.mock('@stripe/stripe-js', () => ({
+  loadStripe: vi.fn(() => Promise.resolve(null)),
+}))
+
+vi.mock('@stripe/react-stripe-js', () => ({
+  Elements: ({ children }: { children: React.ReactNode }) => (
+    <div>{children}</div>
+  ),
+  PaymentElement: () => <div data-testid="payment-element" />,
+  useStripe: () => ({ confirmSetup: vi.fn() }),
+  useElements: () => ({}),
+}))
+
 const sender = {
   localPart: 'renee.wells',
   address: 'renee.wells@outreachmail.goodparty.org',
@@ -33,7 +46,28 @@ const draft = {
   recipientCount: 0,
 }
 
+const sendShape = {
+  ...draft,
+  recipientCap: null,
+  sentCount: 0,
+  pauseReason: null,
+  stopping: false,
+  estimate: null,
+}
+
 const mockApi = () => {
+  // Registered first so `/sender` is not read as an id.
+  api.mock('GET /v1/outreach/email/:id', {
+    status: 200,
+    data: {
+      ...draft,
+      recipientCap: null,
+      sentCount: 0,
+      pauseReason: null,
+      stopping: false,
+      estimate: { warmingCap: 1000, recipientCap: 1000, priceCents: 1000 },
+    },
+  })
   api.mock('GET /v1/outreach/email/sender', { status: 200, data: sender })
   const saves: unknown[] = []
   api.mock('POST /v1/outreach/email', ({ body }) => {
@@ -43,6 +77,14 @@ const mockApi = () => {
   api.mock('POST /v1/outreach/email/:id/recipients', {
     status: 200,
     data: { ready: 4800, invalid: 30, unsubscribed: 7, duplicate: 12 },
+  })
+  api.mock('POST /v1/outreach/email/:id/confirm', {
+    status: 200,
+    data: {
+      outcome: 'scheduled',
+      declineCode: null,
+      email: { ...sendShape, status: 'pending', estimate: null },
+    },
   })
   return saves
 }
@@ -222,7 +264,7 @@ describe('EmailFlow', () => {
     expect(screen.getByText('1,000 of 4,800')).toBeInTheDocument()
   })
 
-  it('reaches review with the reply-to line and the placeholders', async () => {
+  it('reaches review with the reply-to line and the price', async () => {
     mockApi()
     const user = userEvent.setup()
     render(<EmailFlow open onClose={vi.fn()} />)
@@ -251,11 +293,15 @@ describe('EmailFlow', () => {
       await screen.findByText(/Replies go to renee@example.com/),
     ).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Change' })).toBeInTheDocument()
-    for (const feature of ['price', 'pay']) {
-      expect(
-        screen.getByTestId(`email-coming-soon-${feature}`),
-      ).toBeInTheDocument()
-    }
+    expect(await screen.findByTestId('email-price')).toHaveTextContent(
+      'Up to $10.00',
+    )
+    await user.click(
+      screen.getByRole('button', { name: 'Continue to payment' }),
+    )
+    expect(
+      await screen.findByText('How do you want to pay?'),
+    ).toBeInTheDocument()
   })
 
   it('sends a test email for the saved draft from the review step', async () => {

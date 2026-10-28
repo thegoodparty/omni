@@ -1,6 +1,12 @@
 import type {
+  EmailConfirmRequest,
+  EmailConfirmResponse,
   EmailDraft,
   EmailDraftSave,
+  EmailForwardConfirmState,
+  EmailSend,
+  EmailTokenRequest,
+  EmailUnsubscribeState,
   EmailAiDraftRequest,
   EmailAiDraftResponse,
   EmailImagePresignRequest,
@@ -540,7 +546,17 @@ export type APIEndpoints = {
 
   'GET /v1/outreach/email/:id': {
     Request: {}
-    Response: EmailDraft
+    Response: EmailSend
+  }
+
+  'POST /v1/outreach/email/:id/confirm': {
+    Request: EmailConfirmRequest
+    Response: EmailConfirmResponse
+  }
+
+  'POST /v1/outreach/email/:id/cancel': {
+    Request: {}
+    Response: EmailSend
   }
 
   'POST /v1/outreach/email/:id/recipients': {
@@ -563,7 +579,34 @@ export type APIEndpoints = {
     Response: EmailTestSendResponse
   }
 
-  // Serve email: the same four routes, scoped to the elected office.
+  // Public pages behind the links in outreach email (no login). The
+  // unsubscribe token rides in the query because it is too long for a path.
+  'GET /v1/email/unsubscribe': {
+    Request: { t: string }
+    Response: EmailUnsubscribeState
+  }
+
+  'POST /v1/email/unsubscribe': {
+    Request: EmailTokenRequest
+    Response: EmailUnsubscribeState
+  }
+
+  'POST /v1/email/unsubscribe/undo': {
+    Request: EmailTokenRequest
+    Response: EmailUnsubscribeState
+  }
+
+  'GET /v1/email/forward-confirm/:token': {
+    Request: {}
+    Response: EmailForwardConfirmState
+  }
+
+  'POST /v1/email/forward-confirm': {
+    Request: EmailTokenRequest
+    Response: EmailForwardConfirmState
+  }
+
+  // Serve email: the same routes, scoped to the elected office.
   'GET /v1/outreach/serve/email/sender': {
     Request: {}
     Response: EmailSender
@@ -581,7 +624,17 @@ export type APIEndpoints = {
 
   'GET /v1/outreach/serve/email/:id': {
     Request: {}
-    Response: EmailDraft
+    Response: EmailSend
+  }
+
+  'POST /v1/outreach/serve/email/:id/confirm': {
+    Request: EmailConfirmRequest
+    Response: EmailConfirmResponse
+  }
+
+  'POST /v1/outreach/serve/email/:id/cancel': {
+    Request: {}
+    Response: EmailSend
   }
 
   'POST /v1/outreach/serve/email/:id/recipients': {
