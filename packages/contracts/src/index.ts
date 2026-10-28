@@ -1265,6 +1265,14 @@ export {
   type RobocallNumberResponse,
 } from './outreach/RobocallNumber.schema'
 export {
+  PaymentHoldCardIntentResponseSchema,
+  type PaymentHoldCardIntentResponse,
+  PaymentHoldCardRequestSchema,
+  type PaymentHoldCardRequest,
+  PaymentHoldCardResponseSchema,
+  type PaymentHoldCardResponse,
+} from './outreach/PaymentHoldCard.schema'
+export {
   RobocallSaveCardIntentResponseSchema,
   type RobocallSaveCardIntentResponse,
 } from './outreach/RobocallSaveCard.schema'

@@ -1,13 +1,19 @@
 import { Module } from '@nestjs/common'
+import { ElectedOfficeModule } from '@/electedOffice/electedOffice.module'
 import { StripeModule } from 'src/vendors/stripe/stripe.module'
+import { PaymentHoldsController } from './paymentHolds.controller'
+import { PaymentHoldsServeController } from './paymentHoldsServe.controller'
 import { OutreachOrphanedHoldService } from './services/outreachOrphanedHold.service'
 import { PaymentHoldsService } from './services/paymentHolds.service'
+import { PaymentHoldsCardService } from './services/paymentHoldsCard.service'
 import { PaymentHoldsSweepService } from './services/paymentHoldsSweep.service'
 
 @Module({
-  imports: [StripeModule],
+  imports: [ElectedOfficeModule, StripeModule],
+  controllers: [PaymentHoldsController, PaymentHoldsServeController],
   providers: [
     PaymentHoldsService,
+    PaymentHoldsCardService,
     PaymentHoldsSweepService,
     OutreachOrphanedHoldService,
   ],
