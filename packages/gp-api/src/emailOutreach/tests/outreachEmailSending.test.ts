@@ -454,7 +454,7 @@ describe('prepare', () => {
       },
       data: { status: 'sent', sentAt: subMinutes(new Date(), 10) },
     })
-    const { outreachEmailId } = await createSend(service.prisma, {
+    const { outreachId, outreachEmailId } = await createSend(service.prisma, {
       organizationSlug: orgs.winSlug,
       campaignId: orgs.campaignId,
       senderId: sender.id,
@@ -463,6 +463,7 @@ describe('prepare', () => {
       recipientCap: 2,
     })
 
+    await createHold(service.prisma, outreachId, OutreachHoldState.held)
     const prepares = service.app.get(OutreachEmailPrepareService)
     await prepares.prepare(outreachEmailId)
     await prepares.prepare(outreachEmailId)
@@ -501,7 +502,7 @@ describe('prepare', () => {
       },
     })
     const sender = await createSender(service.prisma, orgs.officeSlug)
-    const { outreachEmailId } = await createSend(service.prisma, {
+    const { outreachId, outreachEmailId } = await createSend(service.prisma, {
       organizationSlug: orgs.officeSlug,
       campaignId: null,
       senderId: sender.id,
@@ -509,6 +510,7 @@ describe('prepare', () => {
       status: OutreachStatus.in_progress,
       recipientCap: 3,
     })
+    await createHold(service.prisma, outreachId, OutreachHoldState.held)
     await service.app.get(OutreachEmailPrepareService).prepare(outreachEmailId)
     const kept = await service.prisma.outreachEmailRecipient.findMany({
       where: { outreachEmailId },
@@ -517,6 +519,34 @@ describe('prepare', () => {
       'person0@example.com',
       'person2@example.com',
     ])
+  })
+
+  it('fails a send whose hold was released before prepare, and sends nothing', async () => {
+    const ensureTenant = vi.spyOn(ses, 'ensureTenant').mockResolvedValue()
+    const sender = await createSender(service.prisma, orgs.winSlug, {
+      sesTenantName: null,
+    })
+    const { outreachId, outreachEmailId } = await createSend(service.prisma, {
+      organizationSlug: orgs.winSlug,
+      campaignId: orgs.campaignId,
+      senderId: sender.id,
+      emails: emails(2),
+      status: OutreachStatus.in_progress,
+      recipientCap: 2,
+    })
+    await createHold(service.prisma, outreachId, OutreachHoldState.released)
+    await service.app.get(OutreachEmailPrepareService).prepare(outreachEmailId)
+    expect(ensureTenant).not.toHaveBeenCalled()
+    expect(
+      (
+        await service.prisma.outreach.findUniqueOrThrow({
+          where: { id: outreachId },
+        })
+      ).status,
+    ).toBe(OutreachStatus.failed)
+    expect((await emailRow(outreachEmailId)).preparedAt).toBeNull()
+    await sweep.runTick()
+    expect(sendBulk).not.toHaveBeenCalled()
   })
 })
 
@@ -610,24 +640,41 @@ describe('starting due sends', () => {
     expect(release).toHaveBeenCalledWith({ outreachId })
   })
 
-  it('waits on a hold still scheduled', async () => {
-    vi.spyOn(service.app.get(PaymentHoldsService), 'getHold').mockResolvedValue(
-      {
-        state: OutreachHoldState.scheduled,
+  it.each([
+    OutreachHoldState.scheduled,
+    OutreachHoldState.released,
+    OutreachHoldState.placing,
+  ])(
+    'fails and never sends a send whose hold is %s at send time',
+    async (state) => {
+      const holds = service.app.get(PaymentHoldsService)
+      vi.spyOn(holds, 'getHold').mockResolvedValue({
+        state,
         authorizedCents: null,
         captureBefore: null,
-      },
-    )
-    const { outreachId } = await dueSend()
-    await service.app.get(OutreachEmailLifecycleService).startDueSends()
-    expect(
-      (
-        await service.prisma.outreach.findUniqueOrThrow({
-          where: { id: outreachId },
-        })
-      ).status,
-    ).toBe(OutreachStatus.pending)
-  })
+      })
+      const release = vi.spyOn(holds, 'release').mockResolvedValue()
+      const sendMessage = vi.spyOn(
+        service.app.get(QueueProducerService),
+        'sendMessage',
+      )
+      const { outreachId } = await dueSend()
+      await service.app.get(OutreachEmailLifecycleService).startDueSends()
+      expect(
+        (
+          await service.prisma.outreach.findUniqueOrThrow({
+            where: { id: outreachId },
+          })
+        ).status,
+      ).toBe(OutreachStatus.failed)
+      expect(sendMessage).not.toHaveBeenCalled()
+      if (state === OutreachHoldState.released) {
+        expect(release).not.toHaveBeenCalled()
+      } else {
+        expect(release).toHaveBeenCalledWith({ outreachId })
+      }
+    },
+  )
 })
 
 describe('settling and finishing', () => {

@@ -18,7 +18,7 @@ import { OutreachEmailService } from './outreachEmail.service'
 // A send with no time, or one that came due while the user was paying, goes
 // out shortly after confirm. The hold module refuses a send time already
 // past.
-const SEND_NOW_LEAD_MINUTES = 1
+const SEND_NOW_LEAD_MINUTES = 2
 
 type ConfirmInput = {
   scope: EmailSendScope

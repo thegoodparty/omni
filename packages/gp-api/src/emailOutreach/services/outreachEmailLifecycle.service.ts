@@ -29,14 +29,12 @@ const STARTABLE_STATUSES: OutreachStatus[] = [
   OutreachStatus.pending_payment,
 ]
 
-// Hold states that end a send before it starts: a decline nobody fixed, or a
-// hold released or spent elsewhere.
-const UNSTARTABLE_HOLD_STATES: OutreachHoldState[] = [
+// A hold the send can still release. The hold module's unpaid sweep releases
+// the same ones at send time; release is idempotent, so either may go first.
+const RELEASABLE_HOLD_STATES: OutreachHoldState[] = [
+  OutreachHoldState.scheduled,
+  OutreachHoldState.placing,
   OutreachHoldState.hold_failed,
-  OutreachHoldState.released,
-  OutreachHoldState.captured,
-  OutreachHoldState.uncollectable,
-  OutreachHoldState.disputed,
 ]
 
 const METRICS_SETTLE_MINUTES = 5
@@ -100,7 +98,8 @@ export class OutreachEmailLifecycleService extends createPrismaBase(
   }
 
   // getHold re-checks a held hold against Stripe, so a send never starts on a
-  // hold Stripe no longer shows as capturable.
+  // hold Stripe no longer shows as capturable (getHold throws, and the next
+  // sweep tries again).
   private async startIfHeld(
     outreachId: number,
     status: OutreachStatus,
@@ -111,14 +110,16 @@ export class OutreachEmailLifecycleService extends createPrismaBase(
       await this.fail(outreachId, status, 'no payment hold')
       return
     }
-    if (UNSTARTABLE_HOLD_STATES.includes(hold.state)) {
-      if (hold.state === OutreachHoldState.hold_failed) {
+    // A send only goes out on a hold that is held when it comes due. Anything
+    // else (never placed, declined, released by the unpaid sweep) fails the
+    // send, which is then never sent.
+    if (hold.state !== OutreachHoldState.held) {
+      if (RELEASABLE_HOLD_STATES.includes(hold.state)) {
         await this.holds.release({ outreachId })
       }
       await this.fail(outreachId, status, `payment hold ${hold.state}`)
       return
     }
-    if (hold.state !== OutreachHoldState.held) return
 
     const claim = await this.client.outreach.updateMany({
       where: { id: outreachId, status },

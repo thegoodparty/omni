@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
-import { OutreachStatus } from '../../generated/prisma'
+import { OutreachHoldState, OutreachStatus } from '../../generated/prisma'
 import { renderOutreachEmail } from '../util/renderOutreachEmail.util'
 import { SesService, sesTemplateNameFor, sesTenantNameFor } from './ses.service'
 
@@ -37,6 +37,26 @@ export class OutreachEmailPrepareService extends createPrismaBase(
       row.stoppingAt ||
       row.outreach.status !== OutreachStatus.in_progress
     ) {
+      return
+    }
+    // The due sweep started this send on a held hold; if that changed before
+    // prepare ran (a release, a capture by the expiry guard), it never sends.
+    const hold = await this.client.outreachPaymentHold.findUnique({
+      where: { outreachId: row.outreachId },
+      select: { state: true },
+    })
+    if (hold?.state !== OutreachHoldState.held) {
+      await this.client.outreach.updateMany({
+        where: { id: row.outreachId, status: OutreachStatus.in_progress },
+        data: {
+          status: OutreachStatus.failed,
+          error: `payment hold ${hold?.state ?? 'missing'}`,
+        },
+      })
+      this.logger.warn(
+        { outreachEmailId, holdState: hold?.state },
+        'Email send failed at prepare: its hold is not held',
+      )
       return
     }
     if (row.recipientCap === null) {
