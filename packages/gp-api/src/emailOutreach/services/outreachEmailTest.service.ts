@@ -1,9 +1,9 @@
-import { ConflictException, Injectable } from '@nestjs/common'
 import {
-  EmailLayoutKeySchema,
-  EmailTestSendResponse,
-  EmailThemeKeySchema,
-} from '@goodparty_org/contracts'
+  BadRequestException,
+  ConflictException,
+  Injectable,
+} from '@nestjs/common'
+import { EmailTestSendResponse } from '@goodparty_org/contracts'
 import { APP_ROOT } from '@/shared/util/appEnvironment.util'
 import { OutreachStatus, User } from '../../generated/prisma'
 import { EMAIL_OUTREACH_DOMAIN } from '../emailOutreach.const'
@@ -12,7 +12,11 @@ import {
   EMAIL_VARIABLES,
   emailVariableToken,
 } from '../templates/emailTemplate.const'
-import { renderEmailTemplate } from '../templates/renderEmailTemplate'
+import {
+  formatFrom,
+  isBlockedByDevAllowlist,
+  renderOutreachEmail,
+} from '../util/renderOutreachEmail.util'
 import { OutreachEmailService } from './outreachEmail.service'
 import { SesService } from './ses.service'
 
@@ -22,15 +26,6 @@ const escapeHtml = (value: string): string =>
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
-
-// SES wants a non-ASCII display name encoded as an RFC 2047 word.
-const formatFrom = (displayName: string, address: string): string => {
-  const clean = displayName.replace(/["\\\r\n]/g, '').trim()
-  if (/^[\x20-\x7e]*$/.test(clean)) {
-    return `"${clean}" <${address}>`
-  }
-  return `=?UTF-8?B?${Buffer.from(clean, 'utf8').toString('base64')}?= <${address}>`
-}
 
 @Injectable()
 export class OutreachEmailTestService {
@@ -51,24 +46,12 @@ export class OutreachEmailTestService {
     if (row.outreach.status !== OutreachStatus.draft) {
       throw new ConflictException('Only a draft can be tested')
     }
-    const rendered = await renderEmailTemplate(
-      EmailLayoutKeySchema.parse(row.layout),
-      EmailThemeKeySchema.parse(row.theme),
-      {
-        subject: row.subject,
-        headline: row.headline,
-        body: row.body,
-        imageUrl: row.imageUrl,
-        button:
-          row.buttonLabel && row.buttonUrl
-            ? { label: row.buttonLabel, url: row.buttonUrl }
-            : null,
-        footer: {
-          senderName: row.sender.displayName,
-          paidForBy: row.paidForBy,
-        },
-      },
-    )
+    if (isBlockedByDevAllowlist(user.email)) {
+      throw new BadRequestException(
+        'Test emails here go only to team addresses',
+      )
+    }
+    const rendered = await renderOutreachEmail(row, row.sender.displayName)
     const values: Record<string, string> = {
       [EMAIL_VARIABLES.firstName]: user.firstName ?? '',
       [EMAIL_VARIABLES.lastName]: user.lastName ?? '',

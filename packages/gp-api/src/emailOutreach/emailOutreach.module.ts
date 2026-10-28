@@ -1,4 +1,8 @@
 import { Module } from '@nestjs/common'
+import { PaymentHoldsModule } from '@/paymentHolds/paymentHolds.module'
+import { PaymentHoldsService } from '@/paymentHolds/services/paymentHolds.service'
+import { QueueProducerModule } from '@/queue/producer/queueProducer.module'
+import { OutreachType } from '../generated/prisma'
 import { ElectedOfficeModule } from '@/electedOffice/electedOffice.module'
 import { EmailModule } from 'src/email/email.module'
 import { LlmModule } from '@/llm/llm.module'
@@ -13,6 +17,11 @@ import { OutreachEmailGenerationService } from './services/outreachEmailGenerati
 import { OutreachEmailImageService } from './services/outreachEmailImage.service'
 import { OutreachEmailTestService } from './services/outreachEmailTest.service'
 import { SesService } from './services/ses.service'
+import { OutreachEmailConfirmService } from './services/outreachEmailConfirm.service'
+import { OutreachEmailLifecycleService } from './services/outreachEmailLifecycle.service'
+import { OutreachEmailPrepareService } from './services/outreachEmailPrepare.service'
+import { OutreachEmailSendSweepService } from './services/outreachEmailSendSweep.service'
+import { OutreachEmailSettlementAdapter } from './services/outreachEmailSettlementAdapter.service'
 import { OutreachEmailService } from './services/outreachEmail.service'
 import { OutreachEmailRecipientService } from './services/outreachEmailRecipient.service'
 import { OutreachEmailScopeService } from './services/outreachEmailScope.service'
@@ -26,6 +35,8 @@ import { OutreachEmailSenderService } from './services/outreachEmailSender.servi
     OrganizationsModule,
     OutreachModule,
     AwsModule,
+    PaymentHoldsModule,
+    QueueProducerModule,
   ],
   controllers: [OutreachEmailController, OutreachServeEmailController],
   providers: [
@@ -39,7 +50,19 @@ import { OutreachEmailSenderService } from './services/outreachEmailSender.servi
     OutreachEmailImageService,
     OutreachEmailTestService,
     SesService,
+    OutreachEmailConfirmService,
+    OutreachEmailPrepareService,
+    OutreachEmailSendSweepService,
+    OutreachEmailLifecycleService,
+    OutreachEmailSettlementAdapter,
   ],
   exports: [EmailOutreachQueueService],
 })
-export class EmailOutreachModule {}
+export class EmailOutreachModule {
+  constructor(holds: PaymentHoldsService) {
+    holds.registerSettlementAdapter(
+      OutreachType.email,
+      OutreachEmailSettlementAdapter,
+    )
+  }
+}

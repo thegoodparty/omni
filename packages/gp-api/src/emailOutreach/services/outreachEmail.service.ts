@@ -7,8 +7,8 @@ import {
 import { addDays, isAfter, isBefore, parseISO, subMinutes } from 'date-fns'
 import {
   EMAIL_SEND_WINDOW_DAYS,
-  EmailDraft,
   EmailDraftSave,
+  EmailSend,
 } from '@goodparty_org/contracts'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import {
@@ -18,13 +18,27 @@ import {
   Prisma,
 } from '../../generated/prisma'
 import { EmailSendScope } from '../emailOutreach.types'
+import {
+  emailPriceCents,
+  recipientCapFor,
+  warmingCapFor,
+} from '../util/emailPricing.util'
 import { assertEmailImageUrl } from './outreachEmailImage.service'
 import { OutreachEmailSenderService } from './outreachEmailSender.service'
 
 type DraftRow = OutreachEmail & {
   outreach: { status: OutreachStatus | null; date: Date | null }
+  sender: { warmingStep: number }
   _count: { recipients: number }
 }
+
+// A confirmed send holds its cap against the sender's warming step until it
+// finishes.
+export const RESERVING_STATUSES: OutreachStatus[] = [
+  OutreachStatus.pending_payment,
+  OutreachStatus.pending,
+  OutreachStatus.in_progress,
+]
 
 const DATE_SLACK_MINUTES = 5
 
@@ -58,6 +72,7 @@ export class OutreachEmailService extends createPrismaBase(
       where: this.scopeWhere(scope, outreachId),
       include: {
         outreach: { select: { status: true, date: true } },
+        sender: { select: { warmingStep: true } },
         _count: { select: { recipients: true } },
       },
     })
@@ -65,6 +80,22 @@ export class OutreachEmailService extends createPrismaBase(
       throw new NotFoundException('Email not found')
     }
     return row
+  }
+
+  async reservedBySender(
+    senderId: number,
+    excludeOutreachEmailId: number,
+    tx: Prisma.TransactionClient = this.client,
+  ): Promise<number> {
+    const reserved = await tx.outreachEmail.aggregate({
+      where: {
+        senderId,
+        id: { not: excludeOutreachEmailId },
+        outreach: { status: { in: RESERVING_STATUSES } },
+      },
+      _sum: { recipientCap: true },
+    })
+    return reserved._sum.recipientCap ?? 0
   }
 
   async findWithSenderOrThrow(scope: EmailSendScope, outreachId: number) {
@@ -81,14 +112,27 @@ export class OutreachEmailService extends createPrismaBase(
     return row
   }
 
-  async get(scope: EmailSendScope, outreachId: number): Promise<EmailDraft> {
-    return this.toView(await this.findDraftOrThrow(scope, outreachId))
+  async get(scope: EmailSendScope, outreachId: number): Promise<EmailSend> {
+    const row = await this.findDraftOrThrow(scope, outreachId)
+    if (row.outreach.status !== OutreachStatus.draft) {
+      return this.toView(row, null)
+    }
+    const recipientCap = recipientCapFor({
+      warmingStep: row.sender.warmingStep,
+      reservedByOtherSends: await this.reservedBySender(row.senderId, row.id),
+      recipientCount: row._count.recipients,
+    })
+    return this.toView(row, {
+      warmingCap: warmingCapFor(row.sender.warmingStep),
+      recipientCap,
+      priceCents: emailPriceCents(recipientCap),
+    })
   }
 
   async saveDraft(
     scope: EmailSendScope,
     input: EmailDraftSave,
-  ): Promise<EmailDraft> {
+  ): Promise<EmailSend> {
     assertEmailImageUrl(scope, input.imageUrl)
     const content = {
       goal: input.goal,
@@ -163,7 +207,7 @@ export class OutreachEmailService extends createPrismaBase(
     return date
   }
 
-  private toView(row: DraftRow): EmailDraft {
+  private toView(row: DraftRow, estimate: EmailSend['estimate']): EmailSend {
     return {
       id: row.outreachId,
       status: row.outreach.status ?? OutreachStatus.pending,
@@ -180,6 +224,11 @@ export class OutreachEmailService extends createPrismaBase(
       date: row.outreach.date?.toISOString() ?? null,
       consentConfirmedAt: row.consentConfirmedAt?.toISOString() ?? null,
       recipientCount: row._count.recipients,
+      recipientCap: row.recipientCap,
+      sentCount: row.sentCount,
+      pauseReason: row.pauseReason,
+      stopping: row.stoppingAt !== null,
+      estimate,
     }
   }
 }

@@ -464,16 +464,17 @@ const cleanUp = async () => {
     return
   }
   for (const [label, call] of [
+    // SES refuses to delete a template a tenant still holds.
+    [
+      'DeleteTenant',
+      () => ses.send(new DeleteTenantCommand({ TenantName: tenantName })),
+    ],
     [
       'DeleteEmailTemplate',
       () =>
         ses.send(
           new DeleteEmailTemplateCommand({ TemplateName: templateName }),
         ),
-    ],
-    [
-      'DeleteTenant',
-      () => ses.send(new DeleteTenantCommand({ TenantName: tenantName })),
     ],
   ] as const) {
     try {

@@ -253,6 +253,8 @@ export const EVENTS = {
   // or serve).
   Email: {
     DraftCompleted: 'Email - Draft Completed',
+    // Fires when a send is confirmed (held or scheduled), per the brief.
+    SendCompleted: 'Email - Send Completed',
   },
   // Native door knocking (Win). One rollup event carrying the org's running
   // canvassing totals, not one event per knock: HubSpot workflows can copy a
