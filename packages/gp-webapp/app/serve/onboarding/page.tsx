@@ -10,6 +10,12 @@ import { requireAuth } from 'helpers/authHelper'
 import { SERVE_ONBOARDING_PATH } from 'helpers/resolvePostAuthRedirectPath.util'
 import ServeOnboardingFlow from './ServeOnboardingFlow'
 
+const switchToOrg = (slug?: string): never => {
+  const handoff = new URLSearchParams({ next: SERVE_ONBOARDING_PATH })
+  if (slug) handoff.set('org', slug)
+  return redirect(`/post-auth-redirect?${handoff.toString()}`)
+}
+
 /**
  * Server guard for the serve onboarding flow:
  *  - Require auth (sales-sent magic link redeems before landing here).
@@ -17,22 +23,38 @@ import ServeOnboardingFlow from './ServeOnboardingFlow'
  *    flow resolves the EO (the elected-office endpoints resolve by the selected
  *    org's X-Organization-Slug). If the user owns an EO org that isn't the
  *    active slug, route through /post-auth-redirect to switch it and return —
- *    the same trick as `serveAccess`.
+ *    the same trick as `serveAccess`. An unfinished office from a win wins over a
+ *    finished one, so a user who already serves and wins another seat lands
+ *    on the seat still to set up (the dashboard sends them here until then).
  *  - If onboarding is already complete, send them to the Chief of Staff home
  *    (the default Serve landing) instead of re-running onboarding.
  */
 export default async function ServeOnboardingPage(): Promise<React.JSX.Element> {
   await requireAuth()
 
-  const currentRes = await serverRequest(
-    'GET /v1/elected-office/current',
-    {},
-    { ignoreResponseError: true },
+  const [currentRes, mineRes] = await Promise.all([
+    serverRequest(
+      'GET /v1/elected-office/current',
+      {},
+      { ignoreResponseError: true },
+    ),
+    serverRequest(
+      'GET /v1/elected-office/mine',
+      {},
+      { ignoreResponseError: true },
+    ),
+  ])
+  const mine = mineRes.ok ? (mineRes.data as ElectedOffice[]) : []
+  // Only a win's office overrides the selected one: a finished official with
+  // a stray unfinished lead office still belongs on the chief of staff.
+  const unfinishedWin = mine.find(
+    (office) => office.campaignId != null && !office.onboardingCompletedAt,
   )
 
   if (currentRes.ok) {
     const eo = currentRes.data as ElectedOffice
     if (eo.onboardingCompletedAt) {
+      if (unfinishedWin) switchToOrg(`eo-${unfinishedWin.id}`)
       redirect('/dashboard/chief-of-staff')
     }
   } else {
@@ -45,11 +67,11 @@ export default async function ServeOnboardingPage(): Promise<React.JSX.Element> 
       cookies(),
     ])
     const currentSlug = cookieStore.get(ORG_SLUG_COOKIE)?.value
-    const electedOfficeOrg = organizations.find((org) => org.electedOfficeId)
-    if (electedOfficeOrg && electedOfficeOrg.slug !== currentSlug) {
-      redirect(
-        `/post-auth-redirect?next=${encodeURIComponent(SERVE_ONBOARDING_PATH)}`,
-      )
+    const targetSlug = unfinishedWin
+      ? `eo-${unfinishedWin.id}`
+      : organizations.find((org) => org.electedOfficeId)?.slug
+    if (targetSlug && targetSlug !== currentSlug) {
+      switchToOrg(unfinishedWin ? targetSlug : undefined)
     }
   }
 

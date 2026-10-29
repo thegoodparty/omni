@@ -27,6 +27,9 @@ import {
   formatSmsCutoffDate,
 } from 'app/dashboard/campaign-verification/verificationCopy'
 import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
+import { FreeOfferLabel } from 'app/dashboard/shared/robocallFreeOffer/FreeOfferLabel'
+import { isFreeOfferTaskHref } from 'app/dashboard/shared/robocallFreeOffer/isFreeOfferTask'
+import { useRobocallFreeOffer } from 'app/dashboard/shared/robocallFreeOffer/useRobocallFreeOffer'
 import type {
   CampaignStrategyTask,
   TaskChannel,
@@ -115,6 +118,7 @@ const CampaignStrategyTaskRow = ({
 }: CampaignStrategyTaskRowProps): React.JSX.Element => {
   const router = useRouter()
   const { smsCompliance, smsCutoffDate } = useSmsCompliance()
+  const { offer: freeOffer } = useRobocallFreeOffer()
   // gp-api swaps text sends out once texting closes; a text task still here
   // loses its way into the text flow and says why on hover.
   const textClosed =
@@ -134,7 +138,10 @@ const CampaignStrategyTaskRow = ({
   // happens, and outreach, which closes once sent from its own button, go
   // without a manual toggle.
   const outreach = !href && !!resolvedAction
-  const completesItself = taskClosesItself(task.title) || outreach
+  const completesItself =
+    taskClosesItself(task.title) ||
+    outreach ||
+    (freeOffer !== null && isFreeOfferTaskHref(href))
   // The task's own action: the mapped one, or for rows without one, starting
   // outreach or opening its link.
   const actionItems = [
@@ -233,6 +240,9 @@ const CampaignStrategyTaskRow = ({
     >
       {/* Title, description, then the date, in the Home card's order. */}
       <div className="flex-1 space-y-1">
+        {freeOffer !== null &&
+          isFreeOfferTaskHref(task.href) &&
+          !task.completed && <FreeOfferLabel />}
         <div className="flex flex-wrap items-center gap-2">
           <span
             className={cn(

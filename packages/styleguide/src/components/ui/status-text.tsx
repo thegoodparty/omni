@@ -30,6 +30,14 @@ interface StatusTextProps
   spinning?: boolean
 }
 
+/**
+ * For an in-flight status, pass a loader icon with spinning instead of adding a
+ * Spinner. Use warning tone for close or past due; destructive is for errors
+ * only.
+ *
+ * @summary Use for an item's status as colored text with an icon, like a state
+ * in a table row. For a tag or count, use Badge.
+ */
 const StatusText = ({
   icon,
   spinning = false,

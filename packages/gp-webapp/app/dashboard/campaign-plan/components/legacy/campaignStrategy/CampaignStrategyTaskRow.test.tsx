@@ -220,7 +220,7 @@ describe('the free robocall offer task', () => {
 
     expect(screen.getByText('Free offer')).toBeInTheDocument()
     expect(
-      screen.getByRole('link', { name: 'Start outreach' }),
+      screen.getByRole('link', { name: 'Set up your free robocall' }),
     ).toBeInTheDocument()
     expect(screen.queryByText('Pro')).not.toBeInTheDocument()
   })
@@ -230,7 +230,7 @@ describe('the free robocall offer task', () => {
 
     expect(screen.queryByText('Free offer')).not.toBeInTheDocument()
     expect(
-      screen.queryByRole('link', { name: 'Start outreach' }),
+      screen.queryByRole('link', { name: 'Set up your free robocall' }),
     ).not.toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Open' })).toBeInTheDocument()
   })

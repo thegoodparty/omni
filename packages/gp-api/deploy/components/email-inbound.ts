@@ -10,6 +10,11 @@ const RECEIPT_RULE_SET_NAME = 'outreach-inbound'
 export const emailInboundName = (environment: EmailEnvironment) =>
   `email-inbound-${environment}`
 
+// S3 names are global, and plain `email-inbound-<env>` belongs to another
+// account.
+export const emailInboundBucketName = (environment: EmailEnvironment) =>
+  `goodparty-${emailInboundName(environment)}`
+
 export const emailInboundTopicArn = (
   environment: EmailEnvironment,
   region: string,
@@ -96,8 +101,9 @@ export const createEmailInbound = ({
     { dependsOn: [topicPolicy, service] },
   )
 
+  const bucketName = emailInboundBucketName(environment)
   const bucket = new aws.s3.Bucket('email-inbound-bucket', {
-    bucket: name,
+    bucket: bucketName,
     forceDestroy: false,
   })
 
@@ -136,7 +142,7 @@ export const createEmailInbound = ({
           Effect: 'Allow',
           Principal: { Service: 'ses.amazonaws.com' },
           Action: 's3:PutObject',
-          Resource: `arn:aws:s3:::${name}/*`,
+          Resource: `arn:aws:s3:::${bucketName}/*`,
           Condition: {
             StringEquals: sesSourceAccount,
             StringLike: {
@@ -177,7 +183,7 @@ export const createEmailInbound = ({
           s3Actions: [
             {
               position: 1,
-              bucketName: emailInboundName(ruleEnvironment),
+              bucketName: emailInboundBucketName(ruleEnvironment),
               topicArn: emailInboundTopicArn(
                 ruleEnvironment,
                 region,
@@ -191,5 +197,5 @@ export const createEmailInbound = ({
     })
   }
 
-  return { bucketName: name }
+  return { bucketName }
 }

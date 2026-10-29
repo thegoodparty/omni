@@ -362,6 +362,15 @@ jobs:
       always() && needs.await-checks.result == 'success'
       && needs.await-checks.outputs.force != 'true'
     runs-on: ubuntu-latest
+    # The production environment, on a dev deploy too, because VERCEL_TOKEN is
+    # one token for every Vercel target: whatever holds it can deploy prod.
+    # deployment: false keeps these jobs out of the production deployment
+    # history, which finalize writes and post_release_summary.py reads as the
+    # record of what is in prod. No job in the environment assumes an AWS role,
+    # so none of them changes the OIDC subject a role trust sees.
+    environment:
+      name: production
+      deployment: false
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
@@ -389,6 +398,9 @@ jobs:
       && needs.await-checks.outputs.force != 'true'
       && vars.VERCEL_PROJECT_ID_STYLEGUIDE != ''
     runs-on: ubuntu-latest
+    environment:
+      name: production
+      deployment: false
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
@@ -413,6 +425,9 @@ jobs:
       always() && needs.await-checks.result == 'success'
       && needs.await-checks.outputs.force != 'true'
     runs-on: ubuntu-latest
+    environment:
+      name: production
+      deployment: false
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
@@ -981,6 +996,9 @@ jobs:
       && needs.await-checks.outputs.frozen != 'true'
       && (needs.await-checks.outputs.force == 'true' || needs.e2e.result == 'success')
     runs-on: ubuntu-latest
+    environment:
+      name: production
+      deployment: false
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
@@ -1006,6 +1024,9 @@ jobs:
       && needs.await-checks.outputs.frozen != 'true'
       && (needs.await-checks.outputs.force == 'true' || needs.e2e.result == 'success')
     runs-on: ubuntu-latest
+    environment:
+      name: production
+      deployment: false
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
@@ -1031,6 +1052,9 @@ jobs:
       && needs.await-checks.outputs.frozen != 'true'
       && (needs.await-checks.outputs.force == 'true' || needs.e2e.result == 'success')
     runs-on: ubuntu-latest
+    environment:
+      name: production
+      deployment: false
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:

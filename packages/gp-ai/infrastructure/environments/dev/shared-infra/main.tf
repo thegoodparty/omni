@@ -27,15 +27,6 @@ provider "aws" {
   }
 }
 
-data "aws_secretsmanager_secret_version" "ai_secrets" {
-  secret_id = "AI_SECRETS_${upper(var.environment)}"
-}
-
-locals {
-  ai_secrets = jsondecode(data.aws_secretsmanager_secret_version.ai_secrets.secret_string)
-  api_key    = local.ai_secrets["SERVE_API_KEY"]
-}
-
 data "terraform_remote_state" "serve_analyze" {
   backend = "s3"
 
@@ -53,16 +44,16 @@ module "alb" {
   vpc_id            = var.vpc_id
   public_subnet_ids = var.public_subnet_ids
   certificate_arn   = var.certificate_arn
-  api_key           = local.api_key
+  api_key           = var.serve_api_key
 }
 
 module "route53" {
   source = "../../../modules/route53"
 
   custom_domain_name = var.custom_domain_name
-  route53_zone_id   = var.route53_zone_id
-  alb_dns_name      = module.alb.alb_dns_name
-  alb_zone_id       = module.alb.alb_zone_id
+  route53_zone_id    = var.route53_zone_id
+  alb_dns_name       = module.alb.alb_dns_name
+  alb_zone_id        = module.alb.alb_zone_id
 }
 
 resource "aws_lb_target_group" "serve_analyze" {
@@ -108,7 +99,7 @@ resource "aws_lb_listener_rule" "serve_analyze_valid" {
   condition {
     http_header {
       http_header_name = "x-api-key"
-      values          = [local.api_key]
+      values           = [var.serve_api_key]
     }
   }
 
@@ -128,7 +119,7 @@ resource "aws_lb_listener_rule" "serve_analyze_invalid" {
     fixed_response {
       content_type = "application/json"
       message_body = jsonencode({
-        error = "Forbidden"
+        error   = "Forbidden"
         message = "Invalid or missing API key"
       })
       status_code = "403"
@@ -200,7 +191,7 @@ resource "aws_lb_listener_rule" "ddhq_matcher_valid" {
   condition {
     http_header {
       http_header_name = "x-api-key"
-      values          = [local.api_key]
+      values           = [var.serve_api_key]
     }
   }
 
@@ -220,7 +211,7 @@ resource "aws_lb_listener_rule" "ddhq_matcher_invalid" {
     fixed_response {
       content_type = "application/json"
       message_body = jsonencode({
-        error = "Forbidden"
+        error   = "Forbidden"
         message = "Invalid or missing API key"
       })
       status_code = "403"
@@ -237,4 +228,9 @@ resource "aws_lb_listener_rule" "ddhq_matcher_invalid" {
     Name        = "ddhq-matcher-invalid-${var.environment}"
     Environment = var.environment
   }
+}
+
+output "alb_dns_name" {
+  value       = module.alb.alb_dns_name
+  description = "DNS name of the shared ALB, which the Route53 records alias"
 }

@@ -22,7 +22,7 @@ let senderId: number
 let localPart: string
 let outreachEmailId: number
 
-const BUCKET = 'email-inbound-test'
+const BUCKET = 'goodparty-email-inbound-test'
 
 const message = (headers: string[], body = 'Thanks for the update!') =>
   Buffer.from(
@@ -375,17 +375,33 @@ describe('messages that cannot be handled', () => {
     expect(await deliver(undefined).result).toBe(false)
   })
 
-  it('ignores a bucket that is not an inbound bucket', async () => {
+  it("ignores a bucket that is not this environment's inbound bucket", async () => {
     getFileBytes.mockResolvedValue(message([]))
     const result = await service.app
       .get(EmailOutreachQueueService)
       .handleInbound({
         snsMessageId: 'x',
-        bucket: 'some-other-bucket',
+        bucket: 'goodparty-email-inbound-prod',
         key: 'k',
         fromAuthenticated: true,
       })
     expect(result).toBe(true)
     expect(getFileBytes).not.toHaveBeenCalled()
+  })
+
+  it('redelivers when the inbound bucket is not configured', async () => {
+    vi.stubEnv('EMAIL_INBOUND_BUCKET', '')
+    getFileBytes.mockResolvedValue(message([]))
+    const result = await service.app
+      .get(EmailOutreachQueueService)
+      .handleInbound({
+        snsMessageId: 'x',
+        bucket: BUCKET,
+        key: 'k',
+        fromAuthenticated: true,
+      })
+    expect(result).toBe(false)
+    expect(getFileBytes).not.toHaveBeenCalled()
+    vi.unstubAllEnvs()
   })
 })

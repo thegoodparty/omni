@@ -10,8 +10,8 @@
  *
  * With --execute, each invited campaign is enrolled exactly as its first
  * Home load would enroll it: its district's precincts are assigned to
- * treatment and control before the task is written. A dry run assigns
- * nothing and writes nothing.
+ * treatment and control, and resolveOffer writes the task. A dry run
+ * assigns nothing and writes nothing.
  *
  * Usage (NOT tsx: esbuild drops emitDecoratorMetadata, so every Nest provider
  * would be constructed with undefined dependencies):
@@ -29,9 +29,7 @@ import '../src/configrc'
 import { Module } from '@nestjs/common'
 import { NestFactory } from '@nestjs/core'
 import { FastifyAdapter } from '@nestjs/platform-fastify'
-import { differenceInCalendarWeeks } from 'date-fns'
-import { ROBOCALL_FREE_OFFER_VARIANT } from '@goodparty_org/contracts'
-import { CampaignTaskType, Prisma } from '../src/generated/prisma'
+import { Prisma } from '../src/generated/prisma'
 import { AnalyticsModule } from '../src/analytics/analytics.module'
 import { CampaignsModule } from '../src/campaigns/campaigns.module'
 import { ElectionDbModule } from '../src/electionDb/electionDb.module'
@@ -49,24 +47,6 @@ import { SharedModule } from '../src/shared/shared.module'
 import { UsersModule } from '../src/users/users.module'
 import { BraintrustModule } from '../src/vendors/braintrust/braintrust.module'
 import { GeminiModule } from '../src/vendors/google/gemini.module'
-
-// Same line as the webapp's Home card (FREE_OFFER_HOME_BODY): the outcome,
-// with the count left to the flow, where it is counted in voters.
-const TASK_DESCRIPTION =
-  'Reach voters the day before Election Day, at no cost to your campaign.'
-
-// The task's button opens the robocall flow on the offer list. trackerTaskId
-// and phase let the run complete the task once it is scheduled.
-export const offerTaskLink = (trackerTaskId: string): string => {
-  const params = new URLSearchParams({
-    compose: 'robocall',
-    recommended: ROBOCALL_FREE_OFFER_VARIANT,
-    source: 'campaign_tracker',
-    trackerTaskId,
-    phase: 'gotv',
-  })
-  return `/dashboard/outreach?${params.toString()}`
-}
 
 // AppModule is deliberately not used: it registers every @Cron job and the
 // SQS consumer, which would start draining the real queue onto whichever
@@ -143,7 +123,6 @@ const main = async () => {
           ? (await offer.resolveOffer(organization, campaign)) !== null
           : await offer.wouldOffer(organization, campaign)
         if (!offered) continue
-        if (execute) await insertTask(prisma, campaign.id)
         invited.push(campaign.id)
         console.log(`  campaign ${campaign.id}: invited`)
       } catch (err) {
@@ -160,43 +139,6 @@ const main = async () => {
   } finally {
     await app.close()
   }
-}
-
-// Dated today and placed in the week of the campaign's own static anchor
-// (its earliest pre-launch row), the way the plan's other rows are weeked.
-// The link needs the row's id, so the row is written and then linked.
-const insertTask = async (
-  prisma: PrismaService,
-  campaignId: number,
-): Promise<void> => {
-  await prisma.$transaction(async (tx) => {
-    const anchor = await tx.campaignTrackerTask.findFirst({
-      where: { campaignId, isDefaultTask: true, phase: 'preLaunch' },
-      orderBy: { date: Prisma.SortOrder.asc },
-      select: { date: true },
-    })
-    const today = new Date()
-    const row = await tx.campaignTrackerTask.create({
-      data: {
-        campaignId,
-        title: ROBOCALL_FREE_OFFER_TASK_TITLE,
-        description: TASK_DESCRIPTION,
-        cta: 'Send outreach',
-        flowType: CampaignTaskType.robocall,
-        week: anchor
-          ? Math.max(0, differenceInCalendarWeeks(today, anchor.date))
-          : 0,
-        date: today,
-        proRequired: true,
-        isDefaultTask: true,
-        phase: 'gotv',
-      },
-    })
-    await tx.campaignTrackerTask.update({
-      where: { id: row.id },
-      data: { link: offerTaskLink(row.id) },
-    })
-  })
 }
 
 if (require.main === module) {

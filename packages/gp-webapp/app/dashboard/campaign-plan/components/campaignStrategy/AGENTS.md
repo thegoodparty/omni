@@ -71,6 +71,19 @@ falls in. The cards are dated, prioritized tasks the candidate checks off. Featu
   row disables "Start outreach" the same way. The legacy Home list
   (`campaign-manager/CampaignManagerTasks.tsx`) disables the card's "Start
   outreach" the same way, through `TaskCard`'s `ctaDisabledReason`.
+- **The free robocall offer leads the next-task card.** While gp-api says
+  the campaign has the offer (`useRobocallFreeOffer`), its plan task (found
+  by its link, `isFreeOfferTaskHref`) is the card's front task whenever it
+  is open, due and not Not for me; the plan's own next task stands behind
+  it. Home shows no separate offer card, so it stays one card. "Show in 3
+  days" dates it later and it steps back until then; only a put-off
+  offer task waits on its date. If the offer arrives with no task (gp-api
+  skips writing it before the plan has rows), the card asks for the offer
+  again, then rereads the plan. The card and the row
+  carry the shared `FreeOfferLabel` above the title, the card takes the
+  offer's tint (`FREE_OFFER_CARD_CLASS`), its button reads
+  `FREE_OFFER_CTA`, and it has no Mark done (the task closes itself once the
+  run is scheduled).
 - **A row's link label comes from its own `cta`, falling back to "Open".**
   Only the story task sets `cta` today ("Add your story"); the manager's task
   list prefers the same column.

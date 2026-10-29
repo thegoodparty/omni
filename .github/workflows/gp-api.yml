@@ -144,7 +144,19 @@ jobs:
       # unauthorized" (run 39801489081). It now comes from ECR Public with a
       # login, same as the image build below; the retried pre-pull absorbs a
       # registry blip so it cannot fail the shard.
+      #
+      # The login is the only AWS call this job makes, so a pull request
+      # borrows the read-only plan role, which can mint the ECR Public token
+      # and nothing more, the same split gp-ai.yml's build job uses.
+      - name: Configure AWS Credentials (ECR Public login)
+        if: github.event_name == 'pull_request'
+        uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5
+        with:
+          role-to-assume: ${{ vars.AWS_PLAN_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
       - name: Configure AWS Credentials
+        if: github.event_name == 'push' && github.ref_name == 'main'
         uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5
         with:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}

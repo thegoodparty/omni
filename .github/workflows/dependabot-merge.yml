@@ -22,6 +22,11 @@ permissions: {}
 jobs:
   sweep:
     runs-on: ubuntu-latest
+    # The production environment holds the automation app key, which can merge
+    # to main. deployment: false: this job deploys nothing.
+    environment:
+      name: production
+      deployment: false
     env:
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
     steps:

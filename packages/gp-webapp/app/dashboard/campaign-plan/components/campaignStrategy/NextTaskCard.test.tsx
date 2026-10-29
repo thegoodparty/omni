@@ -1,12 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { format } from 'date-fns'
+import { ROBOCALL_FREE_OFFER_VARIANT } from '@goodparty_org/contracts'
 import type { CampaignTrackerTask } from 'gpApi/api-endpoints'
 import { render } from 'helpers/test-utils/render'
 import type { TrackerTasksResult } from './useTrackerTasks'
 import NextTaskCard from './NextTaskCard'
 
-const { mockSmsCompliance, mockTasks } = vi.hoisted(() => ({
+const { mockFreeOffer, mockSmsCompliance, mockTasks } = vi.hoisted(() => ({
+  mockFreeOffer: { current: { offer: null as { eligible: true } | null } },
   mockSmsCompliance: {
     current: {
       smsCompliance: 'open',
@@ -19,6 +22,10 @@ const { mockSmsCompliance, mockTasks } = vi.hoisted(() => ({
 
 vi.mock('app/dashboard/shared/smsCutoff/useSmsCompliance', () => ({
   useSmsCompliance: () => mockSmsCompliance.current,
+}))
+vi.mock('app/dashboard/shared/robocallFreeOffer/useRobocallFreeOffer', () => ({
+  ROBOCALL_FREE_OFFER_QUERY_KEY: 'robocall-free-offer',
+  useRobocallFreeOffer: () => mockFreeOffer.current,
 }))
 vi.mock('@shared/hooks/useCampaign', () => ({
   useCampaign: () => [{ id: 1, details: { electionDate: '2099-11-03' } }],
@@ -57,6 +64,7 @@ const sendTask = (flowType: 'text' | 'robocall'): CampaignTrackerTask => ({
 
 beforeEach(() => {
   window.localStorage.clear()
+  mockFreeOffer.current = { offer: null }
   mockSmsCompliance.current = {
     smsCompliance: 'open',
     smsCutoffDate: null,
@@ -134,5 +142,98 @@ describe('NextTaskCard outreach Mark done', () => {
     expect(
       screen.getByRole('button', { name: /mark done/i }),
     ).toBeInTheDocument()
+  })
+})
+
+const offerTask = (
+  overrides: Partial<CampaignTrackerTask> = {},
+): CampaignTrackerTask => ({
+  id: 'free-offer',
+  title:
+    'Send a free promotional robocall to landline voters in selected precincts',
+  description: 'Reach voters the day before Election Day.',
+  cta: 'Send outreach',
+  link: `/dashboard/outreach?compose=robocall&recommended=${ROBOCALL_FREE_OFFER_VARIANT}`,
+  flowType: 'robocall',
+  week: 1,
+  date: `${format(new Date(), 'yyyy-MM-dd')}T00:00:00.000Z`,
+  completed: false,
+  phase: 'active',
+  proRequired: true,
+  isDefaultTask: false,
+  ...overrides,
+})
+
+describe('NextTaskCard free robocall offer', () => {
+  it('leads with the offer while the campaign has it', () => {
+    mockFreeOffer.current = { offer: { eligible: true } }
+    mockTasks.current = [sendTask('text'), offerTask()]
+    render(<NextTaskCard surface="manager" />)
+
+    expect(
+      screen.getByRole('heading', { name: offerTask().title }),
+    ).toBeInTheDocument()
+    expect(screen.getByText('Free offer')).toBeInTheDocument()
+    expect(
+      screen.getByRole('link', { name: 'Set up your free robocall' }),
+    ).toHaveAttribute('href', offerTask().link)
+  })
+
+  it('offers no Mark done on the offer, beside its button or under Skip', async () => {
+    mockFreeOffer.current = { offer: { eligible: true } }
+    mockTasks.current = [offerTask()]
+    render(<NextTaskCard surface="manager" />)
+
+    expect(screen.queryByRole('button', { name: /mark done/i })).toBeNull()
+    await userEvent.click(screen.getByRole('button', { name: 'Skip' }))
+    expect(
+      await screen.findByRole('menuitem', { name: 'Show in 3 days' }),
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: 'Mark done' })).toBeNull()
+  })
+
+  it('stops advertising the offer once it has ended', () => {
+    mockTasks.current = [offerTask()]
+    render(<NextTaskCard surface="manager" />)
+
+    expect(screen.queryByText('Free offer')).toBeNull()
+    expect(
+      screen.queryByRole('link', { name: 'Set up your free robocall' }),
+    ).toBeNull()
+  })
+
+  it('leads even when gp-api dated it tomorrow', () => {
+    mockFreeOffer.current = { offer: { eligible: true } }
+    const tomorrow = new Date()
+    tomorrow.setDate(tomorrow.getDate() + 1)
+    mockTasks.current = [
+      sendTask('text'),
+      offerTask({ date: `${format(tomorrow, 'yyyy-MM-dd')}T00:00:00.000Z` }),
+    ]
+    render(<NextTaskCard surface="manager" />)
+
+    expect(
+      screen.getByRole('heading', { name: offerTask().title }),
+    ).toBeInTheDocument()
+  })
+
+  it('steps back when the offer is put off or set aside', () => {
+    mockFreeOffer.current = { offer: { eligible: true } }
+    const later = new Date()
+    later.setDate(later.getDate() + 3)
+    for (const task of [
+      offerTask({
+        date: `${format(later, 'yyyy-MM-dd')}T00:00:00.000Z`,
+        skipReason: 'later',
+      }),
+      offerTask({ skipReason: 'notForMe' }),
+    ]) {
+      mockTasks.current = [sendTask('text'), task]
+      const { unmount } = render(<NextTaskCard surface="manager" />)
+      expect(
+        screen.getByRole('heading', { name: 'Send an introduction text' }),
+      ).toBeInTheDocument()
+      unmount()
+    }
   })
 })

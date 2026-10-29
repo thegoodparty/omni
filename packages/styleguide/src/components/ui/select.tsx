@@ -5,6 +5,13 @@ import { ChevronDown } from 'lucide-react'
 
 import { cn } from '@styleguide/lib/utils'
 
+/**
+ * Keep it controlled with value="" for nothing selected, never undefined. A
+ * SelectItem value can't be "".
+ *
+ * @summary Use to pick one value from a short fixed list in a form. For five or
+ * fewer options, use RadioGroup or ToggleGroup; to search many, use Combobox.
+ */
 function Select({
   ...props
 }: React.ComponentProps<typeof SelectPrimitive.Root>) {
