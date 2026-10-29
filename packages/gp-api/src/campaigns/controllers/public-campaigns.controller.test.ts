@@ -1,6 +1,11 @@
-import { useTestService } from '@/test-service'
+import axios from 'axios'
+import { signTestM2MJwt, useTestService } from '@/test-service'
+import {
+  AUTH_PROVIDER_TOKEN,
+  AuthProvider,
+} from '@/authentication/interfaces/auth-provider.interface'
 import { WebsiteStatus } from '../../generated/prisma'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 const service = useTestService()
 
@@ -51,7 +56,11 @@ const find = (params: {
   raceId?: string
   firstName?: string
   lastName?: string
-}) => service.client.get('/v1/public-campaigns', { params })
+}) =>
+  service.client.get('/v1/public-campaigns', {
+    params,
+    headers: { Authorization: `Bearer ${signTestM2MJwt()}` },
+  })
 
 describe('GET /v1/public-campaigns', () => {
   it('returns the active campaign matching raceId + candidate name', async () => {
@@ -400,5 +409,58 @@ describe('GET /v1/public-campaigns', () => {
 
     expect(res.status).toBe(200)
     expect(res.data.avatar).toBeNull()
+  })
+})
+
+describe('GET /v1/public-campaigns access', () => {
+  const lookup = { raceId: MONICA_RACE, ...MONICA }
+
+  it('403s a request with no token', async () => {
+    await seedCampaign({
+      id: 1,
+      slug: MONICA_SLUG,
+      raceId: MONICA_RACE,
+      isActive: true,
+    })
+
+    const res = await axios.get('/v1/public-campaigns', {
+      baseURL: service.client.defaults.baseURL,
+      params: lookup,
+      validateStatus: () => true,
+    })
+
+    expect(res.status).toBe(403)
+  })
+
+  it('403s a logged-in user who is not an admin', async () => {
+    const res = await service.client.get('/v1/public-campaigns', {
+      params: lookup,
+    })
+
+    expect(res.status).toBe(403)
+  })
+
+  it('serves an opaque mt_ M2M token', async () => {
+    const verify = vi
+      .spyOn(
+        service.app.get<AuthProvider>(AUTH_PROVIDER_TOKEN),
+        'verifyM2MToken',
+      )
+      .mockResolvedValue({ id: 'mt_test', subject: 'test-machine' })
+    await seedCampaign({
+      id: 1,
+      slug: MONICA_SLUG,
+      raceId: MONICA_RACE,
+      isActive: true,
+    })
+
+    const res = await service.client.get('/v1/public-campaigns', {
+      params: lookup,
+      headers: { Authorization: 'Bearer mt_test' },
+    })
+
+    expect(res.status).toBe(200)
+    expect(res.data.slug).toBe(MONICA_SLUG)
+    verify.mockRestore()
   })
 })
