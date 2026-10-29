@@ -67,12 +67,10 @@ describe('RecommendedListsService.recommend', () => {
   let service: RecommendedListsService
 
   beforeEach(() => {
-    resolveEligibleDistrict = vi
-      .fn()
-      .mockResolvedValue({
-        districtId: DISTRICT_ID,
-        dataset: { base: 'voters' },
-      })
+    resolveEligibleDistrict = vi.fn().mockResolvedValue({
+      districtId: DISTRICT_ID,
+      dataset: { base: 'voters' },
+    })
     // The real conversion, so the FilterData each count receives is the
     // one the variant's own universe produces and a test can key on it.
     resolveSavedFilterForQuery = vi.fn(
