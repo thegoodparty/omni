@@ -24,6 +24,7 @@ import { PaymentsModule } from '../payments/payments.module'
 import { PrioritiesModule } from '../priorities/priorities.module'
 import { PeerlyModule } from '../vendors/peerly/peerly.module'
 import { QueueProducerModule } from '../queue/producer/queueProducer.module'
+import { RobocallFreeOfferModule } from '../robocallFreeOffer/robocallFreeOffer.module'
 import { VotersModule } from '../voters/voters.module'
 import { OutreachController } from './outreach.controller'
 import { OutreachAssignmentController } from './outreachAssignment.controller'
@@ -156,6 +157,10 @@ import { OutreachP2pSmsFreeTextsService } from './services/outreachP2pSmsFreeTex
     // first name on each reply. PeopleQueryModule imports only HttpModule and
     // ClerkModule, so this edge adds no cycle and needs no forwardRef.
     PeopleQueryModule,
+    // For RobocallFreeOfferService: the robocall pay path applies and checks
+    // the free offer's code. Offer -> Contacts -> Campaigns -> Peerly loops
+    // back here, the same cycle the ContactsModule edge above defers.
+    forwardRef(() => RobocallFreeOfferModule),
   ],
   controllers: [
     OutreachController,
@@ -302,10 +307,14 @@ import { OutreachP2pSmsFreeTextsService } from './services/outreachP2pSmsFreeTex
     OutreachRobocallSendService,
     OutreachRobocallCompletionService,
     OutreachRobocallCaptureService,
+    OutreachRobocallCallhubCleanupService,
     // Exported so TestFixturesModule can call admin actions as test fixtures.
     OutreachCompletionService,
     OutreachSmsAdminService,
     OutreachResultsAdminService,
+    // The email AI draft reads the same Win and Serve prompt context.
+    OutreachComposeContextService,
+    OutreachServeComposeContextService,
   ],
 })
 export class OutreachModule {

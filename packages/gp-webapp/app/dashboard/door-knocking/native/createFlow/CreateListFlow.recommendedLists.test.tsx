@@ -49,6 +49,8 @@ const baseProps = {
   onFiltersChange: vi.fn(),
   precincts: [],
   onPrecinctsChange: vi.fn(),
+  votedStatus: [],
+  onVotedStatusChange: vi.fn(),
   precinctOptions: {
     options: [],
     truncated: false,
@@ -116,6 +118,7 @@ const savedTurf = {
   knockedDoorCount: 0,
   routeSeconds: 1860,
   priorityId: null,
+  purpose: null,
   completed: false,
   archivedAt: null,
   createdAt: new Date('2026-08-20T00:00:00Z'),

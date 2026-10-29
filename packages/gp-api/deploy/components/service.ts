@@ -36,7 +36,37 @@ export interface ServiceConfig {
   dependsOn: pulumi.ResourceOptions['dependsOn']
 }
 
+// Owned by thegoodparty/ops (step 6a of its docs/deploy-role-trust.md). The
+// role preview deploys run under may create or edit a role only when it
+// carries this boundary, so a preview role is capped by it whatever its own
+// policies say. Dev and prod roles carry none.
+const PREVIEW_ROLE_PERMISSIONS_BOUNDARY =
+  'arn:aws:iam::333022194791:policy/GpApiPreviewRoleBoundary'
+
+// The ECS agent reads every container secret through the execution role, so
+// the role is granted exactly the secrets the task definition names. Derived
+// from the `valueFrom` entries themselves so the two cannot drift. The
+// `-??????` stands in for the random suffix Secrets Manager appends, which
+// keeps the grant valid if a secret is ever recreated under the same name.
+const SECRETS_MANAGER_VALUE_FROM =
+  /^(arn:aws:secretsmanager:[^:]+:\d{12}:secret:[^:]+-)[A-Za-z0-9]{6}(:|$)/
+
+export const executionRoleSecretArns = (valueFroms: string[]): string[] => {
+  const arns = valueFroms.map((valueFrom) => {
+    const match = SECRETS_MANAGER_VALUE_FROM.exec(valueFrom)
+    if (!match) {
+      throw new Error(
+        `Container secret ${valueFrom} is not a full Secrets Manager ARN, ` +
+          'so the execution role cannot be scoped to it.',
+      )
+    }
+    return `${match[1]}??????`
+  })
+  return [...new Set(arns)].sort()
+}
+
 type ServiceOutput = {
+  ecsService: aws.ecs.Service
   url: pulumi.Output<string>
   logGroupName: pulumi.Output<string>
   logGroupArn: pulumi.Output<string>
@@ -231,8 +261,12 @@ export function createService({
     retentionInDays: isProd ? 60 : 30,
   })
 
+  const permissionsBoundary =
+    environment === 'preview' ? PREVIEW_ROLE_PERMISSIONS_BOUNDARY : undefined
+
   const executionRole = new aws.iam.Role('executionRole', {
     name: `gp-${stage}-gpapi${stage}ExecutionRole-uswest2`,
+    permissionsBoundary,
     assumeRolePolicy: JSON.stringify({
       Version: '2012-10-17',
       Statement: [
@@ -256,13 +290,10 @@ export function createService({
           Statement: [
             {
               Effect: 'Allow',
-              Action: [
-                'ssm:GetParameters',
-                'ssm:GetParameterHistory',
-                'ssm:GetParameter',
-                'secretsmanager:GetSecretValue',
-              ],
-              Resource: '*',
+              Action: ['secretsmanager:GetSecretValue'],
+              Resource: pulumi
+                .output(secrets)
+                .apply((sec) => executionRoleSecretArns(Object.values(sec))),
             },
           ],
         }),
@@ -272,6 +303,7 @@ export function createService({
 
   const taskRole = new aws.iam.Role('taskRole', {
     name: `gp-${stage}-gpapi${stage}TaskRole-uswest2`,
+    permissionsBoundary,
     assumeRolePolicy: JSON.stringify({
       Version: '2012-10-17',
       Statement: [
@@ -491,6 +523,7 @@ export function createService({
 
   return {
     url: pulumi.interpolate`https://${domain}`,
+    ecsService,
     logGroupName: logGroup.name,
     logGroupArn: logGroup.arn,
   }

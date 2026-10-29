@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import {
   PRIORITY_STEP_LABELS,
@@ -11,7 +11,8 @@ import {
   type PriorityStatus,
 } from '@goodparty_org/contracts'
 import { router } from 'helpers/test-utils/router-mocking'
-import { render } from 'helpers/test-utils/render'
+import { render, testQueryClient } from 'helpers/test-utils/render'
+import { api } from 'helpers/test-utils/api-mocking'
 import type {
   ChatMessageDto,
   ChatStreamEvent,
@@ -35,6 +36,11 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('app/shared/experiments/serveCitizenPanelsFlag', () => ({
   useServeCitizenPanelsFlag: () => mocks.citizenPanels,
+}))
+
+vi.mock('@shared/organization-picker', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  useOrganization: () => ({ slug: 'eo-test', district: null }),
 }))
 
 vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
@@ -175,6 +181,15 @@ beforeEach(() => {
   mocks.fetchPriorityStatus.mockResolvedValue(null)
   mocks.fetchPriorityReadStatus.mockResolvedValue(null)
   mocks.citizenPanels = { ready: true, enabled: false }
+  testQueryClient.clear()
+  api.mock('GET /v1/contacts/civic-panel/managed', () => ({
+    status: 200,
+    data: { panel: null },
+  }))
+})
+
+afterEach(() => {
+  vi.useRealTimers()
 })
 
 describe('PriorityWorkspace', () => {
@@ -252,16 +267,14 @@ describe('PriorityWorkspace', () => {
     mocks.listMessages
       .mockResolvedValueOnce([kickoff])
       .mockResolvedValue([kickoff, reply])
+    vi.useFakeTimers({ shouldAdvanceTime: true })
 
     renderWorkspace()
 
     expect(await screen.findByText('Thinking...')).toBeInTheDocument()
+    await vi.advanceTimersByTimeAsync(2_000)
     expect(
-      await screen.findByText(
-        'Nothing has started on this yet.',
-        {},
-        { timeout: 5_000 },
-      ),
+      await screen.findByText('Nothing has started on this yet.'),
     ).toBeInTheDocument()
     expect(screen.queryByText('Thinking...')).not.toBeInTheDocument()
     expect(mocks.streamMessage).not.toHaveBeenCalled()
@@ -269,6 +282,14 @@ describe('PriorityWorkspace', () => {
 
   it('moves the rail while the turn is still streaming, then reconciles', async () => {
     const gate = deferred()
+    const stored: PriorityStatus = {
+      ...emptyPriorityStatus(),
+      steps: emptyPriorityStatus().steps.map((step) =>
+        step.id === 'evidence'
+          ? { ...step, state: 'settled' as const, summary: 'Maple floods.' }
+          : step,
+      ),
+    }
     mocks.streamMessage.mockImplementation(
       streamOf(
         [
@@ -284,11 +305,22 @@ describe('PriorityWorkspace', () => {
               nextAction: 'Pick two blocks to walk',
             },
           },
+          {
+            type: 'tool_result',
+            toolName: 'update_priority_status',
+            toolCallId: 'tc-status',
+            result: {
+              status: stored,
+              currentStep: 'define',
+              nextAction: 'Pick two blocks to walk',
+            },
+          },
           { type: 'done', assistantMessageId: 'a1' },
         ],
         gate.promise,
       ),
     )
+    vi.useFakeTimers({ shouldAdvanceTime: true })
 
     renderWorkspace()
 
@@ -300,6 +332,10 @@ describe('PriorityWorkspace', () => {
     )
     expect(mocks.fetchPriorityStatus).not.toHaveBeenCalled()
     expect(screen.getByText('Pick two blocks to walk')).toBeInTheDocument()
+    await vi.advanceTimersByTimeAsync(2_000)
+    expect(
+      await screen.findByText('Done with what we know'),
+    ).toBeInTheDocument()
 
     // The turn settles and the rail is reconciled against what was stored.
     const persisted: PriorityStatus = {
@@ -329,6 +365,7 @@ describe('PriorityWorkspace', () => {
       } satisfies ChatMessageDto,
     ])
     gate.resolve()
+    await vi.advanceTimersByTimeAsync(2_000)
 
     await waitFor(() =>
       expect(
@@ -337,6 +374,63 @@ describe('PriorityWorkspace', () => {
         ),
       ).toBeInTheDocument(),
     )
+  })
+
+  // The dev plan turn: the agent asked to close three steps and open the
+  // plan, the server refused, and the chat still said "Done with" each one.
+  it('draws no marker and leaves the rail alone when the server refuses the move', async () => {
+    const gate = deferred()
+    mocks.streamMessage.mockImplementation(
+      streamOf(
+        [
+          { type: 'text', delta: 'Let me record where this stands. ' },
+          {
+            type: 'tool_call',
+            toolName: 'update_priority_status',
+            toolCallId: 'tc-refused',
+            args: {
+              steps: [
+                { id: 'options', state: 'settled' },
+                { id: 'listen_options', state: 'settled' },
+                { id: 'method', state: 'settled' },
+                { id: 'plan', state: 'active' },
+                { id: 'listen_problem', state: 'stale' },
+              ],
+              nextAction: 'Draft the plan',
+            },
+          },
+          {
+            type: 'tool_result',
+            toolName: 'update_priority_status',
+            toolCallId: 'tc-refused',
+            result: {
+              error:
+                'Nothing was recorded. These did not move: Your options, ' +
+                'What people back, The path, The plan, Who to hear from.',
+            },
+          },
+          { type: 'text', delta: 'The plan waits on what residents say.' },
+          { type: 'done', assistantMessageId: 'a1' },
+        ],
+        gate.promise,
+      ),
+    )
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+
+    renderWorkspace()
+
+    await screen.findByText(/^Let me/)
+    await vi.advanceTimersByTimeAsync(2_000)
+    expect(
+      await screen.findByText(/The plan waits on what residents say/),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/^Done with/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/^Working on/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/^Back to/)).not.toBeInTheDocument()
+    expect(
+      within(railRow(PRIORITY_STEP_LABELS.method)).queryByText('Done'),
+    ).not.toBeInTheDocument()
+    gate.resolve()
   })
 
   it('leaves a marker in the conversation, saying so when a step goes backwards', async () => {
@@ -392,6 +486,36 @@ describe('PriorityWorkspace', () => {
 
     expect(await screen.findByText('Done with the problem')).toBeInTheDocument()
     expect(screen.getByText('Back to your options')).toBeInTheDocument()
+  })
+
+  it('records each outreach the agent proposes as it streams in', async () => {
+    mocks.streamMessage.mockImplementation(
+      streamOf([
+        { type: 'text', delta: 'Here is a call list. ' },
+        {
+          type: 'tool_call',
+          toolName: 'present_outreach_proposal',
+          toolCallId: 'tc-live-proposal',
+          args: proposalArgs,
+        },
+        { type: 'done', assistantMessageId: 'a1' },
+      ]),
+    )
+
+    renderWorkspace()
+
+    await waitFor(() =>
+      expect(trackEvent).toHaveBeenCalledWith(
+        EVENTS.Priorities.OutreachProposed,
+        {
+          priorityId: 'pri-1',
+          round: 'one',
+          sampleSize: 412,
+          targetGroup: 'everyone',
+          channel: 'call',
+        },
+      ),
+    )
   })
 
   it('renders a card tool call through ChatCardRenderer with a derived proposalKey', async () => {
@@ -740,8 +864,11 @@ describe('PriorityWorkspace', () => {
       ),
     )
 
+    vi.useFakeTimers({ shouldAdvanceTime: true })
     renderWorkspace()
 
+    await screen.findByText(/^The co/)
+    await vi.advanceTimersByTimeAsync(2_000)
     expect(await screen.findByText(/The county runs this/)).toBeInTheDocument()
     expect(
       await screen.findByText('Looking up who to contact...'),
@@ -762,8 +889,11 @@ describe('PriorityWorkspace', () => {
       ),
     )
 
+    vi.useFakeTimers({ shouldAdvanceTime: true })
     renderWorkspace()
 
+    await screen.findByText(/^Two/)
+    await vi.advanceTimersByTimeAsync(2_000)
     expect(await screen.findByText(/Two ways to read this/)).toBeInTheDocument()
     expect(
       await screen.findByText('Preparing your question...'),
@@ -785,8 +915,11 @@ describe('PriorityWorkspace', () => {
       ),
     )
 
+    vi.useFakeTimers({ shouldAdvanceTime: true })
     renderWorkspace()
 
+    await screen.findByText(/^Pul/)
+    await vi.advanceTimersByTimeAsync(2_000)
     expect(
       await screen.findByText(/Pulling the renters on those blocks/),
     ).toBeInTheDocument()
@@ -821,8 +954,11 @@ describe('PriorityWorkspace', () => {
       yield { type: 'done', assistantMessageId: 'a1' }
     })
 
+    vi.useFakeTimers({ shouldAdvanceTime: true })
     renderWorkspace()
 
+    await screen.findByText(/^Here/)
+    await vi.advanceTimersByTimeAsync(2_000)
     expect(
       await screen.findByText(/Containers are required/),
     ).toBeInTheDocument()
@@ -857,8 +993,11 @@ describe('PriorityWorkspace', () => {
       ),
     )
 
+    vi.useFakeTimers({ shouldAdvanceTime: true })
     renderWorkspace()
 
+    await screen.findByText(/^One/)
+    await vi.advanceTimersByTimeAsync(2_000)
     expect(
       await screen.findByText('Is the problem trash or garages?'),
     ).toBeInTheDocument()
@@ -877,8 +1016,11 @@ describe('PriorityWorkspace', () => {
       ]),
     )
 
+    vi.useFakeTimers({ shouldAdvanceTime: true })
     renderWorkspace()
 
+    await screen.findByText(/^Here/)
+    await vi.advanceTimersByTimeAsync(2_000)
     expect(
       await screen.findByText(/Here is where this stands/),
     ).toBeInTheDocument()
@@ -1088,17 +1230,22 @@ describe('PriorityWorkspace', () => {
       needed: 96,
       groupsHeard: 3,
       groupsTotal: 12,
+      representativeAnswers: 20,
+      representativeNeeded: 96,
       good: false,
       status: 'tooEarly',
       underrepresented: ['age65plus'],
       unheard: ['age65plus'],
       checkOut: true,
     }
+    // 103 answered, but the groups heard most fill only their share.
     const skewed: PriorityReadStatus = {
       answers: 103,
       needed: 96,
       groupsHeard: 9,
       groupsTotal: 12,
+      representativeAnswers: 70,
+      representativeNeeded: 96,
       good: false,
       status: 'notYetRepresentative',
       underrepresented: ['women', 'age65plus'],
@@ -1127,6 +1274,44 @@ describe('PriorityWorkspace', () => {
       mocks.listMessages.mockResolvedValue([reply])
     })
 
+    it('shows the civic panel filling under the read, before anyone is asked', async () => {
+      api.mock('GET /v1/contacts/civic-panel/managed', () => ({
+        status: 200,
+        data: {
+          panel: {
+            id: 'mp-1',
+            status: 'building',
+            inviteMessage: 'Hi.',
+            consentVersion: 'v1',
+            approvedAt: new Date('2026-10-29T18:00:00Z'),
+            approvedByUserId: 1,
+            goalMembers: 240,
+            freeTextCap: 15000,
+            freeTextsUsed: 120,
+            readyAt: null,
+            pausedAt: null,
+            stoppedAt: null,
+            createdAt: new Date('2026-10-29T18:00:00Z'),
+            updatedAt: new Date('2026-10-29T18:00:00Z'),
+            progress: {
+              members: 82,
+              goalMembers: 240,
+              wavesSent: 1,
+              nextWaveAt: null,
+              firstSendDate: '2026-11-03',
+              readyWeekOf: '2026-11-16',
+            },
+          },
+        },
+      }))
+      renderWorkspace(emptyPriorityStatus(), null, {
+        initialReadStatus: { ...thin, checkOut: false },
+      })
+      const standing = await screen.findByTestId('priority-civic-panel')
+      expect(standing).toHaveTextContent('Your civic panel is filling up')
+      expect(standing).toHaveTextContent('82 of 240 residents have joined')
+    })
+
     it('puts a short bar on the phone with the answers still needed', async () => {
       renderWorkspace(emptyPriorityStatus(), null, { initialReadStatus: thin })
       await screen.findByText('Here is where this stands.')
@@ -1152,7 +1337,7 @@ describe('PriorityWorkspace', () => {
       )
       expect(
         within(bar).getByRole('progressbar', {
-          name: '3 of 12 groups heard',
+          name: '20 of the 96 answers we need',
         }),
       ).toBeInTheDocument()
       const getAnswers = within(bar).getByRole('button', {
@@ -1282,7 +1467,9 @@ describe('PriorityWorkspace', () => {
       expect(
         within(rail).getByText('Still need to hear from people 65 and over'),
       ).toBeInTheDocument()
-      expect(within(rail).getByText('3 of 12 groups heard')).toBeInTheDocument()
+      expect(
+        within(rail).getByText('20 of the 96 answers we need'),
+      ).toBeInTheDocument()
       expect(
         within(rail).getByRole('button', { name: 'Get answers' }),
       ).toBeInTheDocument()
@@ -1350,7 +1537,9 @@ describe('PriorityWorkspace', () => {
           'Need a few more answers from women and people 65 and over',
         ),
       ).toBeInTheDocument()
-      expect(within(rail).getByText('9 of 12 groups heard')).toBeInTheDocument()
+      expect(
+        within(rail).getByText('70 of the 96 answers we need'),
+      ).toBeInTheDocument()
       expect(within(rail).queryByText(/weight/i)).not.toBeInTheDocument()
       expect(
         within(rail).getByRole('button', { name: 'Get answers' }),
@@ -1374,7 +1563,12 @@ describe('PriorityWorkspace', () => {
       expect(screen.queryByText(/Help me get more answers/)).toBeNull()
       expect(trackEvent).toHaveBeenCalledWith(
         EVENTS.Priorities.GetAnswersClicked,
-        { priorityId: 'pri-1', source: 'rail' },
+        {
+          priorityId: 'pri-1',
+          source: 'rail',
+          readStatus: 'waiting',
+          groupsShort: 9,
+        },
       )
       expect(
         vi
@@ -1386,6 +1580,20 @@ describe('PriorityWorkspace', () => {
       expect(trackEvent).not.toHaveBeenCalledWith(
         EVENTS.AIChat.MessageSent,
         expect.anything(),
+      )
+    })
+
+    it('records the read the priority opened with', async () => {
+      renderWorkspace(emptyPriorityStatus(), null, { initialReadStatus: thin })
+      await screen.findByText('Here is where this stands.')
+
+      expect(trackEvent).toHaveBeenCalledWith(
+        EVENTS.Priorities.PriorityViewed,
+        expect.objectContaining({
+          readStatus: 'waiting',
+          groupsHeard: 3,
+          groupsTotal: 12,
+        }),
       )
     })
 
@@ -1404,7 +1612,12 @@ describe('PriorityWorkspace', () => {
       expect(router.replace).not.toHaveBeenCalled()
       expect(trackEvent).toHaveBeenCalledWith(
         EVENTS.Priorities.GetAnswersClicked,
-        { priorityId: 'pri-1', source: 'results_page' },
+        {
+          priorityId: 'pri-1',
+          source: 'results_page',
+          readStatus: 'waiting',
+          groupsShort: 9,
+        },
       )
     })
 

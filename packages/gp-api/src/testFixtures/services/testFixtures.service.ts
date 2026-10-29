@@ -6,12 +6,15 @@ import { ComplianceStateService } from '@/campaigns/tcrCompliance/services/compl
 import { ElectionsService } from '@/elections/services/elections.service'
 import { OutreachCompletionService } from '@/outreach/services/outreachCompletion.service'
 import { OutreachResultsAdminService } from '@/outreach/services/outreachResultsAdmin.service'
+import { OutreachRobocallCallhubCleanupService } from '@/outreach/services/outreachRobocallCallhubCleanup.service'
 import { OutreachRobocallCaptureService } from '@/outreach/services/outreachRobocallCapture.service'
 import { OutreachRobocallCompletionService } from '@/outreach/services/outreachRobocallCompletion.service'
 import { OutreachRobocallSendService } from '@/outreach/services/outreachRobocallSend.service'
 import { OutreachRobocallStagingService } from '@/outreach/services/outreachRobocallStaging.service'
 import { OutreachSmsAdminService } from '@/outreach/services/outreachSmsAdmin.service'
 import { PaymentEventsService } from '@/payments/services/paymentEventsService'
+import { OutreachEmailLifecycleService } from '@/emailOutreach/services/outreachEmailLifecycle.service'
+import { OutreachEmailSendSweepService } from '@/emailOutreach/services/outreachEmailSendSweep.service'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
 import { UsersService } from '@/users/services/users.service'
 import { VENDOR_MODE } from '@/shared/util/appEnvironment.util'
@@ -25,7 +28,9 @@ import { StripeService } from '@/vendors/stripe/services/stripe.service'
 import { VendorMockRecordService } from '@/vendorMocks/vendorMockRecord.service'
 import { ClerkClient } from '@clerk/backend'
 import {
+  type ApplyTestFixtureElectionResponse,
   ComplianceStage,
+  type TestModeElectionPreset,
   type TestFixtureStateResponse,
   type AdminOutreachActionResponse,
   type DeliverStripeEventResponse,
@@ -58,6 +63,7 @@ import {
   differenceInMilliseconds,
   format,
   formatISO,
+  subDays,
   subHours,
   subMinutes,
 } from 'date-fns'
@@ -65,6 +71,7 @@ import Stripe from 'stripe'
 import {
   Campaign,
   DomainSource,
+  OutreachType,
   TcrComplianceStatus,
   User,
   WebsiteStatus,
@@ -136,6 +143,7 @@ export class TestFixturesService {
     private readonly robocallSend: OutreachRobocallSendService,
     private readonly robocallCompletion: OutreachRobocallCompletionService,
     private readonly robocallCapture: OutreachRobocallCaptureService,
+    private readonly robocallCallhubCleanup: OutreachRobocallCallhubCleanupService,
     private readonly outreachCompletion: OutreachCompletionService,
     private readonly smsAdmin: OutreachSmsAdminService,
     private readonly resultsAdmin: OutreachResultsAdminService,
@@ -517,6 +525,37 @@ export class TestFixturesService {
     return position.id
   }
 
+  // The caller's own campaign only; 404 rather than 403 so ids can't be
+  // probed. `passed_won` never creates an office: it needs the one the
+  // election-result flow already linked.
+  async applyElectionPreset(
+    userId: number,
+    campaignId: number,
+    preset: TestModeElectionPreset,
+  ): Promise<ApplyTestFixtureElectionResponse> {
+    const campaign = await this.campaigns.findFirst({
+      where: { id: campaignId, userId },
+    })
+    if (!campaign) {
+      throw new NotFoundException()
+    }
+    if (preset === 'passed_won') {
+      const office = await this.campaigns.client.electedOffice.findFirst({
+        where: { campaignId },
+      })
+      if (!office) {
+        throw new ConflictException(
+          'passed_won needs the elected office the election-result flow links',
+        )
+      }
+    }
+    const electionDate = await this.transitions.applyElectionPreset(
+      campaignId,
+      preset,
+    )
+    return { campaignId, preset, electionDate }
+  }
+
   async deleteFixtureUsers(
     input: DeleteTestFixtureUsersInput,
   ): Promise<DeleteTestFixtureUsersResponse> {
@@ -666,6 +705,8 @@ export class TestFixturesService {
       await this.vendorMockRecord.armRouteFail(campaignId)
     } else if (action === 'callhub.campaign.complete') {
       await this.vendorMockRecord.completeCallhubCampaign(campaignId)
+    } else if (action === 'callhub.campaign.fail') {
+      await this.vendorMockRecord.armCallhubCreateFail(campaignId)
     } else if (action === 'peerly.balance.empty') {
       await this.vendorMockRecord.emptyPeerlyBalance(campaignId)
     } else if (action === 'peerly.cv.approve') {
@@ -691,6 +732,8 @@ export class TestFixturesService {
       await this.vendorMockRecord.setPeerlyCvStatus(campaignId, { pin })
     } else if (action === 'peerly.usecase.activate') {
       await this.vendorMockRecord.activatePeerlyUsecase(campaignId)
+    } else if (action === 'peerly.phonelist.fail') {
+      await this.vendorMockRecord.armPhoneListFail(campaignId)
     } else if (action === 'vercel.order.fail') {
       await this.vendorMockRecord.failVercelOrders(campaignId)
     } else {
@@ -699,14 +742,25 @@ export class TestFixturesService {
     return this.getMockRecords(campaignId)
   }
 
-  async getMockRecords(campaignId: number): Promise<MockRecordsResponse> {
-    const [campaignRecords, callhubRecords] = await Promise.all([
-      this.vendorMockRecord.findByCampaign(campaignId),
-      this.vendorMockRecord.findCallhubForCampaign(campaignId),
-    ])
+  async getMockRecordsByOrganization(
+    organizationSlug: string,
+  ): Promise<MockRecordsResponse> {
     return {
       vendorMode: VENDOR_MODE,
-      records: [...campaignRecords, ...callhubRecords],
+      records: await this.vendorMockRecord.findByOrganization(organizationSlug),
+    }
+  }
+
+  async getMockRecords(campaignId: number): Promise<MockRecordsResponse> {
+    const [campaignRecords, callhubRecords, peerlyJobRecords] =
+      await Promise.all([
+        this.vendorMockRecord.findByCampaign(campaignId),
+        this.vendorMockRecord.findCallhubForCampaign(campaignId),
+        this.vendorMockRecord.findPeerlyP2pJobsForCampaign(campaignId),
+      ])
+    return {
+      vendorMode: VENDOR_MODE,
+      records: [...campaignRecords, ...callhubRecords, ...peerlyJobRecords],
     }
   }
 
@@ -729,7 +783,16 @@ export class TestFixturesService {
     let dialedAt = outreach.robocall?.dialedAt ?? null
     let poolFreedAt = outreach.robocall?.poolFreedAt ?? null
 
-    if (body.action === 'robocall.send_due_now') {
+    if (
+      body.action.startsWith('email.') &&
+      outreach.outreachType !== OutreachType.email
+    ) {
+      throw new BadRequestException(`${body.action} needs an email send`)
+    }
+    if (
+      body.action === 'robocall.send_due_now' ||
+      body.action === 'email.send_due_now'
+    ) {
       const sendDue = subMinutes(new Date(), 1)
       await this.campaigns.client.outreach.update({
         where: { id: outreach.id },
@@ -751,8 +814,40 @@ export class TestFixturesService {
       })
       dialedAt = backdated
       poolFreedAt = outreach.robocall.poolFreedAt !== null ? backdated : null
-    } else if (body.action === 'sms.start_date_today') {
-      throw new BadRequestException('Not implemented until M3')
+    } else if (body.action === 'email.sent_6m_ago') {
+      // The settle sweep waits 5 minutes after a send's last email for SES's
+      // numbers before it finishes the send. Shifting keeps the send's own
+      // window, which warming reads back from CloudWatch.
+      await this.campaigns.client.$executeRaw`
+        UPDATE outreach_email_recipient r
+        SET sent_at = r.sent_at - interval '6 minutes'
+        FROM outreach_email e
+        WHERE e.id = r.outreach_email_id
+          AND e.outreach_id = ${outreach.id}
+          AND r.sent_at IS NOT NULL
+      `
+    } else if (
+      body.action === 'sms.start_date_today' ||
+      body.action === 'sms.start_date_passed'
+    ) {
+      // The completion sweep reads the Peerly job's start_date: today (UTC)
+      // reads in_progress, a past day reads completed.
+      if (!outreach.projectId)
+        throw new NotFoundException('No Peerly job for this outreach')
+      const startDay =
+        body.action === 'sms.start_date_today'
+          ? new Date()
+          : subDays(new Date(), 1)
+      const found = await this.vendorMockRecord.setPeerlyP2pJobStartDate(
+        outreach.projectId,
+        startDay.toISOString().slice(0, 10),
+      )
+      if (!found) throw new NotFoundException('No mock Peerly job record')
+      await this.campaigns.client.outreach.update({
+        where: { id: outreach.id },
+        data: { date: startDay },
+      })
+      date = startDay
     }
 
     return {
@@ -775,6 +870,14 @@ export class TestFixturesService {
       if (!campaign) throw new NotFoundException('No campaign for caller')
       return campaign
     }
+    // Live mode keeps the email crons off on purpose; run here, they would
+    // send real email and capture real holds.
+    const emailMockOnly = async (run: () => Promise<void>) => {
+      if (VENDOR_MODE !== 'mock') {
+        throw new NotFoundException(`${name} runs only against vendor mocks`)
+      }
+      await run()
+    }
     const jobs: Record<string, () => Promise<void>> = {
       'robocall.staging': () => this.robocallStaging.runStaging(),
       'robocall.send': async () => {
@@ -784,6 +887,8 @@ export class TestFixturesService {
       },
       'robocall.completion': () => this.robocallCompletion.runCompletion(),
       'robocall.capture': () => this.robocallCapture.runCapture(),
+      // Aborts the PAUSED CallHub campaigns a cancel/failed send queued.
+      'robocall.callhubCleanup': () => this.robocallCallhubCleanup.runSweep(),
       'p2p.phoneListFinish': () =>
         this.vendorMockRecord.finishPeerlyPhoneLists(),
       'outreach.completion': () => this.outreachCompletion.runCompletion(),
@@ -797,6 +902,27 @@ export class TestFixturesService {
       // Skips the hourly CronLockService claim on purpose; only this fixture
       // path may (the @Cron wrapper keeps the lock).
       'tcr.usecaseSweep': () => this.tcrCompliance.runUnsubmittedUsecaseSweep(),
+      // The email sweeps are global, like the robocall ones. Running one
+      // beside its cron is safe: due and settle claim per row, and the send
+      // sweep holds the lease.
+      'email.due': () =>
+        emailMockOnly(() =>
+          this.moduleRef
+            .get(OutreachEmailLifecycleService, { strict: false })
+            .startDueSends(),
+        ),
+      'email.sweep': () =>
+        emailMockOnly(() =>
+          this.moduleRef
+            .get(OutreachEmailSendSweepService, { strict: false })
+            .runTick(),
+        ),
+      'email.settle': () =>
+        emailMockOnly(() =>
+          this.moduleRef
+            .get(OutreachEmailLifecycleService, { strict: false })
+            .settleFinishedSends(),
+        ),
       'tcr.complianceSweep': async () => {
         const campaign = await callerCampaign()
         await this.checkCampaignUsecaseActivation(campaign.id)

@@ -17,9 +17,10 @@ import {
   PlusIcon,
 } from '@styleguide/components/ui/icons'
 import type { OutreachType } from 'gpApi/types/outreach.types'
-import type {
-  RecommendedList,
-  RecommendedListChannel,
+import {
+  ROBOCALL_FREE_OFFER_VARIANT,
+  type RecommendedList,
+  type RecommendedListChannel,
 } from '@goodparty_org/contracts'
 import type {
   SegmentResponse,
@@ -30,6 +31,9 @@ import type { PrecinctOptionsResult } from 'app/dashboard/contacts/crm/wizard/us
 import VoterFileStep from 'app/dashboard/contacts/crm/wizard/VoterFileStep'
 import NameStep from 'app/dashboard/contacts/crm/wizard/NameStep'
 import { Intro } from '../social/Intro'
+import { savedRecommendedListName } from 'app/dashboard/shared/robocallFreeOffer/freeOfferCopy'
+import { FreeOfferLabel } from 'app/dashboard/shared/robocallFreeOffer/FreeOfferLabel'
+import { FREE_OFFER_CARD_CLASS } from 'app/dashboard/shared/robocallFreeOffer/freeOfferStyles'
 import { RecommendedListNameDrawer } from './RecommendedListNameDrawer'
 import { RecommendedListCard } from './RecommendedListCard'
 import { useServeCitizenPanelsFlag } from 'app/shared/experiments/serveCitizenPanelsFlag'
@@ -145,6 +149,15 @@ interface OutreachAudienceStepProps {
   preselectedRecommendation?: RecommendedList | null
   preselectedRecommendationApplied?: boolean
   onPreselectedRecommendationApplied?: () => void
+  // Robocall's free election-eve offer: its list, shown in a "Free offer"
+  // section of its own between the recommendations and the saved lists, and
+  // never under "Recommended for you" (even when carried in). `note` is the
+  // line under the heading; `onPicked` fires when its card is tapped.
+  freeOffer?: {
+    recommendation: RecommendedList
+    note: string
+    onPicked: () => void
+  } | null
   // The saved list's reachable count for THIS channel (reachability[key] from
   // the list detail): null while loading or when the aggregate failed
   // server-side, in which case we show "couldn't count" rather than zero.
@@ -211,6 +224,7 @@ export const OutreachAudienceStep = ({
   preselectedRecommendation = null,
   preselectedRecommendationApplied = false,
   onPreselectedRecommendationApplied,
+  freeOffer = null,
   reachableCount,
   reachableLoading,
   selectedListTotal = null,
@@ -308,7 +322,7 @@ export const OutreachAudienceStep = ({
     onPreselectedRecommendationApplied,
   ])
 
-  const cards =
+  const purposeCards =
     preselectedRecommendation &&
     !recommendations.some(
       (recommendation) =>
@@ -316,6 +330,21 @@ export const OutreachAudienceStep = ({
     )
       ? [preselectedRecommendation, ...recommendations]
       : recommendations
+  // The offer has its own section, so a carried-in offer card lands there.
+  const cards = purposeCards.filter(
+    (recommendation) => recommendation.variant !== ROBOCALL_FREE_OFFER_VARIANT,
+  )
+
+  // A tap on a recommendation: a list not saved yet opens the naming drawer,
+  // one already saved is selected as it is.
+  const pickRecommendation = (recommendation: RecommendedList) => {
+    if (recommendation.existingFilterId === null) {
+      setPendingRecommendation(recommendation)
+      return
+    }
+    onRecommendationReused(recommendation)
+    onSelect(recommendation.existingFilterId)
+  }
 
   if (mode === 'name') {
     return (
@@ -411,6 +440,28 @@ export const OutreachAudienceStep = ({
 
       {leadCard}
 
+      {freeOffer && (
+        <div className="space-y-2" data-testid="free-offer-section">
+          <RecommendedListCard
+            recommendation={freeOffer.recommendation}
+            channel={recommendedListsChannel}
+            className={FREE_OFFER_CARD_CLASS}
+            overline={<FreeOfferLabel className="mb-1" />}
+            selected={
+              selectedRecommendation?.variant ===
+                freeOffer.recommendation.variant ||
+              (freeOffer.recommendation.existingFilterId !== null &&
+                freeOffer.recommendation.existingFilterId === selectedId)
+            }
+            onSelect={() => {
+              freeOffer.onPicked()
+              pickRecommendation(freeOffer.recommendation)
+            }}
+          />
+          <p className="text-sm text-muted-foreground">{freeOffer.note}</p>
+        </div>
+      )}
+
       {(recommendationsLoading || recommendationsError || cards.length > 0) && (
         <div className="space-y-2">
           <p className="text-xs font-bold uppercase text-primary">
@@ -442,16 +493,12 @@ export const OutreachAudienceStep = ({
                   recommendation={recommendation}
                   channel={recommendedListsChannel}
                   selected={
-                    selectedRecommendation?.variant === recommendation.variant
+                    selectedRecommendation?.variant ===
+                      recommendation.variant ||
+                    (recommendation.existingFilterId !== null &&
+                      recommendation.existingFilterId === selectedId)
                   }
-                  onSelect={() => {
-                    if (recommendation.existingFilterId === null) {
-                      setPendingRecommendation(recommendation)
-                      return
-                    }
-                    onRecommendationReused(recommendation)
-                    onSelect(recommendation.existingFilterId)
-                  }}
+                  onSelect={() => pickRecommendation(recommendation)}
                 />
               ))}
               {createRecommendedListError && pendingRecommendation === null && (
@@ -673,7 +720,11 @@ export const OutreachAudienceStep = ({
         onOpenChange={(next) => {
           if (!next) setPendingRecommendation(null)
         }}
-        defaultName={pendingRecommendation?.copy.title ?? ''}
+        defaultName={
+          pendingRecommendation
+            ? savedRecommendedListName(pendingRecommendation)
+            : ''
+        }
         onSubmit={async (name) => {
           if (!pendingRecommendation) return
           await onCreateRecommendedList(pendingRecommendation, name)

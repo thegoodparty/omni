@@ -1,5 +1,6 @@
 import {
   PANEL_MIN_MEMBERS_FOR_BALANCE,
+  type CivicPanelComposition,
   type CivicPanelCompositionGroup,
   type CivicPanelCompositionPlace,
   type UnderrepresentedGroup,
@@ -379,6 +380,94 @@ export const sectorPath = (
     `A ${inner} ${inner} 0 ${large} 0 ${point(cx, cy, r0, a0)}`,
     'Z',
   ].join(' ')
+}
+
+export type ShortGroup =
+  | {
+      kind: 'group'
+      key: string
+      group: UnderrepresentedGroup
+      have: number
+      need: number
+    }
+  | { kind: 'place'; key: string; place: SeatPlace; have: number; need: number }
+
+// Every group with fewer seats than its share of the district, furthest
+// behind first, in the hero's seats: an age, gender or race group's share
+// of the 100 seats beside the seats its members fill, and a place's seats
+// beside the ones filled.
+export const shortGroups = ({
+  composition,
+  members,
+  goal,
+}: {
+  composition: CivicPanelComposition
+  members: number
+  goal: number
+}): ShortGroup[] => {
+  const fill = members / Math.max(1, goal)
+  const groups: ShortGroup[] = composition.groups.map((g) => ({
+    kind: 'group',
+    key: g.group,
+    group: g.group,
+    have: Math.round(g.memberShare * fill * SEAT_COUNT),
+    need: Math.round(g.districtShare * SEAT_COUNT),
+  }))
+  const places: ShortGroup[] =
+    composition.places.length > 0
+      ? buildSeats({
+          places: composition.places,
+          members,
+          goal,
+          cx: 0,
+          cy: 0,
+        }).places.map((place) => ({
+          kind: 'place',
+          key: place.key,
+          place,
+          have: place.filled,
+          need: place.count,
+        }))
+      : []
+  return [...groups, ...places]
+    .filter((row) => row.need > 0 && row.have < row.need)
+    .sort((a, b) => a.have / a.need - b.have / b.need || b.need - a.need)
+}
+
+// The arc with no places to split it by: the seats filled in order, in
+// bands of the brand's three families so neighbors differ.
+const PLAIN_BAND = 9
+export const plainSeats = (members: number, goal: number): SeatChart => {
+  const filled = Math.min(
+    SEAT_COUNT,
+    Math.round((members / Math.max(1, goal)) * SEAT_COUNT),
+  )
+  const places: SeatPlace[] = SEAT_HUES.map((hue) => ({
+    key: hue,
+    name: hue,
+    count: 0,
+    filled: 0,
+    empty: 0,
+    progress: 0,
+    behind: false,
+    hue,
+    angle: 0,
+  }))
+  const seats = seatSpots(0, 0).map((spot, i) => ({
+    x: spot.x,
+    y: spot.y,
+    place: Math.floor(i / PLAIN_BAND) % SEAT_HUES.length,
+    filled: i < filled,
+    tint: seatTint(i),
+  }))
+  return {
+    seats,
+    places,
+    filled,
+    stage: filled >= SEAT_COUNT ? 'full' : 'building',
+    behind: [],
+    mostEmpty: [],
+  }
 }
 
 export type MilestoneState = 'done' | 'next' | 'upcoming'

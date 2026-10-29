@@ -49,3 +49,60 @@ export const Variants: Story = {
     </div>
   ),
 }
+
+const LONG_TITLE =
+  'Your text message to 1,284 voters in Ward 3 was scheduled for tomorrow at 10:00 AM'
+const LONG_DESCRIPTION =
+  'We will send it once your campaign phone number is verified. You can change the time or the message until it goes out.'
+
+export const LongText: Story = {
+  parameters: { controls: { disable: true } },
+  render: () => (
+    <div className="flex flex-col items-start gap-3">
+      <Button onClick={() => toast.success(LONG_TITLE)}>Long title</Button>
+      <Button
+        onClick={() =>
+          toast.success(LONG_TITLE, { description: LONG_DESCRIPTION })
+        }
+        variant="secondary"
+      >
+        Long title and description
+      </Button>
+      <Button
+        onClick={() =>
+          toast.error(LONG_TITLE, {
+            description: LONG_DESCRIPTION,
+            action: { label: 'View schedule', onClick: () => {} },
+          })
+        }
+        variant="destructive"
+      >
+        Long text with action
+      </Button>
+      <Toaster position="bottom-center" />
+    </div>
+  ),
+}
+
+export const LongTextAboveChatBar: Story = {
+  parameters: { controls: { disable: true } },
+  render: () => (
+    <div className="flex flex-col items-start gap-3">
+      <Button
+        onClick={() =>
+          toast.error(LONG_TITLE, {
+            description: LONG_DESCRIPTION,
+            action: { label: 'View schedule', onClick: () => {} },
+          })
+        }
+      >
+        Long text above chat bar
+      </Button>
+      <Toaster
+        position="bottom-center"
+        offset={{ bottom: '6rem' }}
+        mobileOffset={{ bottom: '6rem' }}
+      />
+    </div>
+  ),
+}

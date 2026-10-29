@@ -30,6 +30,7 @@ import { PinoLogger } from 'nestjs-pino'
 import { CampaignTcrComplianceService } from '../../campaigns/tcrCompliance/services/campaignTcrCompliance.service'
 import { RaceOpponentService } from '../../raceOpponent/services/raceOpponent.service'
 import { OutreachRobocallWebhookService } from '../../outreach/services/outreachRobocallWebhook.service'
+import { PaymentHoldsService } from '../../paymentHolds/services/paymentHolds.service'
 import { StripeService } from '../../vendors/stripe/services/stripe.service'
 
 const STRIPE_WEBHOOKS_NOT_CONFIGURED_MESSAGE =
@@ -140,6 +141,10 @@ export class PaymentEventsService {
     return this.moduleRef.get(OutreachRobocallWebhookService, { strict: false })
   }
 
+  private paymentHoldsService(): PaymentHoldsService {
+    return this.moduleRef.get(PaymentHoldsService, { strict: false })
+  }
+
   // payment_method.detached: a candidate removed a saved card. Cancel any
   // robocall run bound to it that has NOT dialed and release its hold — never
   // leave an authorization standing against a revoked card, and never dial one.
@@ -150,6 +155,9 @@ export class PaymentEventsService {
     event: Stripe.PaymentMethodDetachedEvent,
   ): Promise<void> {
     await this.robocallWebhookService().cancelNotYetDialedForDetachedPaymentMethod(
+      event.data.object.id,
+    )
+    await this.paymentHoldsService().flagScheduledHoldsForDetachedCard(
       event.data.object.id,
     )
   }
@@ -170,6 +178,10 @@ export class PaymentEventsService {
       return
     }
     await this.robocallWebhookService().retryHoldFailedForAttachedCard(
+      customerId,
+      pm.id,
+    )
+    await this.paymentHoldsService().retryHoldFailedForAttachedCard(
       customerId,
       pm.id,
     )
@@ -194,6 +206,7 @@ export class PaymentEventsService {
       return
     }
     await this.robocallWebhookService().markDisputedByIntent(intentId)
+    await this.paymentHoldsService().markDisputedByIntent(intentId)
   }
 
   async customerSubscriptionCreatedHandler(

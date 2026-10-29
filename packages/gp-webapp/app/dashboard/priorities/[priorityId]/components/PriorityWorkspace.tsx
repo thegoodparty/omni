@@ -2,6 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { useQueryClient } from '@tanstack/react-query'
+import { useOrganization } from '@shared/organization-picker'
+import { managedCivicPanelQueryOptions } from '../../../contacts/citizens-panel/civicPanelSummary.query'
 import {
   Button,
   IconButton,
@@ -82,9 +85,8 @@ import {
 import { replayStatusMarkers, segmentKey } from '../data/statusReplay'
 import {
   STATUS_TOOL,
-  applyStatusUpdate,
   parseStatusToolResult,
-  parseStatusUpdate,
+  statusChanges,
   type StepChange,
 } from '../data/statusUpdates'
 import { priorityToolLabel } from '../data/toolLabels'
@@ -97,6 +99,13 @@ import {
 import { PriorityStatusRail } from './PriorityStatusRail'
 import { StatusChangeMarker } from './StatusChangeMarker'
 import { ReadStatusRailBlock, ReadStatusStrip } from './ReadStatus'
+import { CivicPanelStanding } from './CivicPanelStanding'
+import {
+  outreachProposedProperties,
+  readProperties,
+} from '../readStatusProperty'
+
+const OUTREACH_PROPOSAL_TOOL = 'present_outreach_proposal'
 
 // Hidden opener for a brand-new conversation, so the official arrives at a
 // thread that has already started rather than an empty box. Filtered out of
@@ -112,7 +121,7 @@ const KICKOFF =
 const GENERATING_LABELS: Record<string, string> = {
   [CLARIFY_TOOL]: 'Preparing your question...',
   present_outside_contact: 'Looking up who to contact...',
-  present_outreach_proposal: 'Building the outreach...',
+  [OUTREACH_PROPOSAL_TOOL]: 'Building the outreach...',
   present_constituents: 'Pulling the list...',
   present_contacts: 'Pulling the list...',
   present_past_outreach: "Checking what you've sent...",
@@ -214,6 +223,8 @@ const PriorityWorkspaceBody = ({
 }: PriorityWorkspaceProps): React.JSX.Element => {
   const router = useRouter()
   const { enabled: panelsOn } = useServeCitizenPanelsFlag()
+  const queryClient = useQueryClient()
+  const orgSlug = useOrganization()?.slug
   // Read once: the param is dropped from the address after the turn is
   // queued, so a reload never asks twice.
   const reportBackRef = useRef(reportBackOutreachId)
@@ -230,9 +241,9 @@ const PriorityWorkspaceBody = ({
     parsePriorityStatus(initialStatus),
   )
   const [nextAction, setNextAction] = useState<string | null>(initialNextAction)
-  // The live status, readable synchronously. Two status tool calls can land in
-  // one tick, and the second has to merge onto the first rather than onto the
-  // last rendered value.
+  // The live status, readable synchronously. Two status tool results can land
+  // in one tick, and the second's marker has to be measured from the first
+  // rather than from the last rendered value.
   const statusRef = useRef<PriorityStatus>(status)
   const commitStatus = useCallback(
     (next: PriorityStatus, action: string | null): void => {
@@ -259,20 +270,24 @@ const PriorityWorkspaceBody = ({
     analyticsLabel: 'priority-chat',
   })
 
-  // The rail's source of truth once a turn is over. Applied optimistically
-  // from the tool call, corrected by the tool result, and finally reconciled
-  // against what the server actually stored — so an interrupted turn cannot
-  // leave the rail claiming a move that was never written.
+  // The rail's source of truth once a turn is over. Moved by each status
+  // tool result as it lands, then reconciled against what the server actually
+  // stored, which also catches anything written outside the turn (a send
+  // putting a check out).
   const reconcile = useCallback(async (): Promise<void> => {
     if (panelsOn) {
       void fetchPriorityReadStatus(priorityId).then((read) => {
         if (read) setReadStatus(read)
       })
+      // Residents join the civic panel while the official is here.
+      void queryClient.invalidateQueries({
+        queryKey: managedCivicPanelQueryOptions(orgSlug).queryKey,
+      })
     }
     const persisted = await fetchPriorityStatus(priorityId)
     if (!persisted) return
     commitStatus(persisted.status, persisted.nextAction)
-  }, [priorityId, commitStatus, panelsOn])
+  }, [priorityId, commitStatus, panelsOn, queryClient, orgSlug])
 
   const {
     messages,
@@ -317,30 +332,40 @@ const PriorityWorkspaceBody = ({
         setAfterFinding(FINDING_TOOLS.includes(event.toolName))
       }
       if (event.type === 'done') setStreamDone(true)
+      // The call is only what the agent asked for. The server can refuse it,
+      // so the rail and the marker wait for the result it stored.
       if (event.type === 'tool_call' && event.toolName === STATUS_TOOL) {
-        const update = parseStatusUpdate(event.args)
-        if (!update) return true
-        // The rail moves now, while the agent is still talking. That is most
-        // of the feel, and the tool result a beat later corrects any drift.
-        const applied = applyStatusUpdate(statusRef.current, update)
-        commitStatus(applied.status, applied.nextAction)
-        if (applied.changes.length > 0) {
+        return true
+      }
+      if (event.type === 'tool_result' && event.toolName === STATUS_TOOL) {
+        const settled = parseStatusToolResult(event.result)
+        if (!settled) return true
+        const changes = statusChanges(statusRef.current, settled.status)
+        commitStatus(settled.status, settled.nextAction)
+        if (changes.length > 0) {
           const at = textLength()
           setLiveWidgets((prev) => [
             ...prev,
             {
               key: `status-${event.toolCallId ?? prev.length}`,
-              instance: statusMarker(applied.changes),
+              instance: statusMarker(changes),
               appearAfter: at,
             },
           ])
         }
         return true
       }
-      if (event.type === 'tool_result' && event.toolName === STATUS_TOOL) {
-        const settled = parseStatusToolResult(event.result)
-        if (settled) commitStatus(settled.status, settled.nextAction)
-        return true
+      if (
+        event.type === 'tool_call' &&
+        event.toolName === OUTREACH_PROPOSAL_TOOL
+      ) {
+        const proposed = outreachProposedProperties(event.args)
+        if (proposed) {
+          trackEvent(EVENTS.Priorities.OutreachProposed, {
+            priorityId,
+            ...proposed,
+          })
+        }
       }
       if (event.type === 'tool_call' && priorityWidgets.has(event.toolName)) {
         const instance = priorityWidgets.resolve(
@@ -453,12 +478,16 @@ const PriorityWorkspaceBody = ({
     (source: 'strip' | 'rail'): void => {
       // A second click before the button disables would queue it twice.
       if (pendingSent.current.includes(GET_ANSWERS_MESSAGE)) return
-      trackEvent(EVENTS.Priorities.GetAnswersClicked, { priorityId, source })
+      trackEvent(EVENTS.Priorities.GetAnswersClicked, {
+        priorityId,
+        source,
+        ...readProperties(readStatus),
+      })
       pendingSent.current.push(GET_ANSWERS_MESSAGE)
       setGetAnswersQueued(true)
       setSentTick((tick) => tick + 1)
     },
-    [priorityId],
+    [priorityId, readStatus],
   )
 
   useEffect(() => {
@@ -490,6 +519,7 @@ const PriorityWorkspaceBody = ({
                 : 'direct',
           ...(openedReadRef.current
             ? {
+                readStatus: openedReadRef.current.good ? 'good' : 'waiting',
                 goodRead: openedReadRef.current.good,
                 answers: openedReadRef.current.answers,
                 answersFloor: openedReadRef.current.needed,
@@ -522,6 +552,7 @@ const PriorityWorkspaceBody = ({
           trackEvent(EVENTS.Priorities.GetAnswersClicked, {
             priorityId,
             source: 'results_page',
+            ...readProperties(openedReadRef.current),
           })
         }
         if (history.length === 0) {
@@ -647,11 +678,10 @@ const PriorityWorkspaceBody = ({
     return ids
   }, [messages])
 
-  const { scrollRef, onScroll } = usePinnedAutoScroll([
-    messages,
-    visibleSegments,
-    liveWidgets,
-  ])
+  const { scrollRef, onScroll } = usePinnedAutoScroll(
+    [messages, visibleSegments, liveWidgets],
+    { sending },
+  )
 
   const revealedTextLength = segmentsTextLength(visibleSegments)
   const blocks = liveTurnBlocks(
@@ -731,6 +761,9 @@ const PriorityWorkspaceBody = ({
             <SheetTitle>{RAIL_TITLE}</SheetTitle>
           </SheetHeader>
           <SheetBody>
+            {panelsOn && readStatus && !readStatus.good ? (
+              <CivicPanelStanding className="mb-4" />
+            ) : null}
             <PriorityStatusRail
               status={status}
               nextAction={nextAction}
@@ -917,6 +950,9 @@ const PriorityWorkspaceBody = ({
               onGetAnswers={() => requestAnswers('rail')}
               getAnswersDisabled={getAnswersDisabled}
             />
+            {readStatus.good ? null : (
+              <CivicPanelStanding className="border-b border-border pb-4" />
+            )}
             <h2 className="text-base font-semibold text-foreground">
               {RAIL_TITLE}
             </h2>

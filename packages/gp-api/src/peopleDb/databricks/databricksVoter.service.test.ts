@@ -14,6 +14,7 @@ import {
 } from '../schemas/people.schema'
 import { filtersSchema, type FilterData } from '../schemas/filters.schema'
 import { DatabricksVoterService } from './databricksVoter.service'
+import { buildVoterSelectSql } from '../voter.select'
 import type { DbxDistrict } from './databricksVoterSql.util'
 import {
   PeopleDbxStatementClient,
@@ -864,6 +865,29 @@ describe('DatabricksVoterService', () => {
       const person = await service.findPerson('voter-1', DISTRICT_ID, 'voters')
 
       expect(person.id).toBe('voter-1')
+    })
+
+    // buildPersonSql trails the named columns with L2's early/absentee flag.
+    it('marks the person voted when L2 reports an early or absentee vote', async () => {
+      const { columnNames } = buildVoterSelectSql()
+      const row: Array<string | null> = columnNames.map(() => null)
+      row[0] = 'voter-1'
+      query.mockResolvedValueOnce({ columns: [], rows: [[...row, 'true']] })
+
+      const person = await service.findPerson('voter-1', DISTRICT_ID, 'voters')
+
+      expect(person.voted).toBe(true)
+    })
+
+    it('leaves voted off when L2 has not reported the person', async () => {
+      const { columnNames } = buildVoterSelectSql()
+      const row: Array<string | null> = columnNames.map(() => null)
+      row[0] = 'voter-1'
+      query.mockResolvedValueOnce({ columns: [], rows: [[...row, 'false']] })
+
+      const person = await service.findPerson('voter-1', DISTRICT_ID, 'voters')
+
+      expect(person).not.toHaveProperty('voted')
     })
 
     // The webapp shows different copy for these two, so the distinction has to

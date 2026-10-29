@@ -2,9 +2,11 @@ import {
   joinGroupNames,
   READ_REPRESENTATIVENESS_LABELS,
   underrepresentedGroupName,
+  type ManagedCivicPanelStatus,
   type PriorityReadStatus,
   type UnderrepresentedGroup,
 } from '@goodparty_org/contracts'
+import { SERVE_CITIZENS_PANEL_COPY } from '../../contacts/citizens-panel/citizensPanelCopy'
 
 const NO_ONE_ASKED = 'No one asked yet'
 const FEW_MORE_OVERALL = 'Need a few more answers overall'
@@ -44,6 +46,19 @@ const shortLine = (read: PriorityReadStatus): string => {
     : `${still}, and a few more answers from ${groupList(read, few)}`
 }
 
+// The people toward a balanced read and the people it needs, for the seats
+// and the bar. A read served before the API counted them falls back to
+// everyone who answered, up to the total needed.
+export const representativeCount = (
+  read: PriorityReadStatus,
+): { have: number; need: number } => {
+  const need = read.representativeNeeded ?? read.needed
+  return {
+    have: Math.min(read.representativeAnswers ?? read.answers, need),
+    need,
+  }
+}
+
 // Shared by the priority page and its results page, so a read reads the
 // same everywhere it shows.
 export const READ_STATUS_COPY = {
@@ -64,8 +79,15 @@ export const READ_STATUS_COPY = {
     !read.followUpSent,
   seeWhatWeHeard: 'See what we heard',
   whatWeHeard: 'What we heard',
-  progress: (read: PriorityReadStatus): string =>
-    `${read.groupsHeard} of ${read.groupsTotal} groups heard`,
+  progress: (read: PriorityReadStatus): string => {
+    const { have, need } = representativeCount(read)
+    return `${have.toLocaleString()} of the ${need.toLocaleString()} answers we need`
+  },
+  legendHeard: 'Heard',
+  legendNeeded: 'Still needed',
+  // The groups holding the read back, for the results page's held card.
+  stillNeed: (read: PriorityReadStatus): string =>
+    `Still need: ${groupList(read, read.underrepresented)}.`,
   label: (read: PriorityReadStatus): string => {
     if (!read.good && !read.checkOut) return NO_ONE_ASKED
     return onlyTotalShort(read)
@@ -98,7 +120,7 @@ export const READ_STATUS_COPY = {
     }
     return read.status === 'gettingClose'
       ? "We'll show what we heard once we're sure what every group thinks."
-      : "We'll show what we heard once every group has enough answers."
+      : "We'll show what people said once every group has enough answers, so a few loud voices can't tip the read."
   },
   // A follow-up text paid for with the first: when it goes and to whom.
   followUp: (texts: number, date: string): string =>
@@ -115,13 +137,13 @@ export const GET_ANSWERS_PARAM = 'getAnswers'
 export const getAnswersHref = (priorityId: string): string =>
   `/dashboard/priorities/${encodeURIComponent(priorityId)}?${GET_ANSWERS_PARAM}=1`
 
-export const readPercent = (read: PriorityReadStatus): number =>
-  read.groupsTotal === 0
-    ? 0
-    : Math.min(100, Math.round((read.groupsHeard / read.groupsTotal) * 100))
+export const readPercent = (read: PriorityReadStatus): number => {
+  const { have, need } = representativeCount(read)
+  return Math.min(100, Math.round((have / need) * 100))
+}
 
-// The groups bar takes its status's tone, so a full bar before a good read
-// (every group heard, the model not sure yet) is never the success colour.
+// The bar takes its status's tone, so a full bar before a good read (every
+// answer in, the model not sure yet) is never the success colour.
 export const READ_PROGRESS_TONE: Record<PriorityReadStatus['status'], string> =
   {
     tooEarly:
@@ -140,4 +162,25 @@ export const READ_STATUS_DOT: Record<PriorityReadStatus['status'], string> = {
   gettingClose: 'bg-warning',
   representative: 'bg-primary',
   enoughAnswers: 'bg-primary',
+}
+
+// The civic panel GoodParty builds, under the read: the titles the civic
+// panel page leads with, and how many residents have joined.
+export const civicPanelStanding = (
+  status: Exclude<ManagedCivicPanelStatus, 'stopped'>,
+  members: number,
+  goal: number,
+): { title: string; line: string } => {
+  const hero = SERVE_CITIZENS_PANEL_COPY.hero
+  const joined = SERVE_CITIZENS_PANEL_COPY.joinedOfGoal(members, goal)
+  switch (status) {
+    case 'building':
+      return { title: hero.building.title, line: joined }
+    case 'paused':
+      return { title: hero.paused.title, line: joined }
+    case 'exhausted':
+      return { title: hero.exhausted.title, line: joined }
+    case 'ready':
+      return { title: hero.ready.title, line: hero.ready.line(members, goal) }
+  }
 }

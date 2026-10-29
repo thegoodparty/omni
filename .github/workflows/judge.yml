@@ -569,7 +569,7 @@ jobs:
                 # directory name reaches `--agents=` unchanged. Both are valid
                 # snake_case, so the allowlist below passes them through: a
                 # directory named `all` turns this one-agent request into the
-                # ~$831 sweep of every agent that every other guard in this file
+                # ~$835 sweep of every agent that every other guard in this file
                 # exists to prevent, and one named `auto` makes the CLI throw.
                 # Rejected here rather than filtered out, because silently
                 # judging nothing would hide a directory nobody can ever judge.
@@ -631,7 +631,7 @@ jobs:
       # on either branch. The base arm is likewise the PR's own base ref, not
       # `main`: the judge's whole claim is "better or worse than what this
       # branches from", and for a stacked PR that is not main.
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         if: steps.gate.outputs.skip != 'true' && steps.select.outputs.agents != ''
         with:
           ref: ${{ steps.gate.outputs.candidate_sha }}
@@ -766,7 +766,7 @@ jobs:
       # GUARD 3 of 3, and the first thing that happens on any path that could
       # spend: what this is about to cost, per agent, before a single model call.
       #
-      # An accidental `all` is the failure this exists for. It is roughly $831
+      # An accidental `all` is the failure this exists for. It is roughly $835
       # against single dollars for the normal one-agent case, and the difference
       # between those two is one word in a PR comment. So the number goes in
       # front of a person, in the job summary and on the PR, and the live sweep
@@ -1410,7 +1410,7 @@ jobs:
           || steps.cli.outputs.comment_path != ''
           || steps.estimate.outputs.comment_path != ''
           || steps.empty.outputs.comment_path != '')
-        uses: actions/github-script@v8
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         env:
           PR_NUMBER: ${{ inputs.pr_number }}
           COMMENT_PATH: >-
@@ -1659,7 +1659,7 @@ jobs:
             echo "gp-api will reach Databricks at $host"
           fi
 
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ needs.plan.outputs.candidate_sha }}
           # Full history and every branch, unlike `plan` above. The runners
@@ -1751,7 +1751,7 @@ jobs:
       - name: Get credentials for staging and dispatching
         id: judge_credentials
         continue-on-error: true
-        uses: aws-actions/configure-aws-credentials@v5
+        uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5
         with:
           role-to-assume: arn:aws:iam::333022194791:role/github-actions-judge-sweep
           role-session-name: judge-sweep-${{ github.run_id }}
@@ -2348,7 +2348,7 @@ jobs:
       # in the private bucket; the records stay out of artifacts.
       - name: Keep the report for the PR
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: judge-report
           path: ${{ runner.temp }}/judge-report/report.md
@@ -2445,13 +2445,13 @@ jobs:
     steps:
       - name: Fetch the report
         continue-on-error: true
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: judge-report
           path: ${{ runner.temp }}/judge-report
 
       - name: Post the verdict
-        uses: actions/github-script@v8
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         env:
           PR_NUMBER: ${{ inputs.pr_number }}
           SWEEP_RESULT: ${{ needs.sweep.result }}

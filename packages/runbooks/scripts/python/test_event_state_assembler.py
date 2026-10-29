@@ -30,7 +30,7 @@ def test_event_state_sql_reads_mart_analytics_catalog():
 def test_columns_lead_with_what_the_event_is_then_reality_then_governance():
     # DATA-2426: identity and meaning first, firing reality second, governance and
     # provenance last. `event_type` moves right because it duplicates `event` for 99.3%
-    # of rows. `where_it_fires` / `url` are headers here and filled by the anchor backfill.
+    # of rows. `where_it_fires` / `url` come from Govern, else the frozen anchor backfill.
     assert esa.COLUMNS == [
         "event", "description", "where_it_fires", "url",
         "status", "last_seen_date", "event_count_30d", "event_count", "first_seen_date",
@@ -488,8 +488,8 @@ def test_build_rows_anchor_columns_blank_when_the_block_has_no_anchor():
 
 
 def test_build_rows_falls_back_to_an_accepted_anchor_when_govern_is_blank():
-    # DATA-2426: nothing writes accepted anchors back to Govern yet, so without the
-    # fallback the two columns the sheet was reordered around are blank for every event.
+    # DATA-2426: the accepted backfill rows never reached Govern, so without the fallback
+    # those events lose the location they have.
     records = [_record("E", "active", gpmeta={"purpose": "p"})]
     anchors = {"E": {"fires_on": "Voter contacts list, Download button.",
                      "url": "/dashboard/contacts"}}

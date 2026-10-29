@@ -881,10 +881,26 @@ describe('OutreachPurchaseHandlerService', () => {
       campaignId: 111,
     }
 
+    it('stops after a refused duplicate: nothing recorded, redeemed or captured', async () => {
+      vi.mocked(
+        mockOutreachService.finalizeOutreachPurchase,
+      ).mockResolvedValueOnce('duplicate_refused')
+
+      await service.executePostPurchase('cs_live_dup', {
+        ...purchaseMetadata,
+        outreachId: 5,
+      })
+
+      expect(mockOutreachService.recordCheckoutSession).not.toHaveBeenCalled()
+      expect(mockOutreachService.markFreeTextsConsumed).not.toHaveBeenCalled()
+      expect(mockCampaignsService.redeemFreeTexts).not.toHaveBeenCalled()
+      expect(mockP2pSmsCapture.captureHold).not.toHaveBeenCalled()
+    })
+
     it('records a real checkout session on the row after finalize', async () => {
       vi.mocked(
         mockOutreachService.finalizeOutreachPurchase,
-      ).mockResolvedValueOnce(true)
+      ).mockResolvedValueOnce('finalized')
       vi.mocked(
         mockCampaignsService.checkFreeTextsEligibility,
       ).mockResolvedValueOnce(false)
@@ -904,7 +920,7 @@ describe('OutreachPurchaseHandlerService', () => {
     it('records the zero-amount marker as a free purchase, not a session', async () => {
       vi.mocked(
         mockOutreachService.finalizeOutreachPurchase,
-      ).mockResolvedValueOnce(true)
+      ).mockResolvedValueOnce('finalized')
       vi.mocked(
         mockCampaignsService.checkFreeTextsEligibility,
       ).mockResolvedValueOnce(false)
@@ -925,7 +941,7 @@ describe('OutreachPurchaseHandlerService', () => {
     it('finalizes a string outreachId before redeeming free texts', async () => {
       vi.mocked(
         mockOutreachService.finalizeOutreachPurchase,
-      ).mockResolvedValueOnce(true)
+      ).mockResolvedValueOnce('finalized')
       vi.mocked(
         mockCampaignsService.checkFreeTextsEligibility,
       ).mockResolvedValueOnce(true)
@@ -961,7 +977,7 @@ describe('OutreachPurchaseHandlerService', () => {
     it('stamps the row consumed server-side before redeeming', async () => {
       vi.mocked(
         mockOutreachService.finalizeOutreachPurchase,
-      ).mockResolvedValueOnce(true)
+      ).mockResolvedValueOnce('finalized')
       vi.mocked(
         mockCampaignsService.checkFreeTextsEligibility,
       ).mockResolvedValueOnce(true)
@@ -992,7 +1008,7 @@ describe('OutreachPurchaseHandlerService', () => {
     it('skips redemption and surfaces the error when the stamp fails', async () => {
       vi.mocked(
         mockOutreachService.finalizeOutreachPurchase,
-      ).mockResolvedValueOnce(true)
+      ).mockResolvedValueOnce('finalized')
       vi.mocked(
         mockCampaignsService.checkFreeTextsEligibility,
       ).mockResolvedValueOnce(true)
@@ -1013,7 +1029,7 @@ describe('OutreachPurchaseHandlerService', () => {
     it('surfaces a redemption failure so the webhook retries', async () => {
       vi.mocked(
         mockOutreachService.finalizeOutreachPurchase,
-      ).mockResolvedValueOnce(true)
+      ).mockResolvedValueOnce('finalized')
       vi.mocked(
         mockCampaignsService.checkFreeTextsEligibility,
       ).mockResolvedValueOnce(true)
@@ -1035,7 +1051,7 @@ describe('OutreachPurchaseHandlerService', () => {
     it('skips redemption when the row cannot be stamped', async () => {
       vi.mocked(
         mockOutreachService.finalizeOutreachPurchase,
-      ).mockResolvedValueOnce(true)
+      ).mockResolvedValueOnce('finalized')
       vi.mocked(
         mockCampaignsService.checkFreeTextsEligibility,
       ).mockResolvedValueOnce(true)
@@ -1054,7 +1070,7 @@ describe('OutreachPurchaseHandlerService', () => {
     it('does not stamp consumption when no offer was redeemed', async () => {
       vi.mocked(
         mockOutreachService.finalizeOutreachPurchase,
-      ).mockResolvedValueOnce(true)
+      ).mockResolvedValueOnce('finalized')
       vi.mocked(
         mockCampaignsService.checkFreeTextsEligibility,
       ).mockResolvedValueOnce(false)
@@ -1449,7 +1465,7 @@ describe('OutreachPurchaseHandlerService', () => {
     it('flag ON: records the hold before finalizing a paid (cs_) session', async () => {
       vi.mocked(
         mockOutreachService.finalizeOutreachPurchase,
-      ).mockResolvedValueOnce(true)
+      ).mockResolvedValueOnce('finalized')
       vi.mocked(
         mockCampaignsService.checkFreeTextsEligibility,
       ).mockResolvedValueOnce(false)
@@ -1482,7 +1498,7 @@ describe('OutreachPurchaseHandlerService', () => {
     it('flag ON: fires the capture edge for a paid (cs_) hold session', async () => {
       vi.mocked(
         mockOutreachService.finalizeOutreachPurchase,
-      ).mockResolvedValueOnce(true)
+      ).mockResolvedValueOnce('finalized')
       vi.mocked(
         mockCampaignsService.checkFreeTextsEligibility,
       ).mockResolvedValueOnce(false)
@@ -1498,7 +1514,7 @@ describe('OutreachPurchaseHandlerService', () => {
     it('flag ON + paid session: passes the outreachId so redeemFreeTexts can stamp the winner atomically', async () => {
       vi.mocked(
         mockOutreachService.finalizeOutreachPurchase,
-      ).mockResolvedValueOnce(true)
+      ).mockResolvedValueOnce('finalized')
       vi.mocked(
         mockCampaignsService.checkFreeTextsEligibility,
       ).mockResolvedValueOnce(true)
@@ -1523,7 +1539,7 @@ describe('OutreachPurchaseHandlerService', () => {
     it('flag ON + free (non cs_) session: redeems without a winSmsHoldOutreachId', async () => {
       vi.mocked(
         mockOutreachService.finalizeOutreachPurchase,
-      ).mockResolvedValueOnce(true)
+      ).mockResolvedValueOnce('finalized')
       vi.mocked(
         mockCampaignsService.checkFreeTextsEligibility,
       ).mockResolvedValueOnce(true)
@@ -1551,7 +1567,7 @@ describe('OutreachPurchaseHandlerService', () => {
       vi.mocked(mockP2pSmsHold.recordHold).mockResolvedValueOnce(false)
       vi.mocked(
         mockOutreachService.finalizeOutreachPurchase,
-      ).mockResolvedValueOnce(true)
+      ).mockResolvedValueOnce('finalized')
       vi.mocked(
         mockCampaignsService.checkFreeTextsEligibility,
       ).mockResolvedValueOnce(false)
@@ -1569,7 +1585,7 @@ describe('OutreachPurchaseHandlerService', () => {
     it('flag ON: places no hold and fires no capture on the zero-amount free path', async () => {
       vi.mocked(
         mockOutreachService.finalizeOutreachPurchase,
-      ).mockResolvedValueOnce(true)
+      ).mockResolvedValueOnce('finalized')
       vi.mocked(
         mockCampaignsService.checkFreeTextsEligibility,
       ).mockResolvedValueOnce(false)
@@ -1715,7 +1731,7 @@ describe('OutreachPurchaseHandlerService', () => {
     it("flag ON: links a pre-build draft's hold to its build, resolved the way it was priced", async () => {
       vi.mocked(
         mockOutreachService.finalizeOutreachPurchase,
-      ).mockResolvedValueOnce(true)
+      ).mockResolvedValueOnce('finalized')
       vi.mocked(
         mockCampaignsService.checkFreeTextsEligibility,
       ).mockResolvedValueOnce(false)
@@ -1743,7 +1759,7 @@ describe('OutreachPurchaseHandlerService', () => {
     it('flag ON: still records the hold, unlinked, when the draft cannot be found', async () => {
       vi.mocked(
         mockOutreachService.finalizeOutreachPurchase,
-      ).mockResolvedValueOnce(true)
+      ).mockResolvedValueOnce('finalized')
       vi.mocked(
         mockCampaignsService.checkFreeTextsEligibility,
       ).mockResolvedValueOnce(false)

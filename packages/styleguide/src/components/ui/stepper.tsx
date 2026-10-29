@@ -39,6 +39,14 @@ interface VerticalStepperProps {
 
 type StepperProps = BarStepperProps | VerticalStepperProps
 
+/**
+ * A flow is its own page with a URL per step, never a drawer or dialog
+ * (docs/product-design.md). Standalone flow routes get the bar, overline and
+ * Exit from FullScreenStepChrome.
+ *
+ * @summary Use to show where the user is in a multi-step flow: bars for short,
+ * uniform steps, the vertical variant when each step needs a label.
+ */
 function Stepper(props: StepperProps) {
   if (props.variant === 'vertical') {
     const { currentStep, labels, className } = props

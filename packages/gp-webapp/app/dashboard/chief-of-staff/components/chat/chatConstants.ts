@@ -1,7 +1,5 @@
-import {
-  BUILD_CITIZENS_PANEL_MESSAGE,
-  START_MANAGED_CIVIC_PANEL_MESSAGE,
-} from '@goodparty_org/contracts'
+import { START_MANAGED_CIVIC_PANEL_MESSAGE } from '@goodparty_org/contracts'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { humanizeToolName } from '../../../shared/agent-chat/toolLabels'
 /**
  * Hard-coded intro the Chief of Staff plays on first open (before any
@@ -23,6 +21,7 @@ export const COS_INTRO_MESSAGES: string[] = [
  * otherwise `onSelect` runs. `description` renders a secondary line beneath
  * the label. `combinable` cards are checkboxes that a Start button sends
  * together; a `writeIn` one opens a box for the user's own words once picked.
+ * `onPicked` runs for each combinable card a Start sends.
  */
 export type ChatSuggestion = {
   label: string
@@ -32,6 +31,7 @@ export type ChatSuggestion = {
   message?: string
   combinable?: boolean
   writeIn?: boolean
+  onPicked?: () => void
 }
 
 /**
@@ -66,6 +66,16 @@ export const NEXT_STEP_MESSAGES = {
  * undefined until the enrollment loads; the middle card waits out
  * `panelLoading` so it never shows one card and then swaps to another.
  */
+type NextStep =
+  | 'community_issues'
+  | 'managed_civic_panel'
+  | 'next_meeting'
+  | 'something_else'
+
+const trackNextStep = (nextStep: NextStep): void => {
+  void trackEvent(EVENTS.ChiefOfStaff.IntroductoryNextStepPicked, { nextStep })
+}
+
 export const buildChiefOfStaffNextSteps = ({
   panelsEnabled,
   managedSetUp,
@@ -77,6 +87,7 @@ export const buildChiefOfStaffNextSteps = ({
 }): ChatSuggestion[] => [
   {
     label: 'See what matters in your community',
+    onPicked: () => trackNextStep('community_issues'),
     description:
       'What residents are raising, and which issues to make a priority.',
     message: NEXT_STEP_MESSAGES.priorities,
@@ -93,6 +104,7 @@ export const buildChiefOfStaffNextSteps = ({
                 'early access.',
               kickoff: START_MANAGED_CIVIC_PANEL_MESSAGE,
               combinable: true,
+              onPicked: () => trackNextStep('managed_civic_panel'),
             }
           : {
               label: 'Hear from your constituents',
@@ -103,6 +115,7 @@ export const buildChiefOfStaffNextSteps = ({
       ]),
   {
     label: 'Get ready for your next meeting',
+    onPicked: () => trackNextStep('next_meeting'),
     description: 'Walk in knowing what is on the agenda and what to ask.',
     message: NEXT_STEP_MESSAGES.meeting,
     combinable: true,
@@ -110,25 +123,11 @@ export const buildChiefOfStaffNextSteps = ({
   {
     label: 'Something else',
     description: 'Or write your own.',
+    onPicked: () => trackNextStep('something_else'),
     combinable: true,
     writeIn: true,
   },
 ]
-
-/**
- * The step under the answer to What's a civic panel?, matching how the reply
- * ends: build one in this chat with no members, grow it with some, so the
- * explainer never dead-ends. No card until the summary loads.
- */
-export const civicPanelExplainNextStep = (
-  panelMembers: number | undefined,
-): ChatSuggestion | undefined =>
-  panelMembers === undefined
-    ? undefined
-    : {
-        label: panelMembers === 0 ? 'Build my panel' : 'Grow your civic panel',
-        kickoff: BUILD_CITIZENS_PANEL_MESSAGE,
-      }
 
 /**
  * gp-api's saved-filter write tool (ENG-10736). A `tool_result` for it means
@@ -154,8 +153,11 @@ const TOOL_DISPLAY_NAMES: Record<string, string> = {
   count_contacts: 'Counting matches',
   list_precincts: 'Looking up precincts',
   [SAVED_FILTERS_TOOL]: 'Working on your lists',
-  save_panel_weekly_time: 'Making your panel plan',
+  explain_managed_panel: 'Explaining your civic panel',
+  offer_managed_panel_invite: 'Getting your civic panel invite',
+  present_managed_panel_invite: 'Getting your civic panel invite',
   read_managed_panel: 'Checking your civic panel',
+  present_managed_panel: 'Checking your civic panel',
   constituent_data: 'Reviewing district data',
   query_constituent_data: 'Reviewing district data',
   describe_constituent_data: 'Reviewing district data',

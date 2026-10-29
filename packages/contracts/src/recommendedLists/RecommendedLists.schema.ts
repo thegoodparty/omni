@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { SupportStatusRollupSchema } from '../people/Person.schema'
+import { VotedStatusSchema } from '../generated/enums'
 
 // The channel picked first in the outreach flow. Door knocking's own purpose
 // step (its native create flow's "purpose" stage) reads the same
@@ -32,7 +33,9 @@ export const RecommendedListIntentSchema = z.enum(
 )
 export type RecommendedListIntent = z.infer<typeof RecommendedListIntentSchema>
 
-// The 13 recommended universes, grouped by intent in display order.
+// The 14 recommended universes, grouped by intent in display order. The last
+// is the free election-eve robocall offer, which gp-api only ever hands to
+// a campaign enrolled in it (see ROBOCALL_FREE_OFFER_VARIANT).
 export const RECOMMENDED_LIST_VARIANT_VALUES = [
   'introNeverIded',
   'persuadeAffinity',
@@ -47,6 +50,7 @@ export const RECOMMENDED_LIST_VARIANT_VALUES = [
   'electionDaySupporters',
   'electionDayAffinity',
   'electionDayIdeology',
+  'freeOfferElectionEveRobocall',
 ] as const
 export const RecommendedListVariantSchema = z.enum(
   RECOMMENDED_LIST_VARIANT_VALUES,
@@ -78,6 +82,7 @@ export const RECOMMENDED_LIST_VARIANT_INTENT: Record<
   electionDaySupporters: 'electionDay',
   electionDayAffinity: 'electionDay',
   electionDayIdeology: 'electionDay',
+  freeOfferElectionEveRobocall: 'electionDay',
 }
 
 // The unsaved `VoterFileFilter` shape a recommendation carries. Only the
@@ -94,6 +99,9 @@ export const RecommendedListFilterSchema = z
   .object({
     voterStatus: z.array(z.string()).optional(),
     supportStatus: z.array(SupportStatusRollupSchema).optional(),
+    // Every variant but the event invites leaves out voters who have already
+    // voted this election ("Voted in election: Unknown").
+    votedStatus: z.array(VotedStatusSchema).optional(),
     independentAffinity: z.boolean().optional(),
     // The early-vote variants' screen: Early_Vote_Status Very likely or
     // Likely, as the same two booleans a saved list stores.
@@ -106,7 +114,8 @@ export const RecommendedListFilterSchema = z
     hasLandline: z.boolean().optional(),
     hasAnyPhone: z.boolean().optional(),
     // `county|precinct` pairs (encodePrecinctPair), set only for a
-    // door-knocking variant that survived on its precinct-restricted count.
+    // door-knocking variant that survived on its precinct-restricted count,
+    // and for the free robocall offer (the campaign's treatment precincts).
     precincts: z.array(z.string()).optional(),
   })
   .strict()

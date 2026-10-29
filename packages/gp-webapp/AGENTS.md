@@ -37,7 +37,7 @@ npm run test -w packages/gp-webapp                                              
 
 ## Architecture
 
-Next.js 16 App Router (Turbopack) deployed on Vercel. Calls gp-api (NestJS backend on ECS) and election-api for data. Full overview: `docs/architecture.md`.
+Next.js 16 App Router (Turbopack) deployed on Vercel. Calls gp-api (NestJS backend on ECS) for data. Full overview: `docs/architecture.md`.
 
 ### Deployment
 
@@ -49,7 +49,7 @@ Single trunk: `main` is the one long-lived branch and the default branch; all PR
 
 ### Environment Config
 
-`appEnv.ts` exports all env-derived constants: `API_ROOT`, `ELECTION_API_ROOT`, `APP_BASE`, `APP_SHARE_BASE`, `IS_PROD`, `IS_LOCAL`, etc. Defaults point to dev API when env vars are unset.
+`appEnv.ts` exports all env-derived constants: `API_ROOT`, `APP_BASE`, `APP_SHARE_BASE`, `IS_PROD`, `IS_LOCAL`, etc. Defaults point to dev API when env vars are unset.
 
 **`APP_BASE` vs `APP_SHARE_BASE`.** In prod they are different hosts. `APP_BASE` is the marketing origin (`goodparty.org`) — correct for canonical/OG metadata (`metadataBase`), and nothing else. `APP_SHARE_BASE` is the origin this app is served from (`app.goodparty.org`), and is what any link back into our own routes must use — the marketing host is a separate deployment that does not serve them. This matters most for `/api/v1/*` URLs, which only `middleware.ts` on the app origin proxies to gp-api.
 
@@ -58,6 +58,8 @@ Single trunk: `main` is the one long-lived branch and the default branch; all PR
 ## Testing
 
 Vitest + React Testing Library + jsdom. Test globals enabled (no imports needed for `describe`, `it`, `expect`, `vi`).
+
+Most files run in the `vm` project (`pool: 'vmForks'`): a fresh jsdom and module graph per file, inside a long-lived worker, which is what keeps per-file overhead low. There the global object is jsdom's own window, so `window.location` and `document` cannot be redefined. `vitest.config.ts` sends any file that does `Object.defineProperty(window, 'location' | 'document', ...)` or `vi.stubGlobal('location' | 'document', ...)` to the `forks` project, where they can be. Node globals that jsdom's window lacks (web streams, `PerformanceObserver`) are added in `vitest.vm-globals.ts`.
 
 After refactoring a component, run `npm run test` locally and update any tests that reference old selectors (e.g. library-specific CSS classes like `.Mui-error`), old copy, or old component APIs before pushing. Do not rely on CI to catch these — fix them first.
 
@@ -103,6 +105,7 @@ Other patterns (`mockOrdered`, dynamic handlers): `docs/testing.md`.
 - **Never** push to `main` directly — open a PR.
 - **Ask first** before adding new utilities to `helpers/` (it is already a 50+ file dumping ground; check whether the helper exists). See `gpApi/AGENTS.md` for fetch-helper rules.
 - **Deploys** are automatic via Vercel on push to `main` (dev); prod is reached only via the release train (`release.yml`). There is no manual deploy command.
+- **Never** add a tracker, analytics call or third-party script that runs on `/email/*`. `app/layout.tsx` renders those pages without them because their URLs carry a token that holds the recipient's address (`docs/adr/2026-10-29-email-public-pages-render-without-trackers.md`).
 
 ## Navigation
 
@@ -146,6 +149,13 @@ When the active step or view changes in a multi-step flow, always reset scroll p
 ## Styleguide
 
 The design system is the `@goodparty_org/styleguide` package (in `packages/styleguide`), consumed here via the `@styleguide` alias and `transpilePackages: ['@goodparty_org/styleguide']` in `tsconfig.json`. All component, token, and icon authoring happens in the package, not in an in-app folder.
+
+Before building UI, read two files:
+
+- **`packages/styleguide/COMPONENTS.md`**: every component and when to use it. Pick from it before you write markup.
+- **`docs/design-memory/learned.md`**: design rules earned from real corrections (no overlines, borders not shadows, 16px body text, one badge per card, and more). Designers' sessions follow it, so build to it too.
+
+`npm run check:design-system` fails when a change adds a raw `<button>`, `<input>`, `<select>` or `<textarea>`, a hex color class like `bg-[#2563eb]`, or a file importing straight from `lucide-react`. Existing uses are grandfathered at their count. When you remove some, lower the baseline in `scripts/check-design-system-count.mjs`.
 
 ### Components
 

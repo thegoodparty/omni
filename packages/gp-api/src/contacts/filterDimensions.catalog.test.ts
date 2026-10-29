@@ -37,6 +37,9 @@ const EXCLUDED_SCHEMA_FIELDS = new Set([
   // the Homeowner/Renter/Unknown collapse (ENG-10947), but no longer
   // offered as its own catalog option.
   'homeownerLikely',
+  // The managed civic panel's wave draw criteria: set by gp-api, never
+  // offered for an official or the assistant to pick.
+  'civicPanelNeverInvited',
 ])
 
 const valueKeysOf = (key: string): string[] => {
@@ -221,6 +224,7 @@ describe('ContactsService.getFilterDimensions', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
       createMockLogger() as unknown as PinoLogger,
     )
 
@@ -294,6 +298,17 @@ describe('ContactsService.getFilterDimensions', () => {
     expect(serveKeys).not.toContain('earlyVote')
   })
 
+  it('labels Voted in election Yes and No/Unknown', () => {
+    const voted = buildService()
+      .getFilterDimensions(organization('win-campaign'), PANELS_ON)
+      .find((d) => d.key === 'votedStatus')
+    expect(voted?.kind).toBe('multi-value')
+    expect(
+      voted?.kind === 'multi-value' && voted.values.map((v) => v.label),
+    ).toEqual(['Yes', 'No/Unknown'])
+    expect(voted?.provenance).toBe('observed')
+  })
+
   // Each mode sees the shared dimensions plus only its own. Stated
   // symmetrically because both products now have exclusives — this used to
   // assert Win-minus-win-only === Serve outright, which held only while
@@ -363,6 +378,7 @@ describe('ContactsService.getFilterDimensions', () => {
 describe('ContactsService.getFilterDimensions: party by state', () => {
   const buildService = () =>
     new ContactsService(
+      {} as never,
       {} as never,
       {} as never,
       {} as never,

@@ -9,6 +9,7 @@ import type {
   RecommendedListIntent,
   RecommendedListVariant,
 } from '@goodparty_org/contracts'
+import { ROBOCALL_FREE_OFFER_VARIANT } from '@goodparty_org/contracts'
 import { clientRequest } from 'gpApi/typed-request'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { outreachChannel } from 'app/dashboard/outreach/util/outreachAnalytics'
@@ -84,6 +85,10 @@ interface UseOutreachAudienceParams {
   // card would. Whether that has happened lives here rather than in the
   // step, which unmounts between steps.
   preselectedRecommendedVariant?: RecommendedListVariant
+  // Robocall only, and only when gp-api says the campaign gets the free
+  // election-eve robocall: its list, fetched by variant for the step's
+  // "Free offer" section, apart from the purpose's own recommendations.
+  freeOfferEnabled?: boolean
   // An audience counted but not saved yet (a chat card's proposal). Opens the
   // builder already filled in, so the list is saved where it always is: when
   // the official confirms the audience and names it.
@@ -101,9 +106,6 @@ export type ProposedAudience = {
   // Kept to the parts of the district this priority's answers have barely
   // reached. gp-api draws the area when the list is saved.
   unreachedAreaOfPriorityId?: string
-  // A civic panel invite's audience: saved for the outreach and left out of
-  // the lists index, where the built-in Civic panel row is the panel's list.
-  civicPanelInvite?: true
 }
 
 export interface OutreachAudience {
@@ -240,6 +242,9 @@ export interface OutreachAudience {
   // The carried-in recommendation, once fetched for this channel, and
   // whether the audience step has applied it yet.
   preselectedRecommendation: RecommendedList | null
+  // The free robocall offer's list, when freeOfferEnabled and gp-api still
+  // serves it.
+  freeOfferRecommendation: RecommendedList | null
   preselectedRecommendationApplied: boolean
   markPreselectedRecommendationApplied: () => void
 }
@@ -252,6 +257,7 @@ export const useOutreachAudience = ({
   recommendedListIntent = null,
   preselectedListId,
   preselectedRecommendedVariant,
+  freeOfferEnabled = false,
   proposedAudience,
 }: UseOutreachAudienceParams): OutreachAudience => {
   const [mode, setMode] = useState<OutreachAudienceMode>('picker')
@@ -281,9 +287,6 @@ export const useOutreachAudience = ({
   const [builderSample, setBuilderSample] = useState<ListSample | undefined>()
   const [builderUnreachedArea, setBuilderUnreachedArea] = useState<
     string | undefined
-  >()
-  const [builderCivicPanelInvite, setBuilderCivicPanelInvite] = useState<
-    true | undefined
   >()
   // Which carried-in variant the audience step has already applied. Held
   // here and not in the step because the step unmounts between steps, and
@@ -376,6 +379,31 @@ export const useOutreachAudience = ({
     // Always refetch on open: whether the list exists yet can change
     // between opens, and recommendationsLoading holds the step until the
     // fresh copy lands (see below).
+    staleTime: 0,
+  })
+
+  // The free offer's list, cut for this channel. Same refetch-on-open rule as
+  // the carried-in copy: whether the list is saved yet decides what a tap on
+  // its card does.
+  const freeOfferQuery = useQuery({
+    queryKey: [
+      'outreach-audience-free-offer',
+      orgSlug,
+      reachabilityKey,
+      ROBOCALL_FREE_OFFER_VARIANT,
+    ],
+    queryFn: async () => {
+      const { data } = await clientRequest(
+        'GET /v1/campaigns/mine/recommended-lists',
+        {
+          channel: reachabilityKey,
+          variant: ROBOCALL_FREE_OFFER_VARIANT,
+        },
+      )
+      return data[0] ?? null
+    },
+    enabled: open && freeOfferEnabled && reachabilityKey === 'robocall',
+    refetchOnWindowFocus: false,
     staleTime: 0,
   })
 
@@ -559,8 +587,13 @@ export const useOutreachAudience = ({
         ? { supportStatus: builderSupportStatus }
         : {}),
       ...(builderPrecincts.length ? { precincts: builderPrecincts } : {}),
+      // Not a builder pill: a recommendation's "not yet voted" screen rides
+      // with the recommendation it came from, and goes when that does.
+      ...(recommendedMeta?.filter.votedStatus?.length
+        ? { votedStatus: recommendedMeta.filter.votedStatus }
+        : {}),
     }),
-    [builderFilters, builderSupportStatus, builderPrecincts],
+    [builderFilters, builderSupportStatus, builderPrecincts, recommendedMeta],
   )
   // Key the memo on the overlay's VALUE, not its identity, so a caller passing
   // an inline `{ hasLandline: true }` each render can't churn the payload and
@@ -603,7 +636,6 @@ export const useOutreachAudience = ({
           ...(builderSample
             ? { ...(countOverlay ?? {}), sample: builderSample }
             : {}),
-          ...(builderCivicPanelInvite && { civicPanelInvite: true }),
           ...(builderUnreachedArea && {
             unreachedAreaOfPriorityId: builderUnreachedArea,
           }),
@@ -647,7 +679,6 @@ export const useOutreachAudience = ({
     setBuilderName(proposed?.name ?? '')
     setBuilderSample(proposed?.sample)
     setBuilderUnreachedArea(proposed?.unreachedAreaOfPriorityId)
-    setBuilderCivicPanelInvite(proposed?.civicPanelInvite)
     setRecommendedMeta(null)
     resetCreateMutation()
   }, [resetCreateMutation])
@@ -660,7 +691,6 @@ export const useOutreachAudience = ({
     setBuilderName(proposed.name)
     setBuilderSample(proposed.sample)
     setBuilderUnreachedArea(proposed.unreachedAreaOfPriorityId)
-    setBuilderCivicPanelInvite(proposed.civicPanelInvite)
   }, [])
 
   const reset = useCallback(() => {
@@ -691,7 +721,6 @@ export const useOutreachAudience = ({
     setBuilderName('')
     setBuilderSample(undefined)
     setBuilderUnreachedArea(undefined)
-    setBuilderCivicPanelInvite(undefined)
     setRecommendedMeta(null)
     resetCreateMutation()
     // Seeded here rather than beside the flow's own open effect, which calls
@@ -789,6 +818,9 @@ export const useOutreachAudience = ({
     queryClient.invalidateQueries({
       queryKey: ['outreach-audience-preselected-recommendation', orgSlug],
     })
+    queryClient.invalidateQueries({
+      queryKey: ['outreach-audience-free-offer', orgSlug],
+    })
   }, [queryClient, orgSlug])
 
   // Seeds the builder from a recommendation, then POSTs the create with an
@@ -807,6 +839,7 @@ export const useOutreachAudience = ({
       const trimmed = name.trim()
       const filters = builderFiltersFromRecommendation(recommendation.filter)
       const supportStatus = recommendation.filter.supportStatus ?? []
+      const votedStatus = recommendation.filter.votedStatus ?? []
       const precincts = recommendation.filter.precincts ?? []
       setCreateRecommendedListPending(true)
       setCreateRecommendedListError(null)
@@ -818,6 +851,7 @@ export const useOutreachAudience = ({
             name: trimmed,
             ...transformVoterFileFiltersForBackend(filters),
             ...(supportStatus.length ? { supportStatus } : {}),
+            ...(votedStatus.length ? { votedStatus } : {}),
             ...(precincts.length ? { precincts } : {}),
             recommendedVariant: recommendation.variant,
             recommendedChannel: reachabilityKey,
@@ -1021,12 +1055,14 @@ export const useOutreachAudience = ({
     // applied during the refetch, it saved the same list a second time.
     recommendationsLoading:
       recommendationsQuery.isLoading ||
-      preselectedRecommendationQuery.isFetching,
+      preselectedRecommendationQuery.isFetching ||
+      freeOfferQuery.isFetching,
     recommendationsError: recommendationsQuery.isError,
     recommendedListsChannel: reachabilityKey,
     createRecommendedList,
     trackRecommendationReused,
     preselectedRecommendation: preselectedRecommendationQuery.data ?? null,
+    freeOfferRecommendation: freeOfferQuery.data ?? null,
     preselectedRecommendationApplied:
       preselectedRecommendedVariant !== undefined &&
       appliedPreselectedVariant === preselectedRecommendedVariant,

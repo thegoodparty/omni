@@ -128,6 +128,8 @@ const baseProps = {
   onFiltersChange: vi.fn(),
   precincts: [],
   onPrecinctsChange: vi.fn(),
+  votedStatus: [],
+  onVotedStatusChange: vi.fn(),
   precinctOptions: {
     options: [],
     truncated: false,
@@ -198,6 +200,7 @@ const savedTurf = {
   knockedDoorCount: 0,
   routeSeconds: 1860,
   priorityId: null,
+  purpose: null,
   completed: false,
   archivedAt: null,
   createdAt: new Date('2026-08-20T00:00:00Z'),
@@ -340,6 +343,36 @@ describe('CreateListFlow', () => {
     expect(bodies[0]).toMatchObject({
       name: 'Ward 1 evening',
       precincts: ['Laramie|14', 'Laramie|15'],
+    })
+  })
+
+  // Voted in election is an array beside the boolean draft, like precincts,
+  // so it reaches the created list only through the create body.
+  it('creates the list with the Voted in election selection', async () => {
+    const bodies: unknown[] = []
+    api.mock('POST /v1/voters/voter-file/filter', ({ body }) => {
+      bodies.push(body)
+      return { status: 200, data: { id: 79 } }
+    })
+    api.mock('POST /v1/door-knocking/turfs', () => ({
+      status: 200,
+      data: { ...savedTurf, id: 7, voterFileFilterId: 79 },
+    }))
+    const props = {
+      filters: { partyDemocrat: true },
+      votedStatus: ['unknown' as const],
+    }
+
+    const { rerender } = render(
+      <CreateListFlow {...baseProps} {...props} step="name" />,
+    )
+    advanceToDraw(rerender, props, 'Not yet voted')
+    fireEvent.click(screen.getByRole('button', { name: 'Create campaign' }))
+
+    await waitFor(() => expect(bodies).toHaveLength(1))
+    expect(bodies[0]).toMatchObject({
+      name: 'Not yet voted',
+      votedStatus: ['unknown'],
     })
   })
 
@@ -1993,6 +2026,25 @@ describe('CreateListFlow preselected list', () => {
     expectStep(2, 5)
   })
 
+  it('seeds the Voted in election pills from the carried list', async () => {
+    const onVotedStatusChange = vi.fn()
+    await renderAtWho({
+      savedLists: [
+        {
+          id: 9,
+          name: 'Not yet voted',
+          households: 1_240,
+          filters: { votedStatus: true },
+          votedStatus: ['unknown'],
+        },
+      ],
+      preselectedListId: 9,
+      onVotedStatusChange,
+    })
+
+    expect(onVotedStatusChange).toHaveBeenCalledWith(['unknown'])
+  })
+
   it('leaves the flow untouched with no list carried in', async () => {
     const onFiltersChange = vi.fn()
     await renderAtWho({ savedLists, onFiltersChange })
@@ -2075,20 +2127,20 @@ describe('CreateListFlow preselected list', () => {
     expect(audiencePicker()).not.toHaveTextContent('Super voters')
   })
 
-  // A civic panel plan's door step settles the purpose and its frozen list,
-  // so the flow goes straight on to the talking points, drafted for it.
-  it('lands a plan step on the talking points, with the list and the invite', async () => {
+  // A link that settles the purpose and its list goes straight on to the
+  // talking points, drafted for it.
+  it('lands a carried list and purpose on the talking points', async () => {
     const draftBodies: unknown[] = []
     api.mock('POST /v1/outreach/serve/door-knocking/draft', ({ body }) => {
       draftBodies.push(body)
-      return { status: 200, data: { draft: '• Ask them to join' } }
+      return { status: 200, data: { draft: '• Explain the vote' } }
     })
     const onStepChange = vi.fn()
     const props = {
       ...baseProps,
       savedLists,
       preselectedListId: 9,
-      initialPurpose: 'build_citizens_panel' as const,
+      initialPurpose: 'explain_decision' as const,
       onStepChange,
     }
 
@@ -2105,10 +2157,70 @@ describe('CreateListFlow preselected list', () => {
       </DoorKnockingSurfaceProvider>,
     )
     await waitFor(() => expect(draftBodies).toHaveLength(1))
-    expect(draftBodies[0]).toMatchObject({ purpose: 'build_citizens_panel' })
+    expect(draftBodies[0]).toMatchObject({ purpose: 'explain_decision' })
   })
 
-  it('stays on the who step with the invite when the plan list is not yours', async () => {
+  // A priority card's walk arrives with its goal and the check's question,
+  // so it lands on the talking points drafted from that question rather
+  // than on an empty goal picker.
+  it('lands a priority card on the talking points, with its goal and question', async () => {
+    const draftBodies: unknown[] = []
+    api.mock('POST /v1/outreach/serve/door-knocking/draft', ({ body }) => {
+      draftBodies.push(body)
+      return { status: 200, data: { draft: '\u2022 Ask about the drains' } }
+    })
+    const onStepChange = vi.fn()
+    const props = {
+      ...baseProps,
+      savedLists,
+      preselectedListId: 9,
+      initialPurpose: 'community_input' as const,
+      initialQuestion: 'Is flooding on your block the problem to fix first?',
+      onStepChange,
+    }
+
+    const { rerender } = render(
+      <DoorKnockingSurfaceProvider value={true}>
+        <CreateListFlow {...props} step="filters" />
+      </DoorKnockingSurfaceProvider>,
+    )
+
+    await waitFor(() => expect(onStepChange).toHaveBeenCalledWith('points'))
+    rerender(
+      <DoorKnockingSurfaceProvider value={true}>
+        <CreateListFlow {...props} step="points" />
+      </DoorKnockingSurfaceProvider>,
+    )
+    await waitFor(() => expect(draftBodies).toHaveLength(1))
+    expect(draftBodies[0]).toMatchObject({
+      purpose: 'community_input',
+      communityInputQuestion:
+        'Is flooding on your block the problem to fix first?',
+    })
+  })
+
+  // Without its question the goal still has to ask for one: a blank question
+  // is refused at the create.
+  it('asks the question when the goal arrives without one', async () => {
+    const onStepChange = vi.fn()
+    render(
+      <DoorKnockingSurfaceProvider value={true}>
+        <CreateListFlow
+          {...baseProps}
+          savedLists={savedLists}
+          preselectedListId={9}
+          initialPurpose="community_input"
+          onStepChange={onStepChange}
+          step="filters"
+        />
+      </DoorKnockingSurfaceProvider>,
+    )
+
+    expect(await screen.findByLabelText('The question')).toHaveValue('')
+    expect(onStepChange).not.toHaveBeenCalledWith('points')
+  })
+
+  it('stays on the who step when the carried list is not yours', async () => {
     const onStepChange = vi.fn()
     render(
       <DoorKnockingSurfaceProvider value={true}>
@@ -2116,7 +2228,7 @@ describe('CreateListFlow preselected list', () => {
           {...baseProps}
           savedLists={savedLists}
           preselectedListId={12_345}
-          initialPurpose="build_citizens_panel"
+          initialPurpose="explain_decision"
           onStepChange={onStepChange}
           step="filters"
         />

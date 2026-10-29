@@ -11,10 +11,12 @@ describe('PlacesService', () => {
   let service: PlacesService
   let findMany: ReturnType<typeof vi.fn>
   let queryRaw: ReturnType<typeof vi.fn>
+  let raceFindMany: ReturnType<typeof vi.fn>
 
   beforeEach(() => {
     findMany = vi.fn()
     queryRaw = vi.fn()
+    raceFindMany = vi.fn()
     service = new PlacesService()
     Object.defineProperty(service, '_electionDb', {
       value: {
@@ -22,6 +24,7 @@ describe('PlacesService', () => {
           place: {
             findMany,
           },
+          race: { findMany: raceFindMany },
           $queryRaw: queryRaw,
         },
       },
@@ -60,7 +63,7 @@ describe('PlacesService', () => {
     })
   })
 
-  describe('getPlaces dedupes races across categorized children', () => {
+  describe('getPlaces attaches merged races across categorized children', () => {
     type RaceLite = { id: string; slug: string; positionNames: string[] }
     type CategoryPlace = { slug: string; Races?: RaceLite[] }
     type CategorizedPlace = {
@@ -69,9 +72,28 @@ describe('PlacesService', () => {
       others?: CategoryPlace[]
     }
 
-    const duplicateRaces = (slug: string, positionName: string) => [
-      { id: `${slug}-1`, slug, positionNames: [positionName] },
-      { id: `${slug}-2`, slug, positionNames: [`${positionName} (Interim)`] },
+    // Postgres hands back one head per (place, slug) with names merged.
+    const heads = [
+      {
+        id: 'sheriff-1',
+        placeId: 'county-1',
+        positionNames: ['Sheriff', 'Sheriff (Interim)'],
+      },
+      {
+        id: 'judge-1',
+        placeId: 'district-1',
+        positionNames: ['Judge', 'Judge (Interim)'],
+      },
+      {
+        id: 'mayor-1',
+        placeId: 'other-1',
+        positionNames: ['Mayor', 'Mayor (Interim)'],
+      },
+    ]
+    const headRows = [
+      { id: 'sheriff-1', slug: 'sheriff' },
+      { id: 'judge-1', slug: 'judge' },
+      { id: 'mayor-1', slug: 'mayor' },
     ]
 
     const buildTree = () => [
@@ -81,27 +103,14 @@ describe('PlacesService', () => {
         slug: 'st',
         mtfcc: 'G4000',
         children: [
-          {
-            id: 'county-1',
-            name: 'County',
-            slug: 'st/county',
-            mtfcc: 'G4020',
-            Races: duplicateRaces('sheriff', 'Sheriff'),
-          },
+          { id: 'county-1', name: 'County', slug: 'st/county', mtfcc: 'G4020' },
           {
             id: 'district-1',
             name: 'District',
             slug: 'st/district',
             mtfcc: 'G5420',
-            Races: duplicateRaces('judge', 'Judge'),
           },
-          {
-            id: 'other-1',
-            name: 'City',
-            slug: 'st/city',
-            mtfcc: 'G4110',
-            Races: duplicateRaces('mayor', 'Mayor'),
-          },
+          { id: 'other-1', name: 'City', slug: 'st/city', mtfcc: 'G4110' },
         ],
       },
     ]
@@ -114,36 +123,71 @@ describe('PlacesService', () => {
       categorizeChildren: true,
     } as PlaceFilterDto
 
-    it('dedupes races under counties, districts, and others exactly once', async () => {
+    beforeEach(() => {
       findMany.mockResolvedValue(buildTree())
+      queryRaw.mockResolvedValue(heads)
+      raceFindMany.mockResolvedValue(headRows)
+    })
 
+    it('puts each place its own merged races, once', async () => {
       const [place] = (await service.getPlaces(
         filter,
       )) as unknown as CategorizedPlace[]
 
-      expect(place?.counties?.[0]?.Races).toHaveLength(1)
+      expect(place?.counties?.[0]?.Races).toEqual([
+        {
+          id: 'sheriff-1',
+          slug: 'sheriff',
+          positionNames: ['Sheriff', 'Sheriff (Interim)'],
+        },
+      ])
       expect(place?.districts?.[0]?.Races).toHaveLength(1)
-      expect(place?.others?.[0]?.Races).toHaveLength(1)
-
       expect(place?.others?.[0]?.Races?.[0]?.positionNames).toEqual([
         'Mayor',
         'Mayor (Interim)',
       ])
+      expect(place?.others).toHaveLength(1)
+      expect(place?.others?.[0]?.slug).toBe('st/city')
     })
 
-    it('processes each category once (counties are not merged with others)', async () => {
-      findMany.mockResolvedValue(buildTree())
+    it('does not load Races through the nested relation', async () => {
+      await service.getPlaces(filter)
+
+      const args = findMany.mock.calls[0]?.[0]
+      expect(JSON.stringify(args)).not.toContain('Races')
+      expect(raceFindMany.mock.calls[0]?.[0].omit).toEqual({
+        positionNames: true,
+      })
+    })
+
+    it('keeps races when raceColumns leaves out id', async () => {
+      raceFindMany.mockImplementation(
+        async (args: { select?: { id?: boolean } }) =>
+          args.select?.id ? headRows.map(({ id, slug }) => ({ id, slug })) : [],
+      )
+
+      const [place] = (await service.getPlaces({
+        ...filter,
+        raceColumns: 'slug',
+      } as PlaceFilterDto)) as unknown as CategorizedPlace[]
+
+      expect(place?.counties?.[0]?.Races).toEqual([
+        {
+          slug: 'sheriff',
+          positionNames: ['Sheriff', 'Sheriff (Interim)'],
+        },
+      ])
+    })
+
+    it('gives a place with no races an empty list', async () => {
+      queryRaw.mockResolvedValue([])
+      raceFindMany.mockResolvedValue([])
 
       const [place] = (await service.getPlaces(
         filter,
       )) as unknown as CategorizedPlace[]
 
-      expect(place?.counties?.[0]?.Races?.[0]?.positionNames).toEqual([
-        'Sheriff',
-        'Sheriff (Interim)',
-      ])
-      expect(place?.others).toHaveLength(1)
-      expect(place?.others?.[0]?.slug).toBe('st/city')
+      expect(place?.counties?.[0]?.Races).toEqual([])
     })
   })
 

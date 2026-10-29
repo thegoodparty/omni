@@ -268,10 +268,13 @@ export class OutreachRobocallService extends createPrismaBase(
     return { compliance, billableCount, amountInCents }
   }
 
-  // Resume: the candidate saved this robocall while they could not send and is
-  // Pro now, so the SAME spine + satellite become the payable draft. The
-  // satellite already holds the unique audioKey, so inserting instead would
-  // trip that constraint and abandon the recording the candidate approved.
+  // Resume: the SAME spine + satellite become the payable draft again, for two
+  // entry states. A saved `draft` (the candidate could not send and is Pro
+  // now), and a `hold_failed` row (the pay-time hold was declined and the
+  // candidate is re-picking a future date with a new card) — both are a real,
+  // already-approved recording being (re)scheduled, so both convert in place
+  // rather than inserting. The satellite already holds the unique audioKey, so
+  // inserting instead would trip that constraint and abandon the recording.
   private async convertDraft(
     campaign: Campaign,
     organization: Organization,
@@ -291,7 +294,11 @@ export class OutreachRobocallService extends createPrismaBase(
     if (!draft) {
       throw new NotFoundException('Robocall draft not found')
     }
-    if (draft.outreach.status !== OutreachStatus.draft) {
+    // A saved draft sits at spine `draft`; a declined hold sits at
+    // `pending_payment` with the satellite flagged `hold_failed`. Anything
+    // else (a live hold, a scheduled or cancelled run) is not re-enterable.
+    const isHoldFailed = draft.settleState === RobocallSettleState.hold_failed
+    if (draft.outreach.status !== OutreachStatus.draft && !isHoldFailed) {
       throw new ConflictException('This robocall is no longer a draft')
     }
 
@@ -300,11 +307,41 @@ export class OutreachRobocallService extends createPrismaBase(
 
     try {
       await this.client.$transaction(async (tx) => {
-        // The status transition is the claim: two resume submits both clear
-        // the read above, so a zero count here aborts the transaction before
-        // the satellite is repriced, rather than letting the last write win.
-        const claimed = await tx.outreach.updateMany({
-          where: { id: draftOutreachId, status: OutreachStatus.draft },
+        // The claim is a CAS on the satellite settle-state as read. A draft
+        // moves `draft → pending_payment`, so of two concurrent resume submits
+        // the loser counts 0 and aborts before the row is repriced. A declined
+        // hold STAYS `hold_failed` until a hold actually lands (authorize
+        // accepts it), so a candidate who reaches the pay step and leaves
+        // still sees "Payment failed" in history; two concurrent resends of it
+        // both write, last one wins, and authorize still places one hold. Not
+        // pinned to updatedAt: the daily reminder stamps the row, and that
+        // must not 409 a resend. A cancel that already landed fails this CAS
+        // (`cancelled`), and the cancel sweep pins ITS CAS to its own read
+        // updatedAt, so it can never take a row a resend just moved forward.
+        const claimed = await tx.outreachRobocall.updateMany({
+          where: {
+            outreachId: draftOutreachId,
+            settleState: draft.settleState,
+          },
+          data: {
+            // A resume can carry a re-recorded clip, and the compliance bind
+            // above was run against THIS key, so the row must point at it.
+            audioKey: input.audioKey,
+            callbackNumber: input.callbackNumber,
+            billableCount,
+            amountInCents,
+            compliancePassedAt: compliance.checkedAt,
+            complianceAudioEtag: compliance.audioEtag,
+            settleState: isHoldFailed
+              ? RobocallSettleState.hold_failed
+              : RobocallSettleState.pending_payment,
+          },
+        })
+        if (claimed.count === 0) {
+          throw new ConflictException('This draft was already scheduled')
+        }
+        await tx.outreach.update({
+          where: { id: draftOutreachId },
           data: {
             status: OutreachStatus.pending_payment,
             name: input.name,
@@ -321,23 +358,6 @@ export class OutreachRobocallService extends createPrismaBase(
             trackerTaskId: input.trackerTaskId,
           },
         })
-        if (claimed.count === 0) {
-          throw new ConflictException('This draft was already scheduled')
-        }
-        await tx.outreachRobocall.update({
-          where: { outreachId: draftOutreachId },
-          data: {
-            // A resume can carry a re-recorded clip, and the compliance bind
-            // above was run against THIS key, so the row must point at it.
-            audioKey: input.audioKey,
-            callbackNumber: input.callbackNumber,
-            billableCount,
-            amountInCents,
-            compliancePassedAt: compliance.checkedAt,
-            complianceAudioEtag: compliance.audioEtag,
-            settleState: RobocallSettleState.pending_payment,
-          },
-        })
       })
     } catch (err) {
       // The recording already belongs to another robocall (unique audio_key).
@@ -351,8 +371,10 @@ export class OutreachRobocallService extends createPrismaBase(
       throw err
     }
 
-    // The draft never emitted this — it had no schedule — so the conversion is
-    // where the candidate's Scheduled milestone fires, as a create does.
+    // A draft never emitted this (it had no schedule), so the conversion is
+    // where its Scheduled milestone fires. A hold_failed row already emitted
+    // at its original create; the deterministic messageId dedups the replay to
+    // one email, so re-emitting here is safe.
     await this.emitScheduled(campaign.userId, draftOutreachId)
 
     return {
@@ -360,12 +382,10 @@ export class OutreachRobocallService extends createPrismaBase(
       billableCount,
       amountInCents,
       numberFeeInCents: ROBOCALL_NUMBER_FEE_CENTS,
-      // A conversion prices the saved draft for the first time, so no code
-      // has been applied to it yet; the pay step's promo route adds one.
-      ...robocallPromoState(
-        { promoCode: null, promoDiscountInCents: null },
-        amountInCents,
-      ),
+      // A draft is priced for the first time (no code yet); a hold_failed
+      // resume re-reads any code the candidate had applied before the decline
+      // (it was never redeemed), re-priced against the fresh estimate.
+      ...robocallPromoState(draft, amountInCents),
     }
   }
 

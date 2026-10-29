@@ -121,12 +121,12 @@ jobs:
           set -euo pipefail
           # Per-service check workflows whose green-ness gates a deploy. None is
           # path-filtered, so each has a run for THIS SHA. gp-ai builds its
-          # images here; gp-api/election-api build inside the train's dev stage.
-          # contracts/styleguide/prototypes are omitted deliberately —
+          # images here; gp-api builds inside the train's dev stage.
+          # contracts/styleguide are omitted deliberately —
           # contracts is transitively covered (a service build fails if
-          # they do), and a broken styleguide/prototypes fails its own deploy
+          # it does), and a broken styleguide fails its own deploy
           # job in the train's dev stage.
-          REQUIRED="gp-api.yml election-api.yml gp-webapp.yml gp-admin.yml candidate-sites.yml publish-experiments.yml gp-ai.yml"
+          REQUIRED="gp-api.yml gp-webapp.yml gp-admin.yml candidate-sites.yml publish-experiments.yml gp-ai.yml"
           DEADLINE=$(( $(date +%s) + 60*60 ))
 
           # "<total> <succeeded> <running> <conclusions>" for one workflow at
@@ -256,7 +256,7 @@ jobs:
     env:
       IMAGE_URI: 333022194791.dkr.ecr.us-west-2.amazonaws.com/gp-api:${{ needs.await-checks.outputs.sha }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ needs.await-checks.outputs.sha }}
           persist-credentials: false
@@ -269,17 +269,17 @@ jobs:
           prisma-generate-script: generate:prisma:gp-api
           route-types: 'true'
       - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v5
+        uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5
         with:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
       - name: Login to Amazon ECR
-        uses: aws-actions/amazon-ecr-login@v2
+        uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd # v2
       # Base images come from ECR Public. Anonymous pulls there are limited
       # per IP and shared runners hit 429s; logged in, the limit is per
       # account.
       - name: Login to Amazon ECR Public
-        uses: aws-actions/amazon-ecr-login@v2
+        uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd # v2
         with:
           registry-type: public
       - name: Check for existing image
@@ -294,9 +294,26 @@ jobs:
       - name: Build application
         if: steps.ecr-image.outputs.exists != 'true'
         run: npm run build -w packages/gp-api
+      # setup-buildx pulls its builder image once and fails the job if that
+      # pull fails, which is what held prod on 2026-10-20 (release
+      # 39451429293: the public.ecr.aws token fetch hit "context deadline
+      # exceeded"). When its own pull fails, buildx falls back to a copy
+      # already in the local image store, so pulling it here first, with
+      # retries, turns that one-shot pull into three. A pull is idempotent.
+      - name: Pull the buildx builder image
+        if: steps.ecr-image.outputs.exists != 'true'
+        run: |
+          for attempt in 1 2 3; do
+            docker pull public.ecr.aws/vend/moby/buildkit:buildx-stable-1 && exit 0
+            if [ "$attempt" -lt 3 ]; then
+              echo "::warning::buildkit image pull attempt $attempt failed; retrying in $((attempt * 30))s"
+              sleep $((attempt * 30))
+            fi
+          done
+          echo "::warning::Could not pre-pull the buildkit image; setup-buildx will try once more itself."
       - name: Set up Docker Buildx
         if: steps.ecr-image.outputs.exists != 'true'
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
         with:
           driver-opts: |
             image=public.ecr.aws/vend/moby/buildkit:buildx-stable-1
@@ -320,7 +337,7 @@ jobs:
 
       - name: Build and push Docker image
         if: steps.ecr-image.outputs.exists != 'true'
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5
         with:
           context: .
           file: packages/gp-api/deploy/Dockerfile
@@ -338,67 +355,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
 
-  dev-election-api:
-    name: Dev election-api
-    needs: await-checks
-    if: >-
-      always() && needs.await-checks.result == 'success'
-      && needs.await-checks.outputs.force != 'true'
-    runs-on: ubuntu-latest
-    concurrency:
-      group: election-api-deploy-dev
-      cancel-in-progress: false
-    env:
-      IMAGE_URI: 333022194791.dkr.ecr.us-west-2.amazonaws.com/election-api:${{ needs.await-checks.outputs.sha }}
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          ref: ${{ needs.await-checks.outputs.sha }}
-          persist-credentials: false
-      - uses: ./.github/actions/setup-node-workspace
-        with:
-          app: election-api
-          workspace: packages/election-api
-          build-contracts: 'true'
-          build-nest-common: 'true'
-          prisma-generate-script: generate:prisma:election-api
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v5
-        with:
-          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-      - name: Login to Amazon ECR
-        uses: aws-actions/amazon-ecr-login@v2
-      # Base images come from ECR Public. Anonymous pulls there are limited
-      # per IP and shared runners hit 429s; logged in, the limit is per
-      # account.
-      - name: Login to Amazon ECR Public
-        uses: aws-actions/amazon-ecr-login@v2
-        with:
-          registry-type: public
-      - name: Check for existing image
-        id: ecr-image
-        run: |
-          if aws ecr describe-images --repository-name election-api \
-            --image-ids imageTag=${{ needs.await-checks.outputs.sha }} >/dev/null 2>&1; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
-          fi
-      - name: Build application
-        if: steps.ecr-image.outputs.exists != 'true'
-        run: npm run build -w packages/election-api
-      - name: Build and push Docker image
-        if: steps.ecr-image.outputs.exists != 'true'
-        run: |
-          docker build -t "${IMAGE_URI}" -f packages/election-api/deploy/Dockerfile .
-          docker push "${IMAGE_URI}"
-      - name: Deploy (Pulumi)
-        uses: ./.github/actions/pulumi-deploy
-        with:
-          working-directory: packages/election-api/deploy
-          command: ./deploy.sh dev
-
   dev-gp-webapp:
     name: Dev gp-webapp
     needs: await-checks
@@ -406,8 +362,17 @@ jobs:
       always() && needs.await-checks.result == 'success'
       && needs.await-checks.outputs.force != 'true'
     runs-on: ubuntu-latest
+    # The production environment, on a dev deploy too, because VERCEL_TOKEN is
+    # one token for every Vercel target: whatever holds it can deploy prod.
+    # deployment: false keeps these jobs out of the production deployment
+    # history, which finalize writes and post_release_summary.py reads as the
+    # record of what is in prod. No job in the environment assumes an AWS role,
+    # so none of them changes the OIDC subject a role trust sees.
+    environment:
+      name: production
+      deployment: false
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ needs.await-checks.outputs.sha }}
           persist-credentials: false
@@ -433,8 +398,11 @@ jobs:
       && needs.await-checks.outputs.force != 'true'
       && vars.VERCEL_PROJECT_ID_STYLEGUIDE != ''
     runs-on: ubuntu-latest
+    environment:
+      name: production
+      deployment: false
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ needs.await-checks.outputs.sha }}
           persist-credentials: false
@@ -457,8 +425,11 @@ jobs:
       always() && needs.await-checks.result == 'success'
       && needs.await-checks.outputs.force != 'true'
     runs-on: ubuntu-latest
+    environment:
+      name: production
+      deployment: false
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ needs.await-checks.outputs.sha }}
           persist-credentials: false
@@ -477,32 +448,6 @@ jobs:
           target: preview
           git-branch: main
 
-  dev-prototypes:
-    name: Dev prototypes
-    needs: await-checks
-    if: >-
-      always() && needs.await-checks.result == 'success'
-      && needs.await-checks.outputs.force != 'true'
-      && vars.VERCEL_PROJECT_ID_PROTOTYPES != ''
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          ref: ${{ needs.await-checks.outputs.sha }}
-          persist-credentials: false
-      - uses: ./.github/actions/setup-node-workspace
-        with:
-          app: prototypes
-      # prototypes is a single-environment public surface — deploy straight to
-      # its production target on every main push.
-      - name: Deploy to Vercel
-        uses: ./.github/actions/vercel-deploy
-        with:
-          vercel-token: ${{ secrets.VERCEL_TOKEN }}
-          vercel-org-id: ${{ vars.VERCEL_ORG_ID }}
-          vercel-project-id: ${{ vars.VERCEL_PROJECT_ID_PROTOTYPES }}
-          target: production
-
   dev-gp-ai:
     name: Dev gp-ai
     needs: await-checks
@@ -517,18 +462,18 @@ jobs:
       APPLY_DIR: /tmp/tfapply
       PLAN_DIR: /tmp/tfplans
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ needs.await-checks.outputs.sha }}
           persist-credentials: false
 
       - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v5
+        uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5
         with:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
         with:
           terraform_version: 1.15.8
           terraform_wrapper: false
@@ -710,14 +655,13 @@ jobs:
     # Barrier for the whole prod-bound batch: every service that gets promoted
     # must have deployed to dev first (verify-dev covers gp-api + gp-webapp).
     # A failure here skips the shards -> E2E goes red -> the prod stage is
-    # blocked, so prod is all-or-nothing across these services. prototypes and
-    # styleguide are single-env and not promoted, so their dev failures are not
-    # in this barrier and cannot block prod.
+    # blocked, so prod is all-or-nothing across these services. styleguide is
+    # single-env and not promoted, so its dev failures are not in this barrier
+    # and cannot block prod.
     needs:
       [
         await-checks,
         verify-dev,
-        dev-election-api,
         dev-candidate-sites,
         dev-gp-ai,
       ]
@@ -736,13 +680,13 @@ jobs:
       E2E_SHARD_TOTAL: ${{ strategy.job-total }}
       BASE_URL: https://dev.goodparty.org
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ needs.await-checks.outputs.sha }}
           persist-credentials: false
       # The @dev-only polls test drives the analyze pipeline and needs AWS; we
       # don't know which shard it lands in, so all shards configure OIDC creds.
-      - uses: aws-actions/configure-aws-credentials@v5
+      - uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5
         with:
           role-to-assume: arn:aws:iam::333022194791:role/web-app-e2e-tests
           aws-region: us-west-2
@@ -750,25 +694,34 @@ jobs:
         with:
           app: gp-webapp
       - name: Install Playwright browsers
-        working-directory: packages/gp-webapp/e2e-tests
-        # --with-deps runs apt, and a mirror that stops responding makes apt wait
-        # forever until the job is cancelled. Time out a stalled download rather
-        # than the whole install (the mirror can be slow and still finish), and
-        # wait for the dpkg lock so a retry does not fail on a leftover apt.
         timeout-minutes: 20
-        run: |
-          printf 'Acquire::http::Timeout "60";\nAcquire::https::Timeout "60";\nAcquire::Retries "5";\nDPkg::Lock::Timeout "300";\n' | sudo tee /etc/apt/apt.conf.d/99-ci-timeouts > /dev/null
-          for attempt in 1 2 3; do
-            npx playwright install --with-deps chromium && exit 0
-            echo "Playwright install attempt $attempt failed"
-          done
-          exit 1
+        uses: ./.github/actions/setup-playwright
+        with:
+          working-directory: packages/gp-webapp/e2e-tests
+      # Main's durations, recorded by the E2E job of an earlier train. A miss
+      # only degrades the plan to a count split.
+      - name: Restore test durations
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: packages/gp-webapp/e2e-tests/e2e-durations.json
+          key: e2e-durations-v1-${{ github.run_id }}
+          restore-keys: e2e-durations-v1-
+      # Balanced by duration, not Playwright's --shard count split; see the
+      # same step in gp-webapp.yml.
       - name: Run Playwright tests
         working-directory: packages/gp-webapp/e2e-tests
-        run: >-
-          npx playwright test --config="$PWD/playwright.config.ts" tests/
-          --shard=${{ matrix.shard }}/${{ strategy.job-total }} --reporter=blob
+        run: |
+          set -euo pipefail
+          npx playwright test --config="$PWD/playwright.config.ts" tests/ --list --reporter=json > "$RUNNER_TEMP/e2e-list.json"
+          node scripts/plan-shards.mjs plan "$RUNNER_TEMP/e2e-list.json" e2e-durations.json ${{ matrix.shard }} ${{ strategy.job-total }} > "$RUNNER_TEMP/e2e-shard.txt"
+          if [ ! -s "$RUNNER_TEMP/e2e-shard.txt" ]; then
+            echo "::notice::no tests planned for shard ${{ matrix.shard }}"
+            exit 0
+          fi
+          mapfile -t locations < "$RUNNER_TEMP/e2e-shard.txt"
+          npx playwright test --config="$PWD/playwright.config.ts" "${locations[@]}" --reporter=blob
         env:
+          PLAYWRIGHT_BLOB_OUTPUT_NAME: report-${{ matrix.shard }}.zip
           TEST_RUN_NAME: 'E2E Tests - dev'
           CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
           CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
@@ -782,7 +735,7 @@ jobs:
           PLAYWRIGHT_BLOB_OUTPUT_DIR: ${{ github.workspace }}/packages/gp-webapp/e2e-tests/blob-report
       - name: Upload shard blob report
         if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: e2e-blob-${{ matrix.shard }}
           path: packages/gp-webapp/e2e-tests/blob-report
@@ -802,24 +755,22 @@ jobs:
     env:
       BASE_URL: https://dev.goodparty.org
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ needs.await-checks.outputs.sha }}
           persist-credentials: false
-      - uses: aws-actions/configure-aws-credentials@v5
+          sparse-checkout: packages/gp-webapp/e2e-tests
+      - uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5
         with:
           role-to-assume: arn:aws:iam::333022194791:role/web-app-e2e-tests
           aws-region: us-west-2
-      - uses: ./.github/actions/setup-node-workspace
-        with:
-          app: gp-webapp
       - name: Download shard blob reports
         id: download-blobs
         continue-on-error: true
         if: >-
           needs.e2e-shard.result == 'success'
           || needs.e2e-shard.result == 'failure'
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: e2e-blob-*
           merge-multiple: true
@@ -842,7 +793,7 @@ jobs:
           steps.download-blobs.outcome == 'failure'
           && (needs.e2e-shard.result == 'success'
           || needs.e2e-shard.result == 'failure')
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: e2e-blob-*
           merge-multiple: true
@@ -855,13 +806,31 @@ jobs:
           needs.e2e-shard.result == 'success'
           || needs.e2e-shard.result == 'failure'
         working-directory: packages/gp-webapp/e2e-tests
-        run: >-
-          npx playwright merge-reports
-          --config="${{ github.workspace }}/packages/gp-webapp/e2e-tests/playwright.merge.config.ts"
-          "${{ github.workspace }}/packages/gp-webapp/e2e-tests/blob-report"
+        # npx at the lockfile's version, not a workspace install; see the same
+        # step in gp-webapp.yml.
+        run: |
+          version=$(jq -r '.packages["node_modules/@playwright/test"].version' "$GITHUB_WORKSPACE/package-lock.json")
+          npx --yes "@playwright/test@$version" merge-reports \
+            --config="${{ github.workspace }}/packages/gp-webapp/e2e-tests/playwright.merge.config.ts" \
+            "${{ github.workspace }}/packages/gp-webapp/e2e-tests/blob-report"
+      # Feeds the next run's shard plan, on main and every PR that has no
+      # durations of its own yet.
+      - name: Record test durations
+        id: durations
+        continue-on-error: true
+        if: hashFiles('packages/gp-webapp/e2e-tests/test-results/results.json') != ''
+        working-directory: packages/gp-webapp/e2e-tests
+        run: node scripts/plan-shards.mjs durations test-results/results.json > e2e-durations.json
+      - name: Save test durations
+        continue-on-error: true
+        if: steps.durations.outcome == 'success'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: packages/gp-webapp/e2e-tests/e2e-durations.json
+          key: e2e-durations-v1-${{ github.run_id }}-${{ github.run_attempt }}
       - name: Upload Playwright report
         if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: gp-webapp-playwright-report-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
@@ -994,7 +963,7 @@ jobs:
     env:
       IMAGE_URI: 333022194791.dkr.ecr.us-west-2.amazonaws.com/gp-api:${{ needs.await-checks.outputs.sha }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ needs.await-checks.outputs.sha }}
           persist-credentials: false
@@ -1007,7 +976,7 @@ jobs:
           prisma-generate-script: generate:prisma:gp-api
           route-types: 'true'
       - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v5
+        uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5
         with:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
@@ -1019,45 +988,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
 
-  prod-election-api:
-    name: Promote election-api
-    needs: [await-checks, e2e]
-    if: >-
-      always() && needs.await-checks.result == 'success'
-      && needs.await-checks.outputs.frozen != 'true'
-      && (needs.await-checks.outputs.force == 'true' || needs.e2e.result == 'success')
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write
-    concurrency:
-      group: election-api-deploy-prod
-      cancel-in-progress: false
-    env:
-      IMAGE_URI: 333022194791.dkr.ecr.us-west-2.amazonaws.com/election-api:${{ needs.await-checks.outputs.sha }}
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          ref: ${{ needs.await-checks.outputs.sha }}
-          persist-credentials: false
-      - uses: ./.github/actions/setup-node-workspace
-        with:
-          app: election-api
-          workspace: packages/election-api
-          build-contracts: 'true'
-          build-nest-common: 'true'
-          prisma-generate-script: generate:prisma:election-api
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v5
-        with:
-          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-      - name: Deploy (Pulumi)
-        uses: ./.github/actions/pulumi-deploy
-        with:
-          working-directory: packages/election-api/deploy
-          command: ./deploy.sh prod
-
   prod-gp-webapp:
     name: Promote gp-webapp
     needs: [await-checks, e2e]
@@ -1066,8 +996,11 @@ jobs:
       && needs.await-checks.outputs.frozen != 'true'
       && (needs.await-checks.outputs.force == 'true' || needs.e2e.result == 'success')
     runs-on: ubuntu-latest
+    environment:
+      name: production
+      deployment: false
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ needs.await-checks.outputs.sha }}
           persist-credentials: false
@@ -1091,8 +1024,11 @@ jobs:
       && needs.await-checks.outputs.frozen != 'true'
       && (needs.await-checks.outputs.force == 'true' || needs.e2e.result == 'success')
     runs-on: ubuntu-latest
+    environment:
+      name: production
+      deployment: false
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ needs.await-checks.outputs.sha }}
           persist-credentials: false
@@ -1116,8 +1052,11 @@ jobs:
       && needs.await-checks.outputs.frozen != 'true'
       && (needs.await-checks.outputs.force == 'true' || needs.e2e.result == 'success')
     runs-on: ubuntu-latest
+    environment:
+      name: production
+      deployment: false
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ needs.await-checks.outputs.sha }}
           persist-credentials: false
@@ -1144,18 +1083,18 @@ jobs:
       id-token: write
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ needs.await-checks.outputs.sha }}
       - name: Set up uv
-        uses: astral-sh/setup-uv@v3
+        uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39 # v3
         with:
           version: latest
       - name: Install runtime deps
         working-directory: packages/runbooks/scripts/python
         run: uv sync --frozen
       - name: Configure AWS via OIDC
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
         with:
           role-to-assume: arn:aws:iam::333022194791:role/github-actions-pulumi-deploy
           aws-region: ${{ env.AWS_REGION }}
@@ -1178,7 +1117,7 @@ jobs:
       deploy: ${{ steps.check.outputs.deploy }}
     steps:
       - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v5
+        uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5
         with:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
@@ -1229,18 +1168,18 @@ jobs:
       APPLY_DIR: /tmp/tfapply
       PLAN_DIR: /tmp/tfplans
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ needs.await-checks.outputs.sha }}
           persist-credentials: false
 
       - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v5
+        uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5
         with:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
         with:
           terraform_version: 1.15.8
           terraform_wrapper: false
@@ -1383,7 +1322,6 @@ jobs:
       [
         await-checks,
         prod-gp-api,
-        prod-election-api,
         prod-gp-webapp,
         prod-gp-admin,
         prod-candidate-sites,
@@ -1401,7 +1339,6 @@ jobs:
       needs.await-checks.result == 'success' &&
       needs.await-checks.outputs.frozen != 'true' &&
       needs.prod-gp-api.result == 'success' &&
-      needs.prod-election-api.result == 'success' &&
       needs.prod-gp-webapp.result == 'success' &&
       needs.prod-gp-admin.result == 'success' &&
       needs.prod-candidate-sites.result == 'success' &&

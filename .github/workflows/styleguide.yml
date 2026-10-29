@@ -22,7 +22,7 @@ jobs:
     name: Validate
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           persist-credentials: false
 
@@ -32,7 +32,7 @@ jobs:
 
       # styleguide has a strict tsconfig but no eslint config or lint/typecheck
       # npm script, so there was no type gate in CI. Run tsc --noEmit directly
-      # against the package's tsconfig (mirrors election-api's Typecheck step).
+      # against the package's tsconfig.
       # No Lint step: the package ships no eslint.config.* (see
       # lint-staged.config.js), so there is nothing to lint here.
       - name: Typecheck
@@ -41,3 +41,8 @@ jobs:
 
       - name: Test
         run: npm run test -w ${{ env.WORKSPACE }}
+
+      # COMPONENTS.md is how agents pick a component, so it must match the
+      # @summary tags in the source and every component must have one.
+      - name: Check components index
+        run: npm run check:components-doc -w ${{ env.WORKSPACE }}

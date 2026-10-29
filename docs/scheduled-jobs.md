@@ -113,6 +113,24 @@ Choose the stale window to comfortably exceed the longest _legitimate_ run. The
 6h daily window is sized for the meeting-briefings loop (batched with 20-minute
 sleeps). Don't reuse a long window for a short slot: 6h spans six hourly slots.
 
+## Lease a row for runs longer than a minute
+
+A minute `CronLockService` claim goes stale after 30 seconds, which is shorter
+than a job that runs for most of its minute. For a per-minute job that must have
+exactly one runner across replicas and keeps working for up to 50 seconds, take
+a lease on a single row instead. The email send sweep does this with
+`email_sweep_lease` (`src/emailOutreach/services/outreachEmailSendSweep.service.ts`):
+
+- **Take** with one `UPDATE ... WHERE expires_at < now() OR holder = $me`. Zero
+  rows updated means another replica holds it, so return.
+- **Renew** on every batch, and **release** in a `finally` by setting
+  `expires_at = now()`.
+- **Check for work first,** before taking the lease, so an idle minute costs one
+  query.
+
+The test database reset deletes every row, including the seeded lease row, so
+tests that touch the sweep insert it themselves.
+
 ## Vendor-cron gate
 
 Jobs that spend money or hit a vendor rate limit gate on `VENDOR_CRONS_ENABLED`
@@ -134,8 +152,8 @@ instead (`isAutomationEnabled()` in `meetingBriefings` / `ordinanceDispatch`);
 use whichever the surrounding feature already uses.
 
 Tests read the constant at import time, so a test cannot flip it with
-`vi.stubEnv`. Mock the module with `withVendorCronsGate` and call
-`disableVendorCrons()` (`shared/test-utils/vendorCronsGate.util.ts`).
+`vi.stubEnv`. Call `disableVendorCrons()`
+(`shared/test-utils/appEnvOverrides.ts`) for the rest of the test.
 
 ### Alerting and Slack-posting crons stay prod-only
 
@@ -233,3 +251,6 @@ public so run-job can call them synchronously, scoped to the caller's campaign.
       `communityIssues/services/communityIssueDispatch.service.test.ts` shows how
       callers fake the lock; `cron/services/cronLock.service.test.ts` covers the
       real Postgres race.
+- [ ] Tests call the job's method directly. `useTestService()` registers no
+      schedules, so the decorator never fires in a suite unless it opts in with
+      `useTestService({ scheduler: true })` (`packages/gp-api/docs/writing-tests.md`).

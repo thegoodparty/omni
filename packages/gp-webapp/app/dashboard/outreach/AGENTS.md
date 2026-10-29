@@ -18,6 +18,8 @@ change. `SERVE_PHONE_BANKING_AUDIENCE_COPY` in
 `v2/phone-banking/PhoneBankingFlow.tsx` is the shape. The history table's and drawer's own strings (titles, the name column, empty states, call results, archive errors) are `v2/outreachHistoryCopy.ts`. Full rule, the banned
 list, and the check that enforces it: **`docs/product-vocabulary.md`**.
 
+**Email** lives in `v2/email/` (see its `AGENTS.md`) and is reached at `/dashboard/outreach/email` behind `win-email-outreach`; the hub's Email tile navigates there.
+
 ## The outreach hub
 
 `page.tsx` (server component, fetches rows + compliance) renders
@@ -66,8 +68,7 @@ with the purpose and the list done behind it: every step in the stepper,
 Back to the list (picked in the picker) and then the purpose, Continue
 onward as usual. Where a flow opens is `v2/landingStep.ts`'s
 `outreachLandingStep`: the message when the audience is settled and so is
-the message, written or to be drafted for a settled purpose (a civic panel
-plan step: purpose and frozen list, the draft generating on arrival); the
+the message, written or to be drafted for a settled purpose; the
 audience step when only the message (or the purpose) is; otherwise the
 purpose. An event invite with no message still asks its details first. A
 card's message is always there, so a card whose
@@ -104,20 +105,12 @@ canceled because its draw found nobody says "Nobody left to text, so this was
 canceled. We'll refund it."
 
 `SmsFlow` also takes `initialPurpose`, which opens past the purpose picker on
-that purpose the way a carried recommendation does; the Serve hub passes it
-for its `?compose=text&purpose=build_citizens_panel` link
-(`constituent-outreach/AGENTS.md`), and a chat proposal card for its
-`purpose` (the Chief of Staff's panel invite). With `initialScript` too, the
-seeded words are kept on that purpose rather than opening on `custom`. On Serve, `build_citizens_panel` is
-offered only behind `serve-citizen-panels`, and picking it ticks the compose
-step's "Ask them to join your civic panel" and disables the box
-(`civicPanelAsk.locked`): a panel text is its ask, so every message it
-composes carries the JOIN line, and Continue holds while the line is
-missing. Serve phone banking and door
-knocking carry the same slug as "Invite to your civic panel"
-(`servePhoneBankingPurposes.ts`, `serveDoorKnockingPurposes.ts`), offered
-behind the same flag; its script or talking points are a short invite whose
-ask is the join question the caller or canvasser records.
+that purpose the way a carried recommendation does; a chat proposal card
+passes its `purpose`. With `initialScript` too, the seeded words are kept on
+that purpose rather than opening on `custom`. The civic panel invite
+(`build_citizens_panel`) is never offered in the purpose picker, on texts,
+phone banking or door knocking: the invite only goes out in the managed
+panel's waves, through the `managedInvite` mode below.
 
 `SmsFlow` also has a `managedInvite` mode (Serve only, `{ place, onSetUp }`)
 for the invite GoodParty texts in the official's name to build their civic
@@ -333,6 +326,27 @@ server-side) — EXCEPT on a milestone-2 resume, where review converted the
 candidate's saved `draft` row in place (`draftOutreachId`) and discarding its
 id would send the re-entry into a 409. Robocall runs the same shape through its own contract
 (`POST /v1/outreach/robocall` + the pay step's authorization hold).
+
+A robocall whose pay-time hold is DECLINED lands `pending_payment` on the spine
+and `hold_failed` on the satellite, and that row stays visible in history (the
+one `pending_payment` row the backend no longer hides). It carries a `robocall`
+block (`OutreachRobocallDetail` on the list row — `audioKey`, `callbackNumber`,
+`billableCount`, `settleState`), and `row.robocall?.settleState ===
+'hold_failed'` is how every surface flags it: `historyStatus.util.ts` labels it
+"Payment failed", and `OutreachDetailsDrawer` renders a payment-failed note plus
+an "Update card and resend" footer. That footer calls the same `onResumeDraft`
+path a saved draft's does, so the hub routes it into `RobocallFlow` as a resume.
+That footer is the ONLY way into it: the robocall tile and `?compose=robocall`
+resume `draft` rows only, so a payment-failed call never blocks starting a new
+one. The resume lands on the schedule step with its PAST send date dropped — the candidate must pick a fresh future date — then
+the pay step re-posts `POST /v1/outreach/robocall` with `draftOutreachId`, which
+`convertDraft` now accepts for a `hold_failed` row, re-deriving billing while
+the row stays `hold_failed` until a new authorization hold lands. A candidate
+who leaves the pay step unpaid still sees "Payment failed" and can resend
+again. A repeat decline shows the pay step's existing retry card. No re-record: the recording,
+script and caller-ID number are reused. The audience is too, unless the candidate
+presses Back from the schedule step, which reaches the audience step (and no
+further) so the resend can go to a different list, repriced server-side.
 
 The pay step's Stripe session comes from `CheckoutSessionProvider`
 (`app/dashboard/purchase/components/`). When gp-api refuses to create it, the

@@ -6,8 +6,6 @@ import {
   ChatScope,
 } from '../../../generated/prisma'
 import {
-  BUILD_CITIZENS_PANEL_MESSAGE,
-  EXPLAIN_CIVIC_PANEL_MESSAGE,
   MANAGED_CIVIC_PANEL_EXHAUSTED_MESSAGE,
   START_MANAGED_CIVIC_PANEL_MESSAGE,
   type ChatMessageFeedback as ChatMessageFeedbackDTO,
@@ -69,17 +67,12 @@ export interface SendMessageArgs {
   pagePath?: string
 }
 
-// The build card's hidden turns would title the conversation with their
+// The managed panel's hidden turns would title the conversation with their
 // markers, which the history list then shows the official.
-const BUILD_CITIZENS_PANEL_TITLE = 'Build your civic panel'
-const EXPLAIN_CIVIC_PANEL_TITLE = "What's a civic panel?"
 const START_MANAGED_CIVIC_PANEL_TITLE = 'Build my civic panel'
 const MANAGED_CIVIC_PANEL_EXHAUSTED_TITLE = 'Fill the rest of my civic panel'
 
 const toTitle = (message: string): string => {
-  if (message === BUILD_CITIZENS_PANEL_MESSAGE)
-    return BUILD_CITIZENS_PANEL_TITLE
-  if (message === EXPLAIN_CIVIC_PANEL_MESSAGE) return EXPLAIN_CIVIC_PANEL_TITLE
   if (message === START_MANAGED_CIVIC_PANEL_MESSAGE)
     return START_MANAGED_CIVIC_PANEL_TITLE
   if (message === MANAGED_CIVIC_PANEL_EXHAUSTED_MESSAGE)

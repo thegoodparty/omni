@@ -24,10 +24,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       # The check script lives in the ai-rules submodule, so it must be checked out.
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           submodules: true
           persist-credentials: false
 
       - name: Verify AGENTS.md is the source of truth
         run: bash ai-rules/scripts/agents-md-sync.sh --check
+
+      - name: Verify no AGENTS.md exceeds the 100 KB cap
+        run: bash scripts/check-agents-md-size.sh

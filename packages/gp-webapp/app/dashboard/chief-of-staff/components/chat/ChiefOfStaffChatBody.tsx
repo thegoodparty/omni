@@ -16,6 +16,7 @@ import {
   MANAGED_CIVIC_PANEL_BACKED_OUT_MESSAGE,
   MANAGED_CIVIC_PANEL_SET_UP_MESSAGE,
   pickedNextStepsMessage,
+  START_MANAGED_CIVIC_PANEL_MESSAGE,
 } from '@goodparty_org/contracts'
 import {
   ASSISTANT_BUBBLE,
@@ -46,6 +47,7 @@ import {
 import {
   clarifyWidgetTool,
   isQuestionTool,
+  MANAGED_PANEL_OFFER_TOOL,
   type ClarifyWidgetContext,
 } from '../../../shared/agent-chat/clarifyWidget'
 import {
@@ -70,11 +72,10 @@ import {
 } from './chatConstants'
 import ChatHistoryPopover from './ChatHistoryPopover'
 import {
-  civicPanelWidgetTools,
-  SAVE_PANEL_WEEKLY_TIME_TOOL,
-} from './civicPanelWidgets'
-import {
+  isManagedExplainerOffer,
+  managedExplainerChoice,
   managedPanelWidgetTools,
+  type ManagedExplainerSource,
   type ManagedPanelWidgetContext,
 } from './managedPanelWidgets'
 import { managedCivicPanelQueryOptions } from '../../../contacts/citizens-panel/civicPanelSummary.query'
@@ -292,7 +293,6 @@ const cosWidgets = createWidgetRegistry<CosWidgetContext>([
   ...cardWidgetTools,
   clarifyWidgetTool,
   composeHandoffWidgetTool,
-  ...civicPanelWidgetTools,
   ...managedPanelWidgetTools,
 ])
 
@@ -387,6 +387,10 @@ function ChiefOfStaffChatThread({
   const [liveWidgets, setLiveWidgets] = useState<
     PositionedWidget<CosWidgetContext>[]
   >([])
+  // The managed civic panel explainer's analytics: what asked for it, and
+  // whether the question waiting on an answer is its offer.
+  const managedSourceRef = useRef<ManagedExplainerSource>('chat')
+  const managedOfferActiveRef = useRef(false)
   // Which list the holder is drawing on, if any. Owned HERE rather than by
   // the map card that opens it: a streaming turn's row is rebuilt under a
   // new key the moment it commits, so an overlay mounted inside the card
@@ -542,6 +546,15 @@ function ChiefOfStaffChatThread({
           }
           return true
         }
+        if (
+          event.type === 'tool_call' &&
+          isManagedExplainerOffer(event.toolName, event.args)
+        ) {
+          trackEvent(EVENTS.Contacts.CivicPanelManagedInviteValuePropViewed, {
+            source: managedSourceRef.current,
+          })
+          managedSourceRef.current = 'chat'
+        }
         if (event.type === 'tool_call' && cosWidgets.has(event.toolName)) {
           const instance = cosWidgets.resolve(
             {
@@ -587,19 +600,6 @@ function ChiefOfStaffChatThread({
           // its own key dropped or it keeps drawing the pre-edit set.
           void queryClient.invalidateQueries({
             queryKey: ['list-people', orgSlug],
-          })
-        }
-        // A saved weekly time made or changed the panel's plan, which the
-        // home's panel card and the next step card both follow.
-        if (
-          event.type === 'tool_result' &&
-          event.toolName === SAVE_PANEL_WEEKLY_TIME_TOOL
-        ) {
-          void queryClient.invalidateQueries({
-            queryKey: ['civic-panel-plan', orgSlug],
-          })
-          void queryClient.invalidateQueries({
-            queryKey: ['chief-of-staff', 'cards'],
           })
         }
         return false
@@ -1184,6 +1184,15 @@ function ChiefOfStaffChatThread({
       } else {
         lastUserContentRef.current = trimmed
         lastUserViaRef.current = opts?.via ?? 'composer'
+        if (managedOfferActiveRef.current) {
+          managedOfferActiveRef.current = false
+          trackEvent(
+            EVENTS.Contacts.CivicPanelManagedInviteValuePropCompleted,
+            {
+              choice: managedExplainerChoice(trimmed),
+            },
+          )
+        }
       }
       const id = await ensureConversationId()
       if (!id) {
@@ -1373,6 +1382,9 @@ function ChiefOfStaffChatThread({
       return
     }
     kickedOffRef.current = pendingKickoff
+    if (pendingKickoff === START_MANAGED_CIVIC_PANEL_MESSAGE) {
+      managedSourceRef.current = 'home_card'
+    }
     void deliver(pendingKickoff, { hidden: true })
   }, [
     active,
@@ -1417,6 +1429,9 @@ function ChiefOfStaffChatThread({
   const onSuggestionClick = useCallback(
     (s: ChatSuggestion) => {
       if (s.kickoff) {
+        if (s.kickoff === START_MANAGED_CIVIC_PANEL_MESSAGE) {
+          managedSourceRef.current = 'intro_next_step'
+        }
         void deliver(s.kickoff, { hidden: true })
         return
       }
@@ -1440,19 +1455,22 @@ function ChiefOfStaffChatThread({
     }
   }, [busy, active])
 
-  const { scrollRef, onScroll } = usePinnedAutoScroll([
-    visibleMessages,
-    visibleSegments,
-    playback,
-    // The map is the one thing that can grow the transcript without any of
-    // the above changing: onEvent consumes the show_list_map call, so a turn
-    // that draws a map and says nothing pushes no segment and commits no
-    // message until it settles. Without this the card renders below the fold
-    // and the follow-scroll has nothing to react to.
-    liveListMap,
-    liveListProposal,
-    liveWidgets,
-  ])
+  const { scrollRef, onScroll } = usePinnedAutoScroll(
+    [
+      visibleMessages,
+      visibleSegments,
+      playback,
+      // The map is the one thing that can grow the transcript without any of
+      // the above changing: onEvent consumes the show_list_map call, so a turn
+      // that draws a map and says nothing pushes no segment and commits no
+      // message until it settles. Without this the card renders below the fold
+      // and the follow-scroll has nothing to react to.
+      liveListMap,
+      liveListProposal,
+      liveWidgets,
+    ],
+    { sending },
+  )
 
   // `liveListMap` counts as something on screen. onEvent consumes the
   // show_list_map call, so a turn that draws a map and says nothing pushes no
@@ -1483,6 +1501,14 @@ function ChiefOfStaffChatThread({
     }
     return null
   }, [visibleMessages])
+  useEffect(() => {
+    managedOfferActiveRef.current =
+      activeClarifyId !== null &&
+      (
+        visibleMessages.find((message) => message.id === activeClarifyId)
+          ?.segments ?? []
+      ).some((segment) => segment.toolName === MANAGED_PANEL_OFFER_TOOL)
+  }, [activeClarifyId, visibleMessages])
   // An answer is the next thing the user said, so an answered question
   // reloads with that answer showing.
   const clarifyAnswerById = useMemo(() => {
@@ -1566,6 +1592,7 @@ function ChiefOfStaffChatThread({
   // the agent works through in that order.
   const startPicked = useCallback((): void => {
     if (!canStart || busy) return
+    pickedCards.forEach((card) => card.onPicked?.())
     const [first] = pickedSteps
     setPicked([])
     setOwnText('')
@@ -1586,6 +1613,7 @@ function ChiefOfStaffChatThread({
   }, [
     canStart,
     busy,
+    pickedCards,
     pickedSteps,
     ownItem,
     onSuggestionClick,
@@ -1621,7 +1649,9 @@ function ChiefOfStaffChatThread({
       : (visibleMessages.length === 0 && !playback) ||
         (showSuggestionsWithGreeting && isPristineGreeting)) &&
     !sending &&
-    !streamError
+    !streamError &&
+    // A question waiting on its own options must not get starters under it.
+    activeClarifyId === null
   const suggestionsAsCards = effectiveSuggestions.some((s) =>
     Boolean(s.description),
   )

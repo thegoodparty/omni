@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ClerkClient } from '@clerk/backend'
-import { BadGatewayException } from '@nestjs/common'
+import { BadGatewayException, BadRequestException } from '@nestjs/common'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import {
   CLERK_API_TIMEOUT_MS,
@@ -77,6 +77,52 @@ describe('ClerkInvitationsService', () => {
       const createInvitation = vi
         .fn()
         .mockRejectedValue(new Error('clerk_error: email already invited'))
+      const { service } = makeService({ createInvitation })
+
+      await expect(
+        service.createTeamInvitation({
+          emailAddress: 'a@b.com',
+          redirectUrl: 'https://app.goodparty.org/team-invite',
+          publicMetadata: metadata,
+        }),
+      ).rejects.toBeInstanceOf(BadGatewayException)
+    })
+
+    it('maps a Clerk 400 to BadRequestException and logs its codes without meta', async () => {
+      const apiError = Object.assign(new Error('Bad Request'), {
+        clerkError: true,
+        status: 400,
+        clerkTraceId: 'trace_2',
+        errors: [{ code: 'form_param_format_invalid', meta: { x: 'a@b.com' } }],
+      })
+      const createInvitation = vi.fn().mockRejectedValue(apiError)
+      const { service, logger } = makeService({ createInvitation })
+
+      await expect(
+        service.createTeamInvitation({
+          emailAddress: 'a@b.com',
+          redirectUrl: 'https://app.goodparty.org/team-invite',
+          publicMetadata: metadata,
+        }),
+      ).rejects.toBeInstanceOf(BadRequestException)
+      expect(logger.error).toHaveBeenCalledWith(
+        {
+          err: apiError,
+          clerkStatus: 400,
+          clerkErrorCodes: ['form_param_format_invalid'],
+          clerkTraceId: 'trace_2',
+        },
+        'Failed to create Clerk team invitation',
+      )
+    })
+
+    it('keeps BadGatewayException for a Clerk 5xx', async () => {
+      const apiError = Object.assign(new Error('boom'), {
+        clerkError: true,
+        status: 502,
+        errors: [{ code: 'internal_clerk_error' }],
+      })
+      const createInvitation = vi.fn().mockRejectedValue(apiError)
       const { service } = makeService({ createInvitation })
 
       await expect(

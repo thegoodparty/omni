@@ -67,23 +67,6 @@ Vercel CLI (no git integration), driven by GitHub Actions and the shared
   `outputDirectory=storybook-static`) on the runner, then deploys `--prebuilt` to
   the project's **production** target, which Vercel serves at its production
   domain. The project has no Git integration — CLI-only, like the others.
-- The **prototypes app** (`packages/prototypes`) is its own Vercel project
-  (`VERCEL_PROJECT_ID_PROTOTYPES`, `rootDirectory=packages/prototypes`), served at
-  `prototypes.goodparty.org`. It is a single-environment, fully public Next.js app
-  with no backend coupling (no gp-api, no election-api, no e2e). On merges to
-  `main` the train's `dev-prototypes` job deploys it to the **production** target
-  (single-environment); on PRs `prototypes.yml` deploys a preview with a
-  deterministic alias (`prototypes-pr-<N>-good-party.vercel.app`). Both are guarded
-  by `vars.VERCEL_PROJECT_ID_PROTOTYPES != ''` and no-op until that variable is set.
-
-  **Manual prerequisites (one-time setup):**
-  1. Create the Vercel project with `rootDirectory=packages/prototypes`.
-  2. Set the `VERCEL_PROJECT_ID_PROTOTYPES` Actions variable in the repo (Settings
-     → Secrets and variables → Actions → Variables).
-  3. Add the `prototypes.goodparty.org` domain to the Vercel project and point the
-     DNS record at Vercel.
-  4. Confirm that deployment protection is OFF so the site is fully public.
-
 - The build step runs with `NODE_OPTIONS: --max-old-space-size=6144`: `next
 build` peaks near Node's default ~4GB heap and started OOMing intermittently
   on the runners (2026-06-12). The cap is per process and propagates to every
@@ -97,6 +80,10 @@ build` peaks near Node's default ~4GB heap and started OOMing intermittently
   every preview deploy in the repo failed. `--archive=tgz` uploads the output as
   one compressed file, making each deploy cost ~1 against the quota. It changes
   only the upload transport, so preview and prod both use it.
+- The action retries its network-only calls 3 times with backoff: the CLI
+  install, `vercel pull`, `vercel deploy` of the prebuilt output, and
+  `vercel alias set`. Each is safe to repeat. `vercel build` is not retried:
+  it runs locally and fails for code, token or heap reasons.
 - A single workflow (`pr-preview-comment.yml`) upserts **one** unified preview
   comment on the PR listing every app; every app's deploy job runs on every PR,
   so all the URLs resolve.
@@ -126,20 +113,22 @@ exercises the exact full-stack version proposed in the PR.
   edge is serving the expected `github.sha` via that endpoint (liveness alone is
   not enough on branch builds, where dev is always up on the prior commit).
 - The suite itself is sharded across runners: `e2e-shard` fans the Playwright
-  tests over a 4-way matrix (`--shard=n/4 --reporter=blob`), and the `E2E`
+  tests over a 6-way matrix, balanced by duration rather than Playwright's
+  count-based `--shard`. Each shard lists the suite and runs the `file:line`
+  slice `e2e-tests/scripts/plan-shards.mjs` assigns it from the last run's
+  durations, which the `E2E` job records to the Actions cache
+  (`e2e-durations-v1-*`; a PR reads its own latest, else main's). The `E2E`
   summary job merges the per-shard blob reports into one HTML report +
   `results.json`, publishes to S3, comments on the PR, and is the single required
   status check (red iff any shard failed). `E2E` keeps that exact name because the
   `main` ruleset gates on it. This is the pre-merge E2E against the PR's own
   full-stack preview; after merge the release train runs a second E2E against dev
   before promoting the commit to prod (see below).
-- election-api is not part of this yet (the webapp does not call it directly and it
-  has no preview stack).
 
 ## Backends (Docker + ECR + Pulumi -> ECS Fargate)
 
-gp-api and election-api build a production Docker image, push to ECR
-(tagged with the commit SHA), and deploy to ECS Fargate via Pulumi. A push to
+gp-api builds a production Docker image, pushes it to ECR
+(tagged with the commit SHA), and deploys to ECS Fargate via Pulumi. A push to
 `main` runs the release train, whose dev stage deploys the dev environment and
 whose prod stage promotes the same image (see below), not a push to a prod branch.
 Both stages call the same composite deploy action, only with different env inputs.
@@ -188,7 +177,7 @@ not failures.
 The stages:
 
 1. **`await-checks`.** Waits for this commit's per-service check workflows
-   (gp-api, election-api, gp-webapp, gp-admin, candidate-sites,
+   (gp-api, gp-webapp, gp-admin, candidate-sites,
    publish-experiments, gp-ai) to go green on dev. A red check stops the train
    for that SHA; a later merge forms the next train. When `main` has already
    moved past the SHA, the run first waits for the newer commit's runs of the
@@ -268,6 +257,27 @@ The primary validate job is named **"Validate"** across all
 packages. Shared steps are factored into `.github/actions/` (setup-node-workspace,
 vercel-deploy, pulumi-deploy).
 
+### Credentials and the `production` environment
+
+A job that runs only from `main` (push, schedule or dispatch) and holds a
+credential that can change production declares the `production` GitHub
+environment, with `deployment: false` so it stays out of the deployment history
+`finalize` writes. Today that is the train's six Vercel deploy jobs (dev and
+prod alike, since `VERCEL_TOKEN` can deploy every target), `dependabot-merge.yml`
+and `sync.yml`. A secret that only those jobs read can live in the environment
+rather than at repo scope, where (once the environment is limited to `main`)
+a pull request run cannot read it.
+
+Two things to check before adding the environment to a job. It changes the
+job's OIDC subject from `ref:refs/heads/main` to `environment:production`, so
+every role or federation policy the job authenticates to must accept that
+subject (the judge sweep role and the Databricks federation policy in
+`analytics-governance.yml` are pinned to the ref and do not). And a secret the
+job reads must not also be read on a pull request, or moving it breaks that run.
+
+PR preview deploys read `VERCEL_PREVIEW_TOKEN`, falling back to `VERCEL_TOKEN`
+while the preview token is unset.
+
 ### Base images
 
 Every Dockerfile `FROM`, and the buildx builder image, pulls from ECR Public
@@ -276,10 +286,17 @@ pulls from either are limited per IP, and shared GitHub runners kept failing
 with `429 Too Many Requests`. Logged-in ECR Public pulls are limited per AWS
 account, so every job that builds an image logs in to ECR Public first
 (`aws-actions/amazon-ecr-login` with `registry-type: public`). Main runs log
-in with `vars.AWS_ROLE_ARN`. gp-ai's pull request build, which never holds the
-deploy role, assumes the read-only plan role (`vars.AWS_PLAN_ROLE_ARN`), which
-can mint that login token (granted in `thegoodparty/ops`). Local builds need no
-login.
+in with `vars.AWS_ROLE_ARN`. On a pull request, a job whose only AWS call is
+that login (gp-ai's image build, gp-api's test shards pulling the testcontainers
+Postgres image) assumes the read-only plan role (`vars.AWS_PLAN_ROLE_ARN`)
+instead, which can mint that login token and nothing more (granted in
+`thegoodparty/ops`). Local builds need no login.
+
+A logged-in pull can still fail on the network, so the train retries the pulls
+it controls. It pre-pulls the buildx builder image with retries; buildx falls
+back to that local copy when its own one-shot pull fails. Pulumi and Terraform applies are never retried: they hold state
+locks, and a retry on top of a half-applied run is not idempotent (see
+[Concurrency](#concurrency-never-cancel-in-progress-true)).
 
 ### Analytics guard
 
@@ -327,15 +344,23 @@ backoff for the cache-miss path.
 
 ## Dependency updates (Dependabot)
 
-Policy: **security updates only** — no version-bump PRs. Version updates are
-disabled in `.github/dependabot.yml` (`open-pull-requests-limit: 0`); security
-PRs are driven by Dependabot alerts (enabled in repo settings) and target
-`main` (`--base main`).
+Policy for npm: **security updates only** — no version-bump PRs. Version
+updates are disabled in `.github/dependabot.yml` (`open-pull-requests-limit:
+0`); security PRs are driven by Dependabot alerts (enabled in repo settings) and
+target `main` (`--base main`). Docker base images and GitHub Actions do get
+version updates; the comments in `.github/dependabot.yml` say why and how.
 
-Security PRs merge themselves: the `dependabot-merge.yml` workflow sweeps every
-30 minutes and squash-merges any Dependabot PR that is approved (delegate
-reviews every PR), has all checks green, and whose last commit is at least 24
-hours old. A commit pushed by anyone other than Dependabot disqualifies the PR
+Every third-party `uses:` is pinned to a full commit SHA with its tag as a
+trailing comment (`actions/checkout@<sha> # v5`), so a moved tag cannot change
+what CI runs. Pin a new one the same way: resolve the tag with
+`gh api repos/<owner>/<repo>/commits/<tag> --jq .sha`. Dependabot's weekly
+`github-actions` PR moves the SHA and the comment together. Local `./` actions
+are not pinned.
+
+Dependabot PRs merge themselves, whatever the ecosystem: the
+`dependabot-merge.yml` workflow sweeps every 30 minutes and squash-merges any
+Dependabot PR that is approved (delegate reviews every PR), has all checks
+green, and whose last commit is at least 24 hours old. A commit pushed by anyone other than Dependabot disqualifies the PR
 from auto-merge. Merges authenticate as the `omni-automation` GitHub App
 (`AUTOMATION_APP_ID` var + `AUTOMATION_APP_PRIVATE_KEY` secret) so the merge
 push triggers the dev deploy workflows like any other merge. Auto-merge stops

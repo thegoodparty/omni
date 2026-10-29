@@ -14,6 +14,7 @@ import type {
 } from '@goodparty_org/contracts'
 import { SOCIAL_DRAFT_MESSAGE_MAX_LENGTH } from '@goodparty_org/contracts'
 import type { UseDictationAppendInput } from 'app/dashboard/shared/dictation/useDictationAppend'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import {
   SERVE_SOCIAL_SURFACE,
   SocialFlow,
@@ -147,7 +148,9 @@ const savedDetail = {
   },
 }
 
-const user = userEvent.setup()
+// No test here is about hover, and the pointer move user-event makes before
+// every click fires a round of hover events (and re-renders) for nothing.
+const user = userEvent.setup({ skipHover: true })
 
 const openFlow = () => {
   const onClose = vi.fn()
@@ -229,6 +232,33 @@ describe('SocialFlow', () => {
     expect(onSaved).toHaveBeenCalledWith(
       expect.objectContaining({ id: 77, outreachType: 'socialMedia' }),
     )
+  })
+
+  it('reports the picked purpose on the created and completed campaign', async () => {
+    vi.mocked(trackEvent).mockClear()
+    mockDraft()
+    mockGenerate()
+    api.mock('POST /v1/outreach/social', { status: 200, data: savedDetail })
+    openFlow()
+
+    await advanceToPlatforms()
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findByText('Adapted for facebook')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+    await screen.findByText('Your posts are ready!')
+
+    for (const event of [
+      EVENTS.Dashboard.VoterContact.CampaignCreated,
+      EVENTS.Dashboard.VoterContact.CampaignCompleted,
+    ]) {
+      expect(vi.mocked(trackEvent)).toHaveBeenCalledWith(
+        event,
+        expect.objectContaining({
+          medium: 'socialMedia',
+          purpose: 'introduce_myself',
+        }),
+      )
+    }
   })
 
   it("sends only a proposal link's key to the Win save", async () => {

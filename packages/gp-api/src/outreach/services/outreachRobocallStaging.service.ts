@@ -4,6 +4,8 @@ import { addHours, addMinutes, isBefore, max, subMinutes } from 'date-fns'
 import { ZodError } from 'zod'
 import { MimeTypes } from 'http-constants-ts'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
+import { ROBOCALL_FREE_OFFER_CODE_PREFIX } from '@/robocallFreeOffer/robocallFreeOffer.consts'
+import { RobocallFreeOfferService } from '@/robocallFreeOffer/services/robocallFreeOffer.service'
 import { AudioTranscodeService } from '@/shared/services/audioTranscode.service'
 import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
 import { ROBOCALL_STAGING_GRACE_MINUTES } from '@/shared/util/robocallHold.util'
@@ -83,6 +85,7 @@ export class OutreachRobocallStagingService extends createPrismaBase(
     private readonly transcode: AudioTranscodeService,
     private readonly orphanedCampaigns: RobocallOrphanedCampaignService,
     private readonly hold: OutreachRobocallHoldService,
+    private readonly freeOffer: RobocallFreeOfferService,
   ) {
     super()
     const bucket = process.env.ROBOCALL_AUDIO_BUCKET
@@ -301,9 +304,13 @@ export class OutreachRobocallStagingService extends createPrismaBase(
         mimeType: upload.contentType,
         name: campaignName,
       })
+      const ownerPhoneOnly =
+        draft.promoCode?.startsWith(ROBOCALL_FREE_OFFER_CODE_PREFIX) === true &&
+        (await this.freeOffer.dialsOwnerOnly(campaign))
       const phonebook = await this.phonebook.loadAudienceToPhonebook(
         campaign,
         voterFileFilterId,
+        ownerPhoneOnly,
       )
       created = await this.campaigns.createVoiceBroadcast({
         scheduledStart,

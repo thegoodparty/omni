@@ -3,6 +3,7 @@
   "exclude": ["node_modules", "contracts", "dist", "scripts", "deploy"],
   "compilerOptions": {
     "module": "NodeNext",
+    "jsx": "react-jsx",
     "outDir": "./dist",
     "paths": {
       "@/*": ["./src/*"],

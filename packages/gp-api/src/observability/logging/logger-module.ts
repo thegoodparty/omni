@@ -20,7 +20,10 @@ const determineUserId = (req: IncomingMessage): string | undefined => {
   }
 }
 
-const isLocal = process.env.NODE_ENV !== 'production'
+// The pretty transport runs in its own worker thread, which every test app
+// boot would otherwise start just to print nothing.
+const isLocal =
+  process.env.NODE_ENV !== 'production' && process.env.LOG_LEVEL !== 'silent'
 
 declare module 'http' {
   interface IncomingMessage {

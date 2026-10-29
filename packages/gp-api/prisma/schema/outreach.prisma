@@ -15,6 +15,7 @@ enum OutreachType {
   // Serve self-serve poll: the question lives in `message`, the rest on
   // the OutreachPoll satellite.
   poll
+  email
 }
 
 enum OutreachStatus {
@@ -196,6 +197,8 @@ model Outreach {
   robocall                          OutreachRobocall?
   pollDetails                       OutreachPoll?
   p2pSms                            OutreachP2pSms?
+  email                             OutreachEmail?
+  paymentHold                       OutreachPaymentHold?
   optOutReconcile                   OutreachOptOutReconcile?
   textRecipients                    OutreachTextRecipient[]
   textMessages                      PollIndividualMessage[]
@@ -208,7 +211,6 @@ model Outreach {
   constituentFeedback               ConstituentFeedback[]
   feedbackSynthesisRuns             FeedbackSynthesisRun[]
   contactInteractionDoorKnocks      ContactInteractionDoorKnock[]
-  civicPanelBuildSteps              CivicPanelBuildStep[]
   // Set only by ManagedWaveFundingService.claimFree, never from a request. A
   // CHECK (migration managed_panel_free_sends) allows it only on a row linked
   // to a managed wave and never beside a checkout session.

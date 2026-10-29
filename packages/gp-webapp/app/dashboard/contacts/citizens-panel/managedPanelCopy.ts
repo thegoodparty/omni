@@ -1,15 +1,22 @@
 import {
   cityFromDistrictName,
+  cityNameCase,
+  type ManagedCivicPanel,
   type ManagedCivicPanelStatus,
 } from '@goodparty_org/contracts'
 import { useOrganization } from '@shared/organization-picker'
 
-// The place the office serves, the way Serve copy names it ("Maplewood"),
+// The place a district serves, the way Serve copy names it ("Maplewood"),
 // or null where the district is not known.
-export const useServePlace = (): string | null => {
-  const l2Name = useOrganization()?.district?.l2Name
-  return l2Name ? cityFromDistrictName(l2Name) : null
+export const servePlaceOf = (
+  l2Name: string | null | undefined,
+): string | null => {
+  const city = l2Name ? cityFromDistrictName(l2Name) : null
+  return city ? cityNameCase(city) : null
 }
+
+export const useServePlace = (): string | null =>
+  servePlaceOf(useOrganization()?.district?.l2Name)
 
 const residentsOf = (place: string | null): string =>
   place ? `${place} residents` : 'residents of your district'
@@ -17,15 +24,21 @@ const residentsOf = (place: string | null): string =>
 // Every string GoodParty's managed civic panel shows on the Serve home and
 // in the Chief of Staff chat. Serve only, so constituents and residents.
 export const MANAGED_PANEL_COPY = {
-  headline: 'Every group gets a seat',
-  seatsLabel: (filled: number) =>
-    `${filled} of 100 seats filled, one for every group in your district`,
+  headline: 'Your civic panel',
+  seatsLabel: (place: string | null) =>
+    `A civic panel filling up with residents from every part of ${place ?? 'your district'}`,
   offerQuestion: 'Want to see the invite?',
-  whoGetsTexted: 'Who gets texted?',
   notNow: 'Not now',
   inviteCardTitle: 'Your civic panel invite',
   inviteCardSubtitle: (place: string | null) => `Text to ${residentsOf(place)}`,
   reviewInvite: 'Review the invite',
+  // The Who gets the mic video on the answer to How does it work?. Its text
+  // alternative is the video's own on-screen lines.
+  video: {
+    label: 'Who gets the mic, a 1 minute video',
+    textAlternative:
+      "What the video says: You represent every resident in the district. Public comment speakers skew older (median age 61 vs 50 for their neighbors). And they don't reflect the whole community. Residents who reflect the whole district. Your civic panel is your community pulse.",
+  },
   panelCardTitle: 'Your civic panel',
   panelCardStatus: (
     status: ManagedCivicPanelStatus,
@@ -44,32 +57,26 @@ export const MANAGED_PANEL_COPY = {
   },
   // The progress cards on the Serve home: their headline over the deck.
   progressHeadline: 'Your civic panel',
-  // The panel page's controls for the panel GoodParty builds.
+  // The panel page's Invites card for the panel GoodParty builds.
   controls: {
-    title: 'Your civic panel invites',
-    status: (
-      status: ManagedCivicPanelStatus,
-      nextInvites: string | null,
-    ): string => {
+    title: 'Invites',
+    status: (status: ManagedCivicPanelStatus): string => {
       if (status === 'paused') {
         return 'Invites are paused. Nobody new gets one until you resume.'
       }
-      if (status === 'ready') return 'Your civic panel is ready.'
-      if (status === 'exhausted') {
-        return 'Every resident we can text has an invite.'
+      if (status === 'ready') {
+        return 'Your civic panel is full. No new invites are going out.'
       }
-      return nextInvites
-        ? `We're sending invites. The next ones go out ${nextInvites}.`
-        : "We're sending invites in your name."
+      if (status === 'exhausted') {
+        return "We've invited everyone we can reach by text."
+      }
+      return "We're sending invites in your name."
     },
+    nextInvites: 'Next invites',
+    readyAround: 'Ready around',
+    weekOf: (day: string) => `Week of ${day}`,
     pause: 'Pause invites',
     resume: 'Resume invites',
-    stop: 'Stop my civic panel',
-    stopTitle: 'Stop building your civic panel?',
-    stopCaption:
-      "We won't send any more invites. Everyone who joined stays on your panel.",
-    stopConfirm: 'Stop my civic panel',
-    stopCancel: 'Keep building',
     error: "We couldn't change your civic panel. Try again.",
   },
   flow: {
@@ -83,14 +90,49 @@ export const MANAGED_PANEL_COPY = {
   },
 } as const
 
-// "Tuesday, November 3", the day the next invites go out.
-export const managedPanelNextInvites = (
-  nextWaveAt: Date | string | null,
-): string | null =>
-  nextWaveAt
-    ? new Date(nextWaveAt).toLocaleDateString('en-US', {
-        weekday: 'long',
-        month: 'long',
-        day: 'numeric',
-      })
-    : null
+// A yyyy-MM-dd day as the calendar day it names, wherever the reader is.
+const calendarDay = (day: string): Date => new Date(`${day}T00:00:00`)
+
+// The day the next invites go out: the next wave once one has gone, else
+// the first. Null when none is due (paused, ready, exhausted).
+export const managedPanelNextInvitesAt = (
+  panel: ManagedCivicPanel,
+): Date | null => {
+  if (panel.status !== 'building') return null
+  const { nextWaveAt, wavesSent, firstSendDate } = panel.progress
+  if (nextWaveAt) return new Date(nextWaveAt)
+  return wavesSent === 0 ? calendarDay(firstSendDate) : null
+}
+
+// The Monday of the week the panel should be ready, while that week is
+// still ahead or under way.
+export const managedPanelReadyWeek = (
+  panel: ManagedCivicPanel,
+  now: Date = new Date(),
+): Date | null => {
+  if (panel.status !== 'building') return null
+  const monday = calendarDay(panel.progress.readyWeekOf)
+  const weekEnds = new Date(monday)
+  weekEnds.setDate(weekEnds.getDate() + 7)
+  return weekEnds > now ? monday : null
+}
+
+// "Wednesday, November 4".
+export const longDay = (date: Date): string =>
+  date.toLocaleDateString('en-US', {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+  })
+
+// "Wed, Nov 4".
+export const shortDay = (date: Date): string =>
+  date.toLocaleDateString('en-US', {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+  })
+
+// "Nov 9".
+export const monthDay = (date: Date): string =>
+  date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })

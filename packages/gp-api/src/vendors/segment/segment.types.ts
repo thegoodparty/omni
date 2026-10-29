@@ -236,6 +236,26 @@ export const EVENTS = {
     // messageId `<outreachId>:receipt` so a replay dedups to one email.
     Receipt: 'Robocall - Receipt',
   },
+  // Shared outreach payment holds (src/paymentHolds/AGENTS.md); email is the
+  // first channel. HubSpot workflows key on these exact strings to send the
+  // card-declined, reminder, unpaid-cancel and receipt emails, so renaming
+  // one breaks an email. Each carries `channel` and `mode` (win or serve) and
+  // a deterministic messageId, as the Robocall group does:
+  // `<outreachId>:hold_failed`, `<outreachId>:reminder:<yyyy-mm-dd>`,
+  // `<outreachId>:canceled`, `<outreachId>:receipt`.
+  OutreachPayment: {
+    HoldFailed: 'Outreach Payment - Hold Failed',
+    Reminder: 'Outreach Payment - Reminder',
+    Canceled: 'Outreach Payment - Canceled',
+    Receipt: 'Outreach Payment - Receipt',
+  },
+  // Email outreach (src/emailOutreach/AGENTS.md). Each carries `mode` (win
+  // or serve).
+  Email: {
+    DraftCompleted: 'Email - Draft Completed',
+    // Fires when a send is confirmed (held or scheduled), per the brief.
+    SendCompleted: 'Email - Send Completed',
+  },
   // Native door knocking (Win). One rollup event carrying the org's running
   // canvassing totals, not one event per knock: HubSpot workflows can copy a
   // value onto a property but cannot sum across events, so the running total
@@ -255,6 +275,13 @@ export const EVENTS = {
   // said.
   IssueCapture: {
     SynthesisCompleted: 'Issue Capture - Synthesis Completed',
+    // A memo confirmed with nobody at the confirm step: an offline memo once
+    // its transcript is in, or a live one the 2-hour sweep found abandoned.
+    // The webapp's Confirmed and Skipped never see these.
+    MemoAutoConfirmed: 'Issue Capture - Memo Auto Confirmed',
+    // An offline memo no transcription job could read, once retries are
+    // spent. It stays unconfirmed and never reaches a summary.
+    MemoTranscriptionFailed: 'Issue Capture - Memo Transcription Failed',
   },
   // A visitor on a public /people page asking an unclaimed person to complete
   // their profile. Distinct from gp-marketing's browser-side 'Person Profile
@@ -279,20 +306,24 @@ export const EVENTS = {
     StepStateChanged: 'Priorities - Step State Changed',
     CheckStateChanged: 'Priorities - Check State Changed',
     PlanCompleted: 'Priorities - Plan Completed',
+    // A report back text claimed after checkout and handed off to send:
+    // { answeredCount, themesShared, channel }.
+    ReportBackSent: 'Priorities - Report Back Sent',
   },
-  // Serve's civic panel. The plan is made from the panel page and the Chief
-  // of Staff chat, its steps start and finish off sends, call lists and
-  // walks the browser never sees whole, and people join and leave by
-  // replying, so all of it is server truth. Attributed to the office's
-  // user; counts, ids and enums only, never who joined.
-  CivicPanel: {
-    PlanCreated: 'Civic Panel - Plan Created',
-    PlanUpdated: 'Civic Panel - Plan Updated',
-    StepStarted: 'Civic Panel - Step Started',
-    StepCompleted: 'Civic Panel - Step Completed',
-    StepSkipped: 'Civic Panel - Step Skipped',
-    GoalReached: 'Civic Panel - Goal Reached',
-    MembershipChanged: 'Civic Panel - Membership Changed',
+  // Serve's civic panel, in the Contacts area. People join and leave by
+  // replying, at a door or on a call, so all of it is server truth.
+  // Attributed to the office's user; counts, ids and enums only, never who
+  // joined.
+  Contacts: {
+    CivicPanelMembershipChanged: 'Contacts - Civic Panel Membership Changed',
+    // The civic panel GoodParty builds (the managed panel): the approval, its
+    // status moves, each wave out and closed, and the goal reached. The
+    // ready email has no event of its own: Civic Panel Ready marks it.
+    CivicPanelInviteApproved: 'Contacts - Civic Panel Invite Approved',
+    CivicPanelStatusChanged: 'Contacts - Civic Panel Status Changed',
+    CivicPanelWaveSent: 'Contacts - Civic Panel Wave Sent',
+    CivicPanelWaveClosed: 'Contacts - Civic Panel Wave Closed',
+    CivicPanelReady: 'Contacts - Civic Panel Ready',
   },
 }
 

@@ -31,6 +31,14 @@ const badgeVariants = cva(
   },
 )
 
+/**
+ * At most one badge per card, and only if it says something true and specific to
+ * that item (learned.md rules 18, 30). A date is muted text with a calendar
+ * icon, not a badge. Use shape="pill" for counts.
+ *
+ * @summary Use for a short tag or count on an item. For an item's status use
+ * StatusText, for the Pro plan ProBadge, and for merge tags TokenPill.
+ */
 function Badge({
   className,
   variant,

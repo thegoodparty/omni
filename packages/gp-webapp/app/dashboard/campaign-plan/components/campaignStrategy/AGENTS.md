@@ -54,10 +54,14 @@ falls in. The cards are dated, prioritized tasks the candidate checks off. Featu
 - **Work done through a task's button closes the task.** `taskAction` puts
   the task's id on the flow's URL (`trackerTaskId` + `phase`), each flow
   sends it with the record it creates, and gp-api ticks the task once that
-  outreach is scheduled (see `gp-api/src/campaigns/campaignTracker`). They
-  keep "Mark done" all the same, since work started from the hub or done
-  offline carries no task id. Only the story task, which the server ticks
-  however the story gets finished, has none (`taskClosesItself`).
+  outreach is scheduled (see `gp-api/src/campaigns/campaignTracker`). Work
+  started from the hub carries no task id and closes nothing; matching it to
+  a task by channel was rejected, because it would close a task the
+  candidate never opened. Outreach tasks (an action and no own link) and the
+  story task, which the server ticks however the story gets finished, offer
+  no "Mark done" or "Mark not done" on the card or the row. A task whose
+  outreach went out from the hub stays open until the candidate skips it;
+  closing it from the hub is a gp-api follow-up.
 - **Text tasks after the texting cutoff.** gp-api swaps open text sends for
   robocalls once `smsCompliance` is `'closed'`, so none should reach the
   page. One that still does (no own link, not done) keeps no way into the
@@ -67,6 +71,19 @@ falls in. The cards are dated, prioritized tasks the candidate checks off. Featu
   row disables "Start outreach" the same way. The legacy Home list
   (`campaign-manager/CampaignManagerTasks.tsx`) disables the card's "Start
   outreach" the same way, through `TaskCard`'s `ctaDisabledReason`.
+- **The free robocall offer leads the next-task card.** While gp-api says
+  the campaign has the offer (`useRobocallFreeOffer`), its plan task (found
+  by its link, `isFreeOfferTaskHref`) is the card's front task whenever it
+  is open, due and not Not for me; the plan's own next task stands behind
+  it. Home shows no separate offer card, so it stays one card. "Show in 3
+  days" dates it later and it steps back until then; only a put-off
+  offer task waits on its date. If the offer arrives with no task (gp-api
+  skips writing it before the plan has rows), the card asks for the offer
+  again, then rereads the plan. The card and the row
+  carry the shared `FreeOfferLabel` above the title, the card takes the
+  offer's tint (`FREE_OFFER_CARD_CLASS`), its button reads
+  `FREE_OFFER_CTA`, and it has no Mark done (the task closes itself once the
+  run is scheduled).
 - **A row's link label comes from its own `cta`, falling back to "Open".**
   Only the story task sets `cta` today ("Add your story"); the manager's task
   list prefers the same column.

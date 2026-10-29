@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { screen, waitFor, within } from '@testing-library/react'
+import type { CivicPanelSummary } from '@goodparty_org/contracts'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { useServeCitizenPanelsFlag } from '@shared/experiments/serveCitizenPanelsFlag'
@@ -30,6 +31,29 @@ const setContext = ({
   })
 }
 
+const summary = (
+  overrides: Partial<CivicPanelSummary> = {},
+): CivicPanelSummary => {
+  const members = overrides.members ?? 0
+  return {
+    members,
+    reachedRecently: 0,
+    askableNow: members,
+    lastOutreachAt: null,
+    progress: {
+      members,
+      goal: 240,
+      answersNeeded: 96,
+      expectedAnswers: 0,
+      groupsCovered: 6,
+      groupsTotal: 12,
+    },
+    balance: null,
+    composition: null,
+    ...overrides,
+  }
+}
+
 beforeEach(() => {
   testQueryClient.clear()
   api.reset()
@@ -41,12 +65,7 @@ describe('CitizensPanelSection', () => {
   it("shows the panel's three numbers and links to its page", async () => {
     api.mock('GET /v1/contacts/civic-panel', {
       status: 200,
-      data: {
-        members: 1240,
-        reachedRecently: 300,
-        askableNow: 940,
-        lastOutreachAt: null,
-      },
+      data: summary({ members: 1240, reachedRecently: 300, askableNow: 940 }),
     })
 
     render(<CitizensPanelSection />)
@@ -58,10 +77,10 @@ describe('CitizensPanelSection', () => {
     expect(screen.getByText('Members')).toBeInTheDocument()
     expect(screen.getByText('Reached in the last 30 days')).toBeInTheDocument()
     expect(screen.getByText('300')).toBeInTheDocument()
-    expect(screen.getByText('Can be asked now')).toBeInTheDocument()
+    expect(screen.getByText('Ready to ask')).toBeInTheDocument()
     expect(screen.getByText('940')).toBeInTheDocument()
     expect(
-      screen.getByRole('link', { name: 'See your panel' }),
+      screen.getByRole('link', { name: 'See your civic panel' }),
     ).toHaveAttribute(
       'href',
       '/dashboard/contacts/citizens-panel?from=contacts',
@@ -71,27 +90,10 @@ describe('CitizensPanelSection', () => {
   it('draws the same seats as the panel page above the numbers', async () => {
     api.mock('GET /v1/contacts/civic-panel', {
       status: 200,
-      data: {
+      data: summary({
         members: 120,
         reachedRecently: 30,
         askableNow: 90,
-        lastOutreachAt: null,
-      },
-    })
-    api.mock('GET /v1/contacts/civic-panel/plan', {
-      status: 200,
-      data: {
-        plan: null,
-        next: null,
-        progress: {
-          members: 120,
-          goal: 240,
-          answersNeeded: 96,
-          expectedAnswers: 48,
-          groupsCovered: 6,
-          groupsTotal: 12,
-        },
-        balance: null,
         composition: {
           placeKind: 'tract',
           places: [
@@ -100,7 +102,7 @@ describe('CitizensPanelSection', () => {
           ],
           groups: [],
         },
-      },
+      }),
     })
 
     render(<CitizensPanelSection />)
@@ -108,32 +110,51 @@ describe('CitizensPanelSection', () => {
     const seats = await screen.findByTestId('civic-panel-seats')
     expect(
       within(seats).getByRole('heading', {
-        name: "Who's on your panel, by census tract",
+        name: "Who's on your civic panel, by census tract",
       }),
     ).toBeInTheDocument()
     expect(within(seats).getByText('Furthest behind')).toBeInTheDocument()
     // No group count of its own to disagree with the panel page's petals.
     expect(screen.queryByText(/ of 12 groups/)).not.toBeInTheDocument()
-    expect(screen.getByText('Can be asked now')).toBeInTheDocument()
-    expect(
-      screen.getByRole('link', { name: 'See your panel' }),
-    ).toHaveAttribute(
-      'href',
-      '/dashboard/contacts/citizens-panel?from=contacts',
-    )
+    expect(screen.getByText('Ready to ask')).toBeInTheDocument()
   })
 
-  it('leaves the seats out when the plan cannot be read', async () => {
+  it("leads with the panel page's count, not the tract chart's", async () => {
     api.mock('GET /v1/contacts/civic-panel', {
       status: 200,
-      data: {
+      data: summary({
         members: 120,
         reachedRecently: 30,
         askableNow: 90,
-        lastOutreachAt: null,
-      },
+        composition: {
+          placeKind: 'tract',
+          places: [
+            { key: '37021000100', name: '1', districtShare: 0.2, members: 110 },
+            { key: '37021000200', name: '2', districtShare: 0.8, members: 10 },
+          ],
+          groups: [],
+        },
+      }),
     })
-    api.mock('GET /v1/contacts/civic-panel/plan', { status: 500, data: {} })
+
+    render(<CitizensPanelSection />)
+
+    expect(
+      await screen.findByTestId('citizens-panel-joined'),
+    ).toHaveTextContent('120 of 240 residents have joined')
+    const seats = screen.getByTestId('civic-panel-seats')
+    expect(
+      within(seats).getByText(
+        /of 100 seats filled, counting each tract only up to its share$/,
+      ),
+    ).not.toHaveTextContent(/^50 /)
+  })
+
+  it('leaves the seats out when the district could not be read', async () => {
+    api.mock('GET /v1/contacts/civic-panel', {
+      status: 200,
+      data: summary({ members: 120, reachedRecently: 30, askableNow: 90 }),
+    })
 
     render(<CitizensPanelSection />)
 
@@ -141,15 +162,10 @@ describe('CitizensPanelSection', () => {
     expect(screen.queryByTestId('civic-panel-seats')).toBeNull()
   })
 
-  it('points to the panel page when nobody has joined yet', async () => {
+  it('says nobody has joined yet', async () => {
     api.mock('GET /v1/contacts/civic-panel', {
       status: 200,
-      data: {
-        members: 0,
-        reachedRecently: 0,
-        askableNow: 0,
-        lastOutreachAt: null,
-      },
+      data: summary(),
     })
 
     render(<CitizensPanelSection />)
@@ -158,40 +174,14 @@ describe('CitizensPanelSection', () => {
       await screen.findByText('Nobody has joined your civic panel yet.'),
     ).toBeInTheDocument()
     expect(
-      screen.getByRole('link', { name: 'Build your civic panel' }),
-    ).toHaveAttribute(
-      'href',
-      '/dashboard/contacts/citizens-panel?from=contacts',
-    )
-    expect(
-      screen.queryByRole('link', { name: 'See your panel' }),
+      screen.queryByRole('link', { name: 'See your civic panel' }),
     ).not.toBeInTheDocument()
   })
 
   it('draws no seats before anyone joins, even with the census read', async () => {
     api.mock('GET /v1/contacts/civic-panel', {
       status: 200,
-      data: {
-        members: 0,
-        reachedRecently: 0,
-        askableNow: 0,
-        lastOutreachAt: null,
-      },
-    })
-    api.mock('GET /v1/contacts/civic-panel/plan', {
-      status: 200,
-      data: {
-        plan: null,
-        next: null,
-        progress: {
-          members: 0,
-          goal: 240,
-          answersNeeded: 96,
-          expectedAnswers: 0,
-          groupsCovered: 0,
-          groupsTotal: 12,
-        },
-        balance: null,
+      data: summary({
         composition: {
           placeKind: 'tract',
           places: [
@@ -199,7 +189,7 @@ describe('CitizensPanelSection', () => {
           ],
           groups: [],
         },
-      },
+      }),
     })
 
     render(<CitizensPanelSection />)
@@ -227,15 +217,7 @@ describe('CitizensPanelSection', () => {
     const calls = vi.fn()
     api.mock('GET /v1/contacts/civic-panel', () => {
       calls()
-      return {
-        status: 200,
-        data: {
-          members: 1,
-          reachedRecently: 0,
-          askableNow: 1,
-          lastOutreachAt: null,
-        },
-      }
+      return { status: 200, data: summary({ members: 1 }) }
     })
 
     const { container } = render(<CitizensPanelSection />)

@@ -79,7 +79,6 @@ import { ScriptStep } from './ScriptStep'
 import { SheetCountStep } from './SheetCountStep'
 import { DownloadStep } from './DownloadStep'
 import { CommunityInputQuestionStep } from '../CommunityInputQuestionStep'
-import { useServeCitizenPanelsFlag } from 'app/shared/experiments/serveCitizenPanelsFlag'
 import { outreachLandingStep } from '../landingStep'
 
 type StepId =
@@ -390,10 +389,9 @@ export const PhoneBankingFlow = ({
   const [explainerOpen, setExplainerOpen] = useState(false)
   const [stepId, setStepId] = useState<StepId>('purpose')
   const [purpose, setPurpose] = useState<PhoneBankingFlowPurpose | null>(null)
-  // The civic panel invite is offered behind the panel's flag, as on texts.
-  const { enabled: citizenPanelsEnabled } = useServeCitizenPanelsFlag(false)
+  // The civic panel invite only goes out in the managed panel's texts.
   const offeredPurposes = surface.purposes.filter(
-    ({ id }) => citizenPanelsEnabled || id !== BUILD_CITIZENS_PANEL_PURPOSE,
+    ({ id }) => id !== BUILD_CITIZENS_PANEL_PURPOSE,
   )
   // What this effort is asking, collected on the step that follows a
   // community_input purpose. Required there by contract, so the step's

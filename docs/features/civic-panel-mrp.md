@@ -93,14 +93,11 @@ texts now (404 on prod).
 **Sizing round 1.** Replaces `answersNeeded` and `panelGoalMembers` for
 this flow (Samuel, 2026-10-19, superseding the 2026-10-15 sizing). A major
 group holds 3% or more of the district on a steered dimension. Each needs
-three expected answers: invites to the group times the channel's assumed
-rate (doors 10%, calls 5%, a cold text 3%, placeholders until measured).
-Doors and calls take the official's hours as `sizePanelWave` splits them;
-the doors are one walkable area, so they count toward the groups living
-there. The text covers whatever groups the area and the calls leave short,
-capped by the reachable cell phones. The priority chat proposes all three as cards at
-once (`size_round_one`, `sizeRoundOne`; detail in the contacts AGENTS.md,
-"Round 1 sizing").
+three expected answers: texts to the group times the assumed cold text rate
+(3%, a placeholder until measured). Round 1 is one text, sized for the
+smallest major group a cell phone reaches and capped by the reachable cell
+phones. The priority chat proposes it as one card (`size_round_one`,
+`sizeRoundOne`; detail in the contacts AGENTS.md, "Round 1 sizing").
 
 **Coding answers.** Replies stay free text. An AI classifier reads each
 reply against the question and records yes, no or mixed, plus "not an

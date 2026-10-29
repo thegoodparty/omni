@@ -85,6 +85,13 @@ export class UsersController {
     return this.usersService.updateUser({ id: user.id }, body ?? {})
   }
 
+  @Post('me/sync-email')
+  @HttpCode(HttpStatus.OK)
+  @ResponseSchema(ReadUserOutputSchema)
+  async syncEmail(@ReqUser() user: User) {
+    return this.usersService.syncEmailFromClerk(user)
+  }
+
   @Get('me/metadata')
   getMetadata(@ReqUser() { metaData }: User) {
     return metaData

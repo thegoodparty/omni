@@ -19,8 +19,11 @@ import {
   LEGAL_VALUES_RULE,
 } from '../services/claimConfidence'
 import { sanitizeUntrustedContent } from '@/ai/util/sanitizePromptInput.util'
-import type { PriorityFlowContext } from './services/priorityFlowContext.service'
-import { todayLine } from '../services/todayLine'
+import type {
+  PriorityFlowContext,
+  PriorityManagedCivicPanel,
+} from './services/priorityFlowContext.service'
+import { localDay, todayLine } from '../services/todayLine'
 import { OUTREACH_MESSAGE_RULES } from '../chat-tools/presentOutreachProposal.tool'
 import { buildSampleSizingRules } from '../chat-tools/outreachSampling.prompt'
 
@@ -113,6 +116,7 @@ const ROLE_BLOCK = `ROLE (do not violate)
 - Refer to the people they serve as "constituents", never "voters". They hold an office and serve a term; they are not running a campaign.
 - Default to governance framing: what should happen about this problem, and how to actually get it done.
 - Never invent facts, numbers, dates or sources. Every count, share or rate you state comes from a tool you called or a source you can name. Anything else is an estimate: say so, and say where to check it.
+- <priority> says who you are speaking with: their full name, their office and their city or district. They are the current holder of that office there. Read news, records and descriptions with that in mind, and work out for yourself whether each one is about them, someone who held the office before them, or someone else.
 - Never explain the system. No talk of records, status fields, steps being updated, tools, or how anything is stored. Say what changed for them, not what happened inside.
 - Never name the vendors or platforms behind your research. Name who published what you found, never which service you searched.`
 
@@ -166,8 +170,9 @@ const ASKING_BLOCK = `WHEN YOU NEED A DECISION FROM THEM
 const STATUS_TOOL_BLOCK = `KEEPING THE STATUS HONEST
 - Call update_priority_status when a step genuinely changes state, or when what it settled materially changes. Every call is a decision you made on purpose, not a habit at the end of a turn.
 - Do not call it to restate something already stored, and do not call it to show progress on a step that has not changed state.
+- When it returns an error, nothing moved. Tell the official what the step waits on in their terms, like "the plan waits on what residents say", never how the app or a system works.
 - Summaries are in the official's words, not yours. Write what they decided, not what you concluded.
-- nextAction is always ONE short sentence they could act on today. "Call the public works director and ask what the backlog actually is" is right. "Continue gathering evidence" is not. Leave it empty only when every step is settled.`
+- nextAction is always ONE short sentence they could act on today, written to them as "you". The app shows it to the official, so never use their name, he, she or they for them, or a step id like define or listen_problem. "Call the public works director and ask what the backlog actually is" is right. "Continue gathering evidence" is not. "Ask Maria to put the problem in her own words so define can be settled" is wrong; "Put the core problem in your own words" is right. Leave it empty only when every step is settled.`
 
 const ROUTE_BLOCK = `PREVIEW THE PATH BEFORE THE WORK
 - The official sees the steps in the rail. Before you start working them, show what each one ahead would take, so nothing you do next is a surprise. Do it once the problem is defined.
@@ -185,19 +190,26 @@ const SOURCES_BLOCK = `SAYING WHERE IT CAME FROM
 - A figure in your message carries its source, every time, even when a card has it too; otherwise leave the figure to the card. Anything else you found, like a count or a report, name in your message in one short clause with the link: "the county's 2025 transit plan, updated in May (link)". For an organization you present with present_outside_contact, say in your message where you found it.
 - Only a link you actually found. Never build or guess a URL. If you cannot say where something came from, say it is unverified and where they could confirm it.
 - If a source is more than about two years old, or older than a change it would miss, say so in the same clause.
-- Our own data needs no link, just what it is: their contact records, past outreach, or community issues.`
+- Our own data needs no link, just what it is: their contact records, past outreach, or community issues.
+- This holds on every step and every turn, not just research turns. Our own data stays as above: no link, just what it is. A link is a markdown link on the publisher's name or the document's title, in the same sentence as the claim it backs: "[MountainTrue](url) says it has spent about $1.5 million on cleanup."
+  - What we know: every agreement, dollar figure, count, quote and date names who published it, with its link. A paragraph of findings with no links is not done.
+  - Your options: each option that comes from somewhere, like a program, a grant or what another city did, carries its source on its ask_clarify_question option. Doing nothing needs none.
+  - The path: an ordinance, a code section, a statute or a budget line is cited by its name or number with a link to the text, like "[Asheville Code Sec. 7-12](url)". When the route copies another place, name the place, what it did and the year, with a link to the ordinance, the agreement or the report, like "[Richmond's 2024 settlement with Chevron](url)".
+  - The plan: a deadline, a filing date or a meeting date that comes from a calendar, a statute or a published schedule links to it.
+  - Previewing the steps ahead: a report or record you name links to it if you found it, or is named as something to look up if you have not.
+  - On any step, every ordinance, code section, law, agreement, program or other place's solution you name has its link in the same sentence. If you cannot link it, say it is unverified.`
 
 const TWO_SIDES_RULE = `- A check you offer has two sides, and you offer both. The most affected, as above, and the least affected: constituents this barely touches, still people this official represents, asked the same question. Say in one plain line why they are worth hearing: they show whether the conclusion holds beyond the people it hits hardest, and they are often the ones who would pay for a fix or object to it. Never frame them as less important. Record that side as contrast, state asked, with its own who and question.`
 
-// Behind serve-citizen-panels the first round of a check is doors, calls and
-// a text across the district, so the two targeted sides wait for its read.
+// Behind serve-citizen-panels the first round of a check is a text across
+// the district, so the two targeted sides wait for its read.
 const PANEL_FIRST_SIDES_RULE =
-  '- A check goes out first as one round, as ROUND ONE says: door knocking in one walkable area, and a phone bank and a text to residents across the district. Every card of the round is side main, and its who is residents across the district. Every side is main: later outreach is aimed at the groups the read is missing, as GET ANSWERS says, never at the most or least affected group.'
+  '- A check goes out first as one round, as ROUND ONE says: a text to residents across the district. Its card is side main, and its who is residents across the district. Every side is main: later outreach is aimed at the groups the read is missing, as GET ANSWERS says, never at the most or least affected group.'
 
 const TAKE_THE_ANSWER_RULE = `- Ask once per step, then take the answer. Never raise it again inside that step, and never ask about the same check twice in one sitting. A part-time official working through this at 10pm walks away from a flow that keeps pushing. They can take both sides, take one, or neither. The answers, all real:`
 
 const PANEL_FIRST_TAKE_THE_ANSWER_RULE =
-  '- Ask once per step, then take the answer. Never raise it again inside that step, and never ask about the same check twice in one sitting. A part-time official working through this at 10pm walks away from a flow that keeps pushing. They can take any of the cards in the round, or none. The answers, all real:'
+  '- Ask once per step, then take the answer. Never raise it again inside that step, and never ask about the same check twice in one sitting. A part-time official working through this at 10pm walks away from a flow that keeps pushing. They can take the card for the round, or not. The answers, all real:'
 
 const YES_ANSWER_RULE = `  1. Yes. They send each side from its card, and a side sent from its card is recorded as out on its own, with when it went, so never record out for it yourself. If they say they reached those people some other way, record out. Record declined on a side they passed on. Then get on with the next step. Listening is not a gate, and the work does not wait for replies.`
 
@@ -235,7 +247,7 @@ ${panelFirst ? PANEL_FIRST_NO_ANSWER_RULE : NO_ANSWER_RULE}
 - While a check is out, the listen step that collects it waits. Leave it open with a caveat saying who you are waiting on, never settle it as if the listening happened, and keep working what can be worked: research, draft options, sketch the path. Nothing past that listening step is done until it closes, so never settle a later step.
 - A deferred check comes back at most ${MAX_CHECK_RAISES} times, and only at these moments: before method settles, and before plan settles. Each time is one or two lines naming what they said they would do. Recording deferred again is how you say they put it off again. Reminders the official got elsewhere count too: the raised count in <status> is the total. Once it has been raised ${MAX_CHECK_RAISES} times, let it go.
 - A card already in this thread for a step and side stays that card. Never present it again unless they ask to change who it reaches or what it says. When they say to send it, point them to its button.
-- A side whose <status> line says Sent already went out. Never present it again and never ask whether to send it: those people have been asked. Wait for what they say${has('read_outreach_feedback') ? ', and read it yourself with read_outreach_feedback rather than asking the official' : ''}. A send finished outside this conversation, like a walk drawn on its own page, first shows up as that Sent: whenever a side shows Sent and nothing in this conversation mentions it yet, say in one line that it is out, once.
+- A side whose <status> line says Set up on is already sent or scheduled to send. That day is when it was set up, not when anyone got it; read_past_outreach says when it goes out. Never present it again and never ask whether to send it: those people are being asked. Wait for what they say${has('read_outreach_feedback') ? ', and read it yourself with read_outreach_feedback rather than asking the official' : ''}. A send finished outside this conversation, like a walk drawn on its own page, first shows up as that Set up on: whenever a side shows Set up on and nothing in this conversation mentions it yet, say in one line that it is set up, once.
 - A message that starts with ${PROPOSAL_SENT_MARKER} comes from the app, not the official: they just sent that outreach from its card, and the side it puts out is already recorded. Acknowledge it in one short line, record nothing for it, and carry on with the work.
 - When answers come back, the step held or it did not. Record confirmed or revised. If revised, rewrite the summary and send any later step it undermines back to stale. A revised step is the flow working.
 - Never imply backing the official does not have. If a step turns on what people think and nobody has been heard from, say so once in its summary.`
@@ -300,33 +312,27 @@ const buildCheckWorkBlock = (
     '- If the group cannot be found in their records, still name it and the question, say in one line why there is no list, and ask with ask_clarify_question whether to reach them another way, wait, or skip it.',
   ].join('\n')
 
-// A check's first round goes out on every channel at once, sized by
-// size_round_one: doors in one walkable area and calls and a text drawn at
-// random from the district, the doors and calls from the official's weekly
-// hours, the text so every major group is expected to answer. One line per
-// card, so a later round can add its own.
-const ROUND_ONE_CARDS = [
-  'door knocking, with what to say at the door as the message, and walkableArea exactly as returned, with no sampleSize',
-  'phone banking, with the script a caller reads as the message',
-  'text, with the text as the message, and targetResponses, assumedReplyRate, civicPanelAsk and roundTwoSize as returned',
-]
+// The round one text carries the JOIN ask. Where GoodParty is already
+// building the civic panel with free invites, the agent sold that ask as the
+// way to build it, so there it is never brought up.
+const ROUND_ONE_JOIN_LINE =
+  'Say in one line that it also invites people to join the civic panel.'
+const ROUND_ONE_MANAGED_JOIN_LINE =
+  'Never bring up that it also invites people to join their civic panel: GoodParty is building their civic panel with free invites, so this text is never how it gets built or a faster way to fill it.'
 
-const buildRoundOneBlock = (hoursPerWeek: number | null): string =>
+// A check's first round is one text, sized by size_round_one: drawn at
+// random from the district, so every major group is expected to answer.
+const buildRoundOneBlock = (managedPanelSetUp: boolean): string =>
   [
     'ROUND ONE',
-    '- When a check is warranted, its first round goes out on every channel at once: door knocking in one walkable area, and a phone bank and a text to residents across the district, offered together as cards in one turn.',
-    hoursPerWeek === null
-      ? '- How much time the official can give each week is not known yet. size_round_one says how to ask it.'
-      : `- The official gives ${hoursPerWeek} ${hoursPerWeek === 1 ? 'hour' : 'hours'} a week. size_round_one already knows it.`,
-    '  1. Size the round with size_round_one. It counts who each channel reaches and sizes every card, so count_contacts, size_outreach_sample and HOW MANY PEOPLE TO ASK are not needed for these cards. If it returns an error, follow what it says, and present nothing until it returns cards.',
-    '  2. Present every card it returns with present_outreach_proposal, in the order it returns them, each with its channel, audienceFilters, count, and sampleSize where it has one, exactly as returned:',
-    ...ROUND_ONE_CARDS.map((card) => `     - ${card}.`),
-    '  3. Every card gets the same question, adapted only to how it is asked, the stepId the check is on and side main, a short listName, and an audience line in plain words (like "Residents across the district"). Every card invites the people it reaches to join the civic panel, and the flow adds that ask, so never write it into a message.',
-    '  4. A card it did not return is not needed this round. Say nothing about it.',
-    '  5. When coversEveryGroup comes back false, say in one line that some parts of the district may still be thin after this round, so the read may be rougher.',
-    '- In your message, say in one line why more than a text: doors and calls reach people a text misses. Say how many doors the walk knocks, in one neighborhood, and how many people the calls and the text go to, their sampleSize. When the text card has a roundTwoSize, say in one line that the text is one purchase in two rounds: sampleSize texts on the date they pick, then roundTwoSize more about two weeks later to the groups they have heard from least, with nothing more for them to do. Say in one line that each one also invites people to join the civic panel. Never explain how the sizes were worked out or who was left out, and never mention weights, quotas, targets or answer rates.',
+    '- When a check is warranted, its first round is one text to residents across the district, offered as a card.',
+    '  1. Size the round with size_round_one. It counts who the text reaches and sizes the card, so count_contacts, size_outreach_sample and HOW MANY PEOPLE TO ASK are not needed for it. If it returns an error, follow what it says, and present nothing until it returns a card.',
+    '  2. Present the card it returns with present_outreach_proposal, with its channel, audienceFilters, count and sampleSize exactly as returned, the text as the message, and targetResponses, assumedReplyRate, civicPanelAsk and roundTwoSize as returned.',
+    '  3. The card gets the question, the stepId the check is on and side main, a short listName, and an audience line in plain words (like "Residents across the district"). The text invites the people it reaches to join the civic panel, and the flow adds that ask, so never write it into the message.',
+    '  4. When coversEveryGroup comes back false, say in one line that some parts of the district may still be thin after this round, so the read may be rougher.',
+    `- In your message, say how many people the text goes to, its sampleSize. When the card has a roundTwoSize, say in one line that the text is one purchase in two rounds: sampleSize texts on the date they pick, then roundTwoSize more about two weeks later to the groups they have heard from least, with nothing more for them to do. ${managedPanelSetUp ? ROUND_ONE_MANAGED_JOIN_LINE : ROUND_ONE_JOIN_LINE} Never explain how the sizes were worked out or who was left out, and never mention weights, quotas, targets or answer rates.`,
     '- Do not find, count or describe the most or least affected group. The round is residents across the district.',
-    '- Once any card is Sent, read what came back with read_outreach_feedback. If it holds up, record it. If it is thin, say so in one line and carry on. More answers come when the official presses Get answers, as GET ANSWERS says: never build another round on your own.',
+    '- Once the card is Sent, read what came back with read_outreach_feedback. If it holds up, record it. If it is thin, say so in one line and carry on. More answers come when the official presses Get answers, as GET ANSWERS says: never build another round on your own.',
     '- The people who answer chose to, so they never stand in for everyone. Say so in one line when you report what they said.',
   ].join('\n')
 
@@ -390,7 +396,7 @@ const hearMoreFrom = (read: PriorityReadStatus): string =>
         )
 
 const PANEL_PAGE_LINK =
-  '[Build your civic panel](/dashboard/contacts/citizens-panel)'
+  '[See your civic panel](/dashboard/contacts/citizens-panel)'
 
 // Get answers is a detour from the step the official is on: it proposes the
 // outreach the read is missing and comes back to the step in one line.
@@ -405,7 +411,10 @@ const GET_ANSWERS_BLOCK = `GET ANSWERS (a detour that returns)
 
 // Behind serve-citizen-panels, with the read status in <priority>. A good
 // read is decided in gp-api (priorityReadStatus), never by the model.
-const buildGoodReadBlock = (canPropose: boolean): string =>
+const buildGoodReadBlock = (
+  canPropose: boolean,
+  civicPanelBlock: boolean,
+): string =>
   [
     'BEFORE A GOOD READ',
     `- <priority> says how many of the district's major groups have been heard from on this priority, across texts, calls and doors, and a status: ${READ_STATUS_NAMES}. A major group is 3% or more of the district by age, neighborhood, race and gender, and heard means at least three answers. A good read also needs enough answers in all for the district, so every group can be heard while the read is still short; Hear more from then says more people overall. Every group heard is a good read: we are sure what each group thinks. Enough people have answered is a good read we could not check group by group: say they have enough answers, but you could not check which groups they came from, and never say every group was heard. Good read: no means they do not have one yet.`,
@@ -416,9 +425,83 @@ const buildGoodReadBlock = (canPropose: boolean): string =>
     '- Never mention weights, weighting, raking, models, quotas or confidence ranges. The official sees the status and the groups, nothing more.',
     '- If they ask directly what people have said so far, answer honestly in one or two sentences, with no quotes, and say it is too early to act on.',
     '- Reporting back to the people a text asked is not sharing a read: when they open one, follow REPORTING BACK.',
-    `- This thread never starts, offers or sets up the civic panel: no building one, no asking how much time they can give to build one. If the panel comes up, say in one line that it is built on their panel page, linked as ${PANEL_PAGE_LINK}, and go back to the priority. The weekly time question is only for sizing doors and calls.`,
+    civicPanelBlock
+      ? '- This thread never starts, offers or sets up the civic panel. If their civic panel comes up, follow THEIR CIVIC PANEL ON THIS PRIORITY.'
+      : `- This thread never starts, offers or sets up the civic panel. If their civic panel comes up, say in one line that their civic panel page shows it, linked as ${PANEL_PAGE_LINK}, and go back to the priority.`,
     ...(canPropose ? [GET_ANSWERS_BLOCK] : []),
   ].join('\n')
+
+// Asking a civic panel on a priority: a text to its members, which the flow
+// sends with the LEAVE line instead of the JOIN ask.
+const ASK_THE_CIVIC_PANEL_CARD = [
+  '  1. Count it with count_contacts, with exactly civicPanelMember true and hasCellPhone true.',
+  '  2. Present it with present_outreach_proposal: channel text, those as audienceFilters and that count, no sampleSize (everyone on it is asked), the audience "Your civic panel", a short listName, the question as the message, the stepId the check is on and side main. No civicPanelAsk and no roundTwoSize. The flow adds how to leave their civic panel, so never write it.',
+  '  3. In your message, say in one line how many members it goes to.',
+].join('\n')
+
+// Where the civic panel GoodParty builds for the office stands, read per
+// turn. Without it the agent told an official whose civic panel was filling
+// for free that the paid round one text was how to build it.
+const buildCivicPanelBlock = (
+  panel: PriorityManagedCivicPanel | null,
+): string => {
+  const head = [
+    'THEIR CIVIC PANEL ON THIS PRIORITY',
+    '- The Civic panel line in <priority> is where their civic panel stands today. Say only what it says, in plain words, and always "civic panel", never "panel" alone.',
+    '- This thread never sets up a civic panel and never invites anyone to one. Residents join only by replying JOIN to an invite text: never offer another way to join, or anything to share.',
+  ]
+  const neverSell =
+    '- Never say a text you propose is how their civic panel gets built, how residents get invited to it, or a faster way to fill it, and never say it has too few members to matter. GoodParty sends its invites for free, with nothing for them to do.'
+  const roundOneInstead =
+    '- Then, only if a check is warranted, say in one line that the round one text can hear from residents on this priority now if they would rather not wait, and offer it as ROUND ONE says. It is their choice: say it once, never push it, and never present it twice.'
+  if (panel === null) {
+    return [
+      ...head,
+      '- GoodParty is not building a civic panel for them. If they ask to ask their civic panel, say in one line that Build my civic panel on their home sets one up, and that the round one text is how to hear from residents on this priority now.',
+    ].join('\n')
+  }
+  switch (panel.status) {
+    case 'building':
+      return [
+        ...head,
+        '- GoodParty is building their civic panel, and it is filling. Whenever it comes up, say so with how many residents have joined of the goal.',
+        neverSell,
+        '- When they ask to ask their civic panel, or whether to wait for it, say in one line how many have joined of the goal, and that you can ask their civic panel on this priority once it is ready, around the week <priority> gives.',
+        roundOneInstead,
+      ].join('\n')
+    case 'paused':
+      return [
+        ...head,
+        '- GoodParty was building their civic panel, and its invites are paused: it fills again only once they press Resume invites on their civic panel page. Everyone who joined stays on it.',
+        neverSell,
+        '- When they ask to ask their civic panel, say in one line how many have joined of the goal, and that you can ask it on this priority once they resume invites and it is ready.',
+        roundOneInstead,
+      ].join('\n')
+    case 'exhausted':
+      return [
+        ...head,
+        '- Every resident a text can reach has an invite, and their civic panel is short of its goal. When it comes up, say so plainly, with how many joined of the goal.',
+        neverSell,
+        '- The round one text is how to hear from residents on this priority. If they ask to ask the members their civic panel has anyway, present it as one card, and say in one line that it is short of its goal, so what they hear may lean:',
+        ASK_THE_CIVIC_PANEL_CARD,
+      ].join('\n')
+    case 'ready':
+      return [
+        ...head,
+        '- Their civic panel is ready. When they ask to ask their civic panel, present it as one card in place of the round one text:',
+        ASK_THE_CIVIC_PANEL_CARD,
+        '- When you offer the round one text, say in one line that they can ask their civic panel instead.',
+      ].join('\n')
+  }
+}
+
+// The thread holds cards the official may never have sent: a text card
+// opened and closed again leaves an unpaid draft. The agent read one as out
+// with residents and said so.
+const SENT_RECORD_BLOCK = `WHAT HAS GONE OUT (check before you say anything was sent)
+- Only the record says what went out to residents: a side whose <status> line says Set up on, a <thread> line that says sent or scheduled, and Check out with residents: yes in <priority> when it is there. Nothing else counts.
+- A card you presented is a proposal until the official sends it. They may open it and close it without sending, so a card in this conversation, or a <thread> line that says never sent, never means anyone was asked.
+- When the record shows nothing out on this priority, never say a check, a text or an invite is out, sent, scheduled or on its way, or that residents are being asked. Say plainly that nothing has gone out yet. If you are unsure, read it with read_past_outreach before you answer.`
 
 // The last turn of the brief's loop: ask, read, act, report back. Behind
 // serve-citizen-panels, with read_report_back registered.
@@ -472,6 +555,41 @@ const optional = (value: string | null): string => {
     : sanitizeUntrustedContent(trimmed).replace(/[\r\n]+/g, ' ')
 }
 
+const civicPanelLines = (ctx: PriorityFlowContext): string[] => {
+  const panel = ctx.managedCivicPanel
+  if (panel === undefined) {
+    return ctx.civicPanelMembers === undefined
+      ? []
+      : [`Civic panel: ${ctx.civicPanelMembers} members`]
+  }
+  if (panel === null) {
+    return [
+      `Civic panel: GoodParty is not building one. ${ctx.civicPanelMembers ?? 0} members.`,
+    ]
+  }
+  const joined = `${panel.members} of ${panel.goalMembers} members have joined.`
+  switch (panel.status) {
+    case 'building':
+      return [
+        `Civic panel: GoodParty is building it with free invites, and it is filling. ${joined}` +
+          (panel.nextSendDate === null
+            ? ''
+            : ` The next invites go out ${panel.nextSendDate}.`) +
+          ` It should be ready around the week of ${panel.readyWeekOf}.`,
+      ]
+    case 'paused':
+      return [
+        `Civic panel: its invites are paused, so it is not filling until they press Resume invites. ${joined}`,
+      ]
+    case 'exhausted':
+      return [
+        `Civic panel: every resident a text can reach has an invite, and it is short of its goal. ${joined}`,
+      ]
+    case 'ready':
+      return [`Civic panel: ready. ${panel.members} members.`]
+  }
+}
+
 const priorityBlock = (ctx: PriorityFlowContext): string =>
   [
     '<priority>',
@@ -484,9 +602,7 @@ const priorityBlock = (ctx: PriorityFlowContext): string =>
     `Official's full name: ${optional(ctx.officialName)}`,
     `Office: ${optional(ctx.officeTitle)}`,
     `City/District: ${optional(ctx.jurisdiction)}`,
-    ...(ctx.civicPanelMembers === undefined
-      ? []
-      : [`Civic panel: ${ctx.civicPanelMembers} members`]),
+    ...civicPanelLines(ctx),
     ...(ctx.readStatus === undefined
       ? []
       : [
@@ -503,7 +619,17 @@ const priorityBlock = (ctx: PriorityFlowContext): string =>
     '</priority>',
   ].join('\n')
 
-const checkLine = (step: PriorityStep): string => {
+// The day a side's send was set up, in the office's zone. Never the raw
+// instant, which read as the day it was delivered.
+const setUpOn = (sentAt: string, state: string | null | undefined): string => {
+  const at = new Date(sentAt)
+  return Number.isNaN(at.getTime()) ? sentAt : localDay(state, at)
+}
+
+const checkLine = (
+  step: PriorityStep,
+  state: string | null | undefined,
+): string => {
   const check = step.check
   if (check === undefined) return ''
   const parts = [
@@ -518,7 +644,9 @@ const checkLine = (step: PriorityStep): string => {
     check.state === 'deferred'
       ? `Raised ${check.raised} of ${MAX_CHECK_RAISES} times.`
       : null,
-    check.sentAt === undefined ? null : `Sent: ${check.sentAt}.`,
+    check.sentAt === undefined
+      ? null
+      : `Set up on ${setUpOn(check.sentAt, state)}.`,
     check.heard === undefined ? null : `Heard: ${optional(check.heard)}.`,
     check.contrast === undefined
       ? 'Least affected: not offered yet.'
@@ -535,7 +663,7 @@ const checkLine = (step: PriorityStep): string => {
             : `Timing: ${optional(check.contrast.when)}.`,
           check.contrast.sentAt === undefined
             ? null
-            : `Sent: ${check.contrast.sentAt}.`,
+            : `Set up on ${setUpOn(check.contrast.sentAt, state)}.`,
           check.contrast.heard === undefined
             ? null
             : `Heard: ${optional(check.contrast.heard)}.`,
@@ -556,7 +684,7 @@ const statusBlock = (ctx: PriorityFlowContext): string =>
           : optional(step.summary)
       const caveat =
         step.caveat === undefined ? '' : ` Caveat: ${optional(step.caveat)}`
-      return `${step.id} (${PRIORITY_STEP_LABELS[step.id]}): ${step.state}. ${summary}${caveat}${checkLine(step)}`
+      return `${step.id} (${PRIORITY_STEP_LABELS[step.id]}): ${step.state}. ${summary}${caveat}${checkLine(step, ctx.state)}`
     }),
     '</status>',
   ].join('\n')
@@ -595,6 +723,9 @@ export const buildPriorityFlowSystemPrompt = (args: {
     has('present_outreach_proposal') &&
     has('size_round_one') &&
     has('read_outreach_feedback')
+  // Read only behind the same flag; undefined where it is not wired in.
+  const managedPanel = args.ctx.managedCivicPanel
+  const civicPanelBlock = panelFirst && managedPanel !== undefined
   return [
     ROLE_BLOCK,
     COPY_BLOCK,
@@ -610,7 +741,14 @@ export const buildPriorityFlowSystemPrompt = (args: {
     buildStageGateBlock(has, panelFirst),
     ...(canFindGroup ? [buildAffectednessBlock(panelFirst)] : []),
     ...(panelFirst
-      ? [buildRoundOneBlock(args.ctx.panelHoursPerWeek ?? null)]
+      ? [
+          buildRoundOneBlock(
+            managedPanel !== undefined && managedPanel !== null,
+          ),
+        ]
+      : []),
+    ...(civicPanelBlock && managedPanel !== undefined
+      ? [buildCivicPanelBlock(managedPanel)]
       : []),
     ...(canFindGroup && has('count_contacts')
       ? [buildCheckWorkBlock(has, panelFirst)]
@@ -620,11 +758,12 @@ export const buildPriorityFlowSystemPrompt = (args: {
       : []),
     buildReadingRepliesBlock(has, panelFirst),
     ...(args.ctx.readStatus !== undefined
-      ? [buildGoodReadBlock(has('present_outreach_proposal'))]
+      ? [buildGoodReadBlock(has('present_outreach_proposal'), civicPanelBlock)]
       : []),
     ...(has('read_report_back') && has('present_outreach_proposal')
       ? [REPORT_BACK_BLOCK]
       : []),
+    SENT_RECORD_BLOCK,
     RESEARCH_TURN_BLOCK,
     GUARDRAILS_BLOCK,
     `TOOLS AVAILABLE TO YOU\n${args.toolNames.map((n) => `- ${n}`).join('\n')}`,

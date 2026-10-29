@@ -19,7 +19,10 @@ import {
   TcrComplianceStatus,
   WebsiteStatus,
 } from '../../generated/prisma'
-import { TEST_ORGANIZATION_CAP } from '../services/testMode.service'
+import {
+  DELETE_TEST_ORGANIZATION_TX_TIMEOUT_MS,
+  TEST_ORGANIZATION_CAP,
+} from '../services/testMode.service'
 
 const service = useTestService()
 
@@ -173,6 +176,51 @@ describe('POST /v1/test-mode/organizations', () => {
     expect(org.campaign?.details.pledged).toBe(true)
     expect(org.campaign?.details.wonGeneral).toBeUndefined()
     expect(trackCampaign).not.toHaveBeenCalled()
+  })
+
+  // The default office's real election passes on 2026-11-03. Test mode runs
+  // in prod, so creating on that office must keep working after it.
+  it('creates on an office whose election has passed, dated by the preset', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-11-10T15:00:00Z'))
+    vi.spyOn(service.app.get(RacesService), 'getRacesByZip').mockImplementation(
+      ({ timeframe }) =>
+        Promise.resolve(
+          timeframe === 'past'
+            ? [
+                {
+                  ...RACE,
+                  id: 'race_2022',
+                  election: { electionDay: '2022-11-08' },
+                },
+                {
+                  ...RACE,
+                  id: 'race_2026',
+                  election: { electionDay: '2026-11-03' },
+                },
+              ]
+            : [],
+        ),
+    )
+
+    try {
+      const campaign = await createOrg(campaignBundle())
+      const office = await createOrg(officeBundle())
+
+      const org = await service.prisma.organization.findUniqueOrThrow({
+        where: { slug: campaign.slug },
+        include: { campaign: true },
+      })
+      expect(org.campaign?.details.raceId).toBe('race_2026')
+      expect(org.campaign?.details.electionDate).toBe('2027-01-05')
+      expect(campaign.families.election?.current).toBe('in_8_weeks')
+      const officeOrg = await service.prisma.organization.findUniqueOrThrow({
+        where: { slug: office.slug },
+      })
+      expect(officeOrg.positionId).toBe('pos_internal_1')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('leaves a not-started campaign in onboarding step one', async () => {
@@ -427,6 +475,21 @@ describe('POST /v1/test-mode/apply', () => {
 })
 
 describe('DELETE /v1/test-mode/organizations/:slug', () => {
+  it('runs the cascade delete under a raised transaction timeout', async () => {
+    const created = await createOrg(campaignBundle())
+    const spy = vi.spyOn(service.prisma, '$transaction')
+
+    const res = await service.client.delete(
+      `/v1/test-mode/organizations/${created.slug}`,
+    )
+
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(spy).toHaveBeenCalledWith(expect.any(Function), {
+      timeout: DELETE_TEST_ORGANIZATION_TX_TIMEOUT_MS,
+    })
+    spy.mockRestore()
+  })
+
   it('refuses a real organization', async () => {
     const slug = await createRealOrg()
 

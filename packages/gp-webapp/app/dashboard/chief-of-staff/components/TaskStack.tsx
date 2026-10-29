@@ -1,16 +1,13 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
+import { useQuery } from '@tanstack/react-query'
+import { useOrganization } from '@shared/organization-picker'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import {
-  BUILD_CITIZENS_PANEL_MESSAGE,
   CIVIC_PANEL_PAGE_HREF,
   DASHBOARD_CARD_SNOOZE_DAYS,
-  EXPLAIN_CIVIC_PANEL_MESSAGE,
-  civicPanelBuildCardOpensPlan,
-  isCivicPanelBuildCard,
-  isCivicPanelStepCard,
   isGoodReadReportBackCard,
   isManagedCivicPanelCard,
   managedCivicPanelCardContent,
@@ -55,6 +52,7 @@ import {
   useServePlace,
 } from '../../contacts/citizens-panel/managedPanelCopy'
 import { ManagedPanelSeats } from '../../contacts/citizens-panel/components/ManagedPanelSeats'
+import { civicPanelSummaryQueryOptions } from '../../contacts/citizens-panel/civicPanelSummary.query'
 
 // Same timing as the Campaign Manager's stack: the confetti bursts, then a
 // done card lifts off the top while a skipped one drops down and out.
@@ -82,12 +80,7 @@ type DeckCard = {
   // Onboarding cards open the chat instead of navigating.
   ctaHref: string | null
   onboardingKey: OnboardingCardKey | null
-  // The civic panel build card: it follows the meet card, closes itself once
-  // its text has gone out, and its button opens the build chat whatever it
-  // reads.
-  buildsPanel: boolean
-  // The build card, or the card for the panel plan's next step that takes
-  // its place once it is done: same headline, same place in the deck.
+  // The managed panel's cards: same headline, and they follow the meet card.
   peopleFirst: boolean
   // A report back on a priority with a good read: it leads the panel cards.
   leadsPanel: boolean
@@ -100,24 +93,23 @@ type DeckCard = {
   managedProgress: ManagedPanelProgressPhase | null
   // Tells the civic_panel cards apart in analytics.
   variant: CardVariant
+  // A report back's priority, for analytics.
+  priorityId: string | null
 }
 
 type CardVariant =
-  | 'panel_managed'
-  | 'panel_managed_progress'
-  | 'panel_build'
-  | 'panel_step'
+  | 'managed_offer'
+  | `managed_${ManagedPanelProgressPhase}`
   | 'priority_next_step'
   | 'report_back'
   | 'other'
 
-const cardVariant = (
+export const cardVariant = (
   card: Parameters<typeof managedPanelProgressPhase>[0],
 ): CardVariant => {
-  if (isManagedCivicPanelCard(card)) return 'panel_managed'
-  if (managedPanelProgressPhase(card)) return 'panel_managed_progress'
-  if (isCivicPanelBuildCard(card)) return 'panel_build'
-  if (isCivicPanelStepCard(card)) return 'panel_step'
+  if (isManagedCivicPanelCard(card)) return 'managed_offer'
+  const phase = managedPanelProgressPhase(card)
+  if (phase) return `managed_${phase}`
   if (card.type === 'civic_panel') return 'priority_next_step'
   if (card.type === 'report_back') return 'report_back'
   return 'other'
@@ -132,8 +124,8 @@ const HEADLINES: Record<DeckKind, string> = {
   report_back: 'Tell people what you heard',
 }
 
-// The build card shares its type with the per-priority panel cards, and
-// sits between the two get-started cards.
+// The managed panel's cards share their type with the per-priority panel
+// cards, and sit between the two get-started cards.
 const BUILD_PANEL_HEADLINE = 'People first'
 
 const isExternalHref = (href: string): boolean =>
@@ -226,18 +218,13 @@ const TaskStack = ({
         ? civicPanelHref('chief_of_staff_home')
         : card.ctaHref,
     onboardingKey: null,
-    // With a plan the build card links to it, so it starts no second build.
-    buildsPanel:
-      isCivicPanelBuildCard(card) && !civicPanelBuildCardOpensPlan(card),
     peopleFirst:
-      isManagedCivicPanelCard(card) ||
-      managedPanelProgressPhase(card) !== null ||
-      isCivicPanelBuildCard(card) ||
-      isCivicPanelStepCard(card),
+      isManagedCivicPanelCard(card) || managedPanelProgressPhase(card) !== null,
     leadsPanel: isGoodReadReportBackCard(card),
     managedPanel: isManagedCivicPanelCard(card),
     managedProgress: managedPanelProgressPhase(card),
     variant: cardVariant(card),
+    priorityId: card.type === 'report_back' ? card.sourceExternalId : null,
   }))
   const onboardingCards: DeckCard[] = ONBOARDING_CARD_ORDER.filter((key) =>
     onboarding?.some((c) => c.key === key && c.status === 'active'),
@@ -250,12 +237,12 @@ const TaskStack = ({
     ctaLabel: ONBOARDING_CARDS[key].ctaLabel,
     ctaHref: null,
     onboardingKey: key,
-    buildsPanel: false,
     peopleFirst: false,
     leadsPanel: false,
     managedPanel: false,
     managedProgress: null,
     variant: 'other' as const,
+    priorityId: null,
   }))
   // A new official meets their Chief of Staff before anything else, then
   // builds the panel, then sets priorities. A report back on a good read
@@ -273,6 +260,41 @@ const TaskStack = ({
     : deck
   const front = stack[0]
   const layersBehind = Math.min(stack.length - 1, 2)
+
+  // Task Viewed: once each time a card becomes the front of the deck. A
+  // civic panel card waits for the panel's numbers so it can carry them.
+  const deckFront = deck[0]
+  const frontIsPanel = deckFront?.kind === 'civic_panel'
+  const orgSlug = useOrganization()?.slug
+  const panelSummary = useQuery({
+    ...civicPanelSummaryQueryOptions(orgSlug),
+    enabled: frontIsPanel && Boolean(orgSlug),
+  })
+  const viewedCardRef = useRef<string | null>(null)
+  const decksSettled = !cards.isPending && onboarding !== undefined
+  useEffect(() => {
+    if (!decksSettled || !deckFront) return
+    if (viewedCardRef.current === deckFront.id) return
+    if (frontIsPanel && panelSummary.isLoading) return
+    viewedCardRef.current = deckFront.id
+    const panel = frontIsPanel ? panelSummary.data : undefined
+    trackEvent(EVENTS.ChiefOfStaff.TaskViewed, {
+      cardType: deckFront.kind,
+      cardVariant: deckFront.variant,
+      stackSize: deck.length,
+      ...(panel
+        ? { members: panel.members, goalMembers: panel.progress.goal }
+        : {}),
+      ...(deckFront.priorityId ? { priorityId: deckFront.priorityId } : {}),
+    })
+  }, [
+    decksSettled,
+    deckFront,
+    deck.length,
+    frontIsPanel,
+    panelSummary.isLoading,
+    panelSummary.data,
+  ])
 
   if (cards.isPending || onboarding === undefined) {
     return (
@@ -314,8 +336,8 @@ const TaskStack = ({
     )
   }
 
-  // The build card's due date only keeps it from sitting forever; it is not
-  // a deadline the official has.
+  // A managed panel card's due date only keeps it from sitting forever; it is
+  // not a deadline the official has.
   const dueLine = front.peopleFirst ? null : formatDueDate(front.dueDate)
 
   const cardProps = {
@@ -402,7 +424,12 @@ const TaskStack = ({
           )}
         >
           <div className="flex flex-col gap-1 px-6 py-5">
-            {front.managedPanel ? <ManagedPanelSeats className="mb-4" /> : null}
+            {front.managedPanel ? (
+              <ManagedPanelSeats
+                place={place}
+                className="mx-auto mb-4 md:max-w-[360px]"
+              />
+            ) : null}
             {/* No overline: the title leads. See design-memory learned.md. */}
             <h3 className="font-opensans text-lg font-medium text-card-foreground">
               {front.title}
@@ -451,18 +478,6 @@ const TaskStack = ({
                   onClick={() => {
                     start()
                     onDiscussCard(MANAGED_CIVIC_PANEL_EXHAUSTED_MESSAGE)
-                  }}
-                >
-                  {front.ctaLabel}
-                </Button>
-              ) : onDiscussCard && front.buildsPanel ? (
-                <Button
-                  type="button"
-                  size="medium"
-                  className={PRIMARY_ON_PHONE}
-                  onClick={() => {
-                    start()
-                    onDiscussCard(BUILD_CITIZENS_PANEL_MESSAGE)
                   }}
                 >
                   {front.ctaLabel}
@@ -545,25 +560,6 @@ const TaskStack = ({
                       Ask about this
                     </Button>
                   )}
-                {/* Explains the panel before asking for it: the chat builds
-                    nothing unless the official says yes. */}
-                {onDiscussCard && front.buildsPanel && (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="medium"
-                    className={QUIET_ON_PHONE}
-                    onClick={() => {
-                      trackEvent(EVENTS.ChiefOfStaff.TaskActionTaken, {
-                        ...cardProps,
-                        action: 'explain',
-                      })
-                      onDiscussCard(EXPLAIN_CIVIC_PANEL_MESSAGE)
-                    }}
-                  >
-                    What&apos;s a civic panel?
-                  </Button>
-                )}
                 {!leaving &&
                   (front.kind === 'civic_panel' ||
                   front.kind === 'report_back' ? (

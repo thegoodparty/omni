@@ -11,6 +11,14 @@ import { LoaderCircleIcon } from './icons'
 // reintroduce full-screen branded loaders; a plain spinner is the shared
 // vocabulary the app agreed on. Size is deliberately fixed so every
 // waiting state reads the same weight across surfaces.
+/**
+ * The size is fixed on purpose; don't resize it or build a full-screen branded
+ * loader. A submitting button uses Button's loading prop instead.
+ *
+ * @summary Use for any wait of unknown length, like a fetch or a page loading.
+ * For placeholders shaped like the content, use Skeleton; for known progress,
+ * Progress.
+ */
 export const Spinner = ({
   className,
   ...props

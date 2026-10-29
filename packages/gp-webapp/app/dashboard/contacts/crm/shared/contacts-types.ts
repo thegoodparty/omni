@@ -38,6 +38,7 @@ import type {
   UpdateCivicPanelInput,
   VoterLikelihood,
   VoterOutreachAttributionSource,
+  VotedStatus,
 } from '@goodparty_org/contracts'
 // Keeps the activity-condition shape defined once (ENG-10708); the sibling
 // pulls its contract types from @goodparty_org/contracts directly so this
@@ -56,6 +57,8 @@ export interface SegmentResponse {
   // this to swap rename/delete for "duplicate to edit").
   activityConditions?: ActivityConditionInput[]
   supportStatus?: SupportStatusRollup[]
+  // "Voted in election" on the saved list (Win only).
+  votedStatus?: VotedStatus[]
   firstUsedForOutreachAt?: string | null
   // The drawn boundary narrowing the list, Serve only. Declared here rather
   // than taken from contracts because the saved-list shape has never lived
@@ -67,6 +70,8 @@ export interface SegmentResponse {
   // Recommended-lists provenance (Task 7): null on a hand-built list, or
   // when accepted, whether the candidate edited it before submitting.
   recommendedModified?: boolean | null
+  // Which recommendation the list was saved from, null on a hand-built list.
+  recommendedVariant?: string | null
   // Serve: a list our code saved as a civic panel invite's audience. The
   // lists index leaves it out; the built-in Civic panel row is the panel's.
   civicPanelInvite?: boolean

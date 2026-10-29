@@ -58,6 +58,10 @@ it is, what to do next, and where it has got to.
   router cache, as it was first loaded, so a priority added since would be
   missing and the row in its place would open an older one. A change made on
   the page before the read lands wins over it.
+- **Below `sm` the chips sit under the title.** The step and source chips
+  beside the title left it a few letters wide on a phone, so there they wrap
+  under it and the title and next action get two lines each. From `sm` up the
+  row is one line, chips on the right.
 - **Archive is per row and takes one click.** gp-api soft-archives, so the
   record survives; the row leaves the list.
 
@@ -66,13 +70,19 @@ it is, what to do next, and where it has got to.
 Everything fires under `Priorities -`. The browser fires what only it sees:
 `List Viewed` (with per-lane counts), `Priority Viewed` (with the step it
 opened on, whether the thread is new, its `entry` and the read it opened
-with) and `Get Answers Clicked` (`source` strip, rail or results_page, only
-when the turn is actually queued). What the official types or picks in a
+with: `readStatus` waiting or good, `groupsHeard` of `groupsTotal`),
+`Get Answers Clicked` (`source` strip, rail or results_page, only when the
+turn is actually queued, with `readStatus` and `groupsShort`) and
+`Outreach Proposed` (each proposal card the agent draws live: `round` one or
+follow_up, `sampleSize`, `targetGroup` main, contrast, unreached_areas or
+everyone, `channel` text, door or call; never a report back or a social
+post). What the official types or picks in a
 clarify card is `AI Chat - Message Sent` (`shared/agent-chat/chatAnalytics.ts`);
 the hidden kickoff, sent markers and Get answers turn never fire it.
 `Results Viewed` fires on the results page with `heldBack` and
 `readStatus` (the read's status, snake case, `readStatusProperty.ts`),
-`answersFloor` and `groupsHeard` of `groupsTotal`. A
+`answersFloor` and `groupsHeard` of `groupsTotal`, plus `themes` (how many)
+when it is not held back. A
 priority card's outreach carries `launchSource` on the `Outreach -` events:
 `expand_panel` when the card answers a Get answers turn (read from the user
 turn before it, so it survives a reload), `priorities` otherwise. Creates,

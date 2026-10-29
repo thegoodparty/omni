@@ -30,6 +30,9 @@ import {
   formatSmsCutoffDate,
 } from 'app/dashboard/campaign-verification/verificationCopy'
 import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
+import { FreeOfferLabel } from 'app/dashboard/shared/robocallFreeOffer/FreeOfferLabel'
+import { useRobocallFreeOffer } from 'app/dashboard/shared/robocallFreeOffer/useRobocallFreeOffer'
+import { MailIcon } from '@styleguide/components/ui/icons'
 import { CHANNEL_META } from './channelMeta'
 import type { AudiencePreselect } from './audiencePreselect'
 
@@ -44,6 +47,9 @@ interface ChannelTileGridProps {
   onCreateSms: (preselect?: AudiencePreselect) => void
   onCreateRobocall: (preselect?: AudiencePreselect) => void
   onCreatePhoneBanking: (preselect?: AudiencePreselect) => void
+  // Undefined while `win-email-outreach` is off or resolving, which keeps
+  // the tile out of the grid.
+  onCreateEmail?: () => void
 }
 
 const toPreselect = (
@@ -84,6 +90,7 @@ export const ChannelTileGrid = ({
   onCreateSms,
   onCreateRobocall,
   onCreatePhoneBanking,
+  onCreateEmail,
 }: ChannelTileGridProps) => {
   const router = useRouter()
   const queryClient = useQueryClient()
@@ -96,6 +103,7 @@ export const ChannelTileGrid = ({
   // and opens neither the flow, the Pro wizard nor the compliance modal.
   const { smsCompliance, smsCutoffDate } = useSmsCompliance()
   const smsClosed = smsCompliance === 'closed'
+  const { offer: freeOffer } = useRobocallFreeOffer()
   // Milestone 2 moves the Pro/compliance gate INSIDE the text, robocall and
   // phone-banking flows: the tile stops refusing the click and opens the
   // flow, which pauses itself once there is something to save. Read without
@@ -268,7 +276,12 @@ export const ChannelTileGrid = ({
           Pick a channel to draft and send a new campaign.
         </p>
       </div>
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+      <div
+        className={cn(
+          'grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5',
+          onCreateEmail && 'xl:grid-cols-6',
+        )}
+      >
         {TILE_ORDER.map((type) => {
           const option = OUTREACH_OPTIONS.find((o) => o.type === type)
           const meta = CHANNEL_META[type]
@@ -287,7 +300,21 @@ export const ChannelTileGrid = ({
               key={type}
               icon={textClosed ? <MessageSquareOff /> : meta.icon}
               iconClassName={textClosed ? 'bg-grayscale-200' : meta.iconTint}
-              label={meta.label}
+              label={
+                type === OUTREACH_TYPES.robocall && freeOffer ? (
+                  <>
+                    {/* In the lock's corner, out of the flow, so the icon
+                        and name stay level with the tiles beside it. */}
+                    <FreeOfferLabel
+                      icon={false}
+                      className="absolute top-3 left-3"
+                    />
+                    {meta.label}
+                  </>
+                ) : (
+                  meta.label
+                )
+              }
               subCopy={
                 textClosed
                   ? SMS_TILE_CLOSED_COPY
@@ -328,6 +355,17 @@ export const ChannelTileGrid = ({
             card
           )
         })}
+        {onCreateEmail && (
+          <ChannelCard
+            icon={<MailIcon />}
+            iconClassName="bg-brand-lavender-200"
+            label="Email"
+            onClick={() => {
+              trackEvent(EVENTS.Outreach.ClickCreate, { type: 'email' })
+              onCreateEmail()
+            }}
+          />
+        )}
       </div>
       <ProUpgradeModal
         {...{

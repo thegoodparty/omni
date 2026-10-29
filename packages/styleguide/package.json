@@ -8,7 +8,9 @@
     "./*": "./src/*"
   },
   "scripts": {
-    "test": "vitest run"
+    "test": "vitest run",
+    "docs:components": "node scripts/components-doc.mjs",
+    "check:components-doc": "node scripts/components-doc.mjs --check"
   },
   "dependencies": {
     "@radix-ui/react-accordion": "^1.2.12",

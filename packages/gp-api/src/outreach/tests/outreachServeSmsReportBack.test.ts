@@ -15,6 +15,8 @@ import { OutreachReportBackService } from '../services/outreachReportBack.servic
 import { OutreachServeSmsPurchaseHandlerService } from '../services/outreachServeSmsPurchase.service'
 import { QueueProducerService } from '@/queue/producer/queueProducer.service'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
+import { AnalyticsService } from '@/analytics/analytics.service'
+import { EVENTS } from 'src/vendors/segment/segment.types'
 
 const service = useTestService()
 
@@ -356,6 +358,43 @@ describe('a Serve text that reports back', () => {
       'pi_second',
       'outreach-cancel-pi_second',
     )
+  })
+
+  it('records the report back once it is paid for and queued, once', async () => {
+    vi.spyOn(
+      service.app.get(QueueProducerService),
+      'sendMessage',
+    ).mockResolvedValue(undefined)
+    const track = vi
+      .spyOn(service.app.get(AnalyticsService), 'track')
+      .mockResolvedValue(undefined as never)
+    const draft = await service.prisma.outreach.create({
+      data: {
+        organizationSlug: slug,
+        campaignId: null,
+        outreachType: OutreachType.text,
+        status: OutreachStatus.pending_payment,
+        textCount: 30,
+        reportBackForOutreachId: askedId,
+      },
+    })
+    const purchase = service.app.get(OutreachServeSmsPurchaseHandlerService)
+    const metadata = { outreachId: draft.id, organizationSlug: slug }
+
+    await purchase.executePostPurchase('cs_rb', metadata)
+    await purchase.executePostPurchase('cs_rb', metadata)
+
+    const sent = () =>
+      track.mock.calls.filter(
+        ([, event]) => event === EVENTS.Priorities.ReportBackSent,
+      )
+    await vi.waitFor(() => expect(sent()).toHaveLength(1))
+    expect(sent()[0]?.[2]).toEqual({
+      organizationSlug: slug,
+      answeredCount: 0,
+      themesShared: 0,
+      channel: 'text',
+    })
   })
 
   it('refuses a report back on a report back', async () => {

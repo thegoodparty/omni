@@ -10,12 +10,14 @@ import {
   petalBucket,
   LABEL_SPACING,
   milestones,
+  plainSeats,
   SEAT_COUNT,
   SEAT_HUES,
   polar,
   roundCoord,
   seatSpots,
   sectorPath,
+  shortGroups,
   spreadLabels,
 } from './panelCharts'
 
@@ -298,5 +300,64 @@ describe('milestones', () => {
       [230, 'next'],
     ])
     expect(milestones(250, 240).every((m) => m.state === 'done')).toBe(true)
+  })
+})
+
+describe('plainSeats', () => {
+  it('fills the share of the goal, in order, never past 100', () => {
+    const half = plainSeats(120, 240)
+    expect(half.filled).toBe(50)
+    expect(half.seats.filter((seat) => seat.filled)).toHaveLength(50)
+    expect(half.seats.slice(0, 50).every((seat) => seat.filled)).toBe(true)
+    expect(plainSeats(300, 240).filled).toBe(SEAT_COUNT)
+    expect(plainSeats(0, 240).filled).toBe(0)
+  })
+
+  it('mixes the brand families and calls no place behind', () => {
+    const chart = plainSeats(240, 240)
+    expect(new Set(chart.seats.map((seat) => seat.place)).size).toBe(
+      SEAT_HUES.length,
+    )
+    expect(chart.behind).toEqual([])
+  })
+})
+
+describe('shortGroups', () => {
+  const composition = {
+    placeKind: 'tract' as const,
+    places: [
+      {
+        key: 'a',
+        name: '1',
+        label: 'Oakdale',
+        districtShare: 0.5,
+        members: 60,
+      },
+      { key: 'b', name: '2', districtShare: 0.5, members: 10 },
+    ],
+    groups: [
+      { group: 'women' as const, districtShare: 0.5, memberShare: 0.6 },
+      { group: 'men' as const, districtShare: 0.5, memberShare: 0.4 },
+      { group: 'age18to24' as const, districtShare: 0.1, memberShare: 0.01 },
+    ],
+  }
+
+  it('lists only groups short of their seats, furthest behind first', () => {
+    const rows = shortGroups({ composition, members: 70, goal: 100 })
+    expect(rows.map((row) => row.key)).toEqual([
+      'age18to24',
+      'b',
+      'men',
+      'women',
+    ])
+    expect(rows[0]).toMatchObject({ have: 1, need: 10 })
+    expect(rows.find((row) => row.key === 'a')).toBeUndefined()
+  })
+
+  it('counts a place in the seats the district gives it', () => {
+    const row = shortGroups({ composition, members: 70, goal: 100 }).find(
+      (r) => r.key === 'b',
+    )
+    expect(row).toMatchObject({ kind: 'place', have: 10, need: 50 })
   })
 })

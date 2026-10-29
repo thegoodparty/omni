@@ -1,5 +1,8 @@
 import { z } from 'zod'
-import { SupportStatusRollupSchema } from '@goodparty_org/contracts'
+import {
+  SupportStatusRollupSchema,
+  VotedStatusSchema,
+} from '@goodparty_org/contracts'
 import { activityConditionSchema } from './activityCondition.schema'
 
 /**
@@ -126,6 +129,9 @@ export const voterFilterBaseSchema = z.object({
   // round-trips the whole row back into this schema (e.g. POST /p2p/phone-list).
   search: z.string().nullish(),
   supportStatus: z.array(SupportStatusRollupSchema).optional(),
+  // "Voted in election" (Win only), resolved to a person-id set like
+  // supportStatus rather than sent to people-api as a column.
+  votedStatus: z.array(VotedStatusSchema).optional(),
   activityConditions: z.array(activityConditionSchema).optional(),
 })
 

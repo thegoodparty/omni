@@ -16,6 +16,8 @@ import { ContactInteractionModule } from '@/contactInteraction/contactInteractio
 import { DoorKnockingModule } from './doorKnocking/doorKnocking.module'
 import { VendorDriftProbeModule } from './vendors/vendorDriftProbe.module'
 import { PhoneBankingModule } from './phoneBanking/phoneBanking.module'
+import { EmailOutreachModule } from './emailOutreach/emailOutreach.module'
+import { PaymentHoldsModule } from './paymentHolds/paymentHolds.module'
 import { ContactNoteModule } from '@/contactNote/contactNote.module'
 import { ConstituentFeedbackModule } from '@/constituentFeedback/constituentFeedback.module'
 import { ContactsModule } from '@/contacts/contacts.module'
@@ -85,7 +87,18 @@ import { VendorMocksModule } from '@/vendorMocks/vendorMocks.module'
   imports: [
     loggerModule,
     AgentMcpMarkerModule,
-    ScheduleModule.forRoot(),
+    // The route-test harness (test-service.ts) turns every schedule off unless
+    // a suite opts in, so a real @Cron can't fire mid-suite and write rows a
+    // test is counting. Only honored under NODE_ENV=test.
+    ScheduleModule.forRootAsync({
+      useFactory: () => {
+        const enabled = !(
+          process.env.NODE_ENV === 'test' &&
+          process.env.TEST_SCHEDULER === 'off'
+        )
+        return { cronJobs: enabled, intervals: enabled, timeouts: enabled }
+      },
+    }),
     BraintrustModule,
     GeminiModule,
     CampaignStrategyModule,
@@ -136,6 +149,8 @@ import { VendorMocksModule } from '@/vendorMocks/vendorMocks.module'
     DoorKnockingModule,
     VendorDriftProbeModule,
     PhoneBankingModule,
+    EmailOutreachModule,
+    PaymentHoldsModule,
     PollsModule,
     PrioritiesModule,
     PersonProfilesModule,

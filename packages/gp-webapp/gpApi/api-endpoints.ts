@@ -1,4 +1,20 @@
 import type {
+  EmailConfirmRequest,
+  EmailConfirmResponse,
+  EmailDraft,
+  EmailDraftSave,
+  EmailForwardConfirmState,
+  EmailSend,
+  EmailTokenRequest,
+  EmailUnsubscribeState,
+  EmailAiDraftRequest,
+  EmailAiDraftResponse,
+  EmailImagePresignRequest,
+  EmailImagePresignResponse,
+  EmailRecipientUploadResponse,
+  EmailTestSendResponse,
+  EmailSender,
+  EmailSenderUpdate,
   CreateDoorKnockingTurf,
   CreateServeDoorKnockingTurf,
   DoorKnockingAddressPreviewResponse,
@@ -103,6 +119,9 @@ import type {
   RobocallDraftCreateRequest,
   RobocallDraftCreateResponse,
   RobocallSaveCardIntentResponse,
+  PaymentHoldCardIntentResponse,
+  PaymentHoldCardRequest,
+  PaymentHoldCardResponse,
   RobocallAuthorizeRequest,
   RobocallAuthorizeResponse,
   RobocallPromoApplyRequest,
@@ -118,6 +137,7 @@ import type {
   RecommendedListIntent,
   RecommendedListsResponse,
   RecommendedListVariant,
+  RobocallFreeOfferResponse,
   MyAssignmentsResponse,
   TrackerTaskSkipReason,
   TestModeState,
@@ -127,14 +147,9 @@ import type {
   PriorityReadStatus,
   CivicPanelSummary,
   CIVIC_PANEL_SEGMENT,
-  CivicPanelBuildPlanResponse,
-  CreateCivicPanelBuildPlanInput,
-  UpdateCivicPanelBuildPlanInput,
-  MarkCivicPanelBuildStepInput,
   ApproveManagedCivicPanelInput,
   ManagedCivicPanelResponse,
   UpdateManagedCivicPanelInput,
-  PrepareCivicPanelBuildStepResponse,
 } from '@goodparty_org/contracts'
 import type { Race } from 'app/onboarding/[slug]/[step]/components/ballotOffices/types'
 import type {
@@ -366,6 +381,13 @@ export type APIEndpoints = {
     Response: User
   }
 
+  // Copies the user's verified Clerk primary email onto the user row. The
+  // body is empty on purpose: email only changes through Clerk.
+  'POST /v1/users/me/sync-email': {
+    Request: {}
+    Response: User
+  }
+
   // Submits the HubSpot registration form with the visitor's hubspotutk so
   // the contact gets web/paid original-source attribution instead of the
   // "offline sources" Segment's server-side destination would assign.
@@ -501,6 +523,138 @@ export type APIEndpoints = {
   'POST /v1/outreach/serve/sms': {
     Request: ServeSmsCreateRequest
     Response: ServeSmsCreateResponse
+  }
+
+  // Win email. The draft save is a full replace: omitted optional fields are
+  // cleared. The recipient upload is multipart (`file` + `consentConfirmed`):
+  // pass `{}` as the typed payload and the FormData as `{ body }` in the
+  // overrides argument of clientRequest.
+  'GET /v1/outreach/email/sender': {
+    Request: {}
+    Response: EmailSender
+  }
+
+  'PATCH /v1/outreach/email/sender': {
+    Request: EmailSenderUpdate
+    Response: EmailSender
+  }
+
+  'POST /v1/outreach/email': {
+    Request: EmailDraftSave
+    Response: EmailDraft
+  }
+
+  'GET /v1/outreach/email/:id': {
+    Request: {}
+    Response: EmailSend
+  }
+
+  'POST /v1/outreach/email/:id/confirm': {
+    Request: EmailConfirmRequest
+    Response: EmailConfirmResponse
+  }
+
+  'POST /v1/outreach/email/:id/cancel': {
+    Request: {}
+    Response: EmailSend
+  }
+
+  'POST /v1/outreach/email/:id/recipients': {
+    Request: {}
+    Response: EmailRecipientUploadResponse
+  }
+
+  'POST /v1/outreach/email/draft': {
+    Request: EmailAiDraftRequest
+    Response: EmailAiDraftResponse
+  }
+
+  'POST /v1/outreach/email/images/presign': {
+    Request: EmailImagePresignRequest
+    Response: EmailImagePresignResponse
+  }
+
+  'POST /v1/outreach/email/:id/test': {
+    Request: {}
+    Response: EmailTestSendResponse
+  }
+
+  // Public pages behind the links in outreach email (no login). The
+  // unsubscribe token rides in the query because it is too long for a path.
+  'GET /v1/email/unsubscribe': {
+    Request: { t: string }
+    Response: EmailUnsubscribeState
+  }
+
+  'POST /v1/email/unsubscribe': {
+    Request: EmailTokenRequest
+    Response: EmailUnsubscribeState
+  }
+
+  'POST /v1/email/unsubscribe/undo': {
+    Request: EmailTokenRequest
+    Response: EmailUnsubscribeState
+  }
+
+  'GET /v1/email/forward-confirm/:token': {
+    Request: {}
+    Response: EmailForwardConfirmState
+  }
+
+  'POST /v1/email/forward-confirm': {
+    Request: EmailTokenRequest
+    Response: EmailForwardConfirmState
+  }
+
+  // Serve email: the same routes, scoped to the elected office.
+  'GET /v1/outreach/serve/email/sender': {
+    Request: {}
+    Response: EmailSender
+  }
+
+  'PATCH /v1/outreach/serve/email/sender': {
+    Request: EmailSenderUpdate
+    Response: EmailSender
+  }
+
+  'POST /v1/outreach/serve/email': {
+    Request: EmailDraftSave
+    Response: EmailDraft
+  }
+
+  'GET /v1/outreach/serve/email/:id': {
+    Request: {}
+    Response: EmailSend
+  }
+
+  'POST /v1/outreach/serve/email/:id/confirm': {
+    Request: EmailConfirmRequest
+    Response: EmailConfirmResponse
+  }
+
+  'POST /v1/outreach/serve/email/:id/cancel': {
+    Request: {}
+    Response: EmailSend
+  }
+
+  'POST /v1/outreach/serve/email/:id/recipients': {
+    Request: {}
+    Response: EmailRecipientUploadResponse
+  }
+
+  'POST /v1/outreach/serve/email/draft': {
+    Request: EmailAiDraftRequest
+    Response: EmailAiDraftResponse
+  }
+
+  'POST /v1/outreach/serve/email/images/presign': {
+    Request: EmailImagePresignRequest
+    Response: EmailImagePresignResponse
+  }
+
+  'POST /v1/outreach/serve/email/:id/test': {
+    Request: {}
+    Response: EmailTestSendResponse
   }
 
   // Serve self-serve polls, behind `serve-self-serve-polls`. The draft
@@ -712,6 +866,26 @@ export type APIEndpoints = {
   'POST /v1/outreach/robocall': {
     Request: RobocallDraftCreateRequest
     Response: RobocallDraftCreateResponse
+  }
+
+  'POST /v1/outreach/holds/card-intent': {
+    Request: Record<string, never>
+    Response: PaymentHoldCardIntentResponse
+  }
+
+  'POST /v1/outreach/holds/:outreachId/card': {
+    Request: PaymentHoldCardRequest
+    Response: PaymentHoldCardResponse
+  }
+
+  'POST /v1/outreach/serve/holds/card-intent': {
+    Request: Record<string, never>
+    Response: PaymentHoldCardIntentResponse
+  }
+
+  'POST /v1/outreach/serve/holds/:outreachId/card': {
+    Request: PaymentHoldCardRequest
+    Response: PaymentHoldCardResponse
   }
 
   // Vaults the card off-session: returns a Stripe SetupIntent clientSecret the
@@ -1542,6 +1716,13 @@ export type APIEndpoints = {
     }
     Response: RecommendedListsResponse
   }
+  // Whether the campaign gets the free election-eve robocall right now, and
+  // the size of its offer list. The first call for an eligible campaign
+  // assigns its precincts.
+  'GET /v1/campaigns/mine/robocall-offer': {
+    Request: {}
+    Response: RobocallFreeOfferResponse
+  }
   'DELETE /v1/voters/voter-file/filter/:id': {
     Request: {}
     Response: {}
@@ -1573,32 +1754,6 @@ export type APIEndpoints = {
   'GET /v1/contacts/civic-panel': {
     Request: {}
     Response: CivicPanelSummary
-  }
-  // The plan that builds the panel across texts, calls and doors. Reading
-  // it is what moves it on (links, dates, the next wave).
-  'GET /v1/contacts/civic-panel/plan': {
-    Request: {}
-    Response: CivicPanelBuildPlanResponse
-  }
-  'POST /v1/contacts/civic-panel/plan': {
-    Request: CreateCivicPanelBuildPlanInput
-    Response: CivicPanelBuildPlanResponse
-  }
-  'PATCH /v1/contacts/civic-panel/plan': {
-    Request: UpdateCivicPanelBuildPlanInput
-    Response: CivicPanelBuildPlanResponse
-  }
-  'POST /v1/contacts/civic-panel/plan/steps/:id/prepare': {
-    Request: {}
-    Response: PrepareCivicPanelBuildStepResponse
-  }
-  'POST /v1/contacts/civic-panel/plan/steps/:id/skip': {
-    Request: {}
-    Response: CivicPanelBuildPlanResponse
-  }
-  'POST /v1/contacts/civic-panel/plan/steps/:id/mark': {
-    Request: MarkCivicPanelBuildStepInput
-    Response: CivicPanelBuildPlanResponse
   }
   // The panel GoodParty builds for the office. GET is { panel: null } before
   // the official approves; POST approves the invite in their name.
@@ -3007,9 +3162,9 @@ export type ElectedOffice = {
   onboardingStep: string | null
   // The campaign this office was created from, when the holder reached office by
   // winning a GoodParty.org campaign (the "I won" flow). Null for a net-new serve
-  // lead (sales/magic-link/BallotReady) who was never a candidate. Marks a
-  // win-origin official who already onboarded as a candidate, so post-auth
-  // routing must NOT send them into serve onboarding for a missing term/date.
+  // lead (sales/magic-link/BallotReady) who was never a candidate. Sign-in
+  // routing never sends a win-origin office into serve onboarding; the
+  // dashboard does, while its onboardingCompletedAt is still null.
   campaignId: number | null
 }
 

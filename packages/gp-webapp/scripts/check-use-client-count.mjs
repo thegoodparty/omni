@@ -520,7 +520,14 @@ import { dirname, join, relative } from 'node:path'
 // runs), the favorite and read marks, and the Gather more feedback flow; the
 // theme list, theme detail, comment list and CRM panel carry no directive and
 // inherit it, and the server page above it only validates the route.
-const BASELINE = 595
+// 2026-10-28: 595 -> 596 for PaymentHoldCard (email B3, #3316). It mounts
+// Stripe Elements and confirms a SetupIntent in the browser, with React state
+// for the decline and retry states, so it cannot render on the server.
+// 2026-10-28: 596 -> 599 for the email public pages and status page (email
+// D3). The unsubscribe and forward-confirm pages are opened from email by
+// people with no session and act on a button press, and the status page reads
+// the router, so all three are client components under server page files.
+const BASELINE = 599
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

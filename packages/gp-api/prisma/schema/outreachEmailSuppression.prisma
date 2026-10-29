@@ -1,0 +1,27 @@
+// Unsubscribes, scoped to one organization. Office sends also honor the
+// suppressions of the campaign's organization the office came from. Bounces
+// and complaints live in SES's account suppression list, not here.
+model OutreachEmailSuppression {
+  id               Int                            @id @default(autoincrement())
+  createdAt        DateTime                       @default(now()) @map("created_at")
+  updatedAt        DateTime                       @updatedAt @map("updated_at")
+  email            String
+  organizationSlug String                         @map("organization_slug")
+  organization     Organization                   @relation(fields: [organizationSlug], references: [slug], onDelete: Cascade)
+  reason           OutreachEmailSuppressionReason
+  // "all" until per-message-type subscriptions exist. Not nullable, so the
+  // unique index treats every row as comparable.
+  messageType      String                         @default("all") @map("message_type")
+  // Set by an undo. A later unsubscribe clears it.
+  revokedAt        DateTime?                      @map("revoked_at")
+
+  @@unique([email, organizationSlug, messageType])
+  @@index([organizationSlug])
+  @@map("outreach_email_suppression")
+}
+
+enum OutreachEmailSuppressionReason {
+  link
+  one_click
+  reply
+}

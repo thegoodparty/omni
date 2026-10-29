@@ -27,6 +27,15 @@ A short overview also lives in `README.md`.
 - **Idempotency is the producer/handler's job.** SQS can redeliver. Consumer handlers use `optimisticLockingUpdate` or status guards to drop duplicates (see `agentExperiments` module for the canonical pattern; `P2P_PHONE_LIST_BUILD`'s single-owner claim CAS — `queued -> building`, count 0 = already owned/advanced — plus a stamp-the-token-before-the-slow-write trick to survive a crash mid-build, is another one — `vendors/peerly/services/p2pPhoneListUpload.service.ts`).
 - **Import `QueueProducerModule` wherever you enqueue.** Feature modules should depend on the producer side only; never import `QueueConsumerModule` from feature code.
 
+## Email outreach
+
+Two message types, both from `src/emailOutreach/`:
+
+- `emailSendPrepare` (`{ outreachEmailId }`), enqueued by the email due sweep when a held send starts, and re-enqueued by the same sweep if a prepare stalls. The deduplication ID is `emailSendPrepare-<id>`. SQS only dedupes for 5 minutes, so a retry after that adds a message; prepare is idempotent, so that costs work, not duplicate sends.
+- `emailInbound` (`{ snsMessageId, bucket, key, fromAuthenticated }`), enqueued by the public SNS webhook, `POST /v1/email/webhooks/sns`, with `throwOnError: true`. `fromAuthenticated` is SES's DMARC verdict, and forwarding and unsubscribe decisions rely on it. The webhook returns 200 only after the enqueue succeeds, so SNS retries if it fails. Its deduplication ID is `emailInbound-<snsMessageId>`.
+
+Per-email SES events never go through this queue. Bounce, complaint and send counts are CloudWatch metrics tagged per send, and sending itself runs in a leased sweep that reads Postgres, not SQS. If delivery, open or click data is ever needed, it goes to Firehose and S3. One queue message per email would back up every other job type behind it.
+
 ## Gotchas
 
 - `QueueConsumerModule` is excluded under `NODE_ENV === 'test'` — integration tests that need consumer behaviour must call `handle*` methods directly, not through SQS.

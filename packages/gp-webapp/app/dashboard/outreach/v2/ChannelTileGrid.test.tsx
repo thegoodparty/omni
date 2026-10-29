@@ -63,12 +63,19 @@ vi.mock('@shared/hooks/useElectedOffice', () => ({
   useElectedOffice: () => mockElectedOffice,
 }))
 
+// The free robocall offer, as gp-api answers it. Not offered by default.
+let mockFreeOffer: { offer: { eligible: true } | null } = { offer: null }
+vi.mock('app/dashboard/shared/robocallFreeOffer/useRobocallFreeOffer', () => ({
+  useRobocallFreeOffer: () => mockFreeOffer,
+}))
+
 const renderGrid = (
   overrides: Partial<{
     onCreateSocial: () => void
     onCreateSms: (preselect?: AudiencePreselect) => void
     onCreateRobocall: (preselect?: AudiencePreselect) => void
     onCreatePhoneBanking: (preselect?: AudiencePreselect) => void
+    onCreateEmail: () => void
     preselectedListId: number
     preselectedRecommendedVariant: RecommendedListVariant
   }> = {},
@@ -81,6 +88,7 @@ const renderGrid = (
       onCreateSms={overrides.onCreateSms ?? vi.fn()}
       onCreateRobocall={overrides.onCreateRobocall ?? vi.fn()}
       onCreatePhoneBanking={overrides.onCreatePhoneBanking ?? vi.fn()}
+      onCreateEmail={overrides.onCreateEmail}
     />,
   )
 
@@ -92,6 +100,19 @@ describe('ChannelTileGrid — social tile', () => {
     await userEvent.click(screen.getByText('Social media'))
 
     expect(onCreateSocial).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('ChannelTileGrid — email tile', () => {
+  it('is absent without a handler and opens the email flow with one', async () => {
+    const { unmount } = renderGrid()
+    expect(screen.queryByText('Email')).not.toBeInTheDocument()
+    unmount()
+
+    const onCreateEmail = vi.fn()
+    renderGrid({ onCreateEmail })
+    await userEvent.click(screen.getByText('Email'))
+    expect(onCreateEmail).toHaveBeenCalledTimes(1)
   })
 })
 
@@ -107,6 +128,16 @@ describe('ChannelTileGrid — robocall tile', () => {
     await userEvent.click(screen.getByText('Robocall'))
 
     expect(onCreateRobocall).toHaveBeenCalledTimes(1)
+  })
+
+  it('badges the tile only while the campaign has the free offer', () => {
+    renderGrid()
+    expect(screen.queryByText('Free offer')).not.toBeInTheDocument()
+
+    mockFreeOffer = { offer: { eligible: true } }
+    renderGrid()
+    expect(screen.getByText('Free offer')).toBeInTheDocument()
+    mockFreeOffer = { offer: null }
   })
 })
 

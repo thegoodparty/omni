@@ -7,18 +7,12 @@ import {
 } from './judgeChatFixture/seed'
 import { ElectionsService } from '@/elections/services/elections.service'
 import { useTestService } from '@/test-service'
+import {
+  appEnvOverrides,
+  useAppEnvOverrides,
+} from '@/shared/test-utils/appEnvOverrides'
 
-const { envNonProd } = vi.hoisted(() => ({ envNonProd: { value: true } }))
-vi.mock('@/shared/util/appEnvironment.util', async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import('@/shared/util/appEnvironment.util')>()
-  return {
-    ...actual,
-    get IS_NON_PROD_DEPLOY() {
-      return envNonProd.value
-    },
-  }
-})
+useAppEnvOverrides({ IS_NON_PROD_DEPLOY: true })
 
 const service = useTestService()
 
@@ -78,7 +72,7 @@ const stubJudgePosition = () =>
 
 describe('POST /v1/test-fixtures/judge-chat-cases', () => {
   beforeEach(() => {
-    envNonProd.value = true
+    appEnvOverrides.IS_NON_PROD_DEPLOY = true
     stubJudgePosition()
   })
 
@@ -109,6 +103,7 @@ describe('POST /v1/test-fixtures/judge-chat-cases', () => {
       l2DistrictType: 'City_Ward',
       l2DistrictName: 'CHEYENNE CITY WARD 1',
       level: 'CITY',
+      positionName: 'Cheyenne City Council - Ward 1',
     })
   })
 
@@ -169,7 +164,7 @@ describe('POST /v1/test-fixtures/judge-chat-cases', () => {
   })
 
   it('404s outside a known non-prod deploy', async () => {
-    envNonProd.value = false
+    appEnvOverrides.IS_NON_PROD_DEPLOY = false
 
     const res = await setUp(BRIEFING_CASE)
 
@@ -259,7 +254,7 @@ describe('POST /v1/test-fixtures/judge-chat-cases', () => {
 
 describe('DELETE /v1/test-fixtures/judge-chat-cases/:organizationSlug', () => {
   beforeEach(() => {
-    envNonProd.value = true
+    appEnvOverrides.IS_NON_PROD_DEPLOY = true
     stubJudgePosition()
   })
 
@@ -367,7 +362,7 @@ describe('DELETE /v1/test-fixtures/judge-chat-cases/:organizationSlug', () => {
 
   it('404s outside a known non-prod deploy', async () => {
     const { data } = await setUp(BRIEFING_CASE)
-    envNonProd.value = false
+    appEnvOverrides.IS_NON_PROD_DEPLOY = false
 
     const res = await tearDown(data.organizationSlug)
 

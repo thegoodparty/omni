@@ -479,7 +479,11 @@ export const SmsReviewStep = ({
           <Spinner />
         </div>
       ) : payError || sessionError ? (
-        <PurchaseError serverError={payErrorMessage ?? undefined} />
+        <PurchaseError
+          serverError={
+            payErrorMessage ?? (sessionError ? error : null) ?? undefined
+          }
+        />
       ) : isFree ? (
         <Button
           type="button"

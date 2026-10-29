@@ -16,7 +16,7 @@ import {
   PurchaseIntentPayloadEntry,
 } from 'src/payments/payments.types'
 import { serializeError } from 'serialize-error'
-import { addDays, fromUnixTime } from 'date-fns'
+import { addHours, fromUnixTime, getUnixTime, subDays } from 'date-fns'
 import { SlackService } from 'src/vendors/slack/services/slack.service'
 import Stripe from 'stripe'
 
@@ -30,6 +30,33 @@ export class StripeHoldDeclinedError extends Error {
     super(message)
     this.name = 'StripeHoldDeclinedError'
   }
+}
+
+// An outreach payment hold the card refused. Carries Stripe's decline code so
+// the hold row can record why.
+export class StripeOutreachHoldDeclinedError extends StripeHoldDeclinedError {
+  constructor(
+    message: string,
+    readonly declineCode: string | null,
+  ) {
+    super(message)
+    this.name = 'StripeOutreachHoldDeclinedError'
+  }
+}
+
+// Stripe puts a manual-capture deadline on the charge's card details, not the
+// intent. Without it, assume the shortest card window (Visa off-session, 4
+// days 18 hours from placement) rather than overstate how long the hold lasts.
+const outreachHoldCaptureBefore = (
+  intent: Stripe.PaymentIntent,
+  placedAt: Date,
+): Date => {
+  const charge =
+    typeof intent.latest_charge === 'object' ? intent.latest_charge : null
+  const captureBeforeUnix = charge?.payment_method_details?.card?.capture_before
+  return captureBeforeUnix
+    ? fromUnixTime(captureBeforeUnix)
+    : addHours(placedAt, 4 * 24 + 18)
 }
 
 // A declined off-session robocall fresh charge. Carries the declined Payment
@@ -325,8 +352,134 @@ export class StripeService {
       paymentIntentId: intent.id,
       captureBefore: captureBeforeUnix
         ? fromUnixTime(captureBeforeUnix)
-        : addDays(new Date(), 7),
+        : addHours(new Date(), 7 * 24),
     }
+  }
+
+  // The shared outreach hold (src/paymentHolds/). On-session when the user is
+  // there to see a decline, off-session from a sweep. Stripe refuses a replayed
+  // idempotency key whose parameters differ, so a retry of one attempt must
+  // pass the same offSession as the attempt it replays.
+  async createOutreachManualCaptureHold({
+    customerId,
+    paymentMethodId,
+    amountInCents,
+    outreachId,
+    holdAttempt,
+    offSession,
+    metadata,
+  }: {
+    customerId: string
+    paymentMethodId: string
+    amountInCents: number
+    outreachId: number
+    holdAttempt: number
+    offSession: boolean
+    metadata: Record<string, string>
+  }): Promise<{ paymentIntentId: string; captureBefore: Date }> {
+    let intent: Stripe.PaymentIntent
+    try {
+      intent = await this.stripe.paymentIntents.create(
+        {
+          amount: amountInCents,
+          currency: 'usd',
+          customer: customerId,
+          payment_method: paymentMethodId,
+          capture_method: 'manual',
+          confirm: true,
+          // Stripe refuses an on-session confirm with no return_url unless
+          // redirect-based methods are off. A card that needs 3-D Secure
+          // then comes back requires_action, which is recorded as a decline.
+          automatic_payment_methods: {
+            enabled: true,
+            allow_redirects: 'never',
+          },
+          ...(offSession ? { off_session: true } : {}),
+          metadata,
+          expand: ['latest_charge'],
+        },
+        {
+          idempotencyKey: `outreach-hold-${customerId}-${outreachId}-${holdAttempt}`,
+        },
+      )
+    } catch (err) {
+      if (err instanceof Stripe.errors.StripeCardError) {
+        throw new StripeOutreachHoldDeclinedError(
+          err.message,
+          err.decline_code ?? err.code ?? null,
+        )
+      }
+      this.logger.error({ err }, 'Failed to place outreach payment hold')
+      throw new BadGatewayException('Failed to place payment hold')
+    }
+
+    // A confirmed intent short of requires_capture (requires_action with no
+    // one to authenticate, requires_payment_method) holds no funds.
+    if (intent.status !== 'requires_capture') {
+      throw new StripeOutreachHoldDeclinedError(
+        `Hold did not authorize: status ${intent.status}`,
+        intent.last_payment_error?.decline_code ?? intent.status,
+      )
+    }
+
+    return {
+      paymentIntentId: intent.id,
+      captureBefore: outreachHoldCaptureBefore(intent, new Date()),
+    }
+  }
+
+  // Every intent placed for one attempt of an outreach hold, whatever its
+  // status, so recovery can see what a placement that never committed left at
+  // Stripe. A list, not a search: search is eventually consistent, and an
+  // empty answer here lets recovery place a fresh attempt, so a lagging index
+  // would stack a second hold on the card.
+  async findOutreachHolds({
+    customerId,
+    outreachId,
+    holdAttempt,
+  }: {
+    customerId: string
+    outreachId: number
+    holdAttempt: number
+  }): Promise<
+    {
+      paymentIntentId: string
+      status: Stripe.PaymentIntent.Status
+      captureBefore: Date
+      declineCode: string | null
+    }[]
+  > {
+    let intents: Stripe.PaymentIntent[]
+    try {
+      // No card holds an authorization longer than 7 days, so an older
+      // intent can't be live.
+      intents = await this.stripe.paymentIntents
+        .list({
+          customer: customerId,
+          created: { gte: getUnixTime(subDays(new Date(), 8)) },
+          limit: 100,
+          expand: ['data.latest_charge'],
+        })
+        .autoPagingToArray({ limit: 10000 })
+    } catch (err) {
+      this.logger.error({ err, outreachId }, 'Failed to list payment holds')
+      throw new BadGatewayException('Failed to list payment holds')
+    }
+    return intents
+      .filter(
+        (intent) =>
+          intent.metadata.outreachId === String(outreachId) &&
+          intent.metadata.holdAttempt === String(holdAttempt),
+      )
+      .map((intent) => ({
+        paymentIntentId: intent.id,
+        status: intent.status,
+        captureBefore: outreachHoldCaptureBefore(
+          intent,
+          fromUnixTime(intent.created),
+        ),
+        declineCode: intent.last_payment_error?.decline_code ?? null,
+      }))
   }
 
   // Charges the saved card off-session for a DELIVERED robocall run whose
@@ -476,6 +629,34 @@ export class StripeService {
       throw new BadGatewayException('Failed to look up promotion code')
     }
     return found.data[0] ?? null
+  }
+
+  // A single-use promotion code on an existing coupon. Stripe never counts a
+  // redemption we apply outside Checkout, so max_redemptions is a label here;
+  // deactivation on consume is what actually stops a second use.
+  async createPromotionCode({
+    couponId,
+    code,
+    metadata,
+    expiresAt,
+  }: {
+    couponId: string
+    code: string
+    metadata: Record<string, string>
+    expiresAt: Date
+  }): Promise<Stripe.PromotionCode> {
+    try {
+      return await this.stripe.promotionCodes.create({
+        promotion: { type: 'coupon', coupon: couponId },
+        code,
+        max_redemptions: 1,
+        expires_at: getUnixTime(expiresAt),
+        metadata,
+      })
+    } catch (err) {
+      this.logger.error({ err }, 'Failed to create Stripe promotion code')
+      throw new BadGatewayException('Failed to create promotion code')
+    }
   }
 
   // Marks a promotion code redeemed (or restores it) by flipping `active`.
