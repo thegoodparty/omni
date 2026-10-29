@@ -51,11 +51,9 @@ export const ComposeHandoffCard = ({
 }
 
 export type ComposeHandoffWidgetContext = {
-  onComposeHandoff: (payload: ComposeHandoffPayload) => void
+  onComposeHandoff?: (payload: ComposeHandoffPayload) => void
 }
 
-// A surface that does not register this must also hide the tool from its pill
-// labels: the name is internal, and nothing else keeps it off the screen.
 export const composeHandoffWidgetTool = defineWidgetTool({
   toolName: COMPOSE_HANDOFF_TOOL,
   parse: (args) => {
@@ -65,7 +63,7 @@ export const composeHandoffWidgetTool = defineWidgetTool({
   render: (payload, { onComposeHandoff }: ComposeHandoffWidgetContext) => (
     <ComposeHandoffCard
       payload={payload}
-      onClick={() => onComposeHandoff(payload)}
+      onClick={() => onComposeHandoff?.(payload)}
     />
   ),
 })

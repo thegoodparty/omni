@@ -5,7 +5,6 @@ import {
   TurnBlocks,
   liveTurnBlocks,
   persistedTurnBlocks,
-  dropTrailingQuestion,
   withoutTrailingQuestion,
   type TurnBlock,
 } from './turnBlocks'
@@ -103,6 +102,17 @@ describe('persistedTurnBlocks', () => {
   })
 })
 
+describe('createWidgetRegistry', () => {
+  it('refuses two entries under one tool name', () => {
+    const entry = defineWidgetTool({
+      toolName: 'present_note',
+      parse: () => ({}),
+      render: () => null,
+    })
+    expect(() => createWidgetRegistry([entry, entry])).toThrow()
+  })
+})
+
 describe('liveTurnBlocks', () => {
   it('splits a text segment at the seam a widget fired, and holds it back until revealed', () => {
     const instance = registry.resolve(
@@ -123,6 +133,162 @@ describe('liveTurnBlocks', () => {
           : 'widget',
       ),
     ).toEqual([['Lead in. '], 'widget', ['After.']])
+  })
+})
+
+describe('a widget placed after the prose or below the turn', () => {
+  const placedRegistry = createWidgetRegistry<Ctx>([
+    defineWidgetTool({
+      toolName: 'show_map',
+      placement: 'afterProse',
+      parse: (args) =>
+        typeof args === 'object' && args !== null && 'map' in args
+          ? { map: String(args.map) }
+          : null,
+      render: (data) => <p>map {data.map}</p>,
+    }),
+    defineWidgetTool({
+      toolName: 'offer_next',
+      placement: 'belowTurn',
+      parse: () => ({}),
+      render: () => <p>next step</p>,
+    }),
+  ])
+
+  const tool = (
+    toolName: string,
+    toolCallId: string,
+    payload: unknown,
+  ): ChatMessageSegment => ({ kind: 'tool', toolName, toolCallId, payload })
+
+  const blocks = persistedTurnBlocks({
+    registry: placedRegistry,
+    segments: [
+      tool('show_map', 't1', { map: 'first' }),
+      { kind: 'text', text: 'Above.' },
+      tool('offer_next', 't2', {}),
+      tool('show_map', 't3', { map: 'second' }),
+      tool('show_map', 't4', { nope: true }),
+      { kind: 'text', text: 'Below.' },
+    ],
+    content: '',
+    messageId: 'm1',
+    conversationId: 'c1',
+  })
+
+  it('renders once per turn, after the prose, the last call that parses', () => {
+    render(
+      <TurnBlocks
+        blocks={blocks}
+        toolLabel={toolLabel}
+        context={{ label: 'ctx' }}
+      />,
+    )
+    const map = screen.getByText('map second')
+    expect(screen.queryByText('map first')).not.toBeInTheDocument()
+    expect(
+      screen.getByText('Below.').compareDocumentPosition(map) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+    expect(screen.queryByText('next step')).not.toBeInTheDocument()
+  })
+
+  it('leaves a below-the-turn widget to the second, belowTurn render', () => {
+    render(
+      <TurnBlocks
+        blocks={blocks}
+        toolLabel={toolLabel}
+        context={{ label: 'ctx' }}
+        belowTurn
+      />,
+    )
+    expect(screen.getByText('next step')).toBeVisible()
+    expect(screen.queryByText('Above.')).not.toBeInTheDocument()
+    expect(screen.queryByText(/^map/)).not.toBeInTheDocument()
+  })
+
+  it('holds a live one back until the reveal reaches its call', () => {
+    const instance = placedRegistry.resolve(
+      { toolName: 'show_map' },
+      { map: 'live' },
+    )
+    if (!instance) throw new Error('expected instance')
+    const segments = [{ kind: 'text' as const, text: 'Lead in. After.' }]
+    const widgets = [{ instance, appearAfter: 9 }]
+
+    expect(liveTurnBlocks(segments, widgets, 5).map((b) => b.kind)).toEqual([
+      'segments',
+    ])
+    expect(liveTurnBlocks(segments, widgets, 15).map((b) => b.kind)).toEqual([
+      'segments',
+      'widget',
+    ])
+  })
+})
+
+describe('one tool whose calls are different cards', () => {
+  const cardRegistry = createWidgetRegistry<Ctx>([
+    defineWidgetTool({
+      toolName: 'present_card',
+      parse: (args) =>
+        typeof args === 'object' &&
+        args !== null &&
+        'kind' in args &&
+        'name' in args
+          ? { kind: String(args.kind), name: String(args.name) }
+          : null,
+      placement: (card) => (card.kind === 'note' ? 'inline' : 'afterProse'),
+      slot: (card) => `present_card:${card.kind}`,
+      render: (card) => (
+        <p>
+          {card.kind} {card.name}
+        </p>
+      ),
+    }),
+  ])
+
+  const card = (toolCallId: string, kind: string, name: string) => ({
+    kind: 'tool' as const,
+    toolName: 'present_card',
+    toolCallId,
+    payload: { kind, name },
+  })
+
+  it('keeps each kind once per turn, and places each by its kind', () => {
+    render(
+      <TurnBlocks
+        blocks={persistedTurnBlocks({
+          registry: cardRegistry,
+          segments: [
+            card('t1', 'map', 'first'),
+            card('t2', 'proposal', 'only'),
+            card('t3', 'map', 'second'),
+            card('t4', 'note', 'inline'),
+            { kind: 'text', text: 'Below.' },
+          ],
+          content: '',
+          messageId: 'm1',
+          conversationId: 'c1',
+        })}
+        toolLabel={toolLabel}
+        context={{ label: 'ctx' }}
+      />,
+    )
+    expect(screen.getByText('map second')).toBeVisible()
+    expect(screen.queryByText('map first')).not.toBeInTheDocument()
+    expect(screen.getByText('proposal only')).toBeVisible()
+    expect(
+      screen
+        .getByText('note inline')
+        .compareDocumentPosition(screen.getByText('Below.')) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+    expect(
+      screen
+        .getByText('Below.')
+        .compareDocumentPosition(screen.getByText('proposal only')) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
   })
 })
 
@@ -308,28 +474,6 @@ describe('a question written above the clarify widget', () => {
     ).toBe('Context about Option A.')
   })
 
-  it('checks the text before a hidden clarify call left in the run', () => {
-    expect(
-      dropTrailingQuestion([
-        {
-          kind: 'segments',
-          segments: [
-            { kind: 'text', text: 'Two paths. Which first?' },
-            { kind: 'tool', toolName: 'ask_clarify_question', payload: {} },
-          ],
-        },
-      ]),
-    ).toEqual([
-      {
-        kind: 'segments',
-        segments: [
-          { kind: 'text', text: 'Two paths.' },
-          { kind: 'tool', toolName: 'ask_clarify_question', payload: {} },
-        ],
-      },
-    ])
-  })
-
   it('keeps the context when only the closing question is bold', () => {
     expect(
       withoutTrailingQuestion(
@@ -351,19 +495,6 @@ describe('a question written above the clarify widget', () => {
     expect(withoutTrailingQuestion('Maple Ave. Housing is up. Next?')).toBe(
       'Maple Ave. Housing is up.',
     )
-  })
-
-  it('drops the trailing question of the last block for a widget rendered outside the blocks', () => {
-    expect(
-      dropTrailingQuestion([
-        {
-          kind: 'segments',
-          segments: [{ kind: 'text', text: 'Two paths. Which first?' }],
-        },
-      ]),
-    ).toEqual([
-      { kind: 'segments', segments: [{ kind: 'text', text: 'Two paths.' }] },
-    ])
   })
 
   it('drops the question on the live turn once the widget shows', () => {

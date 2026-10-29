@@ -5,7 +5,12 @@ import { overrideEnvForEvals } from '../../../evals/envOverride'
 overrideEnvForEvals()
 
 import { HttpStatus } from '@nestjs/common'
-import { OrdinanceExistingLawSchema } from '@goodparty_org/contracts'
+import {
+  OrdinanceExistingLawSchema,
+  PRESENT_CARD_TOOL,
+  PresentCardInputSchema,
+  type PresentCardKind,
+} from '@goodparty_org/contracts'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ChatScope } from '../../../../generated/prisma'
 import { useTestService } from '@/test-service'
@@ -208,6 +213,15 @@ const runStep = async (
     .map((s) => s.toolName as string)
   const payloadsFor = (tool: string): unknown[] =>
     segments.filter((s) => s.toolName === tool).map((s) => s.payload)
+  const cardsOf = (kind: PresentCardKind): unknown[] =>
+    segments
+      .filter((s) => s.toolName === PRESENT_CARD_TOOL)
+      .flatMap((s) => {
+        const parsed = PresentCardInputSchema.safeParse(s.payload)
+        return parsed.success && parsed.data.card.kind === kind
+          ? [parsed.data.card]
+          : []
+      })
   // Read message.content, not text segments: content always carries the full
   // assistant text, while segments are only written for tool-bearing turns —
   // a pure-text turn has no segments, which made text assertions here run
@@ -222,6 +236,7 @@ const runStep = async (
     ordinance,
     toolNames,
     payloadsFor,
+    cardsOf,
     assistantText,
     streamed: String(res.data),
   }
@@ -448,17 +463,19 @@ d('ordinance-flow step evals (real Claude)', () => {
     'current-law step grounds in the code source and saves findings',
     async () => {
       const { spy: fetchSpy, liveReads } = serveFixtureChapter()
-      const { toolNames, payloadsFor, ordinance, assistantText } =
-        await runStep('bike-parking', 'current_law')
+      const { toolNames, cardsOf, ordinance, assistantText } = await runStep(
+        'bike-parking',
+        'current_law',
+      )
 
       expect(fetchSpy).toHaveBeenCalledWith(
         expect.stringContaining(DEFAULT_CODE_URL),
       )
       expect(toolNames).toContain('get_code_source')
-      expect(toolNames).toContain('present_current_law_summary')
+      expect(toolNames).toContain('present_card')
       expect(toolNames).toContain('save_existing_law')
       expect(toolNames).toContain('offer_next_step')
-      const summary = payloadsFor('present_current_law_summary')[0] as {
+      const summary = cardsOf('current_law_summary')[0] as {
         does?: unknown[]
         gaps?: unknown[]
       }
@@ -471,7 +488,7 @@ d('ordinance-flow step evals (real Claude)', () => {
       assertGovernanceVoice(assistantText)
       reportVerbosity('current_law', assistantText, [
         summary,
-        ...payloadsFor('present_legislative_history'),
+        ...cardsOf('legislative_history'),
       ])
 
       await runJudges(
@@ -479,7 +496,7 @@ d('ordinance-flow step evals (real Claude)', () => {
         buildArtifact(
           assistantText,
           JSON.stringify(
-            { summary, history: payloadsFor('present_legislative_history') },
+            { summary, history: cardsOf('legislative_history') },
             null,
             2,
           ),

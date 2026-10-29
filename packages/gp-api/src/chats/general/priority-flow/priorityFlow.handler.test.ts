@@ -35,6 +35,7 @@ import {
 } from './services/priorityFlowContext.service'
 import { PriorityFlowOutreachService } from './services/priorityFlowOutreach.service'
 import { HELD_BACK_NOTE } from '../chat-tools/readOutreachFeedback.tool'
+import { offeredCardKinds } from '../chat-tools/presentCard.tool'
 
 const USER_ID = 11
 const ORG = 'eo-maple'
@@ -247,19 +248,23 @@ describe('PriorityFlowHandler', () => {
   })
 
   it('builds the priority tool belt', () => {
-    const names = Object.keys(build().buildTools(baseCtx())).sort()
+    const tools = build().buildTools(baseCtx())
+    const names = Object.keys(tools).sort()
     expect(names).toEqual([
       'ask_clarify_question',
       'present_authority_finding',
+      'present_card',
       'present_comparables',
-      'present_current_law_summary',
       'present_outreach_proposal',
-      'present_outside_contact',
-      'present_past_outreach',
       'read_past_outreach',
       'size_outreach_sample',
       'update_priority_status',
       'web_search',
+    ])
+    expect(offeredCardKinds(tools)).toEqual([
+      'outside_contact',
+      'past_outreach',
+      'current_law_summary',
     ])
     expect(priorityStatus.buildStatusTool).toHaveBeenCalledWith(
       'pri-1',
@@ -552,7 +557,7 @@ describe('PriorityFlowHandler', () => {
         'door knocking included',
     )
     expect(prompt).not.toContain('/dashboard/door-knocking')
-    expect(prompt).toContain('present_outside_contact')
+    expect(prompt).toContain('show one to three as `outside_contact` cards')
     expect(prompt.indexOf('HOW TO CHOOSE WHO TO HEAR FROM')).toBeLessThan(
       prompt.indexOf('BUILD THE CHECK BEFORE YOU OFFER IT'),
     )
@@ -579,8 +584,10 @@ describe('PriorityFlowHandler', () => {
     expect(prompt).toContain('write no lead-in of your own above it')
     expect(prompt).toContain('in date when the page was published')
     expect(prompt).toContain('present_comparables')
-    expect(prompt).toContain('present_current_law_summary')
+    expect(prompt).toContain('goes on a `current_law_summary` card')
+    expect(prompt).toContain('- `current_law_summary`: What the current code')
     expect(prompt).toContain('present_authority_finding')
+    expect(prompt).toContain('An `outside_contact` card is ONE person')
     expect(prompt).toContain(
       'Never put a phone number, email or address in your message',
     )
@@ -603,13 +610,10 @@ describe('PriorityFlowHandler', () => {
 
   it('offers the finding cards as display-only tools', async () => {
     const tools = build().buildTools(baseCtx())
-    for (const name of [
-      'present_comparables',
-      'present_current_law_summary',
-      'present_authority_finding',
-    ]) {
+    for (const name of ['present_comparables', 'present_authority_finding']) {
       expect(tools[name]).toBeDefined()
     }
+    expect(offeredCardKinds(tools)).toContain('current_law_summary')
     const authority = tools.present_authority_finding as {
       execute: (input: unknown) => unknown
     }

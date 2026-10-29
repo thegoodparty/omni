@@ -34,26 +34,19 @@ import {
   persistedTurnBlocks,
   type PositionedWidget,
 } from '../../../shared/agent-chat/turnBlocks'
-import { createWidgetRegistry } from '../../../shared/agent-chat/widgetRegistry'
 import {
-  cardWidgetTools,
-  type CardWidgetContext,
-} from '../../../shared/agent-chat/cards/cardWidgets'
+  chatWidgets,
+  type ChatWidgetContext,
+} from '../../../shared/agent-chat/chatWidgets'
 import { ProposalFlowsProvider } from '../../../shared/agent-chat/cards/proposalFlows'
 import {
   CardDetailProvider,
   CardDetailSheetHost,
 } from '../../../shared/agent-chat/cards/cardDetail'
 import {
-  clarifyWidgetTool,
   isQuestionTool,
   MANAGED_PANEL_OFFER_TOOL,
-  type ClarifyWidgetContext,
 } from '../../../shared/agent-chat/clarifyWidget'
-import {
-  composeHandoffWidgetTool,
-  type ComposeHandoffWidgetContext,
-} from '../../../shared/agent-chat/composeHandoffWidget'
 import { useStreamingTurn } from '../../../shared/agent-chat/useStreamingTurn'
 import { usePinnedAutoScroll } from '../../../shared/agent-chat/usePinnedAutoScroll'
 import { useDictationAppend } from '../../../shared/dictation/useDictationAppend'
@@ -74,25 +67,15 @@ import ChatHistoryPopover from './ChatHistoryPopover'
 import {
   isManagedExplainerOffer,
   managedExplainerChoice,
-  managedPanelWidgetTools,
   type ManagedExplainerSource,
-  type ManagedPanelWidgetContext,
 } from './managedPanelWidgets'
 import { managedCivicPanelQueryOptions } from '../../../contacts/citizens-panel/civicPanelSummary.query'
 import { HISTORY_KEY, useChatHistory } from '../../data/use-chat-history'
 import {
   isToolRefusal,
-  ListProposalSchema,
-  mintProposalKey,
-  ShowListMapSchema,
   type ShowListMap,
   type ComposeHandoffPayload,
 } from '@goodparty_org/contracts'
-import type { ChatMessageSegment } from '../../../shared/agent-chat/chatTypes'
-import ChatListMap from './ChatListMap'
-import ChatListProposal, {
-  type ChatListProposalPayload,
-} from './ChatListProposal'
 import { listCreatedMessage } from './listCreatedMessage'
 import ChatBoundaryDrawer from './ChatBoundaryDrawer'
 import { boundarySavedMessage } from './boundarySavedMessage'
@@ -277,52 +260,6 @@ const UPLOAD_GUARD_COPY: Record<
  * intro on first open, a typed-in seeded greeting, deferred conversation
  * creation, hidden kickoffs, starter chips, and quick prompts.
  */
-const LIST_MAP_TOOL = 'show_list_map'
-// Off the widget registry for the map's reason: once its list is created the
-// card becomes that map, which renders after the turn's prose.
-const LIST_PROPOSAL_TOOL = 'present_list_proposal'
-
-type CosWidgetContext = CardWidgetContext &
-  ClarifyWidgetContext &
-  ComposeHandoffWidgetContext &
-  ManagedPanelWidgetContext
-
-// show_list_map is deliberately not here: its map renders after the turn's
-// prose, once per turn, and moving it would change where it appears.
-const cosWidgets = createWidgetRegistry<CosWidgetContext>([
-  ...cardWidgetTools,
-  clarifyWidgetTool,
-  composeHandoffWidgetTool,
-  ...managedPanelWidgetTools,
-])
-
-// Pulls the widget payload back out of a persisted turn. Returns null for
-// every turn without one, which is nearly all of them.
-const listMapFromSegments = (
-  segments: ChatMessageSegment[],
-): ShowListMap | null => {
-  const segment = segments.find((s) => s.toolName === LIST_MAP_TOOL)
-  if (!segment) return null
-  const parsed = ShowListMapSchema.safeParse(segment.payload)
-  return parsed.success ? parsed.data : null
-}
-
-// The key is derived from the conversation and the tool call, so the card
-// asks after the same list on every reload without the model writing it.
-const listProposalFromSegments = (
-  segments: ChatMessageSegment[],
-  conversationId: string | null,
-): ChatListProposalPayload | null => {
-  const segment = segments.find((s) => s.toolName === LIST_PROPOSAL_TOOL)
-  if (!segment?.toolCallId || !conversationId) return null
-  const parsed = ListProposalSchema.safeParse(segment.payload)
-  return parsed.success
-    ? {
-        ...parsed.data,
-        proposalKey: mintProposalKey(conversationId, segment.toolCallId),
-      }
-    : null
-}
 
 // Chief of Staff has no rail of its own, so a card's detail opens in the
 // right-side sheet the contacts page uses for a person.
@@ -381,11 +318,8 @@ function ChiefOfStaffChatThread({
     message: string
     retryable: boolean
   } | null>(null)
-  const [liveListMap, setLiveListMap] = useState<ShowListMap | null>(null)
-  const [liveListProposal, setLiveListProposal] =
-    useState<ChatListProposalPayload | null>(null)
   const [liveWidgets, setLiveWidgets] = useState<
-    PositionedWidget<CosWidgetContext>[]
+    PositionedWidget<ChatWidgetContext>[]
   >([])
   // The managed civic panel explainer's analytics: what asked for it, and
   // whether the question waiting on an answer is its offer.
@@ -496,8 +430,6 @@ function ChiefOfStaffChatThread({
       toolLabel,
       onTurnStart: () => {
         setStreamError(null)
-        setLiveListMap(null)
-        setLiveListProposal(null)
         setLiveWidgets([])
       },
       // Cleared on settle as well as on start. The commit empties
@@ -506,8 +438,6 @@ function ChiefOfStaffChatThread({
       // renders the card twice, once in the streaming row and once in
       // history, until the next message happens to clear it.
       onTurnSettle: () => {
-        setLiveListMap(null)
-        setLiveListProposal(null)
         setLiveWidgets([])
       },
       onError: (message, retryable) => setStreamError({ message, retryable }),
@@ -520,32 +450,6 @@ function ChiefOfStaffChatThread({
           const key = `${event.toolName}-${event.toolCallId}`
           setLiveWidgets((prev) => prev.filter((widget) => widget.key !== key))
         }
-        // The ARGS carry the payload, which is why this reads tool_call and
-        // not tool_result: args are what the segment persists, so the same
-        // payload replays on reload.
-        if (event.type === 'tool_call' && event.toolName === LIST_MAP_TOOL) {
-          const parsed = ShowListMapSchema.safeParse(event.args)
-          if (parsed.success) setLiveListMap(parsed.data)
-          // Consumed either way: a payload we cannot parse is still not a
-          // pill the user should see.
-          return true
-        }
-        if (
-          event.type === 'tool_call' &&
-          event.toolName === LIST_PROPOSAL_TOOL
-        ) {
-          const parsed = ListProposalSchema.safeParse(event.args)
-          if (parsed.success && event.toolCallId && turnConversationId) {
-            setLiveListProposal({
-              ...parsed.data,
-              proposalKey: mintProposalKey(
-                turnConversationId,
-                event.toolCallId,
-              ),
-            })
-          }
-          return true
-        }
         if (
           event.type === 'tool_call' &&
           isManagedExplainerOffer(event.toolName, event.args)
@@ -555,8 +459,11 @@ function ChiefOfStaffChatThread({
           })
           managedSourceRef.current = 'chat'
         }
-        if (event.type === 'tool_call' && cosWidgets.has(event.toolName)) {
-          const instance = cosWidgets.resolve(
+        // The ARGS carry the payload, which is why this reads tool_call and
+        // not tool_result: args are what the segment persists, so the same
+        // payload replays on reload.
+        if (event.type === 'tool_call' && chatWidgets.has(event.toolName)) {
+          const instance = chatWidgets.resolve(
             {
               toolName: event.toolName,
               conversationId: turnConversationId,
@@ -577,7 +484,7 @@ function ChiefOfStaffChatThread({
             return true
           }
           // read_past_outreach is only sometimes a card; unparsed, it is a pill.
-          return cosWidgets.entry(event.toolName)?.onParseFailure !== 'inline'
+          return chatWidgets.entry(event.toolName)?.onParseFailure !== 'inline'
         }
         // A finished crud_saved_filters call may have written a saved list.
         // This lives here rather than on the contacts page because the agent
@@ -1460,28 +1367,22 @@ function ChiefOfStaffChatThread({
       visibleMessages,
       visibleSegments,
       playback,
-      // The map is the one thing that can grow the transcript without any of
-      // the above changing: onEvent consumes the show_list_map call, so a turn
-      // that draws a map and says nothing pushes no segment and commits no
-      // message until it settles. Without this the card renders below the fold
-      // and the follow-scroll has nothing to react to.
-      liveListMap,
-      liveListProposal,
+      // A widget can grow the transcript without any of the above changing:
+      // onEvent consumes its call, so a turn that draws a map and says nothing
+      // pushes no segment and commits no message until it settles. Without
+      // this the card renders below the fold and the follow-scroll has nothing
+      // to react to.
       liveWidgets,
     ],
     { sending },
   )
 
-  // `liveListMap` counts as something on screen. onEvent consumes the
-  // show_list_map call, so a turn that draws a map and says nothing pushes no
-  // segment at all — without this the thinking row would sit under a rendered
-  // map until the commit poll landed.
+  // A live widget counts as something on screen. onEvent consumes its call, so
+  // a turn that draws a map and says nothing pushes no segment at all —
+  // without this the thinking row would sit under a rendered map until the
+  // commit poll landed.
   const working =
-    sending &&
-    visibleSegments.length === 0 &&
-    liveWidgets.length === 0 &&
-    !liveListMap &&
-    !liveListProposal
+    sending && visibleSegments.length === 0 && liveWidgets.length === 0
   const liveBlocks = liveTurnBlocks(
     visibleSegments,
     liveWidgets,
@@ -1533,31 +1434,16 @@ function ChiefOfStaffChatThread({
         role: m.role,
         content: m.content,
         feedback: m.feedback ?? null,
-        // Replayed from the persisted tool segment rather than remembered
+        // Replayed from the persisted tool segments rather than remembered
         // from the live stream: a reloaded transcript never passes through
         // onEvent, and a map that only existed in the session that made it
         // would vanish under the user the moment they refreshed.
-        listMap: listMapFromSegments(m.segments ?? []),
-        listProposal: listProposalFromSegments(
-          m.segments ?? [],
-          conversationId,
-        ),
-        // The map segment is dropped from the inline run, not just rendered
-        // alongside it. Live, onEvent consumes the event so no pill is ever
-        // built; on replay the segment is still in the transcript and would
-        // project to a status pill reading `show_list_map` above the card it
-        // already drew. The ordinance flow splits its present_* segments out
-        // for the same reason.
         blocks:
           m.role === 'user'
             ? null
             : persistedTurnBlocks({
-                registry: cosWidgets,
-                segments: (m.segments ?? []).filter(
-                  (s) =>
-                    s.toolName !== LIST_MAP_TOOL &&
-                    s.toolName !== LIST_PROPOSAL_TOOL,
-                ),
+                registry: chatWidgets,
+                segments: m.segments ?? [],
                 content: m.content,
                 messageId: m.id,
                 conversationId,
@@ -1721,11 +1607,7 @@ function ChiefOfStaffChatThread({
           ) : (
             <AssistantRow
               key={m.id}
-              fullWidth={
-                Boolean(m.listMap) ||
-                Boolean(m.listProposal) ||
-                m.blocks.some((b) => b.kind === 'widget')
-              }
+              fullWidth={m.blocks.some((b) => b.kind === 'widget')}
             >
               <TurnBlocks
                 blocks={m.blocks}
@@ -1736,6 +1618,9 @@ function ChiefOfStaffChatThread({
                   onClarifyAnswer: answerClarify,
                   onComposeHandoff: handleComposeHandoff,
                   onManagedPanelInviteClosed: handleManagedPanelInviteClosed,
+                  cardMode,
+                  onRefineArea: refiningList ? undefined : setRefiningList,
+                  onListCreated: handleListCreated,
                 }}
                 onCitationClick={
                   attachmentsEnabled && conversationId
@@ -1743,21 +1628,6 @@ function ChiefOfStaffChatThread({
                     : undefined
                 }
               />
-              {m.listMap ? (
-                <ChatListMap
-                  {...m.listMap}
-                  onRefineArea={refiningList ? undefined : setRefiningList}
-                  mode={cardMode}
-                />
-              ) : null}
-              {m.listProposal ? (
-                <ChatListProposal
-                  proposal={m.listProposal}
-                  mode={cardMode}
-                  onRefineArea={refiningList ? undefined : setRefiningList}
-                  onCreated={handleListCreated}
-                />
-              ) : null}
               {showMessageActions && conversationId && m.content ? (
                 <MessageActionBar
                   conversationId={conversationId}
@@ -1771,21 +1641,12 @@ function ChiefOfStaffChatThread({
           ),
         )}
 
-        {/* The map is its own reason to render this row. A turn can consist
-            of nothing but the show_list_map call, and onEvent consumes that
+        {/* A widget is its own reason to render this row. A turn can consist
+            of nothing but the list map card's call, and onEvent consumes that
             event rather than pushing a segment, so gating the row on
             segments alone hid the map until the transcript reloaded. */}
-        {visibleSegments.length > 0 ||
-        liveWidgets.length > 0 ||
-        liveListMap ||
-        liveListProposal ? (
-          <AssistantRow
-            fullWidth={
-              Boolean(liveListMap) ||
-              Boolean(liveListProposal) ||
-              liveWidgets.length > 0
-            }
-          >
+        {visibleSegments.length > 0 || liveWidgets.length > 0 ? (
+          <AssistantRow fullWidth={liveWidgets.length > 0}>
             <TurnBlocks
               blocks={liveBlocks}
               toolLabel={toolLabel}
@@ -1794,6 +1655,9 @@ function ChiefOfStaffChatThread({
                 onClarifyAnswer: answerClarify,
                 onComposeHandoff: handleComposeHandoff,
                 onManagedPanelInviteClosed: handleManagedPanelInviteClosed,
+                cardMode,
+                onRefineArea: refiningList ? undefined : setRefiningList,
+                onListCreated: handleListCreated,
               }}
               onCitationClick={
                 attachmentsEnabled && conversationId
@@ -1801,21 +1665,6 @@ function ChiefOfStaffChatThread({
                   : undefined
               }
             />
-            {liveListMap ? (
-              <ChatListMap
-                {...liveListMap}
-                onRefineArea={refiningList ? undefined : setRefiningList}
-                mode={cardMode}
-              />
-            ) : null}
-            {liveListProposal ? (
-              <ChatListProposal
-                proposal={liveListProposal}
-                mode={cardMode}
-                onRefineArea={refiningList ? undefined : setRefiningList}
-                onCreated={handleListCreated}
-              />
-            ) : null}
           </AssistantRow>
         ) : null}
 

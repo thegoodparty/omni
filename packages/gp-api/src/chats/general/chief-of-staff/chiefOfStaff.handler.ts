@@ -1,5 +1,6 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common'
 import { ChatScope } from '../../../generated/prisma'
+import type { PresentCardKind } from '@goodparty_org/contracts'
 import type { LlmTool } from '@/llm/services/llm.service'
 import type { DatabricksProvider } from '@/llm/tools/queryDatabricks.tool'
 import {
@@ -48,16 +49,16 @@ import {
 } from '../crm-tools/describeFilterDimensions.tool'
 import { buildCountContactsTool } from '../crm-tools/countContacts.tool'
 import { buildCrudSavedFiltersTool } from '../crm-tools/crudSavedFilters.tool'
-import { buildShowListMapTool } from '../crm-tools/showListMap.tool'
-import { buildPresentListProposalTool } from '../crm-tools/presentListProposal.tool'
 import { buildListPrecinctsTool } from '../crm-tools/listPrecincts.tool'
 import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
 import { HelpCenterSearchService } from '../help-center/helpCenterSearch.service'
 import { buildSearchHelpCenterTool } from '../help-center/searchHelpCenter.tool'
 import { buildAskClarifyQuestionTool } from '../chat-tools/askClarifyQuestion.tool'
-import { buildPresentOutsideContactTool } from '../chat-tools/presentOutsideContact.tool'
 import { buildPresentOutreachProposalTool } from '../chat-tools/presentOutreachProposal.tool'
-import { buildPresentPastOutreachTool } from '../chat-tools/presentPastOutreach.tool'
+import {
+  buildPresentCardTool,
+  offeredCardKinds,
+} from '../chat-tools/presentCard.tool'
 import { buildReadPastOutreachTool } from '../chat-tools/readPastOutreach.tool'
 import { buildReadOutreachFeedbackTool } from '../chat-tools/readOutreachFeedback.tool'
 import { FeaturesService } from '@/features/services/features.service'
@@ -239,9 +240,11 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
   }
 
   buildSystemPrompt(ctx: ChiefOfStaffContext): string {
+    const tools = this.assembleTools(ctx)
     return buildChiefOfStaffSystemPrompt({
       ctx,
-      toolNames: Object.keys(this.assembleTools(ctx)),
+      toolNames: Object.keys(tools),
+      cardKinds: offeredCardKinds(tools),
     })
   }
 
@@ -264,6 +267,7 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
 
   private assembleTools(ctx: ChiefOfStaffContext): Record<string, LlmTool> {
     const tools: Record<string, LlmTool> = {}
+    const cardKinds: PresentCardKind[] = []
 
     tools.crud_priorities = buildCrudPrioritiesTool({
       port: this.priorities,
@@ -302,9 +306,9 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
     if (process.env.ANTHROPIC_API_KEY) {
       tools.web_search = { kind: 'native_web_search', maxUses: 5 }
       // An outside contact is built only from what research found, and the
-      // tool forbids inventing a route, so it has nothing to stand on without
+      // card forbids inventing a route, so it has nothing to stand on without
       // the search.
-      tools.present_outside_contact = buildPresentOutsideContactTool()
+      cardKinds.push('outside_contact')
     }
 
     // Aggregate-only constituent data. Registers ONLY when all of: the provider
@@ -356,7 +360,7 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
           timeZone: resolveSendWindowTimeZone(ctx.state),
         })
       }
-      tools.present_past_outreach = buildPresentPastOutreachTool()
+      cardKinds.push('past_outreach')
     }
 
     if (this.communityIssueRead) {
@@ -397,14 +401,13 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
           organization: ctx.organization,
           peopleDataset: ctx.peopleDataset,
         })
-        // Registered with the saved-list tool rather than beside the other
-        // reads: the only id it can legitimately be given is one
+        // The map is offered with the saved-list tool rather than beside the
+        // other reads: the only id it can legitimately be given is one
         // crud_saved_filters just returned, so advertising it in a session
         // that cannot create a list would be offering a map of nothing.
-        crmTools.show_list_map = buildShowListMapTool()
         // How a list gets saved from here: as a card the official presses,
         // not a write the model makes after a typed "yes".
-        crmTools.present_list_proposal = buildPresentListProposalTool()
+        cardKinds.push('list_proposal', 'list_map')
       }
       // The catalog is built over the other CRM tools so its description
       // names only the filter tools registered beside it, and is still
@@ -440,6 +443,9 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
       )
     }
     tools.compose_handoff = buildComposeHandoffTool('serve_social')
+    if (cardKinds.length > 0) {
+      tools.present_card = buildPresentCardTool({ kinds: cardKinds })
+    }
 
     return tools
   }

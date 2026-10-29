@@ -58,29 +58,19 @@ export const withoutTrailingQuestion = (text: string): string => {
   return (trimmed.slice(0, lineStart) + line.slice(0, cut)).trimEnd()
 }
 
-// A hidden clarify call left in the inline run (a surface that renders the
-// widget outside the blocks) sits after the text it should be checked against.
-const isClarifyCall = (s: LiveSegment): boolean =>
-  s.kind === 'tool' && isQuestionTool(s.toolName)
-
 const dropTrailingQuestionFrom = <Ctx,>(
   block: TurnBlock<Ctx>,
 ): TurnBlock<Ctx>[] => {
   if (block.kind !== 'segments') return [block]
-  let end = block.segments.length
-  while (end > 0 && isClarifyCall(block.segments[end - 1]!)) end--
-  const last = block.segments[end - 1]
+  const last = block.segments[block.segments.length - 1]
   if (last?.kind !== 'text') return [block]
   const text = withoutTrailingQuestion(last.text)
   if (text === last.text) return [block]
   const segments: LiveSegment[] = [
-    ...block.segments.slice(0, end - 1),
+    ...block.segments.slice(0, -1),
     ...(text ? [{ kind: 'text' as const, text }] : []),
-    ...block.segments.slice(end),
   ]
-  return segments.some((seg) => !isClarifyCall(seg))
-    ? [{ ...block, segments }]
-    : []
+  return segments.length > 0 ? [{ ...block, segments }] : []
 }
 
 // The clarify widget shows its own question, so prose that also asks it puts
@@ -96,28 +86,30 @@ const dropQuestionsAboveClarify = <Ctx,>(
       : [block]
   })
 
-// For a surface that renders its clarify widget below the turn blocks rather
-// than as one of them (the ordinance flow's live turn).
-export const dropTrailingQuestion = <Ctx,>(
-  blocks: TurnBlock<Ctx>[],
-): TurnBlock<Ctx>[] => {
-  const last = blocks[blocks.length - 1]
-  return last
-    ? [...blocks.slice(0, -1), ...dropTrailingQuestionFrom(last)]
-    : blocks
+type WidgetBlock<Ctx> = Extract<TurnBlock<Ctx>, { kind: 'widget' }>
+
+// An 'afterProse' or 'belowTurn' widget renders once per turn per slot: the
+// last call that parses, in the place of that slot's first call.
+const oncePerSlot = <Ctx,>(blocks: WidgetBlock<Ctx>[]): WidgetBlock<Ctx>[] => {
+  const bySlot = new Map<string, WidgetBlock<Ctx>>()
+  for (const block of blocks) bySlot.set(block.instance.slot, block)
+  return [...bySlot.values()]
 }
 
 // Live turn: splice each shown widget into the revealed segments at its text
 // position (`appearAfter`). Gated on a fixed threshold (not the moving
 // "revealDone"), so once the reveal passes `appearAfter` the widget stays put
 // and later text types out below it — never flashing out as more text arrives.
+// An 'afterProse' or 'belowTurn' widget waits on the same threshold and then
+// goes after every other block.
 export const liveTurnBlocks = <Ctx,>(
   visibleSegments: LiveSegment[],
   widgets: PositionedWidget<Ctx>[],
   revealedTextLength: number,
 ): TurnBlock<Ctx>[] => {
-  const shown = widgets
-    .filter((w) => revealedTextLength >= w.appearAfter)
+  const revealed = widgets.filter((w) => revealedTextLength >= w.appearAfter)
+  const shown = revealed
+    .filter((w) => w.instance.placement === 'inline')
     .sort((a, b) => a.appearAfter - b.appearAfter)
   const blocks: TurnBlock<Ctx>[] = []
   let run: LiveSegment[] = []
@@ -175,33 +167,36 @@ export const liveTurnBlocks = <Ctx,>(
   }
   placeWidgetsUpTo(acc)
   flushRun()
-  return dropQuestionsAboveClarify(blocks)
+  const trailing = oncePerSlot(
+    revealed
+      .filter((w) => w.instance.placement !== 'inline')
+      .map(
+        (w): WidgetBlock<Ctx> => ({
+          kind: 'widget',
+          instance: w.instance,
+          ...(w.key !== undefined && { key: w.key }),
+        }),
+      ),
+  )
+  return dropQuestionsAboveClarify([...blocks, ...trailing])
 }
 
 // Reloaded turn: the persisted segments already carry the widget tools at their
 // stream positions, so walk them in order — text and ordinary tools into inline
 // runs, widget tools as widgets — to match the live interleaving. With a
 // `messageId`, blocks carry keys stable across re-renders.
-// `surfaceWidget` is for a block whose data is not in the tool args (the
-// Priorities status marker reads a replay the surface holds in state); it is
-// asked first, and null falls through to the registry.
 export const persistedTurnBlocks = <Ctx,>({
   registry,
   segments,
   content,
   messageId,
   conversationId,
-  surfaceWidget,
 }: {
   registry: WidgetRegistry<Ctx>
   segments: ChatMessageSegment[]
   content: string
   messageId?: string
   conversationId?: string | null
-  surfaceWidget?: (
-    segment: ChatMessageSegment,
-    index: number,
-  ) => WidgetInstance<Ctx> | null
 }): TurnBlock<Ctx>[] => {
   if (segments.length === 0) {
     const live = segmentsToLive([], content)
@@ -216,6 +211,7 @@ export const persistedTurnBlocks = <Ctx,>({
       : []
   }
   const blocks: TurnBlock<Ctx>[] = []
+  const trailing: WidgetBlock<Ctx>[] = []
   let run: ChatMessageSegment[] = []
   let citations = 0
   // Split the segments at each widget tool; the shared segmentsToLive does the
@@ -236,18 +232,6 @@ export const persistedTurnBlocks = <Ctx,>({
     run = []
   }
   segments.forEach((s, index) => {
-    const surface = surfaceWidget?.(s, index)
-    if (surface) {
-      flushRun()
-      blocks.push({
-        kind: 'widget',
-        instance: surface,
-        ...(messageId !== undefined && {
-          key: `${messageId}-widget-${index}`,
-        }),
-      })
-      return
-    }
     const entry =
       s.kind === 'tool' && s.toolName ? registry.entry(s.toolName) : undefined
     if (!entry || !s.toolName) {
@@ -265,29 +249,37 @@ export const persistedTurnBlocks = <Ctx,>({
       s.payload,
     )
     if (instance) {
-      flushRun()
-      blocks.push({
+      const block: WidgetBlock<Ctx> = {
         kind: 'widget',
         instance,
         ...(messageId !== undefined && {
           key: `${messageId}-widget-${index}`,
         }),
-      })
+      }
+      if (instance.placement === 'inline') {
+        flushRun()
+        blocks.push(block)
+      } else {
+        trailing.push(block)
+      }
       return
     }
     if (entry.onParseFailure === 'inline') run.push(s)
   })
   flushRun()
-  return dropQuestionsAboveClarify(blocks)
+  return dropQuestionsAboveClarify([...blocks, ...oncePerSlot(trailing)])
 }
 
 // Render a turn's interleaved blocks: inline runs via the shared
 // InlineSegments, widgets between them rendered with the surface's context.
+// Inside the assistant row it renders everything but the 'belowTurn' widgets;
+// with `belowTurn`, under the row, only those.
 export const TurnBlocks = <Ctx,>({
   blocks,
   toolLabel,
   context,
   onCitationClick,
+  belowTurn = false,
 }: {
   blocks: TurnBlock<Ctx>[]
   toolLabel: (toolName: string) => string | null
@@ -296,21 +288,26 @@ export const TurnBlocks = <Ctx,>({
     attachmentId: string,
     page: number | null | undefined,
   ) => void
+  belowTurn?: boolean
 }): React.JSX.Element => (
   <>
-    {blocks.map((block, i) =>
-      block.kind === 'widget' ? (
+    {blocks.map((block, i) => {
+      if (block.kind === 'segments') {
+        return belowTurn ? null : (
+          <InlineSegments
+            key={block.key ?? i}
+            segments={block.segments}
+            toolLabel={toolLabel}
+            onCitationClick={onCitationClick}
+          />
+        )
+      }
+      if ((block.instance.placement === 'belowTurn') !== belowTurn) return null
+      return (
         <Fragment key={block.key ?? i}>
           {block.instance.render(context)}
         </Fragment>
-      ) : (
-        <InlineSegments
-          key={block.key ?? i}
-          segments={block.segments}
-          toolLabel={toolLabel}
-          onCitationClick={onCitationClick}
-        />
-      ),
-    )}
+      )
+    })}
   </>
 )

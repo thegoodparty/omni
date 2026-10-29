@@ -5,7 +5,12 @@ import { overrideEnvForEvals } from '../../../evals/envOverride'
 overrideEnvForEvals()
 
 import { HttpStatus } from '@nestjs/common'
-import { OrdinanceExistingLawSchema } from '@goodparty_org/contracts'
+import {
+  OrdinanceExistingLawSchema,
+  PRESENT_CARD_TOOL,
+  PresentCardInputSchema,
+  type PresentCardKind,
+} from '@goodparty_org/contracts'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ChatScope } from '../../../../generated/prisma'
 import { useTestService } from '@/test-service'
@@ -127,6 +132,15 @@ const runStep = async (entry: SyntheticOrdinanceEntry, step: DataStateStep) => {
     .map((s) => s.toolName as string)
   const payloadsFor = (tool: string): unknown[] =>
     segments.filter((s) => s.toolName === tool).map((s) => s.payload)
+  const cardsOf = (kind: PresentCardKind): unknown[] =>
+    segments
+      .filter((s) => s.toolName === PRESENT_CARD_TOOL)
+      .flatMap((s) => {
+        const parsed = PresentCardInputSchema.safeParse(s.payload)
+        return parsed.success && parsed.data.card.kind === kind
+          ? [parsed.data.card]
+          : []
+      })
   // Read message.content, not text segments: content always carries the full
   // assistant text, while segments are only written for tool-bearing turns —
   // a pure-text turn (e.g. the no-code-record prose flag this file exists to
@@ -136,7 +150,7 @@ const runStep = async (entry: SyntheticOrdinanceEntry, step: DataStateStep) => {
     .map((m) => m.content ?? '')
     .join('\n')
 
-  return { seeded, ordinance, toolNames, payloadsFor, assistantText }
+  return { seeded, ordinance, toolNames, payloadsFor, cardsOf, assistantText }
 }
 
 d('ordinance-flow data-state evals (real Claude)', () => {
@@ -165,17 +179,19 @@ d('ordinance-flow data-state evals (real Claude)', () => {
       expect(probe.content).toContain(entry.chapter.marker)
       const fetchSpy = vi.spyOn(fetchService, 'fetchUrl')
 
-      const { ordinance, toolNames, payloadsFor, assistantText } =
-        await runStep(entry, 'current_law')
+      const { ordinance, toolNames, cardsOf, assistantText } = await runStep(
+        entry,
+        'current_law',
+      )
 
       // A page under the title, not the title index alone.
       expect(fetchSpy).toHaveBeenCalledWith(
         expect.stringContaining(`${entry.codeUrl}/`),
       )
       expect(toolNames).toContain('get_code_source')
-      expect(toolNames).toContain('present_current_law_summary')
+      expect(toolNames).toContain('present_card')
       expect(toolNames).toContain('save_existing_law')
-      const summary = payloadsFor('present_current_law_summary')[0] as {
+      const summary = cardsOf('current_law_summary')[0] as {
         does?: unknown[]
         gaps?: unknown[]
       }
@@ -189,7 +205,7 @@ d('ordinance-flow data-state evals (real Claude)', () => {
       const grounded = mentionsJurisdiction(
         [
           assistantText,
-          JSON.stringify(payloadsFor('present_current_law_summary')),
+          JSON.stringify(cardsOf('current_law_summary')),
           JSON.stringify(ordinance.existingLaw),
         ].join('\n'),
         entry.place,

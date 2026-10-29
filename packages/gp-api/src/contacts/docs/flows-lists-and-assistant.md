@@ -169,7 +169,7 @@ individual voter row** — aggregates, dimension metadata, and filter
 ids/names only. `describe_filter_dimensions` reads
 `filterDimensions.catalog.ts`, the single mode-aware vocabulary source.
 **On Chief of Staff and the Campaign Manager the assistant never creates a list itself.** It offers one
-with `present_list_proposal` (a display tool, args are the card) and the
+as a `list_proposal` card through `present_card` (args are the card) and the
 official saves it from the card, which posts with a `proposalKey`
 (`VoterFileFilter.proposalKey`, unique) so a second press returns the first
 list; `GET /v1/voters/voter-file/filter/by-proposal-key/:key` is how a

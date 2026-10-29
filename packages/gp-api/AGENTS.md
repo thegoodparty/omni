@@ -206,6 +206,7 @@ Per-area `AGENTS.md` files cover purpose, key files, patterns, and gotchas for t
 | Ordinances / drafting / quality loop                     | `src/ordinances/AGENTS.md`                           |
 | Priorities, their results, AI-coded answers              | `src/priorities/AGENTS.md`                           |
 | What the chat assistants know about the product          | `src/chats/general/product-knowledge/AGENTS.md`      |
+| Chat tools and display cards (`present_card`)            | `../../docs/cap-interactive-agents.md`               |
 | SQS producer/consumer / async                            | `src/queue/AGENTS.md`                                |
 | Auth, JWT, Clerk M2M, roles                              | `src/authentication/AGENTS.md`                       |
 | Agent experiments                                        | `src/agentExperiments/AGENTS.md`                     |
@@ -219,6 +220,14 @@ Per-area `AGENTS.md` files cover purpose, key files, patterns, and gotchas for t
 | QA test-user fixtures (dev/preview only)                 | `src/testFixtures/AGENTS.md`                         |
 | Universal Judge turn telemetry (non-prod only)           | `src/judge/AGENTS.md`                                |
 | Local `.env` vending (dev only, GitHub-gated)            | `src/devEnv/AGENTS.md`                               |
+
+**A new chat display card is never a new `present_*` tool.** It is a new
+kind in the contracts catalog (`PresentCardSchema`,
+`contracts/src/chats/PresentCard.schema.ts`) plus a webapp component, offered
+by adding the kind to a handler's `buildPresentCardTool({ kinds })`. A new
+chat tool is only for something whose execute does real work: persists,
+gates, validates beyond the schema, or drives a control. Detail:
+`docs/cap-interactive-agents.md` § Display cards are kinds of one tool.
 
 `VoterOutreachActivity` is deprecated: new per-person interaction write paths
 target the `ContactInteraction*` models via `ContactInteractionModule` (see

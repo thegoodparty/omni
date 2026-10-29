@@ -303,7 +303,8 @@ describe('stop and unsubscribe replies', () => {
   )
 
   it('does not unsubscribe again when a delivered stop is redelivered after an undo', async () => {
-    const { key } = deliver(message([], 'stop'))
+    const { key, result } = deliver(message([], 'stop'))
+    await result
     const queue = service.app.get(EmailOutreachQueueService)
     await queue.handleInbound({
       snsMessageId: '1',

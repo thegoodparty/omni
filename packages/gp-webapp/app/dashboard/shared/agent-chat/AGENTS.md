@@ -11,20 +11,20 @@ nearest reference wrapper.
 
 ## The pieces
 
-| File                                             | What it is                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `useStreamingTurn.ts`                            | **The engine.** Drives one turn: optimistic user push, the `streamMessage` event loop, interleaved text/tool `liveSegments`, smooth reveal, the idle watchdog, the late-persistence commit poll, and abort-on-unmount. This is the only streaming loop — there is no second one.                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| `chatUI.tsx`                                     | **The display kit.** `AssistantRow`, `UserBubble`, `InlineSegments` (text + inline tool pills in stream order), `ThinkingRow`, `ChatComposer` (pill composer; pass `dictation` for the mic variant, `leadingSlot` for a history popover, `ariaLabel` for the input's name; with the attachment props the ghost paperclip opens the file picker directly and pasted http(s) URLs call `onAttachLink` — no URL form; drag-and-drop lives in `ChiefOfStaffChatBody`, not here. Offered only where `supportsAttachments(scope)` (`attachmentScopes.ts`) is true: `chief_of_staff` and `campaign_assistant`, matching gp-api's `ATTACHMENT_SCOPES`), plus `AssistantMarkdown` / `ToolPillRow` for bespoke layouts. |
-| `streaming.ts`                                   | `LiveSegment` + `segmentsToLive` (project a persisted turn into segments for rendering) + `useSmoothReveal`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| `chatClient.ts`                                  | `createAgentChatClient(scope, sentrySurface)` — the scope-parameterized SSE client. Every scope conforms to the one `ChatClient` interface, and this one also implements the optional `setMessageFeedback` / `clearMessageFeedback` calls. Every message carries `pagePath` (`window.location.pathname` at send time, since a dock stays open across pages); only a scope whose gp-api handler implements `describePage` reads it.                                                                                                                                                                                                                                                                            |
-| `chatTypes.ts`                                   | `ChatMessageDto`, `ChatMessageSegment`, `ChatStreamEvent`, `ChatClient` — the single source of truth for message + stream shapes across every chat.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| `ClarifyQuestionWidget.tsx`                      | **The structured question.** Renders an `ask_clarify_question` tool call as option cards, plus an always-present "Or write your own..." card — the bail-out back to free chat, so no surface reimplements one. Its payload is `ChatClarifyQuestionSchema` in `@goodparty_org/contracts`, scope-agnostic on purpose: the ordinance flow and the priority flow both mount it. `SourceLine.tsx` is the cited-source chip its options use. With `multiSelect` the cards are checkboxes and one button sends the set; see "Multi-select answers" below.                                                                                                                                                            |
-| `widgetRegistry.ts` + `turnBlocks.tsx`           | **Tool calls rendered as widgets.** See "Widgets" below.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| `cards/`                                         | **The outreach cards** (proposal, past outreach, constituents, outside contact) and `cardWidgets.tsx`, their registry entries. Priorities and Chief of Staff both register them. Win's Campaign Manager mounts the Chief of Staff body, and its agent proposes any of the four channels (`present_outreach_proposal`) and offers lists to save (`present_list_proposal`, `ChatListProposal` in `mode` `win`). The proposal and past-outreach cards are mode-keyed (`CardMode`, `win` for the `campaign_assistant` scope): copy, links, and for past outreach the detail and results routes too; the other cards are Serve copy (`SERVE_*`). See "Cards" below.                                                |
-| `clarifyWidget.tsx` / `composeHandoffWidget.tsx` | Registry entries for `ask_clarify_question` and `compose_handoff`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| `MessageActionBar.tsx`                           | **The per-message bar.** Copy + thumbs up/down under one assistant turn, with the optional-note bubble a rating opens. Opt-in per surface (`showMessageActions`), and it renders the thumbs only when the client implements the feedback calls.                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| `chatHelpers.ts`                                 | `newClientMessageId`, `friendlyError`, and the server's cut-off marker (`CHAT_INTERRUPTED_BEFORE_OUTPUT_MARKER`, `isInterruptedTurn`) that a wrapper turns into a retry.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| `usePinnedAutoScroll.ts`                         | Stick-to-bottom scroll (releases on scroll-up). Pass `{ sending }` so a send re-pins and the reply that starts comes into view; a resize of the container or its content (a card laying out late, a phone keyboard closing) keeps a pinned view at the bottom, and so does a row added without any dep changing (a thinking row, an error). Only a scroll right after a wheel, touch, key or pointer press releases the pin: the browser's own clamp when content shrinks once read as a scroll-up and left new replies below the fold. Optional — a chat inside a vaul drawer may roll its own scroll instead.                                                                                               |
+| File                                                       | What it is                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `useStreamingTurn.ts`                                      | **The engine.** Drives one turn: optimistic user push, the `streamMessage` event loop, interleaved text/tool `liveSegments`, smooth reveal, the idle watchdog, the late-persistence commit poll, and abort-on-unmount. This is the only streaming loop — there is no second one.                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `chatUI.tsx`                                               | **The display kit.** `AssistantRow`, `UserBubble`, `InlineSegments` (text + inline tool pills in stream order), `ThinkingRow`, `ChatComposer` (pill composer; pass `dictation` for the mic variant, `leadingSlot` for a history popover, `ariaLabel` for the input's name; with the attachment props the ghost paperclip opens the file picker directly and pasted http(s) URLs call `onAttachLink` — no URL form; drag-and-drop lives in `ChiefOfStaffChatBody`, not here. Offered only where `supportsAttachments(scope)` (`attachmentScopes.ts`) is true: `chief_of_staff` and `campaign_assistant`, matching gp-api's `ATTACHMENT_SCOPES`), plus `AssistantMarkdown` / `ToolPillRow` for bespoke layouts. |
+| `streaming.ts`                                             | `LiveSegment` + `segmentsToLive` (project a persisted turn into segments for rendering) + `useSmoothReveal`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `chatClient.ts`                                            | `createAgentChatClient(scope, sentrySurface)` — the scope-parameterized SSE client. Every scope conforms to the one `ChatClient` interface, and this one also implements the optional `setMessageFeedback` / `clearMessageFeedback` calls. Every message carries `pagePath` (`window.location.pathname` at send time, since a dock stays open across pages); only a scope whose gp-api handler implements `describePage` reads it.                                                                                                                                                                                                                                                                            |
+| `chatTypes.ts`                                             | `ChatMessageDto`, `ChatMessageSegment`, `ChatStreamEvent`, `ChatClient` — the single source of truth for message + stream shapes across every chat.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `ClarifyQuestionWidget.tsx`                                | **The structured question.** Renders an `ask_clarify_question` tool call as option cards, plus an always-present "Or write your own..." card — the bail-out back to free chat, so no surface reimplements one. Its payload is `ChatClarifyQuestionSchema` in `@goodparty_org/contracts`, scope-agnostic on purpose: the ordinance flow and the priority flow both mount it. `SourceLine.tsx` is the cited-source chip its options use. With `multiSelect` the cards are checkboxes and one button sends the set; see "Multi-select answers" below.                                                                                                                                                            |
+| `chatWidgets.tsx` + `widgetRegistry.ts` + `turnBlocks.tsx` | **Tool calls rendered as UI.** `chatWidgets.tsx` is the one registry every chat resolves through. See "Widgets" below.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `cards/`                                                   | **The cards.** `presentCardWidgets.tsx` renders every `present_card` kind (outside contact, past outreach, constituents, list proposal, list map, current-law summary, legislative history) through one view per kind, and `cardWidgets.tsx` holds the outreach proposal, which is its own tool. Win's Campaign Manager mounts the Chief of Staff body, and its agent proposes any of the four channels (`present_outreach_proposal`) and offers lists to save (a `list_proposal` card, `ChatListProposal` in `mode` `win`). The proposal and past-outreach cards are mode-keyed (`CardMode`, `win` for the `campaign_assistant` scope): copy, links, and for past outreach the detail and results routes too; the other cards are Serve copy (`SERVE_*`). See "Cards" below. |
+| `clarifyWidget.tsx` / `composeHandoffWidget.tsx`           | Entries for `ask_clarify_question` and `compose_handoff`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `MessageActionBar.tsx`                                     | **The per-message bar.** Copy + thumbs up/down under one assistant turn, with the optional-note bubble a rating opens. Opt-in per surface (`showMessageActions`), and it renders the thumbs only when the client implements the feedback calls.                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `chatHelpers.ts`                                           | `newClientMessageId`, `friendlyError`, and the server's cut-off marker (`CHAT_INTERRUPTED_BEFORE_OUTPUT_MARKER`, `isInterruptedTurn`) that a wrapper turns into a retry.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `usePinnedAutoScroll.ts`                                   | Stick-to-bottom scroll (releases on scroll-up). Pass `{ sending }` so a send re-pins and the reply that starts comes into view; a resize of the container or its content (a card laying out late, a phone keyboard closing) keeps a pinned view at the bottom, and so does a row added without any dep changing (a thinking row, an error). Only a scroll right after a wheel, touch, key or pointer press releases the pin: the browser's own clamp when content shrinks once read as a scroll-up and left new replies below the fold. Optional — a chat inside a vaul drawer may roll its own scroll instead.                                                                                               |
 
 ## The recipe (what a wrapper owns)
 
@@ -58,40 +58,124 @@ useStreamingTurn(chatApi, { toolLabel, onTurnStart, onTurnSettle, onTurnSuccess,
    Filter such turns out at render time (`visibleMessages = messages.filter(…)`) — see
    `OrdinanceFlowChat`/`ChiefOfStaffChatBody`.
 
-## Widgets — register, do not dispatch
+## Widgets — one registry, nothing rendered outside it
 
-When an agent calls a tool so a widget renders from its args (the no-op
-`present_*` pattern), register it; do not add another `if (toolName === …)`
-branch. Four surfaces each grew their own copy of this dispatch before the
-registry existed, and they had started to drift.
+Any UI an agent's tool call puts in a chat (a card, a question, a map, a
+marker, a button) is a widget, and every widget is an entry in
+`chatWidgets.tsx`. One list means a new card is one entry, not a wiring job in
+each surface, and the surfaces cannot drift apart.
 
-1. **Register.** `createWidgetRegistry<Ctx>([defineWidgetTool({ toolName, parse, render })])`.
-   `parse(args, call)` returns the data or null. Null drops the widget, so args
-   that fail to parse never render broken. `call` carries `conversationId`,
-   `toolCallId`, `messageId` and `segmentIndex`, which is enough to derive an id.
-   `render(data, ctx, call)` gets the surface's `Ctx` (route ids, callbacks) at
-   render time. An unknown tool name resolves to null, so a thread written by a
-   newer build still opens. `onParseFailure: 'inline'` keeps an unparsed call as
-   an ordinary pill instead of hiding it, for a tool that is only sometimes a
-   widget.
-2. **Live turn.** In `onEvent`, on `tool_call`: `registry.has(name)` decides
-   whether to consume the event, `registry.resolve(call, args)` builds the
-   instance (pass the `conversationId` from `onEvent`'s second argument when a
-   widget derives an id from it), and you store `{ instance, appearAfter: textLength() }`.
-   An `'inline'` entry that fails to parse is not consumed, so it gets its pill.
-3. **Render.** `liveTurnBlocks(visibleSegments, widgets, revealedTextLength)`
-   for the live turn and `persistedTurnBlocks({ registry, segments, content, messageId, conversationId })`
+**MUST:**
+
+- Never render tool-driven UI outside `chatWidgets`. No `if (toolName === …)`
+  branch in a surface draws anything.
+- Never add a per-surface registry or widget list. A surface differs from
+  another only by the context it passes. A widget a surface must not show is
+  kept off it by gp-api not offering that tool to its scope.
+- Never switch on tool names in a surface to draw tool-driven UI. A surface
+  may read a tool name only for side effects and its own chrome (analytics,
+  query invalidation, its rail state, the working shimmer's label).
+
+**Add a display card: a kind, never a tool.** A card whose tool would only
+acknowledge its args is a kind of `present_card`, never a new `present_*`
+tool (ADR `docs/adr/2026-10-29-display-cards-are-present-card-kinds.md`). It
+is two files:
+
+1. A variant in `PresentCardSchema` (`contracts/src/chats/PresentCard.schema.ts`),
+   every field `.describe()`d, and its one-line `PRESENT_CARD_DESCRIPTIONS`
+   entry. gp-api writes the prompt text from these.
+2. A component, and its view in `PRESENT_CARD_VIEWS`
+   (`cards/presentCardWidgets.tsx`): `render`, plus `placement` when it is not
+   inline and `shows` when a parsed card can still have nothing to show. The
+   map is typed by kind, so a kind with no view fails the build.
+
+gp-api offers it on a surface by adding the kind to that handler's
+`buildPresentCardTool({ kinds })`. `present_card`'s calls are kept once per
+turn per kind (`slot`), not per tool. A kind that used to be its own tool
+keeps that name as an entry (`LEGACY_PRESENT_CARD_TOOLS`), parsed as its
+kind, because persisted segments carry it forever.
+
+**Add a widget** (a tool whose execute does real work: persists, gates,
+validates beyond its schema, or drives a control):
+
+1. Write `defineWidgetTool({ toolName, parse, render })` next to its component
+   (`cards/cardWidgets.tsx`, `ordinances/components/stepWidgets.tsx`, …). `parse(args, call)` returns the
+   data or null. Null drops the widget, so args that fail to parse never render
+   broken. `call` carries `conversationId`, `toolCallId`, `messageId` and
+   `segmentIndex`, which is enough to derive an id. `render(data, ctx, call)`
+   gets the surface's context at render time.
+2. If it needs something from the surface (a callback, route ids, surface
+   state), add an optional field to its context type and to `ChatWidgetContext`
+   in `chatWidgets.tsx`, and have each surface that offers the tool pass it.
+3. Add the entry to the list in `chatWidgets.tsx` and a line for its tool name
+   to `chatWidgets.test.tsx`. A tool name has one entry; the registry throws on
+   a second.
+4. That is all the surfaces need. Every surface already resolves live calls
+   and reloaded segments through `chatWidgets`.
+
+**Entry options.** `onParseFailure: 'inline'` keeps an unparsed call as an
+ordinary pill instead of hiding it, for a tool that is only sometimes a widget
+(`read_past_outreach`, `explain_managed_panel`). `placement` says where it
+sits in its turn:
+
+- `'inline'` (the default): at the point in the text where its tool fired, with
+  prose above and below it.
+- `'afterProse'`: after the turn's last block, inside the assistant row, once
+  per turn per slot (the tool name, or the card kind for `present_card`): the
+  last call that parses, in the place of that slot's first call. The
+  `list_map` and `list_proposal` cards, the proposal because it becomes that
+  map once its list is created. `placement` may be a function of the parsed
+  data, which is how one `present_card` entry places each kind.
+- `'belowTurn'`: under the assistant row, outside it, once per turn. The
+  ordinance flow's next-step button (`offer_next_step`). A surface renders
+  these with a second `<TurnBlocks belowTurn />` after its row.
+
+Live, a widget of any placement appears once the reveal reaches the text that
+preceded its call. A legacy tool name stays an entry forever, since persisted
+segments carry it (`present_contacts`, `show_list_map`). An unknown tool name
+or card kind resolves to null,
+so a thread written by a newer build still opens.
+
+**State that is not in the args comes through the context.** The context is
+the only channel from a surface to its widgets. The ordinance flow's recorded
+clarify answers arrive as `clarifyAnswer` and `clarifyShowsWrittenAnswer`, and
+`onClarifyAnswer(answer, question)` hands back the question so it can save the
+answer under its id. The priority status marker (`update_priority_status`,
+`priorities/[priorityId]/components/statusMarkerWidget.tsx`) is an entry whose
+render asks `ctx.statusChanges(call)` what the rail went through at that call:
+the priority workspace answers from its replay of the transcript on reload and
+from the tool result on the live turn, and the marker renders nothing when
+nothing moved.
+
+**Wiring a surface** (already done for every chat that renders widgets; copy it
+for a new one):
+
+1. **Live turn.** In `onEvent`, on `tool_call`: `chatWidgets.has(name)` decides
+   whether to consume the event, `chatWidgets.resolve(call, args)` builds the
+   instance (pass the `conversationId` from `onEvent`'s second argument), and
+   you store `{ instance, appearAfter: textLength(), key }`, keyed
+   `${toolName}-${toolCallId}`.
+   An `'inline'`-on-failure entry that fails to parse is not consumed, so it
+   gets its pill.
+2. **Render.** `liveTurnBlocks(visibleSegments, widgets, revealedTextLength)`
+   for the live turn and `persistedTurnBlocks({ registry: chatWidgets, segments, content, messageId, conversationId })`
    for history, both into `<TurnBlocks blocks toolLabel context />` (plus
-   `onCitationClick` if the surface has citations). The widget lands at the
-   point in the text where its tool fired, with prose above and below it, and a
-   reload renders the same order it streamed in.
+   `onCitationClick` if the surface has citations), and a reload renders the
+   same order it streamed in.
+
+**Not widgets.** Tool pills and citation chips are not widgets and do not go
+in the registry. A pill is a label: a tool with no entry renders as a pill in
+`InlineSegments`, worded by the surface's `toolLabel`, and a null label hides
+it. `resolveToolLabel` (`toolLabels.ts`) gives `compose_handoff` no pill, since
+its name is internal, so a surface that renders no widgets (`AiChatBody`,
+`AskAiChatBody`) never shows it. Citation chips come from `citation` segments,
+not tool calls.
 
 **A refused call's widget is removed.** A tool that refuses its args returns
 `{ error }` (`isToolRefusal` in contracts) so the model can fix them and call
 again. gp-api nulls that call's persisted args, so a reload never renders it,
-and the live surfaces (PriorityWorkspace, ChiefOfStaffChatBody) drop the
-widget keyed `${toolName}-${toolCallId}` on its `tool_result`, so a refused
-card and its corrected one never show side by side.
+and the live surfaces drop the widget keyed `${toolName}-${toolCallId}` on its
+`tool_result`, so a refused card and its corrected one never show side by side.
 
 **A question written right above the clarify widget is dropped.** The widget
 shows its own question, so prose that also asks it puts it on screen twice.
@@ -102,28 +186,17 @@ touches nothing else: a pill between the text and the widget, or any other
 widget, leaves the prose alone. The prompts forbid the duplicate too; this is
 the backstop for when the model slips. On the live turn the question can show
 for a beat before the widget lands, since the widget appears only once the
-reveal reaches its seam. A surface that renders its live clarify widget below
-the turn blocks instead of as one of them (the ordinance flow) applies
-`dropTrailingQuestion` to the live blocks while a clarify call is pending. A
-short capitalized word or a dotted one before a period ("Dr.", "U.S.") is read
-as an abbreviation, not a sentence break, so a cut never leaves a fragment.
+reveal reaches its seam. A short capitalized word or a dotted one before a
+period ("Dr.", "U.S.") is read as an abbreviation, not a sentence break, so a
+cut never leaves a fragment.
 
-A block whose data is not in the tool args (the Priorities status marker reads
-a replay held in state) is not a registry entry. Hand it to
-`persistedTurnBlocks` as `surfaceWidget` and build its live instance yourself.
-
-**`compose_handoff` is a registry entry, so a surface that does not register it
-must return null for it from `toolLabel`.** `InlineSegments` treats it like any
-other tool, and a label map that falls back to the raw tool name would put
-`compose_handoff` on a pill. `AiChatBody` and `AskAiChatBody` do this.
-
-**`ChiefOfStaffChatBody` is the one surface that registers it, and it is
-shared by both products** — Serve's Chief of Staff and Win's Campaign Manager
-both mount this body, so its `handleComposeHandoff` routes on the payload's
-own `channel` rather than on which product opened the chat. Either way the
-payload is written to `sessionStorage` under `cos-handoff-<nonce>` (never the
-URL, which would expose the draft text) and the nonce rides a `?handoff=`
-query param. `serve_social` pushes
+**`ChiefOfStaffChatBody` is the one surface that passes `onComposeHandoff`,
+and it is shared by both products** — Serve's Chief of Staff and Win's
+Campaign Manager both mount this body, so its `handleComposeHandoff` routes on
+the payload's own `channel` rather than on which product opened the chat.
+Either way the payload is written to `sessionStorage` under
+`cos-handoff-<nonce>` (never the URL, which would expose the draft text) and
+the nonce rides a `?handoff=` query param. `serve_social` pushes
 `/dashboard/constituent-outreach?compose=social&handoff=<nonce>`;
 `win_social` (ENG-11218) pushes
 `/dashboard/outreach?compose=social&source=campaign_manager&handoff=<nonce>`.
@@ -132,12 +205,6 @@ arrival — `ConstituentOutreachPage.tsx` for Serve,
 `outreach/components/OutreachComposeDeepLink.tsx` for Win — and a payload
 whose channel doesn't match that hub (or a missing/expired/malformed nonce)
 is silently ignored rather than erroring.
-
-`ordinances/components/stepWidgets.tsx` is the reference registry. Chief of
-Staff's `show_list_map` is deliberately not on one: its map renders after the
-turn's prose and only once per turn, and a registry entry would move it to
-where the tool fired. `present_list_proposal` is off the registry for the same
-reason, because once its list is created the card becomes that map.
 
 ## Cards — one row each, the detail somewhere else
 
@@ -165,7 +232,7 @@ there is the agent's to say, once, in its message; no card repeats it.
   right over the page in `PersonOverlay`'s shell, with its X, closed by the X
   or Escape, handing focus back to the chip that opened it. Nothing on the
   page is replaced. A card outside any `CardDetailProvider` falls back to its
-  own sheet. The detail key is the tool call id (`cardWidgets.tsx`),
+  own sheet. The detail key is the tool call id (`cardDetailKey`, `cardWidgets.tsx`),
   which the live and persisted copies of one call share, so a panel opened
   mid-turn survives the turn settling. Each card registers its key with the
   provider, and the panel closes once no mounted card owns the open key (a
@@ -288,11 +355,10 @@ widget sends the checked labels in option order, not click order, as one line:
 `parseClarifyChoices` maps that line back to the set by matching whole labels in
 option order, so a label holding a comma or an "and" still parses. Anything
 that is not exactly such a line is a written-in answer. The ordinance flow
-hides the answer's user turn, so the widget echoes a written-in answer under
-its options there. The registry entry (`clarifyWidget.tsx`, Priorities and
-Chief of Staff) passes `showWrittenAnswer={false}`, because those surfaces
-already show the answer as the user's own message and an echo put it on
-screen twice. The ordinance flow's stored `clarifyAnswers[].answer` holds the
+hides the answer's user turn, so it sets `clarifyShowsWrittenAnswer` and the
+widget echoes a written-in answer under its options there. Priorities and
+Chief of Staff leave it off, because they already show the answer as the
+user's own message and an echo put it on screen twice. The ordinance flow's stored `clarifyAnswers[].answer` holds the
 same line.
 
 ## Next steps — an intro ends on cards, not prose
@@ -414,7 +480,7 @@ Win, `priorities` with a priority, else `chief_of_staff`); a widget context's
 | Want                                                                   | Copy                                                                       |
 | ---------------------------------------------------------------------- | -------------------------------------------------------------------------- |
 | Plain text chat                                                        | `ordinances/components/DraftChat.tsx` (~thin)                              |
-| Structured widgets via `onEvent`                                       | `ordinances/components/OrdinanceFlowChat.tsx`                              |
+| Widgets on a step page, including a `belowTurn` one                    | `ordinances/components/OrdinanceFlowChat.tsx`                              |
 | Deferred create + intro + suggestions + history popover                | `shared/ai-chat/AiChatBody.tsx`                                            |
 | Kickoffs, seeded-greeting playback, sentinel filtering                 | `chief-of-staff/components/chat/ChiefOfStaffChatBody.tsx`                  |
 | An entry point that collected the first message before the chat opened | `contacts/crm/assistant/CrmAssistant.tsx` (the surface's `pendingMessage`) |

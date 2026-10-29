@@ -529,13 +529,13 @@ describe('buildChiefOfStaffSystemPrompt', () => {
   it('offers lists as a card and never asks to save one in prose', () => {
     const prompt = buildChiefOfStaffSystemPrompt({
       ctx: baseCtx(),
-      toolNames: ['crud_saved_filters', 'present_list_proposal'],
+      toolNames: ['crud_saved_filters', 'present_card'],
+      cardKinds: ['list_proposal'],
     })
     expect(prompt).toContain('Never create a list yourself')
     expect(prompt).toContain('Never ask whether to save a list')
-    expect(prompt).toContain(
-      'Offer a list to save with `present_list_proposal`',
-    )
+    expect(prompt).toContain('Offer a list to save as a `list_proposal` card')
+    expect(prompt).toContain('- `list_proposal`: A counted list')
     expect(prompt).not.toContain('confirm the size with the user')
   })
 
@@ -614,10 +614,11 @@ describe('buildChiefOfStaffSystemPrompt', () => {
     expect(prompt).toContain("that dimension's unknown value selected")
   })
 
-  it('teaches the map rules once show_list_map is registered', () => {
+  it('teaches the map rules once the list_map card is offered', () => {
     const prompt = buildChiefOfStaffSystemPrompt({
       ctx: baseCtx(),
-      toolNames: [...ALL_TOOLS, 'show_list_map'],
+      toolNames: [...ALL_TOOLS, 'present_card'],
+      cardKinds: ['list_map'],
     })
     expect(prompt).toContain('LIST MAP RULES')
     // The rule that keeps it honest: it cannot see the map it just drew.
@@ -631,7 +632,8 @@ describe('buildChiefOfStaffSystemPrompt', () => {
   it('teaches what a drawn area does alongside the map rules', () => {
     const prompt = buildChiefOfStaffSystemPrompt({
       ctx: baseCtx(),
-      toolNames: [...ALL_TOOLS, 'show_list_map'],
+      toolNames: [...ALL_TOOLS, 'present_card'],
+      cardKinds: ['list_map'],
     })
     expect(prompt).toContain('DRAWN AREA RULES')
     expect(prompt).toContain('narrows it in place')
@@ -645,7 +647,26 @@ describe('buildChiefOfStaffSystemPrompt', () => {
     expect(prompt).toContain('Drawing is optional')
   })
 
-  it('omits the map rules when the tool is not registered', () => {
+  // The card a list is created from becomes its map, so a list_map card for
+  // that list draws the same map twice.
+  it('never shows a second map for a list created from its card', () => {
+    const prompt = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx(),
+      toolNames: [...ALL_TOOLS, 'present_card'],
+      cardKinds: ['list_proposal', 'list_map'],
+    })
+    expect(prompt).toContain(
+      'so never show a `list_map` card for that list. When you are told a list was created from the card, that map is already on screen.',
+    )
+    expect(prompt).toContain(
+      'That card has already become the list on a map, so never show a `list_map` card for it.',
+    )
+    expect(prompt).toContain(
+      "- `list_map`: A saved list on a map, where the user can draw shapes to narrow it. Never for a list created from a `list_proposal` card, which is already that list's map.",
+    )
+  })
+
+  it('omits the map rules when the list_map card is not offered', () => {
     const prompt = buildChiefOfStaffSystemPrompt({
       ctx: baseCtx(),
       toolNames: ALL_TOOLS,

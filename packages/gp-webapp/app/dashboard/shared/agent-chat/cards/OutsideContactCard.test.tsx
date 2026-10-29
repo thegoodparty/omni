@@ -3,14 +3,16 @@ import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { ChatCard } from '@goodparty_org/contracts'
 import { render } from 'helpers/test-utils/render'
-import { ChatCardRenderer } from './ChatCardRenderer'
+import { OutsideContactCard } from './OutsideContactCard'
 import { initialsOf } from './cardShell'
 
 const SCRIPT = 'Calling about 14 Mill St. Can you tell me who owns the parcel?'
 
+type OutsideContact = Extract<ChatCard, { kind: 'outside_contact' }>
+
 const contactCard = (
-  overrides: Partial<Extract<ChatCard, { kind: 'outside_contact' }>> = {},
-): ChatCard => ({
+  overrides: Partial<OutsideContact> = {},
+): OutsideContact => ({
   kind: 'outside_contact',
   name: "Dale County Attorney's Office",
   role: 'County attorney',
@@ -23,9 +25,10 @@ const contactCard = (
   ...overrides,
 })
 
-const renderCard = (card: ChatCard) => render(<ChatCardRenderer card={card} />)
+const renderCard = (card: OutsideContact) =>
+  render(<OutsideContactCard card={card} />)
 
-const openCard = async (card: ChatCard) => {
+const openCard = async (card: OutsideContact) => {
   renderCard(card)
   await userEvent.click(
     screen.getByRole('button', { name: /Dale County Attorney's Office/ }),

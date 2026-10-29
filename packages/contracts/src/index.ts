@@ -1897,6 +1897,20 @@ export {
 } from './personProfiles/PersonProfileLink.schema'
 
 export {
+  PRESENT_CARD_TOOL,
+  PresentCardSchema,
+  type PresentCard,
+  type PresentCardKind,
+  PRESENT_CARD_DESCRIPTIONS,
+  PresentCardInputSchema,
+  type PresentCardInput,
+  pickPresentCardOptions,
+  LEGACY_PRESENT_CARD_TOOLS,
+  type LegacyPresentCardTool,
+  isLegacyPresentCardTool,
+} from './chats/PresentCard.schema'
+
+export {
   SERVE_IMPORT_CONTACTS_FLAG,
   CONTACT_UPLOAD_MAX_ROWS,
   CONTACT_UPLOAD_MAX_BYTES,

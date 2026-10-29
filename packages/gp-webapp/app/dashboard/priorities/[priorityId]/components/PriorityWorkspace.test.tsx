@@ -73,38 +73,25 @@ vi.mock('../../../shared/dictation/useDictationAppend', () => ({
 }))
 
 // The card components are another surface's concern; this asserts only that a
-// card tool call reaches the renderer, and with which key. The outside contact
-// is the exception, rendered for real, because where its detail opens is this
+// card tool call reaches the proposal card, and with which key. The outside
+// contact is rendered for real, because where its detail opens is this
 // surface's concern.
-vi.mock('../../../shared/agent-chat/cards/ChatCardRenderer', async () => {
-  const { OutsideContactCard } = await vi.importActual<
-    typeof import('../../../shared/agent-chat/cards/OutsideContactCard')
-  >('../../../shared/agent-chat/cards/OutsideContactCard')
-  return {
-    ChatCardRenderer: ({
-      card,
-      detailKey,
-      launchSource,
-    }: {
-      card: { kind: string; proposalKey?: string }
-      detailKey?: string
-      launchSource?: string
-    }) =>
-      card.kind === 'outside_contact' ? (
-        <OutsideContactCard
-          card={card as Parameters<typeof OutsideContactCard>[0]['card']}
-          {...(detailKey !== undefined && { detailKey })}
-        />
-      ) : (
-        <div
-          data-testid="chat-card"
-          data-kind={card.kind}
-          data-proposal-key={card.proposalKey ?? ''}
-          data-launch-source={launchSource ?? ''}
-        />
-      ),
-  }
-})
+vi.mock('../../../shared/agent-chat/cards/OutreachProposalCard', () => ({
+  OutreachProposalCard: ({
+    proposal,
+    launchSource,
+  }: {
+    proposal: { kind: string; proposalKey: string }
+    launchSource?: string
+  }) => (
+    <div
+      data-testid="chat-card"
+      data-kind={proposal.kind}
+      data-proposal-key={proposal.proposalKey}
+      data-launch-source={launchSource ?? ''}
+    />
+  ),
+}))
 
 // The outreach flows are the outreach page's components; mounting them here
 // is covered in proposalFlows.test.tsx.
@@ -518,7 +505,7 @@ describe('PriorityWorkspace', () => {
     )
   })
 
-  it('renders a card tool call through ChatCardRenderer with a derived proposalKey', async () => {
+  it('renders a card tool call through the widget registry with a derived proposalKey', async () => {
     mocks.listMessages.mockResolvedValue([
       {
         id: 'a1',
@@ -857,7 +844,7 @@ describe('PriorityWorkspace', () => {
       streamOf(
         [
           { type: 'text', delta: 'The county runs this. ' },
-          { type: 'tool_input_start', toolName: 'present_outside_contact' },
+          { type: 'tool_input_start', toolName: 'present_card' },
           { type: 'done', assistantMessageId: 'a1' },
         ],
         gate.promise,
@@ -870,9 +857,7 @@ describe('PriorityWorkspace', () => {
     await screen.findByText(/^The co/)
     await vi.advanceTimersByTimeAsync(2_000)
     expect(await screen.findByText(/The county runs this/)).toBeInTheDocument()
-    expect(
-      await screen.findByText('Looking up who to contact...'),
-    ).toBeInTheDocument()
+    expect(await screen.findByText('Preparing a card...')).toBeInTheDocument()
     gate.resolve()
   })
 
@@ -949,7 +934,7 @@ describe('PriorityWorkspace', () => {
         },
       }
       await next.promise
-      yield { type: 'tool_input_start', toolName: 'present_outside_contact' }
+      yield { type: 'tool_input_start', toolName: 'present_card' }
       await gate.promise
       yield { type: 'done', assistantMessageId: 'a1' }
     })
@@ -964,9 +949,76 @@ describe('PriorityWorkspace', () => {
     ).toBeInTheDocument()
     expect(screen.queryByText('Thinking...')).not.toBeInTheDocument()
     next.resolve()
-    expect(
-      await screen.findByText('Looking up who to contact...'),
-    ).toBeInTheDocument()
+    expect(await screen.findByText('Preparing a card...')).toBeInTheDocument()
+    gate.resolve()
+  })
+
+  it('holds the shimmer off after a current-law card, a finding shown through present_card', async () => {
+    const gate = deferred()
+    mocks.streamMessage.mockImplementation(async function* () {
+      yield { type: 'text', delta: 'Here is what the code says today. ' }
+      yield {
+        type: 'tool_call',
+        toolName: 'present_card',
+        toolCallId: 'tc-l',
+        args: {
+          card: {
+            kind: 'current_law_summary',
+            chapterLabel: 'Chapter 12',
+            does: [{ title: 'Bins must be lidded' }],
+            gaps: [],
+          },
+        },
+      }
+      await gate.promise
+      yield { type: 'done', assistantMessageId: 'a1' }
+    })
+
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    renderWorkspace()
+
+    await screen.findByText(/^Here/)
+    await vi.advanceTimersByTimeAsync(2_000)
+    expect(await screen.findByText(/Bins must be lidded/)).toBeInTheDocument()
+    expect(screen.queryByText('Thinking...')).not.toBeInTheDocument()
+    gate.resolve()
+  })
+
+  it('holds the shimmer off after a current-law card streamed under its old tool name', async () => {
+    const gate = deferred()
+    mocks.streamMessage.mockImplementation(async function* () {
+      yield { type: 'text', delta: 'Here is what the code says today. ' }
+      yield {
+        type: 'tool_input_start',
+        toolName: 'present_current_law_summary',
+      }
+      yield {
+        type: 'tool_call',
+        toolName: 'present_current_law_summary',
+        toolCallId: 'tc-l',
+        args: {
+          chapterLabel: 'Chapter 12',
+          does: [{ title: 'Bins must be lidded' }],
+          gaps: [],
+        },
+      }
+      yield {
+        type: 'tool_result',
+        toolName: 'present_current_law_summary',
+        toolCallId: 'tc-l',
+        result: { presented: true },
+      }
+      await gate.promise
+      yield { type: 'done', assistantMessageId: 'a1' }
+    })
+
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    renderWorkspace()
+
+    await screen.findByText(/^Here/)
+    await vi.advanceTimersByTimeAsync(2_000)
+    expect(await screen.findByText(/Bins must be lidded/)).toBeInTheDocument()
+    expect(screen.queryByText('Thinking...')).not.toBeInTheDocument()
     gate.resolve()
   })
 

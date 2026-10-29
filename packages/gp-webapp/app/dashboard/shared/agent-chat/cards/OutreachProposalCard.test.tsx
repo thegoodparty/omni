@@ -3,7 +3,7 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import type { ChatCard, OutreachDetail } from '@goodparty_org/contracts'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
-import { ChatCardRenderer } from './ChatCardRenderer'
+import { OutreachProposalCard } from './OutreachProposalCard'
 
 // The flows themselves are the outreach page's components and have their own
 // suite (proposalFlows.test.tsx). Here only what the chip hands them.
@@ -82,23 +82,13 @@ const mockNotSent = () =>
     data: { message: 'Not Found' },
   })
 
-const renderCard = (card: ChatCard, priorityId?: string) =>
+const renderCard = (card: Proposal, priorityId?: string) =>
   render(
-    <ChatCardRenderer
-      card={card}
+    <OutreachProposalCard
+      proposal={card}
       {...(priorityId !== undefined && { priorityId })}
     />,
   )
-
-describe('ChatCardRenderer', () => {
-  it('renders nothing for a kind it does not know', () => {
-    // A thread written by a newer build must still open.
-    const { container } = renderCard({
-      kind: 'something_newer',
-    } as unknown as ChatCard)
-    expect(container).toBeEmptyDOMElement()
-  })
-})
 
 describe('OutreachProposalCard', () => {
   it('is the audience, the count, the one channel and a button, nothing more', async () => {

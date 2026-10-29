@@ -20,6 +20,7 @@ import type { VoterFileFilterService } from '@/voters/services/voterFileFilter.s
 import { buildComposeHandoffTool } from './services/composeHandoff.tool'
 import { guardrailLine } from '../services/guardrailLines'
 import { buildPresentOutreachProposalTool } from '../chat-tools/presentOutreachProposal.tool'
+import { offeredCardKinds } from '../chat-tools/presentCard.tool'
 import type { PriorityFlowOutreachService } from '../priority-flow/services/priorityFlowOutreach.service'
 import type { PriorityStatusService } from '@/priorities/services/priorityStatus.service'
 import type { ManagedCivicPanelService } from '@/contacts/services/managedCivicPanel.service'
@@ -154,9 +155,10 @@ describe('ChiefOfStaffHandler', () => {
       'crud_priorities',
       'get_briefing',
       'list_briefings',
-      'present_outside_contact',
+      'present_card',
       'web_search',
     ])
+    expect(offeredCardKinds(tools)).toEqual(['outside_contact'])
   })
 
   it('includes web_search (Anthropic native, no provider needed)', async () => {
@@ -590,20 +592,26 @@ describe('ChiefOfStaffHandler', () => {
     // the model a contact id, so it could only be called with invented ones.
     it('holds constituents back and offers proposals only with saved lists', async () => {
       const readOnly = buildCrmHandler({ contacts: buildContacts() })
-      const readOnlyTools = Object.keys(
-        readOnly.buildTools(await readOnly.loadContext('c1', USER_ID)),
+      const readOnlyTools = readOnly.buildTools(
+        await readOnly.loadContext('c1', USER_ID),
       )
-      expect(readOnlyTools).not.toContain('present_constituents')
-      expect(readOnlyTools).not.toContain('present_outreach_proposal')
+      expect(offeredCardKinds(readOnlyTools)).not.toContain('constituents')
+      expect(Object.keys(readOnlyTools)).not.toContain(
+        'present_outreach_proposal',
+      )
 
       const withLists = buildCrmHandler({
         contacts: buildContacts(),
         voterFileFilters: buildVoterFileFilters(),
       })
-      const withListsTools = Object.keys(
-        withLists.buildTools(await withLists.loadContext('c1', USER_ID)),
+      const withListsTools = withLists.buildTools(
+        await withLists.loadContext('c1', USER_ID),
       )
-      expect(withListsTools).toContain('present_outreach_proposal')
+      expect(Object.keys(withListsTools)).toContain('present_outreach_proposal')
+      expect(offeredCardKinds(withListsTools)).toEqual(
+        expect.arrayContaining(['list_proposal', 'list_map']),
+      )
+      expect(offeredCardKinds(withListsTools)).not.toContain('constituents')
     })
 
     it('sizes a text sample only where a proposal can be presented', async () => {
@@ -816,7 +824,7 @@ describe('ChiefOfStaffHandler', () => {
         forOffice,
       } as unknown as PriorityFlowOutreachService)
       const tools = handler.buildTools(await handler.loadContext('c1', USER_ID))
-      expect(Object.keys(tools)).toContain('present_past_outreach')
+      expect(offeredCardKinds(tools)).toContain('past_outreach')
       const read = tools.read_past_outreach
       if (read === undefined || !('execute' in read)) {
         throw new Error('expected an executable tool')
@@ -927,14 +935,14 @@ describe('ChiefOfStaffHandler', () => {
       const handler = buildPastOutreachHandler(undefined)
       const tools = handler.buildTools(await handler.loadContext('c1', USER_ID))
       expect(Object.keys(tools)).not.toContain('read_past_outreach')
-      expect(Object.keys(tools)).not.toContain('present_past_outreach')
+      expect(offeredCardKinds(tools)).not.toContain('past_outreach')
     })
 
     it('omits the outside contact when there is no web search', async () => {
       delete process.env.ANTHROPIC_API_KEY
       const handler = buildPastOutreachHandler(undefined)
       const tools = handler.buildTools(await handler.loadContext('c1', USER_ID))
-      expect(Object.keys(tools)).not.toContain('present_outside_contact')
+      expect(offeredCardKinds(tools)).not.toContain('outside_contact')
       expect(Object.keys(tools)).toContain('ask_clarify_question')
     })
 
@@ -956,8 +964,10 @@ describe('ChiefOfStaffHandler', () => {
         await handler.loadContext('c1', USER_ID),
       )
       expect(prompt).toContain('CARDS AND QUESTIONS')
-      expect(prompt).toContain('`present_outside_contact` is someone OUTSIDE')
-      expect(prompt).not.toContain('present_constituents')
+      expect(prompt).toContain('An `outside_contact` card is someone OUTSIDE')
+      expect(prompt).toContain('- `outside_contact`: One person or office')
+      expect(prompt).not.toContain('constituents` card')
+      expect(prompt).not.toContain('- `constituents`:')
     })
   })
 

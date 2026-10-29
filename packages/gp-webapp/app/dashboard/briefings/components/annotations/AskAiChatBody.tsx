@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { humanizeToolName } from '../../../shared/agent-chat/toolLabels'
+import { resolveToolLabel } from '../../../shared/agent-chat/toolLabels'
 import { Button, Textarea } from '@styleguide'
 import { ChevronDownIcon, SparklesIcon } from '@styleguide/components/ui/icons'
 import {
@@ -11,7 +11,6 @@ import {
   UserBubble,
 } from '../../../shared/agent-chat/chatUI'
 import { segmentsToLive } from '../../../shared/agent-chat/streaming'
-import { COMPOSE_HANDOFF_TOOL } from '../../../shared/agent-chat/composeHandoffWidget'
 import { useStreamingTurn } from '../../../shared/agent-chat/useStreamingTurn'
 import { newClientMessageId } from '../../../shared/agent-chat/chatHelpers'
 import type { AgentChatClient } from '../../../shared/agent-chat/chatClient'
@@ -89,12 +88,6 @@ const TOOL_DISPLAY_NAMES: Record<string, string> = {
   get_my_notes: 'Reading your notes',
 }
 
-function toolDisplayName(toolName: string): string {
-  // Humanized rather than raw: a tool that is not in the map above still has
-  // to read as words on the pill, not as its machine name.
-  return TOOL_DISPLAY_NAMES[toolName] ?? humanizeToolName(toolName)
-}
-
 /**
  * Shared chat body — message list, composer, suggested pills. Streaming, smooth
  * reveal, inline tool pills, and the persisted-history handoff come from the
@@ -168,11 +161,8 @@ export default function AskAiChatBody({
     [],
   )
 
-  // compose_handoff is a widget this surface does not register, and the label
-  // fallback would otherwise put its internal name on a pill.
   const toolLabel = useCallback(
-    (name: string): string | null =>
-      name === COMPOSE_HANDOFF_TOOL ? null : toolDisplayName(name),
+    (name: string): string | null => resolveToolLabel(name, TOOL_DISPLAY_NAMES),
     [],
   )
 

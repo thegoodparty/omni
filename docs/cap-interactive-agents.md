@@ -109,6 +109,14 @@ activity (60s idle = stalled), and when a stream ends without `done` it polls th
 transcript for up to 3 minutes for the still-generating turn before falling back
 to rendering the partial locally.
 
+The webapp turns a display tool's call into UI through one registry only:
+`chatWidgets.tsx` in `packages/gp-webapp/app/dashboard/shared/agent-chat/`,
+which every chat surface resolves both the live `tool_call` and the reloaded
+segment through. A new card is an entry there, never a branch in a surface
+(that folder's `AGENTS.md`, "Widgets"). A display-only card is a `present_card`
+kind with a view in `cards/presentCardWidgets.tsx`, not an entry of its own
+(**Display cards are kinds of one tool** below).
+
 ### The chat-scope abstraction
 
 `src/chats/general/` is the architecture meant to generalize interactive chat.
@@ -180,8 +188,9 @@ chat registers none. All tools are the `LlmStreamTool` shape defined in
   user's own annotations.
 - **`crud_priorities`** — the only **write** tool; CRUD on durable COS `Priority`
   records.
-- **`read_past_outreach` / `present_past_outreach`** — recent sends with reply
-  counts (`PriorityFlowOutreachService`), and a card of chosen sends. Chief of
+- **`read_past_outreach`** — recent sends with reply
+  counts (`PriorityFlowOutreachService`), shown as a `past_outreach` card of
+  chosen sends through `present_card`. Chief of
   Staff reads an office's by `organizationSlug` with `campaignId` null, per
   office and per priority; Campaign Manager reads a campaign's by `campaignId` (`forCampaign`), never
   by slug, since an org can hold a campaign and an office at once. A
@@ -242,6 +251,10 @@ chat registers none. All tools are the `LlmStreamTool` shape defined in
   never person rows and never geometry. The flag says only that a shape is
   on the list, because a holder can draw one from the transcript's own map
   card — see **A drawn boundary reaches the conversation** below.
+- **`present_card`** — the one display tool. Its input is `{ card }`, a
+  card from the catalog in `@goodparty_org/contracts`
+  (`chats/PresentCard.schema.ts`), a zod discriminated union keyed by
+  `kind`; see **Display cards are kinds of one tool** below.
 - **`ask_clarify_question`** — a no-op presenter shared by Campaign Manager
   and Chief of Staff: the call is the question, rendered as a single- or
   multi-select card, and the answer comes back as an ordinary user turn. Both
@@ -270,12 +283,13 @@ Its handler raises `maxSteps` to 8 — a current_law turn chains
 `get_code_source` + several `fetch_url` calls + `save_existing_law`, and the
 default 5 cuts research off mid-chain.
 
-Each step also gets the `present_*` display tools its page renders: the model
+Each step also gets the `present_*` tools its page renders: the model
 passes the finding as the tool's args (which persist as the tool segment the
 webapp widget replays from), and `execute` persists the artifact subset where a
 column exists. `present_authority_finding` (authority step, persists
-`authority`); `present_current_law_summary` + `present_legislative_history`
-(current_law step, display-only); `present_comparables` (comparables step,
+`authority`); `present_card` with the `current_law_summary` and
+`legislative_history` kinds (current_law step, display-only);
+`present_comparables` (comparables step,
 persists `comparables`); `present_draft` (draft step, persists
 `draftTitle`/`draftBody`/`draftSources` and advances the ordinance to
 `draft`). Payload shapes are the `Ordinance*Schema` /
@@ -293,11 +307,51 @@ COS-specific tool ports live in `src/chats/general/chief-of-staff/services/`
 always **streaming** (multi-step `stepCountIs`); the non-streaming `toolCompletion`
 exists but isn't used by these surfaces.
 
+### Display cards are kinds of one tool
+
+A card whose tool would only acknowledge its args is a **kind** of
+`present_card`, never a tool of its own. The catalog is
+`PresentCardSchema` in `@goodparty_org/contracts`
+(`chats/PresentCard.schema.ts`): one variant per kind, every field
+`.describe()`d, and a one-line `PRESENT_CARD_DESCRIPTIONS` entry per kind.
+
+- **Adding a display card** is a new kind in that catalog plus a component in
+  the webapp's kind map (`PRESENT_CARD_VIEWS`, `cards/presentCardWidgets.tsx`
+  in gp-webapp's `shared/agent-chat/`), typed by kind so a kind with no view
+  fails the build. Never add a new `present_*` tool for it. A surface
+  offers it by adding the kind to the `kinds` it passes
+  `buildPresentCardTool` (`chats/general/chat-tools/presentCard.tool.ts`).
+- **A new tool is only for something whose execute does real work**:
+  persists (`present_authority_finding`, `present_comparables`,
+  `present_draft`), gates on what it reads (the managed panel tools,
+  `present_outreach_proposal`), validates beyond the schema
+  (`ask_clarify_question`), or drives a control (`offer_next_step`,
+  `compose_handoff`).
+- **Prompt text comes from the catalog.** `presentCardPromptBlock(kinds)`
+  writes each offered kind's description and fields into the system prompt,
+  and `offeredCardKinds(tools)` gives a prompt builder the kinds a turn
+  registered, so a rule about a card is gated on its kind
+  (`cardKinds.includes('list_map')`), never on a tool name. Rules about when
+  to show a kind stay in each surface's prompt, in that surface's words.
+- **The input is `{ card }`, not the bare union.** Anthropic needs a tool's
+  input to be a top-level object, and a union converts to a top-level
+  `anyOf` (the same constraint `compose_handoff` works around).
+- **History keeps the old names.** Segments persisted before a card became a
+  kind carry its old tool name (`LEGACY_PRESENT_CARD_TOOLS`). The webapp
+  still renders them, and `replayAssistantContent` replays them to the model
+  as the `present_card` call they would be today, so the model never sees a
+  tool it cannot call.
+- **The kind arrives with the call.** `tool_input_start` carries only the
+  tool name, so a surface's working label for `present_card` is generic
+  ("Preparing a card..." on a priority).
+
 ### A list is saved from a card, not a typed "yes"
 
 Neither assistant creates a list itself. Each counts the filter with
-`count_contacts` and calls `present_list_proposal`, a display tool whose args
-are the card: name, one-line summary, count and the filter it counted with.
+`count_contacts` and shows a `list_proposal` card through `present_card`, whose
+args are the card: name, one-line summary, count and the filter it counted
+with. gp-api swaps the contract's loose `filters` for the strict
+`voterFilterBaseSchema`, and `execute` refuses a card that counted nobody.
 The card's **Create list** button posts that filter to
 `POST /v1/voters/voter-file/filter` with a `proposalKey` derived from the
 conversation and the tool call (`mintProposalKey`), so a second press returns
@@ -330,7 +384,7 @@ the assistant refusing:
    the turn, and it is the whole of what the model learns about geometry:
    that a shape exists, never where it is.
 3. **The rules.** Both prompts' DRAWN AREA RULES (the Campaign Manager's in
-   candidate words, behind the same `show_list_map` registration) say what a
+   candidate words, behind the same `list_map` card kind) say what a
    shape does (narrows that list in place), where the new count comes from
    (`action: 'get'` by id — `count_contacts` cannot see a boundary), and
    that the model must never tell a holder it cannot act on an area they

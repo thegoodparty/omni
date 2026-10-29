@@ -3,21 +3,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button, Skeleton } from '@styleguide'
-import { ChevronRightIcon } from '@styleguide/components/ui/icons'
 import {
-  OrdinanceClarifyQuestionSchema,
-  OrdinanceNextStepOfferSchema,
+  isToolRefusal,
   type ChatAnchor,
   type Ordinance,
   type OrdinanceClarifyAnswer,
-  type OrdinanceClarifyQuestion,
   type OrdinanceFlowStep,
-  type OrdinanceNextStepOffer,
 } from '@goodparty_org/contracts'
-import type {
-  ChatMessageDto,
-  ChatMessageSegment,
-} from '../../shared/agent-chat/chatClient'
+import type { ChatMessageDto } from '../../shared/agent-chat/chatClient'
 import {
   AssistantRow,
   ChatComposer,
@@ -28,11 +21,18 @@ import { isInterruptedTurn } from '../../shared/agent-chat/chatHelpers'
 import { segmentsTextLength } from '../../shared/agent-chat/streaming'
 import {
   TurnBlocks,
-  dropTrailingQuestion,
   liveTurnBlocks,
   persistedTurnBlocks,
   type PositionedWidget,
 } from '../../shared/agent-chat/turnBlocks'
+import {
+  chatWidgets,
+  type ChatWidgetContext,
+} from '../../shared/agent-chat/chatWidgets'
+import {
+  CLARIFY_TOOL,
+  parseClarifyQuestion,
+} from '../../shared/agent-chat/clarifyWidget'
 import { useStreamingTurn } from '../../shared/agent-chat/useStreamingTurn'
 import { usePinnedAutoScroll } from '../../shared/agent-chat/usePinnedAutoScroll'
 import { useDictationAppend } from '../../shared/dictation/useDictationAppend'
@@ -50,16 +50,8 @@ import {
   isOrdinanceStep,
   nextOrdinanceStep,
 } from '../data/steps'
-import ClarifyQuestionWidget from '../../shared/agent-chat/ClarifyQuestionWidget'
 import OrdinanceStepper from './OrdinanceStepper'
-import {
-  DRAFT_TOOL,
-  ordinanceWidgets,
-  type OrdinanceWidgetContext,
-} from './stepWidgets'
-
-const CLARIFY_TOOL = 'ask_clarify_question'
-const OFFER_TOOL = 'offer_next_step'
+import { DRAFT_TOOL, OFFER_NEXT_STEP_TOOL } from './stepWidgets'
 
 const STEP_VIEWED_EVENTS: Partial<Record<OrdinanceFlowStep, string>> = {
   clarify: EVENTS.Ordinances.ClarifyViewed,
@@ -89,7 +81,7 @@ const STEP_COMPLETED_EVENTS: Partial<Record<OrdinanceFlowStep, string>> = {
 // generic "Thinking...". Covers the wait while the clarify question generates.
 const GENERATING_LABELS: Record<string, string> = {
   [CLARIFY_TOOL]: 'Preparing your question...',
-  [OFFER_TOOL]: 'Preparing next steps...',
+  [OFFER_NEXT_STEP_TOOL]: 'Preparing next steps...',
 }
 
 // Hidden opener sent once for a brand-new conversation so the agent takes the
@@ -126,11 +118,6 @@ const PENDING_REPLY_MAX_POLLS = 60
 
 type Phase = 'loading' | 'ready' | 'error'
 
-const parseClarify = (value: unknown): OrdinanceClarifyQuestion | null => {
-  const parsed = OrdinanceClarifyQuestionSchema.safeParse(value)
-  return parsed.success ? parsed.data : null
-}
-
 // Project a persisted clarify answer into the local recordedAnswers shape
 // (drops the optional source, which reconciliation does not use).
 const toRecordedAnswer = (
@@ -140,24 +127,6 @@ const toRecordedAnswer = (
   question: a.question,
   answer: a.answer,
 })
-
-// The clarify question a persisted assistant turn asked (from its tool segment
-// payload), so the widget renders inline in that turn on reload.
-const clarifyFromSegments = (
-  segments: ChatMessageSegment[],
-): OrdinanceClarifyQuestion | null => {
-  const segment = segments.find((s) => s.toolName === CLARIFY_TOOL)
-  return segment ? parseClarify(segment.payload) : null
-}
-
-const parseOffer = (value: unknown): OrdinanceNextStepOffer | null => {
-  const parsed = OrdinanceNextStepOfferSchema.safeParse(value)
-  return parsed.success ? parsed.data : null
-}
-
-// True when a persisted assistant turn offered to advance to the next step.
-const hasOfferSegment = (segments: ChatMessageSegment[]): boolean =>
-  segments.some((s) => s.toolName === OFFER_TOOL)
 
 const buildAnchor = (
   ordinance: Ordinance,
@@ -188,16 +157,11 @@ export default function OrdinanceFlowChat({
   const [recordedAnswers, setRecordedAnswers] = useState<
     Array<{ questionId: string; question: string; answer: string }>
   >([])
-  const [liveClarify, setLiveClarify] =
-    useState<OrdinanceClarifyQuestion | null>(null)
-  const [liveOffer, setLiveOffer] = useState<OrdinanceNextStepOffer | null>(
-    null,
-  )
   // Each live widget records how much turn text preceded its tool call, so it
   // appears only after that text has typed out — and, unlike a turn-global
   // revealDone gate, never unmounts when later text in the same turn streams.
   const [liveWidgets, setLiveWidgets] = useState<
-    PositionedWidget<OrdinanceWidgetContext>[]
+    PositionedWidget<ChatWidgetContext>[]
   >([])
   // The tool whose arguments the model is currently writing, if any, so the
   // working shimmer can name it (e.g. "Preparing your question...").
@@ -243,40 +207,36 @@ export default function OrdinanceFlowChat({
     toolLabel: ordinanceToolLabel,
     onTurnStart: () => {
       setStreamError(null)
-      setLiveClarify(null)
-      setLiveOffer(null)
       setLiveWidgets([])
       setGeneratingTool(null)
       setPendingReply(null)
     },
     onTurnSettle: () => {
-      setLiveClarify(null)
-      setLiveOffer(null)
       setLiveWidgets([])
       setGeneratingTool(null)
       setRetryingMarkerId(null)
     },
     onError: (message) => setStreamError(message),
-    onEvent: (event, { textLength }) => {
+    onEvent: (event, { textLength, conversationId: turnConversationId }) => {
+      if (
+        event.type === 'tool_result' &&
+        event.toolCallId &&
+        isToolRefusal(event.result)
+      ) {
+        const key = `${event.toolName}-${event.toolCallId}`
+        setLiveWidgets((prev) => prev.filter((widget) => widget.key !== key))
+      }
       if (event.type === 'tool_input_start') {
         setGeneratingTool(event.toolName)
         return true
       }
       if (event.type === 'tool_call') {
         setGeneratingTool(null)
-        if (event.toolName === CLARIFY_TOOL) {
-          const parsed = parseClarify(event.args)
-          if (parsed) setLiveClarify(parsed)
-          return true
-        }
-        if (event.toolName === OFFER_TOOL) {
-          setLiveOffer(parseOffer(event.args) ?? {})
-          return true
-        }
-        if (ordinanceWidgets.has(event.toolName)) {
-          const widget = ordinanceWidgets.resolve(
+        if (chatWidgets.has(event.toolName)) {
+          const widget = chatWidgets.resolve(
             {
               toolName: event.toolName,
+              conversationId: turnConversationId,
               toolCallId: event.toolCallId ?? null,
             },
             event.args,
@@ -290,12 +250,18 @@ export default function OrdinanceFlowChat({
             }
             // Record the text length streamed so far so the card renders inline
             // at that seam — the lead-in above it, later prose below it.
+            const at = textLength()
             setLiveWidgets((prev) => [
               ...prev,
-              { instance: widget, appearAfter: textLength() },
+              {
+                key: `${event.toolName}-${event.toolCallId ?? prev.length}`,
+                instance: widget,
+                appearAfter: at,
+              },
             ])
+            return true
           }
-          return true
+          return chatWidgets.entry(event.toolName)?.onParseFailure !== 'inline'
         }
       }
       return false
@@ -473,10 +439,9 @@ export default function OrdinanceFlowChat({
   const { scrollRef, onScroll } = usePinnedAutoScroll([
     messages,
     visibleSegments,
-    liveClarify,
-    // The next-step offer is consumed by onEvent (never hits visibleSegments),
-    // so include it or the offer widget renders below the fold unscrolled.
-    liveOffer,
+    // Widgets are consumed by onEvent (never hit visibleSegments), so include
+    // them or the next-step offer renders below the fold unscrolled.
+    liveWidgets,
   ])
 
   if (phase === 'loading') {
@@ -562,7 +527,8 @@ export default function OrdinanceFlowChat({
   // the persisted answer for the same questionId.
   const answerByMessageId: Record<string, string> = {}
   for (const m of clarifyMessages) {
-    const q = clarifyFromSegments(m.segments ?? [])
+    const segment = (m.segments ?? []).find((s) => s.toolName === CLARIFY_TOOL)
+    const q = segment ? parseClarifyQuestion(segment.payload) : null
     if (!q) continue
     const resolved =
       answers[q.questionId] ?? recordedByQuestionId.get(q.questionId)
@@ -649,27 +615,44 @@ export default function OrdinanceFlowChat({
   // read-only in place.
   const activeClarifyId =
     clarifyMessages[clarifyMessages.length - 1]?.id ?? null
-  // The reveal has caught up to everything that has arrived. Gate the clarify
-  // widget and the next-step button on this so they appear after the lead-in
-  // text has typed out, not before.
+  // The reveal has caught up to everything that has arrived.
   const revealDone =
     segmentsTextLength(visibleSegments) >= segmentsTextLength(liveSegments)
-  const showClarify = Boolean(liveClarify) && revealDone
-  const showOffer = Boolean(liveOffer) && revealDone
   // Interleave the step cards into the streamed turn at the seam each tool
   // fired: the lead-in text types out, the card appears there and stays, and any
   // following prose types out below it.
   const revealedTextLength = segmentsTextLength(visibleSegments)
-  const liveBlocks = liveTurnBlocks(
+  const turnBlocks = liveTurnBlocks(
     visibleSegments,
     liveWidgets,
     revealedTextLength,
   )
-  const turnBlocks =
-    liveClarify && revealDone ? dropTrailingQuestion(liveBlocks) : liveBlocks
-  const showWidgets = liveWidgets.some(
+  const shownWidgets = liveWidgets.filter(
     (w) => revealedTextLength >= w.appearAfter,
   )
+  // A question or the next-step button ends the turn, so nothing more is
+  // coming once one is up.
+  const turnEnded = shownWidgets.some(
+    (w) =>
+      w.instance.toolName === CLARIFY_TOOL ||
+      w.instance.toolName === OFFER_NEXT_STEP_TOOL,
+  )
+  const showWidgets = shownWidgets.some(
+    (w) => w.instance.placement !== 'belowTurn',
+  )
+  const nextStepContext = nextStep
+    ? {
+        onAdvanceStep: goToNextStep,
+        nextStepLabel: ORDINANCE_NEXT_STEP_CTA[nextStep],
+      }
+    : {}
+  const liveContext: ChatWidgetContext = {
+    ordinanceSlug: slug,
+    clarifyInteractive: false,
+    clarifyShowsWrittenAnswer: true,
+    onClarifyAnswer: () => undefined,
+    ...nextStepContext,
+  }
   // Show the wait shimmer only when the assistant is working but nothing is
   // visible on screen yet, or while a tool's arguments generate. Keying
   // "nothing visible" on the revealed segments (not on the arrival of the first
@@ -679,8 +662,7 @@ export default function OrdinanceFlowChat({
   // overlaps text that is still typing out.
   const nothingVisible = visibleSegments.length === 0 && !showWidgets
   const toolGenerating = generatingTool !== null && revealDone
-  const working =
-    sending && !showClarify && !showOffer && (nothingVisible || toolGenerating)
+  const working = sending && !turnEnded && (nothingVisible || toolGenerating)
   // Name what the model is doing when we know (a tool's args are streaming in);
   // otherwise the generic wait label.
   const workingLabel =
@@ -721,12 +703,7 @@ export default function OrdinanceFlowChat({
                     !sending
                   }
                   onAnswerClarify={answerClarify}
-                  {...(nextStep
-                    ? {
-                        onAdvance: goToNextStep,
-                        nextLabel: ORDINANCE_NEXT_STEP_CTA[nextStep],
-                      }
-                    : {})}
+                  nextStepContext={nextStepContext}
                 />
               ),
             )}
@@ -736,7 +713,6 @@ export default function OrdinanceFlowChat({
             ) : null}
 
             {(visibleSegments.length > 0 ||
-              showClarify ||
               showWidgets ||
               working ||
               awaitingReply) && (
@@ -744,15 +720,8 @@ export default function OrdinanceFlowChat({
                 {turnBlocks.length > 0 ? (
                   <TurnBlocks
                     blocks={turnBlocks}
-                    context={{ slug }}
+                    context={liveContext}
                     toolLabel={ordinanceToolLabel}
-                  />
-                ) : null}
-                {showClarify && liveClarify ? (
-                  <ClarifyQuestionWidget
-                    question={liveClarify}
-                    disabled
-                    onAnswer={() => undefined}
                   />
                 ) : null}
                 {working || awaitingReply ? (
@@ -761,12 +730,12 @@ export default function OrdinanceFlowChat({
               </AssistantRow>
             )}
 
-            {showOffer && liveOffer && nextStep ? (
-              <NextStepButton
-                nextLabel={ORDINANCE_NEXT_STEP_CTA[nextStep]}
-                onAdvance={goToNextStep}
-              />
-            ) : null}
+            <TurnBlocks
+              blocks={turnBlocks}
+              context={liveContext}
+              toolLabel={ordinanceToolLabel}
+              belowTurn
+            />
 
             {streamError ? (
               <p className="text-sm text-destructive">{streamError}</p>
@@ -791,29 +760,6 @@ export default function OrdinanceFlowChat({
         </div>
       </div>
     </div>
-  )
-}
-
-function NextStepButton({
-  nextLabel,
-  onAdvance,
-}: {
-  nextLabel: string
-  onAdvance: () => void
-}): React.JSX.Element {
-  return (
-    <Button
-      type="button"
-      variant="outline"
-      onClick={onAdvance}
-      className="h-auto w-full justify-between rounded-lg border-border bg-card px-4 py-3 text-sm text-foreground shadow-sm hover:border-foreground/20 hover:bg-muted/50 hover:text-foreground"
-    >
-      <span>{nextLabel}</span>
-      <ChevronRightIcon
-        className="size-4 shrink-0 text-muted-foreground"
-        aria-hidden
-      />
-    </Button>
   )
 }
 
@@ -845,8 +791,7 @@ function AssistantMessage({
   answer,
   interactive,
   onAnswerClarify,
-  onAdvance,
-  nextLabel,
+  nextStepContext,
 }: {
   message: ChatMessageDto
   slug: string
@@ -857,44 +802,42 @@ function AssistantMessage({
     question: string,
     answer: string,
   ) => void
-  onAdvance?: () => void
-  nextLabel?: string
+  nextStepContext: Pick<ChatWidgetContext, 'onAdvanceStep' | 'nextStepLabel'>
 }): React.JSX.Element {
-  const segments = message.segments ?? []
-  const clarify = clarifyFromSegments(segments)
   // Same interleaved model as the live turn: text, tool pills, and step cards in
   // stream order, so a reloaded turn reads identically to how it streamed.
-  const turnBlocks = persistedTurnBlocks({
-    registry: ordinanceWidgets,
-    segments,
+  const blocks = persistedTurnBlocks({
+    registry: chatWidgets,
+    segments: message.segments ?? [],
     content: message.content ?? '',
     messageId: message.id,
     conversationId: message.conversationId,
   })
-  const blocks = clarify ? dropTrailingQuestion(turnBlocks) : turnBlocks
+  const context: ChatWidgetContext = {
+    ordinanceSlug: slug,
+    clarifyInteractive: interactive,
+    clarifyAnswer: answer,
+    clarifyShowsWrittenAnswer: true,
+    onClarifyAnswer: (a, question) =>
+      onAnswerClarify(question.questionId, question.question, a),
+    ...nextStepContext,
+  }
 
   return (
     <>
       <AssistantRow>
         <TurnBlocks
           blocks={blocks}
-          context={{ slug }}
+          context={context}
           toolLabel={ordinanceToolLabel}
         />
-        {clarify ? (
-          <ClarifyQuestionWidget
-            question={clarify}
-            disabled={!interactive}
-            {...(answer !== undefined ? { answer } : {})}
-            onAnswer={(a) =>
-              onAnswerClarify(clarify.questionId, clarify.question, a)
-            }
-          />
-        ) : null}
       </AssistantRow>
-      {hasOfferSegment(segments) && onAdvance && nextLabel ? (
-        <NextStepButton nextLabel={nextLabel} onAdvance={onAdvance} />
-      ) : null}
+      <TurnBlocks
+        blocks={blocks}
+        context={context}
+        toolLabel={ordinanceToolLabel}
+        belowTurn
+      />
     </>
   )
 }

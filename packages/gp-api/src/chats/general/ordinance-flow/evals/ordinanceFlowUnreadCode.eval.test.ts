@@ -8,6 +8,11 @@ import { HttpStatus } from '@nestjs/common'
 import { formatISO } from 'date-fns'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { ChatScope, Prisma } from '../../../../generated/prisma'
+import {
+  PRESENT_CARD_TOOL,
+  PresentCardInputSchema,
+  type PresentCardKind,
+} from '@goodparty_org/contracts'
 import { useTestService } from '@/test-service'
 import { LlmService } from '../../../../llm/services/llm.service'
 import { OrdinanceFlowFetchService } from '../services/ordinanceFlowFetch.service'
@@ -120,6 +125,15 @@ const runTurn = async (args: {
     .map((s) => s.toolName as string)
   const payloadsFor = (tool: string): unknown[] =>
     segments.filter((s) => s.toolName === tool).map((s) => s.payload)
+  const cardsOf = (kind: PresentCardKind): unknown[] =>
+    segments
+      .filter((s) => s.toolName === PRESENT_CARD_TOOL)
+      .flatMap((s) => {
+        const parsed = PresentCardInputSchema.safeParse(s.payload)
+        return parsed.success && parsed.data.card.kind === kind
+          ? [parsed.data.card]
+          : []
+      })
   // message.content carries the full assistant text; segments exist only for
   // tool-bearing turns.
   const assistantText = messages
@@ -127,13 +141,13 @@ const runTurn = async (args: {
     .map((m) => m.content ?? '')
     .join('\n')
 
-  return { ordinance, toolNames, payloadsFor, assistantText }
+  return { ordinance, toolNames, payloadsFor, cardsOf, assistantText }
 }
 
 interface Payloads {
   save_note?: unknown[]
   save_existing_law?: unknown[]
-  present_current_law_summary?: unknown[]
+  current_law_summary?: unknown[]
   offer_next_step?: unknown[]
   present_draft?: unknown[]
 }
@@ -192,7 +206,7 @@ const artifactOf = (
     'Assistant reply:',
     assistantText,
     '',
-    'Summary card shown to the user (present_current_law_summary arguments),',
+    'Summary card shown to the user (current_law_summary card),',
     'saved existing-law record (save_existing_law), scratchpad note',
     '(save_note), and other tool calls, as name: arguments; an empty list',
     'means the tool was not called:',
@@ -258,10 +272,11 @@ const checkUnread = async (args: {
   // source on file. Off when the user's turn asks the assistant to skip it.
   requireSource: boolean
 }): Promise<Attempt> => {
-  const { ordinance, toolNames, payloadsFor, assistantText } = await runTurn({
-    step: 'current_law',
-    message: args.message,
-  })
+  const { ordinance, toolNames, payloadsFor, cardsOf, assistantText } =
+    await runTurn({
+      step: 'current_law',
+      message: args.message,
+    })
   const failures: string[] = []
   if (args.requireSource && !toolNames.includes('get_code_source')) {
     failures.push('code source not consulted')
@@ -273,7 +288,7 @@ const checkUnread = async (args: {
     failures.push('next step not offered')
   }
   const payloads: Payloads = {
-    present_current_law_summary: payloadsFor('present_current_law_summary'),
+    current_law_summary: cardsOf('current_law_summary'),
     save_existing_law: payloadsFor('save_existing_law'),
     save_note: payloadsFor('save_note'),
     offer_next_step: payloadsFor('offer_next_step'),
@@ -359,7 +374,7 @@ d('ordinance-flow unread code evals (real Claude)', () => {
     () =>
       runCase('OF-currentlaw-paste', async (attempt) => {
         const caseId = 'OF-currentlaw-paste'
-        const { ordinance, toolNames, payloadsFor, assistantText } =
+        const { ordinance, toolNames, payloadsFor, cardsOf, assistantText } =
           await runTurn({
             step: 'current_law',
             message:
@@ -379,9 +394,7 @@ d('ordinance-flow unread code evals (real Claude)', () => {
         }
         const payloads: Payloads = {
           save_existing_law: payloadsFor('save_existing_law'),
-          present_current_law_summary: payloadsFor(
-            'present_current_law_summary',
-          ),
+          current_law_summary: cardsOf('current_law_summary'),
         }
         const judge = await judgeGate(
           'The reply, the summary card if one was shown, and the saved ' +

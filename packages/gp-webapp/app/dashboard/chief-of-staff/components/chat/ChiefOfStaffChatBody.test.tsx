@@ -1936,7 +1936,7 @@ describe('<ChiefOfStaffChatBody>', () => {
       await waitFor(() =>
         expect(streamMessageMock).toHaveBeenCalledWith(
           expect.objectContaining({
-            content: `I created the list "${LIST.name}" (list ${LIST.listId}) from the card.`,
+            content: `I created the list "${LIST.name}" (list ${LIST.listId}) from the card, which now shows it on a map.`,
           }),
         ),
       )
@@ -2133,6 +2133,64 @@ describe('<ChiefOfStaffChatBody>', () => {
         'data-people',
         '2',
       )
+    })
+
+    it('renders a list_map card from a present_card call, live and replayed', async () => {
+      const user = userEvent.setup()
+      mockListPeople(3)
+      listConversationsMock.mockResolvedValue([])
+      createMock.mockResolvedValue({ conversationId: 'conv_card' })
+      const card = { kind: 'list_map', ...LIST }
+      let endTurn: () => void
+      const turnEnded = new Promise<void>((resolve) => {
+        endTurn = resolve
+      })
+      streamMessageMock.mockReturnValue(
+        (async function* () {
+          yield {
+            type: 'tool_call',
+            toolName: 'present_card',
+            toolCallId: 'toolu_card',
+            args: { card },
+          }
+          await turnEnded
+          yield { type: 'done' }
+        })(),
+      )
+      listMessagesMock.mockResolvedValue([
+        msg('user', 'where are they?'),
+        msg('assistant', 'Here they are.', {
+          id: 'a_card',
+          segments: [
+            { kind: 'text', text: 'Here they are.' },
+            {
+              kind: 'tool',
+              toolName: 'present_card',
+              toolCallId: 'toolu_card',
+              payload: { card },
+            },
+          ],
+        }),
+      ])
+
+      render(<ChiefOfStaffChatBody active />)
+
+      await user.type(
+        screen.getByLabelText(/ask a question/i),
+        'where are they?',
+      )
+      await user.click(screen.getByRole('button', { name: /send/i }))
+
+      expect(await screen.findByText(LIST.name)).toBeInTheDocument()
+      expect(await screen.findByText('3 constituents')).toBeInTheDocument()
+
+      endTurn!()
+
+      expect(await screen.findByText('Here they are.')).toBeInTheDocument()
+      await waitFor(() =>
+        expect(screen.getAllByText(LIST.name)).toHaveLength(1),
+      )
+      expect(screen.queryByText('Present card')).not.toBeInTheDocument()
     })
 
     // The card IS the output, so the tool call must not also render as a
