@@ -128,6 +128,17 @@ describe('ContactTypeahead — query threshold and debounce', () => {
     expect(searches).toEqual(['Janet'])
   })
 
+  it('sends a typed email as the search, unchanged', async () => {
+    mockContacts([makePerson()])
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    render(<ContactTypeahead />)
+
+    await user.type(screen.getByRole('combobox'), 'Jane.Doe@Example.com')
+
+    await screen.findByText('Jane Doe')
+    expect(searches).toEqual(['Jane.Doe@Example.com'])
+  })
+
   it('never renders a stale slower response over a newer one', async () => {
     let releaseSlow!: () => void
     const slowGate = new Promise<void>((resolve) => {

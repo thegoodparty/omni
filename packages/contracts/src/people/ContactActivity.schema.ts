@@ -29,6 +29,7 @@ export const ConstituentActivityTypeSchema = z.enum([
   'ROBOCALL',
   'PHONE_BANKING',
   'STATUS_CHANGE',
+  'CONTACT_IMPORT',
 ])
 export type ConstituentActivityType = z.infer<
   typeof ConstituentActivityTypeSchema
@@ -209,6 +210,25 @@ export type StatusChangeConstituentActivity = z.infer<
   typeof StatusChangeConstituentActivitySchema
 >
 
+// An upload row that points at this person: matched to them automatically,
+// added them as a new person, or matched to them by the user. addedFields
+// names the contact details the row supplied (email, cellPhone, landline,
+// address).
+export const ContactImportConstituentActivitySchema = z.object({
+  type: z.literal(ConstituentActivityTypeSchema.enum.CONTACT_IMPORT),
+  date: z.string(),
+  data: z.object({
+    activityId: z.string(),
+    uploadId: z.string(),
+    uploadName: z.string(),
+    kind: z.enum(['matched', 'new', 'resolved']),
+    addedFields: z.array(z.string()),
+  }),
+})
+export type ContactImportConstituentActivity = z.infer<
+  typeof ContactImportConstituentActivitySchema
+>
+
 export const ConstituentActivitySchema = z.discriminatedUnion('type', [
   PollConstituentActivitySchema,
   OutreachConstituentActivitySchema,
@@ -217,6 +237,7 @@ export const ConstituentActivitySchema = z.discriminatedUnion('type', [
   RobocallConstituentActivitySchema,
   PhoneBankingConstituentActivitySchema,
   StatusChangeConstituentActivitySchema,
+  ContactImportConstituentActivitySchema,
 ])
 export type ConstituentActivity = z.infer<typeof ConstituentActivitySchema>
 

@@ -280,6 +280,8 @@ export {
   type PhoneBankingConstituentActivity,
   StatusChangeConstituentActivitySchema,
   type StatusChangeConstituentActivity,
+  ContactImportConstituentActivitySchema,
+  type ContactImportConstituentActivity,
   ConstituentActivitySchema,
   type ConstituentActivity,
   GetIndividualActivitiesResponseSchema,

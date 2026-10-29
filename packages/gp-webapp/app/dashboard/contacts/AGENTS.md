@@ -105,6 +105,35 @@ pads `var(--chat-dock-height)` plus 8rem so the last card clears the bar.
   last digit can print differently on the server and in the browser,
   which React reports as a hydration mismatch.
 
+## Import contacts (`crm/import/`, `uploads/`)
+
+Serve only, behind `serve-import-contacts` (`useServeImportContactsFlag`; the
+upload pages 404 server-side with it off). Lists are untouched: an upload never
+becomes a list card.
+
+- **Wizard** (`ImportContactsWizard`): the Create new list sheet and stepper
+  (`CrmSheet`), opened from Import contacts on Constituents and on Upload
+  history. File (read in the browser by `parseCsvPreview` for headers,
+  examples and the row count; CSV only, 25 MB), columns (`prefillColumnMapping`:
+  the latest upload's mapping when every column it used is in the file, else
+  header names), then name and consent. `POST /v1/contact-uploads` is
+  multipart, then it routes to Upload history.
+- **Upload history** (`/dashboard/contacts/uploads`, `UploadHistory`): one row
+  per upload, status only; polls every 3s while any upload is processing.
+- **Upload detail** (`/dashboard/contacts/uploads/[uploadId]`, `UploadDetail`):
+  the counts, `NeedsInputReview` (answers saved together; Decide later changes
+  nothing), and `ProcessedRows` (searchable, paged with Show more, Change match
+  per row).
+- **Person panel**: on Serve with the flag on, `PersonRecord` renders
+  `person/ImportedContactInformation` in place of today's Contact Information
+  card: Email, a Came from line per detail from
+  `GET /v1/contacts/:personId/sources`, and Change match.
+  `ChangeMatchDialog` is shared with the upload detail and warns first when
+  `hasActivity` (notes and activity stay with the old record). Import rows in
+  the activity feed are `CONTACT_IMPORT` (`ContactImportActivityRow`).
+- Copy lives in `importContactsCopy.ts` (`SERVE_IMPORT_CONTACTS_COPY`, so the
+  vocabulary check reads it). Analytics: `docs/contacts-analytics.md`.
+
 ## Patterns
 
 Moved to [`../../../docs/contacts-patterns.md`](../../../docs/contacts-patterns.md) (~55 KB). Grep it for the file, class, or route you are working on; do not read it whole.

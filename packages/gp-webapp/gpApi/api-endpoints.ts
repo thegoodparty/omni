@@ -1,4 +1,12 @@
 import type {
+  AcceptSuggestedMatchesResponse,
+  ContactSourcesResponse,
+  ContactUpload,
+  ContactUploadRow,
+  ListContactUploadRowsQuery,
+  ListContactUploadRowsResponse,
+  ListContactUploadsResponse,
+  SetContactUploadRowMatch,
   EmailConfirmRequest,
   EmailConfirmResponse,
   EmailDraft,
@@ -2089,6 +2097,39 @@ export type APIEndpoints = {
   'GET /v1/contact-engagement/:id/priority-answers': {
     Request: {}
     Response: GetPersonPriorityAnswersResponse
+  }
+
+  // Import contacts (Serve, behind serve-import-contacts). The create is
+  // multipart (`file`, `name`, `consentAffirmed`, `columnMapping` as a JSON
+  // string): pass `{}` as the typed payload and the FormData as `{ body }` in
+  // the overrides argument of clientRequest.
+  'POST /v1/contact-uploads': {
+    Request: {}
+    Response: ContactUpload
+  }
+  'GET /v1/contact-uploads': {
+    Request: {}
+    Response: ListContactUploadsResponse
+  }
+  'GET /v1/contact-uploads/:id': {
+    Request: {}
+    Response: ContactUpload
+  }
+  'GET /v1/contact-uploads/:id/rows': {
+    Request: ListContactUploadRowsQuery
+    Response: ListContactUploadRowsResponse
+  }
+  'PUT /v1/contact-uploads/:id/rows/:rowId/match': {
+    Request: SetContactUploadRowMatch
+    Response: ContactUploadRow
+  }
+  'POST /v1/contact-uploads/:id/accept-suggested': {
+    Request: {}
+    Response: AcceptSuggestedMatchesResponse
+  }
+  'GET /v1/contacts/:personId/sources': {
+    Request: {}
+    Response: ContactSourcesResponse
   }
 
   'GET /v1/meetings': {

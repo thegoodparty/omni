@@ -41,11 +41,14 @@ import { InfoSection } from './InfoSection'
 import { ConstituentFeedbackSection } from './ConstituentFeedbackSection'
 import { PriorityAnswersSection } from './PriorityAnswersSection'
 import { useIssueCaptureFlag } from 'app/shared/experiments/issueCaptureFlag'
+import { useServeImportContactsFlag } from 'app/shared/experiments/serveImportContactsFlag'
+import { ImportedContactInformation } from './ImportedContactInformation'
 import FollowUpRow from './FollowUpRow'
 import CivicPanelRow from './CivicPanelRow'
 import NotesSection from './NotesSection'
 import StatusRow from './StatusRow'
 import {
+  ContactImportActivityRow,
   DoorKnockActivityRow,
   formatDateTime,
   PhoneBankingActivityRow,
@@ -303,6 +306,8 @@ const ActivitiesContent: React.FC = () => {
             return <RobocallActivityRow key={idx} activity={activity} />
           case 'PHONE_BANKING':
             return <PhoneBankingActivityRow key={idx} activity={activity} />
+          case 'CONTACT_IMPORT':
+            return <ContactImportActivityRow key={idx} activity={activity} />
           case 'STATUS_CHANGE': {
             // Belt-and-suspenders mirror of the field filter gp-api already
             // applies: Win's editable statuses are Win facts and follow-up is
@@ -392,6 +397,7 @@ export const PersonRecord: React.FC<{
   showMap = true,
 }) => {
   const { enabled: issueCaptureEnabled } = useIssueCaptureFlag(false)
+  const { enabled: importContactsEnabled } = useServeImportContactsFlag(false)
   const { on: showActivitiesAndIssues } = useFlagOn(
     'serve-contacts-activities-and-issues',
   )
@@ -466,44 +472,51 @@ export const PersonRecord: React.FC<{
           </InfoSection>
         ) : null}
 
-        <InfoSection title="Contact Information" icon={<LuContact size={24} />}>
-          <Field
-            label="Address"
-            value={
-              <>
-                <p>{person.address.line1}</p>
-                {person.address.line2 && <p>{person.address.line2}</p>}
-                <p>
-                  {person.address.city}, {person.address.state}{' '}
-                  {person.address.zip}
-                </p>
-              </>
-            }
-          />
-          {showMap && person.address.latitude && person.address.longitude && (
-            <Map
-              places={[
-                {
-                  lat: person.address.latitude,
-                  lng: person.address.longitude,
-                  title: formatPersonName(person),
-                  description: [
-                    person.address.line1,
-                    person.address.line2,
-                    person.address.city,
-                    person.address.state,
-                    person.address.zip,
-                  ]
-                    .filter(isNotNil)
-                    .join(', '),
-                },
-              ]}
-              height="200px"
+        {isServe && importContactsEnabled ? (
+          <ImportedContactInformation person={person} showMap={showMap} />
+        ) : (
+          <InfoSection
+            title="Contact Information"
+            icon={<LuContact size={24} />}
+          >
+            <Field
+              label="Address"
+              value={
+                <>
+                  <p>{person.address.line1}</p>
+                  {person.address.line2 && <p>{person.address.line2}</p>}
+                  <p>
+                    {person.address.city}, {person.address.state}{' '}
+                    {person.address.zip}
+                  </p>
+                </>
+              }
             />
-          )}
-          <Field label="Cell Phone Number" value={person.cellPhone} />
-          <Field label="Landline" value={person.landline} />
-        </InfoSection>
+            {showMap && person.address.latitude && person.address.longitude && (
+              <Map
+                places={[
+                  {
+                    lat: person.address.latitude,
+                    lng: person.address.longitude,
+                    title: formatPersonName(person),
+                    description: [
+                      person.address.line1,
+                      person.address.line2,
+                      person.address.city,
+                      person.address.state,
+                      person.address.zip,
+                    ]
+                      .filter(isNotNil)
+                      .join(', '),
+                  },
+                ]}
+                height="200px"
+              />
+            )}
+            <Field label="Cell Phone Number" value={person.cellPhone} />
+            <Field label="Landline" value={person.landline} />
+          </InfoSection>
+        )}
         {/* Win's voter-file card. Serve renders nothing here at all: the
             three rows it used to carry were a support status Serve can never
             set (gp-api rejects the write for an `eo-` org — ContactsService
