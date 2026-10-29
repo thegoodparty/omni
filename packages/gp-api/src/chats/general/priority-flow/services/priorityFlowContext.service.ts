@@ -51,8 +51,8 @@ export interface PriorityFlowContext {
   // prompt.
   civicPanelMembers?: number
   // The civic panel GoodParty builds for the office, read per turn behind
-  // the same flag: null when none is being built (never approved, stopped,
-  // or the read failed), undefined while the flag is off. Without it the
+  // the same flag: null when none is being built (never approved or
+  // stopped), undefined while the flag is off or the read failed. Without it the
   // agent sold the round one text as the way to build a civic panel that
   // was already filling for free.
   managedCivicPanel?: PriorityManagedCivicPanel | null

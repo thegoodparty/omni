@@ -162,7 +162,8 @@ panel" line, only with the flag on.
 **The managed civic panel.** With the flag on the handler also reads the
 civic panel GoodParty builds (`ManagedCivicPanelService.read`, as
 `managedCivicPanel`: status, members of goal, the next send day and the
-ready week; null for none, stopped or a failed read), and the "Civic panel"
+ready week; null for none or stopped; a failed read leaves it out, so the
+agent never says there is none), and the "Civic panel"
 line says where it stands. `THEIR CIVIC PANEL ON THIS PRIORITY`
 (`buildCivicPanelBlock`) steers by status. Building or paused: it is
 filling for free, so the agent never sells a text as the way to build or

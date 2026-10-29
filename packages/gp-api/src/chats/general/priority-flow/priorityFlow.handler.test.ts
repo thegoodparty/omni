@@ -1523,7 +1523,7 @@ describe('PriorityFlowHandler', () => {
         )
       })
 
-      it('reads it only with the flag on, and treats stopped or a failed read as none', async () => {
+      it('reads it only with the flag on, and treats stopped as none and a failed read as unknown', async () => {
         context.countCivicPanelMembers = vi.fn(() => Promise.resolve(82))
         const read = vi.fn()
         const handlerWith = (enabled: boolean) =>
@@ -1580,7 +1580,7 @@ describe('PriorityFlowHandler', () => {
         expect(
           (await handlerWith(true).loadContext('c1', USER_ID))
             .managedCivicPanel,
-        ).toBeNull()
+        ).toBeUndefined()
 
         read.mockClear()
         const off = await handlerWith(false).loadContext('c1', USER_ID)

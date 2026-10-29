@@ -172,8 +172,8 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
     private readonly logger?: PinoLogger,
   ) {}
 
-  // Null when nothing is being built, and when the read fails, so the turn
-  // still runs and the agent says nothing about a civic panel filling.
+  // Null when nothing is being built. A failed read is undefined, as if it
+  // were not wired in, so the agent never tells an official they have none.
   private async readManagedCivicPanel(
     organization: PriorityFlowContext['organization'],
   ): Promise<PriorityManagedCivicPanel | null | undefined> {
@@ -204,7 +204,7 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
         { err, organizationSlug: organization.slug },
         'managed civic panel read failed',
       )
-      return null
+      return undefined
     }
   }
 
