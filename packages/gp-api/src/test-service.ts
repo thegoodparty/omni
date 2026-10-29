@@ -33,6 +33,7 @@ declare global {
 }
 declare global {
   var __testServiceLoads: number | undefined
+  var __bootKeyDiff: object | undefined
 }
 globalThis.__testServiceLoads = (globalThis.__testServiceLoads ?? 0) + 1
 const mark = (name: string) => {
@@ -43,9 +44,10 @@ const flushProfile = (file: string) => {
   mkdirSync(PROFILE_DIR, { recursive: true })
   appendFileSync(
     `${PROFILE_DIR}/${process.pid}.jsonl`,
-    JSON.stringify({ file, loads: globalThis.__testServiceLoads, marks: globalThis.__bootMarks }) + '\n',
+    JSON.stringify({ file, loads: globalThis.__testServiceLoads, diff: globalThis.__bootKeyDiff, marks: globalThis.__bootMarks }) + '\n',
   )
   globalThis.__bootMarks = undefined
+  globalThis.__bootKeyDiff = undefined
 }
 
 export const TEST_CLERK_ID = 'user_test_123'
@@ -380,13 +382,31 @@ export const useTestService = ({
       mark('bootstrapReturned')
       mark('appInit')
     } else {
+      if (PROFILE_DIR && sharedApp) {
+        const before = JSON.parse(sharedApp.bootKey)
+        const now = JSON.parse(bootKey)
+        const envBefore = Object.fromEntries(before.env)
+        const envNow = Object.fromEntries(now.env)
+        const keys = new Set([...Object.keys(envBefore), ...Object.keys(envNow)])
+        globalThis.__bootKeyDiff = {
+          env: [...keys].filter((k) => envBefore[k] !== envNow[k]),
+          overrides: [before.appEnvOverrides, now.appEnvOverrides],
+        }
+      }
+      // An earlier file that changed the environment for good would otherwise
+      // cost every later file in the worker a boot, so the newest app becomes
+      // the shared one.
+      if (reuse && sharedApp) {
+        await sharedApp.app.close()
+        sharedApp = undefined
+      }
       // Create NestJS application using the same bootstrap function as production
       app = await bootstrap({ loggingEnabled: false })
       mark('bootstrapReturned')
       await app.init()
       mark('appInit')
       port = await listenOnRandomPort(app)
-      if (reuse && !sharedApp) {
+      if (reuse) {
         sharedApp = { app, bootKey, port, snapshots: snapshotInstances(app) }
       } else {
         ownsApp = true
