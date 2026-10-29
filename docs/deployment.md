@@ -59,14 +59,6 @@ Vercel CLI (no git integration), driven by GitHub Actions and the shared
   `pull_request`, not in the train.
 - The prod deploy runs the same way but targets the production target; it is the
   train's prod stage for the same commit (see below), not a push to a prod branch.
-- The **Storybook styleguide** (`packages/gp-webapp/styleguide`) is its own Vercel
-  project (`VERCEL_PROJECT_ID_STYLEGUIDE`), served at `style.goodparty.org`. The
-  train's `dev-styleguide` job deploys it on merges to `main` only
-  (single-environment site): `vercel build` runs the project's configured
-  `build-storybook` (`rootDirectory=packages/gp-webapp`,
-  `outputDirectory=storybook-static`) on the runner, then deploys `--prebuilt` to
-  the project's **production** target, which Vercel serves at its production
-  domain. The project has no Git integration — CLI-only, like the others.
 - The build step runs with `NODE_OPTIONS: --max-old-space-size=6144`: `next
 build` peaks near Node's default ~4GB heap and started OOMing intermittently
   on the runners (2026-06-12). The cap is per process and propagates to every

@@ -58,7 +58,7 @@ async function* walk(dir) {
 const counts = { rawElements: 0, hexClasses: 0, lucideImporters: 0 }
 for await (const file of walk(join(PACKAGE_ROOT, 'app'))) {
   const relPath = relative(PACKAGE_ROOT, file)
-  if (relPath.includes('.test.') || relPath.includes('.stories.')) continue
+  if (relPath.includes('.test.')) continue
   const contents = await readFile(file, 'utf8')
   counts.rawElements += (contents.match(RAW_ELEMENT_RE) ?? []).length
   counts.hexClasses += (contents.match(HEX_CLASS_RE) ?? []).length

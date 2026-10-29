@@ -122,10 +122,8 @@ jobs:
           # Per-service check workflows whose green-ness gates a deploy. None is
           # path-filtered, so each has a run for THIS SHA. gp-ai builds its
           # images here; gp-api builds inside the train's dev stage.
-          # contracts/styleguide are omitted deliberately —
-          # contracts is transitively covered (a service build fails if
-          # it does), and a broken styleguide fails its own deploy
-          # job in the train's dev stage.
+          # contracts/styleguide are omitted deliberately — both are
+          # transitively covered (a service build fails if either does).
           REQUIRED="gp-api.yml gp-webapp.yml gp-admin.yml candidate-sites.yml publish-experiments.yml gp-ai.yml"
           DEADLINE=$(( $(date +%s) + 60*60 ))
 
@@ -390,34 +388,6 @@ jobs:
           git-branch: main
           alias-domain: dev.goodparty.org
 
-  dev-styleguide:
-    name: Dev styleguide
-    needs: await-checks
-    if: >-
-      always() && needs.await-checks.result == 'success'
-      && needs.await-checks.outputs.force != 'true'
-      && vars.VERCEL_PROJECT_ID_STYLEGUIDE != ''
-    runs-on: ubuntu-latest
-    environment:
-      name: production
-      deployment: false
-    steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-        with:
-          ref: ${{ needs.await-checks.outputs.sha }}
-          persist-credentials: false
-      - uses: ./.github/actions/setup-node-workspace
-        with:
-          app: gp-webapp
-          build-contracts: 'true'
-      - name: Deploy to Vercel
-        uses: ./.github/actions/vercel-deploy
-        with:
-          vercel-token: ${{ secrets.VERCEL_TOKEN }}
-          vercel-org-id: ${{ vars.VERCEL_ORG_ID }}
-          vercel-project-id: ${{ vars.VERCEL_PROJECT_ID_STYLEGUIDE }}
-          target: production
-
   dev-candidate-sites:
     name: Dev candidate-sites
     needs: await-checks
@@ -655,9 +625,7 @@ jobs:
     # Barrier for the whole prod-bound batch: every service that gets promoted
     # must have deployed to dev first (verify-dev covers gp-api + gp-webapp).
     # A failure here skips the shards -> E2E goes red -> the prod stage is
-    # blocked, so prod is all-or-nothing across these services. styleguide is
-    # single-env and not promoted, so its dev failures are not in this barrier
-    # and cannot block prod.
+    # blocked, so prod is all-or-nothing across these services.
     needs:
       [
         await-checks,
