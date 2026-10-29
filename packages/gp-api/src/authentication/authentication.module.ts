@@ -7,6 +7,7 @@ import { RolesGuard } from './guards/Roles.guard'
 import { EmailModule } from 'src/email/email.module'
 import { ClerkModule } from '@/vendors/clerk/clerk.module'
 import { VercelOidcService } from './vercelOidc.service'
+import { GithubOidcService } from './githubOidc.service'
 
 const JWT_EXPIRATION = '1y'
 
@@ -22,6 +23,7 @@ if (!process.env.AUTH_SECRET) {
   providers: [
     AuthenticationService,
     VercelOidcService,
+    GithubOidcService,
     {
       provide: APP_GUARD,
       useClass: RolesGuard,
@@ -36,7 +38,13 @@ if (!process.env.AUTH_SECRET) {
     }),
     EmailModule,
   ],
-  exports: [AuthenticationService, VercelOidcService, JwtModule, ClerkModule],
+  exports: [
+    AuthenticationService,
+    VercelOidcService,
+    GithubOidcService,
+    JwtModule,
+    ClerkModule,
+  ],
   controllers: [AuthenticationController],
 })
 export class AuthenticationModule {}

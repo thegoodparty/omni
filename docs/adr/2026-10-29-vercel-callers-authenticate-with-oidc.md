@@ -1,6 +1,6 @@
 ---
 title: Vercel callers authenticate to gp-api with Vercel OIDC tokens
-status: active
+status: superseded
 decided_by: [swain]
 date: 2026-10-29
 code: ['#3395']
@@ -8,7 +8,7 @@ scope:
   - packages/gp-api/src/authentication/**
   - packages/gp-api/deploy/index.ts
 supersedes: []
-superseded_by:
+superseded_by: 2026-10-29-machine-callers-authenticate-with-platform-oidc.md
 ---
 
 # Vercel callers authenticate to gp-api with Vercel OIDC tokens

@@ -683,6 +683,17 @@ jwIDAQAB
         dev: 'prj_xUbQGrErwISW8pqTZtKzk9wN5gFc:preview,prj_PFN2Upwy18Fg5jjF0BTD3vcEq5eO:preview',
         prod: 'prj_xUbQGrErwISW8pqTZtKzk9wN5gFc:production,prj_PFN2Upwy18Fg5jjF0BTD3vcEq5eO:production',
       }),
+      // GitHub Actions workflows whose OIDC token (audience gp-api) makes them a
+      // service reader, as <owner>/<repo>/<path>@<ref>; <ref> may be *. Not
+      // secret: the signed token is the credential. Prod takes only the
+      // scheduled run on gp-marketing's default branch; dev and preview take
+      // any branch so a PR's workflow can be tried against dev.
+      GITHUB_OIDC_ALLOWED_WORKFLOWS: select({
+        preview:
+          'thegoodparty/gp-marketing/.github/workflows/generate-people-sitemaps.yml@*',
+        dev: 'thegoodparty/gp-marketing/.github/workflows/generate-people-sitemaps.yml@*',
+        prod: 'thegoodparty/gp-marketing/.github/workflows/generate-people-sitemaps.yml@refs/heads/develop',
+      }),
       ASSET_DOMAIN: select({
         preview: 'assets-dev.goodparty.org',
         dev: 'assets-dev.goodparty.org',
