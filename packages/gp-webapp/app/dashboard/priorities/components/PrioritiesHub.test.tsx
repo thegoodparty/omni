@@ -193,6 +193,33 @@ describe('PrioritiesHub', () => {
     expect(screen.getByText('Plan ready')).toBeInTheDocument()
   })
 
+  it('gives the title two lines on a phone and puts the chips under it', () => {
+    render(
+      <PrioritiesHub
+        priorities={[
+          priority({
+            title: 'One-Year Moratorium on Data Center Construction',
+            source: 'community_issue',
+            currentStep: 'define',
+          }),
+        ]}
+        seedIssues={[]}
+      />,
+    )
+    const title = screen.getByText(
+      'One-Year Moratorium on Data Center Construction',
+    )
+    expect(title).toHaveClass('line-clamp-2', 'sm:line-clamp-1')
+    expect(title).not.toHaveClass('truncate')
+
+    const chips = screen.getByText('From your community').parentElement
+    const stack = chips?.parentElement
+    expect(stack).toContainElement(title)
+    expect(stack).toHaveClass('flex-col', 'sm:flex-row')
+    expect(chips).toContainElement(screen.getByText('The problem'))
+    expect(screen.getByText('The problem')).not.toHaveClass('hidden')
+  })
+
   it('gives every row its own archive control', () => {
     render(
       <PrioritiesHub
