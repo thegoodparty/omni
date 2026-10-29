@@ -17,6 +17,12 @@ export const unsubscribeSigningKey = (): string | null => {
   return state.configured ? state.value : null
 }
 
+// The webapp middleware matcher skips any path with `.<ext>` in it, and the
+// token sits in `/email/unsubscribe/<token>`. `~` is outside base64url and
+// is not a dot, so no signature can look like a static file.
+const SEPARATOR = '~'
+const LEGACY_SEPARATOR = '.'
+
 const sign = (key: string, body: string): string =>
   createHmac('sha256', key).update(body).digest('base64url')
 
@@ -27,14 +33,15 @@ export const signUnsubscribeToken = (
   payload: UnsubscribeTokenPayload,
 ): string => {
   const body = Buffer.from(JSON.stringify(payload)).toString('base64url')
-  return `${body}.${sign(key, body)}`
+  return `${body}${SEPARATOR}${sign(key, body)}`
 }
 
 export const verifyUnsubscribeToken = (
   key: string,
   token: string,
 ): UnsubscribeTokenPayload | null => {
-  const [body, signature, ...rest] = token.split('.')
+  const separator = token.includes(SEPARATOR) ? SEPARATOR : LEGACY_SEPARATOR
+  const [body, signature, ...rest] = token.split(separator)
   if (!body || !signature || rest.length > 0) return null
   const expected = Buffer.from(sign(key, body))
   const given = Buffer.from(signature)
