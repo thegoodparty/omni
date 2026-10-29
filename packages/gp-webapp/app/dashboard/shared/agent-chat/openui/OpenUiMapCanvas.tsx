@@ -20,7 +20,7 @@ const markerElement = (label: string): HTMLElement => {
   element.className = 'flex flex-col items-center gap-1'
   const pill = document.createElement('span')
   pill.className =
-    'rounded-full border border-border bg-card px-2 py-0.5 text-xs font-medium text-foreground shadow-sm whitespace-nowrap'
+    'max-w-48 truncate rounded-full border border-border bg-card px-2 py-0.5 text-xs font-medium text-foreground shadow-sm whitespace-nowrap'
   pill.textContent = label
   const dot = document.createElement('span')
   dot.className = 'size-3 rounded-full border-2 border-white bg-primary shadow'
