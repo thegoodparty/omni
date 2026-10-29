@@ -3,7 +3,7 @@ title: People reads join an org's imported contacts at read time, in the SQL gp-
 status: active
 decided_by: [swain]
 date: 2026-10-29
-code: []
+code: ['#3370']
 scope:
   - packages/gp-api/src/peopleDb/databricks/databricksVoterSql.util.ts
   - packages/gp-api/src/peopleDb/databricks/databricksVoter.service.ts
