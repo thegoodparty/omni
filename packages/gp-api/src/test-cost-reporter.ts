@@ -8,9 +8,9 @@ import type {
 } from 'vitest/node'
 import { z } from 'zod'
 
-// Calibrated on CI shard logs from 16 green main runs (2026-10-29), at
-// roughly 3x the slowest test, file and median boot that were not outliers,
-// so a slow runner cannot trip them. The outliers are the allowlist in
+// Roughly 3x the slowest test and file that were not outliers in 16 green
+// main runs (2026-10-29), and 3x the per-shard median boot (0.7-1.2s), so a
+// slow runner cannot trip them. The outliers are the allowlist in
 // test-cost-budget.json.
 export const TEST_CEILING_MS = 10_000
 export const FILE_CEILING_MS = 30_000
@@ -19,7 +19,7 @@ export const APP_BOOT_MEDIAN_CEILING_MS = 3_000
 // An allowlisted entry only counts as fixed once it is well under its
 // ceiling. Entries sit near it, and "under the ceiling" alone would flap on
 // runner noise.
-const STALE_FRACTION = 1 / 3
+const STALE_FRACTION = 1 / 4
 
 const BUDGET_PATH = 'test-cost-budget.json'
 

@@ -23,7 +23,7 @@ When `CI` is set, a vitest reporter (`src/test-cost-reporter.ts`) fails each
 (those calling `vi.mock`, `vi.doMock`, `vi.unmock` or `vi.resetModules`)
 differs from the number in `test-cost-budget.json`. Tests and files that are
 over a ceiling today are allowlisted in that file, each with a reason. The
-allowlist only shrinks: an entry that runs under a third of its ceiling, or
+allowlist only shrinks: an entry that runs under a quarter of its ceiling, or
 whose test or file is gone, fails until it is deleted. Every failure says what
 to do instead. Each shard writes its per-file times and median boot to the
 job summary.
@@ -36,7 +36,7 @@ each), a file spawning a `tsx` process per test (55s), and every
 `fresh-modules` file paying ~5s to reimport the app graph. Each one passed
 review because nobody saw its time. The ceilings sit at roughly 3x the
 slowest non-outlier in 16 green main runs, so runner noise cannot trip them.
-The stale threshold is a third of the ceiling, not the ceiling itself,
+The stale threshold is a quarter of the ceiling, not the ceiling itself,
 because entries sit near the ceiling and would otherwise flap.
 
 ## Alternatives rejected

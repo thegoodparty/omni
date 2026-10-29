@@ -91,8 +91,8 @@ describe('testCostFailures', () => {
         ],
       })
 
-    expect(runAt(TEST_CEILING_MS / 2)).toEqual([])
-    expect(runAt(TEST_CEILING_MS / 4)).toEqual([
+    expect(runAt(TEST_CEILING_MS / 3)).toEqual([])
+    expect(runAt(TEST_CEILING_MS / 5)).toEqual([
       expect.stringContaining('Delete its entry from slowTests'),
     ])
   })
@@ -115,7 +115,7 @@ describe('testCostFailures', () => {
     expect(
       failuresFor({
         budget: slowFileBudget,
-        files: [ranFile({ ms: FILE_CEILING_MS / 4 })],
+        files: [ranFile({ ms: FILE_CEILING_MS / 5 })],
       }),
     ).toEqual([expect.stringContaining('Delete its entry from slowFiles')])
   })
