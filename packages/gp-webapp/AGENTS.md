@@ -105,6 +105,7 @@ Other patterns (`mockOrdered`, dynamic handlers): `docs/testing.md`.
 - **Never** push to `main` directly — open a PR.
 - **Ask first** before adding new utilities to `helpers/` (it is already a 50+ file dumping ground; check whether the helper exists). See `gpApi/AGENTS.md` for fetch-helper rules.
 - **Deploys** are automatic via Vercel on push to `main` (dev); prod is reached only via the release train (`release.yml`). There is no manual deploy command.
+- **Never** add a tracker, analytics call or third-party script that runs on `/email/*`. `app/layout.tsx` renders those pages without them because their URLs carry a token that holds the recipient's address (`docs/adr/2026-10-29-email-public-pages-render-without-trackers.md`).
 
 ## Navigation
 
