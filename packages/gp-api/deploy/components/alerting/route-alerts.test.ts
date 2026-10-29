@@ -7,6 +7,7 @@ import {
 import {
   CONTROLLERS_WITHOUT_ROUTE_ALERTS,
   GLOBAL_ALERTS,
+  ROUTES_WITHOUT_ROUTE_ALERTS,
   SERVER_ERRORS_ONLY,
 } from '../alerts'
 import { alertTimeRange } from '../grafana'
@@ -191,6 +192,20 @@ describe('route alert groups', () => {
       )
       expect(covering.length, controller).toBe(1)
     }
+  })
+
+  // The SNS webhook answers 503 by design when inbound mail is not wired, so
+  // its route is out of every alternation while its controller's other routes
+  // stay watched.
+  it('keeps opted-out routes out of every alternation', () => {
+    for (const endpoint of ROUTES_WITHOUT_ROUTE_ALERTS) {
+      for (const group of GROUPS) {
+        expect(group.endpoints, group.slug).not.toContain(endpoint)
+      }
+    }
+    expect(GROUPS.flatMap((group) => group.endpoints)).toContain(
+      'GET /v1/email/unsubscribe',
+    )
   })
 
   // An opted-out controller is not in a group at all, rather than

@@ -119,7 +119,7 @@ export class EmailSnsWebhookService {
     }
     const topic = resolveEnvVar(EMAIL_INBOUND_TOPIC_ENV)
     if (!topic.configured) {
-      this.logger.error(`${EMAIL_INBOUND_TOPIC_ENV} is not set`)
+      this.logger.warn(`${EMAIL_INBOUND_TOPIC_ENV} is not set`)
       throw new ServiceUnavailableException()
     }
     if (message.TopicArn !== topic.value) {

@@ -223,7 +223,7 @@ export class OutreachEmailSendSweepService extends createPrismaBase(
 
     const signingKey = unsubscribeSigningKey()
     if (!signingKey) {
-      this.logger.error(
+      this.logger.warn(
         'EMAIL_UNSUBSCRIBE_SIGNING_KEY is not set; email sends are waiting',
       )
       return
