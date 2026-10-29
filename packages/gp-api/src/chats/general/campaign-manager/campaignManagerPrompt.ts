@@ -3,6 +3,7 @@ import {
   SAMPLE_TARGET_REPLIES,
   SmsComplianceWindow,
   SOCIAL_PURPOSE_VALUES,
+  type PresentCardKind,
 } from '@goodparty_org/contracts'
 import type { Organization } from '../../../generated/prisma'
 import type { MandatoryFilter } from '@/llm/tools/districtInsights.tool'
@@ -23,6 +24,7 @@ import {
   EXAMPLE_SAMPLE,
 } from '../chat-tools/outreachSampling.prompt'
 import { CLARIFY_QUESTION_RULES } from '../chat-tools/askClarifyQuestion.tool'
+import { presentCardPromptBlock } from '../chat-tools/presentCard.tool'
 import {
   PICKED_OPTION_RULE,
   WIN_OUTREACH_MESSAGE_RULES,
@@ -767,12 +769,13 @@ const crmToolsBlock = (ctx: CampaignManagerContext): string | null => {
     'unavailable, and never offer one, without having called ' +
     'describe_filter_dimensions in this conversation.'
   const listCard = ctx.savedFilterToolsEnabled
-    ? ' Offer a list to save with present_list_proposal, never as a ' +
-      'question in prose: count it first, pass the filter you counted ' +
+    ? ' Offer a list to save as a present_card list_proposal card, never ' +
+      'as a question in prose: count it first, pass the filter you counted ' +
       'with, its count, a name of at most 40 characters and one plain ' +
       "sentence on who it holds. The candidate saves it with the card's " +
       'Create list button, and once it is saved the card becomes the list ' +
-      'on a map, with a link to it in Voter Data. Name a list after the filters it actually applied, ' +
+      'on a map, where they can draw shapes to narrow it, with a link to ' +
+      'it in Voter Data. Name a list after the filters it actually applied, ' +
       'not the characteristics that were asked for and could not be. If ' +
       'a requested place, trait, or threshold has no dimension behind it, ' +
       'it does not belong in the name, and abbreviating it does not make ' +
@@ -813,14 +816,14 @@ const crmToolsBlock = (ctx: CampaignManagerContext): string | null => {
   )
 }
 
-// The Chief of Staff's map rules, in candidate words. Gated on the tool, so
+// The Chief of Staff's map rules, in candidate words. Gated on the card, so
 // a session that cannot save a list is never told about a map of one.
-const listMapBlock = (toolNames: readonly string[]): string | null =>
-  toolNames.includes('show_list_map')
+const listMapBlock = (cardKinds: readonly PresentCardKind[]): string | null =>
+  cardKinds.includes('list_map')
     ? [
-        'LIST MAP RULES (apply whenever you call `show_list_map`):',
-        '- A list created from a `present_list_proposal` card already turns into its own map, so never call it for that list.',
-        "- Call it only to show a list that already exists when where its voters are is part of the answer. Pass the id crud_saved_filters returned and the list's name. Never pass an id you were not handed.",
+        'LIST MAP RULES (apply whenever you show a `list_map` card):',
+        '- A list created from a `list_proposal` card already turns into its own map, so never show one for that list.',
+        "- Show it only for a list that already exists when where its voters are is part of the answer, never for a list the candidate only asked to count. Pass the id crud_saved_filters returned and the list's name. Never pass an id you were not handed.",
         '- The card speaks for itself, so do not narrate the map. Say what the list is and why, and let the map show where.',
         '- The dots are markers, not a directory. You cannot see them, so never describe an individual voter, a street, or a cluster as though you had read the map. That is a privacy rule about WHO, not a statement that you cannot work with a drawn area.',
         '',
@@ -830,7 +833,7 @@ const listMapBlock = (toolNames: readonly string[]): string | null =>
         "- Any count you quoted before the shape was drawn is now stale. Call `crud_saved_filters` with action 'get' and that id for the new one; `count_contacts` does not know about the shape.",
         '- `hasBoundary` on a list tells you a shape exists, never where. You do not need to know where, because the list is already the shape.',
         '- Never tell the candidate you cannot act on an area they drew. You can: report what the list now holds.',
-        '- You cannot draw, move, or clear a shape yourself, and you cannot create a list that already carries one. So offer the list from its filters first with `present_list_proposal`, and tell them that once they create it they can draw the area on its map. Never ask them to draw before you will build the list.',
+        '- You cannot draw, move, or clear a shape yourself, and you cannot create a list that already carries one. So offer the list from its filters first as a `list_proposal` card, and tell them that once they create it they can draw the area on its map. Never ask them to draw before you will build the list.',
         '- Drawing is optional. Offer the map as a next step they may want, not as a step still owed.',
       ].join('\n')
     : null
@@ -1054,14 +1057,17 @@ export const currentPageBlock = (area: ProductArea): string =>
     `- Read "here", "this page" and "this" as ${area.name}. Bring the page up only when it bears on what they asked; never open by naming it.`,
   ].join('\n')
 
-const pastOutreachBlock = (toolNames: readonly string[]): string | null =>
+const pastOutreachBlock = (
+  toolNames: readonly string[],
+  cardKinds: readonly PresentCardKind[],
+): string | null =>
   toolNames.includes('read_past_outreach')
     ? [
         "PAST OUTREACH (apply whenever the campaign's earlier sends bear on the answer):",
         '- When the candidate asks how a send did, or before you propose outreach, call read_past_outreach and quote what came back: how many voters, how many replied, when it went. Never guess at a result you can read.',
-        ...(toolNames.includes('present_past_outreach')
+        ...(cardKinds.includes('past_outreach')
           ? [
-              '- When what came back last time is the point you are making, show those sends with present_past_outreach, with one line on why they matter. The card opens each send in Voter Outreach, so do not restate its numbers.',
+              '- When what came back last time is the point you are making, show one to five of those sends as a `past_outreach` card, by the outreach ids read_past_outreach returned, with one line on why they matter. The card opens each send in Voter Outreach, so do not restate its numbers.',
             ]
           : []),
         ...(toolNames.includes('read_outreach_feedback')
@@ -1128,6 +1134,7 @@ const publicProfileBlock = (ctx: CampaignManagerContext): string => {
 export const buildCampaignManagerSystemPrompt = (
   input: CampaignManagerContext,
   toolNames: readonly string[] = [],
+  cardKinds: readonly PresentCardKind[] = [],
 ): string => {
   // One clock read for every block, so the today line and every count and
   // status below agree on the day even when a turn straddles midnight.
@@ -1150,10 +1157,11 @@ export const buildCampaignManagerSystemPrompt = (
     tasksBlock(ctx),
     dataBlock(ctx),
     crmToolsBlock(ctx),
-    listMapBlock(toolNames),
+    cardKinds.length > 0 ? presentCardPromptBlock(cardKinds) : null,
+    listMapBlock(cardKinds),
     textingClosedBlock(ctx),
     outreachSamplingBlock(ctx, toolNames),
-    pastOutreachBlock(toolNames),
+    pastOutreachBlock(toolNames, cardKinds),
     clarifyQuestionBlock(ctx, toolNames),
     searchRulesBlock(ctx),
     COMPOSE_HANDOFF_RULES,

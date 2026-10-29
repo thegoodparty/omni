@@ -12,11 +12,10 @@ import { OrdinanceFlowSearchService } from './ordinanceFlowSearch.service'
 import {
   buildPresentAuthorityFindingTool,
   buildPresentComparablesTool,
-  buildPresentCurrentLawSummaryTool,
   buildPresentDraftTool,
-  buildPresentLegislativeHistoryTool,
   type OrdinanceToolDeps,
 } from '../tools/ordinanceFlowTools'
+import { buildPresentCardTool } from '../../chat-tools/presentCard.tool'
 
 const service = useTestService()
 
@@ -956,14 +955,25 @@ describe('ordinance-flow present_* tool builders', () => {
     })
   })
 
-  it('display-only present tools ack without persisting or throwing', async () => {
-    const summary = await buildPresentCurrentLawSummaryTool().execute({
-      chapterLabel: 'Chapter 12',
-      does: [{ title: 'Police may install cameras' }],
-      gaps: [{ title: 'No retention limit' }],
+  it('display-only cards ack without persisting or throwing', async () => {
+    const present = buildPresentCardTool({
+      kinds: ['current_law_summary', 'legislative_history'],
     })
-    const history = await buildPresentLegislativeHistoryTool().execute({
-      entries: [{ year: 1998, label: 'Chapter 12 created', summary: 'Pilot.' }],
+    const summary = await present.execute({
+      card: {
+        kind: 'current_law_summary',
+        chapterLabel: 'Chapter 12',
+        does: [{ title: 'Police may install cameras' }],
+        gaps: [{ title: 'No retention limit' }],
+      },
+    })
+    const history = await present.execute({
+      card: {
+        kind: 'legislative_history',
+        entries: [
+          { year: 1998, label: 'Chapter 12 created', summary: 'Pilot.' },
+        ],
+      },
     })
     expect(summary).toEqual({ presented: true })
     expect(history).toEqual({ presented: true })

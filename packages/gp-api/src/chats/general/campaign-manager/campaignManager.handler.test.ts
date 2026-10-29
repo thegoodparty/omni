@@ -29,6 +29,7 @@ import type { LlmTool } from '@/llm/services/llm.service'
 import type { Organization } from '../../../generated/prisma'
 import { LEGAL_LINE } from './campaignManagerPrompt'
 import { guardrailLine } from '../services/guardrailLines'
+import { offeredCardKinds } from '../chat-tools/presentCard.tool'
 import type { PriorityFlowOutreachService } from '../priority-flow/services/priorityFlowOutreach.service'
 import type { PublicProfileAddressService } from '@/personProfiles/services/public-profile-address.service'
 
@@ -630,17 +631,15 @@ describe('CampaignManagerHandler.buildTools — past outreach', () => {
     )
 
   it("reads and shows the campaign's sends once its campaign resolves", () => {
-    const names = Object.keys(
-      withOutreach().buildTools(ctxWith({ campaignId: 42 })),
-    )
-    expect(names).toContain('read_past_outreach')
-    expect(names).toContain('present_past_outreach')
+    const tools = withOutreach().buildTools(ctxWith({ campaignId: 42 }))
+    expect(Object.keys(tools)).toContain('read_past_outreach')
+    expect(offeredCardKinds(tools)).toContain('past_outreach')
   })
 
   it('stays off without a campaign to scope the sends to', () => {
-    const names = Object.keys(withOutreach().buildTools(ctxWith({})))
-    expect(names).not.toContain('read_past_outreach')
-    expect(names).not.toContain('present_past_outreach')
+    const tools = withOutreach().buildTools(ctxWith({}))
+    expect(Object.keys(tools)).not.toContain('read_past_outreach')
+    expect(offeredCardKinds(tools)).not.toContain('past_outreach')
   })
 
   it('reads door and call notes only with issue capture on', () => {
@@ -810,13 +809,10 @@ describe('CampaignManagerHandler — CRM contact tools gating', () => {
     ]) {
       expect(Object.keys(tools)).toContain(name)
     }
-    for (const name of [
-      'list_precincts',
-      'crud_saved_filters',
-      'show_list_map',
-    ]) {
+    for (const name of ['list_precincts', 'crud_saved_filters']) {
       expect(Object.keys(tools)).not.toContain(name)
     }
+    expect(offeredCardKinds(tools)).not.toContain('list_map')
   })
 
   // Only a known "no" gates. Unknown keeps every tool and leaves the decision
@@ -834,10 +830,10 @@ describe('CampaignManagerHandler — CRM contact tools gating', () => {
       'count_contacts',
       'list_precincts',
       'crud_saved_filters',
-      'show_list_map',
     ]) {
       expect(Object.keys(tools)).toContain(name)
     }
+    expect(offeredCardKinds(tools)).toContain('list_map')
   })
 
   it('names both filter tools in the catalog when saved lists are on', () => {
@@ -891,7 +887,7 @@ describe('CampaignManagerHandler — CRM contact tools gating', () => {
     expect(Object.keys(withWrites)).toContain('crud_saved_filters')
     expect(Object.keys(withWrites)).toContain('size_outreach_sample')
     expect(Object.keys(withWrites)).toContain('present_outreach_proposal')
-    expect(Object.keys(withWrites)).toContain('present_list_proposal')
+    expect(offeredCardKinds(withWrites)).toContain('list_proposal')
 
     const noService = buildCrmHandler(buildContacts()).buildTools(
       ctxWith({ ...CRM_ON, savedFilterToolsEnabled: true }),
@@ -899,7 +895,7 @@ describe('CampaignManagerHandler — CRM contact tools gating', () => {
     expect(Object.keys(noService)).not.toContain('crud_saved_filters')
     expect(Object.keys(noService)).not.toContain('size_outreach_sample')
     expect(Object.keys(noService)).not.toContain('present_outreach_proposal')
-    expect(Object.keys(noService)).not.toContain('present_list_proposal')
+    expect(offeredCardKinds(noService)).not.toContain('list_proposal')
 
     const flagOff = buildCrmHandler(
       buildContacts(),
@@ -908,33 +904,37 @@ describe('CampaignManagerHandler — CRM contact tools gating', () => {
     expect(Object.keys(flagOff)).not.toContain('crud_saved_filters')
     expect(Object.keys(flagOff)).not.toContain('size_outreach_sample')
     expect(Object.keys(flagOff)).not.toContain('present_outreach_proposal')
-    expect(Object.keys(flagOff)).not.toContain('present_list_proposal')
+    expect(offeredCardKinds(flagOff)).not.toContain('list_proposal')
   })
 
   it('offers a list card to a campaign without Pro, in candidate words', async () => {
-    const tools = buildCrmHandler(
-      buildContacts(),
-      buildVoterFileFilters(),
-    ).buildTools(
-      ctxWith({ ...CRM_ON, savedFilterToolsEnabled: true, isPro: false }),
-    )
+    const handler = buildCrmHandler(buildContacts(), buildVoterFileFilters())
+    const ctx = ctxWith({
+      ...CRM_ON,
+      savedFilterToolsEnabled: true,
+      isPro: false,
+    })
+    const tools = handler.buildTools(ctx)
     expect(Object.keys(tools)).not.toContain('crud_saved_filters')
-    const tool = tools.present_list_proposal
+    expect(offeredCardKinds(tools)).toEqual(['list_proposal'])
+    const tool = tools.present_card
     if (!tool || 'kind' in tool) throw new Error('not registered')
     const card = {
+      kind: 'list_proposal',
       name: 'East side renters',
       summary: 'Renters on the east side.',
       filters: { homeownerNo: true },
     }
 
-    expect(await tool.execute({ ...card, count: 1200 })).toEqual({
+    expect(await tool.execute({ card: { ...card, count: 1200 } })).toEqual({
       presented: true,
     })
-    expect(await tool.execute({ ...card, count: 0 })).toEqual({
+    expect(await tool.execute({ card: { ...card, count: 0 } })).toEqual({
       error: expect.stringContaining('counted nobody'),
     })
-    expect(descriptionOf(tool)).toContain('Voter Data')
-    expect(descriptionOf(tool)).toContain('draw shapes')
+    const prompt = handler.buildSystemPrompt(ctx)
+    expect(prompt).toContain('a link to it in Voter Data')
+    expect(prompt).toContain('draw shapes')
   })
 
   it('presents every channel as a card in candidate words', async () => {

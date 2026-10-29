@@ -275,7 +275,7 @@ describe('buildOrdinanceFlowSystemPrompt', () => {
     // A failed read ends in a note, not a record or a card.
     expect(prompt).toContain('is an incomplete reading')
     expect(prompt).toContain('do not save existing law; `save_note`')
-    expect(prompt).toContain('up to TWO widgets')
+    expect(prompt).toContain('up to TWO cards to show with `present_card`')
     expect(prompt).toContain('exists only when you call `offer_next_step`')
     // Brave rules teach the blank-fetch (Municode) resolution path.
     expect(prompt).toContain('BRAVE SEARCH RULES')
@@ -566,13 +566,16 @@ describe('buildOrdinanceFlowSystemPrompt', () => {
     expect(without).not.toContain('DRAFT RULES')
   })
 
-  it('advertises the present_* tools that render the current_law widgets', () => {
+  it('advertises the current_law cards as present_card kinds', () => {
     const prompt = buildOrdinanceFlowSystemPrompt({
       ctx: baseCtx({ step: 'current_law' }),
-      toolNames: ['present_current_law_summary', 'present_legislative_history'],
+      toolNames: ['present_card'],
+      cardKinds: ['current_law_summary', 'legislative_history'],
     })
-    expect(prompt).toContain('present_current_law_summary:')
-    expect(prompt).toContain('present_legislative_history:')
+    expect(prompt).toContain('present_card:')
+    expect(prompt).toContain('- `current_law_summary`: What the current code')
+    expect(prompt).toContain('- `legislative_history`: A timeline')
+    expect(prompt).toContain('PRESENT-CARD ORDERING')
   })
 
   it('surfaces the source link and update rules only when one is on file', () => {
@@ -678,7 +681,8 @@ describe('buildOrdinanceFlowSystemPrompt', () => {
   it('directs the current_law step to actively research and present the history timeline', () => {
     const prompt = buildOrdinanceFlowSystemPrompt({
       ctx: baseCtx({ step: 'current_law' }),
-      toolNames: ['fetch_url', 'present_legislative_history'],
+      toolNames: ['fetch_url', 'present_card'],
+      cardKinds: ['legislative_history'],
     })
     // History is a first-class deliverable, not an afterthought: research it,
     // present the adoption/amendment record, and never fabricate quotes.

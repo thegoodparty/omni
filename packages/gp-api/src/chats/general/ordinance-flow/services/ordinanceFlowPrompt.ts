@@ -2,6 +2,7 @@ import { sanitizeUntrustedContent } from '@/ai/util/sanitizePromptInput.util'
 import type {
   BallotReadyPositionLevel,
   OrdinanceFlowStep,
+  PresentCardKind,
 } from '@goodparty_org/contracts'
 import { OrdinanceFlowContext } from './ordinanceFlowContext.service'
 import {
@@ -11,6 +12,7 @@ import {
 import { guardrailLine } from '../../services/guardrailLines'
 import { SUPPORT_EMAIL } from '../../product-knowledge/productKnowledgePrompt'
 import { todayLine } from '../../services/todayLine'
+import { presentCardPromptBlock } from '../../chat-tools/presentCard.tool'
 
 // The declines and the legal line come from the shared guardrail module, so
 // the bench that grades this chat reads the same text the prompt does.
@@ -258,10 +260,7 @@ const TOOL_DESCRIPTIONS: Record<string, string> = {
   save_synthesis: 'persist a short synthesis of the clarify answers',
   offer_next_step: 'give the user a button to move to the next step',
   present_authority_finding: 'show the legal-authority verdict as a cited card',
-  present_current_law_summary:
-    'show what current law does and where it falls short, as a card',
-  present_legislative_history:
-    "show a timeline of the chapter's adoptions and amendments",
+  present_card: 'show a card, of a kind listed under CARDS YOU CAN SHOW',
   present_comparables: 'show how comparable cities handled this, as cards',
   present_draft:
     'synthesize the prior steps into a complete first-draft ordinance, present ' +
@@ -336,9 +335,9 @@ const CURRENT_LAW_RULES = `CURRENT LAW RULES (this step):
 - If a fetch comes back empty or blocked (some hosts only render in a browser), search for a server-rendered copy of the chapter and \`fetch_url\` that instead.
 - Only chapter text returned by \`fetch_url\` in this step, or pasted by the user, tells you what the code says today. \`web_search\` results and the excerpts they carry are research, not a reading, however well cited and even when they quote the code; so are page titles and what similar codes usually say. The history timeline may still rest on search results: it records when and why the chapter changed, not what it says today. When no route yields the text, the honest result of this step is an incomplete reading: say that you could not read the chapter and what would complete it (a copy that opens, or the chapter text pasted in). The user can supply either, or continue with that gap on record; the Continue button exists only when you call \`offer_next_step\`, so call it after an incomplete reading too.
 - Before calling \`offer_next_step\`: if you read the text, call \`save_existing_law\` once with a concise, cited summary of what current law does and does not cover. If you could not read it, do not save existing law; \`save_note\` what you tried and what would complete the reading so later steps carry the gap.
-- This step has up to TWO widgets to present; call each one that applies, each preceded by a one-line lead-in sentence (so the turn carries text and replays on reload), and put the finding in the tool call rather than restating it in prose:
-  1. \`present_current_law_summary\` — only for text you read: what the chapter does today and where it falls short (does/gaps), with the chapter source. With no text read there is no summary card; your reply and the note carry the gap.
-  2. \`present_legislative_history\` — the "Intent and history" timeline: when the chapter was first adopted and each time it was amended, and why. Actively research this with \`web_search\` and the code's history/supplement notes; each entry needs a year, a short label, and a one-line summary. Add a council-minutes excerpt and speaker ONLY when you genuinely find one — never invent quotes, dates, or debates. Present the timeline whenever you can establish even the basic adoption/amendment record (year + what changed); omit it only if no legislative history is findable at all.`
+- This step has up to TWO cards to show with \`present_card\`; show each one that applies, each preceded by a one-line lead-in sentence (so the turn carries text and replays on reload), and put the finding in the tool call rather than restating it in prose:
+  1. A \`current_law_summary\` card — only for text you read: what the chapter does today and where it falls short (does/gaps), with the chapter source. With no text read there is no summary card; your reply and the note carry the gap.
+  2. A \`legislative_history\` card — the "Intent and history" timeline: when the chapter was first adopted and each time it was amended, and why. Actively research this with \`web_search\` and the code's history/supplement notes; each entry needs a year, a short label, and a one-line summary. Add a council-minutes excerpt and speaker ONLY when you genuinely find one — never invent quotes, dates, or debates. Present the timeline whenever you can establish even the basic adoption/amendment record (year + what changed); omit it only if no legislative history is findable at all, and never show an empty timeline.`
 
 const CURRENT_LAW_RULES_STATE = `CURRENT LAW RULES (this step):
 - The \`get_code_source\` record tracks municipal codes and does not apply to state law; do not ground this work in it. Research the state's current statutes directly: \`brave_search\` (or \`web_search\`) for the state's official statutes or code on this topic — the legislature's or code revisor's site — then \`fetch_url\` the most specific relevant chapters, and cite section numbers for every claim about current law.
@@ -346,9 +345,9 @@ const CURRENT_LAW_RULES_STATE = `CURRENT LAW RULES (this step):
 - If a fetch comes back empty or blocked (some hosts only render in a browser), search for a server-rendered copy of the chapter and \`fetch_url\` that instead.
 - Only statute text returned by \`fetch_url\` in this step, or pasted by the user, tells you what the law says today. \`web_search\` results and the excerpts they carry are research, not a reading, however well cited and even when they quote the law; so are page titles and what similar statutes usually say. The history timeline may still rest on search results: it records when and why the statute changed, not what it says today. When no route yields the text, the honest result of this step is an incomplete reading: say that you could not read the statute and what would complete it (a copy that opens, or the statute text pasted in). The user can supply either, or continue with that gap on record; the Continue button exists only when you call \`offer_next_step\`, so call it after an incomplete reading too.
 - Before calling \`offer_next_step\`: if you read the text, call \`save_existing_law\` once with a concise, cited summary of what current law does and does not cover. If you could not read it, do not save existing law; \`save_note\` what you tried and what would complete the reading so later steps carry the gap.
-- This step has up to TWO widgets to present; call each one that applies, each preceded by a one-line lead-in sentence (so the turn carries text and replays on reload), and put the finding in the tool call rather than restating it in prose:
-  1. \`present_current_law_summary\` — only for text you read: what the statute does today and where it falls short (does/gaps), with the statute source. With no text read there is no summary card; your reply and the note carry the gap.
-  2. \`present_legislative_history\` — the "Intent and history" timeline: when the statute was first enacted and each time it was amended, and why. Actively research this with \`web_search\` and session-law or amendment notes; each entry needs a year, a short label, and a one-line summary. Add a committee-report or floor-record excerpt and speaker ONLY when you genuinely find one — never invent quotes, dates, or debates. Present the timeline whenever you can establish even the basic enactment/amendment record (year + what changed); omit it only if no legislative history is findable at all.`
+- This step has up to TWO cards to show with \`present_card\`; show each one that applies, each preceded by a one-line lead-in sentence (so the turn carries text and replays on reload), and put the finding in the tool call rather than restating it in prose:
+  1. A \`current_law_summary\` card — only for text you read: what the statute does today and where it falls short (does/gaps), with the statute source. With no text read there is no summary card; your reply and the note carry the gap.
+  2. A \`legislative_history\` card — the "Intent and history" timeline: when the statute was first enacted and each time it was amended, and why. Actively research this with \`web_search\` and session-law or amendment notes; each entry needs a year, a short label, and a one-line summary. Add a committee-report or floor-record excerpt and speaker ONLY when you genuinely find one — never invent quotes, dates, or debates. Present the timeline whenever you can establish even the basic enactment/amendment record (year + what changed); omit it only if no legislative history is findable at all, and never show an empty timeline.`
 
 const AUTHORITY_RULES = `AUTHORITY RULES (this step):
 - Search AFFIRMATIVELY for a state preemption or prohibition FIRST — this is the core job of this step. Use \`web_search\` specifically for whether the state preempts, prohibits, or limits municipal action on this topic (e.g. "does [state] preempt local [topic]", "[state] [topic] state preemption", "[state] statute prohibiting municipal [topic]"). Do this before concluding anything.
@@ -455,8 +454,9 @@ const toolBlock = (toolNames: string[], legislative: boolean): string => {
 export const buildOrdinanceFlowSystemPrompt = (args: {
   ctx: OrdinanceFlowContext
   toolNames: string[]
+  cardKinds?: readonly PresentCardKind[]
 }): string => {
-  const { ctx, toolNames } = args
+  const { ctx, toolNames, cardKinds = [] } = args
   const legislative = isLegislative(ctx.officeLevel)
   return [
     legislative ? ROLE_BLOCK_STATE : ROLE_BLOCK,
@@ -481,6 +481,7 @@ export const buildOrdinanceFlowSystemPrompt = (args: {
     ...(toolNames.includes('ask_clarify_question') && ctx.step !== 'clarify'
       ? [legislative ? ASK_QUESTION_RULES_STATE : ASK_QUESTION_RULES]
       : []),
+    ...(cardKinds.length > 0 ? [presentCardPromptBlock(cardKinds)] : []),
     ...(toolNames.some((name) => name.startsWith('present_'))
       ? [PRESENT_CARD_RULES]
       : []),

@@ -21,12 +21,14 @@ import {
   type PriorityStepCheck,
   type PriorityStepContrast,
   type PriorityReadStatus,
+  type PresentCardKind,
 } from '@goodparty_org/contracts'
 import { ChiefOfStaffContext } from './chiefOfStaffContext.service'
 import type { PeopleDataset } from '@/peopleDb/services/peopleDataset.service'
 import { localDay, todayLine } from '../../services/todayLine'
 import { PriorityRecord } from './prioritiesPort'
 import { CLARIFY_QUESTION_RULES } from '../../chat-tools/askClarifyQuestion.tool'
+import { presentCardPromptBlock } from '../../chat-tools/presentCard.tool'
 import {
   EXPLAIN_MANAGED_PANEL_TOOL,
   isManagedPanelSetUp,
@@ -212,7 +214,7 @@ const CRM_TOOLS_RULES = `CONTACT LIST RULES (apply whenever you call \`describe_
 ${FILTER_DIMENSION_PROVENANCE_RULES}`
 
 const SAVED_FILTER_RULES = `SAVED LIST RULES (apply whenever you call \`crud_saved_filters\`):
-- Never create a list yourself with \`crud_saved_filters\`. Count it with count_contacts, then offer it with \`present_list_proposal\`, passing the filter you counted with, its count, a name and one plain sentence on who it holds. The user saves it with the card's Create list button.
+- Never create a list yourself with \`crud_saved_filters\`. Count it with count_contacts, then offer it as a \`present_card\` \`list_proposal\` card, passing the filter you counted with, its count, a name and one plain sentence on who it holds. The user saves it with the card's Create list button.
 - Never ask whether to save a list, in any wording. The card's button is that question, and a typed "yes" is not how lists get saved here.
 - List names are capped at 40 characters.
 - A list already used for outreach is locked: it cannot be edited or deleted, only duplicated into a new list. If the tool returns that error, explain it and never retry the same call.
@@ -235,9 +237,9 @@ const SEGMENTATION_METHOD_RULES = `BUILDING A SEGMENT (apply whenever the user a
 - Under roughly a hundred people a segment is usually too narrow to run a campaign against. Say so and offer to widen it instead of saving it as it stands.
 - Report a segment as a count and a share of the district, naming the dimensions you used and any you rejected for thin coverage. Never imply you can name, list, or reach a particular person.`
 
-const LIST_MAP_RULES = `LIST MAP RULES (apply whenever you call \`show_list_map\`):
-- A list created from a \`present_list_proposal\` card already turns into its own map, so never call it for that list.
-- Call it only to show a list that already exists when where its people are is part of the answer. Pass the id crud_saved_filters returned and the list's name. Never pass an id you were not handed; there is nothing to look one up from.
+const LIST_MAP_RULES = `LIST MAP RULES (apply whenever you show a \`list_map\` card):
+- A list created from a \`list_proposal\` card already turns into its own map, so never show one for that list.
+- Show it only for a list that already exists when where its people are is part of the answer, never for a list the user only asked to count. Pass the id crud_saved_filters returned and the list's name. Never pass an id you were not handed; there is nothing to look one up from.
 - The card speaks for itself, so do not narrate the map. Say what the segment is and why, and let the map show where.
 - The dots are markers, not a directory. You cannot see them and neither can you name who is on it, so never describe an individual, a street, or a cluster as though you had read the map. That is a privacy rule about WHO, not a statement that you cannot work with a drawn area.
 
@@ -248,7 +250,7 @@ DRAWN AREA RULES (apply whenever the holder draws on a map):
 - \`hasBoundary\` on a list tells you a shape exists. It never tells you where, and you cannot read the geometry. You do not need to, because the list is already the shape.
 - Never tell the holder you cannot act on an area they drew. You can: report what the list now holds.
 - You cannot draw, move, or clear a shape yourself, and you cannot create a list that already carries one. Geometry only ever goes onto a list that exists.
-- So the order never changes, including when the request is about a specific area: offer the list from its filters FIRST with \`present_list_proposal\`, and tell them that once they create it they can draw the area on its map to narrow it. Never make a shape a precondition, never ask them to draw before you will build the list, and never stall on geography you cannot cut yourself.
+- So the order never changes, including when the request is about a specific area: offer the list from its filters FIRST as a \`list_proposal\` card, and tell them that once they create it they can draw the area on its map to narrow it. Never make a shape a precondition, never ask them to draw before you will build the list, and never stall on geography you cannot cut yourself.
 - Drawing is optional. The saved list is a real answer on its own, so offer the map as a next step they may want, not as a step still owed.`
 
 const COMMUNITY_ISSUES_RULES = `COMMUNITY ISSUES RULES (apply whenever you call \`read_community_issues\`):
@@ -347,23 +349,37 @@ const managedCivicPanelBlock = (
   ].join('\n')
 }
 
-const cardRulesBlock = (toolNames: string[]): string | null => {
+const cardRulesBlock = (
+  toolNames: string[],
+  cardKinds: readonly PresentCardKind[],
+): string | null => {
   const has = (name: string): boolean => toolNames.includes(name)
+  const offers = (kind: PresentCardKind): boolean => cardKinds.includes(kind)
   const lines = [
     ...(has('ask_clarify_question') ? CLARIFY_QUESTION_RULES : []),
     '- A card speaks for itself. Say in one line why it matters and never restate what is on it.',
-    ...(has('present_constituents') && has('present_outside_contact')
+    ...(offers('constituents') && offers('outside_contact')
       ? [
-          "- `present_constituents` is the user's OWN people, already in their contact records, by contact id. `present_outside_contact` is someone OUTSIDE their records, found by research, to call about a problem. Never swap them.",
+          "- A `constituents` card is the user's OWN people, already in their contact records, by contact id. An `outside_contact` card is someone OUTSIDE their records, found by research, to call about a problem. Never swap them.",
         ]
-      : has('present_outside_contact')
+      : offers('outside_contact')
         ? [
-            "- `present_outside_contact` is someone OUTSIDE the user's records, found by research, to call about a problem. Never use it for the user's own constituents.",
+            "- An `outside_contact` card is someone OUTSIDE the user's records, found by research, to call about a problem. Never use it for the user's own constituents.",
           ]
         : []),
-    ...(has('present_list_proposal')
+    ...(offers('outside_contact')
       ? [
-          '- Offer a list to save with `present_list_proposal`, never as a question in prose. Say in one line who it holds and why; the card shows the name, the count and the Create list button.',
+          "- An `outside_contact` card is ONE person or office who can act on the problem: the city attorney's office, the county engineer, the state agency desk, the nonprofit that runs the shelter. Build it from what you researched, never from a contact id. Include every contact route you actually found and never invent one. If you found no email, phone or website, say so in prose instead of showing the card. One card per person, and only when reaching them is the next real step.",
+        ]
+      : []),
+    ...(offers('past_outreach')
+      ? [
+          '- When what came back last time is the point you are making, show one to five past sends as a `past_outreach` card, by the outreach ids read_past_outreach returned, with a one-line note on why they matter here.',
+        ]
+      : []),
+    ...(offers('list_proposal')
+      ? [
+          '- Offer a list to save as a `list_proposal` card, never as a question in prose. Count it with count_contacts first and pass that same filter, its count, a name of at most 40 characters and one plain sentence on who it holds. Nothing is saved until the user presses Create list, and then the card becomes the list on a map where they can draw shapes to narrow it. Say in one line who it holds and why; the card shows the name, the count and the Create list button.',
         ]
       : []),
     ...(has('present_outreach_proposal')
@@ -417,9 +433,6 @@ const TOOL_DESCRIPTIONS: Record<string, string> = {
     'count the constituents matching a contact filter (aggregate only)',
   crud_saved_filters:
     'manage saved contact lists (list/create/update/delete); returns ids, names, and counts only',
-  show_list_map: 'show a saved list on a map in the conversation',
-  present_list_proposal:
-    'offer a counted list as a card the user saves with a Create list button',
   search_help_center:
     "search GoodParty.org's support articles for how-to, compliance, and billing answers",
   compose_handoff:
@@ -430,7 +443,8 @@ const TOOL_DESCRIPTIONS: Record<string, string> = {
     'read the office’s recent sends, with reach and reply counts',
   read_outreach_feedback:
     'read what people said back to the office’s sends, word for word, and the themes found in it',
-  present_past_outreach: 'show past sends as a card',
+  present_card:
+    'show a card in the conversation, of a kind listed under CARDS YOU CAN SHOW',
   present_outreach_proposal: 'show finished, ready-to-send outreach as a card',
   size_outreach_sample:
     'size a random sample for a text and price it against texting everyone',
@@ -443,10 +457,6 @@ const TOOL_DESCRIPTIONS: Record<string, string> = {
   [READ_MANAGED_PANEL_TOOL]:
     'read where their civic panel stands and when its invites go out',
   [PRESENT_MANAGED_PANEL_TOOL]: 'show their civic panel as a card',
-  present_constituents:
-    'show people from the user’s own contact records as a card',
-  present_outside_contact:
-    'show one person or office outside the user’s records to call, with a script',
 }
 
 const anchoredIssueBlock = (anchor: ChatAnchor): string => {
@@ -689,8 +699,9 @@ const toolBlock = (toolNames: string[]): string => {
 export const buildChiefOfStaffSystemPrompt = (args: {
   ctx: ChiefOfStaffContext
   toolNames: string[]
+  cardKinds?: readonly PresentCardKind[]
 }): string => {
-  const { ctx, toolNames } = args
+  const { ctx, toolNames, cardKinds = [] } = args
   const hasWebSearch = toolNames.includes('web_search')
   const blocks = [
     ROLE_CLARIFIERS_BLOCK,
@@ -735,9 +746,10 @@ export const buildChiefOfStaffSystemPrompt = (args: {
       : []),
     ...(toolNames.includes('count_contacts') ? [CRM_TOOLS_RULES] : []),
     ...(toolNames.includes('crud_saved_filters') ? [SAVED_FILTER_RULES] : []),
-    ...(toolNames.includes('show_list_map') ? [LIST_MAP_RULES] : []),
+    ...(cardKinds.includes('list_map') ? [LIST_MAP_RULES] : []),
     ...(toolNames.includes('compose_handoff') ? [COMPOSE_HANDOFF_RULES] : []),
-    ...[cardRulesBlock(toolNames)].filter(
+    ...(cardKinds.length > 0 ? [presentCardPromptBlock(cardKinds)] : []),
+    ...[cardRulesBlock(toolNames, cardKinds)].filter(
       (block): block is string => block !== null,
     ),
     ...(toolNames.includes('present_outreach_proposal') &&

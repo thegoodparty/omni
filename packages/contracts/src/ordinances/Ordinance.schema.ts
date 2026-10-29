@@ -142,10 +142,18 @@ export type OrdinanceLawPoint = z.infer<typeof OrdinanceLawPointSchema>
 // present_current_law_summary: what the law on the books does today (`does`)
 // and where it falls short for the user's goal (`gaps`).
 export const OrdinanceCurrentLawSummarySchema = z.object({
-  chapterLabel: z.string(),
-  source: OrdinanceSourceSchema.optional(),
-  does: z.array(OrdinanceLawPointSchema),
-  gaps: z.array(OrdinanceLawPointSchema),
+  chapterLabel: z
+    .string()
+    .describe(
+      'The chapter, statute or program it summarizes, e.g. "Chapter 12, Public Safety".',
+    ),
+  source: OrdinanceSourceSchema.optional().describe('Where you read it.'),
+  does: z
+    .array(OrdinanceLawPointSchema)
+    .describe('What it does today, one point each.'),
+  gaps: z
+    .array(OrdinanceLawPointSchema)
+    .describe('Where it falls short for this goal, one point each.'),
 })
 export type OrdinanceCurrentLawSummary = z.infer<
   typeof OrdinanceCurrentLawSummarySchema
@@ -164,8 +172,17 @@ export type OrdinanceHistoryEntry = z.infer<typeof OrdinanceHistoryEntrySchema>
 // present_legislative_history: why the current chapter reads the way it does —
 // a timeline of adoptions/amendments with council-minutes excerpts when found.
 export const OrdinanceLegislativeHistorySchema = z.object({
-  chapterLabel: z.string().optional(),
-  entries: z.array(OrdinanceHistoryEntrySchema),
+  chapterLabel: z
+    .string()
+    .optional()
+    .describe('The chapter or statute the timeline is for.'),
+  entries: z
+    .array(OrdinanceHistoryEntrySchema)
+    .describe(
+      'Each adoption or amendment: a year, a short label and a one-line ' +
+        'summary, with a minutes excerpt, its speaker and its source only ' +
+        'when you found one.',
+    ),
 })
 export type OrdinanceLegislativeHistory = z.infer<
   typeof OrdinanceLegislativeHistorySchema

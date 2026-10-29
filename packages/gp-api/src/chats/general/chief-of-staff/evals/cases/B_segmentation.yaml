@@ -124,19 +124,19 @@
     - Create a list called "Housing outreach" of constituents interested in housing.
     - I created the list "Housing outreach" (list 52) from the card.
   turn_expectations:
-    - Runs count_contacts and offers the list with present_list_proposal,
-      passing the same filter and its count. No crud_saved_filters mutation
+    - Runs count_contacts and offers the list as a present_card
+      list_proposal card, passing the same filter and its count. No crud_saved_filters mutation
       and no prose question asking whether to save it.
     - Acknowledges the list the card created by its name, reading its size
       with crud_saved_filters action 'get' on id 52 if it quotes one; no
       claim that individual records can be shown in chat.
-  expected_route: present_list_proposal
+  expected_route: present_card list_proposal
   expected_intent:
     flow: count_contacts first, then offer the list as a card the user saves
   gold_sql: null
   required_behavior:
     - runs a count before offering the list
-    - offers the list with present_list_proposal rather than creating it
+    - offers the list as a present_card list_proposal card rather than creating it
     - list name respected (40-char cap not at issue here)
   forbidden_behavior:
     - creating the list itself with crud_saved_filters

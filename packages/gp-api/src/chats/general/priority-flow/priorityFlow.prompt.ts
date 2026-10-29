@@ -13,6 +13,7 @@ import {
   PRIORITY_STEP_LABELS,
   type PriorityStep,
   type PriorityStepId,
+  type PresentCardKind,
 } from '@goodparty_org/contracts'
 import {
   CLAIM_STRENGTH_RULE,
@@ -23,6 +24,7 @@ import type { PriorityFlowContext } from './services/priorityFlowContext.service
 import { localDay, todayLine } from '../services/todayLine'
 import { OUTREACH_MESSAGE_RULES } from '../chat-tools/presentOutreachProposal.tool'
 import { buildSampleSizingRules } from '../chat-tools/outreachSampling.prompt'
+import { presentCardPromptBlock } from '../chat-tools/presentCard.tool'
 
 export const PRIORITY_FLOW_GUARDRAIL_DECLINE =
   "I'm here to help you move this priority forward. Ask me about the " +
@@ -180,11 +182,11 @@ const ROUTE_BLOCK = `PREVIEW THE PATH BEFORE THE WORK
 
 const SOURCES_BLOCK = `SAYING WHERE IT CAME FROM
 - Anything you bring in from outside this conversation, like a program, a grant, an organization, a person to call, a law or ordinance, or a figure, is something the official may repeat in public. So they need to be able to check it: who published it, the link, and how current it is.
-- Research goes on the cards made for it, not into a write-up. How other places handled it goes on present_comparables. What the city's code or program does today, and where it falls short, goes on present_current_law_summary. Whether this office can act on it goes on present_authority_finding, as a likely reading. Each card's source gets title, url, publisher, kind external, and in date when the page was published or last updated, if it shows one ("March 2026"). A card carries its own intro and takeaway where it has them, so write no lead-in of your own above it: at most one short line before the cards, and after them two sentences at most on what it means for the official. Never recap what the cards say: no "what's confirmed" or "what's still a gap" lists, no figures the cards already carry. A gap no card covers gets one line.
-- Someone they should talk to goes on present_outside_contact, one card each, with every route you actually found. Never put a phone number, email or address in your message. When what you found ends on "talk to them", their card is the last thing in the turn: present it after everything else and write nothing after it.
+- Research goes on the cards made for it, not into a write-up. How other places handled it goes on present_comparables. What the city's code or program does today, and where it falls short, goes on a \`current_law_summary\` card, with the chapter or program name and a source you actually read. Whether this office can act on it goes on present_authority_finding, as a likely reading. Each card's source gets title, url, publisher, kind external, and in date when the page was published or last updated, if it shows one ("March 2026"). A card carries its own intro and takeaway where it has them, so write no lead-in of your own above it: at most one short line before the cards, and after them two sentences at most on what it means for the official. Never recap what the cards say: no "what's confirmed" or "what's still a gap" lists, no figures the cards already carry. A gap no card covers gets one line.
+- Someone they should talk to goes on an \`outside_contact\` card, one card each, with every route you actually found. Never put a phone number, email or address in your message. When what you found ends on "talk to them", their card is the last thing in the turn: present it after everything else and write nothing after it.
 - On an ask_clarify_question option, put it in that option's source the same way: title, url, publisher, kind external, and date.
 - Never narrate the research itself: no "let me search", no "I didn't find it through" a site. Say what you found and what is still missing.
-- A figure in your message carries its source, every time, even when a card has it too; otherwise leave the figure to the card. Anything else you found, like a count or a report, name in your message in one short clause with the link: "the county's 2025 transit plan, updated in May (link)". For an organization you present with present_outside_contact, say in your message where you found it.
+- A figure in your message carries its source, every time, even when a card has it too; otherwise leave the figure to the card. Anything else you found, like a count or a report, name in your message in one short clause with the link: "the county's 2025 transit plan, updated in May (link)". For an organization you show on an \`outside_contact\` card, say in your message where you found it.
 - Only a link you actually found. Never build or guess a URL. If you cannot say where something came from, say it is unverified and where they could confirm it.
 - If a source is more than about two years old, or older than a change it would miss, say so in the same clause.
 - Our own data needs no link, just what it is: their contact records, past outreach, or community issues.
@@ -269,8 +271,24 @@ ${panelFirst ? PANEL_FIRST_LEANS_RULE : LEANS_RULE}
 - When the list itself is the finding, like every name being in one low-income neighborhood, say that plainly rather than letting it read as a list of strangers.
 - The reason is about them, not the data. One plain line on what this does to these people, in their terms, the same way every time, plus one line on who the list leaves out: renters who move, people without a phone on file, anyone whose details are missing. Not "likely to respond", not the columns you filtered on.`
 
+const cardRulesBlock = (offers: (kind: PresentCardKind) => boolean): string =>
+  [
+    'CARD RULES (apply whenever you call `present_card`):',
+    ...(offers('outside_contact')
+      ? [
+          "- An `outside_contact` card is ONE person or office outside the official's records who can act on the problem: the city attorney's office, the county engineer, the state agency desk, the nonprofit that runs the shelter. Build it from what you researched, never from a contact id, and never for one of the official's own constituents. Give a script they can read down the phone or send as written. Include every contact route you actually found and never invent one. If you found no email, phone or website, say so in prose instead of showing the card. Show it only when reaching them is the next real step.",
+        ]
+      : []),
+    ...(offers('past_outreach')
+      ? [
+          '- When what came back last time is the point you are making, show one to five past sends as a `past_outreach` card, by the outreach ids read_past_outreach returned, with a one-line note on why they matter here.',
+        ]
+      : []),
+  ].join('\n')
+
 const buildCheckWorkBlock = (
   has: (name: string) => boolean,
+  offers: (kind: PresentCardKind) => boolean,
   panelFirst: boolean,
 ): string =>
   [
@@ -300,9 +318,9 @@ const buildCheckWorkBlock = (
             : []),
         ]),
     ...(has('present_outreach_proposal') ? [OUTREACH_MESSAGE_RULES] : []),
-    ...(has('present_outside_contact')
+    ...(offers('outside_contact')
       ? [
-          '- The people a check most needs are often the ones the contact file holds least well. When a real local organization reaches them, like a tenants union, a neighborhood association, a business association or a service provider already working this, present one to three with present_outside_contact. Look them up. Never invent a plausible name. They are as much the answer as the list is.',
+          '- The people a check most needs are often the ones the contact file holds least well. When a real local organization reaches them, like a tenants union, a neighborhood association, a business association or a service provider already working this, show one to three as `outside_contact` cards. Look them up. Never invent a plausible name. They are as much the answer as the list is.',
         ]
       : []),
     `- Then say what you found in two or three sentences, as work already done, with the count count_contacts returned this turn: "I pulled the renters on the flood blocks. They would know whether this is really the problem." End with one line: they can send ${panelFirst ? 'it' : 'either or both'} from its card, or tell you if they would rather wait or skip it. The cards are the choice, so never ask about them with ask_clarify_question. What they say comes back as their answer: waiting is deferred, skipping is declined, and having already heard from them goes in heard.`,
@@ -586,8 +604,11 @@ const threadBlock = (ctx: PriorityFlowContext): string =>
 export const buildPriorityFlowSystemPrompt = (args: {
   ctx: PriorityFlowContext
   toolNames: string[]
+  cardKinds?: readonly PresentCardKind[]
 }): string => {
   const has = (name: string) => args.toolNames.includes(name)
+  const cardKinds = args.cardKinds ?? []
+  const offers = (kind: PresentCardKind) => cardKinds.includes(kind)
   // The method needs the dimension read and the count to act on, and the
   // up-front list building needs the list tool on top of those. Without
   // them the check is still asked, just without a list behind it.
@@ -611,13 +632,16 @@ export const buildPriorityFlowSystemPrompt = (args: {
     STATUS_TOOL_BLOCK,
     ROUTE_BLOCK,
     SOURCES_BLOCK,
+    ...(cardKinds.length > 0
+      ? [presentCardPromptBlock(cardKinds), cardRulesBlock(offers)]
+      : []),
     CLAIM_STRENGTH_RULE,
     LEGAL_VALUES_RULE,
     buildStageGateBlock(has, panelFirst),
     ...(canFindGroup ? [buildAffectednessBlock(panelFirst)] : []),
     ...(panelFirst ? [ROUND_ONE_BLOCK] : []),
     ...(canFindGroup && has('count_contacts')
-      ? [buildCheckWorkBlock(has, panelFirst)]
+      ? [buildCheckWorkBlock(has, offers, panelFirst)]
       : []),
     ...(canFindGroup && has('present_outreach_proposal')
       ? [buildSamplingBlock(has)]

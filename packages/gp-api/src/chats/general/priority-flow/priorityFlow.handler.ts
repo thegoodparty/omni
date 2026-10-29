@@ -8,7 +8,6 @@ import { formatISO } from 'date-fns'
 import {
   checkSmsStandards,
   OrdinanceAuthorityFindingSchema,
-  OrdinanceCurrentLawSummarySchema,
   OrdinancePresentComparablesSchema,
   type PriorityCheckSide,
   type PriorityStepId,
@@ -57,7 +56,6 @@ import { buildCountContactsTool } from '../crm-tools/countContacts.tool'
 import { buildListPrecinctsTool } from '../crm-tools/listPrecincts.tool'
 import { buildCrudSavedFiltersTool } from '../crm-tools/crudSavedFilters.tool'
 import { buildAskClarifyQuestionTool } from '../chat-tools/askClarifyQuestion.tool'
-import { buildPresentOutsideContactTool } from '../chat-tools/presentOutsideContact.tool'
 import {
   buildPriorityOutreachProposalTool,
   checkFollowUpPart,
@@ -65,7 +63,10 @@ import {
   checkProposalRefusal,
   proposalResult,
 } from '../chat-tools/presentOutreachProposal.tool'
-import { buildPresentPastOutreachTool } from '../chat-tools/presentPastOutreach.tool'
+import {
+  buildPresentCardTool,
+  offeredCardKinds,
+} from '../chat-tools/presentCard.tool'
 import { buildSizeOutreachSampleTool } from '../chat-tools/sizeOutreachSample.tool'
 import { buildSizeRoundOneTool } from '../chat-tools/sizeRoundOne.tool'
 import { buildReadPastOutreachTool } from '../chat-tools/readPastOutreach.tool'
@@ -289,9 +290,11 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
   }
 
   buildSystemPrompt(ctx: PriorityFlowContext): string {
+    const tools = this.assembleTools(ctx)
     return buildPriorityFlowSystemPrompt({
       ctx,
-      toolNames: Object.keys(this.assembleTools(ctx)),
+      toolNames: Object.keys(tools),
+      cardKinds: offeredCardKinds(tools),
     })
   }
 
@@ -475,8 +478,10 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
           return result
         },
       },
-      present_outside_contact: buildPresentOutsideContactTool(),
-      // The ordinance chat's finding cards, display-only here: a priority has
+      present_card: buildPresentCardTool({
+        kinds: ['outside_contact', 'past_outreach', 'current_law_summary'],
+      }),
+      // The ordinance chat's finding tools, display-only here: a priority has
       // no ordinance to save them to, so they render from their args alone.
       present_comparables: {
         description:
@@ -487,14 +492,6 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
         inputSchema: OrdinancePresentComparablesSchema,
         execute: () => ({ presented: true }),
       } satisfies LlmStreamTool<typeof OrdinancePresentComparablesSchema>,
-      present_current_law_summary: {
-        description:
-          "Show what the city's current code or program does today " +
-          '(`does`) and where it falls short on this priority (`gaps`), with ' +
-          'the chapter or program name and a source you actually read.',
-        inputSchema: OrdinanceCurrentLawSummarySchema,
-        execute: () => ({ presented: true }),
-      } satisfies LlmStreamTool<typeof OrdinanceCurrentLawSummarySchema>,
       present_authority_finding: {
         description:
           'Show whether this office can act on it as a card: a headline, ' +
@@ -504,7 +501,6 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
         inputSchema: OrdinanceAuthorityFindingSchema,
         execute: () => ({ presented: true }),
       } satisfies LlmStreamTool<typeof OrdinanceAuthorityFindingSchema>,
-      present_past_outreach: buildPresentPastOutreachTool(),
       size_outreach_sample: buildSizeOutreachSampleTool(),
       read_past_outreach: buildReadPastOutreachTool({
         outreach: this.outreach,

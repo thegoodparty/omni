@@ -3,6 +3,7 @@ import {
   CAMPAIGN_MANAGER_PRODUCT_OVERVIEW_SENTINEL,
   CAMPAIGN_MANAGER_START_STORY_SENTINEL,
   SmsComplianceWindow,
+  type PresentCardKind,
 } from '@goodparty_org/contracts'
 import { PinoLogger } from 'nestjs-pino'
 import {
@@ -57,8 +58,6 @@ import { buildListPrecinctsTool } from '../crm-tools/listPrecincts.tool'
 import { buildCrudSavedFiltersTool } from '../crm-tools/crudSavedFilters.tool'
 import { buildSizeOutreachSampleTool } from '../chat-tools/sizeOutreachSample.tool'
 import { buildCampaignManagerOutreachProposalTool } from '../chat-tools/presentOutreachProposal.tool'
-import { buildCampaignManagerListProposalTool } from '../crm-tools/presentListProposal.tool'
-import { buildShowListMapTool } from '../crm-tools/showListMap.tool'
 import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
 import { ElectionsService } from '@/elections/services/elections.service'
 import { parseBallotStatus } from '@/campaigns/schemas/ballotStatus.schema'
@@ -78,7 +77,10 @@ import { buildCampaignManagerReadPastOutreachTool } from '../chat-tools/readPast
 import { buildCampaignManagerReadOutreachFeedbackTool } from '../chat-tools/readOutreachFeedback.tool'
 import { FeaturesService } from '@/features/services/features.service'
 import { ISSUE_CAPTURE_FLAG } from '@/constituentFeedback/util/issueCaptureFlag.util'
-import { buildCampaignManagerPresentPastOutreachTool } from '../chat-tools/presentPastOutreach.tool'
+import {
+  buildPresentCardTool,
+  offeredCardKinds,
+} from '../chat-tools/presentCard.tool'
 import { buildAskClarifyQuestionTool } from '../chat-tools/askClarifyQuestion.tool'
 
 // Sensitive scope: the agent is grounded in the candidate's own campaign data,
@@ -596,14 +598,17 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
   }
 
   buildSystemPrompt(ctx: CampaignManagerContext): string {
+    const tools = this.buildTools(ctx)
     return buildCampaignManagerSystemPrompt(
       ctx,
-      Object.keys(this.buildTools(ctx)),
+      Object.keys(tools),
+      offeredCardKinds(tools),
     )
   }
 
   buildTools(ctx: CampaignManagerContext): Record<string, LlmTool> {
     const tools: Record<string, LlmTool> = {}
+    const cardKinds: PresentCardKind[] = []
 
     // Web search runs through Anthropic's native tool (the scope is Claude-only)
     // so queries stay within the enterprise agreement. Registration reads the
@@ -678,8 +683,7 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
             timeZone: resolveSendWindowTimeZone(ctx.state),
           })
       }
-      tools.present_past_outreach =
-        buildCampaignManagerPresentPastOutreachTool()
+      cardKinds.push('past_outreach')
     }
     tools.ask_clarify_question = buildAskClarifyQuestionTool()
 
@@ -733,14 +737,13 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
         })
         // With the saved-list tool, as on the Chief of Staff: the only id
         // it can be given is one crud_saved_filters returned.
-        filterTools.show_list_map = buildShowListMapTool()
+        cardKinds.push('list_map')
       }
       // Saved through the same voter-file route the outreach cards use,
       // which a free campaign can reach; the card's button holds the Pro
       // gate.
       if (this.voterFileFilters && ctx.savedFilterToolsEnabled) {
-        filterTools.present_list_proposal =
-          buildCampaignManagerListProposalTool()
+        cardKinds.push('list_proposal')
       }
       // The catalog is built over the filter tools so its description names
       // only the ones registered beside it. It is still listed first, as it
@@ -765,6 +768,9 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
         tools.present_outreach_proposal =
           buildCampaignManagerOutreachProposalTool({ textingClosed })
       }
+    }
+    if (cardKinds.length > 0) {
+      tools.present_card = buildPresentCardTool({ kinds: cardKinds })
     }
 
     return tools

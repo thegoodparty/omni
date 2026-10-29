@@ -352,8 +352,7 @@ describe('OrdinanceFlowHandler', () => {
       'fetch_url',
       'get_code_source',
       'offer_next_step',
-      'present_current_law_summary',
-      'present_legislative_history',
+      'present_card',
       'read_ordinance',
       'save_existing_law',
       'save_note',
@@ -475,7 +474,7 @@ describe('OrdinanceFlowHandler', () => {
       handler.buildTools({ ...baseCtx(), step: 'authority' }),
     )
     expect(authority).not.toContain('present_comparables')
-    expect(authority).not.toContain('present_current_law_summary')
+    expect(authority).not.toContain('present_card')
   })
 
   it('omits the clarify tools on non-clarify steps but keeps offer_next_step', () => {

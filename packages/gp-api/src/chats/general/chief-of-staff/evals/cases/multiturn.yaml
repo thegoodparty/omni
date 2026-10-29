@@ -237,7 +237,7 @@
     - 'I drew an area on the map and saved it to my list "District renters" (list 41). Where does that leave the list?'
     - 'Can I get just that area as its own list to send door knockers to?'
   turn_expectations:
-    - 'Counts the list with count_contacts and offers it with present_list_proposal, passing the same filter and its count. Does not create it with crud_saved_filters, does not call show_list_map (the card becomes the map once created), and does not ask whether to save it in prose.'
+    - 'Counts the list with count_contacts and offers it as a present_card list_proposal card, passing the same filter and its count. Does not create it with crud_saved_filters, does not show a list_map card (the list_proposal card becomes the map once created), and does not ask whether to save it in prose.'
     - "Re-reads the list with crud_saved_filters action 'get' on id 41 and reports the post-boundary count as the list's current size. Says the shape narrowed THAT list in place. Never claims it cannot read, see, or act on the drawn area."
     - 'Gives the order plainly: offer the list from its filters first, and once it is created, draw the area on its map. Does not claim it can create a list already scoped to the shape, does not make drawing a precondition for building the list, and does not claim it cannot help at all.'
   required_behavior:

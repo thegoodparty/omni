@@ -2,8 +2,6 @@ import { z } from 'zod'
 import type { LlmStreamTool } from '@/llm/services/llm.service'
 import {
   OrdinanceAuthorityFindingSchema,
-  OrdinanceCurrentLawSummarySchema,
-  OrdinanceLegislativeHistorySchema,
   OrdinanceNextStepOfferSchema,
   OrdinancePresentComparablesSchema,
   OrdinancePresentDraftSchema,
@@ -209,33 +207,6 @@ export const buildPresentAuthorityFindingTool = (
       explanation,
       source,
     }),
-})
-
-// Display-only: no artifact column matches the does/gaps summary, so it renders
-// via the persisted tool args alone (like offer_next_step). The underlying
-// research is already persisted by save_existing_law.
-export const buildPresentCurrentLawSummaryTool = (): LlmStreamTool<
-  typeof OrdinanceCurrentLawSummarySchema
-> => ({
-  description:
-    'Show a summary of the current municipal code: what it does today ' +
-    '(`does`) and where it falls short for this ordinance (`gaps`), with the ' +
-    'chapter label and a source. Ground it in what get_code_source and ' +
-    'fetch_url returned; do not invent provisions.',
-  inputSchema: OrdinanceCurrentLawSummarySchema,
-  execute: () => ({ presented: true }),
-})
-
-export const buildPresentLegislativeHistoryTool = (): LlmStreamTool<
-  typeof OrdinanceLegislativeHistorySchema
-> => ({
-  description:
-    'Show a timeline of how the current chapter was adopted and amended. ' +
-    'Each entry needs a year, a short label, and a summary; include a ' +
-    'council-minutes excerpt with its speaker and source when you found one. ' +
-    'Only call it when you have real entries — never with an empty timeline.',
-  inputSchema: OrdinanceLegislativeHistorySchema,
-  execute: () => ({ presented: true }),
 })
 
 export const buildPresentComparablesTool = (

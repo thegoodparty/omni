@@ -279,9 +279,16 @@ export const isToolRefusal = (result: unknown): boolean =>
 /** A prior send worth looking at, resolved live from the outreach history. */
 export const PastOutreachRefSchema = z.object({
   /** Outreach rows to render. Resolved at render, not snapshotted. */
-  outreachIds: z.array(z.number().int().positive()).min(1).max(5),
+  outreachIds: z
+    .array(z.number().int().positive())
+    .min(1)
+    .max(5)
+    .describe('One to five outreach ids read_past_outreach returned.'),
   /** The agent's one-line read of why these matter here. */
-  note: z.string().min(1),
+  note: z
+    .string()
+    .min(1)
+    .describe('Your one-line read of why these sends matter here.'),
 })
 export type PastOutreachRef = z.infer<typeof PastOutreachRefSchema>
 
@@ -291,8 +298,12 @@ export type PastOutreachRef = z.infer<typeof PastOutreachRefSchema>
  * against whatever the record says today.
  */
 export const ConstituentRefSchema = z.object({
-  contactIds: z.array(z.string()).min(1).max(5),
-  note: z.string().min(1),
+  contactIds: z
+    .array(z.string())
+    .min(1)
+    .max(5)
+    .describe('One to five contact ids a contact read returned.'),
+  note: z.string().min(1).describe('One line on why these people and why now.'),
 })
 export type ConstituentRef = z.infer<typeof ConstituentRefSchema>
 
@@ -315,20 +326,40 @@ export type ContactRef = ConstituentRef
  * with none of them still renders its script to copy.
  */
 export const OutsideContactSchema = z.object({
-  name: z.string().min(1),
+  name: z.string().min(1).describe('The person or office, by name.'),
   /** Their role, or the organization they are part of. */
-  role: z.string().min(1),
+  role: z
+    .string()
+    .min(1)
+    .describe('Their role, or the organization they are part of.'),
   /** One line on why this is the person to reach. */
-  why: z.string().min(1),
+  why: z.string().min(1).describe('One line on why this is the one to reach.'),
   /** Who to ask for once the official gets through. */
-  askFor: z.string().min(1),
+  askFor: z
+    .string()
+    .min(1)
+    .describe('Who to ask for once the user gets through.'),
   /** What to say, ready to read down the phone or send as-is. */
-  script: z.string().min(1),
-  email: z.string().email().nullish(),
-  phone: z.string().min(1).nullish(),
+  script: z
+    .string()
+    .min(1)
+    .describe('What to say, ready to read down the phone or send as written.'),
+  email: z
+    .string()
+    .email()
+    .nullish()
+    .describe('Their email, only one you actually found.'),
+  phone: z
+    .string()
+    .min(1)
+    .nullish()
+    .describe('Their phone number, only one you actually found.'),
   // Rejects `javascript:`, which a bare URL check accepts and which reaches
   // an href.
-  url: z.url({ protocol: /^https?$/ }).nullish(),
+  url: z
+    .url({ protocol: /^https?$/ })
+    .nullish()
+    .describe('Their web page, only one you actually found.'),
 })
 export type OutsideContact = z.infer<typeof OutsideContactSchema>
 

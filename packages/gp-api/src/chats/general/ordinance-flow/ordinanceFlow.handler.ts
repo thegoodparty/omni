@@ -35,9 +35,7 @@ import {
   buildOfferNextStepTool,
   buildPresentAuthorityFindingTool,
   buildPresentComparablesTool,
-  buildPresentCurrentLawSummaryTool,
   buildPresentDraftTool,
-  buildPresentLegislativeHistoryTool,
   buildReadOrdinanceTool,
   buildSaveExistingLawTool,
   buildSaveNoteTool,
@@ -45,6 +43,10 @@ import {
   type OrdinanceToolDeps,
 } from './tools/ordinanceFlowTools'
 import { buildAskClarifyQuestionTool } from '../chat-tools/askClarifyQuestion.tool'
+import {
+  buildPresentCardTool,
+  offeredCardKinds,
+} from '../chat-tools/presentCard.tool'
 import { buildOrdinanceFlowSystemPrompt } from './services/ordinanceFlowPrompt'
 
 // Sensitive scope: the ordinance record and its research (constituent-derived
@@ -163,9 +165,11 @@ export class OrdinanceFlowHandler implements ChatScopeHandler<OrdinanceFlowConte
   }
 
   buildSystemPrompt(ctx: OrdinanceFlowContext): string {
+    const tools = this.assembleTools(ctx)
     return buildOrdinanceFlowSystemPrompt({
       ctx,
-      toolNames: Object.keys(this.assembleTools(ctx)),
+      toolNames: Object.keys(tools),
+      cardKinds: offeredCardKinds(tools),
     })
   }
 
@@ -256,12 +260,13 @@ export class OrdinanceFlowHandler implements ChatScopeHandler<OrdinanceFlowConte
     }
 
     // Current-law research reads the live code and persists its findings, then
-    // presents the summary and legislative-history widgets. (fetch_url is a
+    // shows the summary and legislative-history cards. (fetch_url is a
     // base tool now, shared with the source-correction path on every step.)
     if (ctx.step === 'current_law') {
       tools.save_existing_law = buildSaveExistingLawTool(deps)
-      tools.present_current_law_summary = buildPresentCurrentLawSummaryTool()
-      tools.present_legislative_history = buildPresentLegislativeHistoryTool()
+      tools.present_card = buildPresentCardTool({
+        kinds: ['current_law_summary', 'legislative_history'],
+      })
       // Brave returns fetchable result URLs (Anthropic's native web_search
       // hides them), so the model can find a server-rendered copy when
       // fetch_url hits a browser-only page like Municode. Gated on the key so

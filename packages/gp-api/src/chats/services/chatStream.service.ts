@@ -9,7 +9,12 @@ import {
   Prisma,
 } from '../../generated/prisma'
 import { PinoLogger } from 'nestjs-pino'
-import { isToolRefusal } from '@goodparty_org/contracts'
+import {
+  LEGACY_PRESENT_CARD_TOOLS,
+  PRESENT_CARD_TOOL,
+  isLegacyPresentCardTool,
+  isToolRefusal,
+} from '@goodparty_org/contracts'
 import {
   type LlmFilePart,
   type LlmMessage,
@@ -280,7 +285,21 @@ const QUESTION_TOOLS = ['ask_clarify_question', 'ask_panel_weekly_time']
 
 const isCardTool = (toolName: string | null): boolean =>
   toolName !== null &&
-  (toolName.startsWith('present_') || QUESTION_TOOLS.includes(toolName))
+  (toolName.startsWith('present_') ||
+    QUESTION_TOOLS.includes(toolName) ||
+    isLegacyPresentCardTool(toolName))
+
+// A card shown by a tool that is now a present_card kind replays as the
+// present_card call it would be today, so the model never sees a tool it
+// cannot call.
+const cardNote = (toolName: string, payload: unknown): string =>
+  isLegacyPresentCardTool(toolName)
+    ? `${PRESENT_CARD_TOOL} ${JSON.stringify(
+        typeof payload === 'object' && payload !== null
+          ? { card: { kind: LEGACY_PRESENT_CARD_TOOLS[toolName], ...payload } }
+          : payload,
+      )}`
+    : `${toolName} ${JSON.stringify(payload)}`
 
 const replayAssistantContent = (m: ChatMessageWithSegments): string =>
   m.segments.some(
@@ -290,9 +309,10 @@ const replayAssistantContent = (m: ChatMessageWithSegments): string =>
         .map((s) =>
           s.kind === ChatMessageSegmentKind.text
             ? (s.text ?? '')
-            : s.kind === ChatMessageSegmentKind.tool && isCardTool(s.toolName)
-              ? `\n\n${CARD_NOTE_PREFIX} ${s.toolName} ` +
-                `${JSON.stringify(s.payload)}]\n\n`
+            : s.kind === ChatMessageSegmentKind.tool &&
+                s.toolName !== null &&
+                isCardTool(s.toolName)
+              ? `\n\n${CARD_NOTE_PREFIX} ${cardNote(s.toolName, s.payload)}]\n\n`
               : '',
         )
         .join('')

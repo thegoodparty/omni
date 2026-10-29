@@ -831,7 +831,7 @@ describe('buildCampaignManagerSystemPrompt', () => {
     )
     expect(readOnly).toContain('count_contacts')
     expect(readOnly).not.toContain('crud_saved_filters')
-    expect(readOnly).not.toContain('present_list_proposal')
+    expect(readOnly).not.toContain('list_proposal')
 
     const withWrites = buildCampaignManagerSystemPrompt(
       ctx({
@@ -845,7 +845,7 @@ describe('buildCampaignManagerSystemPrompt', () => {
     expect(withWrites).toContain('40 characters')
     expect(withWrites).toContain('duplicated')
     expect(withWrites).toContain(
-      'Offer a list to save with present_list_proposal',
+      'Offer a list to save as a present_card list_proposal card',
     )
     expect(withWrites).toContain('never create a list with it')
     expect(withWrites).toContain("crud_saved_filters with action 'get'")
@@ -861,12 +861,12 @@ describe('buildCampaignManagerSystemPrompt', () => {
         organization: { slug: 'win-campaign' } as Organization,
       }),
     )
-    expect(prompt).toContain('present_list_proposal')
+    expect(prompt).toContain('list_proposal card')
     expect(prompt).toContain('saving a list')
     expect(prompt).not.toContain('crud_saved_filters')
   })
 
-  it('teaches the map rules only where show_list_map is registered', () => {
+  it('teaches the map rules only where the list_map card is offered', () => {
     const crm = ctx({
       crmToolsEnabled: true,
       savedFilterToolsEnabled: true,
@@ -877,10 +877,11 @@ describe('buildCampaignManagerSystemPrompt', () => {
     expect(without).not.toContain('LIST MAP RULES')
     expect(without).not.toContain('DRAWN AREA RULES')
 
-    const withMap = buildCampaignManagerSystemPrompt(crm, [
-      'count_contacts',
-      'show_list_map',
-    ])
+    const withMap = buildCampaignManagerSystemPrompt(
+      crm,
+      ['count_contacts', 'present_card'],
+      ['list_map'],
+    )
     expect(withMap).toContain('LIST MAP RULES')
     expect(withMap).toContain('DRAWN AREA RULES')
     expect(withMap).toContain("crud_saved_filters` with action 'get'")
@@ -1028,13 +1029,14 @@ describe('buildCampaignManagerSystemPrompt', () => {
       'read_past_outreach',
     ])
     expect(withRead).toContain('PAST OUTREACH')
-    expect(withRead).not.toContain('present_past_outreach')
-    expect(
-      buildCampaignManagerSystemPrompt(base, [
-        'read_past_outreach',
-        'present_past_outreach',
-      ]),
-    ).toContain('present_past_outreach')
+    expect(withRead).not.toContain('past_outreach` card')
+    const withCard = buildCampaignManagerSystemPrompt(
+      base,
+      ['read_past_outreach', 'present_card'],
+      ['past_outreach'],
+    )
+    expect(withCard).toContain('as a `past_outreach` card')
+    expect(withCard).toContain('- `past_outreach`: One to five past sends')
     expect(withRead).not.toContain('read_outreach_feedback')
     const withNotes = buildCampaignManagerSystemPrompt(base, [
       'read_past_outreach',

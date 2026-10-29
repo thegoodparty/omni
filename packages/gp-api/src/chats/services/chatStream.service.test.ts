@@ -1115,6 +1115,47 @@ describe('ChatStreamService', () => {
       )
     })
 
+    it('replays a card from a tool that is now a present_card kind as present_card', async () => {
+      seedTurns(
+        [
+          { kind: ChatMessageSegmentKind.text, text: 'Here it is.' },
+          {
+            kind: ChatMessageSegmentKind.tool,
+            toolName: 'show_list_map',
+            payload: { listId: 7, name: 'Downtown renters' },
+          },
+        ],
+        'Here it is.',
+      )
+
+      const sent = await sentMessages()
+
+      expect(sent.find((m) => m.role === 'assistant')?.content).toBe(
+        'Here it is.\n\n[Card you showed: present_card ' +
+          '{"card":{"kind":"list_map","listId":7,"name":"Downtown renters"}}]',
+      )
+    })
+
+    it('replays a present_card call as it was made', async () => {
+      seedTurns(
+        [
+          {
+            kind: ChatMessageSegmentKind.tool,
+            toolName: 'present_card',
+            payload: { card: { kind: 'past_outreach', outreachIds: [3] } },
+          },
+        ],
+        '',
+      )
+
+      const sent = await sentMessages()
+
+      expect(sent.find((m) => m.role === 'assistant')?.content).toBe(
+        '[Card you showed: present_card ' +
+          '{"card":{"kind":"past_outreach","outreachIds":[3]}}]',
+      )
+    })
+
     it('replays a card on a leading assistant turn', async () => {
       store.seedConversation({ id: CONVERSATION_ID, ownerUserId: OWNER_ID })
       store.seedMessage({
