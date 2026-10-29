@@ -223,7 +223,7 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
     // without a district and describe the same dataset.
     const peopleDataset = this.peopleDatasets
       ? await this.peopleDatasets.resolve(ctx.organization)
-      : 'voters'
+      : { base: 'voters' as const }
     const outreachFeedbackEnabled = this.features
       ? await this.features.isFeatureEnabled({
           user: userId,
@@ -283,7 +283,7 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
         : null,
       constituentToolEnabled:
         !!this.constituentProvider &&
-        this.constituentTables[peopleDataset].length > 0,
+        this.constituentTables[peopleDataset.base].length > 0,
       peopleDataset,
     }
   }
@@ -553,7 +553,7 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
     ) {
       const scope = buildConstituentDataScope(
         ctx.districtFilters,
-        this.constituentTables[ctx.peopleDataset],
+        this.constituentTables[ctx.peopleDataset.base],
         ctx.peopleDataset,
       )
       if (scope.allowedTables.size > 0) {

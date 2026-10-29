@@ -750,6 +750,18 @@ jwIDAQAB
         dev: '',
         prod: '73',
       }),
+      // Dev and previews read the overlay views over the dev federated
+      // catalog; prod reads the prod one.
+      PEOPLE_DBX_CONTACT_OVERLAY_VIEW: select({
+        preview: 'gp_api_contact_overlay_dev',
+        dev: 'gp_api_contact_overlay_dev',
+        prod: 'gp_api_contact_overlay',
+      }),
+      SERVE_AGENT_CONTACT_OVERLAY_VIEW: select({
+        preview: 'serve_agent_contact_overlay_dev',
+        dev: 'serve_agent_contact_overlay_dev',
+        prod: 'serve_agent_contact_overlay',
+      }),
       SERVE_ANALYSIS_BUCKET_NAME: `serve-analyze-data-${environment === 'preview' ? 'dev' : environment}`,
       MEETING_PIPELINE_BUCKET: meetingPipelineBucketName,
       TEVYN_POLL_CSVS_BUCKET: tevynPollCsvsBucket.bucket,

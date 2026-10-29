@@ -33,7 +33,7 @@ const DISTRICT: DbxDistrict = {
   districtType: 'Water_District',
   districtName: 'EAST WENATCHEE WATER',
   useVoterOnlyPath: false,
-  dataset: 'voters',
+  dataset: { base: 'voters' },
   table: VOTERS_TABLE,
 }
 
@@ -202,7 +202,7 @@ describe('buildDistrictCellsSql', () => {
       'goodparty_data_catalog.mart_gp_api.gp_api_constituents'
     const { sql } = buildDistrictCellsSql({
       ...DISTRICT,
-      dataset: 'constituents',
+      dataset: { base: 'constituents' },
       table: constituents,
     })
     expect(sql).toContain(`FROM ${constituents} v WHERE`)

@@ -138,11 +138,9 @@ beforeEach(async () => {
   vi.spyOn(
     service.app.get(ContactsService),
     'resolvePeopleDataset',
-  ).mockResolvedValue(
-    'constituents' as Awaited<
-      ReturnType<ContactsService['resolvePeopleDataset']>
-    >,
-  )
+  ).mockResolvedValue({ base: 'constituents' } as Awaited<
+    ReturnType<ContactsService['resolvePeopleDataset']>
+  >)
   vi.spyOn(
     service.app.get(ContactInteractionTextService),
     'findOptedOutPersonIds',

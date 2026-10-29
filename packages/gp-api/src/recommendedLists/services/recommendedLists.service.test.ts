@@ -36,7 +36,7 @@ const district: DbxDistrict = {
   districtType: 'Congressional_District',
   districtName: '12',
   useVoterOnlyPath: false,
-  dataset: 'voters',
+  dataset: { base: 'voters' },
   table: 'goodparty_data_catalog.mart_gp_api.gp_api_voters',
 }
 
@@ -69,7 +69,10 @@ describe('RecommendedListsService.recommend', () => {
   beforeEach(() => {
     resolveEligibleDistrict = vi
       .fn()
-      .mockResolvedValue({ districtId: DISTRICT_ID, dataset: 'voters' })
+      .mockResolvedValue({
+        districtId: DISTRICT_ID,
+        dataset: { base: 'voters' },
+      })
     // The real conversion, so the FilterData each count receives is the
     // one the variant's own universe produces and a test can key on it.
     resolveSavedFilterForQuery = vi.fn(
@@ -119,12 +122,14 @@ describe('RecommendedListsService.recommend', () => {
   it('resolves the district against the people table the org reads', async () => {
     resolveEligibleDistrict.mockResolvedValue({
       districtId: DISTRICT_ID,
-      dataset: 'constituents',
+      dataset: { base: 'constituents' },
     })
 
     await service.recommend(organization, campaign, 'sms', 'introduce')
 
-    expect(resolveDistrict).toHaveBeenCalledWith(DISTRICT_ID, 'constituents')
+    expect(resolveDistrict).toHaveBeenCalledWith(DISTRICT_ID, {
+      base: 'constituents',
+    })
   })
 
   it('omits ideology variants when the campaign has no bucket', async () => {
@@ -639,7 +644,7 @@ describe('RecommendedListsService.recommend', () => {
         return value
       }
       resolveEligibleDistrict.mockImplementation(() =>
-        track({ districtId: DISTRICT_ID, dataset: 'voters' }),
+        track({ districtId: DISTRICT_ID, dataset: { base: 'voters' } }),
       )
       getRaceContext.mockImplementation(() =>
         track({

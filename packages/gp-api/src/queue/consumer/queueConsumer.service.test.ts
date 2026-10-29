@@ -205,7 +205,7 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
         .mockResolvedValue({ pagination: { totalResults: 100 } }),
       findPersonByPhone: vi.fn().mockResolvedValue(null),
       resolveProAccess: vi.fn().mockResolvedValue(true),
-      resolvePeopleDataset: vi.fn().mockResolvedValue('constituents'),
+      resolvePeopleDataset: vi.fn().mockResolvedValue({ base: 'constituents' }),
     }
     pollIssuesService = {
       model: { deleteMany: vi.fn().mockResolvedValue(undefined) },
@@ -385,7 +385,7 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
       '5559999999',
       expect.anything(),
       expect.anything(),
-      'constituents',
+      { base: 'constituents' },
     )
     expect(pollIndividualMessage.client.$transaction).toHaveBeenCalled()
     const txCb = firstOrThrow(
@@ -425,7 +425,7 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
       '5559999999',
       expect.anything(),
       expect.anything(),
-      'constituents',
+      { base: 'constituents' },
     )
     const txCb = firstOrThrow(
       pollIndividualMessage.client.$transaction.mock.calls,

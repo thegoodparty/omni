@@ -38,7 +38,7 @@ const baseCtx = (
   anchor: null,
   districtFilters: null,
   constituentToolEnabled: false,
-  peopleDataset: 'voters',
+  peopleDataset: { base: 'voters' },
   ...overrides,
 })
 
@@ -691,7 +691,7 @@ describe('buildChiefOfStaffSystemPrompt', () => {
 
   it('blames missing scores on non-registration on the constituents dataset', () => {
     const prompt = buildChiefOfStaffSystemPrompt({
-      ctx: baseCtx({ peopleDataset: 'constituents' }),
+      ctx: baseCtx({ peopleDataset: { base: 'constituents' } }),
       toolNames: ['query_constituent_data', 'describe_constituent_data'],
     })
     expect(prompt).not.toContain('of the file')

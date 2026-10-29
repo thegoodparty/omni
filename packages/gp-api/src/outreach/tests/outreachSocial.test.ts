@@ -981,6 +981,8 @@ describe('GET /v1/outreach/:id — nativePhoneBanking', () => {
     },
     cellPhone: '3075550001',
     landline: null,
+    email: null,
+    isNewContact: false,
     gender: null,
     politicalParty: 'Independent',
     registeredVoter: 'Yes',

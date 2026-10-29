@@ -15,19 +15,21 @@ export const dataSourceRoutingRules = (
   peopleDataset: PeopleDataset,
 ): string => {
   const mart =
-    peopleDataset === 'constituents'
+    peopleDataset.base === 'constituents'
       ? 'district constituent mart'
       : 'district voter-file mart'
   const registrationStatus =
-    peopleDataset === 'constituents'
+    peopleDataset.base === 'constituents'
       ? 'registration status (active/inactive, blank for residents not registered to vote)'
       : 'registration status (active/inactive)'
   const martOnly =
-    peopleDataset === 'constituents' ? 'constituent mart' : 'voter-file mart'
+    peopleDataset.base === 'constituents'
+      ? 'constituent mart'
+      : 'voter-file mart'
   const rules = [
     `  - Two independent catalogs exist for people data, and neither is a subset of the other: the CRM contact catalog (describe_filter_dimensions -> count_contacts / crud_saved_filters) and the ${mart} (describe_constituent_data -> query_constituent_data). A dimension missing from one is not necessarily missing from both.`,
     `  - Known catalog-only dimensions: ${registrationStatus} and vote-history/turnout exist ONLY in the ${martOnly}, never in the CRM catalog. Modeled opinion and issue-support scores (columns named hs_*) exist ONLY in the ${martOnly}. Saved lists and per-channel outreach/activity history exist ONLY in the CRM catalog.`,
-    ...(peopleDataset === 'constituents'
+    ...(peopleDataset.base === 'constituents'
       ? [
           '  - Totals include adult residents whether or not they are registered to vote. Modeled scores (hs_*), registration status and turnout cover only residents registered to vote. When you quote a total, say which of the two it counts.',
         ]
@@ -39,4 +41,6 @@ export const dataSourceRoutingRules = (
   return `DATA SOURCE ROUTING (apply before answering any count or data question about people in the district):\n${rules.join('\n')}`
 }
 
-export const DATA_SOURCE_ROUTING_RULES = dataSourceRoutingRules('voters')
+export const DATA_SOURCE_ROUTING_RULES = dataSourceRoutingRules({
+  base: 'voters',
+})

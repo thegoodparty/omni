@@ -29,13 +29,15 @@ describe('DATA_SOURCE_ROUTING_RULES', () => {
   })
 
   it('is the voters dataset text', () => {
-    expect(DATA_SOURCE_ROUTING_RULES).toBe(dataSourceRoutingRules('voters'))
+    expect(DATA_SOURCE_ROUTING_RULES).toBe(
+      dataSourceRoutingRules({ base: 'voters' }),
+    )
     expect(DATA_SOURCE_ROUTING_RULES).not.toMatch(/not registered to vote/i)
   })
 })
 
 describe('dataSourceRoutingRules on the constituents dataset', () => {
-  const rules = dataSourceRoutingRules('constituents')
+  const rules = dataSourceRoutingRules({ base: 'constituents' })
 
   it('stops calling the mart a voter file', () => {
     expect(rules).not.toMatch(/voter-file/i)

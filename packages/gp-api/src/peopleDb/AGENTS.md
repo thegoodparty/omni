@@ -18,8 +18,8 @@ there before anything here can read it.
 
 There are two people tables in `mart_gp_api`, same columns, same ids:
 `gp_api_voters` (the L2 voter file) and `gp_api_constituents` (a superset that
-adds consumer-only people, today Michigan only). `PeopleDataset` names the
-choice (`'voters' | 'constituents'`) and `peopleTable(dataset)` in
+adds consumer-only people, today Michigan only). `PeopleDataset.base` names
+the choice (`'voters' | 'constituents'`) and `peopleTable(dataset)` in
 `databricksVoterSql.util.ts` maps it to the table.
 
 `services/peopleDataset.service.ts` decides it per organization: a Serve
@@ -39,6 +39,40 @@ table is attached per call, so one org's choice never leaks to another org in
 the same district. The census marts (`gp_api_district_census_stats`,
 `gp_api_district_census_demographics`, `gp_api_block_group_census_demographics`)
 are the same for both.
+
+## Imported contacts join the read
+
+A Serve org whose owner has `serve-import-contacts` gets `overlayOrgSlug` and
+`overlayDistrictId` (its own district) on the dataset. `resolveDistrict` then
+sets `district.table` to `contactOverlayTable(...)`: the district-filtered
+people table FULL OUTER JOIN the org's rows of
+`mart_gp_api.<PEOPLE_DBX_CONTACT_OVERLAY_VIEW>`, a dbt view over gp-api's
+`contact_upload_match` table through Lakehouse Federation
+(`docs/adr/2026-10-29-people-reads-join-the-contact-overlay-at-read-time.md`).
+
+- Uploaded cell, landline, address line, city and ZIP win over L2; names,
+  district columns, location and demographics stay L2.
+- New people (`is_new`, gp-api-minted uuid ids) get the district's State and
+  district column written in, and appear only when the read's district is
+  the org's own. Any other district filters them out and keeps L2's scope
+  columns, so an imported person with no L2 row there drops out of scope.
+- The join adds `Email` and `ContactIsNew`. Reads without the overlay project
+  `NULL` and `false` (`projectColumn`), so `Person.email` and
+  `Person.isNewContact` are always present. The CSV export appends `Email`
+  and `New Contact` only with the overlay. Search with an `@` matches
+  `lower(Email)` when the overlay is on.
+- Org slug, state and district name are inlined as escaped literals
+  (`stringLiteral`), because a table expression cannot carry bound
+  parameters. One join, never a UNION (a union over the mart's columns
+  doubled compile time).
+- The Serve agents' `query_constituent_data` gets the same join over
+  `mart_serve_agents.<SERVE_AGENT_CONTACT_OVERLAY_VIEW>`, built in
+  `constituentDataScope.ts` and swapped in only after the SQL validator
+  accepts the model's query; it adds the `on_uploaded_list` and `has_email`
+  dimensions.
+- Turning the flag off returns the org to the plain table at once. That is
+  the kill switch for a federation outage, since every read for a flagged org
+  depends on it.
 
 A priority's read models its coded answers against the district
 (`districtCensusSql.util.ts`, read through `StatsService`):
@@ -105,13 +139,14 @@ call, collects the statement ids it issued, and emits one flat
 a window of them. Flat rather than nested because LogQL cannot unwrap nested
 json without a parser expression per field.
 
-| field          |                                                    |
-| -------------- | -------------------------------------------------- |
-| `op`           | which read (table below)                           |
-| `districtId`   | the district the read was scoped to                |
-| `dataset`      | `voters` or `constituents`, the table it read      |
-| `dbxMs`        | wall-clock ms for the whole operation              |
-| `statementIds` | every Databricks statement id the operation issued |
+| field            |                                                     |
+| ---------------- | --------------------------------------------------- |
+| `op`             | which read (table below)                            |
+| `districtId`     | the district the read was scoped to                 |
+| `dataset`        | `voters` or `constituents`, the table it read       |
+| `contactOverlay` | whether the read joined the org's imported contacts |
+| `dbxMs`          | wall-clock ms for the whole operation               |
+| `statementIds`   | every Databricks statement id the operation issued  |
 
 `statementIds` is an array, not a scalar, and is collected **per operation**:
 `list` issues a count and a page, `stats` issues a voter scan and a census
