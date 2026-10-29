@@ -1,0 +1,115 @@
+enum ContactUploadStatus {
+  processing
+  needs_input
+  complete
+  failed
+}
+
+enum ContactUploadMatchOutcome {
+  pending
+  matched
+  new
+  needs_input
+  resolved
+  skipped
+  invalid
+}
+
+enum ContactUploadMatchMethod {
+  prior_upload
+  name_and_phone
+  name_and_address
+  manual
+}
+
+/// One CSV a Serve user imported (src/contactUploads/AGENTS.md). The original
+/// file is kept in CONTACT_UPLOADS_BUCKET at fileKey; Postgres holds only the
+/// mapped columns, one ContactUploadMatch per CSV row.
+model ContactUpload {
+  id                   String               @id @default(uuid(7))
+  createdAt            DateTime             @default(now()) @map("created_at")
+  updatedAt            DateTime             @updatedAt @map("updated_at")
+  organizationSlug     String               @map("organization_slug")
+  organization         Organization         @relation(fields: [organizationSlug], references: [slug], onDelete: Cascade)
+  userId               Int?                 @map("user_id")
+  user                 User?                @relation("ContactUploadUser", fields: [userId], references: [id], onDelete: SetNull)
+  name                 String
+  fileName             String               @map("file_name")
+  fileKey              String               @map("file_key")
+  /// The CSV header the user picked for each field; null when unmapped. The
+  /// wizard pre-fills from the org's latest upload with the same headers.
+  firstNameColumn      String               @map("first_name_column")
+  lastNameColumn       String               @map("last_name_column")
+  emailColumn          String?              @map("email_column")
+  cellPhoneColumn      String?              @map("cell_phone_column")
+  landlineColumn       String?              @map("landline_column")
+  addressLineColumn    String?              @map("address_line_column")
+  cityColumn           String?              @map("city_column")
+  zipColumn            String?              @map("zip_column")
+  consentAffirmedAt    DateTime             @map("consent_affirmed_at")
+  status               ContactUploadStatus  @default(processing)
+  rowCount             Int                  @map("row_count")
+  matchedCount         Int                  @default(0) @map("matched_count")
+  newCount             Int                  @default(0) @map("new_count")
+  needsInputCount      Int                  @default(0) @map("needs_input_count")
+  skippedCount         Int                  @default(0) @map("skipped_count")
+  invalidCount         Int                  @default(0) @map("invalid_count")
+  /// Re-import summary: rows that landed on someone this org already
+  /// imported, split by whether they changed a value.
+  updatedCount         Int                  @default(0) @map("updated_count")
+  unchangedCount       Int                  @default(0) @map("unchanged_count")
+  completedAt          DateTime?            @map("completed_at")
+  failureReason        String?              @map("failure_reason")
+  matches              ContactUploadMatch[]
+
+  @@index([organizationSlug, createdAt])
+  @@map("contact_upload")
+}
+
+/// One CSV row and what it matched. personId is an L2 person id from
+/// mart_gp_api or a uuid gp-api minted for someone the voter file does not
+/// hold; Databricks reads these rows live (gp_api_contact_overlay) and folds
+/// them into every people read for the org.
+model ContactUploadMatch {
+  id                 String                    @id @default(uuid(7))
+  createdAt          DateTime                  @default(now()) @map("created_at")
+  updatedAt          DateTime                  @updatedAt @map("updated_at")
+  uploadId           String                    @map("upload_id")
+  upload             ContactUpload             @relation(fields: [uploadId], references: [id], onDelete: Cascade)
+  /// Denormalized from the upload so the overlay view filters one table.
+  organizationSlug   String                    @map("organization_slug")
+  rowIndex           Int                       @map("row_index")
+  firstName          String?                   @map("first_name")
+  lastName           String?                   @map("last_name")
+  /// Lowercased.
+  email              String?
+  /// "(616) 555-0142", the L2 format every outreach channel already reads.
+  cellPhone          String?                   @map("cell_phone")
+  landline           String?
+  addressLine        String?                   @map("address_line")
+  city               String?
+  /// Five digits.
+  zip                String?
+  outcome            ContactUploadMatchOutcome @default(pending)
+  method             ContactUploadMatchMethod?
+  /// Null unless the outcome is matched, new or resolved.
+  personId           String?                   @map("person_id")
+  isNewPerson        Boolean                   @default(false) @map("is_new_person")
+  /// Up to 10 L2 people the user can pick from in review.
+  candidatePersonIds String[]                  @default([]) @map("candidate_person_ids")
+  /// The one person who shares the name but nothing else; accepted in bulk.
+  suggestedPersonId  String?                   @map("suggested_person_id")
+  /// Re-import: the fields this row changed on someone already imported.
+  changedFields      String[]                  @default([]) @map("changed_fields")
+  resolvedAt         DateTime?                 @map("resolved_at")
+  resolvedByUserId   Int?                      @map("resolved_by_user_id")
+  resolvedBy         User?                     @relation("ContactUploadMatchResolvedBy", fields: [resolvedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([uploadId, rowIndex])
+  @@index([uploadId, outcome, rowIndex])
+  @@index([organizationSlug, personId])
+  @@index([organizationSlug, email])
+  @@index([organizationSlug, cellPhone])
+  @@index([organizationSlug, landline])
+  @@map("contact_upload_match")
+}

@@ -153,7 +153,7 @@ beforeEach(async () => {
     'resolveEligibleDistrict',
   ).mockResolvedValue({
     districtId: '33333333-3333-4333-8333-333333333333',
-    dataset: 'voters',
+    dataset: { base: 'voters' },
   } as Awaited<ReturnType<ContactsService['resolveEligibleDistrict']>>)
   vi.spyOn(service.app.get(VoterQueryService), 'findPeople').mockResolvedValue({
     people: [{ id: PERSON_NAMED, firstName: 'Dana', lastName: 'Whitfield' }],

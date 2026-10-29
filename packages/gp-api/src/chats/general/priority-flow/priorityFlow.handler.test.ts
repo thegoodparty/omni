@@ -66,7 +66,7 @@ const baseCtx = (): PriorityFlowContext => ({
   anchorSummaries: [],
   districtFilters: null,
   constituentToolEnabled: false,
-  peopleDataset: 'voters',
+  peopleDataset: { base: 'voters' },
 })
 
 describe('PriorityFlowHandler', () => {
@@ -356,7 +356,9 @@ describe('PriorityFlowHandler', () => {
     )
 
   it('reads the constituent table its org resolves to, once per turn', async () => {
-    const resolve = vi.fn(() => Promise.resolve('constituents' as const))
+    const resolve = vi.fn(() =>
+      Promise.resolve({ base: 'constituents' as const }),
+    )
     const handler = new PriorityFlowHandler(
       store,
       context,
@@ -386,7 +388,7 @@ describe('PriorityFlowHandler', () => {
     const tool = handler.buildTools(ctx).query_constituent_data
 
     expect(resolve).toHaveBeenCalledTimes(1)
-    expect(ctx.peopleDataset).toBe('constituents')
+    expect(ctx.peopleDataset).toEqual({ base: 'constituents' })
     expect(tool && 'description' in tool && tool.description).toContain(
       'FROM serve_agent_constituents',
     )

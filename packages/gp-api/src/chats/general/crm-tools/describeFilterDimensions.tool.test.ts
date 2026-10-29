@@ -40,7 +40,7 @@ describe('buildDescribeFilterDimensionsTool', () => {
       contacts: { getFilterDimensions },
       organization: ORGANIZATION,
       filterConsumers: CONSUMERS,
-      peopleDataset: 'voters',
+      peopleDataset: { base: 'voters' },
       citizenPanels: true,
       state: null,
     })
@@ -57,7 +57,7 @@ describe('buildDescribeFilterDimensionsTool', () => {
       contacts: { getFilterDimensions: vi.fn(() => []) },
       organization: ORGANIZATION,
       filterConsumers: CONSUMERS,
-      peopleDataset: 'voters',
+      peopleDataset: { base: 'voters' },
       citizenPanels: true,
       state: null,
     })
@@ -74,7 +74,7 @@ describe('buildDescribeFilterDimensionsTool', () => {
       contacts: { getFilterDimensions: vi.fn(() => []) },
       organization: ORGANIZATION,
       filterConsumers: CONSUMERS,
-      peopleDataset: 'voters',
+      peopleDataset: { base: 'voters' },
       citizenPanels: true,
       state: null,
     })
@@ -89,7 +89,7 @@ describe('buildDescribeFilterDimensionsTool', () => {
       contacts: { getFilterDimensions },
       organization: ORGANIZATION,
       filterConsumers: CONSUMERS,
-      peopleDataset: 'voters',
+      peopleDataset: { base: 'voters' },
       citizenPanels: true,
       state: null,
     })
@@ -119,7 +119,7 @@ describe('buildDescribeFilterDimensionsTool', () => {
       contacts: { getFilterDimensions: vi.fn(() => []) },
       organization: ORGANIZATION,
       filterConsumers: CONSUMERS,
-      peopleDataset: 'voters',
+      peopleDataset: { base: 'voters' },
       citizenPanels: true,
       state: null,
     })
@@ -144,7 +144,7 @@ describe('buildDescribeFilterDimensionsTool', () => {
       contacts: { getFilterDimensions: vi.fn(() => []) },
       organization: ORGANIZATION,
       filterConsumers: [],
-      peopleDataset: 'voters',
+      peopleDataset: { base: 'voters' },
       citizenPanels: true,
       state: null,
     })
@@ -159,7 +159,7 @@ describe('buildDescribeFilterDimensionsTool', () => {
       contacts: { getFilterDimensions: vi.fn(() => []) },
       organization: ORGANIZATION,
       filterConsumers: CONSUMERS,
-      peopleDataset: 'voters',
+      peopleDataset: { base: 'voters' },
       citizenPanels: true,
       state: null,
     })
@@ -171,11 +171,13 @@ describe('buildDescribeFilterDimensionsTool', () => {
       contacts: { getFilterDimensions: vi.fn(() => []) },
       organization: ORGANIZATION,
       filterConsumers: CONSUMERS,
-      peopleDataset: 'constituents',
+      peopleDataset: { base: 'constituents' },
       citizenPanels: true,
       state: null,
     })
-    expect(tool.description).toContain(dataSourceRoutingRules('constituents'))
+    expect(tool.description).toContain(
+      dataSourceRoutingRules({ base: 'constituents' }),
+    )
     expect(tool.description).not.toContain(DATA_SOURCE_ROUTING_RULES)
   })
 })
@@ -189,7 +191,7 @@ describe('buildDescribeFilterDimensionsTool: state', () => {
       contacts: { getFilterDimensions },
       organization: ORGANIZATION,
       filterConsumers: CONSUMERS,
-      peopleDataset: 'voters',
+      peopleDataset: { base: 'voters' },
       citizenPanels: false,
       state: 'MN',
     })

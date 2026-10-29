@@ -88,6 +88,10 @@ export interface ConstituentDataScope {
   // party count is never reported as one. Scopes that omit it keep the
   // registration wording.
   partyNote?: string | null
+  // The table joined to the org's imported contacts, set when the dataset
+  // carries the overlay (buildConstituentDataScope). It replaces the table
+  // only after the validator has accepted the SQL against the bare table.
+  contactOverlayTable?: string
 }
 
 const normalizeColumn = (name: string): string => name.toLowerCase()
@@ -392,7 +396,7 @@ Write ONE SELECT against this exact table — you MUST include the FROM clause:
 The WHERE clause is your district scope — copy it verbatim, AND-combined with any extra filters. The GROUP BY is optional; omit it for a single district-wide total.
 
 Breakdown dimensions: call describe_constituent_data first to see the recommended dimensions and what each one means. Most are modeled issue-support scores (columns named hs_*${scope.catalogCarriesScoreMarks ? '' : ', each a 0-100 likelihood where a higher score means more aligned with the named position — report them as approximate shares/averages, never as exact head counts'}), plus age and urbanicity. Break down or filter by those. Do NOT group by a district or geography column: your district scope above already pins every row to one district, so a district breakdown just returns one meaningless row.
-${scope.catalogCarriesScoreMarks ? `\n${hsScoreSemantics(scope.audienceNoun, scope.peopleDataset ?? 'voters')}\n` : ''}
+${scope.catalogCarriesScoreMarks ? `\n${hsScoreSemantics(scope.audienceNoun, scope.peopleDataset ?? { base: 'voters' })}\n` : ''}
 RULES:
   - Single SELECT, and it MUST contain "FROM ${table}".
   - ALWAYS include COUNT(*) (e.g. COUNT(*) AS count); any alias is fine. Queries with no COUNT are rejected.
@@ -412,7 +416,7 @@ ${
 
 Surface findings to the user in plain language — counts and percentages, not raw scores. Never echo the SQL or internal column names.
 
-${dataSourceRoutingRules(scope.peopleDataset ?? 'voters')}`
+${dataSourceRoutingRules(scope.peopleDataset ?? { base: 'voters' })}`
 }
 
 export const buildQueryConstituentDataTool = (deps: {
@@ -425,7 +429,26 @@ export const buildQueryConstituentDataTool = (deps: {
     const validatedSql = validateConstituentSql(sql, deps.scope)
     const limit = clampMaxRows(maxRows)
 
-    const result = await deps.provider.query(validatedSql)
+    const table = [...deps.scope.allowedTables][0]
+    const overlay = deps.scope.contactOverlayTable
+    const from = parseSingleSelect(validatedSql)?.stmt.from
+    const aliased =
+      Array.isArray(from) &&
+      from.some(
+        (entry: unknown) =>
+          isRecord(entry) &&
+          typeof entry.as === 'string' &&
+          entry.as.length > 0,
+      )
+    const querySql =
+      overlay && table
+        ? validatedSql.replace(
+            new RegExp(`\\bFROM\\s+\`?${table}\`?(?![\\w\`.])`, 'i'),
+            () => (aliased ? `FROM ${overlay}` : `FROM ${overlay} AS ${table}`),
+          )
+        : validatedSql
+
+    const result = await deps.provider.query(querySql)
     const countAlias = findCountAlias(validatedSql)
     const scrubbed = scrubResults(result.rows, {
       minCellSize: deps.scope.minCellSize ?? DEFAULT_MIN_CELL_SIZE,
@@ -473,7 +496,7 @@ export const buildDescribeConstituentDataTool = (deps: {
 }): LlmStreamTool<Record<string, never>, ConstituentDataMetadata> => ({
   description:
     'List the table, recommended breakdown dimensions (with labels), and aggregate functions available to query_constituent_data. Call this before writing a query so you use valid names.\n\n' +
-    dataSourceRoutingRules(deps.scope.peopleDataset ?? 'voters'),
+    dataSourceRoutingRules(deps.scope.peopleDataset ?? { base: 'voters' }),
   inputSchema: z.object({}),
   execute: () => ({
     table: [...deps.scope.allowedTables][0] ?? '',

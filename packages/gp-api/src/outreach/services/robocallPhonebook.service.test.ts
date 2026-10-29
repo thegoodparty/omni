@@ -49,7 +49,7 @@ describe('RobocallPhonebookService', () => {
     delete process.env.ROBOCALL_TEST_OVERRIDE_NUMBER
     contacts = {
       findContactsForFilter: vi.fn(),
-      resolvePeopleDataset: vi.fn().mockResolvedValue('voters'),
+      resolvePeopleDataset: vi.fn().mockResolvedValue({ base: 'voters' }),
     }
     organizations = { findFirst: vi.fn().mockResolvedValue({ id: 1 }) }
     voterFileFilterService = {
@@ -120,7 +120,7 @@ describe('RobocallPhonebookService', () => {
       { resultsPerPage: 1000, page: 1 },
       { id: 1 },
       undefined,
-      'voters',
+      { base: 'voters' },
     )
 
     // CSV holds the extracted numbers behind a header row, deduped,

@@ -369,6 +369,19 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
   MEETING_PIPELINE_BUCKET: { tier: 'optional' },
   ANNOTATION_ATTACHMENTS_BUCKET: { tier: 'optional' },
   CHAT_ATTACHMENTS_BUCKET: { tier: 'optional' },
+  // Original CSVs from Import contacts (src/contactUploads/AGENTS.md).
+  CONTACT_UPLOADS_BUCKET: { tier: 'optional' },
+  // The dbt view the people reads join for orgs with serve-import-contacts
+  // on; dev reads the view over the dev federated catalog.
+  PEOPLE_DBX_CONTACT_OVERLAY_VIEW: {
+    tier: 'optional',
+    default: 'gp_api_contact_overlay',
+  },
+  // The same overlay for the Serve agents' mart, keyed by voter_key.
+  SERVE_AGENT_CONTACT_OVERLAY_VIEW: {
+    tier: 'optional',
+    default: 'serve_agent_contact_overlay',
+  },
 
   CAMPAIGN_TRACKER_AUTOMATION_ENABLED: { tier: 'optional' },
   MEETINGS_AUTOMATION_ENABLED: { tier: 'optional' },

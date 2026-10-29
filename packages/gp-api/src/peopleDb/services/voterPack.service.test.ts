@@ -28,20 +28,20 @@ describe('VoterPackService', () => {
   })
 
   it('builds the pack from the Databricks pack service', async () => {
-    await expect(service.build(request(), 'voters')).resolves.toEqual(
+    await expect(service.build(request(), { base: 'voters' })).resolves.toEqual(
       Buffer.from('pack'),
     )
     expect(build).toHaveBeenCalledTimes(1)
   })
 
   it('logs the read under the dk-pack op and the request district', async () => {
-    await service.build(request(), 'voters')
+    await service.build(request(), { base: 'voters' })
 
     expect(measure).toHaveBeenCalledWith(
       expect.objectContaining({
         op: 'dk-pack',
         districtId: DISTRICT_ID,
-        dataset: 'voters',
+        dataset: { base: 'voters' },
       }),
     )
   })
@@ -51,11 +51,11 @@ describe('VoterPackService', () => {
   // district, so it must reach the arm that does the reading.
   it('forwards the abort signal', async () => {
     const controller = new AbortController()
-    await service.build(request(), 'voters', controller.signal)
+    await service.build(request(), { base: 'voters' }, controller.signal)
 
     expect(build).toHaveBeenCalledWith(
       expect.objectContaining({ districtId: DISTRICT_ID }),
-      'voters',
+      { base: 'voters' },
       controller.signal,
     )
   })
@@ -65,7 +65,7 @@ describe('VoterPackService', () => {
   it('propagates a failure from the pack build', async () => {
     build.mockRejectedValue(new Error('warehouse unavailable'))
 
-    await expect(service.build(request(), 'voters')).rejects.toThrow(
+    await expect(service.build(request(), { base: 'voters' })).rejects.toThrow(
       'warehouse unavailable',
     )
   })

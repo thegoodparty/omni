@@ -114,14 +114,21 @@ vi.mock('@shared/organization-picker', () => ({
   useOrganization: () => mockOrganization.current,
 }))
 const mockServeConsumerData = vi.hoisted(() => ({ on: false }))
+const mockImportContacts = vi.hoisted(() => ({ on: false }))
 vi.mock('@shared/experiments/FeatureFlagsProvider', async (importOriginal) => ({
   ...(await importOriginal<
     typeof import('@shared/experiments/FeatureFlagsProvider')
   >()),
   useFlagOn: (key: string) => ({
     ready: true,
-    on: key === 'serve-consumer-data' && mockServeConsumerData.on,
+    on:
+      (key === 'serve-consumer-data' && mockServeConsumerData.on) ||
+      (key === 'serve-import-contacts' && mockImportContacts.on),
   }),
+}))
+vi.mock('./import/ImportContactsWizard', () => ({
+  default: ({ open }: { open: boolean }) =>
+    open ? <div data-testid="import-contacts-wizard" /> : null,
 }))
 vi.mock('./lists/ListDetailSheet', () => ({
   default: ({
@@ -167,7 +174,48 @@ beforeEach(() => {
     positionName: 'Mayor of Nowhere',
   }
   mockServeConsumerData.on = false
+  mockImportContacts.on = false
   vi.mocked(trackEvent).mockClear()
+})
+
+describe('CrmContactsPage — Import contacts', () => {
+  it('offers Import contacts and Upload history to Serve with the flag on', async () => {
+    const user = userEvent.setup()
+    mockImportContacts.on = true
+    setContext({ isWinContext: false })
+
+    render(<CrmContactsPage />)
+
+    expect(
+      screen.getByRole('link', { name: 'Upload history' }),
+    ).toHaveAttribute('href', '/dashboard/contacts/uploads')
+    await user.click(screen.getByRole('button', { name: 'Import contacts' }))
+    expect(screen.getByTestId('import-contacts-wizard')).toBeInTheDocument()
+  })
+
+  it('never offers them on Win', () => {
+    mockImportContacts.on = true
+    setContext({ isWinContext: true })
+
+    render(<CrmContactsPage />)
+
+    expect(
+      screen.queryByRole('button', { name: 'Import contacts' }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('link', { name: 'Upload history' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('hides them on Serve with the flag off', () => {
+    setContext({ isWinContext: false })
+
+    render(<CrmContactsPage />)
+
+    expect(
+      screen.queryByRole('button', { name: 'Import contacts' }),
+    ).not.toBeInTheDocument()
+  })
 })
 
 // ENG-10767: this page's users had vanished from the Contacts Viewed chart,

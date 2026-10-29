@@ -1,3 +1,4 @@
+import { ContactUploadMatchService } from '@/contactUploads/services/contactUploadMatch.service'
 import {
   ContactStatusField,
   ContactStatusSource,
@@ -97,6 +98,9 @@ describe('ContactEngagementService', () => {
         mockContactInteractionPhoneBankingService as unknown as ContactInteractionPhoneBankingService,
         mockContactStatusService as unknown as ContactStatusService,
         mockPriorityAnswers as unknown as ContactPriorityAnswersService,
+        {
+          findForActivityFeed: vi.fn().mockResolvedValue([]),
+        } as unknown as ContactUploadMatchService,
       )
     })
 
