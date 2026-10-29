@@ -242,6 +242,7 @@ const components: Components<typeof generatedUiCatalog> = {
             size="small"
             className="shrink-0"
             onClick={press}
+            data-testid="generated-ui-outreach-cta"
           >
             {props.ctaLabel}
           </Button>

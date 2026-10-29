@@ -19,7 +19,7 @@ export const generatedUiWidgetTool = defineWidgetTool({
     return parsed.success ? parsed.data : null
   },
   render: (spec, { onClarifyAnswer }: GeneratedUiWidgetContext) => (
-    <div className="w-full">
+    <div className="w-full" data-testid="generated-ui">
       <GeneratedUi spec={spec} onSendMessage={onClarifyAnswer} />
     </div>
   ),
