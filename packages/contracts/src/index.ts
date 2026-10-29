@@ -1058,6 +1058,14 @@ export {
 } from './chats/ComposeHandoff.schema'
 
 export {
+  GENERATED_UI_TOOL,
+  GENERATED_UI_A2UI_CATALOG_ID,
+  GENERATED_UI_SEND_MESSAGE_EVENT,
+  PresentGeneratedUiA2uiSchema,
+  type PresentGeneratedUiA2ui,
+} from './chats/GeneratedUiA2ui.schema'
+
+export {
   CHAT_ATTACHMENT_MAX_BYTES,
   CHAT_ATTACHMENT_MAX_PAGES,
   CHAT_ATTACHMENTS_PER_CONVERSATION,

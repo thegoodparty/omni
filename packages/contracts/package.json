@@ -10,6 +10,11 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.mjs",
       "require": "./dist/index.js"
+    },
+    "./genui-a2ui": {
+      "types": "./dist/genui-a2ui.d.ts",
+      "import": "./dist/genui-a2ui.mjs",
+      "require": "./dist/genui-a2ui.js"
     }
   },
   "files": [
@@ -29,9 +34,11 @@
     "url": "https://github.com/thegoodparty/gp-api"
   },
   "dependencies": {
+    "@a2ui/web_core": "^0.14.0",
     "uuid": "^14.0.1",
     "validator": "^13.12.0",
-    "zod": "4.4.3"
+    "zod": "4.4.3",
+    "zod-v3": "npm:zod@3.25.76"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.5",

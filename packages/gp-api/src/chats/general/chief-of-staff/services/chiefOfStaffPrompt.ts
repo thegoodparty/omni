@@ -51,6 +51,7 @@ import {
   HONEST_REPORTING_BLOCK,
 } from '../../services/assistantRules.prompt'
 import { guardrailLine } from '../../services/guardrailLines'
+import { GENERATED_UI_RULES } from '../../chat-tools/presentGeneratedUi.tool'
 
 export const COS_GUARDRAIL_DECLINE = GUARDRAIL_DECLINE.serve
 const LEGAL_LINE = guardrailLine('legal_advice', 'chief_of_staff')
@@ -447,6 +448,8 @@ const TOOL_DESCRIPTIONS: Record<string, string> = {
     'show people from the user’s own contact records as a card',
   present_outside_contact:
     'show one person or office outside the user’s records to call, with a script',
+  present_generated_ui:
+    'show UI built from a component catalog: stats, tables, maps, contact and outreach cards, questions',
 }
 
 const anchoredIssueBlock = (anchor: ChatAnchor): string => {
@@ -740,6 +743,7 @@ export const buildChiefOfStaffSystemPrompt = (args: {
     ...[cardRulesBlock(toolNames)].filter(
       (block): block is string => block !== null,
     ),
+    ...(toolNames.includes('present_generated_ui') ? [GENERATED_UI_RULES] : []),
     ...(toolNames.includes('present_outreach_proposal') &&
     toolNames.includes('size_outreach_sample')
       ? [outreachSamplingBlock(toolNames)]

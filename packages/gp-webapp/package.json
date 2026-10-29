@@ -32,6 +32,8 @@
     "types": "npm run build:contracts && npx tsc"
   },
   "dependencies": {
+    "@a2ui/react": "^0.14.0",
+    "@a2ui/web_core": "^0.14.0",
     "@amplitude/experiment-js-client": "^1.16.2",
     "@amplitude/session-replay-browser": "^1.27.0",
     "@clerk/nextjs": "^7.5.3",
