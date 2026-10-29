@@ -132,8 +132,8 @@ Both stages call the same composite deploy action, only with different env input
   (`gp-api-cleanup-preview.yml`). Stale means the PR is closed or has been idle
   for `PREVIEW_IDLE_DAYS` days (repo variable, default 21); pushing a commit to
   an open PR brings its preview back.
-- PR preview deploys and their teardown assume `vars.AWS_PREVIEW_DEPLOY_ROLE_ARN`
-  (`github-actions-preview-deploy`, owned by `thegoodparty/ops`), never the
+- PR preview deploys and their teardown assume `github-actions-preview-deploy`
+  (owned by `thegoodparty/ops`, ARN written in both workflows), never the
   admin deploy role. It is trusted by `pull_request` runs only, reaches
   `gp-pr-*`/`pr-*`-named or preview-tagged resources, reads only `GP_API_DEV`,
   and can create a role only with the preview permissions boundary. A preview

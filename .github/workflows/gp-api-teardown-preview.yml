@@ -40,7 +40,7 @@ jobs:
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5
         with:
-          role-to-assume: ${{ vars.AWS_PREVIEW_DEPLOY_ROLE_ARN }}
+          role-to-assume: arn:aws:iam::333022194791:role/github-actions-preview-deploy
           aws-region: us-west-2
 
       - name: Drop preview database
