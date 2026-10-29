@@ -36,6 +36,11 @@ import { ListPeopleDTO } from '@/peopleDb/schemas/people.schema'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import { parseContactUploadCsv } from '../util/contactUploadCsv.util'
+import {
+  type ContactUploadCounts,
+  type ContactUploadOutcomeGroup,
+  countsFromOutcomeGroups,
+} from '../util/contactUploadCounts.util'
 
 const INSERT_CHUNK_SIZE = 5_000
 
@@ -46,14 +51,6 @@ const UPLOAD_USER_INCLUDE = {
 type ContactUploadWithUser = Prisma.ContactUploadGetPayload<{
   include: typeof UPLOAD_USER_INCLUDE
 }>
-
-export type ContactUploadCounts = {
-  matchedCount: number
-  newCount: number
-  needsInputCount: number
-  skippedCount: number
-  invalidCount: number
-}
 
 export type ListContactUploadRowsInput = {
   outcome: 'needs_input' | 'processed' | 'skipped' | 'invalid'
@@ -448,38 +445,56 @@ export class ContactUploadsService extends createPrismaBase(
     return { accepted, upload: toUploadResponse(updated) }
   }
 
+  async retryUpload(
+    organization: Organization,
+    id: string,
+  ): Promise<ContactUploadResponse> {
+    await this.findOwnedUpload(organization, id)
+    const { count } = await this.model.updateMany({
+      where: { id, status: ContactUploadStatus.failed },
+      data: { status: ContactUploadStatus.processing, failureReason: null },
+    })
+    if (count === 0) {
+      throw new ConflictException('Only a failed upload can be retried')
+    }
+
+    let enqueueFailed = false
+    try {
+      await this.queueProducer.sendMessage(
+        { type: QueueType.CONTACT_UPLOAD_MATCH, data: { uploadId: id } },
+        `${MessageGroup.contactUploadMatch}-${organization.slug}`,
+        { throwOnError: true },
+      )
+    } catch (err) {
+      this.logger.error({ err, uploadId: id }, 'contact upload retry failed')
+      enqueueFailed = true
+    }
+    if (enqueueFailed) {
+      await this.model.update({
+        where: { id },
+        data: {
+          status: ContactUploadStatus.failed,
+          failureReason: 'Matching could not be started',
+        },
+      })
+      throw new BadGatewayException('Could not start matching this upload')
+    }
+    return this.getUpload(organization, id)
+  }
+
   async countOutcomes(
     tx: Prisma.TransactionClient,
     uploadId: string,
   ): Promise<ContactUploadCounts> {
-    const groups = await tx.contactUploadMatch.groupBy({
-      by: ['outcome', 'isNewPerson'],
-      where: { uploadId },
-      _count: { _all: true },
-    })
-    const count = (test: (group: (typeof groups)[number]) => boolean): number =>
-      groups.filter(test).reduce((sum, group) => sum + group._count._all, 0)
-    return {
-      matchedCount: count(
-        (g) =>
-          g.outcome === ContactUploadMatchOutcome.matched ||
-          (g.outcome === ContactUploadMatchOutcome.resolved && !g.isNewPerson),
-      ),
-      newCount: count(
-        (g) =>
-          g.outcome === ContactUploadMatchOutcome.new ||
-          (g.outcome === ContactUploadMatchOutcome.resolved && g.isNewPerson),
-      ),
-      needsInputCount: count(
-        (g) => g.outcome === ContactUploadMatchOutcome.needs_input,
-      ),
-      skippedCount: count(
-        (g) => g.outcome === ContactUploadMatchOutcome.skipped,
-      ),
-      invalidCount: count(
-        (g) => g.outcome === ContactUploadMatchOutcome.invalid,
-      ),
-    }
+    const groups = await tx.$queryRaw<ContactUploadOutcomeGroup[]>`
+      SELECT outcome, is_new_person AS "isNewPerson", method,
+        cardinality(changed_fields) > 0 AS "hasChangedFields",
+        count(*)::int AS count
+      FROM contact_upload_match
+      WHERE upload_id = ${uploadId}
+      GROUP BY 1, 2, 3, 4
+    `
+    return countsFromOutcomeGroups(groups)
   }
 
   private async recountAfterReview(

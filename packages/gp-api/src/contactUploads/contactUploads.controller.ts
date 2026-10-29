@@ -146,6 +146,17 @@ export class ContactUploadsController {
     })
   }
 
+  @Post(':id/retry')
+  @HttpCode(HttpStatus.OK)
+  @ResponseSchema(ContactUploadSchema)
+  async retryUpload(
+    @ReqOrganization() organization: Organization,
+    @Param() { id }: ContactUploadParamsDTO,
+  ) {
+    await this.assertImportContactsOn(organization)
+    return this.uploads.retryUpload(organization, id)
+  }
+
   // Serve only, and rolled out per org: the flag follows the org's owner.
   private async assertImportContactsOn(
     organization: Organization,

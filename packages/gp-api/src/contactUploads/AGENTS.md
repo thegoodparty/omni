@@ -19,6 +19,7 @@ for the org's owner. Contracts: `contracts/src/contactUploads/`.
 | `GET /v1/contact-uploads/:id/rows`              | Rows by outcome, keyset-paged on `rowIndex`, `ILIKE` search          |
 | `PUT /v1/contact-uploads/:id/rows/:rowId/match` | `{ personId }`, `{ newPerson }` or `{ skip }`; returns the upload    |
 | `POST /v1/contact-uploads/:id/accept-suggested` | Accept every lone name-only suggestion, one transaction              |
+| `POST /v1/contact-uploads/:id/retry`            | A `failed` upload back to `processing`, matching queued again        |
 | `GET /v1/contacts/:personId/sources`            | Per-field "Came from", the person's upload rows, `hasActivity`       |
 
 The person feed (`GET /v1/contact-engagement/:id/activities`) reads this
@@ -34,8 +35,11 @@ person's rows as `CONTACT_IMPORT` items (`ContactUploadMatchService.findForActiv
    (`MessageGroupId` per org, so an org's uploads match in order). A row
    without first and last name is `invalid`. With the bucket unset (a laptop
    without AWS access) the put is skipped and logged.
-2. **Match** (`services/contactUploadMatchJob.service.ts`), 20,000 pending
-   rows per chunk, in order: duplicates within the chunk, the org's earlier
+2. **Match** (`services/contactUploadMatchJob.service.ts`), one chunk of
+   20,000 pending rows per delivery. While pending rows remain, the
+   delivery queues the same message again (same `MessageGroupId`,
+   deduplicated on the next pending `rowIndex`) before acking, so no
+   delivery outlives the 5-minute visibility timeout. Per chunk, in order: duplicates within the chunk, the org's earlier
    rows in Postgres (email, then phone + last name, then name + address),
    then one Databricks statement per chunk
    (`peopleDb/databricks/contactUploadMatchSql.util.ts`, through
@@ -43,8 +47,12 @@ person's rows as `CONTACT_IMPORT` items (`ContactUploadMatchService.findForActiv
    `decideFromCandidates` (`util/contactUploadMatching.util.ts`). New people
    get a uuid v7. Each chunk commits on its own and only `pending` rows are
    worked, so a redelivery resumes. A row landing on someone an earlier
-   upload already gave values gets `changedFields`, and counts as updated or
-   unchanged.
+   upload already gave values gets `changedFields`.
+   Counts are never incremented: finalize, a review PUT and accept-suggested
+   each recompute all of them from one grouped count over the upload's rows
+   (`countOutcomes`, `util/contactUploadCounts.util.ts`), so a duplicate
+   delivery cannot double-count. Updated is a row with `changedFields`;
+   unchanged is a `prior_upload` row without.
 3. **Review**: `needs_input` rows wait until the user picks. Candidate
    details are read from Databricks by id (`VoterQueryService.findPeople`
    with an `id` filter) for the page being shown, never stored.
@@ -73,7 +81,6 @@ person's rows as `CONTACT_IMPORT` items (`ContactUploadMatchService.findForActiv
   is watched.
 - Deleting an org's files from the bucket: Postgres rows cascade with the
   org, but no org deletion hook exists to clear `<orgSlug>/` in S3.
-- Retrying a `failed` upload from Upload history.
 
 ## Tests
 

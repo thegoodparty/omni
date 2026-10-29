@@ -19,6 +19,8 @@ import type {
   ContactUploadMatchInputRow,
 } from '@/peopleDb/databricks/contactUploadMatchSql.util'
 import { AnalyticsService } from '@/analytics/analytics.service'
+import { QueueProducerService } from '@/queue/producer/queueProducer.service'
+import { MessageGroup, QueueType } from '@/queue/queue.types'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import {
   addressParts,
@@ -28,7 +30,7 @@ import {
 } from '../util/contactUploadMatching.util'
 import { ContactUploadsService } from './contactUploads.service'
 
-const MATCH_CHUNK_SIZE = 20_000
+export const MATCH_CHUNK_SIZE = 20_000
 
 // The main queue's redrive maxReceiveCount (deploy/index.ts). The delivery
 // that reaches it is the last one, so it marks the upload failed instead of
@@ -96,13 +98,16 @@ export class ContactUploadMatchJobService extends createPrismaBase(
     private readonly contacts: ContactsService,
     private readonly voterQuery: VoterQueryService,
     private readonly analytics: AnalyticsService,
+    private readonly queueProducer: QueueProducerService,
   ) {
     super()
   }
 
   // Queue handler for QueueType.CONTACT_UPLOAD_MATCH. Returns true to ack,
-  // false to let SQS redeliver. Only `pending` rows are worked and each chunk
-  // commits on its own, so a redelivery resumes where the last one stopped.
+  // false to let SQS redeliver. Each delivery matches one chunk and, while
+  // pending rows remain, queues the next before acking, so no delivery
+  // outlives the visibility timeout. Only `pending` rows are worked, so a
+  // redelivery resumes where the last one stopped.
   async handleQueuedMatch(
     uploadId: string,
     receiveCount: number,
@@ -121,7 +126,7 @@ export class ContactUploadMatchJobService extends createPrismaBase(
 
     let failed = false
     try {
-      await this.matchUpload(upload, upload.organization)
+      await this.matchNextChunk(upload, upload.organization)
     } catch (err) {
       const lastAttempt = receiveCount >= CONTACT_UPLOAD_MATCH_MAX_RECEIVES
       this.logger.error(
@@ -143,30 +148,50 @@ export class ContactUploadMatchJobService extends createPrismaBase(
     return true
   }
 
-  private async matchUpload(
+  private async matchNextChunk(
     upload: ContactUpload,
     organization: Organization,
   ): Promise<void> {
-    const { districtId, dataset } =
-      await this.contacts.resolveEligibleDistrict(organization)
-
-    let afterRowIndex = -1
-    let chunks = 0
-    for (;;) {
-      const rows = await this.model.findMany({
-        where: {
-          uploadId: upload.id,
-          outcome: ContactUploadMatchOutcome.pending,
-          rowIndex: { gt: afterRowIndex },
-        },
-        orderBy: { rowIndex: Prisma.SortOrder.asc },
-        take: MATCH_CHUNK_SIZE,
-      })
-      const lastRow = rows[rows.length - 1]
-      if (!lastRow) break
+    const rows = await this.model.findMany({
+      where: {
+        uploadId: upload.id,
+        outcome: ContactUploadMatchOutcome.pending,
+      },
+      orderBy: { rowIndex: Prisma.SortOrder.asc },
+      take: MATCH_CHUNK_SIZE,
+    })
+    if (rows.length > 0) {
+      const { districtId, dataset } =
+        await this.contacts.resolveEligibleDistrict(organization)
       await this.matchChunk(upload, rows, districtId, dataset)
-      afterRowIndex = lastRow.rowIndex
-      chunks += 1
+    }
+
+    const nextPending = await this.model.findFirst({
+      where: {
+        uploadId: upload.id,
+        outcome: ContactUploadMatchOutcome.pending,
+      },
+      orderBy: { rowIndex: Prisma.SortOrder.asc },
+      select: { rowIndex: true },
+    })
+    if (nextPending) {
+      await this.queueProducer.sendMessage(
+        { type: QueueType.CONTACT_UPLOAD_MATCH, data: { uploadId: upload.id } },
+        `${MessageGroup.contactUploadMatch}-${upload.organizationSlug}`,
+        {
+          throwOnError: true,
+          deduplicationId: `${QueueType.CONTACT_UPLOAD_MATCH}-${upload.id}-${nextPending.rowIndex}`,
+        },
+      )
+      this.logger.info(
+        {
+          uploadId: upload.id,
+          chunkRows: rows.length,
+          nextRowIndex: nextPending.rowIndex,
+        },
+        'contactUploadMatch: chunk done; queued the next',
+      )
+      return
     }
 
     const finished = await this.client.$transaction(async (tx) => {
@@ -189,10 +214,11 @@ export class ContactUploadMatchJobService extends createPrismaBase(
       {
         uploadId: upload.id,
         rowCount: finished.rowCount,
-        chunks,
+        chunkRows: rows.length,
         matchedCount: finished.matchedCount,
         newCount: finished.newCount,
         needsInputCount: finished.needsInputCount,
+        skippedCount: finished.skippedCount,
         invalidCount: finished.invalidCount,
         updatedCount: finished.updatedCount,
         unchangedCount: finished.unchangedCount,
@@ -471,8 +497,6 @@ export class ContactUploadMatchJobService extends createPrismaBase(
       }
     }
 
-    let updatedCount = 0
-    let unchangedCount = 0
     const changedFieldsByRow = new Map<string, string[]>()
     for (const { row } of keyed) {
       const personId = decisions.get(row.id)?.personId
@@ -482,16 +506,13 @@ export class ContactUploadMatchJobService extends createPrismaBase(
         (field) => row[field] !== null && row[field] !== current[field],
       )
       changedFieldsByRow.set(row.id, changed)
-      if (changed.length > 0) updatedCount += 1
-      else unchangedCount += 1
     }
 
     const written = keyed.flatMap(({ row }) => {
       const decision = decisions.get(row.id)
       return decision ? [{ row, decision }] : []
     })
-    await this.client.$transaction(async (tx) => {
-      await tx.$executeRaw`
+    await this.client.$executeRaw`
         UPDATE contact_upload_match AS m
         SET outcome = v.outcome::"ContactUploadMatchOutcome",
             method = v.method::"ContactUploadMatchMethod",
@@ -514,13 +535,5 @@ export class ContactUploadMatchJobService extends createPrismaBase(
           suggested, changed)
         WHERE m.id = v.id AND m.outcome = 'pending'
       `
-      await tx.contactUpload.update({
-        where: { id: upload.id },
-        data: {
-          updatedCount: { increment: updatedCount },
-          unchangedCount: { increment: unchangedCount },
-        },
-      })
-    })
   }
 }

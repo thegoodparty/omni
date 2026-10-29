@@ -19,7 +19,10 @@ import { ContactsService } from '@/contacts/services/contacts.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import { ConstituentActivityType } from '@/contactEngagement/contactEngagement.types'
-import { ContactUploadMatchJobService } from '../services/contactUploadMatchJob.service'
+import {
+  ContactUploadMatchJobService,
+  MATCH_CHUNK_SIZE,
+} from '../services/contactUploadMatchJob.service'
 
 const service = useTestService()
 
@@ -494,6 +497,123 @@ describe('the match job', () => {
       EVENTS.Contacts.ImportCompleted,
       expect.objectContaining({ isReimport: true, emailsGained: 0 }),
     )
+
+    await service.prisma.contactUpload.update({
+      where: { id: second.data.id },
+      data: { status: ContactUploadStatus.processing },
+    })
+    await runMatch(second.data.id)
+    expect(
+      await service.prisma.contactUpload.findUniqueOrThrow({
+        where: { id: second.data.id },
+      }),
+    ).toMatchObject({
+      status: ContactUploadStatus.complete,
+      matchedCount: 3,
+      newCount: 0,
+      updatedCount: 2,
+      unchangedCount: 1,
+    })
+  })
+
+  it('matches one chunk per delivery and queues the next until no rows are pending', async () => {
+    const { data } = await upload(`${HEADER_ROW}
+Ann,Able,,,,
+`)
+    await service.prisma.contactUploadMatch.createMany({
+      data: Array.from({ length: MATCH_CHUNK_SIZE }, (_, index) => ({
+        uploadId: data.id,
+        organizationSlug: slug,
+        rowIndex: index + 1,
+        firstName: 'Ben',
+        lastName: 'Baker',
+      })),
+    })
+    await service.prisma.contactUpload.update({
+      where: { id: data.id },
+      data: { rowCount: MATCH_CHUNK_SIZE + 1 },
+    })
+    sendMessage.mockClear()
+    const match = mockMatch([])
+
+    expect(await runMatch(data.id)).toBe(true)
+
+    expect(match).toHaveBeenCalledTimes(1)
+    expect(match.mock.calls[0]![2]).toHaveLength(MATCH_CHUNK_SIZE)
+    expect(sendMessage).toHaveBeenCalledExactlyOnceWith(
+      { type: QueueType.CONTACT_UPLOAD_MATCH, data: { uploadId: data.id } },
+      `${MessageGroup.contactUploadMatch}-${slug}`,
+      {
+        throwOnError: true,
+        deduplicationId: `${QueueType.CONTACT_UPLOAD_MATCH}-${data.id}-${MATCH_CHUNK_SIZE}`,
+      },
+    )
+    expect(
+      await service.prisma.contactUploadMatch.count({
+        where: {
+          uploadId: data.id,
+          outcome: ContactUploadMatchOutcome.pending,
+        },
+      }),
+    ).toBe(1)
+    expect(
+      await service.prisma.contactUpload.findUniqueOrThrow({
+        where: { id: data.id },
+      }),
+    ).toMatchObject({ status: ContactUploadStatus.processing, newCount: 0 })
+    expect(track).not.toHaveBeenCalled()
+
+    sendMessage.mockClear()
+    expect(await runMatch(data.id)).toBe(true)
+
+    expect(match).toHaveBeenCalledTimes(2)
+    expect(match.mock.calls[1]![2].map((input) => input.rowIndex)).toEqual([
+      MATCH_CHUNK_SIZE,
+    ])
+    expect(sendMessage).not.toHaveBeenCalled()
+    expect(
+      await service.prisma.contactUpload.findUniqueOrThrow({
+        where: { id: data.id },
+      }),
+    ).toMatchObject({
+      status: ContactUploadStatus.complete,
+      newCount: MATCH_CHUNK_SIZE + 1,
+    })
+  })
+
+  it('redelivers when the next chunk cannot be queued, keeping the chunk it matched', async () => {
+    const { data } = await upload(`${HEADER_ROW}
+Ann,Able,,,,
+`)
+    await service.prisma.contactUploadMatch.createMany({
+      data: Array.from({ length: MATCH_CHUNK_SIZE }, (_, index) => ({
+        uploadId: data.id,
+        organizationSlug: slug,
+        rowIndex: index + 1,
+        firstName: 'Ben',
+        lastName: 'Baker',
+      })),
+    })
+    mockMatch([])
+    sendMessage.mockReset().mockRejectedValue(new Error('sqs down'))
+
+    expect(await runMatch(data.id)).toBe(false)
+
+    expect(
+      await service.prisma.contactUploadMatch.count({
+        where: {
+          uploadId: data.id,
+          outcome: ContactUploadMatchOutcome.pending,
+        },
+      }),
+    ).toBe(1)
+    expect(
+      (
+        await service.prisma.contactUpload.findUniqueOrThrow({
+          where: { id: data.id },
+        })
+      ).status,
+    ).toBe(ContactUploadStatus.processing)
   })
 
   it('asks SQS to redeliver a failure, and marks the upload failed on the last delivery', async () => {
@@ -768,6 +888,94 @@ describe('review', () => {
     })
 
     expect(res.status).toBe(HttpStatus.NOT_FOUND)
+  })
+})
+
+describe('POST /v1/contact-uploads/:id/retry', () => {
+  const failedUpload = async () => {
+    const { data } = await upload(`${HEADER_ROW}\nAnn,Able,,,,\n`)
+    await service.prisma.contactUpload.update({
+      where: { id: data.id },
+      data: {
+        status: ContactUploadStatus.failed,
+        failureReason: 'Matching did not finish',
+      },
+    })
+    sendMessage.mockClear()
+    return data.id as string
+  }
+
+  const retry = (uploadId: string, orgSlug = slug) =>
+    service.client.post(
+      `/v1/contact-uploads/${uploadId}/retry`,
+      {},
+      { headers: { [HEADER]: orgSlug }, validateStatus: () => true },
+    )
+
+  it('puts a failed upload back to processing and queues matching again', async () => {
+    const uploadId = await failedUpload()
+
+    const res = await retry(uploadId)
+
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(res.data).toMatchObject({
+      id: uploadId,
+      status: 'processing',
+      failureReason: null,
+    })
+    expect(sendMessage).toHaveBeenCalledExactlyOnceWith(
+      { type: QueueType.CONTACT_UPLOAD_MATCH, data: { uploadId } },
+      `${MessageGroup.contactUploadMatch}-${slug}`,
+      { throwOnError: true },
+    )
+
+    mockMatch([])
+    await runMatch(uploadId)
+    expect(
+      await service.prisma.contactUpload.findUniqueOrThrow({
+        where: { id: uploadId },
+      }),
+    ).toMatchObject({ status: ContactUploadStatus.complete, newCount: 1 })
+  })
+
+  it('409s an upload that has not failed', async () => {
+    const { data } = await upload(`${HEADER_ROW}\nAnn,Able,,,,\n`)
+    sendMessage.mockClear()
+
+    const res = await retry(data.id)
+
+    expect(res.status).toBe(HttpStatus.CONFLICT)
+    expect(sendMessage).not.toHaveBeenCalled()
+  })
+
+  it('502s and stays failed when matching cannot be queued', async () => {
+    const uploadId = await failedUpload()
+    sendMessage.mockRejectedValue(new Error('sqs down'))
+
+    const res = await retry(uploadId)
+
+    expect(res.status).toBe(HttpStatus.BAD_GATEWAY)
+    expect(
+      await service.prisma.contactUpload.findUniqueOrThrow({
+        where: { id: uploadId },
+      }),
+    ).toMatchObject({
+      status: ContactUploadStatus.failed,
+      failureReason: 'Matching could not be started',
+    })
+  })
+
+  it('404s when the flag is off, and for another org’s upload', async () => {
+    const uploadId = await failedUpload()
+    const otherSlug = `eo-other-${randomUUID()}`
+    await service.prisma.organization.create({
+      data: { slug: otherSlug, ownerId: service.user.id },
+    })
+
+    expect((await retry(uploadId, otherSlug)).status).toBe(HttpStatus.NOT_FOUND)
+    flagOn = false
+    expect((await retry(uploadId)).status).toBe(HttpStatus.NOT_FOUND)
+    expect(sendMessage).not.toHaveBeenCalled()
   })
 })
 
