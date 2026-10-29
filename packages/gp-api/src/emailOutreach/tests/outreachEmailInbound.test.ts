@@ -270,6 +270,69 @@ describe('replies that are not forwarded', () => {
     expect((await replyRow(key))?.classification).toBe('bounce')
   })
 
+  it.each([
+    [
+      'an SES mailbox simulator out-of-office reply',
+      ['Auto-Submitted: auto-replied', 'X-Autoreply: yes'],
+      'ooto@simulator.amazonses.com',
+    ],
+    [
+      'an auto-reply from a system address',
+      ['Auto-Submitted: auto-replied'],
+      'postmaster@example.com',
+    ],
+    [
+      'a Gmail vacation responder',
+      ['Auto-Submitted: auto-replied', 'Precedence: bulk'],
+      'pat@gmail.com',
+    ],
+    [
+      'an Outlook automatic reply',
+      ['X-Auto-Response-Suppress: All', 'Precedence: auto_reply'],
+      'pat@outlook.com',
+    ],
+    ['an X-Autorespond reply', ['X-Autorespond: yes'], 'pat@example.com'],
+  ])('classifies %s as an auto-reply', async (_name, headers, from) => {
+    const { key, result } = deliver(message(headers, 'I am away', from))
+    expect(await result).toBe(true)
+    expect(forwardReply).not.toHaveBeenCalled()
+    expect((await replyRow(key))?.classification).toBe('auto_reply')
+  })
+
+  it('classifies an Exchange DSN with Auto-Submitted as a bounce', async () => {
+    const raw = Buffer.from(
+      [
+        `To: ${localPart}@${EMAIL_OUTREACH_DOMAIN}`,
+        'From: postmaster@example.com',
+        'Subject: Undeliverable: Town hall',
+        'Auto-Submitted: auto-generated',
+        'Content-Type: multipart/report; report-type=delivery-status; boundary="B"',
+        '',
+        '--B',
+        'Content-Type: text/plain',
+        '',
+        'Delivery has failed.',
+        '--B--',
+      ].join('\r\n'),
+    )
+    const { key, result } = deliver(raw)
+    expect(await result).toBe(true)
+    expect(forwardReply).not.toHaveBeenCalled()
+    expect((await replyRow(key))?.classification).toBe('bounce')
+  })
+
+  it('classifies a bare MAILER-DAEMON notice as a bounce', async () => {
+    const { key, result } = deliver(
+      message(
+        ['X-Failed-Recipients: gone@example.com'],
+        'Gone',
+        'MAILER-DAEMON@example.com',
+      ),
+    )
+    expect(await result).toBe(true)
+    expect((await replyRow(key))?.classification).toBe('bounce')
+  })
+
   it('drops a message SES marked as spam', async () => {
     const { key } = deliver(message(['X-SES-Spam-Verdict: FAIL']))
     await service.app.get(EmailOutreachQueueService).handleInbound({
