@@ -274,6 +274,8 @@ describe('loadCaseList', () => {
       'priorities-on-file',
       'product-how-to',
       'judgement-call-no-single-answer',
+      'product-concept-civic-panel',
+      'product-concept-civic-panel-who-gets-texted',
       'constituent-count',
       'capability-inventory-from-context',
       'rambling-multipart-request',
