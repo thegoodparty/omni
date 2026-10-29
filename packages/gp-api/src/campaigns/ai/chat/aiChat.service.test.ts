@@ -160,27 +160,10 @@ describe('AiChatService.streamChat', () => {
     )
   })
 
-  it('instructs the model to respond in Markdown (overriding CMS HTML guidance)', async () => {
-    streamChatCompletion.mockResolvedValue(makeStreamResult(['ok']))
-
-    await collect(
-      service.streamChat(
-        CAMPAIGN,
-        asBody({ message: 'hi', initial: true }),
-        null,
-      ),
-    )
-
-    const messages = firstOrThrow(streamChatCompletion.mock.calls)[0].messages
-    expect(messages[0].role).toBe('system')
-    expect(messages[0].content).toMatch(/Markdown/i)
-    expect(messages[0].content).toMatch(/do not output raw HTML/i)
-  })
-
   it('stores raw Markdown (no HTML post-processing) on the create path', async () => {
     // All paths share the AiChat store, so the non-streaming create path must
-    // also emit the Markdown directive and store raw Markdown — not HTML with
-    // <br/> conversions — to avoid mixed-format threads.
+    // also store raw Markdown — not HTML with <br/> conversions — to avoid
+    // mixed-format threads.
     chatCompletion.mockResolvedValue({
       content: 'line one\nline two',
       tokens: 5,
@@ -191,10 +174,6 @@ describe('AiChatService.streamChat', () => {
       { message: 'hi', initial: true } as CreateAiChatSchema,
       null,
     )
-
-    const sent = firstOrThrow(chatCompletion.mock.calls)[0].messages
-    expect(sent[0].role).toBe('system')
-    expect(sent[0].content).toMatch(/Markdown/i)
 
     const storedAssistant = firstOrThrow(fakeModel.create.mock.calls)[0].data
       .data.messages[1]

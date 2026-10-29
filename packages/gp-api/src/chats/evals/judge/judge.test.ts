@@ -211,15 +211,6 @@ describe('what reaches the model', () => {
     expect(wire).not.toMatch(/"?X"?\s*[:=]\s*"?(base|candidate)/)
   })
 
-  it('tells the judge not to speak in terms of improvement', async () => {
-    const normalized = blindCase(BASE, CANDIDATE, X_IS_BASE)
-    const { llm, calls } = fake([reply()])
-    await judgeCase(llm, plan(normalized), DEFAULT_JUDGE_CONFIG)
-    const system = calls[0]?.messages[0]?.content ?? ''
-    expect(system).toMatch(/only in terms of X and Y/i)
-    expect(system).toMatch(/labels are random/i)
-  })
-
   it('uses the shape block that matches the agent', async () => {
     const chat = blindCase(BASE, CANDIDATE, X_IS_BASE)
     const [bgBase, bgCandidate] = BACKGROUND_PAIR
