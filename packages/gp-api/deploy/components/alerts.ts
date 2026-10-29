@@ -159,6 +159,21 @@ export const SERVER_ERRORS_ONLY: ControllerName[] = [
 ]
 
 /*
+ * Single routes that get no route alert although their controller does.
+ *
+ * `POST /v1/email/webhooks/sns` answers 503 on purpose: when
+ * EMAIL_INBOUND_TOPIC_ENV is unset, or the signing certificate or the
+ * subscription URL cannot be fetched, the 503 is what makes SNS redeliver. On
+ * dev and preview, where inbound mail is not wired, that is the steady state.
+ * A real inbound-mail outage shows up as replies not arriving, which is not an
+ * emergency, so no response from this route is worth a page. The controller's
+ * other routes (unsubscribe, forward-confirm) stay watched.
+ */
+export const ROUTES_WITHOUT_ROUTE_ALERTS: string[] = [
+  'POST /v1/email/webhooks/sns',
+]
+
+/*
  * Controllers whose 504 does not page. gp-api itself answers 504 in exactly one
  * place: a Databricks voter query that outran its ceiling, with the message
  * "Narrow the audience and try again" and errorCode VOTER_QUERY_TIMEOUT. On

@@ -867,7 +867,11 @@ describe('evaluation error handling', () => {
       (a) => a.execErrState && a.execErrState !== 'Alerting',
     ).map((a) => a.slug)
 
-    expect(relaxed).toEqual(['health-check-probe-failure'])
+    expect(relaxed).toEqual([
+      'health-check-probe-failure',
+      'ses-bounce-rate',
+      'ses-complaint-rate',
+    ])
   })
 })
 
