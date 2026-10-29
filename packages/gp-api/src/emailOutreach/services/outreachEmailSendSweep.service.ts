@@ -296,7 +296,7 @@ export class OutreachEmailSendSweepService extends createPrismaBase(
         const result = await this.sendBatch(send, signingKey)
         if (result.kind === 'end_tick') return
         if (result.kind === 'sent') {
-          batchesLeft--
+          if (result.attempted > 0) batchesLeft--
           stillActive.push(send)
           if (!(await this.renewLease())) {
             this.logger.warn('Lost the email sweep lease mid-tick')

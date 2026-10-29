@@ -13,8 +13,7 @@ describe('batchesPerTick', () => {
     for (let rate = 1; rate <= 200; rate += 0.5) {
       const batches = batchesPerTick(rate, 50_000)
       const exact = (rate * SEND_RATE_HEADROOM * 50) / SEND_BATCH_SIZE
-      expect(batches).toBeLessThanOrEqual(Math.max(1, exact))
-      expect(batches).toBeGreaterThan(Math.min(exact, 1) - 1)
+      expect(batches).toBe(Math.max(1, Math.floor(exact)))
     }
   })
 

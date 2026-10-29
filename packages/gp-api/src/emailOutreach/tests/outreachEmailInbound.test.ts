@@ -321,6 +321,21 @@ describe('replies that are not forwarded', () => {
     expect((await replyRow(key))?.classification).toBe('bounce')
   })
 
+  it('classifies an Exim bounce carrying Auto-Submitted as a bounce', async () => {
+    const { key, result } = deliver(
+      message(
+        [
+          'Auto-Submitted: auto-replied',
+          'X-Failed-Recipients: gone@example.com',
+        ],
+        'Gone',
+        'Mailer-Daemon@example.com',
+      ),
+    )
+    expect(await result).toBe(true)
+    expect((await replyRow(key))?.classification).toBe('bounce')
+  })
+
   it('classifies a bare MAILER-DAEMON notice as a bounce', async () => {
     const { key, result } = deliver(
       message(

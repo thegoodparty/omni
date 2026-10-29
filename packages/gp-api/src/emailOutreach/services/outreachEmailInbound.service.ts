@@ -144,7 +144,10 @@ export class OutreachEmailInboundService extends createPrismaBase(
     const reportType = /multipart\/report/i.test(contentType)
       ? /report-type\s*=\s*"?([a-z-]+)/i.exec(contentType)?.[1]?.toLowerCase()
       : undefined
-    if (reportType === 'delivery-status') {
+    if (
+      reportType === 'delivery-status' ||
+      headers.has('x-failed-recipients')
+    ) {
       return OutreachEmailReplyClass.bounce
     }
     const autoSubmitted = headerValue(headers, 'auto-submitted')?.toLowerCase()
@@ -160,7 +163,10 @@ export class OutreachEmailInboundService extends createPrismaBase(
     ) {
       return OutreachEmailReplyClass.auto_reply
     }
-    if (SYSTEM_SENDERS.has(localPart) || headers.has('x-failed-recipients')) {
+    if (
+      SYSTEM_SENDERS.has(localPart) ||
+      /multipart\/report/i.test(contentType)
+    ) {
       return OutreachEmailReplyClass.bounce
     }
     if (
