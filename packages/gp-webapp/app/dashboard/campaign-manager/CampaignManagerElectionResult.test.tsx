@@ -220,6 +220,11 @@ describe('the Home card asks while the question is open', () => {
         name: 'Did you win your race for Maplewood City Council?',
       }),
     ).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        "Your election was on November 3. Tell me how it went so I can help with what's next.",
+      ),
+    ).toBeInTheDocument()
   })
 
   it('opens the congratulations for "I won"', async () => {
@@ -234,9 +239,7 @@ describe('the Home card asks while the question is open', () => {
   it('saves a loss and goes to the thank you, as the page does', async () => {
     vi.mocked(updateCampaign).mockResolvedValue({ id: 9 } as never)
     renderHome()
-    fireEvent.click(
-      await screen.findByRole('button', { name: "I didn't win this time" }),
-    )
+    fireEvent.click(await screen.findByRole('button', { name: "I didn't win" }))
 
     await waitFor(() =>
       expect(router.replace).toHaveBeenCalledWith(

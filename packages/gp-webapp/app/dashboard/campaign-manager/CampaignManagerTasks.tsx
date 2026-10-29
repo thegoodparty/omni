@@ -2,6 +2,7 @@
 
 import { format, parseISO } from 'date-fns'
 import ManagerPromptCard from './ManagerPromptCard'
+import ElectionResultHomeCard from './ElectionResultHomeCard'
 import { useTrackerTasks } from '../campaign-plan/components/campaignStrategy/useTrackerTasks'
 import {
   trackTaskAction,
@@ -118,6 +119,9 @@ export default function CampaignManagerTasks({
 
   return (
     <section className="mx-auto flex w-full max-w-[720px] flex-col gap-6 px-4 py-6">
+      {/* While the election result is unanswered, the question leads. */}
+      <ElectionResultHomeCard />
+
       {showMeetCard && (
         <ManagerPromptCard
           card="meet_manager"

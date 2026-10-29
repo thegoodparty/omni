@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest'
-import { LOST_COPY, WON_COPY, roundPopulation } from './electionResultCopy'
+import {
+  HOME_CARD_COPY,
+  LOST_COPY,
+  WON_COPY,
+  issueInSentence,
+  roundPopulation,
+} from './electionResultCopy'
 
 describe('roundPopulation', () => {
   it.each([
@@ -12,21 +18,73 @@ describe('roundPopulation', () => {
 })
 
 describe('the Pro winner’s what-comes-next copy', () => {
-  it('names the place and the population', () => {
-    expect(WON_COPY.pro.nextTitle('Maplewood')).toBe(
-      'Get ready to serve Maplewood',
+  const { pro } = WON_COPY
+
+  it('names the place, the population and the issue', () => {
+    expect(pro.nextTitle('Maplewood')).toBe('Get ready to serve Maplewood')
+    expect(pro.nextLine('Maplewood')).toBe(
+      'Serving starts with staying connected to Maplewood.',
     )
-    expect(WON_COPY.pro.nextCaption(32_456)).toBe(
-      "You're about to represent all 32,000 people who live there, not just the ones at the mic.",
+    expect(pro.points.represent.title('Maplewood')).toBe(
+      "You'll represent all of Maplewood",
+    )
+    expect(pro.points.represent.description(32_456)).toBe(
+      "About 32,000 people live there, and you'll speak for all of them.",
+    )
+    expect(pro.points.hear.description('Maplewood')).toBe(
+      'A few residents from every group tell you where Maplewood stands.',
+    )
+    expect(pro.points.ask.description('public safety')).toBe(
+      'Learn where residents stand on public safety before you take office.',
     )
   })
 
-  it('drops the place and the number when they are unknown', () => {
-    expect(WON_COPY.pro.nextTitle(null)).toBe(
-      'Get ready to serve your district',
+  it('drops the place, the number and the issue when they are unknown', () => {
+    expect(pro.nextTitle(null)).toBe('Get ready to serve your district')
+    expect(pro.points.represent.description(null)).toBe(
+      "You'll speak for everyone who lives there.",
     )
-    expect(WON_COPY.pro.nextCaption(null)).toBe(
-      "You're about to represent everyone who lives there, not just the ones at the mic.",
+    expect(pro.points.ask.description(null)).toBe(
+      'Learn where residents stand on the issues you ran on before you take office.',
+    )
+  })
+})
+
+describe('issueInSentence', () => {
+  const row = (name: string | null, order: number | null) => ({
+    order,
+    topIssue: name ? { name } : null,
+  })
+
+  it('takes the first issue by order, in sentence case', () => {
+    expect(
+      issueInSentence([
+        row('Housing', 2),
+        row('Public  Safety', 1),
+        row('Roads', null),
+      ]),
+    ).toBe('public safety')
+  })
+
+  it('keeps acronyms and skips rows without an issue', () => {
+    expect(issueInSentence([row(null, 1), row('LGBTQ+ Rights', 2)])).toBe(
+      'LGBTQ+ rights',
+    )
+  })
+
+  it('has nothing to say without an issue', () => {
+    expect(issueInSentence([])).toBeNull()
+    expect(issueInSentence([row(null, 1)])).toBeNull()
+  })
+})
+
+describe('HOME_CARD_COPY.description', () => {
+  it('names election day when there is one', () => {
+    expect(HOME_CARD_COPY.description('November 3')).toBe(
+      "Your election was on November 3. Tell me how it went so I can help with what's next.",
+    )
+    expect(HOME_CARD_COPY.description(null)).toBe(
+      "Tell me how it went so I can help with what's next.",
     )
   })
 })

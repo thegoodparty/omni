@@ -24,6 +24,26 @@ export const electionDayLabel = (
   return isValid(date) ? format(date, 'MMMM d') : null
 }
 
+// "public safety" from the campaign's first issue, for the middle of a
+// sentence. Acronyms and mixed-case words keep their capitals.
+export const issueInSentence = (
+  positions: { order: number | null; topIssue: { name: string } | null }[],
+): string | null => {
+  const first = [...positions]
+    .sort(
+      (a, b) =>
+        (a.order ?? Number.MAX_SAFE_INTEGER) -
+        (b.order ?? Number.MAX_SAFE_INTEGER),
+    )
+    .map((row) => row.topIssue?.name.trim().replace(/\s+/g, ' '))
+    .find((name) => !!name)
+  if (!first) return null
+  return first
+    .split(' ')
+    .map((word) => (/^[A-Z][a-z'’-]*$/.test(word) ? word.toLowerCase() : word))
+    .join(' ')
+}
+
 export const ASK_COPY = {
   title: (office: string | null): string =>
     office ? `Did you win your race for ${office}?` : 'Did you win your race?',
@@ -34,6 +54,15 @@ export const ASK_COPY = {
   won: 'I won',
   lost: "I didn't win this time",
   notFinal: "Results aren't final yet",
+}
+
+// The question as the first card in Home's deck, in the manager's voice.
+export const HOME_CARD_COPY = {
+  description: (electionDay: string | null): string =>
+    `${electionDay ? `Your election was on ${electionDay}. ` : ''}Tell me how it went so I can help with what's next.`,
+  won: ASK_COPY.won,
+  lost: "I didn't win",
+  notFinal: ASK_COPY.notFinal,
 }
 
 // The campaign manager asks the same question in its chat.
@@ -67,10 +96,30 @@ export const WON_COPY = {
     continue: 'Continue',
     nextTitle: (place: string | null): string =>
       `Get ready to serve ${place ?? DEFAULT_PLACE}`,
-    nextCaption: (population: number | null): string =>
-      population
-        ? `You're about to represent all ${roundPopulation(population)} people who live there, not just the ones at the mic.`
-        : "You're about to represent everyone who lives there, not just the ones at the mic.",
+    nextLine: (place: string | null): string =>
+      `Serving starts with staying connected to ${place ?? DEFAULT_PLACE}.`,
+    points: {
+      represent: {
+        title: (place: string | null): string =>
+          `You'll represent all of ${place ?? DEFAULT_PLACE}`,
+        description: (population: number | null): string =>
+          population
+            ? `About ${roundPopulation(population)} people live there, and you'll speak for all of them.`
+            : "You'll speak for everyone who lives there.",
+      },
+      hear: {
+        title: 'Hear from more than the loudest voices',
+        description: (place: string | null): string =>
+          `A few residents from every group tell you where ${place ?? DEFAULT_PLACE} stands.`,
+      },
+      ask: {
+        title: 'Ask about what you ran on',
+        description: (issue: string | null): string =>
+          `Learn where residents stand on ${issue ?? 'the issues you ran on'} before you take office.`,
+      },
+    },
+    footnote:
+      "Once you're sworn in, your chief of staff adds a briefing before every meeting.",
     // The video's own lines are its text alternative, so they keep the
     // video's words (it names the civic panel; the page around it does not).
     video: {

@@ -122,6 +122,12 @@ export const HOME_HEADLINES = {
     'Take a breath',
     'Enjoy the breather',
   ],
+  // The day after election day, over the "Did you win?" card.
+  electionResult: [
+    'Election day is behind you',
+    'You ran a real race',
+    'You put your name on the ballot',
+  ],
   // An AI-written task that names no channel the plan knows.
   other: [
     'Here’s your next move',
