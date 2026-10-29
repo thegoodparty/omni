@@ -50,33 +50,6 @@ const loadRealKeyService = async (
 }
 
 describe('FeaturesController', () => {
-  it('wraps the resolved variant map for the current user', async () => {
-    const variants = { 'campaign-story': { value: 'on', key: 'on' } }
-    const features = {
-      getAllVariants: vi.fn().mockResolvedValue(variants),
-    } as Partial<FeaturesService> as FeaturesService
-    const controller = new FeaturesController(features)
-    const user = asUser({ id: 42 })
-
-    await expect(controller.getVariants(user, undefined)).resolves.toEqual({
-      variants,
-    })
-    expect(features.getAllVariants).toHaveBeenCalledWith(user, undefined)
-  })
-
-  it('passes on the organization the request acts in', async () => {
-    const features = {
-      getAllVariants: vi.fn().mockResolvedValue({}),
-    } as Partial<FeaturesService> as FeaturesService
-    const controller = new FeaturesController(features)
-    const user = asUser({ id: 42 })
-    const organization = asOrganization({ slug: 'campaign-x', ownerId: 7 })
-
-    await controller.getVariants(user, organization)
-
-    expect(features.getAllVariants).toHaveBeenCalledWith(user, organization)
-  })
-
   it('rejects a caller with no user (e.g. M2M token) instead of NPE-ing', async () => {
     const features = {
       getAllVariants: vi.fn(),

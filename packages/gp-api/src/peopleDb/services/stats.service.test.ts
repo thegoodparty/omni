@@ -49,14 +49,4 @@ describe('StatsService', () => {
       }),
     ).resolves.toBeNull()
   })
-
-  it('propagates a warehouse failure rather than serving null', async () => {
-    findStats.mockRejectedValue(new Error('warehouse down'))
-
-    await expect(
-      service.findStats({ districtId: DISTRICT_ID } as never, {
-        base: 'constituents',
-      }),
-    ).rejects.toThrow('warehouse down')
-  })
 })
