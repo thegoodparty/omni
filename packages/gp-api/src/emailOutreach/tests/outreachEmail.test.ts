@@ -362,12 +362,31 @@ describe('sender', () => {
     )
     expect(office.status).toBe(HttpStatus.OK)
 
-    await service.prisma.cronRun.updateMany({
-      where: { jobName: `email-forward-confirm:${winSlug}` },
+    await service.prisma.outreachEmailForwardConfirmation.updateMany({
+      where: { sender: { organizationSlug: winSlug } },
       data: { createdAt: new Date(Date.now() - 25 * 60 * 60 * 1000) },
     })
     const again = await changeTo('/v1/outreach/email/sender', winHeaders(), 7)
     expect(again.status).toBe(HttpStatus.OK)
+  })
+
+  it('frees one slot when only one send is older than 24 hours', async () => {
+    for (let n = 1; n <= 5; n++) {
+      await changeTo('/v1/outreach/email/sender', winHeaders(), n)
+    }
+    const oldest =
+      await service.prisma.outreachEmailForwardConfirmation.findFirstOrThrow({
+        where: { sender: { organizationSlug: winSlug } },
+        orderBy: { id: 'asc' },
+      })
+    await service.prisma.outreachEmailForwardConfirmation.update({
+      where: { id: oldest.id },
+      data: { createdAt: new Date(Date.now() - 25 * 60 * 60 * 1000) },
+    })
+    const freed = await changeTo('/v1/outreach/email/sender', winHeaders(), 6)
+    expect(freed.status).toBe(HttpStatus.OK)
+    const next = await changeTo('/v1/outreach/email/sender', winHeaders(), 7)
+    expect(next.status).toBe(HttpStatus.TOO_MANY_REQUESTS)
   })
 
   it('clears a pending change when the current address is requested again', async () => {

@@ -137,37 +137,36 @@ export class OutreachEmailSenderService extends createPrismaBase(
       })
     } catch (err) {
       this.logger.warn({ err }, 'forward-to confirmation email failed')
-      await this.client.cronRun.deleteMany({ where: { id: slotId } })
+      await this.client.outreachEmailForwardConfirmation.deleteMany({
+        where: { id: slotId },
+      })
       throw new BadGatewayException('Could not send the confirmation email')
     }
     return updated
   }
 
-  // No table records confirmation sends, so each one is a cron_run row keyed
-  // on the organization. Counting under the sender row lock keeps the cap
-  // right across tasks.
+  // Counting under the sender row lock keeps the cap right across tasks.
   private async reserveConfirmationEmail(
     sender: OutreachEmailSender,
-  ): Promise<string> {
-    const jobName = `email-forward-confirm:${sender.organizationSlug}`
-    const now = new Date()
+  ): Promise<number> {
     return this.client.$transaction(async (tx) => {
       await tx.$queryRaw`
         SELECT id FROM outreach_email_sender WHERE id = ${sender.id} FOR UPDATE
       `
-      const since = subHours(now, 24)
-      await tx.cronRun.deleteMany({
-        where: { jobName, createdAt: { lte: since } },
+      const sent = await tx.outreachEmailForwardConfirmation.count({
+        where: {
+          senderId: sender.id,
+          createdAt: { gt: subHours(new Date(), 24) },
+        },
       })
-      const sent = await tx.cronRun.count({ where: { jobName } })
       if (sent >= FORWARD_CONFIRM_MAX_PER_DAY) {
         throw new HttpException(
           "You've changed your reply address too many times today. Try again tomorrow.",
           HttpStatus.TOO_MANY_REQUESTS,
         )
       }
-      const slot = await tx.cronRun.create({
-        data: { jobName, runDate: now, completedAt: now },
+      const slot = await tx.outreachEmailForwardConfirmation.create({
+        data: { senderId: sender.id },
       })
       return slot.id
     })
