@@ -35,8 +35,9 @@ vi.mock('@shared/hooks/useUser', () => ({
 }))
 
 const DRAFT = managedInviteDraft({
-  firstName: 'Carla',
+  name: 'Carla Diaz',
   office: 'Maplewood City Council Member',
+  place: 'Maplewood',
 })
 
 const messageText = () =>
@@ -61,7 +62,7 @@ const open = () => {
 }
 
 const submit = () =>
-  screen.getByRole('button', { name: 'Set up my civic panel' })
+  screen.getByRole('button', { name: 'Approve and send in my name' })
 
 describe('SmsFlow in its managed civic panel invite mode', () => {
   let requests: string[]
@@ -101,7 +102,7 @@ describe('SmsFlow in its managed civic panel invite mode', () => {
       ),
     ).toBeInTheDocument()
     expect(screen.getByText('Civic panel invite')).toBeInTheDocument()
-    expect(messageText()).toContain('this is Carla, your Maplewood City')
+    expect(messageText()).toContain('this is Carla Diaz, your Maplewood City')
     expect(screen.queryByText('Who do you want to reach?')).toBeNull()
     expect(screen.queryByText('When do you want to send?')).toBeNull()
     expect(screen.queryByText(/header image/)).toBeNull()
@@ -130,24 +131,24 @@ describe('SmsFlow in its managed civic panel invite mode', () => {
     ).toBeInTheDocument()
   })
 
-  it('waits for the approval box, then approves the invite as written', async () => {
+  it('approves the invite as written with one press of the button', async () => {
     const user = userEvent.setup()
     const { onSetUp, onScheduled } = open()
     await screen.findByRole('textbox', { name: 'Message body' })
 
-    expect(submit()).toBeDisabled()
-    await user.click(
-      screen.getByRole('checkbox', {
-        name: 'I approve GoodParty sending this invite in my name.',
-      }),
-    )
+    expect(screen.queryByRole('checkbox')).toBeNull()
+    expect(
+      screen.getByText(
+        "We'll text this invite to Maplewood residents in your name.",
+      ),
+    ).toBeInTheDocument()
     expect(submit()).toBeEnabled()
     await user.click(submit())
 
     await waitFor(() => expect(onSetUp).toHaveBeenCalledTimes(1))
     expect(approvals).toEqual([
       {
-        inviteMessage: `${DRAFT}\n\n${CIVIC_PANEL_JOIN_LINE}\n\n${OPT_OUT_FOOTER}`,
+        inviteMessage: `${DRAFT}\n\n${CIVIC_PANEL_JOIN_LINE}\n${OPT_OUT_FOOTER}`,
         consentVersion: MANAGED_CIVIC_PANEL_CONSENT_VERSION,
       },
     ])
@@ -178,7 +179,10 @@ describe('SmsFlow in its managed civic panel invite mode', () => {
       return {
         status: 200,
         data: {
-          draft: (body.currentDraft ?? '').replace('Want in?', 'Are you in?'),
+          draft: (body.currentDraft ?? '').replace(
+            'share their views',
+            'weigh in',
+          ),
         },
       }
     })
@@ -187,16 +191,11 @@ describe('SmsFlow in its managed civic panel invite mode', () => {
 
     await user.click(screen.getByRole('button', { name: /Improve with AI/ }))
 
-    await waitFor(() => expect(messageText()).toContain('Are you in?'))
+    await waitFor(() => expect(messageText()).toContain('weigh in'))
     expect(drafts[0]?.currentDraft).toContain(CIVIC_PANEL_JOIN_LINE)
     expect(messageText()).not.toContain('Reply JOIN')
     expect(messageText()).not.toContain('Reply STOP')
 
-    await user.click(
-      screen.getByRole('checkbox', {
-        name: 'I approve GoodParty sending this invite in my name.',
-      }),
-    )
     await user.click(submit())
     expect(trackEvent).toHaveBeenCalledWith(
       EVENTS.Contacts.CivicPanelInviteSubmitted,
@@ -213,11 +212,6 @@ describe('SmsFlow in its managed civic panel invite mode', () => {
     const { onSetUp } = open()
     await screen.findByRole('textbox', { name: 'Message body' })
 
-    await user.click(
-      screen.getByRole('checkbox', {
-        name: 'I approve GoodParty sending this invite in my name.',
-      }),
-    )
     await user.click(submit())
 
     expect(

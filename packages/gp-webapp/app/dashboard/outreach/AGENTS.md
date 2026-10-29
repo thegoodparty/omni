@@ -99,7 +99,9 @@ Only the managed invite (below) asks people to join the civic panel. Every
 other Serve text, a priority card's included, carries no JOIN line and no box
 to add one, and the flow ignores a card's `civicPanelAsk`. gp-api refuses a
 Serve create carrying a JOIN line, so a typed or pasted one cannot slip
-through.
+through. The compose step catches it first: a message carrying any wording in
+`CIVIC_PANEL_JOIN_LINES` shows contracts' `CIVIC_PANEL_JOIN_REFUSED_MESSAGE`
+(the server's words) under the field, and Continue does not advance.
 
 A Serve text from a priority card (`proposalLink.priorityId`) ends on the
 residents' calls to action together: the reply instruction the assistant
@@ -130,10 +132,13 @@ panel. It is the message step alone, its own header (Civic panel invite),
 title and caption, with Back leaving the flow: no purpose, audience, date,
 image, checkout or payment, and it never creates an Outreach row. The
 editable body is `initialScript` (the first name merge tag a chip at its
-start); the JOIN line and the opt-out sit locked under it
+start; `managedInviteDraft` writes it from the official's full name, office
+and place, and never names the civic panel). The JOIN line and the opt-out sit
+locked under it as one block, the opt-out directly under the JOIN line
 (`composeManagedInvite`, `MANAGED_INVITE_LOCKED_LINES`), and Improve sends the
-whole invite and keeps only the body of the reply (`managedInviteBody`). Set
-up my civic panel waits for the approval checkbox, then posts
+whole invite and keeps only the body of the reply (`managedInviteBody`).
+There is no checkbox: pressing Approve and send in my name is the approval,
+and the line above it says what they agree to. It posts
 `/v1/contacts/civic-panel/managed` with contracts'
 `MANAGED_CIVIC_PANEL_CONSENT_VERSION` and calls `onSetUp`.
 

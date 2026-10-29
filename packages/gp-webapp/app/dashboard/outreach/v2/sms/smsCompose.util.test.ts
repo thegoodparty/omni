@@ -38,8 +38,25 @@ import {
 
 describe('the managed civic panel invite', () => {
   const body = managedInviteDraft({
-    firstName: 'Carla',
-    office: 'Maplewood City Council Member',
+    name: 'Jordan Rivera',
+    office: 'Asheville City Council Member',
+    place: 'Asheville',
+  })
+
+  it('invites in the official name, office and place', () => {
+    expect(composeManagedInvite(body)).toBe(
+      "Hi {{first_name}}, this is Jordan Rivera, your Asheville City Council Member. I want to hear from people across Asheville, not just those who come to meetings, so I'm inviting a group of residents to share their views. I'll text you about once a month to ask what you think.\n\nReply JOIN to share your perspectives.\nReply STOP to opt out.",
+    )
+  })
+
+  it('never names the civic panel to residents', () => {
+    expect(composeManagedInvite(body)).not.toMatch(/panel/i)
+  })
+
+  it('falls back when the place or name is not known', () => {
+    expect(managedInviteDraft({ name: '', office: 'Mayor', place: null })).toBe(
+      "Hi {{first_name}}, this is your elected official, your Mayor. I want to hear from people across our community, not just those who come to meetings, so I'm inviting a group of residents to share their views. I'll text you about once a month to ask what you think.",
+    )
   })
 
   it('previews exactly the locked tail the composed invite sends', () => {
@@ -47,7 +64,7 @@ describe('the managed civic panel invite', () => {
     expect(sent.endsWith(`\n\n${MANAGED_INVITE_LOCKED_LINES}`)).toBe(true)
     expect(sent.slice(0, -MANAGED_INVITE_LOCKED_LINES.length).trim()).toBe(body)
     expect(MANAGED_INVITE_LOCKED_LINES).toBe(
-      `${CIVIC_PANEL_JOIN_LINE}\n\n${OPT_OUT_FOOTER}`,
+      `${CIVIC_PANEL_JOIN_LINE}\n${OPT_OUT_FOOTER}`,
     )
   })
 
@@ -476,9 +493,8 @@ describe('withCivicPanelJoin', () => {
     )
   })
 
-  it('explains what joining means', () => {
-    expect(CIVIC_PANEL_JOIN_LINE).toMatch(/about once a month/)
-    expect(CIVIC_PANEL_JOIN_LINE).toMatch(/what you think/)
+  it('never names the civic panel', () => {
+    expect(CIVIC_PANEL_JOIN_LINE).not.toMatch(/panel/i)
   })
 
   // A draft saved before the line was rewritten carries an earlier wording.

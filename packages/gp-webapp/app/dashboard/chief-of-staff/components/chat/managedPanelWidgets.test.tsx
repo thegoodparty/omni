@@ -169,7 +169,7 @@ describe('the managed civic panel in the Chief of Staff chat', () => {
 
     expect(screen.getByTestId('sms-flow')).toBeInTheDocument()
     expect(flowProps.current?.initialScript).toMatch(
-      /^Hi \{\{first_name\}\}, this is Carla, your Maplewood City Council Member\./,
+      /^Hi \{\{first_name\}\}, this is Carla Diaz, your Maplewood City Council Member\./,
     )
     expect(flowProps.current?.managedInvite?.place).toBe('Maplewood')
   })
@@ -211,7 +211,7 @@ describe('the managed civic panel in the Chief of Staff chat', () => {
     render(<ChiefOfStaffChatBody active conversationIdOverride="conv" />)
 
     expect(await screen.findByText('Want to see the invite?')).toBeVisible()
-    for (const name of ['Show me the invite', 'How does it work?', 'Not now']) {
+    for (const name of ['Review the invite', 'How does it work?', 'Not now']) {
       expect(screen.getByRole('radio', { name })).toBeInTheDocument()
     }
     expect(screen.getAllByRole('radio')).toHaveLength(3)
@@ -236,7 +236,7 @@ describe('the managed civic panel in the Chief of Staff chat', () => {
     render(<ChiefOfStaffChatBody active conversationIdOverride="conv" />)
 
     expect(await screen.findByText('Want to see the invite?')).toBeVisible()
-    for (const name of ['Show me the invite', 'Not now']) {
+    for (const name of ['Review the invite', 'Not now']) {
       expect(screen.getByRole('radio', { name })).toBeInTheDocument()
     }
     expect(screen.getAllByRole('radio')).toHaveLength(2)
@@ -401,7 +401,7 @@ describe('the managed civic panel in the Chief of Staff chat', () => {
         <ChiefOfStaffChatBody
           active
           conversationIdOverride="conv"
-          pendingKickoff="Show me the invite"
+          pendingKickoff="Review the invite"
         />,
       )
 

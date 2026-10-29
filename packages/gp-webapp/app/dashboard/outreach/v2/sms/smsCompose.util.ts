@@ -103,6 +103,7 @@ const removeEvery = (text: string, patterns: RegExp[]): string => {
 // The flow writes the one line a message should carry, so any other copy is
 // a duplicate.
 const JOIN_LINE_PATTERNS = [
+  /Reply JOIN to share your perspectives[.!]?/i,
   /Reply JOIN to join my (?:civic|citizens['’]) panel[^\n]*?(?:Sent with|Empowered by) GoodParty\.org\./i,
   /Reply JOIN to join my (?:civic|citizens['’]) panel[^\n]*?(?:[.!](?=\s|$)|(?=\n)|$)/i,
 ]
@@ -532,25 +533,29 @@ export const withOptOutUnderLastLine = (script: string): string =>
 // under it, so the composed invite always ends on exactly those two lines.
 
 // The draft body, greeting included. `office` has been through
-// `grammarizeOfficeName` ("Maplewood City Council Member").
+// `grammarizeOfficeName` ("Maplewood City Council Member"), and `place` is
+// the city or district as the civic panel copy names it ("Maplewood"). It
+// never names the civic panel: residents only hear what joining means.
 export const managedInviteDraft = ({
-  firstName,
+  name,
   office,
+  place,
 }: {
-  firstName: string
+  name: string
   office: string
+  place: string | null
 }): string =>
-  `Hi {{first_name}}, this is ${firstName || SERVE_SMS_IDENTIFICATION_FALLBACK.name}, ` +
-  `your ${office || SERVE_SMS_IDENTIFICATION_FALLBACK.office}. I'm putting ` +
-  'together a group of residents I check with before big votes. Want in?'
+  `Hi {{first_name}}, this is ${name || SERVE_SMS_IDENTIFICATION_FALLBACK.name}, ` +
+  `your ${office || SERVE_SMS_IDENTIFICATION_FALLBACK.office}. I want to hear ` +
+  `from people across ${place ?? 'our community'}, not just those who come to ` +
+  "meetings, so I'm inviting a group of residents to share their views. " +
+  "I'll text you about once a month to ask what you think."
 
-// The invite as sent: the body, then the JOIN line and the opt-out. A body
-// that echoes either locked line loses it, so neither is ever sent twice.
+// The invite as sent: the body, then one block of the residents' two
+// replies, the JOIN line with the opt-out directly under it. A body that
+// echoes either locked line loses it, so neither is ever sent twice.
 export const composeManagedInvite = (body: string): string =>
-  withCivicPanelJoin(
-    `${withoutLockedLines(body).trim()}\n\n${OPT_OUT_FOOTER}`,
-    true,
-  )
+  `${withoutLockedLines(body).trim()}\n\n${CIVIC_PANEL_JOIN_LINE}\n${OPT_OUT_FOOTER}`
 
 // The editable body of an invite an AI rewrite handed back whole.
 export const managedInviteBody = (invite: string): string =>

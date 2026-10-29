@@ -103,8 +103,8 @@ export const START_MANAGED_CIVIC_PANEL_MARKER = '[Set up civic panel]'
 export const START_MANAGED_CIVIC_PANEL_MESSAGE = `${START_MANAGED_CIVIC_PANEL_MARKER} Build my civic panel for me.`
 
 // What the official sends when they ask to see the invite. Visible: they
-// picked it, as an answer.
-export const SHOW_MANAGED_CIVIC_PANEL_INVITE = 'Show me the invite'
+// picked it, as an answer. The same words as the invite card's button.
+export const SHOW_MANAGED_CIVIC_PANEL_INVITE = 'Review the invite'
 
 // The hidden turns the chat sends when the invite review closes, so the
 // Chief of Staff hears whether the official set the panel up or backed out.

@@ -347,7 +347,7 @@ are widgets in `chief-of-staff/components/chat/managedPanelWidgets.tsx`:
   text alternative of the video's own lines (`MANAGED_PANEL_COPY.video`).
   `part: what_it_is` fails to parse and stays a pill (`onParseFailure: 'inline'`).
 - **`offer_managed_panel_invite`** renders `ClarifyQuestionWidget` with fixed
-  words (Want to see the invite? Show me the invite, How does it work?, Not
+  words (Want to see the invite? Review the invite, How does it work?, Not
   now). With `afterHowItWorks: true`, after the how-it-works answer, it drops
   How does it work?. `isQuestionTool` counts it as a clarify question.
 - **`present_managed_panel_invite`** renders `ManagedPanelInviteCard`, a
@@ -356,7 +356,7 @@ are widgets in `chief-of-staff/components/chat/managedPanelWidgets.tsx`:
   panel is set up). The card never shows the message. Review the invite
   mounts `SmsFlow` in its `managedInvite` mode over the chat
   (`outreach/AGENTS.md`) on the draft (`managedInviteDraft`, the official's
-  first name and grammarized office), where the words are read and edited. Its close calls the widget context's
+  full name, grammarized office and place), where the words are read and edited. Its close calls the widget context's
   `onManagedPanelInviteClosed`, and the body queues one hidden turn on the
   boundary-note queue: `MANAGED_CIVIC_PANEL_SET_UP_MESSAGE` (after reading the
   enrollment and the home's cards again) or

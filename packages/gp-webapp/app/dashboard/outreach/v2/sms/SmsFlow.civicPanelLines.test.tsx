@@ -1,10 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { screen, waitFor } from '@testing-library/react'
+import { act, screen, waitFor } from '@testing-library/react'
+import type { Editor } from '@tiptap/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import {
   CIVIC_PANEL_JOIN_LINE,
+  CIVIC_PANEL_JOIN_REFUSED_MESSAGE,
   CIVIC_PANEL_LEAVE_LINE,
   type ServeSmsDraftRequest,
 } from '@goodparty_org/contracts'
@@ -232,5 +234,27 @@ describe('SmsFlow civic panel lines after a rewrite', () => {
 
     await screen.findByText(/Tell me what matters to you/)
     expectNoPanelLineThenOptOut(messageText())
+  })
+
+  // gp-api refuses the create; the composer says why, in its words, first.
+  it('refuses a pasted JOIN line with the server words', async () => {
+    const user = userEvent.setup()
+    openPriorityText()
+    await screen.findByText(/Should the park stay open later/)
+    expect(screen.queryByText(CIVIC_PANEL_JOIN_REFUSED_MESSAGE)).toBeNull()
+
+    const box = screen.getByRole('textbox', { name: 'Message body' })
+    const { editor } = box as HTMLElement & { editor: Editor }
+    act(() => {
+      editor.commands.insertContentAt(1, `${CIVIC_PANEL_JOIN_LINE} `)
+    })
+
+    expect(
+      await screen.findByText(CIVIC_PANEL_JOIN_REFUSED_MESSAGE),
+    ).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /^Continue/ }))
+    expect(
+      screen.getByRole('textbox', { name: 'Message body' }),
+    ).toBeInTheDocument()
   })
 })

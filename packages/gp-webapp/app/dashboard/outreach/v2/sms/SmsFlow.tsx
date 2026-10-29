@@ -22,6 +22,7 @@ import type { TcrCompliance } from 'helpers/types'
 import {
   BUILD_CITIZENS_PANEL_PURPOSE,
   checkSmsStandards,
+  CIVIC_PANEL_JOIN_REFUSED_MESSAGE,
   findSmsRestrictedWords,
   findCivicPanelJoinLine,
   MANAGED_CIVIC_PANEL_CONSENT_VERSION,
@@ -576,7 +577,6 @@ export const SmsFlow = ({
   managedInvite,
 }: SmsFlowProps) => {
   const managed = managedInvite !== undefined && surface.isServe
-  const [managedConsent, setManagedConsent] = useState(false)
   const [managedError, setManagedError] = useState(false)
   const managedApprove = useMutation({
     mutationFn: async (inviteMessage: string) => {
@@ -872,7 +872,6 @@ export const SmsFlow = ({
     // built, so it opens on the one thing still missing.
     // An event invite still asks its details first, even with the audience
     // settled: the draft is written from them.
-    setManagedConsent(false)
     setManagedError(false)
     if (managed) {
       draftRequestRef.current += 1
@@ -1127,6 +1126,10 @@ export const SmsFlow = ({
     failures: standardsFailures,
   }
   const bracketsToFill = unfilledBrackets(message)
+  // gp-api refuses a JOIN line on any Serve text but the managed invite, so
+  // a pasted one is caught here, in the same words, before the create.
+  const pastedJoinLine =
+    surface.isServe && !managed && findCivicPanelJoinLine(message) !== null
 
   // Only fully verified campaigns can reach this flow (the 2026-08-28 full
   // gate), so the send floor is the hard 48-hour scheduling window.
@@ -1963,7 +1966,7 @@ export const SmsFlow = ({
 
   // A saved draft is the opposite of unsaved work: closing loses nothing.
   const dirty = managed
-    ? message !== (initialScript ?? '') || managedConsent
+    ? message !== (initialScript ?? '')
     : !scheduled && purpose !== null && savedDraft === null
 
   const reviewGateCta =
@@ -2083,6 +2086,7 @@ export const SmsFlow = ({
                           hasWrittenBody &&
                           standards.passed &&
                           bracketsToFill.length === 0 &&
+                          !pastedJoinLine &&
                           composedLength <= SMS_COMPOSED_MAX_LENGTH &&
                           // Both surfaces send MMS: the image lifts the text
                           // past single-SMS segment limits, and Peerly
@@ -2116,7 +2120,7 @@ export const SmsFlow = ({
     ? {
         label: MANAGED_PANEL_COPY.flow.submit,
         onClick: handleManagedSetUp,
-        disabled: !managedConsent || draftMutation.isPending,
+        disabled: draftMutation.isPending,
         loading: managedApprove.isPending,
       }
     : stepId === 'details' && !scheduled && !gateOpen
@@ -2479,6 +2483,9 @@ export const SmsFlow = ({
             standardsFailures={standards.failures}
             restrictedWords={findSmsRestrictedWords(composedMessage)}
             unfilledBrackets={bracketsToFill}
+            {...(pastedJoinLine && {
+              joinLineError: CIVIC_PANEL_JOIN_REFUSED_MESSAGE,
+            })}
             identificationExample={introFor(tone)}
             paidForByText={
               footerCommittee ? paidForByLine(footerCommittee) : null
@@ -2510,11 +2517,9 @@ export const SmsFlow = ({
                   managedInvite?.place ?? null,
                 ),
                 lockedLines: MANAGED_INVITE_LOCKED_LINES,
-                consent: {
-                  label: MANAGED_PANEL_COPY.flow.consent,
-                  checked: managedConsent,
-                  onChange: setManagedConsent,
-                },
+                agreement: MANAGED_PANEL_COPY.flow.agreement(
+                  managedInvite?.place ?? null,
+                ),
               },
             })}
           />

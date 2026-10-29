@@ -387,7 +387,7 @@ const assertServeOrg = (organization: Organization): void => {
 // A draft written before the JOIN line's last rewrite still approves, but
 // never one that names the panel by its earlier name: every wave texts it.
 const APPROVABLE_JOIN_LINES: readonly string[] = CIVIC_PANEL_JOIN_LINES.filter(
-  (line) => line.includes('my civic panel'),
+  (line) => !line.includes('citizens'),
 )
 
 // The build_citizens_panel text's locked lines: a civic panel JOIN line, the
