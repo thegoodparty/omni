@@ -1,5 +1,5 @@
 terraform {
-  required_version = ">= 1.5.0"
+  required_version = ">= 1.7.0"
 
   backend "s3" {
     bucket       = "goodparty-terraform-state-us-west-2"
@@ -101,12 +101,15 @@ resource "aws_secretsmanager_secret" "service_tokens" {
   }
 }
 
-resource "aws_secretsmanager_secret_version" "service_tokens_initial" {
-  secret_id     = aws_secretsmanager_secret.service_tokens.id
-  secret_string = jsonencode({})
+# Not managed by Terraform. A managed secret version is refreshed on every
+# plan, which needs GetSecretValue on the secret, so the container is created
+# here and an operator writes the first value with `put-secret-value`.
+# `destroy = false` leaves the existing version in place.
+removed {
+  from = aws_secretsmanager_secret_version.service_tokens_initial
 
   lifecycle {
-    ignore_changes = [secret_string]
+    destroy = false
   }
 }
 
