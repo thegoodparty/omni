@@ -544,7 +544,6 @@ export const ProposalFlowsProvider = ({
           onScheduled={async () => settled()}
           surface={SERVE_SMS_SURFACE}
           initialScript={proposal.message}
-          initialAsksToJoinCivicPanel={proposal.civicPanelAsk === true}
           {...(proposal.purpose && { initialPurpose: proposal.purpose })}
           {...(proposal.reportBackForOutreachId !== undefined && {
             initialPurpose: REPORT_BACK_PURPOSE,

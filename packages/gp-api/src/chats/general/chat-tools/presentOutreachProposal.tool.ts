@@ -1,5 +1,4 @@
 import {
-  CIVIC_PANEL_LEAVE_LINE,
   isCivicPanelOnlyList,
   OutreachProposalSchema,
   PRIORITY_GATE_STEPS,
@@ -52,7 +51,7 @@ const presentOutreachProposalInput = priorityProposalInputWithoutPanel.omit({
 // the flow, and the name rule is the one a drafted message kept missing.
 export const OUTREACH_MESSAGE_RULES = [
   'WHAT EACH CHANNEL NEEDS IN THE MESSAGE (the outreach flow checks these):',
-  `- Text: start with who is texting, signed as the official by full name and office, for example "this is Bryan Ortiz, your Asheville City Council Member." Never the first name alone. Never sign as a body or an office alone ("this is the City Council"), and never use a placeholder like [Name] or [your name]. Do not write a greeting or an opt-out line: the flow adds "Hello {{first_name}}," before it and "Reply STOP to opt out" after it. A text to civic panel members alone also gets "${CIVIC_PANEL_LEAVE_LINE}" from the flow, so never write how to leave the panel. No link shorteners like bit.ly; paste the full web address. Keep it under 300 characters.`,
+  `- Text: start with who is texting, signed as the official by full name and office, for example "this is Bryan Ortiz, your Asheville City Council Member." Never the first name alone. Never sign as a body or an office alone ("this is the City Council"), and never use a placeholder like [Name] or [your name]. Do not write a greeting or an opt-out line: the flow adds "Hello {{first_name}}," before it and "Reply STOP to opt out" after it. Never write how to join or leave the civic panel: replying STOP already takes a member off it. No link shorteners like bit.ly; paste the full web address. Keep it under 300 characters.`,
   '- Phone banking: a script a volunteer reads aloud, opening with who they are calling for by the official\'s full name and office, for example "I am calling for Bryan Ortiz, your Asheville City Council Member." Never a placeholder for the official.',
   "- Social: a post in the official's own voice. No placeholders.",
   '- Door knocking: what to say at the door, in the same voice, naming the official the same way a call does.',
@@ -229,7 +228,7 @@ export const checkProposalRefusal = (
 }
 
 // Why a proposal's civic panel ask cannot be shown, or null. A send to the
-// panel alone carries the LEAVE line and never the join ask.
+// panel alone never asks them to join.
 export const checkPanelPart = (input: {
   channel: ProposalChannel
   civicPanelAsk?: boolean

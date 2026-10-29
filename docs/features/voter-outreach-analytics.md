@@ -235,7 +235,8 @@ panel invites and a priority's asks without joining on the outreach row.
 `purpose` is the picker's slug on both products; `priorityId` rides the card's
 `proposalLink` (door knocking completes on another page, so its Completed
 reads `priorityId` off the turf response, which carries the anchor's); `asksToJoinCivicPanel` is whether the composed text carries
-the locked JOIN line. Phone banking's `Call List Created` carries `purpose`
+the locked JOIN line, which no text created through the flow does (only the
+managed invite asks, and it has no Outreach row from the flow). Phone banking's `Call List Created` carries `purpose`
 and `priorityId` too.
 
 `purpose` is on Created and Completed for every channel, so the two agree and

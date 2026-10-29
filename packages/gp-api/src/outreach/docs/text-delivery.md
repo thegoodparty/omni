@@ -108,30 +108,31 @@ org has exactly one owner, so the lookup is identical for a Serve org and a
 Win campaign org and the layer does not have to know which product it is
 carrying.
 
-**The civic panel ask rides the same ingest.** A Serve text that carries
-contracts' `CIVIC_PANEL_JOIN_LINE` is created with `asksToJoinCivicPanel`
-(read off the message, never a request flag). On ingest, a JOIN reply
-(`util/civicPanelJoin.util.ts`) to such a send sets the person's
+**The civic panel ask rides the same ingest.** Only the managed civic
+panel's invite asks people to join: its waves write their rows with
+`asksToJoinCivicPanel` set, without the create route, and `createDraft` 400s
+any message carrying a JOIN line (`findCivicPanelJoinLine`, every wording in
+contracts' `CIVIC_PANEL_JOIN_LINES`), a priority's text included. On ingest, a
+JOIN reply (`util/civicPanelJoin.util.ts`) to such a send sets the person's
 `civic_panel` status to `member`, and a STOP to any Serve send sets it to
 `left`, both through `ContactStatusService` keyed on the reply's message id so
 a re-upload is a no-op. A LEAVE reply (`util/civicPanelLeave.util.ts`) to any
-Serve send sets a member to `left` the same way without opting them out. A
-text to a panel-only list (contracts' `isCivicPanelOnlyList`) carries
-`CIVIC_PANEL_LEAVE_LINE` instead of the JOIN line and is created with
-`offersCivicPanelLeave`; the create 400s both lines together, and the LEAVE
-line on any other list. Win sends never write it. Detail in
+Serve send sets a member to `left` the same way without opting them out.
+The webapp no longer writes `CIVIC_PANEL_LEAVE_LINE`, since STOP already takes
+a member off. A draft written before that still carries it is created with
+`offersCivicPanelLeave` (read off the message), and the create 400s the line
+on a list that is not panel-only (contracts' `isCivicPanelOnlyList`). Win
+sends never write it. Detail in
 `src/contacts/AGENTS.md`, "Serve's civic panel".
 
 **Serve SMS has one purpose the other channels do not.** The draft schema
 takes contracts' `SERVE_SMS_PURPOSE_VALUES`: the shared Serve list plus
 `build_citizens_panel`, the text that introduces the official and their
 civic panel. Its `SERVE_SMS_VOICE` structure writes the body only and
-never the JOIN ask, because the webapp appends the locked
+never the JOIN ask, because the managed invite appends the locked
 `CIVIC_PANEL_JOIN_LINE` and the reply reader honors only those words. The
 draft route 404s that purpose while `serve-citizen-panels` is off, on top of
-the `serve-sms-outreach` gate, and the create route 400s any message carrying
-a join line (`findCivicPanelJoinLine`) while it is off, since that line is
-what marks a send as asking.
+the `serve-sms-outreach` gate.
 
 **A report back is a text, not an ask.** `report_back` (contracts'
 `REPORT_BACK_PURPOSE`) tells everyone who answered a priority, on texts,

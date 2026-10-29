@@ -93,9 +93,21 @@ carries `proposedAudience.sample`, and the save posts it as the list's
 `sample` along with the count overlay, so the list is the frozen draw of
 people this channel can reach rather than the live filter; the builder's
 count, and so "Continue (N)", reads the sample's size. A reset clears it with
-the other builder fields. A priority's text that asks the civic panel
-opens the Serve `SmsFlow` with the JOIN ask ticked
-(`initialAsksToJoinCivicPanel`), which the official can still untick.
+the other builder fields.
+
+Only the managed invite (below) asks people to join the civic panel. Every
+other Serve text, a priority card's included, carries no JOIN line and no box
+to add one, and the flow ignores a card's `civicPanelAsk`. gp-api refuses a
+Serve create carrying a JOIN line, so a typed or pasted one cannot slip
+through.
+
+A Serve text from a priority card (`proposalLink.priorityId`) ends on the
+residents' calls to action together: the reply instruction the assistant
+wrote as the body's last line ("Reply YES or NO."), then the opt-out directly
+under it with no blank line (`withOptOutUnderLastLine` in `smsCompose.util.ts`,
+applied by `loadMessage` to every message the flow writes, and to the opt-out
+put back). The preview and the create both read that one message. Round two
+is the same outreach's second send, so it carries the same message.
 
 A priority text's follow-up (`roundOneOutreachId` set) reads **Draft** in the
 history until its recipients are picked and **Scheduled** after, never In
@@ -125,28 +137,17 @@ up my civic panel waits for the approval checkbox, then posts
 `/v1/contacts/civic-panel/managed` with contracts'
 `MANAGED_CIVIC_PANEL_CONSENT_VERSION` and calls `onSetUp`.
 
-A Serve text whose picked list is civic panel members only (contracts'
-`isCivicPanelOnlyList` on the list's criteria, behind `serve-citizen-panels`)
-carries `CIVIC_PANEL_LEAVE_LINE` ("Reply LEAVE to leave my civic panel.") in
-the JOIN line's place: appended above the opt-out and required the same
-way (`withCivicPanelLeave` / `withCivicPanelLines` in `smsCompose.util.ts`), and
-the "Ask them to join" box is not shown. A message never carries both; when
-the list settles or changes under a composed message (a card's preselected
-list resolving, or going back for another list) the flow swaps the line to
-match. That swap follows the list, never an edit, so a line the official
-deletes stays deleted until they add it back. A chat card that asked to join
-on a panel-only list therefore opens with LEAVE.
+A text to civic panel members alone carries no LEAVE line either: STOP
+already takes a member off the civic panel, so it ends like any other text.
 
-Every rewrite (fresh draft, Improve, a tone pill, a carried-in body, the list
-swap) ends in `withCivicPanelLines`, which strips every JOIN or LEAVE wording
-it finds (all of contracts' `CIVIC_PANEL_JOIN_LINES`, plus a model's partial
-echo of the ask) and puts back exactly one line above the opt-out; a body the
-model wrote also loses any exact opt-out or "Paid for by" copy before it is
-composed. An Improve reply is restored against the surface's footer alone
-(`keepSystemRegions`), never the panel-line message: taking the JOIN line for
-the footer once sent the ask twice and dropped STOP. gp-api refuses a Serve
-create with no opt-out or a second panel line, so a composer bug cannot reach
-a send.
+Every rewrite (fresh draft, Improve, a tone pill, a carried-in body) strips
+every JOIN or LEAVE wording it finds (all of contracts'
+`CIVIC_PANEL_JOIN_LINES`, plus a model's partial echo of the ask): a fresh
+body through `composeServeScript`, an Improve reply through
+`restoreSmsSystemRegions` (`keepSystemRegions`). A body the model wrote also
+loses any exact opt-out or "Paid for by" copy before it is composed. gp-api
+refuses a Serve create with no opt-out or a second panel line, so a composer
+bug cannot reach a send.
 
 A compliance error on the compose step says what is missing and shows the
 exact line to restore (`standardsFailureCopy` in `SmsComposeStep.tsx`), with an
@@ -159,8 +160,7 @@ only a priority's report back card names. That card opens the Serve `SmsFlow`
 with `initialPurpose: 'report_back'`, its message seeded (the purpose is kept
 rather than turned into `custom`), `reportBackForOutreachId` riding on the
 create, and the proposed list's `sample.recipientsOfOutreachId` set, so the
-list saved is that send's people, frozen. The JOIN ask is off and its box is
-not shown, whatever the card said.
+list saved is that send's people, frozen.
 
 The voter data page's "Choose a channel" picker (`contacts/crm/shared/channelPicker/`)
 links here with the flow named — `?compose=text|robocall|phoneBanking|social&source=voter_data`

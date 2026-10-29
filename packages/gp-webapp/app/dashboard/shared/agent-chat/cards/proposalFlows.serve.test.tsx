@@ -129,17 +129,18 @@ describe("a priority's text card that asks the civic panel", () => {
     expect(props).not.toHaveProperty('proposedAudience')
     expect(smsFlow.props?.audienceSettled).toBe(true)
     expect(smsFlow.props).not.toHaveProperty('audienceSummary')
-    expect(props?.initialAsksToJoinCivicPanel).toBe(true)
+    // Only the managed invite asks people to join the civic panel, so a
+    // card's civicPanelAsk opens no ask.
+    expect(props).not.toHaveProperty('initialAsksToJoinCivicPanel')
     expect(props?.initialScript).toBe(MESSAGE)
   })
 
-  it('leaves the join ask off for a text that did not ask for it', async () => {
+  it('saves the same sample for a text that did not ask to join', async () => {
     await openCard({
       ...panelAndFresh,
       civicPanelAsk: undefined,
     })
 
-    expect(smsFlow.props?.initialAsksToJoinCivicPanel).toBe(false)
     expect(saved[0]).toMatchObject({
       sample: { size: 84, seedKey: PROPOSAL_KEY },
     })
@@ -218,7 +219,6 @@ describe('a report back card', () => {
     const props = smsFlow.props
     expect(props?.initialPurpose).toBe('report_back')
     expect(props?.reportBackForOutreachId).toBe(77)
-    expect(props?.initialAsksToJoinCivicPanel).toBe(false)
     expect(smsFlow.props?.audienceSettled).toBe(true)
     expect(smsFlow.props).not.toHaveProperty('audienceSummary')
     // Linked through the send it answers, never as another ask on the
