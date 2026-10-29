@@ -1,6 +1,6 @@
 ---
 title: A priority's first round is one text, sized by size_round_one
-status: active
+status: superseded
 decided_by: [bryclevgp]
 date: 2026-10-23
 code: ['#3183']
@@ -9,7 +9,7 @@ scope:
   - packages/gp-api/src/contacts/utils/civicPanelAllocation.util.ts
   - packages/gp-api/src/chats/general/priority-flow/priorityFlow.prompt.ts
 supersedes: []
-superseded_by:
+superseded_by: 2026-10-29-ready-civic-panel-is-a-prioritys-default-first-round.md
 ---
 
 # A priority's first round is one text, sized by size_round_one

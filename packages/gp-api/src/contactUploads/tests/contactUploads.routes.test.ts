@@ -1359,12 +1359,9 @@ describe('the person activity feed', () => {
     const [created] = await rowsOf(first.data.id)
     const second = await upload(
       `${HEADER_ROW}\nAnn,Able,ann@example.com,,,\n`,
-      {
-        name: 'Ward 3 event',
-        consentAffirmed: 'true',
-        columnMapping: JSON.stringify(MAPPING),
-      },
+      { name: 'Ward 3 event' },
     )
+    expect(second.status).toBe(HttpStatus.CREATED)
     await runMatch(second.data.id)
     const [later] = await rowsOf(second.data.id)
     expect(later).toMatchObject({
