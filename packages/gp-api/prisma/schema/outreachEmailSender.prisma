@@ -22,6 +22,7 @@ model OutreachEmailSender {
   sends                   OutreachEmail[]
   recipients              OutreachEmailRecipient[]
   replies                 OutreachEmailReply[]
+  forwardConfirmations    OutreachEmailForwardConfirmation[]
 
   @@map("outreach_email_sender")
 }
