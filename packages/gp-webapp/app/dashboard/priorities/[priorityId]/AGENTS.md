@@ -15,6 +15,7 @@ they see the whole path rather than only the step they are on.
 | `components/PriorityStatusRail.tsx` | The seven steps, their states, and a step's detail view                             |
 | `components/StatusChangeMarker.tsx` | The quiet inline line a status move leaves in the conversation                      |
 | `components/ReadStatus.tsx`         | The good read strip (phone) and rail block (desktop), behind `serve-citizen-panels` |
+| `components/CivicPanelStanding.tsx` | Where the managed civic panel stands, under the read, behind `serve-citizen-panels` |
 | `readStatusCopy.ts`                 | Good read copy and links, shared with `results/`                                    |
 | `data/statusUpdates.ts`             | The `update_priority_status` merge, mirrored from the server, and the marker diff   |
 | `data/statusReplay.ts`              | Replays the transcript's status calls so a reloaded thread shows the same markers   |
@@ -157,6 +158,41 @@ affected follow-up: more answers come from Get answers (below), aimed at the
 groups the read is missing. The handler reads the panel
 size per turn (`countCivicPanelMembers`) for the `<priority>` "Civic
 panel" line, only with the flag on.
+
+**The managed civic panel.** With the flag on the handler also reads the
+civic panel GoodParty builds (`ManagedCivicPanelService.read`, as
+`managedCivicPanel`: status, members of goal, the next send day and the
+ready week; null for none or stopped; a failed read leaves it out, so the
+agent never says there is none), and the "Civic panel"
+line says where it stands. `THEIR CIVIC PANEL ON THIS PRIORITY`
+(`buildCivicPanelBlock`) steers by status. Building or paused: it is
+filling for free, so the agent never sells a text as the way to build or
+fill it (round one drops its "it also invites people to join" line), offers
+to ask the civic panel once it is ready, and offers the round one text only
+as a way to hear from residents sooner. Ready: when the official asks, one
+text card to its members (`civicPanelMember` and `hasCellPhone`, no sample,
+no `civicPanelAsk`; the flow adds the LEAVE line), in place of round one.
+Exhausted: says so, round one is the way in, and its members can still be
+asked. None: Build my civic panel on the home sets one up. The agent told
+an official whose civic panel was filling that the paid round one text was
+how to build it.
+
+**Nothing is out until the record says so.** `WHAT HAS GONE OUT`
+(`SENT_RECORD_BLOCK`, every turn, flag or not): only a side's Set up on, a
+`<thread>` line that says sent or scheduled, or `Check out with residents:
+yes` count. A card the official opened and closed leaves an unpaid draft,
+so the `<thread>` line for a send in `pending_payment`, `draft`,
+`canceled`, `denied` or `failed` reads "never sent", never "scheduled", and
+`read_past_outreach` says the same. The agent once told an official the
+check was out with residents through a text they discarded. Judge case
+`no-send-claimed-from-a-card` pins it.
+
+**The civic panel on the page.** `CivicPanelStanding` sits under the read
+until it is good (the desktop rail, and the top of the phone's Where this
+stands sheet): the civic panel page's title for its status and "82 of 240
+residents have joined" (`civicPanelStanding` in `readStatusCopy.ts`),
+linked to the civic panel page. It reads `managedCivicPanelQueryOptions`,
+re-read on every turn settle, and shows nothing for none or stopped.
 
 The official can take both, one,
 or neither, from the cards' own buttons: the agent asks no follow-up question

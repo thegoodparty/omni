@@ -23,6 +23,14 @@ const UNSENT_STATUSES: OutreachStatus[] = [
   OutreachStatus.draft,
   OutreachStatus.canceled,
 ]
+// A send in one of these never went and is not going: a text card opened
+// and closed again leaves an unpaid draft with a day on it, which the
+// thread line called scheduled, and the agent read as out with residents.
+const NEVER_SENT: (string | null)[] = [
+  ...UNSENT_STATUSES,
+  OutreachStatus.denied,
+  OutreachStatus.failed,
+]
 // The sends a note can be taken on. A Win text's replies come back as
 // timestamps, never words, so on a campaign it has nothing to read and would
 // read as nobody answering.
@@ -216,9 +224,11 @@ export class PriorityFlowOutreachService extends createPrismaBase(
         row.recipients === null ? null : `${row.recipients} recipients`,
         row.sentOn !== null
           ? `sent ${row.sentOn}`
-          : row.scheduledFor === null
-            ? 'not sent yet'
-            : `scheduled for ${row.scheduledFor}, not sent yet`,
+          : NEVER_SENT.includes(row.status)
+            ? 'never sent'
+            : row.scheduledFor === null
+              ? 'not sent yet'
+              : `scheduled for ${row.scheduledFor}, not sent yet`,
         `${row.replies} replies`,
       ]
         .filter((part): part is string => part !== null)
