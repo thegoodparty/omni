@@ -110,7 +110,7 @@ export class EmailSnsWebhookService {
       certificate = await this.fetchCertificate(message.SigningCertURL)
     } catch (err) {
       if (err instanceof ForbiddenException) throw err
-      this.logger.error({ err }, 'could not fetch the SNS signing certificate')
+      this.logger.warn({ err }, 'could not fetch the SNS signing certificate')
       throw new ServiceUnavailableException()
     }
     if (!verifySnsSignature(message, certificate)) {
@@ -168,7 +168,7 @@ export class EmailSnsWebhookService {
     try {
       await this.fetchSubscribeUrl(message.SubscribeURL)
     } catch (err) {
-      this.logger.error({ err }, 'could not confirm the SNS subscription')
+      this.logger.warn({ err }, 'could not confirm the SNS subscription')
       throw new ServiceUnavailableException()
     }
   }
