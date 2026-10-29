@@ -701,7 +701,8 @@ const runPacing = async (services: Services, ownerId: number) => {
   check(
     'pacing',
     `full ticks stay at or under 90% of MaxSendRate (${limit}/s)`,
-    fullTicks.length > 0 && fullTicks.every((t) => t.perSecond <= limit + 0.5),
+    fullTicks.length > 0 &&
+      fullTicks.every((t) => t.sent / Math.max(t.seconds, 1) <= limit),
     { maxSendRate: account.maxSendRate, ticks },
   )
   const perSend = await Promise.all(

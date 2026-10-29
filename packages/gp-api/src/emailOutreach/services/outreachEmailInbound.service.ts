@@ -141,20 +141,37 @@ export class OutreachEmailInboundService extends createPrismaBase(
       return OutreachEmailReplyClass.spam
     }
     const contentType = headerValue(headers, 'content-type') ?? ''
+    const reportType = /multipart\/report/i.test(contentType)
+      ? /report-type\s*=\s*"?([a-z-]+)/i.exec(contentType)?.[1]?.toLowerCase()
+      : undefined
     if (
-      /multipart\/report/i.test(contentType) ||
-      SYSTEM_SENDERS.has(localPart) ||
+      reportType === 'delivery-status' ||
       headers.has('x-failed-recipients')
     ) {
       return OutreachEmailReplyClass.bounce
     }
-    const autoSubmitted = headerValue(headers, 'auto-submitted')
+    const autoSubmitted = headerValue(headers, 'auto-submitted')?.toLowerCase()
     const precedence = headerValue(headers, 'precedence')?.toLowerCase()
+    // A person's out-of-office reply can come from a system address, so these
+    // are checked before the sender. RFC 3834 gives DSNs `auto-generated`.
     if (
-      (autoSubmitted && autoSubmitted.toLowerCase() !== 'no') ||
-      (precedence && ['bulk', 'junk', 'auto_reply'].includes(precedence)) ||
+      autoSubmitted?.startsWith('auto-replied') ||
+      precedence === 'auto_reply' ||
       headers.has('x-autoreply') ||
       headers.has('x-autorespond') ||
+      reportType === 'disposition-notification'
+    ) {
+      return OutreachEmailReplyClass.auto_reply
+    }
+    if (
+      SYSTEM_SENDERS.has(localPart) ||
+      /multipart\/report/i.test(contentType)
+    ) {
+      return OutreachEmailReplyClass.bounce
+    }
+    if (
+      (autoSubmitted && autoSubmitted !== 'no') ||
+      (precedence && ['bulk', 'junk'].includes(precedence)) ||
       (subject && AUTO_REPLY_SUBJECT.test(subject))
     ) {
       return OutreachEmailReplyClass.auto_reply

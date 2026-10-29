@@ -39,6 +39,7 @@ import {
   STUCK_SENDING_MINUTES,
 } from '../emailOutreach.const'
 import { EMAIL_VARIABLES } from '../templates/emailTemplate.const'
+import { batchesPerTick } from '../util/emailPacing.util'
 import {
   formatFrom,
   isBlockedByDevAllowlist,
@@ -284,14 +285,18 @@ export class OutreachEmailSendSweepService extends createPrismaBase(
     }
 
     const perSecond = Math.max(1, account.maxSendRate * SEND_RATE_HEADROOM)
-    while (active.length > 0 && !outOfTime()) {
+    // The last batch of a tick isn't followed by a full wait, so pacing alone
+    // lets a tick overshoot the rate by one batch.
+    let batchesLeft = batchesPerTick(account.maxSendRate, budgetMs)
+    while (active.length > 0 && !outOfTime() && batchesLeft > 0) {
       const stillActive: ActiveSend[] = []
       for (const send of active) {
-        if (outOfTime()) return
+        if (outOfTime() || batchesLeft <= 0) return
         const batchStartedAt = new Date()
         const result = await this.sendBatch(send, signingKey)
         if (result.kind === 'end_tick') return
         if (result.kind === 'sent') {
+          if (result.attempted > 0) batchesLeft--
           stillActive.push(send)
           if (!(await this.renewLease())) {
             this.logger.warn('Lost the email sweep lease mid-tick')
