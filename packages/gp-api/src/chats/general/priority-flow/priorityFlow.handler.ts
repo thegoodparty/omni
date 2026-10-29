@@ -2,9 +2,9 @@ import {
   BadRequestException,
   Inject,
   Injectable,
-  Logger,
   Optional,
 } from '@nestjs/common'
+import { PinoLogger } from 'nestjs-pino'
 import { format, formatISO } from 'date-fns'
 import {
   checkSmsStandards,
@@ -138,7 +138,6 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
   // read_past_outreach, web_search and then a present_* card, and a turn that
   // exhausts its budget mid-research never presents anything.
   readonly maxSteps = 30
-  private readonly logger = new Logger(PriorityFlowHandler.name)
 
   constructor(
     private readonly store: GeneralChatStoreService,
@@ -169,6 +168,8 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
     private readonly priorityResults?: PriorityResultsService,
     @Optional()
     private readonly managedPanels?: ManagedCivicPanelService,
+    @Optional()
+    private readonly logger?: PinoLogger,
   ) {}
 
   // Null when nothing is being built, and when the read fails, so the turn
@@ -199,8 +200,9 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
         readyWeekOf,
       }
     } catch (err) {
-      this.logger.warn(
-        `managed civic panel read failed for ${organization.slug}: ${String(err)}`,
+      this.logger?.warn(
+        { err, organizationSlug: organization.slug },
+        'managed civic panel read failed',
       )
       return null
     }
