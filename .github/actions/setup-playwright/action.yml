@@ -26,7 +26,7 @@ runs:
     # versions from the live index and only downloads what the cache lacks.
     - name: Restore Playwright cache
       id: cache
-      uses: actions/cache/restore@v4
+      uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
       with:
         path: |
           ~/.cache/ms-playwright
@@ -78,7 +78,7 @@ runs:
 
     - name: Save Playwright cache
       if: steps.cache.outputs.cache-hit != 'true' && github.ref == 'refs/heads/main'
-      uses: actions/cache/save@v4
+      uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
       with:
         path: |
           ~/.cache/ms-playwright

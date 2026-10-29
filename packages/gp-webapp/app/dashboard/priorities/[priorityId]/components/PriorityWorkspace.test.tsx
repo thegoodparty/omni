@@ -11,7 +11,8 @@ import {
   type PriorityStatus,
 } from '@goodparty_org/contracts'
 import { router } from 'helpers/test-utils/router-mocking'
-import { render } from 'helpers/test-utils/render'
+import { render, testQueryClient } from 'helpers/test-utils/render'
+import { api } from 'helpers/test-utils/api-mocking'
 import type {
   ChatMessageDto,
   ChatStreamEvent,
@@ -35,6 +36,11 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('app/shared/experiments/serveCitizenPanelsFlag', () => ({
   useServeCitizenPanelsFlag: () => mocks.citizenPanels,
+}))
+
+vi.mock('@shared/organization-picker', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  useOrganization: () => ({ slug: 'eo-test', district: null }),
 }))
 
 vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
@@ -162,6 +168,11 @@ beforeEach(() => {
   mocks.fetchPriorityStatus.mockResolvedValue(null)
   mocks.fetchPriorityReadStatus.mockResolvedValue(null)
   mocks.citizenPanels = { ready: true, enabled: false }
+  testQueryClient.clear()
+  api.mock('GET /v1/contacts/civic-panel/managed', () => ({
+    status: 200,
+    data: { panel: null },
+  }))
 })
 
 afterEach(() => {
@@ -1313,6 +1324,44 @@ describe('PriorityWorkspace', () => {
     beforeEach(() => {
       mocks.citizenPanels = { ready: true, enabled: true }
       mocks.listMessages.mockResolvedValue([reply])
+    })
+
+    it('shows the civic panel filling under the read, before anyone is asked', async () => {
+      api.mock('GET /v1/contacts/civic-panel/managed', () => ({
+        status: 200,
+        data: {
+          panel: {
+            id: 'mp-1',
+            status: 'building',
+            inviteMessage: 'Hi.',
+            consentVersion: 'v1',
+            approvedAt: new Date('2026-10-29T18:00:00Z'),
+            approvedByUserId: 1,
+            goalMembers: 240,
+            freeTextCap: 15000,
+            freeTextsUsed: 120,
+            readyAt: null,
+            pausedAt: null,
+            stoppedAt: null,
+            createdAt: new Date('2026-10-29T18:00:00Z'),
+            updatedAt: new Date('2026-10-29T18:00:00Z'),
+            progress: {
+              members: 82,
+              goalMembers: 240,
+              wavesSent: 1,
+              nextWaveAt: null,
+              firstSendDate: '2026-11-03',
+              readyWeekOf: '2026-11-16',
+            },
+          },
+        },
+      }))
+      renderWorkspace(emptyPriorityStatus(), null, {
+        initialReadStatus: { ...thin, checkOut: false },
+      })
+      const standing = await screen.findByTestId('priority-civic-panel')
+      expect(standing).toHaveTextContent('Your civic panel is filling up')
+      expect(standing).toHaveTextContent('82 of 240 residents have joined')
     })
 
     it('puts a short bar on the phone with the answers still needed', async () => {

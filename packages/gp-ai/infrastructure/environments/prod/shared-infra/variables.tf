@@ -35,3 +35,13 @@ variable "route53_zone_id" {
   description = "Route53 hosted zone ID"
   type        = string
 }
+
+# A variable rather than a data source on AI_SECRETS_<ENV>. The listener rules
+# need the value itself, and a data source would make every plan read the whole
+# blob and write it to state. The CI scripts supply it: ci-apply-root.sh from
+# Secrets Manager, ci-plan-root.sh from the value this root's rules already hold.
+variable "serve_api_key" {
+  description = "SERVE_API_KEY from AI_SECRETS_<ENV>, matched against the x-api-key header by the ALB listener rules."
+  type        = string
+  sensitive   = true
+}

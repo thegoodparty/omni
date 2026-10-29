@@ -324,6 +324,12 @@ export const EVENTS = {
     CivicPanelWaveSent: 'Contacts - Civic Panel Wave Sent',
     CivicPanelWaveClosed: 'Contacts - Civic Panel Wave Closed',
     CivicPanelReady: 'Contacts - Civic Panel Ready',
+    // Import contacts (src/contactUploads). Completed fires when the match
+    // job finishes; the other two when a user picks in review or repoints a
+    // row (Change match). Counts and enums only, never who.
+    ImportCompleted: 'Contacts - Import Completed',
+    AmbiguousRowResolved: 'Contacts - Ambiguous Row Resolved',
+    MatchChanged: 'Contacts - Match Changed',
   },
 }
 

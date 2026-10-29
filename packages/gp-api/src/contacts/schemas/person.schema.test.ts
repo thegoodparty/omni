@@ -25,6 +25,8 @@ const validPerson = {
   },
   cellPhone: '9195550100',
   landline: null,
+  email: null,
+  isNewContact: false,
   gender: 'Female',
   politicalParty: 'Independent',
   registeredVoter: 'Yes',

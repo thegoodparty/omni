@@ -838,7 +838,7 @@ describe('judge.yml assumes a role scoped to the judge', () => {
 
   it('exchanges the OIDC token for credentials at all', () => {
     expect(credentials?.body).toContain(
-      'uses: aws-actions/configure-aws-credentials@v5',
+      'uses: aws-actions/configure-aws-credentials@',
     )
   })
 

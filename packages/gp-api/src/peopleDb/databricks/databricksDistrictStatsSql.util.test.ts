@@ -14,7 +14,7 @@ const DISTRICT: DbxDistrict = {
   districtType: 'Water_District',
   districtName: 'EAST WENATCHEE WATER',
   useVoterOnlyPath: false,
-  dataset: 'voters',
+  dataset: { base: 'voters' },
   table: VOTERS_TABLE,
 }
 
@@ -50,7 +50,7 @@ describe('buildDistrictStatsSql', () => {
       districtType: 'State',
       districtName: 'WA',
       useVoterOnlyPath: true,
-      dataset: 'voters',
+      dataset: { base: 'voters' },
       table: VOTERS_TABLE,
     })
 

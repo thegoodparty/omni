@@ -28,7 +28,9 @@ export const buildReadPastOutreachTool = (deps: {
     'Read what has already gone out from the office: its name, audience, ' +
     'how many people, channel, status, when it is scheduled for and when it ' +
     'went, and how many replied. sentOn is null until a send has gone out; ' +
-    'one with a scheduledFor day and no sentOn has not gone out yet. When ' +
+    'one with a scheduledFor day and no sentOn has not gone out yet, and ' +
+    'one with status pending_payment, draft, canceled, denied or failed ' +
+    'never went, whatever its day. When ' +
     "the conversation is about one priority, that priority's own sends " +
     "come back under priority and the office's other recent sends under " +
     'office, for comparison. Otherwise priority is empty and office holds ' +

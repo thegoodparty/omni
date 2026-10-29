@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common'
 import { DistrictsModule } from '@/electionDb/districts/districts.module'
+import { PositionsModule } from '@/electionDb/positions/positions.module'
 import { ElectionDistrictService } from './services/electionDistrict.service'
 import { StatsService } from './services/stats.service'
 import { VoterQueryService } from './services/voterQuery.service'
@@ -15,7 +16,7 @@ import { VoterRecommendedListsService } from './services/voterRecommendedLists.s
 import { PeopleDatasetService } from './services/peopleDataset.service'
 
 @Module({
-  imports: [DistrictsModule],
+  imports: [DistrictsModule, PositionsModule],
   providers: [
     PeopleDbxStatementClient,
     VoterReadLogService,

@@ -713,7 +713,7 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
       filterTools.count_contacts = buildCountContactsTool({
         contacts: this.contacts,
         organization: ctx.organization,
-        peopleDataset: 'voters',
+        peopleDataset: { base: 'voters' },
       })
       // Beside describe_filter_dimensions rather than with the saved-list
       // tools: it IS the vocabulary read for the one dimension the catalog
@@ -733,7 +733,7 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
           voterFileFilters: this.voterFileFilters,
           contacts: this.contacts,
           organization: ctx.organization,
-          peopleDataset: 'voters',
+          peopleDataset: { base: 'voters' },
         })
         // With the saved-list tool, as on the Chief of Staff: the only id
         // it can be given is one crud_saved_filters returned.
@@ -752,7 +752,7 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
         contacts: this.contacts,
         organization: ctx.organization,
         filterConsumers: registeredFilterConsumers(filterTools),
-        peopleDataset: 'voters',
+        peopleDataset: { base: 'voters' },
         citizenPanels: false,
         state: ctx.districtState,
       })

@@ -79,7 +79,7 @@ export class OnboardingContactsController {
 
     const dataset = organization
       ? await this.peopleDataset.resolve(organization)
-      : 'voters'
+      : { base: 'voters' as const }
     return this.contactsService.fetchStatsByDistrictId(districtId, dataset)
   }
 }

@@ -46,6 +46,7 @@ import { OutreachServePollExpansionService } from '@/outreach/services/outreachS
 import { OutreachTextDeliveryService } from '@/outreach/services/outreachTextDelivery.service'
 import { OutreachTextSendFundingService } from '@/outreach/services/outreachTextSendFunding.service'
 import { EmailOutreachQueueService } from '@/emailOutreach/services/emailOutreachQueue.service'
+import { ContactUploadMatchJobService } from '@/contactUploads/services/contactUploadMatchJob.service'
 import { P2pPhoneListUploadService } from '@/vendors/peerly/services/p2pPhoneListUpload.service'
 import { FeedbackSynthesisIngestService } from '@/constituentFeedback/services/feedbackSynthesisIngest.service'
 import { QueueConsumerService } from './queueConsumer.service'
@@ -205,7 +206,7 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
         .mockResolvedValue({ pagination: { totalResults: 100 } }),
       findPersonByPhone: vi.fn().mockResolvedValue(null),
       resolveProAccess: vi.fn().mockResolvedValue(true),
-      resolvePeopleDataset: vi.fn().mockResolvedValue('constituents'),
+      resolvePeopleDataset: vi.fn().mockResolvedValue({ base: 'constituents' }),
     }
     pollIssuesService = {
       model: { deleteMany: vi.fn().mockResolvedValue(undefined) },
@@ -284,6 +285,7 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
       {} as never,
       {} as never,
       logger,
+      {} as never,
       {} as never,
       {} as never,
       {} as never,
@@ -385,7 +387,7 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
       '5559999999',
       expect.anything(),
       expect.anything(),
-      'constituents',
+      { base: 'constituents' },
     )
     expect(pollIndividualMessage.client.$transaction).toHaveBeenCalled()
     const txCb = firstOrThrow(
@@ -425,7 +427,7 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
       '5559999999',
       expect.anything(),
       expect.anything(),
-      'constituents',
+      { base: 'constituents' },
     )
     const txCb = firstOrThrow(
       pollIndividualMessage.client.$transaction.mock.calls,
@@ -1170,6 +1172,7 @@ describe('QueueConsumerService - handleDomainEmailForwardingMessage', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
     )
   })
 
@@ -1373,6 +1376,7 @@ describe('QueueConsumerService - triggerPollExecution', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
     )
   })
 
@@ -1465,8 +1469,14 @@ describe('QueueConsumerService - message type routing', () => {
     check: ReturnType<typeof vi.fn>
     reportRefusal: ReturnType<typeof vi.fn>
   }
+  let mockContactUploadMatchJob: {
+    handleQueuedMatch: ReturnType<typeof vi.fn>
+  }
 
   beforeEach(async () => {
+    mockContactUploadMatchJob = {
+      handleQueuedMatch: vi.fn().mockResolvedValue(false),
+    }
     mockCampaignsService = { model: { findUniqueOrThrow: vi.fn() } }
     mockSlackService = { message: vi.fn() }
     mockOutreachService = { model: { findUnique: vi.fn() } }
@@ -1588,10 +1598,45 @@ describe('QueueConsumerService - message type routing', () => {
           useValue: mockTextSendFunding,
         },
         { provide: EmailOutreachQueueService, useValue: {} },
+        {
+          provide: ContactUploadMatchJobService,
+          useValue: mockContactUploadMatchJob,
+        },
       ],
     }).compile()
     module = mod
     service = module.get(QueueConsumerService)
+  })
+
+  it('routes contactUploadMatch with the delivery count and passes back its ack', async () => {
+    const uploadId = '019a2f3c-0000-7000-8000-000000000001'
+    const result = await service.processMessage({
+      MessageId: 'msg-contact-upload-match',
+      Body: JSON.stringify({
+        type: QueueType.CONTACT_UPLOAD_MATCH,
+        data: { uploadId },
+      }),
+      Attributes: { ApproximateReceiveCount: '2' },
+    })
+
+    expect(result).toBe(false)
+    expect(mockContactUploadMatchJob.handleQueuedMatch).toHaveBeenCalledWith(
+      uploadId,
+      2,
+    )
+  })
+
+  it('throws a malformed contactUploadMatch payload toward the DLQ', async () => {
+    await expect(
+      service.processMessage({
+        MessageId: 'msg-contact-upload-match-bad',
+        Body: JSON.stringify({
+          type: QueueType.CONTACT_UPLOAD_MATCH,
+          data: { uploadId: 'nope' },
+        }),
+      }),
+    ).rejects.toThrow()
+    expect(mockContactUploadMatchJob.handleQueuedMatch).not.toHaveBeenCalled()
   })
 
   it('processes campaignPlanComplete and calls handleCampaignPlanComplete', async () => {
@@ -2368,6 +2413,7 @@ describe('QueueConsumerService - handleTcrComplianceCheckMessage', () => {
         { provide: FeedbackSynthesisIngestService, useValue: {} },
         { provide: OutreachTextSendFundingService, useValue: {} },
         { provide: EmailOutreachQueueService, useValue: {} },
+        { provide: ContactUploadMatchJobService, useValue: {} },
       ],
     }).compile()
     service = mod.get(QueueConsumerService)
@@ -2516,6 +2562,7 @@ describe('QueueConsumerService - handleAgentExperimentResult', () => {
         { provide: FeedbackSynthesisIngestService, useValue: {} },
         { provide: OutreachTextSendFundingService, useValue: {} },
         { provide: EmailOutreachQueueService, useValue: {} },
+        { provide: ContactUploadMatchJobService, useValue: {} },
       ],
     }).compile()
     service = module.get(QueueConsumerService)
@@ -2645,6 +2692,7 @@ describe('QueueConsumerService - ORDINANCE_QUALITY_LOOP', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
     )
 
   const loopMessage = (data: unknown): Message => ({
@@ -2728,6 +2776,7 @@ describe('QueueConsumerService - FEEDBACK_SYNTHESIS_COMPLETE', () => {
       {} as never, // p2pPhoneListUpload
       logger,
       { handle } as never,
+      {} as never,
       {} as never,
       {} as never,
     )

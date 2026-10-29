@@ -1,5 +1,8 @@
 import type { MandatoryFilter } from '@/llm/tools/districtInsights.tool'
-import type { ConstituentDataScope } from '@/llm/tools/queryConstituentData.tool'
+import type {
+  AdvertisedDimension,
+  ConstituentDataScope,
+} from '@/llm/tools/queryConstituentData.tool'
 import type { PeopleDataset } from '@/peopleDb/services/peopleDataset.service'
 import { SERVE_AGENT_VOTER_DIMENSIONS } from './constituentDimensions.serveAgentVoters'
 import { SERVE_AGENT_VOTER_SUGGESTED_DIMENSIONS } from './constituentSuggestedDimensions.serveAgentVoters'
@@ -31,7 +34,7 @@ export const CONSTITUENT_TABLES: ConstituentTableConfig[] = [
 ]
 
 export type ConstituentTablesByDataset = Record<
-  PeopleDataset,
+  PeopleDataset['base'],
   ConstituentTableConfig[]
 >
 
@@ -77,14 +80,91 @@ const FORBIDDEN_COLUMNS = new Set([
   'voter_id',
 ])
 
+// The columns the org's imported-contact overlay adds. They are not in the
+// mart, so they are allowed only when the overlay join is swapped in.
+const CONTACT_OVERLAY_DIMENSIONS: AdvertisedDimension[] = [
+  {
+    name: 'on_uploaded_list',
+    label: 'On a contact list the office uploaded (values true or false)',
+  },
+  {
+    name: 'has_email',
+    label:
+      'Has an email address from a contact list the office uploaded (values true or false)',
+  },
+]
+
+const OVERLAY_IDENTIFIER_RE = /^[A-Za-z0-9_]+$/
+
+// Backslash is Spark's string escape; a doubled quote would concatenate two
+// literals instead.
+const stringLiteral = (value: string): string =>
+  `'${value.replace(/[\\']/g, '\\$&')}'`
+
+// The table FULL OUTER JOIN the org's imported contacts, filtered to the
+// district on the table side. Every row carries the district filter's own
+// values, so the mandatory filter the validator demanded keeps the people
+// only an import added, who have no row in the mart.
+const contactOverlayTable = (
+  table: string,
+  districtFilters: MandatoryFilter[],
+  organizationSlug: string,
+): string => {
+  const view =
+    process.env.SERVE_AGENT_CONTACT_OVERLAY_VIEW ||
+    'serve_agent_contact_overlay'
+  const identifiers = [table, view, ...districtFilters.map((f) => f.column)]
+  const unsafe = identifiers.find((name) => !OVERLAY_IDENTIFIER_RE.test(name))
+  if (unsafe !== undefined) {
+    throw new Error(`Refusing to inline the identifier ${unsafe}`)
+  }
+  const scope = new Map<string, MandatoryFilter>()
+  for (const filter of districtFilters) {
+    scope.set(filter.column.toLowerCase(), filter)
+  }
+  const filters = [...scope.values()]
+  const qualified = (name: string) =>
+    `${CONSTITUENT_CATALOG}.${CONSTITUENT_SCHEMA}.${name}`
+  const projection = [
+    `b.* EXCEPT (\`voter_key\`, ${filters.map((f) => `\`${f.column}\``).join(', ')})`,
+    'coalesce(b.`voter_key`, o.`voter_key`) AS `voter_key`',
+    ...filters.map((f) => `${stringLiteral(f.value)} AS \`${f.column}\``),
+    'coalesce(o.`on_uploaded_list`, false) AS `on_uploaded_list`',
+    'coalesce(o.`has_email`, false) AS `has_email`',
+  ].join(', ')
+  const base =
+    `SELECT * FROM ${qualified(table)} WHERE ` +
+    filters
+      .map((f) => `\`${f.column}\` = ${stringLiteral(f.value)}`)
+      .join(' AND ')
+  const overlay =
+    `SELECT * FROM ${qualified(view)}` +
+    ` WHERE organization_slug = ${stringLiteral(organizationSlug)}`
+  return (
+    `(SELECT ${projection} FROM (${base}) b` +
+    ` FULL OUTER JOIN (${overlay}) o ON o.\`voter_key\` = b.\`voter_key\`)`
+  )
+}
+
 export const buildConstituentDataScope = (
   districtFilters: MandatoryFilter[],
   tables: ConstituentTableConfig[],
   peopleDataset: PeopleDataset,
 ): ConstituentDataScope => ({
   allowedTables: new Set(tables.map((t) => t.table)),
-  allowedDimensions: new Set(tables.flatMap((t) => t.dimensions)),
-  advertisedDimensions: SERVE_AGENT_VOTER_SUGGESTED_DIMENSIONS,
+  allowedDimensions: new Set([
+    ...tables.flatMap((t) => t.dimensions),
+    ...(peopleDataset.overlayOrgSlug === undefined
+      ? []
+      : CONTACT_OVERLAY_DIMENSIONS.map((d) => d.name)),
+  ]),
+  advertisedDimensions:
+    peopleDataset.overlayOrgSlug === undefined
+      ? SERVE_AGENT_VOTER_SUGGESTED_DIMENSIONS
+      : [
+          ...SERVE_AGENT_VOTER_SUGGESTED_DIMENSIONS,
+          ...CONTACT_OVERLAY_DIMENSIONS,
+        ],
   forbiddenColumns: FORBIDDEN_COLUMNS,
   mandatoryFilters: districtFilters,
   minCellSize: CONSTITUENT_MIN_CELL_SIZE,
@@ -94,4 +174,12 @@ export const buildConstituentDataScope = (
   // serve_agent_voters, 2026-08-04).
   catalogCarriesScoreMarks: true,
   peopleDataset,
+  contactOverlayTable:
+    peopleDataset.overlayOrgSlug === undefined || tables[0] === undefined
+      ? undefined
+      : contactOverlayTable(
+          tables[0].table,
+          districtFilters,
+          peopleDataset.overlayOrgSlug,
+        ),
 })

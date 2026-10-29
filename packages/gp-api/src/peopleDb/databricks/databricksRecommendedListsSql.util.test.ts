@@ -14,7 +14,7 @@ const CONGRESSIONAL: DbxDistrict = {
   districtType: 'US_Congressional_District',
   districtName: '29',
   useVoterOnlyPath: false,
-  dataset: 'voters',
+  dataset: { base: 'voters' },
   table: VOTERS_TABLE,
 }
 

@@ -46,6 +46,8 @@ model User {
   contactStatusEvents         ContactStatusEvent[]
   phoneBankingCalls           ContactInteractionPhoneBanking[]
   contactNotes                ContactNote[]
+  contactUploads              ContactUpload[]             @relation("ContactUploadUser")
+  contactUploadMatchesResolved ContactUploadMatch[]       @relation("ContactUploadMatchResolvedBy")
   organizationMemberships     OrganizationMembership[]
   invitedMemberships          OrganizationMembership[]         @relation("OrganizationMembershipInvitedBy")
   doorKnockInteractions       ContactInteractionDoorKnock[]

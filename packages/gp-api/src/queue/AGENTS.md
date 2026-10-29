@@ -38,6 +38,7 @@ Per-email SES events never go through this queue. Bounce, complaint and send cou
 
 ## Gotchas
 
+- The consumer asks SQS for `ApproximateReceiveCount` (`message.Attributes`), so a handler can tell its last delivery before the DLQ (`contactUploadMatch` marks its upload failed there).
 - `QueueConsumerModule` is excluded under `NODE_ENV === 'test'` — integration tests that need consumer behaviour must call `handle*` methods directly, not through SQS.
 - The consumer file is intentionally large and switch-based; future refactor will split per-handler. Don't restructure it as part of an unrelated change (Rule 5).
 - The SQS client uses the AWS SDK default credential chain in every environment — no env-var special-casing. Deployed tasks get the ECS task role; local work uses whatever the chain resolves (an SSO profile, `AWS_PROFILE`, or `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` in `.env`).

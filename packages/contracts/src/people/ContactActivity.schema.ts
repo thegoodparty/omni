@@ -29,6 +29,7 @@ export const ConstituentActivityTypeSchema = z.enum([
   'ROBOCALL',
   'PHONE_BANKING',
   'STATUS_CHANGE',
+  'CONTACT_IMPORT',
 ])
 export type ConstituentActivityType = z.infer<
   typeof ConstituentActivityTypeSchema
@@ -209,6 +210,30 @@ export type StatusChangeConstituentActivity = z.infer<
   typeof StatusChangeConstituentActivitySchema
 >
 
+// An Import contacts row pointing at this person (Serve only): matched or
+// added as a new person when the upload ran, or matched by hand (`manual`,
+// dated when the user picked). suppliedFields are the contact fields the row
+// carried; changedFields the ones that changed a value an earlier upload
+// gave this person. actorName/actorUserId name who matched it by hand.
+export const ContactImportConstituentActivitySchema = z.object({
+  type: z.literal(ConstituentActivityTypeSchema.enum.CONTACT_IMPORT),
+  date: z.string(),
+  data: z.object({
+    activityId: z.string(),
+    uploadId: z.string(),
+    uploadName: z.string(),
+    isNewPerson: z.boolean(),
+    suppliedFields: z.array(z.string()),
+    changedFields: z.array(z.string()),
+    manual: z.boolean(),
+    actorName: z.string().nullable(),
+    actorUserId: z.number().nullable(),
+  }),
+})
+export type ContactImportConstituentActivity = z.infer<
+  typeof ContactImportConstituentActivitySchema
+>
+
 export const ConstituentActivitySchema = z.discriminatedUnion('type', [
   PollConstituentActivitySchema,
   OutreachConstituentActivitySchema,
@@ -217,6 +242,7 @@ export const ConstituentActivitySchema = z.discriminatedUnion('type', [
   RobocallConstituentActivitySchema,
   PhoneBankingConstituentActivitySchema,
   StatusChangeConstituentActivitySchema,
+  ContactImportConstituentActivitySchema,
 ])
 export type ConstituentActivity = z.infer<typeof ConstituentActivitySchema>
 

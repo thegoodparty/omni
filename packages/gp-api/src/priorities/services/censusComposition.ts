@@ -223,7 +223,8 @@ export class DistrictCensusComposition implements CensusCompositionSource {
     districtId: string
     dataset: PeopleDataset
   }): Promise<DistrictCells> {
-    const key = `${input.dataset}:${input.districtId}`
+    const { base, overlayOrgSlug, overlayDistrictId } = input.dataset
+    const key = `${base}:${overlayOrgSlug ?? ''}:${overlayDistrictId ?? ''}:${input.districtId}`
     const now = new Date()
     const kept = this.districtCells.get(key)
     if (kept && isAfter(kept.expiresAt, now)) return kept.cells

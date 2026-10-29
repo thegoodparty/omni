@@ -257,6 +257,27 @@ The primary validate job is named **"Validate"** across all
 packages. Shared steps are factored into `.github/actions/` (setup-node-workspace,
 vercel-deploy, pulumi-deploy).
 
+### Credentials and the `production` environment
+
+A job that runs only from `main` (push, schedule or dispatch) and holds a
+credential that can change production declares the `production` GitHub
+environment, with `deployment: false` so it stays out of the deployment history
+`finalize` writes. Today that is the train's six Vercel deploy jobs (dev and
+prod alike, since `VERCEL_TOKEN` can deploy every target), `dependabot-merge.yml`
+and `sync.yml`. A secret that only those jobs read can live in the environment
+rather than at repo scope, where (once the environment is limited to `main`)
+a pull request run cannot read it.
+
+Two things to check before adding the environment to a job. It changes the
+job's OIDC subject from `ref:refs/heads/main` to `environment:production`, so
+every role or federation policy the job authenticates to must accept that
+subject (the judge sweep role and the Databricks federation policy in
+`analytics-governance.yml` are pinned to the ref and do not). And a secret the
+job reads must not also be read on a pull request, or moving it breaks that run.
+
+PR preview deploys read `VERCEL_PREVIEW_TOKEN`, falling back to `VERCEL_TOKEN`
+while the preview token is unset.
+
 ### Base images
 
 Every Dockerfile `FROM`, and the buildx builder image, pulls from ECR Public
@@ -265,10 +286,11 @@ pulls from either are limited per IP, and shared GitHub runners kept failing
 with `429 Too Many Requests`. Logged-in ECR Public pulls are limited per AWS
 account, so every job that builds an image logs in to ECR Public first
 (`aws-actions/amazon-ecr-login` with `registry-type: public`). Main runs log
-in with `vars.AWS_ROLE_ARN`. gp-ai's pull request build, which never holds the
-deploy role, assumes the read-only plan role (`vars.AWS_PLAN_ROLE_ARN`), which
-can mint that login token (granted in `thegoodparty/ops`). Local builds need no
-login.
+in with `vars.AWS_ROLE_ARN`. On a pull request, a job whose only AWS call is
+that login (gp-ai's image build, gp-api's test shards pulling the testcontainers
+Postgres image) assumes the read-only plan role (`vars.AWS_PLAN_ROLE_ARN`)
+instead, which can mint that login token and nothing more (granted in
+`thegoodparty/ops`). Local builds need no login.
 
 A logged-in pull can still fail on the network, so the train retries the pulls
 it controls. It pre-pulls the buildx builder image with retries; buildx falls
@@ -322,15 +344,23 @@ backoff for the cache-miss path.
 
 ## Dependency updates (Dependabot)
 
-Policy: **security updates only** — no version-bump PRs. Version updates are
-disabled in `.github/dependabot.yml` (`open-pull-requests-limit: 0`); security
-PRs are driven by Dependabot alerts (enabled in repo settings) and target
-`main` (`--base main`).
+Policy for npm: **security updates only** — no version-bump PRs. Version
+updates are disabled in `.github/dependabot.yml` (`open-pull-requests-limit:
+0`); security PRs are driven by Dependabot alerts (enabled in repo settings) and
+target `main` (`--base main`). Docker base images and GitHub Actions do get
+version updates; the comments in `.github/dependabot.yml` say why and how.
 
-Security PRs merge themselves: the `dependabot-merge.yml` workflow sweeps every
-30 minutes and squash-merges any Dependabot PR that is approved (delegate
-reviews every PR), has all checks green, and whose last commit is at least 24
-hours old. A commit pushed by anyone other than Dependabot disqualifies the PR
+Every third-party `uses:` is pinned to a full commit SHA with its tag as a
+trailing comment (`actions/checkout@<sha> # v5`), so a moved tag cannot change
+what CI runs. Pin a new one the same way: resolve the tag with
+`gh api repos/<owner>/<repo>/commits/<tag> --jq .sha`. Dependabot's weekly
+`github-actions` PR moves the SHA and the comment together. Local `./` actions
+are not pinned.
+
+Dependabot PRs merge themselves, whatever the ecosystem: the
+`dependabot-merge.yml` workflow sweeps every 30 minutes and squash-merges any
+Dependabot PR that is approved (delegate reviews every PR), has all checks
+green, and whose last commit is at least 24 hours old. A commit pushed by anyone other than Dependabot disqualifies the PR
 from auto-merge. Merges authenticate as the `omni-automation` GitHub App
 (`AUTOMATION_APP_ID` var + `AUTOMATION_APP_PRIVATE_KEY` secret) so the merge
 push triggers the dev deploy workflows like any other merge. Auto-merge stops

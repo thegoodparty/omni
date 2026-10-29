@@ -6,6 +6,7 @@ import { PinoLogger } from 'nestjs-pino'
 import type { ExperimentVariants } from '@goodparty_org/contracts'
 import { resolveEnvVar } from '../../shared/env/env'
 import { ISSUE_CAPTURE_FLAG } from '../../constituentFeedback/util/issueCaptureFlag.util'
+import { SERVE_IMPORT_CONTACTS_FLAG } from '@goodparty_org/contracts'
 
 // Flags that roll out by organization, not by person: anyone acting in an
 // org reads what its owner reads. Amplitude buckets by user id, so a
@@ -14,6 +15,7 @@ import { ISSUE_CAPTURE_FLAG } from '../../constituentFeedback/util/issueCaptureF
 // to isFeatureEnabled themselves.
 export const ORGANIZATION_FLAGS: ReadonlySet<string> = new Set([
   ISSUE_CAPTURE_FLAG,
+  SERVE_IMPORT_CONTACTS_FLAG,
 ])
 
 // User attributes sent to Amplitude for segment targeting. Mirrors the fields

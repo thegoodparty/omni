@@ -63,6 +63,8 @@ const makePerson = (id: string): Person => ({
   },
   cellPhone: null,
   landline: null,
+  email: null,
+  isNewContact: false,
   gender: null,
   politicalParty: 'Independent',
   registeredVoter: 'Yes',
@@ -259,7 +261,7 @@ describe('OutreachMaterializationService', () => {
       { resultsPerPage: 1000, page: 1 },
       expect.objectContaining({ slug: campaign.organizationSlug }),
       undefined,
-      expect.any(String),
+      expect.objectContaining({ base: expect.any(String) }),
     )
   })
 
@@ -548,7 +550,7 @@ describe('OutreachMaterializationService', () => {
         { resultsPerPage: 1000, page: 1 },
         expect.objectContaining({ slug: campaign.organizationSlug }),
         undefined,
-        expect.any(String),
+        expect.objectContaining({ base: expect.any(String) }),
       )
     })
 

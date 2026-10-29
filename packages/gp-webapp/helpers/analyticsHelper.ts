@@ -543,6 +543,15 @@ export const EVENTS = {
     CivicPanelInviteReviewDismissed:
       'Contacts - Civic Panel Invite Review Dismissed',
     CivicPanelInviteSubmitted: 'Contacts - Civic Panel Invite Submitted',
+    // Serve's Import contacts wizard (crm/import/ImportContactsWizard.tsx).
+    // Started fires once a file is read ({ sourceType, rowCount }), Consent
+    // Affirmed once the upload with the consent box checked is accepted
+    // ({ rowCount }), Abandoned when the wizard closes before that
+    // ({ lastStep: 'file' | 'columns' | 'name', rowCount }). gp-api fires
+    // Import Completed when matching finishes.
+    ImportStarted: 'Contacts - Import Started',
+    ImportConsentAffirmed: 'Contacts - Import Consent Affirmed',
+    ImportAbandoned: 'Contacts - Import Abandoned',
   },
   // ENG-10688: the CRM brief specs the typeahead search events as
   // product-specific by nav surface — "Voter Data" (Win) vs "Constituent

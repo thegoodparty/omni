@@ -93,7 +93,7 @@ describe('OutreachServeSmsCreateService', () => {
     }
     contacts = {
       findContactsForFilter: vi.fn().mockResolvedValue(page(people(120))),
-      resolvePeopleDataset: vi.fn().mockResolvedValue('constituents'),
+      resolvePeopleDataset: vi.fn().mockResolvedValue({ base: 'constituents' }),
     }
     organizations = {
       findFirst: vi.fn().mockResolvedValue({ id: 1, slug: ORG }),

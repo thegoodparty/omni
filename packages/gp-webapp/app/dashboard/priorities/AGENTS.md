@@ -58,6 +58,10 @@ it is, what to do next, and where it has got to.
   router cache, as it was first loaded, so a priority added since would be
   missing and the row in its place would open an older one. A change made on
   the page before the read lands wins over it.
+- **Below `sm` the chips sit under the title.** The step and source chips
+  beside the title left it a few letters wide on a phone, so there they wrap
+  under it and the title and next action get two lines each. From `sm` up the
+  row is one line, chips on the right.
 - **Archive is per row and takes one click.** gp-api soft-archives, so the
   record survives; the row leaves the list.
 
