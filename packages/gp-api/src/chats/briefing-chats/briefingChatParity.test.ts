@@ -165,6 +165,8 @@ const assertToolConfig = async (
       buildDistrictInsightsTool({
         provider: deps.databricks!,
         allowedTables: new Set([VOTERS_TABLE]),
+        allowedDimensions: new Set(),
+        forbiddenColumns: new Set(),
         mandatoryFilters: FILTERS,
         peopleDataset: { base: 'voters' },
       }).description,
@@ -193,6 +195,19 @@ const assertToolConfig = async (
         CALL,
       ),
     ).rejects.toThrow()
+    // A row per voter never reaches it either.
+    await expect(
+      insights.execute(
+        {
+          sql: IN_DISTRICT_SQL.replace(
+            'COUNT(*) AS n',
+            'voter_key, COUNT(*) AS n',
+          ).concat(' GROUP BY voter_key'),
+          rationale: 'r',
+        },
+        CALL,
+      ),
+    ).rejects.toThrow(/voter_key/)
     expect(query).toHaveBeenCalledTimes(1)
     expect(executable(tools.list_district_topics)).toBeDefined()
   }

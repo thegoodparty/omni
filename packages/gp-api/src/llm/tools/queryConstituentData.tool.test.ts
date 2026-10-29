@@ -3,13 +3,12 @@ import {
   DATA_SOURCE_ROUTING_RULES,
   dataSourceRoutingRules,
 } from './dataSourceRouting'
-import { SqlRejected } from './districtInsights.tool'
+import { SqlRejected, validateConstituentSql } from './constituentSql.validator'
 import { hsScoreSemantics } from './hsScoreSemantics'
 import {
   buildDescribeConstituentDataTool,
   buildQueryConstituentDataTool,
   type ConstituentDataScope,
-  validateConstituentSql,
 } from './queryConstituentData.tool'
 import {
   type DatabricksProvider,
@@ -447,9 +446,41 @@ describe('buildQueryConstituentDataTool — wiring + suppression', () => {
     ])
   })
 
-  it('fails closed when the result has no recognized count column', async () => {
-    // Unrecognized count alias -> scrubResults can't enforce the cell-size
-    // floor, so the tool must reject rather than return possibly-small cells.
+  it('rejects a query with no COUNT(*) whose MAX(... * 1000) is aliased count', async () => {
+    const provider = fakeProvider([{ age_band: '25-34', count: 34000 }])
+    const tool = buildQueryConstituentDataTool({ provider, scope })
+    await expect(
+      tool.execute({
+        sql: `SELECT age_band, MAX(age_band * 1000) AS count FROM ${TABLE} ${scopeWhere}
+          GROUP BY age_band`,
+      }),
+    ).rejects.toThrow(/COUNT\(\*\)/)
+    expect(provider.calls).toHaveLength(0)
+  })
+
+  it('keys the floor on COUNT(*), not on a MAX(... * 1000) aliased count', async () => {
+    const provider: DatabricksProvider = {
+      query: () =>
+        Promise.resolve({
+          columns: ['age_band', 'people', 'count'],
+          rows: [
+            { age_band: '25-34', people: 1, count: 34000 },
+            { age_band: '35-44', people: 700, count: 44000 },
+          ],
+        }),
+    }
+    const out = await buildQueryConstituentDataTool({
+      provider,
+      scope,
+    }).execute({
+      sql: `SELECT age_band, COUNT(*) AS people, MAX(age_band * 1000) AS count
+          FROM ${TABLE} ${scopeWhere} GROUP BY age_band`,
+    })
+    expect(out.rows).toEqual([{ age_band: '35-44', people: 700, count: 44000 }])
+    expect(out.rowsSuppressed).toBe(1)
+  })
+
+  it('fails closed when the result has no COUNT(*) column', async () => {
     const provider = fakeProvider([{ age_band: '45-54', headcount: 3 }])
     const tool = buildQueryConstituentDataTool({ provider, scope })
     await expect(tool.execute({ sql: happySql })).rejects.toBeInstanceOf(

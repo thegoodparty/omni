@@ -1,30 +1,20 @@
 import { z } from 'zod'
 import type { LlmStreamTool } from '@/llm/services/llm.service'
 import {
+  ALLOWED_AGGREGATE_FUNCTIONS,
+  type ConstituentSqlScope,
   findPeopleCountColumns,
+  findRowCountColumn,
   type MandatoryFilter,
   scrubResults,
-  SqlRejected,
-  validateInsightsSql,
-} from './districtInsights.tool'
+  validateConstituentSql,
+} from './constituentSql.validator'
 import { dataSourceRoutingRules } from './dataSourceRouting'
 import { hsScoreSemantics } from './hsScoreSemantics'
 import type { DatabricksProvider } from './queryDatabricks.tool'
 import type { PeopleDataset } from '@/peopleDb/services/peopleDataset.service'
 import { isRecord } from './util/isRecord.util'
 import { parseSingleSelect } from './util/sqlAst.util'
-
-// Aggregate functions the agent may use. Anything outside this set (including
-// scalar functions and window functions) is rejected so a SELECT item can only
-// ever be an aggregate or a GROUP BY dimension — never a row-level value.
-const ALLOWED_AGGREGATE_FUNCTIONS = new Set([
-  'COUNT',
-  'SUM',
-  'AVG',
-  'MIN',
-  'MAX',
-  'APPROX_COUNT_DISTINCT',
-])
 
 const DEFAULT_MIN_CELL_SIZE = 100
 const DEFAULT_MAX_ROWS = 200
@@ -35,28 +25,12 @@ export interface AdvertisedDimension {
   label: string
 }
 
-export interface ConstituentDataScope {
-  allowedTables: Set<string>
-  // Coarse dimensions the agent may reference anywhere (SELECT/GROUP BY/WHERE).
-  // The real anti-differencing control: fine-grained quasi-identifiers are not
-  // listed, so they can't be sliced. Mandatory-filter columns are implicitly
-  // allowed (they're server-bound), but listing them here is harmless. This is
-  // the validator allowlist (can be the whole approved table); it is NOT the
-  // menu shown to the model — see advertisedDimensions.
-  allowedDimensions: Set<string>
+export interface ConstituentDataScope extends ConstituentSqlScope {
   // The curated, human-labelled subset surfaced to the model as recommended
   // breakdowns. A usable slice of allowedDimensions so the agent isn't handed
   // hundreds of raw column names (which made it reach for useless district
   // breakdowns); the full table stays queryable via allowedDimensions.
   advertisedDimensions: AdvertisedDimension[]
-  // Columns that must never appear anywhere. App-side defensive backstop for the
-  // hard "no political party / partisan-lean" line; in 6b the credential also
-  // denies these at the warehouse.
-  forbiddenColumns: Set<string>
-  // Server-bound district predicate. Built from
-  // DistrictResolverService.resolveByOrgSlug on the conversation's own org —
-  // NEVER from agent input, and never from the user's first office.
-  mandatoryFilters: MandatoryFilter[]
   minCellSize?: number
   // Whether partisan columns (party registration, partisanship/ideology
   // scores) may be queried. Serve scopes omit this (false): elected officials
@@ -93,267 +67,6 @@ export interface ConstituentDataScope {
   // carries the overlay (buildConstituentDataScope). It replaces the table
   // only after the validator has accepted the SQL against the bare table.
   contactOverlayTable?: string
-}
-
-const normalizeColumn = (name: string): string => name.toLowerCase()
-
-const collectColumnNode = (node: unknown): string | null => {
-  if (!isRecord(node)) return null
-  if (node.type !== 'column_ref') return null
-  const col = node.column
-  if (typeof col === 'string') return col
-  if (isRecord(col) && isRecord(col.expr)) {
-    const ex = col.expr
-    if (typeof ex.value === 'string') return ex.value
-  }
-  return null
-}
-
-// Every column_ref referenced ANYWHERE in the statement (select list, where,
-// group by, having, order by). Used for both the dimension allowlist and the
-// forbidden-column check, so a party column can't hide in any clause.
-const collectAllColumns = (node: unknown, acc: Set<string>): void => {
-  if (node === null || node === undefined) return
-  if (Array.isArray(node)) {
-    for (const item of node) collectAllColumns(item, acc)
-    return
-  }
-  if (!isRecord(node)) return
-  const colName = collectColumnNode(node)
-  if (colName !== null) acc.add(colName)
-  for (const key of Object.keys(node)) {
-    collectAllColumns(node[key], acc)
-  }
-}
-
-const aggregateFunctionName = (
-  expr: Record<string, unknown>,
-): string | null => {
-  if (expr.type === 'aggr_func' && typeof expr.name === 'string') {
-    return expr.name.toUpperCase()
-  }
-  // APPROX_COUNT_DISTINCT and friends parse as a generic function node whose
-  // name is { name: [{ value: 'FN' }] }.
-  if (expr.type === 'function' && isRecord(expr.name)) {
-    const nameParts: unknown = expr.name.name
-    if (Array.isArray(nameParts) && nameParts.length > 0) {
-      const last: unknown = nameParts[nameParts.length - 1]
-      if (isRecord(last) && typeof last.value === 'string') {
-        return last.value.toUpperCase()
-      }
-    }
-  }
-  return null
-}
-
-const isWindowed = (expr: Record<string, unknown>): boolean =>
-  expr.over !== null && expr.over !== undefined
-
-// COUNT(DISTINCT col) etc. — DISTINCT inside an aggregate is enumeration over
-// distinct values, a differencing vector. Reject it.
-const aggregateHasDistinct = (expr: Record<string, unknown>): boolean => {
-  const args = expr.args
-  return isRecord(args) && args.distinct !== null && args.distinct !== undefined
-}
-
-// True when any node anywhere is a window function or carries an OVER clause.
-const containsWindowNode = (node: unknown): boolean => {
-  if (node === null || node === undefined) return false
-  if (Array.isArray(node)) return node.some(containsWindowNode)
-  if (!isRecord(node)) return false
-  if (node.type === 'window_func') return true
-  if (
-    (node.type === 'aggr_func' || node.type === 'function') &&
-    isWindowed(node)
-  ) {
-    return true
-  }
-  for (const key of Object.keys(node)) {
-    if (containsWindowNode(node[key])) return true
-  }
-  return false
-}
-
-// A subquery (derived table / IN-subquery / scalar subquery) shows up as a
-// nested `ast` select node, or as a UNION via `_next` / `set_op`. Reject all of
-// them: a subquery against a base view re-opens row-level access and defeats the
-// aggregate-only and scoping guarantees.
-const containsNestedSelect = (node: unknown, isRoot: boolean): boolean => {
-  if (node === null || node === undefined) return false
-  if (Array.isArray(node)) {
-    return node.some((item) => containsNestedSelect(item, false))
-  }
-  if (!isRecord(node)) return false
-  if (!isRoot && node.type === 'select') return true
-  if (node._next !== null && node._next !== undefined) return true
-  for (const key of Object.keys(node)) {
-    if (key === '_next') continue
-    if (containsNestedSelect(node[key], false)) return true
-  }
-  return false
-}
-
-const groupByColumns = (groupby: unknown): Set<string> => {
-  const cols = new Set<string>()
-  if (!isRecord(groupby)) return cols
-  const list = groupby.columns
-  if (!Array.isArray(list)) return cols
-  for (const item of list) {
-    const name = collectColumnNode(item)
-    if (name !== null) cols.add(normalizeColumn(name))
-  }
-  return cols
-}
-
-const NOT_AGGREGATE_OR_GROUP =
-  'select items must be an allowlisted aggregate or a GROUP BY column'
-
-const assertAllowedAggregate = (
-  expr: Record<string, unknown>,
-  aggName: string,
-): void => {
-  if (isWindowed(expr)) {
-    throw new SqlRejected('window functions are not allowed')
-  }
-  if (aggregateHasDistinct(expr)) {
-    throw new SqlRejected(
-      'DISTINCT inside an aggregate is not allowed (enumeration)',
-    )
-  }
-  if (!ALLOWED_AGGREGATE_FUNCTIONS.has(aggName)) {
-    throw new SqlRejected(`aggregate function not allowed: ${aggName}`)
-  }
-}
-
-const assertSelectItem = (
-  expr: Record<string, unknown>,
-  groupBy: Set<string>,
-): void => {
-  if (expr.type === 'star' || expr.column === '*') {
-    throw new SqlRejected('SELECT * is not allowed; aggregate-only')
-  }
-  if (expr.type === 'number' || expr.type === 'string') return
-
-  const aggName = aggregateFunctionName(expr)
-  if (aggName !== null) {
-    assertAllowedAggregate(expr, aggName)
-    return
-  }
-
-  const name = expr.type === 'column_ref' ? collectColumnNode(expr) : null
-  if (name !== null && groupBy.has(normalizeColumn(name))) return
-
-  throw new SqlRejected(NOT_AGGREGATE_OR_GROUP)
-}
-
-// Every SELECT-list item must be an allowlisted aggregate (no window, no
-// DISTINCT) or a literal, OR a bare column that is in GROUP BY. Anything else —
-// SELECT *, a raw column not grouped, a scalar function, a disallowed aggregate
-// — is a potential row-level / enumeration leak and is rejected.
-const validateSelectList = (columns: unknown, groupBy: Set<string>): void => {
-  if (!Array.isArray(columns)) {
-    throw new SqlRejected('unparseable select list')
-  }
-  for (const col of columns) {
-    if (!isRecord(col)) {
-      throw new SqlRejected('unparseable select item')
-    }
-    const expr = col.expr
-    if (!isRecord(expr)) {
-      throw new SqlRejected('unparseable select expression')
-    }
-    assertSelectItem(expr, groupBy)
-  }
-}
-
-export const validateConstituentSql = (
-  sql: string,
-  scope: ConstituentDataScope,
-): string => {
-  // Structural shape checks run FIRST so their specific rejection reason wins
-  // over the base validator's coarser GROUP-BY / mandatory-filter messages for
-  // the same query. parseSingleSelect also covers invisible chars (via the
-  // base validator below) but here gives us the AST to inspect.
-  const parsed = parseSingleSelect(sql)
-  if (!parsed) {
-    throw new SqlRejected('only a single SELECT statement is allowed')
-  }
-  const stmt = parsed.stmt
-
-  const distinct = stmt.distinct
-  if (isRecord(distinct) && distinct.type === 'DISTINCT') {
-    throw new SqlRejected('SELECT DISTINCT is not allowed (enumeration)')
-  }
-
-  if (containsWindowNode(stmt)) {
-    throw new SqlRejected('window functions are not allowed')
-  }
-
-  if (containsNestedSelect(stmt, true)) {
-    throw new SqlRejected(
-      'subqueries / UNION against base views are not allowed',
-    )
-  }
-
-  const groupBy = groupByColumns(stmt.groupby)
-  validateSelectList(stmt.columns, groupBy)
-
-  // Base guards (after the shape checks): invisible chars, single SELECT,
-  // write-node recursion, table allowlist, GROUP-BY-or-aggregate shape, and the
-  // server-bound mandatory district filters (OR-safe).
-  validateInsightsSql(sql, {
-    allowedTables: scope.allowedTables,
-    mandatoryFilters: scope.mandatoryFilters,
-    // validateSelectList above already enforced the (richer) aggregate-only
-    // shape, including APPROX_COUNT_DISTINCT; skip the base check's coarser
-    // re-validation, which rejects APPROX_COUNT_DISTINCT in a no-GROUP-BY query.
-    skipSelectShapeCheck: true,
-  })
-
-  const referencedColumns = new Set<string>()
-  collectAllColumns(stmt, referencedColumns)
-
-  const forbidden = new Set([...scope.forbiddenColumns].map(normalizeColumn))
-  const allowedDims = new Set([...scope.allowedDimensions].map(normalizeColumn))
-  const mandatoryCols = new Set(
-    scope.mandatoryFilters.map((f) => normalizeColumn(f.column)),
-  )
-
-  for (const raw of referencedColumns) {
-    const col = normalizeColumn(raw)
-    if (forbidden.has(col)) {
-      throw new SqlRejected(`forbidden column referenced: ${raw}`)
-    }
-    // Mandatory (server-bound) columns are always permitted; otherwise every
-    // referenced column must be an approved coarse dimension.
-    if (mandatoryCols.has(col)) continue
-    if (!allowedDims.has(col)) {
-      throw new SqlRejected(`column not in coarse dimension allowlist: ${raw}`)
-    }
-  }
-
-  return sql
-}
-
-// The cell-size floor keys off the row-count column. Rather than guess its name
-// from a fixed alias list (which rejects a perfectly valid COUNT(*) the model
-// happened to alias differently), read the COUNT aggregate's alias straight off
-// the parsed SELECT. Returns the alias when the COUNT is aliased, else null
-// (an unaliased COUNT(*) lands on Spark's default `count(1)` name, handled by
-// the caller's fallback).
-export const findCountAlias = (sql: string): string | null => {
-  const parsed = parseSingleSelect(sql)
-  if (!parsed) return null
-  const columns = parsed.stmt.columns
-  if (!Array.isArray(columns)) return null
-  for (const col of columns) {
-    if (!isRecord(col)) continue
-    const expr = col.expr
-    if (isRecord(expr) && aggregateFunctionName(expr) === 'COUNT') {
-      return typeof col.as === 'string' && col.as.length > 0 ? col.as : null
-    }
-  }
-  return null
 }
 
 const clampMaxRows = (requested?: number): number => {
@@ -451,24 +164,11 @@ export const buildQueryConstituentDataTool = (deps: {
         : validatedSql
 
     const result = await deps.provider.query(querySql)
-    const countAlias = findCountAlias(validatedSql)
     const scrubbed = scrubResults(result.rows, {
       minCellSize: deps.scope.minCellSize ?? DEFAULT_MIN_CELL_SIZE,
-      // The COUNT's own alias (any name) plus Spark's default name for an
-      // unaliased COUNT(*), so a valid count is found regardless of how the
-      // model named it.
-      countColumnAliases: countAlias ? [countAlias, 'count(1)'] : ['count(1)'],
+      rowCountColumn: findRowCountColumn(validatedSql, result.columns),
       peopleCountColumns: findPeopleCountColumns(validatedSql, result.columns),
     })
-    // Fail closed: scrubResults can only enforce the cell-size floor when it
-    // finds the row-count column. If it still can't (the query has no COUNT at
-    // all), we cannot prove every cell is above the floor, so returning the
-    // rows could leak small / individual-level cells.
-    if (scrubbed.reason === 'no_count_column') {
-      throw new SqlRejected(
-        'every query must include COUNT(*) so cell sizes can be enforced',
-      )
-    }
     const truncated = scrubbed.kept.length > limit
     const rows = truncated ? scrubbed.kept.slice(0, limit) : scrubbed.kept
 

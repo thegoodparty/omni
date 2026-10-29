@@ -135,11 +135,9 @@ const PINNABLE_TABLES: Partial<Record<string, string[]>> = {
   chief_of_staff: CONSTITUENT_TABLES.map((config) => config.table),
   priority_flow: CONSTITUENT_TABLES.map((config) => config.table),
   campaign_assistant: WIN_CONSTITUENT_TABLES.map((config) => config.table),
-  // The one table BriefingAnnotationHandler lets district_insights read. A
-  // literal because the handler keeps its allowlist private; if the two ever
-  // disagree, pinDeltaVersion finds no allowed table in the query and refuses
-  // it by name rather than running it unpinned.
-  briefing_annotation: ['serve_agent_voters'],
+  // BriefingAnnotationHandler gives district_insights the Chief of Staff's
+  // allowlist.
+  briefing_annotation: CONSTITUENT_TABLES.map((config) => config.table),
 }
 
 export const pinnableTablesFor = (agentId: string): string[] => {
