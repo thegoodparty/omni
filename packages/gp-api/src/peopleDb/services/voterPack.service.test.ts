@@ -59,14 +59,4 @@ describe('VoterPackService', () => {
       controller.signal,
     )
   })
-
-  // Voter data has one store, so there is nothing to fall back to and a
-  // failure must surface rather than resolve to a partial pack.
-  it('propagates a failure from the pack build', async () => {
-    build.mockRejectedValue(new Error('warehouse unavailable'))
-
-    await expect(service.build(request(), { base: 'voters' })).rejects.toThrow(
-      'warehouse unavailable',
-    )
-  })
 })

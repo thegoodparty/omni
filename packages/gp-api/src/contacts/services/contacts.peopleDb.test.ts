@@ -2,7 +2,6 @@ import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { VoterFileDownloadAccessService } from '@/shared/services/voterFileDownloadAccess.service'
 import {
   ListDetailContactsResponseSchema,
-  PeopleListResponseSchema,
   PersonSchema,
 } from '@goodparty_org/contracts'
 import { HttpStatus } from '@nestjs/common'
@@ -96,17 +95,6 @@ const FIXTURE_AGGREGATES = {
   robocall: 4,
   phoneBanking: 9,
   doorKnocking: 7,
-}
-
-// The actual on-wire shape from this service's local StatsService.getStats
-// (see report — this doesn't match contacts.types.ts's aspirational
-// StatsResponse type). No contracts Zod schema exists for it, so these tests
-// assert routing + pass-through only.
-const FIXTURE_STATS = {
-  districtId: OVERRIDE_DISTRICT_ID,
-  totalConstituents: 5000,
-  totalConstituentsWithCellPhone: 4000,
-  buckets: {},
 }
 
 describe('ContactsService — people-db (sole path)', () => {
@@ -237,73 +225,6 @@ describe('ContactsService — people-db (sole path)', () => {
     )
   })
 
-  describe('findContacts', () => {
-    it('calls VoterQueryService.findPeople and validates PeopleListResponse', async () => {
-      const org = makeOrganization()
-      mockVoterQueryService.findPeople.mockResolvedValue(FIXTURE_PAGE)
-
-      const result = await service.findContacts(
-        { resultsPerPage: 10, page: 1, search: undefined, segment: 'all' },
-        org,
-      )
-
-      expect(mockVoterQueryService.findPeople).toHaveBeenCalledOnce()
-      expect(mockVoterQueryService.findPeople).toHaveBeenCalledWith(
-        expect.objectContaining({
-          districtId: OVERRIDE_DISTRICT_ID,
-          resultsPerPage: 10,
-          page: 1,
-        }),
-        { base: 'constituents' },
-      )
-      expect(PeopleListResponseSchema.safeParse(result).success).toBe(true)
-    })
-  })
-
-  describe('countContacts', () => {
-    it('calls VoterQueryService.findPeople with resultsPerPage: 1', async () => {
-      const org = makeOrganization()
-      mockVoterQueryService.findPeople.mockResolvedValue(FIXTURE_PAGE)
-
-      const result = await service.countContacts({}, org)
-
-      expect(result).toEqual({
-        count: FIXTURE_PAGE.pagination.totalResults,
-      })
-      expect(mockVoterQueryService.findPeople).toHaveBeenCalledWith(
-        expect.objectContaining({
-          districtId: OVERRIDE_DISTRICT_ID,
-          resultsPerPage: 1,
-          page: 1,
-        }),
-        { base: 'constituents' },
-      )
-    })
-  })
-
-  describe('findContactsForFilter', () => {
-    it('calls VoterQueryService.findPeople and validates PeopleListResponse', async () => {
-      const org = makeOrganization()
-      mockVoterQueryService.findPeople.mockResolvedValue(FIXTURE_PAGE)
-
-      const result = await service.findContactsForFilter(
-        {},
-        { resultsPerPage: 25, page: 2 },
-        org,
-      )
-
-      expect(mockVoterQueryService.findPeople).toHaveBeenCalledWith(
-        expect.objectContaining({
-          districtId: OVERRIDE_DISTRICT_ID,
-          resultsPerPage: 25,
-          page: 2,
-        }),
-        { base: 'constituents' },
-      )
-      expect(PeopleListResponseSchema.safeParse(result).success).toBe(true)
-    })
-  })
-
   // fetchListDetailAggregates is private; drive it through getListDetail's
   // universe-detail path (no segment). One people-db call backs the whole
   // payload — demographics and every reachability channel together.
@@ -350,22 +271,6 @@ describe('ContactsService — people-db (sole path)', () => {
         { base: 'constituents' },
       )
       expect(z.array(PersonSchema).safeParse(result).success).toBe(true)
-    })
-  })
-
-  describe('findPerson', () => {
-    it('calls VoterQueryService.findPerson and validates Person', async () => {
-      const org = makeOrganization()
-      mockVoterQueryService.findPerson.mockResolvedValue(FIXTURE_PERSON)
-
-      const result = await service.findPerson('person-1', org)
-
-      expect(mockVoterQueryService.findPerson).toHaveBeenCalledWith(
-        'person-1',
-        expect.objectContaining({ districtId: OVERRIDE_DISTRICT_ID }),
-        { base: 'constituents' },
-      )
-      expect(PersonSchema.safeParse(result).success).toBe(true)
     })
   })
 
@@ -478,21 +383,6 @@ describe('ContactsService — people-db (sole path)', () => {
   })
 
   describe('fetchStatsByDistrictId', () => {
-    it('calls StatsService.findStats', async () => {
-      mockStatsService.findStats.mockResolvedValue(FIXTURE_STATS)
-
-      const result = await service.fetchStatsByDistrictId(
-        OVERRIDE_DISTRICT_ID,
-        { base: 'constituents' },
-      )
-
-      expect(mockStatsService.findStats).toHaveBeenCalledWith(
-        expect.objectContaining({ districtId: OVERRIDE_DISTRICT_ID }),
-        { base: 'constituents' },
-      )
-      expect(result).toEqual(FIXTURE_STATS)
-    })
-
     it('throws VOTER_DATA_UNAVAILABLE when the district has no stats row', async () => {
       mockStatsService.findStats.mockResolvedValue(null)
 

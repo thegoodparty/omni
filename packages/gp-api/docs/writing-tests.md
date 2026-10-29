@@ -8,7 +8,7 @@ We treat every test as a unit test. There is no separate "integration" tier and 
 
 Three patterns, in increasing cost:
 
-1. **Direct instantiation** — `new Controller(mockDeps)`. Fastest. Use for controllers and any service whose dependencies you can hand-roll in a few lines.
+1. **Direct instantiation** — `new Controller(mockDeps)`. Fastest. Use for controller logic (not pass-through, see "Pass-through and propagation tests") and any service whose dependencies you can hand-roll in a few lines.
 2. **`Test.createTestingModule`** — Nest's DI container with mock providers. Use when the unit under test reaches for things via DI in a way that's awkward to construct manually (lots of providers, decorators that need module wiring).
 3. **`useTestService()`** — boots the real app against a real Postgres (testcontainers). Use when the value of the test depends on the real database doing real things: SQL behavior, Prisma constraints, transaction semantics, race conditions, raw queries, the global Zod response interceptor, the auth guards.
 
@@ -16,7 +16,7 @@ Three patterns, in increasing cost:
 
 ## Pattern 1: Direct instantiation
 
-Best for controllers and small services. Hand-roll the deps inline.
+Best for small services and controllers with logic of their own. Hand-roll the deps inline.
 
 ```ts
 import { describe, expect, it, vi } from 'vitest'
@@ -157,6 +157,12 @@ it('throws when the resolved set exceeds the cap', async () => {
 ```
 
 If the real value matters (a customer hit it), pin it once with a plain assertion on the constant, as `intersectIdFilterResolutions.test.ts` does for ENG-11424.
+
+## Pass-through and propagation tests
+
+- Do not write a controller unit test for a route that a route test (`service.client` against `useTestService()`) already covers, unless the controller has logic of its own: a role or ownership branch, a response mapping, an SSE loop. To pin the forwarded arguments or the response body, add that assertion to the existing route test, as `electionServiceReadRoutes.test.ts` does.
+- Do not write "propagates X from <dependency>" tests, where a mock throws X and the test asserts X. Assert the error where it is thrown, or through a route test that reaches it.
+- Do not test the same pass-through at every layer ("delegates", "forwards", "returns what the service returns"). Test the layer that does the work, or the route.
 
 ## Running tests
 

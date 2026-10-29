@@ -1,10 +1,4 @@
-import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
-import {
-  GetPersonByIdParamsDTO,
-  GetPersonBySlugParamsDTO,
-  PersonFilterDto,
-} from '@/electionDb/persons/persons.schema'
-import { PersonsService } from '@/electionDb/persons/persons.service'
+import { describe, expect, it } from 'vitest'
 import { RESPONSE_SCHEMA_KEY } from '@/shared/decorators/ResponseSchema.decorator'
 import {
   ElectionPersonsController,
@@ -65,27 +59,6 @@ const spineRow = {
 }
 
 describe('ElectionPersonsController', () => {
-  let controller: ElectionPersonsController
-  let getPersons: Mock
-  let getPersonBySlug: Mock
-  let getPersonById: Mock
-
-  beforeEach(() => {
-    getPersons = vi.fn()
-    getPersonBySlug = vi.fn()
-    getPersonById = vi.fn()
-
-    const personsServiceMock: Partial<PersonsService> = {
-      getPersons,
-      getPersonBySlug,
-      getPersonById,
-    }
-
-    controller = new ElectionPersonsController(
-      personsServiceMock as PersonsService,
-    )
-  })
-
   describe('routing', () => {
     it('exposes the four marketing paths under the controller', () => {
       expect(getPath('getPersons')).toBe('/')
@@ -104,22 +77,6 @@ describe('ElectionPersonsController', () => {
   })
 
   describe('getPersons', () => {
-    const filterDto: PersonFilterDto = {
-      state: 'TX',
-      ids: undefined,
-      includeOfficeHolders: false,
-      includeCandidacies: false,
-    }
-
-    it('delegates the filter straight to the service', async () => {
-      getPersons.mockResolvedValue([personRow])
-
-      const result = await controller.getPersons(filterDto)
-
-      expect(getPersons).toHaveBeenCalledWith(filterDto)
-      expect(result).toEqual([personRow])
-    })
-
     it('is wired to the list response schema', () => {
       expect(getResponseSchema('getPersons')).toBe(personListResponseSchema)
     })
@@ -135,17 +92,6 @@ describe('ElectionPersonsController', () => {
   })
 
   describe('getPersonBySlug', () => {
-    const params: GetPersonBySlugParamsDTO = { slug: 'jane-doe-11111111' }
-
-    it('delegates the slug to the service', async () => {
-      getPersonBySlug.mockResolvedValue(spineRow)
-
-      const result = await controller.getPersonBySlug(params)
-
-      expect(getPersonBySlug).toHaveBeenCalledWith('jane-doe-11111111')
-      expect(result).toEqual(spineRow)
-    })
-
     it('is wired to the spine response schema', () => {
       expect(getResponseSchema('getPersonBySlug')).toBe(
         personSpineResponseSchema,
@@ -165,17 +111,6 @@ describe('ElectionPersonsController', () => {
   })
 
   describe('getPersonById', () => {
-    const params: GetPersonByIdParamsDTO = { personId: personRow.id }
-
-    it('delegates the id to the service', async () => {
-      getPersonById.mockResolvedValue(spineRow)
-
-      const result = await controller.getPersonById(params)
-
-      expect(getPersonById).toHaveBeenCalledWith(personRow.id)
-      expect(result).toEqual(spineRow)
-    })
-
     it('is wired to the spine response schema', () => {
       expect(getResponseSchema('getPersonById')).toBe(personSpineResponseSchema)
     })

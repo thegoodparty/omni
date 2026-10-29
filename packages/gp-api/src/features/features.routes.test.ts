@@ -65,11 +65,13 @@ describe('GET /v1/experiment/variants', () => {
   })
 
   it('reads no org when the request names none', async () => {
-    const getAllVariants = spyOnVariants()
+    const variants = { 'campaign-story': { value: 'on', key: 'on' } }
+    const getAllVariants = spyOnVariants().mockResolvedValue(variants)
 
     const res = await service.client.get('/v1/experiment/variants')
 
     expect(res.status).toBe(200)
+    expect(res.data).toEqual({ variants })
     expect(getAllVariants).toHaveBeenCalledWith(
       expect.objectContaining({ id: service.user.id }),
       undefined,

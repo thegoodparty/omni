@@ -1113,6 +1113,10 @@ describe('POST /v1/p2p/phone-list (build-status row lifecycle)', () => {
 describe('GET /v1/p2p/phone-list/build/:buildId/status (additive build-status route)', () => {
   it('returns 202 for a queued build with no token yet', async () => {
     const campaign = await seedWinCampaign()
+    const checkStatus = vi.spyOn(
+      service.app.get(PeerlyPhoneListService),
+      'checkPhoneListStatus',
+    )
     const build = await service.prisma.peerlyPhoneList.create({
       data: { organizationSlug: WIN_SLUG, campaignId: campaign.id },
     })
@@ -1123,6 +1127,10 @@ describe('GET /v1/p2p/phone-list/build/:buildId/status (additive build-status ro
     )
 
     expect(result.status).toBe(202)
+    expect(result.data).toEqual({
+      message: 'Phone list build is still in progress. Please try again.',
+    })
+    expect(checkStatus).not.toHaveBeenCalled()
   })
 
   it('returns 202, not 502, when Peerly answers the status check with a gateway error', async () => {
@@ -1309,6 +1317,10 @@ describe('GET /v1/p2p/phone-list/build/:buildId/status (additive build-status ro
 
   it('404s a build the campaign does not own', async () => {
     await seedWinCampaign()
+    const checkStatus = vi.spyOn(
+      service.app.get(PeerlyPhoneListService),
+      'checkPhoneListStatus',
+    )
     await service.prisma.organization.create({
       data: { slug: 'other-org-build-status', ownerId: service.user.id },
     })
@@ -1332,6 +1344,7 @@ describe('GET /v1/p2p/phone-list/build/:buildId/status (additive build-status ro
     )
 
     expect(result.status).toBe(404)
+    expect(checkStatus).not.toHaveBeenCalled()
   })
 
   it('still 404s the old token route for the same row at its pre-token (queued) state, unaffected by the new route', async () => {
