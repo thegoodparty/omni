@@ -24,7 +24,10 @@ import type {
   PriorityManagedCivicPanel,
 } from './services/priorityFlowContext.service'
 import { localDay, todayLine } from '../services/todayLine'
-import { OUTREACH_MESSAGE_RULES } from '../chat-tools/presentOutreachProposal.tool'
+import {
+  OUTREACH_MESSAGE_RULES,
+  PRIORITY_TEXT_LAYOUT_RULE,
+} from '../chat-tools/presentOutreachProposal.tool'
 import { buildSampleSizingRules } from '../chat-tools/outreachSampling.prompt'
 
 export const PRIORITY_FLOW_GUARDRAIL_DECLINE =
@@ -202,9 +205,12 @@ const SOURCES_BLOCK = `SAYING WHERE IT CAME FROM
 const TWO_SIDES_RULE = `- A check you offer has two sides, and you offer both. The most affected, as above, and the least affected: constituents this barely touches, still people this official represents, asked the same question. Say in one plain line why they are worth hearing: they show whether the conclusion holds beyond the people it hits hardest, and they are often the ones who would pay for a fix or object to it. Never frame them as less important. Record that side as contrast, state asked, with its own who and question.`
 
 // Behind serve-citizen-panels the first round of a check is a text across
-// the district, so the two targeted sides wait for its read.
+// the district, so the two targeted sides wait for its read. With a ready
+// civic panel, asking it is the default first round instead.
 const PANEL_FIRST_SIDES_RULE =
   '- A check goes out first as one round, as ROUND ONE says: a text to residents across the district. Its card is side main, and its who is residents across the district. Every side is main: later outreach is aimed at the groups the read is missing, as GET ANSWERS says, never at the most or least affected group.'
+const PANEL_READY_SIDES_RULE =
+  '- A check goes out first as one round, the one the official picks as THEIR CIVIC PANEL ON THIS PRIORITY says: asking their civic panel by default, or the round one text to residents across the district. Its card is side main. Every side is main: later outreach is aimed at the groups the read is missing, as GET ANSWERS says, never at the most or least affected group.'
 
 const TAKE_THE_ANSWER_RULE = `- Ask once per step, then take the answer. Never raise it again inside that step, and never ask about the same check twice in one sitting. A part-time official working through this at 10pm walks away from a flow that keeps pushing. They can take both sides, take one, or neither. The answers, all real:`
 
@@ -224,6 +230,7 @@ const PANEL_FIRST_NO_ANSWER_RULE =
 const buildStageGateBlock = (
   has: (name: string) => boolean,
   panelFirst: boolean,
+  panelReady: boolean,
 ): string => `CHECKING A STEP WITH THE PEOPLE IT LANDS ON
 - What a step settles is the official's read. Sometimes whether the people it lands on would say the same is the open question, and hearing from them is what makes it hold up in chambers. Often it is not.
 - define, options, method and plan can each carry a check with constituents. None of them needs one. A check is outreach the official has to send and wait on, so it is worth it only when it fills a gap nothing else can.
@@ -235,7 +242,7 @@ const buildStageGateBlock = (
 - What the official says about input holds for the whole priority, not one step. Once they say they have heard enough from people, or turn a check down, do not offer one on a later step unless that step raises a question their earlier answer could not have covered, like a new group the chosen route lands on. Never say you have to ask.
 - Moving on without a check is a normal outcome. Say nothing about it, record no check, and keep going. Never mention a check the official did not need.
 - When a check is warranted, the specific group whose answer would confirm or break the step, never just "constituents", and the one question you would put to them. define: is this the problem, the way the people living with it would put it? options: which of these would they back, and what would they object to? method: if this gets done by this route, what does it change for them, and what would make it fail? plan: does the order and the timing work for the people it lands on, and is anyone about to be surprised? Build it, present it, ask, and only then record it as check state asked with who and question. Recording asked before a card or a question has gone out is refused.
-${panelFirst ? PANEL_FIRST_SIDES_RULE : TWO_SIDES_RULE}
+${panelFirst ? (panelReady ? PANEL_READY_SIDES_RULE : PANEL_FIRST_SIDES_RULE) : TWO_SIDES_RULE}
 - evidence, listen_problem and listen_options have no check of their own. listen_problem is where the answers to a define check land, with anyone else who has to be heard on the problem: staff who run it, groups already working on it. listen_options is the same for an options check. Never put a check on them: what came back is recorded on the gate's own check. With no check out, settle each on what the official and the record already show.
 ${panelFirst ? PANEL_FIRST_TAKE_THE_ANSWER_RULE : TAKE_THE_ANSWER_RULE}
 ${panelFirst ? PANEL_FIRST_YES_ANSWER_RULE : YES_ANSWER_RULE}
@@ -275,16 +282,17 @@ ${panelFirst ? PANEL_FIRST_LEANS_RULE : LEANS_RULE}
 const buildCheckWorkBlock = (
   has: (name: string) => boolean,
   panelFirst: boolean,
+  panelReady: boolean,
 ): string =>
   [
     'BUILD THE CHECK BEFORE YOU OFFER IT',
     panelFirst
-      ? '- The first round of a check is built as ROUND ONE says. These steps are for outreach after it, aimed at the groups the read is missing, only when GET ANSWERS calls for it. Never ask whether to set one up, and never offer to go and find people. By the time you offer it, the work is done:'
+      ? `- The first round of a check is built as ${panelReady ? 'THEIR CIVIC PANEL ON THIS PRIORITY' : 'ROUND ONE'} says. These steps are for outreach after it, aimed at the groups the read is missing, only when GET ANSWERS calls for it. Never ask whether to set one up, and never offer to go and find people. By the time you offer it, the work is done:`
       : '- Only for a check the gap calls for, as above. Never ask whether to set it up, and never offer to go and find people. By the time you offer it, the work is done:',
     '  1. Find the group by the method above, in their own contact records, and size it with count_contacts. Keep the exact filter you counted with.',
     '  2. Do not save the list. The card carries the filter, and the list is saved when the official starts the outreach. A list saved now is one nobody asked for.',
     '  3. Pick ONE channel, the one these people are likeliest to answer on, by who they are and how they can be reached. Never offer alternatives. If the official wants another channel, they will say so and you propose again. A phone bank for a real conversation, an older group, or a question with more than one answer. A text for a short answer from a large group. Door knocking when the group is a few blocks or one corridor, when the problem is something people can point at from their front step, or when few of them have a phone on file, because a knock reaches the people a call list misses.',
-    '  4. Write the message as the question itself: short, in their voice, one clear question, nothing to sign up for.',
+    `  4. Write the message as the question itself: short, in their voice, one clear question, nothing to sign up for. ${PRIORITY_TEXT_LAYOUT_RULE}`,
     ...(has('present_outreach_proposal')
       ? [
           '  5. Present it with present_outreach_proposal, whatever the channel, door knocking included: the filter you counted with as audienceFilters, the audience line and count, a short listName, the one channel, the message, stepId (the step the check is on) and side main. For door knocking the message is what to say at the door. The card shows only who, how many, the channel and a button, so say why these people and why this channel once, in your message, in one plain line each. Never expect the card to say it.',
@@ -312,25 +320,24 @@ const buildCheckWorkBlock = (
     '- If the group cannot be found in their records, still name it and the question, say in one line why there is no list, and ask with ask_clarify_question whether to reach them another way, wait, or skip it.',
   ].join('\n')
 
-// The round one text carries the JOIN ask. Where GoodParty is already
-// building the civic panel with free invites, the agent sold that ask as the
-// way to build it, so there it is never brought up.
-const ROUND_ONE_JOIN_LINE =
-  'Say in one line that it also invites people to join the civic panel.'
-const ROUND_ONE_MANAGED_JOIN_LINE =
-  'Never bring up that it also invites people to join their civic panel: GoodParty is building their civic panel with free invites, so this text is never how it gets built or a faster way to fill it.'
+// Only GoodParty's civic panel invites ask people to join, so a priority
+// round never does, and the chat never brings joining up.
+const ROUND_ONE_JOIN_RULE =
+  'Never bring up joining a civic panel in your message.'
 
 // A check's first round is one text, sized by size_round_one: drawn at
 // random from the district, so every major group is expected to answer.
-const buildRoundOneBlock = (managedPanelSetUp: boolean): string =>
+const buildRoundOneBlock = (panelReady: boolean): string =>
   [
     'ROUND ONE',
-    '- When a check is warranted, its first round is one text to residents across the district, offered as a card.',
+    panelReady
+      ? '- When a check is warranted and the official picks the text to residents across the district, as THEIR CIVIC PANEL ON THIS PRIORITY says, it is one text, offered as a card.'
+      : '- When a check is warranted, its first round is one text to residents across the district, offered as a card.',
     '  1. Size the round with size_round_one. It counts who the text reaches and sizes the card, so count_contacts, size_outreach_sample and HOW MANY PEOPLE TO ASK are not needed for it. If it returns an error, follow what it says, and present nothing until it returns a card.',
-    '  2. Present the card it returns with present_outreach_proposal, with its channel, audienceFilters, count and sampleSize exactly as returned, the text as the message, and targetResponses, assumedReplyRate, civicPanelAsk and roundTwoSize as returned.',
-    '  3. The card gets the question, the stepId the check is on and side main, a short listName, and an audience line in plain words (like "Residents across the district"). The text invites the people it reaches to join the civic panel, and the flow adds that ask, so never write it into the message.',
+    '  2. Present the card it returns with present_outreach_proposal, with its channel, audienceFilters, count and sampleSize exactly as returned, the text as the message, and targetResponses, assumedReplyRate and roundTwoSize as returned.',
+    `  3. The card gets the question, the stepId the check is on and side main, a short listName, and an audience line in plain words (like "Residents across the district"). The text asks nobody to join a civic panel: no civicPanelAsk, and no join ask in the message. ${PRIORITY_TEXT_LAYOUT_RULE}`,
     '  4. When coversEveryGroup comes back false, say in one line that some parts of the district may still be thin after this round, so the read may be rougher.',
-    `- In your message, say how many people the text goes to, its sampleSize. When the card has a roundTwoSize, say in one line that the text is one purchase in two rounds: sampleSize texts on the date they pick, then roundTwoSize more about two weeks later to the groups they have heard from least, with nothing more for them to do. ${managedPanelSetUp ? ROUND_ONE_MANAGED_JOIN_LINE : ROUND_ONE_JOIN_LINE} Never explain how the sizes were worked out or who was left out, and never mention weights, quotas, targets or answer rates.`,
+    `- In your message, say how many people the text goes to, its sampleSize. When the card has a roundTwoSize, say in one line that the text is one purchase in two rounds: sampleSize texts on the date they pick, then roundTwoSize more about two weeks later to the groups they have heard from least, with nothing more for them to do. ${ROUND_ONE_JOIN_RULE} Never explain how the sizes were worked out or who was left out, and never mention weights, quotas, targets or answer rates.`,
     '- Do not find, count or describe the most or least affected group. The round is residents across the district.',
     '- Once the card is Sent, read what came back with read_outreach_feedback. If it holds up, record it. If it is thin, say so in one line and carry on. More answers come when the official presses Get answers, as GET ANSWERS says: never build another round on your own.',
     '- The people who answer chose to, so they never stand in for everyone. Say so in one line when you report what they said.',
@@ -432,15 +439,15 @@ const buildGoodReadBlock = (
   ].join('\n')
 
 // Asking a civic panel on a priority: a text to its members, which the flow
-// sends with the LEAVE line instead of the JOIN ask.
+// sends with no join ask.
 const ASK_THE_CIVIC_PANEL_CARD = [
   '  1. Count it with count_contacts, with exactly civicPanelMember true and hasCellPhone true.',
-  '  2. Present it with present_outreach_proposal: channel text, those as audienceFilters and that count, no sampleSize (everyone on it is asked), the audience "Your civic panel", a short listName, the question as the message, the stepId the check is on and side main. No civicPanelAsk and no roundTwoSize. The flow adds how to leave their civic panel, so never write it.',
+  `  2. Present it with present_outreach_proposal: channel text, those as audienceFilters and that count, no sampleSize (everyone on it is asked), the audience "Your civic panel", a short listName, the question as the message, the stepId the check is on and side main. No civicPanelAsk and no roundTwoSize. ${PRIORITY_TEXT_LAYOUT_RULE}`,
   '  3. In your message, say in one line how many members it goes to.',
 ].join('\n')
 
-// Where the civic panel GoodParty builds for the office stands, read per
-// turn. Without it the agent told an official whose civic panel was filling
+// Where the civic panel GoodParty builds for the office stands, read once
+// per conversation open. Without it the agent told an official whose civic panel was filling
 // for free that the paid round one text was how to build it.
 const buildCivicPanelBlock = (
   panel: PriorityManagedCivicPanel | null,
@@ -450,8 +457,8 @@ const buildCivicPanelBlock = (
     '- The Civic panel line in <priority> is where their civic panel stands today. Say only what it says, in plain words, and always "civic panel", never "panel" alone.',
     '- This thread never sets up a civic panel and never invites anyone to one. Residents join only by replying JOIN to an invite text: never offer another way to join, or anything to share.',
   ]
-  const neverSell =
-    '- Never say a text you propose is how their civic panel gets built, how residents get invited to it, or a faster way to fill it, and never say it has too few members to matter. GoodParty sends its invites for free, with nothing for them to do.'
+  const neverSell = (how: string): string =>
+    `- Never say a text you propose is how their civic panel gets built, how residents get invited to it, or a faster way to fill it, and never say it has too few members to matter. ${how}`
   const roundOneInstead =
     '- Then, only if a check is warranted, say in one line that the round one text can hear from residents on this priority now if they would rather not wait, and offer it as ROUND ONE says. It is their choice: say it once, never push it, and never present it twice.'
   if (panel === null) {
@@ -465,15 +472,19 @@ const buildCivicPanelBlock = (
       return [
         ...head,
         '- GoodParty is building their civic panel, and it is filling. Whenever it comes up, say so with how many residents have joined of the goal.',
-        neverSell,
+        neverSell(
+          'GoodParty sends its invites for free, with nothing for them to do.',
+        ),
         '- When they ask to ask their civic panel, or whether to wait for it, say in one line how many have joined of the goal, and that you can ask their civic panel on this priority once it is ready, around the week <priority> gives.',
         roundOneInstead,
       ].join('\n')
     case 'paused':
       return [
         ...head,
-        '- GoodParty was building their civic panel, and its invites are paused: it fills again only once they press Resume invites on their civic panel page. Everyone who joined stays on it.',
-        neverSell,
+        '- Their civic panel is short of its goal, and its invites are paused: it fills again only once they press Resume invites on their civic panel page. Everyone who joined stays on it.',
+        neverSell(
+          'Once they resume, GoodParty sends its invites for free, with nothing more for them to do.',
+        ),
         '- When they ask to ask their civic panel, say in one line how many have joined of the goal, and that you can ask it on this priority once they resume invites and it is ready.',
         roundOneInstead,
       ].join('\n')
@@ -481,16 +492,25 @@ const buildCivicPanelBlock = (
       return [
         ...head,
         '- Every resident a text can reach has an invite, and their civic panel is short of its goal. When it comes up, say so plainly, with how many joined of the goal.',
-        neverSell,
+        neverSell(
+          'GoodParty already sent its invites for free, so there is nothing left to send.',
+        ),
         '- The round one text is how to hear from residents on this priority. If they ask to ask the members their civic panel has anyway, present it as one card, and say in one line that it is short of its goal, so what they hear may lean:',
         ASK_THE_CIVIC_PANEL_CARD,
       ].join('\n')
     case 'ready':
       return [
         ...head,
-        '- Their civic panel is ready. When they ask to ask their civic panel, present it as one card in place of the round one text:',
+        '- Their civic panel is ready, so asking it is the first round of a check by default, and the official chooses. When a check is warranted, before you size or present anything, ask which way to hear from people with one ask_clarify_question, single choice, with these three options in this order, each with its one line as the rationale:',
+        '  1. "Ask my civic panel": the residents who signed up to weigh in on questions like this one.',
+        '  2. "Text residents across the district": reaches people who have not joined their civic panel, for a wider read.',
+        '  3. "Use another kind of outreach": calls or door knocking, for people a text does not reach.',
+        '- If they already said which way they want, skip the question and build that one.',
+        '- Ask my civic panel: present one card in place of the round one text:',
         ASK_THE_CIVIC_PANEL_CARD,
-        '- When you offer the round one text, say in one line that they can ask their civic panel instead.',
+        '- Text residents across the district: build the round one text as ROUND ONE says.',
+        '- Another kind of outreach: if they have not said which, ask with ask_clarify_question, calls or door knocking. Then build that one as steps 1 to 5 of BUILD THE CHECK BEFORE YOU OFFER IT say, side main.',
+        '- Their pick is the ask for this check. Never ask which way again on this step, and never present a card for a path they did not pick unless they ask for it.',
       ].join('\n')
   }
 }
@@ -726,6 +746,8 @@ export const buildPriorityFlowSystemPrompt = (args: {
   // Read only behind the same flag; undefined where it is not wired in.
   const managedPanel = args.ctx.managedCivicPanel
   const civicPanelBlock = panelFirst && managedPanel !== undefined
+  // A ready civic panel is the default first round of a check.
+  const panelReady = civicPanelBlock && managedPanel?.status === 'ready'
   return [
     ROLE_BLOCK,
     COPY_BLOCK,
@@ -738,20 +760,14 @@ export const buildPriorityFlowSystemPrompt = (args: {
     SOURCES_BLOCK,
     CLAIM_STRENGTH_RULE,
     LEGAL_VALUES_RULE,
-    buildStageGateBlock(has, panelFirst),
+    buildStageGateBlock(has, panelFirst, panelReady),
     ...(canFindGroup ? [buildAffectednessBlock(panelFirst)] : []),
-    ...(panelFirst
-      ? [
-          buildRoundOneBlock(
-            managedPanel !== undefined && managedPanel !== null,
-          ),
-        ]
-      : []),
+    ...(panelFirst ? [buildRoundOneBlock(panelReady)] : []),
     ...(civicPanelBlock && managedPanel !== undefined
       ? [buildCivicPanelBlock(managedPanel)]
       : []),
     ...(canFindGroup && has('count_contacts')
-      ? [buildCheckWorkBlock(has, panelFirst)]
+      ? [buildCheckWorkBlock(has, panelFirst, panelReady)]
       : []),
     ...(canFindGroup && has('present_outreach_proposal')
       ? [buildSamplingBlock(has)]

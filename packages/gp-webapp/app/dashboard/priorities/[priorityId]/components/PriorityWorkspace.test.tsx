@@ -1274,42 +1274,62 @@ describe('PriorityWorkspace', () => {
       mocks.listMessages.mockResolvedValue([reply])
     })
 
-    it('shows the civic panel filling under the read, before anyone is asked', async () => {
-      api.mock('GET /v1/contacts/civic-panel/managed', () => ({
-        status: 200,
-        data: {
-          panel: {
-            id: 'mp-1',
-            status: 'building',
-            inviteMessage: 'Hi.',
-            consentVersion: 'v1',
-            approvedAt: new Date('2026-10-29T18:00:00Z'),
-            approvedByUserId: 1,
+    const buildingPanelResponse = () => ({
+      status: 200 as const,
+      data: {
+        panel: {
+          id: 'mp-1',
+          status: 'building' as const,
+          inviteMessage: 'Hi.',
+          consentVersion: 'v1',
+          approvedAt: new Date('2026-10-29T18:00:00Z'),
+          approvedByUserId: 1,
+          goalMembers: 240,
+          freeTextCap: 15000,
+          freeTextsUsed: 120,
+          readyAt: null,
+          pausedAt: null,
+          stoppedAt: null,
+          createdAt: new Date('2026-10-29T18:00:00Z'),
+          updatedAt: new Date('2026-10-29T18:00:00Z'),
+          progress: {
+            members: 82,
             goalMembers: 240,
-            freeTextCap: 15000,
-            freeTextsUsed: 120,
-            readyAt: null,
-            pausedAt: null,
-            stoppedAt: null,
-            createdAt: new Date('2026-10-29T18:00:00Z'),
-            updatedAt: new Date('2026-10-29T18:00:00Z'),
-            progress: {
-              members: 82,
-              goalMembers: 240,
-              wavesSent: 1,
-              nextWaveAt: null,
-              firstSendDate: '2026-11-03',
-              readyWeekOf: '2026-11-16',
-            },
+            wavesSent: 1,
+            nextWaveAt: null,
+            firstSendDate: '2026-11-03',
+            readyWeekOf: '2026-11-16',
           },
         },
-      }))
+      },
+    })
+
+    it('shows the civic panel filling under the read, before anyone is asked', async () => {
+      api.mock('GET /v1/contacts/civic-panel/managed', buildingPanelResponse)
       renderWorkspace(emptyPriorityStatus(), null, {
         initialReadStatus: { ...thin, checkOut: false },
       })
       const standing = await screen.findByTestId('priority-civic-panel')
       expect(standing).toHaveTextContent('Your civic panel is filling up')
       expect(standing).toHaveTextContent('82 of 240 residents have joined')
+    })
+
+    it('reads the civic panel with the page, not again after each turn', async () => {
+      const read = vi.fn(buildingPanelResponse)
+      api.mock('GET /v1/contacts/civic-panel/managed', read)
+      mocks.fetchPriorityReadStatus.mockResolvedValue(thin)
+      renderWorkspace(emptyPriorityStatus(), null, { initialReadStatus: thin })
+      await screen.findByTestId('priority-civic-panel')
+
+      fireEvent.click(
+        within(screen.getByRole('complementary')).getByRole('button', {
+          name: 'Get answers',
+        }),
+      )
+      await waitFor(() =>
+        expect(mocks.fetchPriorityReadStatus).toHaveBeenCalledWith('pri-1'),
+      )
+      expect(read).toHaveBeenCalledTimes(1)
     })
 
     it('puts a short bar on the phone with the answers still needed', async () => {
