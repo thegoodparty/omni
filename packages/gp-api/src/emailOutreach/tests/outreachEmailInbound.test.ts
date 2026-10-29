@@ -24,11 +24,15 @@ let outreachEmailId: number
 
 const BUCKET = 'goodparty-email-inbound-test'
 
-const message = (headers: string[], body = 'Thanks for the update!') =>
+const message = (
+  headers: string[],
+  body = 'Thanks for the update!',
+  fromAddress = 'pat@example.com',
+) =>
   Buffer.from(
     [
       `To: Jane Doe <${localPart}@${EMAIL_OUTREACH_DOMAIN}>`,
-      'From: Pat Voter <pat@example.com>',
+      `From: Pat Voter <${fromAddress}>`,
       'Subject: Re: Town hall on Thursday',
       ...headers,
       '',
@@ -90,6 +94,72 @@ beforeEach(async () => {
   })
 })
 
+const seedForwarded = (fromEmails: string[], minutesAgo = 5) =>
+  service.prisma.outreachEmailReply.createMany({
+    data: fromEmails.map((fromEmail, i) => ({
+      senderId,
+      fromEmail,
+      rawObjectKey: `seed/${Math.random()}-${i}`,
+      classification: 'forwarded' as const,
+      forwardedAt: new Date(Date.now() - minutesAgo * 60 * 1000),
+    })),
+  })
+
+describe('forwarding caps', () => {
+  it('saves but does not forward the 11th reply from one address in a day', async () => {
+    await seedForwarded(Array(10).fill('pat@example.com'), 120)
+    const { key, result } = deliver(message([]))
+    expect(await result).toBe(true)
+    expect(forwardReply).not.toHaveBeenCalled()
+    expect(await replyRow(key)).toMatchObject({
+      fromEmail: 'pat@example.com',
+      classification: 'forwarded',
+      forwardedAt: null,
+    })
+  })
+
+  it('forwards the 10th reply from one address', async () => {
+    await seedForwarded(Array(9).fill('pat@example.com'), 120)
+    const { result } = deliver(message([]))
+    expect(await result).toBe(true)
+    expect(forwardReply).toHaveBeenCalledTimes(1)
+  })
+
+  it('counts different repliers separately', async () => {
+    await seedForwarded(Array(10).fill('pat@example.com'), 120)
+    const { key, result } = deliver(message([], 'Hello', 'lee@example.com'))
+    expect(await result).toBe(true)
+    expect(forwardReply).toHaveBeenCalledTimes(1)
+    expect((await replyRow(key))?.forwardedAt).not.toBeNull()
+  })
+
+  it('does not count replies older than a day', async () => {
+    await seedForwarded(Array(10).fill('pat@example.com'), 25 * 60)
+    const { result } = deliver(message([]))
+    expect(await result).toBe(true)
+    expect(forwardReply).toHaveBeenCalledTimes(1)
+  })
+
+  it('saves but does not forward the 201st reply to a sender in an hour', async () => {
+    await seedForwarded(
+      Array.from({ length: 200 }, (_, i) => `person${i}@example.com`),
+    )
+    const { key, result } = deliver(message([]))
+    expect(await result).toBe(true)
+    expect(forwardReply).not.toHaveBeenCalled()
+    expect((await replyRow(key))?.forwardedAt).toBeNull()
+  })
+
+  it('forwards the 200th reply to a sender in an hour', async () => {
+    await seedForwarded(
+      Array.from({ length: 199 }, (_, i) => `person${i}@example.com`),
+    )
+    const { result } = deliver(message([]))
+    expect(await result).toBe(true)
+    expect(forwardReply).toHaveBeenCalledTimes(1)
+  })
+})
+
 describe('a real reply', () => {
   it('is saved, matched to the send and forwarded as "<name> via GoodParty"', async () => {
     const { key, result } = deliver(message([]))
@@ -119,13 +189,8 @@ describe('a real reply', () => {
 
   it('is not forwarded twice when SNS delivers it again', async () => {
     const raw = message([])
-    const { key } = deliver(raw)
-    await service.app.get(EmailOutreachQueueService).handleInbound({
-      snsMessageId: 'a',
-      bucket: BUCKET,
-      key,
-      fromAuthenticated: true,
-    })
+    const { key, result } = deliver(raw)
+    await result
     const again = await service.app
       .get(EmailOutreachQueueService)
       .handleInbound({
