@@ -26,8 +26,11 @@ residents across the district, or another kind of outreach. With any other
 managed status, or none, the first round is one text to residents across
 the district, as before: `size_round_one` sizes it so every major group is
 expected to bring `MIN_VOICES_PER_GROUP` answers at the text reply rate,
-and it returns one card. That text always carries the JOIN ask, because
-replying JOIN is the only way anyone joins a civic panel.
+and it returns one card. No priority text asks anyone to join a civic
+panel, round one and its round two included: only GoodParty's civic panel
+invite waves do, and the chat never brings joining up. Every priority text
+ends with its question, then a line saying how to reply, with the opt-out
+the send flow adds under it.
 
 The handler reads the managed civic panel once per conversation open and
 reuses it for later turns, held in memory on the handler, because its

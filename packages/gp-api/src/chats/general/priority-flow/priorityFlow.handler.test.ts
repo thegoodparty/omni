@@ -1367,7 +1367,7 @@ describe('PriorityFlowHandler', () => {
         'Present the card it returns with present_outreach_proposal',
       )
       expect(prompt).toContain(
-        'targetResponses, assumedReplyRate, civicPanelAsk and roundTwoSize as returned',
+        'targetResponses, assumedReplyRate and roundTwoSize as returned',
       )
       expect(prompt).toContain('the stepId the check is on and side main')
       expect(prompt).toContain('When coversEveryGroup comes back false')
@@ -1471,10 +1471,10 @@ describe('PriorityFlowHandler', () => {
           'the round one text can hear from residents on this priority now if they would rather not wait',
         )
         expect(prompt).toContain(
-          'Never bring up that it also invites people to join their civic panel',
+          'Never bring up joining a civic panel in your message.',
         )
         expect(prompt).not.toContain(
-          'Say in one line that it also invites people to join the civic panel.',
+          'Say in one line that it also invites people to join',
         )
         expect(prompt).toContain(
           'If their civic panel comes up, follow THEIR CIVIC PANEL ON THIS PRIORITY.',
@@ -1488,6 +1488,8 @@ describe('PriorityFlowHandler', () => {
         expect(paused).toContain(
           'Civic panel: its invites are paused, so it is not filling until they press Resume invites. 82 of 240 members have joined.',
         )
+        expect(paused).not.toContain('GoodParty is building their civic panel')
+        expect(paused).not.toContain('GoodParty was building')
         const exhausted = buildWithPanels().buildSystemPrompt(
           withPanel({ ...building, status: 'exhausted', nextSendDate: null }),
         )
@@ -1495,6 +1497,10 @@ describe('PriorityFlowHandler', () => {
           'Civic panel: every resident a text can reach has an invite, and it is short of its goal.',
         )
         expect(exhausted).toContain('so what they hear may lean')
+        expect(exhausted).not.toContain(
+          'GoodParty is building their civic panel',
+        )
+        expect(exhausted).toContain('nothing left to send')
       })
 
       it('leads with asking a ready civic panel, and lets the official pick the round', () => {
@@ -1520,6 +1526,13 @@ describe('PriorityFlowHandler', () => {
           'Count it with count_contacts, with exactly civicPanelMember true and hasCellPhone true.',
         )
         expect(prompt).toContain('No civicPanelAsk and no roundTwoSize.')
+        // Every priority text ends on how to reply; the flow adds only the
+        // opt-out under it.
+        expect(prompt).toContain(
+          'then, as its own last line, how to reply, like "Reply YES or NO."',
+        )
+        expect(prompt).toContain('the flow adds the opt-out right under it')
+        expect(prompt).not.toContain('how to leave')
         expect(prompt).toContain(
           'asking their civic panel by default, or the round one text',
         )
@@ -1530,7 +1543,9 @@ describe('PriorityFlowHandler', () => {
           'A check goes out first as one round, as ROUND ONE says',
         )
         // The round one text still carries the JOIN ask on its card.
-        expect(prompt).toContain('never leave civicPanelAsk off the card')
+        expect(prompt).toContain(
+          'The text asks nobody to join a civic panel: no civicPanelAsk',
+        )
       })
 
       it('keeps round one first for a civic panel that is not ready', () => {
@@ -1539,15 +1554,24 @@ describe('PriorityFlowHandler', () => {
         expect(prompt).toContain(
           'A check goes out first as one round, as ROUND ONE says',
         )
-        expect(prompt).toContain('never leave civicPanelAsk off the card')
+        expect(prompt).toContain(
+          'The text asks nobody to join a civic panel: no civicPanelAsk',
+        )
       })
 
       it('points to setting one up when GoodParty is not building one', () => {
         const prompt = buildWithPanels().buildSystemPrompt(withPanel(null))
         expect(prompt).toContain('Civic panel: GoodParty is not building one.')
         expect(prompt).toContain('Build my civic panel on their home')
+        // The card shows the JOIN ask, so the chat never pitches it.
         expect(prompt).toContain(
-          'Say in one line that it also invites people to join the civic panel.',
+          'Never bring up joining a civic panel in your message.',
+        )
+        expect(prompt).not.toContain(
+          'Say in one line that it also invites people to join',
+        )
+        expect(prompt).toContain(
+          'The text asks nobody to join a civic panel: no civicPanelAsk',
         )
       })
 

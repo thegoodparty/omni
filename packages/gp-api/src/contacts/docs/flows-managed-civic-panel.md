@@ -57,7 +57,8 @@ The Chief of Staff (`managedCivicPanelBlock`, `read_managed_panel`)
 answers in each status's words. The priority chat reads it too
 (`PriorityFlowHandler`, the `<priority>` "Civic panel" line), once when the
 page opens the conversation and reused for its later turns, so a priority
-never sells a text as the way to build it, and leads with asking a ready one
+never sells a text as the way to build it (no priority text asks anyone to
+join; only this enrollment's invite waves do), and leads with asking a ready one
 as the first round of a check, the official's pick over the round one text
 or another kind of outreach; the priority page shows it under the read
 (`CivicPanelStanding`), read once with the page. See the

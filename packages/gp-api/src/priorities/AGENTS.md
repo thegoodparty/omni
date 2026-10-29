@@ -28,7 +28,9 @@ starts. With the office's managed civic panel ready, asking it is the
 default: the agent asks the official which way, with ask your civic panel
 listed first, then the round one text to residents across the district, then
 another kind of outreach. Otherwise round one is the text, sized by
-`size_round_one`, and it always carries the JOIN ask
+`size_round_one`. No priority text asks anyone to join a civic panel (only
+the managed civic panel's invite waves do), and every one ends with the
+question, then how to reply, with the opt-out added under it
 (`docs/adr/2026-10-29-ready-civic-panel-is-a-prioritys-default-first-round.md`).
 
 ## Answer coding
