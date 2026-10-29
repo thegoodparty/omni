@@ -119,9 +119,8 @@ formats ask the right question. Leaving otherwise is the contact card, a
 texted LEAVE, or a texted STOP.
 
 A Serve text asks with a fixed, locked sentence (`CIVIC_PANEL_JOIN_LINE` in
-contracts: "Reply JOIN to join my civic panel. My office will text you
-about once a month to ask what you think before I decide. Sent with
-GoodParty.org.", in its own paragraph above the opt-out). Only the managed
+contracts: "Reply JOIN to share your perspectives.", in its own paragraph
+with the opt-out directly under it; it never names the civic panel). Only the managed
 civic panel's invite carries it: its waves write their rows with
 `Outreach.asksToJoinCivicPanel` set, and the Serve text create 400s any
 message carrying a JOIN line, so a priority's texts, the Outreach tab and a

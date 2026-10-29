@@ -7,10 +7,10 @@
 // sentence is in the message it stored.
 export const CIVIC_PANEL_JOIN_KEYWORD = 'JOIN'
 
-// Says what joining means in the constituent's terms: who is asking (the
-// office) and how often. Short: it shares a text with the official's own
-// message, and the opt-out line below it already says how to leave.
-export const CIVIC_PANEL_JOIN_LINE = `Reply ${CIVIC_PANEL_JOIN_KEYWORD} to join my civic panel. My office will text you about once a month to ask what you think before I decide. Sent with GoodParty.org.`
+// The managed invite's ask. Short, and it never names the civic panel: the
+// invite body above it already says what joining means (about once a month,
+// asked what they think), and the opt-out sits directly under it.
+export const CIVIC_PANEL_JOIN_LINE = `Reply ${CIVIC_PANEL_JOIN_KEYWORD} to share your perspectives.`
 
 // Every line a stored send may carry, newest first. Sends written before a
 // rewrite carry an older wording (the panel's earlier name among them), so
@@ -18,10 +18,16 @@ export const CIVIC_PANEL_JOIN_LINE = `Reply ${CIVIC_PANEL_JOIN_KEYWORD} to join 
 // ever writes CIVIC_PANEL_JOIN_LINE. Never drop or edit a legacy line.
 export const CIVIC_PANEL_JOIN_LINES = [
   CIVIC_PANEL_JOIN_LINE,
+  `Reply ${CIVIC_PANEL_JOIN_KEYWORD} to join my civic panel. My office will text you about once a month to ask what you think before I decide. Sent with GoodParty.org.`,
   `Reply ${CIVIC_PANEL_JOIN_KEYWORD} to join my civic panel. My office will text you about once a month to ask what you think before I decide. Empowered by GoodParty.org.`,
   `Reply ${CIVIC_PANEL_JOIN_KEYWORD} to join my citizens' panel. My office will text you about once a month to ask what you think before I decide. Empowered by GoodParty.org.`,
   `Reply ${CIVIC_PANEL_JOIN_KEYWORD} to join my citizens' panel, residents my office (not my campaign) texts a few times a year to hear what you think before I make decisions. Empowered by GoodParty.org.`,
 ] as const
+
+// Why a Serve text other than the managed invite cannot carry a JOIN line.
+// gp-api refuses the create with it, and the composer shows it before then.
+export const CIVIC_PANEL_JOIN_REFUSED_MESSAGE =
+  'Only the invite we send to build your civic panel can ask people to join it. Remove that line and try again.'
 
 // The join line in a message, if it carries one: the last occurrence of any
 // recognized wording.

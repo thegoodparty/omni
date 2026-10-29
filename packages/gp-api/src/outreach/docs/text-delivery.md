@@ -129,8 +129,12 @@ sends never write it. Detail in
 takes contracts' `SERVE_SMS_PURPOSE_VALUES`: the shared Serve list plus
 `build_citizens_panel`, the text that introduces the official and their
 civic panel. Its `SERVE_SMS_VOICE` structure writes the body only and
-never the JOIN ask, because the managed invite appends the locked
-`CIVIC_PANEL_JOIN_LINE` and the reply reader honors only those words. The
+never the JOIN ask or the words civic panel, because the managed invite
+appends the locked `CIVIC_PANEL_JOIN_LINE` ("Reply JOIN to share your
+perspectives.", the opt-out directly under it) and the reply reader honors
+only those words. Any other Serve text carrying a JOIN line is refused with
+contracts' `CIVIC_PANEL_JOIN_REFUSED_MESSAGE`, which the composer shows
+before the create. The
 draft route 404s that purpose while `serve-citizen-panels` is off, on top of
 the `serve-sms-outreach` gate.
 

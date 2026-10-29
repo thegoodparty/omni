@@ -101,11 +101,13 @@ export const managedExplainerChoice = (
   return 'wrote_own'
 }
 
-// The invite in the official's name: its first name, their office.
+// The invite in the official's name: their full name, office and place.
 const useManagedInviteDraft = (): string => {
   const [user] = useUser()
   const office = grammarizeOfficeName(usePositionName())
-  return managedInviteDraft({ firstName: user?.firstName ?? '', office })
+  const place = useServePlace()
+  const name = `${user?.firstName ?? ''} ${user?.lastName ?? ''}`.trim()
+  return managedInviteDraft({ name, office, place })
 }
 
 const isSetUp = (status: string | undefined): boolean =>
