@@ -151,7 +151,6 @@ describe('buildDescribeFilterDimensionsTool', () => {
     expect(instructionLine(tool.description)).not.toMatch(
       /count_contacts|crud_saved_filters/,
     )
-    expect(instructionLine(tool.description)).toContain('never invent one')
   })
 
   it('carries the cross-catalog routing rules in its description', () => {

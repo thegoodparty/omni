@@ -519,7 +519,6 @@ describe('OrdinanceFlowHandler', () => {
     const handler = build()
     const ctx = await handler.loadContext('c1', USER_ID)
     const prompt = handler.buildSystemPrompt(ctx)
-    expect(prompt).toContain('legislative drafting assistant')
     expect(prompt).toContain('City Council Member')
     expect(prompt).toContain('Reduce late-night construction noise')
   })

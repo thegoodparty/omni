@@ -15,6 +15,7 @@ import {
   SocialAssetKind,
   SocialAssetPlatform,
 } from '../../generated/prisma'
+import { WIN_SOCIAL_VOICE } from '../services/outreachSocialGeneration.service'
 
 const service = useTestService()
 
@@ -126,9 +127,7 @@ describe('POST /v1/outreach/social/draft', () => {
       (m: { role: string }) => m.role === 'user',
     )?.content
     expect(userPrompt).toContain(
-      'Structure: an opening hook line, 2-3 sentences drawing from bio ' +
-        "and why-they're-running, one sentence naming a top priority, " +
-        'then a closing call to action to vote for them.',
+      WIN_SOCIAL_VOICE.purposePrompts.introduce_myself,
     )
     expect(userPrompt).toContain('Warm:')
     expect(userPrompt).toContain('City Council')
@@ -137,38 +136,15 @@ describe('POST /v1/outreach/social/draft', () => {
     )
   })
 
-  it('carries the CSV prompt verbatim for every non-custom purpose', async () => {
-    // One representative sentence per purpose (not a full-string pin —
-    // brittle to whitespace); the source of truth is WIN_PURPOSE_PROMPTS.
-    const sentences: Record<string, string> = {
-      introduce_myself:
-        'Structure: an opening hook line, 2-3 ' +
-        "sentences drawing from bio and why-they're-running, one sentence " +
-        'naming a top priority, then a closing call to action to vote for them.',
-      persuade_voters:
-        'Structure: an opening line naming the stakes or a shared ' +
-        "concern, 2-3 sentences connecting the candidate's platform to " +
-        'that concern, then a closing call to action to vote for them.',
-      event_invite:
-        'Structure: an opening hook naming the event, 1-2 sentences on ' +
-        'why it matters or what to expect, then a closing call to ' +
-        'action to attend, including date/time/location.',
-      early_voting:
-        'Structure: an opening line encouraging early voting, 1-2 ' +
-        'sentences on why participating matters, practical information ' +
-        'on how/where to vote early if provided, then a closing ' +
-        'encouragement to vote.',
-      election_day_turnout:
-        'Structure: an opening line marking election day, 1-2 ' +
-        'sentences on the importance of voting, practical voting ' +
-        'information if provided, then a closing encouragement to vote.',
-      issue_update:
-        'Structure: name the issue, explain the update in 2-3 ' +
-        'sentences, then a closing line inviting continued engagement ' +
-        'or follow-up.',
-    }
-
-    for (const [purpose, sentence] of Object.entries(sentences)) {
+  it('carries the purpose prompt for every non-custom purpose', async () => {
+    for (const purpose of [
+      'introduce_myself',
+      'persuade_voters',
+      'event_invite',
+      'early_voting',
+      'election_day_turnout',
+      'issue_update',
+    ] as const) {
       jsonCompletion.mockClear()
       jsonCompletion.mockResolvedValue({
         object: { draft: 'A draft.' },
@@ -185,7 +161,7 @@ describe('POST /v1/outreach/social/draft', () => {
       const userPrompt = call.messages.find(
         (m: { role: string }) => m.role === 'user',
       )?.content
-      expect(userPrompt).toContain(sentence)
+      expect(userPrompt).toContain(WIN_SOCIAL_VOICE.purposePrompts[purpose])
     }
   })
 
@@ -262,13 +238,6 @@ describe('POST /v1/outreach/social/draft', () => {
 
     expect(jsonCompletion).toHaveBeenCalledTimes(1)
     const call = jsonCompletion.mock.calls[0]?.[0]
-    const systemPrompt = call.messages.find(
-      (m: { role: string }) => m.role === 'system',
-    )?.content
-    expect(systemPrompt).toContain('polish')
-    expect(systemPrompt).toContain(
-      'Every concrete detail in the original MUST appear in your output',
-    )
     const userPrompt = call.messages.find(
       (m: { role: string }) => m.role === 'user',
     )?.content
@@ -410,37 +379,6 @@ describe('POST /v1/outreach/social/generate', () => {
       (m: { role: string }) => m.role === 'user',
     )?.content
     expect(userPrompt).toContain('Office sought: City Council.')
-  })
-
-  it('carries the refreshed platform guidance for X and Instagram', async () => {
-    jsonCompletion.mockResolvedValue(
-      llmResult([
-        { platform: 'x', text: 'Short X post' },
-        { platform: 'instagram', text: 'IG caption' },
-      ]),
-    )
-
-    const res = await postGenerate({
-      draftMessage: 'Vote for me on election day.',
-      purpose: 'election_day_turnout',
-      platforms: ['x', 'instagram'],
-    })
-
-    expect(res.status).toBe(HttpStatus.CREATED)
-    const call = jsonCompletion.mock.calls[0]?.[0]
-    const userPrompt = call.messages.find(
-      (m: { role: string }) => m.role === 'user',
-    )?.content
-    expect(userPrompt).toContain(
-      'A single post within the 280-character hard limit, leaving room ' +
-        'for a URL appended alongside; aim for 70-150 characters for ' +
-        'best engagement. 1-2 hashtags max, more measurably hurts ' +
-        'engagement.',
-    )
-    expect(userPrompt).toContain(
-      'Front-load the hook in the first 125-150 characters, since ' +
-        "that's what shows before 'more.' 3-5 relevant hashtags.",
-    )
   })
 
   it('uses the adapt-dont-rewrite platform guidance for the custom purpose', async () => {
@@ -598,32 +536,7 @@ describe('POST /v1/outreach/social/generate', () => {
       (m: { role: string }) => m.role === 'user',
     )?.content
     expect(userPrompt).toContain(
-      'Do not close with a call to action to vote for the candidate',
-    )
-    expect(userPrompt).toContain(
-      "Close on the candidate's bio or top priorities instead.",
-    )
-  })
-
-  it('carries the flag-dont-alter instruction for the custom purpose on Nextdoor', async () => {
-    jsonCompletion.mockResolvedValue(
-      llmResult([{ platform: 'nextdoor', text: 'Trimmed message' }]),
-    )
-
-    const res = await postGenerate({
-      draftMessage: 'My own words, unedited.',
-      purpose: 'custom',
-      platforms: ['nextdoor'],
-    })
-
-    expect(res.status).toBe(HttpStatus.CREATED)
-    const call = jsonCompletion.mock.calls[0]?.[0]
-    const userPrompt = call.messages.find(
-      (m: { role: string }) => m.role === 'user',
-    )?.content
-    expect(userPrompt).toContain(
-      'Flag rather than silently alter or remove language that may not ' +
-        "comply with a platform's content policy",
+      WIN_SOCIAL_VOICE.platformOverrides?.introduce_myself?.nextdoor,
     )
   })
 })

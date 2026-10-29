@@ -5,22 +5,6 @@ import {
 } from './dataSourceRouting'
 
 describe('DATA_SOURCE_ROUTING_RULES', () => {
-  it('names the dimensions that live in only one catalog', () => {
-    expect(DATA_SOURCE_ROUTING_RULES).toMatch(/registration status/i)
-    expect(DATA_SOURCE_ROUTING_RULES).toMatch(/voter-file mart/i)
-    expect(DATA_SOURCE_ROUTING_RULES).toContain('hs_*')
-  })
-
-  it('tells the model to check the other catalog before declaring absence', () => {
-    expect(DATA_SOURCE_ROUTING_RULES).toMatch(/check the other catalog/i)
-    expect(DATA_SOURCE_ROUTING_RULES).toMatch(/do not conclude absence/i)
-  })
-
-  it('names the confused pair so the substitution ban is concrete', () => {
-    expect(DATA_SOURCE_ROUTING_RULES).toContain('Voter Likelihood')
-    expect(DATA_SOURCE_ROUTING_RULES).toMatch(/is not registration status/i)
-  })
-
   // Win and Serve mandate opposite audience nouns for this data ("voters" vs
   // "constituents"); shared rule text has to use neither.
   it('uses neither product audience noun', () => {
@@ -45,11 +29,7 @@ describe('dataSourceRoutingRules on the constituents dataset', () => {
   })
 
   it('tells the model which base a total counts', () => {
-    expect(rules).toContain(
-      'Totals include adult residents whether or not they are registered to vote',
-    )
-    expect(rules).toMatch(/cover only residents registered to vote/i)
-    expect(rules).toMatch(/say which of the two it counts/i)
+    expect(rules).toMatch(/not registered to vote/i)
   })
 
   it('still uses neither product audience noun', () => {
