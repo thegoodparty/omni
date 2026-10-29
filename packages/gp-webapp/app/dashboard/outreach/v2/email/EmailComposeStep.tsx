@@ -139,7 +139,8 @@ export const EmailComposeStep = ({
           : {}),
       })
       onChange((prev) =>
-        fillEmptyOnly && (prev.subject.trim() || prev.body.trim())
+        fillEmptyOnly &&
+        (prev.subject.trim() || prev.headline.trim() || prev.body.trim())
           ? prev
           : {
               ...prev,
