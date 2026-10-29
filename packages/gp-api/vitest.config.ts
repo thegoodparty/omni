@@ -70,6 +70,9 @@ export default defineConfig({
     },
   },
   test: {
+    experimental: {
+      fsModuleCache: !!process.env.SPIKE_FS_MODULE_CACHE,
+    },
     globalSetup: [
       '../contracts/scripts/vitest-global-setup.ts',
       './src/test-global-setup.ts',

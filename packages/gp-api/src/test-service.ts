@@ -30,6 +30,8 @@ const PROFILE_DIR = process.env.BOOT_PROFILE_DIR
 type ProfileMarks = Array<[string, number]>
 declare global {
   var __bootMarks: ProfileMarks | undefined
+  var __spikeNestOptions: Record<string, unknown> | undefined
+  var __spikeSkipUseLogger: boolean | undefined
 }
 declare global {
   var __testServiceLoads: number | undefined

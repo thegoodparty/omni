@@ -77,6 +77,11 @@ export function createPrismaBase<T extends Prisma.ModelName>(modelName: T) {
           // Prisma delegate types are dynamically resolved — no static narrowing possible
           // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
           this as unknown as Record<string, (...args: unknown[]) => unknown>
+        if (process.env.SPIKE_LAZY_PASSTHROUGH) {
+          thisWithMethod[method] = (...args: unknown[]) =>
+            (this.model[method] as (...a: unknown[]) => unknown)(...args)
+          continue
+        }
         // Prisma delegate types are dynamically resolved — no static narrowing possible
         // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
         thisWithMethod[method] = this.model[method].bind(this.model) as (

@@ -96,10 +96,11 @@ export const bootstrap = async (
       logger: params.loggingEnabled
         ? ['log', 'error', 'warn', 'debug', 'verbose']
         : false,
+      ...globalThis.__spikeNestOptions,
     },
   )
   globalThis.__bootMarks?.push(['nestFactoryCreate', performance.now()])
-  app.useLogger(app.get(Logger))
+  if (!globalThis.__spikeSkipUseLogger) app.useLogger(app.get(Logger))
 
   if (global.__fastifyOtelInstrumentation) {
     await app

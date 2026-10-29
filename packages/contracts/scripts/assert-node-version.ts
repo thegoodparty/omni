@@ -28,6 +28,7 @@ const majorOf = (version: string): string | null => {
 }
 
 export const assertNodeVersion = (contractsRoot: string): void => {
+  if (process.env.SPIKE_SKIP_NODE_GUARD) return
   const repoRoot = dirname(dirname(contractsRoot))
   let pinned: string
   try {
