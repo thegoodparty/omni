@@ -14,7 +14,7 @@ const CITY: DbxDistrict = {
   districtType: 'City',
   districtName: 'GRAND RAPIDS CITY',
   useVoterOnlyPath: false,
-  dataset: 'constituents',
+  dataset: { base: 'constituents' },
   table: '(SELECT * FROM some_overlay_join)',
 }
 
