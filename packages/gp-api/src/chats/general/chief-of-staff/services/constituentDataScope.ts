@@ -104,16 +104,27 @@ const stringLiteral = (value: string): string =>
 // The table FULL OUTER JOIN the org's imported contacts, filtered to the
 // district on the table side. Every row carries the district filter's own
 // values, so the mandatory filter the validator demanded keeps the people
-// only an import added, who have no row in the mart.
-const contactOverlayTable = (
-  table: string,
-  districtFilters: MandatoryFilter[],
-  organizationSlug: string,
-): string => {
-  const view =
-    process.env.SERVE_AGENT_CONTACT_OVERLAY_VIEW ||
-    'serve_agent_contact_overlay'
-  const identifiers = [table, view, ...districtFilters.map((f) => f.column)]
+// only an import added, who have no row in the mart. The Win Campaign
+// Manager builds the same join over its own mart.
+export const buildContactOverlayTable = ({
+  schema,
+  table,
+  view,
+  districtFilters,
+  organizationSlug,
+}: {
+  schema: string
+  table: string
+  view: string
+  districtFilters: MandatoryFilter[]
+  organizationSlug: string
+}): string => {
+  const identifiers = [
+    schema,
+    table,
+    view,
+    ...districtFilters.map((f) => f.column),
+  ]
   const unsafe = identifiers.find((name) => !OVERLAY_IDENTIFIER_RE.test(name))
   if (unsafe !== undefined) {
     throw new Error(`Refusing to inline the identifier ${unsafe}`)
@@ -123,8 +134,7 @@ const contactOverlayTable = (
     scope.set(filter.column.toLowerCase(), filter)
   }
   const filters = [...scope.values()]
-  const qualified = (name: string) =>
-    `${CONSTITUENT_CATALOG}.${CONSTITUENT_SCHEMA}.${name}`
+  const qualified = (name: string) => `${CONSTITUENT_CATALOG}.${schema}.${name}`
   const projection = [
     `b.* EXCEPT (\`voter_key\`, ${filters.map((f) => `\`${f.column}\``).join(', ')})`,
     'coalesce(b.`voter_key`, o.`voter_key`) AS `voter_key`',
@@ -177,9 +187,13 @@ export const buildConstituentDataScope = (
   contactOverlayTable:
     peopleDataset.overlayOrgSlug === undefined || tables[0] === undefined
       ? undefined
-      : contactOverlayTable(
-          tables[0].table,
+      : buildContactOverlayTable({
+          schema: CONSTITUENT_SCHEMA,
+          table: tables[0].table,
+          view:
+            process.env.SERVE_AGENT_CONTACT_OVERLAY_VIEW ||
+            'serve_agent_contact_overlay',
           districtFilters,
-          peopleDataset.overlayOrgSlug,
-        ),
+          organizationSlug: peopleDataset.overlayOrgSlug,
+        }),
 })

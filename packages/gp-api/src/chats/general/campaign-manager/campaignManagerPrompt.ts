@@ -6,6 +6,7 @@ import {
 } from '@goodparty_org/contracts'
 import type { Organization } from '../../../generated/prisma'
 import type { MandatoryFilter } from '@/llm/tools/constituentSql.validator'
+import type { PeopleDataset } from '@/peopleDb/services/peopleDataset.service'
 import type { StrategicLandscapeResult } from '@/campaignStrategy/schemas/strategicLandscape.schema'
 import type { PublicProfileAddress } from '@/personProfiles/services/public-profile-address.service'
 import { buildCalendarBlock, hasCalendarDate } from './campaignCalendar'
@@ -131,6 +132,10 @@ export interface CampaignManagerContext {
   // in along with the provider + table allowlist being configured.
   districtFilters: MandatoryFilter[] | null
   constituentToolEnabled: boolean
+  // The org's people dataset (PeopleDatasetService): always voters for a
+  // campaign, with the imported-contact overlay when serve-import-contacts is
+  // on. Undefined when it was not resolved, which reads as plain voters.
+  peopleDataset?: PeopleDataset
   // The full org row for the CRM contact tools (null when no organization
   // resolved). Bound into the tools so counts run in the campaign's context.
   organization: Organization | null

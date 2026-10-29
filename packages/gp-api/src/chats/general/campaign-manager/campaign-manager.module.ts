@@ -12,6 +12,7 @@ import { QueueProducerModule } from '@/queue/producer/queueProducer.module'
 import { CampaignStrategyModule } from '@/campaignStrategy/campaignStrategy.module'
 import { ContactsModule } from '@/contacts/contacts.module'
 import { VotersModule } from '@/voters/voters.module'
+import { PeopleQueryModule } from '@/peopleDb/peopleQuery.module'
 import { PersonProfilesModule } from '@/personProfiles/personProfiles.module'
 import { DatabricksSqlProvider } from '@/llm/tools/databricksProvider'
 import { resolveDatabricksConnection } from '@/llm/tools/databricksConnection'
@@ -33,7 +34,8 @@ export { CAMPAIGN_MANAGER_MODELS }
 
 // Aggregate-only Databricks provider for the constituent-data tool, on Win's
 // own warehouse identity: the sp_win_agent service principal + dedicated
-// warehouse (WIN_DATABRICKS_* env), against the win_agent_voters mart —
+// warehouse (WIN_DATABRICKS_* env), against the win_agent_voters mart (joined
+// to win_agent_contact_overlay for a campaign with imported contacts) —
 // NOT the shared Serve credential. Returns null unless host/path and a
 // credential are set, so with nothing configured the tool never registers.
 // Aggregate-only safety stays app-layer (allowlist + forbidden columns +
@@ -51,7 +53,8 @@ const constituentDataProviderFactory = (): DatabricksProvider | null => {
 // Registers the campaign_assistant scope handler. Exported so the general chats
 // module can collect it into the scope registry. Imports ChatsModule for the
 // shared ChatStoreService (greeting seeding), Organizations/Elections for the
-// reused constituent-data tool's district resolution, and
+// reused constituent-data tool's district resolution, PeopleQuery for the
+// turn's people dataset, and
 // CampaignStory/Websites/CampaignStrategy for the Campaign Story intake (story +
 // website bio/issues + plan generation), and PersonProfiles for the public
 // profile's publish gate and canonical address.
@@ -67,6 +70,7 @@ const constituentDataProviderFactory = (): DatabricksProvider | null => {
     CampaignStrategyModule,
     ContactsModule,
     VotersModule,
+    PeopleQueryModule,
     PersonProfilesModule,
   ],
   providers: [

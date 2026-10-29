@@ -782,6 +782,11 @@ jwIDAQAB
         dev: 'serve_agent_contact_overlay_dev',
         prod: 'serve_agent_contact_overlay',
       }),
+      WIN_AGENT_CONTACT_OVERLAY_VIEW: select({
+        preview: 'win_agent_contact_overlay_dev',
+        dev: 'win_agent_contact_overlay_dev',
+        prod: 'win_agent_contact_overlay',
+      }),
       SERVE_ANALYSIS_BUCKET_NAME: `serve-analyze-data-${environment === 'preview' ? 'dev' : environment}`,
       MEETING_PIPELINE_BUCKET: meetingPipelineBucketName,
       TEVYN_POLL_CSVS_BUCKET: tevynPollCsvsBucket.bucket,

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { WIN_AGENT_VOTER_DIMENSIONS } from './constituentDimensions.winAgentVoters'
 import { WIN_AGENT_VOTER_SUGGESTED_DIMENSIONS } from './constituentSuggestedDimensions.winAgentVoters'
 import {
@@ -174,5 +174,86 @@ describe('win constituent scope: party by state', () => {
     expect(others(modeled)).toEqual(others(plain))
     expect(modeled.allowedDimensions).toEqual(plain.allowedDimensions)
     expect(modeled.partisanQueriesAllowed).toBe(true)
+  })
+})
+
+describe('win constituent scope: imported-contact overlay', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  it('has no overlay and no overlay dimensions without an org overlay', () => {
+    const scope = buildWinConstituentDataScope(
+      FILTERS,
+      WIN_CONSTITUENT_TABLES,
+      'CA',
+      { base: 'voters' },
+    )
+
+    expect(scope.contactOverlayTable).toBeUndefined()
+    expect(scope.allowedDimensions.has('on_uploaded_list')).toBe(false)
+    expect(scope.allowedDimensions.has('has_email')).toBe(false)
+    expect(scope.advertisedDimensions).toBe(
+      WIN_AGENT_VOTER_SUGGESTED_DIMENSIONS,
+    )
+  })
+
+  it('joins the district to the Win overlay view and allows its dimensions', () => {
+    vi.stubEnv(
+      'WIN_AGENT_CONTACT_OVERLAY_VIEW',
+      'win_agent_contact_overlay_dev',
+    )
+    const scope = buildWinConstituentDataScope(
+      FILTERS,
+      WIN_CONSTITUENT_TABLES,
+      'CA',
+      {
+        base: 'voters',
+        overlayOrgSlug: 'campaign-springfield',
+        overlayDistrictId: 'district-1',
+      },
+    )
+
+    expect(scope.contactOverlayTable).toBe(
+      '(SELECT b.* EXCEPT (`voter_key`, `state_postal_code`,' +
+        ' `City_Council_Commissioner_District`),' +
+        ' coalesce(b.`voter_key`, o.`voter_key`) AS `voter_key`,' +
+        " 'IL' AS `state_postal_code`," +
+        " 'WARD 3' AS `City_Council_Commissioner_District`," +
+        ' coalesce(o.`on_uploaded_list`, false) AS `on_uploaded_list`,' +
+        ' coalesce(o.`has_email`, false) AS `has_email`' +
+        ' FROM (SELECT * FROM' +
+        ' goodparty_data_catalog.mart_win_agents.win_agent_voters' +
+        " WHERE `state_postal_code` = 'IL'" +
+        " AND `City_Council_Commissioner_District` = 'WARD 3') b" +
+        ' FULL OUTER JOIN (SELECT * FROM' +
+        ' goodparty_data_catalog.mart_win_agents.win_agent_contact_overlay_dev' +
+        " WHERE organization_slug = 'campaign-springfield') o" +
+        ' ON o.`voter_key` = b.`voter_key`)',
+    )
+    expect(scope.allowedDimensions.has('on_uploaded_list')).toBe(true)
+    expect(scope.allowedDimensions.has('has_email')).toBe(true)
+    expect(
+      scope.advertisedDimensions
+        .filter((d) => ['on_uploaded_list', 'has_email'].includes(d.name))
+        .map((d) => d.label),
+    ).toEqual([
+      'On a contact list the campaign uploaded (values true or false)',
+      'Has an email address from a contact list the campaign uploaded (values true or false)',
+    ])
+  })
+
+  it('reads the prod view when the env does not name one', () => {
+    vi.stubEnv('WIN_AGENT_CONTACT_OVERLAY_VIEW', '')
+    const scope = buildWinConstituentDataScope(
+      FILTERS,
+      WIN_CONSTITUENT_TABLES,
+      'CA',
+      { base: 'voters', overlayOrgSlug: 'campaign-springfield' },
+    )
+
+    expect(scope.contactOverlayTable).toContain(
+      'goodparty_data_catalog.mart_win_agents.win_agent_contact_overlay WHERE',
+    )
   })
 })
