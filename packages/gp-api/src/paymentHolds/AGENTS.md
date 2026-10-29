@@ -71,4 +71,6 @@ Every event carries `outreachId`, `channel`, `mode` (`win` when the send has a c
 
 ## Reuse
 
+Outreach holds turn off redirect-based payment methods (`automatic_payment_methods.allow_redirects: 'never'`). Without it Stripe refuses every on-session confirm, which has no `return_url`. A card that needs 3-D Secure comes back `requires_action` and is recorded as a decline.
+
 The Stripe helpers in `src/vendors/stripe/services/stripe.service.ts`: `ensureCustomer`, `createSetupIntent`, `createOutreachManualCaptureHold` (with `StripeOutreachHoldDeclinedError`), `findOutreachHolds`, `retrievePaymentIntent`, `capturePaymentIntent`, `cancelHold`. Robocall's `createManualCaptureHold` and `voidHold` stay robocall's. The design follows `outreach/services/outreachRobocallHold.service.ts` and `outreach/docs/robocall-payment.md`.

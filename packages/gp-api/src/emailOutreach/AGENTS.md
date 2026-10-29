@@ -56,6 +56,8 @@ Candidates (Win) and elected officials (Serve) email their opted-in contacts thr
 
 - **Pauses:** `bounce_rate`, `complaint_rate` and `manual` (a rendering failure or a batch SES rejected) from the sweep; `ses_tenant` when SES says the tenant is disabled (`MessageRejected` naming the tenant ARN); `ses_account` and `daily_quota` for the whole account, which the sweep clears itself once SES allows sending again.
 - **A send that sent nothing is charged nothing** (the hold is voided). Otherwise the larger of 50 cents and a cent per email SES accepted.
+- **Unsubscribes are honored mid-send.** Prepare drops them once, and every sweep tick deletes the queued recipients of each running send who have unsubscribed since, so a long or paused send never reaches them.
+- **SES calls make one attempt** (`maxAttempts: 1`): the SDK's own retry of a timed-out `SendBulkEmail` could resend a batch SES already accepted. A failed batch goes back to `queued` for the next tick, which is the one remaining duplicate exposure.
 - **Dev sends only to `goodparty.org` and the SES mailbox simulator** (`isBlockedByDevAllowlist`); other recipients are marked `failed`. The test send refuses other login addresses there.
 - **SES names carry the environment** (`<env>-<organizationSlug>` tenants, `<env>-email-<id>` templates, `outreach-<env>` set). A live deploy with no `OTEL_SERVICE_ENVIRONMENT` refuses to send.
 
@@ -65,6 +67,7 @@ Candidates (Win) and elected officials (Serve) email their opted-in contacts thr
 - `POST /` is a full replace: omitted optional fields are cleared.
 - The test upload is the only recipient source until the shared lists land. It writes consent onto the send, and it is refused once the send leaves `draft` (the transaction claims the `Outreach` row, so it serializes with a confirm).
 
+- **Deployed dev sends through the SES mock,** and `VENDOR_MODE=live` there turns the crons off, so nothing deployed ever exercises real SES before prod. `scripts/email-dev-e2e.ts` runs the real prepare, sweep, auto-pause, finish and inbound services from a laptop against real dev SES and the mailbox simulator. The release-train spec `gp-webapp/e2e-tests/tests/app/dashboard/outreach/email-send.spec.ts` covers upload, compose, pay and send against the mock, driving the sweeps through the `email.*` test-fixture jobs.
 - `src/scheduled-messaging/` and `EmailService` (Mailgun) are transactional email. Don't build outreach on them.
 - **SES won't delete a template a tenant still holds.** Finishing removes the tenant association first.
 - Merge values go into SES's Handlebars template unescaped by us: Handlebars escapes the html part, and the sweep strips `<>{}` from names so the text part stays readable.
