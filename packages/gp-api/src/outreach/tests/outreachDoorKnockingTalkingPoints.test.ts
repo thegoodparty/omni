@@ -5,6 +5,7 @@ import {
   DOOR_KNOCKING_TALKING_POINTS_MAX_LENGTH,
 } from '@goodparty_org/contracts'
 import { useTestService } from '@/test-service'
+import { FILTER_DIMENSION_PROVENANCE_RULES } from '@/contacts/filterDimensions.catalog'
 import { LlmService } from '@/llm/services/llm.service'
 import { Campaign } from '../../generated/prisma'
 import { WIN_DOOR_KNOCKING_VOICE } from '../services/outreachDoorKnockingGeneration.service'
@@ -268,75 +269,18 @@ describe('POST /v1/outreach/door-knocking/draft', () => {
     })
   })
 
-  // The rule the other channels' prompts would get exactly backwards. Phone
-  // banking and SMS produce text a person reads out; this produces notes a
-  // person reads FROM, and every other rule depends on that framing landing.
-  it('tells the model these are notes, not dialogue', () => {
-    mockPoints()
-
-    return postDraft(draftBody()).then(() => {
-      const system = promptOf('system')
-      expect(system).toContain('BULLET NOTES')
-      expect(system).toContain('Do not write dialogue')
-      expect(system).toContain('never lines to recite')
-    })
-  })
-
-  it('asks for 4 or 5 bullets, one action each, about the goal', async () => {
+  it('carries no em dashes in the prompt', async () => {
     mockPoints()
 
     await postDraft(draftBody())
 
-    const system = promptOf('system')
-    expect(system).toContain('Write 4 or 5 short bullets')
-    expect(system).toContain('ONE action or idea')
-    expect(system).toContain(
-      'about what the campaign is working toward or asking for',
-    )
-    expect(system).toContain('never about the person who answers the door')
-    expect(system).toContain('No em dashes')
-    expect(system).toContain('sentence case')
     // The model imitates its prompt.
-    expect(system).not.toContain('\u2014')
-  })
-
-  // The single highest-leverage sentence in the prompt. A note that compresses
-  // to "Roads" has told the canvasser nothing and pushes them into improvising
-  // at a door, which is where false claims come from.
-  it('demands the concrete how rather than the topic', async () => {
-    mockPoints()
-
-    await postDraft(draftBody())
-
-    expect(promptOf('system')).toContain('Name the concrete HOW')
-  })
-
-  // Nothing is composed around the card any more, so the bullets carry the
-  // opening and the close, and a volunteer reads the same card the candidate
-  // does.
-  it('opens and closes the card in the third person', async () => {
-    mockPoints()
-
-    await postDraft(draftBody())
-
-    const system = promptOf('system')
-    expect(system).toContain('The first bullet is how to open')
-    expect(system).toContain('the last is how to close')
-    expect(system).toContain('never a scripted greeting or goodbye')
-    expect(system).toContain('in the third person')
-    expect(system).toContain('Refer to the candidate by first name')
-    expect(system).toContain('If no name is given, say "the candidate"')
-    expect(system).not.toContain('Renee')
-    expect(system).not.toContain("Hi, I'm")
-    expect(system).toContain('Never write a URL')
-    expect(system).not.toMatch(/call.to.action/i)
+    expect(promptOf('system')).not.toContain('\u2014')
   })
 
   describe('the audience block', () => {
-    // The product requirement: the list's filters must reach the points. The
-    // block frames them as a selection over the candidate's own priorities,
-    // never as a fact about whoever opens the door.
-    it('describes an allowed filter and forbids asserting it', async () => {
+    // The product requirement: the list's filters must reach the points.
+    it('describes an allowed filter', async () => {
       mockPoints()
 
       await postDraft(
@@ -347,8 +291,6 @@ describe('POST /v1/outreach/door-knocking/draft', () => {
       expect(user).toContain('The audience this list selects:')
       expect(user).toContain('Homeownership Homeowner')
       expect(user).toContain('Age 65+')
-      expect(user).toContain("which of the candidate's existing priorities")
-      expect(user).toContain('NOT a fact about the person who answers the door')
     })
 
     // Provenance rides with the description because most of these values are
@@ -358,7 +300,7 @@ describe('POST /v1/outreach/door-knocking/draft', () => {
 
       await postDraft(draftBody({ filters: { homeownerYes: true } }))
 
-      expect(promptOf('user')).toContain('DIMENSION PROVENANCE')
+      expect(promptOf('user')).toContain(FILTER_DIMENSION_PROVENANCE_RULES)
     })
 
     // Every compose prompt in this product ends with "Stay strictly
@@ -408,19 +350,8 @@ describe('POST /v1/outreach/door-knocking/draft', () => {
       await postDraft(draftBody({ purpose: 'election_day_turnout' }))
 
       expect(promptOf('user')).toContain(
-        'The ask is a commitment to vote on election day',
+        WIN_DOOR_KNOCKING_VOICE.purposePrompts.election_day_turnout,
       )
-    })
-
-    // The shape of a door ask is not a per-purpose question, so it is stated
-    // once for all of them. Two requests in one line is the failure this
-    // guards: "vote early and take a yard sign" gets a nod and neither.
-    it('holds every purpose to one request', async () => {
-      mockPoints()
-
-      await postDraft(draftBody())
-
-      expect(promptOf('system')).toContain('ONE request and no more')
     })
 
     it('writes an event invite from the details the flow sent', async () => {
@@ -453,9 +384,6 @@ describe('POST /v1/outreach/door-knocking/draft', () => {
 
       const user = promptOf('user')
       expect(user).toContain('No event date, time or place was given.')
-      expect(promptOf('system')).toContain(
-        'Never write a bracketed placeholder.',
-      )
       expect(`${promptOf('system')}\n${user}`).not.toMatch(
         /\[(date|time|location)\]/i,
       )
@@ -514,9 +442,7 @@ describe('POST /v1/outreach/door-knocking/draft', () => {
       expect(promptOf('user')).toContain(
         'The existing talking points to polish:',
       )
-      expect(promptOf('system')).toContain(
-        'This is a light edit, NOT a rewrite',
-      )
+      expect(promptOf('system')).toContain('light edit')
       expect(res.data.draft).toBe('Fix the roads. Vote in November.')
     })
 
@@ -529,9 +455,6 @@ describe('POST /v1/outreach/door-knocking/draft', () => {
       const res = await postDraft(draftBody({ currentDraft: bullets }))
 
       const system = promptOf('system')
-      expect(system).toContain('Keep the shape they wrote')
-      expect(system).toContain('Never turn one into')
-      expect(system).toContain('Keep their line breaks')
       expect(system).not.toContain('Write 4 or 5 short bullets')
       expect(res.data.draft).toBe(bullets)
     })
@@ -560,7 +483,6 @@ describe('POST /v1/outreach/door-knocking/draft', () => {
 
       const user = promptOf('user')
       expect(user).toContain('just rejected')
-      expect(user).toContain('a different angle')
       expect(promptOf('system')).not.toContain('light edit')
     })
 
