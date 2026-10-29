@@ -49,6 +49,7 @@ import {
 import { APP_ROOT } from 'src/shared/util/appEnvironment.util'
 import { CrmUsersService } from './crmUsers.service'
 import { UserAvatarService } from './userAvatar.service'
+import { recordClerkUserCounts } from '../util/clerkUsers.metrics'
 import { clerkThrottle } from '@/vendors/clerk/util/clerkThrottle.util'
 import { clerkCall } from '@/vendors/clerk/util/clerkCall.util'
 import { CronLockService } from '@/cron/services/cronLock.service'
@@ -1176,9 +1177,31 @@ export class UsersService extends createPrismaBase(MODELS.User) {
     }
 
     try {
+      await this.reportClerkUserCounts()
       await this.deleteTestUsers()
     } finally {
       await this.cronLock.markHourlyCompleted(TEST_USER_SWEEP_JOB, now)
+    }
+  }
+
+  /**
+   * Records how full the deploy's Clerk instance is, for the
+   * `clerk-dev-user-cap-headroom` Grafana alert. Counted before the sweep
+   * deletes anything, so the reading is the hour's high-water mark rather
+   * than what the sweep leaves behind. Two `/users/count` calls an hour,
+   * through the same throttle as the sweep, so it barely touches the shared
+   * Backend API budget.
+   */
+  async reportClerkUserCounts() {
+    try {
+      const total = await clerkThrottle(() => this.clerkClient.users.getCount())
+      const testDomain = await clerkThrottle(() =>
+        this.clerkClient.users.getCount({ query: TEST_USER_DOMAIN }),
+      )
+      recordClerkUserCounts({ total, testDomain })
+      this.logger.info({ total, testDomain }, 'Clerk instance user count')
+    } catch (err) {
+      this.logger.error({ err }, 'Failed to count Clerk users')
     }
   }
 
