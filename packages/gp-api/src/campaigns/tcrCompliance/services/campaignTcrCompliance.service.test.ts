@@ -297,23 +297,6 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
     })
   })
 
-  it('claims kickoffSentAt atomically before sending the kickoff', async () => {
-    await service.createAgentic(user, campaign, basePayload)
-
-    expect(mockModel.updateMany).toHaveBeenCalledWith({
-      where: { id: 'tcr-new', kickoffSentAt: null },
-      data: { kickoffSentAt: expect.any(Date) },
-    })
-  })
-
-  it('does not enqueue a second kickoff when the claim is already taken', async () => {
-    mockModel.updateMany.mockResolvedValueOnce({ count: 0 })
-
-    await service.createAgentic(user, campaign, basePayload)
-
-    expect(mockQueue.sendMessage).not.toHaveBeenCalled()
-  })
-
   it('marks the record error and re-throws if SQS sendMessage fails', async () => {
     const sqsErr = new Error('SQS unavailable')
     mockQueue.sendMessage.mockRejectedValueOnce(sqsErr)
@@ -454,25 +437,6 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
     })
     expect(mockModel.create).toHaveBeenCalledTimes(1)
     expect(mockQueue.sendMessage).toHaveBeenCalledTimes(1)
-  })
-
-  it('rolls back the delete when create fails inside the transaction', async () => {
-    const existing = {
-      id: 'tcr-failed',
-      campaignId: campaign.id,
-      status: TcrComplianceStatus.error,
-    }
-    mockModel.findUnique.mockResolvedValue(existing)
-    const dbErr = new PrismaClientKnownRequestError('Connection lost', {
-      code: 'P1001',
-      clientVersion: 'test',
-    })
-    mockModel.create.mockRejectedValueOnce(dbErr)
-
-    await expect(
-      service.createAgentic(user, campaign, basePayload),
-    ).rejects.toBe(dbErr)
-    expect(mockQueue.sendMessage).not.toHaveBeenCalled()
   })
 
   it('returns the parallel record when a concurrent submission wins the race', async () => {
@@ -627,16 +591,6 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
         tcrComplianceId: 'tcr-paid',
         clerkUserId: 'clerk_paid',
       })
-    })
-
-    it('does not enqueue a second kickoff when the claim is already taken (replay)', async () => {
-      mockModel.findUnique.mockResolvedValueOnce(paidRecord)
-      mockCampaigns.findUnique.mockResolvedValueOnce(campaignWithClerk)
-      mockModel.updateMany.mockResolvedValueOnce({ count: 0 })
-
-      await service.enqueueAgenticKickoffIfNeeded(campaign.id)
-
-      expect(mockQueue.sendMessage).not.toHaveBeenCalled()
     })
 
     it('does nothing when no TCR record exists yet (paid before filing)', async () => {

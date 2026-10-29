@@ -206,6 +206,17 @@ Test the logic around the prompt instead:
 - Invariants over every prompt: no em dash, and Win and Serve audience nouns (`docs/product-vocabulary.md` at the repo root).
 - A shared constant another component depends on, such as a guardrail line, a marker the app sends, or an enum a tool returns: assert with the imported constant, never a pasted copy of its text.
 
+## Atomicity, locks, and races
+
+Never mock `$transaction`, `$queryRaw`/`$executeRaw`, or a Prisma model to test a transaction, a compare-and-swap claim, an advisory or row lock, or a race. A mocked `$transaction` that runs the callback has no rollback and no isolation, and a matched SQL string passes whether or not the query is right. Use `useTestService()`, in an existing suite for that area rather than a new file, and:
+
+- Race real calls with `Promise.all` and assert on the rows: exactly one winner, the loser's row untouched.
+- Force the overlap instead of hoping for it: a barrier in a `vi.spyOn` on a step both callers pass before the claim, or a `pg_sleep` trigger that holds the winner's transaction open. Drop the trigger in `afterEach`.
+- Prove a rollback by making Postgres fail the write with a `RAISE EXCEPTION` trigger, then assert the earlier writes in the same transaction did not land.
+- Check the test fails with the lock, the `WHERE` guard, or the transaction removed.
+
+Examples: `redeemFreeTexts` in `src/campaigns/campaigns.update.integration.test.ts`, the domain purchase lock at the end of `src/websites/services/domains.service.test.ts`, and the claims in `src/onboarding/services/localNews.service.test.ts`.
+
 ## Running tests
 
 ```bash

@@ -574,28 +574,6 @@ describe('S3Service', () => {
       }
     })
 
-    it('getSignedUrlForUpload works with different bucket names', async () => {
-      const buckets = ['bucket1', 'my-bucket', 'assets.example.com']
-      const mockUrl = 'https://signed-url.com/upload'
-
-      for (const bucket of buckets) {
-        mockGetSignedUrl.mockResolvedValue(mockUrl)
-
-        await service.getSignedUrlForUpload(bucket, key)
-      }
-    })
-
-    it('getSignedUrlForViewing works with different bucket names', async () => {
-      const buckets = ['bucket1', 'my-bucket', 'assets.example.com']
-      const mockUrl = 'https://signed-url.com/view'
-
-      for (const bucket of buckets) {
-        mockGetSignedUrl.mockResolvedValue(mockUrl)
-
-        await service.getSignedUrlForViewing(bucket, key)
-      }
-    })
-
     it('getFile works with different bucket names', async () => {
       const buckets = ['bucket1', 'my-bucket', 'assets.example.com']
       const mockContent = 'file content'
