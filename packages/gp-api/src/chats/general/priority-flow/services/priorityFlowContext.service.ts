@@ -9,6 +9,7 @@ import {
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import {
   ChatAnchorSchema,
+  type ManagedCivicPanelStatus,
   type PriorityReadStatus,
   type PriorityStatus,
 } from '@goodparty_org/contracts'
@@ -49,6 +50,12 @@ export interface PriorityFlowContext {
   // flag. Undefined while it is off, so nothing about a panel reaches the
   // prompt.
   civicPanelMembers?: number
+  // The civic panel GoodParty builds for the office, read per turn behind
+  // the same flag: null when none is being built (never approved, stopped,
+  // or the read failed), undefined while the flag is off. Without it the
+  // agent sold the round one text as the way to build a civic panel that
+  // was already filling for free.
+  managedCivicPanel?: PriorityManagedCivicPanel | null
   // This priority's texts whose replies are in, and whether each has been
   // reported back on. Read per turn behind the same flag; undefined while
   // it is off.
@@ -57,6 +64,17 @@ export interface PriorityFlowContext {
   // the district needs. Read per turn behind the same flag; undefined while
   // it is off.
   readStatus?: PriorityReadStatus
+}
+
+// Days are already in the words the agent says them ("Tuesday, November 3").
+export interface PriorityManagedCivicPanel {
+  status: Exclude<ManagedCivicPanelStatus, 'stopped'>
+  members: number
+  goalMembers: number
+  // The day the next invites go out while building: the first send day
+  // before any wave went, then the next wave's. Null otherwise.
+  nextSendDate: string | null
+  readyWeekOf: string
 }
 
 // Loads the priority_flow context: the conversation's anchored priority, the

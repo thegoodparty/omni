@@ -2,9 +2,10 @@ import {
   BadRequestException,
   Inject,
   Injectable,
+  Logger,
   Optional,
 } from '@nestjs/common'
-import { formatISO } from 'date-fns'
+import { format, formatISO } from 'date-fns'
 import {
   checkSmsStandards,
   OrdinanceAuthorityFindingSchema,
@@ -24,6 +25,7 @@ import {
 import { PriorityStatusService } from '@/priorities/services/priorityStatus.service'
 import { PriorityResultsService } from '@/priorities/services/priorityResults.service'
 import { ContactsService } from '@/contacts/services/contacts.service'
+import { ManagedCivicPanelService } from '@/contacts/services/managedCivicPanel.service'
 import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
 import { PeopleDatasetService } from '@/peopleDb/services/peopleDataset.service'
 import { FeaturesService } from '@/features/services/features.service'
@@ -49,6 +51,7 @@ import {
   CommunityIssueReadPort,
 } from '../chief-of-staff/services/communityIssueRead.port'
 import { buildReadCommunityIssuesTool } from '../chief-of-staff/services/communityIssueRead.tool'
+import { managedPanelTimeline } from '../chief-of-staff/services/managedCivicPanel.tools'
 import {
   buildDescribeFilterDimensionsTool,
   registeredFilterConsumers,
@@ -78,6 +81,7 @@ import { OutreachReportBackService } from '@/outreach/services/outreachReportBac
 import {
   PriorityFlowContext,
   PriorityFlowContextService,
+  type PriorityManagedCivicPanel,
 } from './services/priorityFlowContext.service'
 import { PriorityFlowOutreachService } from './services/priorityFlowOutreach.service'
 import { resolveSendWindowTimeZone } from '@/vendors/peerly/utils/sendWindowTimeZone.util'
@@ -134,6 +138,7 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
   // read_past_outreach, web_search and then a present_* card, and a turn that
   // exhausts its budget mid-research never presents anything.
   readonly maxSteps = 30
+  private readonly logger = new Logger(PriorityFlowHandler.name)
 
   constructor(
     private readonly store: GeneralChatStoreService,
@@ -162,7 +167,44 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
     private readonly reportBack?: OutreachReportBackService,
     @Optional()
     private readonly priorityResults?: PriorityResultsService,
+    @Optional()
+    private readonly managedPanels?: ManagedCivicPanelService,
   ) {}
+
+  // Null when nothing is being built, and when the read fails, so the turn
+  // still runs and the agent says nothing about a civic panel filling.
+  private async readManagedCivicPanel(
+    organization: PriorityFlowContext['organization'],
+  ): Promise<PriorityManagedCivicPanel | null | undefined> {
+    if (!this.managedPanels) return undefined
+    try {
+      const { panel } = await this.managedPanels.read(organization)
+      if (!panel || panel.status === 'stopped') return null
+      const { firstSendDate, readyWeekOf } = managedPanelTimeline(
+        panel.approvedAt,
+      )
+      const { members, goalMembers, wavesSent, nextWaveAt } = panel.progress
+      return {
+        status: panel.status,
+        members,
+        goalMembers,
+        nextSendDate:
+          panel.status !== 'building'
+            ? null
+            : wavesSent === 0
+              ? firstSendDate
+              : nextWaveAt
+                ? format(nextWaveAt, 'EEEE, MMMM d')
+                : null,
+        readyWeekOf,
+      }
+    } catch (err) {
+      this.logger.warn(
+        `managed civic panel read failed for ${organization.slug}: ${String(err)}`,
+      )
+      return null
+    }
+  }
 
   // ONE conversation per priority, for the life of the priority. The ordinance
   // flow keys a thread to an (ordinance, step) because each of its steps is a
@@ -233,6 +275,9 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
     const civicPanelMembers = outreachFeedbackEnabled
       ? await this.contextService.countCivicPanelMembers(ctx.organizationSlug)
       : undefined
+    const managedCivicPanel = outreachFeedbackEnabled
+      ? await this.readManagedCivicPanel(ctx.organization)
+      : undefined
     const reportBacks =
       outreachFeedbackEnabled && this.reportBack
         ? await this.reportBack.listForOffice(
@@ -262,6 +307,7 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
         peopleDataset,
         outreachFeedbackEnabled,
         civicPanelMembers,
+        managedCivicPanel,
         reportBacks,
         readStatus,
       }
@@ -271,6 +317,7 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
       anchorSummaries,
       outreachFeedbackEnabled,
       civicPanelMembers,
+      managedCivicPanel,
       reportBacks,
       readStatus,
       // A bound position clears customPositionName, so for most offices the
