@@ -24,12 +24,12 @@ tok=()
 if [ -n "${VERCEL_TOKEN:-}" ]; then tok=(--token "$VERCEL_TOKEN"); fi
 vc() { npx -y vercel@latest "$@" ${tok[@]+"${tok[@]}"} --scope good-party; }
 
-# Every unclaimed slug resolves to the production placeholder, so only a
-# preview deployment behind the slug means someone already published there.
+# Every unclaimed slug resolves to the production placeholder. Anything else,
+# including a failed check, may be someone's artifact, so refuse it.
 target=$(vc inspect "https://$host" --json 2>/dev/null \
-  | python3 -c "import json,sys;print(json.load(sys.stdin).get('target') or '')" 2>/dev/null || true)
-if [ "$update" = false ] && [ -n "$target" ] && [ "$target" != production ]; then
-  echo "$host already exists. Pick another slug, or pass --update if it is yours." >&2; exit 1
+  | python3 -c "import json,sys;print(json.load(sys.stdin).get('target') or 'unknown')" 2>/dev/null) || target=unknown
+if [ "$update" = false ] && [ "$target" != production ]; then
+  echo "$host already exists or could not be checked. Pick another slug, or pass --update if it is yours." >&2; exit 1
 fi
 
 cd "$folder"

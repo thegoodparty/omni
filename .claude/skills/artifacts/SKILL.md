@@ -29,8 +29,9 @@ that instead.
 ## Access
 
 - **Delegate:** `VERCEL_TOKEN` is in the environment (bot account `delegate-gp`).
-  Never print it, log it or put it in a file you publish. Add
-  `--token "$VERCEL_TOKEN"` to every command below.
+  Never print it, log it or put it in a file you publish. `publish.sh` picks it
+  up on its own; add `--token "$VERCEL_TOKEN"` to every `vercel` command you
+  run yourself.
 - **A person's agent:** run `npx vercel login` once with your goodparty.org account.
   The commands below then work without a token.
 - Always use the Vercel CLI (`npx -y vercel@latest ...`) with `--scope good-party`,
