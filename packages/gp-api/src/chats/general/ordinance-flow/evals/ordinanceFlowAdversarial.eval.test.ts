@@ -2,7 +2,7 @@ import { overrideEnvForEvals } from '../../../evals/envOverride'
 
 // Must run before the app graph constructs LlmService, so the real ANTHROPIC
 // key from .env wins over the .env.test stub.
-overrideEnvForEvals()
+if (process.env.RUN_LLM_EVALS === '1') overrideEnvForEvals()
 
 import { HttpStatus } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'

@@ -182,8 +182,16 @@ export const useTestService = ({
     // Read by AppModule's ScheduleModule factory during bootstrap.
     process.env.TEST_SCHEDULER = scheduler ? 'on' : 'off'
 
+    // Constructing PrismaClient loads packages/gp-api/.env again, which CI
+    // does not have. Drop what it adds, as test-file-cleanup.ts does on import.
+    const envBeforeBoot = new Set(Object.keys(process.env))
+
     // Create NestJS application using the same bootstrap function as production
     app = await bootstrap({ loggingEnabled: false })
+
+    for (const key of Object.keys(process.env)) {
+      if (!envBeforeBoot.has(key)) delete process.env[key]
+    }
 
     const authProvider = app.get<AuthProvider>(AUTH_PROVIDER_TOKEN)
     // .bind() returns any — TypeScript cannot infer the bound method signature

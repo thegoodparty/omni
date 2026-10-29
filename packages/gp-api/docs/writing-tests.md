@@ -155,6 +155,12 @@ What to use instead of a module mock:
 
 Delete a `vi.mock` that no assertion reads. If one `describe` truly needs a module mock, move it to its own small file so the rest of the suite stays in `shared-modules` (`paymentEventsService.webhooksNotConfigured.test.ts`). An export of an externalized package (`getSignedUrl` from `@aws-sdk/s3-request-presigner`) is a real ESM namespace and cannot be spied, so that case keeps `vi.mock`.
 
+## Environment variables
+
+Change env with `vi.stubEnv`, never by assigning or deleting a `process.env` key. `vi.stubEnv('KEY', undefined)` unsets one. A stub lasts until the file ends; call `vi.unstubAllEnvs()` in `afterEach` if a later test needs the original back. For the deploy-env constants in `appEnvironment.util`, use `appEnvOverrides` (see "Module mocks").
+
+`src/test-file-cleanup.ts` resets `process.env` to the worker's starting env before each file, so a write cannot leak into the next file. Inside a file it still reaches every later test. Tests never see `packages/gp-api/.env` or a shell `AWS_PROFILE`, which CI does not have either.
+
 ## Limits and caps
 
 Never seed bulk rows, or build a huge array, to cross a limit. Make the limit overridable and cross a small one with a few rows. Seeding 200k rows to trip `MAX_RESOLVED_ID_SET_SIZE` cost 10-15s per test; a cap of 3 costs milliseconds.

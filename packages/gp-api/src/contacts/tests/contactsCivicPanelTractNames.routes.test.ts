@@ -178,7 +178,7 @@ const namedDistrict = async (tracts: string[]) => {
 }
 
 beforeAll(() => {
-  process.env.GEOAPIFY_API_KEY ??= 'test-key'
+  vi.stubEnv('GEOAPIFY_API_KEY', 'test-key')
 })
 
 beforeEach(() => {

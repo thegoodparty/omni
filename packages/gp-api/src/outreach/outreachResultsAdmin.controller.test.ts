@@ -470,7 +470,7 @@ describe('poll results through the same surface', () => {
     })
 
   beforeEach(async () => {
-    process.env.SERVE_ANALYSIS_BUCKET_NAME = POLL_BUCKET
+    vi.stubEnv('SERVE_ANALYSIS_BUCKET_NAME', POLL_BUCKET)
     const office = await service.prisma.electedOffice.findFirstOrThrow({
       where: { organizationSlug: ORG_SLUG },
     })
