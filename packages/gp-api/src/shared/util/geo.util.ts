@@ -45,20 +45,6 @@ export const pointInPolygon = (
   return inside
 }
 
-// The box around every part of a boundary. The union of the parts' boxes, so
-// a shape whose parts sit at opposite ends of a district yields one rectangle
-// covering both — see `resolveGeoMemberIds`, which deliberately scans the
-// parts separately rather than handing this to people-db.
-export const shapeBbox = (shape: GeoJsonShape): Bbox => {
-  const boxes = shapePolygons(shape).map(polygonBbox)
-  return {
-    minLat: Math.min(...boxes.map(({ minLat }) => minLat)),
-    maxLat: Math.max(...boxes.map(({ maxLat }) => maxLat)),
-    minLng: Math.min(...boxes.map(({ minLng }) => minLng)),
-    maxLng: Math.max(...boxes.map(({ maxLng }) => maxLng)),
-  }
-}
-
 // Whether a point falls inside ANY part of a boundary.
 //
 // Per-part, then OR'd — and that is the whole point of this function rather

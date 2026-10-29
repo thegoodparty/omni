@@ -127,7 +127,7 @@ function createMockCampaign(
 
 **Benefits:**
 - Reduced from 75+ lines to ~30 lines
-- Leverages shared, well-tested factory functions
+- Leverages shared factory functions
 - Consistent defaults come from shared factories
 - Only override what's specific to peerly tests
 - All tests pass without changes ✅

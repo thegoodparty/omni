@@ -90,8 +90,8 @@ Application code does **not** use the CLI. It connects with the SQL connector us
 credentials from the environment. Two consumers exist today:
 
 - **gp-api** — `packages/gp-api/src/llm/tools/databricksConnection.ts` resolves the
-  connection from env and powers the `queryDatabricks` / `queryConstituentData` /
-  `districtInsights` LLM tools. It prefers OAuth **M2M** (`DATABRICKS_CLIENT_ID` +
+  connection from env and powers the `queryConstituentData` / `districtInsights`
+  LLM tools. It prefers OAuth **M2M** (`DATABRICKS_CLIENT_ID` +
   `DATABRICKS_CLIENT_SECRET`) and falls back to a PAT (`DATABRICKS_API_KEY`); the
   tool stays unregistered if neither host/path nor a usable credential is set.
 - **runbooks** — `packages/runbooks/scripts/python/databricks_query.py` uses a PAT.

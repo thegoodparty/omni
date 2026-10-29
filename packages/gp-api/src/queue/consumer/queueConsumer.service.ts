@@ -119,7 +119,7 @@ type PollAnalysisIssue = PollAnalysisCompleteEvent['data']['issues'][number]
 // One poll can have hundreds of unmapped response phones, each resolved via an
 // HTTP POST to People-API. Firing them all at once (Promise.all) overruns
 // People-API's request/socket budget and cascades into timeouts and failures.
-// A benchmark (pollAnalysisFanout.benchmark.test.ts) modelling that downstream
+// A benchmark modelling that downstream
 // showed a cap of 20 eliminates the errors while being at least as fast as the
 // unbounded burst at typical poll sizes (the burst pays a degradation penalty),
 // so we bound the fan-out here.

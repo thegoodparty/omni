@@ -42,7 +42,6 @@ describe('ContactEngagementService', () => {
       findMany: ReturnType<typeof vi.fn>
     }
     let mockVoterOutreachActivityService: {
-      getActivityForVoter: ReturnType<typeof vi.fn>
       findMany: ReturnType<typeof vi.fn>
     }
     let mockContactStatusService: {
@@ -78,7 +77,6 @@ describe('ContactEngagementService', () => {
         findMany: vi.fn().mockResolvedValue([]),
       }
       mockVoterOutreachActivityService = {
-        getActivityForVoter: vi.fn().mockResolvedValue([]),
         findMany: vi.fn().mockResolvedValue([]),
       }
       mockContactStatusService = {

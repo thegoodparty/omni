@@ -10,10 +10,9 @@ import { z } from 'zod'
 //
 // Tiers describe what SHOULD gate boot. `./env.ts`'s `resolveEnvVar` is the
 // resolution helper degradable vendor sites consume (ENG-11195) — see e.g.
-// vendors/vercel/services/vercel.service.ts or
-// voters/services/voters.service.ts for the pattern. A few `requireEnv()`
-// import-time throws on `optional`/`degradable` vars remain outside that
-// inventory (e.g. vendors/stripe/services/stripe.service.ts's own
+// vendors/vercel/services/vercel.service.ts for the pattern. A few
+// `requireEnv()` import-time throws on `optional`/`degradable` vars remain
+// outside that inventory (e.g. vendors/stripe/services/stripe.service.ts's own
 // STRIPE_SECRET_KEY / STRIPE_WEBSOCKET_SECRET / WEBAPP_ROOT_URL checks) —
 // migrating those is still a separate piece of work.
 //
@@ -198,8 +197,6 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
     feature: 'office-search',
     placeholder: 'key',
   },
-
-  L2_DATA_KEY: { tier: 'degradable', feature: 'voter-file-l2' },
 
   // Secrets Manager id of the curated local-dev bundle POST /v1/dev-env/
   // bundle vends. Set on the dev deploy only; unset everywhere else, which

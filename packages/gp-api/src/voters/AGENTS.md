@@ -1,26 +1,22 @@
 # Voters Module
 
-Voter data layer. Talks to L2 (commercial voter file vendor) for live counts/filtering and persists per-campaign voter file filters used by outreach. Owns the `VoterFileFilter` model and the voter-file download access flow.
+Voter data layer. Persists per-campaign voter file filters used by outreach. Owns the `VoterFileFilter` model and the voter-file download access flow.
 
-This module does not store the voter file itself — L2 is the source of truth. We persist filters, derived counts, and audit metadata.
+This module does not store the voter file itself. We persist filters, derived counts, and audit metadata.
 
 ## Key files
 
-| Path                                  | Purpose                                                                                  |
-| ------------------------------------- | ---------------------------------------------------------------------------------------- |
-| `voters.module.ts`                    | Module wiring; exports `VoterFileService`, `VotersService`, `VoterFileFilterService`     |
-| `voterFile/voterFile.controller.ts`   | HTTP: list/create/update/delete `VoterFileFilter`, voter-file counts + CSV               |
-| `voterFile/voterFile.service.ts`      | `GET /voters/voter-file` counts/CSV via `ContactsService` → people-db (ENG-5032)         |
-| `services/voters.service.ts`          | L2 API client (counts, demographic breakdowns)                                           |
-| `services/voterFileFilter.service.ts` | Filter persistence + per-campaign filter listing                                         |
-| `services/voterOutreach.service.ts`   | Bridges voter filters to outreach campaigns                                              |
-| `schemas/`                            | Zod input schemas for filter create/update                                               |
-| `voters.types.ts`                     | `VoterCounts`, `EthnicityCounts`, `GenderCounts`, `PartisanCounts`, `VoterHistoryColumn` |
+| Path                                  | Purpose                                                                          |
+| ------------------------------------- | -------------------------------------------------------------------------------- |
+| `voters.module.ts`                    | Module wiring; exports `VoterFileService`, `VoterFileFilterService`              |
+| `voterFile/voterFile.controller.ts`   | HTTP: list/create/update/delete `VoterFileFilter`, voter-file counts + CSV       |
+| `voterFile/voterFile.service.ts`      | `GET /voters/voter-file` counts/CSV via `ContactsService` → people-db (ENG-5032) |
+| `services/voterFileFilter.service.ts` | Filter persistence + per-campaign filter listing                                 |
+| `services/voterOutreach.service.ts`   | Bridges voter filters to outreach campaigns                                      |
+| `schemas/`                            | Zod input schemas for filter create/update                                       |
 
 ## Patterns
 
-- **L2 is the system of record for voters.** Treat `VotersService` as a thin axios wrapper — never cache L2 responses in our DB beyond the explicit count snapshots on `VoterFileFilter`.
-- **`L2_DATA_KEY` is degradable, not boot-gating.** `voters.service.ts` resolves it through `shared/env/env.ts`'s `resolveEnvVar`; missing/placeholder disables the `voter-file-l2` feature surface (one boot warn) and every public method throws a consistent `BadRequestException` instead of gp-api failing to start.
 - **Voter file downloads are gated** through `VoterFileDownloadAccessService` (in `src/shared/services/`) — it checks campaign tier + entitlement. Don't bypass it from new endpoints.
 - Filters are scoped to a campaign via `@UseCampaign()` + `@ReqCampaign()` — same pattern as the rest of the campaign-scoped surface.
 - **Filter create is not Pro-gated; update/delete and outreach use still are.** `VoterFileFilterService.filterAccessCheck` (`FILTER_PRO_REQUIRED_MESSAGE`) is called by `PUT`/`DELETE /voters/voter-file/filter/:id` and by outreach's use of a saved filter, but not by `POST /voters/voter-file/filter` — a free candidate can save a recommended list as a named list before upgrading (outreach-pro-gating-v2).
@@ -31,8 +27,6 @@ This module does not store the voter file itself — L2 is the source of truth. 
 
 - **The saved-list endpoint hides Serve-unusable lists.** `GET /voters/voter-file/filters` returns `findUsableByOrganizationSlug`, which for an `eo-` (Serve) org drops any saved list carrying a Win-only dimension (party, ethnicity, recommended affinity/ideology, contacts-made) via `savedFilterBlockedForElectedOffice` (`src/contacts/utils/voterFileFilter.utils.ts`). Those lists 400 the moment they open (`ContactsService.resolveBaseFilters` asserts), so a legacy/dual-role list built under the Win campaign must not be offered on the Serve surface. Win orgs get the full set unchanged. Keep the predicate in step with `resolveBaseFilters`' `assertNo*ForElectedOffice` set.
 - **The legacy voter datastore is retired** (ENG-5032). `GET /voters/voter-file` (the outreach/task-flow audience download and count — `downloadVoterList.util.ts` / `RecordCount` in gp-webapp) resolves through `ContactsService.countVoterFilePeople` / `downloadVoterFilePeople` → the `src/peopleDb` query/download services — mapping the legacy underscore filters and per-type population rules in `voterFile/util/voterFilePeopleFilter.util.ts` (mirrors `segmentsToFiltersMap.const.ts`). Those two `ContactsService` methods are deliberately NOT pro-gated — the endpoint never was; `CanDownloadVoterFileGuard` owns access. The CSV is a curated ~76-column subset with friendly headers (`DOWNLOAD_COLUMNS` in `src/peopleDb/voter.select.ts`, ENG-10766, widened in DATA-2281) — not the raw L2 columns, and not the voter engine's full internal projection either.
-- The L2 API has its own rate limits and timeouts; wrap new calls in `try/catch` and throw `BadGatewayException` per `.cursor/rules/rules.mdc` Rule 3.
-- Counts surfaced to the UI come from L2 in real time and may shift between page loads — don't rely on them for billing or quota math.
 - `VotersModule` imports `OutreachModule` (one-way). If you find yourself wanting `OutreachModule` to import voters too, route the dependency through an existing service instead — adding a back-edge will require `forwardRef` and is a smell.
 - **The SMS/Peerly phone-list path resolves through `ContactsService.findContactsForFilter`** (ENG-10728) — the same activityConditions/supportStatus/search resolution engine list/count/download use — paged (`SEGMENT_PAGE_SIZE` 1000, 100k cap) with `hasCellPhone: true` forced (`src/vendors/peerly/services/p2pPhoneListUpload.service.ts`). `peerly/utils/audienceMapping.util.ts` is deleted; don't resurrect it for new Peerly filter mapping.
 - **Every uploaded Peerly phone list is captured — the row exists before the token does.** `POST /p2p/phone-list` creates the `PeerlyPhoneList` row FIRST (`PeerlyPhoneListCaptureService.createQueuedBuild`, `buildStatus: queued`, no token, plus a `requestSnapshot` of the validated body), then builds/uploads against that same row's id (`buildId`) as the handle. `recordUpload` UPDATES that row (token, the two exclusion counts, `buildStatus: processing`) and inserts one `PeerlyPhoneListRecipient` row per CSV line — `(personId, phone)` — in a single transaction, only after the Peerly upload itself succeeds; it never inserts a second row. If the build throws anywhere (empty audience, Peerly error, the Pro-access check inside `ContactsService`), `markBuildFailed` parks the row `buildStatus: failed` with a short `buildError` before the same exception rethrows to the caller — a build never leaves a `queued`/`building` orphan. The POST response carries both `token` (`null` on the async path until the build reaches Peerly) and `buildId`. Either status route — the original `GET /p2p/phone-list/:token/status` or the additive `GET /p2p/phone-list/build/:buildId/status` (ownership-checked on `campaignId` the same way) — shares one resolution path (`P2pController.resolveListStatus`) that polls Peerly and, once ACTIVE, only stamps `peerlyListId`/`buildStatus: ready` once `leads_loaded` has STABILIZED (`PeerlyPhoneListCaptureService.isLeadsLoadedStable`): either it already equals Peerly's `leads_supplied` (a small list, which still stabilizes on the very first read) or it reads the same value across two consecutive polls (`PeerlyPhoneList.lastSeenLeadsLoaded`). A still-climbing large list gets a 202 instead of a premature `ready`. The ready transition (this route or the server finisher) logs `Peerly phone list ready` with Peerly's per-reason drop counts (`peerlyScrubCounts`: duplicate, malformed, invalid, the DNC buckets, cell-suppressed). Read it when `leads_loaded` is far under what we uploaded: Florida lists lose 40-55% there while other states lose about 1% (ENG-11484), and nothing else records why. `peerlyListId` equals `Outreach.phoneListId`, which downstream materialization/inbound-mapping tasks use to find the capture row.

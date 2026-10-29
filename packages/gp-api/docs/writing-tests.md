@@ -152,6 +152,16 @@ npm run verify                                      # lint + tsc + tests
 
 `useTestService()` tests need Docker running locally. The first run pulls `postgres:16-alpine`; subsequent runs reuse the container. On OrbStack, non-interactive shells need `PATH`/`DOCKER_HOST` exported or docker hangs rather than failing — see `docs/testing.md` § Docker for testcontainers (repo root).
 
+## Dead and one-shot code
+
+A test earns its place by catching a future bug in code that still runs. These cannot, so don't write them, and delete any you find:
+
+- A test that replays a migration's SQL, or tests a one-shot script (backfill, data repair). Once merged and run, the code never runs again. Delete the test after merge, and the script once it has run.
+- A test that a deleted route still 404s. Deleting the controller method is the whole change.
+- A benchmark or perf model that imports no product code. Put the numbers in the PR body.
+- A test whose only caller is the test. Delete the dead export, method or service with it rather than keep it alive for coverage. Grep for non-test callers before adding a test to old code.
+- A test of a library or Node built-in (`AsyncLocalStorage`, `p-map`). Test the code of ours that uses it.
+
 ## Anti-patterns
 
 - Mocking Prisma to test SQL behavior. If the test's purpose is "does this query return what I think it returns", use `useTestService()` — a mock just asserts the mock.

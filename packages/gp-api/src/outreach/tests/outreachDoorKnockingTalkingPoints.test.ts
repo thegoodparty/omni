@@ -175,20 +175,6 @@ describe('POST /v1/outreach/door-knocking/draft', () => {
     expect(res.data.draft).toBe(asBullets(POINTS))
   })
 
-  // A tab open across the deploy still reads the three sections it used to
-  // edit: first line, the middle lines, last line, markers stripped.
-  it('fills the legacy sections from the draft for one release', async () => {
-    mockPoints()
-
-    const res = await postDraft(draftBody())
-
-    expect(res.data).toMatchObject({
-      engagementQuestion: POINTS[0],
-      context: `${POINTS[1]} ${POINTS[2]}`,
-      ask: POINTS[3],
-    })
-  })
-
   it('grounds the prompt in the office and the campaign materials', async () => {
     await service.prisma.campaignStory.create({
       data: {
@@ -548,11 +534,6 @@ describe('POST /v1/outreach/door-knocking/draft', () => {
       expect(system).toContain('Keep their line breaks')
       expect(system).not.toContain('Write 4 or 5 short bullets')
       expect(res.data.draft).toBe(bullets)
-      expect(res.data).toMatchObject({
-        engagementQuestion: 'Fix the roads.',
-        context: '',
-        ask: 'Ask for their vote.',
-      })
     })
 
     it('trims an over-long polish at a line, not mid-word', async () => {

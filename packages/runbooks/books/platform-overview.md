@@ -608,7 +608,7 @@ Tests load `.env.test`.
 
 ### Key Env Vars by Service (names only)
 
-**gp-api**: DATABASE*URL, ELECTION_DATABASE_URL, PEOPLE_DATABRICKS_WAREHOUSE_ID, PEOPLE_DATABRICKS_CLIENT_ID, PEOPLE_DATABRICKS_CLIENT_SECRET, AUTH_SECRET, CONTENTFUL_SPACE_ID, CONTENTFUL_ACCESS_TOKEN, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, SQS_QUEUE, HUBSPOT_TOKEN, MAILGUN_API_KEY, STRIPE_SECRET_KEY, L2_DATA_KEY, BALLOT_READY_KEY, SLACK_BOT*_*TOKEN, VERCEL_TOKEN, VERCEL_PROJECT_ID, VERCEL_TEAM_ID, PEERLY*_, CLERK_SECRET_KEY, GP_API_MACHINE_SECRET, BRAINTRUST_API_KEY
+**gp-api**: DATABASE*URL, ELECTION_DATABASE_URL, PEOPLE_DATABRICKS_WAREHOUSE_ID, PEOPLE_DATABRICKS_CLIENT_ID, PEOPLE_DATABRICKS_CLIENT_SECRET, AUTH_SECRET, CONTENTFUL_SPACE_ID, CONTENTFUL_ACCESS_TOKEN, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, SQS_QUEUE, HUBSPOT_TOKEN, MAILGUN_API_KEY, STRIPE_SECRET_KEY, BALLOT_READY_KEY, SLACK_BOT*_*TOKEN, VERCEL_TOKEN, VERCEL_PROJECT_ID, VERCEL_TEAM_ID, PEERLY*_, CLERK_SECRET_KEY, GP_API_MACHINE_SECRET, BRAINTRUST_API_KEY
 
 
 **gp-ai-projects**: GEMINI_API_KEY, TAVILY_API_KEY, DATABRICKS_API_KEY, DATABRICKS_SERVER_HOSTNAME, DATABRICKS_HTTP_PATH, GOODPARTY_API_TOKEN, BRAINTRUST_API_KEY, ANTHROPIC_API_KEY, CLICKUP_API_KEY
@@ -761,7 +761,7 @@ aws ec2 describe-security-groups --filters "Name=vpc-id,Values=<vpc-id>" --query
 | Contentful      | gp-api (CMS), gp-webapp (rich text rendering)                                                    | `CONTENTFUL_SPACE_ID`, `CONTENTFUL_ACCESS_TOKEN` in gp-api .env            |
 | BallotReady     | gp-data-platform (primary election data source via Airbyte + dbt) → election DB                  | `BALLOT_READY_KEY` in gp-api .env; GraphQL API                             |
 | DDHQ            | gp-ai-projects (matcher), gp-data-platform (Airbyte source)                                      | Via Databricks tables                                                      |
-| L2 (voter data) | gp-data-platform → Databricks `mart_gp_api` (200M+ voter records)                                | `L2_DATA_KEY` in gp-api .env; SFTP → S3 → Databricks                       |
+| L2 (voter data) | gp-data-platform → Databricks `mart_gp_api` (200M+ voter records)                                | SFTP → S3 → Databricks                                                     |
 | Databricks      | gp-data-platform (warehouse), gp-ai-projects (read-only queries)                                 | `DATABRICKS_API_KEY`, `DATABRICKS_SERVER_HOSTNAME`, `DATABRICKS_HTTP_PATH` |
 | Gemini AI       | gp-ai-projects (all LLM calls — no OpenAI)                                                       | `GEMINI_API_KEY`                                                           |
 | Anthropic       | gp-ai-projects/broker (Anthropic proxy for PMF engine runs)                                      | `ANTHROPIC_API_KEY`                                                        |
