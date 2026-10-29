@@ -135,7 +135,11 @@ type SharedApp = {
   port: number
   snapshots: InstanceSnapshot[]
 }
-let sharedApp: SharedApp | undefined
+// Keyed by the boot environment. A few files boot under appEnvOverrides
+// (IS_NON_PROD_DEPLOY, VENDOR_MODE) that decide which modules load, so keeping
+// the last few apps alive saves a reboot every time the worker switches back.
+const MAX_SHARED_APPS = 3
+const sharedApps = new Map<string, SharedApp>()
 
 // Anything a provider reads from the environment while booting is fixed for
 // the life of the app, so a file that changes the environment before it boots
@@ -375,15 +379,19 @@ export const useTestService = ({
 
     const bootKey = currentBootKey()
     let port: number
-    if (reuse && sharedApp?.bootKey === bootKey) {
-      app = sharedApp.app
-      port = sharedApp.port
-      restoreInstances(sharedApp.snapshots)
+    const shared = reuse ? sharedApps.get(bootKey) : undefined
+    if (shared) {
+      sharedApps.delete(bootKey)
+      sharedApps.set(bootKey, shared)
+      app = shared.app
+      port = shared.port
+      restoreInstances(shared.snapshots)
       mark('bootstrapReturned')
       mark('appInit')
     } else {
-      if (PROFILE_DIR && sharedApp) {
-        const before = JSON.parse(sharedApp.bootKey)
+      if (PROFILE_DIR && sharedApps.size > 0) {
+        const last = [...sharedApps.keys()].at(-1)!
+        const before = JSON.parse(last)
         const now = JSON.parse(bootKey)
         const envBefore = Object.fromEntries(before.env)
         const envNow = Object.fromEntries(now.env)
@@ -393,12 +401,10 @@ export const useTestService = ({
           overrides: [before.appEnvOverrides, now.appEnvOverrides],
         }
       }
-      // An earlier file that changed the environment for good would otherwise
-      // cost every later file in the worker a boot, so the newest app becomes
-      // the shared one.
-      if (reuse && sharedApp) {
-        await sharedApp.app.close()
-        sharedApp = undefined
+      if (reuse && sharedApps.size >= MAX_SHARED_APPS) {
+        const [oldestKey, oldest] = sharedApps.entries().next().value!
+        sharedApps.delete(oldestKey)
+        await oldest.app.close()
       }
       // Create NestJS application using the same bootstrap function as production
       app = await bootstrap({ loggingEnabled: false })
@@ -407,7 +413,12 @@ export const useTestService = ({
       mark('appInit')
       port = await listenOnRandomPort(app)
       if (reuse) {
-        sharedApp = { app, bootKey, port, snapshots: snapshotInstances(app) }
+        sharedApps.set(bootKey, {
+          app,
+          bootKey,
+          port,
+          snapshots: snapshotInstances(app),
+        })
       } else {
         ownsApp = true
       }
