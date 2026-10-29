@@ -343,6 +343,14 @@ describe('sender', () => {
     expect(sendEmail).toHaveBeenCalledTimes(5)
   })
 
+  it('gives the slot back when the confirmation email fails', async () => {
+    sendEmail.mockRejectedValue(new Error('down'))
+    for (let n = 1; n <= 6; n++) {
+      const res = await changeTo('/v1/outreach/email/sender', winHeaders(), n)
+      expect(res.status).toBe(HttpStatus.BAD_GATEWAY)
+    }
+  })
+
   it('counts each organization separately and only the last 24 hours', async () => {
     for (let n = 1; n <= 5; n++) {
       await changeTo('/v1/outreach/email/sender', winHeaders(), n)

@@ -108,7 +108,7 @@ export class OutreachEmailSenderService extends createPrismaBase(
       })
     }
 
-    await this.reserveConfirmationEmail(sender)
+    const slotId = await this.reserveConfirmationEmail(sender)
 
     const token = randomBytes(32).toString('base64url')
     const updated = await this.model.update({
@@ -137,6 +137,7 @@ export class OutreachEmailSenderService extends createPrismaBase(
       })
     } catch (err) {
       this.logger.warn({ err }, 'forward-to confirmation email failed')
+      await this.client.cronRun.deleteMany({ where: { id: slotId } })
       throw new BadGatewayException('Could not send the confirmation email')
     }
     return updated
@@ -147,10 +148,10 @@ export class OutreachEmailSenderService extends createPrismaBase(
   // right across tasks.
   private async reserveConfirmationEmail(
     sender: OutreachEmailSender,
-  ): Promise<void> {
+  ): Promise<string> {
     const jobName = `email-forward-confirm:${sender.organizationSlug}`
     const now = new Date()
-    await this.client.$transaction(async (tx) => {
+    return this.client.$transaction(async (tx) => {
       await tx.$queryRaw`
         SELECT id FROM outreach_email_sender WHERE id = ${sender.id} FOR UPDATE
       `
@@ -165,7 +166,10 @@ export class OutreachEmailSenderService extends createPrismaBase(
           HttpStatus.TOO_MANY_REQUESTS,
         )
       }
-      await tx.cronRun.create({ data: { jobName, runDate: now } })
+      const slot = await tx.cronRun.create({
+        data: { jobName, runDate: now, completedAt: now },
+      })
+      return slot.id
     })
   }
 
