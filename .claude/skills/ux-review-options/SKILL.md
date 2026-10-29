@@ -123,7 +123,8 @@ Work in a scratch folder outside any repo, `<work>/`, and keep the page in
    are distinct and the copy rules hold, and fixes what it finds. Don't let it pull
    the options toward each other.
 8. **Publish** with the `artifacts` skill (`.claude/skills/artifacts/SKILL.md`):
-   `.claude/skills/artifacts/scripts/publish.sh <work>/page ux-<ClickUp task id>`.
+   `.claude/skills/artifacts/scripts/publish.sh <work>/page <feature>-options`, for
+   example `import-contacts-options`.
    Pass `--update` when you republish.
 9. **Post back.** Comment on the ticket (and reply in the Slack thread, if one
    asked) with the artifact link, one line per option, the feedback we want, the new

@@ -63,8 +63,9 @@ It deploys, points the slug at the new deployment, checks the page loads, and
 prints the link to share.
 
 - **Slug:** lowercase letters, digits and hyphens, 63 characters at most, one
-  level (`a.b.artifacts.goodparty.org` won't work). Say what it is:
-  `serve-priorities`, or `ux-86akf3ex5` with the ClickUp task id.
+  level (`a.b.artifacts.goodparty.org` won't work). Name it so a person knows
+  what it is from the link alone: `serve-priorities`, `import-contacts-options`.
+  Never a ticket id.
 - **Never take over someone else's slug.** The script refuses a slug that already
   exists. To publish a new version of your own artifact, pass `--update`.
 - **Never deploy with `--prod`,** and never link the bare `artifacts.goodparty.org`:
