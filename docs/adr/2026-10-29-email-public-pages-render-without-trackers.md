@@ -3,7 +3,7 @@ title: The /email public pages render from the root layout with no third-party s
 status: active
 decided_by: [stephtea]
 date: 2026-10-29
-code: ['#3365']
+code: ['#3367']
 scope:
   - packages/gp-webapp/app/layout.tsx
   - packages/gp-webapp/app/email/**
