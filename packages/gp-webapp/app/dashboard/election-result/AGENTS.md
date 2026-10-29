@@ -38,7 +38,9 @@ The Pro win creates the office before saving `wonGeneral`, pinned to the
 `campaign-<id>` org header so gp-api links `campaignId` and copies the
 campaign's position. It sends the campaign's party (mapped to Serve's values)
 and `onboardingStep: 'confirm'`, and no term dates or `onboardingCompletedAt`:
-Serve onboarding asks for the term and its pledge finishes the office. See
+Serve onboarding asks for the term and its pledge finishes the office. A
+winner who already holds another office still gets a new one for this seat;
+asking again returns the office linked to this campaign. See
 `app/serve/onboarding/AGENTS.md` ("Pro winners") for how the dashboard brings
 an unfinished winner back.
 

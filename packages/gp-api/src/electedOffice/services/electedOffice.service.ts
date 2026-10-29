@@ -137,8 +137,23 @@ export class ElectedOfficeService extends createPrismaBase(
       // inserting a duplicate — a term-less placeholder never "overlaps" a
       // dated term, so without this guard a later dated create would slip past
       // the overlap check below.
+      // A win's retry finds the office the first try linked to its campaign.
+      if (args.campaignId != null && !hasNewTerm) {
+        const linked = existingForUser.find(
+          (eo) => eo.campaignId === args.campaignId,
+        )
+        if (linked) return linked
+      }
+
+      // A term-less office another campaign's win already claimed is that
+      // seat's, not a placeholder for this win.
       const placeholder = existingForUser.find(
-        (eo) => eo.termStartDate === null && eo.termEndDate === null,
+        (eo) =>
+          eo.termStartDate === null &&
+          eo.termEndDate === null &&
+          (args.campaignId == null ||
+            eo.campaignId == null ||
+            eo.campaignId === args.campaignId),
       )
       if (placeholder) {
         // When this call carries the data the placeholder was waiting for — a
@@ -248,10 +263,12 @@ export class ElectedOfficeService extends createPrismaBase(
             'Elected office term overlaps an existing elected office for this user',
           )
         }
-      } else if (existingForUser.length > 0) {
-        // No term dates provided (e.g. the legacy win→serve path). Preserve the
-        // historical "one elected office per user" idempotency / crash-recovery
-        // behavior by returning the existing record.
+      } else if (args.campaignId == null && existingForUser.length > 0) {
+        // No term dates and no campaign: preserve the historical "one elected
+        // office per user" idempotency / crash-recovery behavior by returning
+        // the existing record. A win (campaignId set) falls through and gets
+        // its own office, so a winner who already serves elsewhere still goes
+        // through Serve onboarding for the new seat.
         const existing = existingForUser[0]
         if (existing) {
           return existing

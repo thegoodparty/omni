@@ -16,7 +16,7 @@ import {
   PurchaseIntentPayloadEntry,
 } from 'src/payments/payments.types'
 import { serializeError } from 'serialize-error'
-import { addDays, addHours, fromUnixTime, getUnixTime, subDays } from 'date-fns'
+import { addHours, fromUnixTime, getUnixTime, subDays } from 'date-fns'
 import { SlackService } from 'src/vendors/slack/services/slack.service'
 import Stripe from 'stripe'
 
@@ -352,7 +352,7 @@ export class StripeService {
       paymentIntentId: intent.id,
       captureBefore: captureBeforeUnix
         ? fromUnixTime(captureBeforeUnix)
-        : addDays(new Date(), 7),
+        : addHours(new Date(), 7 * 24),
     }
   }
 
