@@ -167,7 +167,7 @@ describe('<UploadDetail>', () => {
       'PUT /v1/contact-uploads/:id/rows/:rowId/match',
       ({ params, body }) => {
         saved.push({ rowId: params.rowId, body })
-        return { status: 200, data: NEEDS_INPUT_ROWS[0]! }
+        return { status: 200, data: makeUpload() }
       },
     )
     const user = userEvent.setup()
