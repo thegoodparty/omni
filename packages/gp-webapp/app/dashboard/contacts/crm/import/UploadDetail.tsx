@@ -1,10 +1,13 @@
 'use client'
 
 import Link from 'next/link'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   Alert,
+  AlertAction,
   AlertDescription,
   ArrowLeftIcon,
+  Button,
   Card,
   CircleAlertIcon,
   Skeleton,
@@ -12,7 +15,9 @@ import {
 import { NeedsInputReview } from './NeedsInputReview'
 import { ProcessedRows } from './ProcessedRows'
 import { UploadStatusText } from './UploadStatusText'
-import { useContactUpload } from './importContactsApi'
+import { clientRequest } from 'gpApi/typed-request'
+import { useOrganization } from '@shared/organization-picker'
+import { contactUploadsKey, useContactUpload } from './importContactsApi'
 import {
   SERVE_IMPORT_CONTACTS_COPY,
   UPLOAD_HISTORY_PATH,
@@ -24,6 +29,19 @@ const COPY = SERVE_IMPORT_CONTACTS_COPY
 export const UploadDetail = ({ uploadId }: { uploadId: string }) => {
   const uploadQuery = useContactUpload(uploadId)
   const upload = uploadQuery.data
+  const queryClient = useQueryClient()
+  const orgSlug = useOrganization()?.slug
+
+  const retry = useMutation({
+    mutationFn: async () =>
+      (
+        await clientRequest('POST /v1/contact-uploads/:id/retry', {
+          id: uploadId,
+        })
+      ).data,
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: contactUploadsKey(orgSlug) }),
+  })
 
   const counts = upload
     ? [
@@ -87,7 +105,20 @@ export const UploadDetail = ({ uploadId }: { uploadId: string }) => {
 
       {upload?.status === 'failed' && (
         <Alert variant="destructive" icon={<CircleAlertIcon />}>
-          <AlertDescription>{COPY.detail.failed}</AlertDescription>
+          <AlertDescription>
+            {retry.isError ? COPY.detail.retryFailed : COPY.detail.failed}
+          </AlertDescription>
+          <AlertAction>
+            <Button
+              type="button"
+              variant="alertFilled"
+              size="small"
+              onClick={() => retry.mutate()}
+              loading={retry.isPending}
+            >
+              {COPY.detail.tryAgain}
+            </Button>
+          </AlertAction>
         </Alert>
       )}
 

@@ -288,6 +288,39 @@ describe('<UploadDetail>', () => {
     ).toHaveLength(2)
   })
 
+  it('tries a failed upload again', async () => {
+    let status: ContactUpload['status'] = 'failed'
+    api.mock('GET /v1/contact-uploads/:id', () => ({
+      status: 200,
+      data: makeUpload({ status }),
+    }))
+    mockRows()
+    let retried = false
+    api.mock('POST /v1/contact-uploads/:id/retry', () => {
+      retried = true
+      status = 'processing'
+      return { status: 200, data: makeUpload({ status }) }
+    })
+    const user = userEvent.setup()
+
+    render(<UploadDetail uploadId="upload-1" />)
+
+    expect(
+      await screen.findByText("This upload didn't finish. Try again."),
+    ).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Try again' }))
+
+    await waitFor(() => expect(retried).toBe(true))
+    expect(
+      await screen.findByText(
+        "We're matching your people. This page updates when it's done.",
+      ),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Try again' }),
+    ).not.toBeInTheDocument()
+  })
+
   it('says it is still matching while the upload processes', async () => {
     api.mock('GET /v1/contact-uploads/:id', {
       status: 200,
