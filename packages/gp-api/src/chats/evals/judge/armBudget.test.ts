@@ -1522,7 +1522,7 @@ describe('the chat agents refused for time', () => {
   })
 
   // The base arm walks ITS attempts, so a base that walks more is the slower
-  // arm: 9 cases at 30 attempts is 270 turns.
+  // arm: 11 cases at 30 attempts is 330 turns.
   it("costs the base arm's attempts when they are the larger", () => {
     const root = chatTree({ timeouts: {} })
     writeFileSync(
@@ -1537,7 +1537,7 @@ describe('the chat agents refused for time', () => {
       JUDGE_AGENTS: 'chief_of_staff',
     })
     expect(refusedIn(written).get('chief_of_staff')).toMatch(
-      /^would take about 90 minutes for 270 chat turns/,
+      /^would take about 110 minutes for 330 chat turns/,
     )
   })
 
