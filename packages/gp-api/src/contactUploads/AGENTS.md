@@ -24,6 +24,8 @@ for the org's owner. Contracts: `contracts/src/contactUploads/`.
 
 The person feed (`GET /v1/contact-engagement/:id/activities`) reads this
 person's rows as `CONTACT_IMPORT` items (`ContactUploadMatchService.findForActivityFeed`).
+`isFirstImport` marks the person's earliest row by feed date (`resolvedAt` for
+manual rows, else the upload's `createdAt`): the upload that brought them in.
 
 ## Flow
 

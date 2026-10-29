@@ -123,14 +123,19 @@ becomes a list card.
 - **Upload detail** (`/dashboard/contacts/uploads/[uploadId]`, `UploadDetail`):
   the counts, `NeedsInputReview` (answers saved together; Decide later changes
   nothing), and `ProcessedRows` (searchable, paged with Show more, Change match
-  per row).
+  per row). A choice reads name, address, then age (`candidateLabel`), so
+  two people at one address still differ.
 - **Person panel**: on Serve with the flag on, `PersonRecord` renders
   `person/ImportedContactInformation` in place of today's Contact Information
-  card: Email, a Came from line per detail from
+  card: Email, a "Came from upload <name>" line per detail from
   `GET /v1/contacts/:personId/sources`, and Change match.
   `ChangeMatchDialog` is shared with the upload detail and warns first when
   `hasActivity` (notes and activity stay with the old record). Import rows in
-  the activity feed are `CONTACT_IMPORT` (`ContactImportActivityRow`).
+  the activity feed are `CONTACT_IMPORT` (`ContactImportActivityRow`): the
+  title is the fields added on the person's first import (`isFirstImport`),
+  else the fields that upload changed, or Nothing changed. Only a first import
+  of a person gp-api created says added as a new person (by you, for a New
+  person pick); later ones read Imported from.
 - Copy lives in `importContactsCopy.ts` (`SERVE_IMPORT_CONTACTS_COPY`, so the
   vocabulary check reads it). Analytics: `docs/contacts-analytics.md`.
 

@@ -2,7 +2,9 @@ import { describe, it, expect, vi } from 'vitest'
 import { screen } from '@testing-library/react'
 import { render } from 'helpers/test-utils/render'
 import { useUser } from '@shared/hooks/useUser'
+import type { ContactImportConstituentActivity } from '@goodparty_org/contracts'
 import {
+  ContactImportActivityRow,
   DoorKnockActivityRow,
   PhoneBankingActivityRow,
   StatusChangeActivityRow,
@@ -363,5 +365,107 @@ describe('a priority answer in the feed', () => {
     render(<DoorKnockActivityRow activity={knock} />)
 
     expectAnswerLine('Mixed')
+  })
+})
+
+const makeImport = (
+  overrides: Partial<ContactImportConstituentActivity['data']> = {},
+): ContactImportConstituentActivity => ({
+  type: 'CONTACT_IMPORT',
+  date: '2026-10-29T15:41:00.000Z',
+  data: {
+    activityId: 'row-1',
+    uploadId: 'upload-1',
+    uploadName: 'Newsletter',
+    isNewPerson: false,
+    isFirstImport: false,
+    suppliedFields: ['firstName', 'lastName', 'email', 'cellPhone'],
+    changedFields: [],
+    manual: false,
+    actorName: null,
+    actorUserId: null,
+    ...overrides,
+  },
+})
+
+describe('<ContactImportActivityRow>', () => {
+  it('names the supplied fields on the upload that brought a person in', () => {
+    render(
+      <ContactImportActivityRow
+        activity={makeImport({ isFirstImport: true })}
+      />,
+    )
+
+    expect(
+      screen.getByText('First name, last name, email and cell phone added'),
+    ).toBeInTheDocument()
+    expect(screen.getByText('Imported from Newsletter.')).toBeInTheDocument()
+  })
+
+  it('names only what a later upload changed', () => {
+    render(
+      <ContactImportActivityRow
+        activity={makeImport({ changedFields: ['email'] })}
+      />,
+    )
+
+    expect(screen.getByText('Email updated')).toBeInTheDocument()
+  })
+
+  it('says a re-import that changed nothing changed nothing', () => {
+    render(<ContactImportActivityRow activity={makeImport()} />)
+
+    expect(screen.getByText('Nothing changed')).toBeInTheDocument()
+    expect(screen.queryByText(/added$/)).not.toBeInTheDocument()
+  })
+
+  it('says only the upload that created a person added them', () => {
+    render(
+      <ContactImportActivityRow
+        activity={makeImport({ isNewPerson: true, isFirstImport: true })}
+      />,
+    )
+
+    expect(
+      screen.getByText('Added as a new person from Newsletter.'),
+    ).toBeInTheDocument()
+  })
+
+  it('reads a later upload of a created person as an import', () => {
+    render(
+      <ContactImportActivityRow activity={makeImport({ isNewPerson: true })} />,
+    )
+
+    expect(screen.getByText('Imported from Newsletter.')).toBeInTheDocument()
+    expect(screen.queryByText(/as a new person/)).not.toBeInTheDocument()
+  })
+
+  it('says the user added a person they chose New person for', () => {
+    render(
+      <ContactImportActivityRow
+        activity={makeImport({
+          isNewPerson: true,
+          isFirstImport: true,
+          manual: true,
+        })}
+      />,
+    )
+
+    expect(
+      screen.getByText('First name, last name, email and cell phone added'),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText('You added them as a new person from Newsletter.'),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Matched by you')).not.toBeInTheDocument()
+  })
+
+  it('says the user matched a row they picked a person for', () => {
+    render(<ContactImportActivityRow activity={makeImport({ manual: true })} />)
+
+    expect(screen.getByText('Matched by you')).toBeInTheDocument()
+    expect(
+      screen.getByText('You matched this row from Newsletter.'),
+    ).toBeInTheDocument()
   })
 })
