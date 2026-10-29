@@ -1,6 +1,6 @@
 # Authentication Module
 
-JWT + Clerk M2M + Vercel OIDC auth, role enforcement, and user-facing auth flows (set/reset password). The actual directory name is `src/authentication/` (not `src/auth/`).
+JWT + Clerk M2M + Vercel and GitHub Actions OIDC auth, role enforcement, and user-facing auth flows (set/reset password). The actual directory name is `src/authentication/` (not `src/auth/`).
 
 Auth state is enforced globally via three guards registered in order. Most routes are protected by default; opt-out is explicit via `@PublicAccess()`.
 
@@ -19,8 +19,9 @@ Auth state is enforced globally via three guards registered in order. Most route
 | `guards/Roles.guard.ts`                  | `RolesGuard` — reads `@Roles()` metadata and enforces                                    |
 | `guards/AdminOrM2M.guard.ts`             | Route-level: admin user OR M2M token                                                     |
 | `guards/M2MOnly.guard.ts`                | Route-level: M2M only                                                                    |
-| `guards/ServiceRead.guard.ts`            | Route-level: service reader (JWT-format M2M or Vercel OIDC), `mt_*` M2M, or admin        |
+| `guards/ServiceRead.guard.ts`            | Route-level: service reader (M2M JWT, Vercel or GitHub OIDC), `mt_*` M2M, or admin       |
 | `vercelOidc.service.ts`                  | Verifies a Vercel deployment's OIDC token against the project allowlist                  |
+| `githubOidc.service.ts`                  | Verifies a GitHub Actions workflow's OIDC token against the workflow allowlist           |
 | `guards/ServiceReadOrOwner.guard.ts`     | `ServiceReadGuard` plus the user whose `personId` matches the `personId` query param     |
 | `interceptors/AdminAudit.interceptor.ts` | Logs admin actions for the audit trail                                                   |
 | `util/setTokenCookie.util.ts`            | Cookie writer used after login/refresh                                                   |
@@ -58,7 +59,23 @@ Auth state is enforced globally via three guards registered in order. Most route
   unlisted token, or an unreachable JWKS, leaves no `serviceReader` and logs
   one warn. The `user` field of the request log reads
   `vercel:<project>:<environment>`. Clerk JWTs stay accepted while callers
-  migrate (`docs/adr/2026-10-29-vercel-callers-authenticate-with-oidc.md`).
+  migrate (`docs/adr/2026-10-29-machine-callers-authenticate-with-platform-oidc.md`).
+- **A GitHub Actions OIDC token is the third service reader.** gp-marketing's
+  `generate-people-sitemaps` workflow requests one with audience `gp-api`, so
+  it needs no stored secret. `SessionGuard` recognizes it by its unverified
+  `iss` (`https://token.actions.githubusercontent.com`), right after the
+  Vercel check, and `GithubOidcService` verifies it against GitHub's JWKS
+  (RS256, audience `gp-api`). Its `repository` and `repository_id` must match
+  a pair pinned in `GITHUB_REPOSITORY_IDS` in the service (ids survive
+  renames; a freed name can be re-registered), and its `job_workflow_ref`
+  must match an entry of `GITHUB_OIDC_ALLOWED_WORKFLOWS`
+  (`<owner>/<repo>/<path>@<ref>`, comma-separated; `<ref>` may be `*`; set
+  per env in `deploy/index.ts`; empty turns the path off). Prod allows only
+  `@refs/heads/develop`, gp-marketing's default branch; dev and preview allow
+  `@*` so a PR's workflow can run against dev. A verified token sets
+  `serviceReader` with `source: 'github-oidc'`, never `m2mToken`, and behaves
+  like the Vercel path otherwise, including the one warn on a bad token. The
+  request log `user` reads `github:<repo>:<workflow file basename>`.
 - **Absence of `@Roles()` = "any authenticated user".** `routeIsPublicAndNoRoles.util.ts` is what makes that work; don't rely on the decorator being present to imply auth.
 - Password resets issue a **short-lived JWT**, not a DB-stored token. Side effects after consumption must be done in the same request.
 - **Org-scoping guards resolve `request.user.id`, never `effectiveUser`.** Four

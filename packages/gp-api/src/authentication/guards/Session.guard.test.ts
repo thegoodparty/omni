@@ -92,6 +92,7 @@ describe('SessionGuard — impersonating flag', () => {
       new Reflector(),
       { token: 'test-token', matches: vi.fn().mockReturnValue(false) } as never,
       { verify: vi.fn() } as never,
+      { verify: vi.fn() } as never,
     )
   })
 
@@ -258,6 +259,7 @@ describe('SessionGuard — impersonating flag', () => {
           token: MARKER,
           matches: (v: string | string[] | undefined) => v === MARKER,
         } as never,
+        { verify: vi.fn() } as never,
         { verify: vi.fn() } as never,
       )
     })

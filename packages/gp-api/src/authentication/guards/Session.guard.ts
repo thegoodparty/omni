@@ -26,6 +26,10 @@ import {
   isVercelOidcToken,
   VercelOidcService,
 } from '@/authentication/vercelOidc.service'
+import {
+  GithubOidcService,
+  isGithubOidcToken,
+} from '@/authentication/githubOidc.service'
 
 @Injectable()
 export class SessionGuard implements CanActivate {
@@ -38,6 +42,7 @@ export class SessionGuard implements CanActivate {
     private readonly reflector: Reflector,
     private readonly agentMcpMarker: AgentMcpMarker,
     private readonly vercelOidc: VercelOidcService,
+    private readonly githubOidc: GithubOidcService,
   ) {
     this.logger.setContext(SessionGuard.name)
   }
@@ -68,11 +73,16 @@ export class SessionGuard implements CanActivate {
       return this.allowPublicOrThrow(context)
     }
 
-    // Checked before the Clerk paths so a Vercel deployment's OIDC token is
-    // never sent to Clerk. Like a JWT-format M2M token, it is only ever a
-    // service reader, never m2mToken.
+    // Checked before the Clerk paths so a Vercel deployment's or GitHub
+    // workflow's OIDC token is never sent to Clerk. Like a JWT-format M2M
+    // token, it is only ever a service reader, never m2mToken.
     if (isVercelOidcToken(token)) {
       request.serviceReader = await this.vercelOidc.verify(token)
+      return this.allowPublicOrThrow(context)
+    }
+
+    if (isGithubOidcToken(token)) {
+      request.serviceReader = await this.githubOidc.verify(token)
       return this.allowPublicOrThrow(context)
     }
 
