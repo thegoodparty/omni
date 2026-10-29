@@ -4,6 +4,7 @@ import { CLERK_CLIENT_PROVIDER_TOKEN } from '@/vendors/clerk/providers/clerk-cli
 import { ClerkClient } from '@clerk/backend'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { CrmUsersService } from './services/crmUsers.service'
+import { UserRole } from '../generated/prisma'
 
 // Route-level coverage lives in its own file: users.service.test.ts calls
 // vi.restoreAllMocks(), which unwinds the test harness's verifySessionToken
@@ -29,6 +30,56 @@ describe('GET /v1/users/me', () => {
     const res = await service.client.get('/v1/users/me')
 
     expect(res.status).toBe(HttpStatus.OK)
+  })
+})
+
+describe('GET /v1/users/:id', () => {
+  const seedOtherUser = () =>
+    service.prisma.user.create({
+      data: {
+        email: 'other@goodparty.org',
+        firstName: 'Other',
+        lastName: 'Person',
+        password: 'other-hash',
+        passwordResetToken: 'other-reset-token',
+      },
+    })
+
+  it('returns the owner without the password or reset token', async () => {
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { password: 'stored-hash', passwordResetToken: 'reset-token' },
+    })
+
+    const res = await service.client.get(`/v1/users/${service.user.id}`)
+
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(res.data.id).toBe(service.user.id)
+    expect(res.data).not.toHaveProperty('password')
+    expect(res.data).not.toHaveProperty('passwordResetToken')
+  })
+
+  it("403s a non-admin reading another user's record", async () => {
+    const other = await seedOtherUser()
+
+    const res = await service.client.get(`/v1/users/${other.id}`)
+
+    expect(res.status).toBe(HttpStatus.FORBIDDEN)
+  })
+
+  it("returns another user's record to an admin without the password or reset token", async () => {
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { roles: [UserRole.admin] },
+    })
+    const other = await seedOtherUser()
+
+    const res = await service.client.get(`/v1/users/${other.id}`)
+
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(res.data.id).toBe(other.id)
+    expect(res.data).not.toHaveProperty('password')
+    expect(res.data).not.toHaveProperty('passwordResetToken')
   })
 })
 
