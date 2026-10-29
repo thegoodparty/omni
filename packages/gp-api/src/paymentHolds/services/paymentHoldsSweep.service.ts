@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common'
 import { Cron } from '@nestjs/schedule'
 import { addDays, addHours, isAfter, subHours, subMinutes } from 'date-fns'
-import { OutreachHoldState } from '@/generated/prisma'
+import { OutreachHoldState, OutreachStatus } from '@/generated/prisma'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { VENDOR_CRONS_ENABLED } from 'src/shared/util/appEnvironment.util'
 import { EASTERN_TIMEZONE } from 'src/shared/util/date.util'
@@ -160,7 +160,9 @@ export class PaymentHoldsSweepService extends createPrismaBase(
   }
 
   // A hold still scheduled or failed at its send time never got paid for.
-  // Releasing it is what makes the channel find nothing to send against.
+  // Releasing it is what makes the channel find nothing to send against. A
+  // draft's hold was declined at confirm with the user present, and the send
+  // was never scheduled, so it is left for the next confirm to retry.
   @Cron(UNPAID_CRON, { name: UNPAID_JOB, timeZone: EASTERN_TIMEZONE })
   async releaseUnpaidHolds(): Promise<void> {
     if (!VENDOR_CRONS_ENABLED) return
@@ -170,7 +172,10 @@ export class PaymentHoldsSweepService extends createPrismaBase(
         state: {
           in: [OutreachHoldState.scheduled, OutreachHoldState.hold_failed],
         },
-        outreach: { date: { lte: new Date() } },
+        outreach: {
+          date: { lte: new Date() },
+          status: { not: OutreachStatus.draft },
+        },
       },
       select: { outreachId: true, state: true },
     })
@@ -194,6 +199,7 @@ export class PaymentHoldsSweepService extends createPrismaBase(
 
   // Daily while a declined hold is waiting on a new card and its send is
   // still ahead. The date in the messageId keeps a replay to one email a day.
+  // A draft's decline was shown at confirm, and nothing is scheduled to miss.
   @Cron(REMINDER_CRON, { name: REMINDER_JOB, timeZone: EASTERN_TIMEZONE })
   async remindFailedHolds(): Promise<void> {
     if (!VENDOR_CRONS_ENABLED) return
@@ -203,7 +209,7 @@ export class PaymentHoldsSweepService extends createPrismaBase(
       where: {
         state: OutreachHoldState.hold_failed,
         updatedAt: { lt: subHours(now, HOLD_REMINDER_QUIET_HOURS) },
-        outreach: { date: { gt: now } },
+        outreach: { date: { gt: now }, status: { not: OutreachStatus.draft } },
       },
       select: { outreachId: true },
     })

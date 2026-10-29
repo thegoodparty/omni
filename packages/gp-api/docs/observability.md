@@ -10,7 +10,7 @@ There are two categories of alerts:
 
 Two rules cover every route in the service:
 
-- **Error count**: Fires when requests to a route return error status codes (≥ 400, excluding 400/401/403/404/409/498) **or no status at all** within a 60-second window that ends 30 seconds before each evaluation. A group whose controllers are in `SERVER_ERRORS_ONLY` uses `≥ 500` instead -- see [Server-errors-only controllers](#server-errors-only-controllers). The null-status clause is [No status is also a fault](#no-status-is-also-a-fault).
+- **Error count**: Fires when requests to a route return error status codes (≥ 400, excluding 400/401/402/403/404/409/498) **or no status at all** within a 60-second window that ends 30 seconds before each evaluation. A group whose controllers are in `SERVER_ERRORS_ONLY` uses `≥ 500` instead -- see [Server-errors-only controllers](#server-errors-only-controllers). The null-status clause is [No status is also a fault](#no-status-is-also-a-fault).
 
 These are generated from the controllers in the codebase -- you don't write them by hand -- and bucketed into the smallest number of Loki queries that can still say the right thing. See [Route alerts are two grouped rules](#route-alerts-are-two-grouped-rules). Every controller's routes are covered except the few deliberately left out in `CONTROLLERS_WITHOUT_ROUTE_ALERTS` (see [Coverage](#coverage)).
 
@@ -138,10 +138,10 @@ maps to OK, not Alerting.
 `EXCLUDED_STATUS_CODES` in `deploy/components/alerting/route-alerts.ts` is the global list, and the Slack message reads from that same constant so the two cannot drift:
 
 ```typescript
-const EXCLUDED_STATUS_CODES = [400, 401, 403, 404, 409, 498]
+const EXCLUDED_STATUS_CODES = [400, 401, 402, 403, 404, 409, 498]
 ```
 
-Each one is a status the API returns to say something true about the request rather than to report a fault: unauthenticated (401), not entitled (403), not found (404), conflicting with current state (409), client went away (498).
+Each one is a status the API returns to say something true about the request rather than to report a fault: unauthenticated (401), card declined (402), not entitled (403), not found (404), conflicting with current state (409), client went away (498).
 
 **400 is on this list, and that is the deliberate part.** A 400 is never evidence of a fault on its own. In gp-api it is overwhelmingly designed vocabulary -- Zod rejecting a payload, an eligibility refusal, a Serve organization asking for a Win-only filter, the 100k id-set cap -- and nothing in a generated rule can distinguish one of those from an accidental one. Counting it meant paging on the product working: the Pro gate did exactly that with a single free-tier user before it moved to 403, and any route that validates input can be made to fire by a user typing a bad value.
 

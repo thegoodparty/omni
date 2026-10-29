@@ -209,23 +209,28 @@ describe('POST /v1/outreach/email/:id/confirm', () => {
     expect(saveCardAndPlan).not.toHaveBeenCalled()
   })
 
-  it('keeps a declined send waiting, then confirms it once the card works', async () => {
+  it('keeps a declined send a draft, then confirms it once the card works', async () => {
     saveCardAndPlan.mockResolvedValueOnce({
       outcome: 'declined',
       declineCode: 'insufficient_funds',
     })
-    const { outreachId } = await winSend()
+    const { outreachId, outreachEmailId } = await winSend()
 
     const declined = await post(
       `/v1/outreach/email/${outreachId}/confirm`,
       { paymentMethodId: 'pm_1' },
       winHeaders(),
     )
-    expect(declined.data).toMatchObject({
-      outcome: 'declined',
-      declineCode: 'insufficient_funds',
-      email: { status: 'pending_payment' },
+    expect(declined.status).toBe(HttpStatus.PAYMENT_REQUIRED)
+    expect(declined.data).toMatchObject({ declineCode: 'insufficient_funds' })
+    const outreach = await service.prisma.outreach.findUniqueOrThrow({
+      where: { id: outreachId },
     })
+    expect(outreach.status).toBe(OutreachStatus.draft)
+    const email = await service.prisma.outreachEmail.findUniqueOrThrow({
+      where: { id: outreachEmailId },
+    })
+    expect(email.recipientCap).toBeNull()
     expect(track).not.toHaveBeenCalled()
 
     saveCardAndPlan.mockResolvedValueOnce({
