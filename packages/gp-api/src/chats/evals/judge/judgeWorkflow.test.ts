@@ -838,7 +838,7 @@ describe('judge.yml assumes a role scoped to the judge', () => {
 
   it('exchanges the OIDC token for credentials at all', () => {
     expect(credentials?.body).toContain(
-      'uses: aws-actions/configure-aws-credentials@v5',
+      'uses: aws-actions/configure-aws-credentials@',
     )
   })
 
@@ -1669,17 +1669,17 @@ describe('judge.yml sums the prices the CLI puts on the plan', () => {
     const selection = selectAgents({ kind: 'list', ids })
     const plan = formatPlan(selection)
     const cents = selection.selected.map((agent) => estimateAgent(agent).cents)
-    expect(cents).toEqual([1000, 900, 4900])
+    expect(cents).toEqual([1250, 900, 4900])
 
     const result = runEstimate(plan, ids.join(','))
     expect(result.status).toBe(0)
-    expect(result.outputs).toMatch(/^usd=68\.00$/m)
+    expect(result.outputs).toMatch(/^usd=70\.50$/m)
     expect(result.outputs).toMatch(
       /^sweep_agents=chief_of_staff,race_opponent_summary,self_research$/m,
     )
     const row = (id: string, shape: string, price: string) =>
       new RegExp(`^\\| ${id} \\| ${shape} \\| .* \\| ~${price} \\|$`, 'm')
-    expect(result.comment).toMatch(row('chief_of_staff', 'chat', dollars(1000)))
+    expect(result.comment).toMatch(row('chief_of_staff', 'chat', dollars(1250)))
     expect(result.comment).toMatch(
       row('race_opponent_summary', 'background', dollars(900)),
     )

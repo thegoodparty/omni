@@ -458,6 +458,12 @@ const buildIndependentAffinityFilter = (
 // constituent is never in it.
 const EARLY_ABSENTEE_VOTED_TABLE = TABLE('gp_api_voter_eav_general_2026')
 
+// The membership test against that table, joined by sort-merge. Left to its
+// own estimate Spark broadcasts the table, and once it holds enough ids the
+// broadcast no longer fits an executor (EXECUTOR_BROADCAST_JOIN_OOM, 1.5 GiB
+// relation, ENG-11522). A merge join has no such ceiling.
+const EARLY_ABSENTEE_VOTED_IDS_SQL = `SELECT /*+ MERGE(eav) */ eav.id FROM ${EARLY_ABSENTEE_VOTED_TABLE} eav`
+
 // "Voted in election": L2's early and absentee voters OR the people the
 // campaign recorded as already voted. The campaign half is resolved in
 // Postgres and arrives as a sibling id set, which is why this one clause
@@ -482,10 +488,13 @@ const buildVotedInElectionFilter = (
       ? idList(reportedIdsOp.values)
       : null
   if (hasYes) {
-    const l2 = `${col('id')} IN (SELECT id FROM ${EARLY_ABSENTEE_VOTED_TABLE})`
+    const l2 = `${col('id')} IN (${EARLY_ABSENTEE_VOTED_IDS_SQL})`
     return reported ? `(${l2} OR ${col('id')} IN (${reported}))` : l2
   }
-  const l2 = `${col('id')} NOT IN (SELECT id FROM ${EARLY_ABSENTEE_VOTED_TABLE} WHERE id IS NOT NULL)`
+  // NOT EXISTS rather than NOT IN: NOT IN becomes a null-aware anti join, which
+  // Spark can only run as a broadcast, so the merge hint would be ignored.
+  // voter ids are never null, so the two exclude the same people.
+  const l2 = `NOT EXISTS (SELECT /*+ MERGE(eav) */ 1 FROM ${EARLY_ABSENTEE_VOTED_TABLE} eav WHERE eav.id = ${col('id')})`
   return reported ? `(${l2} AND ${col('id')} NOT IN (${reported}))` : l2
 }
 
@@ -1035,7 +1044,7 @@ export const buildPersonSql = (
   // separately, which would add a warehouse round trip to every open.
   const projection = [
     ...args.columns.map((column) => projectColumn(args.district, column)),
-    `(${col('id')} IN (SELECT id FROM ${EARLY_ABSENTEE_VOTED_TABLE})) AS ${ident(PERSON_EARLY_ABSENTEE_VOTED_COLUMN)}`,
+    `(${col('id')} IN (${EARLY_ABSENTEE_VOTED_IDS_SQL})) AS ${ident(PERSON_EARLY_ABSENTEE_VOTED_COLUMN)}`,
   ].join(', ')
   const scope = buildScopeSql(bag, args)
   const sql =

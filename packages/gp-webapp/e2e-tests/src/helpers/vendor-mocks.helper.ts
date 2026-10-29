@@ -68,6 +68,8 @@ export const runJob = (client: AxiosInstance, name: string) =>
  * - `robocall.dialed_48h_ago`   → backdates dialedAt 49h (completion sweep settles it)
  * - `sms.start_date_today`      → moves an SMS send's start date to today (completion reads in_progress)
  * - `sms.start_date_passed`     → moves it to yesterday (completion reads completed)
+ * - `email.send_due_now`        → sets an email send's date to now - 1 min (the due sweep starts it)
+ * - `email.sent_6m_ago`         → backdates its sent emails 6 min (the settle sweep can finish it)
  */
 export const timeTravel = (
   client: AxiosInstance,
@@ -76,7 +78,9 @@ export const timeTravel = (
     | 'robocall.send_due_now'
     | 'robocall.dialed_48h_ago'
     | 'sms.start_date_today'
-    | 'sms.start_date_passed',
+    | 'sms.start_date_passed'
+    | 'email.send_due_now'
+    | 'email.sent_6m_ago',
 ) =>
   client.post<void>('/v1/test-fixtures/vendor-mocks/time-travel', {
     outreachId,

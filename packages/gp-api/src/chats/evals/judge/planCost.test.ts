@@ -226,10 +226,11 @@ describe('estimateAgent for a chat agent', () => {
   })
   const turns = (count: number) => ({ countTurns: (): number => count })
 
-  // 2 arms x 9 turns x 3 attempts x $0.123 = $6.642, x1.5 = $9.96, up to $10.
+  // 2 arms x 11 turns x 3 attempts x $0.123 = $8.118, x1.5 = $12.18, up to
+  // $12.50.
   it('prices from the measured turn cost, on the whole sweep', () => {
     expect(estimateAgent(chat('chief_of_staff'))).toMatchObject({
-      cents: 1000,
+      cents: 1250,
       basis: 'measured',
     })
   })
@@ -402,7 +403,8 @@ describe('priceAgainstReferences', () => {
     ]
     expect(
       priceAgainstReferences(withList('unread'), DEFAULT_JUDGE_CONFIG)(chat),
-    ).toMatchObject({ cents: 4250, basis: 'base-unread' })
+      // 2 x 11 x 3 x $0.52 = $34.32, x1.5 = $51.48, up to $51.50.
+    ).toMatchObject({ cents: 5150, basis: 'base-unread' })
     expect(
       priceAgainstReferences(withList('absent'), DEFAULT_JUDGE_CONFIG)(chat)
         .basis,
@@ -431,7 +433,7 @@ describe('priceAgainstReferences', () => {
         [{ estimate: estimateAgent, chatAttempts: undefined }],
         DEFAULT_JUDGE_CONFIG,
       )(chat),
-    ).toMatchObject({ cents: 4250, basis: 'base-unread' })
+    ).toMatchObject({ cents: 5150, basis: 'base-unread' })
     expect(
       priceAgainstReferences(
         [{ estimate: estimateAgent, chatAttempts: undefined }],
@@ -460,9 +462,9 @@ it('prices an agent with no case list at nothing', () => {
 // THE NUMBER ON AN ACCIDENTAL `all`. Pinned, so a change to the table, the
 // margin, the budget or a case list that moves it is a visible diff here and
 // in the comments that quote it (judge.yml, judge-comment.yml, README).
-it('prices `all` at $834.50', () => {
+it('prices `all` at $838.50', () => {
   const total = selectAgents({ kind: 'all' })
     .selected.map((agent) => estimateAgent(agent).cents)
     .reduce((sum, cents) => sum + cents, 0)
-  expect(total).toBe(83_450)
+  expect(total).toBe(83_850)
 })

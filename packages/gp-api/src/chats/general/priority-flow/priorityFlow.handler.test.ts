@@ -11,6 +11,7 @@ import {
 } from '@goodparty_org/contracts'
 import type { PriorityResultsService } from '@/priorities/services/priorityResults.service'
 import type { OutreachReportBackService } from '@/outreach/services/outreachReportBack.service'
+import type { ManagedCivicPanelService } from '@/contacts/services/managedCivicPanel.service'
 import { ChatScope, type Organization } from '../../../generated/prisma'
 import { ChatScopeRegistry } from '../services/chatScopeRegistry.service'
 import {
@@ -29,6 +30,7 @@ import {
 } from './priorityFlow.handler'
 import {
   PriorityFlowContext,
+  type PriorityManagedCivicPanel,
   PriorityFlowContextService,
 } from './services/priorityFlowContext.service'
 import { PriorityFlowOutreachService } from './services/priorityFlowOutreach.service'
@@ -1438,6 +1440,157 @@ describe('PriorityFlowHandler', () => {
       expect(prompt).toContain('Size the round with size_round_one')
     })
 
+    describe('with the civic panel GoodParty builds', () => {
+      const building: PriorityManagedCivicPanel = {
+        status: 'building',
+        members: 82,
+        goalMembers: 240,
+        nextSendDate: 'Tuesday, November 3',
+        readyWeekOf: 'November 16',
+      }
+      const withPanel = (
+        managedCivicPanel: PriorityManagedCivicPanel | null,
+      ): PriorityFlowContext => ({ ...panelsOn(82), managedCivicPanel })
+
+      // The agent told an official whose civic panel was filling for free
+      // that the paid round one text was how it gets built.
+      it('says it is filling, and never sells the round one text to build it', () => {
+        const prompt = buildWithPanels().buildSystemPrompt({
+          ...withPanel(building),
+          readStatus: { ...thinRead, checkOut: false },
+        })
+        expect(prompt).toContain(
+          'Civic panel: GoodParty is building it with free invites, and it is filling. 82 of 240 members have joined. The next invites go out Tuesday, November 3. It should be ready around the week of November 16.',
+        )
+        expect(prompt).toContain('THEIR CIVIC PANEL ON THIS PRIORITY')
+        expect(prompt).toContain(
+          'Never say a text you propose is how their civic panel gets built',
+        )
+        expect(prompt).toContain(
+          'you can ask their civic panel on this priority once it is ready',
+        )
+        expect(prompt).toContain(
+          'the round one text can hear from residents on this priority now if they would rather not wait',
+        )
+        expect(prompt).toContain(
+          'Never bring up that it also invites people to join their civic panel',
+        )
+        expect(prompt).not.toContain(
+          'Say in one line that it also invites people to join the civic panel.',
+        )
+        expect(prompt).toContain(
+          'If their civic panel comes up, follow THEIR CIVIC PANEL ON THIS PRIORITY.',
+        )
+      })
+
+      it('says paused and exhausted plainly', () => {
+        const paused = buildWithPanels().buildSystemPrompt(
+          withPanel({ ...building, status: 'paused', nextSendDate: null }),
+        )
+        expect(paused).toContain(
+          'Civic panel: its invites are paused, so it is not filling until they press Resume invites. 82 of 240 members have joined.',
+        )
+        const exhausted = buildWithPanels().buildSystemPrompt(
+          withPanel({ ...building, status: 'exhausted', nextSendDate: null }),
+        )
+        expect(exhausted).toContain(
+          'Civic panel: every resident a text can reach has an invite, and it is short of its goal.',
+        )
+        expect(exhausted).toContain('so what they hear may lean')
+      })
+
+      it('asks a ready civic panel with one text to its members', () => {
+        const prompt = buildWithPanels().buildSystemPrompt(
+          withPanel({
+            ...building,
+            status: 'ready',
+            members: 240,
+            nextSendDate: null,
+          }),
+        )
+        expect(prompt).toContain('Civic panel: ready. 240 members.')
+        expect(prompt).toContain(
+          'Count it with count_contacts, with exactly civicPanelMember true and hasCellPhone true.',
+        )
+        expect(prompt).toContain('No civicPanelAsk and no roundTwoSize.')
+        expect(prompt).toContain('they can ask their civic panel instead')
+      })
+
+      it('points to setting one up when GoodParty is not building one', () => {
+        const prompt = buildWithPanels().buildSystemPrompt(withPanel(null))
+        expect(prompt).toContain('Civic panel: GoodParty is not building one.')
+        expect(prompt).toContain('Build my civic panel on their home')
+        expect(prompt).toContain(
+          'Say in one line that it also invites people to join the civic panel.',
+        )
+      })
+
+      it('reads it only with the flag on, and treats stopped as none and a failed read as unknown', async () => {
+        context.countCivicPanelMembers = vi.fn(() => Promise.resolve(82))
+        const read = vi.fn()
+        const handlerWith = (enabled: boolean) =>
+          new PriorityFlowHandler(
+            store,
+            context,
+            outreach,
+            priorityStatus,
+            { voters: [], constituents: [] },
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            {
+              isFeatureEnabled: vi.fn(() => Promise.resolve(enabled)),
+            } as never,
+            undefined,
+            undefined,
+            { read } as unknown as ManagedCivicPanelService,
+          )
+        const panel = (status: string, wavesSent: number) => ({
+          panel: {
+            status,
+            approvedAt: new Date('2026-10-29T15:00:00Z'),
+            progress: {
+              members: 82,
+              goalMembers: 240,
+              wavesSent,
+              nextWaveAt: new Date('2026-11-10T15:00:00Z'),
+            },
+          },
+        })
+
+        read.mockResolvedValueOnce(panel('building', 2))
+        const on = await handlerWith(true).loadContext('c1', USER_ID)
+        expect(on.managedCivicPanel).toEqual(
+          expect.objectContaining({
+            status: 'building',
+            members: 82,
+            goalMembers: 240,
+            nextSendDate: 'Tuesday, November 10',
+          }),
+        )
+
+        read.mockResolvedValueOnce(panel('stopped', 2))
+        expect(
+          (await handlerWith(true).loadContext('c1', USER_ID))
+            .managedCivicPanel,
+        ).toBeNull()
+
+        read.mockRejectedValueOnce(new Error('boom'))
+        expect(
+          (await handlerWith(true).loadContext('c1', USER_ID))
+            .managedCivicPanel,
+        ).toBeUndefined()
+
+        read.mockClear()
+        const off = await handlerWith(false).loadContext('c1', USER_ID)
+        expect(off.managedCivicPanel).toBeUndefined()
+        expect(read).not.toHaveBeenCalled()
+      })
+    })
+
     it('keeps the two-sided check where round one cannot be sized', () => {
       const prompt = buildWithCrm().buildSystemPrompt(panelsOn(42))
       expect(prompt).not.toContain('ROUND ONE')
@@ -1452,7 +1605,12 @@ describe('PriorityFlowHandler', () => {
       expect(prompt).not.toContain('ROUND ONE')
       expect(prompt).not.toContain('size_round_one')
       expect(prompt).not.toContain('Civic panel:')
+      expect(prompt).not.toContain('THEIR CIVIC PANEL ON THIS PRIORITY')
       expect(prompt).not.toContain('civicPanelAsk')
+      // A card in the thread is never a send: the agent claimed one went.
+      expect(prompt).toContain(
+        'A card you presented is a proposal until the official sends it.',
+      )
       expect(prompt).toContain('A check you offer has two sides')
       expect(prompt).toContain(
         'Present it as its own present_outreach_proposal, right after the first',

@@ -16,6 +16,8 @@ const baseProps = {
   onFreeOfferList: false,
 }
 
+const withScript = { ...baseProps, script: 'AI drafted script text' }
+
 describe('RobocallReviewStep', () => {
   it('says the free offer is applied on the next step', () => {
     render(<RobocallReviewStep {...baseProps} onFreeOfferList />)
@@ -33,5 +35,27 @@ describe('RobocallReviewStep', () => {
     expect(
       screen.getByText('Have a promo code? Add it on the next step.'),
     ).toBeInTheDocument()
+  })
+
+  it('shows the transcript of the recording over the AI script', () => {
+    render(
+      <RobocallReviewStep {...withScript} transcript="What I really said" />,
+    )
+    expect(screen.getByText('What I really said')).toBeInTheDocument()
+    expect(screen.queryByText('AI drafted script text')).toBeNull()
+    expect(screen.getByText('What we heard')).toBeInTheDocument()
+    expect(screen.getByText(/can miss names/)).toBeInTheDocument()
+  })
+
+  it('falls back to the script when the transcript is blank', () => {
+    render(<RobocallReviewStep {...withScript} transcript="   " />)
+    expect(screen.getByText('AI drafted script text')).toBeInTheDocument()
+    expect(screen.getByText('Your recording')).toBeInTheDocument()
+    expect(screen.queryByText('What we heard')).toBeNull()
+  })
+
+  it('falls back to the script when there is no transcript', () => {
+    render(<RobocallReviewStep {...withScript} transcript={null} />)
+    expect(screen.getByText('AI drafted script text')).toBeInTheDocument()
   })
 })

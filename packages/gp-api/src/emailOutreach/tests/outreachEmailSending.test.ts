@@ -365,6 +365,44 @@ describe('send sweep', () => {
     expect(sendBulk).not.toHaveBeenCalled()
   })
 
+  it('drops recipients who unsubscribed after the send was prepared', async () => {
+    const { outreachEmailId } = await runningSend(3)
+    await service.prisma.outreachEmailSuppression.create({
+      data: {
+        email: 'person1@example.com',
+        organizationSlug: orgs.winSlug,
+        reason: 'link',
+      },
+    })
+    await sweep.runTick()
+
+    const sent = sendBulk.mock.calls.flatMap(([input]) =>
+      input.entries.map((e) => e.Destination?.ToAddresses?.[0]),
+    )
+    expect(sent.sort()).toEqual(['person0@example.com', 'person2@example.com'])
+    const { rows } = await recipientStatuses(service.prisma, outreachEmailId)
+    expect(rows.map((r) => r.email)).not.toContain('person1@example.com')
+  })
+
+  it("drops the campaign's later unsubscribes from an office send", async () => {
+    const { outreachEmailId } = await runningSend(2, {
+      organizationSlug: orgs.officeSlug,
+      campaignId: null,
+    })
+    await service.prisma.outreachEmailSuppression.create({
+      data: {
+        email: 'person0@example.com',
+        organizationSlug: orgs.winSlug,
+        reason: 'link',
+      },
+    })
+    await sweep.runTick()
+    const { rows } = await recipientStatuses(service.prisma, outreachEmailId)
+    expect(rows.map((r) => [r.email, r.status])).toEqual([
+      ['person1@example.com', OutreachEmailRecipientStatus.sent],
+    ])
+  })
+
   it('returns a stuck sending row to queued and sends it', async () => {
     const { outreachEmailId } = await runningSend(2)
     await service.prisma.outreachEmailRecipient.updateMany({
@@ -898,6 +936,23 @@ describe('settling and finishing', () => {
         })
       ).status,
     ).toBe(OutreachStatus.in_progress)
+  })
+
+  it('completes a send whose charge was disputed before it finished', async () => {
+    vi.spyOn(ses, 'deleteTemplate').mockResolvedValue()
+    const { outreachId } = await finishedSend(10)
+    await service.prisma.outreachPaymentHold.update({
+      where: { outreachId },
+      data: { state: OutreachHoldState.disputed },
+    })
+    await service.app.get(OutreachEmailLifecycleService).settleFinishedSends()
+    expect(
+      (
+        await service.prisma.outreach.findUniqueOrThrow({
+          where: { id: outreachId },
+        })
+      ).status,
+    ).toBe(OutreachStatus.completed)
   })
 
   it('finishes a stopped send with recipients left as canceled', async () => {
