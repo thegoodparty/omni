@@ -3,6 +3,7 @@ import {
   Controller,
   Get,
   BadRequestException,
+  ForbiddenException,
   Param,
   ParseIntPipe,
   Patch,
@@ -92,6 +93,9 @@ export class OutreachEmailController {
     @Body(new ZodValidationPipe(EmailSenderUpdateSchema))
     input: EmailSenderUpdate,
   ): Promise<EmailSender> {
+    if (campaign.isPro !== true) {
+      throw new ForbiddenException('Changing your reply address requires Pro.')
+    }
     const scope = await this.scopes.forCampaign(campaign, user)
     return this.senders.toView(
       await this.senders.startForwardChange(scope, input.forwardToEmail),

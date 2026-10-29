@@ -48,6 +48,7 @@ beforeEach(async () => {
       organizationSlug: winSlug,
       userId: service.user.id,
       slug: `jane-${suffix}`,
+      isPro: true,
       details: { state: 'TX', zip: '78634' },
       data: {},
       aiContent: {},
@@ -306,6 +307,67 @@ describe('sender', () => {
     expect(JSON.stringify(sendEmail.mock.calls[0]?.[0])).toContain(
       '/email/forward-confirm/',
     )
+  })
+
+  it('refuses a confirmation email on Win without Pro', async () => {
+    await service.prisma.campaign.update({
+      where: { id: campaignId },
+      data: { isPro: false },
+    })
+    const res = await service.client.patch(
+      '/v1/outreach/email/sender',
+      { forwardToEmail: 'new@jane.example' },
+      { headers: winHeaders(), validateStatus: () => true },
+    )
+    expect(res.status).toBe(HttpStatus.FORBIDDEN)
+    expect(sendEmail).not.toHaveBeenCalled()
+  })
+
+  const changeTo = (path: string, headers: object, n: number) =>
+    service.client.patch(
+      path,
+      { forwardToEmail: `new${n}@jane.example` },
+      { headers, validateStatus: () => true },
+    )
+
+  it('sends 5 confirmation emails a day, then refuses the 6th', async () => {
+    for (let n = 1; n <= 5; n++) {
+      const ok = await changeTo('/v1/outreach/email/sender', winHeaders(), n)
+      expect(ok.status).toBe(HttpStatus.OK)
+    }
+    const sixth = await changeTo('/v1/outreach/email/sender', winHeaders(), 6)
+    expect(sixth.status).toBe(HttpStatus.TOO_MANY_REQUESTS)
+    expect(sixth.data.message).toBe(
+      "You've changed your reply address too many times today. Try again tomorrow.",
+    )
+    expect(sendEmail).toHaveBeenCalledTimes(5)
+  })
+
+  it('gives the slot back when the confirmation email fails', async () => {
+    sendEmail.mockRejectedValue(new Error('down'))
+    for (let n = 1; n <= 6; n++) {
+      const res = await changeTo('/v1/outreach/email/sender', winHeaders(), n)
+      expect(res.status).toBe(HttpStatus.BAD_GATEWAY)
+    }
+  })
+
+  it('counts each organization separately and only the last 24 hours', async () => {
+    for (let n = 1; n <= 5; n++) {
+      await changeTo('/v1/outreach/email/sender', winHeaders(), n)
+    }
+    const office = await changeTo(
+      '/v1/outreach/serve/email/sender',
+      serveHeaders(),
+      1,
+    )
+    expect(office.status).toBe(HttpStatus.OK)
+
+    await service.prisma.cronRun.updateMany({
+      where: { jobName: `email-forward-confirm:${winSlug}` },
+      data: { createdAt: new Date(Date.now() - 25 * 60 * 60 * 1000) },
+    })
+    const again = await changeTo('/v1/outreach/email/sender', winHeaders(), 7)
+    expect(again.status).toBe(HttpStatus.OK)
   })
 
   it('clears a pending change when the current address is requested again', async () => {

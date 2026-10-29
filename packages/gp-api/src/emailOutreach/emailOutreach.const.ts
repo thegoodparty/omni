@@ -13,6 +13,9 @@ export const EMAIL_API_ROOT = IS_PROD_DEPLOY
 export const EMAIL_NAME_MAX_LENGTH = 100
 export const EMAIL_ADDRESS_MAX_LENGTH = 254
 export const FORWARD_CONFIRM_TTL_HOURS = 24
+export const FORWARD_CONFIRM_MAX_PER_DAY = 5
+export const REPLY_FORWARD_MAX_PER_ADDRESS_PER_DAY = 10
+export const REPLY_FORWARD_MAX_PER_SENDER_PER_HOUR = 200
 export const EMAIL_UPLOAD_MAX_BYTES = 2_000_000
 
 // Per-sender warming caps, stepped up only after a clean send.
