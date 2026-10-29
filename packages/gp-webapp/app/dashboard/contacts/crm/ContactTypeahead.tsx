@@ -105,6 +105,13 @@ export const ContactTypeahead = () => {
               >
                 <div className="flex min-w-0 flex-col">
                   <span className="truncate">{formatPersonName(person)}</span>
+                  {query.includes('@') &&
+                    person.email?.toLowerCase() ===
+                      query.trim().toLowerCase() && (
+                      <span className="text-muted-foreground truncate text-xs">
+                        {person.email}
+                      </span>
+                    )}
                   <span className="text-muted-foreground truncate text-xs">
                     {[person.address.line1, person.address.city]
                       .filter(Boolean)
