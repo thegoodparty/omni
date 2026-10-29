@@ -375,11 +375,12 @@ describe('sender', () => {
       await changeTo('/v1/outreach/email/sender', winHeaders(), n)
     }
     const oldest =
-      await service.prisma.outreachEmailForwardConfirmation.findFirst({
+      await service.prisma.outreachEmailForwardConfirmation.findFirstOrThrow({
+        where: { sender: { organizationSlug: winSlug } },
         orderBy: { id: 'asc' },
       })
     await service.prisma.outreachEmailForwardConfirmation.update({
-      where: { id: oldest?.id },
+      where: { id: oldest.id },
       data: { createdAt: new Date(Date.now() - 25 * 60 * 60 * 1000) },
     })
     const freed = await changeTo('/v1/outreach/email/sender', winHeaders(), 6)
