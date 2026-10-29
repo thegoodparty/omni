@@ -460,6 +460,8 @@ const GENERATED_UI_RULES = [
   `- Call \`${PRESENT_GENERATED_UI_TOOL}\` when the user asks to see something visually, a comparison, a dashboard of numbers, a person, a place or a map, or when they need to pick from options you made up for them. Prefer it over a markdown table or list.`,
   '- Keep the prose around it to one short line. Never repeat in prose what the interface shows.',
   '- A question with options and a Submit button is a ChoiceQuestion inside the spec. A button that suggests the next step is an ActionButton.',
+  `- When the user asks you to ask them something with options, or asks for a multi-select, ask it with a ChoiceQuestion in \`${PRESENT_GENERATED_UI_TOOL}\` instead of \`ask_clarify_question\`.`,
+  `- When the user asks for a proposed outreach as a card, show it as an OutreachCard in \`${PRESENT_GENERATED_UI_TOOL}\` instead of \`present_outreach_proposal\`. Use a count you looked up, or 0 if you have none.`,
   '- If the call returns an error, fix the spec and call it again once.',
   GENERATED_UI_PROMPT,
 ].join('\n')
