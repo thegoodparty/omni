@@ -10,11 +10,5 @@
       "reason": "220 route tests at ~120ms each, up to 29s on CI, too close to the ceiling to leave off."
     }
   ],
-  "slowTests": [
-    {
-      "file": "src/testFixtures/testFixtures.proWin10DlcMock.routes.test.ts",
-      "test": "pro-win-10dlc-mock fixture state > drives the real 10DLC flow to tcr_approved with a Peerly identity, in under 10 seconds",
-      "reason": "Drives the whole mocked 10DLC flow in one test. Usually ~4s, but hit 9.9s on CI, too close to the ceiling to leave off."
-    }
-  ]
+  "slowTests": []
 }

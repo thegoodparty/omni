@@ -18,7 +18,7 @@ superseded_by:
 ## Decision
 
 When `CI` is set, a vitest reporter (`src/test-cost-reporter.ts`) fails each
-`Test` shard if one test runs over 10s, one file over 30s, or the median
+`Test` shard if one test runs over 12s, one file over 30s, or the median
 `useTestService()` boot over 3s, or if the number of `fresh-modules` files
 (those calling `vi.mock`, `vi.doMock`, `vi.unmock` or `vi.resetModules`)
 differs from the number in `test-cost-budget.json`. Tests and files that are
