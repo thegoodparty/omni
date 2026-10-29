@@ -63,7 +63,7 @@ candidate's do.
 With no run and enough notes, it shows the button and every note. The button
 shows whenever no run is in flight. It is off under the floor and after a
 422 or 429, and says why in a tooltip on hover or focus, through the
-styleguide's disabled-tooltip pattern (`Tooltip.stories`' `Disabled`: a
+disabled-tooltip pattern (a
 focusable span around a `pointer-events-none` button, since a disabled button
 takes no pointer events). A failed start that is not a refusal is still a
 line under the button.
