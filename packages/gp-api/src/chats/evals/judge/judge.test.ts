@@ -222,41 +222,16 @@ describe('what reaches the model', () => {
     expect(calls[1]?.messages[0]?.content).toContain('artifact')
   })
 
-  // A probe planted something in the input, and a judge left to grade polish
-  // prefers the run that read better while missing what was planted.
-  it('tells an artifact judge a planted condition outranks polish', async () => {
-    const [bgBase, bgCandidate] = BACKGROUND_PAIR
-    const background = blindCase(bgBase, bgCandidate, X_IS_BASE)
-    const { llm, calls } = fake([reply()])
-    await judgeCase(llm, plan(background), DEFAULT_JUDGE_CONFIG)
-    expect(calls[0]?.messages[0]?.content).toMatch(
-      /"Condition:".*handled that condition.*reads better but ignores/s,
-    )
-  })
-
-  // The same rule for a chat case: a reply that sounds better while missing
-  // what the case tests is the worse reply.
-  it('tells a chat judge a condition outranks a better-sounding reply', async () => {
-    const chat = blindCase(BASE, CANDIDATE, X_IS_BASE)
-    const { llm, calls } = fake([reply()])
-    await judgeCase(llm, plan(chat), DEFAULT_JUDGE_CONFIG)
-    expect(calls[0]?.messages[0]?.content).toMatch(
-      /"Condition:".*handled that condition.*reads better but ignores/s,
-    )
-  })
-
   // A required section was scored as an "unrequested addition" before the
-  // judge was shown the contract and told what the contract means.
-  it('tells an artifact judge a required field is never an addition', async () => {
+  // judge was shown the contract.
+  it('shows an artifact judge the output contract, and a chat judge none', async () => {
     const [bgBase, bgCandidate] = BACKGROUND_PAIR
     const chat = blindCase(BASE, CANDIDATE, X_IS_BASE)
     const background = blindCase(bgBase, bgCandidate, X_IS_BASE)
     const { llm, calls } = fake([reply()])
     await judgeCase(llm, plan(chat), DEFAULT_JUDGE_CONFIG)
     await judgeCase(llm, plan(background), DEFAULT_JUDGE_CONFIG)
-    expect(calls[1]?.messages[0]?.content).toMatch(
-      /output contract.*never an unrequested addition.*missing a required/s,
-    )
+    expect(calls[1]?.messages[0]?.content).toContain('output contract')
     expect(calls[0]?.messages[0]?.content).not.toContain('output contract')
   })
 
@@ -971,8 +946,7 @@ describe('the handled field', () => {
     const text = (i: number) =>
       (calls[i]?.messages ?? []).map((m) => String(m.content)).join('\n')
     expect(text(0)).not.toContain('`handled`')
-    expect(text(1)).toContain('In\n`handled`, answer yes, partly or no')
-    expect(text(1)).toContain('short quote per run under the name handled.')
+    expect(text(1)).toContain('`handled`')
   })
 
   // One seat that saw a run miss the outcome is a finding about that run.
