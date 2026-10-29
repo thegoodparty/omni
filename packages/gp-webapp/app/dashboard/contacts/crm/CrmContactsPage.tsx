@@ -29,7 +29,7 @@ import VoterDataUnavailableState from './VoterDataUnavailableState'
 import { CitizensPanelSection } from '../citizens-panel/components/CitizensPanelSection'
 import ImportContactsWizard from './import/ImportContactsWizard'
 import {
-  SERVE_IMPORT_CONTACTS_COPY,
+  getImportContactsCopy,
   UPLOAD_HISTORY_PATH,
 } from './import/importContactsCopy'
 
@@ -57,10 +57,11 @@ export const CrmContactsPage = () => {
     trackExposure: false,
   })
   const { enabled: importContactsOn } = useServeImportContactsFlag(
-    isWinContextReady && !isWinContext,
+    isWinContextReady && canUseProFeatures,
   )
   const showImportContacts =
-    isWinContextReady && !isWinContext && importContactsOn
+    isWinContextReady && canUseProFeatures && importContactsOn
+  const importCopy = getImportContactsCopy(isWinContext)
 
   // ENG-10767 parity: this page's users had vanished from the Contacts
   // Viewed chart, so it fires the same event tagged surface: 'crm' — rows
@@ -159,7 +160,7 @@ export const CrmContactsPage = () => {
                     >
                       <Link href={UPLOAD_HISTORY_PATH}>
                         <HistoryIcon />
-                        {SERVE_IMPORT_CONTACTS_COPY.uploadHistory}
+                        {importCopy.uploadHistory}
                       </Link>
                     </Button>
                     <Button
@@ -168,7 +169,7 @@ export const CrmContactsPage = () => {
                       onClick={() => setImportOpen(true)}
                       icon={<UploadIcon />}
                     >
-                      {SERVE_IMPORT_CONTACTS_COPY.importContacts}
+                      {importCopy.importContacts}
                     </Button>
                   </>
                 )}
@@ -264,6 +265,7 @@ export const CrmContactsPage = () => {
                 <ImportContactsWizard
                   open={importOpen}
                   onOpenChange={setImportOpen}
+                  isWin={isWinContext}
                 />
               )}
               <CrmAssistant />

@@ -114,12 +114,16 @@ pads `var(--chat-dock-height)` plus 8rem so the last card clears the bar.
 
 ## Import contacts (`crm/import/`, `uploads/`)
 
-Serve only, behind `serve-import-contacts` (`useServeImportContactsFlag`; the
-upload pages 404 server-side with it off). Lists are untouched: an upload never
-becomes a list card.
+Serve and Win, behind `serve-import-contacts` (`useServeImportContactsFlag`),
+and for Win only with Pro (`canUseProFeatures`, the same rule gp-api applies).
+The upload pages gate server-side in `uploads/importContactsAccess.ts`: 404
+with the flag off or for a Win campaign without Pro, else `isWin` from
+`GET /v1/elected-office/current`. They are not Serve routes
+(`SERVE_ROUTE_PREFIXES`) and keep the contacts nav item highlighted. Lists are
+untouched: an upload never becomes a list card.
 
 - **Wizard** (`ImportContactsWizard`): the Create new list sheet and stepper
-  (`CrmSheet`), opened from Import contacts on Constituents and on Upload
+  (`CrmSheet`), opened from Import contacts on the contacts page and on Upload
   history. File (read in the browser by `parseCsvPreview` for headers,
   examples and the row count; CSV only, 25 MB), columns (`prefillColumnMapping`:
   the latest upload's mapping when every column it used is in the file, else
@@ -149,9 +153,10 @@ becomes a list card.
   (searchable, paged with Show more, Change match per row). A choice reads
   name, address, then age (`candidateLabel`), so two people at one address
   still differ.
-- **Person panel**: on Serve with the flag on, `PersonRecord` renders
-  `person/ImportedContactInformation` in place of today's Contact Information
-  card: Email, a "Came from upload <name>" line per detail from
+- **Person panel**: with the flag on, on Serve or a Pro Win campaign,
+  `PersonRecord` renders `person/ImportedContactInformation` in place of
+  today's Contact Information card (Win keeps its status row and Voter
+  Demographics card): Email, a "Came from upload <name>" line per detail from
   `GET /v1/contacts/:personId/sources`, and Change match.
   `ChangeMatchDialog` is shared with the upload detail and warns first when
   `hasActivity` (notes and activity stay with the old record). Import rows in
@@ -163,8 +168,12 @@ becomes a list card.
 - **Search by email.** A typeahead search with an `@` matches the imported
   email (gp-api), and a result whose email is the search shows it under the
   name (`ContactTypeahead`).
-- Copy lives in `importContactsCopy.ts` (`SERVE_IMPORT_CONTACTS_COPY`, so the
-  vocabulary check reads it). Analytics: `docs/contacts-analytics.md`.
+- Copy lives in `importContactsCopy.ts`, mode-keyed through
+  `getImportContactsCopy(isWin)`: `SERVE_IMPORT_CONTACTS_COPY` holds every
+  string (so the vocabulary check reads it) and `WIN_IMPORT_CONTACTS_COPY`
+  swaps its nouns (the voter file, voters, your campaign). Every import
+  component takes `isWin`; a new string with a mode noun needs its Win
+  override. Analytics: `docs/contacts-analytics.md`.
 
 ## Patterns
 

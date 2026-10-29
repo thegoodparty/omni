@@ -20,9 +20,9 @@ describe('isServeRoutePath', () => {
       true,
     )
     expect(isServeRoutePath('/dashboard/contacts/citizens-panel')).toBe(true)
-    expect(isServeRoutePath('/dashboard/contacts/uploads/upload-1')).toBe(true)
-    // The constituent data page itself is shared with Win.
+    // The constituent data page and its upload pages are shared with Win.
     expect(isServeRoutePath('/dashboard/contacts')).toBe(false)
+    expect(isServeRoutePath('/dashboard/contacts/uploads/upload-1')).toBe(false)
   })
 
   it('excludes the public /serve/welcome redemption page', () => {

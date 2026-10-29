@@ -2,6 +2,7 @@ import type {
   ContactUploadField,
   ContactUploadStatus,
 } from '@goodparty_org/contracts'
+import { CONTACTS_DATA_TITLE } from '../../../shared/contactsLabels'
 
 export const UPLOAD_HISTORY_PATH = '/dashboard/contacts/uploads'
 
@@ -39,7 +40,8 @@ const capitalize = (text: string): string =>
 
 type ImportActivityKind = 'matched' | 'new' | 'resolved' | 'resolvedNew'
 
-// Import contacts is Serve only, so every string here is Serve copy.
+// Serve's copy, which also holds every string both products share, so the
+// vocabulary check reads all of it. WIN_IMPORT_CONTACTS_COPY swaps the nouns.
 export const SERVE_IMPORT_CONTACTS_COPY = {
   importContacts: 'Import contacts',
   uploadHistory: 'Upload history',
@@ -99,7 +101,7 @@ export const SERVE_IMPORT_CONTACTS_COPY = {
   history: {
     title: 'Upload history',
     caption: 'Files you have imported into your constituents',
-    backToConstituents: 'Back to Constituents',
+    backToContacts: 'Back to Constituents',
     uploadColumn: 'Upload',
     uploadedColumn: 'Uploaded',
     statusColumn: 'Status',
@@ -228,6 +230,57 @@ export const SERVE_IMPORT_CONTACTS_COPY = {
             : `Imported from ${uploadName}.`,
   },
 }
+
+// Win reads the Serve copy with its nouns swapped: voters and the voter file
+// where Serve says constituents, the campaign where Serve says the office.
+export const WIN_IMPORT_CONTACTS_COPY: typeof SERVE_IMPORT_CONTACTS_COPY = {
+  ...SERVE_IMPORT_CONTACTS_COPY,
+  history: {
+    ...SERVE_IMPORT_CONTACTS_COPY.history,
+    caption: 'Files you have imported for your campaign',
+    backToContacts: `Back to ${CONTACTS_DATA_TITLE.win}`,
+    emptyMessage: 'Import a file to add people to your campaign.',
+  },
+  detail: {
+    ...SERVE_IMPORT_CONTACTS_COPY.detail,
+    matched: 'already in your voter file',
+  },
+  processed: {
+    ...SERVE_IMPORT_CONTACTS_COPY.processed,
+    whatWeDid: (
+      outcome: 'matched' | 'new' | 'resolved',
+      isNewPerson: boolean,
+      changedFields: string[],
+    ) => {
+      if (outcome === 'new') return 'New person. Added.'
+      if (outcome === 'resolved') {
+        return isNewPerson
+          ? 'You added them as a new person.'
+          : 'You matched this row.'
+      }
+      return changedFields.length > 0
+        ? `Already in your voter file. Updated ${fieldList(changedFields)}.`
+        : 'Already in your voter file.'
+    },
+  },
+  changeMatch: {
+    ...SERVE_IMPORT_CONTACTS_COPY.changeMatch,
+    searchLabel: 'Search your voters',
+    noResults: 'No voters found',
+  },
+  person: {
+    ...SERVE_IMPORT_CONTACTS_COPY.person,
+    cameFromFile: 'Came from the voter file',
+  },
+}
+
+const IMPORT_CONTACTS_COPY = {
+  win: WIN_IMPORT_CONTACTS_COPY,
+  serve: SERVE_IMPORT_CONTACTS_COPY,
+}
+
+export const getImportContactsCopy = (isWin: boolean) =>
+  IMPORT_CONTACTS_COPY[isWin ? 'win' : 'serve']
 
 export const candidateLabel = (candidate: {
   firstName: string | null

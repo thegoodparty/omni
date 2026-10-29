@@ -193,9 +193,23 @@ describe('CrmContactsPage — Import contacts', () => {
     expect(screen.getByTestId('import-contacts-wizard')).toBeInTheDocument()
   })
 
-  it('never offers them on Win', () => {
+  it('offers them to a Pro Win campaign with the flag on', async () => {
+    const user = userEvent.setup()
     mockImportContacts.on = true
-    setContext({ isWinContext: true })
+    setContext({ isWinContext: true, canUseProFeatures: true })
+
+    render(<CrmContactsPage />)
+
+    expect(
+      screen.getByRole('link', { name: 'Upload history' }),
+    ).toHaveAttribute('href', '/dashboard/contacts/uploads')
+    await user.click(screen.getByRole('button', { name: 'Import contacts' }))
+    expect(screen.getByTestId('import-contacts-wizard')).toBeInTheDocument()
+  })
+
+  it('never offers them to a Win campaign without Pro', () => {
+    mockImportContacts.on = true
+    setContext({ isWinContext: true, canUseProFeatures: false })
 
     render(<CrmContactsPage />)
 
@@ -204,6 +218,16 @@ describe('CrmContactsPage — Import contacts', () => {
     ).not.toBeInTheDocument()
     expect(
       screen.queryByRole('link', { name: 'Upload history' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('hides them on Win with the flag off', () => {
+    setContext({ isWinContext: true, canUseProFeatures: true })
+
+    render(<CrmContactsPage />)
+
+    expect(
+      screen.queryByRole('button', { name: 'Import contacts' }),
     ).not.toBeInTheDocument()
   })
 

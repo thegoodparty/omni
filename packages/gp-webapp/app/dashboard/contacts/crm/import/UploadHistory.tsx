@@ -24,17 +24,16 @@ import ImportContactsWizard from './ImportContactsWizard'
 import { UploadStatusText } from './UploadStatusText'
 import { useContactUploads } from './importContactsApi'
 import {
-  SERVE_IMPORT_CONTACTS_COPY,
   formatUploadDate,
+  getImportContactsCopy,
   uploadDetailPath,
 } from './importContactsCopy'
-
-const COPY = SERVE_IMPORT_CONTACTS_COPY
 
 const capitalize = (text: string): string =>
   text.charAt(0).toUpperCase() + text.slice(1)
 
-export const UploadHistory = () => {
+export const UploadHistory = ({ isWin }: { isWin: boolean }) => {
+  const COPY = getImportContactsCopy(isWin)
   const router = useRouter()
   const [wizardOpen, setWizardOpen] = useState(false)
   const uploadsQuery = useContactUploads()
@@ -58,7 +57,7 @@ export const UploadHistory = () => {
         <div className="flex items-center gap-3">
           <Link
             href="/dashboard/contacts"
-            aria-label={COPY.history.backToConstituents}
+            aria-label={COPY.history.backToContacts}
             className="flex px-1 py-2.5 text-foreground sm:p-0"
           >
             <ArrowLeftIcon className="size-[22px]" aria-hidden />
@@ -144,7 +143,7 @@ export const UploadHistory = () => {
                       {capitalize(formatUploadDate(upload.createdAt))}
                     </TableCell>
                     <TableCell className="text-right">
-                      <UploadStatusText status={upload.status} />
+                      <UploadStatusText status={upload.status} isWin={isWin} />
                     </TableCell>
                   </TableRow>
                 )
@@ -154,7 +153,11 @@ export const UploadHistory = () => {
         </Card>
       )}
 
-      <ImportContactsWizard open={wizardOpen} onOpenChange={setWizardOpen} />
+      <ImportContactsWizard
+        open={wizardOpen}
+        onOpenChange={setWizardOpen}
+        isWin={isWin}
+      />
     </div>
   )
 }

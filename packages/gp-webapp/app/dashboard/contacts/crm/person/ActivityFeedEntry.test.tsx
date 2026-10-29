@@ -392,6 +392,7 @@ describe('<ContactImportActivityRow>', () => {
   it('names the supplied fields on the upload that brought a person in', () => {
     render(
       <ContactImportActivityRow
+        isWin={false}
         activity={makeImport({ isFirstImport: true })}
       />,
     )
@@ -405,6 +406,7 @@ describe('<ContactImportActivityRow>', () => {
   it('names only what a later upload changed', () => {
     render(
       <ContactImportActivityRow
+        isWin={false}
         activity={makeImport({ changedFields: ['email'] })}
       />,
     )
@@ -413,7 +415,7 @@ describe('<ContactImportActivityRow>', () => {
   })
 
   it('says a re-import that changed nothing changed nothing', () => {
-    render(<ContactImportActivityRow activity={makeImport()} />)
+    render(<ContactImportActivityRow isWin={false} activity={makeImport()} />)
 
     expect(screen.getByText('Nothing changed')).toBeInTheDocument()
     expect(screen.queryByText(/added$/)).not.toBeInTheDocument()
@@ -422,6 +424,7 @@ describe('<ContactImportActivityRow>', () => {
   it('says only the upload that created a person added them', () => {
     render(
       <ContactImportActivityRow
+        isWin={false}
         activity={makeImport({ isNewPerson: true, isFirstImport: true })}
       />,
     )
@@ -433,7 +436,10 @@ describe('<ContactImportActivityRow>', () => {
 
   it('reads a later upload of a created person as an import', () => {
     render(
-      <ContactImportActivityRow activity={makeImport({ isNewPerson: true })} />,
+      <ContactImportActivityRow
+        isWin={false}
+        activity={makeImport({ isNewPerson: true })}
+      />,
     )
 
     expect(screen.getByText('Imported from Newsletter.')).toBeInTheDocument()
@@ -443,6 +449,7 @@ describe('<ContactImportActivityRow>', () => {
   it('says the user added a person they chose New person for', () => {
     render(
       <ContactImportActivityRow
+        isWin={false}
         activity={makeImport({
           isNewPerson: true,
           isFirstImport: true,
@@ -461,7 +468,12 @@ describe('<ContactImportActivityRow>', () => {
   })
 
   it('says the user matched a row they picked a person for', () => {
-    render(<ContactImportActivityRow activity={makeImport({ manual: true })} />)
+    render(
+      <ContactImportActivityRow
+        isWin={false}
+        activity={makeImport({ manual: true })}
+      />,
+    )
 
     expect(screen.getByText('Matched by you')).toBeInTheDocument()
     expect(

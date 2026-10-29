@@ -1,11 +1,8 @@
-import { notFound } from 'next/navigation'
-import { SERVE_IMPORT_CONTACTS_FLAG } from '@goodparty_org/contracts'
 import pageMetaData from 'helpers/metadataHelper'
-import { getFlagVariants } from '@shared/experiments/getFlagVariants'
-import serveAccess from '../../../shared/serveAccess'
 import DashboardLayout from '../../../shared/DashboardLayout'
 import { UploadDetail } from '../../crm/import/UploadDetail'
 import { UPLOAD_HISTORY_PATH } from '../../crm/import/importContactsCopy'
+import { importContactsAccess } from '../importContactsAccess'
 
 const meta = pageMetaData({
   title: 'Upload | GoodParty.org',
@@ -20,16 +17,13 @@ export default async function Page({
 }: {
   params: Promise<{ uploadId: string }>
 }): Promise<React.JSX.Element> {
-  await serveAccess()
-
-  const variants = await getFlagVariants()
-  if (variants?.[SERVE_IMPORT_CONTACTS_FLAG]?.value !== 'on') notFound()
+  const { isWin } = await importContactsAccess()
 
   const { uploadId } = await params
 
   return (
     <DashboardLayout pathname="/dashboard/contacts" showAlert={false}>
-      <UploadDetail uploadId={uploadId} />
+      <UploadDetail uploadId={uploadId} isWin={isWin} />
     </DashboardLayout>
   )
 }

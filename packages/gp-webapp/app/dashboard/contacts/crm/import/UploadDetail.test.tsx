@@ -144,7 +144,7 @@ describe('<UploadDetail>', () => {
     })
     mockRows()
 
-    render(<UploadDetail uploadId="upload-1" />)
+    render(<UploadDetail uploadId="upload-1" isWin={false} />)
 
     expect(
       await screen.findByRole('heading', { name: 'Newsletter, Oct 2026' }),
@@ -183,7 +183,7 @@ describe('<UploadDetail>', () => {
     )
     const user = userEvent.setup()
 
-    render(<UploadDetail uploadId="upload-1" />)
+    render(<UploadDetail uploadId="upload-1" isWin={false} />)
 
     expect(
       await screen.findByRole('heading', { name: '2 rows need your input' }),
@@ -242,7 +242,7 @@ describe('<UploadDetail>', () => {
 
     testQueryClient.setQueryData(PERSON_KEY, {})
 
-    render(<UploadDetail uploadId="upload-1" />)
+    render(<UploadDetail uploadId="upload-1" isWin={false} />)
 
     await user.click(
       await screen.findByRole('button', { name: 'Accept all 1 likely match' }),
@@ -264,7 +264,7 @@ describe('<UploadDetail>', () => {
     mockRows()
     const user = userEvent.setup()
 
-    render(<UploadDetail uploadId="upload-1" />)
+    render(<UploadDetail uploadId="upload-1" isWin={false} />)
     await user.click(
       await screen.findByRole('button', { name: 'Decide later' }),
     )
@@ -296,7 +296,7 @@ describe('<UploadDetail>', () => {
       }),
     ])
 
-    render(<UploadDetail uploadId="upload-1" />)
+    render(<UploadDetail uploadId="upload-1" isWin={false} />)
 
     expect(
       await screen.findByRole('link', { name: 'Maria Lopez' }),
@@ -315,6 +315,33 @@ describe('<UploadDetail>', () => {
     ).toHaveLength(2)
   })
 
+  it('reads Win nouns for a campaign: the voter file, not constituents', async () => {
+    api.mock('GET /v1/contact-uploads/:id', {
+      status: 200,
+      data: makeUpload({ status: 'complete', needsInputCount: 0 }),
+    })
+    mockRows([
+      makeRow({
+        id: 'row-3',
+        firstName: 'Maria',
+        outcome: 'matched',
+        personId: 'LALMI123',
+        changedFields: ['email'],
+      }),
+    ])
+
+    render(<UploadDetail uploadId="upload-1" isWin />)
+
+    expect(
+      await screen.findByText('Already in your voter file. Updated email.'),
+    ).toBeInTheDocument()
+    expect(screen.getByText('already in your voter file')).toBeInTheDocument()
+    expect(
+      screen.getByRole('link', { name: 'Back to Upload history' }),
+    ).toHaveAttribute('href', '/dashboard/contacts/uploads')
+    expect(screen.queryByText(/constituent/i)).not.toBeInTheDocument()
+  })
+
   it('tries a failed upload again', async () => {
     let status: ContactUpload['status'] = 'failed'
     api.mock('GET /v1/contact-uploads/:id', () => ({
@@ -330,7 +357,7 @@ describe('<UploadDetail>', () => {
     })
     const user = userEvent.setup()
 
-    render(<UploadDetail uploadId="upload-1" />)
+    render(<UploadDetail uploadId="upload-1" isWin={false} />)
 
     expect(
       await screen.findByText("This upload didn't finish. Try again."),
@@ -354,7 +381,7 @@ describe('<UploadDetail>', () => {
       data: makeUpload({ status: 'processing', rowCount: null }),
     })
 
-    render(<UploadDetail uploadId="upload-1" />)
+    render(<UploadDetail uploadId="upload-1" isWin={false} />)
 
     expect(
       await screen.findByText(
@@ -381,7 +408,7 @@ describe('<UploadDetail>', () => {
       }),
     })
 
-    render(<UploadDetail uploadId="upload-1" />)
+    render(<UploadDetail uploadId="upload-1" isWin={false} />)
 
     expect(
       await screen.findByText(
@@ -402,7 +429,7 @@ describe('<UploadDetail>', () => {
     ])
     mockRows()
 
-    render(<UploadDetail uploadId="upload-1" />)
+    render(<UploadDetail uploadId="upload-1" isWin={false} />)
 
     await screen.findByText(
       "We're matching your people. This page updates when it's done.",
