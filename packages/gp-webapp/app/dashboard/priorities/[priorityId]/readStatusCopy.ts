@@ -2,9 +2,11 @@ import {
   joinGroupNames,
   READ_REPRESENTATIVENESS_LABELS,
   underrepresentedGroupName,
+  type ManagedCivicPanelStatus,
   type PriorityReadStatus,
   type UnderrepresentedGroup,
 } from '@goodparty_org/contracts'
+import { SERVE_CITIZENS_PANEL_COPY } from '../../contacts/citizens-panel/citizensPanelCopy'
 
 const NO_ONE_ASKED = 'No one asked yet'
 const FEW_MORE_OVERALL = 'Need a few more answers overall'
@@ -160,4 +162,25 @@ export const READ_STATUS_DOT: Record<PriorityReadStatus['status'], string> = {
   gettingClose: 'bg-warning',
   representative: 'bg-primary',
   enoughAnswers: 'bg-primary',
+}
+
+// The civic panel GoodParty builds, under the read: the titles the civic
+// panel page leads with, and how many residents have joined.
+export const civicPanelStanding = (
+  status: Exclude<ManagedCivicPanelStatus, 'stopped'>,
+  members: number,
+  goal: number,
+): { title: string; line: string } => {
+  const hero = SERVE_CITIZENS_PANEL_COPY.hero
+  const joined = SERVE_CITIZENS_PANEL_COPY.joinedOfGoal(members, goal)
+  switch (status) {
+    case 'building':
+      return { title: hero.building.title, line: joined }
+    case 'paused':
+      return { title: hero.paused.title, line: joined }
+    case 'exhausted':
+      return { title: hero.exhausted.title, line: joined }
+    case 'ready':
+      return { title: hero.ready.title, line: hero.ready.line(members, goal) }
+  }
 }

@@ -1837,13 +1837,15 @@ describe('RobocallFlow', () => {
     expect(screen.getByText('+12025550147')).toBeInTheDocument()
     expect(screen.getByText('Estimated cost')).toBeInTheDocument()
     expect(screen.getByText('$3.60')).toBeInTheDocument()
-    // The saved recording is playable and the read script is shown back.
+    // The saved recording is playable and what was actually said in it (the
+    // compliance transcript) is shown back, not the AI-drafted script.
     expect(screen.getByRole('button', { name: 'Play' })).toBeInTheDocument()
+    expect(screen.getByText('Hi, this is Alex...')).toBeInTheDocument()
     expect(
-      screen.getByText(
+      screen.queryByText(
         /^Hi, this is Alex, and I am running for City Council\./,
       ),
-    ).toBeInTheDocument()
+    ).not.toBeInTheDocument()
   })
 
   // Regression: a list BUILT in the flow is selected as the flow leaves the
@@ -2018,6 +2020,33 @@ describe('RobocallFlow', () => {
     const done = screen.getByRole('button', { name: 'Done' })
     await user.click(done)
     expect(onClose).toHaveBeenCalled()
+  })
+
+  it('reports the picked purpose on the created and completed campaign', async () => {
+    vi.mocked(trackEvent).mockClear()
+    mockCreateDraft(560)
+    mockSaveCardIntent()
+    mockAuthorize('authorized', 560, 'authorized')
+
+    await gotoReview('Persuade likely voters')
+    await enterPay()
+    await user.click(
+      await screen.findByRole('button', { name: /Authorize \$5\.60/ }),
+    )
+    await screen.findByText("You're all set")
+
+    for (const event of [
+      EVENTS.Dashboard.VoterContact.CampaignCreated,
+      EVENTS.Dashboard.VoterContact.CampaignCompleted,
+    ]) {
+      expect(vi.mocked(trackEvent)).toHaveBeenCalledWith(
+        event,
+        expect.objectContaining({
+          medium: 'robocall',
+          purpose: 'persuade_voters',
+        }),
+      )
+    }
   })
 
   it('applies a promo code and authorizes the discounted remainder', async () => {
@@ -3062,6 +3091,7 @@ describe('RobocallFlow', () => {
       })
 
     it('resumes a payment-failed robocall, re-picks a date, converts and authorizes', async () => {
+      vi.mocked(trackEvent).mockClear()
       gateRef.set(PRO_GATE)
       mockSavedLists()
       mockListDetail(80)
@@ -3126,6 +3156,16 @@ describe('RobocallFlow', () => {
           }),
         ]),
       )
+      // The row keeps no purpose, so the resume's `custom` is a stand-in and
+      // the completion must not report it.
+      const completed = vi
+        .mocked(trackEvent)
+        .mock.calls.find(
+          ([event]) =>
+            event === EVENTS.Dashboard.VoterContact.CampaignCompleted,
+        )
+      expect(completed?.[1]).toBeDefined()
+      expect(completed?.[1]).not.toHaveProperty('purpose')
     })
 
     // A resend can swap its list: Back reaches the audience step and stops
@@ -3362,6 +3402,24 @@ describe('RobocallFlow', () => {
       expect(vi.mocked(trackEvent)).toHaveBeenCalledWith(
         EVENTS.Outreach.Draft.Saved,
         { channel: 'robocall' },
+      )
+    })
+
+    it('reports the purpose on the campaign the saved draft creates', async () => {
+      vi.mocked(trackEvent).mockClear()
+      gateRef.set(FREE_GATE)
+      mockSaveDraft()
+
+      await buildToCompose()
+      await saveDraft()
+      await screen.findByTestId('pro-upgrade-flow')
+
+      expect(vi.mocked(trackEvent)).toHaveBeenCalledWith(
+        EVENTS.Dashboard.VoterContact.CampaignCreated,
+        expect.objectContaining({
+          medium: 'robocall',
+          purpose: 'persuade_voters',
+        }),
       )
     })
 

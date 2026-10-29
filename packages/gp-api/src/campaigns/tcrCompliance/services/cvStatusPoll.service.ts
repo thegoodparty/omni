@@ -2,7 +2,6 @@ import { Injectable, NotFoundException } from '@nestjs/common'
 import { Cron } from '@nestjs/schedule'
 import { subHours } from 'date-fns'
 import { formatInTimeZone } from 'date-fns-tz'
-import { setTimeout as sleep } from 'timers/promises'
 import {
   Campaign,
   Prisma,
@@ -27,6 +26,7 @@ import {
 import { PeerlyIdentityService } from '../../../vendors/peerly/services/peerlyIdentity.service'
 import { CampaignTcrComplianceService } from './campaignTcrCompliance.service'
 import { VENDOR_CRONS_ENABLED } from 'src/shared/util/appEnvironment.util'
+import { sleep } from 'src/shared/util/sleep.util'
 
 // The scan owns every scheduled Peerly retrieve_cv read. Cadence, set size,
 // and pacing were agreed with Peerly (James/Patrick, 2026-08-17): poll only

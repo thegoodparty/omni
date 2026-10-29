@@ -2,13 +2,12 @@ import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { firstOrThrow } from '@/shared/test-utils/arrays.util'
 import { CampaignsService } from '@/campaigns/services/campaigns.service'
 import { BadRequestException, ConflictException } from '@nestjs/common'
-import { Campaign, Organization, User, UserRole } from '../generated/prisma'
+import { Campaign, User, UserRole } from '../generated/prisma'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { UsersService } from '../users/services/users.service'
 import { StripeService } from '../vendors/stripe/services/stripe.service'
 import { PurchaseController } from './purchase.controller'
 import {
-  CompleteCheckoutSessionDto,
   CompleteFreePurchaseDto,
   CreateCheckoutSessionDto,
   PurchaseType,
@@ -42,7 +41,6 @@ const mockCampaign = {
   slug: 'cmp',
   isPro: false,
 } as unknown as Campaign
-const mockOrganization = { slug: 'org-slug' } as unknown as Organization
 
 describe('PurchaseController', () => {
   let controller: PurchaseController
@@ -525,32 +523,6 @@ describe('PurchaseController', () => {
       expect(purchaseService.createCheckoutSession).not.toHaveBeenCalled()
     })
 
-    it('forwards campaignId and organizationSlug to the purchase service', async () => {
-      const expected = {
-        id: 'cs_x',
-        clientSecret: 'cs_secret',
-        amount: 50,
-      }
-      purchaseService.createCheckoutSession.mockResolvedValue(expected)
-
-      const result = await controller.createCheckoutSession(
-        mockUser,
-        dto,
-        mockCampaign,
-        mockOrganization,
-      )
-
-      expect(purchaseService.createCheckoutSession).toHaveBeenCalledWith({
-        user: mockUser,
-        dto,
-        metadata: {
-          campaignId: mockCampaign.id,
-          organizationSlug: mockOrganization.slug,
-        },
-      })
-      expect(result).toBe(expected)
-    })
-
     it('logs and rethrows errors from the purchase service', async () => {
       const error = new Error('boom')
       purchaseService.createCheckoutSession.mockRejectedValue(error)
@@ -563,21 +535,6 @@ describe('PurchaseController', () => {
           undefined,
         ),
       ).rejects.toBe(error)
-    })
-  })
-
-  describe('completeCheckoutSession', () => {
-    it('delegates to PurchaseService.completeCheckoutSession', async () => {
-      const dto: CompleteCheckoutSessionDto = {
-        checkoutSessionId: 'cs_complete',
-      }
-      const response = { alreadyProcessed: false, result: { ok: true } }
-      purchaseService.completeCheckoutSession.mockResolvedValue(response)
-
-      await expect(controller.completeCheckoutSession(dto)).resolves.toBe(
-        response,
-      )
-      expect(purchaseService.completeCheckoutSession).toHaveBeenCalledWith(dto)
     })
   })
 

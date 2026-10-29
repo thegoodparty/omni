@@ -6,11 +6,6 @@ import { QueueType } from '@/queue/queue.types'
 import { QueueConsumerService } from '@/queue/consumer/queueConsumer.service'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 
-vi.mock('@/polls/utils/polls.utils', async (importOriginal) => ({
-  ...(await importOriginal<object>()),
-  sendTevynAPIPollMessage: vi.fn(),
-}))
-
 const RUN_ID = 'run-abc'
 
 type ResultOverrides = {
@@ -164,6 +159,7 @@ describe('QueueConsumerService - handleAgentExperimentResult', () => {
       {} as never,
       {} as never,
       logger,
+      {} as never,
       {} as never,
       {} as never,
       {} as never,

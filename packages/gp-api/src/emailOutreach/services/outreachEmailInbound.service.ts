@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
+import { resolveEnvVar } from '@/shared/env/env'
 import { isUniqueConstraintError } from '@/prisma/util/prismaErrors.util'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import {
@@ -21,7 +22,6 @@ import {
 import { OutreachEmailUnsubscribeService } from './outreachEmailUnsubscribe.service'
 import { FORWARD_MARKER_HEADER, SesService } from './ses.service'
 
-const INBOUND_BUCKET_PREFIX = 'email-inbound-'
 const MAX_FORWARD_CHARS = 100_000
 const MAX_DISPLAY_NAME_CHARS = 60
 const STOP_WORDS =
@@ -60,8 +60,12 @@ export class OutreachEmailInboundService extends createPrismaBase(
     key: string,
     fromAuthenticated: boolean,
   ): Promise<void> {
-    if (!bucket.startsWith(INBOUND_BUCKET_PREFIX)) {
-      this.logger.error({ bucket, key }, 'inbound reply from an unknown bucket')
+    const expected = resolveEnvVar('EMAIL_INBOUND_BUCKET')
+    if (!expected.configured) {
+      throw new Error('EMAIL_INBOUND_BUCKET is not set')
+    }
+    if (bucket !== expected.value) {
+      this.logger.warn({ bucket, key }, 'inbound reply from an unknown bucket')
       return
     }
     const existing = await this.model.findUnique({

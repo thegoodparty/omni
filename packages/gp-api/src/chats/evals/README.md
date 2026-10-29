@@ -7,11 +7,12 @@ Behavioral LLM tests for chat system prompts.
 Evals are **behavioral contracts** verified against a real LLM. They're
 different from unit tests:
 
-- Unit tests (`*.test.ts`) — fast, deterministic, no network. Assert prompt
-  builder shape, fixture structure, sanitization, etc.
-- Integration tests (`*.integration.test.ts`) — also no LLM. Compose the
-  prompt builder with realistic fixtures and assert the rendered prompt
-  contains every expected block.
+- Unit tests (`*.test.ts`) — fast, deterministic, no network. Test the
+  logic around the prompt: a section that appears only when a tool, flag
+  or input is set (build it both ways), values computed into it (dates,
+  counts), sanitization, and shared constants by import. Never assert the
+  prompt's wording; see "Prompt and copy text" in
+  `packages/gp-api/docs/writing-tests.md`.
 - Evals (`*.eval.test.ts`) — call the real LLM with the real prompt and
   assert the model **behaves** the way the prompt promises. Cost money.
   Gated by `RUN_LLM_EVALS=1`. Skipped by default.
@@ -57,8 +58,8 @@ asserts the new behavior holds against the real LLM. Examples:
 - Add a sanitization rule → add a case with adversarial highlight content
   that previously leaked.
 
-The integration test catches "is the block in the prompt at all?" The
-eval catches "does the model actually respect the block?"
+Unit tests catch "does the block show up when it should?" The eval
+catches "does the model actually respect the block?"
 
 ## When evals fail
 
@@ -92,6 +93,5 @@ src/chats/evals/
   envOverride.ts         # force-load .env over .env.test
 src/chats/<feature>/evals/
   fixtures/              # realistic prompt-builder args
-  <thing>.integration.test.ts   # no LLM — builder + fixture
-  <thing>.eval.test.ts          # real LLM, gated
+  <thing>.eval.test.ts   # real LLM, gated
 ```

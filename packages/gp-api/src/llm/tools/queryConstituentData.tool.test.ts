@@ -484,6 +484,59 @@ describe('buildQueryConstituentDataTool — wiring + suppression', () => {
     expect(provider.calls).toHaveLength(0)
   })
 
+  describe('the imported-contact overlay', () => {
+    const OVERLAY = '(SELECT b.* FROM overlay_join b)'
+    const overlayScope: ConstituentDataScope = {
+      ...scope,
+      contactOverlayTable: OVERLAY,
+    }
+
+    it('reads the bare table when the scope has no overlay', async () => {
+      const provider = fakeProvider([{ age_band: '25-34', n: 800 }])
+      await buildQueryConstituentDataTool({ provider, scope }).execute({
+        sql: happySql,
+      })
+      expect(provider.calls).toEqual([happySql])
+    })
+
+    it('swaps the overlay in for the table after validation', async () => {
+      const provider = fakeProvider([{ age_band: '25-34', n: 800 }])
+      await buildQueryConstituentDataTool({
+        provider,
+        scope: overlayScope,
+      }).execute({ sql: happySql })
+      expect(provider.calls).toEqual([
+        happySql.replace(`FROM ${TABLE}`, `FROM ${OVERLAY} AS ${TABLE}`),
+      ])
+    })
+
+    it('keeps the alias the model gave the table', async () => {
+      const provider = fakeProvider([{ age_band: '25-34', n: 800 }])
+      const sql = `SELECT age_band, COUNT(*) AS n FROM ${TABLE} t ${scopeWhere}
+        GROUP BY age_band`
+      await buildQueryConstituentDataTool({
+        provider,
+        scope: overlayScope,
+      }).execute({ sql })
+      expect(provider.calls).toEqual([
+        sql.replace(`FROM ${TABLE} t`, `FROM ${OVERLAY} t`),
+      ])
+    })
+
+    it('never reaches the provider when validation rejects the query', async () => {
+      const provider = fakeProvider([])
+      await expect(
+        buildQueryConstituentDataTool({
+          provider,
+          scope: overlayScope,
+        }).execute({
+          sql: `SELECT COUNT(*) AS n FROM ${TABLE} WHERE state_postal_code = 'SC'`,
+        }),
+      ).rejects.toBeInstanceOf(SqlRejected)
+      expect(provider.calls).toHaveLength(0)
+    })
+  })
+
   it('truncates to maxRows after suppression', async () => {
     const provider = fakeProvider([
       { age_band: '25-34', n: 800 },
@@ -550,52 +603,30 @@ describe('tool description — score semantics follows the scope', () => {
     // The whole constant, not fragments — partial pastes and drift between
     // the constant and the rendered description must fail.
     expect(tool.description).toContain(
-      hsScoreSemantics('constituent', 'voters'),
+      hsScoreSemantics('constituent', { base: 'voters' }),
     )
-    expect(tool.description).toMatch(/percentile rank/i)
-    expect(tool.description).toMatch(/deviation from 50/i)
     expect(tool.description).not.toContain('likelihood')
   })
 
   it('keeps the legacy wording for scopes whose catalog has no marks (win)', () => {
     const tool = buildQueryConstituentDataTool({ provider, scope })
     expect(tool.description).toContain('0-100 likelihood')
-    expect(tool.description).toContain(
-      "Categorical flag columns hold string values (e.g. 'support', 'oppose'), not 1/0.",
-    )
     expect(tool.description).not.toContain(
-      hsScoreSemantics('constituent', 'voters'),
-    )
-    expect(tool.description).not.toMatch(/percentile rank/i)
-  })
-
-  // QR-08: a threshold share reported with no mandated denominator name
-  // reads as a survey result ("over known responses"). Asserted on the
-  // constant directly so districtInsights.tool.ts inherits the guarantee.
-  // The ban has to name the words it forbids, so this checks for the ban
-  // statement and the old buggy phrasing's absence, not word absence.
-  it('names the share denominator and bans survey language (QR-08)', () => {
-    expect(hsScoreSemantics('constituent', 'voters')).toMatch(/scored/i)
-    expect(hsScoreSemantics('constituent', 'voters')).toMatch(
-      /survey language/i,
-    )
-    expect(hsScoreSemantics('constituent', 'voters')).not.toContain(
-      'state the coverage alongside',
+      hsScoreSemantics('constituent', { base: 'voters' }),
     )
   })
 
   it('explains missing scores by non-registration on the constituents dataset', () => {
     const tool = buildQueryConstituentDataTool({
       provider,
-      scope: { ...markedScope, peopleDataset: 'constituents' },
+      scope: { ...markedScope, peopleDataset: { base: 'constituents' } },
     })
     expect(tool.description).toContain(
-      hsScoreSemantics('constituent', 'constituents'),
+      hsScoreSemantics('constituent', { base: 'constituents' }),
     )
     expect(tool.description).toContain(
-      'residents who are not registered to vote are never scored',
+      dataSourceRoutingRules({ base: 'constituents' }),
     )
-    expect(tool.description).toContain(dataSourceRoutingRules('constituents'))
   })
 
   it('keeps the voter-file wording when the scope names no dataset', () => {

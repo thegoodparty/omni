@@ -32,7 +32,6 @@ module.exports = [
       'docs/*.md',
       '.claude/**/*.md',
       '**/.next/**',
-      '**/.storybook/**',
       'eslint.config.js',
       // Preserve legacy coverage: ESLint v8 only linted .ts/.tsx (via the
       // overrides) and .md (via mdx). .js/.jsx/.mjs/.cjs were never linted.
@@ -100,7 +99,6 @@ module.exports = [
 
   {
     files: ['**/*.ts', '**/*.tsx'],
-    ignores: ['styleguide/stories/**'],
 
     languageOptions: {
       parser: tsParser,
@@ -161,35 +159,6 @@ module.exports = [
 
     rules: {
       '@typescript-eslint/no-unsafe-assignment': 'off',
-    },
-  },
-
-  {
-    files: ['styleguide/stories/**/*.ts', 'styleguide/stories/**/*.tsx'],
-
-    languageOptions: {
-      parser: tsParser,
-    },
-
-    plugins: {
-      '@typescript-eslint': typescriptEslint,
-    },
-
-    rules: {
-      'react-hooks/rules-of-hooks': 'off',
-      '@typescript-eslint/no-unused-expressions': 'off',
-      '@typescript-eslint/no-useless-constructor': 'error',
-      '@typescript-eslint/no-empty-function': 'error',
-      '@typescript-eslint/no-unused-vars': [
-        'error',
-        {
-          vars: 'all',
-          args: 'all',
-          ignoreRestSiblings: false,
-          argsIgnorePattern: '^_',
-          varsIgnorePattern: '^_',
-        },
-      ],
     },
   },
 

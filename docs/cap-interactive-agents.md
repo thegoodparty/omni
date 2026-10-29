@@ -440,10 +440,9 @@ eval**. This is a known, growing area of investment. What exists today:
 - The harness (`src/chats/evals/runEval.ts`) is a **substring/regex matcher**
   (`mustContain`/`mustNotContain`/`custom`) — **no LLM-as-judge, no rubric scoring,
   no golden datasets.**
-- **Chief of Staff has no eval file at all** — only unit/integration tests of the
-  prompt builder and plumbing. `*.integration.test.ts` files assert deterministic
-  prompt _composition_ (string-contains on rendered blocks), not model behavior;
-  these do run in CI.
+- **Chief of Staff has no eval file at all** — only unit tests of the prompt
+  builder and plumbing. They check prompt _logic_ (which blocks a tool or flag
+  turns on, computed values), never wording or model behavior; these do run in CI.
 - The campaign chat's only quality signal is the `POST /:threadId/feedback`
   thumbs-up/down piped to Slack.
 - **Braintrust** (`src/vendors/braintrust/`) wraps the chat stream

@@ -56,7 +56,7 @@ export const ROBOCALL_FREE_OFFER_CODE_EXPIRES_AT = new Date(
   '2026-11-04T00:00:00Z',
 )
 
-// The plan task the invite script adds. Tracker rows carry no catalog id, so
+// The plan task gp-api adds once a campaign has the offer. Tracker rows carry no catalog id, so
 // the title is how the task is found again to complete it. Same words as the
 // webapp's FREE_OFFER_TITLE.
 export const ROBOCALL_FREE_OFFER_TASK_TITLE =
@@ -66,3 +66,8 @@ export const ROBOCALL_FREE_OFFER_TASK_TITLE =
 // since overlapping districts share precincts. Same key space as
 // campaigns.consts.ts.
 export const ROBOCALL_FREE_OFFER_ADVISORY_LOCK_KEY = 918_279
+
+// Same line as the webapp's Home card (FREE_OFFER_HOME_BODY): the outcome,
+// with the count left to the flow, where it is counted in voters.
+export const ROBOCALL_FREE_OFFER_TASK_DESCRIPTION =
+  'Reach voters the day before Election Day, at no cost to your campaign.'

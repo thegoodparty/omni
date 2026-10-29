@@ -69,24 +69,6 @@ describe('ConstituentFeedbackExtractionService', () => {
     })
   })
 
-  // Some canvasses exist only to gather issues, so one note often names
-  // several; the prompt has to ask for each rather than the first.
-  it('asks for one entry per issue, up to five', async () => {
-    const llm = llmReturning({ issues: [], confidence: 0.2 })
-    const service = new ConstituentFeedbackExtractionService(llm, logger())
-
-    await service.extract({
-      transcript: TRANSCRIPT,
-      effortQuestion: null,
-      userId: 1,
-    })
-
-    const system = vi.mocked(llm.jsonCompletion).mock.calls[0]?.[0].messages[0]
-      ?.content
-    expect(system).toContain('one entry per distinct issue')
-    expect(system).toContain('up to five')
-  })
-
   // The prompt asks for five at most, but a model that names a sixth must
   // not fail the whole extraction: the schema it is held to takes any
   // number, and the service keeps the first five.

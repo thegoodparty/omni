@@ -10,10 +10,9 @@ import { z } from 'zod'
 //
 // Tiers describe what SHOULD gate boot. `./env.ts`'s `resolveEnvVar` is the
 // resolution helper degradable vendor sites consume (ENG-11195) — see e.g.
-// vendors/vercel/services/vercel.service.ts or
-// voters/services/voters.service.ts for the pattern. A few `requireEnv()`
-// import-time throws on `optional`/`degradable` vars remain outside that
-// inventory (e.g. vendors/stripe/services/stripe.service.ts's own
+// vendors/vercel/services/vercel.service.ts for the pattern. A few
+// `requireEnv()` import-time throws on `optional`/`degradable` vars remain
+// outside that inventory (e.g. vendors/stripe/services/stripe.service.ts's own
 // STRIPE_SECRET_KEY / STRIPE_WEBSOCKET_SECRET / WEBAPP_ROOT_URL checks) —
 // migrating those is still a separate piece of work.
 //
@@ -68,6 +67,12 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
   // The SNS topic that delivers replies to outreach email. The webhook
   // accepts messages from this topic only.
   EMAIL_INBOUND_TOPIC_ARN: {
+    tier: 'degradable',
+    feature: 'email-outreach-replies',
+  },
+
+  // The only bucket the reply handler reads inbound mail from.
+  EMAIL_INBOUND_BUCKET: {
     tier: 'degradable',
     feature: 'email-outreach-replies',
   },
@@ -192,8 +197,6 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
     feature: 'office-search',
     placeholder: 'key',
   },
-
-  L2_DATA_KEY: { tier: 'degradable', feature: 'voter-file-l2' },
 
   // Secrets Manager id of the curated local-dev bundle POST /v1/dev-env/
   // bundle vends. Set on the dev deploy only; unset everywhere else, which
@@ -363,6 +366,19 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
   MEETING_PIPELINE_BUCKET: { tier: 'optional' },
   ANNOTATION_ATTACHMENTS_BUCKET: { tier: 'optional' },
   CHAT_ATTACHMENTS_BUCKET: { tier: 'optional' },
+  // Original CSVs from Import contacts (src/contactUploads/AGENTS.md).
+  CONTACT_UPLOADS_BUCKET: { tier: 'optional' },
+  // The dbt view the people reads join for orgs with serve-import-contacts
+  // on; dev reads the view over the dev federated catalog.
+  PEOPLE_DBX_CONTACT_OVERLAY_VIEW: {
+    tier: 'optional',
+    default: 'gp_api_contact_overlay',
+  },
+  // The same overlay for the Serve agents' mart, keyed by voter_key.
+  SERVE_AGENT_CONTACT_OVERLAY_VIEW: {
+    tier: 'optional',
+    default: 'serve_agent_contact_overlay',
+  },
 
   CAMPAIGN_TRACKER_AUTOMATION_ENABLED: { tier: 'optional' },
   MEETINGS_AUTOMATION_ENABLED: { tier: 'optional' },

@@ -148,6 +148,8 @@ export interface Voter {
   VoterTelephones_CellPhoneFormatted: string | null
   VoterTelephones_LandlineConfidenceCode: number | null
   VoterTelephones_LandlineFormatted: string | null
+  Email: string | null // Not a mart column: the imported-contact overlay's email, NULL on reads without it
+  ContactIsNew: boolean // Not a mart column: true for a person only an import added, false on reads without the overlay
 
   // Voter Turnout
   AnyElection_2017: string | null

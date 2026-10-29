@@ -29,7 +29,7 @@ jobs:
     name: Checks
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           persist-credentials: false
 
@@ -76,6 +76,12 @@ jobs:
       - name: Guard animation assets
         run: npm run check:animation-assets -w ${{ env.WORKSPACE }}
 
+      # Agents skip a rule in AGENTS.md once they stop reading it; they can't
+      # skip a red check. Raw form elements, hex color classes and direct
+      # lucide-react imports are grandfathered at their count and can't grow.
+      - name: Guard design system usage
+        run: npm run check:design-system -w ${{ env.WORKSPACE }}
+
       - name: Check env contract
         run: npm run check:env-contract -w ${{ env.WORKSPACE }}
 
@@ -91,7 +97,7 @@ jobs:
       matrix:
         shard: [1, 2, 3, 4]
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           persist-credentials: false
 
@@ -128,7 +134,7 @@ jobs:
     outputs:
       url: ${{ steps.vercel.outputs.url }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           persist-credentials: false
 
@@ -159,7 +165,7 @@ jobs:
         id: vercel
         uses: ./.github/actions/vercel-deploy
         with:
-          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          vercel-token: ${{ secrets.VERCEL_PREVIEW_TOKEN || secrets.VERCEL_TOKEN }}
           vercel-org-id: ${{ vars.VERCEL_ORG_ID }}
           vercel-project-id: ${{ vars.VERCEL_PROJECT_ID_GP_WEBAPP }}
           target: ${{ steps.ctx.outputs.target }}
@@ -466,14 +472,14 @@ jobs:
       # depends on it. PRs keep the raw preview URL.
       BASE_URL: ${{ github.event_name == 'push' && 'https://dev.goodparty.org' || needs.deploy.outputs.url }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           persist-credentials: false
 
       # The @dev-only polls test (main push only) drives the analyze
       # pipeline and needs AWS; we don't know which shard it lands in, so all
       # shards configure OIDC creds.
-      - uses: aws-actions/configure-aws-credentials@v5
+      - uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5
         with:
           role-to-assume: arn:aws:iam::333022194791:role/web-app-e2e-tests
           aws-region: us-west-2
@@ -491,7 +497,7 @@ jobs:
       # The newest durations the E2E job recorded: this PR's last run if it
       # has one, else main's. A miss only degrades the plan to a count split.
       - name: Restore test durations
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: ${{ env.WORKSPACE }}/e2e-tests/e2e-durations.json
           key: e2e-durations-v1-${{ github.run_id }}
@@ -541,7 +547,7 @@ jobs:
 
       - name: Upload shard blob report
         if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: e2e-blob-${{ matrix.shard }}
           path: ${{ env.WORKSPACE }}/e2e-tests/blob-report
@@ -571,12 +577,12 @@ jobs:
     steps:
       # Only the merge config, the shard planner and the root lockfile are
       # read here.
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           persist-credentials: false
           sparse-checkout: ${{ env.WORKSPACE }}/e2e-tests
 
-      - uses: aws-actions/configure-aws-credentials@v5
+      - uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5
         with:
           role-to-assume: arn:aws:iam::333022194791:role/web-app-e2e-tests
           aws-region: us-west-2
@@ -592,7 +598,7 @@ jobs:
         if: >-
           needs.e2e-shard.result == 'success'
           || needs.e2e-shard.result == 'failure'
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: e2e-blob-*
           merge-multiple: true
@@ -612,7 +618,7 @@ jobs:
           steps.download-blobs.outcome == 'failure'
           && (needs.e2e-shard.result == 'success'
           || needs.e2e-shard.result == 'failure')
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: e2e-blob-*
           merge-multiple: true
@@ -652,14 +658,14 @@ jobs:
         run: node scripts/plan-shards.mjs durations test-results/results.json > e2e-durations.json
       - name: Save test durations
         if: steps.durations.outcome == 'success'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: ${{ env.WORKSPACE }}/e2e-tests/e2e-durations.json
           key: e2e-durations-v1-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Upload Playwright report
         if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: gp-webapp-playwright-report-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
@@ -729,7 +735,7 @@ jobs:
           ${{ always() && github.event_name == 'pull_request'
           && (needs.e2e-shard.result == 'success'
               || needs.e2e-shard.result == 'failure') }}
-        uses: actions/github-script@v8
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         env:
           REPORT_URL: ${{ steps.report.outputs.url }}
           TOTAL: ${{ steps.results.outputs.total }}

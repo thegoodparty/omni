@@ -7,6 +7,7 @@ import { HttpStatus } from '@nestjs/common'
 import { mockClient } from 'aws-sdk-client-mock'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
+import { DevEnvService } from './services/devEnv.service'
 import {
   appEnvOverrides,
   useAppEnvOverrides,
@@ -61,6 +62,7 @@ describe('POST /v1/dev-env/bundle', () => {
 
   it('vends to an active org member holding no gp-api session', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(activeMembership()))
+    const getBundles = vi.spyOn(service.app.get(DevEnvService), 'getBundles')
 
     const res = await service.client.post(
       '/v1/dev-env/bundle',
@@ -69,6 +71,7 @@ describe('POST /v1/dev-env/bundle', () => {
     )
 
     expect(res.status).toBe(HttpStatus.OK)
+    expect(getBundles).toHaveBeenCalledExactlyOnceWith(['gp-api'], 'octocat')
     expect(res.data).toEqual({
       bundles: [
         { package: 'gp-api', variables: { CLERK_SECRET_KEY: CLERK_DEV_VALUE } },

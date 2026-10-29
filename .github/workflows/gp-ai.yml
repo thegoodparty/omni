@@ -47,11 +47,11 @@ jobs:
       infra: ${{ steps.filter.outputs.infra }}
       services: ${{ steps.services.outputs.list }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           persist-credentials: false
 
-      - uses: dorny/paths-filter@v3
+      - uses: dorny/paths-filter@0e4a8c6effa4802afeda77dc8d303f8176d7dfad # v3
         id: filter
         with:
           filters: |
@@ -159,12 +159,12 @@ jobs:
       run:
         working-directory: packages/gp-ai
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           persist-credentials: false
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@v4
+        uses: astral-sh/setup-uv@38f3f104447c67c051c4a08e39b64a148898af3a # v4
         with:
           version: latest
 
@@ -228,7 +228,7 @@ jobs:
       matrix:
         service: ${{ fromJSON(needs.changes.outputs.services) }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           persist-credentials: false
 
@@ -287,20 +287,20 @@ jobs:
       # mint the ECR Public login token.
       - name: Configure AWS Credentials (ECR Public login)
         if: github.event_name == 'pull_request'
-        uses: aws-actions/configure-aws-credentials@v5
+        uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5
         with:
           role-to-assume: ${{ vars.AWS_PLAN_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Configure AWS Credentials
         if: github.event_name == 'push' && github.ref_name == 'main'
-        uses: aws-actions/configure-aws-credentials@v5
+        uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5
         with:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Login to Amazon ECR Public
-        uses: aws-actions/amazon-ecr-login@v2
+        uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd # v2
         with:
           registry-type: public
 
@@ -309,10 +309,10 @@ jobs:
       - name: Login to Amazon ECR
         id: ecr-private
         continue-on-error: ${{ github.event_name == 'pull_request' }}
-        uses: aws-actions/amazon-ecr-login@v2
+        uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd # v2
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
         with:
           driver-opts: |
             image=public.ecr.aws/vend/moby/buildkit:buildx-stable-1
@@ -354,7 +354,7 @@ jobs:
       # push from main — a PR pushing SHA tags would litter ECR with images for
       # commits that never land.
       - name: Build and push
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           # context is the subtree, not the repo root: every COPY in these
           # Dockerfiles was written relative to the old repo root. Widening it
@@ -399,7 +399,7 @@ jobs:
     env:
       PLAN_DIR: /tmp/tfplans
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           persist-credentials: false
 
@@ -415,20 +415,20 @@ jobs:
       # deploy role, which carries AdministratorAccess and is assumable from
       # `refs/pull/N/merge`, so every infra PR ran PR-authored Terraform with
       # admin. This role can read the dev state it plans against and little
-      # else: no Pulumi state, no SSM parameters, and no secret value except
-      # AI_SECRETS_DEV, which `dev/shared-infra` reads through a data source at
-      # plan time.
+      # else: no Pulumi state, no SSM parameters, and no secret values. No plan
+      # needs one: `dev/shared-infra` takes SERVE_API_KEY from its own state
+      # (ci-plan-root.sh), and no root manages a secret version.
       #
       # Step 5 of docs/deploy-role-trust.md in thegoodparty/ops.
       - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v5
+        uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5
         with:
           role-to-assume: ${{ vars.AWS_PLAN_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
       # 1.15.x, not 1.9.x: the S3 backends set `use_lockfile = true`, which needs
       # Terraform >= 1.10. Pinned to the version these plans were verified with.
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
         with:
           terraform_version: 1.15.8
           terraform_wrapper: false
@@ -486,7 +486,7 @@ jobs:
       - wait-all:
 
       - name: Post consolidated plan comment
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         with:
           script: |
             const fs = require('fs')

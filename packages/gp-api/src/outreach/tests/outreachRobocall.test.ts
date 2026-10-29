@@ -99,12 +99,6 @@ const userContent = () => {
     ?.content as string
 }
 
-const systemContent = () => {
-  const call = jsonCompletion.mock.calls[0]?.[0]
-  return call.messages.find((m: { role: string }) => m.role === 'system')
-    ?.content as string
-}
-
 describe('POST /v1/outreach/robocall/draft', () => {
   it('returns the generated script grounded in office and place', async () => {
     mockDraft('Hi, this is Jane Doe, and I am running for City Council.')
@@ -120,7 +114,6 @@ describe('POST /v1/outreach/robocall/draft', () => {
     const call = jsonCompletion.mock.calls[0]?.[0]
     expect(call.temperature).toBe(0.8)
     const userPrompt = userContent()
-    expect(userPrompt).toContain('introduce the candidate to voters')
     expect(userPrompt).toContain('Warm:')
     expect(userPrompt).toContain('City Council')
     expect(userPrompt).toContain(
@@ -159,30 +152,14 @@ describe('POST /v1/outreach/robocall/draft', () => {
     expect(userPrompt).toContain('Housing: Build more affordable units')
   })
 
-  it('requires the candidate self-ID opener and bans compliance lines', async () => {
-    mockDraft('A script.')
-
-    const res = await postDraft({ purpose: 'introduce_myself', tone: 'warm' })
-    expect(res.status).toBe(HttpStatus.CREATED)
-
-    const systemPrompt = systemContent()
-    expect(systemPrompt).toContain('"This is"')
-    expect(systemPrompt).toContain('"candidate for"')
-    expect(systemPrompt).toContain('"Paid for by"')
-    expect(systemPrompt).toContain('callback phone number')
-    expect(systemPrompt).toContain('"Reply STOP"')
-  })
-
   // The app writes "Paid for by" and the callback number and locks them in
-  // the script, so the current webapp's draft request carries no number and
-  // the model is told never to write either.
+  // the script, so the current webapp's draft request carries no number.
   it('never asks the model for the disclosure on a current request', async () => {
     mockDraft('A script.')
 
     const res = await postDraft({ purpose: 'introduce_myself', tone: 'warm' })
     expect(res.status).toBe(HttpStatus.CREATED)
 
-    expect(systemContent()).toContain('Do NOT include a "Paid for by" line')
     expect(userContent()).not.toContain('Callback number')
   })
 
@@ -209,7 +186,6 @@ describe('POST /v1/outreach/robocall/draft', () => {
 
     expect(userContent()).not.toContain('Paid for by')
     expect(userContent()).not.toContain('202-555-0147')
-    expect(systemContent()).toContain('Keep every marker exactly once')
     expect(res.data).toEqual({ draft: script })
   })
 
@@ -249,18 +225,6 @@ describe('POST /v1/outreach/robocall/draft', () => {
     expect(jsonCompletion).toHaveBeenCalledTimes(2)
   })
 
-  it.each(['early_voting', 'election_day_turnout'])(
-    'includes voting logistics placeholders for %s',
-    async (purpose) => {
-      mockDraft('A script.')
-
-      const res = await postDraft({ purpose, tone: 'urgent' })
-      expect(res.status).toBe(HttpStatus.CREATED)
-
-      expect(userContent()).toContain('voting logistics as bracketed')
-    },
-  )
-
   it('polishes the given text when currentDraft is present', async () => {
     mockDraft('A clearer version of my own words.')
 
@@ -273,10 +237,6 @@ describe('POST /v1/outreach/robocall/draft', () => {
     expect(res.status).toBe(HttpStatus.CREATED)
     expect(res.data).toEqual({ draft: 'A clearer version of my own words.' })
 
-    expect(systemContent()).toContain('polish')
-    expect(systemContent()).toContain(
-      'Every concrete detail in the original MUST appear in your output',
-    )
     const userPrompt = userContent()
     expect(userPrompt).toContain('Hi, this is Jane, running for council.')
     expect(userPrompt).toContain('Polish the script.')

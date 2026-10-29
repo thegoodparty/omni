@@ -1,4 +1,11 @@
 import type {
+  AcceptSuggestedMatchesResponse,
+  ContactSourcesResponse,
+  ContactUpload,
+  ListContactUploadRowsQuery,
+  ListContactUploadRowsResponse,
+  ListContactUploadsResponse,
+  SetContactUploadRowMatch,
   EmailConfirmRequest,
   EmailConfirmResponse,
   EmailDraft,
@@ -2091,6 +2098,43 @@ export type APIEndpoints = {
     Response: GetPersonPriorityAnswersResponse
   }
 
+  // Import contacts (Serve, behind serve-import-contacts). The create is
+  // multipart (`file`, `name`, `consentAffirmed`, `columnMapping` as a JSON
+  // string): pass `{}` as the typed payload and the FormData as `{ body }` in
+  // the overrides argument of clientRequest.
+  'POST /v1/contact-uploads': {
+    Request: {}
+    Response: ContactUpload
+  }
+  'GET /v1/contact-uploads': {
+    Request: {}
+    Response: ListContactUploadsResponse
+  }
+  'GET /v1/contact-uploads/:id': {
+    Request: {}
+    Response: ContactUpload
+  }
+  'GET /v1/contact-uploads/:id/rows': {
+    Request: ListContactUploadRowsQuery
+    Response: ListContactUploadRowsResponse
+  }
+  'PUT /v1/contact-uploads/:id/rows/:rowId/match': {
+    Request: SetContactUploadRowMatch
+    Response: ContactUpload
+  }
+  'POST /v1/contact-uploads/:id/accept-suggested': {
+    Request: {}
+    Response: AcceptSuggestedMatchesResponse
+  }
+  'POST /v1/contact-uploads/:id/retry': {
+    Request: {}
+    Response: ContactUpload
+  }
+  'GET /v1/contacts/:personId/sources': {
+    Request: {}
+    Response: ContactSourcesResponse
+  }
+
   'GET /v1/meetings': {
     Request: {}
     Response: MeetingsListResponseDto
@@ -3162,9 +3206,9 @@ export type ElectedOffice = {
   onboardingStep: string | null
   // The campaign this office was created from, when the holder reached office by
   // winning a GoodParty.org campaign (the "I won" flow). Null for a net-new serve
-  // lead (sales/magic-link/BallotReady) who was never a candidate. Marks a
-  // win-origin official who already onboarded as a candidate, so post-auth
-  // routing must NOT send them into serve onboarding for a missing term/date.
+  // lead (sales/magic-link/BallotReady) who was never a candidate. Sign-in
+  // routing never sends a win-origin office into serve onboarding; the
+  // dashboard does, while its onboardingCompletedAt is still null.
   campaignId: number | null
 }
 

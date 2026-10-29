@@ -4,6 +4,14 @@ import { ChevronLeftIcon, ChevronRightIcon, MoreHorizontalIcon } from './icons'
 
 import { cn } from '../../lib/utils'
 
+/**
+ * PaginationLink is a link. For in-page state, pass href="#" and call
+ * preventDefault in onClick. Disable Previous or Next at the ends with pointer-
+ * events-none and lower opacity.
+ *
+ * @summary Use for page links under a list or Table that shows one page at a
+ * time. DataTable has its own paging, so don't add this to it.
+ */
 function Pagination({ className, ...props }: React.ComponentProps<'nav'>) {
   return (
     <nav

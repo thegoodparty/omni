@@ -36,7 +36,7 @@ jobs:
             fi
           fi
 
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         if: steps.gate.outputs.skip != 'true'
         with:
           persist-credentials: false
@@ -44,7 +44,7 @@ jobs:
 
       - name: Set up uv
         if: steps.gate.outputs.skip != 'true'
-        uses: astral-sh/setup-uv@v3
+        uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39 # v3
         with:
           version: latest
 

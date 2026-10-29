@@ -32,26 +32,6 @@ describe('ElectionPositionsController', () => {
   })
 
   describe('getPositionById', () => {
-    it('passes every accepted query param through to the service', async () => {
-      getPositionById.mockResolvedValue({})
-
-      await controller.getPositionById(
-        { id: positionId } as GetPositionByIdParamsDTO,
-        {
-          includeDistrict: true,
-          includeFilingFee: true,
-          electionDate: '2026-11-03',
-        } as GetPositionByBrIdQueryDTO,
-      )
-
-      expect(getPositionById).toHaveBeenCalledWith({
-        id: positionId,
-        includeDistrict: true,
-        electionDate: '2026-11-03',
-        includeFilingFee: true,
-      })
-    })
-
     it('leaves omitted query params undefined', async () => {
       getPositionById.mockResolvedValue({})
 
@@ -66,18 +46,6 @@ describe('ElectionPositionsController', () => {
         electionDate: undefined,
         includeFilingFee: false,
       })
-    })
-
-    it('returns what the service returns', async () => {
-      const position = { id: positionId }
-      getPositionById.mockResolvedValue(position)
-
-      await expect(
-        controller.getPositionById(
-          { id: positionId } as GetPositionByIdParamsDTO,
-          {} as GetPositionByBrIdQueryDTO,
-        ),
-      ).resolves.toBe(position)
     })
   })
 

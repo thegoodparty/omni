@@ -67,6 +67,10 @@ campaign, read off the turf's own envelope or, for a sibling, its anchor's
 (a card's link is written to the anchor only). Null when no card opened it.
 The client puts it on the door-knocking `Outreach - Campaign Completed`.
 
+And `purpose`, the turf's own column, for the same event: Completed fires on
+another page from the flow that picked it, so the turf is where the client
+reads it back. Null on a turf made before the column existed.
+
 ### A campaign is a grouping, not a row
 
 Many turfs make one campaign, and the campaign has no table. The anchor's
@@ -906,7 +910,7 @@ or labelled. Every metric attribute is a closed set of literals.
 | Signal                                         | Where                                                | Reads                                                                                                                                                                                                           |
 | ---------------------------------------------- | ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `event: 'DoorKnockingSpend'` log line          | `doorKnockingCreate.service.ts` spend path           | `organizationSlug`, `turfId`, `waypoints` (stops), `credits` (both calls) — emitted before the ledger write and regardless of its outcome, so a lost ledger row cannot hide money the vendor has already billed |
-| `geoapify_credits_total{api}`                  | `vendors/geoapify/observability/geoapify.metrics.ts` | Credits billed, split `route_planner` / `routing` / `reverse_geocode` (the civic panel naming a census tract, once per tract), no org label (Prometheus cardinality)                                             |
+| `geoapify_credits_total{api}`                  | `vendors/geoapify/observability/geoapify.metrics.ts` | Credits billed, split `route_planner` / `routing` / `reverse_geocode` (the civic panel naming a census tract, once per tract), no org label (Prometheus cardinality)                                            |
 | `geoapify_vendor_call_count_total{api,result}` | same                                                 | `api="route_planner"` and `api="routing"` — call counts and failures, including a geometry fetch that was billed and returned nothing usable                                                                    |
 
 What pages: the global **route planner spend ceiling** alert (>10,000 credits /
@@ -1214,10 +1218,7 @@ with no composed introduction or thank-you around it. `POST /v1/outreach/door-kn
 `serve/` sibling return one `draft`. A fresh draft is 4 or 5 bullets, one
 action each, about the campaign's (or the office's) goal rather than the
 person at the door, assembled server-side so every line starts with the bullet marker. An
-Improve is a light polish that keeps whatever shape the candidate wrote. For
-one release the response also carries the optional `engagementQuestion`,
-`context` and `ask` filled from the draft's lines, so a tab open across the
-deploy keeps working.
+Improve is a light polish that keeps whatever shape the candidate wrote.
 
 **The list's purpose and its audience are the whole prompt input that is
 specific to this channel.** `DoorKnockingTurf.purpose` takes the same ten

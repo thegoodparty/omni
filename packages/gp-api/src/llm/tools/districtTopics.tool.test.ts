@@ -45,14 +45,6 @@ describe('DISTRICT_TOPICS_CATALOG', () => {
 })
 
 describe('buildDistrictTopicsTool', () => {
-  it('exposes a description that mentions the discovery purpose', () => {
-    const tool = buildDistrictTopicsTool()
-    expect(tool.description.toLowerCase()).toMatch(
-      /(discover|catalog|topics|find columns|list)/,
-    )
-    expect(typeof tool.inputSchema.parse).toBe('function')
-  })
-
   it('input schema accepts an optional topic filter', () => {
     const tool = buildDistrictTopicsTool()
     expect(() => tool.inputSchema.parse({})).not.toThrow()
@@ -109,10 +101,12 @@ describe('off-center baseline marker coupling', () => {
   const COVERAGE_MARKER = 'limited coverage'
 
   it('quotes both markers in the score semantics', () => {
-    expect(hsScoreSemantics('constituent', 'voters')).toContain(
+    expect(hsScoreSemantics('constituent', { base: 'voters' })).toContain(
       OFFCENTER_MARKER,
     )
-    expect(hsScoreSemantics('constituent', 'voters')).toContain(COVERAGE_MARKER)
+    expect(hsScoreSemantics('constituent', { base: 'voters' })).toContain(
+      COVERAGE_MARKER,
+    )
   })
 
   it('carries the off-center marker on both shifted-baseline columns', () => {

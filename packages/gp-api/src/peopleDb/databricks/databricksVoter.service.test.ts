@@ -64,7 +64,9 @@ describe('DatabricksVoterService', () => {
     it('scopes a normal district on its L2 column, not the junction', async () => {
       stubDistrict('US_Congressional_District', '29')
 
-      const district = await service.resolveDistrict(DISTRICT_ID, 'voters')
+      const district = await service.resolveDistrict(DISTRICT_ID, {
+        base: 'voters',
+      })
 
       expect(district.districtType).toBe('US_Congressional_District')
       expect(district.districtName).toBe('29')
@@ -77,10 +79,9 @@ describe('DatabricksVoterService', () => {
     it('takes the voter-only path for a State district named for its state', async () => {
       stubDistrict('State', 'CA', STATE_DISTRICT_ID)
 
-      const district = await service.resolveDistrict(
-        STATE_DISTRICT_ID,
-        'voters',
-      )
+      const district = await service.resolveDistrict(STATE_DISTRICT_ID, {
+        base: 'voters',
+      })
 
       expect(district.useVoterOnlyPath).toBe(true)
       // Nothing is interpolated on this path, so there is no column to check --
@@ -91,7 +92,9 @@ describe('DatabricksVoterService', () => {
     it('keeps the district predicate for a State district named otherwise', async () => {
       stubDistrict('State', 'Statewide')
 
-      const district = await service.resolveDistrict(DISTRICT_ID, 'voters')
+      const district = await service.resolveDistrict(DISTRICT_ID, {
+        base: 'voters',
+      })
 
       expect(district.useVoterOnlyPath).toBe(false)
     })
@@ -102,7 +105,7 @@ describe('DatabricksVoterService', () => {
       )
 
       await expect(
-        service.resolveDistrict(DISTRICT_ID, 'voters'),
+        service.resolveDistrict(DISTRICT_ID, { base: 'voters' }),
       ).rejects.toThrow(NotFoundException)
       expect(query).not.toHaveBeenCalled()
     })
@@ -110,12 +113,11 @@ describe('DatabricksVoterService', () => {
     it('attaches the table for the dataset it was asked for', async () => {
       stubDistrict('US_Congressional_District', '29')
 
-      const district = await service.resolveDistrict(
-        DISTRICT_ID,
-        'constituents',
-      )
+      const district = await service.resolveDistrict(DISTRICT_ID, {
+        base: 'constituents',
+      })
 
-      expect(district.dataset).toBe('constituents')
+      expect(district.dataset).toEqual({ base: 'constituents' })
       expect(district.table).toBe(
         'goodparty_data_catalog.mart_gp_api.gp_api_constituents',
       )
@@ -126,11 +128,12 @@ describe('DatabricksVoterService', () => {
     it('never hands one dataset the cached table of another', async () => {
       stubDistrict('US_Congressional_District', '29')
 
-      const constituents = await service.resolveDistrict(
-        DISTRICT_ID,
-        'constituents',
-      )
-      const voters = await service.resolveDistrict(DISTRICT_ID, 'voters')
+      const constituents = await service.resolveDistrict(DISTRICT_ID, {
+        base: 'constituents',
+      })
+      const voters = await service.resolveDistrict(DISTRICT_ID, {
+        base: 'voters',
+      })
 
       expect(findDistrictById).toHaveBeenCalledTimes(1)
       expect(constituents.table).toBe(
@@ -141,11 +144,36 @@ describe('DatabricksVoterService', () => {
       )
     })
 
+    it('never hands one org the cached overlay join of another', async () => {
+      stubDistrict('US_Congressional_District', '29')
+
+      const orgA = await service.resolveDistrict(DISTRICT_ID, {
+        base: 'voters',
+        overlayOrgSlug: 'eo-a',
+        overlayDistrictId: DISTRICT_ID,
+      })
+      const orgB = await service.resolveDistrict(DISTRICT_ID, {
+        base: 'voters',
+        overlayOrgSlug: 'eo-b',
+      })
+      const plain = await service.resolveDistrict(DISTRICT_ID, {
+        base: 'voters',
+      })
+
+      expect(findDistrictById).toHaveBeenCalledTimes(1)
+      expect(orgA.table).toContain("organization_slug = 'eo-a')")
+      expect(orgB.table).toContain("organization_slug = 'eo-b' AND NOT is_new)")
+      expect(orgB.table).not.toContain('eo-a')
+      expect(plain.table).toBe(
+        'goodparty_data_catalog.mart_gp_api.gp_api_voters',
+      )
+    })
+
     it('resolves a district once and reuses it', async () => {
       stubDistrict('US_Congressional_District', '29')
 
-      await service.resolveDistrict(DISTRICT_ID, 'voters')
-      await service.resolveDistrict(DISTRICT_ID, 'voters')
+      await service.resolveDistrict(DISTRICT_ID, { base: 'voters' })
+      await service.resolveDistrict(DISTRICT_ID, { base: 'voters' })
 
       expect(query).not.toHaveBeenCalled()
       expect(findDistrictById).toHaveBeenCalledTimes(1)
@@ -157,7 +185,7 @@ describe('DatabricksVoterService', () => {
       stubDistrict('Ward"; DROP TABLE voters --', '29')
 
       await expect(
-        service.resolveDistrict(DISTRICT_ID, 'voters'),
+        service.resolveDistrict(DISTRICT_ID, { base: 'voters' }),
       ).rejects.toThrow(InternalServerErrorException)
     })
   })
@@ -175,7 +203,7 @@ describe('DatabricksVoterService', () => {
 
       const result = await service.getAggregates(
         aggregatesSchema.parse({ districtId: DISTRICT_ID }),
-        'voters',
+        { base: 'voters' },
       )
 
       expect(result).toEqual({
@@ -193,7 +221,7 @@ describe('DatabricksVoterService', () => {
 
       const result = await service.getAggregates(
         aggregatesSchema.parse({ districtId: DISTRICT_ID }),
-        'voters',
+        { base: 'voters' },
       )
 
       expect(result).toEqual({ count: 0, avgAge: null, avgIncome: null })
@@ -205,7 +233,7 @@ describe('DatabricksVoterService', () => {
       await expect(
         service.getAggregates(
           aggregatesSchema.parse({ districtId: DISTRICT_ID }),
-          'voters',
+          { base: 'voters' },
         ),
       ).rejects.toThrow(GatewayTimeoutException)
     })
@@ -221,7 +249,7 @@ describe('DatabricksVoterService', () => {
       await expect(
         service.getAggregates(
           aggregatesSchema.parse({ districtId: DISTRICT_ID }),
-          'voters',
+          { base: 'voters' },
         ),
       ).rejects.toThrow(BadGatewayException)
     })
@@ -234,10 +262,9 @@ describe('DatabricksVoterService', () => {
     it('codes both read failures so a client can show their message', async () => {
       query.mockRejectedValueOnce(new PeopleDbxTimeoutError(60_000))
       const timeout = await service
-        .getAggregates(
-          aggregatesSchema.parse({ districtId: DISTRICT_ID }),
-          'voters',
-        )
+        .getAggregates(aggregatesSchema.parse({ districtId: DISTRICT_ID }), {
+          base: 'voters',
+        })
         .catch((err: GatewayTimeoutException) => err.getResponse())
       expect(timeout).toMatchObject({
         errorCode: 'VOTER_QUERY_TIMEOUT',
@@ -248,10 +275,9 @@ describe('DatabricksVoterService', () => {
         new PeopleDbxUnavailableError('GET /statements returned 401: expired'),
       )
       const unreachable = await service
-        .getAggregates(
-          aggregatesSchema.parse({ districtId: DISTRICT_ID }),
-          'voters',
-        )
+        .getAggregates(aggregatesSchema.parse({ districtId: DISTRICT_ID }), {
+          base: 'voters',
+        })
         .catch((err: BadGatewayException) => err.getResponse())
       expect(unreachable).toMatchObject({
         errorCode: 'VOTER_DATA_UNREACHABLE',
@@ -265,7 +291,7 @@ describe('DatabricksVoterService', () => {
       await expect(
         service.getAggregates(
           aggregatesSchema.parse({ districtId: DISTRICT_ID }),
-          'voters',
+          { base: 'voters' },
         ),
       ).rejects.toThrow(BadRequestException)
     })
@@ -276,7 +302,7 @@ describe('DatabricksVoterService', () => {
       await expect(
         service.getAggregates(
           aggregatesSchema.parse({ districtId: DISTRICT_ID }),
-          'voters',
+          { base: 'voters' },
         ),
       ).rejects.toThrow('TABLE_OR_VIEW_NOT_FOUND')
     })
@@ -305,7 +331,7 @@ describe('DatabricksVoterService', () => {
 
       const result = await service.getListDetailAggregates(
         aggregatesSchema.parse({ districtId: DISTRICT_ID }),
-        'voters',
+        { base: 'voters' },
       )
 
       expect(query).toHaveBeenCalledOnce()
@@ -336,7 +362,7 @@ describe('DatabricksVoterService', () => {
 
       const result = await service.getListDetailAggregates(
         aggregatesSchema.parse({ districtId: DISTRICT_ID }),
-        'voters',
+        { base: 'voters' },
       )
 
       expect(result).toEqual({
@@ -361,7 +387,7 @@ describe('DatabricksVoterService', () => {
       await expect(
         service.getListDetailAggregates(
           aggregatesSchema.parse({ districtId: DISTRICT_ID }),
-          'voters',
+          { base: 'voters' },
         ),
       ).rejects.toThrow(BadGatewayException)
     })
@@ -380,7 +406,7 @@ describe('DatabricksVoterService', () => {
           districtId: DISTRICT_ID,
           savedFilterSets: [{ hasCellPhone: true }],
         }),
-        'voters',
+        { base: 'voters' },
       )
 
       expect(result).toEqual({ count: 1234 })
@@ -416,7 +442,7 @@ describe('DatabricksVoterService', () => {
 
       const result = await service.findPeople(
         listPeopleSchema.parse({ districtId: DISTRICT_ID, resultsPerPage: 50 }),
-        'voters',
+        { base: 'voters' },
       )
 
       expect(result.pagination).toEqual({
@@ -435,7 +461,7 @@ describe('DatabricksVoterService', () => {
 
       const result = await service.findPeople(
         listPeopleSchema.parse({ districtId: DISTRICT_ID, skipCount: true }),
-        'voters',
+        { base: 'voters' },
       )
 
       expect(result.pagination.totalResults).toBe(0)
@@ -455,7 +481,7 @@ describe('DatabricksVoterService', () => {
           page: 9,
           resultsPerPage: 50,
         }),
-        'voters',
+        { base: 'voters' },
       )
 
       expect(result.pagination.currentPage).toBe(9)
@@ -480,7 +506,9 @@ describe('DatabricksVoterService', () => {
         })
         .mockResolvedValueOnce({ columns: [], rows: [['750000']] })
 
-      expect(await service.findStats(DISTRICT_ID, 'voters')).toBeNull()
+      expect(
+        await service.findStats(DISTRICT_ID, { base: 'voters' }),
+      ).toBeNull()
       expect(query).toHaveBeenCalledTimes(2)
     })
 
@@ -496,7 +524,7 @@ describe('DatabricksVoterService', () => {
         })
         .mockResolvedValueOnce({ columns: [], rows: [['750000.4']] })
 
-      const stats = await service.findStats(DISTRICT_ID, 'voters')
+      const stats = await service.findStats(DISTRICT_ID, { base: 'voters' })
 
       expect(stats?.totalConstituents).toBe(100)
       expect(stats?.totalConstituentsWithCellPhone).toBe(40)
@@ -519,7 +547,7 @@ describe('DatabricksVoterService', () => {
         })
         .mockResolvedValueOnce({ columns: [], rows: [['123456.7']] })
 
-      const stats = await service.findStats(DISTRICT_ID, 'voters')
+      const stats = await service.findStats(DISTRICT_ID, { base: 'voters' })
 
       expect(stats?.districtPopulation).toBe(123457)
     })
@@ -536,7 +564,7 @@ describe('DatabricksVoterService', () => {
         })
         .mockResolvedValueOnce({ columns: [], rows: [] })
 
-      const stats = await service.findStats(DISTRICT_ID, 'voters')
+      const stats = await service.findStats(DISTRICT_ID, { base: 'voters' })
 
       expect(stats).not.toBeNull()
       expect(stats?.totalConstituents).toBe(100)
@@ -555,7 +583,7 @@ describe('DatabricksVoterService', () => {
         })
         .mockResolvedValueOnce({ columns: [], rows: [[null]] })
 
-      const stats = await service.findStats(DISTRICT_ID, 'voters')
+      const stats = await service.findStats(DISTRICT_ID, { base: 'voters' })
 
       expect(stats?.districtPopulation).toBeNull()
     })
@@ -573,7 +601,7 @@ describe('DatabricksVoterService', () => {
         })
         .mockRejectedValueOnce(new Error('census warehouse timeout'))
 
-      const stats = await service.findStats(DISTRICT_ID, 'voters')
+      const stats = await service.findStats(DISTRICT_ID, { base: 'voters' })
 
       expect(stats).not.toBeNull()
       expect(stats?.totalConstituents).toBe(100)
@@ -595,7 +623,7 @@ describe('DatabricksVoterService', () => {
           new PeopleDbxUnavailableError('other side closed'),
         )
 
-      const stats = await service.findStats(DISTRICT_ID, 'voters')
+      const stats = await service.findStats(DISTRICT_ID, { base: 'voters' })
 
       expect(stats?.districtPopulation).toBeNull()
       expect(logger.error).not.toHaveBeenCalled()
@@ -615,9 +643,9 @@ describe('DatabricksVoterService', () => {
         )
         .mockResolvedValueOnce({ columns: [], rows: [] })
 
-      await expect(service.findStats(DISTRICT_ID, 'voters')).rejects.toThrow(
-        BadGatewayException,
-      )
+      await expect(
+        service.findStats(DISTRICT_ID, { base: 'voters' }),
+      ).rejects.toThrow(BadGatewayException)
       expect(logger.error).toHaveBeenCalled()
     })
   })
@@ -656,7 +684,7 @@ describe('DatabricksVoterService', () => {
 
       const people = await service.samplePeople(
         samplePeopleSchema.parse({ districtId: DISTRICT_ID, size: 1 }),
-        'voters',
+        { base: 'voters' },
       )
 
       expect(people).toHaveLength(1)
@@ -683,10 +711,9 @@ describe('DatabricksVoterService', () => {
           ],
         })
 
-      const people = await service.samplePeople(
-        sampleWithin('proposal-1'),
-        'voters',
-      )
+      const people = await service.samplePeople(sampleWithin('proposal-1'), {
+        base: 'voters',
+      })
 
       expect(people).toHaveLength(2)
       // No district stats: the count is the audience's, not the district's.
@@ -731,7 +758,7 @@ describe('DatabricksVoterService', () => {
         query
           .mockResolvedValueOnce({ columns: [], rows: [['60']] })
           .mockResolvedValueOnce(twoPeople)
-        await service.samplePeople(sampleWithin(seedKey), 'voters')
+        await service.samplePeople(sampleWithin(seedKey), { base: 'voters' })
         const draw = query.mock.calls.at(-1)?.[0] as {
           params: { value: string | null; type: string }[]
         }
@@ -749,7 +776,7 @@ describe('DatabricksVoterService', () => {
         .mockResolvedValueOnce({ columns: [], rows: [['60']] })
         .mockResolvedValueOnce(twoPeople)
 
-      await service.samplePeople(sampleWithin('proposal-1'), 'voters')
+      await service.samplePeople(sampleWithin('proposal-1'), { base: 'voters' })
 
       const [draw] = drawCalls()
       const [seed, divisor, size] = intParams(draw!)
@@ -779,7 +806,7 @@ describe('DatabricksVoterService', () => {
             maxWeight: 2,
           },
         }),
-        'voters',
+        { base: 'voters' },
       )
 
       const [draw] = drawCalls()
@@ -794,10 +821,9 @@ describe('DatabricksVoterService', () => {
         .mockResolvedValueOnce({ columns: [], rows: [['10']] })
         .mockResolvedValueOnce(twoPeople)
 
-      const people = await service.samplePeople(
-        sampleWithin('proposal-1'),
-        'voters',
-      )
+      const people = await service.samplePeople(sampleWithin('proposal-1'), {
+        base: 'voters',
+      })
 
       expect(people).toHaveLength(2)
       const [draw] = drawCalls()
@@ -812,10 +838,9 @@ describe('DatabricksVoterService', () => {
         .mockResolvedValueOnce(onePerson)
         .mockResolvedValueOnce(twoPeople)
 
-      const people = await service.samplePeople(
-        sampleWithin('proposal-1'),
-        'voters',
-      )
+      const people = await service.samplePeople(sampleWithin('proposal-1'), {
+        base: 'voters',
+      })
 
       expect(people).toHaveLength(2)
       const draws = drawCalls()
@@ -832,7 +857,7 @@ describe('DatabricksVoterService', () => {
         .mockResolvedValue(onePerson)
 
       await expect(
-        service.samplePeople(sampleWithin('proposal-1'), 'voters'),
+        service.samplePeople(sampleWithin('proposal-1'), { base: 'voters' }),
       ).rejects.toThrow('Not enough non-excluded constituents 1')
 
       const draws = drawCalls()
@@ -846,7 +871,7 @@ describe('DatabricksVoterService', () => {
       query.mockResolvedValueOnce({ columns: [], rows: [['1']] })
 
       await expect(
-        service.samplePeople(sampleWithin('proposal-1'), 'voters'),
+        service.samplePeople(sampleWithin('proposal-1'), { base: 'voters' }),
       ).rejects.toThrow('Not enough non-excluded constituents 1')
     })
   })
@@ -862,7 +887,9 @@ describe('DatabricksVoterService', () => {
         rows: [['voter-1', 'CA']],
       })
 
-      const person = await service.findPerson('voter-1', DISTRICT_ID, 'voters')
+      const person = await service.findPerson('voter-1', DISTRICT_ID, {
+        base: 'voters',
+      })
 
       expect(person.id).toBe('voter-1')
     })
@@ -874,7 +901,9 @@ describe('DatabricksVoterService', () => {
       row[0] = 'voter-1'
       query.mockResolvedValueOnce({ columns: [], rows: [[...row, 'true']] })
 
-      const person = await service.findPerson('voter-1', DISTRICT_ID, 'voters')
+      const person = await service.findPerson('voter-1', DISTRICT_ID, {
+        base: 'voters',
+      })
 
       expect(person.voted).toBe(true)
     })
@@ -885,7 +914,9 @@ describe('DatabricksVoterService', () => {
       row[0] = 'voter-1'
       query.mockResolvedValueOnce({ columns: [], rows: [[...row, 'false']] })
 
-      const person = await service.findPerson('voter-1', DISTRICT_ID, 'voters')
+      const person = await service.findPerson('voter-1', DISTRICT_ID, {
+        base: 'voters',
+      })
 
       expect(person).not.toHaveProperty('voted')
     })
@@ -896,7 +927,7 @@ describe('DatabricksVoterService', () => {
       query.mockResolvedValueOnce({ columns: [], rows: [] })
 
       await expect(
-        service.findPerson('voter-1', DISTRICT_ID, 'voters'),
+        service.findPerson('voter-1', DISTRICT_ID, { base: 'voters' }),
       ).rejects.toThrow('Person not found in district')
     })
   })
@@ -907,7 +938,7 @@ describe('DatabricksVoterService', () => {
       query.mockResolvedValueOnce({ columns: [], rows: [] })
 
       await expect(
-        service.findPerson('voter-1', STATE_DISTRICT_ID, 'voters'),
+        service.findPerson('voter-1', STATE_DISTRICT_ID, { base: 'voters' }),
       ).rejects.toThrow('Person with ID voter-1 not found')
     })
   })
@@ -919,7 +950,7 @@ describe('DatabricksVoterService', () => {
       districtType: 'US_Congressional_District',
       districtName: '29',
       useVoterOnlyPath: false,
-      dataset: 'voters',
+      dataset: { base: 'voters' },
       table: 'goodparty_data_catalog.mart_gp_api.gp_api_voters',
     }
     const noFilters = (): FilterData => filtersSchema.parse({})
@@ -987,7 +1018,9 @@ describe('DatabricksVoterService', () => {
           rows: [['53017950100', '1200']],
         })
 
-      const result = await service.findDistrictCells(DISTRICT_ID, 'voters')
+      const result = await service.findDistrictCells(DISTRICT_ID, {
+        base: 'voters',
+      })
 
       expect(result.tractAdults).toEqual(new Map([['53017950100', 1200]]))
 
@@ -1020,7 +1053,9 @@ describe('DatabricksVoterService', () => {
         })
         .mockRejectedValueOnce(new Error('warehouse timeout'))
 
-      const result = await service.findDistrictCells(DISTRICT_ID, 'voters')
+      const result = await service.findDistrictCells(DISTRICT_ID, {
+        base: 'voters',
+      })
 
       expect(result.tractAdults).toEqual(new Map())
       expect(result.cells).toHaveLength(1)
@@ -1038,9 +1073,11 @@ describe('DatabricksVoterService', () => {
         rows: [['35to44', null, null, 'white', '1.5', '2']],
       })
 
-      const cells = await service.findAnswerCells(DISTRICT_ID, 'voters', [
-        { personId: PERSON_ID, yes: 1 },
-      ])
+      const cells = await service.findAnswerCells(
+        DISTRICT_ID,
+        { base: 'voters' },
+        [{ personId: PERSON_ID, yes: 1 }],
+      )
 
       expect(query.mock.calls[0]?.[0].sql).toContain(PERSON_ID)
       expect(cells).toEqual([
@@ -1056,9 +1093,9 @@ describe('DatabricksVoterService', () => {
     })
 
     it('reads nothing when nobody has answered', async () => {
-      expect(await service.findAnswerCells(DISTRICT_ID, 'voters', [])).toEqual(
-        [],
-      )
+      expect(
+        await service.findAnswerCells(DISTRICT_ID, { base: 'voters' }, []),
+      ).toEqual([])
       expect(query).not.toHaveBeenCalled()
     })
   })
@@ -1080,7 +1117,7 @@ describe('DatabricksVoterService', () => {
           households: 40,
           tract: '17167000100',
         } as never,
-        'voters',
+        { base: 'voters' },
       )
 
       expect(rows).toEqual([

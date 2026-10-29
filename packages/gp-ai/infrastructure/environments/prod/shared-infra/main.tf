@@ -27,15 +27,6 @@ provider "aws" {
   }
 }
 
-data "aws_secretsmanager_secret_version" "ai_secrets" {
-  secret_id = "AI_SECRETS_${upper(var.environment)}"
-}
-
-locals {
-  ai_secrets = jsondecode(data.aws_secretsmanager_secret_version.ai_secrets.secret_string)
-  api_key    = local.ai_secrets["SERVE_API_KEY"]
-}
-
 module "alb" {
   source = "../../../modules/alb"
 
@@ -43,7 +34,7 @@ module "alb" {
   vpc_id            = var.vpc_id
   public_subnet_ids = var.public_subnet_ids
   certificate_arn   = var.certificate_arn
-  api_key           = local.api_key
+  api_key           = var.serve_api_key
 }
 
 module "route53" {
@@ -108,7 +99,7 @@ resource "aws_lb_listener_rule" "ddhq_matcher_valid" {
   condition {
     http_header {
       http_header_name = "x-api-key"
-      values          = [local.api_key]
+      values          = [var.serve_api_key]
     }
   }
 
@@ -216,4 +207,9 @@ resource "aws_lb_listener_rule" "alert_filter" {
     Name        = "alert-filter-${var.environment}"
     Environment = var.environment
   }
+}
+
+output "alb_dns_name" {
+  value       = module.alb.alb_dns_name
+  description = "DNS name of the shared ALB, which the Route53 records alias"
 }

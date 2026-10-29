@@ -27,6 +27,8 @@ import { OutreachModule } from 'src/outreach/outreach.module'
 import { PeerlyModule } from 'src/vendors/peerly/peerly.module'
 import { ConstituentFeedbackModule } from 'src/constituentFeedback/constituentFeedback.module'
 import { EmailOutreachModule } from '@/emailOutreach/emailOutreach.module'
+import { ContactUploadsModule } from '@/contactUploads/contactUploads.module'
+import { MessageSystemAttributeName } from '@aws-sdk/client-sqs'
 
 @Module({
   imports: [
@@ -35,6 +37,11 @@ import { EmailOutreachModule } from '@/emailOutreach/emailOutreach.module'
         {
           ...queueConfig,
           pollingWaitTimeMs: 1000,
+          // Read by handlers that act on their last delivery before the
+          // DLQ (contactUploadMatch).
+          messageSystemAttributeNames: [
+            MessageSystemAttributeName.ApproximateReceiveCount,
+          ],
         },
       ],
     }),
@@ -71,6 +78,8 @@ import { EmailOutreachModule } from '@/emailOutreach/emailOutreach.module'
     ConstituentFeedbackModule,
     // For EmailOutreachQueueService, the email handlers.
     EmailOutreachModule,
+    // For ContactUploadMatchJobService, the `contactUploadMatch` handler.
+    ContactUploadsModule,
   ],
   providers: [QueueConsumerService],
 })

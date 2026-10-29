@@ -18,7 +18,6 @@ npm run test             # Vitest (single run)
 npm run test:watch       # Vitest in watch mode
 npm run test:e2e         # Playwright E2E tests
 npm run types            # TypeScript type check
-npm run storybook        # Component library on :6006
 ```
 
 ## Verify
@@ -105,6 +104,7 @@ Other patterns (`mockOrdered`, dynamic handlers): `docs/testing.md`.
 - **Never** push to `main` directly — open a PR.
 - **Ask first** before adding new utilities to `helpers/` (it is already a 50+ file dumping ground; check whether the helper exists). See `gpApi/AGENTS.md` for fetch-helper rules.
 - **Deploys** are automatic via Vercel on push to `main` (dev); prod is reached only via the release train (`release.yml`). There is no manual deploy command.
+- **Never** add a tracker, analytics call or third-party script that runs on `/email/*`. `app/layout.tsx` renders those pages without them because their URLs carry a token that holds the recipient's address (`docs/adr/2026-10-29-email-public-pages-render-without-trackers.md`).
 
 ## Navigation
 
@@ -149,6 +149,13 @@ When the active step or view changes in a multi-step flow, always reset scroll p
 
 The design system is the `@goodparty_org/styleguide` package (in `packages/styleguide`), consumed here via the `@styleguide` alias and `transpilePackages: ['@goodparty_org/styleguide']` in `tsconfig.json`. All component, token, and icon authoring happens in the package, not in an in-app folder.
 
+Before building UI, read two files:
+
+- **`packages/styleguide/COMPONENTS.md`**: every component and when to use it. Pick from it before you write markup.
+- **`docs/design-memory/learned.md`**: design rules earned from real corrections (no overlines, borders not shadows, 16px body text, one badge per card, and more). Designers' sessions follow it, so build to it too.
+
+`npm run check:design-system` fails when a change adds a raw `<button>`, `<input>`, `<select>` or `<textarea>`, a hex color class like `bg-[#2563eb]`, or a file importing straight from `lucide-react`. Existing uses are grandfathered at their count. When you remove some, lower the baseline in `scripts/check-design-system-count.mjs`.
+
 ### Components
 
 Always use styleguide components (`Button`, `Input`, `Label`, etc.) imported from `@styleguide` instead of raw HTML elements (`<button>`, `<input>`, `<label>`). Raw elements are only acceptable inside styleguide component definitions themselves (in `packages/styleguide/src/components/ui/`).
@@ -165,13 +172,13 @@ Always pass a defined `value` to controlled Radix components — never use `valu
 
 Always use `lucide-react` for icons. Never use `react-icons` or other icon libraries. Check `lucide-react` for an equivalent before considering any alternative.
 
-**Approved-icons gate.** New icon usage must go through `packages/styleguide/src/components/ui/icons.tsx`, not directly from `lucide-react`. That file is the curated set of icons the team has approved for use in the design system; importing from it (rather than `lucide-react`) keeps the catalog auditable and consistent. If the icon you need isn't there, add it to `icons.tsx` first (using the existing `Foo as FooIcon` alias pattern), then import from it. The full lucide catalog is browseable in Storybook (`Foundations/Icons`). Existing direct `lucide-react` imports in `app/` are grandfathered; do not add new ones.
+**Approved-icons gate.** New icon usage must go through `packages/styleguide/src/components/ui/icons.tsx`, not directly from `lucide-react`. That file is the curated set of icons the team has approved for use in the design system; importing from it (rather than `lucide-react`) keeps the catalog auditable and consistent. If the icon you need isn't there, add it to `icons.tsx` first (using the existing `Foo as FooIcon` alias pattern), then import from it. The full lucide catalog is at lucide.dev. Existing direct `lucide-react` imports in `app/` are grandfathered; do not add new ones.
 
 ### Animations and illustrations
 
 **An animation is a design decision, not a default.** Before adding one, work
 down this list and stop at the first thing that does the job: a motion token
-(`Foundations/Motion` in Storybook), a styleguide component, a static icon from
+(`--animate-*` in `packages/styleguide/src/tailwind-theme.css`), a styleguide component, a static icon from
 the approved set. Only then a Lottie, and only when a designer has asked for it.
 
 `npm run check:animation-assets` enforces the Lottie half mechanically, as a
@@ -223,37 +230,6 @@ When implementing or matching a Figma design, read the generated code structure 
 When authoring a new styleguide component that wraps a Radix primitive (or similar), the consumer's `className` must land on the element the public TS prop signature references. If the signature is `React.ComponentProps<typeof X>`, `className` must merge onto `X` — not onto a wrapper div, an inner padding div, or a portal. Inner styling that doesn't belong to the consumer (padding, layout-only spacing) goes in fixed class strings on the inner elements; consumers should never need to "reach past" a wrapper to override styles on the typed-by-signature element. Sibling components in the same file must be consistent: if `AccordionItem` and `AccordionTrigger` merge `className` onto their primitive, `AccordionContent` must too.
 
 `data-slot` attributes only forward through real DOM elements. Radix `Portal` wraps `React.createPortal` and accepts only `container`, `forceMount`, and `children` — any other prop (including `data-slot`) is silently dropped. Put `data-slot` on the Content/Trigger/Item primitives, not on Portal.
-
-### Storybook stories
-
-Use CSF 3 (object stories) throughout. Every story file should set `meta.component` to the typed component and `tags: ['autodocs']`. **Avatar is the reference implementation** — when in doubt, follow its pattern.
-
-#### Three rules
-
-**1. `argTypes` belong on the Playground story, not on `meta`.**
-The only thing that goes in `meta.argTypes` is suppression of props that should never appear in the controls table (`table: { disable: true }`). Descriptions, labels, control types, and `if` conditions all go on the Playground story's `argTypes`. Putting them on `meta` bleeds them into every named story and causes the Controls panel to appear where it does nothing.
-
-**2. Every non-Playground story must suppress controls.**
-Add `parameters: { controls: { disable: true } }` to every named story. The Controls panel on a static render is always empty and always confusing.
-
-**3. Named stories group by dimension — not one story per variant.**
-Prefer a `Variants` story (all visual variants in one view), a `Sizes` story, a `States` story (interactive/behavioral states), etc. over individual `Default` / `Info` / `Success` stories. Fewer stories in the sidebar, better Chromatic coverage per story.
-
-#### Playground type
-
-Use a custom `PlaygroundArgs` type (separate from `StoryObj<typeof Component>`) when the playground needs virtual args that don't map 1:1 to real props — e.g. a `showIcon: boolean` that maps to the `icon` prop, or a `content` selector that switches between subcomponents. When all args are real component props, `StoryObj<typeof Component>` is fine.
-
-#### Compound components
-
-For Radix-style root + parts, the `render` escape hatch is correct — children structure cannot be expressed as a flat arg. The Playground still uses `args` for the root's primitive props.
-
-#### Init-only props
-
-`default*` props (`defaultOpen`, `defaultValue`) don't belong in Controls — Storybook re-renders without remounting, and Radix ignores `default*` changes after first render. Demonstrate them via a named story instead.
-
-#### `play` functions
-
-Use only for interaction examples worth testing (click trigger, verify content appears). Optional, not required. The `@storybook/addon-interactions` addon is not installed — import test utilities from `storybook/test`, not `@storybook/test`.
 
 ### Component color tokens
 

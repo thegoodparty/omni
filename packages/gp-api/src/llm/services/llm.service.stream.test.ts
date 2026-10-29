@@ -737,6 +737,41 @@ describe('LlmService.streamChatCompletion', () => {
     )
     expect(onStreamError).toHaveBeenCalledWith(boom)
   })
+
+  it('leaves no unhandled rejection when the stream ends with no output', async () => {
+    // Like the SDK, the rejections exist only once a getter is read.
+    const noOutput = new Error(
+      'No output generated. Check the stream for errors.',
+    )
+    const { service, streamTextFn } = buildStreamService()
+    streamTextFn.mockReturnValueOnce({
+      textStream: fakeTextStream([]),
+      get text() {
+        return Promise.reject(noOutput)
+      },
+      get toolCalls() {
+        return Promise.reject(noOutput)
+      },
+      get totalUsage() {
+        return Promise.reject(noOutput)
+      },
+    })
+    const unhandled = vi.fn()
+    process.on('unhandledRejection', unhandled)
+    try {
+      const result = await service.streamChatCompletion({
+        messages: [USER_MSG],
+        models: ['claude-sonnet-4-6'],
+        retries: 0,
+      })
+      await new Promise((resolve) => setImmediate(resolve))
+
+      expect(unhandled).not.toHaveBeenCalled()
+      await expect(result.finalText).rejects.toBe(noOutput)
+    } finally {
+      process.off('unhandledRejection', unhandled)
+    }
+  })
 })
 
 describe('LlmService.buildToolSet (via streamChatCompletion)', () => {

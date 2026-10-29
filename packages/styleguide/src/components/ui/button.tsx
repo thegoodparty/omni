@@ -59,6 +59,14 @@ interface ButtonProps
   iconPosition?: 'left' | 'right'
 }
 
+/**
+ * Name the action with a verb plus object, never "Submit" or "OK". Pass
+ * `loading` while the action runs instead of disabling it. Don't disable submit
+ * to signal missing input; show the field errors when pressed.
+ *
+ * @summary Use for any action with a text label, like saving or sending. For an
+ * icon-only action, use IconButton; for an on/off choice, use ToggleGroup.
+ */
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
   (
     {

@@ -451,29 +451,6 @@ const asBulletText = (point: string): string =>
     .replace(/^(?:[-•*]\s*|\d+[.)]\s+)+/, '')
     .trim()
 
-// Deploy compatibility, to delete once a release has settled: a webapp tab
-// from before free text still reads the three sections it used to edit. The
-// current webapp reads only `draft`.
-const legacySections = (
-  draft: string,
-): Omit<DoorKnockingTalkingPointsDraftResponse, 'draft'> => {
-  const marker = DOOR_KNOCKING_BULLET.trim()
-  const lines = draft
-    .split('\n')
-    .map((line) => {
-      const trimmed = line.trim()
-      return trimmed.startsWith(marker)
-        ? trimmed.slice(marker.length).trim()
-        : trimmed
-    })
-    .filter((line) => line.length > 0)
-  return {
-    engagementQuestion: lines[0] ?? '',
-    context: lines.slice(1, -1).join(' '),
-    ask: lines.length > 1 ? lines[lines.length - 1] : '',
-  }
-}
-
 // Safety net for text that lands over budget. Cuts at the last sentence or
 // line boundary rather than mid-word, falling back a step at a time. Exported
 // for unit testing.
@@ -601,7 +578,7 @@ export class OutreachDoorKnockingGenerationService {
       const draft = input.currentDraft
         ? await this.improve(context, input, voice, userId)
         : await this.writeBullets(context, input, voice, userId)
-      return { draft, ...legacySections(draft) }
+      return { draft }
     } catch (err) {
       this.logger.error({ err }, 'Door knocking talking points failed')
       throw new BadGatewayException('Talking points generation failed')

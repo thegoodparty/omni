@@ -39,7 +39,7 @@ const buildDeps = (over: {
     drawListSample: over.drawListSample ?? vi.fn(),
   },
   organization: ORGANIZATION,
-  peopleDataset: 'voters',
+  peopleDataset: { base: 'voters' },
 })
 
 const buildTool = (over: Parameters<typeof buildDeps>[0] = {}) => {
@@ -408,9 +408,11 @@ describe('crud_saved_filters execute', () => {
   it('carries the routing rules for the constituents dataset it was given', () => {
     const tool = buildCrudSavedFiltersTool({
       ...buildDeps({}),
-      peopleDataset: 'constituents',
+      peopleDataset: { base: 'constituents' },
     })
-    expect(tool.description).toContain(dataSourceRoutingRules('constituents'))
+    expect(tool.description).toContain(
+      dataSourceRoutingRules({ base: 'constituents' }),
+    )
     expect(tool.description).not.toContain(DATA_SOURCE_ROUTING_RULES)
   })
 })

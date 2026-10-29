@@ -3,25 +3,31 @@ import { ContactInteractionPhoneBankingService } from '@/contactInteraction/serv
 import { ContactInteractionRobocallService } from '@/contactInteraction/services/contactInteractionRobocall.service'
 import { ContactInteractionTextService } from '@/contactInteraction/services/contactInteractionText.service'
 import { ContactStatusService } from '@/contactInteraction/services/contactStatus.service'
+import { ContactUploadMatchService } from '@/contactUploads/services/contactUploadMatch.service'
 import { ContactPriorityAnswersService } from './services/contactPriorityAnswers.service'
 import { PollIndividualMessageService } from '@/polls/services/pollIndividualMessage.service'
 import { VoterOutreachActivityService } from '@/voterOutreachActivity/services/voterOutreachActivity.service'
 import { Injectable } from '@nestjs/common'
 import {
   ContactStatusField,
+  ContactUploadMatchMethod,
   Poll,
   PollIndividualMessage,
   PollIndividualMessageSender,
   Prisma,
 } from '../generated/prisma'
 import { compareDesc, isValid, parseISO } from 'date-fns'
-import { resolveContactStatusLabel } from '@goodparty_org/contracts'
+import {
+  CONTACT_UPLOAD_FIELDS,
+  resolveContactStatusLabel,
+} from '@goodparty_org/contracts'
 import { IndividualActivityInput } from './contactEngagement.schema'
 import {
   ConstituentActivity,
   ConstituentActivityEventType,
   ConstituentActivityType,
   ConstituentIssue,
+  ContactImportConstituentActivity,
   DoorKnockConstituentActivity,
   GetConstituentIssuesResponse,
   GetIndividualActivitiesResponse,
@@ -63,6 +69,7 @@ const activityId = (activity: ConstituentActivity): string => {
     case ConstituentActivityType.ROBOCALL:
     case ConstituentActivityType.PHONE_BANKING:
     case ConstituentActivityType.STATUS_CHANGE:
+    case ConstituentActivityType.CONTACT_IMPORT:
       return activity.data.activityId
   }
 }
@@ -84,6 +91,7 @@ export class ContactEngagementService {
     private readonly contactInteractionPhoneBanking: ContactInteractionPhoneBankingService,
     private readonly contactStatus: ContactStatusService,
     private readonly priorityAnswers: ContactPriorityAnswersService,
+    private readonly contactUploadMatches: ContactUploadMatchService,
   ) {}
 
   async getIndividualActivities(
@@ -442,6 +450,44 @@ export class ContactEngagementService {
         },
       }))
 
+    // Import contacts rows exist only for Serve. Read whole rather than
+    // windowed (see findForActivityFeed); the merge below places the cursor.
+    const importRows = isServe
+      ? await this.contactUploadMatches.findForActivityFeed(
+          organizationSlug,
+          personId,
+        )
+      : []
+    const importActivities: ContactImportConstituentActivity[] = importRows.map(
+      (row) => {
+        const manual = row.method === ContactUploadMatchMethod.manual
+        return {
+          type: ConstituentActivityType.CONTACT_IMPORT,
+          date: (manual && row.resolvedAt
+            ? row.resolvedAt
+            : row.upload.createdAt
+          ).toISOString(),
+          data: {
+            activityId: row.id,
+            uploadId: row.upload.id,
+            uploadName: row.upload.name,
+            isNewPerson: row.isNewPerson,
+            suppliedFields: CONTACT_UPLOAD_FIELDS.filter(
+              (field) => row[field] !== null,
+            ),
+            changedFields: row.changedFields,
+            manual,
+            actorName: row.resolvedBy
+              ? [row.resolvedBy.firstName, row.resolvedBy.lastName]
+                  .filter(Boolean)
+                  .join(' ') || null
+              : null,
+            actorUserId: row.resolvedByUserId,
+          },
+        }
+      },
+    )
+
     const allActivities: ConstituentActivity[] = [
       ...pollActivities,
       ...outreachConstituentActivities,
@@ -450,6 +496,7 @@ export class ContactEngagementService {
       ...robocallActivities,
       ...phoneBankingActivities,
       ...statusChangeActivities,
+      ...importActivities,
     ]
     // date desc, then type/id as an explicit tiebreak — same-day Win outreach
     // attributions (occurredAt from a date-only picker) can be byte-identical,

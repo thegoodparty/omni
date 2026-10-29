@@ -527,7 +527,9 @@ can never widen to the whole district.
 `GET campaigns/mine/robocall-offer` is the one answer every webapp surface
 gates on: `{ eligible, variant, count, coveredCalls }`, where `count` is this
 list sized for robocall. The first call for an eligible campaign assigns its
-precincts.
+precincts. Every call that finds the offer also makes sure the campaign has
+the offer's plan task (the webapp's Home shows the offer as that task), once
+the plan's default rows exist; the launch script relies on the same call.
 
 A list saved from the offer is locked (`firstUsedForOutreachAt`), because the
 offer's promotion code is bound to it. Each campaign gets a single-use Stripe
@@ -585,6 +587,9 @@ The card is listed under "Recommended for you" whatever purpose was picked.
 
 Don't recommend a list the organization already has; return the existing one
 instead, so accepting a recommendation twice doesn't create a duplicate.
+A card that names a saved list reads pressed whenever that list is the
+picked one, on every channel and in door knocking, so taking it never looks
+like a tap that did nothing.
 
 **Compare normalized filter payloads, not rows.** `voterFileFilter.utils.ts`
 already converts a saved row into the voter filter payload — a small object

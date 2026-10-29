@@ -26,20 +26,24 @@ import {
   RULED_POLITICAL_PARTIES,
   type RuledParty,
 } from '../utils/politicalParty.rules'
-import { DOWNLOAD_COLUMNS, type ExcludableVoterColumn } from '../voter.select'
+import {
+  CONTACT_OVERLAY_DOWNLOAD_COLUMNS,
+  DOWNLOAD_COLUMNS,
+  type ExcludableVoterColumn,
+} from '../voter.select'
 import type { PeopleDataset } from '../services/peopleDataset.service'
 import { PEOPLE_DBX_CATALOG, PEOPLE_DBX_SCHEMA } from './peopleDbx.config'
 
 const TABLE = (name: string): string =>
   `${PEOPLE_DBX_CATALOG}.${PEOPLE_DBX_SCHEMA}.${name}`
 
-const PEOPLE_TABLE_NAMES: Record<PeopleDataset, string> = {
+const PEOPLE_TABLE_NAMES: Record<PeopleDataset['base'], string> = {
   voters: 'gp_api_voters',
   constituents: 'gp_api_constituents',
 }
 
 export const peopleTable = (dataset: PeopleDataset): string =>
-  TABLE(PEOPLE_TABLE_NAMES[dataset])
+  TABLE(PEOPLE_TABLE_NAMES[dataset.base])
 
 const MIN_SUBSTRING_TOKEN_LENGTH = 3
 
@@ -132,6 +136,101 @@ export type DbxDistrict = {
   districtType: string
   districtName: string
   useVoterOnlyPath: boolean
+}
+
+// A string literal inlined into the statement, for the few values a table
+// expression has to carry and so cannot bind. Backslash is Spark's escape
+// character while spark.sql.parser.escapedStringLiterals is false (the
+// default); a doubled quote would concatenate two literals instead.
+const stringLiteral = (value: string): string =>
+  `'${value.replace(/[\\']/g, '\\$&')}'`
+
+const OVERLAY_VIEW_RE = /^[A-Za-z0-9_]+$/
+
+// Contact values an upload supplies win over L2's; names stay L2's for a
+// matched person, who matched on name.
+const UPLOAD_FIRST_COLUMNS = [
+  ['VoterTelephones_CellPhoneFormatted', 'cell_phone'],
+  ['VoterTelephones_LandlineFormatted', 'landline'],
+  ['Residence_Addresses_AddressLine', 'address_line'],
+  ['Residence_Addresses_City', 'city'],
+  ['Residence_Addresses_Zip', 'zip'],
+] as const
+
+// The district's people FULL OUTER JOIN the org's imported contacts, as the
+// table every builder reads. One join over the district-filtered base, never
+// a UNION: a union over the mart's ~1,000 columns doubled compile time. The
+// district's State and district column are written onto every row only for
+// the org's own district, which is where its new people belong; any other
+// district drops new people and reads those columns from L2, so an imported
+// person with no L2 row there falls out of the scope filter.
+export const contactOverlayTable = (
+  district: Omit<DbxDistrict, 'table'>,
+): string => {
+  const { dataset } = district
+  const orgSlug = dataset.overlayOrgSlug
+  if (orgSlug === undefined) return peopleTable(dataset)
+  const view =
+    process.env.PEOPLE_DBX_CONTACT_OVERLAY_VIEW || 'gp_api_contact_overlay'
+  if (!OVERLAY_VIEW_RE.test(view)) {
+    throw new Error(`Refusing to read a contact overlay view named ${view}`)
+  }
+  const ownDistrict = district.districtId === dataset.overlayDistrictId
+  const state = stringLiteral(district.state)
+  const scope: Array<[string, string]> = district.useVoterOnlyPath
+    ? [['State', state]]
+    : [
+        ['State', state],
+        [district.districtType, stringLiteral(district.districtName)],
+      ]
+  const replaced = new Map<string, string>(ownDistrict ? scope : [])
+  const replace = (column: string, expression: string) => {
+    if (!replaced.has(column)) replaced.set(column, expression)
+  }
+  replace('id', 'coalesce(b.`id`, o.`id`)')
+  replace('FirstName', 'coalesce(b.`FirstName`, o.`first_name`)')
+  replace('LastName', 'coalesce(b.`LastName`, o.`last_name`)')
+  for (const [column, upload] of UPLOAD_FIRST_COLUMNS) {
+    replace(column, `coalesce(o.${ident(upload)}, b.${ident(column)})`)
+  }
+  replace(
+    'Residence_Addresses_State',
+    `coalesce(b.\`Residence_Addresses_State\`, ${state})`,
+  )
+  const projection = [
+    `b.* EXCEPT (${[...replaced.keys()].map(ident).join(', ')})`,
+    ...[...replaced].map(
+      ([column, expression]) => `${expression} AS ${ident(column)}`,
+    ),
+    'o.`email` AS `Email`',
+    'coalesce(o.`is_new`, false) AS `ContactIsNew`',
+  ].join(', ')
+  const base =
+    `SELECT * FROM ${peopleTable(dataset)}` +
+    ` WHERE ${scope.map(([column, value]) => `${ident(column)} = ${value}`).join(' AND ')}`
+  const overlay =
+    `SELECT * FROM ${TABLE(view)}` +
+    ` WHERE organization_slug = ${stringLiteral(orgSlug)}` +
+    (ownDistrict ? '' : ' AND NOT is_new')
+  return (
+    `(SELECT ${projection} FROM (${base}) b` +
+    ` FULL OUTER JOIN (${overlay}) o ON o.\`id\` = b.\`id\`)`
+  )
+}
+
+// Neither column exists without the overlay, so a read without it projects
+// what a person with no imported contact would carry.
+const NO_OVERLAY_COLUMNS = new Map<string, string>([
+  ['Email', 'CAST(NULL AS STRING)'],
+  ['ContactIsNew', 'false'],
+])
+
+const projectColumn = (district: DbxDistrict, column: string): string => {
+  const absent =
+    district.dataset.overlayOrgSlug === undefined
+      ? NO_OVERLAY_COLUMNS.get(column)
+      : undefined
+  return `${absent ?? col(column)} AS ${ident(column)}`
 }
 
 export type DbxScopeArgs = {
@@ -315,7 +414,9 @@ const buildBusinessOwnerFilter = (op?: FilterOperator): string | null => {
 const affinityColumnForDataset = (
   args: Pick<DbxScopeArgs, 'district' | 'affinityColumn'>,
 ): AffinityColumn | undefined =>
-  args.district.dataset === 'constituents' ? undefined : args.affinityColumn
+  args.district.dataset.base === 'constituents'
+    ? undefined
+    : args.affinityColumn
 
 // Every affinity column is a BOOLEAN set on every voter, so this compares
 // against a boolean literal instead of taking the presence-check path every
@@ -357,6 +458,12 @@ const buildIndependentAffinityFilter = (
 // constituent is never in it.
 const EARLY_ABSENTEE_VOTED_TABLE = TABLE('gp_api_voter_eav_general_2026')
 
+// The membership test against that table, joined by sort-merge. Left to its
+// own estimate Spark broadcasts the table, and once it holds enough ids the
+// broadcast no longer fits an executor (EXECUTOR_BROADCAST_JOIN_OOM, 1.5 GiB
+// relation, ENG-11522). A merge join has no such ceiling.
+const EARLY_ABSENTEE_VOTED_IDS_SQL = `SELECT /*+ MERGE(eav) */ eav.id FROM ${EARLY_ABSENTEE_VOTED_TABLE} eav`
+
 // "Voted in election": L2's early and absentee voters OR the people the
 // campaign recorded as already voted. The campaign half is resolved in
 // Postgres and arrives as a sibling id set, which is why this one clause
@@ -381,10 +488,13 @@ const buildVotedInElectionFilter = (
       ? idList(reportedIdsOp.values)
       : null
   if (hasYes) {
-    const l2 = `${col('id')} IN (SELECT id FROM ${EARLY_ABSENTEE_VOTED_TABLE})`
+    const l2 = `${col('id')} IN (${EARLY_ABSENTEE_VOTED_IDS_SQL})`
     return reported ? `(${l2} OR ${col('id')} IN (${reported}))` : l2
   }
-  const l2 = `${col('id')} NOT IN (SELECT id FROM ${EARLY_ABSENTEE_VOTED_TABLE} WHERE id IS NOT NULL)`
+  // NOT EXISTS rather than NOT IN: NOT IN becomes a null-aware anti join, which
+  // Spark can only run as a broadcast, so the merge hint would be ignored.
+  // voter ids are never null, so the two exclude the same people.
+  const l2 = `NOT EXISTS (SELECT /*+ MERGE(eav) */ 1 FROM ${EARLY_ABSENTEE_VOTED_TABLE} eav WHERE eav.id = ${col('id')})`
   return reported ? `(${l2} AND ${col('id')} NOT IN (${reported}))` : l2
 }
 
@@ -766,9 +876,17 @@ export const getNormalizedPhoneNumber = (phone: string): string | null => {
 // The doubled backslash in `ESCAPE '\\'` is deliberate — it renders as a
 // one-character escape only while spark.sql.parser.escapedStringLiterals is
 // false, which is the default. Do not "simplify" it to a single backslash.
-export const buildSearchSql = (bag: Bag, search: string): string | null => {
+export const buildSearchSql = (
+  bag: Bag,
+  search: string,
+  district: DbxDistrict,
+): string | null => {
   const trimmed = search.trim()
   if (!trimmed) return null
+
+  if (trimmed.includes('@') && district.dataset.overlayOrgSlug !== undefined) {
+    return `lower(${col('Email')}) = lower(${bag.bind(trimmed)})`
+  }
 
   const phone = getNormalizedPhoneNumber(trimmed)
   if (phone) {
@@ -815,7 +933,7 @@ export const buildScopeSql = (bag: Bag, args: DbxScopeArgs): string => {
   }
 
   if (search) {
-    const searchSql = buildSearchSql(bag, search)
+    const searchSql = buildSearchSql(bag, search, district)
     if (searchSql) parts.push(searchSql)
   }
 
@@ -925,8 +1043,8 @@ export const buildPersonSql = (
   // the detail's "Already voted". Folded in here rather than asked
   // separately, which would add a warehouse round trip to every open.
   const projection = [
-    ...args.columns.map((column) => `${col(column)} AS ${ident(column)}`),
-    `(${col('id')} IN (SELECT id FROM ${EARLY_ABSENTEE_VOTED_TABLE})) AS ${ident(PERSON_EARLY_ABSENTEE_VOTED_COLUMN)}`,
+    ...args.columns.map((column) => projectColumn(args.district, column)),
+    `(${col('id')} IN (${EARLY_ABSENTEE_VOTED_IDS_SQL})) AS ${ident(PERSON_EARLY_ABSENTEE_VOTED_COLUMN)}`,
   ].join(', ')
   const scope = buildScopeSql(bag, args)
   const sql =
@@ -1026,7 +1144,7 @@ export const buildPageSql = (
 ): DbxStatement => {
   const bag = createBag()
   const projection = args.columns
-    .map((column) => `${col(column)} AS ${ident(column)}`)
+    .map((column) => projectColumn(args.district, column))
     .join(', ')
   const scope = buildScopeSql(bag, args)
   if (!args.groupByHousehold) {
@@ -1088,7 +1206,7 @@ export const buildSampleSql = (
 ): DbxStatement => {
   const bag = createBag()
   const projection = args.columns
-    .map((column) => `${col(column)} AS ${ident(column)}`)
+    .map((column) => projectColumn(args.district, column))
     .join(', ')
   const parts = [buildScopeSql(bag, args)]
 
@@ -1128,9 +1246,12 @@ export const buildCsvSql = (
 ): DbxStatement => {
   const bag = createBag()
   const excluded = new Set<string>(args.excludeColumns ?? [])
-  const projection = DOWNLOAD_COLUMNS.filter(
-    ({ column }) => !excluded.has(column),
-  )
+  const overlayColumns =
+    args.district.dataset.overlayOrgSlug === undefined
+      ? []
+      : CONTACT_OVERLAY_DOWNLOAD_COLUMNS
+  const projection = [...DOWNLOAD_COLUMNS, ...overlayColumns]
+    .filter(({ column }) => !excluded.has(column))
     .map(
       ({ column, header }) =>
         `nvl(CAST(${col(column)} AS STRING), '') AS ${ident(header)}`,

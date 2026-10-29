@@ -179,6 +179,8 @@ export function transformToPersonOutput(
     },
     cellPhone: person.VoterTelephones_CellPhoneFormatted ?? null,
     landline: person.VoterTelephones_LandlineFormatted ?? null,
+    email: person.Email ?? null,
+    isNewContact: person.ContactIsNew,
     maritalStatus: mapMaritalStatus(person.Marital_Status),
     hasChildrenUnder18: mapPresenceOfChildren(person.Presence_Of_Children),
     veteranStatus: mapVeteranStatus(person.Veteran_Status),

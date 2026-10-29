@@ -1,20 +1,10 @@
 import { BadGatewayException } from '@nestjs/common'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AiGenerationService } from './aiGeneration.service'
 import { S3Service } from 'src/vendors/aws/services/s3.service'
 import { CampaignTaskType } from '../campaignTasks.types'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
-
-vi.mock('src/queue/queue.config', () => ({
-  queueConfig: {
-    name: 'test-queue',
-    queueUrl: 'https://sqs.us-west-2.amazonaws.com/123/test-queue',
-    region: 'us-west-2',
-  },
-  campaignPlanQueueConfig: {
-    resultsBucket: 'test-bucket',
-  },
-}))
+import { campaignPlanQueueConfig } from 'src/queue/queue.config'
 
 const mockS3Service: Partial<S3Service> = {
   getFile: vi.fn(),
@@ -39,13 +29,19 @@ const validS3Payload = JSON.stringify({
 
 describe('AiGenerationService', () => {
   let service: AiGenerationService
+  const originalResultsBucket = campaignPlanQueueConfig.resultsBucket
 
   beforeEach(() => {
     vi.clearAllMocks()
+    campaignPlanQueueConfig.resultsBucket = 'test-bucket'
     service = new AiGenerationService(
       mockS3Service as S3Service,
       createMockLogger(),
     )
+  })
+
+  afterEach(() => {
+    campaignPlanQueueConfig.resultsBucket = originalResultsBucket
   })
 
   describe('readResultFromS3', () => {

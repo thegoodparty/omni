@@ -19,44 +19,84 @@ body { margin: 0; background: var(--brand-surface-secondary); }
 .page-bar a { color: var(--goodparty-blue-500); font-size: 14px; font-weight: 600; text-decoration: underline; text-underline-offset: 4px; padding: 12px 4px; }
 .option { padding-top: 56px; font-family: 'Open Sans', system-ui, sans-serif; }
 .option > h2 { font-size: 24px; font-weight: 700; margin: 0 0 8px; }
-.option > p { font-size: 16px; color: var(--brand-text-secondary); margin: 0 0 24px; max-width: 70ch; }
-.frame-head { display: flex; justify-content: flex-end; margin-bottom: 8px; }
-/* A frame is the screen the wireframe lives in. Desktop is 1200px wide, phone is 390px. */
-.frame { background: #fff; border: 1px solid var(--brand-border-primary); border-radius: 12px; overflow: hidden; }
-.frame--desktop { width: 100%; max-width: 1200px; }
-.frame--phone { width: 390px; max-width: 100%; border-radius: 28px; }
+.option > p { font-size: 16px; color: var(--brand-text-secondary); margin: 0 0 8px; max-width: 70ch; }
+.option > p.sends { font-size: 14px; margin-bottom: 24px; }
+.brief { padding-top: 40px; font-family: 'Open Sans', system-ui, sans-serif; max-width: 860px; }
+.brief h1 { font-size: 30px; font-weight: 700; margin: 0 0 16px; }
+.brief h2 { font-size: 20px; font-weight: 700; margin: 24px 0 8px; }
+.brief dl { display: grid; grid-template-columns: 160px 1fr; gap: 8px 16px; margin: 0; font-size: 16px; }
+.brief dt { font-weight: 600; }
+.brief dd { margin: 0; }
+.brief ul { margin: 0; padding-left: 20px; font-size: 16px; }
+.frame-head { display: flex; justify-content: flex-start; margin-bottom: 8px; }
+/* A frame is the screen the wireframe lives in. Phone is 390px wide, desktop is 1200px. */
+.frame { position: relative; background: #fff; border: 1px solid var(--brand-border-primary); border-radius: 12px; overflow: hidden; }
+.frame--desktop { width: 100%; max-width: 1200px; min-height: 800px; }
+.frame--phone { width: 390px; max-width: 100%; min-height: 844px; border-radius: 28px; }
 .topbar { display: flex; align-items: center; gap: 16px; height: 64px; padding: 0 24px; border-bottom: 1px solid var(--brand-border-secondary); background: #fff; }
 .topbar .ctx { font-size: 15px; font-weight: 600; margin-right: auto; display: flex; gap: 16px; align-items: center; }
 .screen { padding: 32px 24px; min-height: 480px; }
 .screen[hidden] { display: none; }
+/* The fold: where the first screen ends. 660px on a 390 by 844 phone, 720px on desktop. */
+.fold { position: absolute; left: 0; right: 0; top: 660px; border-top: 2px dashed var(--brand-text-secondary); pointer-events: none; }
+.frame--desktop .fold { top: 720px; }
+.fold::after { content: 'Fold'; position: absolute; right: 8px; top: -22px; font-size: 12px; font-weight: 600; color: var(--brand-text-secondary); background: #fff; padding: 0 4px; }
 </style>
 </head>
 <body class="gp">
 <nav class="page-bar" aria-label="Options">
   <strong>{{TITLE}}</strong>
+  <a href="#brief">Brief</a>
   <a href="#option-a">A: {{NAME_A}}</a>
   <a href="#option-b">B: {{NAME_B}}</a>
   <a href="#option-c">C: {{NAME_C}}</a>
 </nav>
 <main class="page">
 
+<!-- The brief answers the reviewer's questions before they ask. One or two sentences
+     each. Write "Unknown" rather than guess. See reference/review-lens.md. -->
+<section class="brief" id="brief">
+  <h1>{{TITLE}}</h1>
+  <dl>
+    <dt>User</dt><dd id="brief-user">{{BRIEF_USER}}</dd>
+    <dt>Problem</dt><dd id="brief-problem">{{BRIEF_PROBLEM}}</dd>
+    <dt>Solution</dt><dd id="brief-solution">{{BRIEF_SOLUTION}}</dd>
+    <dt>Data</dt><dd id="brief-data">{{BRIEF_DATA}}</dd>
+    <dt>Measurement</dt><dd id="brief-measure">{{BRIEF_MEASURE}}</dd>
+    <dt>Where they come from</dt><dd id="brief-entry">{{BRIEF_ENTRY}}</dd>
+  </dl>
+  <h2>Feedback we want today</h2>
+  <ul id="feedback-ask">
+    <li>{{FEEDBACK_ASK_1}}</li>
+  </ul>
+</section>
+
 <!-- Repeat this section for option-b and option-c. Each option is one wireframe in one
-     frame. Show one .screen at a time; buttons change state, Restart resets it. -->
+     phone frame. The first screen is the entry point. Show one .screen at a time;
+     buttons change state, Restart resets it. -->
 <section class="option" id="option-a">
   <h2>A: {{NAME_A}}</h2>
   <p>{{ONE_SENTENCE_A}}</p>
+  <p class="sends" id="a-sends">Sends: {{SENDS_A}}</p>
   <div class="frame-head"><button class="gp-btn gp-btn--ghost gp-btn--sm" id="a-restart" type="button">Restart</button></div>
-  <div class="frame frame--desktop" id="a-frame">
+  <div class="frame frame--phone" id="a-frame">
+    <div class="fold" aria-hidden="true"></div>
     <div class="topbar">
       <div class="ctx">{{HEART_LOGO_SVG}} <span>Context label</span></div>
       <button class="gp-btn gp-btn--ghost gp-btn--sm" type="button">Talk to Jared</button>
     </div>
-    <div class="screen" id="a-step-1">
-      <div class="gp-field" style="max-width:420px">
+    <div class="screen" id="a-entry">
+      <div class="gp-box" style="height:120px">Page around the feature</div>
+      <button class="gp-btn gp-btn--lg" id="a-start" type="button" style="margin-top:16px">The button that starts the flow</button>
+    </div>
+    <div class="screen" id="a-step-1" hidden>
+      <div class="gp-field">
         <h3 style="font-size:30px;font-weight:700;margin-bottom:16px">Screen heading</h3>
         <label class="gp-label" for="a-office">Which office did you win, Sarah?</label>
         <input class="gp-input" id="a-office" value="City council, Maplewood">
-        <button class="gp-btn gp-btn--lg" id="a-next" type="button" style="margin-top:16px">Confirm office</button>
+        <div style="display:flex;justify-content:flex-end;margin-top:16px">
+          <button class="gp-btn gp-btn--lg" id="a-next" type="button">Confirm office</button>
+        </div>
       </div>
     </div>
     <div class="screen" id="a-step-2" hidden>
@@ -68,14 +108,15 @@ body { margin: 0; background: var(--brand-surface-secondary); }
 </main>
 <script>
 // One state object per option, prefixed so options can't collide.
-const a = { step: 1 }
+const a = { step: 'entry' }
 function aRender() {
   document.querySelectorAll('#a-frame .screen').forEach((el) => {
-    el.hidden = el.id !== 'a-step-' + a.step
+    el.hidden = el.id !== (a.step === 'entry' ? 'a-entry' : 'a-step-' + a.step)
   })
 }
+document.getElementById('a-start').addEventListener('click', () => { a.step = 1; aRender() })
 document.getElementById('a-next').addEventListener('click', () => { a.step = 2; aRender() })
-document.getElementById('a-restart').addEventListener('click', () => { a.step = 1; aRender() })
+document.getElementById('a-restart').addEventListener('click', () => { a.step = 'entry'; aRender() })
 aRender()
 </script>
 </body>

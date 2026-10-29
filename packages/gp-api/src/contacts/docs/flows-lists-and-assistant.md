@@ -31,8 +31,8 @@ so channels without an interaction model still lock the filter.
    capture write): re-resolve the filter fresh, which can overstate.
    Robocall always resolves the filter.
 4. `occurredAt` = launch time, not send-completion time.
-5. Pages through the segment (`SEGMENT_PAGE_SIZE` 1000, cap
-   `MAX_MATERIALIZED_VOTERS` 100k).
+5. Pages through the segment (`SEGMENT_PAGE_SIZE` 1000) to exhaustion,
+   with no recipient cap.
 
 Phone-list generation for saved-filter sends goes through the contacts
 pipeline (`findContactsForFilter`), so activity/support conditions are

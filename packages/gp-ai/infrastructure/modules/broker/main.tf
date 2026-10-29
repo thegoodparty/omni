@@ -136,12 +136,15 @@ resource "aws_secretsmanager_secret" "broker" {
   }
 }
 
-resource "aws_secretsmanager_secret_version" "broker_initial" {
-  secret_id     = aws_secretsmanager_secret.broker.id
-  secret_string = jsonencode({})
+# Not managed by Terraform. A managed secret version is refreshed on every
+# plan, which needs GetSecretValue on the secret, so the container is created
+# here and an operator writes the first value with `put-secret-value`.
+# `destroy = false` leaves the existing version in place.
+removed {
+  from = aws_secretsmanager_secret_version.broker_initial
 
   lifecycle {
-    ignore_changes = [secret_string]
+    destroy = false
   }
 }
 

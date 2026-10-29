@@ -50,8 +50,7 @@ export const CONTROLLERS_WITHOUT_ROUTE_ALERTS: ControllerName[] = [
   // 404s outside mock mode (non-prod only); prod traffic is by definition
   // not ours, same posture as test-fixtures.
   'vendor-mocks/geoapify',
-  // Same posture: non-prod only, 404 in live mode, 23 stub routes would
-  // push the total route map past the Loki tenant series cap (500).
+  // Same posture: non-prod only, 404 in live mode.
   'vendor-mocks/peerly',
   'vendor-mocks/vercel',
   'vendor-mocks/route53',
@@ -157,6 +156,21 @@ export const SERVER_ERRORS_ONLY: ControllerName[] = [
   'door-knocking',
   'contacts',
   'campaigns/tcr-compliance',
+]
+
+/*
+ * Single routes that get no route alert although their controller does.
+ *
+ * `POST /v1/email/webhooks/sns` answers 503 on purpose: when
+ * EMAIL_INBOUND_TOPIC_ENV is unset, or the signing certificate or the
+ * subscription URL cannot be fetched, the 503 is what makes SNS redeliver. On
+ * dev and preview, where inbound mail is not wired, that is the steady state.
+ * A real inbound-mail outage shows up as replies not arriving, which is not an
+ * emergency, so no response from this route is worth a page. The controller's
+ * other routes (unsubscribe, forward-confirm) stay watched.
+ */
+export const ROUTES_WITHOUT_ROUTE_ALERTS: string[] = [
+  'POST /v1/email/webhooks/sns',
 ]
 
 /*
@@ -563,6 +577,28 @@ export const GLOBAL_ALERTS: Alert[] = [
   ...geoapifyBudgetAlerts,
   ...vendorDriftAlerts,
   ...sesReputationAlerts,
+  {
+    slug: 'clerk-dev-user-cap-headroom',
+    name: '[Ops] Clerk dev instance is nearing its user cap',
+    type: 'metric',
+    // Pinned to dev rather than `$ENV`: only prod provisions alerting, and the
+    // instance at risk is the dev one that every E2E run, preview and person
+    // shares. Max across tasks, since one task records the count each hour and
+    // a count is not additive.
+    expr: 'max(clerk_users{service_name="gp-api", deployment_environment_name="dev", population="all"})',
+    // 80% of the dev instance's 50,000-user cap.
+    threshold: 40_000,
+    for: '0m',
+    // The gauge is written once an hour, and a dev deploy drops it until the
+    // next count. Held past that gap so a dev instance that stays near the cap
+    // is one page, not one per deploy.
+    keepFiringFor: '90m',
+    evaluationIntervalSeconds: 300,
+    message: [
+      'The Clerk dev instance holds more than 40,000 users, against a hard cap of 50,000. At the cap Clerk refuses new sign-ups, and every E2E run, preview and dev login that creates a user fails (2026-09-29 to 2026-10-01).',
+      'gp-api dev records the count hourly from the `testUserSweep` cron (`UsersService.reportClerkUserCounts`), before the sweep deletes e2e users older than 3 hours and QA fixture users older than 24. Compare the two series: `clerk_users{deployment_environment_name="dev"}` by `population`. If `test_domain` makes up most of the total, the sweep is falling behind or failing: look for `Test user cleanup pass complete` and `Failed to delete` in the dev gp-api logs. If it does not, the growth is from people or other fixtures, and someone needs to prune users in the Clerk dashboard.',
+    ].join('\n\n'),
+  },
   {
     slug: 'door-knocking-pack-build-failed',
     name: '[Win] Door-knocking pack build failed mid-response',

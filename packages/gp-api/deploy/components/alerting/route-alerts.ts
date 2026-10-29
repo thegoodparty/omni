@@ -6,6 +6,7 @@ import {
 import { Alert } from './alerts.types'
 import {
   CONTROLLERS_WITHOUT_ROUTE_ALERTS,
+  ROUTES_WITHOUT_ROUTE_ALERTS,
   SERVER_ERRORS_ONLY,
   VOTER_QUERY_TIMEOUTS_NOT_PAGED,
 } from '../alerts'
@@ -299,7 +300,9 @@ export const routeAlertGroups = (): RouteAlertGroup[] => {
   for (const controller of CONTROLLER_NAMES) {
     if (CONTROLLERS_WITHOUT_ROUTE_ALERTS.includes(controller)) continue
 
-    const routes = ROUTE_MAP[controller]
+    const routes = ROUTE_MAP[controller].filter(
+      ({ endpoint }) => !ROUTES_WITHOUT_ROUTE_ALERTS.includes(endpoint),
+    )
     if (routes.length === 0) continue
 
     const serverErrorsOnly = SERVER_ERRORS_ONLY.includes(controller)

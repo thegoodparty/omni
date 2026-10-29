@@ -43,10 +43,6 @@ vi.mock('@aws-sdk/s3-request-presigner', () => ({
   getSignedUrl: mockGetSignedUrl,
 }))
 
-vi.mock('slugify', () => ({
-  default: vi.fn((str: string) => str.toLowerCase().replace(/\s+/g, '-')),
-}))
-
 describe('S3Service', () => {
   let service: S3Service
 

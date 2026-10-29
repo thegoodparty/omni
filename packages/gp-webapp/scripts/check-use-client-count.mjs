@@ -527,7 +527,11 @@ import { dirname, join, relative } from 'node:path'
 // D3). The unsubscribe and forward-confirm pages are opened from email by
 // people with no session and act on a button press, and the status page reads
 // the router, so all three are client components under server page files.
-const BASELINE = 599
+// 2026-10-29: 599 -> 601 for Import contacts' Upload history and upload detail
+// pages (UploadHistory, UploadDetail). Both poll an upload while it matches
+// and hold review answers in state, so each is the client boundary under its
+// server page; everything they render inherits it.
+const BASELINE = 601
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])
