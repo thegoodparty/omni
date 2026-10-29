@@ -64,19 +64,19 @@ describe('<ImportedContactInformation>', () => {
     )
 
     await screen.findAllByRole('link', {
-      name: 'Came from Newsletter, Oct 2026',
+      name: 'Came from upload Newsletter, Oct 2026',
     })
     expect(
       within(fieldBlock('Email')).getByText('maria.lopez@example.com'),
     ).toBeInTheDocument()
     expect(
       within(fieldBlock('Email')).getByRole('link', {
-        name: 'Came from Newsletter, Oct 2026',
+        name: 'Came from upload Newsletter, Oct 2026',
       }),
     ).toHaveAttribute('href', '/dashboard/contacts/uploads/upload-1')
     expect(
       within(fieldBlock('Landline')).getByRole('link', {
-        name: 'Came from Newsletter, Oct 2026',
+        name: 'Came from upload Newsletter, Oct 2026',
       }),
     ).toBeInTheDocument()
     expect(

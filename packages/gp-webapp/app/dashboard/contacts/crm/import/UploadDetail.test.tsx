@@ -108,6 +108,15 @@ const NEEDS_INPUT_ROWS = [
         zip: '55001',
         age: 40,
       },
+      {
+        personId: '0190f4a5-0000-7000-8000-000000000004',
+        firstName: 'Jane',
+        lastName: 'Okafor',
+        addressLine: '31 Elm St',
+        city: 'Maplewood',
+        zip: '55001',
+        age: 72,
+      },
     ],
   }),
 ]
@@ -184,11 +193,20 @@ describe('<UploadDetail>', () => {
       name: 'M. Lopez, 14 Oak St',
     })
     await user.click(
-      within(maria).getByLabelText('Same as Maria Lopez, 14 Oak St'),
+      within(maria).getByLabelText(
+        'Same as Maria Lopez, 14 Oak St, 54 years old',
+      ),
     )
     const okafor = screen.getByRole('radiogroup', { name: 'J. Okafor' })
     expect(
-      within(okafor).getByLabelText('Same as Jane Okafor, 31 Elm St'),
+      within(okafor).getByLabelText(
+        'Same as Jane Okafor, 31 Elm St, 40 years old',
+      ),
+    ).toBeInTheDocument()
+    expect(
+      within(okafor).getByLabelText(
+        'Same as Jane Okafor, 31 Elm St, 72 years old',
+      ),
     ).toBeInTheDocument()
     await user.click(within(okafor).getByLabelText('New person'))
 

@@ -1073,6 +1073,7 @@ describe('the person activity feed', () => {
       activityId: rows[1]!.id,
       uploadName: 'Newsletter',
       isNewPerson: false,
+      isFirstImport: false,
       suppliedFields: ['firstName', 'lastName'],
       manual: true,
       actorUserId: service.user.id,
@@ -1082,6 +1083,7 @@ describe('the person activity feed', () => {
       data: {
         activityId: rows[0]!.id,
         uploadId: data.id,
+        isFirstImport: true,
         suppliedFields: ['firstName', 'lastName', 'email', 'cellPhone'],
         changedFields: [],
         manual: false,
@@ -1102,5 +1104,45 @@ describe('the person activity feed', () => {
       },
     )
     expect(rest.data.results[0].data.activityId).toBe(rows[0]!.id)
+  })
+
+  it('marks only the upload that created a new person as its first import', async () => {
+    mockMatch([])
+    const first = await upload(`${HEADER_ROW}\nAnn,Able,ann@example.com,,,\n`)
+    await runMatch(first.data.id)
+    const [created] = await rowsOf(first.data.id)
+    const second = await upload(
+      `${HEADER_ROW}\nAnn,Able,ann@example.com,,,\n`,
+      {
+        name: 'Ward 3 event',
+        consentAffirmed: 'true',
+        columnMapping: JSON.stringify(MAPPING),
+      },
+    )
+    await runMatch(second.data.id)
+    const [later] = await rowsOf(second.data.id)
+    expect(later).toMatchObject({
+      personId: created!.personId,
+      isNewPerson: true,
+      changedFields: [],
+    })
+
+    const res = await service.client.get(
+      `/v1/contact-engagement/${created!.personId}/activities`,
+      { headers: { [HEADER]: slug } },
+    )
+
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(
+      res.data.results.map(
+        (item: { data: { activityId: string; isFirstImport: boolean } }) => ({
+          activityId: item.data.activityId,
+          isFirstImport: item.data.isFirstImport,
+        }),
+      ),
+    ).toEqual([
+      { activityId: later!.id, isFirstImport: false },
+      { activityId: created!.id, isFirstImport: true },
+    ])
   })
 })
