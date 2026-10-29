@@ -72,10 +72,9 @@ const components: Components<typeof generatedUiCatalog> = {
   Stack: ({ props, children }) => (
     <div
       className={cn(
-        'flex',
         props.direction === 'horizontal'
-          ? 'flex-row flex-wrap [&>*]:min-w-40 [&>*]:flex-1'
-          : 'flex-col',
+          ? 'grid grid-cols-[repeat(auto-fit,minmax(9rem,1fr))]'
+          : 'flex flex-col',
         GAP[props.gap ?? 'medium'],
       )}
     >

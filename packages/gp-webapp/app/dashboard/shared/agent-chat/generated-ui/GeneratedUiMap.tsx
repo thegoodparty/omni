@@ -65,7 +65,7 @@ export default function GeneratedUiMap({
     <div className="relative h-64 w-full overflow-hidden rounded-lg bg-muted">
       <div ref={containerRef} className="h-full w-full" />
       {basemapBlocked || !hasTilesKey ? (
-        <div className="absolute inset-x-2 top-2 rounded-md bg-background/95 px-2 py-1 text-center text-xs text-muted-foreground shadow">
+        <div className="absolute top-2 right-12 left-2 rounded-md bg-background/95 px-2 py-1 text-center text-xs text-muted-foreground shadow">
           The background map could not load here. Its tiles key does not allow
           this domain.
         </div>
