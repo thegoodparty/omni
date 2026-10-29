@@ -14,7 +14,11 @@ const determineUserId = (req: IncomingMessage): string | undefined => {
     return
   }
   try {
-    return jwt.decode(token, { json: true })?.sub
+    const claims = jwt.decode(token, { json: true })
+    if (claims?.iss?.startsWith('https://oidc.vercel.com')) {
+      return `vercel:${String(claims.project)}:${String(claims.environment)}`
+    }
+    return claims?.sub
   } catch {
     return
   }

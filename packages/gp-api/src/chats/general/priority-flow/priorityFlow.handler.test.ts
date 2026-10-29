@@ -1192,7 +1192,7 @@ describe('PriorityFlowHandler', () => {
           'you can ask their civic panel on this priority once it is ready',
         )
         expect(prompt).not.toContain(
-          'Say in one line that it also invites people to join the civic panel.',
+          'Say in one line that it also invites people to join',
         )
       })
 
@@ -1203,6 +1203,8 @@ describe('PriorityFlowHandler', () => {
         expect(paused).toContain(
           'Civic panel: its invites are paused, so it is not filling until they press Resume invites. 82 of 240 members have joined.',
         )
+        expect(paused).not.toContain('GoodParty is building their civic panel')
+        expect(paused).not.toContain('GoodParty was building')
         const exhausted = buildWithPanels().buildSystemPrompt(
           withPanel({ ...building, status: 'exhausted', nextSendDate: null }),
         )
@@ -1210,9 +1212,12 @@ describe('PriorityFlowHandler', () => {
           'Civic panel: every resident a text can reach has an invite, and it is short of its goal.',
         )
         expect(exhausted).toContain('so what they hear may lean')
+        expect(exhausted).not.toContain(
+          'GoodParty is building their civic panel',
+        )
       })
 
-      it('asks a ready civic panel with one text to its members', () => {
+      it('leads with asking a ready civic panel, and lets the official pick the round', () => {
         const prompt = buildWithPanels().buildSystemPrompt(
           withPanel({
             ...building,
@@ -1222,15 +1227,26 @@ describe('PriorityFlowHandler', () => {
           }),
         )
         expect(prompt).toContain('Civic panel: ready. 240 members.')
-        expect(prompt).toContain('they can ask their civic panel instead')
+        const civicPanel = prompt.indexOf('1. "Ask my civic panel"')
+        const text = prompt.indexOf('2. "Text residents across the district"')
+        const other = prompt.indexOf('3. "Use another kind of outreach"')
+        expect(civicPanel).toBeGreaterThan(-1)
+        expect(text).toBeGreaterThan(civicPanel)
+        expect(other).toBeGreaterThan(text)
+      })
+
+      it('keeps round one first for a civic panel that is not ready', () => {
+        const prompt = buildWithPanels().buildSystemPrompt(withPanel(building))
+        expect(prompt).not.toContain('1. "Ask my civic panel"')
       })
 
       it('points to setting one up when GoodParty is not building one', () => {
         const prompt = buildWithPanels().buildSystemPrompt(withPanel(null))
         expect(prompt).toContain('Civic panel: GoodParty is not building one.')
         expect(prompt).toContain('Build my civic panel on their home')
-        expect(prompt).toContain(
-          'Say in one line that it also invites people to join the civic panel.',
+        // Only GoodParty's civic panel invites ask people to join.
+        expect(prompt).not.toContain(
+          'Say in one line that it also invites people to join',
         )
       })
 
@@ -1297,6 +1313,73 @@ describe('PriorityFlowHandler', () => {
         const off = await handlerWith(false).loadContext('c1', USER_ID)
         expect(off.managedCivicPanel).toBeUndefined()
         expect(read).not.toHaveBeenCalled()
+      })
+
+      it('reads it once when the conversation opens, and again only on the next open or after a failed read', async () => {
+        context.countCivicPanelMembers = vi.fn(() => Promise.resolve(82))
+        const read = vi.fn(() =>
+          Promise.resolve({
+            panel: {
+              status: 'ready',
+              approvedAt: new Date('2026-10-01T15:00:00Z'),
+              progress: {
+                members: 240,
+                goalMembers: 240,
+                wavesSent: 4,
+                nextWaveAt: null,
+              },
+            },
+          }),
+        )
+        store.findByAnchorResource = vi.fn(() =>
+          Promise.resolve([{ id: 'c1' }]),
+        ) as never
+        const handler = new PriorityFlowHandler(
+          store,
+          context,
+          outreach,
+          priorityStatus,
+          { voters: [], constituents: [] },
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          { isFeatureEnabled: vi.fn(() => Promise.resolve(true)) } as never,
+          undefined,
+          undefined,
+          { read } as unknown as ManagedCivicPanelService,
+        )
+        const open = () =>
+          handler.resolveConversation(
+            {
+              scope: ChatScope.priority_flow,
+              organizationSlug: ORG,
+              anchor: ANCHOR,
+            },
+            USER_ID,
+          )
+
+        await open()
+        await handler.loadContext('c1', USER_ID)
+        const second = await handler.loadContext('c1', USER_ID)
+        expect(second.managedCivicPanel).toEqual(
+          expect.objectContaining({ status: 'ready', members: 240 }),
+        )
+        expect(read).toHaveBeenCalledTimes(1)
+
+        await open()
+        await handler.loadContext('c1', USER_ID)
+        expect(read).toHaveBeenCalledTimes(2)
+
+        await open()
+        read.mockRejectedValueOnce(new Error('boom'))
+        expect(
+          (await handler.loadContext('c1', USER_ID)).managedCivicPanel,
+        ).toBeUndefined()
+        await handler.loadContext('c1', USER_ID)
+        expect(read).toHaveBeenCalledTimes(4)
       })
     })
 
