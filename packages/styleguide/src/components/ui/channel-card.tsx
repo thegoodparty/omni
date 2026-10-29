@@ -11,6 +11,13 @@ interface ChannelCardProps extends React.ComponentProps<'button'> {
   iconClassName?: string
 }
 
+/**
+ * locked dims the tile and shows a lock but stays clickable, so the click can
+ * open an upgrade prompt.
+ *
+ * @summary Use for a clickable tile that picks an outreach channel, with an
+ * icon, a name and a price line. For a panel that isn't a choice, use Card.
+ */
 const ChannelCard = ({
   icon,
   label,

@@ -22,6 +22,11 @@ vi.mock('@shared/experiments/serveCitizenPanelsFlag', () => ({
   useServeCitizenPanelsFlag: () => citizenPanelsFlag,
 }))
 
+const impersonation = vi.hoisted(() => ({ active: false }))
+vi.mock('@shared/hooks/useIsImpersonating', () => ({
+  useIsImpersonating: () => impersonation.active,
+}))
+
 import { trackEvent } from 'helpers/analyticsHelper'
 import ServeOnboardingFlow from './ServeOnboardingFlow'
 
@@ -392,6 +397,52 @@ describe('ServeOnboardingFlow with serve-citizen-panels on', () => {
     expect(
       screen.getByText('Each time you ask, you hear from more people.'),
     ).toBeInTheDocument()
+  })
+
+  it("starts a winner's district read before the story, so its real map is ready", async () => {
+    // A winner lands on the term step with the office already on the org.
+    // The story gives up on slow data and keeps the stand-in, so the read
+    // starts now rather than when the story mounts.
+    let pointsRequests = 0
+    api.mock('POST /v1/contacts/points', () => {
+      pointsRequests += 1
+      return {
+        status: 200,
+        data: { points: districtPoints(400), truncated: false },
+      }
+    })
+    mockLoad(
+      buildEO({
+        party: 'independent',
+        onboardingStep: 'confirm',
+        campaignId: 7,
+      }),
+      buildOrg({
+        positionName: 'Mayor',
+        position: { id: 'p1', brPositionId: 'br-1', state: 'NC' },
+      }),
+    )
+    api.mock('PUT /v1/elected-office/:id', { status: 200, data: buildEO() })
+    const user = userEvent.setup({ skipHover: true })
+    renderFlow()
+
+    expect(
+      await screen.findByText('When does your term run?'),
+    ).toBeInTheDocument()
+    await waitFor(() => expect(pointsRequests).toBe(1))
+
+    await fillTermDates(user)
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findByText('Does this look right?')
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    await findStoryHeading(storyHeading.represent)
+    expect(screen.getByTestId('district-story-map')).toHaveAttribute(
+      'data-abstract',
+      'false',
+    )
+    // The story reuses the read already in hand.
+    expect(pointsRequests).toBe(1)
   })
 
   it("draws the official's district from its locations", async () => {
@@ -1429,6 +1480,134 @@ describe('ServeOnboardingFlow', () => {
     // The confirmed office renders as a plain value (the old red error state is
     // gone now that confirm is only shown when complete).
     expect(screen.getByText('Mayor')).toBeInTheDocument()
+  })
+
+  describe('for a Pro winner handed off from the election result', () => {
+    // What the "I won" handoff creates: the campaign's office and party, a
+    // `confirm` checkpoint, no term dates and no completion stamp.
+    const winnerEO = () =>
+      buildEO({
+        party: 'independent',
+        onboardingStep: 'confirm',
+        campaignId: 7,
+      })
+    const winnerOrg = () =>
+      buildOrg({
+        positionName: 'Maplewood City Council',
+        position: { id: 'p1', brPositionId: 'br-1', state: 'NJ' },
+      })
+
+    afterEach(() => {
+      impersonation.active = false
+    })
+
+    it("preselects the campaign's party when the office has none", async () => {
+      mockLoad(buildEO({ ...winnerEO(), party: null }), winnerOrg())
+      let campaignHeader: string | undefined
+      api.mock('GET /v1/campaigns/mine', ({ headers }) => {
+        campaignHeader = headers['x-organization-slug']
+        return {
+          status: 200,
+          data: { details: { otherParty: 'Independent' } } as never,
+        }
+      })
+      renderFlow()
+
+      expect(
+        await screen.findByText("What's your party designation?"),
+      ).toBeInTheDocument()
+      expect(
+        screen.getByRole('radio', { name: /Independent \/ Non-major party/ }),
+      ).toBeChecked()
+      expect(campaignHeader).toBe('campaign-7')
+    })
+
+    it('shows a major party preselected and blocked, never skipping its step', async () => {
+      mockLoad(buildEO({ ...winnerEO(), party: 'democratic' }), winnerOrg())
+      renderFlow()
+
+      expect(
+        await screen.findByText("What's your party designation?"),
+      ).toBeInTheDocument()
+      expect(screen.getByRole('radio', { name: /Democrat/ })).toBeChecked()
+      expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+    })
+
+    it('prefills the term when the office already has one', async () => {
+      mockLoad(
+        buildEO({
+          ...winnerEO(),
+          termStartDate: '2026-12-01',
+          termEndDate: '2030-12-01',
+        }),
+        winnerOrg(),
+      )
+      renderFlow()
+
+      expect(
+        await screen.findByText('Does this look right?'),
+      ).toBeInTheDocument()
+      expect(screen.queryByText('When does your term run?')).toBeNull()
+    })
+
+    it('asks for the term first, then lands on the prefilled confirm step', async () => {
+      mockLoad(winnerEO(), winnerOrg())
+      api.mock('PUT /v1/elected-office/:id', {
+        status: 200,
+        data: winnerEO(),
+      })
+      const user = userEvent.setup({ skipHover: true })
+      renderFlow()
+
+      expect(
+        await screen.findByText('When does your term run?'),
+      ).toBeInTheDocument()
+      expect(
+        screen.queryByText('Meet your virtual chief of staff in 5 minutes'),
+      ).not.toBeInTheDocument()
+
+      await fillTermDates(user)
+      await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+      expect(
+        await screen.findByText('Does this look right?'),
+      ).toBeInTheDocument()
+      expect(screen.getByText('Maplewood City Council')).toBeInTheDocument()
+    })
+
+    it('lands straight on the confirm step when the term is already known', async () => {
+      mockLoad(
+        buildEO({
+          party: 'independent',
+          onboardingStep: 'confirm',
+          campaignId: 7,
+          termStartDate: '2027-01-01',
+          termEndDate: '2031-01-01',
+        }),
+        winnerOrg(),
+      )
+      renderFlow()
+
+      expect(
+        await screen.findByText('Does this look right?'),
+      ).toBeInTheDocument()
+    })
+
+    it('lets an impersonating admin leave without finishing', async () => {
+      impersonation.active = true
+      mockLoad(winnerEO(), winnerOrg())
+      const user = userEvent.setup({ skipHover: true })
+      renderFlow()
+
+      await user.click(await screen.findByRole('button', { name: 'Dismiss' }))
+
+      expect(
+        window.sessionStorage.getItem(
+          'gp:electionResultDismissedDuringImpersonation',
+        ),
+      ).toBe('true')
+      window.sessionStorage.clear()
+    })
   })
 
   it('does not stamp selfReported when answering party in the prefill branch', async () => {

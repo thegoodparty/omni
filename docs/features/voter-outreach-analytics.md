@@ -200,7 +200,7 @@ The campaign reached voters. One event, every channel.
 | `audienceSource`       | `'recommended' \| 'savedList'`                                                | when the audience step ran                                                          |
 | `campaignName`         | string                                                                        | the name the candidate gave it; **omitted** where nothing is named                  |
 | `method`               | `'manual' \| 'turf' \| 'campaign'`                                            | on the paths that need disambiguating                                               |
-| `purpose`              | purpose slug (`introduce_myself`, `build_citizens_panel`, `report_back`, ...) | text, phone banking and door knocking, when the flow's purpose picker set one       |
+| `purpose`              | purpose slug (`introduce_myself`, `build_citizens_panel`, `report_back`, ...) | every channel's Created and Completed, when the picker set one                      |
 | `priorityId`           | string (cuid)                                                                 | when a priority's chat card opened the flow                                         |
 | `asksToJoinCivicPanel` | boolean                                                                       | Serve texts only                                                                    |
 | `launchSource`         | agent surface slug, below                                                     | when an agent surface launched it; never on robocall                                |
@@ -237,6 +237,13 @@ panel invites and a priority's asks without joining on the outreach row.
 reads `priorityId` off the turf response, which carries the anchor's); `asksToJoinCivicPanel` is whether the composed text carries
 the locked JOIN line. Phone banking's `Call List Created` carries `purpose`
 and `priorityId` too.
+
+`purpose` is on Created and Completed for every channel, so the two agree and
+"what kind of message" can be cut by channel without inferring it from the
+script. The completions that happen on another page read it off what they
+load: phone banking off the call list, door knocking off the turf response.
+A resumed robocall reports none: its row does not keep the purpose, and the
+flow's `custom` on resume is a stand-in, not the candidate's pick.
 
 `campaignName` carries the title the candidate gave the campaign: the flow's
 own name field on text, robocall, social and phone banking, and the turf name

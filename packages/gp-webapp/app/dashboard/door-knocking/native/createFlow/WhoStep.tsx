@@ -358,7 +358,10 @@ export const WhoStep = ({
                   recommendation={recommendation}
                   channel="doorKnocking"
                   selected={
-                    activeRecommendationVariant === recommendation.variant
+                    activeRecommendationVariant === recommendation.variant ||
+                    (hasPickedAudience &&
+                      recommendation.existingFilterId !== null &&
+                      recommendation.existingFilterId === selectedListId)
                   }
                   onSelect={() => onSelectRecommendation(recommendation)}
                 />

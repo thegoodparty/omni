@@ -58,6 +58,25 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
     tier: 'degradable',
     feature: 'campaign-email-forwarding',
   },
+  // Signs the unsubscribe links in outreach email. Without it the send
+  // sweep sends nothing.
+  EMAIL_UNSUBSCRIBE_SIGNING_KEY: {
+    tier: 'degradable',
+    feature: 'email-outreach-sending',
+  },
+
+  // The SNS topic that delivers replies to outreach email. The webhook
+  // accepts messages from this topic only.
+  EMAIL_INBOUND_TOPIC_ARN: {
+    tier: 'degradable',
+    feature: 'email-outreach-replies',
+  },
+
+  // The only bucket the reply handler reads inbound mail from.
+  EMAIL_INBOUND_BUCKET: {
+    tier: 'degradable',
+    feature: 'email-outreach-replies',
+  },
 
   PEERLY_MD5_EMAIL: { tier: 'degradable', feature: 'peerly-texting' },
   PEERLY_MD5_PASSWORD: { tier: 'degradable', feature: 'peerly-texting' },

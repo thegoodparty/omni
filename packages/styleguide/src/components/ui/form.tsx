@@ -16,6 +16,15 @@ import {
 import { cn } from '@styleguide/lib/utils'
 import { Label } from '@styleguide/components/ui/label'
 
+/**
+ * Nest FormField > FormItem > FormLabel, FormControl, FormMessage. Validate on
+ * blur or submit, not while typing. On submit, move focus to the first field
+ * with an error.
+ *
+ * @summary Use for forms built with react-hook-form, so each field shows its
+ * label, help text and error right beside it. Never show a form error in a
+ * toast.
+ */
 const Form = FormProvider
 
 type FormFieldContextValue<

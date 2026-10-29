@@ -47,7 +47,9 @@ Three pages. Don't add appendix pages, exploration boards or alternate screen se
      stronger version of it.
 3. **Questions** (`Questions.dc.html`): the questions only people can answer (product
    and system calls), then technical and architecture questions with the code
-   detail beside them, file paths included.
+   detail beside them, file paths included. Include, for each option, any part
+   that no component in `packages/styleguide/COMPONENTS.md` covers: a new
+   component someone has to build.
 
 ## People and data
 

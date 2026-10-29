@@ -42,7 +42,7 @@ is real and what is not:
 | ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
 | Twenty surfaces across Win and Serve, steps read from each flow's own config                      | A flow found later goes in as a `building()` placeholder            |
 | Every event opens the shared card: verdict, both names, volume, Amplitude                         | Per-step volume where one event covers many steps                   |
-| Anchor state on every event: anchored, no anchor, call site unknown, no route                     | Zones on a page are inferred from `fires_on`, not declared anywhere |
+| Each event's route, where one is recorded, as the shared card shows it                            | Zones on a page are inferred from `fires_on`, not declared anywhere |
 | Feedback composer and usage tracking, the explorer's, from the shared partials                    | Step extraction; the node model is hand-authored in `map.js`        |
 | Undrawn flows placed under their areas as "Still being built" placeholders; the panel counts them | Their steps, read out of the files each placeholder names           |
 
@@ -54,21 +54,16 @@ The node model (`TREE`, the surface constants) lives in `map.js` as code, becaus
 it carries judgement per step: which events belong, which branch rejoins where, what a
 note should say. Nothing yet notices when a drawn flow's code changes: the drift guard
 in DATA-2586 records each surface's step ids and source files and flags one whose ids
-no longer appear. Reading steps out of the repo automatically would use the refresh
-mechanism `event_anchors.json` already uses.
+no longer appear.
 
 ## Data
 
-Both inputs are refreshed by the governance run, so the map moves when the explorer does.
+Its one input is refreshed by the governance run, so the map moves when the explorer does.
 
 - The explorer snapshot, `surfaces/event-explorer/data/event-explorer.json`,
   whole. The page searches every event in it, and `map.js` builds each step's row
   (status, volume, series, route) from the same events its cards render, so a step and
   the card that opens under it cannot disagree.
-- `scripts/python/instrumentation_data/event_anchors.json`, for the anchor tag only:
-  `build.py` reduces each record to ok / none / nosite / noroute. An anchor still under
-  review counts, because the tag asks whether any record of where it fires exists. The
-  route itself follows the explorer, which shows accepted anchors only.
 
 An event named in `map.js` and missing from the snapshot shows "not in snapshot" on its
 row. `test_every_event_the_map_draws_is_in_the_snapshot` fails when that set grows beyond
@@ -110,9 +105,6 @@ that has a newer snapshot, or when it is republished by hand.
 
 ## Things that will surprise you
 
-- **Anchors alone draw false holes.** `Signup Goal Viewed` and `Manual Office Viewed` are
-  both active with no anchor record. The map uses the registry for existence and anchors
-  only for the route, which is why those steps show as "no anchor" rather than empty.
 - **One event can cover many steps.** The SMS wizard fires `Voter Outreach - Flow Step
 Viewed/Completed` for every step with `step` as a property. Matching by event name
   would call all five steps uninstrumented; the map attaches `(event, property value)`

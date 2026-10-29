@@ -2,16 +2,17 @@ import { useState } from 'react'
 import type { EmailRecipientUploadResponse } from '@goodparty_org/contracts'
 import { Button, Input, Label } from '@styleguide'
 import { Intro } from '../social/Intro'
-import { EmailComingSoon } from './EmailComingSoon'
 import { EmailPreview } from './EmailPreview'
 import {
   apiErrorMessage,
   sendEmailTest,
   useChangeForwardTo,
+  useEmailSend,
   useEmailSender,
 } from './emailApi'
 import {
   formatCount,
+  formatDollars,
   nextWarmingCap,
   warmingCap,
   type EmailComposeState,
@@ -34,6 +35,7 @@ export const EmailReviewStep = ({
   sendLabel,
 }: EmailReviewStepProps) => {
   const { data: sender } = useEmailSender(surface.isServe)
+  const { data: send } = useEmailSend(surface.isServe, draftId)
   const changeForwardTo = useChangeForwardTo(surface.isServe)
   const [editing, setEditing] = useState(false)
   const [address, setAddress] = useState('')
@@ -113,6 +115,17 @@ export const EmailReviewStep = ({
             </dd>
           )}
         </div>
+        {send?.estimate && (
+          <div data-testid="email-price">
+            <dt className="text-muted-foreground">Price</dt>
+            <dd className="font-medium text-foreground">
+              Up to {formatDollars(send.estimate.priceCents)}
+            </dd>
+            <dd className="text-muted-foreground">
+              You are charged only for emails that go out.
+            </dd>
+          </div>
+        )}
         <div>
           <dt className="text-muted-foreground">When</dt>
           <dd className="font-medium text-foreground">{sendLabel}</dd>
@@ -197,8 +210,6 @@ export const EmailReviewStep = ({
           )}
           {testError && <p className="text-xs text-destructive">{testError}</p>}
         </div>
-        <EmailComingSoon feature="price" label="Price" />
-        <EmailComingSoon feature="pay" label="Pay and send" />
       </div>
     </div>
   )

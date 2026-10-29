@@ -89,6 +89,16 @@ const STEP_ORDER: StepId[] = [
 // robocall "what" step).
 const BUILD_STEP_ORDER: StepId[] = ['purpose', 'audience', 'compose']
 
+// Where Back goes on a resumed row. It reaches the audience step, so a
+// candidate can send to a different list, and stops there: compose could
+// never advance again (its Continue needs a local recording the saved row
+// cannot supply), purpose would rewrite the approved script, and leaving pay
+// would re-post a row the pay step already converted.
+const RESUME_BACK: Partial<Record<StepId, StepId>> = {
+  review: 'schedule',
+  schedule: 'audience',
+}
+
 const STEP_TITLES: Record<StepId, string> = {
   purpose: 'What do you want to do?',
   audience: 'Who do you want to reach?',
@@ -240,11 +250,16 @@ export const RobocallFlow = ({
             ? 'recommended'
             : 'savedList',
           ...(tracker ? { tracker } : {}),
+          ...(purpose ? { purpose } : {}),
         }),
       }),
     onClose,
   })
   const { savedDraft, resumed, gateOpen, explainerOpen } = draftGate
+  // A resume opens on `custom` only because the row does not persist the
+  // purpose that wrote it, so a resumed send reports no purpose, never that
+  // one.
+  const trackedPurpose = resumed ? null : purpose
   // While a gate screen is up the sheet header is the gate's (design:
   // renderSgModal's "Upgrade to Pro" overline and its own stepper), not the
   // flow's channel badge and step count.
@@ -280,7 +295,12 @@ export const RobocallFlow = ({
     countOverlay: ROBOCALL_COUNT_OVERLAY,
     recommendedListIntent,
     preselectedListId: resumedListId ?? preselectedListId,
-    preselectedRecommendedVariant,
+    // A resumed row already names its list, and Back can now reach the
+    // audience step: a carried-in recommendation (a free-offer link landing on
+    // a saved draft) must not be applied over it there.
+    preselectedRecommendedVariant: resumed
+      ? undefined
+      : preselectedRecommendedVariant,
     freeOfferEnabled: freeOffer !== null,
   })
   const { reset: resetAudience } = audience
@@ -469,6 +489,7 @@ export const RobocallFlow = ({
           ? 'recommended'
           : 'savedList',
         ...(tracker ? { tracker } : {}),
+        ...(trackedPurpose ? { purpose: trackedPurpose } : {}),
       }),
     })
   }
@@ -502,6 +523,7 @@ export const RobocallFlow = ({
             ? 'recommended'
             : 'savedList',
           ...(tracker ? { tracker } : {}),
+          ...(trackedPurpose ? { purpose: trackedPurpose } : {}),
         }),
       })
       // A booked robocall ends the free offer for this campaign, so every
@@ -751,7 +773,7 @@ export const RobocallFlow = ({
       audience.resetBuilder()
       return
     }
-    const previous = stepOrder[stepIndex - 1]
+    const previous = resumed ? RESUME_BACK[stepId] : stepOrder[stepIndex - 1]
     if (!previous) return
     // Backing OFF the audience step discards the picked list so a re-entry
     // starts from an empty picker instead of resuming a selection the user
@@ -1087,11 +1109,15 @@ export const RobocallFlow = ({
       currentStep={showGateChrome ? gateChrome.currentStep : stepIndex + 1}
       totalSteps={showGateChrome ? gateChrome.totalSteps : stepOrder.length}
       onBack={
-        // A resume has no reachable step behind it at all: purpose, audience
-        // and compose were settled when the draft was saved, and compose
-        // could never advance again (its Continue needs a local recording
-        // the saved row cannot supply).
-        !gateOpen && !resumed && stepIndex > 0 ? handleBack : undefined
+        // A resume walks back only as far as RESUME_BACK allows, plus the
+        // audience builder's own sub-modes once it is there.
+        !gateOpen &&
+        (resumed
+          ? RESUME_BACK[stepId] !== undefined ||
+            (stepId === 'audience' && audience.mode !== 'picker')
+          : stepIndex > 0)
+          ? handleBack
+          : undefined
       }
       cta={cta}
       // A React element is truthy even when it renders null, so the caller
@@ -1296,6 +1322,14 @@ export const RobocallFlow = ({
           recording={recorder.recording}
           script={script}
           transcript={complianceMutation.data?.transcript ?? null}
+          onFreeOfferList={
+            freeOffer !== null &&
+            (audience.selectedRecommendation?.variant ===
+              ROBOCALL_FREE_OFFER_VARIANT ||
+              (audience.freeOfferRecommendation?.existingFilterId != null &&
+                audience.freeOfferRecommendation.existingFilterId ===
+                  audience.selectedListId))
+          }
         />
       ) : (
         <RobocallPayStep

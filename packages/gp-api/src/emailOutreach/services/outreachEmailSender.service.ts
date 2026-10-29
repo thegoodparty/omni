@@ -1,11 +1,12 @@
 import {
   BadGatewayException,
+  BadRequestException,
   ConflictException,
   Injectable,
 } from '@nestjs/common'
 import { createHash, randomBytes } from 'crypto'
 import { addHours } from 'date-fns'
-import { EmailSender } from '@goodparty_org/contracts'
+import { EmailForwardConfirmState, EmailSender } from '@goodparty_org/contracts'
 import { EmailService } from '@/email/email.service'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { isUniqueConstraintError } from '@/prisma/util/prismaErrors.util'
@@ -134,6 +135,68 @@ export class OutreachEmailSenderService extends createPrismaBase(
       throw new BadGatewayException('Could not send the confirmation email')
     }
     return updated
+  }
+
+  // Loading the confirmation page changes nothing; only confirmForward does.
+  async describeForwardChange(
+    token: string,
+  ): Promise<EmailForwardConfirmState> {
+    const sender = await this.findPendingByToken(token)
+    return {
+      senderName: sender.displayName,
+      forwardToEmail: sender.pendingForwardToEmail ?? '',
+    }
+  }
+
+  async confirmForward(token: string): Promise<EmailForwardConfirmState> {
+    const sender = await this.findPendingByToken(token)
+    const newEmail = sender.pendingForwardToEmail ?? ''
+    const claimed = await this.model.updateMany({
+      where: {
+        id: sender.id,
+        pendingForwardTokenHash: sender.pendingForwardTokenHash,
+        pendingForwardExpiresAt: { gt: new Date() },
+      },
+      data: {
+        forwardToEmail: newEmail,
+        pendingForwardToEmail: null,
+        pendingForwardTokenHash: null,
+        pendingForwardExpiresAt: null,
+      },
+    })
+    if (claimed.count === 0) {
+      throw new BadRequestException('This link is not valid')
+    }
+    try {
+      await this.emailService.sendEmail({
+        to: sender.forwardToEmail,
+        subject: `Replies to ${sender.displayName}'s emails now go elsewhere`,
+        message:
+          `Replies to ${sender.displayName}'s emails now go to ${newEmail}. ` +
+          `If you didn't ask for this, contact GoodParty support.`,
+      })
+    } catch (err) {
+      this.logger.warn({ err }, 'forward-to change notice failed')
+    }
+    return { senderName: sender.displayName, forwardToEmail: newEmail }
+  }
+
+  private async findPendingByToken(
+    token: string,
+  ): Promise<OutreachEmailSender> {
+    const sender = await this.model.findFirst({
+      where: {
+        pendingForwardTokenHash: createHash('sha256')
+          .update(token)
+          .digest('hex'),
+        pendingForwardToEmail: { not: null },
+        pendingForwardExpiresAt: { gt: new Date() },
+      },
+    })
+    if (!sender) {
+      throw new BadRequestException('This link is not valid')
+    }
+    return sender
   }
 
   private async nextFreeLocalPart(base: string): Promise<string> {

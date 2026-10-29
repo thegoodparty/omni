@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
   MANAGED_CIVIC_PANEL_HOW_IT_WORKS,
@@ -37,6 +37,7 @@ import {
 
 export const MANAGED_PANEL_INVITE_TOOL = 'present_managed_panel_invite'
 export const MANAGED_PANEL_TOOL = 'present_managed_panel'
+export const EXPLAIN_MANAGED_PANEL_TOOL = 'explain_managed_panel'
 
 // What the invite review tells the conversation when it closes.
 export type ManagedPanelWidgetContext = {
@@ -69,6 +70,9 @@ export const MANAGED_PANEL_OFFER_AFTER_HOW_IT_WORKS: ChatClarifyQuestion = {
 // renders nothing.
 const isCall = (args: unknown): args is object =>
   args !== null && typeof args === 'object'
+
+const isHowItWorks = (args: unknown): boolean =>
+  isCall(args) && 'part' in args && args.part === 'how_it_works'
 
 const isAfterHowItWorks = (args: object): boolean =>
   'afterHowItWorks' in args && args.afterHowItWorks === true
@@ -210,7 +214,45 @@ export const ManagedPanelCard = () => {
   )
 }
 
+const VIDEO_CLASS = 'bg-muted w-full rounded-xl object-cover'
+
+// Who gets the mic, over the answer to How does it work?: the landscape cut
+// from md up, the square one below. Never autoplays.
+export const ManagedPanelVideo = () => {
+  const textId = useId()
+  const cut = (shape: 'landscape' | 'square', className: string) => (
+    <video
+      controls
+      playsInline
+      preload="metadata"
+      poster={`/videos/who-gets-the-mic-${shape}.jpg`}
+      aria-label={MANAGED_PANEL_COPY.video.label}
+      aria-describedby={textId}
+      className={`${VIDEO_CLASS} ${className}`}
+    >
+      <source src={`/videos/who-gets-the-mic-${shape}.mp4`} type="video/mp4" />
+    </video>
+  )
+  return (
+    <div className="w-full max-w-md" data-testid="managed-panel-video">
+      {cut('landscape', 'hidden aspect-video md:block')}
+      {cut('square', 'aspect-square md:hidden')}
+      <p id={textId} className="sr-only">
+        {MANAGED_PANEL_COPY.video.textAlternative}
+      </p>
+    </div>
+  )
+}
+
 export const managedPanelWidgetTools = [
+  // Only the How does it work? answer carries the video. The explanation
+  // after Build my civic panel stays a pill.
+  defineWidgetTool({
+    toolName: EXPLAIN_MANAGED_PANEL_TOOL,
+    parse: (args) => (isHowItWorks(args) ? {} : null),
+    render: () => <ManagedPanelVideo />,
+    onParseFailure: 'inline',
+  }),
   defineWidgetTool({
     toolName: MANAGED_PANEL_OFFER_TOOL,
     parse: (args) =>

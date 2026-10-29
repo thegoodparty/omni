@@ -15,6 +15,10 @@ const { mockSmsCompliance } = vi.hoisted(() => ({
     },
   },
 }))
+let mockFreeOffer: { offer: { eligible: true } | null } = { offer: null }
+vi.mock('app/dashboard/shared/robocallFreeOffer/useRobocallFreeOffer', () => ({
+  useRobocallFreeOffer: () => mockFreeOffer,
+}))
 vi.mock('app/dashboard/shared/smsCutoff/useSmsCompliance', () => ({
   useSmsCompliance: () => mockSmsCompliance.current,
 }))
@@ -507,5 +511,72 @@ describe('a text task once texting is closed', () => {
     expect(
       await screen.findByRole('menuitem', { name: 'Send a text' }),
     ).toBeInTheDocument()
+  })
+})
+
+describe('the free robocall offer task', () => {
+  const offerTask = {
+    id: 'offer',
+    title:
+      'Send a free promotional robocall to landline voters in selected precincts',
+    description: 'Reach voters the day before Election Day.',
+    channel: 'robocall',
+    date: '2026-10-08T00:00:00.000Z',
+    param: null,
+    href: '/dashboard/outreach?compose=robocall&recommended=freeOfferElectionEveRobocall',
+    hrefLabel: null,
+    priorityTier: 'P2',
+    proRequired: true,
+    status: 'live',
+    unlocksAfter: null,
+    isNext: false,
+    completed: false,
+    setAside: null,
+  } as const
+
+  const renderRow = () =>
+    render(
+      <ul>
+        <CampaignStrategyTaskRow task={offerTask} />
+      </ul>,
+    )
+
+  it('is badged as the offer while gp-api says it is live', () => {
+    mockFreeOffer = { offer: { eligible: true } }
+    renderRow()
+    expect(screen.getByText('Free offer')).toBeInTheDocument()
+    mockFreeOffer = { offer: null }
+  })
+
+  it('offers no Mark done in its menu while the offer is live', async () => {
+    mockFreeOffer = { offer: { eligible: true } }
+    const user = userEvent.setup()
+    render(
+      <ul>
+        <CampaignStrategyTaskRow
+          task={offerTask}
+          onToggleComplete={vi.fn()}
+          getAction={() => ({
+            label: 'Set up your free robocall',
+            href: offerTask.href,
+            external: false,
+          })}
+        />
+      </ul>,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'More options' }))
+    expect(
+      await screen.findByRole('menuitem', {
+        name: 'Set up your free robocall',
+      }),
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: 'Mark done' })).toBeNull()
+    mockFreeOffer = { offer: null }
+  })
+
+  it('drops the badge once the offer has ended', () => {
+    renderRow()
+    expect(screen.queryByText('Free offer')).toBeNull()
   })
 })

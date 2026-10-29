@@ -19,7 +19,10 @@ import {
   TcrComplianceStatus,
   WebsiteStatus,
 } from '../../generated/prisma'
-import { TEST_ORGANIZATION_CAP } from '../services/testMode.service'
+import {
+  DELETE_TEST_ORGANIZATION_TX_TIMEOUT_MS,
+  TEST_ORGANIZATION_CAP,
+} from '../services/testMode.service'
 
 const service = useTestService()
 
@@ -472,6 +475,21 @@ describe('POST /v1/test-mode/apply', () => {
 })
 
 describe('DELETE /v1/test-mode/organizations/:slug', () => {
+  it('runs the cascade delete under a raised transaction timeout', async () => {
+    const created = await createOrg(campaignBundle())
+    const spy = vi.spyOn(service.prisma, '$transaction')
+
+    const res = await service.client.delete(
+      `/v1/test-mode/organizations/${created.slug}`,
+    )
+
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(spy).toHaveBeenCalledWith(expect.any(Function), {
+      timeout: DELETE_TEST_ORGANIZATION_TX_TIMEOUT_MS,
+    })
+    spy.mockRestore()
+  })
+
   it('refuses a real organization', async () => {
     const slug = await createRealOrg()
 

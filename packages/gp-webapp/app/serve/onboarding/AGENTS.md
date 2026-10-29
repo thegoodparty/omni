@@ -27,6 +27,50 @@ the `confirm` hub) and `net-new` (`office` then `term-dates`).
   `/post-auth-redirect?next=...&org=eo-<id>`; `org` names the office just
   finished so a user with several lands in it, not the first on the list.
 
+## Pro winners (the Win to Serve handoff)
+
+A Pro candidate who wins (`app/dashboard/election-result/`) gets an office
+created from the campaign org: `campaignId` set, the campaign's position on
+the new `eo-<id>` org, its party mapped to Serve's values when it has one,
+an `onboardingStep` of `confirm`, and no `onboardingCompletedAt` or term
+dates. So the flow resolves the prefill branch and lands on the term step
+(then `confirm`), or straight on `confirm` once dates are known; with no
+party it starts at `party`. The pledge stamps it like any other office.
+What a win knows is filled in, and its steps still show:
+
+- **Party**: the campaign's party (`winParty.ts`, reading `details.party`,
+  or `otherParty` when that is empty or "Other") goes onto the office, and
+  the flow falls back to reading the campaign when the office has none. A
+  major party is carried too, so the party step shows it selected and
+  blocked; a major party never counts as answered on resume, so that step
+  can't be skipped.
+- **Term**: gp-api fills the dates from the winner's own BallotReady
+  office-holder record for the seat (`WinTermService`: same position, the
+  user's first and last name, full dates not yet past), and drops them if
+  they collide with an office the user already holds. Nothing is derived
+  from the election date and a term length; without a record the term step
+  asks.
+
+A winner who already holds a lead's term-less office with no campaign (a
+magic link, or Serve onboarding started and left) gets that office linked
+instead: gp-api's `create()` sets `campaignId` on it and keeps its own party
+and checkpoint, filling them from the win only when empty. Any other office
+the winner holds, finished or not, is left alone and the win gets a new one;
+a repeated win returns the office already linked to that campaign. The flow
+finishes that office by id (`PUT /v1/elected-office/:id`).
+
+Sign-in routing is unchanged and lands a winner on the dashboard;
+`DashboardLayout` sends any user holding a `campaignId` office with no
+`onboardingCompletedAt` to `/serve/onboarding`, every time, until the
+pledge (never from `/serve/*` or `/dashboard/election-result*`). The page
+guard prefers an unfinished win office (`campaignId` set) over a finished
+one, so someone who already serves and wins another seat lands on the new
+seat; a stray unfinished lead office does not pull a finished official away
+from the chief of staff. The `/dashboard` exemption from the election-result
+redirect holds only where the campaign manager chat mounts (a Win org, dock
+not hidden). An impersonating
+admin can Dismiss the handoff (the election-result dismissal flag).
+
 Every step change (and the end of loading) scrolls the window to the top, so
 each step, the pledge included, opens with its headline in view. The window is
 the only scroller around a step.
@@ -117,7 +161,12 @@ find issues" empty line only when the search succeeded with nothing.
 - **Fallback**: no EO, no position, a 4xx/5xx, under 100 points, or no data
   within 8 seconds draws a stand-in district (its own outline and a City Hall
   marker, no tiles). The
-  map never swaps once drawn, and the step never errors.
+  map never swaps once drawn, and the step never errors. Because a
+  district-wide points read can outlast that wait, the flow prefetches the
+  points and stats (`districtPointsQueryOptions`, keyed by office and
+  position) as soon as an office is on the org at load, as it is for a
+  winner or a prefill; an office picked this session is read when the story
+  mounts.
 - **The picks are illustrative**: the loud cluster is the 12 dots nearest the
   middle; the sample is a few dots (`SAMPLE_PER_CELL`, 4) picked at random in
   each part of a 4 by 4 grid over the district, so it spreads across the map;

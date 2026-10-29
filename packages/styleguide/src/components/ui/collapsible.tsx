@@ -4,6 +4,10 @@ import * as React from 'react'
 import * as CollapsiblePrimitive from '@radix-ui/react-collapsible'
 import { cn } from '@styleguide/lib/utils'
 
+/**
+ * @summary Use to show or hide one optional block of detail in place, like
+ * sources. For a stack of expandable sections, use Accordion.
+ */
 function Collapsible({
   ...props
 }: React.ComponentProps<typeof CollapsiblePrimitive.Root>) {

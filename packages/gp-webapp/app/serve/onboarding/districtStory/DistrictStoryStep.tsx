@@ -1,5 +1,5 @@
 import { useEffect, useState, useSyncExternalStore } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { queryOptions, useQuery } from '@tanstack/react-query'
 import { LoaderCircle } from 'lucide-react'
 import { cn } from '@styleguide/lib/utils'
 import { Popover, PopoverContent, PopoverTrigger } from '@styleguide'
@@ -58,23 +58,31 @@ const prefersReducedMotion = (): boolean =>
 
 // The ids the endpoint returns are dropped here, so the story holds bare
 // coordinates and nothing that names a person.
-export const districtPointsQueryKey = (eoId: string | undefined) =>
-  ['serve-onboarding-district-points', eoId] as const
-
-const useDistrictPoints = (
+// Keyed by the position too: the points are the org's district, so a
+// different office picked on the same record is a different read.
+export const districtPointsQueryOptions = (
   eoId: string | undefined,
-  enabled: boolean,
-): { points: LatLng[] | null; settled: boolean } => {
-  const query = useQuery({
-    queryKey: districtPointsQueryKey(eoId),
-    enabled,
-    queryFn: () =>
+  positionId: string | undefined,
+) =>
+  queryOptions({
+    queryKey: ['serve-onboarding-district-points', eoId, positionId] as const,
+    queryFn: (): Promise<LatLng[]> =>
       clientRequest('POST /v1/contacts/points', { filters: {} }).then((res) =>
         res.data.points.map(({ lat, lng }) => ({ lat, lng })),
       ),
     retry: false,
     staleTime: Infinity,
     refetchOnWindowFocus: false,
+  })
+
+const useDistrictPoints = (
+  eoId: string | undefined,
+  positionId: string | undefined,
+  enabled: boolean,
+): { points: LatLng[] | null; settled: boolean } => {
+  const query = useQuery({
+    ...districtPointsQueryOptions(eoId, positionId),
+    enabled,
   })
   return {
     points: query.data ?? null,
@@ -104,6 +112,7 @@ export const DistrictStoryStep = ({
   const hasDistrict = Boolean(eoId && positionId)
   const { points, settled: pointsSettled } = useDistrictPoints(
     eoId,
+    positionId,
     hasDistrict,
   )
   const stats = useQuery(

@@ -67,6 +67,22 @@ describe('WhoStep — recommended lists', () => {
     )
   })
 
+  it('paints a recommendation pressed when its saved list is the one picked', () => {
+    render(
+      <WhoStep
+        {...baseProps}
+        recommendations={[{ ...RECOMMENDATION, existingFilterId: 42 }]}
+        selectedListId={42}
+        hasPickedAudience
+      />,
+    )
+
+    expect(screen.getByTestId('recommended-list-card')).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+  })
+
   it('renders nothing extra when there are no recommendations', () => {
     render(<WhoStep {...baseProps} recommendations={[]} />)
 

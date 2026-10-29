@@ -3,6 +3,7 @@
 import { taskClosesItself } from './taskClosesItself'
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import Link from 'next/link'
+import { useQueryClient } from '@tanstack/react-query'
 import type { CampaignTrackerTask } from 'gpApi/api-endpoints'
 import {
   composeOutreachHref,
@@ -52,7 +53,11 @@ import {
   useCompleteTrackerTask,
   type TaskActionSource,
 } from './useCompleteTrackerTask'
-import { useSetTrackerTaskAside, useTrackerTasks } from './useTrackerTasks'
+import {
+  TRACKER_TASKS_QUERY_KEY,
+  useSetTrackerTaskAside,
+  useTrackerTasks,
+} from './useTrackerTasks'
 import {
   canPutOffTask,
   canSetTaskAsideForGood,
@@ -61,6 +66,14 @@ import {
 } from '@goodparty_org/contracts'
 import { selectTopDynamicTasks } from 'app/dashboard/campaign-manager/selectTopDynamicTasks'
 import { useTaskHeadline } from 'app/dashboard/campaign-manager/homeHeadlines'
+import { FREE_OFFER_CTA } from 'app/dashboard/shared/robocallFreeOffer/freeOfferCopy'
+import { FREE_OFFER_CARD_CLASS } from 'app/dashboard/shared/robocallFreeOffer/freeOfferStyles'
+import { FreeOfferLabel } from 'app/dashboard/shared/robocallFreeOffer/FreeOfferLabel'
+import { isFreeOfferTaskHref } from 'app/dashboard/shared/robocallFreeOffer/isFreeOfferTask'
+import {
+  ROBOCALL_FREE_OFFER_QUERY_KEY,
+  useRobocallFreeOffer,
+} from 'app/dashboard/shared/robocallFreeOffer/useRobocallFreeOffer'
 import type {
   CampaignStrategyData,
   CampaignStrategyPhase,
@@ -84,6 +97,25 @@ const findNextTask = (
     .flatMap(visibleTasks)
     .find((task) => task.isNext && !task.completed)
 }
+
+// The free robocall offer's task leads the stack while the offer is open: it
+// ends on Election Day and the rest of the plan can wait, so Home shows it as
+// the one next task rather than as a second card. Put off, it is dated later
+// and steps back until that day; set aside, it stays out. Only a put-off
+// task waits on its date: gp-api stamps a fresh one with its own day, which
+// can already be tomorrow for a candidate west of it.
+const findFreeOfferTask = (
+  tasks: CampaignTrackerTask[],
+  now: Date,
+): CampaignTrackerTask | undefined =>
+  tasks.find(
+    (row) =>
+      isFreeOfferTaskHref(row.link) &&
+      !row.completed &&
+      !isTrackerTaskSetAside({ skipReason: row.skipReason ?? null }) &&
+      (row.skipReason !== 'later' ||
+        new Date(row.date.slice(0, 10).replace(/-/g, '/')) <= now),
+  )
 
 // What the plan has after the next task: the open tasks that follow it in its
 // own week (or phase), in the plan's order. They stand behind it in the stack,
@@ -143,12 +175,17 @@ export const discussTaskMessage = (task: DeckTask): string => {
 export const taskAction = (
   row: CampaignTrackerTask | undefined,
   surface: 'plan' | 'manager',
+  freeOfferLive = false,
 ): { label: string; href: string; external: boolean } | null => {
   if (!row) return null
   const cta = row.cta?.trim()
   const link = row.link?.trim()
   if (link) {
-    return { label: cta || 'Open', href: link, external: !link.startsWith('/') }
+    const label =
+      freeOfferLive && isFreeOfferTaskHref(link)
+        ? FREE_OFFER_CTA
+        : cta || 'Open'
+    return { label, href: link, external: !link.startsWith('/') }
   }
   const source = surface === 'manager' ? 'campaign_manager' : 'campaign_tracker'
   const tracker = parseTrackerOrigin(row.id, row.phase)
@@ -277,7 +314,6 @@ const NextTaskCard = ({
   surface,
   tone = 'default',
   className,
-  onFrontTaskLinkChange,
 }: {
   // The plan names its section. Without one, the heading follows the card in
   // front: a line for its kind of task, switching when the card does.
@@ -293,12 +329,28 @@ const NextTaskCard = ({
   // and the collapse toggle switch to light text; the card stays white.
   tone?: 'default' | 'inverse'
   className?: string
-  // Home hides its free robocall offer card while the card in front is the
-  // offer's own task, so the offer never shows twice.
-  onFrontTaskLinkChange?: (link: string | null) => void
 }): React.JSX.Element | null => {
   const [campaign] = useCampaign()
   const { tasks } = useTrackerTasks()
+  const { offer: freeOffer } = useRobocallFreeOffer()
+  const queryClient = useQueryClient()
+  // gp-api writes the offer's plan task while answering the offer request,
+  // which runs beside the plan's own fetch, so a first load can see the
+  // offer before its task. It also skips the write when the plan has no rows
+  // yet, so ask for the offer again (writing the task now that the plan
+  // exists), then read the plan, rather than wait for the next visit.
+  const offerTaskMissing =
+    freeOffer !== null &&
+    tasks.length > 0 &&
+    !tasks.some((row) => isFreeOfferTaskHref(row.link))
+  useEffect(() => {
+    if (!offerTaskMissing) return
+    void queryClient
+      .invalidateQueries({ queryKey: [ROBOCALL_FREE_OFFER_QUERY_KEY] })
+      .then(() =>
+        queryClient.invalidateQueries({ queryKey: TRACKER_TASKS_QUERY_KEY }),
+      )
+  }, [offerTaskMissing, queryClient])
   const chat = useCampaignManagerChat()
   const { smsCompliance, smsCutoffDate } = useSmsCompliance()
   // The task just marked done, held in front while it celebrates and leaves.
@@ -363,11 +415,14 @@ const NextTaskCard = ({
     return buildTrackerStrategy(tasks, { electionDate, headStartWeek })
   }, [tasks, electionDateIso, headStartWeek])
   const nextTask = strategy ? findNextTask(strategy) : undefined
+  const freeOfferTask = freeOffer
+    ? findFreeOfferTask(tasks, new Date())
+    : undefined
 
   // The stack always leads with the plan's next task, with what follows it in
   // the plan and the week's top priorities behind. With no next task the week
   // is done (or had nothing in it), and the card says so instead.
-  const deck: DeckTask[] = []
+  const deck: DeckTask[] = freeOfferTask ? [freeOfferTask] : []
   if (strategy && nextTask) {
     for (const task of [
       nextTask,
@@ -389,10 +444,6 @@ const NextTaskCard = ({
     : deck
   const frontTask = stack[0]
   const frontRow = tasks.find((row) => row.id === frontTask?.id)
-  const frontLink = frontRow?.link ?? null
-  useEffect(() => {
-    onFrontTaskLinkChange?.(frontLink)
-  }, [frontLink, onFrontTaskLinkChange])
 
   const activeWeeks =
     strategy?.phases.find((phase) => phase.key === 'active')?.weeks ?? []
@@ -429,7 +480,8 @@ const NextTaskCard = ({
   if (!strategy) return countModal
 
   const due = frontTask ? taskDueLabel(frontTask.date, new Date()) : null
-  const action = taskAction(frontRow, surface)
+  const isFreeOffer = freeOffer !== null && isFreeOfferTaskHref(frontRow?.link)
+  const action = taskAction(frontRow, surface, freeOffer !== null)
   // gp-api swaps text sends out once texting closes; a text task still here
   // keeps its button, disabled, with the reason on hover.
   const textClosed =
@@ -438,9 +490,12 @@ const NextTaskCard = ({
     !frontRow.link?.trim()
 
   // A task that closes itself offers no manual "Mark done": the story however
-  // it gets finished, and outreach once it is sent from its own button.
+  // it gets finished, and outreach once it is sent from its own button. The
+  // free offer's task carries its own link but closes the same way, once its
+  // run is scheduled.
   const outreach = !!action && !frontRow?.link?.trim()
-  const completesItself = taskClosesItself(frontTask?.title ?? '') || outreach
+  const completesItself =
+    taskClosesItself(frontTask?.title ?? '') || outreach || isFreeOffer
   const markDone = () => {
     if (!frontTask) return
     // No confirmation: we trust the candidate, and the plan can reopen it.
@@ -587,6 +642,7 @@ const NextTaskCard = ({
                 }}
                 className={cn(
                   'relative min-h-20 gap-0 rounded-2xl border-components-input-border py-0',
+                  isFreeOffer && FREE_OFFER_CARD_CLASS,
                   leaving && 'pointer-events-none',
                   leaving?.stage === 'exit' &&
                     'animate-out fade-out fill-mode-forwards duration-300 motion-reduce:animate-none',
@@ -600,15 +656,16 @@ const NextTaskCard = ({
                 )}
               >
                 <div className="flex flex-col gap-1 px-6 py-5">
-                  {/* No overline: the title leads. See design-memory learned.md. */}
+                  {/* No overline: the title leads. See design-memory learned.md.
+                      The free offer is the one exception, labelled the way
+                      its Voter Data card is. */}
+                  {isFreeOffer && <FreeOfferLabel />}
                   <h3 className="font-opensans text-lg font-medium text-card-foreground">
                     {frontTask.title}
                   </h3>
                   <p className="text-muted-foreground text-sm">
                     {frontTask.description}
                   </p>
-                  {/* After the description, so the title and description
-                      read as one thought and the date sits by the actions. */}
                   {due && (
                     <p
                       className={cn(

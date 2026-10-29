@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { formatInTimeZone } from 'date-fns-tz'
-import { Card, IconButton } from '@styleguide'
+import { Card, IconButton, cn } from '@styleguide'
 import { PauseIcon, PlayIcon } from '@styleguide/components/ui/icons'
 import { CHANNEL_META } from '../channelMeta'
 import { Intro } from '../social/Intro'
@@ -41,6 +41,9 @@ interface RobocallReviewStepProps {
   // What the compliance check heard in the saved clip. When present it is
   // what the candidate actually recorded, so it wins over the script.
   transcript?: string | null
+  // gp-api applies the free offer's code itself once the pay step creates
+  // the draft, so the estimate here is still the full price.
+  onFreeOfferList: boolean
 }
 
 // The pre-send summary (after compose, before payment): reads back the
@@ -60,6 +63,7 @@ export const RobocallReviewStep = ({
   recording,
   script,
   transcript,
+  onFreeOfferList,
 }: RobocallReviewStepProps) => {
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const [playing, setPlaying] = useState(false)
@@ -133,13 +137,25 @@ export const RobocallReviewStep = ({
         {/* A build-mode summary with no count has no estimate to state, and
             a fabricated $0.00 would read as "free". */}
         <div
-          className="flex justify-between border-t border-border p-4"
+          className="flex flex-col gap-1 border-t border-border p-4"
           hidden={reachCount === null}
         >
-          <span className="font-medium text-foreground">Estimated cost</span>
-          <span className="font-semibold text-foreground">
-            ${money(estimatedCost)}
-          </span>
+          <div className="flex justify-between">
+            <span className="font-medium text-foreground">Estimated cost</span>
+            <span className="font-semibold text-foreground">
+              ${money(estimatedCost)}
+            </span>
+          </div>
+          <p
+            className={cn(
+              'text-xs',
+              onFreeOfferList ? 'text-primary' : 'text-muted-foreground',
+            )}
+          >
+            {onFreeOfferList
+              ? "Your free offer covers this. You'll see it on the next step."
+              : 'Have a promo code? Add it on the next step.'}
+          </p>
         </div>
       </Card>
 

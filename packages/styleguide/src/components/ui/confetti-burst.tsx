@@ -83,6 +83,15 @@ type ConfettiBurstProps = {
   onComplete?: () => void
 } & Omit<React.ComponentProps<'span'>, 'children'>
 
+/**
+ * Animation is a design decision, not a default (packages/gp-webapp/AGENTS.md).
+ * Set play to fire it once. There is no size prop, and reduced motion is handled
+ * for you.
+ *
+ * @summary Use to celebrate the moment a user finishes something that matters,
+ * like launching outreach or completing a purchase. Not for decoration or
+ * routine saves.
+ */
 function ConfettiBurst({
   children,
   play = false,

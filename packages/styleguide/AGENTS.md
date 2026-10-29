@@ -30,8 +30,28 @@ src/
 
 1. Create `src/components/ui/newcomponent.tsx`
 2. Add `data-slot="component-name"` to the root element
-3. Export from `src/components/ui/index.ts`
-4. Create story in `src/stories/NewComponent.stories.tsx`
+3. Put a JSDoc block with an `@summary` tag directly above the component:
+   one line on when to use it, and what to use instead where a sibling is
+   easy to confuse with it. Then run `npm run docs:components -w packages/styleguide`.
+4. Export from `src/components/ui/index.ts`
+5. Create story in `src/stories/NewComponent.stories.tsx`
+
+## Component index
+
+`COMPONENTS.md` lists every component with its `@summary`. Agents read it to pick
+a component before building UI, so the summary is the part of a component most
+likely to be read. It is generated: change the tag, never the file. CI
+(`npm run check:components-doc`) fails if the file is stale or a component file
+has no `@summary`.
+
+```tsx
+/**
+ * Optional: a non-obvious rule an agent would get wrong.
+ *
+ * @summary Use for a short confirmation or one blocking choice. For a flow, use a page.
+ */
+const Dialog = ...
+```
 
 ## Tests
 

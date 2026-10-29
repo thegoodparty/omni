@@ -1,22 +1,46 @@
-import { render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
+import { screen } from '@testing-library/react'
+import { render } from 'helpers/test-utils/render'
 import { RobocallReviewStep } from './RobocallReviewStep'
 
-const base = {
-  campaignName: 'Fall push',
-  audienceName: 'Renters',
-  reachCount: 10,
+const baseProps = {
+  campaignName: 'Election eve',
+  audienceName: 'Landline voters',
+  reachCount: 3581,
   pricePerContact: 0.045,
-  scheduledAt: null,
+  scheduledAt: new Date('2026-11-02T15:00:00.000Z'),
   timeZone: 'America/New_York',
-  callbackNumber: '+12025550147',
+  callbackNumber: '16175073539',
   recording: null,
-  script: 'AI drafted script text',
+  script: '',
+  onFreeOfferList: false,
 }
 
+const withScript = { ...baseProps, script: 'AI drafted script text' }
+
 describe('RobocallReviewStep', () => {
+  it('says the free offer is applied on the next step', () => {
+    render(<RobocallReviewStep {...baseProps} onFreeOfferList />)
+
+    expect(
+      screen.getByText(
+        "Your free offer covers this. You'll see it on the next step.",
+      ),
+    ).toBeInTheDocument()
+  })
+
+  it('points anyone else to the promo code on the next step', () => {
+    render(<RobocallReviewStep {...baseProps} />)
+
+    expect(
+      screen.getByText('Have a promo code? Add it on the next step.'),
+    ).toBeInTheDocument()
+  })
+
   it('shows the transcript of the recording over the AI script', () => {
-    render(<RobocallReviewStep {...base} transcript="What I really said" />)
+    render(
+      <RobocallReviewStep {...withScript} transcript="What I really said" />,
+    )
     expect(screen.getByText('What I really said')).toBeInTheDocument()
     expect(screen.queryByText('AI drafted script text')).toBeNull()
     expect(screen.getByText('What we heard')).toBeInTheDocument()
@@ -24,14 +48,14 @@ describe('RobocallReviewStep', () => {
   })
 
   it('falls back to the script when the transcript is blank', () => {
-    render(<RobocallReviewStep {...base} transcript="   " />)
+    render(<RobocallReviewStep {...withScript} transcript="   " />)
     expect(screen.getByText('AI drafted script text')).toBeInTheDocument()
     expect(screen.getByText('Your recording')).toBeInTheDocument()
     expect(screen.queryByText('What we heard')).toBeNull()
   })
 
   it('falls back to the script when there is no transcript', () => {
-    render(<RobocallReviewStep {...base} transcript={null} />)
+    render(<RobocallReviewStep {...withScript} transcript={null} />)
     expect(screen.getByText('AI drafted script text')).toBeInTheDocument()
   })
 })

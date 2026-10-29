@@ -55,6 +55,9 @@ export const CONTROLLERS_WITHOUT_ROUTE_ALERTS: ControllerName[] = [
   'vendor-mocks/peerly',
   'vendor-mocks/vercel',
   'vendor-mocks/route53',
+  'vendor-mocks/ses',
+  'vendor-mocks/ses/cloudwatch',
+  'vendor-mocks/callhub',
   // Non-prod only and judge-only: every prod request is a 404 by design, so
   // a rule here could only ever page on the gate working.
   'judge',
