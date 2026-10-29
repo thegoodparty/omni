@@ -1,751 +1,13 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
-  buildDistrictInsightsTool,
-  findPeopleCountColumns,
-  scrubResults,
-  SqlRejected,
-  validateInsightsSql,
-} from './districtInsights.tool'
+  buildConstituentDataScope,
+  CONSTITUENT_TABLES,
+} from '@/chats/general/chief-of-staff/services/constituentDataScope'
+import { SqlRejected } from './constituentSql.validator'
+import { buildDistrictInsightsTool } from './districtInsights.tool'
 import type { DatabricksProvider } from './queryDatabricks.tool'
 
-const ALLOWED = new Set(['int__l2_nationwide_uniform_w_haystaq'])
-const DISTRICT = 'NC-HENDERSONVILLE-CITY'
-
-const defaultOpts = {
-  allowedTables: ALLOWED,
-  mandatoryFilters: [{ column: 'district_id', value: DISTRICT }],
-}
-
-describe('validateInsightsSql', () => {
-  describe('rejects non-SELECT statements', () => {
-    it('rejects INSERT', () => {
-      expect(() =>
-        validateInsightsSql(
-          "INSERT INTO int__l2_nationwide_uniform_w_haystaq (district_id) VALUES ('x')",
-          defaultOpts,
-        ),
-      ).toThrow(SqlRejected)
-    })
-
-    it('rejects UPDATE', () => {
-      expect(() =>
-        validateInsightsSql(
-          "UPDATE int__l2_nationwide_uniform_w_haystaq SET district_id = 'x'",
-          defaultOpts,
-        ),
-      ).toThrow(SqlRejected)
-    })
-
-    it('rejects DELETE', () => {
-      expect(() =>
-        validateInsightsSql(
-          "DELETE FROM int__l2_nationwide_uniform_w_haystaq WHERE district_id = 'x'",
-          defaultOpts,
-        ),
-      ).toThrow(SqlRejected)
-    })
-
-    it('rejects multi-statement SQL', () => {
-      expect(() =>
-        validateInsightsSql(
-          `SELECT COUNT(*) FROM int__l2_nationwide_uniform_w_haystaq WHERE district_id = '${DISTRICT}'; DROP TABLE int__l2_nationwide_uniform_w_haystaq;`,
-          defaultOpts,
-        ),
-      ).toThrow(SqlRejected)
-    })
-
-    it('rejects unparseable SQL', () => {
-      expect(() => validateInsightsSql('not sql at all', defaultOpts)).toThrow(
-        SqlRejected,
-      )
-    })
-  })
-
-  describe('rejects write nodes nested anywhere in the AST', () => {
-    // Postgres allows writable CTEs: INSERT/UPDATE/DELETE wrapped inside a
-    // WITH that the outer SELECT reads from. node-sql-parser parses these as
-    // a single top-level SELECT — the existing `stmt.type === 'select'` check
-    // is bypassed. The recursive write-node guard catches them.
-    //
-    // Allowlisting the CTE alias here so the ONLY reason left to reject is
-    // the recursive write-node guard.
-    const writeCteOpts = {
-      allowedTables: new Set([
-        'int__l2_nationwide_uniform_w_haystaq',
-        'cte_out',
-      ]),
-      mandatoryFilters: [{ column: 'district_id', value: DISTRICT }],
-    }
-
-    it('rejects a SELECT whose CTE wraps DELETE', () => {
-      expect(() =>
-        validateInsightsSql(
-          `WITH cte_out AS (
-             DELETE FROM int__l2_nationwide_uniform_w_haystaq
-             WHERE district_id = '${DISTRICT}'
-             RETURNING *
-           )
-           SELECT COUNT(*) AS n FROM cte_out WHERE district_id = '${DISTRICT}'`,
-          writeCteOpts,
-        ),
-      ).toThrow(SqlRejected)
-    })
-
-    it('rejects a SELECT whose CTE wraps INSERT', () => {
-      expect(() =>
-        validateInsightsSql(
-          `WITH cte_out AS (
-             INSERT INTO int__l2_nationwide_uniform_w_haystaq (district_id)
-             VALUES ('x')
-             RETURNING *
-           )
-           SELECT COUNT(*) AS n FROM cte_out WHERE district_id = '${DISTRICT}'`,
-          writeCteOpts,
-        ),
-      ).toThrow(SqlRejected)
-    })
-
-    it('rejects a SELECT whose CTE wraps UPDATE', () => {
-      expect(() =>
-        validateInsightsSql(
-          `WITH cte_out AS (
-             UPDATE int__l2_nationwide_uniform_w_haystaq
-             SET district_id = 'y'
-             WHERE district_id = '${DISTRICT}'
-             RETURNING *
-           )
-           SELECT COUNT(*) AS n FROM cte_out WHERE district_id = '${DISTRICT}'`,
-          writeCteOpts,
-        ),
-      ).toThrow(SqlRejected)
-    })
-  })
-
-  describe('rejects invisible / zero-width characters', () => {
-    // node-sql-parser ACCEPTS invisible chars in places like comments and
-    // quoted identifier aliases. Without an explicit pre-parser guard, an
-    // LLM (or attacker) could craft SQL that looks correct to a human
-    // reviewer (the visible string matches the contract) but smuggles
-    // invisible bytes through. The INVISIBLE_CHARS guard rejects these
-    // before parsing — defense-in-depth around log/audit clarity.
-
-    it('rejects SQL with a zero-width space hidden in a /* */ comment', () => {
-      expect(() =>
-        validateInsightsSql(
-          `SELECT COUNT(*) AS n FROM int__l2_nationwide_uniform_w_haystaq
-           WHERE district_id = '${DISTRICT}' /* ​ */`,
-          defaultOpts,
-        ),
-      ).toThrow(SqlRejected)
-    })
-
-    it('rejects SQL with a BOM hidden in a -- line comment', () => {
-      expect(() =>
-        validateInsightsSql(
-          `SELECT COUNT(*) AS n FROM int__l2_nationwide_uniform_w_haystaq
-           WHERE district_id = '${DISTRICT}' -- comment﻿`,
-          defaultOpts,
-        ),
-      ).toThrow(SqlRejected)
-    })
-
-    it('rejects SQL with a zero-width space inside a quoted identifier alias', () => {
-      expect(() =>
-        validateInsightsSql(
-          `SELECT COUNT(*) AS "n​" FROM int__l2_nationwide_uniform_w_haystaq
-           WHERE district_id = '${DISTRICT}'`,
-          defaultOpts,
-        ),
-      ).toThrow(SqlRejected)
-    })
-
-    it('rejects SQL with a zero-width joiner hidden in a /* */ comment', () => {
-      expect(() =>
-        validateInsightsSql(
-          `SELECT COUNT(*) AS n FROM int__l2_nationwide_uniform_w_haystaq
-           WHERE district_id = '${DISTRICT}' /* ‍ */`,
-          defaultOpts,
-        ),
-      ).toThrow(SqlRejected)
-    })
-
-    it('rejects SQL with a word-joiner hidden in a /* */ comment', () => {
-      expect(() =>
-        validateInsightsSql(
-          `SELECT COUNT(*) AS n FROM int__l2_nationwide_uniform_w_haystaq
-           WHERE district_id = '${DISTRICT}' /* ⁠ */`,
-          defaultOpts,
-        ),
-      ).toThrow(SqlRejected)
-    })
-  })
-
-  describe('rejects tables not in the allowlist', () => {
-    it('rejects unknown table', () => {
-      expect(() =>
-        validateInsightsSql(
-          `SELECT COUNT(*) FROM voters WHERE district_id = '${DISTRICT}'`,
-          defaultOpts,
-        ),
-      ).toThrow(/table.*allow/i)
-    })
-
-    it('rejects JOIN onto unknown table', () => {
-      expect(() =>
-        validateInsightsSql(
-          `SELECT COUNT(*) FROM int__l2_nationwide_uniform_w_haystaq a
-           JOIN hubspot_contacts b ON a.email = b.email
-           WHERE a.district_id = '${DISTRICT}'`,
-          defaultOpts,
-        ),
-      ).toThrow(/table.*allow/i)
-    })
-
-    it('rejects a schema-qualified table that shares the allowlisted bare name', () => {
-      // other_schema.<allowed> parses to { db: 'other_schema', table: <allowed> };
-      // the qualifier must not be dropped, or it reads a same-named table in
-      // another schema and escapes the curated mart.
-      expect(() =>
-        validateInsightsSql(
-          `SELECT COUNT(*) FROM other_schema.int__l2_nationwide_uniform_w_haystaq WHERE district_id = '${DISTRICT}'`,
-          defaultOpts,
-        ),
-      ).toThrow(/table.*allow/i)
-    })
-
-    it('rejects a three-part catalog.schema.table reference', () => {
-      expect(() =>
-        validateInsightsSql(
-          `SELECT COUNT(*) FROM other_catalog.other_schema.int__l2_nationwide_uniform_w_haystaq WHERE district_id = '${DISTRICT}'`,
-          defaultOpts,
-        ),
-      ).toThrow(/table.*allow/i)
-    })
-
-    it('still allows the bare allowlisted table', () => {
-      expect(
-        validateInsightsSql(
-          `SELECT COUNT(*) AS n FROM int__l2_nationwide_uniform_w_haystaq WHERE district_id = '${DISTRICT}'`,
-          defaultOpts,
-        ),
-      ).toContain('int__l2_nationwide_uniform_w_haystaq')
-    })
-  })
-
-  describe('enforces aggregate-only shape', () => {
-    it('rejects a query without GROUP BY and without aggregate functions', () => {
-      expect(() =>
-        validateInsightsSql(
-          `SELECT lalvoterid FROM int__l2_nationwide_uniform_w_haystaq WHERE district_id = '${DISTRICT}'`,
-          defaultOpts,
-        ),
-      ).toThrow(/(group by|aggregate)/i)
-    })
-
-    it('rejects SELECT * even with a WHERE filter', () => {
-      expect(() =>
-        validateInsightsSql(
-          `SELECT * FROM int__l2_nationwide_uniform_w_haystaq WHERE district_id = '${DISTRICT}'`,
-          defaultOpts,
-        ),
-      ).toThrow(/(group by|aggregate)/i)
-    })
-
-    it('accepts a pure-aggregate query (COUNT(*) with no GROUP BY)', () => {
-      expect(() =>
-        validateInsightsSql(
-          `SELECT COUNT(*) AS n FROM int__l2_nationwide_uniform_w_haystaq WHERE district_id = '${DISTRICT}'`,
-          defaultOpts,
-        ),
-      ).not.toThrow()
-    })
-
-    it('accepts a GROUP BY query with COUNT(*)', () => {
-      expect(() =>
-        validateInsightsSql(
-          `SELECT party, COUNT(*) AS n FROM int__l2_nationwide_uniform_w_haystaq
-           WHERE district_id = '${DISTRICT}'
-           GROUP BY party`,
-          defaultOpts,
-        ),
-      ).not.toThrow()
-    })
-
-    it('accepts a GROUP BY query with AVG over an hs_ column', () => {
-      expect(() =>
-        validateInsightsSql(
-          `SELECT party, AVG(hs_regulations_too_harsh) AS avg_reg, COUNT(*) AS n
-           FROM int__l2_nationwide_uniform_w_haystaq
-           WHERE district_id = '${DISTRICT}'
-           GROUP BY party`,
-          defaultOpts,
-        ),
-      ).not.toThrow()
-    })
-  })
-
-  describe('keeps every count of people a bare COUNT or SUM', () => {
-    const TABLE = 'int__l2_nationwide_uniform_w_haystaq'
-    const where = `WHERE district_id = '${DISTRICT}'`
-
-    it.each([
-      ['SUM(CASE WHEN on_uploaded_list THEN 1 ELSE 0 END) AS uploaded'],
-      ['SUM(CASE WHEN has_email THEN 1 END)'],
-      ["SUM(CASE WHEN gender = 'F' THEN 1.0 ELSE 0.0 END) AS women"],
-      ['SUM(CASE WHEN on_uploaded_list THEN 1 ELSE NULL END) AS uploaded'],
-      ['COUNT(CASE WHEN on_uploaded_list THEN 1 END) AS uploaded'],
-      ['COUNT_IF(has_email) AS with_email'],
-      ['TRY_SUM(CASE WHEN has_email THEN 1 ELSE 0 END) AS with_email'],
-    ])('accepts %s', (item) => {
-      expect(() =>
-        validateInsightsSql(
-          `SELECT gender, COUNT(*) AS n, ${item} FROM ${TABLE} ${where} GROUP BY gender`,
-          defaultOpts,
-        ),
-      ).not.toThrow()
-    })
-
-    it.each([
-      ['100.0 * SUM(CASE WHEN on_uploaded_list THEN 1 ELSE 0 END) AS pct'],
-      ['COUNT(*) - 5 AS n2'],
-      ['COUNT(*) * 1000 AS scaled'],
-      ['SUM(CASE WHEN has_email THEN 1 ELSE 0 END) / COUNT(*) AS share'],
-      ["CASE WHEN COUNT(*) < 100 THEN 'small' ELSE 'big' END AS size"],
-      ['AVG(1) + COUNT_IF(has_email) AS sneaky'],
-    ])('rejects a count inside a larger expression: %s', (item) => {
-      expect(() =>
-        validateInsightsSql(
-          `SELECT gender, COUNT(*) AS n, ${item} FROM ${TABLE} ${where} GROUP BY gender`,
-          defaultOpts,
-        ),
-      ).toThrow(/its own select item/)
-    })
-
-    it.each([
-      ['SUM(CASE WHEN on_uploaded_list THEN 1000 ELSE 0 END) AS uploaded'],
-      ['SUM(CASE WHEN on_uploaded_list THEN 2 END) AS uploaded'],
-      ['SUM(CASE WHEN on_uploaded_list THEN Voters_Age END) AS ages'],
-      ['SUM(Voters_Age) AS ages'],
-      ['SUM(CAST(on_uploaded_list AS INT)) AS uploaded'],
-      ['TRY_SUM(Voters_Age) AS ages'],
-    ])('rejects a SUM that is not a count: %s', (item) => {
-      expect(() =>
-        validateInsightsSql(
-          `SELECT gender, COUNT(*) AS n, ${item} FROM ${TABLE} ${where} GROUP BY gender`,
-          defaultOpts,
-        ),
-      ).toThrow(/SUM may only count people/)
-    })
-
-    it('rejects a HAVING that filters on a count, which would probe a small one', () => {
-      expect(() =>
-        validateInsightsSql(
-          `SELECT gender, COUNT(*) AS n FROM ${TABLE} ${where}
-           GROUP BY gender
-           HAVING SUM(CASE WHEN on_uploaded_list THEN 1 ELSE 0 END) < 30`,
-          defaultOpts,
-        ),
-      ).toThrow(/HAVING/)
-    })
-  })
-
-  describe('enforces district scope filter', () => {
-    it('rejects when WHERE clause is missing entirely', () => {
-      expect(() =>
-        validateInsightsSql(
-          'SELECT COUNT(*) AS n FROM int__l2_nationwide_uniform_w_haystaq',
-          defaultOpts,
-        ),
-      ).toThrow(/district/i)
-    })
-
-    it('rejects when district_id is filtered to a DIFFERENT district', () => {
-      expect(() =>
-        validateInsightsSql(
-          "SELECT COUNT(*) AS n FROM int__l2_nationwide_uniform_w_haystaq WHERE district_id = 'CA-OAKLAND-CITY'",
-          defaultOpts,
-        ),
-      ).toThrow(/district/i)
-    })
-
-    it('rejects when WHERE filters on something other than district_id', () => {
-      expect(() =>
-        validateInsightsSql(
-          "SELECT COUNT(*) AS n FROM int__l2_nationwide_uniform_w_haystaq WHERE party = 'D'",
-          defaultOpts,
-        ),
-      ).toThrow(/district/i)
-    })
-
-    it('rejects when district filter is OR-ed with another district', () => {
-      // Classic SQL injection: include the user's district + sneak in another
-      expect(() =>
-        validateInsightsSql(
-          `SELECT COUNT(*) AS n FROM int__l2_nationwide_uniform_w_haystaq
-           WHERE district_id = '${DISTRICT}' OR district_id = 'CA-OAKLAND-CITY'`,
-          defaultOpts,
-        ),
-      ).toThrow(/district/i)
-    })
-
-    it('rejects when district filter is OR-ed with a tautology like 1=1', () => {
-      expect(() =>
-        validateInsightsSql(
-          `SELECT COUNT(*) AS n FROM int__l2_nationwide_uniform_w_haystaq
-           WHERE district_id = '${DISTRICT}' OR 1=1`,
-          defaultOpts,
-        ),
-      ).toThrow(/district/i)
-    })
-
-    it('accepts AND-combined filters as long as district_id = userDistrict is mandatory', () => {
-      expect(() =>
-        validateInsightsSql(
-          `SELECT party, COUNT(*) AS n FROM int__l2_nationwide_uniform_w_haystaq
-           WHERE district_id = '${DISTRICT}' AND age_band = '35-44'
-           GROUP BY party`,
-          defaultOpts,
-        ),
-      ).not.toThrow()
-    })
-  })
-
-  describe('enforces multiple mandatory filters (real Haystaq shape)', () => {
-    // The actual Haystaq table has no `district_id` column. It has dozens of
-    // L2 typed district columns (City_Council_Commissioner_District, etc.)
-    // plus a state_postal_code column. Real queries must pin BOTH state and
-    // the typed district column to guarantee scoping.
-    const haystaqOpts = {
-      allowedTables: ALLOWED,
-      mandatoryFilters: [
-        { column: 'state_postal_code', value: 'NC' },
-        {
-          column: 'City_Council_Commissioner_District',
-          value: 'HENDERSONVILLE',
-        },
-      ],
-    }
-
-    it('accepts a query that pins both state and L2 district column', () => {
-      expect(() =>
-        validateInsightsSql(
-          `SELECT AVG(hs_regulations_too_harsh) AS avg_reg, COUNT(*) AS n
-           FROM int__l2_nationwide_uniform_w_haystaq
-           WHERE state_postal_code = 'NC'
-             AND City_Council_Commissioner_District = 'HENDERSONVILLE'`,
-          haystaqOpts,
-        ),
-      ).not.toThrow()
-    })
-
-    it('rejects when state filter is present but L2 district column is missing', () => {
-      expect(() =>
-        validateInsightsSql(
-          `SELECT COUNT(*) AS n FROM int__l2_nationwide_uniform_w_haystaq
-           WHERE state_postal_code = 'NC'`,
-          haystaqOpts,
-        ),
-      ).toThrow(/City_Council_Commissioner_District/)
-    })
-
-    it('rejects when L2 district column is present but state filter is missing', () => {
-      expect(() =>
-        validateInsightsSql(
-          `SELECT COUNT(*) AS n FROM int__l2_nationwide_uniform_w_haystaq
-           WHERE City_Council_Commissioner_District = 'HENDERSONVILLE'`,
-          haystaqOpts,
-        ),
-      ).toThrow(/state_postal_code/)
-    })
-
-    it('rejects when state is pinned to a different state than the user', () => {
-      expect(() =>
-        validateInsightsSql(
-          `SELECT COUNT(*) AS n FROM int__l2_nationwide_uniform_w_haystaq
-           WHERE state_postal_code = 'CA'
-             AND City_Council_Commissioner_District = 'HENDERSONVILLE'`,
-          haystaqOpts,
-        ),
-      ).toThrow(/state_postal_code/)
-    })
-
-    it('rejects when one mandatory filter is OR-broken even though the other is pinned', () => {
-      expect(() =>
-        validateInsightsSql(
-          `SELECT COUNT(*) AS n FROM int__l2_nationwide_uniform_w_haystaq
-           WHERE state_postal_code = 'NC'
-             AND (City_Council_Commissioner_District = 'HENDERSONVILLE'
-                  OR City_Council_Commissioner_District = 'RALEIGH')`,
-          haystaqOpts,
-        ),
-      ).toThrow(/City_Council_Commissioner_District/)
-    })
-  })
-})
-
-describe('findPeopleCountColumns', () => {
-  const from = `FROM t WHERE district_id = '${DISTRICT}'`
-
-  it('names every count of people by its alias, whatever the alias', () => {
-    expect(
-      findPeopleCountColumns(
-        `SELECT gender, COUNT(*) AS people,
-                SUM(CASE WHEN on_uploaded_list THEN 1 ELSE 0 END) AS uploaded,
-                COUNT_IF(has_email) AS reachable,
-                APPROX_COUNT_DISTINCT(voter_key) AS approx,
-                AVG(Voters_Age) AS avg_age
-         ${from} GROUP BY gender`,
-        ['gender', 'people', 'uploaded', 'reachable', 'approx', 'avg_age'],
-      ),
-    ).toEqual(['people', 'uploaded', 'reachable', 'approx'])
-  })
-
-  it('names an unaliased count by the result column at its position', () => {
-    expect(
-      findPeopleCountColumns(
-        `SELECT COUNT(*), SUM(CASE WHEN has_email THEN 1 ELSE 0 END) ${from}`,
-        ['count(1)', 'sum(CASE WHEN has_email THEN 1 ELSE 0 END)'],
-      ),
-    ).toEqual(['count(1)', 'sum(CASE WHEN has_email THEN 1 ELSE 0 END)'])
-  })
-
-  it('fails closed when an unaliased count has no result column to name it', () => {
-    expect(() =>
-      findPeopleCountColumns(
-        `SELECT COUNT(*) AS n, SUM(CASE WHEN has_email THEN 1 ELSE 0 END) ${from}`,
-        ['n'],
-      ),
-    ).toThrow(SqlRejected)
-  })
-
-  it('names nothing for an empty result, which has no columns', () => {
-    expect(
-      findPeopleCountColumns(
-        `SELECT COUNT(*), SUM(CASE WHEN has_email THEN 1 ELSE 0 END) ${from}`,
-        [],
-      ),
-    ).toEqual([])
-  })
-})
-
-describe('scrubResults', () => {
-  it('masks a sub-threshold count of people whatever its alias (uploaded-list repro)', () => {
-    const res = scrubResults(
-      [{ count: 9147, uploaded: 29, with_email: 13, avg_age: 41.2 }],
-      {
-        minCellSize: 100,
-        peopleCountColumns: ['count', 'Uploaded', 'with_email'],
-      },
-    )
-    expect(res.kept).toEqual([
-      { count: 9147, uploaded: null, with_email: null, avg_age: 41.2 },
-    ])
-  })
-
-  it('keeps a count of people at or above the floor', () => {
-    const res = scrubResults([{ count: 9147, uploaded: 100 }], {
-      minCellSize: 100,
-      peopleCountColumns: ['uploaded'],
-    })
-    expect(res.kept).toEqual([{ count: 9147, uploaded: 100 }])
-  })
-
-  it('masks small counts of people even when no row count is recognized', () => {
-    const rows = [{ people: 29, avg_age: 41.2 }]
-    expect(
-      scrubResults(rows, { minCellSize: 100, peopleCountColumns: ['people'] }),
-    ).toEqual({
-      kept: [{ people: null, avg_age: 41.2 }],
-      suppressed: 0,
-      reason: 'no_count_column',
-    })
-  })
-
-  it('suppresses small cells keyed on unknown_count, the alias the score-semantics guidance recommends', () => {
-    const res = scrubResults([{ unknown_count: 42 }], { minCellSize: 100 })
-    expect(res.kept).toHaveLength(0)
-    expect(res.suppressed).toBe(1)
-    expect(res.reason).toBe('cell_size')
-  })
-
-  it('masks a sub-threshold secondary count column on rows kept by the primary count', () => {
-    const res = scrubResults([{ count: 5000, unknown_count: 12 }], {
-      minCellSize: 100,
-    })
-    expect(res.kept).toEqual([{ count: 5000, unknown_count: null }])
-  })
-
-  it('returns empty result with reason null when given no rows', () => {
-    expect(scrubResults([], { minCellSize: 100 })).toEqual({
-      kept: [],
-      suppressed: 0,
-      reason: null,
-    })
-  })
-
-  it('keeps all rows unchanged when every row is above threshold', () => {
-    const rows = [
-      { party: 'D', count: 500 },
-      { party: 'R', count: 300 },
-    ]
-    expect(scrubResults(rows, { minCellSize: 100 })).toEqual({
-      kept: rows,
-      suppressed: 0,
-      reason: null,
-    })
-  })
-
-  it('drops rows below threshold and reports cell_size', () => {
-    const rows = [
-      { party: 'D', count: 500 },
-      { party: 'R', count: 50 },
-      { party: 'I', count: 10 },
-    ]
-    expect(scrubResults(rows, { minCellSize: 100 })).toEqual({
-      kept: [{ party: 'D', count: 500 }],
-      suppressed: 2,
-      reason: 'cell_size',
-    })
-  })
-
-  it('drops all rows when all are below threshold', () => {
-    const rows = [
-      { party: 'D', count: 5 },
-      { party: 'R', count: 10 },
-      { party: 'I', count: 1 },
-    ]
-    expect(scrubResults(rows, { minCellSize: 100 })).toEqual({
-      kept: [],
-      suppressed: 3,
-      reason: 'cell_size',
-    })
-  })
-
-  it('finds count column named "count"', () => {
-    const rows = [{ party: 'D', count: 150 }]
-    expect(scrubResults(rows, { minCellSize: 100 })).toEqual({
-      kept: rows,
-      suppressed: 0,
-      reason: null,
-    })
-  })
-
-  it('finds count column named "n"', () => {
-    const rows = [{ party: 'D', n: 150 }]
-    expect(scrubResults(rows, { minCellSize: 100 })).toEqual({
-      kept: rows,
-      suppressed: 0,
-      reason: null,
-    })
-  })
-
-  it('finds count column named "voters" (default alias)', () => {
-    const rows = [{ party: 'D', voters: 150 }]
-    expect(scrubResults(rows, { minCellSize: 100 })).toEqual({
-      kept: rows,
-      suppressed: 0,
-      reason: null,
-    })
-  })
-
-  it('finds count column named "VOTERS" (case-insensitive match)', () => {
-    const rows = [{ party: 'D', VOTERS: 150 }]
-    expect(scrubResults(rows, { minCellSize: 100 })).toEqual({
-      kept: rows,
-      suppressed: 0,
-      reason: null,
-    })
-  })
-
-  it('uses a custom alias from countColumnAliases', () => {
-    const rows = [
-      { party: 'D', vote_total: 150 },
-      { party: 'R', vote_total: 50 },
-    ]
-    expect(
-      scrubResults(rows, {
-        minCellSize: 100,
-        countColumnAliases: ['vote_total'],
-      }),
-    ).toEqual({
-      kept: [{ party: 'D', vote_total: 150 }],
-      suppressed: 1,
-      reason: 'cell_size',
-    })
-  })
-
-  it('returns rows unchanged with reason no_count_column when none recognized', () => {
-    const rows = [
-      { party: 'D', mystery: 150 },
-      { party: 'R', mystery: 5 },
-    ]
-    expect(scrubResults(rows, { minCellSize: 100 })).toEqual({
-      kept: rows,
-      suppressed: 0,
-      reason: 'no_count_column',
-    })
-  })
-
-  it('handles BigInt count values', () => {
-    const rows = [
-      { party: 'D', count: 150n },
-      { party: 'R', count: 50n },
-    ]
-    expect(scrubResults(rows, { minCellSize: 100 })).toEqual({
-      kept: [{ party: 'D', count: 150n }],
-      suppressed: 1,
-      reason: 'cell_size',
-    })
-  })
-
-  it('coerces string count values, dropping NaN ones', () => {
-    const rows = [
-      { party: 'D', count: '150' },
-      { party: 'R', count: 'foo' },
-    ]
-    expect(scrubResults(rows, { minCellSize: 100 })).toEqual({
-      kept: [{ party: 'D', count: '150' }],
-      suppressed: 1,
-      reason: 'cell_size',
-    })
-  })
-
-  it('treats null count as 0 and drops the row', () => {
-    const rows = [
-      { party: 'D', count: 500 },
-      { party: 'R', count: null },
-    ]
-    expect(scrubResults(rows, { minCellSize: 100 })).toEqual({
-      kept: [{ party: 'D', count: 500 }],
-      suppressed: 1,
-      reason: 'cell_size',
-    })
-  })
-
-  it('keeps a row whose count equals the threshold exactly', () => {
-    const rows = [{ party: 'D', count: 100 }]
-    expect(scrubResults(rows, { minCellSize: 100 })).toEqual({
-      kept: rows,
-      suppressed: 0,
-      reason: null,
-    })
-  })
-
-  it('keys row suppression on the first matching alias and masks sub-threshold secondary count columns', () => {
-    const rows = [
-      { party: 'D', count: 150, n: 5 },
-      { party: 'R', count: 50, n: 500 },
-    ]
-    expect(scrubResults(rows, { minCellSize: 100 })).toEqual({
-      kept: [{ party: 'D', count: 150, n: null }],
-      suppressed: 1,
-      reason: 'cell_size',
-    })
-  })
-})
-
 describe('buildDistrictInsightsTool', () => {
-  const allowedTables = new Set(['int__l2_nationwide_uniform_w_haystaq'])
   const mandatoryFilters = [
     { column: 'state_postal_code', value: 'NC' },
     {
@@ -753,12 +15,23 @@ describe('buildDistrictInsightsTool', () => {
       value: 'HENDERSONVILLE',
     },
   ]
-
-  const happyPathSql = `SELECT party, AVG(hs_regulations_too_harsh) AS avg_reg, COUNT(*) AS n
-                        FROM int__l2_nationwide_uniform_w_haystaq
+  const { allowedTables, allowedDimensions, forbiddenColumns } =
+    buildConstituentDataScope(mandatoryFilters, CONSTITUENT_TABLES, {
+      base: 'voters',
+    })
+  const scope = {
+    allowedTables,
+    allowedDimensions,
+    forbiddenColumns,
+    mandatoryFilters,
+  }
+  const FROM_DISTRICT = `FROM serve_agent_voters
                         WHERE state_postal_code = 'NC'
-                          AND City_Council_Commissioner_District = 'HENDERSONVILLE'
-                        GROUP BY party`
+                          AND City_Council_Commissioner_District = 'HENDERSONVILLE'`
+
+  const happyPathSql = `SELECT Voters_Gender, AVG(hs_regulations_too_harsh) AS avg_reg, COUNT(*) AS n
+                        ${FROM_DISTRICT}
+                        GROUP BY Voters_Gender`
 
   const fakeProvider = (
     overrides: {
@@ -774,11 +47,11 @@ describe('buildDistrictInsightsTool', () => {
         calls.push(sql)
         if (overrides.throws) throw overrides.throws
         return {
-          columns: overrides.columns ?? ['party', 'avg_reg', 'n'],
+          columns: overrides.columns ?? ['Voters_Gender', 'avg_reg', 'n'],
           rows: overrides.rows ?? [
-            { party: 'D', avg_reg: 0.3, n: 800 },
-            { party: 'R', avg_reg: 0.7, n: 600 },
-            { party: 'I', avg_reg: 0.5, n: 200 },
+            { Voters_Gender: 'F', avg_reg: 0.3, n: 800 },
+            { Voters_Gender: 'M', avg_reg: 0.7, n: 600 },
+            { Voters_Gender: 'U', avg_reg: 0.5, n: 200 },
           ],
         }
       }),
@@ -788,13 +61,12 @@ describe('buildDistrictInsightsTool', () => {
   it('exposes a description that includes the table and scope WHERE clause so the LLM can write valid SQL', () => {
     const tool = buildDistrictInsightsTool({
       provider: fakeProvider(),
-      allowedTables,
-      mandatoryFilters,
+      ...scope,
       peopleDataset: { base: 'voters' },
     })
     expect(typeof tool.description).toBe('string')
     // Must include the table the LLM should query against.
-    expect(tool.description).toContain('int__l2_nationwide_uniform_w_haystaq')
+    expect(tool.description).toContain('serve_agent_voters')
     // Must include the literal mandatory WHERE values so the LLM can copy
     // them verbatim into its query.
     expect(tool.description).toContain("state_postal_code = 'NC'")
@@ -807,8 +79,7 @@ describe('buildDistrictInsightsTool', () => {
   it('describes the voters table as the registration file', () => {
     const tool = buildDistrictInsightsTool({
       provider: fakeProvider(),
-      allowedTables,
-      mandatoryFilters,
+      ...scope,
       peopleDataset: { base: 'voters' },
     })
     expect(tool.description).toContain('registration file')
@@ -818,8 +89,7 @@ describe('buildDistrictInsightsTool', () => {
   it('names both bases on the constituents table', () => {
     const tool = buildDistrictInsightsTool({
       provider: fakeProvider(),
-      allowedTables,
-      mandatoryFilters,
+      ...scope,
       peopleDataset: { base: 'constituents' },
     })
     expect(tool.description).not.toContain('registration file')
@@ -829,8 +99,7 @@ describe('buildDistrictInsightsTool', () => {
   it('requires both sql and rationale in the input schema', () => {
     const tool = buildDistrictInsightsTool({
       provider: fakeProvider(),
-      allowedTables,
-      mandatoryFilters,
+      ...scope,
       peopleDataset: { base: 'voters' },
     })
     expect(() => tool.inputSchema.parse({ sql: 'x' })).toThrow()
@@ -844,20 +113,19 @@ describe('buildDistrictInsightsTool', () => {
     const provider = fakeProvider()
     const tool = buildDistrictInsightsTool({
       provider,
-      allowedTables,
-      mandatoryFilters,
+      ...scope,
       peopleDataset: { base: 'voters' },
     })
     const out = await tool.execute({
       sql: happyPathSql,
-      rationale: 'compare regulation views by party',
+      rationale: 'compare regulation views by gender',
     })
 
     expect(provider.calls).toHaveLength(1)
     // All 3 rows are >= 100 with default minCellSize, so none suppressed.
     expect(out.rowsReturned).toBe(3)
     expect(out.rowsSuppressed).toBe(0)
-    expect(out.columns).toEqual(['party', 'avg_reg', 'n'])
+    expect(out.columns).toEqual(['Voters_Gender', 'avg_reg', 'n'])
     expect(out.rows).toHaveLength(3)
   })
 
@@ -865,17 +133,16 @@ describe('buildDistrictInsightsTool', () => {
     const provider = fakeProvider()
     const tool = buildDistrictInsightsTool({
       provider,
-      allowedTables,
-      mandatoryFilters,
+      ...scope,
       peopleDataset: { base: 'voters' },
     })
     // Missing the state filter — validator rejects.
     await expect(
       tool.execute({
-        sql: `SELECT party, COUNT(*) AS n FROM int__l2_nationwide_uniform_w_haystaq
+        sql: `SELECT Voters_Gender, COUNT(*) AS n FROM serve_agent_voters
               WHERE City_Council_Commissioner_District = 'HENDERSONVILLE'
-              GROUP BY party`,
-        rationale: 'party breakdown',
+              GROUP BY Voters_Gender`,
+        rationale: 'gender breakdown',
       }),
     ).rejects.toBeInstanceOf(SqlRejected)
     expect(provider.calls).toHaveLength(0)
@@ -884,15 +151,14 @@ describe('buildDistrictInsightsTool', () => {
   it('suppresses rows below the default minCellSize (100) before returning', async () => {
     const provider = fakeProvider({
       rows: [
-        { party: 'D', n: 500 },
-        { party: 'R', n: 50 },
-        { party: 'I', n: 10 },
+        { Voters_Gender: 'F', n: 500 },
+        { Voters_Gender: 'M', n: 50 },
+        { Voters_Gender: 'U', n: 10 },
       ],
     })
     const tool = buildDistrictInsightsTool({
       provider,
-      allowedTables,
-      mandatoryFilters,
+      ...scope,
       peopleDataset: { base: 'voters' },
     })
     const out = await tool.execute({
@@ -901,7 +167,7 @@ describe('buildDistrictInsightsTool', () => {
     })
     expect(out.rowsReturned).toBe(1)
     expect(out.rowsSuppressed).toBe(2)
-    expect(out.rows).toEqual([{ party: 'D', n: 500 }])
+    expect(out.rows).toEqual([{ Voters_Gender: 'F', n: 500 }])
   })
 
   it('masks a small SUM or COUNT beside a large row count, whatever its alias', async () => {
@@ -913,8 +179,7 @@ describe('buildDistrictInsightsTool', () => {
     })
     const tool = buildDistrictInsightsTool({
       provider,
-      allowedTables,
-      mandatoryFilters,
+      ...scope,
       peopleDataset: { base: 'voters' },
     })
     const out = await tool.execute({
@@ -922,9 +187,7 @@ describe('buildDistrictInsightsTool', () => {
                    SUM(CASE WHEN hs_regulations_too_harsh >= 50 THEN 1 ELSE 0 END) AS aligned,
                    COUNT(CASE WHEN hs_regulations_too_harsh < 10 THEN 1 END),
                    AVG(hs_regulations_too_harsh) AS avg_reg
-            FROM int__l2_nationwide_uniform_w_haystaq
-            WHERE state_postal_code = 'NC'
-              AND City_Council_Commissioner_District = 'HENDERSONVILLE'`,
+            ${FROM_DISTRICT}`,
       rationale: 'r',
     })
     expect(out.rows).toEqual([
@@ -935,14 +198,13 @@ describe('buildDistrictInsightsTool', () => {
   it('respects a custom minCellSize', async () => {
     const provider = fakeProvider({
       rows: [
-        { party: 'D', n: 500 },
-        { party: 'R', n: 30 },
+        { Voters_Gender: 'F', n: 500 },
+        { Voters_Gender: 'M', n: 30 },
       ],
     })
     const tool = buildDistrictInsightsTool({
       provider,
-      allowedTables,
-      mandatoryFilters,
+      ...scope,
       peopleDataset: { base: 'voters' },
       minCellSize: 25,
     })
@@ -959,13 +221,183 @@ describe('buildDistrictInsightsTool', () => {
     const provider = fakeProvider({ throws: upstream })
     const tool = buildDistrictInsightsTool({
       provider,
-      allowedTables,
-      mandatoryFilters,
+      ...scope,
       peopleDataset: { base: 'voters' },
     })
     await expect(
       tool.execute({ sql: happyPathSql, rationale: 'r' }),
     ).rejects.toBe(upstream)
+  })
+
+  it.each([
+    [
+      'a share over scored rows',
+      `SELECT COUNT(*) AS count,
+              AVG(CASE WHEN hs_regulations_too_harsh >= 50 THEN 1.0 WHEN hs_regulations_too_harsh IS NOT NULL THEN 0.0 END) AS aligned_share,
+              SUM(CASE WHEN hs_regulations_too_harsh IS NULL THEN 1 ELSE 0 END) AS unknown_count
+       ${FROM_DISTRICT}`,
+    ],
+    [
+      'age buckets counted in the SELECT',
+      `SELECT COUNT(*) AS count,
+              SUM(CASE WHEN Voters_Age < 35 THEN 1 ELSE 0 END) AS age_under_35,
+              SUM(CASE WHEN Voters_Age BETWEEN 35 AND 64 THEN 1 ELSE 0 END) AS age_35_64
+       ${FROM_DISTRICT}`,
+    ],
+    [
+      'a breakdown by a demographic column',
+      `SELECT Voters_Gender, COUNT(*), AVG(hs_regulations_too_harsh) AS avg_reg
+       ${FROM_DISTRICT} GROUP BY Voters_Gender`,
+    ],
+  ])('runs %s', async (_label, sql) => {
+    const provider = fakeProvider({ columns: [], rows: [] })
+    const tool = buildDistrictInsightsTool({
+      provider,
+      ...scope,
+      peopleDataset: { base: 'voters' },
+    })
+    await tool.execute({ sql, rationale: 'r' })
+    expect(provider.calls).toEqual([sql])
+  })
+
+  describe('holds every row to the floor (one row per voter repros)', () => {
+    const run = (
+      sql: string,
+      result: { columns: string[]; rows: Array<Record<string, unknown>> } = {
+        columns: [],
+        rows: [],
+      },
+    ) => {
+      const provider = fakeProvider(result)
+      const tool = buildDistrictInsightsTool({
+        provider,
+        ...scope,
+        peopleDataset: { base: 'voters' },
+      })
+      return {
+        provider,
+        out: tool.execute({ sql, rationale: 'r' }),
+      }
+    }
+
+    it.each([
+      [
+        'a query with no count column',
+        `SELECT Voters_Age, Residence_Addresses_CensusTract, AVG(hs_regulations_too_harsh) AS score
+         ${FROM_DISTRICT}
+         GROUP BY Voters_Age, Residence_Addresses_CensusTract`,
+        /COUNT\(\*\)/,
+      ],
+      [
+        'a GROUP BY on voter_key',
+        `SELECT voter_key, Voters_Age, Residence_Addresses_CensusTract, hs_regulations_too_harsh, COUNT(*) AS n
+         ${FROM_DISTRICT}
+         GROUP BY voter_key, Voters_Age, Residence_Addresses_CensusTract, hs_regulations_too_harsh`,
+        /voter_key/,
+      ],
+      [
+        'the original repro, voter_key grouped with no count at all',
+        `SELECT voter_key, Voters_Age, Residence_Addresses_CensusTract, hs_regulations_too_harsh
+         ${FROM_DISTRICT}
+         GROUP BY voter_key, Voters_Age, Residence_Addresses_CensusTract, hs_regulations_too_harsh`,
+        /SQL rejected/,
+      ],
+      [
+        'a count written as SIZE(COLLECT_SET(...))',
+        `SELECT Residence_Addresses_CensusTract, SIZE(COLLECT_SET(Voters_Age)) AS count
+         ${FROM_DISTRICT} GROUP BY Residence_Addresses_CensusTract`,
+        /SIZE/,
+      ],
+      [
+        'a SIZE(COLLECT_LIST(...)) beside COUNT(*)',
+        `SELECT Residence_Addresses_CensusTract, COUNT(*) AS n, SIZE(COLLECT_LIST(Voters_Age)) AS people
+         ${FROM_DISTRICT} GROUP BY Residence_Addresses_CensusTract`,
+        /SIZE/,
+      ],
+      [
+        'a bare COLLECT_SET',
+        `SELECT COUNT(*) AS n, COLLECT_SET(Voters_Age) AS ages ${FROM_DISTRICT}`,
+        /COLLECT_SET/,
+      ],
+      [
+        'a COUNT(DISTINCT ...)',
+        `SELECT COUNT(*) AS n, COUNT(DISTINCT Voters_Age) AS ages ${FROM_DISTRICT}`,
+        /DISTINCT/,
+      ],
+      [
+        'an aliased SUM standing in for the count',
+        `SELECT Residence_Addresses_CensusTract, SUM(CASE WHEN Voters_Age > 0 THEN 1 ELSE 0 END) AS count
+         ${FROM_DISTRICT} GROUP BY Residence_Addresses_CensusTract`,
+        /COUNT\(\*\)/,
+      ],
+      [
+        'a MAX(... * 1000) sharing the COUNT(*) alias',
+        `SELECT Residence_Addresses_CensusTract, COUNT(*) AS count, MAX(Voters_Age * 1000) AS count
+         ${FROM_DISTRICT} GROUP BY Residence_Addresses_CensusTract`,
+        /different name/,
+      ],
+      [
+        'a COUNT(*) aliased as a grouped column',
+        `SELECT Voters_Age, COUNT(*) AS voters_age
+         ${FROM_DISTRICT} GROUP BY Voters_Age`,
+        /different name/,
+      ],
+      [
+        'a MAX(... * 1000) aliased as the count',
+        `SELECT Residence_Addresses_CensusTract, MAX(Voters_Age * 1000) AS count, AVG(hs_regulations_too_harsh) AS score
+         ${FROM_DISTRICT} GROUP BY Residence_Addresses_CensusTract`,
+        /COUNT\(\*\)/,
+      ],
+    ])('rejects %s before the warehouse', async (_label, sql, reason) => {
+      const { provider, out } = run(sql)
+      await expect(out).rejects.toThrow(reason)
+      expect(provider.calls).toHaveLength(0)
+    })
+
+    it('masks an aliased SUM below the floor', async () => {
+      const { out } = run(
+        `SELECT COUNT(*) AS n,
+                SUM(CASE WHEN hs_regulations_too_harsh >= 50 THEN 1 ELSE 0 END) AS supporters
+         ${FROM_DISTRICT}`,
+        { columns: ['n', 'supporters'], rows: [{ n: 9147, supporters: 4 }] },
+      )
+      expect((await out).rows).toEqual([{ n: 9147, supporters: null }])
+    })
+
+    it('drops a small group even when a MAX(... * 1000) is aliased count', async () => {
+      const { out } = run(
+        `SELECT Voters_Age, COUNT(*) AS people, MAX(Voters_Age * 1000) AS count
+         ${FROM_DISTRICT} GROUP BY Voters_Age`,
+        {
+          columns: ['Voters_Age', 'people', 'count'],
+          rows: [
+            { Voters_Age: 101, people: 1, count: 101000 },
+            { Voters_Age: 40, people: 812, count: 40000 },
+          ],
+        },
+      )
+      const result = await out
+      expect(result.rows).toEqual([
+        { Voters_Age: 40, people: 812, count: 40000 },
+      ])
+      expect(result.rowsSuppressed).toBe(1)
+    })
+
+    it('floors an unaliased COUNT(*) by the name the warehouse gave it', async () => {
+      const { out } = run(
+        `SELECT Voters_Gender, COUNT(*) ${FROM_DISTRICT} GROUP BY Voters_Gender`,
+        {
+          columns: ['Voters_Gender', 'count(1)'],
+          rows: [
+            { Voters_Gender: 'F', 'count(1)': 4210 },
+            { Voters_Gender: 'U', 'count(1)': 7 },
+          ],
+        },
+      )
+      expect((await out).rows).toEqual([
+        { Voters_Gender: 'F', 'count(1)': 4210 },
+      ])
+    })
   })
 
   it('caps very small mandatoryFilters list (no filters) — defensive', () => {
@@ -975,7 +407,7 @@ describe('buildDistrictInsightsTool', () => {
     // queries with no scope.)
     const tool = buildDistrictInsightsTool({
       provider: fakeProvider(),
-      allowedTables,
+      ...scope,
       mandatoryFilters: [],
       peopleDataset: { base: 'voters' },
     })

@@ -388,8 +388,8 @@ describe('CitizensPanelView', () => {
       within(aside).getByText('Not contacted in the last 30 days'),
     ).toBeInTheDocument()
     expect(
-      within(aside).queryByText('Reached in the last 30 days'),
-    ).not.toBeInTheDocument()
+      within(aside).getByText('Reached in the last 30 days'),
+    ).toBeInTheDocument()
     expect(
       within(aside).getByRole('link', { name: 'See members' }),
     ).toHaveAttribute('href', '/dashboard/contacts/lists/civicPanel')
@@ -438,5 +438,34 @@ describe('CitizensPanelView', () => {
     expect(lastSurfaceProps).toMatchObject({
       analyticsSurface: 'civic_panel_dock',
     })
+  })
+
+  // A full civic panel has no one left to recruit.
+  it.each([
+    [
+      'ready',
+      SUMMARY,
+      managed('ready', { members: 240 }) as ManagedCivicPanel | null,
+    ],
+    [
+      'at its goal',
+      {
+        ...SUMMARY,
+        members: 240,
+        progress: { ...SUMMARY.progress, members: 240 },
+      },
+      null,
+    ],
+  ])('stops asking who still needs to join once %s', (_, summary, panel) => {
+    render(<CitizensPanelView summary={summary} managed={panel} />)
+
+    expect(
+      screen.getByRole('button', {
+        name: 'Ask what your civic panel should weigh in on',
+      }),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: /who still needs to join/ }),
+    ).not.toBeInTheDocument()
   })
 })

@@ -172,10 +172,11 @@ describe('<ImportContactsWizard>', () => {
     expect(trackEvent).not.toHaveBeenCalled()
   })
 
-  it('sends the file straight to S3, then imports with a name and the consent box', async () => {
+  it('creates the upload, sends the file straight to S3, then confirms it', async () => {
     const S3_PUT_URL = 'https://s3.example/put?sig=abc'
     let presignBody: unknown
     api.mock('POST /v1/contact-uploads/presign', ({ body }) => {
+      calls.push('presign')
       presignBody = body
       return {
         status: 200,
@@ -189,6 +190,7 @@ describe('<ImportContactsWizard>', () => {
     let put: { contentType: string | null; text: string } | null = null
     mswServer.use(
       http.put(S3_PUT_URL, async ({ request }) => {
+        calls.push('put')
         put = {
           contentType: request.headers.get('content-type'),
           text: await request.text(),
@@ -196,10 +198,15 @@ describe('<ImportContactsWizard>', () => {
         return new HttpResponse(null, { status: 200 })
       }),
     )
-    let createBody: unknown
-    api.mock('POST /v1/contact-uploads', ({ body }) => {
-      createBody = body
-      return { status: 200, data: makeUpload({ status: 'processing' }) }
+    const calls: string[] = []
+    let confirmed: unknown
+    api.mock('POST /v1/contact-uploads/:id/uploaded', ({ params }) => {
+      calls.push('confirm')
+      confirmed = params
+      return {
+        status: 200,
+        data: makeUpload({ status: 'processing', rowCount: null }),
+      }
     })
     const user = userEvent.setup()
     const onOpenChange = renderWizard()
@@ -233,13 +240,14 @@ describe('<ImportContactsWizard>', () => {
       expect(router.push).toHaveBeenCalledWith('/dashboard/contacts/uploads'),
     )
     expect(onOpenChange).toHaveBeenCalledWith(false)
-    expect(presignBody).toEqual({ byteSize: NEWSLETTER.size })
+    expect(calls).toEqual(['presign', 'put', 'confirm'])
     expect(put).toEqual({
       contentType: 'text/csv',
       text: expect.stringMatching(/^First name,Last name,Email/),
     })
-    expect(createBody).toEqual({
-      uploadId: 'upload-1',
+    expect(confirmed).toMatchObject({ id: 'upload-1' })
+    expect(presignBody).toEqual({
+      byteSize: NEWSLETTER.size,
       fileName: 'newsletter.csv',
       name: 'Newsletter, Oct 2026',
       consentAffirmed: true,
@@ -264,7 +272,7 @@ describe('<ImportContactsWizard>', () => {
     )
   })
 
-  it('does not create the upload when the S3 put fails', async () => {
+  it('does not confirm the upload when the S3 put fails', async () => {
     const S3_PUT_URL = 'https://s3.example/put?sig=abc'
     api.mock('POST /v1/contact-uploads/presign', {
       status: 200,
@@ -277,11 +285,11 @@ describe('<ImportContactsWizard>', () => {
     mswServer.use(
       http.put(S3_PUT_URL, () => new HttpResponse(null, { status: 403 })),
     )
-    const create = vi.fn(() => ({
+    const confirm = vi.fn(() => ({
       status: 200 as const,
       data: makeUpload({ status: 'processing' }),
     }))
-    api.mock('POST /v1/contact-uploads', create)
+    api.mock('POST /v1/contact-uploads/:id/uploaded', confirm)
     const user = userEvent.setup()
     renderWizard()
 
@@ -302,7 +310,7 @@ describe('<ImportContactsWizard>', () => {
         "We couldn't import this file. Check it and try again.",
       ),
     ).toBeInTheDocument()
-    expect(create).not.toHaveBeenCalled()
+    expect(confirm).not.toHaveBeenCalled()
     expect(router.push).not.toHaveBeenCalled()
   })
 

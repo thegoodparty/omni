@@ -1332,7 +1332,7 @@ describe('PriorityWorkspace', () => {
       expect(read).toHaveBeenCalledTimes(1)
     })
 
-    it('puts a short bar on the phone with the answers still needed', async () => {
+    it('puts the count and a red bar on the phone, naming no groups', async () => {
       renderWorkspace(emptyPriorityStatus(), null, { initialReadStatus: thin })
       await screen.findByText('Here is where this stands.')
 
@@ -1349,17 +1349,20 @@ describe('PriorityWorkspace', () => {
         within(bar).getByRole('button', { name: 'Where this stands' }),
       ).toBeInTheDocument()
       const status = within(bar).getByRole('link', {
-        name: /Still need to hear from people 65 and over/,
+        name: '20 of the 96 answers we need',
       })
       expect(status).toHaveAttribute(
         'href',
         '/dashboard/priorities/pri-1/results',
       )
       expect(
+        within(bar).queryByText(/people 65 and over/),
+      ).not.toBeInTheDocument()
+      expect(
         within(bar).getByRole('progressbar', {
           name: '20 of the 96 answers we need',
         }),
-      ).toBeInTheDocument()
+      ).toHaveClass('[&>[data-slot=progress-indicator]]:bg-destructive')
       const getAnswers = within(bar).getByRole('button', {
         name: 'Get answers',
       })
@@ -1485,8 +1488,8 @@ describe('PriorityWorkspace', () => {
       const rail = screen.getByRole('complementary')
       expect(within(rail).getByText('Waiting to hear back')).toBeInTheDocument()
       expect(
-        within(rail).getByText('Still need to hear from people 65 and over'),
-      ).toBeInTheDocument()
+        within(rail).queryByText('Still need to hear from people 65 and over'),
+      ).not.toBeInTheDocument()
       expect(
         within(rail).getByText('20 of the 96 answers we need'),
       ).toBeInTheDocument()
@@ -1536,7 +1539,7 @@ describe('PriorityWorkspace', () => {
       expect(screen.queryByText(/every group/i)).not.toBeInTheDocument()
     })
 
-    it('names who to hear more from once there are enough answers', async () => {
+    it('leaves who to hear more from to the results page', async () => {
       renderWorkspace(emptyPriorityStatus(), null, {
         initialReadStatus: skewed,
       })
@@ -1544,18 +1547,16 @@ describe('PriorityWorkspace', () => {
 
       const bar = screen.getByTestId('priority-phone-bar')
       expect(
-        within(bar).getByText(
+        within(bar).getByText('70 of the 96 answers we need'),
+      ).toBeInTheDocument()
+      expect(
+        screen.queryByText(
           'Need a few more answers from women and people 65 and over',
         ),
-      ).toBeInTheDocument()
+      ).not.toBeInTheDocument()
       const rail = screen.getByRole('complementary')
       expect(
         within(rail).getByText('A few groups need more answers'),
-      ).toBeInTheDocument()
-      expect(
-        within(rail).getByText(
-          'Need a few more answers from women and people 65 and over',
-        ),
       ).toBeInTheDocument()
       expect(
         within(rail).getByText('70 of the 96 answers we need'),

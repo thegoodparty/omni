@@ -5,7 +5,7 @@ import {
   SOCIAL_PURPOSE_VALUES,
 } from '@goodparty_org/contracts'
 import type { Organization } from '../../../generated/prisma'
-import type { MandatoryFilter } from '@/llm/tools/districtInsights.tool'
+import type { MandatoryFilter } from '@/llm/tools/constituentSql.validator'
 import type { StrategicLandscapeResult } from '@/campaignStrategy/schemas/strategicLandscape.schema'
 import type { PublicProfileAddress } from '@/personProfiles/services/public-profile-address.service'
 import { buildCalendarBlock, hasCalendarDate } from './campaignCalendar'

@@ -106,7 +106,9 @@ export const UploadDetail = ({ uploadId }: { uploadId: string }) => {
       {upload?.status === 'failed' && (
         <Alert variant="destructive" icon={<CircleAlertIcon />}>
           <AlertDescription>
-            {retry.isError ? COPY.detail.retryFailed : COPY.detail.failed}
+            {retry.isError
+              ? COPY.detail.retryFailed
+              : (upload.failureReason ?? COPY.detail.failed)}
           </AlertDescription>
           <AlertAction>
             <Button
@@ -122,7 +124,7 @@ export const UploadDetail = ({ uploadId }: { uploadId: string }) => {
         </Alert>
       )}
 
-      {upload && upload.status !== 'processing' && (
+      {upload && upload.status !== 'processing' && upload.rowCount !== null && (
         <>
           <Card className="grid grid-cols-2 gap-4 p-4 sm:grid-cols-3">
             {counts.map((count) => (

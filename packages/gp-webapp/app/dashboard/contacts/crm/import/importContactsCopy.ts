@@ -90,6 +90,7 @@ export const SERVE_IMPORT_CONTACTS_COPY = {
     zip: 'ZIP',
   } satisfies Record<ContactUploadField, string>,
   status: {
+    awaiting_file: 'Uploading',
     processing: 'Processing',
     needs_input: 'Needs input',
     complete: 'Complete',
@@ -114,12 +115,12 @@ export const SERVE_IMPORT_CONTACTS_COPY = {
       fileName: string,
       date: string,
       uploader: string | null,
-      rowCount: number,
+      rowCount: number | null,
     ) =>
       [
         fileName,
         uploader ? `Uploaded ${date} by ${uploader}` : `Uploaded ${date}`,
-        rows(rowCount),
+        ...(rowCount === null ? [] : [rows(rowCount)]),
       ].join(' · '),
     matched: 'already in your constituents',
     added: 'new people added',

@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common'
 import {
+  CIVIC_PANEL_JOIN_REFUSED_MESSAGE,
   findCivicPanelJoinLine,
   findCivicPanelLeaveLine,
   FOLLOW_UP_BUSINESS_DAYS,
@@ -316,9 +317,7 @@ export class OutreachServeSmsCreateService extends createPrismaBase(
     // waves write their rows without this route, so a JOIN line typed or
     // pasted into any text created here is refused.
     if (findCivicPanelJoinLine(input.message) !== null) {
-      throw new BadRequestException(
-        'Only the invite we send to build your civic panel can ask people to join it. Remove that line and try again.',
-      )
+      throw new BadRequestException(CIVIC_PANEL_JOIN_REFUSED_MESSAGE)
     }
     // The composer no longer writes the LEAVE line (STOP already takes a
     // member off the panel), but a draft written before still carries it,

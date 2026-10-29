@@ -172,15 +172,21 @@ chat registers none. All tools are the `LlmStreamTool` shape defined in
   and **cell-size suppression** (drops rows with COUNT < 100). This is the
   voter-data tool, and the reason its scope handler is `isSensitive`.
 - **`district_insights` / `list_district_topics`** — the same Databricks/Haystaq
-  aggregate model for briefing chats; `list_district_topics` is a static catalog so
-  the model doesn't guess column names.
-- **Every count of people is held to the floor, in both data tools.** The base
-  validator (`validateInsightsSql`) keeps each COUNT, COUNT_IF,
-  APPROX_COUNT_DISTINCT and SUM a bare select item, allows SUM only as
-  `SUM(CASE WHEN ... THEN 1 ELSE 0 END)`, and keeps them out of HAVING, so
-  each such value is a plain headcount. `scrubResults` then nulls any of them
-  below 100 whatever the alias (`findPeopleCountColumns`), beside the row
-  drop on the main COUNT.
+  aggregate model for briefing chats, behind the same validator and the Chief
+  of Staff's table and column allowlist (`buildConstituentDataScope`);
+  `list_district_topics` is a static catalog so the model doesn't guess column
+  names.
+- **Every row and every count of people is held to the floor, in both data
+  tools** (`src/llm/tools/constituentSql.validator.ts`). `validateConstituentSql`
+  requires a bare `COUNT(*)`, allows only allowlisted aggregates and GROUP BY
+  columns in the select list, and rejects any column outside the allowlist
+  (so no `voter_key`), plus DISTINCT, windows, subqueries and set-size counts
+  like `SIZE(COLLECT_SET(...))`. The base validator (`validateInsightsSql`)
+  keeps each COUNT, COUNT_IF, APPROX_COUNT_DISTINCT and SUM a bare select
+  item, allows SUM only as `SUM(CASE WHEN ... THEN 1 ELSE 0 END)`, and keeps
+  them out of HAVING. `scrubResults` drops every row whose `COUNT(*)`
+  (`findRowCountColumn`, never an alias guess) is below 100, and nulls any
+  other count below 100 whatever the alias (`findPeopleCountColumns`).
 - **`query_databricks`** — generic read-only Databricks SELECT (write nodes blocked,
   1000-row cap).
 - **`get_artifacts`** / **`get_my_notes`** — read briefing source docs/links and the

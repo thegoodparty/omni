@@ -1,6 +1,6 @@
 ---
 title: Contact upload CSVs go from the browser straight to S3 by presigned PUT
-status: active
+status: superseded
 decided_by: [agent]
 date: 2026-10-29
 code: ['#3403']
@@ -9,7 +9,7 @@ scope:
   - packages/gp-api/deploy/components/contact-uploads-bucket.ts
   - packages/gp-webapp/app/dashboard/contacts/crm/import/**
 supersedes: []
-superseded_by:
+superseded_by: 2026-10-29-contact-upload-files-read-by-the-queue-job.md
 ---
 
 # Contact upload CSVs go from the browser straight to S3 by presigned PUT

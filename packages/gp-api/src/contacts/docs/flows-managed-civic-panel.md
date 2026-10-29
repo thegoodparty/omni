@@ -26,9 +26,15 @@ share of adults 65 or older from `ManagedCivicPanelService.explainerFacts`,
 falling back to a sentence without numbers), offers the
 invite (`offer_managed_panel_invite`), and shows the invite card
 (`present_managed_panel_invite`: Your civic panel invite, Text to <place>
-residents, Review the invite). The card never shows the words; Review the
-invite opens the webapp's text flow, where they are shown and edited, and
-it approves them (POST, with contracts' `MANAGED_CIVIC_PANEL_CONSENT_VERSION`). The flow's
+residents, Review the invite; the offer's answer has the same words,
+contracts' `SHOW_MANAGED_CIVIC_PANEL_INVITE`). The card never shows the
+words; Review the invite opens the webapp's text flow, where they are shown
+and edited. The body is the official's full name, office and place, and it
+never names the civic panel; "Reply JOIN to share your perspectives." and
+"Reply STOP to opt out." follow as one block. There is no checkbox: Approve
+and send in my name is the approval (POST, with contracts'
+`MANAGED_CIVIC_PANEL_CONSENT_VERSION`), under one line saying we'll text the
+invite to <place> residents in their name. The flow's
 close sends a hidden `MANAGED_CIVIC_PANEL_SET_UP_MESSAGE` or
 `MANAGED_CIVIC_PANEL_BACKED_OUT_MESSAGE`; on set up the agent reads
 `read_managed_panel` (status, members, goal, the first send date,
@@ -116,13 +122,17 @@ panel route: 404 with the flag off, 400 for a non-`eo-` org.
   approval and the Monday of the week two weeks of waves later, the same
   days `read_managed_panel` tells the official.
 - `POST { inviteMessage, consentVersion }` approves. The invite must carry
-  a civic panel wording of the JOIN line (the current
-  `CIVIC_PANEL_JOIN_LINE`, or an earlier civic panel wording a draft may
+  a JOIN line (the current `CIVIC_PANEL_JOIN_LINE`, "Reply JOIN to share
+  your perspectives.", or an earlier civic panel wording a draft may
   already hold, never a citizens' panel one), no LEAVE line, and pass
   `assertServeSmsLockedLines` (the STOP opt-out, one panel line), within
   `SMS_COMPOSED_MAX_LENGTH`. It stores the approver and time, sets
   `goalMembers` to the district's `panelGoalMembers`,
-  and starts `building`. Idempotent per office: an enrollment that is not
+  and starts `building`. That stored goal holds even if the district's
+  goal later moves, and while the enrollment is not stopped the civic
+  panel summary's `progress.goal` is this number, so the page, the
+  Constituents section and the cards never count to a different goal
+  than the one that turns the civic panel ready. Idempotent per office: an enrollment that is not
   stopped comes back unchanged; a stopped one is approved again in place.
 - `PATCH { action }`: `pause` from building, `resume` from paused, `stop`
   from building, paused, ready or exhausted. Anything else is a 409; no enrollment is a 404. Each write is conditional on the status it leaves from.

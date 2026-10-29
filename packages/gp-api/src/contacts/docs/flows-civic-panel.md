@@ -119,9 +119,8 @@ formats ask the right question. Leaving otherwise is the contact card, a
 texted LEAVE, or a texted STOP.
 
 A Serve text asks with a fixed, locked sentence (`CIVIC_PANEL_JOIN_LINE` in
-contracts: "Reply JOIN to join my civic panel. My office will text you
-about once a month to ask what you think before I decide. Sent with
-GoodParty.org.", in its own paragraph above the opt-out). Only the managed
+contracts: "Reply JOIN to share your perspectives.", in its own paragraph
+with the opt-out directly under it; it never names the civic panel). Only the managed
 civic panel's invite carries it: its waves write their rows with
 `Outreach.asksToJoinCivicPanel` set, and the Serve text create 400s any
 message carrying a JOIN line, so a priority's texts, the Outreach tab and a
@@ -297,7 +296,11 @@ are not sized here: see "Round 1 sizing" below.
 
 **Progress.** The summary's `progress` is `{ members, goal, answersNeeded,
 expectedAnswers, groupsCovered, groupsTotal }` (`CivicPanelProgressSchema`):
-`goal` is the district's `panelGoalMembers`, `expectedAnswers` is
+`goal` is the managed civic panel's stored `goalMembers` while one exists
+that is not stopped (it turns ready at that goal, so the page, the
+Constituents section and the home card must count to it too), else the
+district's `panelGoalMembers`. It is decided here and nowhere else:
+readers take `progress.goal`, never recompute it. `expectedAnswers` is
 `panelExpectedAnswers(members)`, members × `PANEL_ASSUMED_REPLY_RATE`,
 rounded; the sizing fields never reach a screen. `groupsCovered` of
 `groupsTotal` is `panelCoverage` (`utils/civicPanelSteering.util.ts`): the
@@ -311,7 +314,7 @@ coverage. An active member is a panel member who answered a priority's text,
 call or door in the last `PANEL_ACTIVE_WINDOW_DAYS` (90) days
 (`answeredPersonIds` with no priority and a `since`, read live from the
 interaction rows, never stored; opted-out people do not count). Past the
-goal (`members >= panelGoalMembers`) the summary also counts them the way it
+goal (`members >= progress.goal`) the summary also counts them the way it
 counts members (`activeMixOf`, the same census cells and the same groups,
 with race named only when it is for the members) and every major group is
 judged on `PANEL_MEMBERS_PER_GROUP` active members. `balance` keeps its

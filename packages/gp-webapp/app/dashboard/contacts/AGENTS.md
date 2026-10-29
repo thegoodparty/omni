@@ -20,6 +20,10 @@ themselves. The page shows the panel filling up, from
 columns from `lg`, the rail under the main column on a phone; the page
 pads `var(--chat-dock-height)` plus 8rem so the last card clears the bar.
 
+- **Goal**: every goal on this page and the Constituents section is the
+  summary's `progress.goal`, which gp-api sets to the managed civic panel's
+  stored `goalMembers` while one runs (it turns ready at that number), else
+  the district's. Never recompute it here.
 - **Stage** (`stageOf` in `CitizensPanelView`): `exhausted` or `ready`
   from the managed status (ready also once members reach the goal
   without one), else `paused` from the managed status ("Your civic panel
@@ -60,8 +64,9 @@ pads `var(--chat-dock-height)` plus 8rem so the last card clears the bar.
   invites: the card never sends `stop`. A 409 from it (the
   status moved since the page loaded, like a ready civic panel that can't
   resume) reads the enrollment again and redraws the card in its real
-  state, with no Try again; any other failure shows the error. Then Members
-  and Ready to ask (`CitizensPanelStats showReached={false}`) and See
+  state, with no Try again; any other failure shows the error. Then Members,
+  Reached in the last 30 days and Ready to ask (`CitizensPanelStats`, the
+  numbers the Constituents section leaves to this page) and See
   members once anyone joined, which opens the built-in list's sheet led by
   its members by name (`crm/lists/CivicPanelMembers.tsx`), each opening
   `PersonOverlay`.
@@ -69,8 +74,10 @@ pads `var(--chat-dock-height)` plus 8rem so the last card clears the bar.
   `ChiefOfStaffChatSurface` (`analyticsSurface` `civic_panel_dock`), the
   same dock as Ordinances and Community Issues. The bar's `placeholder` is
   this page's question, `COPY.chatPlaceholder` ("Ask who still needs to
-  join your civic panel", with "civic panel" held together); a page
-  placeholder may wrap to two lines on a phone instead of being cut off.
+  join your civic panel", with "civic panel" held together), or
+  `COPY.chatPlaceholderFull` once the stage is `ready` (no one left to
+  recruit); a page placeholder may wrap to two lines on a phone instead of
+  being cut off.
 - **Analytics.** The page fires `Contacts - Civic Panel Viewed` once per visit
   (members, goal, expected answers, `howCloseStatus` from the summary's
   `balance`, snake case or null while hidden, `managedStatus` none,
@@ -82,9 +89,11 @@ pads `var(--chat-dock-height)` plus 8rem so the last card clears the bar.
   `onCivicPanel`. Every join or leave
   is server truth and fires from gp-api (contacts AGENTS.md).
 - **The full seats chart** (`CivicPanelSeats`) is the Constituents page
-  section's (`CitizensPanelSection`), not this page's. The section leads
-  with this page's count (`joinedOfGoal`, members over goal), so the two
-  never disagree. The chart is the goal as 100
+  section's (`CitizensPanelSection`), not this page's. The section is kept
+  short for a phone: this page's count (`joinedOfGoal`, members over goal,
+  so the two never disagree), the chart, and See your civic panel. Who is
+  behind (Who we're inviting next) and the members' numbers live only on
+  this page. The chart is the goal as 100
   seats in six rows, split by each place's district share (largest
   remainder), census tracts or, where the district has no tract data,
   precincts, named by `placeKind` ("Tract 9501.02", "Precinct 01.1") or a
@@ -94,11 +103,9 @@ pads `var(--chat-dock-height)` plus 8rem so the last card clears the bar.
   each place one brand family cycled in arc order (`seatHue`, `seatTint`,
   fixed by position so server and client agree). From 30 members a place
   is behind when its progress is under half the panel's, outlined in
-  warning and listed under "Furthest behind" (on a phone each row puts the
-  name, its "X of Y seats filled" and its seats on lines of their own, so a
-  long tract name wraps instead of pushing the count off screen; from `sm`
-  they share one row); from 80% of the goal every
-  empty seat is outlined and named or listed. The petals
+  warning; from 80% of the goal every empty seat is outlined. The chart is
+  one unlabeled arc with a legend, the same at every width: it names and
+  lists no place. The petals
   (`CivicPanelBloom`) are drawn by the priority results page. Geometry and
   allocation are pure, in `components/panelCharts.ts`. Every drawn
   coordinate goes through `roundCoord` or `polar` (hundredths): a float's
@@ -116,23 +123,32 @@ becomes a list card.
   history. File (read in the browser by `parseCsvPreview` for headers,
   examples and the row count; CSV only, 25 MB), columns (`prefillColumnMapping`:
   the latest upload's mapping when every column it used is in the file, else
-  header names), then name and consent. Import presigns
-  (`POST /v1/contact-uploads/presign`), PUTs the file straight to S3 (the
-  `/api` proxy on Vercel caps bodies at 4.5 MB), then creates the upload with
-  its id (`createContactUpload` in `importContactsApi.ts`), then routes to
-  Upload history. Files over 25 MB are turned away when picked.
+  header names), then name and consent. Import presigns with the name,
+  mapping and consent (`POST /v1/contact-uploads/presign`, which creates the
+  upload), PUTs the file straight to S3 (the `/api` proxy on Vercel caps
+  bodies at 4.5 MB), confirms it (`POST /v1/contact-uploads/:id/uploaded`;
+  all three in `createContactUpload`, `importContactsApi.ts`), then routes to
+  Upload history at once: gp-api reads and matches the file in a queue job.
+  Files that are not CSV, over 25 MB, empty or over 100,000 rows are turned
+  away when picked, and mapped columns come from the file's own headers, so
+  a file the job rejects is rare.
 - **Upload history** (`/dashboard/contacts/uploads`, `UploadHistory`): one row
   per upload, status only; polls every 3s while any upload is processing.
+  gp-api leaves out uploads whose file never arrived.
 - **Fresh reads after an import.** `invalidateImportedPeople`
   (`importContactsApi.ts`) drops the org's cached people, counts, person,
   sources and activity. It runs when either poll sees an upload leave
   processing, after a review save or Accept suggested, and after Change
   match; without it the 5-minute `staleTime` shows pre-import data.
 - **Upload detail** (`/dashboard/contacts/uploads/[uploadId]`, `UploadDetail`):
-  the counts, `NeedsInputReview` (answers saved together; Decide later changes
-  nothing), and `ProcessedRows` (searchable, paged with Show more, Change match
-  per row). A choice reads name, address, then age (`candidateLabel`), so
-  two people at one address still differ.
+  while processing, or failed before the file was read (`rowCount` null), no
+  counts or rows, and the meta line drops the row count. A failed upload
+  shows gp-api's `failureReason` (what went wrong with the file), else a
+  generic line, with Try again. Otherwise the counts, `NeedsInputReview`
+  (answers saved together; Decide later changes nothing), and `ProcessedRows`
+  (searchable, paged with Show more, Change match per row). A choice reads
+  name, address, then age (`candidateLabel`), so two people at one address
+  still differ.
 - **Person panel**: on Serve with the flag on, `PersonRecord` renders
   `person/ImportedContactInformation` in place of today's Contact Information
   card: Email, a "Came from upload <name>" line per detail from

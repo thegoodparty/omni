@@ -1,4 +1,5 @@
 enum ContactUploadStatus {
+  awaiting_file
   processing
   needs_input
   complete
@@ -48,7 +49,10 @@ model ContactUpload {
   zipColumn            String?              @map("zip_column")
   consentAffirmedAt    DateTime             @map("consent_affirmed_at")
   status               ContactUploadStatus  @default(processing)
-  rowCount             Int                  @map("row_count")
+  /// Set when the process job has read every row of the file into
+  /// ContactUploadMatch; null until then.
+  ingestedAt           DateTime?            @map("ingested_at")
+  rowCount             Int?                 @map("row_count")
   matchedCount         Int                  @default(0) @map("matched_count")
   newCount             Int                  @default(0) @map("new_count")
   needsInputCount      Int                  @default(0) @map("needs_input_count")

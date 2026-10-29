@@ -61,14 +61,12 @@ export const SERVE_CITIZENS_PANEL_COPY = {
       name: (name: string) => `Tract ${name}`,
       one: 'tract',
       many: 'tracts',
-      full: 'Every tract has its share of seats filled.',
     },
     precinct: {
       title: "Who's on your civic panel, by precinct",
       name: (name: string) => `Precinct ${name}`,
       one: 'precinct',
       many: 'precincts',
-      full: 'Every precinct has its share of seats filled.',
     },
   } satisfies Record<
     CivicPanelPlaceKind,
@@ -77,7 +75,6 @@ export const SERVE_CITIZENS_PANEL_COPY = {
       name: (name: string) => string
       one: string
       many: string
-      full: string
     }
   >,
   milestone: {
@@ -119,16 +116,6 @@ export const SERVE_CITIZENS_PANEL_COPY = {
   legendNotFilled: 'Not filled yet',
   legendBehind: 'Behind the rest',
   legendEmpty: 'Empty seat',
-  furthestBehind: 'Furthest behind',
-  mostEmptySeats: 'Most empty seats',
-  seatsOf: (filled: number, count: number) =>
-    `${filled} of ${count} ${count === 1 ? 'seat' : 'seats'} filled`,
-  emptySeats: (empty: number) => `${empty} empty`,
-  placeFull: 'Full',
-  placesBehind: (behind: number, total: number, many: string) =>
-    `${behind} of ${total} ${many} ${behind === 1 ? 'is' : 'are'} behind the rest.`,
-  emptyIn: (places: number, total: number, many: string) =>
-    `Empty seats are in ${places} of ${total} ${many}.`,
   bloomCaption:
     'Each petal is a group, and past the ring means more than its share.',
   bloomAtShare: (atShare: number, total: number) => `${atShare} of ${total}`,
@@ -158,8 +145,6 @@ export const SERVE_CITIZENS_PANEL_COPY = {
     hispanic: 'Hispanic or Latino',
     asian: 'Asian',
   } satisfies Record<UnderrepresentedGroup, string>,
-  balanceTooFew: (minimum: number) =>
-    `We'll compare your civic panel with your district once ${minimum} people join.`,
   // The page's lead card, by where the panel stands.
   hero: {
     start: {
@@ -221,4 +206,6 @@ export const SERVE_CITIZENS_PANEL_COPY = {
   // The pinned chat bar's question on this page. "civic panel" never
   // breaks across its two lines on a phone.
   chatPlaceholder: 'Ask who still needs to join your civic\u00a0panel',
+  // Once the civic panel is full there is no one left to recruit.
+  chatPlaceholderFull: 'Ask what your civic\u00a0panel should weigh in\u00a0on',
 } as const

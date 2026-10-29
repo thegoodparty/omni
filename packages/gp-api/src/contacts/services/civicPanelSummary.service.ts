@@ -13,6 +13,7 @@ import { subDays } from 'date-fns'
 import {
   CivicPanelStatus,
   ContactStatusField,
+  ManagedCivicPanelStatus,
   Organization,
 } from '../../generated/prisma'
 import { PrismaService } from '@/prisma/prisma.service'
@@ -38,7 +39,7 @@ import { CensusTractNameService } from './censusTractName.service'
 const MIX_CACHE_MS = 15 * 60 * 1000
 
 // Serve's civic panel as a whole: how many are on it, how many can be
-// asked now, where it stands toward the district's goal, and who is on it
+// asked now, where it stands toward its goal, and who is on it
 // beside the district.
 @Injectable()
 export class CivicPanelSummaryService {
@@ -61,8 +62,13 @@ export class CivicPanelSummaryService {
   async summaryFor(organization: Organization): Promise<CivicPanelSummary> {
     const members = await this.memberIds(organization)
     const memberIds = new Set(members)
-    const needed = await this.districtAnswersNeeded(organization)
-    const goal = panelGoalMembers(needed)
+    const [needed, managedGoal] = await Promise.all([
+      this.districtAnswersNeeded(organization),
+      this.managedGoal(organization),
+    ])
+    // A managed civic panel turns ready at its own stored goal, so every
+    // reader of this summary shows that one while it runs.
+    const goal = managedGoal ?? panelGoalMembers(needed)
     const steering = await this.steeringFor(
       organization,
       memberIds,
@@ -131,6 +137,18 @@ export class CivicPanelSummaryService {
       ContactStatusField.civic_panel,
       [CivicPanelStatus.member],
     )
+  }
+
+  private async managedGoal(
+    organization: Organization,
+  ): Promise<number | null> {
+    const managed = await this.prisma.managedCivicPanel.findUnique({
+      where: { organizationSlug: organization.slug },
+      select: { status: true, goalMembers: true },
+    })
+    return managed && managed.status !== ManagedCivicPanelStatus.stopped
+      ? managed.goalMembers
+      : null
   }
 
   // The answers a good read of the district needs, enough for every major

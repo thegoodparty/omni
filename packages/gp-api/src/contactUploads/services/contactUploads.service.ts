@@ -38,18 +38,17 @@ import { VoterQueryService } from '@/peopleDb/services/voterQuery.service'
 import { ListPeopleDTO } from '@/peopleDb/schemas/people.schema'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
-import { parseContactUploadCsv } from '../util/contactUploadCsv.util'
 import {
   type ContactUploadCounts,
   type ContactUploadOutcomeGroup,
   countsFromOutcomeGroups,
 } from '../util/contactUploadCounts.util'
 
-const INSERT_CHUNK_SIZE = 5_000
-
 const FILE_UPLOAD_EXPIRES_SECONDS = 15 * 60
 
-const uploadsBucket = (): string => {
+const START_FAILED_REASON = "We couldn't start this upload. Try again."
+
+export const uploadsBucket = (): string => {
   const bucket = process.env.CONTACT_UPLOADS_BUCKET
   if (!bucket) {
     throw new ServiceUnavailableException(
@@ -91,7 +90,7 @@ const OUTCOMES_BY_FILTER: Record<
   invalid: [ContactUploadMatchOutcome.invalid],
 }
 
-const columnMappingOf = (
+export const columnMappingOf = (
   upload: ContactUpload,
 ): ContactUploadColumnMapping => ({
   firstName: upload.firstNameColumn,
@@ -176,23 +175,49 @@ export class ContactUploadsService extends createPrismaBase(
     super()
   }
 
-  async presignFile(
-    organization: Organization,
-    byteSize: number,
-  ): Promise<PresignContactUploadFileResponse> {
+  async presignFile(args: {
+    organization: Organization
+    userId: number
+    byteSize: number
+    fileName: string
+    name: string
+    columnMapping: ContactUploadColumnMapping
+  }): Promise<PresignContactUploadFileResponse> {
+    const { organization, columnMapping } = args
     const bucket = uploadsBucket()
-    const uploadId = uuidv7()
+    const id = uuidv7()
+    const fileKey = fileKeyOf(organization, id)
     const uploadUrl = await this.s3.getSignedUrlForSizedUpload(
       bucket,
-      fileKeyOf(organization, uploadId),
+      fileKey,
       {
         expiresIn: FILE_UPLOAD_EXPIRES_SECONDS,
         contentType: MimeTypes.IMAGE_CSV,
-        contentLength: byteSize,
+        contentLength: args.byteSize,
       },
     )
+    await this.model.create({
+      data: {
+        id,
+        organizationSlug: organization.slug,
+        userId: args.userId,
+        name: args.name,
+        fileName: args.fileName,
+        fileKey,
+        firstNameColumn: columnMapping.firstName,
+        lastNameColumn: columnMapping.lastName,
+        emailColumn: columnMapping.email,
+        cellPhoneColumn: columnMapping.cellPhone,
+        landlineColumn: columnMapping.landline,
+        addressLineColumn: columnMapping.addressLine,
+        cityColumn: columnMapping.city,
+        zipColumn: columnMapping.zip,
+        consentAffirmedAt: new Date(),
+        status: ContactUploadStatus.awaiting_file,
+      },
+    })
     return {
-      uploadId,
+      uploadId: id,
       uploadUrl,
       expiresAt: new Date(
         Date.now() + FILE_UPLOAD_EXPIRES_SECONDS * 1000,
@@ -200,84 +225,40 @@ export class ContactUploadsService extends createPrismaBase(
     }
   }
 
-  async createUpload(args: {
-    organization: Organization
-    userId: number
-    uploadId: string
-    name: string
-    columnMapping: ContactUploadColumnMapping
-    fileName: string
-  }): Promise<ContactUploadResponse> {
-    const { organization, columnMapping } = args
+  // The browser's PUT landed: check the object is there and queue the job
+  // that reads it. A repeat call for an upload already past awaiting_file
+  // returns it unchanged.
+  async confirmUploaded(
+    organization: Organization,
+    id: string,
+  ): Promise<ContactUploadResponse> {
     const bucket = uploadsBucket()
-    const id = args.uploadId
-    const fileKey = fileKeyOf(organization, id)
-    if (await this.model.findUnique({ where: { id }, select: { id: true } })) {
-      throw new ConflictException('This file was already imported')
+    const upload = await this.model.findFirst({
+      where: { id, organizationSlug: organization.slug },
+      include: UPLOAD_USER_INCLUDE,
+    })
+    if (!upload) throw new NotFoundException('Upload not found')
+    if (upload.status !== ContactUploadStatus.awaiting_file) {
+      return toUploadResponse(upload)
     }
-    const file = await this.s3.getFileBytes(bucket, fileKey)
-    if (!file) throw new BadRequestException('upload_not_received')
-    if (file.length > CONTACT_UPLOAD_MAX_BYTES) {
+    const head = await this.s3.headObject(bucket, upload.fileKey)
+    if (!head) throw new BadRequestException('upload_not_received')
+    if ((head.contentLength ?? 0) > CONTACT_UPLOAD_MAX_BYTES) {
       throw new BadRequestException('upload_too_large')
     }
-    const rows = await parseContactUploadCsv(file, columnMapping)
-
-    const matchRows = rows.map((row) => ({
-      uploadId: id,
-      organizationSlug: organization.slug,
-      rowIndex: row.rowIndex,
-      firstName: row.firstName,
-      lastName: row.lastName,
-      email: row.email,
-      cellPhone: row.cellPhone,
-      landline: row.landline,
-      addressLine: row.addressLine,
-      city: row.city,
-      zip: row.zip,
-      outcome: row.hasName
-        ? ContactUploadMatchOutcome.pending
-        : ContactUploadMatchOutcome.invalid,
-    }))
-    const chunks: (typeof matchRows)[] = []
-    for (let start = 0; start < matchRows.length; start += INSERT_CHUNK_SIZE) {
-      chunks.push(matchRows.slice(start, start + INSERT_CHUNK_SIZE))
-    }
-    const [upload] = await this.client.$transaction([
-      this.model.create({
-        data: {
-          id,
-          organizationSlug: organization.slug,
-          userId: args.userId,
-          name: args.name,
-          fileName: args.fileName,
-          fileKey,
-          firstNameColumn: columnMapping.firstName,
-          lastNameColumn: columnMapping.lastName,
-          emailColumn: columnMapping.email,
-          cellPhoneColumn: columnMapping.cellPhone,
-          landlineColumn: columnMapping.landline,
-          addressLineColumn: columnMapping.addressLine,
-          cityColumn: columnMapping.city,
-          zipColumn: columnMapping.zip,
-          consentAffirmedAt: new Date(),
-          rowCount: rows.length,
-          invalidCount: rows.filter((row) => !row.hasName).length,
-        },
-        include: UPLOAD_USER_INCLUDE,
-      }),
-      ...chunks.map((data) =>
-        this.client.contactUploadMatch.createMany({ data }),
-      ),
-    ])
+    await this.model.updateMany({
+      where: { id, status: ContactUploadStatus.awaiting_file },
+      data: { status: ContactUploadStatus.processing },
+    })
 
     let enqueueFailed = false
     try {
       await this.queueProducer.sendMessage(
-        { type: QueueType.CONTACT_UPLOAD_MATCH, data: { uploadId: id } },
-        `${MessageGroup.contactUploadMatch}-${organization.slug}`,
+        { type: QueueType.CONTACT_UPLOAD_PROCESS, data: { uploadId: id } },
+        `${MessageGroup.contactUploadProcess}-${organization.slug}`,
         {
           throwOnError: true,
-          deduplicationId: `${QueueType.CONTACT_UPLOAD_MATCH}-${id}`,
+          deduplicationId: `${QueueType.CONTACT_UPLOAD_PROCESS}-${id}`,
         },
       )
     } catch (err) {
@@ -289,19 +270,22 @@ export class ContactUploadsService extends createPrismaBase(
         where: { id },
         data: {
           status: ContactUploadStatus.failed,
-          failureReason: 'Matching could not be started',
+          failureReason: START_FAILED_REASON,
         },
       })
-      throw new BadGatewayException('Could not start matching this upload')
+      throw new BadGatewayException('Could not start this upload')
     }
-    return toUploadResponse(upload)
+    return this.getUpload(organization, id)
   }
 
   async listUploads(
     organization: Organization,
   ): Promise<ListContactUploadsResponse> {
     const uploads = await this.model.findMany({
-      where: { organizationSlug: organization.slug },
+      where: {
+        organizationSlug: organization.slug,
+        status: { not: ContactUploadStatus.awaiting_file },
+      },
       orderBy: { createdAt: Prisma.SortOrder.desc },
       include: UPLOAD_USER_INCLUDE,
     })
@@ -500,8 +484,8 @@ export class ContactUploadsService extends createPrismaBase(
     let enqueueFailed = false
     try {
       await this.queueProducer.sendMessage(
-        { type: QueueType.CONTACT_UPLOAD_MATCH, data: { uploadId: id } },
-        `${MessageGroup.contactUploadMatch}-${organization.slug}`,
+        { type: QueueType.CONTACT_UPLOAD_PROCESS, data: { uploadId: id } },
+        `${MessageGroup.contactUploadProcess}-${organization.slug}`,
         { throwOnError: true },
       )
     } catch (err) {
@@ -513,10 +497,10 @@ export class ContactUploadsService extends createPrismaBase(
         where: { id },
         data: {
           status: ContactUploadStatus.failed,
-          failureReason: 'Matching could not be started',
+          failureReason: START_FAILED_REASON,
         },
       })
-      throw new BadGatewayException('Could not start matching this upload')
+      throw new BadGatewayException('Could not start this upload')
     }
     return this.getUpload(organization, id)
   }
@@ -616,7 +600,11 @@ export class ContactUploadsService extends createPrismaBase(
     id: string,
   ): Promise<ContactUploadWithUser> {
     const upload = await this.model.findFirst({
-      where: { id, organizationSlug: organization.slug },
+      where: {
+        id,
+        organizationSlug: organization.slug,
+        status: { not: ContactUploadStatus.awaiting_file },
+      },
       include: UPLOAD_USER_INCLUDE,
     })
     if (!upload) throw new NotFoundException('Upload not found')

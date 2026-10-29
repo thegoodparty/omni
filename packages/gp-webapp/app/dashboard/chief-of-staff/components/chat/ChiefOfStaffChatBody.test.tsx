@@ -3290,7 +3290,7 @@ describe('the managed civic panel explainer', () => {
     listMessagesMock.mockResolvedValue(followUp)
     await user.click(screen.getByRole('radio', { name: howItWorks }))
     await act(() => vi.advanceTimersByTimeAsync(5000))
-    // The follow-up offer is the last Show me the invite, and the only one
+    // The follow-up offer is the last Review the invite, and the only one
     // still open.
     const lastShow = () =>
       screen

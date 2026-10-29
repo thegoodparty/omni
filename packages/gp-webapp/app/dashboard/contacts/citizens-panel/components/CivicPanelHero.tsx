@@ -85,7 +85,6 @@ export const CivicPanelHero = ({
         <SeatArc
           chart={plainSeats(members, goal)}
           words={COPY.seatPlaces[placeKind]}
-          labeled={false}
           quiet
           className="max-w-[32rem]"
         />

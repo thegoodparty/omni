@@ -15,12 +15,10 @@ import { SMS_COMPOSED_MAX_LENGTH } from '@goodparty_org/contracts'
 import {
   Button,
   Card,
-  Checkbox,
   cn,
   FilterPill,
   FilterPillGroup,
   IconButton,
-  Label,
   seamlessFieldHost,
   TokenField,
   type TokenFieldRef,
@@ -103,6 +101,8 @@ interface SmsComposeStepProps {
   // only those.
   restrictedWords?: string[]
   unfilledBrackets: string[]
+  // Set when the message carries a civic panel JOIN line it may not send.
+  joinLineError?: string
   identificationExample: string
   // The exact "Paid for by" line the message should carry, or null on a
   // surface or a campaign with no committee to name.
@@ -133,18 +133,15 @@ interface SmsComposeStepProps {
   continueAttempts: number
   // Serve's civic panel invite that GoodParty sends in the official's name:
   // its own title, no tone, image or panel ask, the JOIN line and opt-out
-  // locked under the editable body, and the official's approval below.
+  // locked under the editable body, and what approving means above the button.
   // A dictated passage landed in the message.
   onDictated?: () => void
   managedInvite?: {
     title: string
     caption: string
     lockedLines: string
-    consent: {
-      label: string
-      checked: boolean
-      onChange: (checked: boolean) => void
-    }
+    // What approving means, shown just above the approve button.
+    agreement: string
   }
 }
 
@@ -240,6 +237,7 @@ export const SmsComposeStep = ({
   standardsFailures,
   restrictedWords,
   unfilledBrackets,
+  joinLineError,
   identificationExample,
   paidForByText,
   onAddRequiredBack,
@@ -543,24 +541,6 @@ export const SmsComposeStep = ({
             </IconButton>
           </div>
         </Card>
-        {managedInvite && (
-          <div className="flex min-h-11 items-start gap-3">
-            <Checkbox
-              id="managed-invite-consent"
-              checked={managedInvite.consent.checked}
-              onCheckedChange={(value) =>
-                managedInvite.consent.onChange(value === true)
-              }
-              className="mt-0.5"
-            />
-            <Label
-              htmlFor="managed-invite-consent"
-              className="block text-sm font-normal"
-            >
-              {managedInvite.consent.label}
-            </Label>
-          </div>
-        )}
         {dictation.status === 'error' && dictation.error !== null && (
           <p className="text-xs text-destructive">
             Dictation didn&apos;t start: {dictation.error}. Check your
@@ -608,6 +588,9 @@ export const SmsComposeStep = ({
                 </div>
               )
             })}
+        {joinLineError && (
+          <p className="text-xs text-destructive">{joinLineError}</p>
+        )}
         {unfilledBrackets.length > 0 && (
           <p className="text-xs text-destructive">
             Your message still has {unfilledBrackets.join(', ')}. Replace{' '}
@@ -619,6 +602,11 @@ export const SmsComposeStep = ({
           <p className="text-xs text-destructive">
             Keep the whole message (including the identification and opt-out
             lines) under {SMS_COMPOSED_MAX_LENGTH} characters.
+          </p>
+        )}
+        {managedInvite && (
+          <p className="text-sm text-muted-foreground">
+            {managedInvite.agreement}
           </p>
         )}
       </div>

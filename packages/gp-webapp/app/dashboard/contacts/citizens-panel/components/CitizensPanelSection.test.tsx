@@ -62,7 +62,9 @@ beforeEach(() => {
 })
 
 describe('CitizensPanelSection', () => {
-  it("shows the panel's three numbers and links to its page", async () => {
+  // The members' numbers live on the civic panel page, so the section stays
+  // short on a phone.
+  it('links to the civic panel page and leaves its numbers there', async () => {
     api.mock('GET /v1/contacts/civic-panel', {
       status: 200,
       data: summary({ members: 1240, reachedRecently: 300, askableNow: 940 }),
@@ -70,24 +72,23 @@ describe('CitizensPanelSection', () => {
 
     render(<CitizensPanelSection />)
 
-    expect(await screen.findByText('1,240')).toBeInTheDocument()
     expect(
-      screen.getByRole('heading', { name: 'Your civic panel' }),
-    ).toBeInTheDocument()
-    expect(screen.getByText('Members')).toBeInTheDocument()
-    expect(screen.getByText('Reached in the last 30 days')).toBeInTheDocument()
-    expect(screen.getByText('300')).toBeInTheDocument()
-    expect(screen.getByText('Ready to ask')).toBeInTheDocument()
-    expect(screen.getByText('940')).toBeInTheDocument()
-    expect(
-      screen.getByRole('link', { name: 'See your civic panel' }),
+      await screen.findByRole('link', { name: 'See your civic panel' }),
     ).toHaveAttribute(
       'href',
       '/dashboard/contacts/citizens-panel?from=contacts',
     )
+    expect(
+      screen.getByRole('heading', { name: 'Your civic panel' }),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Members')).not.toBeInTheDocument()
+    expect(
+      screen.queryByText('Reached in the last 30 days'),
+    ).not.toBeInTheDocument()
+    expect(screen.queryByText('Ready to ask')).not.toBeInTheDocument()
   })
 
-  it('draws the same seats as the panel page above the numbers', async () => {
+  it('draws the tract chart and leaves who is behind to the civic panel page', async () => {
     api.mock('GET /v1/contacts/civic-panel', {
       status: 200,
       data: summary({
@@ -113,10 +114,13 @@ describe('CitizensPanelSection', () => {
         name: "Who's on your civic panel, by census tract",
       }),
     ).toBeInTheDocument()
-    expect(within(seats).getByText('Furthest behind')).toBeInTheDocument()
+    expect(within(seats).queryByText('Furthest behind')).toBeNull()
+    expect(within(seats).queryByRole('list')).toBeNull()
     // No group count of its own to disagree with the panel page's petals.
     expect(screen.queryByText(/ of 12 groups/)).not.toBeInTheDocument()
-    expect(screen.getByText('Ready to ask')).toBeInTheDocument()
+    expect(
+      screen.getByRole('link', { name: 'See your civic panel' }),
+    ).toBeInTheDocument()
   })
 
   it("leads with the panel page's count, not the tract chart's", async () => {
@@ -158,7 +162,9 @@ describe('CitizensPanelSection', () => {
 
     render(<CitizensPanelSection />)
 
-    expect(await screen.findByText('120')).toBeInTheDocument()
+    expect(
+      await screen.findByTestId('citizens-panel-joined'),
+    ).toHaveTextContent('120 of 240 residents have joined')
     expect(screen.queryByTestId('civic-panel-seats')).toBeNull()
   })
 
