@@ -142,7 +142,6 @@ describe('EmailStatus', () => {
       status: 200,
       data: {
         outcome: 'scheduled',
-        declineCode: null,
         email: send({ status: 'pending' }),
       },
     })
