@@ -1,7 +1,7 @@
 ---
 title: People-data chat tools share one validator and floor every row on its parsed COUNT(*)
 status: active
-decided_by: [agent]
+decided_by: [swain]
 date: 2026-10-29
 code: ['#3415']
 scope:
