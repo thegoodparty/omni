@@ -195,6 +195,17 @@ if (require.main === module) {
 
 Keep at most one subprocess test per entry, to prove the `require.main` wiring. See `src/chats/evals/judge/armBudget.test.ts`.
 
+## Prompt and copy text
+
+Do not write tests that assert fixed wording in an LLM system prompt, a tool description, or the instructions for generated copy. A test that builds a prompt from default inputs and checks it contains a sentence, or uses `not.toContain` to check old wording is gone, fails on every rewording and catches no bug. Judge prompt wording with an eval, not a unit test.
+
+Test the logic around the prompt instead:
+
+- A section that appears only when a tool, flag, mode or input is set: build the prompt both ways and assert the section is in one and not the other. Use its heading, not its sentences.
+- Values the code computes into the prompt: dates, counts, term math, records rendered from input.
+- Invariants over every prompt: no em dash, and Win and Serve audience nouns (`docs/product-vocabulary.md` at the repo root).
+- A shared constant another component depends on, such as a guardrail line, a marker the app sends, or an enum a tool returns: assert with the imported constant, never a pasted copy of its text.
+
 ## Running tests
 
 ```bash
