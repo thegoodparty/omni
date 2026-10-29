@@ -11,7 +11,11 @@
     "outDir": "./dist",
     "rootDir": "./src",
     "lib": ["esnext"],
-    "types": ["node"]
+    "types": ["node"],
+    "paths": {
+      "zod/v4": ["./node_modules/zod/v4/index.d.ts"],
+      "zod/v4/core": ["./node_modules/zod/v4/core/index.d.ts"]
+    }
   },
   "include": ["src"],
   "exclude": ["node_modules", "dist"]

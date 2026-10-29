@@ -527,7 +527,9 @@ import { dirname, join, relative } from 'node:path'
 // D3). The unsubscribe and forward-confirm pages are opened from email by
 // people with no session and act on a button press, and the status page reads
 // the router, so all three are client components under server page files.
-const BASELINE = 599
+// 599 -> 600 for the OpenUI generative UI POC playground (/dev/genui-openui):
+// an editable program, a live renderer and an event log are client state.
+const BASELINE = 600
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

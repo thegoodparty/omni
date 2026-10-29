@@ -858,6 +858,12 @@ export {
 export { mintProposalKey } from './chats/proposalKey'
 
 export {
+  PRESENT_GENERATED_UI_TOOL,
+  PresentGeneratedUiSchema,
+  type PresentGeneratedUi,
+} from './chats/PresentGeneratedUi.schema'
+
+export {
   ChatSourceSchema,
   type ChatSource,
   ChatClarifyOptionSchema,
