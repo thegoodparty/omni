@@ -7,6 +7,7 @@ import {
 import { addDays, isAfter, isBefore, parseISO, subMinutes } from 'date-fns'
 import {
   EMAIL_SEND_WINDOW_DAYS,
+  EmailDraft,
   EmailDraftSave,
   EmailSend,
 } from '@goodparty_org/contracts'
@@ -23,11 +24,16 @@ import {
   recipientCapFor,
   warmingCapFor,
 } from '../util/emailPricing.util'
+import { OutreachEmailAudienceService } from './outreachEmailAudience.service'
 import { assertEmailImageUrl } from './outreachEmailImage.service'
 import { OutreachEmailSenderService } from './outreachEmailSender.service'
 
 type DraftRow = OutreachEmail & {
-  outreach: { status: OutreachStatus | null; date: Date | null }
+  outreach: {
+    status: OutreachStatus | null
+    date: Date | null
+    voterFileFilterId: number | null
+  }
   sender: { warmingStep: number }
   _count: { recipients: number }
 }
@@ -46,7 +52,10 @@ const DATE_SLACK_MINUTES = 5
 export class OutreachEmailService extends createPrismaBase(
   MODELS.OutreachEmail,
 ) {
-  constructor(private readonly senders: OutreachEmailSenderService) {
+  constructor(
+    private readonly senders: OutreachEmailSenderService,
+    private readonly audiences: OutreachEmailAudienceService,
+  ) {
     super()
   }
 
@@ -71,7 +80,9 @@ export class OutreachEmailService extends createPrismaBase(
     const row = await this.model.findFirst({
       where: this.scopeWhere(scope, outreachId),
       include: {
-        outreach: { select: { status: true, date: true } },
+        outreach: {
+          select: { status: true, date: true, voterFileFilterId: true },
+        },
         sender: { select: { warmingStep: true } },
         _count: { select: { recipients: true } },
       },
@@ -114,15 +125,25 @@ export class OutreachEmailService extends createPrismaBase(
 
   async get(scope: EmailSendScope, outreachId: number): Promise<EmailSend> {
     const row = await this.findDraftOrThrow(scope, outreachId)
-    if (row.outreach.status !== OutreachStatus.draft) {
+    const { voterFileFilterId } = row.outreach
+    if (
+      row.outreach.status !== OutreachStatus.draft ||
+      voterFileFilterId === null ||
+      !scope.canReadVoterFile
+    ) {
       return this.toView(row, null)
     }
+    const audienceCount = await this.audiences.countWithEmail(
+      scope.organizationSlug,
+      voterFileFilterId,
+    )
     const recipientCap = recipientCapFor({
       warmingStep: row.sender.warmingStep,
       reservedByOtherSends: await this.reservedBySender(row.senderId, row.id),
-      recipientCount: row._count.recipients,
+      recipientCount: audienceCount,
     })
     return this.toView(row, {
+      audienceCount,
       warmingCap: warmingCapFor(row.sender.warmingStep),
       recipientCap,
       priceCents: emailPriceCents(recipientCap),
@@ -132,8 +153,19 @@ export class OutreachEmailService extends createPrismaBase(
   async saveDraft(
     scope: EmailSendScope,
     input: EmailDraftSave,
-  ): Promise<EmailSend> {
+    userId: number,
+  ): Promise<EmailDraft> {
     assertEmailImageUrl(scope, input.imageUrl)
+    const voterFileFilterId = input.voterFileFilterId ?? null
+    if (voterFileFilterId !== null) {
+      await this.audiences.assertListBelongs(
+        scope.organizationSlug,
+        voterFileFilterId,
+      )
+    }
+    const consent = input.consentConfirmed
+      ? { consentConfirmedAt: new Date(), consentConfirmedByUserId: userId }
+      : { consentConfirmedAt: null, consentConfirmedByUserId: null }
     const content = {
       goal: input.goal,
       layout: input.layout,
@@ -158,10 +190,13 @@ export class OutreachEmailService extends createPrismaBase(
           organizationSlug: scope.organizationSlug,
           name: input.subject,
           date,
-          email: { create: { ...content, senderId: sender.id } },
+          voterFileFilterId,
+          email: {
+            create: { ...content, ...consent, senderId: sender.id },
+          },
         },
       })
-      return this.get(scope, created.id)
+      return this.draftView(scope, created.id)
     }
 
     const existing = await this.findDraftOrThrow(scope, input.id)
@@ -174,20 +209,36 @@ export class OutreachEmailService extends createPrismaBase(
     const date = unchangedDate
       ? existing.outreach.date
       : this.parseSendDate(input.date)
+    // Consent given for this list stays dated from when it was given; a new
+    // list needs it again.
+    const keptConsent =
+      input.consentConfirmed === true &&
+      existing.consentConfirmedAt !== null &&
+      existing.outreach.voterFileFilterId === voterFileFilterId
+        ? {}
+        : consent
     await this.client.$transaction(async (tx) => {
       const claim = await tx.outreach.updateMany({
         where: { id: input.id, status: OutreachStatus.draft },
-        data: { name: input.subject, date },
+        data: { name: input.subject, date, voterFileFilterId },
       })
       if (claim.count === 0) {
         throw new ConflictException('Only a draft can be edited')
       }
       await tx.outreachEmail.update({
         where: { outreachId: input.id },
-        data: content,
+        data: { ...content, ...keptConsent },
       })
     })
-    return this.get(scope, input.id)
+    return this.draftView(scope, input.id)
+  }
+
+  // The save answers the draft alone; the estimate's count is read by GET.
+  private async draftView(
+    scope: EmailSendScope,
+    outreachId: number,
+  ): Promise<EmailDraft> {
+    return this.toView(await this.findDraftOrThrow(scope, outreachId), null)
   }
 
   private parseSendDate(raw: string | undefined): Date | null {
@@ -223,6 +274,7 @@ export class OutreachEmailService extends createPrismaBase(
       paidForBy: row.paidForBy,
       date: row.outreach.date?.toISOString() ?? null,
       consentConfirmedAt: row.consentConfirmedAt?.toISOString() ?? null,
+      voterFileFilterId: row.outreach.voterFileFilterId,
       recipientCount: row._count.recipients,
       recipientCap: row.recipientCap,
       sentCount: row.sentCount,

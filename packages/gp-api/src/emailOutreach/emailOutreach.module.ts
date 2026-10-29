@@ -1,4 +1,6 @@
-import { Module } from '@nestjs/common'
+import { forwardRef, Module } from '@nestjs/common'
+import { ContactsModule } from '@/contacts/contacts.module'
+import { VotersModule } from '@/voters/voters.module'
 import { PaymentHoldsModule } from '@/paymentHolds/paymentHolds.module'
 import { PaymentHoldsService } from '@/paymentHolds/services/paymentHolds.service'
 import { QueueProducerModule } from '@/queue/producer/queueProducer.module'
@@ -31,7 +33,7 @@ import { OutreachEmailPrepareService } from './services/outreachEmailPrepare.ser
 import { OutreachEmailSendSweepService } from './services/outreachEmailSendSweep.service'
 import { OutreachEmailSettlementAdapter } from './services/outreachEmailSettlementAdapter.service'
 import { OutreachEmailService } from './services/outreachEmail.service'
-import { OutreachEmailRecipientService } from './services/outreachEmailRecipient.service'
+import { OutreachEmailAudienceService } from './services/outreachEmailAudience.service'
 import { OutreachEmailScopeService } from './services/outreachEmailScope.service'
 import { OutreachEmailSenderService } from './services/outreachEmailSender.service'
 
@@ -46,6 +48,10 @@ import { OutreachEmailSenderService } from './services/outreachEmailSender.servi
     PaymentHoldsModule,
     QueueProducerModule,
     SlackModule,
+    // Contacts and Voters reach Campaigns and on to Outreach, which this
+    // module already imports.
+    forwardRef(() => ContactsModule),
+    forwardRef(() => VotersModule),
   ],
   controllers: [
     OutreachEmailController,
@@ -62,7 +68,7 @@ import { OutreachEmailSenderService } from './services/outreachEmailSender.servi
     OutreachEmailScopeService,
     OutreachEmailSenderService,
     OutreachEmailService,
-    OutreachEmailRecipientService,
+    OutreachEmailAudienceService,
     OutreachEmailGenerationService,
     OutreachEmailImageService,
     OutreachEmailTestService,

@@ -25,6 +25,9 @@ export const ListDetailReachabilitySchema = z.object({
   robocall: z.number().int().min(0).nullable(),
   phoneBanking: z.number().int().min(0).nullable(),
   doorKnocking: z.number().int().min(0).nullable(),
+  // People with an imported email address. Always 0 for an organization
+  // without imported contacts, since the voter file carries no emails.
+  email: z.number().int().min(0).nullable(),
   // Polls are delivered by text, so reachability mirrors sms 1:1.
   polls: z.number().int().min(0).nullable(),
 })

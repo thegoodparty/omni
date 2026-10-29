@@ -3,6 +3,7 @@ import { addDays } from 'date-fns'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { PaymentHoldsService } from '@/paymentHolds/services/paymentHolds.service'
+import { ContactsService } from '@/contacts/services/contacts.service'
 import { useTestService } from '@/test-service'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import { OutreachHoldState, OutreachStatus } from '../../generated/prisma'
@@ -13,6 +14,7 @@ import {
   createSender,
   EmailFixtureOrgs,
   emails,
+  stubAudienceFromRecipients,
 } from './emailSendFixtures'
 
 const service = useTestService()
@@ -24,6 +26,7 @@ const track = vi.fn()
 let orgs: EmailFixtureOrgs
 
 beforeEach(async () => {
+  stubAudienceFromRecipients(service.app.get(ContactsService), service.prisma)
   saveCardAndPlan.mockReset()
   release.mockReset().mockResolvedValue(undefined)
   track.mockReset().mockResolvedValue(undefined)
@@ -125,6 +128,7 @@ describe('POST /v1/outreach/email/:id/confirm', () => {
       { headers: winHeaders() },
     )
     expect(draft.data.estimate).toEqual({
+      audienceCount: 5,
       warmingCap: 1000,
       recipientCap: 2,
       priceCents: 50,
@@ -184,7 +188,7 @@ describe('POST /v1/outreach/email/:id/confirm', () => {
     expect(res.status).toBe(HttpStatus.FORBIDDEN)
   })
 
-  it('requires consent and at least one recipient', async () => {
+  it('requires consent, a list, and someone in it with an email', async () => {
     const noConsent = await winSend({ consent: false })
     expect(
       (
@@ -197,16 +201,35 @@ describe('POST /v1/outreach/email/:id/confirm', () => {
     ).toBe(HttpStatus.BAD_REQUEST)
 
     const empty = await winSend({ emails: [] })
+    const noEmails = await post(
+      `/v1/outreach/email/${empty.outreachId}/confirm`,
+      { paymentMethodId: 'pm_1' },
+      winHeaders(),
+    )
+    expect(noEmails.status).toBe(HttpStatus.BAD_REQUEST)
+    expect(noEmails.data.message).toBe(
+      'No one in this list has an email address yet',
+    )
+
+    const noList = await winSend()
+    await service.prisma.outreach.update({
+      where: { id: noList.outreachId },
+      data: { voterFileFilterId: null },
+    })
     expect(
       (
         await post(
-          `/v1/outreach/email/${empty.outreachId}/confirm`,
+          `/v1/outreach/email/${noList.outreachId}/confirm`,
           { paymentMethodId: 'pm_1' },
           winHeaders(),
         )
       ).status,
     ).toBe(HttpStatus.BAD_REQUEST)
     expect(saveCardAndPlan).not.toHaveBeenCalled()
+    const unfrozen = await service.prisma.outreachEmail.findUniqueOrThrow({
+      where: { id: empty.outreachEmailId },
+    })
+    expect(unfrozen.recipientCap).toBeNull()
   })
 
   it('keeps a declined send a draft, then confirms it once the card works', async () => {

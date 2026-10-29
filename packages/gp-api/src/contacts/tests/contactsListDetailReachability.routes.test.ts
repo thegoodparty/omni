@@ -42,6 +42,7 @@ describe('GET /v1/contacts/list-detail reachability', () => {
         robocall: 222,
         phoneBanking: 555,
         doorKnocking: 111,
+        email: 333,
         ...aggregates,
       })
 
@@ -131,6 +132,8 @@ describe('GET /v1/contacts/list-detail reachability', () => {
         // conditional count, not the landline one robocall uses.
         phoneBanking: 555,
         doorKnocking: 111,
+        // People with an imported email address.
+        email: 333,
         // Polls are delivered by text, so reachability mirrors sms 1:1.
         polls: 777,
       }),

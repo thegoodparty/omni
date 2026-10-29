@@ -20,6 +20,7 @@ import { EVENTS } from '@/vendors/segment/segment.types'
 import { OutreachHoldState, OutreachStatus, User } from '../../generated/prisma'
 import { EmailSendScope } from '../emailOutreach.types'
 import { emailPriceCents, recipientCapFor } from '../util/emailPricing.util'
+import { OutreachEmailAudienceService } from './outreachEmailAudience.service'
 import { OutreachEmailService } from './outreachEmail.service'
 
 // A send with no time, or one that came due while the user was paying, goes
@@ -42,6 +43,7 @@ export class OutreachEmailConfirmService extends createPrismaBase(
 ) {
   constructor(
     private readonly emails: OutreachEmailService,
+    private readonly audiences: OutreachEmailAudienceService,
     private readonly holds: PaymentHoldsService,
     private readonly analytics: AnalyticsService,
   ) {
@@ -65,6 +67,7 @@ export class OutreachEmailConfirmService extends createPrismaBase(
   }: ConfirmInput): Promise<EmailConfirmResponse> {
     const row = await this.emails.findDraftOrThrow(scope, outreachId)
     const status = row.outreach.status
+    let audienceCount: number | null = null
     if (status === OutreachStatus.draft) {
       if (mode === 'win' && !isPro) {
         throw new ForbiddenException('Email sends require Pro.')
@@ -74,10 +77,28 @@ export class OutreachEmailConfirmService extends createPrismaBase(
           'Confirm these contacts agreed to get email from you',
         )
       }
-      if (row._count.recipients === 0) {
-        throw new BadRequestException('Add at least one recipient')
+      const { voterFileFilterId } = row.outreach
+      if (voterFileFilterId === null) {
+        throw new BadRequestException('Pick who this email goes to')
       }
-      await this.freeze(row.id, outreachId, row.senderId, row.outreach.date)
+      // Counted here, outside the freeze's lock, and never taken from the
+      // client. The recipients themselves are written at prepare.
+      audienceCount = await this.audiences.countWithEmail(
+        scope.organizationSlug,
+        voterFileFilterId,
+      )
+      if (audienceCount === 0) {
+        throw new BadRequestException(
+          'No one in this list has an email address yet',
+        )
+      }
+      await this.freeze(
+        row.id,
+        outreachId,
+        row.senderId,
+        row.outreach.date,
+        audienceCount,
+      )
     } else if (status !== OutreachStatus.pending_payment) {
       throw new ConflictException('This email is already confirmed')
     }
@@ -132,7 +153,8 @@ export class OutreachEmailConfirmService extends createPrismaBase(
         mode,
         layout: row.layout,
         theme: row.theme,
-        recipientCount: row._count.recipients,
+        // A pending_payment confirm didn't count; the cap is what it froze.
+        recipientCount: audienceCount ?? frozen.recipientCap,
         recipientCap: frozen.recipientCap,
         priceCents,
       })
@@ -192,6 +214,7 @@ export class OutreachEmailConfirmService extends createPrismaBase(
     outreachId: number,
     senderId: number,
     date: Date | null,
+    audienceCount: number,
   ): Promise<void> {
     const earliest = addMinutes(new Date(), SEND_NOW_LEAD_MINUTES)
     const sendAt = date && !isBefore(date, earliest) ? date : earliest
@@ -205,9 +228,6 @@ export class OutreachEmailConfirmService extends createPrismaBase(
         where: { id: senderId },
         select: { warmingStep: true },
       })
-      const recipientCount = await tx.outreachEmailRecipient.count({
-        where: { outreachEmailId },
-      })
       const recipientCap = recipientCapFor({
         warmingStep: sender.warmingStep,
         reservedByOtherSends: await this.emails.reservedBySender(
@@ -215,14 +235,13 @@ export class OutreachEmailConfirmService extends createPrismaBase(
           outreachEmailId,
           tx,
         ),
-        recipientCount,
+        recipientCount: audienceCount,
       })
       if (recipientCap === 0) {
         throw new ConflictException(
           'Your other scheduled emails use your current sending limit',
         )
       }
-      // Claiming the row also serializes with a recipient upload.
       const claim = await tx.outreach.updateMany({
         where: { id: outreachId, status: OutreachStatus.draft },
         data: { status: OutreachStatus.pending_payment, date: sendAt },

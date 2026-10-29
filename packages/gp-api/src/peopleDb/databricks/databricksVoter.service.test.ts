@@ -325,8 +325,9 @@ describe('DatabricksVoterService', () => {
           'robocall',
           'phoneBanking',
           'doorKnocking',
+          'email',
         ],
-        rows: [['999', '47.5', '82000.25', '777', '222', '555', '111']],
+        rows: [['999', '47.5', '82000.25', '777', '222', '555', '111', '333']],
       })
 
       const result = await service.getListDetailAggregates(
@@ -343,6 +344,7 @@ describe('DatabricksVoterService', () => {
         robocall: 222,
         phoneBanking: 555,
         doorKnocking: 111,
+        email: 333,
       })
     })
 
@@ -356,8 +358,9 @@ describe('DatabricksVoterService', () => {
           'robocall',
           'phoneBanking',
           'doorKnocking',
+          'email',
         ],
-        rows: [['0', null, null, '0', '0', '0', '0']],
+        rows: [['0', null, null, '0', '0', '0', '0', '0']],
       })
 
       const result = await service.getListDetailAggregates(
@@ -373,6 +376,7 @@ describe('DatabricksVoterService', () => {
         robocall: 0,
         phoneBanking: 0,
         doorKnocking: 0,
+        email: 0,
       })
     })
 

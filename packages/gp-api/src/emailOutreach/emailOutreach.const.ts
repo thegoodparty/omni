@@ -16,7 +16,14 @@ export const FORWARD_CONFIRM_TTL_HOURS = 24
 export const FORWARD_CONFIRM_MAX_PER_DAY = 5
 export const REPLY_FORWARD_MAX_PER_ADDRESS_PER_DAY = 10
 export const REPLY_FORWARD_MAX_PER_SENDER_PER_HOUR = 200
-export const EMAIL_UPLOAD_MAX_BYTES = 2_000_000
+
+// A prepare delivery stops starting new audience pages after this, so one
+// page in flight plus the trim still finish inside the queue's 5-minute
+// visibility timeout. The next delivery picks up from the saved cursor.
+export const EMAIL_AUDIENCE_DELIVERY_BUDGET_MS = 150_000
+// The most recipient rows one send's resolve writes: twice the top warming
+// cap, room for a list whose first people this sender already emailed.
+export const EMAIL_AUDIENCE_MAX_RESOLVED = 500_000
 
 // Per-sender warming caps, stepped up only after a clean send.
 export const EMAIL_WARMING_STEPS = [1_000, 5_000, 25_000, 100_000, 250_000]
