@@ -124,7 +124,12 @@ const DataTable = createComponentImplementation(TableApi, ({ props }) => (
         {props.rows.map((row, r) => (
           <TableRow key={r}>
             {props.columns.map((column, c) => (
-              <TableCell key={`${column}-${c}`}>{row[c] ?? ''}</TableCell>
+              <TableCell
+                key={`${column}-${c}`}
+                className="h-auto whitespace-normal py-3 align-top"
+              >
+                {row[c] ?? ''}
+              </TableCell>
             ))}
           </TableRow>
         ))}
