@@ -11,7 +11,7 @@ import {
   SERVE_CITIZENS_PANEL_COPY as COPY,
 } from '../citizensPanelCopy'
 import { civicPanelSummaryQueryOptions } from '../civicPanelSummary.query'
-import { CitizensPanelEmpty, CitizensPanelStats } from './CitizensPanelStats'
+import { CitizensPanelEmpty } from './CitizensPanelStats'
 import { CivicPanelSeats } from './CivicPanelSeats'
 
 export const CitizensPanelSection = () => {
@@ -43,16 +43,15 @@ export const CitizensPanelSection = () => {
     ) : query.data.members === 0 ? (
       <CitizensPanelEmpty />
     ) : (
-      <>
-        <CitizensPanelStats summary={query.data} />
-        <Link
-          href={civicPanelHref('contacts')}
-          className="flex items-center gap-1 self-start text-sm font-semibold text-link no-underline hover:underline"
-        >
-          {COPY.seePanel}
-          <ArrowRightIcon className="size-4" aria-hidden />
-        </Link>
-      </>
+      // Who is behind and the members' numbers live on the civic panel
+      // page, so the section stays short on a phone.
+      <Link
+        href={civicPanelHref('contacts')}
+        className="flex items-center gap-1 self-start text-sm font-semibold text-link no-underline hover:underline"
+      >
+        {COPY.seePanel}
+        <ArrowRightIcon className="size-4" aria-hidden />
+      </Link>
     )
 
   return (

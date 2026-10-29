@@ -297,7 +297,11 @@ are not sized here: see "Round 1 sizing" below.
 
 **Progress.** The summary's `progress` is `{ members, goal, answersNeeded,
 expectedAnswers, groupsCovered, groupsTotal }` (`CivicPanelProgressSchema`):
-`goal` is the district's `panelGoalMembers`, `expectedAnswers` is
+`goal` is the managed civic panel's stored `goalMembers` while one exists
+that is not stopped (it turns ready at that goal, so the page, the
+Constituents section and the home card must count to it too), else the
+district's `panelGoalMembers`. It is decided here and nowhere else:
+readers take `progress.goal`, never recompute it. `expectedAnswers` is
 `panelExpectedAnswers(members)`, members × `PANEL_ASSUMED_REPLY_RATE`,
 rounded; the sizing fields never reach a screen. `groupsCovered` of
 `groupsTotal` is `panelCoverage` (`utils/civicPanelSteering.util.ts`): the
@@ -311,7 +315,7 @@ coverage. An active member is a panel member who answered a priority's text,
 call or door in the last `PANEL_ACTIVE_WINDOW_DAYS` (90) days
 (`answeredPersonIds` with no priority and a `since`, read live from the
 interaction rows, never stored; opted-out people do not count). Past the
-goal (`members >= panelGoalMembers`) the summary also counts them the way it
+goal (`members >= progress.goal`) the summary also counts them the way it
 counts members (`activeMixOf`, the same census cells and the same groups,
 with race named only when it is for the members) and every major group is
 judged on `PANEL_MEMBERS_PER_GROUP` active members. `balance` keeps its

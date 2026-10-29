@@ -8,6 +8,7 @@ import {
   CivicPanelStatus,
   ContactStatusField,
   ContactStatusSource,
+  ManagedCivicPanelStatus,
 } from '@/generated/prisma'
 import { ContactStatusService } from '@/contactInteraction/services/contactStatus.service'
 import { ContactsMadeResolutionService } from '@/contactInteraction/services/contactsMadeResolution.service'
@@ -62,6 +63,24 @@ const get = <T>(path: string, slug: string) =>
 
 const summary = (slug: string) =>
   get<CivicPanelSummary>('/v1/contacts/civic-panel', slug)
+
+const seedManaged = (
+  organizationSlug: string,
+  goalMembers: number,
+  status: ManagedCivicPanelStatus,
+) =>
+  service.prisma.managedCivicPanel.create({
+    data: {
+      organizationSlug,
+      status,
+      inviteMessage:
+        'Reply JOIN to join my civic panel. Reply STOP to opt out.',
+      consentVersion: 'test',
+      approvedAt: new Date(),
+      approvedByUserId: service.user.id,
+      goalMembers,
+    },
+  })
 
 const flagOff = () => {
   const flag = vi
@@ -185,5 +204,34 @@ describe('GET /v1/contacts/civic-panel', () => {
     const res = await summary(slug)
 
     expect(res.status).toBe(HttpStatus.NOT_FOUND)
+  })
+  it("counts toward a managed civic panel's stored goal while it runs", async () => {
+    const districtGoal = (await summary(await seedOrg('eo'))).data.progress.goal
+    const slug = await seedOrg('eo')
+    await seedManaged(slug, districtGoal - 3, ManagedCivicPanelStatus.building)
+
+    const res = await summary(slug)
+
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(res.data.progress.goal).toBe(districtGoal - 3)
+  })
+
+  it('keeps the managed goal once the managed civic panel is ready', async () => {
+    const slug = await seedOrg('eo')
+    await seedManaged(slug, 2, ManagedCivicPanelStatus.ready)
+
+    const res = await summary(slug)
+
+    expect(res.data.progress.goal).toBe(2)
+  })
+
+  it("goes back to the district's goal once the managed civic panel is stopped", async () => {
+    const districtGoal = (await summary(await seedOrg('eo'))).data.progress.goal
+    const slug = await seedOrg('eo')
+    await seedManaged(slug, districtGoal - 3, ManagedCivicPanelStatus.stopped)
+
+    const res = await summary(slug)
+
+    expect(res.data.progress.goal).toBe(districtGoal)
   })
 })

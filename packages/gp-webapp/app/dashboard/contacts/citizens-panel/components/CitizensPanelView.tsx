@@ -142,7 +142,7 @@ export const CitizensPanelView = ({
             data-testid="civic-panel-aside"
           >
             {active ? <ManagedPanelControls panel={active} /> : null}
-            <CitizensPanelStats summary={summary} showReached={false} />
+            <CitizensPanelStats summary={summary} />
             {summary.members > 0 ? (
               <Button asChild variant="outline" className="self-start">
                 <Link href={CITIZENS_PANEL_LIST_PATH}>{COPY.seeMembers}</Link>
@@ -151,7 +151,7 @@ export const CitizensPanelView = ({
           </aside>
         </div>
       </div>
-      <CivicPanelChatDock chat={chat} />
+      <CivicPanelChatDock chat={chat} full={stage === 'ready'} />
     </>
   )
 }

@@ -122,7 +122,11 @@ panel route: 404 with the flag off, 400 for a non-`eo-` org.
   `assertServeSmsLockedLines` (the STOP opt-out, one panel line), within
   `SMS_COMPOSED_MAX_LENGTH`. It stores the approver and time, sets
   `goalMembers` to the district's `panelGoalMembers`,
-  and starts `building`. Idempotent per office: an enrollment that is not
+  and starts `building`. That stored goal holds even if the district's
+  goal later moves, and while the enrollment is not stopped the civic
+  panel summary's `progress.goal` is this number, so the page, the
+  Constituents section and the cards never count to a different goal
+  than the one that turns the civic panel ready. Idempotent per office: an enrollment that is not
   stopped comes back unchanged; a stopped one is approved again in place.
 - `PATCH { action }`: `pause` from building, `resume` from paused, `stop`
   from building, paused, ready or exhausted. Anything else is a 409; no enrollment is a 404. Each write is conditional on the status it leaves from.

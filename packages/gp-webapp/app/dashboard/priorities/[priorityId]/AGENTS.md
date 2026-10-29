@@ -390,23 +390,24 @@ a model**: only the status, the groups and actions.
 
 - **Phone** (below `lg`): a short bar outside the scroll: back, the title on
   one line, and a list button that opens "Where this stands" in the steps
-  sheet. Under it the status dot and the status line naming the
-  groups, wrapping to two lines rather than cutting the groups off (`READ_STATUS_COPY.statusLine`: "Still need to hear from men" for a
-  group with no answers, "Need a few more answers from women and people 65
-  and over" for groups with a few or still too unsure, both in one sentence
-  when both kinds are named, "Still unsure what people 65 and over think"
-  once every group has three), then a row of its own with a thin
-  bar ("34 of the 100 answers we need", `READ_STATUS_COPY.progress`) and Get answers; or a check, "You've
-  heard from every group" (or "Enough people have answered") with See what we
-  heard beside it. Before a check is out with residents (`readStatus.checkOut`) the row
+  sheet. Under it, while a check is out and the read is short, the count
+  ("34 of the 100 answers we need", `READ_STATUS_COPY.progress`), then a
+  row of its own with a thin red bar (`bg-destructive`, whatever the
+  status: the red is the signal the read isn't done) and Get answers. It
+  names no groups: `READ_STATUS_COPY.statusLine` ("Still need to hear from
+  men", "Need a few more answers from women and people 65 and over", "Still
+  unsure what people 65 and over think") is the results page's. A good read
+  is a check, "You've heard from every group" (or "Enough people have
+  answered") with See what we heard beside it. Before a check is out with residents (`readStatus.checkOut`) the row
   reads "No one asked yet" with no bar and no button, and while a follow-up
   text is scheduled "Follow-up text to N people on Nov 3" stands in for the
   button (`READ_STATUS_COPY.canGetAnswers`). The text links to the results page; the button is the one action.
 - **Desktop**: a 56px bar across the chat and the rail holds back and the
   title, so there is no title in the scroll with the flag on. The rail opens
   with the status label and dot, the answer seats (below), "34 of the 100
-  answers we need" with a key (Heard, Still needed), the status line
-  naming the groups, Get answers, a quiet "What we heard" link, then "Where
+  answers we need" with a key (Heard, Still needed), and below `lg` the
+  same red bar as the phone; like the phone it names no groups. Then Get
+  answers, a quiet "What we heard" link, then "Where
   this stands". With a good read the rail has See what we heard and
   no second link to the same page.
 - **The answer seats** (`components/AnswerSeats.tsx`) are the civic panel's
