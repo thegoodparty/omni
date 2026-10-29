@@ -6,30 +6,11 @@
       "reason": "Spawns a tsx child process per test (~3s each, ~55s a run). Remove once the entry point is called in-process."
     },
     {
-      "file": "src/vendors/peerly/services/p2pPhoneListUpload.routes.test.ts",
-      "reason": "Two tests seed 200k+ rows to cross the people-api id-filter cap. Remove once the cap is overridable in tests."
-    },
-    {
       "file": "src/doorKnocking/tests/doorKnocking.routes.test.ts",
       "reason": "220 route tests at ~120ms each, up to 29s on CI, too close to the ceiling to leave off."
     }
   ],
   "slowTests": [
-    {
-      "file": "src/vendors/peerly/services/p2pPhoneListUpload.routes.test.ts",
-      "test": "POST /v1/p2p/phone-list (ENG-10800 opt-out scrub) > skips the scrub and still sends when the opt-out set exceeds the people-api id-filter cap",
-      "reason": "Seeds 200,001 rows to cross the people-api id-filter cap. Remove once the cap is overridable in tests."
-    },
-    {
-      "file": "src/vendors/peerly/services/p2pPhoneListUpload.routes.test.ts",
-      "test": "POST /v1/p2p/phone-list (ENG-10800 opt-out scrub) > drops the opt-out merge (not the send) when it would combine with an existing notIn resolution past the people-api id-filter cap",
-      "reason": "Seeds 210,000 rows to cross the people-api id-filter cap. Remove once the cap is overridable in tests."
-    },
-    {
-      "file": "src/contactInteraction/tests/activityConditionResolution.service.test.ts",
-      "test": "ActivityConditionResolutionService > the 200k cap > throws BadRequestException when the resolved \"in\" set exceeds the cap",
-      "reason": "Seeds 200k rows to cross the id-filter cap. Remove once the cap is overridable in tests."
-    },
     {
       "file": "src/testFixtures/testFixtures.proWin10DlcMock.routes.test.ts",
       "test": "pro-win-10dlc-mock fixture state > drives the real 10DLC flow to tcr_approved with a Peerly identity, in under 10 seconds",
