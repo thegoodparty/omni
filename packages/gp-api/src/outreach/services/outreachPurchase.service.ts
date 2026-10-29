@@ -322,8 +322,10 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
     // resolution, which is the build's job, not the estimate's.
     if (matchCount > MAX_AUDIENCE_RECIPIENTS) {
       throw new BadRequestException(
-        `This voter list matches over the ${MAX_AUDIENCE_RECIPIENTS} ` +
-          'phone-list limit — narrow the filter and try again.',
+        `This list reaches over ${MAX_AUDIENCE_RECIPIENTS.toLocaleString(
+          'en-US',
+        )} people, which is more than one text campaign can send to. ` +
+          'Narrow your filters and try again.',
       )
     }
 

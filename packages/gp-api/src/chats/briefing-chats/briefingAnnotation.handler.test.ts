@@ -48,7 +48,7 @@ const loadedContext = (): BriefingContextResult =>
     user: HENDERSONVILLE_FIXTURE.user,
     office: HENDERSONVILLE_FIXTURE.office,
     organizationSlug: ORG_SLUG,
-    organizationOwnerId: 9,
+    organization: { ownerId: 9, overrideDistrictId: null, positionId: null },
   }) as BriefingContextResult
 
 // The same context the fixture describes, so the handler's prompt mapping can
@@ -66,7 +66,7 @@ const fixtureContext = (): BriefingChatContext => ({
   highlight: HENDERSONVILLE_FIXTURE.highlight,
   notesCount: HENDERSONVILLE_FIXTURE.notesCount,
   districtFilters: HENDERSONVILLE_FILTERS,
-  peopleDataset: 'voters',
+  peopleDataset: { base: 'voters' },
 })
 
 class FakeBriefingContext {
@@ -313,7 +313,7 @@ describe('BriefingAnnotationHandler', () => {
     }
 
     const datasets = (dataset: 'voters' | 'constituents') => {
-      const resolve = vi.fn(() => Promise.resolve(dataset))
+      const resolve = vi.fn(() => Promise.resolve({ base: dataset }))
       return {
         resolve,
         service: { resolve } as unknown as PeopleDatasetService,
@@ -325,8 +325,13 @@ describe('BriefingAnnotationHandler', () => {
       const handler = buildHandler(fakeDatabricks(), fakeResolver(), service)
       const ctx = await handler.loadContext(CONVERSATION_ID, USER_ID)
 
-      expect(resolve).toHaveBeenCalledWith({ slug: ORG_SLUG, ownerId: 9 })
-      expect(ctx.peopleDataset).toBe('constituents')
+      expect(resolve).toHaveBeenCalledWith({
+        slug: ORG_SLUG,
+        ownerId: 9,
+        overrideDistrictId: null,
+        positionId: null,
+      })
+      expect(ctx.peopleDataset).toEqual({ base: 'constituents' })
       const tools = handler.buildTools(ctx)
       expect(descriptionOf(tools.district_insights)).toContain(
         'Table: serve_agent_constituents',
@@ -352,7 +357,7 @@ describe('BriefingAnnotationHandler', () => {
       )
       const ctx = await handler.loadContext(CONVERSATION_ID, USER_ID)
 
-      expect(ctx.peopleDataset).toBe('voters')
+      expect(ctx.peopleDataset).toEqual({ base: 'voters' })
       expect(
         descriptionOf(handler.buildTools(ctx).district_insights),
       ).toContain('Table: serve_agent_voters')
@@ -367,7 +372,7 @@ describe('BriefingAnnotationHandler', () => {
       ).loadContext(CONVERSATION_ID, USER_ID)
 
       expect(resolve).not.toHaveBeenCalled()
-      expect(ctx.peopleDataset).toBe('voters')
+      expect(ctx.peopleDataset).toEqual({ base: 'voters' })
     })
   })
 

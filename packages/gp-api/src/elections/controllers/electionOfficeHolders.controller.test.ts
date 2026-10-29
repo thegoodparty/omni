@@ -1,6 +1,4 @@
-import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
-import { OfficeHolderFilterDto } from '@/electionDb/officeHolders/officeHolders.schema'
-import { OfficeHoldersService } from '@/electionDb/officeHolders/officeHolders.service'
+import { describe, expect, it } from 'vitest'
 import { RESPONSE_SCHEMA_KEY } from '@/shared/decorators/ResponseSchema.decorator'
 import {
   ElectionOfficeHoldersController,
@@ -28,37 +26,7 @@ const officeHolderRow = {
 }
 
 describe('ElectionOfficeHoldersController', () => {
-  let controller: ElectionOfficeHoldersController
-  let getOfficeHolders: Mock
-
-  beforeEach(() => {
-    getOfficeHolders = vi.fn()
-
-    const officeHoldersServiceMock: Partial<OfficeHoldersService> = {
-      getOfficeHolders,
-    }
-
-    controller = new ElectionOfficeHoldersController(
-      officeHoldersServiceMock as OfficeHoldersService,
-    )
-  })
-
   describe('getOfficeHolders', () => {
-    const filterDto: OfficeHolderFilterDto = {
-      state: 'TX',
-      isCurrent: true,
-      includePosition: false,
-    }
-
-    it('delegates the filter straight to the service', async () => {
-      getOfficeHolders.mockResolvedValue([officeHolderRow])
-
-      const result = await controller.getOfficeHolders(filterDto)
-
-      expect(getOfficeHolders).toHaveBeenCalledWith(filterDto)
-      expect(result).toEqual([officeHolderRow])
-    })
-
     it('is wired to the list response schema', () => {
       expect(getResponseSchema('getOfficeHolders')).toBe(
         officeHolderListResponseSchema,

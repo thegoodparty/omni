@@ -25,10 +25,6 @@ import { VoterFileFilterService } from 'src/voters/services/voterFileFilter.serv
 import { PeerlyP2pJobService } from 'src/vendors/peerly/services/peerlyP2pJob.service'
 import { S3Service } from 'src/vendors/aws/services/s3.service'
 import { StripeService } from 'src/vendors/stripe/services/stripe.service'
-import type {
-  CampaignGeographyInput,
-  ResolveP2pJobGeographyServices,
-} from '../util/campaignGeography.util'
 import type { CreateOutreachSchema } from '../schemas/createOutreachSchema'
 import { EmailService } from 'src/email/email.service'
 import { OutreachMaterializationService } from './outreachMaterialization.service'
@@ -51,7 +47,7 @@ const mockGetFileBytes = vi.fn()
 const mockTcrFindFirstOrThrow = vi.fn()
 const mockTcrFindFirst = vi.fn()
 const mockPeerlyCreateJob = vi.fn()
-const mockResolveP2pJobGeography = vi.fn()
+const mockGetAreaCodeFromZip = vi.fn()
 const mockNotifySuccess = vi.fn()
 const mockNotifyFailure = vi.fn()
 const mockSendEmail = vi.fn()
@@ -62,13 +58,6 @@ const mockAnalyticsTrack = vi.fn()
 // Defaults OFF (pre-feature behavior); the pay-before-build describe below
 // flips it to true for its one ENTRY test.
 const mockIsFeatureEnabled = vi.fn()
-
-vi.mock('../util/campaignGeography.util', () => ({
-  resolveP2pJobGeography: (
-    campaign: CampaignGeographyInput,
-    services: ResolveP2pJobGeographyServices,
-  ) => mockResolveP2pJobGeography(campaign, services),
-}))
 
 describe('OutreachService', () => {
   let service: OutreachService
@@ -129,7 +118,7 @@ describe('OutreachService', () => {
       committeeName: 'Friends of Jane',
     })
     mockPeerlyCreateJob.mockReset()
-    mockResolveP2pJobGeography.mockReset()
+    mockGetAreaCodeFromZip.mockReset()
     mockNotifySuccess.mockReset()
     mockNotifySuccess.mockResolvedValue(undefined)
     mockNotifyFailure.mockReset()
@@ -175,7 +164,10 @@ describe('OutreachService', () => {
         { provide: PinoLogger, useValue: createMockLogger() },
         { provide: PrismaService, useValue: mockPrismaService },
         { provide: GooglePlacesService, useValue: {} },
-        { provide: AreaCodeFromZipService, useValue: {} },
+        {
+          provide: AreaCodeFromZipService,
+          useValue: { getAreaCodeFromZip: mockGetAreaCodeFromZip },
+        },
         {
           provide: CampaignTcrComplianceService,
           useValue: {
@@ -898,10 +890,11 @@ describe('OutreachService', () => {
       mockTcrFindFirstOrThrow.mockResolvedValue({
         peerlyIdentityId: 'identity-123',
       })
-      mockResolveP2pJobGeography.mockResolvedValue({
-        didState: 'CA',
-        didNpaSubset: ['415', '510'],
-      })
+      mockGetAreaCodeFromZip.mockResolvedValue(['415', '510'])
+      const p2pCampaign = {
+        ...mockCampaign,
+        details: { state: 'CA', zip: '94103' },
+      } as unknown as Campaign
       const created = {
         id: 2,
         ...p2pCreateDto,
@@ -915,7 +908,7 @@ describe('OutreachService', () => {
 
       const result = await service.create(
         mockUser,
-        mockCampaign,
+        p2pCampaign,
         p2pCreateDto,
         'https://cdn.example.com/p2p.png',
       )
@@ -923,13 +916,7 @@ describe('OutreachService', () => {
       expect(mockTcrFindFirstOrThrow).toHaveBeenCalledWith({
         where: { campaignId: mockCampaign.id },
       })
-      expect(mockResolveP2pJobGeography).toHaveBeenCalledWith(
-        mockCampaign,
-        expect.objectContaining({
-          placesService: expect.anything(),
-          areaCodeFromZipService: expect.anything(),
-        }),
-      )
+      expect(mockGetAreaCodeFromZip).toHaveBeenCalledWith('94103')
       expect(mockPeerlyCreateJob).not.toHaveBeenCalled()
       expect(mockOutreachCreate).toHaveBeenCalledWith({
         data: expect.objectContaining({
@@ -960,10 +947,6 @@ describe('OutreachService', () => {
         mockIsFeatureEnabled.mockResolvedValue(true)
         mockTcrFindFirstOrThrow.mockResolvedValue({
           peerlyIdentityId: 'identity-123',
-        })
-        mockResolveP2pJobGeography.mockResolvedValue({
-          didState: 'CA',
-          didNpaSubset: ['415'],
         })
         mockOutreachCreate.mockResolvedValue({ id: 3, voterFileFilter: null })
 

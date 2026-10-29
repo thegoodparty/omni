@@ -50,6 +50,15 @@ vi.mock('./NotesSection', () => ({
   ),
 }))
 
+// ImportedContactInformation.test.tsx covers the Import contacts card (Email,
+// Came from, Change match); here it reads organization context PersonOverlay
+// does not provide, so it is stubbed.
+vi.mock('./ImportedContactInformation', () => ({
+  ImportedContactInformation: ({ person }: { person: { id: string } }) => (
+    <div data-testid="imported-contact-information-stub">{person.id}</div>
+  ),
+}))
+
 // StatusRow has its own suite (StatusRow.test.tsx) covering its self-gating,
 // the two dropdowns, the opt-in pill, mutations, and analytics. Here it would
 // otherwise call the real useOrganization() hook — this file only asserts
@@ -669,6 +678,81 @@ describe('<PersonOverlay>', () => {
       expect(screen.getByText('Unreliable')).toBeInTheDocument()
       expect(screen.getByText('Likely')).toBeInTheDocument()
       expect(screen.queryByText(/Already voted/)).not.toBeInTheDocument()
+    })
+  })
+
+  describe('Import contacts', () => {
+    const flagOn = (key: string) => ({
+      ready: true,
+      on: key === 'serve-import-contacts',
+    })
+
+    it('swaps in the imported Contact Information card on Serve with the flag on', () => {
+      mockedUseFlagOn.mockImplementation(flagOn)
+      setContext({ isElectedOfficial: true })
+
+      render(<PersonOverlay />)
+
+      expect(
+        screen.getByTestId('imported-contact-information-stub'),
+      ).toHaveTextContent('p_1')
+    })
+
+    it("keeps today's card on Win, whatever the flag says", () => {
+      mockedUseFlagOn.mockImplementation(flagOn)
+      setContext({ isElectedOfficial: false })
+
+      render(<PersonOverlay />)
+
+      expect(
+        screen.queryByTestId('imported-contact-information-stub'),
+      ).not.toBeInTheDocument()
+      expect(screen.getByText('Cell Phone Number')).toBeInTheDocument()
+    })
+
+    it("keeps today's card on Serve with the flag off", () => {
+      setContext({ isElectedOfficial: true })
+
+      render(<PersonOverlay />)
+
+      expect(
+        screen.queryByTestId('imported-contact-information-stub'),
+      ).not.toBeInTheDocument()
+    })
+
+    it('renders an import entry in the activity feed, linked to its upload', () => {
+      mockedUseFlagOn.mockReturnValue({ ready: true, on: true })
+      setContext({
+        isElectedOfficial: true,
+        selectedPerson: {
+          activities: [
+            {
+              type: 'CONTACT_IMPORT',
+              date: '2026-10-29T15:41:00.000Z',
+              data: {
+                activityId: 'row-1',
+                uploadId: 'upload-1',
+                uploadName: 'Newsletter, Oct 2026',
+                isNewPerson: false,
+                suppliedFields: ['email', 'landline'],
+                changedFields: [],
+                manual: false,
+                actorName: null,
+                actorUserId: null,
+              },
+            },
+          ],
+        },
+      })
+
+      render(<PersonOverlay />)
+
+      expect(screen.getByText('Email and landline added')).toBeInTheDocument()
+      expect(
+        screen.getByRole('link', {
+          name: 'Imported from Newsletter, Oct 2026.',
+        }),
+      ).toHaveAttribute('href', '/dashboard/contacts/uploads/upload-1')
     })
   })
 

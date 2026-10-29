@@ -1,7 +1,6 @@
 import type { PeopleListResponse, Person } from '@goodparty_org/contracts'
 import { PinoLogger } from 'nestjs-pino'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { MAX_RESOLVED_ID_SET_SIZE } from '@/contactInteraction/services/activityConditionResolution.service'
 import { ContactInteractionTextService } from '@/contactInteraction/services/contactInteractionText.service'
 import { ContactsService } from '@/contacts/services/contacts.service'
 import {
@@ -11,6 +10,7 @@ import {
 } from '@/generated/prisma'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
+import { appEnvOverrides } from '@/shared/test-utils/appEnvOverrides'
 import { useTestService } from '@/test-service'
 import {
   TextDeliveryHandoff,
@@ -779,13 +779,11 @@ describe('OutreachTextDeliveryService', () => {
   })
 
   it('still scrubs, loudly, when the opt-out set hits the query limit', async () => {
+    appEnvOverrides.MAX_RESOLVED_ID_SET_SIZE = 2
     const { outreach, filter } = await seedSend()
     // Seeding 100k rows is not a test; the limit check is what is under
     // test, so stub the producer at the size that trips it.
-    const overCap = Array.from(
-      { length: MAX_RESOLVED_ID_SET_SIZE + 1 },
-      (_unused, i) => `opted-out-${i}`,
-    )
+    const overCap = ['opted-out-1', 'opted-out-2', 'opted-out-3']
     vi.spyOn(
       service.app.get(ContactInteractionTextService),
       'findOptedOutPersonIds',

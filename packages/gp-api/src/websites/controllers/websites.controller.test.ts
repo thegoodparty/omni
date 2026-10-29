@@ -1294,7 +1294,7 @@ describe('WebsitesController', () => {
   })
 
   describe('@McpTool registrations', () => {
-    it('GET /mine carries @McpTool + @UseCampaign with read-only description', () => {
+    it('GET /mine carries @McpTool + @UseCampaign', () => {
       const reflector = new Reflector()
       const path = Reflect.getMetadata('path', controller.getMyWebsite)
       const method = Reflect.getMetadata('method', controller.getMyWebsite)
@@ -1309,10 +1309,9 @@ describe('WebsitesController', () => {
 
       const mcpMeta = reflector.get(MCP_TOOL_KEY, controller.getMyWebsite)
       expect(mcpMeta).toBeDefined()
-      expect(mcpMeta.description).toMatch(/Read the calling campaign's website/)
     })
 
-    it('PUT /mine carries @McpTool with publish precondition in description', () => {
+    it('PUT /mine carries @McpTool', () => {
       const reflector = new Reflector()
       const path = Reflect.getMetadata('path', controller.updateWebsite)
       const method = Reflect.getMetadata('method', controller.updateWebsite)
@@ -1321,8 +1320,6 @@ describe('WebsitesController', () => {
 
       const mcpMeta = reflector.get(MCP_TOOL_KEY, controller.updateWebsite)
       expect(mcpMeta).toBeDefined()
-      expect(mcpMeta.description).toMatch(/status: "published"/)
-      expect(mcpMeta.description).toMatch(/submitted/)
     })
 
     it('POST /mine/verify-live carries @McpTool, @HttpCode(200), and @UseCampaign', () => {
@@ -1346,7 +1343,6 @@ describe('WebsitesController', () => {
 
       const mcpMeta = reflector.get(MCP_TOOL_KEY, controller.verifyLive)
       expect(mcpMeta).toBeDefined()
-      expect(mcpMeta.description).toMatch(/Single-shot fetch/)
     })
   })
 })

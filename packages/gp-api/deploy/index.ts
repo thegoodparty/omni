@@ -2,6 +2,7 @@ import * as aws from '@pulumi/aws'
 import * as pulumi from '@pulumi/pulumi'
 import { createAnnotationAttachmentsBucket } from './components/annotation-attachments-bucket'
 import { createChatAttachmentsBucket } from './components/chat-attachments-bucket'
+import { createContactUploadsBucket } from './components/contact-uploads-bucket'
 import { createCampaignPlanSharesBucket } from './components/campaign-plan-shares-bucket'
 import { createDatabricksFederation } from './components/databricks-federation'
 import { createAssetsBucket } from './components/assets-bucket'
@@ -168,6 +169,14 @@ export = async () => {
     environment === 'preview'
       ? 'goodparty-chat-attachments-dev'
       : createChatAttachmentsBucket({ environment }).bucket.bucket
+
+  // Private bucket for Import contacts' original CSVs. gp-api writes them
+  // server-side; each environment's stack owns its own. Preview environments
+  // share the dev bucket.
+  const contactUploadsBucketName =
+    environment === 'preview'
+      ? 'gp-api-contact-uploads-dev'
+      : createContactUploadsBucket({ environment }).bucket.bucket
 
   // Private bucket for shared campaign-plan PDFs. Preview shares the dev
   // bucket — no per-PR buckets.
@@ -495,6 +504,7 @@ export = async () => {
     zipToAreaCodeBucket.bucket,
     annotationAttachmentsBucketName,
     chatAttachmentsBucketName,
+    contactUploadsBucketName,
     campaignPlanSharesBucketName,
     robocallAudioBucketName,
     agentRunInputsBucketName,
@@ -750,12 +760,25 @@ jwIDAQAB
         dev: '',
         prod: '73',
       }),
+      // Dev and previews read the overlay views over the dev federated
+      // catalog; prod reads the prod one.
+      PEOPLE_DBX_CONTACT_OVERLAY_VIEW: select({
+        preview: 'gp_api_contact_overlay_dev',
+        dev: 'gp_api_contact_overlay_dev',
+        prod: 'gp_api_contact_overlay',
+      }),
+      SERVE_AGENT_CONTACT_OVERLAY_VIEW: select({
+        preview: 'serve_agent_contact_overlay_dev',
+        dev: 'serve_agent_contact_overlay_dev',
+        prod: 'serve_agent_contact_overlay',
+      }),
       SERVE_ANALYSIS_BUCKET_NAME: `serve-analyze-data-${environment === 'preview' ? 'dev' : environment}`,
       MEETING_PIPELINE_BUCKET: meetingPipelineBucketName,
       TEVYN_POLL_CSVS_BUCKET: tevynPollCsvsBucket.bucket,
       ZIP_TO_AREA_CODE_BUCKET: zipToAreaCodeBucket.bucket,
       ANNOTATION_ATTACHMENTS_BUCKET: annotationAttachmentsBucketName,
       CHAT_ATTACHMENTS_BUCKET: chatAttachmentsBucketName,
+      CONTACT_UPLOADS_BUCKET: contactUploadsBucketName,
       CAMPAIGN_PLAN_SHARES_BUCKET: campaignPlanSharesBucketName,
       ROBOCALL_AUDIO_BUCKET: robocallAudioBucketName,
       API_PUBLIC_ROOT_URL: `https://${domain}`,

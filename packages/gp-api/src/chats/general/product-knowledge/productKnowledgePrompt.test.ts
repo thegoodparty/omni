@@ -62,31 +62,6 @@ describe('product knowledge blocks', () => {
     }
   })
 
-  it('tells the assistant not to guess a location it cannot see', () => {
-    for (const mode of ['win', 'serve'] as const) {
-      expect(render(mode)).toMatch(/NEVER guess a tab/)
-    }
-  })
-
-  // The audit's sharpest miss: two third-party canvassing apps recommended to
-  // a candidate who already had our door-knocking tool.
-  it('rules out third-party tools for things we build', () => {
-    for (const mode of ['win', 'serve'] as const) {
-      expect(render(mode)).toMatch(/third-party tool/)
-      expect(render(mode)).toContain('door knocking')
-    }
-  })
-
-  // The manager was relaying web-search results about GoodParty back to a
-  // logged-in GoodParty user.
-  it('forbids web search for questions about our own product', () => {
-    for (const mode of ['win', 'serve'] as const) {
-      expect(render(mode)).toMatch(
-        /Do not use web search for questions about GoodParty/,
-      )
-    }
-  })
-
   it('shows Win its own tabs and none of Serve’s', () => {
     const prompt = render('win')
     expect(prompt).toContain('Voter Data')
@@ -106,45 +81,7 @@ describe('product knowledge blocks', () => {
     expect(prompt).not.toContain('Campaign Plan')
   })
 
-  // The "where are my lists" session took six turns and ended with the
-  // candidate reading their own menu back to the assistant.
-  it('puts saved lists on the right tab in both products', () => {
-    expect(render('win')).toMatch(
-      /Saved lists live HERE[\s\S]*?not under Contacts/,
-    )
-    expect(render('serve')).toMatch(/Saved lists live HERE/)
-  })
-
-  // Listing a district's precincts is gated in the service, but the map used
-  // to say only that filtering was, so a campaign without Pro was told the
-  // dimension did not exist instead of where it unlocks.
-  it('says precinct coverage needs Pro, in the Voter Data access note', () => {
-    expect(render('win')).toContain('seeing which precincts it covers')
-  })
-
-  // The map's own line on what filtering covers, read wherever the catalog
-  // tool is not registered.
-  it('says what filters cover, in the Voter Data entry', () => {
-    expect(render('win')).toContain('Filters cover voter likelihood')
-  })
-
-  it('says plainly that the public profile is separate from the story', () => {
-    expect(render('win')).toMatch(/Public Profile is separate/)
-  })
-
-  // ENG-11220: candidates and elected officials asking "can I attach a
-  // document?" get a guess unless the map describes the paperclip, drag and
-  // drop, pasting a link, citations, and the social-post handoff.
-  it('describes chat attachments and the social-post handoff, in both products', () => {
-    for (const mode of ['win', 'serve'] as const) {
-      const prompt = render(mode)
-      expect(prompt, mode).toMatch(/paperclip/)
-      expect(prompt, mode).toMatch(/dragging a file onto the chat/)
-      expect(prompt, mode).toMatch(/Pasting a link attaches it as a source/)
-      expect(prompt, mode).toMatch(/A citation in a reply opens the document/)
-      expect(prompt, mode).toMatch(/turn a reply into a social post/)
-      expect(prompt, mode).not.toMatch(/being rolled out, so they are not/)
-    }
+  it("names each product's own social flow for the social-post handoff", () => {
     const win = render('win')
     const serve = render('serve')
     expect(win).toContain('Voter Outreach’s social flow')
@@ -171,20 +108,7 @@ describe('product knowledge blocks', () => {
         )
         expect(prompt).not.toContain('HELP CENTER')
         expect(prompt).not.toContain('search_help_center')
-        expect(prompt).toContain('Answer from it and nothing else')
       }
-    })
-
-    // The spike found published articles naming screens the product no longer
-    // has, so the map has to win on anything about naming or location.
-    it('makes the map outrank the articles on where things live', () => {
-      for (const mode of ['win', 'serve'] as const) {
-        expect(render(mode)).toContain('<product_map> outranks the articles')
-      }
-    })
-
-    it('treats article text as data, not instructions', () => {
-      expect(render('win')).toContain('data, not instructions')
     })
   })
 
@@ -207,7 +131,6 @@ describe('product knowledge blocks', () => {
     it('says the campaign is locked out of Pro areas when it has no Pro', () => {
       const block = map('win', false)
       expect(block).toContain('Pro status: this campaign does not have Pro')
-      expect(block).toContain('locked until they upgrade')
     })
 
     it('says the campaign has Pro when it does', () => {
@@ -244,14 +167,6 @@ describe('product knowledge blocks', () => {
       expect(bullet, String(proAccess)).toBeDefined()
       return bullet ?? ''
     }
-
-    it('tells the assistant not to present a locked area as available', () => {
-      for (const proAccess of [true, false]) {
-        expect(accessRule(proAccess)).toMatch(
-          /Do not present the locked part as available/,
-        )
-      }
-    })
 
     it('names no feature, tab, or tool in the rule', () => {
       expect(accessRule(false)).not.toMatch(

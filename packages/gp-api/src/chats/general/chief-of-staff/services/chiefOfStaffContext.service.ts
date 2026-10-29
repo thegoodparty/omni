@@ -152,7 +152,7 @@ export class ChiefOfStaffContextService extends createPrismaBase(
       anchor,
       districtFilters: null,
       constituentToolEnabled: false,
-      peopleDataset: 'voters',
+      peopleDataset: { base: 'voters' },
     }
   }
 }

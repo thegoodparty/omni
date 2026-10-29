@@ -52,7 +52,7 @@ type ParsedBriefing = z.infer<typeof BriefingSchema>
 
 // Same schema and columns either way; serve_agent_constituents adds the
 // adult residents who are not registered to vote.
-const SERVE_AGENT_TABLE_BY_DATASET: Record<PeopleDataset, string> = {
+const SERVE_AGENT_TABLE_BY_DATASET: Record<PeopleDataset['base'], string> = {
   voters: 'serve_agent_voters',
   constituents: 'serve_agent_constituents',
 }
@@ -267,11 +267,11 @@ export class BriefingAnnotationHandler implements ChatScopeHandler<BriefingChatC
     loaded: BriefingContextResult,
   ): Promise<PeopleDataset> {
     if (!this.databricks || !this.districtResolver || !this.peopleDatasets) {
-      return 'voters'
+      return { base: 'voters' }
     }
     return this.peopleDatasets.resolve({
+      ...loaded.organization,
       slug: loaded.organizationSlug,
-      ownerId: loaded.organizationOwnerId,
     })
   }
 
@@ -306,7 +306,7 @@ export class BriefingAnnotationHandler implements ChatScopeHandler<BriefingChatC
       tools.district_insights = buildDistrictInsightsTool({
         provider: this.databricks,
         allowedTables: new Set([
-          SERVE_AGENT_TABLE_BY_DATASET[ctx.peopleDataset],
+          SERVE_AGENT_TABLE_BY_DATASET[ctx.peopleDataset.base],
         ]),
         mandatoryFilters: ctx.districtFilters,
         peopleDataset: ctx.peopleDataset,

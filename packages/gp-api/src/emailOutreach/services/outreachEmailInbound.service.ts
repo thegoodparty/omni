@@ -65,7 +65,7 @@ export class OutreachEmailInboundService extends createPrismaBase(
       throw new Error('EMAIL_INBOUND_BUCKET is not set')
     }
     if (bucket !== expected.value) {
-      this.logger.error({ bucket, key }, 'inbound reply from an unknown bucket')
+      this.logger.warn({ bucket, key }, 'inbound reply from an unknown bucket')
       return
     }
     const existing = await this.model.findUnique({

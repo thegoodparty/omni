@@ -54,14 +54,7 @@ See `.env.example` for the full list. The required variables for local developme
 
 ## Styleguide
 
-our styleguide lives on <a href="https://style.goodparty.org">style.goodparty.org</a> and uses <a href="https://storybook.js.org/">storybook</a>.<br/>
-To run it locally run
-
-```
-npm run storybook
-```
-
-You will need to run also the api for the project <a href="https://github.com/thegoodparty/tgp-api">https://github.com/thegoodparty/tgp-api</a>
+Components live in `packages/styleguide`. `packages/styleguide/COMPONENTS.md` lists each one and when to use it.
 
 ## AI-Assisted Development
 

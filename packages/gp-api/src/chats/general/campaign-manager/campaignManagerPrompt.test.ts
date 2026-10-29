@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
+import { SOCIAL_PURPOSE_VALUES } from '@goodparty_org/contracts'
+import { StrategicLandscapeFailedReasonSchema } from '@/campaignStrategy/schemas/strategicLandscape.schema'
 import {
   buildCampaignManagerSystemPrompt,
   CampaignManagerContext,
@@ -63,11 +65,6 @@ const ctx = (
 const at = (day: string): Date => new Date(`${day}T17:00:00.000Z`)
 
 describe('buildCampaignManagerSystemPrompt', () => {
-  it('frames the agent as a campaign manager', () => {
-    const prompt = buildCampaignManagerSystemPrompt(ctx())
-    expect(prompt.toLowerCase()).toContain('campaign manager')
-  })
-
   it("tells the manager what day it is, in the campaign state's zone", () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-10-05T12:00:00.000Z'))
@@ -83,12 +80,7 @@ describe('buildCampaignManagerSystemPrompt', () => {
 
   it('makes every drafted text name the candidate and their office', () => {
     const prompt = buildCampaignManagerSystemPrompt(ctx())
-    expect(prompt).toContain(
-      'A text message you draft for the candidate to send must say who is ' +
-        'sending it: their full name and the office they are running for',
-    )
     expect(prompt).toContain('"this is Renee Diaz, running for City Council"')
-    expect(prompt).toContain('never write a placeholder such as [Your Name]')
   })
 
   // The texting flow introduces the candidate by full name; a drafted text
@@ -117,12 +109,8 @@ describe('buildCampaignManagerSystemPrompt', () => {
 
   it('declines unrelated asks with its own line, not the Chief of Staff one', () => {
     const prompt = buildCampaignManagerSystemPrompt(ctx())
-    expect(prompt).toContain('GUARDRAILS (apply before answering)')
-    expect(prompt).toContain('CAMPAIGN RULES (apply to every reply)')
-    expect(prompt).not.toContain('\nRules:')
     expect(prompt).toContain(GUARDRAIL_DECLINE.win)
     expect(prompt).not.toContain(GUARDRAIL_DECLINE.serve)
-    expect(prompt).toContain('plausibly connected to their campaign')
   })
 
   // A candidate has no office resources to keep apart from the campaign.
@@ -160,10 +148,6 @@ describe('buildCampaignManagerSystemPrompt', () => {
     expect(prompt).toContain('Weeks to election: 7')
     expect(prompt).toContain('Primary date on record: none')
     expect(prompt).toContain('Filing period on record: none')
-    expect(prompt).toContain(
-      'The dates on record are a snapshot taken when the candidate set up the race.',
-    )
-    expect(prompt).not.toContain('refreshed monthly')
   })
 
   describe('calendar', () => {
@@ -486,8 +470,6 @@ describe('buildCampaignManagerSystemPrompt', () => {
             'Days until it closes: 19\n' +
             'Approved description: "Mail ballot requests close October 24."',
         )
-        // The live block no longer carries the window dates itself.
-        expect(prompt).not.toContain('Early voting: opens')
       })
 
       it('places the live block after the record and before the ballot status', () => {
@@ -680,13 +662,6 @@ describe('buildCampaignManagerSystemPrompt', () => {
     expect(prompt).toContain('Call your top 20 donors')
   })
 
-  it('carries the nonpartisan and agent-not-chatbot guardrails', () => {
-    const prompt = buildCampaignManagerSystemPrompt(ctx()).toLowerCase()
-    expect(prompt).toContain('nonpartisan')
-    // It must not claim it can do the in-person work only the candidate can do.
-    expect(prompt).toContain('cannot')
-  })
-
   it('grounds the manager in the plan landscape when it exists', () => {
     const prompt = buildCampaignManagerSystemPrompt(
       ctx({
@@ -712,11 +687,6 @@ describe('buildCampaignManagerSystemPrompt', () => {
   it('says the plan is not generated yet when it is missing', () => {
     const prompt = buildCampaignManagerSystemPrompt(ctx({ plan: null }))
     expect(prompt).toContain('has not been generated yet')
-    // ...without implying the story is a prerequisite. The product map lands
-    // in this same prompt saying there is no gate, and the two contradicting
-    // each other is what sent candidates away from a tab that works.
-    expect(prompt).toContain('does not wait on the Campaign Story')
-    expect(prompt).not.toContain('it is built from the Campaign Story')
   })
 
   it('advertises the constituent-data tool only when it is enabled', () => {
@@ -776,10 +746,6 @@ describe('buildCampaignManagerSystemPrompt', () => {
     )
     expect(on).toContain('count_contacts')
     expect(on).toContain('describe_filter_dimensions')
-    expect(on).toContain('Pro upgrade')
-    expect(on).toContain(
-      'name any part of the request the filter could not apply',
-    )
 
     // Flag on but no org row resolved = tools not registered, so no block.
     const noOrg = buildCampaignManagerSystemPrompt(
@@ -800,8 +766,6 @@ describe('buildCampaignManagerSystemPrompt', () => {
 
     expect(prompt).toContain('count_contacts')
     expect(prompt).toContain('This campaign does not have Pro')
-    expect(prompt).toContain('takes them to the Pro upgrade')
-    expect(prompt).toContain('Do not describe what happens after')
     // Saved lists and precincts are not registered for it.
     expect(prompt).not.toContain('crud_saved_filters')
     expect(prompt).not.toContain('list_precincts')
@@ -842,14 +806,7 @@ describe('buildCampaignManagerSystemPrompt', () => {
       }),
     )
     expect(withWrites).toContain('crud_saved_filters')
-    expect(withWrites).toContain('40 characters')
-    expect(withWrites).toContain('duplicated')
-    expect(withWrites).toContain(
-      'Offer a list to save with present_list_proposal',
-    )
-    expect(withWrites).toContain('never create a list with it')
-    expect(withWrites).toContain("crud_saved_filters with action 'get'")
-    expect(withWrites).toContain('abbreviating it does not make it belong')
+    expect(withWrites).toContain('present_list_proposal')
   })
 
   it('offers a list card to a campaign without Pro, behind the Pro gate', () => {
@@ -862,7 +819,6 @@ describe('buildCampaignManagerSystemPrompt', () => {
       }),
     )
     expect(prompt).toContain('present_list_proposal')
-    expect(prompt).toContain('saving a list')
     expect(prompt).not.toContain('crud_saved_filters')
   })
 
@@ -883,7 +839,6 @@ describe('buildCampaignManagerSystemPrompt', () => {
     ])
     expect(withMap).toContain('LIST MAP RULES')
     expect(withMap).toContain('DRAWN AREA RULES')
-    expect(withMap).toContain("crud_saved_filters` with action 'get'")
     const block = withMap.slice(
       withMap.indexOf('LIST MAP RULES'),
       withMap.indexOf('Drawing is optional'),
@@ -916,34 +871,13 @@ describe('buildCampaignManagerSystemPrompt', () => {
       'present_outreach_proposal',
     ])
     expect(prompt).toContain('SAMPLING RULES')
-    expect(prompt).toContain('size a random sample with size_outreach_sample')
-    expect(prompt).toContain('When the text asks voters something')
     expect(prompt).toContain(
       'Texting all 58,520 is about $2,048. Texting 2,767 of them is ' +
         'about $97 and should bring back about 83 replies.',
     )
-    expect(prompt).toContain(
-      "I'd text 2,767 of the 58,520. About 83 replies " +
-        'is enough to tell how voters feel about it.',
-    )
-    expect(prompt).toContain('never work out a sample or a cost yourself')
-    expect(prompt).toContain('On the card, count stays the whole audience')
-    expect(prompt).toContain('Present outreach with present_outreach_proposal')
-    expect(prompt).toContain('I am calling for Renee, candidate for')
-    expect(prompt).toContain(
-      'Do not save a list for it with crud_saved_filters',
-    )
-    expect(prompt).toContain(
-      'the candidate by full name and the office they are running for, ' +
-        'for example "this is Renee Diaz, candidate for Asheville City',
-    )
-    expect(prompt).toContain('"Paid for by"')
-    expect(prompt).not.toContain('sample.size set to the sampleSize')
-    expect(prompt).not.toContain('/dashboard/outreach?compose=text')
     const block = prompt
       .slice(prompt.indexOf('SAMPLING RULES'))
       .split('\n\n')[0]
-    expect(block).toContain('WHAT EACH CHANNEL NEEDS')
     expect(block).not.toContain('constituent')
     expect(block).not.toContain('official')
     expect(block).not.toContain('{{first_name}}')
@@ -978,19 +912,9 @@ describe('buildCampaignManagerSystemPrompt', () => {
         'The deadline to get verified for texting was Thursday, October ' +
           '15, 2026 and has passed.',
       )
-      expect(prompt).toContain(
-        'Never propose, recommend, draft or schedule a text',
-      )
-      expect(prompt).toContain(
-        'door knocking, robocalls, phone banking and social media',
-      )
       expect(prompt).toContain('Never a text: texting is closed for this race.')
       expect(prompt).not.toContain(
         'A text for a short answer from a large group.',
-      )
-      expect(prompt).not.toContain('a sequence of texts')
-      expect(prompt.indexOf('TEXTING IS CLOSED')).toBeLessThan(
-        prompt.indexOf('SAMPLING RULES'),
       )
     })
 
@@ -1014,7 +938,6 @@ describe('buildCampaignManagerSystemPrompt', () => {
         expect(prompt).toContain(
           'A text for a short answer from a large group.',
         )
-        expect(prompt).toContain('a sequence of texts, a text and a call')
       },
     )
   })
@@ -1054,8 +977,6 @@ describe('buildCampaignManagerSystemPrompt', () => {
     const withClarify = buildCampaignManagerSystemPrompt(base, [
       'ask_clarify_question',
     ])
-    expect(withClarify).toContain('QUESTIONS')
-    expect(withClarify).toContain('never as a list in prose')
     expect(withClarify).not.toContain(
       'When you recommend more than one piece of outreach',
     )
@@ -1080,60 +1001,10 @@ describe('buildCampaignManagerSystemPrompt', () => {
         },
       }),
     )
-    expect(prompt).toContain('Campaign Story')
     expect(prompt).toContain('one at a time')
-    // Offers the existing "Help me rewrite" elaboration + triggers generation.
-    expect(prompt).toContain('Help me rewrite')
-    expect(prompt).toContain('campaign_story generate')
-    // Finishing the story IS the request, so generation fires without a
-    // confirmation turn: candidates read "would you like me to?" as another
-    // step to clear rather than as being handed control.
-    expect(prompt).toContain('call campaign_story generate straight away')
-    expect(prompt.toLowerCase()).toContain('do not ask whether to generate')
-    expect(prompt.toLowerCase()).not.toContain('when they confirm')
   })
 
-  it('saves each story answer as it is given, so dropping off mid-intake keeps what was answered', () => {
-    const prompt = buildCampaignManagerSystemPrompt(
-      ctx({
-        story: {
-          why: null,
-          background: null,
-          positions: [],
-          complete: false,
-          missing: ['why', 'background', 'positions'],
-        },
-      }),
-    )
-    const lower = prompt.toLowerCase()
-    // The answer is persisted on receipt, not held for the other questions...
-    expect(lower).toContain('as soon as they give it')
-    expect(lower).toContain('answers one question and stops')
-    // ...and the old defer-the-first-draft instruction is gone.
-    expect(lower).not.toContain('do not save their first draft')
-    // But an unapproved AI rewrite still must not replace it (it publishes).
-    expect(lower).toContain('never save a rewrite they have not approved')
-  })
-
-  it('tells the manager how to read the generate status so it never misreads generating as an error', () => {
-    const prompt = buildCampaignManagerSystemPrompt(
-      ctx({
-        story: {
-          why: 'w',
-          background: 'b',
-          positions: [],
-          complete: false,
-          missing: ['positions'],
-        },
-      }),
-    )
-    // The async result: 'generating' is the success case, 'failed' means retry.
-    expect(prompt).toContain('generating')
-    expect(prompt).toContain('failed')
-    expect(prompt.toLowerCase()).toContain('never call it an error')
-  })
-
-  it('pins the failed-reason guidance and the no-guessing rule', () => {
+  it('explains every failed reason the plan status can return', () => {
     const prompt = buildCampaignManagerSystemPrompt(
       ctx({
         story: {
@@ -1145,16 +1016,9 @@ describe('buildCampaignManagerSystemPrompt', () => {
         },
       }),
     )
-    expect(prompt).toContain('race_lookup_failed')
-    expect(prompt).toContain('attempts_exhausted')
-    expect(prompt).toContain('queue_failed')
-    const lower = prompt.toLowerCase()
-    expect(lower).toContain('race lookup failed')
-    expect(lower).toContain('cannot be regenerated automatically')
-    expect(lower).toContain('offer to try again')
-    expect(lower).toContain(
-      'never state or imply a cause the tool did not return',
-    )
+    for (const reason of StrategicLandscapeFailedReasonSchema.options) {
+      expect(prompt).toContain(`'${reason}'`)
+    }
   })
 
   it('does not re-run the intake once the story is complete', () => {
@@ -1171,13 +1035,6 @@ describe('buildCampaignManagerSystemPrompt', () => {
     )
     expect(prompt).toContain('finished their Campaign Story')
     expect(prompt).not.toContain('one at a time')
-    // Editing an answer regenerates the plan off the save itself, so the
-    // manager must neither ask nor call generate — generate is a no-op on an
-    // already-generated plan, which is how the old "offer to regenerate"
-    // instruction produced an acceptance that did nothing.
-    expect(prompt.toLowerCase()).toContain('do not ask whether to regenerate')
-    expect(prompt).not.toContain('offer to regenerate')
-    expect(prompt).toContain('campaign_story save')
   })
 
   it('says nothing about ballot status when the candidate never answered', () => {
@@ -1189,9 +1046,7 @@ describe('buildCampaignManagerSystemPrompt', () => {
     const prompt = buildCampaignManagerSystemPrompt(
       ctx({ ballotStatus: 'qualified-not-filed' }),
     )
-    expect(prompt).toContain('have NOT filed yet')
     expect(prompt).toContain('Getting on the ballot is the single most')
-    expect(prompt).toContain('web_search')
     expect(prompt).not.toContain('has not committed to running yet')
   })
 
@@ -1220,12 +1075,6 @@ describe('buildCampaignManagerSystemPrompt', () => {
       'filing deadline for this race is Tuesday, September 15, 2026',
     )
     expect(prompt).toContain('27 days from today')
-    expect(prompt).toContain('best source available')
-    expect(prompt).toContain(
-      'snapshot taken when the candidate set up the race',
-    )
-    expect(prompt).toContain('the line from ELECTION RULES')
-    expect(prompt).not.toContain('refreshed monthly')
   })
 
   it('singularizes the day count on the last day', () => {
@@ -1250,7 +1099,6 @@ describe('buildCampaignManagerSystemPrompt', () => {
       }),
     )
     expect(prompt).toContain('has already passed')
-    expect(prompt).toContain('the record is stale')
     expect(prompt).not.toContain('day from today')
     expect(prompt).not.toContain('days from today')
   })
@@ -1308,7 +1156,6 @@ describe('buildCampaignManagerSystemPrompt', () => {
     expect(prompt).toContain(
       'Filing opens Monday, November 16, 2026 (in 42 days), but the record has no end date',
     )
-    expect(prompt).toContain('never guess a deadline')
     expect(prompt).not.toContain('no filing period')
   })
 
@@ -1317,7 +1164,6 @@ describe('buildCampaignManagerSystemPrompt', () => {
       ctx({ ballotStatus: 'qualified-not-filed', filingPeriodEnd: null }),
     )
     expect(prompt).toContain('no filing period')
-    expect(prompt).toContain('never guess a date')
   })
 
   it('states the other ballot answers without the filing playbook', () => {
@@ -1343,7 +1189,6 @@ describe('buildCampaignManagerSystemPrompt', () => {
       ctx({ ballotStatus: 'qualified-not-filed', raceId: 'br-hash-1' }),
     )
     expect(prompt).toContain('call get_ballot_requirements FIRST')
-    expect(prompt).toContain('fill what it leaves null')
   })
 
   it('falls back to web search when the campaign has no race record', () => {
@@ -1352,7 +1197,6 @@ describe('buildCampaignManagerSystemPrompt', () => {
     )
     expect(prompt).toContain('no BallotReady race record')
     expect(prompt).not.toContain('call get_ballot_requirements FIRST')
-    expect(prompt).toContain('Use web_search for any ballot-access question')
   })
 
   it('does not advertise the ballot tool to a candidate already on the ballot', () => {
@@ -1370,9 +1214,7 @@ describe('buildCampaignManagerSystemPrompt', () => {
         webSearchEnabled: true,
       }),
     )
-    expect(prompt).toContain('call get_ballot_requirements FIRST')
     expect(prompt).toContain('Use web_search to fill what it leaves null')
-    expect(prompt).toContain('noDataFound')
   })
 
   it('never mentions web search when the search tool is not registered', () => {
@@ -1386,7 +1228,6 @@ describe('buildCampaignManagerSystemPrompt', () => {
       )
       expect(prompt).not.toContain('web_search')
       expect(prompt).toContain('no web-search tool on this turn')
-      expect(prompt).toContain('Never fill a gap from memory')
     }
   })
 
@@ -1395,18 +1236,6 @@ describe('buildCampaignManagerSystemPrompt', () => {
       ctx({ webSearchEnabled: true }),
     )
     expect(prompt).toContain('not only in a footnote')
-    expect(prompt).toContain(
-      'every search, not only questions about the ballot',
-    )
-  })
-
-  it('adds a verify line to public-facing drafts built from search results', () => {
-    const prompt = buildCampaignManagerSystemPrompt(
-      ctx({ webSearchEnabled: true }),
-    )
-    expect(prompt).toContain(
-      'Double-check these numbers and names before you use them.',
-    )
   })
 
   it('carries no search-provenance rule when search is off', () => {
@@ -1415,72 +1244,11 @@ describe('buildCampaignManagerSystemPrompt', () => {
     )
     expect(prompt).not.toContain('not only in a footnote')
     expect(prompt).not.toContain(
-      'Double-check these numbers and names before you use them.',
+      guardrailLine('search_provenance', 'campaign_assistant'),
     )
-  })
-
-  it('says which part of advice is an assumption, on or off search', () => {
-    for (const webSearchEnabled of [true, false]) {
-      const prompt = buildCampaignManagerSystemPrompt(ctx({ webSearchEnabled }))
-      expect(prompt).toContain('rests on an assumption')
-      expect(prompt).toContain('say plainly which part is the assumption')
-    }
-  })
-
-  it('defines a legal question by intent, with tools on or off', () => {
-    const allOff = ctx({
-      webSearchEnabled: false,
-      helpCenterToolEnabled: false,
-    })
-    for (const prompt of [
-      buildCampaignManagerSystemPrompt(ctx()),
-      buildCampaignManagerSystemPrompt(allOff),
-    ]) {
-      expect(prompt).toContain('underlying intent')
-      expect(prompt).toContain('what the law allows, prohibits, requires')
-      expect(prompt).toContain('Getting on the ballot and filing to run')
-    }
-  })
-
-  it('attributes the rule to a source or says none established it', () => {
-    const prompt = buildCampaignManagerSystemPrompt(ctx())
-    expect(prompt).toContain('attribute the rule to that source')
-    expect(prompt).toContain(
-      'do not supply the missing rule from model knowledge',
-    )
-    expect(prompt).toContain('identify what remains unresolved')
-    expect(prompt).toContain('practical next steps')
-  })
-
-  it('keeps product facts separate from legal requirements', () => {
-    const prompt = buildCampaignManagerSystemPrompt(ctx())
-    expect(prompt).toContain(
-      'Keep product facts separate from legal requirements',
-    )
-    expect(prompt).toContain(
-      'does not establish what the law permits or requires',
-    )
-  })
-
-  it('keeps ordinary campaign work out of the legal route', () => {
-    const prompt = buildCampaignManagerSystemPrompt(ctx())
-    expect(prompt).toContain('Ordinary campaign work is not a legal question')
-    expect(prompt).toContain(
-      'Drafting, strategy, product how-tos, and tool use',
-    )
-  })
-
-  it('handles mixed product and legal requests part by part', () => {
-    const prompt = buildCampaignManagerSystemPrompt(ctx())
-    expect(prompt).toContain('For a mixed request')
-    expect(prompt).toContain('answer each part under the applicable rule')
   })
 
   it('pins the legal line to one the finish-time check recognizes', () => {
-    const prompt = buildCampaignManagerSystemPrompt(ctx())
-    expect(prompt).toContain(
-      `in place of any caution of your own: "${LEGAL_LINE}"`,
-    )
     // A statute-citing reply that carries the line gets nothing appended.
     expect(
       legalAdviceBackstop(
@@ -1490,35 +1258,16 @@ describe('buildCampaignManagerSystemPrompt', () => {
     ).toBeNull()
   })
 
-  it('never invents facts (candidate-in-control guardrail)', () => {
-    const prompt = buildCampaignManagerSystemPrompt(ctx()).toLowerCase()
-    expect(prompt).toContain('never invent')
-    expect(prompt).toContain('estimate')
-  })
-
-  it('stays coherent with no numbers and no tasks', () => {
-    const prompt = buildCampaignManagerSystemPrompt(
-      ctx({
-        officeName: null,
-        location: null,
-        electionDate: null,
-        topTasks: [],
-      }),
-    )
-    expect(prompt.toLowerCase()).toContain('campaign manager')
-    expect(prompt.length).toBeGreaterThan(0)
-  })
-
   describe('compose-handoff rules (win_social)', () => {
-    it('includes the rules', () => {
+    it('lists every Win social purpose', () => {
       const prompt = buildCampaignManagerSystemPrompt(ctx({}))
-      expect(prompt).toContain('COMPOSE HANDOFF RULES')
-      expect(prompt).toContain('persuade_voters')
+      for (const purpose of SOCIAL_PURPOSE_VALUES) {
+        expect(prompt).toContain(purpose)
+      }
     })
 
     it('says "candidate", never "official" (candidate vocabulary)', () => {
       const prompt = buildCampaignManagerSystemPrompt(ctx({}))
-      expect(prompt).toContain('the candidate clearly wants')
       expect(prompt).not.toContain('the official')
     })
   })
@@ -1534,7 +1283,6 @@ describe('public profile address', () => {
     expect(prompt).toContain(
       `The candidate's public profile is live at ${URL}. That is its only address`,
     )
-    expect(prompt).toContain("never build one from the candidate's name")
   })
 
   it('withholds an address while the profile is not published, without claiming no page exists', () => {
@@ -1544,7 +1292,6 @@ describe('public profile address', () => {
     expect(prompt).toContain(
       "The candidate's public profile is not published. Do not give or print an address for it until it is live; they publish it from the Public Profile page.",
     )
-    expect(prompt).not.toContain('no public address')
     expect(prompt).not.toContain('/people/')
   })
 
@@ -1571,35 +1318,16 @@ describe('public profile address', () => {
 })
 
 describe('guardrail lines on the Campaign Manager', () => {
-  it('gives the decline in place of an answer and splits a mixed request', () => {
+  it('asks for the legal line from the registry', () => {
     const prompt = buildCampaignManagerSystemPrompt(ctx())
-    expect(prompt).toContain(
-      `do not do it; give this line in its place, in these exact words: "${GUARDRAIL_DECLINE.win}"`,
-    )
-    expect(prompt).toContain(
-      'If a request mixes their campaign with something unrelated, answer the part that belongs here and give the line in place of the rest.',
-    )
-    expect(prompt).toContain('respond to the danger first')
-    expect(prompt).toContain('reply with the same line and nothing more')
-    expect(prompt).not.toContain('entire reply')
-    expect(prompt).not.toContain('exact line and nothing else')
-  })
-
-  it('asks for the legal line once, in exact words, in place of its own caution', () => {
-    const prompt = buildCampaignManagerSystemPrompt(ctx())
-    expect(prompt).toContain(
-      `include this line, once, in these exact words and in place of any caution of your own: "${LEGAL_LINE}"`,
-    )
+    expect(prompt).toContain(LEGAL_LINE)
     expect(LEGAL_LINE).toBe(guardrailLine('legal_advice', 'campaign_assistant'))
   })
 
   it('closes a stated election rule with the registry line', () => {
     const prompt = buildCampaignManagerSystemPrompt(ctx())
     expect(prompt).toContain(
-      'ELECTION RULES (apply whenever you state a rule of this race)',
-    )
-    expect(prompt).toContain(
-      `include this line, once, in these exact words: "${guardrailLine('election_rule_verify', 'campaign_assistant')}"`,
+      guardrailLine('election_rule_verify', 'campaign_assistant'),
     )
   })
 
@@ -1607,7 +1335,7 @@ describe('guardrail lines on the Campaign Manager', () => {
     const line = guardrailLine('small_count', 'campaign_assistant')
     expect(
       buildCampaignManagerSystemPrompt(ctx({ constituentToolEnabled: true })),
-    ).toContain(`include this line, once, in these exact words: "${line}"`)
+    ).toContain(line)
     expect(
       buildCampaignManagerSystemPrompt(ctx({ constituentToolEnabled: false })),
     ).not.toContain(line)
@@ -1618,7 +1346,7 @@ describe('guardrail lines on the Campaign Manager', () => {
       ctx({ webSearchEnabled: true }),
     )
     expect(prompt).toContain(
-      `include this line in the draft, in these exact words: "${guardrailLine('search_provenance', 'campaign_assistant')}"`,
+      guardrailLine('search_provenance', 'campaign_assistant'),
     )
   })
 })

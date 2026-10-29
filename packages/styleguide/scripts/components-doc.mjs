@@ -65,7 +65,7 @@ const doc = `# Styleguide components
 
 Every component in \`src/components/ui/\` and when to use it. Pick from this list
 before you build UI, and import from \`@styleguide\`. For variants and props, read
-the component's source. For examples, read its story in \`src/stories/\`.
+the component's source. For examples, search \`packages/gp-webapp/app\` for real uses.
 
 Generated from the \`@summary\` JSDoc tag on each component. Do not edit by hand:
 change the tag, then run \`npm run docs:components -w packages/styleguide\`.

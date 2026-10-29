@@ -151,7 +151,7 @@ export class PriorityFlowContextService extends createPrismaBase(
       status,
       districtFilters: null,
       constituentToolEnabled: false,
-      peopleDataset: 'voters',
+      peopleDataset: { base: 'voters' },
     }
   }
 

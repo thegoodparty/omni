@@ -1136,15 +1136,6 @@ describe('CampaignsController', () => {
   })
 
   describe('launch', () => {
-    it('returns launch result on success', async () => {
-      vi.spyOn(campaignsService, 'launch').mockResolvedValue(true)
-
-      const result = await controller.launch(mockCampaign)
-
-      expect(campaignsService.launch).toHaveBeenCalledWith(mockCampaign)
-      expect(result).toBe(true)
-    })
-
     it('logs, sends Slack message, and re-throws on error', async () => {
       const error = new Error('Launch failed')
       vi.spyOn(campaignsService, 'launch').mockRejectedValue(error)

@@ -17,7 +17,7 @@ import {
   User,
 } from '../../../generated/prisma'
 import { CampaignTcrComplianceService } from '../../../campaigns/tcrCompliance/services/campaignTcrCompliance.service'
-import { MAX_RESOLVED_ID_SET_SIZE } from '@/contactInteraction/services/activityConditionResolution.service'
+import { MAX_RESOLVED_ID_SET_SIZE } from '@/contactInteraction/resolvedIdSetCap.const'
 import { ContactInteractionTextService } from '@/contactInteraction/services/contactInteractionText.service'
 import {
   ContactsFilterResolutionInput,
@@ -50,7 +50,7 @@ import { FeaturesService } from '@/features/services/features.service'
 // export — each contacts-pipeline consumer keeps its own copy (see that
 // file's SEGMENT_PAGE_SIZE for the sibling constant).
 const SEGMENT_PAGE_SIZE = 1000
-const MAX_PHONE_LIST_RECIPIENTS = 100_000
+const MAX_PHONE_LIST_RECIPIENTS = 200_000
 
 const CSV_HEADER_ROW = 'first_name,last_name,lead_phone,state,city,zip'
 
@@ -67,13 +67,17 @@ type P2pPhoneListFilterInput = Omit<
 
 // A `building` row whose updatedAt is older than this is assumed abandoned
 // (the handler crashed, was OOM-killed, or lost its SQS message before
-// finishing) and is reclaimed by the sweep below. Comfortably exceeds a
-// healthy-but-slow run: filter resolution over a 100k-recipient audience
-// plus a ~100MB Peerly upload, against a 60s Peerly upload timeout
-// (peerlyBaseConfig's PEERLY_UPLOAD_TIMEOUT_MS) — this has no request
-// deadline (see buildPhoneList's isInteractive branch), so it can
-// legitimately run for several minutes.
+// finishing) and is reclaimed by the sweep below. A healthy run is never
+// this stale however large its audience: buildPhoneList bumps updatedAt
+// every BUILD_HEARTBEAT_RECIPIENTS while it resolves (a 200k-recipient
+// resolution can run ~17 minutes at the slow end of prod's page times),
+// and what follows resolution is bounded on its own — a 60s Peerly upload
+// timeout (peerlyBaseConfig's PEERLY_UPLOAD_TIMEOUT_MS) and recordUpload's
+// transaction timeout.
 const P2P_PHONE_LIST_BUILD_STALE_MINUTES = 20
+// ~10 pages, ~15-25s of resolution: far inside the stale window above, and
+// rare enough that the extra writes don't matter.
+const BUILD_HEARTBEAT_RECIPIENTS = 10_000
 // How many times the reaper will re-queue a stuck build before giving up and
 // marking it permanently failed. Bounds a build that fails the same way on
 // every retry (e.g. a persistently broken filter) rather than re-queuing it
@@ -665,6 +669,7 @@ export class P2pPhoneListUploadService {
     }
     try {
       phoneList = await this.buildPhoneList(
+        buildId,
         resolvedFilterInput,
         organization,
         excludePersonIds,
@@ -799,6 +804,7 @@ export class P2pPhoneListUploadService {
   }
 
   private async buildPhoneList(
+    buildId: string,
     filterInput: ContactsFilterResolutionInput,
     organization: Organization,
     excludePersonIds: Set<string>,
@@ -824,8 +830,10 @@ export class P2pPhoneListUploadService {
       maxRecipients: MAX_PHONE_LIST_RECIPIENTS,
       isEligible: hasGeoTargetableAddress,
       limitExceededMessage:
-        `This filter matches over the ${MAX_PHONE_LIST_RECIPIENTS} ` +
-        `phone-list limit — narrow the filter and try again.`,
+        `This list reaches over ` +
+        `${MAX_PHONE_LIST_RECIPIENTS.toLocaleString('en-US')} people, which ` +
+        `is more than one text campaign can send to. Narrow your filters ` +
+        `and try again.`,
       // Only the interactive (synchronous) path has an official sat in
       // front of it waiting for a token, so only it gets a clock. The
       // queued build has no deadline — it genuinely completes however long
@@ -866,6 +874,9 @@ export class P2pPhoneListUploadService {
       if (sendCap !== null && recipients.length >= sendCap) break
       const person = next.value
       recipients.push({ personId: person.id, phone: person.cellPhone })
+      if (recipients.length % BUILD_HEARTBEAT_RECIPIENTS === 0) {
+        await this.peerlyPhoneListCapture.touchBuilding(buildId)
+      }
       rows.push(
         [
           person.firstName,

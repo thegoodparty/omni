@@ -6,6 +6,7 @@ export type AppEnvOverrides = {
   VENDOR_CRONS_ENABLED?: boolean
   APP_ROOT?: string
   WEBAPP_ROOT?: string
+  MAX_RESOLVED_ID_SET_SIZE?: number
 }
 
 // The appEnvironment.util constants are evaluated once at import, so a test

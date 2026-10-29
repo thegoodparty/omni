@@ -93,6 +93,8 @@ const person = (id: string, firstName: string): Person => ({
   earlyVoteStatus: null,
   maritalStatus: null,
   hasChildrenUnder18: null,
+  email: null,
+  isNewContact: false,
   veteranStatus: null,
   homeowner: null,
   businessOwner: null,

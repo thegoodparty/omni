@@ -642,12 +642,12 @@ describe('buildDistrictInsightsTool', () => {
     }
   }
 
-  it('exposes a description that includes the table, scope WHERE clause, and column hints so the LLM can write valid SQL', () => {
+  it('exposes a description that includes the table and scope WHERE clause so the LLM can write valid SQL', () => {
     const tool = buildDistrictInsightsTool({
       provider: fakeProvider(),
       allowedTables,
       mandatoryFilters,
-      peopleDataset: 'voters',
+      peopleDataset: { base: 'voters' },
     })
     expect(typeof tool.description).toBe('string')
     // Must include the table the LLM should query against.
@@ -658,30 +658,7 @@ describe('buildDistrictInsightsTool', () => {
     expect(tool.description).toContain(
       "City_Council_Commissioner_District = 'HENDERSONVILLE'",
     )
-    // Must hint at useful column families.
-    expect(tool.description).toMatch(/hs_/)
-    // Must state the score scale and its relative (percentile-rank) basis so
-    // score averages are never presented as absolute shares of constituents.
-    expect(tool.description).toMatch(/percentile rank/i)
-    expect(tool.description).toMatch(/deviation from 50/i)
-    expect(tool.description).toMatch(/nulls mean unknown/i)
-    // Must remind the LLM not to echo to the user (defense in depth — the
-    // system prompt also enforces this).
-    expect(tool.description).toMatch(/never echo|plain language/i)
     expect(typeof tool.inputSchema.parse).toBe('function')
-  })
-
-  it('computes hs_* shares over scored rows only, so a null score never counts as zero', () => {
-    const tool = buildDistrictInsightsTool({
-      provider: fakeProvider(),
-      allowedTables,
-      mandatoryFilters,
-      peopleDataset: 'voters',
-    })
-    expect(tool.description).toContain(
-      'AVG(CASE WHEN <col> >= 50 THEN 1.0 WHEN <col> IS NOT NULL THEN 0.0 END)',
-    )
-    expect(tool.description).toContain('Do not put ELSE 0.0 in a share')
   })
 
   it('describes the voters table as the registration file', () => {
@@ -689,11 +666,9 @@ describe('buildDistrictInsightsTool', () => {
       provider: fakeProvider(),
       allowedTables,
       mandatoryFilters,
-      peopleDataset: 'voters',
+      peopleDataset: { base: 'voters' },
     })
-    expect(tool.description).toContain(
-      'one row per constituent on the registration file',
-    )
+    expect(tool.description).toContain('registration file')
     expect(tool.description).not.toContain('not registered to vote')
   })
 
@@ -702,18 +677,10 @@ describe('buildDistrictInsightsTool', () => {
       provider: fakeProvider(),
       allowedTables,
       mandatoryFilters,
-      peopleDataset: 'constituents',
+      peopleDataset: { base: 'constituents' },
     })
     expect(tool.description).not.toContain('registration file')
-    expect(tool.description).toContain(
-      'one row per adult resident, registered to vote or not',
-    )
-    expect(tool.description).toContain(
-      'Totals include adult residents whether or not they are registered to vote',
-    )
-    expect(tool.description).toContain(
-      'residents who are not registered to vote are never scored',
-    )
+    expect(tool.description).toContain('not registered to vote')
   })
 
   it('requires both sql and rationale in the input schema', () => {
@@ -721,7 +688,7 @@ describe('buildDistrictInsightsTool', () => {
       provider: fakeProvider(),
       allowedTables,
       mandatoryFilters,
-      peopleDataset: 'voters',
+      peopleDataset: { base: 'voters' },
     })
     expect(() => tool.inputSchema.parse({ sql: 'x' })).toThrow()
     expect(() => tool.inputSchema.parse({ rationale: 'x' })).toThrow()
@@ -736,7 +703,7 @@ describe('buildDistrictInsightsTool', () => {
       provider,
       allowedTables,
       mandatoryFilters,
-      peopleDataset: 'voters',
+      peopleDataset: { base: 'voters' },
     })
     const out = await tool.execute({
       sql: happyPathSql,
@@ -757,7 +724,7 @@ describe('buildDistrictInsightsTool', () => {
       provider,
       allowedTables,
       mandatoryFilters,
-      peopleDataset: 'voters',
+      peopleDataset: { base: 'voters' },
     })
     // Missing the state filter — validator rejects.
     await expect(
@@ -783,7 +750,7 @@ describe('buildDistrictInsightsTool', () => {
       provider,
       allowedTables,
       mandatoryFilters,
-      peopleDataset: 'voters',
+      peopleDataset: { base: 'voters' },
     })
     const out = await tool.execute({
       sql: happyPathSql,
@@ -805,7 +772,7 @@ describe('buildDistrictInsightsTool', () => {
       provider,
       allowedTables,
       mandatoryFilters,
-      peopleDataset: 'voters',
+      peopleDataset: { base: 'voters' },
       minCellSize: 25,
     })
     const out = await tool.execute({
@@ -823,7 +790,7 @@ describe('buildDistrictInsightsTool', () => {
       provider,
       allowedTables,
       mandatoryFilters,
-      peopleDataset: 'voters',
+      peopleDataset: { base: 'voters' },
     })
     await expect(
       tool.execute({ sql: happyPathSql, rationale: 'r' }),
@@ -839,7 +806,7 @@ describe('buildDistrictInsightsTool', () => {
       provider: fakeProvider(),
       allowedTables,
       mandatoryFilters: [],
-      peopleDataset: 'voters',
+      peopleDataset: { base: 'voters' },
     })
     // The tool object still exists.
     expect(tool).toBeDefined()

@@ -15,6 +15,10 @@ import { Injectable } from '@nestjs/common'
 import { DatabricksVoterService } from '../databricks/databricksVoter.service'
 import { VoterReadLogService } from '../databricks/voterReadLog.service'
 import type { DistrictCell } from '../databricks/districtCensusSql.util'
+import type {
+  ContactUploadMatchCandidateRow,
+  ContactUploadMatchInputRow,
+} from '../databricks/contactUploadMatchSql.util'
 import type { PeopleDataset } from './peopleDataset.service'
 
 @Injectable()
@@ -139,6 +143,21 @@ export class VoterQueryService {
       districtId: dto.districtId,
       dataset,
       read: () => this.databricks.samplePeople(dto, dataset),
+    })
+  }
+
+  // Import contacts matching: one statement per chunk of upload rows.
+  async matchContactUploadRows(
+    districtId: string,
+    dataset: PeopleDataset,
+    rows: ContactUploadMatchInputRow[],
+  ): Promise<ContactUploadMatchCandidateRow[]> {
+    return this.readLog.measure({
+      op: 'contact-upload-match',
+      districtId,
+      dataset,
+      read: () =>
+        this.databricks.matchContactUploadRows(districtId, dataset, rows),
     })
   }
 }

@@ -36,7 +36,7 @@ const CAMPAIGN_ID = 996
 
 const district: DbxDistrict = {
   districtId: 'district-1',
-  dataset: 'voters',
+  dataset: { base: 'voters' },
   table: 'goodparty_data_catalog.mart_gp_api.gp_api_voters',
   state: 'TX',
   districtType: 'City',
@@ -151,7 +151,7 @@ beforeEach(async () => {
   const contacts = service.app.get(ContactsService)
   vi.spyOn(contacts, 'resolveEligibleDistrict').mockResolvedValue({
     districtId: district.districtId,
-    dataset: 'voters',
+    dataset: { base: 'voters' },
   })
   vi.spyOn(contacts, 'resolveSavedFilterForQuery').mockResolvedValue({
     filters: {},

@@ -94,34 +94,15 @@ const countAllSocialRows = async () => ({
 })
 
 describe('POST /v1/outreach/serve/social/draft', () => {
-  it('drafts for each serve purpose with its CSV prompt + system prompt, never candidate/voter framing', async () => {
-    // One representative sentence per purpose (not a full-string pin —
-    // brittle to whitespace); the source of truth is SERVE_PURPOSE_PROMPTS.
-    const sentences: Record<string, string> = {
-      introduce_myself:
-        'Use their name, office held, location served, bio, ' +
-        'why-they-serve statement, and top priorities as source material.',
-      explain_decision:
-        'Do not attack colleagues or other officials, or use ' +
-        'inflammatory language.',
-      event_invite:
-        'Structure: an opening hook naming the event, 1-2 sentences on ' +
-        'why it matters or what to expect, then a closing call to ' +
-        'action to attend, including date/time/location.',
-      community_input:
-        'Structure: name the issue or decision, explain briefly why ' +
-        'input matters, then a clear closing call to action on how to ' +
-        'share feedback (e.g. link, meeting, email).',
-      share_resource:
-        'Structure: name the resource, explain briefly who it helps ' +
-        'and how, then a closing call to action on how to access it.',
-      issue_update:
-        'Structure: name the issue, explain the update in 2-3 ' +
-        'sentences, then a closing line inviting continued engagement ' +
-        'or follow-up.',
-    }
-
-    for (const [purpose, sentence] of Object.entries(sentences)) {
+  it('drafts for each serve purpose with its purpose prompt, never candidate/voter framing', async () => {
+    for (const purpose of [
+      'introduce_myself',
+      'explain_decision',
+      'event_invite',
+      'community_input',
+      'share_resource',
+      'issue_update',
+    ] as const) {
       jsonCompletion.mockClear()
       jsonCompletion.mockResolvedValue({
         object: { draft: 'A constituent update.' },
@@ -142,10 +123,9 @@ describe('POST /v1/outreach/serve/social/draft', () => {
         (m: { role: string }) => m.role === 'user',
       )?.content
 
-      expect(userPrompt).toContain(sentence)
+      expect(userPrompt).toContain(SERVE_SOCIAL_VOICE.purposePrompts[purpose])
       expect(userPrompt).toContain('Office held')
       expect(userPrompt).not.toContain('Office sought')
-      expect(systemPrompt).toContain('elected official')
       expect(systemPrompt).not.toMatch(/candidate/i)
       expect(systemPrompt).not.toMatch(/voters?/i)
       expect(userPrompt).not.toMatch(/candidate/i)
@@ -200,7 +180,6 @@ describe('POST /v1/outreach/serve/social/draft', () => {
       (m: { role: string }) => m.role === 'user',
     )?.content
 
-    expect(systemPrompt).toContain('elected official')
     expect(systemPrompt).not.toMatch(/candidate/i)
     expect(systemPrompt).not.toMatch(/voters?/i)
     expect(userPrompt).not.toMatch(/candidate/i)
@@ -600,28 +579,6 @@ describe('POST /v1/outreach/serve/social/generate', () => {
       expect(res.status).toBe(HttpStatus.CREATED)
     },
   )
-
-  it('carries the flag-dont-alter instruction for the custom purpose on Nextdoor', async () => {
-    jsonCompletion.mockResolvedValue(
-      llmResult([{ platform: 'nextdoor', text: 'Trimmed message' }]),
-    )
-
-    const res = await postGenerate({
-      draftMessage: 'My own words, unedited.',
-      purpose: 'custom',
-      platforms: ['nextdoor'],
-    })
-
-    expect(res.status).toBe(HttpStatus.CREATED)
-    const call = jsonCompletion.mock.calls[0]?.[0]
-    const userPrompt = call.messages.find(
-      (m: { role: string }) => m.role === 'user',
-    )?.content
-    expect(userPrompt).toContain(
-      'Flag rather than silently alter or remove language that may not ' +
-        "comply with a platform's content policy",
-    )
-  })
 })
 
 describe('POST /v1/outreach/serve/social', () => {

@@ -130,6 +130,10 @@ export const PersonSchema = z.object({
   }),
   cellPhone: z.string().nullable(),
   landline: z.string().nullable(),
+  // From the org's imported contacts (Import contacts); null without one.
+  email: z.string().nullable(),
+  // A person an import added who is not in the voter or constituent file.
+  isNewContact: z.boolean(),
   gender: z.enum(['Male', 'Female']).nullable(),
   // Absent (not null) for `eo-` (Serve) organizations: gp-api strips this key
   // before serializing list, detail, and typeahead responses to an elected-

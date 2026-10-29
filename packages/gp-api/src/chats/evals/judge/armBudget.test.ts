@@ -1,4 +1,4 @@
-import { execFileSync, spawnSync } from 'node:child_process'
+import { execFileSync } from 'node:child_process'
 import {
   copyFileSync,
   mkdirSync,
@@ -27,6 +27,7 @@ import {
   baseCannotRunChat,
   candidateChatTurns,
   resolveChatRefusals,
+  runArmBudgetEntry,
 } from './armBudget'
 import {
   DEFAULT_JUDGE_CONFIG,
@@ -178,17 +179,18 @@ const baseTree = (spec: {
   return root
 }
 
-// The entry run exactly as judge.yml runs it, with stderr kept: the refusal
-// reasons a reader of the job log gets are printed there.
+// The entry called in-process with judge.yml's argument and env, with stderr
+// kept: the refusal reasons a reader of the job log gets are printed there.
+// One test below spawns the real command, which proves the `require.main`
+// wiring; a spawn per case costs ~3s of tsx startup and proves nothing more.
 const runEntry = (env: NodeJS.ProcessEnv) => {
   const out = join(mkdtempSync(join(tmpdir(), 'budget-')), 'github-output')
-  const result = spawnSync(
-    process.execPath,
-    [TSX_CLI, join(__dirname, 'armBudget.ts'), out],
-    {
-      cwd: join(__dirname, '../../../..'),
-      encoding: 'utf8',
-      env: { ...process.env, ...env },
+  let stderr = ''
+  const status = runArmBudgetEntry(
+    [out],
+    { ...process.env, ...env },
+    (text) => {
+      stderr += text
     },
   )
   let written = ''
@@ -197,7 +199,7 @@ const runEntry = (env: NodeJS.ProcessEnv) => {
   } catch {
     written = ''
   }
-  return { status: result.status, stderr: result.stderr, written }
+  return { status, stderr, written }
 }
 
 const PARSE = (lines: string): NodeJS.ProcessEnv => {

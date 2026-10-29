@@ -6,33 +6,18 @@
  *
  * @example
  * ```typescript
- * import { userFactory, createProCampaign } from '@/shared/test-utils/factories'
+ * import { userFactory, campaignFactory } from '@/shared/test-utils/factories'
  *
  * const user = userFactory({ email: 'test@example.com' })
- * const campaign = createProCampaign({ userId: user.id })
+ * const campaign = campaignFactory({ userId: user.id })
  * ```
  */
 
 export { generateFactory } from './generate'
 
-export {
-  userFactory,
-  resetUserCounter,
-  createAdminUser,
-  createCandidateUser,
-  createCampaignManagerUser,
-} from './userFactory'
+export { userFactory, resetUserCounter } from './userFactory'
 
-export {
-  campaignFactory,
-  resetCampaignCounter,
-  createProCampaign,
-  createCampaignWithUser,
-  createVerifiedCampaign,
-  createDemoCampaign,
-  createCampaignWithFreeTexts,
-  createProCampaignWithUser,
-} from './campaignFactory'
+export { campaignFactory, resetCampaignCounter } from './campaignFactory'
 
 import { resetUserCounter } from './userFactory'
 import { resetCampaignCounter } from './campaignFactory'

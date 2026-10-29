@@ -18,7 +18,6 @@ src/
   components/ui/   # React components (shadcn/ui based)
   hooks/           # use-mobile.ts (breakpoints inlined, no @shared dep)
   lib/utils.ts     # cn() utility
-  stories/         # Storybook stories (excluded from tsc)
   index.ts         # Re-exports for components + cn
   design-tokens.css
   tailwind-theme.css
@@ -34,7 +33,6 @@ src/
    one line on when to use it, and what to use instead where a sibling is
    easy to confuse with it. Then run `npm run docs:components -w packages/styleguide`.
 4. Export from `src/components/ui/index.ts`
-5. Create story in `src/stories/NewComponent.stories.tsx`
 
 ## Component index
 
@@ -66,14 +64,3 @@ npm run test -w packages/styleguide
 
 Co-locate `*.test.tsx` next to the component (`src/components/ui/switch.test.tsx`)
 and import it with a relative path.
-
-## Storybook
-
-Storybook config lives in `packages/gp-webapp/.storybook/`. Stories are discovered
-via the glob `../../styleguide/src/stories/**/*.stories.*` in `main.ts`.
-
-```bash
-# from repo root
-npm run storybook -w packages/gp-webapp
-npm run build-storybook -w packages/gp-webapp
-```

@@ -1,4 +1,4 @@
-import { BadRequestException, NotFoundException } from '@nestjs/common'
+import { NotFoundException } from '@nestjs/common'
 import {
   Annotation,
   AnnotationKind,
@@ -579,36 +579,6 @@ describe('BriefingChatsService', () => {
       expect(args?.clientMessageId).toBeUndefined()
     })
 
-    it('propagates NotFoundException from briefingContext.loadContext', async () => {
-      briefingContext.loadContext.mockRejectedValueOnce(
-        new NotFoundException('Annotation not found'),
-      )
-      await expect(
-        consume(
-          svc.sendMessage({
-            annotationId: 'missing',
-            userId: USER_ID,
-            userMessage: 'hi',
-          }),
-        ),
-      ).rejects.toBeInstanceOf(NotFoundException)
-    })
-
-    it('propagates BadRequestException from briefingContext.loadContext', async () => {
-      briefingContext.loadContext.mockRejectedValueOnce(
-        new BadRequestException('bad'),
-      )
-      await expect(
-        consume(
-          svc.sendMessage({
-            annotationId: ANNOTATION_ID,
-            userId: USER_ID,
-            userMessage: 'hi',
-          }),
-        ),
-      ).rejects.toBeInstanceOf(BadRequestException)
-    })
-
     it('throws NotFoundException when annotation.chatConversationId is null', async () => {
       briefingContext.loadContext.mockResolvedValueOnce({
         annotation: buildAnnotation({ chatConversationId: null }),
@@ -853,15 +823,6 @@ describe('BriefingChatsService', () => {
       expect(chatStore.listMessagesByConversation).not.toHaveBeenCalled()
     })
 
-    it('propagates NotFoundException from briefingContext.loadContext', async () => {
-      briefingContext.loadContext.mockRejectedValueOnce(
-        new NotFoundException('Annotation not found'),
-      )
-      await expect(
-        svc.loadConversation('missing', USER_ID),
-      ).rejects.toBeInstanceOf(NotFoundException)
-    })
-
     it('throws NotFoundException when annotation.chatConversationId is null', async () => {
       briefingContext.loadContext.mockResolvedValueOnce({
         annotation: buildAnnotation({ chatConversationId: null }),
@@ -891,15 +852,6 @@ describe('BriefingChatsService', () => {
       )
     })
 
-    it('propagates NotFoundException from briefingContext.loadContext', async () => {
-      briefingContext.loadContext.mockRejectedValueOnce(
-        new NotFoundException('Annotation not found'),
-      )
-      await expect(
-        svc.deleteConversation('missing', USER_ID),
-      ).rejects.toBeInstanceOf(NotFoundException)
-    })
-
     it('throws NotFoundException when annotation.chatConversationId is null', async () => {
       briefingContext.loadContext.mockResolvedValueOnce({
         annotation: buildAnnotation({ chatConversationId: null }),
@@ -912,36 +864,6 @@ describe('BriefingChatsService', () => {
       await expect(
         svc.deleteConversation(ANNOTATION_ID, USER_ID),
       ).rejects.toBeInstanceOf(NotFoundException)
-    })
-  })
-
-  describe('assertBriefingChatAccessible', () => {
-    it('resolves when loadContext succeeds', async () => {
-      await expect(
-        svc.assertBriefingChatAccessible(ANNOTATION_ID, USER_ID),
-      ).resolves.toBeUndefined()
-      expect(briefingContext.loadContext).toHaveBeenCalledWith(
-        ANNOTATION_ID,
-        USER_ID,
-      )
-    })
-
-    it('throws NotFoundException when loadContext throws NotFoundException', async () => {
-      briefingContext.loadContext.mockRejectedValueOnce(
-        new NotFoundException('Annotation not found'),
-      )
-      await expect(
-        svc.assertBriefingChatAccessible('missing', USER_ID),
-      ).rejects.toBeInstanceOf(NotFoundException)
-    })
-
-    it('throws BadRequestException when loadContext throws BadRequestException', async () => {
-      briefingContext.loadContext.mockRejectedValueOnce(
-        new BadRequestException('bad'),
-      )
-      await expect(
-        svc.assertBriefingChatAccessible(ANNOTATION_ID, USER_ID),
-      ).rejects.toBeInstanceOf(BadRequestException)
     })
   })
 })

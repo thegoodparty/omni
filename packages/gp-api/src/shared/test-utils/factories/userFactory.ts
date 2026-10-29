@@ -28,15 +28,3 @@ export const userFactory = generateFactory<User>((args) => {
     passwordResetToken: null,
   }
 })
-
-export function createAdminUser(overrides: Partial<User> = {}): User {
-  return userFactory({ roles: [UserRole.admin], ...overrides })
-}
-
-export function createCandidateUser(overrides: Partial<User> = {}): User {
-  return userFactory({ roles: [UserRole.candidate], ...overrides })
-}
-
-export function createCampaignManagerUser(overrides: Partial<User> = {}): User {
-  return userFactory({ roles: [UserRole.campaignManager], ...overrides })
-}

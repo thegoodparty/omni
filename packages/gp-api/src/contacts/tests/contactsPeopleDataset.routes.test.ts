@@ -5,6 +5,7 @@ import { FeaturesService } from '@/features/services/features.service'
 import { PeopleDbxStatementClient } from '@/peopleDb/databricks/peopleDbxStatement.client'
 import { ElectionDistrictService } from '@/peopleDb/services/electionDistrict.service'
 import { SERVE_CONSUMER_DATA_FLAG } from '@/peopleDb/services/peopleDataset.service'
+import { SERVE_IMPORT_CONTACTS_FLAG } from '@goodparty_org/contracts'
 
 const service = useTestService()
 
@@ -38,22 +39,30 @@ describe('POST /v1/contacts/count — people table', () => {
     return slug
   }
 
-  const createServeOrg = async () => {
+  const createServeOrg = async (overrideDistrictId: string = randomUUID()) => {
     const slug = `eo-dataset-${randomUUID()}`
     await service.prisma.organization.create({
       data: {
         slug,
         ownerId: service.user.id,
-        overrideDistrictId: randomUUID(),
+        overrideDistrictId,
       },
     })
     return slug
   }
 
-  const countSqlFor = async (slug: string, flagOn: boolean) => {
+  const countSqlFor = async (
+    slug: string,
+    flagOn: boolean,
+    importContacts = false,
+  ) => {
     const isFeatureEnabled = vi
       .spyOn(service.app.get(FeaturesService), 'isFeatureEnabled')
-      .mockResolvedValue(flagOn)
+      .mockImplementation(async ({ feature }) =>
+        feature === SERVE_CONSUMER_DATA_FLAG
+          ? flagOn
+          : feature === SERVE_IMPORT_CONTACTS_FLAG && importContacts,
+      )
     vi.spyOn(
       service.app.get(ElectionDistrictService),
       'findDistrictById',
@@ -125,6 +134,23 @@ describe('POST /v1/contacts/count — people table', () => {
     for (const statement of sql) {
       expect(statement).toContain(`FROM ${VOTERS_TABLE} v`)
       expect(statement).not.toContain(CONSTITUENTS_TABLE)
+    }
+  })
+
+  it('joins the org imported contacts when serve-import-contacts is on', async () => {
+    const districtId = randomUUID()
+    const slug = await createServeOrg(districtId)
+
+    const { sql } = await countSqlFor(slug, true, true)
+
+    expect(sql.length).toBeGreaterThan(0)
+    for (const statement of sql) {
+      expect(statement).toContain(
+        `FROM (SELECT * FROM ${CONSTITUENTS_TABLE}` +
+          " WHERE `State` = 'MI' AND `City` = 'Lansing') b FULL OUTER JOIN",
+      )
+      expect(statement).toContain(`WHERE organization_slug = '${slug}') o`)
+      expect(statement).not.toContain('AND NOT is_new')
     }
   })
 })

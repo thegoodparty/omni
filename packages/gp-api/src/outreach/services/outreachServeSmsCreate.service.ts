@@ -11,7 +11,7 @@ import {
 } from '@goodparty_org/contracts'
 import { addBusinessDays, addDays, format, isWeekend, parseISO } from 'date-fns'
 import { toZonedTime } from 'date-fns-tz'
-import { MAX_RESOLVED_ID_SET_SIZE } from '@/contactInteraction/services/activityConditionResolution.service'
+import { MAX_RESOLVED_ID_SET_SIZE } from '@/contactInteraction/resolvedIdSetCap.const'
 import { ContactInteractionTextService } from '@/contactInteraction/services/contactInteractionText.service'
 import {
   ContactsFilterResolutionInput,

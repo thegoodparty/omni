@@ -1,14 +1,11 @@
 ---
 name: ux-review-options
-description: Produce 3 distinct design options for a feature ticket as one clickable wireframe page, published to a private Vercel artifact link. Use when a ticket moves to Committed (the Delegate trigger) or when someone asks for UX options, wireframes or a design review for a ticket, so the team can pick the UX direction before agents build it. Replaces ux-review-canvas.
+description: Produce 3 distinct design options for a feature ticket as one clickable wireframe page, published to a private Vercel artifact link. Use when a ticket moves to Committed (the Delegate trigger) or when someone asks for UX options, wireframes or a design review for a ticket, so the team can pick the UX direction before agents build it.
 ---
 
 Produce three design options for a feature, as one page the team can open, click
 through and comment on. The user gives you a ticket (ClickUp URL) and any docs,
 meeting notes or transcripts behind it.
-
-This replaces `ux-review-canvas`. Same goal. No Claude Design, a short brief
-instead of an overview page, and three options instead of eight to twelve.
 
 ## Why this skill exists
 

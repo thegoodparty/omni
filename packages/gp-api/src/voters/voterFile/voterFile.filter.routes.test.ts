@@ -198,7 +198,7 @@ describe('voter-file segment CRUD for a campaign org', () => {
     ).toBeNull()
   })
 
-  it('does not delete a filter owned by another org', async () => {
+  it('does not read, update, or delete a filter owned by another org', async () => {
     await seedWinCampaign()
     const OTHER_SLUG = 'campaign-other-org'
     await service.prisma.organization.create({
@@ -217,6 +217,19 @@ describe('voter-file segment CRUD for a campaign org', () => {
       data: { organizationSlug: OTHER_SLUG, ...partySegmentBody },
     })
 
+    const read = await service.client.get(
+      `/v1/voters/voter-file/filter/${otherFilter.id}`,
+      { headers: { [ORG_SLUG_HEADER]: WIN_SLUG } },
+    )
+    expect(read.status).toBe(404)
+
+    const update = await service.client.put(
+      `/v1/voters/voter-file/filter/${otherFilter.id}`,
+      { name: 'Hijacked' },
+      { headers: { [ORG_SLUG_HEADER]: WIN_SLUG } },
+    )
+    expect(update.status).toBe(404)
+
     const attempt = await service.client.delete(
       `/v1/voters/voter-file/filter/${otherFilter.id}`,
       { headers: { [ORG_SLUG_HEADER]: WIN_SLUG } },
@@ -230,7 +243,7 @@ describe('voter-file segment CRUD for a campaign org', () => {
     ).not.toBeNull()
   })
 
-  it('allows segment creation for a non-pro Win campaign, but not update', async () => {
+  it('allows segment creation for a non-pro Win campaign, but not update or delete', async () => {
     await seedWinCampaign(false)
 
     const created = await service.client.post(
@@ -250,6 +263,14 @@ describe('voter-file segment CRUD for a campaign org', () => {
     )
 
     expect(updated.status).toBe(403)
+
+    const deleted = await service.client.delete(
+      `/v1/voters/voter-file/filter/${id}`,
+      { headers: { [ORG_SLUG_HEADER]: WIN_SLUG } },
+    )
+
+    expect(deleted.status).toBe(403)
+    expect(await service.prisma.voterFileFilter.count()).toBe(1)
   })
 })
 

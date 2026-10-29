@@ -68,7 +68,7 @@ const CTX: Ctx = {
   anchor: null,
   districtFilters: null,
   constituentToolEnabled: false,
-  peopleDataset: 'voters',
+  peopleDataset: { base: 'voters' },
 }
 
 // Stands in for native web search. One topic-neutral fact and no instruction,

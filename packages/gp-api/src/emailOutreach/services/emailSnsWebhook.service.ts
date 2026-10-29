@@ -110,7 +110,7 @@ export class EmailSnsWebhookService {
       certificate = await this.fetchCertificate(message.SigningCertURL)
     } catch (err) {
       if (err instanceof ForbiddenException) throw err
-      this.logger.error({ err }, 'could not fetch the SNS signing certificate')
+      this.logger.warn({ err }, 'could not fetch the SNS signing certificate')
       throw new ServiceUnavailableException()
     }
     if (!verifySnsSignature(message, certificate)) {
@@ -119,7 +119,7 @@ export class EmailSnsWebhookService {
     }
     const topic = resolveEnvVar(EMAIL_INBOUND_TOPIC_ENV)
     if (!topic.configured) {
-      this.logger.error(`${EMAIL_INBOUND_TOPIC_ENV} is not set`)
+      this.logger.warn(`${EMAIL_INBOUND_TOPIC_ENV} is not set`)
       throw new ServiceUnavailableException()
     }
     if (message.TopicArn !== topic.value) {
@@ -168,7 +168,7 @@ export class EmailSnsWebhookService {
     try {
       await this.fetchSubscribeUrl(message.SubscribeURL)
     } catch (err) {
-      this.logger.error({ err }, 'could not confirm the SNS subscription')
+      this.logger.warn({ err }, 'could not confirm the SNS subscription')
       throw new ServiceUnavailableException()
     }
   }

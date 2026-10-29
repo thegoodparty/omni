@@ -328,10 +328,10 @@ export function createService({
   })
 
   // A full vCPU everywhere. Preview's boot is on the critical path of every
-  // PR, and at half a vCPU Nest alone took ~45s to come up. Dev's single task
-  // takes the release train's E2E (16 Playwright workers): at half a vCPU it
-  // ran at its CPU quota for the whole run, gp-api medians went from ~5ms to
-  // ~600ms, and webapp server renders hit Vercel's function timeout.
+  // PR, and at half a vCPU Nest alone took ~45s to come up. Dev takes the
+  // release train's E2E: on one task at half a vCPU (16 Playwright workers)
+  // it ran at its CPU quota for the whole run, gp-api medians went from ~5ms
+  // to ~600ms, and webapp server renders hit Vercel's function timeout.
   const cpu = '1024'
   const memory = isProd ? '4096' : '2048'
 
@@ -399,7 +399,12 @@ export function createService({
       name: serviceName,
       cluster: cluster.arn,
       taskDefinition: taskDefinition.arn,
-      desiredCount: isProd ? prodMinTasks : 1,
+      // Dev runs two fixed tasks: one task was a full outage whenever it died
+      // (a statewide pack build OOM'd it twice on 2026-10-21, mid release
+      // train E2E). Fixed rather than autoscaled, because what dev needs is a
+      // second task to survive the first, and CPU target tracking adds one
+      // only after the saturation it reacts to. Previews stay at one.
+      desiredCount: select({ preview: 1, dev: 2, prod: prodMinTasks }),
       capacityProviderStrategies: [{ capacityProvider: 'FARGATE', weight: 1 }],
       networkConfiguration: {
         subnets: privateSubnetIds,

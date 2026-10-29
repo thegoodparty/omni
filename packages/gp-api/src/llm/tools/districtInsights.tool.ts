@@ -386,11 +386,11 @@ const buildDescription = (
     .map((f) => `${f.column} = '${f.value}'`)
     .join(' AND ')
   const rows =
-    peopleDataset === 'constituents'
+    peopleDataset.base === 'constituents'
       ? 'one row per adult resident, registered to vote or not, joined with modeled scores; 200+ hs_* scored columns'
       : 'one row per constituent on the registration file, joined with modeled scores; 200+ hs_* scored columns'
   const totalsRule =
-    peopleDataset === 'constituents'
+    peopleDataset.base === 'constituents'
       ? '\n  - Totals include adult residents whether or not they are registered to vote. Modeled scores (hs_*), registration status and turnout cover only residents registered to vote. When you quote a total, say which of the two it counts.'
       : ''
 

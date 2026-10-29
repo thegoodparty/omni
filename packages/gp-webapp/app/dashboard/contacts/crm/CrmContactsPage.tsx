@@ -1,13 +1,15 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { Button, PlusIcon } from '@styleguide'
+import Link from 'next/link'
+import { Button, HistoryIcon, PlusIcon, UploadIcon } from '@styleguide'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import DashboardLayout from '../../shared/DashboardLayout'
 import { ProPitchDialog } from 'app/dashboard/shared/membership/ProPitchDialog'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { useOrganization } from '@shared/organization-picker'
 import { useFlagOn } from '@shared/experiments/FeatureFlagsProvider'
+import { useServeImportContactsFlag } from '@shared/experiments/serveImportContactsFlag'
 import {
   getContactsLabels,
   WIN_UNIVERSE_STAT_LABELS,
@@ -25,11 +27,17 @@ import ListDetailSheet from './lists/ListDetailSheet'
 import CrmAssistant from './assistant/CrmAssistant'
 import VoterDataUnavailableState from './VoterDataUnavailableState'
 import { CitizensPanelSection } from '../citizens-panel/components/CitizensPanelSection'
+import ImportContactsWizard from './import/ImportContactsWizard'
+import {
+  SERVE_IMPORT_CONTACTS_COPY,
+  UPLOAD_HISTORY_PATH,
+} from './import/importContactsCopy'
 
 export const CrmContactsPage = () => {
   const [campaign] = useCampaign()
   const [showProModal, setShowProModal] = useState(false)
   const [wizardOpen, setWizardOpen] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
   const {
     isWinContext,
     isWinContextReady,
@@ -48,6 +56,11 @@ export const CrmContactsPage = () => {
   const { on: serveConsumerDataOn } = useFlagOn('serve-consumer-data', {
     trackExposure: false,
   })
+  const { enabled: importContactsOn } = useServeImportContactsFlag(
+    isWinContextReady && !isWinContext,
+  )
+  const showImportContacts =
+    isWinContextReady && !isWinContext && importContactsOn
 
   // ENG-10767 parity: this page's users had vanished from the Contacts
   // Viewed chart, so it fires the same event tagged surface: 'crm' — rows
@@ -136,14 +149,38 @@ export const CrmContactsPage = () => {
               <div className="w-full md:w-[420px]">
                 <ContactTypeahead />
               </div>
-              <Button
-                className="shrink-0 self-start text-sm font-semibold md:self-auto"
-                disabled={!isWinContextReady}
-                onClick={handleCreateList}
-                icon={<PlusIcon />}
-              >
-                Create new list
-              </Button>
+              <div className="flex shrink-0 flex-wrap items-center gap-2 self-start md:self-auto">
+                {showImportContacts && (
+                  <>
+                    <Button
+                      asChild
+                      variant="outline"
+                      className="text-sm font-semibold"
+                    >
+                      <Link href={UPLOAD_HISTORY_PATH}>
+                        <HistoryIcon />
+                        {SERVE_IMPORT_CONTACTS_COPY.uploadHistory}
+                      </Link>
+                    </Button>
+                    <Button
+                      variant="outline"
+                      className="text-sm font-semibold"
+                      onClick={() => setImportOpen(true)}
+                      icon={<UploadIcon />}
+                    >
+                      {SERVE_IMPORT_CONTACTS_COPY.importContacts}
+                    </Button>
+                  </>
+                )}
+                <Button
+                  className="shrink-0 text-sm font-semibold"
+                  disabled={!isWinContextReady}
+                  onClick={handleCreateList}
+                  icon={<PlusIcon />}
+                >
+                  Create new list
+                </Button>
+              </div>
             </div>
           )}
 
@@ -223,6 +260,12 @@ export const CrmContactsPage = () => {
                 listId={currentlySelectedListId}
                 onClose={() => selectList(null)}
               />
+              {showImportContacts && (
+                <ImportContactsWizard
+                  open={importOpen}
+                  onOpenChange={setImportOpen}
+                />
+              )}
               <CrmAssistant />
             </>
           )}

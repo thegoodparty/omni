@@ -8,7 +8,7 @@ import { SegmentService } from '@/vendors/segment/segment.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import { ProfileClaimRequestSource } from '../../generated/prisma'
 import { PERSON_PROFILES_DATABRICKS } from '../personProfiles.constants'
-import { recordCompletionRequestContactGap } from '../observability/person-profiles.metrics'
+import * as personProfilesMetrics from '../observability/person-profiles.metrics'
 import { CrmPersonProfilesService } from './crm-person-profiles.service'
 import { PersonLookupService } from './person-lookup.service'
 
@@ -25,19 +25,6 @@ import { PersonLookupService } from './person-lookup.service'
  * by. What matters for both is that every failure mode is swallowed, so the
  * visitor's already-committed claim request is never affected.
  */
-
-// The contact-gap counter is the only assertion here that needs the real
-// module stubbed: every record* function is a no-op when OTel is disabled, as
-// it is under test, so there is nothing to observe otherwise. It reports an
-// irreversible side-effect (a CRM contact Segment is about to create, whose
-// original-source attribution cannot be repaired later), which makes it worth
-// pinning rather than trusting.
-vi.mock('../observability/person-profiles.metrics', async (importOriginal) => ({
-  ...(await importOriginal<
-    typeof import('../observability/person-profiles.metrics')
-  >()),
-  recordCompletionRequestContactGap: vi.fn(),
-}))
 
 const PERSON_ID = '11111111-1111-1111-1111-111111111111'
 const CONTACT_ID = '987654321'
@@ -387,6 +374,13 @@ describe('CrmPersonProfilesService.handleNotifySubmitted', () => {
 describe('CrmPersonProfilesService.handleNotifySubmitted contact-gap metric', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    // The contact-gap counter is the only assertion here that needs the real
+    // module stubbed: every record* function is a no-op when OTel is disabled, as
+    // it is under test, so there is nothing to observe otherwise. It reports an
+    // irreversible side-effect (a CRM contact Segment is about to create, whose
+    // original-source attribution cannot be repaired later), which makes it worth
+    // pinning rather than trusting.
+    vi.spyOn(personProfilesMetrics, 'recordCompletionRequestContactGap')
   })
 
   it('records new_contact when the event goes out for someone the CRM has never seen', async () => {
@@ -394,9 +388,9 @@ describe('CrmPersonProfilesService.handleNotifySubmitted contact-gap metric', ()
 
     await service.handleNotifySubmitted(PERSON_ID, CLAIM_REQUEST_ID)
 
-    expect(recordCompletionRequestContactGap).toHaveBeenCalledWith(
-      'new_contact',
-    )
+    expect(
+      personProfilesMetrics.recordCompletionRequestContactGap,
+    ).toHaveBeenCalledWith('new_contact')
   })
 
   it('records existing_contact when the subject already had one', async () => {
@@ -404,9 +398,9 @@ describe('CrmPersonProfilesService.handleNotifySubmitted contact-gap metric', ()
 
     await service.handleNotifySubmitted(PERSON_ID, CLAIM_REQUEST_ID)
 
-    expect(recordCompletionRequestContactGap).toHaveBeenCalledWith(
-      'existing_contact',
-    )
+    expect(
+      personProfilesMetrics.recordCompletionRequestContactGap,
+    ).toHaveBeenCalledWith('existing_contact')
   })
 
   it.each([
@@ -419,7 +413,9 @@ describe('CrmPersonProfilesService.handleNotifySubmitted contact-gap metric', ()
 
     await service.handleNotifySubmitted(PERSON_ID, CLAIM_REQUEST_ID)
 
-    expect(recordCompletionRequestContactGap).toHaveBeenCalledWith('unknown')
+    expect(
+      personProfilesMetrics.recordCompletionRequestContactGap,
+    ).toHaveBeenCalledWith('unknown')
   })
 
   it.each([
@@ -432,6 +428,8 @@ describe('CrmPersonProfilesService.handleNotifySubmitted contact-gap metric', ()
 
     await service.handleNotifySubmitted(PERSON_ID, CLAIM_REQUEST_ID)
 
-    expect(recordCompletionRequestContactGap).not.toHaveBeenCalled()
+    expect(
+      personProfilesMetrics.recordCompletionRequestContactGap,
+    ).not.toHaveBeenCalled()
   })
 })
