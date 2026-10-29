@@ -2,10 +2,6 @@
   "freshModulesFiles": 43,
   "slowFiles": [
     {
-      "file": "src/chats/evals/judge/armBudget.test.ts",
-      "reason": "Spawns a tsx child process per test (~3s each, ~55s a run). Remove once the entry point is called in-process."
-    },
-    {
       "file": "src/doorKnocking/tests/doorKnocking.routes.test.ts",
       "reason": "220 route tests at ~120ms each, up to 29s on CI, too close to the ceiling to leave off."
     }

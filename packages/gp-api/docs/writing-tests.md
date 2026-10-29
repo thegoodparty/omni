@@ -221,7 +221,7 @@ Examples: `redeemFreeTexts` in `src/campaigns/campaigns.update.integration.test.
 
 In CI, `src/test-cost-reporter.ts` fails the run when a test costs more than it should. The budget and allowlist are in `test-cost-budget.json`. Local runs are not gated; `CI=1 npx vitest run <file>` checks one.
 
-- **One test over 12s, or one file over 30s, fails.** Make it cheaper: cross a limit with a few rows (Limits and caps above); call a CLI entry point in-process instead of spawning it; use fake timers instead of waiting. Add a `slowTests` or `slowFiles` entry only when it cannot be cheaper, with a `reason` the reviewer accepts.
+- **One test over 12s, or one file over 30s, fails.** Make it cheaper: cross a limit with a few rows (Limits and caps above); call a CLI entry point in-process (CLI entry points above); use fake timers instead of waiting. Add a `slowTests` or `slowFiles` entry only when it cannot be cheaper, with a `reason` the reviewer accepts.
 - **The allowlist only shrinks.** An entry that runs under a quarter of its ceiling fails until you delete it, and so does one whose file or test is gone.
 - **A median `useTestService()` boot over 3s fails.** Keep I/O and heavy work out of `onModuleInit` and provider constructors.
 - **`freshModulesFiles` only goes down.** It counts files that call `vi.mock`, `vi.doMock`, `vi.unmock` or `vi.resetModules`. Adding one fails; use the replacements in Module mocks above. Removing one fails until you lower the number to match.
