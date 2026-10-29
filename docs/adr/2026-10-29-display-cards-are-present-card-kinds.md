@@ -3,7 +3,7 @@ title: Display-only chat cards are kinds of one present_card tool, catalog in co
 status: active
 decided_by: [swain]
 date: 2026-10-29
-code: ['#TBD']
+code: ['#3369']
 scope:
   - packages/contracts/src/chats/PresentCard.schema.ts
   - packages/gp-api/src/chats/general/chat-tools/presentCard.tool.ts
