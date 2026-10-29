@@ -90,6 +90,7 @@ export const GENERATED_UI_RULES = [
   '- Components are a flat list. Each has a unique `id` and a `component` name from the catalog below. One has the id "root" and comes first; parents come before their children and name them by id.',
   '- Use literal values, except for picks a ChoiceQuestion writes and values you want in the data model. A bound value reads {"path":"/key"} and gets its value from `updateDataModel`.',
   `- Buttons and question submits send the user's next message through a \`${GENERATED_UI_SEND_MESSAGE_EVENT}\` event. Do not also ask the same question with \`ask_clarify_question\`.`,
+  `- When the user asks for something on screen, such as a card, a dashboard, or a question they answer by picking options, build it with \`${GENERATED_UI_TOOL}\` (ChoiceQuestion, OutreachCard, ContactCard) rather than \`ask_clarify_question\` or \`present_outreach_proposal\`.`,
   '- Use only the components and properties in the catalog, and no function calls. Do not repeat the content of the UI in prose; one short line before the call is enough.',
   '- If the call returns an error, fix the payload and call it once more.',
   `- Example input: ${EXAMPLE}`,
