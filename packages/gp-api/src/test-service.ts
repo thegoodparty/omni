@@ -5,7 +5,7 @@ import axios, { AxiosInstance } from 'axios'
 import { randomBytes } from 'crypto'
 import jwt from 'jsonwebtoken'
 import { Client } from 'pg'
-import { afterAll, beforeAll, beforeEach, vi } from 'vitest'
+import { afterAll, beforeAll, beforeEach, expect, vi } from 'vitest'
 import { bootstrap } from './app'
 import {
   AUTH_PROVIDER_TOKEN,
@@ -22,6 +22,29 @@ import {
 } from './test-postgres'
 import { ElectionsService } from './elections/services/elections.service'
 import { District } from './elections/types/elections.types'
+import { appendFileSync, mkdirSync } from 'fs'
+
+const PROFILE_DIR = process.env.BOOT_PROFILE_DIR
+type ProfileMarks = Array<[string, number]>
+declare global {
+  var __bootMarks: ProfileMarks | undefined
+}
+declare global {
+  var __testServiceLoads: number | undefined
+}
+globalThis.__testServiceLoads = (globalThis.__testServiceLoads ?? 0) + 1
+const mark = (name: string) => {
+  if (PROFILE_DIR) globalThis.__bootMarks?.push([name, performance.now()])
+}
+const flushProfile = (file: string) => {
+  if (!PROFILE_DIR || !globalThis.__bootMarks) return
+  mkdirSync(PROFILE_DIR, { recursive: true })
+  appendFileSync(
+    `${PROFILE_DIR}/${process.pid}.jsonl`,
+    JSON.stringify({ file, loads: globalThis.__testServiceLoads, marks: globalThis.__bootMarks }) + '\n',
+  )
+  globalThis.__bootMarks = undefined
+}
 
 export const TEST_CLERK_ID = 'user_test_123'
 export const TEST_M2M_JWT_SUBJECT = 'mch_test_machine'
@@ -142,11 +165,14 @@ export const useTestService = ({
   let pendingReset: Promise<unknown> = Promise.resolve()
 
   beforeAll(async () => {
+    if (PROFILE_DIR) globalThis.__bootMarks = []
+    mark('start')
     // Generate unique database name for this test suite. It's important to use unique
     // database names per suite to ensure that suites are isolated from each other.
     uniqueDbName = `test_db_${randomBytes(8).toString('hex')}`
 
     baseConnectionUri = await testPostgresUri()
+    mark('testPostgresUri')
 
     // Clone the schema template that globalSetup built once, rather than
     // replaying every migration here. The copy is a near-instant Postgres
@@ -159,6 +185,7 @@ export const useTestService = ({
     // this clone is reading.
     const admin = new Client({ connectionString: baseConnectionUri })
     await admin.connect()
+    mark('adminConnect')
     try {
       await admin.query(`SELECT pg_advisory_lock_shared(${TEMPLATE_LOCK_KEY})`)
       await admin.query(
@@ -170,6 +197,7 @@ export const useTestService = ({
       )
       await admin.end()
     }
+    mark('cloneDb')
 
     // One server serves every checkout on the machine, so the pool Prisma
     // would size itself (cores * 2 + 1 per worker) lets concurrent runs
@@ -184,6 +212,9 @@ export const useTestService = ({
 
     // Create NestJS application using the same bootstrap function as production
     app = await bootstrap({ loggingEnabled: false })
+    mark('bootstrapReturned')
+    await app.init()
+    mark('appInit')
 
     const authProvider = app.get<AuthProvider>(AUTH_PROVIDER_TOKEN)
     // .bind() returns any — TypeScript cannot infer the bound method signature
@@ -251,8 +282,10 @@ export const useTestService = ({
     // fallback away. Suites that need a real position stub it themselves.
     vi.spyOn(electionsService, 'getPositionById').mockResolvedValue(null)
 
+    mark('spies')
     // Start the application on a random available port
     await app.listen({ port: 0, host: '127.0.0.1' })
+    mark('listen')
 
     // Get the actual port the app is listening on
     const address = app.getHttpServer().address()
@@ -292,6 +325,7 @@ export const useTestService = ({
         SELECT tablename FROM pg_tables WHERE schemaname = 'public'
       `
     ).map(({ tablename }) => tablename)
+    mark('tablesQuery')
   }, HOOK_TIMEOUT_MS)
 
   beforeEach(async () => {
@@ -305,10 +339,12 @@ export const useTestService = ({
   }, RESET_TIMEOUT_MS)
 
   afterAll(async () => {
+    mark('afterAllStart')
     // Close the NestJS application
     if (app) {
       await app.close()
     }
+    mark('appClose')
 
     // Drop this suite's clone. Nothing else does, so a reused container
     // otherwise carries every database every suite ever created — a long-lived
@@ -324,6 +360,8 @@ export const useTestService = ({
     } finally {
       await admin.end()
     }
+    mark('dropDb')
+    flushProfile(expect.getState().testPath ?? 'unknown')
   }, HOOK_TIMEOUT_MS)
 
   // Return the context object

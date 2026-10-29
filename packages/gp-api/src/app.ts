@@ -28,6 +28,7 @@ type BootstrapParams = {
 export const bootstrap = async (
   params: BootstrapParams,
 ): Promise<NestFastifyApplication> => {
+  globalThis.__bootMarks?.push(['bootstrapStart', performance.now()])
   const adapter = new FastifyAdapter({
     logger: false,
     genReqId: () => randomUUID(),
@@ -84,6 +85,7 @@ export const bootstrap = async (
     },
   })
 
+  globalThis.__bootMarks?.push(['adapterReady', performance.now()])
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule,
     adapter,
@@ -96,6 +98,7 @@ export const bootstrap = async (
         : false,
     },
   )
+  globalThis.__bootMarks?.push(['nestFactoryCreate', performance.now()])
   app.useLogger(app.get(Logger))
 
   if (global.__fastifyOtelInstrumentation) {
