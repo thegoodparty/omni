@@ -3,7 +3,7 @@ title: The civic panel summary's goal is the managed civic panel's stored goal w
 status: active
 decided_by: [agent]
 date: 2026-10-29
-code: ['#PR']
+code: ['#3417']
 scope:
   - packages/gp-api/src/contacts/services/civicPanelSummary.service.ts
   - packages/gp-webapp/app/dashboard/contacts/citizens-panel/**
