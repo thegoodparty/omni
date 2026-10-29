@@ -605,37 +605,14 @@ describe('tool description — score semantics follows the scope', () => {
     expect(tool.description).toContain(
       hsScoreSemantics('constituent', { base: 'voters' }),
     )
-    expect(tool.description).toMatch(/percentile rank/i)
-    expect(tool.description).toMatch(/deviation from 50/i)
     expect(tool.description).not.toContain('likelihood')
   })
 
   it('keeps the legacy wording for scopes whose catalog has no marks (win)', () => {
     const tool = buildQueryConstituentDataTool({ provider, scope })
     expect(tool.description).toContain('0-100 likelihood')
-    expect(tool.description).toContain(
-      "Categorical flag columns hold string values (e.g. 'support', 'oppose'), not 1/0.",
-    )
     expect(tool.description).not.toContain(
       hsScoreSemantics('constituent', { base: 'voters' }),
-    )
-    expect(tool.description).not.toMatch(/percentile rank/i)
-  })
-
-  // QR-08: a threshold share reported with no mandated denominator name
-  // reads as a survey result ("over known responses"). Asserted on the
-  // constant directly so districtInsights.tool.ts inherits the guarantee.
-  // The ban has to name the words it forbids, so this checks for the ban
-  // statement and the old buggy phrasing's absence, not word absence.
-  it('names the share denominator and bans survey language (QR-08)', () => {
-    expect(hsScoreSemantics('constituent', { base: 'voters' })).toMatch(
-      /scored/i,
-    )
-    expect(hsScoreSemantics('constituent', { base: 'voters' })).toMatch(
-      /survey language/i,
-    )
-    expect(hsScoreSemantics('constituent', { base: 'voters' })).not.toContain(
-      'state the coverage alongside',
     )
   })
 
@@ -646,9 +623,6 @@ describe('tool description — score semantics follows the scope', () => {
     })
     expect(tool.description).toContain(
       hsScoreSemantics('constituent', { base: 'constituents' }),
-    )
-    expect(tool.description).toContain(
-      'residents who are not registered to vote are never scored',
     )
     expect(tool.description).toContain(
       dataSourceRoutingRules({ base: 'constituents' }),

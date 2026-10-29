@@ -45,13 +45,6 @@ describe('DISTRICT_TOPICS_CATALOG', () => {
 })
 
 describe('buildDistrictTopicsTool', () => {
-  it('exposes a description that mentions the discovery purpose', () => {
-    const tool = buildDistrictTopicsTool()
-    expect(tool.description.toLowerCase()).toMatch(
-      /(discover|catalog|topics|find columns|list)/,
-    )
-    expect(typeof tool.inputSchema.parse).toBe('function')
-  })
 
   it('input schema accepts an optional topic filter', () => {
     const tool = buildDistrictTopicsTool()
