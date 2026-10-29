@@ -164,6 +164,7 @@ const TOOL_DISPLAY_NAMES: Record<string, string> = {
   search_help_center: 'Searching the help center',
   size_outreach_sample: 'Sizing a sample',
   read_outreach_feedback: 'Reading what came back',
+  present_generated_ui: 'Building a view',
   // Campaign Manager's own tools: this table serves both chats.
   get_ballot_requirements: 'Checking how to get on the ballot', // serve-vocabulary-allow: Campaign Manager tool label
   campaign_story: 'Working on your story',

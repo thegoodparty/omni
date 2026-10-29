@@ -1,5 +1,6 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common'
 import { ChatScope } from '../../../generated/prisma'
+import { PRESENT_GENERATED_UI_TOOL } from '@goodparty_org/contracts'
 import type { LlmTool } from '@/llm/services/llm.service'
 import type { DatabricksProvider } from '@/llm/tools/queryDatabricks.tool'
 import {
@@ -74,6 +75,8 @@ import { PriorityFlowOutreachService } from '../priority-flow/services/priorityF
 import { resolveSendWindowTimeZone } from '@/vendors/peerly/utils/sendWindowTimeZone.util'
 import { PriorityStatusService } from '@/priorities/services/priorityStatus.service'
 import { PeopleDatasetService } from '@/peopleDb/services/peopleDataset.service'
+import { buildPresentGeneratedUiTool } from '../chat-tools/presentGeneratedUi.tool'
+import { IS_NON_PROD_DEPLOY } from '@/shared/util/appEnvironment.util'
 
 // Sensitive scope: tool outputs (briefings, priorities, search results) flow
 // back into the model context, so this scope runs Anthropic-only. The registry
@@ -440,6 +443,11 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
       )
     }
     tools.compose_handoff = buildComposeHandoffTool('serve_social')
+
+    // Generative UI proof of concept (json-render). Never offered in prod.
+    if (IS_NON_PROD_DEPLOY) {
+      tools[PRESENT_GENERATED_UI_TOOL] = buildPresentGeneratedUiTool()
+    }
 
     return tools
   }
