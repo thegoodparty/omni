@@ -24,8 +24,7 @@ import {
 // a priority still lives here, it just does not read as a focus.
 const TOP_N = 3
 
-// Where a priority came from, in the user's terms. The filter chips and the row
-// badge read from the same place, so a lane cannot be named two ways.
+// Where a priority came from, in the user's terms, for the filter chips.
 const SOURCE_META: Record<
   PrioritySource,
   { label: string; pillClass: string; activeClass: string }
@@ -236,7 +235,6 @@ const PrioritiesHub = ({
         ) : (
           <div className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-card">
             {visible.map((priority, index) => {
-              const meta = SOURCE_META[priority.source]
               const step = stepLabel(priority.currentStep)
               return (
                 <div
@@ -268,24 +266,16 @@ const PrioritiesHub = ({
                           </p>
                         ) : null}
                       </div>
-                      <div className="flex shrink-0 flex-wrap items-center gap-2 sm:flex-nowrap sm:gap-3">
-                        {step ? (
+                      {step ? (
+                        <div className="flex shrink-0 items-center">
                           <Badge
                             variant="outline"
                             className="shrink-0 rounded-full"
                           >
                             {step}
                           </Badge>
-                        ) : null}
-                        <Badge
-                          className={cn(
-                            'shrink-0 rounded-full',
-                            meta.pillClass,
-                          )}
-                        >
-                          {meta.label}
-                        </Badge>
-                      </div>
+                        </div>
+                      ) : null}
                     </div>
                     <ChevronRightIcon
                       className="size-4 shrink-0 text-muted-foreground"
