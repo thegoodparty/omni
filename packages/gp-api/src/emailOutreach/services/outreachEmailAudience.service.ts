@@ -7,7 +7,7 @@ import {
 } from '@/contacts/services/contacts.service'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
-import { Organization } from '../../generated/prisma'
+import { Organization, Prisma } from '../../generated/prisma'
 import {
   EMAIL_AUDIENCE_DELIVERY_BUDGET_MS,
   EMAIL_AUDIENCE_MAX_RESOLVED,
@@ -156,20 +156,46 @@ export class OutreachEmailAudienceService extends createPrismaBase(
         }),
         checkedDomains,
       )
-      const inserted = await this.insertPage(
-        row.id,
-        row.senderId,
-        recipients,
-        suppressionSlugs,
-      )
+      const from = cursor
+      const inserted = await this.client.$transaction(async (tx) => {
+        // Two deliveries can overlap past the queue's visibility timeout.
+        // The page writes only while this one still holds the cursor and
+        // nothing has trimmed the send, so a stale delivery can't put back
+        // people the trim removed.
+        const [locked] = await tx.$queryRaw<
+          {
+            audience_cursor: string | null
+            audience_resolved_at: Date | null
+            prepared_at: Date | null
+          }[]
+        >`
+          SELECT audience_cursor, audience_resolved_at, prepared_at
+          FROM outreach_email WHERE id = ${row.id} FOR UPDATE
+        `
+        if (
+          !locked ||
+          locked.audience_cursor !== from ||
+          locked.audience_resolved_at ||
+          locked.prepared_at
+        ) {
+          return null
+        }
+        const counts = await this.insertPage(
+          tx,
+          row.id,
+          row.senderId,
+          recipients,
+          suppressionSlugs,
+        )
+        await tx.outreachEmail.update({
+          where: { id: row.id },
+          data: { audienceCursor: last.id },
+        })
+        return counts
+      })
+      if (!inserted) return 'moved'
       written += inserted.written
       fresh += inserted.fresh
-
-      const moved = await this.client.outreachEmail.updateMany({
-        where: { id: row.id, audienceCursor: cursor },
-        data: { audienceCursor: last.id },
-      })
-      if (moved.count === 0) return 'moved'
       cursor = last.id
       if (people.length < MAX_RESULTS_PER_PAGE) break
     }
@@ -177,8 +203,8 @@ export class OutreachEmailAudienceService extends createPrismaBase(
   }
 
   private async finish(outreachEmailId: number): Promise<'done'> {
-    await this.client.outreachEmail.update({
-      where: { id: outreachEmailId },
+    await this.client.outreachEmail.updateMany({
+      where: { id: outreachEmailId, audienceResolvedAt: null },
       data: { audienceResolvedAt: new Date() },
     })
     return 'done'
@@ -228,15 +254,14 @@ export class OutreachEmailAudienceService extends createPrismaBase(
   // returns how many it wrote, and how many of those could be sent to:
   // not unsubscribed, and never emailed by this sender.
   private async insertPage(
+    tx: Prisma.TransactionClient,
     outreachEmailId: number,
     senderId: number,
     recipients: Recipient[],
     suppressionSlugs: string[],
   ): Promise<{ written: number; fresh: number }> {
     if (recipients.length === 0) return { written: 0, fresh: 0 }
-    const [counts] = await this.client.$queryRaw<
-      { written: number; fresh: number }[]
-    >`
+    const [counts] = await tx.$queryRaw<{ written: number; fresh: number }[]>`
       WITH inserted AS (
         INSERT INTO outreach_email_recipient
           (outreach_email_id, sender_id, email, first_name, last_name)

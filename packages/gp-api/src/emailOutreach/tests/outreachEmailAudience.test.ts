@@ -15,6 +15,7 @@ import {
   Prisma,
 } from '../../generated/prisma'
 import { EmailDomainCheckService } from '../services/emailDomainCheck.service'
+import { OutreachEmailAudienceService } from '../services/outreachEmailAudience.service'
 import { OutreachEmailPrepareService } from '../services/outreachEmailPrepare.service'
 import { SesService } from '../services/ses.service'
 import {
@@ -360,5 +361,68 @@ describe('prepare resolves the audience', () => {
       where: { id: outreachEmailId },
     })
     expect(row.preparedAt).not.toBeNull()
+  })
+
+  it('lets a stale delivery add nobody once the send is trimmed', async () => {
+    stubAudience(3)
+    await service.prisma.outreachEmailSuppression.create({
+      data: {
+        email: 'person1@example.com',
+        organizationSlug: orgs.winSlug,
+        reason: 'link',
+      },
+    })
+    const { sender, outreachId, outreachEmailId } = await pendingSend({
+      recipientCap: 5,
+    })
+    await prepare(outreachEmailId)
+    expect(await recipientsOf(outreachEmailId)).toHaveLength(2)
+
+    // A delivery that read the send before the first one finished, still
+    // holding the old cursor.
+    const outcome = await service.app.get(OutreachEmailAudienceService).resolve(
+      {
+        id: outreachEmailId,
+        senderId: sender.id,
+        recipientCap: 5,
+        audienceCursor: null,
+        organizationSlug: orgs.winSlug,
+        voterFileFilterId: (
+          await service.prisma.outreach.findUniqueOrThrow({
+            where: { id: outreachId },
+          })
+        ).voterFileFilterId,
+      },
+      [orgs.winSlug],
+    )
+
+    expect(outcome).toBe('moved')
+    expect(await recipientsOf(outreachEmailId)).toHaveLength(2)
+  })
+
+  it('writes a page whose people have no names', async () => {
+    vi.spyOn(
+      service.app.get(ContactsService),
+      'findContactsForFilter',
+    ).mockResolvedValue(
+      page(
+        [0, 1].map((i) => ({
+          ...makePerson(personId(i), `person${i}@example.com`),
+          firstName: null,
+          lastName: null,
+        })),
+      ),
+    )
+    const { outreachEmailId } = await pendingSend({ recipientCap: 2 })
+
+    await prepare(outreachEmailId)
+
+    const rows = await service.prisma.outreachEmailRecipient.findMany({
+      where: { outreachEmailId },
+    })
+    expect(rows).toHaveLength(2)
+    expect(rows.every((r) => r.firstName === null && r.lastName === null)).toBe(
+      true,
+    )
   })
 })

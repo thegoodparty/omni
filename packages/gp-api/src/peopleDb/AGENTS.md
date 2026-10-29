@@ -416,6 +416,8 @@ re-sorts and skips everything before each page. `ListPeopleDTO.afterId`
 Each page is still one statement over the district (with the overlay join
 where there is one), but a top-n after a cursor rather than a deep sort and
 skip. Email outreach's prepare reads its audience this way, with `skipCount`.
+It relies on one row per `id`: the contact overlay view folds a person's
+upload rows into one, which is also why it ANDs `is_new` across them.
 
 ## Reject rather than truncate — do not "fix" this into pagination
 
