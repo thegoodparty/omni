@@ -298,6 +298,38 @@ describe('DistrictCensusComposition.mrpInputs', () => {
     expect(district).toHaveBeenCalledTimes(2)
   })
 
+  it('never shares a district read between orgs with different datasets', async () => {
+    const district = vi.fn().mockResolvedValue({
+      district: DISTRICT,
+      cells: [],
+    })
+    const { source } = withCells(district, vi.fn().mockResolvedValue([]))
+
+    await source.mrpInputs(MODEL_INPUT)
+    await source.mrpInputs({
+      ...MODEL_INPUT,
+      dataset: { base: 'constituents' },
+    })
+    await source.mrpInputs({
+      ...MODEL_INPUT,
+      dataset: {
+        base: 'constituents',
+        overlayOrgSlug: 'eo-1',
+        overlayDistrictId: 'd-1',
+      },
+    })
+    await source.mrpInputs({
+      ...MODEL_INPUT,
+      dataset: {
+        base: 'constituents',
+        overlayOrgSlug: 'eo-2',
+        overlayDistrictId: 'd-1',
+      },
+    })
+
+    expect(district).toHaveBeenCalledTimes(4)
+  })
+
   describe('districtAnswersNeeded', () => {
     const cell = (
       ageBand: string,
