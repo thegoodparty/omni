@@ -75,6 +75,21 @@ export default defineConfig({
       './src/test-global-setup.ts',
     ],
     setupFiles: ['./src/test-file-cleanup.ts'],
+    // Naming any reporter drops vitest's defaults, so CI lists them again.
+    ...(process.env.CI
+      ? {
+          reporters: [
+            'default',
+            ...(process.env.GITHUB_ACTIONS === 'true'
+              ? ['github-actions']
+              : []),
+            [
+              './src/test-cost-reporter.ts',
+              { freshModulesFiles: needsFreshModules.length },
+            ],
+          ],
+        }
+      : {}),
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json-summary', 'json'],

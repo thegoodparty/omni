@@ -23,6 +23,12 @@ import {
 import { ElectionsService } from './elections/services/elections.service'
 import { District } from './elections/types/elections.types'
 
+declare module 'vitest' {
+  interface TaskMeta {
+    appBootMs?: number[]
+  }
+}
+
 export const TEST_CLERK_ID = 'user_test_123'
 export const TEST_M2M_JWT_SUBJECT = 'mch_test_machine'
 
@@ -141,7 +147,9 @@ export const useTestService = ({
   // abandoned reset strictly ahead of its successor, so it costs one test.
   let pendingReset: Promise<unknown> = Promise.resolve()
 
-  beforeAll(async () => {
+  beforeAll(async ({}, suite) => {
+    const bootStartedAt = performance.now()
+
     // Generate unique database name for this test suite. It's important to use unique
     // database names per suite to ensure that suites are isolated from each other.
     uniqueDbName = `test_db_${randomBytes(8).toString('hex')}`
@@ -292,6 +300,13 @@ export const useTestService = ({
         SELECT tablename FROM pg_tables WHERE schemaname = 'public'
       `
     ).map(({ tablename }) => tablename)
+
+    // Read by src/test-cost-reporter.ts, which gates the run's median boot.
+    const fileMeta = suite.file.meta
+    fileMeta.appBootMs = [
+      ...(fileMeta.appBootMs ?? []),
+      performance.now() - bootStartedAt,
+    ]
   }, HOOK_TIMEOUT_MS)
 
   beforeEach(async () => {
