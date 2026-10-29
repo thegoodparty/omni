@@ -1,0 +1,84 @@
+# Import contacts (contactUploads)
+
+A Serve user uploads a CSV of their own constituents; every row is matched to
+a person we already hold or becomes a new person. Postgres is the system of
+record (`contact_upload`, `contact_upload_match`,
+`prisma/schema/contactUpload.prisma`); Databricks reads those rows live
+through federation and folds them into every people read for the org (the
+read seam lives in `src/peopleDb/`, not here). Serve only (`eo-`), and every
+route 404s unless `serve-import-contacts` (`SERVE_IMPORT_CONTACTS_FLAG`) is on
+for the org's owner. Contracts: `contracts/src/contactUploads/`.
+
+## Routes
+
+| Method and path                                 | What                                                                 |
+| ----------------------------------------------- | -------------------------------------------------------------------- |
+| `POST /v1/contact-uploads`                      | Multipart `file` + `name`, `consentAffirmed`, `columnMapping` (JSON) |
+| `GET /v1/contact-uploads`                       | Upload history, newest first                                         |
+| `GET /v1/contact-uploads/:id`                   | One upload with counts                                               |
+| `GET /v1/contact-uploads/:id/rows`              | Rows by outcome, keyset-paged on `rowIndex`, `ILIKE` search          |
+| `PUT /v1/contact-uploads/:id/rows/:rowId/match` | `{ personId }`, `{ newPerson }` or `{ skip }`; returns the upload    |
+| `POST /v1/contact-uploads/:id/accept-suggested` | Accept every lone name-only suggestion, one transaction              |
+| `GET /v1/contacts/:personId/sources`            | Per-field "Came from", the person's upload rows, `hasActivity`       |
+
+The person feed (`GET /v1/contact-engagement/:id/activities`) reads this
+person's rows as `CONTACT_IMPORT` items (`ContactUploadMatchService.findForActivityFeed`).
+
+## Flow
+
+1. **Upload** (`services/contactUploads.service.ts`): parse by the user's
+   chosen headers (`util/contactUploadCsv.util.ts`), normalize (email
+   lowercased and validated, phones to `(xxx) xxx-xxxx`, ZIP to 5 digits), put
+   the original to `CONTACT_UPLOADS_BUCKET` at `<orgSlug>/<uploadId>.csv`,
+   insert upload and rows in one transaction, enqueue `CONTACT_UPLOAD_MATCH`
+   (`MessageGroupId` per org, so an org's uploads match in order). A row
+   without first and last name is `invalid`. With the bucket unset (a laptop
+   without AWS access) the put is skipped and logged.
+2. **Match** (`services/contactUploadMatchJob.service.ts`), 20,000 pending
+   rows per chunk, in order: duplicates within the chunk, the org's earlier
+   rows in Postgres (email, then phone + last name, then name + address),
+   then one Databricks statement per chunk
+   (`peopleDb/databricks/contactUploadMatchSql.util.ts`, through
+   `VoterQueryService.matchContactUploadRows`). The outcome table is
+   `decideFromCandidates` (`util/contactUploadMatching.util.ts`). New people
+   get a uuid v7. Each chunk commits on its own and only `pending` rows are
+   worked, so a redelivery resumes. A row landing on someone an earlier
+   upload already gave values gets `changedFields`, and counts as updated or
+   unchanged.
+3. **Review**: `needs_input` rows wait until the user picks. Candidate
+   details are read from Databricks by id (`VoterQueryService.findPeople`
+   with an `id` filter) for the page being shown, never stored.
+
+## Things that look like bugs but aren't
+
+- **The handler reads `ApproximateReceiveCount`.** The consumer asks SQS for
+  it (`queueConsumer.module.ts`). On the delivery that reaches the queue's
+  `maxReceiveCount` (3, `CONTACT_UPLOAD_MATCH_MAX_RECEIVES`) a failure marks
+  the upload `failed` and acks, instead of leaving it `processing` behind a
+  DLQ message.
+- **`isNewPerson` is copied, not recomputed.** A row that reuses an earlier
+  row's person takes that row's `isNewPerson`, because the overlay view ANDs
+  it across a person's rows.
+- **Change match does not move history.** Notes, statuses and interactions
+  stay on the old person id; `hasActivity` is there so the UI can warn.
+- **Opt-outs are not cleared by an upload.** That decision is on hold.
+- **No names, emails or phones in logs or analytics.** Ids and counts only.
+
+## Not built here
+
+- Route alerts: `contact-uploads` is in `CONTROLLERS_WITHOUT_ROUTE_ALERTS`
+  (`deploy/components/alerts.ts`) because its routes would push the route
+  map past the Loki tenant series cap. Add alerting before the flag ramps
+  past internal users. The sources route rides the `contacts` controller and
+  is watched.
+- Deleting an org's files from the bucket: Postgres rows cascade with the
+  org, but no org deletion hook exists to clear `<orgSlug>/` in S3.
+- Retrying a `failed` upload from Upload history.
+
+## Tests
+
+`tests/contactUploads.routes.test.ts` drives everything through
+`useTestService()`, spying `VoterQueryService.matchContactUploadRows` and
+`findPeople` for Databricks and calling `handleQueuedMatch` directly (the
+consumer does not run in tests). Pure logic: `util/*.test.ts`; the statement:
+`peopleDb/databricks/contactUploadMatchSql.util.test.ts`.

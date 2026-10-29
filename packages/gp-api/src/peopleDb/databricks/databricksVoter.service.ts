@@ -99,6 +99,12 @@ import {
   type WeightingInputs,
 } from './districtCensusSql.util'
 import {
+  buildContactUploadMatchSql,
+  mapContactUploadMatchRows,
+  type ContactUploadMatchCandidateRow,
+  type ContactUploadMatchInputRow,
+} from './contactUploadMatchSql.util'
+import {
   PeopleDbxStatementClient,
   PeopleDbxStatementTooLargeError,
   PeopleDbxTimeoutError,
@@ -859,6 +865,18 @@ export class DatabricksVoterService {
       // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
       return resident as DbxResidentRow
     })
+  }
+
+  async matchContactUploadRows(
+    districtId: string,
+    dataset: PeopleDataset,
+    rows: ContactUploadMatchInputRow[],
+  ): Promise<ContactUploadMatchCandidateRow[]> {
+    const district = await this.resolveDistrict(districtId, dataset)
+    const { rows: result } = await this.run(
+      buildContactUploadMatchSql({ district, rows }),
+    )
+    return mapContactUploadMatchRows(result)
   }
 
   private async run(statement: DbxStatement) {

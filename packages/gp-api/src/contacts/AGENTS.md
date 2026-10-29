@@ -112,6 +112,7 @@ fixes track under ENG-10744.
 | `src/vendors/peerly/`                        | Peerly client, phone-list upload + capture (`PeerlyPhoneList[Recipient]`)                                                                                                          |
 | `src/chats/general/crm-tools/`               | The AI assistant's in-code tools (`count_contacts`, `describe_filter_dimensions`, `crud_saved_filters`)                                                                            |
 | `src/peopleDb/`                              | The voter engine: filter pipeline, `id in/notIn`, name search, stats/aggregates, read from Databricks. See `src/peopleDb/CLAUDE.md`                                                |
+| `src/contactUploads/`                        | Import contacts (Serve): CSV upload, matching to people, review, per-field "Came from". See `src/contactUploads/AGENTS.md`                                                         |
 | `packages/gp-webapp/app/dashboard/contacts/` | All UI (own CLAUDE.md)                                                                                                                                                             |
 
 Not this feature: `src/crm/` is the HubSpot **company** sync. `WebsiteContact`

@@ -210,10 +210,11 @@ export type StatusChangeConstituentActivity = z.infer<
   typeof StatusChangeConstituentActivitySchema
 >
 
-// An upload row that points at this person: matched to them automatically,
-// added them as a new person, or matched to them by the user. addedFields
-// names the contact details the row supplied (email, cellPhone, landline,
-// address).
+// An Import contacts row pointing at this person (Serve only): matched or
+// added as a new person when the upload ran, or matched by hand (`manual`,
+// dated when the user picked). suppliedFields are the contact fields the row
+// carried; changedFields the ones that changed a value an earlier upload
+// gave this person. actorName/actorUserId name who matched it by hand.
 export const ContactImportConstituentActivitySchema = z.object({
   type: z.literal(ConstituentActivityTypeSchema.enum.CONTACT_IMPORT),
   date: z.string(),
@@ -221,8 +222,12 @@ export const ContactImportConstituentActivitySchema = z.object({
     activityId: z.string(),
     uploadId: z.string(),
     uploadName: z.string(),
-    kind: z.enum(['matched', 'new', 'resolved']),
-    addedFields: z.array(z.string()),
+    isNewPerson: z.boolean(),
+    suppliedFields: z.array(z.string()),
+    changedFields: z.array(z.string()),
+    manual: z.boolean(),
+    actorName: z.string().nullable(),
+    actorUserId: z.number().nullable(),
   }),
 })
 export type ContactImportConstituentActivity = z.infer<

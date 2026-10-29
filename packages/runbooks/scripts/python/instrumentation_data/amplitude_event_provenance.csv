@@ -141,6 +141,7 @@ Constituent Data - Note Added,constituent_data_note_added,54343bfe5bc2c22bd5db8f
 Constituent Feedback - Issue Captured,constituent_feedback_issue_captured,,https://github.com/thegoodparty/omni/pull/2145,2026-10-02,,,,,,2026-10-02,,,,,2026-10-02T14:31:58,
 Constituent Feedback - Issue Confirmed,constituent_feedback_issue_confirmed,,https://github.com/thegoodparty/omni/pull/2145,2026-10-02,,,,,,2026-10-02,,,,,2026-10-02T14:32:27,
 Constituent Feedback - Issue Skipped,constituent_feedback_issue_skipped,,https://github.com/thegoodparty/omni/pull/2145,2026-10-02,,,,,,2026-10-02,,,,,2026-10-02T14:32:41,
+Contacts - Ambiguous Row Resolved,contacts_ambiguous_row_resolved,,,2026-10-29,,,,,,2026-10-29,,,,,2026-10-29T14:08:33,serve
 Contacts - Assistant Chat Opened,contacts_assistant_chat_opened,07933cd077828e68440067f9dadf5dd5c668390d,https://github.com/thegoodparty/omni/pull/959,2026-07-22,tomer@goodparty.org,,,,,2026-07-22,3,,,,2026-07-27T12:04:25,
 Contacts - Assistant Message Sent,contacts_assistant_message_sent,07933cd077828e68440067f9dadf5dd5c668390d,https://github.com/thegoodparty/omni/pull/959,2026-07-22,tomer@goodparty.org,,,2026-10-19,,2026-10-19,1,,,,2026-10-19T13:24:19,
 Contacts - Civic Panel Invite Approved,contacts_civic_panel_invite_approved,,https://github.com/thegoodparty/omni/pull/3261,2026-10-26,,,,,,2026-10-26,,,,,2026-10-26T13:03:35,
@@ -160,6 +161,7 @@ Contacts - Column Edited,contacts_column_edited,e54c02097e3c70880d05b8a7479f7889
 Contacts - Contacts Viewed,contacts_contacts_viewed,89f97d0c41382d4c48e72db3ffe591be4694d12a,https://github.com/thegoodparty/omni/pull/194,2026-06-17,52380560+tomer-tgp@users.noreply.github.com,,,,,2026-07-22,1,,,,2026-07-27T12:04:25,
 Contacts - Download,contacts_download,e54c02097e3c70880d05b8a7479f7889f87cdd99,https://github.com/thegoodparty/gp-webapp/pull/958,2025-09-14,tomer@goodparty.org,,,,,2025-09-14,1,,,,2026-06-30T20:12:33,
 Contacts - Import Abandoned,contacts_import_abandoned,,,2026-10-29,,,,,,2026-10-29,,,,,2026-10-29T14:00:13,serve
+Contacts - Import Completed,contacts_import_completed,,,2026-10-29,,,,,,2026-10-29,,,,,2026-10-29T14:08:33,serve
 Contacts - Import Consent Affirmed,contacts_import_consent_affirmed,,,2026-10-29,,,,,,2026-10-29,,,,,2026-10-29T14:00:13,serve
 Contacts - Import Started,contacts_import_started,,,2026-10-29,,,,,,2026-10-29,,,,,2026-10-29T14:00:13,serve
 Contacts - List Wizard Boundary Completed,contacts_list_wizard_boundary_completed,80587fd7665740941079a47b73ef507d47e55c5c,https://github.com/thegoodparty/omni/pull/1971,2026-09-19,bryan@goodparty.org,,,,,2026-09-19,1,,,,2026-09-21T11:07:29,
@@ -170,6 +172,7 @@ Contacts - List Wizard Method Completed,contacts_list_wizard_method_completed,07
 Contacts - List Wizard Method Viewed,contacts_list_wizard_method_viewed,07933cd077828e68440067f9dadf5dd5c668390d,https://github.com/thegoodparty/omni/pull/959,2026-07-22,tomer@goodparty.org,,,,,2026-07-22,1,,,,2026-07-27T12:04:25,
 Contacts - List Wizard Name Completed,contacts_list_wizard_name_completed,07933cd077828e68440067f9dadf5dd5c668390d,https://github.com/thegoodparty/omni/pull/959,2026-07-22,tomer@goodparty.org,,,,,2026-07-22,1,,,,2026-07-27T12:04:25,
 Contacts - List Wizard Name Viewed,contacts_list_wizard_name_viewed,07933cd077828e68440067f9dadf5dd5c668390d,https://github.com/thegoodparty/omni/pull/959,2026-07-22,tomer@goodparty.org,,,,,2026-07-22,1,,,,2026-07-27T12:04:25,
+Contacts - Match Changed,contacts_match_changed,,,2026-10-29,,,,,,2026-10-29,,,,,2026-10-29T14:08:33,serve
 Contacts - Outreach Timeline Viewed,contacts_outreach_timeline_viewed,89f97d0c41382d4c48e72db3ffe591be4694d12a,https://github.com/thegoodparty/omni/pull/194,2026-06-17,52380560+tomer-tgp@users.noreply.github.com,e88b83b53d5dbcfc9948d23b0b933b4e90b55aff,https://github.com/thegoodparty/omni/pull/2652,2026-10-09,5641534+datawithtristan@users.noreply.github.com,2026-10-09,,,,,2026-10-12T11:09:52,
 Contacts - Segment Created,contacts_segment_created,e54c02097e3c70880d05b8a7479f7889f87cdd99,https://github.com/thegoodparty/gp-webapp/pull/958,2025-09-14,tomer@goodparty.org,,,,,2025-09-14,1,,,,2026-06-30T20:12:33,
 Contacts - Segment Deleted,contacts_segment_deleted,e54c02097e3c70880d05b8a7479f7889f87cdd99,https://github.com/thegoodparty/gp-webapp/pull/958,2025-09-14,tomer@goodparty.org,,,,,2025-09-14,1,,,,2026-06-30T20:12:33,
