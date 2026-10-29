@@ -46,7 +46,7 @@ const setup = () => {
   const generateStructured = vi.spyOn(gemini, 'generateStructured')
   const track = vi
     .spyOn(service.app.get(AnalyticsService), 'track')
-    .mockResolvedValue(undefined)
+    .mockResolvedValue({ event: 'stub', userId: 'stub' })
   return {
     localNews: service.app.get(OnboardingLocalNewsService),
     generateWithSearch,

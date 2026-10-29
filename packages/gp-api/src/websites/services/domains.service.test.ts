@@ -2413,13 +2413,12 @@ describe('DomainsService.purchaseDomainForCampaign against Postgres', () => {
     const fulfilled = results.filter((r) => r.status === 'fulfilled')
     const rejected = results.filter((r) => r.status === 'rejected')
     expect(fulfilled).toHaveLength(1)
-    expect(fulfilled[0].value.alreadyExisted).toBe(false)
     expect(rejected).toHaveLength(1)
-    expect(rejected[0].reason).toBeInstanceOf(ConflictException)
+    const winner = firstOrThrow(fulfilled).value
+    expect(winner.alreadyExisted).toBe(false)
+    expect(firstOrThrow(rejected).reason).toBeInstanceOf(ConflictException)
     const rows = await testService.prisma.domain.findMany()
-    expect(rows.map((row) => row.name)).toEqual([
-      fulfilled[0].value.domain.name,
-    ])
+    expect(rows.map((row) => row.name)).toEqual([winner.domain.name])
   })
 
   it('serializes two concurrent purchases of the same name: the second gets the first reservation', async () => {

@@ -989,7 +989,7 @@ describe('CampaignsService.redeemFreeTexts', () => {
     const otherSend = await seedSend(campaign.id)
     const track = vi
       .spyOn(service.app.get(AnalyticsService), 'track')
-      .mockResolvedValue(undefined)
+      .mockResolvedValue({ event: 'stub', userId: 'stub' })
 
     await service.app.get(CampaignsService).redeemFreeTexts(campaign.id)
 
@@ -1029,9 +1029,10 @@ describe('CampaignsService.redeemFreeTexts', () => {
     const campaign = await seedOfferCampaign()
     const winner = await seedSend(campaign.id)
     const bystander = await seedSend(campaign.id)
-    vi.spyOn(service.app.get(AnalyticsService), 'track').mockResolvedValue(
-      undefined,
-    )
+    vi.spyOn(service.app.get(AnalyticsService), 'track').mockResolvedValue({
+      event: 'stub',
+      userId: 'stub',
+    })
 
     await service.app.get(CampaignsService).redeemFreeTexts(campaign.id, winner)
 
@@ -1048,9 +1049,10 @@ describe('CampaignsService.redeemFreeTexts', () => {
     const campaign = await seedOfferCampaign()
     const first = await seedSend(campaign.id)
     const second = await seedSend(campaign.id)
-    vi.spyOn(service.app.get(AnalyticsService), 'track').mockResolvedValue(
-      undefined,
-    )
+    vi.spyOn(service.app.get(AnalyticsService), 'track').mockResolvedValue({
+      event: 'stub',
+      userId: 'stub',
+    })
     await service.prisma.$executeRawUnsafe(`
       CREATE OR REPLACE FUNCTION test_slow_offer_redeem() RETURNS trigger AS $$
       BEGIN PERFORM pg_sleep(0.4); RETURN NEW; END;
