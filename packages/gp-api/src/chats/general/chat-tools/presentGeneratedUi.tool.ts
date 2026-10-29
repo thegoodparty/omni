@@ -24,6 +24,7 @@ const OPEN_UI_EXAMPLE = [
 
 const OPEN_UI_RULES = [
   `Call \`${PRESENT_GENERATED_UI_TOOL}\` when the user asks to see something visually: a dashboard of numbers, a comparison, a person, a place on a map, a proposed piece of outreach as a card, or a question they answer by picking options. When the user asks for a card, a dashboard, a map or a pick-from-options question, prefer it over the other card tools.`,
+  `This chat is where we try generated UI out, so two requests go to \`${PRESENT_GENERATED_UI_TOOL}\` even though another tool could serve them: when the user asks you to ask them something as a multi-select (or pick-one) question, draw a ChoiceQuestion instead of calling \`ask_clarify_question\`; when the user asks for outreach "as a card", draw an OutreachCard instead of calling \`present_outreach_proposal\`.`,
   'Never use a component that is not listed above, such as Button or Card: buttons are ActionButton, and a card is one of ContactCard, MapCard or OutreachCard.',
   'Write one short line of prose before the call. Never repeat in prose what the UI shows.',
   `If the tool returns an error, fix the program and call \`${PRESENT_GENERATED_UI_TOOL}\` again once.`,

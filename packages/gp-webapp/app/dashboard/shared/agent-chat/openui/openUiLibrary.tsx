@@ -155,7 +155,9 @@ const DataTable = defineComponent({
         <TableHeader>
           <TableRow>
             {(props.columns ?? []).map((column, i) => (
-              <TableHead key={i}>{column}</TableHead>
+              <TableHead key={i} className="whitespace-normal">
+                {column}
+              </TableHead>
             ))}
           </TableRow>
         </TableHeader>
@@ -163,7 +165,9 @@ const DataTable = defineComponent({
           {(props.rows ?? []).map((row, i) => (
             <TableRow key={i}>
               {row.map((cell, j) => (
-                <TableCell key={j}>{cell}</TableCell>
+                <TableCell key={j} className="h-auto whitespace-normal py-3">
+                  {cell}
+                </TableCell>
               ))}
             </TableRow>
           ))}
