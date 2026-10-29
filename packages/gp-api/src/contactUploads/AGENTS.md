@@ -40,8 +40,11 @@ manual rows, else the upload's `createdAt`): the upload that brought them in.
    is missing or over 25 MB), flips the upload to `processing` and enqueues
    `CONTACT_UPLOAD_PROCESS` (`MessageGroupId` per org, so an org's uploads
    process in order). Neither route reads the file, so request time does
-   not grow with it; a repeat confirm returns the upload as it is. Both routes 503 when the bucket is unset, so importing locally needs
-   the dev bucket and AWS access. Bucket CORS:
+   not grow with it. Only the confirm whose `updateMany` moves the upload
+   out of `awaiting_file` enqueues, and only it can mark the upload `failed`
+   if the enqueue throws; a repeat or overlapping confirm returns the upload
+   as it is. Both routes 503 when the bucket is unset, so importing locally
+   needs the dev bucket and AWS access. Bucket CORS:
    `deploy/components/contact-uploads-bucket.ts`.
 2. **Read the file** (`services/contactUploadProcessJob.service.ts`), the
    first phase of the job, while `ingestedAt` is null: streams the object

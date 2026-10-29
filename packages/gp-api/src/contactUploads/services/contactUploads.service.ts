@@ -226,8 +226,8 @@ export class ContactUploadsService extends createPrismaBase(
   }
 
   // The browser's PUT landed: check the object is there and queue the job
-  // that reads it. A repeat call for an upload already past awaiting_file
-  // returns it unchanged.
+  // that reads it. Only the call that moves the upload out of awaiting_file
+  // queues it; a repeat or overlapping call returns the upload unchanged.
   async confirmUploaded(
     organization: Organization,
     id: string,
@@ -246,10 +246,11 @@ export class ContactUploadsService extends createPrismaBase(
     if ((head.contentLength ?? 0) > CONTACT_UPLOAD_MAX_BYTES) {
       throw new BadRequestException('upload_too_large')
     }
-    await this.model.updateMany({
+    const { count } = await this.model.updateMany({
       where: { id, status: ContactUploadStatus.awaiting_file },
       data: { status: ContactUploadStatus.processing },
     })
+    if (count === 0) return this.getUpload(organization, id)
 
     let enqueueFailed = false
     try {
@@ -266,8 +267,8 @@ export class ContactUploadsService extends createPrismaBase(
       enqueueFailed = true
     }
     if (enqueueFailed) {
-      await this.model.update({
-        where: { id },
+      await this.model.updateMany({
+        where: { id, status: ContactUploadStatus.processing },
         data: {
           status: ContactUploadStatus.failed,
           failureReason: START_FAILED_REASON,

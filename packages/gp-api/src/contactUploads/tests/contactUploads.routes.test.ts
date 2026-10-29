@@ -372,6 +372,52 @@ describe('POST /v1/contact-uploads/:id/uploaded', () => {
     expect(sendMessage).toHaveBeenCalledTimes(1)
   })
 
+  it('queues once when two confirms overlap', async () => {
+    const file = Buffer.from(`${HEADER_ROW}\nAnn,Able,,,,\n`)
+    const { data } = await presign(file.length)
+    bucketObjects.set(`${slug}/${data.uploadId}.csv`, file)
+    let heads = 0
+    const { promise: bothHeaded, resolve: releaseHeads } =
+      Promise.withResolvers<void>()
+    vi.spyOn(service.app.get(S3Service), 'headObject').mockImplementation(
+      async () => {
+        heads++
+        if (heads === 2) releaseHeads()
+        await bothHeaded
+        return { contentLength: file.length }
+      },
+    )
+
+    const [first, second] = await Promise.all([
+      confirm(data.uploadId),
+      confirm(data.uploadId),
+    ])
+
+    expect(heads).toBe(2)
+    expect([first.status, second.status]).toEqual([
+      HttpStatus.OK,
+      HttpStatus.OK,
+    ])
+    expect(sendMessage).toHaveBeenCalledTimes(1)
+    expect((await storedUpload(data.uploadId)).status).toBe(
+      ContactUploadStatus.processing,
+    )
+  })
+
+  it('leaves a queued upload processing when a retried confirm cannot reach the queue', async () => {
+    const first = await upload(`${HEADER_ROW}\nAnn,Able,,,,\n`)
+    sendMessage.mockRejectedValue(new Error('sqs down'))
+
+    const res = await confirm(first.data.id)
+
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(sendMessage).toHaveBeenCalledTimes(1)
+    expect(await storedUpload(first.data.id)).toMatchObject({
+      status: ContactUploadStatus.processing,
+      failureReason: null,
+    })
+  })
+
   it('502s and fails the upload when the job cannot be queued', async () => {
     sendMessage.mockRejectedValue(new Error('sqs down'))
     const { data } = await presign(100)
