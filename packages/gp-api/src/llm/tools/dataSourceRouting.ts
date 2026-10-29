@@ -34,6 +34,11 @@ export const dataSourceRoutingRules = (
           '  - Totals include adult residents whether or not they are registered to vote. Modeled scores (hs_*), registration status and turnout cover only residents registered to vote. When you quote a total, say which of the two it counts.',
         ]
       : []),
+    ...(peopleDataset.overlayOrgSlug === undefined
+      ? []
+      : [
+          `  - The office's uploaded contact lists (imported contacts) are already part of the people in both catalogs: everyone an upload matched or added counts in contact counts, saved lists and the ${martOnly} like anyone else (people an upload added have no map location, so door knocking leaves them out). Only the ${martOnly} can single them out: for any question about uploaded lists, imported contacts or their emails, call query_constituent_data with on_uploaded_list = true (on any uploaded list) or has_email = true (has an email from one). The CRM catalog has no uploaded-list or email dimension, so never answer these from saved lists or say the data does not exist.`,
+        ]),
     "  - Before telling the user a requested dimension does not exist anywhere, check the OTHER catalog's describe tool if the first one you checked did not have it. Do not conclude absence from a single catalog.",
     "  - Never substitute a differently-defined dimension for the one asked about and report it as the answer. Voter Likelihood (Super/Likely/Unreliable/Unlikely/Unknown, a turnout-propensity tier) is NOT registration status (active/inactive on file) — if you can't get the exact dimension asked for, say so and offer the closest available one by name, rather than silently answering with it.",
     `  - describe_filter_dimensions and describe_constituent_data are not interchangeable by name: the first lists the CRM catalog, the second the ${martOnly} catalog. Call the one that matches the count tool you intend to use.`,

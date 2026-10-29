@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import type { LlmStreamTool } from '@/llm/services/llm.service'
 import {
+  findPeopleCountColumns,
   type MandatoryFilter,
   scrubResults,
   SqlRejected,
@@ -412,7 +413,8 @@ ${
     ? `  - ${scope.partyNote ? 'Party' : 'Party registration'} (Parties_Description) and modeled partisanship/ideology score columns are available and ALLOWED — breaking ${scope.audienceNoun}s down by party is a normal campaign analysis here.${scope.partyNote ? `\n  - Parties_Description is not a registration here. ${scope.partyNote} Report party counts and shares as assigned or modeled, never as registrations.` : ''}`
     : '  - Never select, filter, or group by political party or any partisan-lean column. This is a hard legal line.'
 }
-  - Small cells (COUNT(*) below the suppression floor) are dropped automatically.
+  - SUM may only count: SUM(CASE WHEN <condition> THEN 1 ELSE 0 END). No COUNT or SUM in HAVING.
+  - Rows whose COUNT(*) is below ${scope.minCellSize ?? DEFAULT_MIN_CELL_SIZE} are dropped automatically, and any other COUNT or SUM below ${scope.minCellSize ?? DEFAULT_MIN_CELL_SIZE} comes back null. A null count means fewer than ${scope.minCellSize ?? DEFAULT_MIN_CELL_SIZE} people: say so, and never work the number out from a share, a total or another count.
 
 Surface findings to the user in plain language — counts and percentages, not raw scores. Never echo the SQL or internal column names.
 
@@ -456,6 +458,7 @@ export const buildQueryConstituentDataTool = (deps: {
       // unaliased COUNT(*), so a valid count is found regardless of how the
       // model named it.
       countColumnAliases: countAlias ? [countAlias, 'count(1)'] : ['count(1)'],
+      peopleCountColumns: findPeopleCountColumns(validatedSql, result.columns),
     })
     // Fail closed: scrubResults can only enforce the cell-size floor when it
     // finds the row-count column. If it still can't (the query has no COUNT at

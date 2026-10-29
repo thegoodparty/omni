@@ -169,11 +169,18 @@ chat registers none. All tools are the `LlmStreamTool` shape defined in
   mart in **Databricks** (L2 voter rows + Haystaq modeled issue-support scores).
   Heavily guarded: AST validation (`node-sql-parser`), single aggregate-only SELECT,
   column allowlist, forbidden partisan columns, mandatory server-bound WHERE filters,
-  and **cell-size suppression** (drops cells with COUNT < 100). This is the
+  and **cell-size suppression** (drops rows with COUNT < 100). This is the
   voter-data tool, and the reason its scope handler is `isSensitive`.
 - **`district_insights` / `list_district_topics`** — the same Databricks/Haystaq
   aggregate model for briefing chats; `list_district_topics` is a static catalog so
   the model doesn't guess column names.
+- **Every count of people is held to the floor, in both data tools.** The base
+  validator (`validateInsightsSql`) keeps each COUNT, COUNT_IF,
+  APPROX_COUNT_DISTINCT and SUM a bare select item, allows SUM only as
+  `SUM(CASE WHEN ... THEN 1 ELSE 0 END)`, and keeps them out of HAVING, so
+  each such value is a plain headcount. `scrubResults` then nulls any of them
+  below 100 whatever the alias (`findPeopleCountColumns`), beside the row
+  drop on the main COUNT.
 - **`query_databricks`** — generic read-only Databricks SELECT (write nodes blocked,
   1000-row cap).
 - **`get_artifacts`** / **`get_my_notes`** — read briefing source docs/links and the
