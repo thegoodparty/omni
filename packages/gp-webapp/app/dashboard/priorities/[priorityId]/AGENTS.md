@@ -163,15 +163,27 @@ panel" line, only with the flag on.
 civic panel GoodParty builds (`ManagedCivicPanelService.read`, as
 `managedCivicPanel`: status, members of goal, the next send day and the
 ready week; null for none or stopped; a failed read leaves it out, so the
-agent never says there is none), and the "Civic panel"
+agent never says there is none). It changes at most daily, so it is read
+once per open: `resolveConversation` (the page's `createConversation`)
+drops the conversation's entry from an in-memory map on the handler, the
+next turn reads it, and later turns reuse it. A failed read is not kept, so
+the next turn tries again. The "Civic panel"
 line says where it stands. `THEIR CIVIC PANEL ON THIS PRIORITY`
 (`buildCivicPanelBlock`) steers by status. Building or paused: it is
 filling for free, so the agent never sells a text as the way to build or
 fill it (round one drops its "it also invites people to join" line), offers
 to ask the civic panel once it is ready, and offers the round one text only
-as a way to hear from residents sooner. Ready: when the official asks, one
-text card to its members (`civicPanelMember` and `hasCellPhone`, no sample,
-no `civicPanelAsk`; the flow adds the LEAVE line), in place of round one.
+as a way to hear from residents sooner. Ready: asking it is the default
+first round of a check. When a check is warranted the agent asks which way
+with one `ask_clarify_question`, in this order, each with a one-line
+rationale: Ask my civic panel (one text card to its members,
+`civicPanelMember` and `hasCellPhone`, no sample, no `civicPanelAsk`; the
+flow adds the LEAVE line), Text residents across the district (round one as
+ever), or Use another kind of outreach (calls or doors, built as BUILD THE
+CHECK). The pick is the ask: it never asks again on that step
+(`docs/adr/2026-10-29-ready-civic-panel-is-a-prioritys-default-first-round.md`).
+The round one text always keeps `civicPanelAsk`, since replying JOIN is the
+only way in; only the agent's line pitching it is dropped.
 Exhausted: says so, round one is the way in, and its members can still be
 asked. None: Build my civic panel on the home sets one up. The agent told
 an official whose civic panel was filling that the paid round one text was
@@ -191,8 +203,9 @@ check was out with residents through a text they discarded. Judge case
 until it is good (the desktop rail, and the top of the phone's Where this
 stands sheet): the civic panel page's title for its status and "82 of 240
 residents have joined" (`civicPanelStanding` in `readStatusCopy.ts`),
-linked to the civic panel page. It reads `managedCivicPanelQueryOptions`,
-re-read on every turn settle, and shows nothing for none or stopped.
+linked to the civic panel page. It reads `managedCivicPanelQueryOptions`
+once with the page (not on turn settle), and shows nothing for none or
+stopped.
 
 The official can take both, one,
 or neither, from the cards' own buttons: the agent asks no follow-up question
