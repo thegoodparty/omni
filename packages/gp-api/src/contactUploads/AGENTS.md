@@ -11,17 +11,17 @@ for the org's owner. Contracts: `contracts/src/contactUploads/`.
 
 ## Routes
 
-| Method and path                                 | What                                                               |
-| ----------------------------------------------- | ------------------------------------------------------------------ |
-| `POST /v1/contact-uploads/presign`              | `{ byteSize }` (max 25 MB); mints the upload id, returns a PUT URL |
-| `POST /v1/contact-uploads`                      | `uploadId`, `fileName`, `name`, `consentAffirmed`, `columnMapping` |
-| `GET /v1/contact-uploads`                       | Upload history, newest first                                       |
-| `GET /v1/contact-uploads/:id`                   | One upload with counts                                             |
-| `GET /v1/contact-uploads/:id/rows`              | Rows by outcome, keyset-paged on `rowIndex`, `ILIKE` search        |
-| `PUT /v1/contact-uploads/:id/rows/:rowId/match` | `{ personId }`, `{ newPerson }` or `{ skip }`; returns the upload  |
-| `POST /v1/contact-uploads/:id/accept-suggested` | Accept every lone name-only suggestion, one transaction            |
-| `POST /v1/contact-uploads/:id/retry`            | A `failed` upload back to `processing`, matching queued again      |
-| `GET /v1/contacts/:personId/sources`            | Per-field "Came from", the person's upload rows, `hasActivity`     |
+| Method and path                                 | What                                                                                             |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `POST /v1/contact-uploads/presign`              | Name, file name, consent, mapping, `byteSize` (max 25 MB); creates the upload, returns a PUT URL |
+| `POST /v1/contact-uploads/:id/uploaded`         | The PUT landed: HEAD the object, `processing`, queue the job                                     |
+| `GET /v1/contact-uploads`                       | Upload history, newest first, without `awaiting_file` uploads                                    |
+| `GET /v1/contact-uploads/:id`                   | One upload with counts                                                                           |
+| `GET /v1/contact-uploads/:id/rows`              | Rows by outcome, keyset-paged on `rowIndex`, `ILIKE` search                                      |
+| `PUT /v1/contact-uploads/:id/rows/:rowId/match` | `{ personId }`, `{ newPerson }` or `{ skip }`; returns the upload                                |
+| `POST /v1/contact-uploads/:id/accept-suggested` | Accept every lone name-only suggestion, one transaction                                          |
+| `POST /v1/contact-uploads/:id/retry`            | A `failed` upload back to `processing`, the job queued again                                     |
+| `GET /v1/contacts/:personId/sources`            | Per-field "Came from", the person's upload rows, `hasActivity`                                   |
 
 The person feed (`GET /v1/contact-engagement/:id/activities`) reads this
 person's rows as `CONTACT_IMPORT` items (`ContactUploadMatchService.findForActivityFeed`).
@@ -32,20 +32,32 @@ manual rows, else the upload's `createdAt`): the upload that brought them in.
 
 1. **Upload** (`services/contactUploads.service.ts`): the browser sends the
    file straight to `CONTACT_UPLOADS_BUCKET`, never through gp-api, because
-   the webapp's `/api` proxy on Vercel caps bodies at 4.5 MB. `presign` mints
-   the upload id and signs a PUT to `<orgSlug>/<uploadId>.csv` for exactly
-   the declared size and `text/csv`, valid 15 minutes
-   (`S3Service.getSignedUrlForSizedUpload`). Then `POST /v1/contact-uploads`
-   reads the object back (400 if it is missing or over 25 MB, 409 if that
-   id was already imported), parses by the user's chosen headers
-   (`util/contactUploadCsv.util.ts`), normalizes (email lowercased and
-   validated, phones to `(xxx) xxx-xxxx`, ZIP to 5 digits), inserts upload
-   and rows in one transaction, and enqueues `CONTACT_UPLOAD_MATCH`
-   (`MessageGroupId` per org, so an org's uploads match in order). A row
-   without first and last name is `invalid`. Both routes 503 when the
-   bucket is unset, so importing locally needs the dev bucket and AWS
-   access. Bucket CORS: `deploy/components/contact-uploads-bucket.ts`.
-2. **Match** (`services/contactUploadMatchJob.service.ts`), one chunk of
+   the webapp's `/api` proxy on Vercel caps bodies at 4.5 MB. `presign`
+   creates the `contact_upload` row (`awaiting_file`, `rowCount` null) and
+   signs a PUT to `<orgSlug>/<uploadId>.csv` for exactly the declared size
+   and `text/csv`, valid 15 minutes (`S3Service.getSignedUrlForSizedUpload`).
+   Then `POST /v1/contact-uploads/:id/uploaded` HEADs the object (400 if it
+   is missing or over 25 MB), flips the upload to `processing` and enqueues
+   `CONTACT_UPLOAD_PROCESS` (`MessageGroupId` per org, so an org's uploads
+   process in order). Neither route reads the file, so request time does
+   not grow with it; a repeat confirm returns the upload as it is. Both routes 503 when the bucket is unset, so importing locally needs
+   the dev bucket and AWS access. Bucket CORS:
+   `deploy/components/contact-uploads-bucket.ts`.
+2. **Read the file** (`services/contactUploadProcessJob.service.ts`), the
+   first phase of the job, while `ingestedAt` is null: streams the object
+   from S3 (`S3Service.getFileStream`), parses by the user's chosen headers
+   (`readContactUploadCsv`, `util/contactUploadCsv.util.ts`), normalizes
+   (email lowercased and validated, phones to `(xxx) xxx-xxxx`, ZIP to 5
+   digits) and inserts rows 5,000 per `createMany({ skipDuplicates: true })`,
+   each its own statement with no wrapping transaction. `(uploadId, rowIndex)`
+   is unique, so a redelivery re-reads the file and skips what landed. Then
+   it sets `ingestedAt` and `rowCount` and falls through to matching in the
+   same delivery. A row without first and last name is `invalid`. A file that
+   can never import (a mapped column missing, over 100,000 rows, no rows,
+   unreadable, or gone from the bucket) throws `ContactUploadFileError`: the
+   upload goes `failed` on the first delivery with the error's message as
+   `failureReason`, which the UI shows, and its partial rows are deleted.
+3. **Match**, the second phase of the same job, one chunk of
    up to 4,000 pending rows per delivery, cut shorter when the rows' JSON
    would pass 800,000 characters (`fitContactUploadMatchRows`): Databricks
    rejects a bound parameter over 1,048,576. While pending rows remain, the
@@ -67,7 +79,7 @@ manual rows, else the upload's `createdAt`): the upload that brought them in.
    (`countOutcomes`, `util/contactUploadCounts.util.ts`), so a duplicate
    delivery cannot double-count. Updated is a row with `changedFields`;
    unchanged is a `prior_upload` row without.
-3. **Review**: `needs_input` rows wait until the user picks. Candidate
+4. **Review**: `needs_input` rows wait until the user picks. Candidate
    details are read from Databricks by id (`VoterQueryService.findPeople`
    with an `id` filter) for the page being shown, never stored.
 
@@ -75,7 +87,7 @@ manual rows, else the upload's `createdAt`): the upload that brought them in.
 
 - **The handler reads `ApproximateReceiveCount`.** The consumer asks SQS for
   it (`queueConsumer.module.ts`). On the delivery that reaches the queue's
-  `maxReceiveCount` (3, `CONTACT_UPLOAD_MATCH_MAX_RECEIVES`) a failure marks
+  `maxReceiveCount` (3, `CONTACT_UPLOAD_PROCESS_MAX_RECEIVES`) a failure marks
   the upload `failed` and acks, instead of leaving it `processing` behind a
   DLQ message.
 - **`isNewPerson` is copied, not recomputed.** A row that reuses an earlier
@@ -89,6 +101,11 @@ manual rows, else the upload's `createdAt`): the upload that brought them in.
 
 ## Not built here
 
+- Cleaning up abandoned uploads: one left `awaiting_file` (the browser
+  closed before its PUT or confirm) stays in Postgres, and maybe in the
+  bucket, forever. Upload history and every read route hide `awaiting_file`
+  uploads, so the user never sees it, but nothing deletes them yet.
+
 - Deleting an org's files from the bucket: Postgres rows cascade with the
   org, but no org deletion hook exists to clear `<orgSlug>/` in S3. The
   bucket is versioned and nothing expires, so a deletion has to remove every
@@ -98,8 +115,9 @@ manual rows, else the upload's `createdAt`): the upload that brought them in.
 
 `tests/contactUploads.routes.test.ts` drives everything through
 `useTestService()`, standing in for the bucket by spying
-`S3Service.getSignedUrlForSizedUpload` and `getFileBytes`, spying
+`S3Service.getSignedUrlForSizedUpload`, `headObject` and `getFileStream`,
+spying
 `VoterQueryService.matchContactUploadRows` and
-`findPeople` for Databricks and calling `handleQueuedMatch` directly (the
+`findPeople` for Databricks and calling `handleQueuedProcess` directly (the
 consumer does not run in tests). Pure logic: `util/*.test.ts`; the statement:
 `peopleDb/databricks/contactUploadMatchSql.util.test.ts`.

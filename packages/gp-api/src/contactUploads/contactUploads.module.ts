@@ -6,7 +6,7 @@ import { AwsModule } from '@/vendors/aws/aws.module'
 import { ContactSourcesController } from './contactSources.controller'
 import { ContactUploadsController } from './contactUploads.controller'
 import { ContactUploadMatchService } from './services/contactUploadMatch.service'
-import { ContactUploadMatchJobService } from './services/contactUploadMatchJob.service'
+import { ContactUploadProcessJobService } from './services/contactUploadProcessJob.service'
 import { ContactUploadsService } from './services/contactUploads.service'
 
 @Module({
@@ -15,8 +15,8 @@ import { ContactUploadsService } from './services/contactUploads.service'
   providers: [
     ContactUploadsService,
     ContactUploadMatchService,
-    ContactUploadMatchJobService,
+    ContactUploadProcessJobService,
   ],
-  exports: [ContactUploadMatchService, ContactUploadMatchJobService],
+  exports: [ContactUploadMatchService, ContactUploadProcessJobService],
 })
 export class ContactUploadsModule {}

@@ -34,5 +34,5 @@ Source the `context` from `isWinContext` (single source of truth in `ContactsTab
 Import contacts (Serve only, behind `serve-import-contacts`) fires three events from `crm/import/ImportContactsWizard.tsx`; gp-api owns `Contacts - Import Completed` and the review events.
 
 - `Contacts - Import Started` — once a chosen file is read and passes the CSV, 25 MB, empty and 100,000-row checks, `{ sourceType: 'csv', rowCount }`. Choosing another file fires it again.
-- `Contacts - Import Consent Affirmed` — once `POST /v1/contact-uploads` accepts the upload, which is only sent with the consent box checked, `{ rowCount }`. Never on a failed upload.
+- `Contacts - Import Consent Affirmed` — once `POST /v1/contact-uploads/:id/uploaded` accepts the upload, which is only sent with the consent box checked, `{ rowCount }`. Never when a presign, PUT or confirm request fails; it still fires for a file the queue job later rejects.
 - `Contacts - Import Abandoned` — when the wizard closes before an upload is accepted, `{ lastStep: 'file' | 'columns' | 'name', rowCount }` (`rowCount` null before a file is read). Closing is blocked while the upload is in flight, so it never fires mid-upload.

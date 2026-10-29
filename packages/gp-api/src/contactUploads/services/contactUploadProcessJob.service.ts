@@ -20,6 +20,7 @@ import {
   type ContactUploadMatchInputRow,
 } from '@/peopleDb/databricks/contactUploadMatchSql.util'
 import { AnalyticsService } from '@/analytics/analytics.service'
+import { S3Service } from '@/vendors/aws/services/s3.service'
 import { QueueProducerService } from '@/queue/producer/queueProducer.service'
 import { MessageGroup, QueueType } from '@/queue/queue.types'
 import { EVENTS } from '@/vendors/segment/segment.types'
@@ -29,7 +30,15 @@ import {
   nameKey,
   type MatchDecision,
 } from '../util/contactUploadMatching.util'
-import { ContactUploadsService } from './contactUploads.service'
+import {
+  ContactUploadFileError,
+  readContactUploadCsv,
+} from '../util/contactUploadCsv.util'
+import {
+  ContactUploadsService,
+  columnMappingOf,
+  uploadsBucket,
+} from './contactUploads.service'
 
 // Rows of every field still fit fitContactUploadMatchRows' budget at this
 // size; only unusually long values make a chunk smaller.
@@ -38,9 +47,13 @@ export const MATCH_CHUNK_SIZE = 4_000
 // The main queue's redrive maxReceiveCount (deploy/index.ts). The delivery
 // that reaches it is the last one, so it marks the upload failed instead of
 // handing the message to the DLQ with the upload still `processing`.
-export const CONTACT_UPLOAD_MATCH_MAX_RECEIVES = 3
+export const CONTACT_UPLOAD_PROCESS_MAX_RECEIVES = 3
 
-const FAILURE_REASON = 'Matching did not finish'
+// One createMany per batch, no wrapping transaction: (uploadId, rowIndex) is
+// unique, so a redelivery skips the rows an earlier delivery inserted.
+const INSERT_CHUNK_SIZE = 5_000
+
+const FAILURE_REASON = "This upload didn't finish. Try again."
 
 type KeyedRow = {
   row: ContactUploadMatch
@@ -123,7 +136,7 @@ const nameAddressKey = (
     : null
 
 @Injectable()
-export class ContactUploadMatchJobService extends createPrismaBase(
+export class ContactUploadProcessJobService extends createPrismaBase(
   MODELS.ContactUploadMatch,
 ) {
   constructor(
@@ -132,16 +145,18 @@ export class ContactUploadMatchJobService extends createPrismaBase(
     private readonly voterQuery: VoterQueryService,
     private readonly analytics: AnalyticsService,
     private readonly queueProducer: QueueProducerService,
+    private readonly s3: S3Service,
   ) {
     super()
   }
 
-  // Queue handler for QueueType.CONTACT_UPLOAD_MATCH. Returns true to ack,
-  // false to let SQS redeliver. Each delivery matches one chunk and, while
-  // pending rows remain, queues the next before acking, so no delivery
-  // outlives the visibility timeout. Only `pending` rows are worked, so a
-  // redelivery resumes where the last one stopped.
-  async handleQueuedMatch(
+  // Queue handler for QueueType.CONTACT_UPLOAD_PROCESS. Returns true to ack,
+  // false to let SQS redeliver. A delivery first reads the file into rows if
+  // that has not happened yet, then matches one chunk and, while pending rows
+  // remain, queues the next before acking, so no delivery outlives the
+  // visibility timeout. Rows insert with skipDuplicates and only `pending`
+  // rows are matched, so a redelivery resumes where the last one stopped.
+  async handleQueuedProcess(
     uploadId: string,
     receiveCount: number,
   ): Promise<boolean> {
@@ -152,33 +167,90 @@ export class ContactUploadMatchJobService extends createPrismaBase(
     if (!upload) {
       this.logger.info(
         { uploadId },
-        'contactUploadMatch: upload is not processing; acking',
+        'contactUploadProcess: upload is not processing; acking',
       )
       return true
     }
 
-    let failed = false
+    let failureReason: string | null = null
+    let badFile = false
     try {
+      if (upload.ingestedAt === null) await this.ingest(upload)
       await this.matchNextChunk(upload, upload.organization)
     } catch (err) {
-      const lastAttempt = receiveCount >= CONTACT_UPLOAD_MATCH_MAX_RECEIVES
-      this.logger.error(
-        { err, uploadId, receiveCount, lastAttempt },
-        'contactUploadMatch: matching failed',
-      )
-      if (!lastAttempt) return false
-      failed = true
+      if (err instanceof ContactUploadFileError) {
+        this.logger.info(
+          { uploadId },
+          'contactUploadProcess: the file cannot be imported',
+        )
+        failureReason = err.message
+        badFile = true
+      } else {
+        const lastAttempt = receiveCount >= CONTACT_UPLOAD_PROCESS_MAX_RECEIVES
+        this.logger.error(
+          { err, uploadId, receiveCount, lastAttempt },
+          'contactUploadProcess: processing failed',
+        )
+        if (!lastAttempt) return false
+        failureReason = FAILURE_REASON
+      }
     }
-    if (failed) {
+    if (badFile) await this.model.deleteMany({ where: { uploadId } })
+    if (failureReason !== null) {
       await this.client.contactUpload.updateMany({
         where: { id: uploadId, status: ContactUploadStatus.processing },
-        data: {
-          status: ContactUploadStatus.failed,
-          failureReason: FAILURE_REASON,
-        },
+        data: { status: ContactUploadStatus.failed, failureReason },
       })
     }
     return true
+  }
+
+  private async ingest(upload: ContactUpload): Promise<void> {
+    const file = await this.s3.getFileStream(uploadsBucket(), upload.fileKey)
+    if (!file) {
+      throw new ContactUploadFileError(
+        "We couldn't find this file. Import it again.",
+      )
+    }
+    let batch: Prisma.ContactUploadMatchCreateManyInput[] = []
+    let rowCount = 0
+    for await (const row of readContactUploadCsv(
+      file,
+      columnMappingOf(upload),
+    )) {
+      batch.push({
+        uploadId: upload.id,
+        organizationSlug: upload.organizationSlug,
+        rowIndex: row.rowIndex,
+        firstName: row.firstName,
+        lastName: row.lastName,
+        email: row.email,
+        cellPhone: row.cellPhone,
+        landline: row.landline,
+        addressLine: row.addressLine,
+        city: row.city,
+        zip: row.zip,
+        outcome: row.hasName
+          ? ContactUploadMatchOutcome.pending
+          : ContactUploadMatchOutcome.invalid,
+      })
+      rowCount++
+      if (batch.length === INSERT_CHUNK_SIZE) {
+        await this.model.createMany({ data: batch, skipDuplicates: true })
+        batch = []
+      }
+    }
+    if (batch.length > 0) {
+      await this.model.createMany({ data: batch, skipDuplicates: true })
+    }
+    await this.client.contactUpload.update({
+      where: { id: upload.id },
+      data: { ingestedAt: new Date(), rowCount },
+    })
+    this.logger.info(
+      { uploadId: upload.id, rowCount },
+      'contactUploadProcess: file read into rows',
+    )
   }
 
   private async matchNextChunk(
@@ -213,11 +285,14 @@ export class ContactUploadMatchJobService extends createPrismaBase(
     })
     if (nextPending) {
       await this.queueProducer.sendMessage(
-        { type: QueueType.CONTACT_UPLOAD_MATCH, data: { uploadId: upload.id } },
-        `${MessageGroup.contactUploadMatch}-${upload.organizationSlug}`,
+        {
+          type: QueueType.CONTACT_UPLOAD_PROCESS,
+          data: { uploadId: upload.id },
+        },
+        `${MessageGroup.contactUploadProcess}-${upload.organizationSlug}`,
         {
           throwOnError: true,
-          deduplicationId: `${QueueType.CONTACT_UPLOAD_MATCH}-${upload.id}-${nextPending.rowIndex}`,
+          deduplicationId: `${QueueType.CONTACT_UPLOAD_PROCESS}-${upload.id}-${nextPending.rowIndex}`,
         },
       )
       this.logger.info(
@@ -226,7 +301,7 @@ export class ContactUploadMatchJobService extends createPrismaBase(
           chunkRows: rows.length,
           nextRowIndex: nextPending.rowIndex,
         },
-        'contactUploadMatch: chunk done; queued the next',
+        'contactUploadProcess: chunk done; queued the next',
       )
       return
     }
@@ -260,7 +335,7 @@ export class ContactUploadMatchJobService extends createPrismaBase(
         updatedCount: finished.updatedCount,
         unchangedCount: finished.unchangedCount,
       },
-      'contactUploadMatch: done',
+      'contactUploadProcess: done',
     )
 
     if (finished.userId !== null) {
@@ -282,6 +357,7 @@ export class ContactUploadMatchJobService extends createPrismaBase(
         where: {
           organizationSlug: upload.organizationSlug,
           createdAt: { lt: upload.createdAt },
+          status: { not: ContactUploadStatus.awaiting_file },
         },
       })
       void this.analytics

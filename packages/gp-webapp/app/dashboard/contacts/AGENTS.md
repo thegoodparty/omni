@@ -116,17 +116,25 @@ becomes a list card.
   history. File (read in the browser by `parseCsvPreview` for headers,
   examples and the row count; CSV only, 25 MB), columns (`prefillColumnMapping`:
   the latest upload's mapping when every column it used is in the file, else
-  header names), then name and consent. Import presigns
-  (`POST /v1/contact-uploads/presign`), PUTs the file straight to S3 (the
-  `/api` proxy on Vercel caps bodies at 4.5 MB), then creates the upload with
-  its id (`createContactUpload` in `importContactsApi.ts`), then routes to
-  Upload history. Files over 25 MB are turned away when picked.
+  header names), then name and consent. Import presigns with the name,
+  mapping and consent (`POST /v1/contact-uploads/presign`, which creates the
+  upload), PUTs the file straight to S3 (the `/api` proxy on Vercel caps
+  bodies at 4.5 MB), confirms it (`POST /v1/contact-uploads/:id/uploaded`;
+  all three in `createContactUpload`, `importContactsApi.ts`), then routes to
+  Upload history at once: gp-api reads and matches the file in a queue job.
+  Files that are not CSV, over 25 MB, empty or over 100,000 rows are turned
+  away when picked, and mapped columns come from the file's own headers, so
+  a file the job rejects is rare.
 - **Upload history** (`/dashboard/contacts/uploads`, `UploadHistory`): one row
   per upload, status only; polls every 3s while any upload is processing.
+  gp-api leaves out uploads whose file never arrived.
 - **Upload detail** (`/dashboard/contacts/uploads/[uploadId]`, `UploadDetail`):
-  the counts, `NeedsInputReview` (answers saved together; Decide later changes
-  nothing), and `ProcessedRows` (searchable, paged with Show more, Change match
-  per row). A choice reads name, address, then age (`candidateLabel`), so
+  while processing, or failed before the file was read (`rowCount` null), no
+  counts or rows, and the meta line drops the row count. A failed upload
+  shows gp-api's `failureReason` (what went wrong with the file), else a
+  generic line, with Try again. Otherwise the counts, `NeedsInputReview`
+  (answers saved together; Decide later changes nothing), and `ProcessedRows`
+  (searchable, paged with Show more, Change match per row). A choice reads name, address, then age (`candidateLabel`), so
   two people at one address still differ.
 - **Person panel**: on Serve with the flag on, `PersonRecord` renders
   `person/ImportedContactInformation` in place of today's Contact Information

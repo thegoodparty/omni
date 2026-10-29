@@ -46,7 +46,7 @@ import { OutreachServePollExpansionService } from '@/outreach/services/outreachS
 import { OutreachTextDeliveryService } from '@/outreach/services/outreachTextDelivery.service'
 import { OutreachTextSendFundingService } from '@/outreach/services/outreachTextSendFunding.service'
 import { EmailOutreachQueueService } from '@/emailOutreach/services/emailOutreachQueue.service'
-import { ContactUploadMatchJobService } from '@/contactUploads/services/contactUploadMatchJob.service'
+import { ContactUploadProcessJobService } from '@/contactUploads/services/contactUploadProcessJob.service'
 import { P2pPhoneListUploadService } from '@/vendors/peerly/services/p2pPhoneListUpload.service'
 import { FeedbackSynthesisIngestService } from '@/constituentFeedback/services/feedbackSynthesisIngest.service'
 import { QueueConsumerService } from './queueConsumer.service'
@@ -1464,13 +1464,13 @@ describe('QueueConsumerService - message type routing', () => {
     check: ReturnType<typeof vi.fn>
     reportRefusal: ReturnType<typeof vi.fn>
   }
-  let mockContactUploadMatchJob: {
-    handleQueuedMatch: ReturnType<typeof vi.fn>
+  let mockContactUploadProcessJob: {
+    handleQueuedProcess: ReturnType<typeof vi.fn>
   }
 
   beforeEach(async () => {
-    mockContactUploadMatchJob = {
-      handleQueuedMatch: vi.fn().mockResolvedValue(false),
+    mockContactUploadProcessJob = {
+      handleQueuedProcess: vi.fn().mockResolvedValue(false),
     }
     mockCampaignsService = { model: { findUniqueOrThrow: vi.fn() } }
     mockSlackService = { message: vi.fn() }
@@ -1594,8 +1594,8 @@ describe('QueueConsumerService - message type routing', () => {
         },
         { provide: EmailOutreachQueueService, useValue: {} },
         {
-          provide: ContactUploadMatchJobService,
-          useValue: mockContactUploadMatchJob,
+          provide: ContactUploadProcessJobService,
+          useValue: mockContactUploadProcessJob,
         },
       ],
     }).compile()
@@ -1603,35 +1603,36 @@ describe('QueueConsumerService - message type routing', () => {
     service = module.get(QueueConsumerService)
   })
 
-  it('routes contactUploadMatch with the delivery count and passes back its ack', async () => {
+  it('routes contactUploadProcess with the delivery count and passes back its ack', async () => {
     const uploadId = '019a2f3c-0000-7000-8000-000000000001'
     const result = await service.processMessage({
       MessageId: 'msg-contact-upload-match',
       Body: JSON.stringify({
-        type: QueueType.CONTACT_UPLOAD_MATCH,
+        type: QueueType.CONTACT_UPLOAD_PROCESS,
         data: { uploadId },
       }),
       Attributes: { ApproximateReceiveCount: '2' },
     })
 
     expect(result).toBe(false)
-    expect(mockContactUploadMatchJob.handleQueuedMatch).toHaveBeenCalledWith(
-      uploadId,
-      2,
-    )
+    expect(
+      mockContactUploadProcessJob.handleQueuedProcess,
+    ).toHaveBeenCalledWith(uploadId, 2)
   })
 
-  it('throws a malformed contactUploadMatch payload toward the DLQ', async () => {
+  it('throws a malformed contactUploadProcess payload toward the DLQ', async () => {
     await expect(
       service.processMessage({
         MessageId: 'msg-contact-upload-match-bad',
         Body: JSON.stringify({
-          type: QueueType.CONTACT_UPLOAD_MATCH,
+          type: QueueType.CONTACT_UPLOAD_PROCESS,
           data: { uploadId: 'nope' },
         }),
       }),
     ).rejects.toThrow()
-    expect(mockContactUploadMatchJob.handleQueuedMatch).not.toHaveBeenCalled()
+    expect(
+      mockContactUploadProcessJob.handleQueuedProcess,
+    ).not.toHaveBeenCalled()
   })
 
   it('processes campaignPlanComplete and calls handleCampaignPlanComplete', async () => {
@@ -2408,7 +2409,7 @@ describe('QueueConsumerService - handleTcrComplianceCheckMessage', () => {
         { provide: FeedbackSynthesisIngestService, useValue: {} },
         { provide: OutreachTextSendFundingService, useValue: {} },
         { provide: EmailOutreachQueueService, useValue: {} },
-        { provide: ContactUploadMatchJobService, useValue: {} },
+        { provide: ContactUploadProcessJobService, useValue: {} },
       ],
     }).compile()
     service = mod.get(QueueConsumerService)
@@ -2557,7 +2558,7 @@ describe('QueueConsumerService - handleAgentExperimentResult', () => {
         { provide: FeedbackSynthesisIngestService, useValue: {} },
         { provide: OutreachTextSendFundingService, useValue: {} },
         { provide: EmailOutreachQueueService, useValue: {} },
-        { provide: ContactUploadMatchJobService, useValue: {} },
+        { provide: ContactUploadProcessJobService, useValue: {} },
       ],
     }).compile()
     service = module.get(QueueConsumerService)
