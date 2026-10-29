@@ -238,9 +238,6 @@ describe('POST /v1/outreach/social/draft', () => {
 
     expect(jsonCompletion).toHaveBeenCalledTimes(1)
     const call = jsonCompletion.mock.calls[0]?.[0]
-    const systemPrompt = call.messages.find(
-      (m: { role: string }) => m.role === 'system',
-    )?.content
     const userPrompt = call.messages.find(
       (m: { role: string }) => m.role === 'user',
     )?.content

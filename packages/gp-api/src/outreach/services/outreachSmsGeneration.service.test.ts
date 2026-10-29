@@ -230,7 +230,7 @@ describe('OutreachSmsGenerationService — protected Improve', () => {
       "Hi ⟦1⟧, it's ⟦2⟧! Please vote Nov 3.",
     )
     await improve(service)
-    const { userPrompt, systemPrompt } = promptsOf(jsonCompletion)
+    const { userPrompt } = promptsOf(jsonCompletion)
     expect(userPrompt).toContain('⟦2⟧')
     expect(userPrompt).not.toContain('Paid for by')
     expect(userPrompt).not.toContain('Reply STOP')

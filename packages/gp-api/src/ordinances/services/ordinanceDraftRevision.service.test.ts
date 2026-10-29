@@ -168,5 +168,4 @@ describe('OrdinanceDraftRevisionService', () => {
 
     expect(revision.body).toBe('x'.repeat(halfLength))
   })
-
 })

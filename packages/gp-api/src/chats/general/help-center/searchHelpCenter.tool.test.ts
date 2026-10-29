@@ -32,5 +32,4 @@ describe('search_help_center tool', () => {
     expect(instance.inputSchema.safeParse({ query: 'a' }).success).toBe(false)
     expect(instance.inputSchema.safeParse({ query: 'ab' }).success).toBe(true)
   })
-
 })

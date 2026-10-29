@@ -305,5 +305,4 @@ describe('OrdinanceQualityReportService', () => {
       }),
     )
   })
-
 })

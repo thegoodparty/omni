@@ -110,7 +110,6 @@ describe('product knowledge blocks', () => {
         expect(prompt).not.toContain('search_help_center')
       }
     })
-
   })
 
   it('names the other product without offering it', () => {

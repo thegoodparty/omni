@@ -45,7 +45,6 @@ describe('DISTRICT_TOPICS_CATALOG', () => {
 })
 
 describe('buildDistrictTopicsTool', () => {
-
   it('input schema accepts an optional topic filter', () => {
     const tool = buildDistrictTopicsTool()
     expect(() => tool.inputSchema.parse({})).not.toThrow()

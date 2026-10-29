@@ -350,7 +350,9 @@ describe('buildChiefOfStaffSystemPrompt', () => {
       toolNames: TOOLS,
     })
     expect(prompt).toContain('INTRODUCTION (you have worked together before)')
-    expect(prompt).not.toContain('INTRODUCTION (this is their first conversation)')
+    expect(prompt).not.toContain(
+      'INTRODUCTION (this is their first conversation)',
+    )
   })
 
   it('recognizes the lead the app puts on picked next steps', () => {
