@@ -668,8 +668,9 @@ export const buildReachPeopleSql = (args: {
   return { sql, params: bag.params }
 }
 
-// How many homes in a group have no cell phone on file, and how many of
-// those have a landline: counts of homes, never a person.
+// How many homes in a group have no cell phone on file, how many of those
+// have a landline, and how many homes it has: counts of homes, never a
+// person.
 export const buildReachHomesSql = (args: {
   district: DbxDistrict
   group: ReachGroupCell
@@ -680,7 +681,8 @@ export const buildReachHomesSql = (args: {
   const sql =
     `SELECT count(DISTINCT CASE WHEN ${noCellSql()} THEN ${home} END)` +
     ` AS no_cell, count(DISTINCT CASE WHEN ${noCellSql()}` +
-    ` AND ${hasLandlineSql()} THEN ${home} END) AS landline` +
+    ` AND ${hasLandlineSql()} THEN ${home} END) AS landline,` +
+    ` count(DISTINCT ${home}) AS homes` +
     ` FROM ${args.district.table} v ${reachWhere(bag, args)}`
   return { sql, params: bag.params }
 }
@@ -688,6 +690,7 @@ export const buildReachHomesSql = (args: {
 export interface ReachHomes {
   noCell: number
   landline: number
+  homes: number
 }
 
 export const mapReachHomes = (
@@ -695,4 +698,5 @@ export const mapReachHomes = (
 ): ReachHomes => ({
   noCell: Number(rows[0]?.[0] ?? 0),
   landline: Number(rows[0]?.[1] ?? 0),
+  homes: Number(rows[0]?.[2] ?? 0),
 })

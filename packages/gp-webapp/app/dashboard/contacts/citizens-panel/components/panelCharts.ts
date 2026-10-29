@@ -1,6 +1,8 @@
 import {
+  allocateSeats,
+  civicPanelShortGroups,
   PANEL_MIN_MEMBERS_FOR_BALANCE,
-  type CivicPanelComposition,
+  type CivicPanelShortGroup,
   type CivicPanelJoinedBy,
   type CivicPanelCompositionGroup,
   type CivicPanelCompositionPlace,
@@ -26,41 +28,9 @@ export const LABEL_ALL_UP_TO = 12
 // Near its goal the chart turns from who is behind to where seats are empty.
 export const NEAR_FULL_AT = 0.8
 
-// Largest remainder, ties to the bigger weight, so the parts always sum to
-// the total. A part never passes its cap.
-export const allocate = (
-  weights: number[],
-  total: number,
-  caps?: number[],
-): number[] => {
-  const sum = weights.reduce((a, b) => a + b, 0)
-  if (sum <= 0 || total <= 0) return weights.map(() => 0)
-  const capOf = (i: number) => caps?.[i] ?? Infinity
-  const raw = weights.map((w) => (w * total) / sum)
-  const out = raw.map((r, i) => Math.min(Math.floor(r), capOf(i)))
-  let left = total - out.reduce((a, b) => a + b, 0)
-  const order = raw
-    .map((_, i) => i)
-    .sort(
-      (a, b) =>
-        (raw[b] ?? 0) - (out[b] ?? 0) - ((raw[a] ?? 0) - (out[a] ?? 0)) ||
-        (weights[b] ?? 0) - (weights[a] ?? 0),
-    )
-  // Caps can leave seats over after one pass; keep going while any part
-  // still has room.
-  while (left > 0) {
-    let placed = false
-    for (const i of order) {
-      if (left <= 0) break
-      if ((out[i] ?? 0) >= capOf(i) || (weights[i] ?? 0) <= 0) continue
-      out[i] = (out[i] ?? 0) + 1
-      left -= 1
-      placed = true
-    }
-    if (!placed) break
-  }
-  return out
-}
+// The seat split the civic panel page and the Chief of Staff share
+// (contracts' CivicPanelShortGroups).
+export const allocate = allocateSeats
 
 // Server and client can differ in a coordinate's last float digit, which
 // React reports as a hydration mismatch, so every drawn coordinate is
@@ -383,57 +353,12 @@ export const sectorPath = (
   ].join(' ')
 }
 
-export type ShortGroup =
-  | {
-      kind: 'group'
-      key: string
-      group: UnderrepresentedGroup
-      have: number
-      need: number
-    }
-  | { kind: 'place'; key: string; place: SeatPlace; have: number; need: number }
+export type ShortGroup = CivicPanelShortGroup
 
 // Every group with fewer seats than its share of the district, furthest
-// behind first, in the hero's seats: an age, gender or race group's share
-// of the 100 seats beside the seats its members fill, and a place's seats
-// beside the ones filled.
-export const shortGroups = ({
-  composition,
-  members,
-  goal,
-}: {
-  composition: CivicPanelComposition
-  members: number
-  goal: number
-}): ShortGroup[] => {
-  const fill = members / Math.max(1, goal)
-  const groups: ShortGroup[] = composition.groups.map((g) => ({
-    kind: 'group',
-    key: g.group,
-    group: g.group,
-    have: Math.round(g.memberShare * fill * SEAT_COUNT),
-    need: Math.round(g.districtShare * SEAT_COUNT),
-  }))
-  const places: ShortGroup[] =
-    composition.places.length > 0
-      ? buildSeats({
-          places: composition.places,
-          members,
-          goal,
-          cx: 0,
-          cy: 0,
-        }).places.map((place) => ({
-          kind: 'place',
-          key: place.key,
-          place,
-          have: place.filled,
-          need: place.count,
-        }))
-      : []
-  return [...groups, ...places]
-    .filter((row) => row.need > 0 && row.have < row.need)
-    .sort((a, b) => a.have / a.need - b.have / b.need || b.need - a.need)
-}
+// behind first, in the hero's seats. The Chief of Staff offers the same
+// groups (contracts' civicPanelShortGroups).
+export const shortGroups = civicPanelShortGroups
 
 // The arc with no places to split it by: the seats filled in order, in
 // bands of the brand's three families so neighbors differ.

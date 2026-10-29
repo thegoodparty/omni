@@ -52,9 +52,10 @@ only for this card), or "Your civic panel starts here" at 0 members as on
 the civic panel page with members of the goal, then the next send date; or
 "Invites are paused"), `ready` (for `MANAGED_PANEL_READY_CARD_DAYS`, 14, after
 `readyAt`), and `exhausted` ("Every resident we can text has an invite",
-members of the goal, button `MANAGED_CIVIC_PANEL_EXHAUSTED_CARD_CTA`, which
-the home turns into the hidden `MANAGED_CIVIC_PANEL_EXHAUSTED_MESSAGE` so
-the Chief of Staff says so with the member count). Stopped, or no enrollment: none. An open
+"{members} of {goal} residents have joined. Door knocking and calls can
+reach the rest.", one button `MANAGED_CIVIC_PANEL_EXHAUSTED_CARD_CTA`,
+Reach the rest another way, which the home turns into the hidden
+`MANAGED_CIVIC_PANEL_EXHAUSTED_MESSAGE`; see "Reaching the rest" below). Stopped, or no enrollment: none. An open
 card of another phase is deleted, so a building card set aside never hides
 the ready one; words are rewritten on read; no Mark done; building and
 exhausted do not lapse. The read goes through `ManagedCivicPanelService`
@@ -206,6 +207,27 @@ left `pending` is resumed by `claimFree`, and a send already past `pending`
 only gets its wave marked. Paused, stopped, ready and exhausted panels are
 not touched. Decision:
 `docs/adr/2026-10-22-managed-panel-wave-job-derives-each-step.md`.
+
+**Reaching the rest.** On the exhausted card's message, or when the
+official asks, the Chief of Staff calls `read_reach_the_rest`
+(`managedCivicPanel.tools.ts`, only while the enrollment is `exhausted`):
+`CivicPanelReachService.optionsFor`, the first
+`CIVIC_PANEL_SHORT_GROUPS_SHOWN` short groups of contracts'
+`civicPanelShortGroups` (the same rows the civic panel page lists), each
+with `findReachHomes` counted leaving out members and who left. A place is
+offered at the door ("Knock doors in West Asheville", "around Pine St"), an
+age, gender or race group on a call ("Call people 65 and over") where it
+has landlines, each the other way when its own reaches nobody, and left out
+when neither does. The line is "{n} seats short. {count} homes there have
+no cell phone on file." or "... have a landline.". `mostlyNoCell` is true
+only when most homes in the short places have no cell phone on file; only
+then does the agent say the parts still short mostly have homes with no
+cell phone, else "door knocking and calls can reach people a text can't".
+It then calls `offer_reach_the_rest`, which the webapp draws as a
+single-choice question read live from `GET /civic-panel/reach-options`;
+a pick saves the list through `POST /civic-panel/reach-lists` and opens
+door knocking or phone banking on it (`flows-civic-panel.md`, "Reaching
+the rest"). A failed warehouse read offers nothing.
 
 **Analytics** (`EVENTS.Contacts` in `segment.types.ts`, to the office's
 user through `trackForOffice`, fire-and-forget). Each fires only from the

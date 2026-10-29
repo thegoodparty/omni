@@ -50,7 +50,8 @@ pads `var(--chat-dock-height)` plus 8rem so the last card clears the bar.
   managed panel the sentence is dropped) and what the page will show.
 - **Who we're inviting next** (`CivicPanelNext`, "Groups still short" when
   exhausted) with members, a composition and the panel not ready: the 4
-  rows of `shortGroups` (`panelCharts.ts`) furthest below their share, age,
+  rows of `shortGroups` (contracts' `civicPanelShortGroups`, which the
+  Chief of Staff's reach-the-rest offer reads too) furthest below their share, age,
   gender and race groups and places alike, in the hero's seat units
   (a group's share of 100 seats beside `memberShare` times the fill; a
   place's `buildSeats` count beside its filled), each "{have} of {need}

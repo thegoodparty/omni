@@ -570,7 +570,7 @@ describe('buildReachPeopleSql', () => {
 })
 
 describe('buildReachHomesSql', () => {
-  it('counts homes with no cell phone, and of them with a landline', () => {
+  it('counts homes with no cell phone, of them with a landline, and all homes', () => {
     const { sql } = buildReachHomesSql({
       district: DISTRICT,
       group: { kind: 'gender', value: 'female' },
@@ -578,17 +578,18 @@ describe('buildReachHomesSql', () => {
     })
 
     expect(sql).toMatch(
-      /^SELECT count\(DISTINCT CASE WHEN v\.`VoterTelephones_CellPhoneFormatted` IS NULL THEN concat_ws\(.*\) END\) AS no_cell, count\(DISTINCT CASE WHEN .* AND v\.`VoterTelephones_LandlineFormatted` IS NOT NULL THEN .* END\) AS landline FROM /,
+      /^SELECT count\(DISTINCT CASE WHEN v\.`VoterTelephones_CellPhoneFormatted` IS NULL THEN concat_ws\(.*\) END\) AS no_cell, count\(DISTINCT CASE WHEN .* AND v\.`VoterTelephones_LandlineFormatted` IS NOT NULL THEN .* END\) AS landline, count\(DISTINCT concat_ws\(.*\)\) AS homes FROM /,
     )
     expect(sql).not.toMatch(/FirstName|LastName/)
     expect(sql).toContain(PERSON_ID)
   })
 
   it('maps the two counts', () => {
-    expect(mapReachHomes([['120', '45']])).toEqual({
+    expect(mapReachHomes([['120', '45', '300']])).toEqual({
       noCell: 120,
       landline: 45,
+      homes: 300,
     })
-    expect(mapReachHomes([])).toEqual({ noCell: 0, landline: 0 })
+    expect(mapReachHomes([])).toEqual({ noCell: 0, landline: 0, homes: 0 })
   })
 })

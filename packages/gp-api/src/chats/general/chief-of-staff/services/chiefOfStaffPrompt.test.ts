@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
 import { FILTER_DIMENSION_PROVENANCE_RULES } from '@/contacts/filterDimensions.catalog'
-import { PICKED_NEXT_STEPS_LEAD } from '@goodparty_org/contracts'
+import {
+  MANAGED_CIVIC_PANEL_EXHAUSTED_MESSAGE,
+  PICKED_NEXT_STEPS_LEAD,
+  type ManagedCivicPanel,
+} from '@goodparty_org/contracts'
 import {
   appEnvOverrides,
   useAppEnvOverrides,
@@ -63,6 +67,44 @@ const ALL_TOOLS = [
 ]
 
 describe('buildChiefOfStaffSystemPrompt', () => {
+  describe('reaching the rest of an exhausted managed civic panel', () => {
+    const MANAGED_TOOLS = [
+      ...TOOLS,
+      'read_managed_panel',
+      'present_managed_panel',
+      'read_reach_the_rest',
+      'offer_reach_the_rest',
+    ]
+    const prompt = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx({
+        managedPanel: { status: 'exhausted' } as ManagedCivicPanel,
+      }),
+      toolNames: MANAGED_TOOLS,
+    })
+
+    it('reads the short groups and offers them on Reach the rest another way', () => {
+      expect(prompt).toContain(
+        `On "${MANAGED_CIVIC_PANEL_EXHAUSTED_MESSAGE}", or when an exhausted civic panel's official asks how to reach the rest, call \`read_reach_the_rest\``,
+      )
+      expect(prompt).toContain('Then call `offer_reach_the_rest`')
+      expect(prompt).toContain('Reach the rest another way')
+    })
+
+    it('says homes have no cell phone only when the data says so', () => {
+      expect(prompt).toContain('If mostlyNoCell is true')
+      expect(prompt).toContain(
+        "door knocking and calls can reach people a text can't",
+      )
+    })
+
+    it('lets a door or call yes join, and never offers another way', () => {
+      expect(prompt).toContain(
+        'or by saying yes when their office knocks on their door or calls them. Never offer another way to join',
+      )
+      expect(prompt).not.toContain('See where it stands')
+    })
+  })
+
   describe('reporting back, behind serve-citizen-panels', () => {
     const send = {
       outreachId: 77,

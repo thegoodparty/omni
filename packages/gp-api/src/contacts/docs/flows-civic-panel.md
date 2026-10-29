@@ -332,7 +332,11 @@ and for `phone` a landline (the list also keeps `hasLandline`), leaving
 out members and anyone who left, up to `MAX_LIST_SAMPLE_SIZE`. Nobody
 found is a 422 and saves nothing. Joining stays a yes marked at the door
 or on the call. `findReachHomes` (`buildReachHomesSql`) counts the same
-group's homes with no cell phone, and of them with a landline.
+group's homes with no cell phone, of them with a landline, and all its
+homes; `GET /civic-panel/reach-options` (`optionsFor`) is the Chief of
+Staff's offer built on it (`flows-managed-civic-panel.md`, "Reaching the
+rest"). The short groups themselves are contracts' `civicPanelShortGroups`
+(`people/CivicPanelShortGroups.ts`), which the page reads too.
 
 **Active members past the goal.** A panel past its goal is judged on active
 coverage. An active member is a panel member who answered a priority's text,

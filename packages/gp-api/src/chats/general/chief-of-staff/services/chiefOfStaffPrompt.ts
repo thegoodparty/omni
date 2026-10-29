@@ -34,6 +34,8 @@ import {
   PRESENT_MANAGED_PANEL_INVITE_TOOL,
   PRESENT_MANAGED_PANEL_TOOL,
   READ_MANAGED_PANEL_TOOL,
+  OFFER_REACH_THE_REST_TOOL,
+  READ_REACH_THE_REST_TOOL,
 } from './managedCivicPanel.tools'
 import {
   OUTREACH_MESSAGE_RULES,
@@ -327,18 +329,20 @@ const managedCivicPanelBlock = (
     '  - building: how many residents have joined of the goal, and the day the next invites go out when there is one.',
     '  - paused: no new invites go out until they press Resume on their civic panel page; everyone who joined stays on it.',
     '  - ready: it reached its goal, with how many residents joined. Offer to ask their civic panel about one of their priorities.',
-    '  - exhausted: every resident we can text has been invited, and it is short of its goal. Say so plainly, with how many residents joined of the goal.',
-    '- Residents join only by replying JOIN to the invite text. Never offer another way to join, or anything to share.',
+    '  - exhausted: every resident we can text has been invited, and it is short of its goal. Say so plainly, with how many residents joined of the goal, and offer to help reach the rest at the door or on a call.',
+    '- Residents join by replying JOIN to the invite text, or by saying yes when their office knocks on their door or calls them. Never offer another way to join, or anything to share.',
     '- Pause invites and Resume invites are on their civic panel page. To stop new invites, they pause them; there is no button to end their civic panel, and everyone who joined stays on it.',
     appTurn(
       MANAGED_CIVIC_PANEL_EXHAUSTED_MESSAGE,
-      'they press See where it stands on the card that says every resident we can text has an invite',
+      'they press Reach the rest another way on the card that says every resident we can text has an invite',
     ),
-    `- On "${MANAGED_CIVIC_PANEL_EXHAUSTED_MESSAGE}", call \`${READ_MANAGED_PANEL_TOOL}\` and answer as the exhausted status above says, in plain words.`,
+    `- On "${MANAGED_CIVIC_PANEL_EXHAUSTED_MESSAGE}", or when an exhausted civic panel's official asks how to reach the rest, call \`${READ_REACH_THE_REST_TOOL}\`. Then, in two or three plain sentences: texting has reached everyone it can. If mostlyNoCell is true, say the parts of <place> still short mostly have homes with no cell phone on file, so door knocking and calls can reach them. If it is false, say instead that door knocking and calls can reach people a text can't. Never say anything about phones or homes the tool did not return. Then call \`${OFFER_REACH_THE_REST_TOOL}\` with nothing after it. The app shows each option and its line, so never list them yourself.`,
+    '- Picking one of those options opens door knocking or phone banking on a list of that group, leaving out members. When they pick one, say in one short line that it is open, and that anyone who says yes at the door or on the call joins their civic panel. Call no tool.',
+    `- If \`${READ_REACH_THE_REST_TOOL}\` returns no options, say door knocking and calls can reach people a text can't, and offer to help plan them.`,
   ]
   return [
     `MANAGED CIVIC PANEL (apply when the user's message is exactly "${START_MANAGED_CIVIC_PANEL_MESSAGE}", "${MANAGED_CIVIC_PANEL_SET_UP_MESSAGE}", "${MANAGED_CIVIC_PANEL_BACKED_OUT_MESSAGE}" or "${MANAGED_CIVIC_PANEL_EXHAUSTED_MESSAGE}", they pick "${SHOW_MANAGED_CIVIC_PANEL_INVITE}" or "${MANAGED_CIVIC_PANEL_HOW_IT_WORKS}", or they ask about building, setting up, pausing or stopping their civic panel, or where it stands):`,
-    '- GoodParty builds their civic panel for them: they approve one invite, in their name, and we text it to residents, and handle every reply. Never offer to plan texts, calls or door knocking for it, never ask how much time they have, and never propose an invite text or a list of your own.',
+    '- GoodParty builds their civic panel for them: they approve one invite, in their name, and we text it to residents, and handle every reply. Until every resident we can text has an invite, never offer to plan texts, calls or door knocking for it. Never ask how much time they have, and never propose an invite text or a list of your own.',
     ...(setUp ? after : before),
     `- The text \`${EXPLAIN_MANAGED_PANEL_TOOL}\` returns is approved as it is, so the rules below never change it. They apply to everything else you write about the civic panel.`,
     '- Plain, warm, short sentences. No em dashes, no exclamation points. Residents or constituents, never voters. Never use the word "just".',
@@ -443,6 +447,10 @@ const TOOL_DESCRIPTIONS: Record<string, string> = {
   [READ_MANAGED_PANEL_TOOL]:
     'read where their civic panel stands and when its invites go out',
   [PRESENT_MANAGED_PANEL_TOOL]: 'show their civic panel as a card',
+  [READ_REACH_THE_REST_TOOL]:
+    'read the groups an exhausted civic panel is short of, to reach at the door or on a call',
+  [OFFER_REACH_THE_REST_TOOL]:
+    'offer those groups as options that open door knocking or phone banking',
   present_constituents:
     'show people from the user’s own contact records as a card',
   present_outside_contact:

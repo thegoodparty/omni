@@ -117,6 +117,7 @@ export const MANAGED_CIVIC_PANEL_BACKED_OUT_MESSAGE =
 
 // The hidden turn the Serve home sends from the card shown once every
 // resident a text can reach has been invited and the panel is short of its
-// goal: the Chief of Staff says so, with how many residents joined.
+// goal: the Chief of Staff says texting reached everyone it can and offers
+// the short groups at the door or on a call.
 export const MANAGED_CIVIC_PANEL_EXHAUSTED_MARKER = '[Civic panel invites done]'
 export const MANAGED_CIVIC_PANEL_EXHAUSTED_MESSAGE = `${MANAGED_CIVIC_PANEL_EXHAUSTED_MARKER} Help me fill the rest of my civic panel.`

@@ -824,7 +824,7 @@ describe('GET /v1/dashboard/cards: the managed panel progress card', () => {
     expect(await progressCards(orgSlug)).toHaveLength(0)
   })
 
-  it('says so, with no link, once everyone a text can reach was invited', async () => {
+  it('offers the rest at the door or by phone, with no link, once everyone a text can reach was invited', async () => {
     const orgSlug = 'eo-progress-exhausted'
     await seedElectedOffice(orgSlug)
     await seedEnrollment(orgSlug)
@@ -834,11 +834,11 @@ describe('GET /v1/dashboard/cards: the managed panel progress card', () => {
 
     expect(card).toMatchObject({
       title: 'Every resident we can text has an invite',
-      ctaLabel: 'See where it stands',
+      ctaLabel: 'Reach the rest another way',
       sourceItemId: 'exhausted',
     })
     expect(card?.summary).toMatch(
-      /^\d+ of \d+ residents have joined your civic panel\.$/,
+      /^\d+ of \d+ residents have joined\. Door knocking and calls can reach the rest\.$/,
     )
     expect(`${card?.title} ${card?.summary} ${card?.ctaLabel}`).not.toMatch(
       /link|page/i,
