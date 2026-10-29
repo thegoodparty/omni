@@ -42,7 +42,7 @@ describe('ElectionDbService', () => {
     connect.mockResolvedValue(undefined)
     disconnect.mockReset()
     clientOptions.mockReset()
-    process.env.ELECTION_DATABASE_URL = DB_URL
+    vi.stubEnv('ELECTION_DATABASE_URL', DB_URL)
     service = new ElectionDbService()
   })
 
@@ -64,7 +64,7 @@ describe('ElectionDbService', () => {
   })
 
   it('leaves the client unset when the URL is absent', async () => {
-    delete process.env.ELECTION_DATABASE_URL
+    vi.stubEnv('ELECTION_DATABASE_URL', undefined)
     await service.onModuleInit()
     expect(() => service.instance).toThrow(/not initialized/)
   })

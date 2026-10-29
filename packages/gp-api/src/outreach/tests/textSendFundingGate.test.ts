@@ -56,7 +56,7 @@ beforeEach(async () => {
     service.app.get(FeaturesService),
     'isFeatureEnabled',
   ).mockImplementation(isFeatureEnabled)
-  process.env.OUTREACH_TEXT_CSVS_BUCKET = BUCKET
+  vi.stubEnv('OUTREACH_TEXT_CSVS_BUCKET', BUCKET)
   slug = `eo-gate-${Date.now()}-${Math.random().toString(36).slice(2)}`
   await service.prisma.organization.create({
     data: { slug, ownerId: service.user.id },

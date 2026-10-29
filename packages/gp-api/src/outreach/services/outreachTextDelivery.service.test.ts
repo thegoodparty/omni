@@ -140,7 +140,7 @@ describe('OutreachTextDeliveryService', () => {
     ).status
 
   beforeEach(() => {
-    process.env.OUTREACH_TEXT_CSVS_BUCKET = BUCKET
+    vi.stubEnv('OUTREACH_TEXT_CSVS_BUCKET', BUCKET)
     contacts = service.app.get(ContactsService)
     s3 = makeS3Stub()
     handoffs = []
