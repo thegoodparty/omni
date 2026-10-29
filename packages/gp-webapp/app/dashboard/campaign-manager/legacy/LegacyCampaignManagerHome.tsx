@@ -6,7 +6,6 @@ import CampaignManagerTasks from '../CampaignManagerTasks'
 import ProgressSection from '../../components/campaignManager/ProgressSection'
 import { useCampaignManagerChat } from '../CampaignManagerChatProvider'
 import RobocallFreeOfferCard from '../../shared/robocallFreeOffer/RobocallFreeOfferCard'
-import ElectionResultHomeCard from '../ElectionResultHomeCard'
 import { isFreeOfferTaskHref } from '../../shared/robocallFreeOffer/isFreeOfferTask'
 import { useTrackerTasks } from '../../campaign-plan/components/campaignStrategy/useTrackerTasks'
 import { selectTopDynamicTasks } from '../selectTopDynamicTasks'
@@ -35,7 +34,6 @@ export default function CampaignManagerHome(): React.JSX.Element {
   return (
     <div className="flex min-h-screen flex-col bg-muted">
       <div className="mx-auto flex w-full max-w-[720px] flex-col gap-4 px-4 pt-6">
-        <ElectionResultHomeCard />
         <VoterContactsProvider>
           <CampaignUpdateHistoryProvider>
             <ProgressSection />

@@ -20,11 +20,17 @@ ask while it holds; answering either saves `wonGeneral`, which closes both.
   (`startWithWin`). "I didn't win" saves the loss and swaps the opener for
   the thank you (C4) with the community as its one card. The candidate's
   answer is not echoed as a bubble: the opener is display-only.
-- Home also shows `campaign-manager/ElectionResultHomeCard.tsx` (the free
-  offer card's look) while the question is open, so it survives closing the
-  chat. It reads the chat hook's state through the chat context, so it only
-  appears where that chat mounts, and its three answers are the chat's
-  handlers, except "I didn't win this time" routes to `loss/` as the page does.
+- Home also leads its card deck with `campaign-manager/ElectionResultHomeCard.tsx`
+  while the question is open, so it survives closing the chat: the question,
+  "Your election was on {day}. Tell me how it went so I can help with what's
+  next." (`HOME_CARD_COPY`), and I won, I didn't win, Results aren't final
+  yet in place of the task buttons. On the next-task Home, `NextTaskCard`
+  (`surface="manager"`) draws it in front of the tasks with the task layers
+  behind and an `electionResult` headline; the plan never shows it. The
+  legacy Home puts it first in `CampaignManagerTasks`. It reads the chat
+  hook's state through the chat context, so it only appears where that chat
+  mounts, and its three answers are the chat's handlers, except "I didn't
+  win" routes to `loss/` as the page does.
 - Results aren't final yet snoozes both for 3 days (`snoozeElectionResult`
   in `dismissal.ts`): localStorage, keyed to the campaign, the meet card's
   pattern. Test mode's Apply clears it with the impersonation dismissal.
@@ -48,10 +54,19 @@ Copy lives in `electionResultCopy.ts`. The Pro win (`PrepareToServe.tsx`)
 is two steps. First a full-screen celebration: "Congratulations, you won!",
 the office name, confetti, a progress bar and Continue; it moves on by itself
 after 3 seconds (reduced motion stills the bar and hides the confetti, but
-still moves on). Then "Get ready to serve {place}" (`useServePlace`) with one
-caption naming the district population (rounded, dropped when unknown), the
-"Who gets the mic" video and the one button, pinned to the bottom on a phone.
-Focus moves to that heading. It never says "civic panel".
+still moves on). Then the A2 card: "Get ready to serve {place}"
+(`useServePlace`) and "Serving starts with staying connected to {place}.",
+then two columns from `md` up (stacked below): the "Who gets the mic" video
+on the left; on the right three points, each an icon, a bold title and one
+muted line, and a footnote about the chief of staff's meeting briefings. The
+first point names the district population (rounded, dropped when unknown);
+the third names the campaign's first issue (`issueInSentence`: the
+lowest-`order` campaign position's `topIssue.name` from
+`GET /v1/campaigns/:id/positions`, title-case words lowercased, generic
+without one). Custom issue titles are not used: they are free text that
+does not read cleanly mid-sentence. The one button sits right-aligned under
+a border, pinned to the bottom on a phone. Focus moves to the heading. It
+never says "civic panel".
 
 The video is served from `public/videos/`: the landscape cut from `md` up and
 the square one below, as two native `<video>`s toggled by responsive classes,

@@ -84,6 +84,11 @@ falls in. The cards are dated, prioritized tasks the candidate checks off. Featu
   offer's tint (`FREE_OFFER_CARD_CLASS`), its button reads
   `FREE_OFFER_CTA`, and it has no Mark done (the task closes itself once the
   run is scheduled).
+- **The election result question leads Home's deck.** While the campaign
+  manager chat's `electionResult.pending` holds, the manager surface draws
+  `campaign-manager/ElectionResultHomeCard` as the front card, the tasks as
+  the layers behind, even with no plan yet. See
+  `app/dashboard/election-result/AGENTS.md`.
 - **A row's link label comes from its own `cta`, falling back to "Open".**
   Only the story task sets `cta` today ("Add your story"); the manager's task
   list prefers the same column.

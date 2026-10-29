@@ -269,6 +269,18 @@ describe('ElectionResultPage', () => {
 
   it('congratulates a Pro winner before saving anything', async () => {
     mockCampaign.current = proCampaign()
+    api.mock('GET /v1/campaigns/:id/positions', {
+      status: 200,
+      data: [
+        {
+          id: 1,
+          description: null,
+          order: 1,
+          topIssue: { id: 5, name: 'Public Safety' },
+          position: null,
+        },
+      ],
+    })
     render(<ElectionResultPage />)
     answerWon()
 
@@ -292,7 +304,24 @@ describe('ElectionResultPage', () => {
     await waitFor(() => expect(heading).toHaveFocus())
     expect(
       screen.getByText(
-        "You're about to represent everyone who lives there, not just the ones at the mic.",
+        'Serving starts with staying connected to your district.',
+      ),
+    ).toBeInTheDocument()
+    // Three points, the last on the issue the campaign ran on first.
+    expect(
+      await screen.findByText(
+        'Learn where residents stand on public safety before you take office.',
+      ),
+    ).toBeInTheDocument()
+    const points = screen.getAllByRole('listitem')
+    expect(points.map((point) => point.textContent)).toEqual([
+      "You'll represent all of your districtYou'll speak for everyone who lives there.",
+      'Hear from more than the loudest voicesA few residents from every group tell you where your district stands.',
+      'Ask about what you ran onLearn where residents stand on public safety before you take office.',
+    ])
+    expect(
+      screen.getByText(
+        "Once you're sworn in, your chief of staff adds a briefing before every meeting.",
       ),
     ).toBeInTheDocument()
     expect(

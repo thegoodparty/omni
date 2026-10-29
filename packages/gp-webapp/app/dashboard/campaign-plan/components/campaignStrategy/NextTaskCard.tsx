@@ -66,6 +66,7 @@ import {
 } from '@goodparty_org/contracts'
 import { selectTopDynamicTasks } from 'app/dashboard/campaign-manager/selectTopDynamicTasks'
 import { useTaskHeadline } from 'app/dashboard/campaign-manager/homeHeadlines'
+import ElectionResultHomeCard from 'app/dashboard/campaign-manager/ElectionResultHomeCard'
 import { FREE_OFFER_CTA } from 'app/dashboard/shared/robocallFreeOffer/freeOfferCopy'
 import { FREE_OFFER_CARD_CLASS } from 'app/dashboard/shared/robocallFreeOffer/freeOfferStyles'
 import { FreeOfferLabel } from 'app/dashboard/shared/robocallFreeOffer/FreeOfferLabel'
@@ -139,6 +140,13 @@ const followingTasks = (
 // The main action on a phone: full width. The quiet buttons drop to
 // Button's small size there (h-8, px-4, py-2, text-sm), applied by class
 // because the buttons only stack below sm, narrower than useIsMobile's cutoff.
+const ELECTION_RESULT_HEADLINE_TASK = {
+  id: 'electionResult',
+  title: '',
+  flowType: null,
+  kind: 'electionResult',
+} as const
+
 const PRIMARY_ON_PHONE = 'w-full sm:w-auto'
 
 // Mark done: the confetti bursts, then the card lifts off the top of the
@@ -465,19 +473,27 @@ const NextTaskCard = ({
   )
   const emptyKind = weekDone ? 'weekDone' : 'caughtUp'
 
+  // While the election result is unanswered, Home's deck leads with the
+  // question. The plan never asks it.
+  const asking = surface === 'manager' && !!chat?.electionResult?.pending
   const taskHeadline = useTaskHeadline(
     heading !== undefined
       ? undefined
-      : frontTask
-        ? frontRow
-        : strategy
-          ? { id: emptyKind, title: '', flowType: null, kind: emptyKind }
-          : undefined,
+      : asking
+        ? ELECTION_RESULT_HEADLINE_TASK
+        : frontTask
+          ? frontRow
+          : strategy
+            ? { id: emptyKind, title: '', flowType: null, kind: emptyKind }
+            : undefined,
     { firstLanding },
   )
-  const layersBehind = surface === 'manager' ? Math.min(stack.length - 1, 2) : 0
+  const layersBehind =
+    surface === 'manager'
+      ? Math.min(asking ? stack.length : stack.length - 1, 2)
+      : 0
 
-  if (!strategy) return countModal
+  if (!strategy && !asking) return countModal
 
   const due = frontTask ? taskDueLabel(frontTask.date, new Date()) : null
   const isFreeOffer = freeOffer !== null && isFreeOfferTaskHref(frontRow?.link)
@@ -612,7 +628,32 @@ const NextTaskCard = ({
           )}
         </div>
         <CollapsibleContent>
-          {frontTask ? (
+          {asking ? (
+            <div
+              className={cn(
+                'relative w-full',
+                layersBehind === 2 && 'pb-4',
+                layersBehind === 1 && 'pb-2',
+              )}
+            >
+              {layersBehind === 2 && (
+                <Card
+                  aria-hidden
+                  className="absolute inset-x-6 top-4 bottom-0 rounded-2xl border-components-input-border py-0"
+                />
+              )}
+              {layersBehind >= 1 && (
+                <Card
+                  aria-hidden
+                  className={cn(
+                    'absolute inset-x-3 top-2 rounded-2xl border-components-input-border py-0',
+                    layersBehind === 2 ? 'bottom-2' : 'bottom-0',
+                  )}
+                />
+              )}
+              <ElectionResultHomeCard />
+            </div>
+          ) : frontTask ? (
             <div
               className={cn(
                 'relative w-full',
