@@ -36,12 +36,18 @@ const send = {
   paidForBy: null,
   date: null,
   consentConfirmedAt: null,
+  voterFileFilterId: 1,
   recipientCount: 4800,
   recipientCap: null,
   sentCount: 0,
   pauseReason: null,
   stopping: false,
-  estimate: { warmingCap: 1000, recipientCap: 1000, priceCents: 1000 },
+  estimate: {
+    audienceCount: 4800,
+    warmingCap: 1000,
+    recipientCap: 1000,
+    priceCents: 1000,
+  },
 }
 
 beforeEach(() => {

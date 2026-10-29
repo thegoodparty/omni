@@ -73,6 +73,7 @@ const listDetailFixture = {
     robocall: 10,
     phoneBanking: 10,
     doorKnocking: 10,
+    email: 0,
     polls: 10,
   },
   outreachHistory: [],

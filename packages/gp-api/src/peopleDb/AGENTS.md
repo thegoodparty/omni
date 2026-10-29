@@ -61,6 +61,10 @@ people table FULL OUTER JOIN the org's rows of
   `Person.isNewContact` are always present. The CSV export appends `Email`
   and `New Contact` only with the overlay. Search with an `@` matches
   `lower(Email)` when the overlay is on.
+- The `hasEmail` filter is `Email IS NOT NULL` with the overlay and `FALSE`
+  without it (no column to test, and no one there has an email). The list
+  detail's `email` count compiles to the same predicate. Email outreach forces
+  it on every count and resolve (`src/emailOutreach/`).
 - Org slug, state and district name are inlined as escaped literals
   (`stringLiteral`), because a table expression cannot carry bound
   parameters. One join, never a UNION (a union over the mart's columns
@@ -402,6 +406,16 @@ or Spanish on the strength of an empty column, so the service guarded it. It
 returns null for an absent value now, alongside the language filter's split of
 'Other' from 'Unknown', and the guard is gone. A present but unrecognized value
 is still `'Other'`.
+
+## Draining a whole audience: keyset pages, not OFFSET
+
+A page is `ORDER BY id LIMIT n OFFSET m`, so a reader walking a whole list
+re-sorts and skips everything before each page. `ListPeopleDTO.afterId`
+(`findContactsForFilter`'s `afterId`) pages by keyset instead:
+`AND id > :afterId ORDER BY id LIMIT n`, no OFFSET, ungrouped reads only.
+Each page is still one statement over the district (with the overlay join
+where there is one), but a top-n after a cursor rather than a deep sort and
+skip. Email outreach's prepare reads its audience this way, with `skipCount`.
 
 ## Reject rather than truncate — do not "fix" this into pagination
 

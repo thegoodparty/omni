@@ -1,5 +1,5 @@
 import { addMinutes, subMinutes } from 'date-fns'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, MockInstance, vi } from 'vitest'
 import {
   MAX_RESULTS_PER_PAGE,
   type PeopleListResponse,
@@ -28,7 +28,7 @@ import {
 const service = useTestService()
 
 let orgs: EmailFixtureOrgs
-let sendMessage: ReturnType<typeof vi.fn>
+let sendMessage: MockInstance<QueueProducerService['sendMessage']>
 
 beforeEach(async () => {
   orgs = await createEmailOrgs(service.prisma, service.user.id)
@@ -38,11 +38,9 @@ beforeEach(async () => {
     service.app.get(EmailDomainCheckService),
     'findUndeliverableDomains',
   ).mockResolvedValue(new Set<string>())
-  sendMessage = vi.fn().mockResolvedValue(undefined)
-  vi.spyOn(
-    service.app.get(QueueProducerService),
-    'sendMessage',
-  ).mockImplementation(sendMessage)
+  sendMessage = vi
+    .spyOn(service.app.get(QueueProducerService), 'sendMessage')
+    .mockResolvedValue(undefined)
 })
 
 const personId = (index: number) => `p${String(index).padStart(7, '0')}`

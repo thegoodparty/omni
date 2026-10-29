@@ -95,6 +95,7 @@ const FIXTURE_AGGREGATES = {
   robocall: 4,
   phoneBanking: 9,
   doorKnocking: 7,
+  email: 0,
 }
 
 describe('ContactsService — people-db (sole path)', () => {

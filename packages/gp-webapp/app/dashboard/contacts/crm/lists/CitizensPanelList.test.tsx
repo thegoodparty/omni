@@ -194,6 +194,7 @@ describe('ListDetailSheet — the built-in civic panel list', () => {
             robocall: 0,
             phoneBanking: 2,
             doorKnocking: 2,
+            email: 0,
             polls: 2,
           },
           outreachHistory,

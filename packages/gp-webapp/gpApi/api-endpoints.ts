@@ -20,7 +20,6 @@ import type {
   EmailAiDraftResponse,
   EmailImagePresignRequest,
   EmailImagePresignResponse,
-  EmailRecipientUploadResponse,
   EmailTestSendResponse,
   EmailSender,
   EmailSenderUpdate,
@@ -568,11 +567,6 @@ export type APIEndpoints = {
     Response: EmailSend
   }
 
-  'POST /v1/outreach/email/:id/recipients': {
-    Request: {}
-    Response: EmailRecipientUploadResponse
-  }
-
   'POST /v1/outreach/email/draft': {
     Request: EmailAiDraftRequest
     Response: EmailAiDraftResponse
@@ -644,11 +638,6 @@ export type APIEndpoints = {
   'POST /v1/outreach/serve/email/:id/cancel': {
     Request: {}
     Response: EmailSend
-  }
-
-  'POST /v1/outreach/serve/email/:id/recipients': {
-    Request: {}
-    Response: EmailRecipientUploadResponse
   }
 
   'POST /v1/outreach/serve/email/draft': {

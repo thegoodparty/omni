@@ -3,7 +3,6 @@ import {
   EMAIL_SEND_WINDOW_DAYS,
   type EmailDraftSave,
   type EmailLayoutKey,
-  type EmailRecipientUploadResponse,
   type EmailThemeKey,
 } from '@goodparty_org/contracts'
 
@@ -21,11 +20,6 @@ export const nextWarmingCap = (warmingStep: number): number | null =>
 
 export const formatCount = (count: number): string =>
   count.toLocaleString('en-US')
-
-export const uploadSummary = (result: EmailRecipientUploadResponse): string =>
-  `${formatCount(result.ready)} ready, ${formatCount(
-    result.invalid + result.unsubscribed,
-  )} skipped, ${formatCount(result.duplicate)} duplicates`
 
 export interface EmailComposeState {
   layout: EmailLayoutKey
@@ -84,6 +78,7 @@ export const toDraftSave = (
   state: EmailComposeState,
   id: number | null,
   date: string | undefined,
+  audience: { listId: number | null; consent: boolean },
 ): EmailDraftSave => {
   const headline = state.headline.trim()
   const hasButton =
@@ -104,6 +99,8 @@ export const toDraftSave = (
         }
       : {}),
     ...(date ? { date } : {}),
+    ...(audience.listId !== null ? { voterFileFilterId: audience.listId } : {}),
+    consentConfirmed: audience.consent,
   }
 }
 

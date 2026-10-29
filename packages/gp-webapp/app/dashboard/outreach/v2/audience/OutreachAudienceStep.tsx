@@ -76,7 +76,7 @@ export interface OutreachAudienceCopy {
 }
 
 interface OutreachAudienceStepProps {
-  channel: OutreachType
+  channel: OutreachType | 'email'
   copy: OutreachAudienceCopy
   // A card the flow owns, rendered above the recommendations in picker mode.
   // Polls put their random-sample option here: it is an audience that is not a
@@ -117,7 +117,8 @@ interface OutreachAudienceStepProps {
   recommendations: RecommendedList[]
   recommendationsLoading: boolean
   recommendationsError: boolean
-  recommendedListsChannel: RecommendedListChannel
+  // Null for a channel with no recommended lists (email).
+  recommendedListsChannel: RecommendedListChannel | null
   // A recommendation with no existingFilterId opens the naming drawer;
   // this fires when the candidate submits the drawer's name input. Seeds
   // the builder and creates the saved filter atomically, then the caller
@@ -455,7 +456,7 @@ export const OutreachAudienceStep = ({
 
       {leadCard}
 
-      {freeOffer && (
+      {freeOffer && recommendedListsChannel && (
         <div className="space-y-2" data-testid="free-offer-section">
           <RecommendedListCard
             recommendation={freeOffer.recommendation}
@@ -562,20 +563,21 @@ export const OutreachAudienceStep = ({
                   We couldn&apos;t load recommendations right now.
                 </p>
               )}
-              {cards.map((recommendation) => (
-                <RecommendedListCard
-                  key={recommendation.variant}
-                  recommendation={recommendation}
-                  channel={recommendedListsChannel}
-                  selected={
-                    selectedRecommendation?.variant ===
-                      recommendation.variant ||
-                    (recommendation.existingFilterId !== null &&
-                      recommendation.existingFilterId === selectedId)
-                  }
-                  onSelect={() => pickRecommendation(recommendation)}
-                />
-              ))}
+              {recommendedListsChannel &&
+                cards.map((recommendation) => (
+                  <RecommendedListCard
+                    key={recommendation.variant}
+                    recommendation={recommendation}
+                    channel={recommendedListsChannel}
+                    selected={
+                      selectedRecommendation?.variant ===
+                        recommendation.variant ||
+                      (recommendation.existingFilterId !== null &&
+                        recommendation.existingFilterId === selectedId)
+                    }
+                    onSelect={() => pickRecommendation(recommendation)}
+                  />
+                ))}
               {createRecommendedListError && pendingRecommendation === null && (
                 <p
                   data-testid="recommended-list-create-error"

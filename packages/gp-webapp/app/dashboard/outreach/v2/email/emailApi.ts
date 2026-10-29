@@ -7,7 +7,6 @@ import type {
   EmailDraft,
   EmailDraftSave,
   EmailImagePresignRequest,
-  EmailRecipientUploadResponse,
   EmailSender,
   EmailTestSendResponse,
 } from '@goodparty_org/contracts'
@@ -52,23 +51,6 @@ export const saveEmailDraft = async (
       ? clientRequest('POST /v1/outreach/serve/email', input)
       : clientRequest('POST /v1/outreach/email', input))
   ).data
-
-export const uploadEmailRecipients = async (
-  serve: boolean,
-  draftId: number,
-  file: File,
-): Promise<EmailRecipientUploadResponse> => {
-  const body = new FormData()
-  body.append('consentConfirmed', 'true')
-  body.append('file', file)
-  const id = { id: String(draftId) }
-  const { data } = await (serve
-    ? clientRequest('POST /v1/outreach/serve/email/:id/recipients', id, {
-        body,
-      })
-    : clientRequest('POST /v1/outreach/email/:id/recipients', id, { body }))
-  return data
-}
 
 export const draftEmailWithAi = async (
   serve: boolean,

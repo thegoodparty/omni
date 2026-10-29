@@ -9,6 +9,7 @@ const reachability: ListDetailReachability = {
   robocall: 0,
   phoneBanking: 45,
   doorKnocking: 10,
+  email: 0,
   polls: 120,
 }
 
@@ -20,6 +21,7 @@ const degradedReachability: ListDetailReachability = {
   robocall: null,
   phoneBanking: null,
   doorKnocking: 111,
+  email: 0,
   polls: 777,
 }
 
