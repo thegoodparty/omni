@@ -89,7 +89,8 @@ each surface, and the surfaces cannot drift apart.
    state), add an optional field to its context type and to `ChatWidgetContext`
    in `chatWidgets.tsx`, and have each surface that offers the tool pass it.
 3. Add the entry to the list in `chatWidgets.tsx` and a line for its tool name
-   to `chatWidgets.test.tsx`.
+   to `chatWidgets.test.tsx`. A tool name has one entry; the registry throws on
+   a second.
 4. That is all the surfaces need. Every surface already resolves live calls
    and reloaded segments through `chatWidgets`.
 

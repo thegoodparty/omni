@@ -102,6 +102,17 @@ describe('persistedTurnBlocks', () => {
   })
 })
 
+describe('createWidgetRegistry', () => {
+  it('refuses two entries under one tool name', () => {
+    const entry = defineWidgetTool({
+      toolName: 'present_note',
+      parse: () => ({}),
+      render: () => null,
+    })
+    expect(() => createWidgetRegistry([entry, entry])).toThrow()
+  })
+})
+
 describe('liveTurnBlocks', () => {
   it('splits a text segment at the seam a widget fired, and holds it back until revealed', () => {
     const instance = registry.resolve(

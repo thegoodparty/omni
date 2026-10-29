@@ -77,6 +77,10 @@ export const createWidgetRegistry = <Ctx>(
   entries: WidgetToolEntry<Ctx>[],
 ): WidgetRegistry<Ctx> => {
   const byName = new Map(entries.map((e) => [e.toolName, e]))
+  // A second entry for a name would silently replace the first.
+  if (byName.size !== entries.length) {
+    throw new Error('Two widget entries share a tool name')
+  }
   return {
     has: (toolName) => byName.has(toolName),
     entry: (toolName) => byName.get(toolName),
