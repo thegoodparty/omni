@@ -265,10 +265,11 @@ pulls from either are limited per IP, and shared GitHub runners kept failing
 with `429 Too Many Requests`. Logged-in ECR Public pulls are limited per AWS
 account, so every job that builds an image logs in to ECR Public first
 (`aws-actions/amazon-ecr-login` with `registry-type: public`). Main runs log
-in with `vars.AWS_ROLE_ARN`. gp-ai's pull request build, which never holds the
-deploy role, assumes the read-only plan role (`vars.AWS_PLAN_ROLE_ARN`), which
-can mint that login token (granted in `thegoodparty/ops`). Local builds need no
-login.
+in with `vars.AWS_ROLE_ARN`. On a pull request, a job whose only AWS call is
+that login (gp-ai's image build, gp-api's test shards pulling the testcontainers
+Postgres image) assumes the read-only plan role (`vars.AWS_PLAN_ROLE_ARN`)
+instead, which can mint that login token and nothing more (granted in
+`thegoodparty/ops`). Local builds need no login.
 
 A logged-in pull can still fail on the network, so the train retries the pulls
 it controls. It pre-pulls the buildx builder image with retries; buildx falls
