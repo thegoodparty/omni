@@ -122,7 +122,7 @@ describe('PrioritiesHub', () => {
     expect(screen.queryByText('Already mine')).not.toBeInTheDocument()
   })
 
-  it('badges each row with the lane it came from', () => {
+  it('names the lane only in the filter chips, not on each row', () => {
     render(
       <PrioritiesHub
         priorities={[
@@ -132,10 +132,10 @@ describe('PrioritiesHub', () => {
         seedIssues={[]}
       />,
     )
-    // The lane chips carry a count, the row badges do not, so the badge is the
-    // bare label.
-    expect(screen.getByText('From your community')).toBeInTheDocument()
-    expect(screen.getByText('Yours')).toBeInTheDocument()
+    expect(screen.getByText('From your community (1)')).toBeInTheDocument()
+    expect(screen.getByText('Yours (1)')).toBeInTheDocument()
+    expect(screen.queryByText('From your community')).not.toBeInTheDocument()
+    expect(screen.queryByText('Yours')).not.toBeInTheDocument()
   })
 
   it('filters to one lane and empties honestly when it holds nothing', () => {
@@ -193,7 +193,7 @@ describe('PrioritiesHub', () => {
     expect(screen.getByText('Plan ready')).toBeInTheDocument()
   })
 
-  it('gives the title two lines on a phone and puts the chips under it', () => {
+  it('gives the title two lines on a phone and puts the step chip under it', () => {
     render(
       <PrioritiesHub
         priorities={[
@@ -212,12 +212,11 @@ describe('PrioritiesHub', () => {
     expect(title).toHaveClass('line-clamp-2', 'sm:line-clamp-1')
     expect(title).not.toHaveClass('truncate')
 
-    const chips = screen.getByText('From your community').parentElement
-    const stack = chips?.parentElement
+    const step = screen.getByText('The problem')
+    const stack = step.parentElement?.parentElement
     expect(stack).toContainElement(title)
     expect(stack).toHaveClass('flex-col', 'sm:flex-row')
-    expect(chips).toContainElement(screen.getByText('The problem'))
-    expect(screen.getByText('The problem')).not.toHaveClass('hidden')
+    expect(step).not.toHaveClass('hidden')
   })
 
   it('gives every row its own archive control', () => {
