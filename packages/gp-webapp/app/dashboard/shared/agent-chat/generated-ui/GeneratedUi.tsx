@@ -1,5 +1,3 @@
-'use client'
-
 import { useEffect, useMemo, useRef, useState } from 'react'
 import dynamic from 'next/dynamic'
 import { defineCatalog } from '@json-render/core'
