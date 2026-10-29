@@ -2,8 +2,14 @@ import { CampaignsService } from '@/campaigns/services/campaigns.service'
 import { CrmCampaignsService } from '@/campaigns/services/crmCampaigns.service'
 import { CampaignTasksService } from '@/campaigns/tasks/services/campaignTasks.service'
 import { isActiveCampaign } from '@/campaigns/util/eligibility.util'
+import { AnalyticsService } from '@/analytics/analytics.service'
 import { useTestService } from '@/test-service'
-import { InternalServerErrorException, NotFoundException } from '@nestjs/common'
+import { EVENTS } from '@/vendors/segment/segment.types'
+import {
+  BadRequestException,
+  InternalServerErrorException,
+  NotFoundException,
+} from '@nestjs/common'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const service = useTestService()
@@ -942,5 +948,138 @@ describe('CampaignsService.setIsPro', () => {
       where: { id: campaign.id },
     })
     expect(row.details.isProUpdatedAt).toBe(FIRST_DELIVERY_STAMP)
+  })
+})
+
+describe('CampaignsService.redeemFreeTexts', () => {
+  const seedOfferCampaign = async () => {
+    const { campaign } = await seedCampaign()
+    await service.prisma.campaign.update({
+      where: { id: campaign.id },
+      data: { hasFreeTextsOffer: true },
+    })
+    return campaign
+  }
+
+  const seedSend = async (campaignId: number) => {
+    const outreach = await service.prisma.outreach.create({
+      data: { campaignId, outreachType: 'p2p' },
+    })
+    await service.prisma.outreachP2pSms.create({
+      data: { outreachId: outreach.id },
+    })
+    return outreach.id
+  }
+
+  const readStamp = async (outreachId: number) =>
+    (
+      await service.prisma.outreachP2pSms.findUniqueOrThrow({
+        where: { outreachId },
+      })
+    ).freeTextsApplied
+
+  afterEach(async () => {
+    await service.prisma.$executeRawUnsafe(
+      'DROP TRIGGER IF EXISTS test_slow_offer_redeem ON campaign',
+    )
+  })
+
+  it('spends the offer, stamps the redemption time, and tracks it', async () => {
+    const campaign = await seedOfferCampaign()
+    const otherSend = await seedSend(campaign.id)
+    const track = vi
+      .spyOn(service.app.get(AnalyticsService), 'track')
+      .mockResolvedValue(undefined)
+
+    await service.app.get(CampaignsService).redeemFreeTexts(campaign.id)
+
+    const row = await service.prisma.campaign.findUniqueOrThrow({
+      where: { id: campaign.id },
+    })
+    expect(row.hasFreeTextsOffer).toBe(false)
+    expect(row.freeTextsOfferRedeemedAt).toBeInstanceOf(Date)
+    expect(track).toHaveBeenCalledWith(
+      service.user.id,
+      EVENTS.Outreach.FreeTextsOfferRedeemed,
+      expect.objectContaining({ campaignId: campaign.id }),
+    )
+    expect(await readStamp(otherSend)).toBe(false)
+  })
+
+  it('throws and changes nothing when the campaign has no offer', async () => {
+    const { campaign } = await seedCampaign()
+    const outreachId = await seedSend(campaign.id)
+    const track = vi.spyOn(service.app.get(AnalyticsService), 'track')
+
+    await expect(
+      service.app
+        .get(CampaignsService)
+        .redeemFreeTexts(campaign.id, outreachId),
+    ).rejects.toThrow(BadRequestException)
+
+    const row = await service.prisma.campaign.findUniqueOrThrow({
+      where: { id: campaign.id },
+    })
+    expect(row.freeTextsOfferRedeemedAt).toBeNull()
+    expect(await readStamp(outreachId)).toBe(false)
+    expect(track).not.toHaveBeenCalled()
+  })
+
+  it('stamps freeTextsApplied on the winning send only', async () => {
+    const campaign = await seedOfferCampaign()
+    const winner = await seedSend(campaign.id)
+    const bystander = await seedSend(campaign.id)
+    vi.spyOn(service.app.get(AnalyticsService), 'track').mockResolvedValue(
+      undefined,
+    )
+
+    await service.app.get(CampaignsService).redeemFreeTexts(campaign.id, winner)
+
+    expect(await readStamp(winner)).toBe(true)
+    expect(await readStamp(bystander)).toBe(false)
+  })
+
+  // The undercharge this guards: two eligible sends on one campaign race the
+  // one-time offer, and only the send that wins the campaign CAS may carry the
+  // stamp the hold capture reads for the discount. The trigger holds the
+  // winner's transaction open past the offer flip so the loser arrives while
+  // the row is still locked, instead of after the commit.
+  it('lets exactly one of two concurrent sends win the offer', async () => {
+    const campaign = await seedOfferCampaign()
+    const first = await seedSend(campaign.id)
+    const second = await seedSend(campaign.id)
+    vi.spyOn(service.app.get(AnalyticsService), 'track').mockResolvedValue(
+      undefined,
+    )
+    await service.prisma.$executeRawUnsafe(`
+      CREATE OR REPLACE FUNCTION test_slow_offer_redeem() RETURNS trigger AS $$
+      BEGIN PERFORM pg_sleep(0.4); RETURN NEW; END;
+      $$ LANGUAGE plpgsql
+    `)
+    await service.prisma.$executeRawUnsafe(`
+      CREATE TRIGGER test_slow_offer_redeem
+      BEFORE UPDATE OF has_free_texts_offer ON campaign
+      FOR EACH ROW WHEN (NEW.has_free_texts_offer IS DISTINCT FROM OLD.has_free_texts_offer)
+      EXECUTE FUNCTION test_slow_offer_redeem()
+    `)
+    const campaigns = service.app.get(CampaignsService)
+
+    const results = await Promise.allSettled([
+      campaigns.redeemFreeTexts(campaign.id, first),
+      campaigns.redeemFreeTexts(campaign.id, second),
+    ])
+
+    expect(results.map((r) => r.status).sort()).toEqual([
+      'fulfilled',
+      'rejected',
+    ])
+    const winner = results[0].status === 'fulfilled' ? first : second
+    const loser = winner === first ? second : first
+    expect(await readStamp(winner)).toBe(true)
+    expect(await readStamp(loser)).toBe(false)
+    const row = await service.prisma.campaign.findUniqueOrThrow({
+      where: { id: campaign.id },
+    })
+    expect(row.hasFreeTextsOffer).toBe(false)
   })
 })
