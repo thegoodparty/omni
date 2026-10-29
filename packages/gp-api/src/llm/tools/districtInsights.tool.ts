@@ -110,6 +110,123 @@ const collectTableRefs = (node: unknown, acc: Set<string>): void => {
   }
 }
 
+// Aggregates whose value is a number of people. scrubResults holds each one
+// to the cell-size floor, which only means something if the value is the
+// count itself, so assertPeopleCountShape keeps them bare.
+const PEOPLE_COUNT_FUNCTIONS = new Set([
+  'COUNT',
+  'COUNT_IF',
+  'APPROX_COUNT_DISTINCT',
+  'SUM',
+  'TRY_SUM',
+])
+
+const peopleCountFunction = (node: unknown): string | null => {
+  if (!isRecord(node)) return null
+  let name: string | null = null
+  if (node.type === 'aggr_func' && typeof node.name === 'string') {
+    name = node.name.toUpperCase()
+  }
+  // COUNT_IF, TRY_SUM and APPROX_COUNT_DISTINCT parse as a generic function
+  // whose name is { name: [{ value: 'FN' }] }.
+  if (node.type === 'function' && isRecord(node.name)) {
+    const parts: unknown = node.name.name
+    const last: unknown = Array.isArray(parts) ? parts[parts.length - 1] : null
+    if (isRecord(last) && typeof last.value === 'string') {
+      name = last.value.toUpperCase()
+    }
+  }
+  return name !== null && PEOPLE_COUNT_FUNCTIONS.has(name) ? name : null
+}
+
+const containsPeopleCount = (node: unknown): boolean => {
+  if (node === null || node === undefined) return false
+  if (Array.isArray(node)) return node.some(containsPeopleCount)
+  if (!isRecord(node)) return false
+  if (peopleCountFunction(node) !== null) return true
+  return Object.values(node).some(containsPeopleCount)
+}
+
+// SUM(CASE WHEN <condition> THEN 1 ELSE 0 END) is a count of people. Any
+// other result value (THEN 1000, THEN Voters_Age) would let a small count
+// clear the floor scaled up, so only 0, 1 and NULL results pass.
+const sumCountsPeople = (node: Record<string, unknown>): boolean => {
+  const args = node.args
+  if (!isRecord(args)) return false
+  const argument: unknown =
+    node.type === 'aggr_func'
+      ? args.expr
+      : Array.isArray(args.value) && args.value.length === 1
+        ? args.value[0]
+        : null
+  if (!isRecord(argument) || argument.type !== 'case') return false
+  const branches = argument.args
+  return (
+    Array.isArray(branches) &&
+    branches.every((branch) => {
+      if (!isRecord(branch) || !isRecord(branch.result)) return false
+      const result = branch.result
+      if (result.type === 'null') return true
+      if (result.type !== 'number') return false
+      const value = Number(result.value)
+      return value === 0 || value === 1
+    })
+  )
+}
+
+const assertPeopleCountShape = (stmt: Record<string, unknown>): void => {
+  const columns = Array.isArray(stmt.columns) ? stmt.columns : []
+  for (const col of columns) {
+    const expr: unknown = isRecord(col) ? col.expr : null
+    const name = peopleCountFunction(expr)
+    if (name === null) {
+      if (containsPeopleCount(expr)) {
+        throw new SqlRejected(
+          'a COUNT or SUM must be its own select item, not part of a larger expression',
+        )
+      }
+      continue
+    }
+    if (
+      (name === 'SUM' || name === 'TRY_SUM') &&
+      isRecord(expr) &&
+      !sumCountsPeople(expr)
+    ) {
+      throw new SqlRejected(
+        'SUM may only count people: SUM(CASE WHEN <condition> THEN 1 ELSE 0 END). Use AVG for an average',
+      )
+    }
+  }
+  if (containsPeopleCount(stmt.having)) {
+    throw new SqlRejected('HAVING may not filter on a COUNT or SUM')
+  }
+}
+
+// The result column of every select item that counts people: its alias, or
+// for an unaliased one the name the warehouse gave that position. The
+// provider reports no columns only for an empty result, which has nothing to
+// mask.
+export const findPeopleCountColumns = (
+  sql: string,
+  resultColumns: string[],
+): string[] => {
+  const columns = parseSingleSelect(sql)?.stmt.columns
+  if (!Array.isArray(columns) || resultColumns.length === 0) return []
+  const names: string[] = []
+  columns.forEach((col: unknown, index) => {
+    if (!isRecord(col) || peopleCountFunction(col.expr) === null) return
+    const name =
+      typeof col.as === 'string' && col.as.length > 0
+        ? stripQuotes(col.as)
+        : resultColumns[index]
+    if (name === undefined) {
+      throw new SqlRejected('give every COUNT and SUM an alias')
+    }
+    names.push(name)
+  })
+  return names
+}
+
 const selectListIsAllAggregateOrLiteral = (columns: unknown): boolean => {
   if (!Array.isArray(columns)) return false
   return columns.every((col) => {
@@ -230,6 +347,8 @@ export const validateInsightsSql = (
     }
   }
 
+  assertPeopleCountShape(stmt)
+
   // Aggregate-only shape: must have GROUP BY OR every selected expression
   // must be an aggregate function (or literal).
   const hasGroupBy = stmt.groupby !== null && stmt.groupby !== undefined
@@ -263,6 +382,9 @@ export const validateInsightsSql = (
 export interface ScrubOptions {
   minCellSize: number
   countColumnAliases?: string[]
+  // findPeopleCountColumns for the query: masked below the floor whatever
+  // they are called.
+  peopleCountColumns?: string[]
 }
 
 export interface ScrubResult {
@@ -320,28 +442,39 @@ export const scrubResults = (
 
   const aliases = [...(opts.countColumnAliases ?? []), ...DEFAULT_COUNT_ALIASES]
   const countKey = findCountKey(firstRow, aliases)
+  const countKeys = new Set(
+    [...aliases, ...(opts.peopleCountColumns ?? [])].map((a) =>
+      a.toLowerCase(),
+    ),
+  )
+  // Row-level suppression keys on one count column, but a query can carry
+  // more than one count-like value (e.g. a small unknown_count selected
+  // alongside a large group count). Mask any secondary count cell below the
+  // threshold so no sub-threshold exact count reaches the model.
+  const maskSmallCounts = (row: Record<string, unknown>) => {
+    const masked: Record<string, unknown> = { ...row }
+    for (const key of Object.keys(masked)) {
+      if (key === countKey) continue
+      if (!countKeys.has(key.toLowerCase())) continue
+      if (coerceToNumber(masked[key]) < opts.minCellSize) masked[key] = null
+    }
+    return masked
+  }
 
   if (countKey === null) {
-    return { kept: rows, suppressed: 0, reason: 'no_count_column' }
+    return {
+      kept: rows.map(maskSmallCounts),
+      suppressed: 0,
+      reason: 'no_count_column',
+    }
   }
 
   const kept: Array<Record<string, unknown>> = []
   let suppressed = 0
-  const aliasSet = new Set(aliases.map((a) => a.toLowerCase()))
   for (const row of rows) {
     const value = coerceToNumber(row[countKey])
     if (value >= opts.minCellSize) {
-      // Row-level suppression keys on one count column, but a query can carry
-      // more than one count-like value (e.g. a small unknown_count selected
-      // alongside a large group count). Mask any secondary count-alias cell
-      // below the threshold so no sub-threshold exact count reaches the model.
-      const masked: Record<string, unknown> = { ...row }
-      for (const key of Object.keys(masked)) {
-        if (key === countKey) continue
-        if (!aliasSet.has(key.toLowerCase())) continue
-        if (coerceToNumber(masked[key]) < opts.minCellSize) masked[key] = null
-      }
-      kept.push(masked)
+      kept.push(maskSmallCounts(row))
     } else {
       suppressed += 1
     }
@@ -409,7 +542,8 @@ REQUIREMENTS:
   - Single SELECT statement only.
   - Must include GROUP BY (or be a pure aggregate like COUNT(*) / AVG(...)).
   - Must include the WHERE clause above verbatim — AND-combined with any extra filters.
-  - Rows with COUNT(*) < ${DEFAULT_MIN_CELL_SIZE} are suppressed automatically.
+  - Each COUNT or SUM must be its own select item (no arithmetic around it, none in HAVING), and SUM may only count: SUM(CASE WHEN <condition> THEN 1 ELSE 0 END).
+  - Rows with COUNT(*) < ${DEFAULT_MIN_CELL_SIZE} are suppressed automatically, and any other COUNT or SUM below ${DEFAULT_MIN_CELL_SIZE} comes back null. A null count means fewer than ${DEFAULT_MIN_CELL_SIZE} people: say so, and never work the number out from a share, a total or another count.
   - For a share/percentage on an hs_* column, compute it over SCORED rows only, e.g. AVG(CASE WHEN <col> >= 50 THEN 1.0 WHEN <col> IS NOT NULL THEN 0.0 END) AS aligned_share (the missing ELSE keeps nulls out of the average). Do not put ELSE 0.0 in a share or divide one by COUNT(*): a null score is unknown, not zero. Report the scored count beside the share.${totalsRule}
 
 INPUT:
@@ -442,6 +576,7 @@ export const buildDistrictInsightsTool = (
     const result = await deps.provider.query(validatedSql)
     const scrubbed = scrubResults(result.rows, {
       minCellSize: deps.minCellSize ?? DEFAULT_MIN_CELL_SIZE,
+      peopleCountColumns: findPeopleCountColumns(validatedSql, result.columns),
     })
 
     return {

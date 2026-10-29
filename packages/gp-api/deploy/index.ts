@@ -170,9 +170,9 @@ export = async () => {
       ? 'goodparty-chat-attachments-dev'
       : createChatAttachmentsBucket({ environment }).bucket.bucket
 
-  // Private bucket for Import contacts' original CSVs. gp-api writes them
-  // server-side; each environment's stack owns its own. Preview environments
-  // share the dev bucket.
+  // Private bucket for Import contacts' original CSVs. The browser PUTs them
+  // via presigned URL; gp-api reads them back. Each environment's stack owns
+  // its own. Preview environments share the dev bucket.
   const contactUploadsBucketName =
     environment === 'preview'
       ? 'gp-api-contact-uploads-dev'

@@ -37,3 +37,46 @@ describe('dataSourceRoutingRules on the constituents dataset', () => {
     expect(rules).not.toMatch(/\bvoters\b/i)
   })
 })
+
+describe('dataSourceRoutingRules with the imported-contact overlay', () => {
+  const withOverlay = dataSourceRoutingRules({
+    base: 'constituents',
+    overlayOrgSlug: 'eo-office',
+  })
+
+  it('routes uploaded-list and email questions to the constituent query', () => {
+    expect(withOverlay).toMatch(/uploaded lists, imported contacts/)
+    expect(withOverlay).toContain(
+      'call query_constituent_data with on_uploaded_list = true',
+    )
+    expect(withOverlay).toContain('has_email = true')
+  })
+
+  it('says imported people are already in contact counts and saved lists', () => {
+    expect(withOverlay).toMatch(
+      /everyone an upload matched or added counts in contact counts, saved lists/,
+    )
+    expect(withOverlay).toMatch(/never answer these from saved lists/)
+  })
+
+  it('works on the voters base too', () => {
+    const rules = dataSourceRoutingRules({
+      base: 'voters',
+      overlayOrgSlug: 'eo-office',
+    })
+    expect(rules).toContain('on_uploaded_list = true')
+    expect(rules).toContain('voter-file mart')
+  })
+
+  it('stays out of the rules for an org without the overlay', () => {
+    expect(dataSourceRoutingRules({ base: 'constituents' })).not.toMatch(
+      /on_uploaded_list|has_email/,
+    )
+    expect(DATA_SOURCE_ROUTING_RULES).not.toMatch(/on_uploaded_list|has_email/)
+  })
+
+  it('still uses neither product audience noun', () => {
+    expect(withOverlay).not.toMatch(/\bconstituents\b/i)
+    expect(withOverlay).not.toMatch(/\bvoters\b/i)
+  })
+})

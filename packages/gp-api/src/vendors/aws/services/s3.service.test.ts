@@ -153,6 +153,36 @@ describe('S3Service', () => {
     })
   })
 
+  describe('getSignedUrlForSizedUpload', () => {
+    it('signs the length and type and leaves out the empty-body checksum', async () => {
+      vi.stubEnv('AWS_PROFILE', undefined)
+      vi.stubEnv('AWS_ACCESS_KEY_ID', 'AKIATEST')
+      vi.stubEnv('AWS_SECRET_ACCESS_KEY', 'secret')
+      const presigner = await vi.importActual<
+        typeof import('@aws-sdk/s3-request-presigner')
+      >('@aws-sdk/s3-request-presigner')
+      mockGetSignedUrl.mockImplementationOnce(presigner.getSignedUrl)
+
+      const url = new URL(
+        await service.getSignedUrlForSizedUpload('test-bucket', 'org/a.csv', {
+          expiresIn: 900,
+          contentType: 'text/csv',
+          contentLength: 1234,
+        }),
+      )
+
+      expect(url.searchParams.get('X-Amz-SignedHeaders')).toBe(
+        'content-length;content-type;host',
+      )
+      expect(url.searchParams.get('X-Amz-Expires')).toBe('900')
+      expect(
+        [...url.searchParams.keys()].filter((name) =>
+          name.startsWith('x-amz-checksum'),
+        ),
+      ).toEqual([])
+    })
+  })
+
   describe('getSignedUrlForViewing', () => {
     const bucket = 'test-bucket'
     const key = 'folder/file.txt'
@@ -571,28 +601,6 @@ describe('S3Service', () => {
         expect(result).toBe(
           `https://${bucket}.s3.us-west-2.amazonaws.com/${key}`,
         )
-      }
-    })
-
-    it('getSignedUrlForUpload works with different bucket names', async () => {
-      const buckets = ['bucket1', 'my-bucket', 'assets.example.com']
-      const mockUrl = 'https://signed-url.com/upload'
-
-      for (const bucket of buckets) {
-        mockGetSignedUrl.mockResolvedValue(mockUrl)
-
-        await service.getSignedUrlForUpload(bucket, key)
-      }
-    })
-
-    it('getSignedUrlForViewing works with different bucket names', async () => {
-      const buckets = ['bucket1', 'my-bucket', 'assets.example.com']
-      const mockUrl = 'https://signed-url.com/view'
-
-      for (const bucket of buckets) {
-        mockGetSignedUrl.mockResolvedValue(mockUrl)
-
-        await service.getSignedUrlForViewing(bucket, key)
       }
     })
 

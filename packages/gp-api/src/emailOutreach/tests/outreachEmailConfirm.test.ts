@@ -209,23 +209,28 @@ describe('POST /v1/outreach/email/:id/confirm', () => {
     expect(saveCardAndPlan).not.toHaveBeenCalled()
   })
 
-  it('keeps a declined send waiting, then confirms it once the card works', async () => {
+  it('keeps a declined send a draft, then confirms it once the card works', async () => {
     saveCardAndPlan.mockResolvedValueOnce({
       outcome: 'declined',
       declineCode: 'insufficient_funds',
     })
-    const { outreachId } = await winSend()
+    const { outreachId, outreachEmailId } = await winSend()
 
     const declined = await post(
       `/v1/outreach/email/${outreachId}/confirm`,
       { paymentMethodId: 'pm_1' },
       winHeaders(),
     )
-    expect(declined.data).toMatchObject({
-      outcome: 'declined',
-      declineCode: 'insufficient_funds',
-      email: { status: 'pending_payment' },
+    expect(declined.status).toBe(HttpStatus.PAYMENT_REQUIRED)
+    expect(declined.data).toMatchObject({ declineCode: 'insufficient_funds' })
+    const outreach = await service.prisma.outreach.findUniqueOrThrow({
+      where: { id: outreachId },
     })
+    expect(outreach.status).toBe(OutreachStatus.draft)
+    const email = await service.prisma.outreachEmail.findUniqueOrThrow({
+      where: { id: outreachEmailId },
+    })
+    expect(email.recipientCap).toBeNull()
     expect(track).not.toHaveBeenCalled()
 
     saveCardAndPlan.mockResolvedValueOnce({
@@ -242,6 +247,34 @@ describe('POST /v1/outreach/email/:id/confirm', () => {
       email: { status: 'pending' },
     })
     expect(track).toHaveBeenCalledTimes(1)
+  })
+
+  it('leaves a send it did not freeze where it is on a stored decline', async () => {
+    saveCardAndPlan.mockResolvedValue({
+      outcome: 'declined',
+      declineCode: 'card_declined',
+    })
+    const { outreachId, outreachEmailId } = await winSend({
+      status: OutreachStatus.pending_payment,
+      recipientCap: 3,
+    })
+    await createHold(service.prisma, outreachId, OutreachHoldState.hold_failed)
+
+    const res = await post(
+      `/v1/outreach/email/${outreachId}/confirm`,
+      { paymentMethodId: 'card-on-file' },
+      winHeaders(),
+    )
+
+    expect(res.status).toBe(HttpStatus.PAYMENT_REQUIRED)
+    const outreach = await service.prisma.outreach.findUniqueOrThrow({
+      where: { id: outreachId },
+    })
+    expect(outreach.status).toBe(OutreachStatus.pending_payment)
+    const email = await service.prisma.outreachEmail.findUniqueOrThrow({
+      where: { id: outreachEmailId },
+    })
+    expect(email.recipientCap).toBe(3)
   })
 
   it('returns the draft to editing when the hold module refuses before holding', async () => {

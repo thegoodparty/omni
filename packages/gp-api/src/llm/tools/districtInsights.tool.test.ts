@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
   buildDistrictInsightsTool,
+  findPeopleCountColumns,
   scrubResults,
   SqlRejected,
   validateInsightsSql,
@@ -283,6 +284,71 @@ describe('validateInsightsSql', () => {
     })
   })
 
+  describe('keeps every count of people a bare COUNT or SUM', () => {
+    const TABLE = 'int__l2_nationwide_uniform_w_haystaq'
+    const where = `WHERE district_id = '${DISTRICT}'`
+
+    it.each([
+      ['SUM(CASE WHEN on_uploaded_list THEN 1 ELSE 0 END) AS uploaded'],
+      ['SUM(CASE WHEN has_email THEN 1 END)'],
+      ["SUM(CASE WHEN gender = 'F' THEN 1.0 ELSE 0.0 END) AS women"],
+      ['SUM(CASE WHEN on_uploaded_list THEN 1 ELSE NULL END) AS uploaded'],
+      ['COUNT(CASE WHEN on_uploaded_list THEN 1 END) AS uploaded'],
+      ['COUNT_IF(has_email) AS with_email'],
+      ['TRY_SUM(CASE WHEN has_email THEN 1 ELSE 0 END) AS with_email'],
+    ])('accepts %s', (item) => {
+      expect(() =>
+        validateInsightsSql(
+          `SELECT gender, COUNT(*) AS n, ${item} FROM ${TABLE} ${where} GROUP BY gender`,
+          defaultOpts,
+        ),
+      ).not.toThrow()
+    })
+
+    it.each([
+      ['100.0 * SUM(CASE WHEN on_uploaded_list THEN 1 ELSE 0 END) AS pct'],
+      ['COUNT(*) - 5 AS n2'],
+      ['COUNT(*) * 1000 AS scaled'],
+      ['SUM(CASE WHEN has_email THEN 1 ELSE 0 END) / COUNT(*) AS share'],
+      ["CASE WHEN COUNT(*) < 100 THEN 'small' ELSE 'big' END AS size"],
+      ['AVG(1) + COUNT_IF(has_email) AS sneaky'],
+    ])('rejects a count inside a larger expression: %s', (item) => {
+      expect(() =>
+        validateInsightsSql(
+          `SELECT gender, COUNT(*) AS n, ${item} FROM ${TABLE} ${where} GROUP BY gender`,
+          defaultOpts,
+        ),
+      ).toThrow(/its own select item/)
+    })
+
+    it.each([
+      ['SUM(CASE WHEN on_uploaded_list THEN 1000 ELSE 0 END) AS uploaded'],
+      ['SUM(CASE WHEN on_uploaded_list THEN 2 END) AS uploaded'],
+      ['SUM(CASE WHEN on_uploaded_list THEN Voters_Age END) AS ages'],
+      ['SUM(Voters_Age) AS ages'],
+      ['SUM(CAST(on_uploaded_list AS INT)) AS uploaded'],
+      ['TRY_SUM(Voters_Age) AS ages'],
+    ])('rejects a SUM that is not a count: %s', (item) => {
+      expect(() =>
+        validateInsightsSql(
+          `SELECT gender, COUNT(*) AS n, ${item} FROM ${TABLE} ${where} GROUP BY gender`,
+          defaultOpts,
+        ),
+      ).toThrow(/SUM may only count people/)
+    })
+
+    it('rejects a HAVING that filters on a count, which would probe a small one', () => {
+      expect(() =>
+        validateInsightsSql(
+          `SELECT gender, COUNT(*) AS n FROM ${TABLE} ${where}
+           GROUP BY gender
+           HAVING SUM(CASE WHEN on_uploaded_list THEN 1 ELSE 0 END) < 30`,
+          defaultOpts,
+        ),
+      ).toThrow(/HAVING/)
+    })
+  })
+
   describe('enforces district scope filter', () => {
     it('rejects when WHERE clause is missing entirely', () => {
       expect(() =>
@@ -417,7 +483,84 @@ describe('validateInsightsSql', () => {
   })
 })
 
+describe('findPeopleCountColumns', () => {
+  const from = `FROM t WHERE district_id = '${DISTRICT}'`
+
+  it('names every count of people by its alias, whatever the alias', () => {
+    expect(
+      findPeopleCountColumns(
+        `SELECT gender, COUNT(*) AS people,
+                SUM(CASE WHEN on_uploaded_list THEN 1 ELSE 0 END) AS uploaded,
+                COUNT_IF(has_email) AS reachable,
+                APPROX_COUNT_DISTINCT(voter_key) AS approx,
+                AVG(Voters_Age) AS avg_age
+         ${from} GROUP BY gender`,
+        ['gender', 'people', 'uploaded', 'reachable', 'approx', 'avg_age'],
+      ),
+    ).toEqual(['people', 'uploaded', 'reachable', 'approx'])
+  })
+
+  it('names an unaliased count by the result column at its position', () => {
+    expect(
+      findPeopleCountColumns(
+        `SELECT COUNT(*), SUM(CASE WHEN has_email THEN 1 ELSE 0 END) ${from}`,
+        ['count(1)', 'sum(CASE WHEN has_email THEN 1 ELSE 0 END)'],
+      ),
+    ).toEqual(['count(1)', 'sum(CASE WHEN has_email THEN 1 ELSE 0 END)'])
+  })
+
+  it('fails closed when an unaliased count has no result column to name it', () => {
+    expect(() =>
+      findPeopleCountColumns(
+        `SELECT COUNT(*) AS n, SUM(CASE WHEN has_email THEN 1 ELSE 0 END) ${from}`,
+        ['n'],
+      ),
+    ).toThrow(SqlRejected)
+  })
+
+  it('names nothing for an empty result, which has no columns', () => {
+    expect(
+      findPeopleCountColumns(
+        `SELECT COUNT(*), SUM(CASE WHEN has_email THEN 1 ELSE 0 END) ${from}`,
+        [],
+      ),
+    ).toEqual([])
+  })
+})
+
 describe('scrubResults', () => {
+  it('masks a sub-threshold count of people whatever its alias (uploaded-list repro)', () => {
+    const res = scrubResults(
+      [{ count: 9147, uploaded: 29, with_email: 13, avg_age: 41.2 }],
+      {
+        minCellSize: 100,
+        peopleCountColumns: ['count', 'Uploaded', 'with_email'],
+      },
+    )
+    expect(res.kept).toEqual([
+      { count: 9147, uploaded: null, with_email: null, avg_age: 41.2 },
+    ])
+  })
+
+  it('keeps a count of people at or above the floor', () => {
+    const res = scrubResults([{ count: 9147, uploaded: 100 }], {
+      minCellSize: 100,
+      peopleCountColumns: ['uploaded'],
+    })
+    expect(res.kept).toEqual([{ count: 9147, uploaded: 100 }])
+  })
+
+  it('masks small counts of people even when no row count is recognized', () => {
+    const rows = [{ people: 29, avg_age: 41.2 }]
+    expect(
+      scrubResults(rows, { minCellSize: 100, peopleCountColumns: ['people'] }),
+    ).toEqual({
+      kept: [{ people: null, avg_age: 41.2 }],
+      suppressed: 0,
+      reason: 'no_count_column',
+    })
+  })
+
   it('suppresses small cells keyed on unknown_count, the alias the score-semantics guidance recommends', () => {
     const res = scrubResults([{ unknown_count: 42 }], { minCellSize: 100 })
     expect(res.kept).toHaveLength(0)
@@ -759,6 +902,34 @@ describe('buildDistrictInsightsTool', () => {
     expect(out.rowsReturned).toBe(1)
     expect(out.rowsSuppressed).toBe(2)
     expect(out.rows).toEqual([{ party: 'D', n: 500 }])
+  })
+
+  it('masks a small SUM or COUNT beside a large row count, whatever its alias', async () => {
+    const unaliased =
+      'count(CASE WHEN (hs_regulations_too_harsh < 10) THEN 1 END)'
+    const provider = fakeProvider({
+      columns: ['n', 'aligned', unaliased, 'avg_reg'],
+      rows: [{ n: 9147, aligned: 29, [unaliased]: 13, avg_reg: 0.4 }],
+    })
+    const tool = buildDistrictInsightsTool({
+      provider,
+      allowedTables,
+      mandatoryFilters,
+      peopleDataset: { base: 'voters' },
+    })
+    const out = await tool.execute({
+      sql: `SELECT COUNT(*) AS n,
+                   SUM(CASE WHEN hs_regulations_too_harsh >= 50 THEN 1 ELSE 0 END) AS aligned,
+                   COUNT(CASE WHEN hs_regulations_too_harsh < 10 THEN 1 END),
+                   AVG(hs_regulations_too_harsh) AS avg_reg
+            FROM int__l2_nationwide_uniform_w_haystaq
+            WHERE state_postal_code = 'NC'
+              AND City_Council_Commissioner_District = 'HENDERSONVILLE'`,
+      rationale: 'r',
+    })
+    expect(out.rows).toEqual([
+      { n: 9147, aligned: null, [unaliased]: null, avg_reg: 0.4 },
+    ])
   })
 
   it('respects a custom minCellSize', async () => {

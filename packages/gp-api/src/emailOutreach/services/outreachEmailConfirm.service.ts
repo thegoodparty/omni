@@ -2,15 +2,22 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  HttpException,
+  HttpStatus,
   Injectable,
 } from '@nestjs/common'
 import { addMinutes, isBefore } from 'date-fns'
-import { EmailConfirmResponse, EmailSend } from '@goodparty_org/contracts'
+import {
+  EmailConfirmDeclined,
+  EmailConfirmResponse,
+  EmailSend,
+} from '@goodparty_org/contracts'
 import { AnalyticsService } from '@/analytics/analytics.service'
+import { SaveCardAndPlanResult } from '@/paymentHolds/paymentHolds.types'
 import { PaymentHoldsService } from '@/paymentHolds/services/paymentHolds.service'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { EVENTS } from '@/vendors/segment/segment.types'
-import { OutreachStatus, User } from '../../generated/prisma'
+import { OutreachHoldState, OutreachStatus, User } from '../../generated/prisma'
 import { EmailSendScope } from '../emailOutreach.types'
 import { emailPriceCents, recipientCapFor } from '../util/emailPricing.util'
 import { OutreachEmailService } from './outreachEmail.service'
@@ -42,9 +49,12 @@ export class OutreachEmailConfirmService extends createPrismaBase(
   }
 
   // A draft is frozen into pending_payment, then handed to the hold module.
-  // A pending_payment send (a decline, or a placement still resolving) can be
-  // confirmed again: the hold module returns its stored outcome, and once that
-  // is held or scheduled the send moves to pending.
+  // A decline puts it back to draft and answers 402, so nothing is scheduled
+  // on a card that failed. Confirming that draft again tries the new card on
+  // its existing hold row, at the price this confirm froze. A pending_payment
+  // send (a placement still resolving) can be confirmed again: the hold module
+  // returns its stored outcome, and once that is held or scheduled the send
+  // moves to pending; a stored decline answers 402 and leaves it there.
   async confirm({
     scope,
     outreachId,
@@ -81,25 +91,36 @@ export class OutreachEmailConfirmService extends createPrismaBase(
     }
     const priceCents = emailPriceCents(frozen.recipientCap)
 
-    let plan: Awaited<ReturnType<PaymentHoldsService['saveCardAndPlan']>>
+    const froze = status === OutreachStatus.draft
+    const declinedBefore =
+      froze &&
+      (await this.client.outreachPaymentHold.count({ where: { outreachId } })) >
+        0
+    const card = {
+      outreachId,
+      userId: user.id,
+      paymentMethodId,
+      estimateCents: priceCents,
+    }
+    let plan: SaveCardAndPlanResult
     try {
-      plan = await this.holds.saveCardAndPlan({
-        outreachId,
-        userId: user.id,
-        paymentMethodId,
-        estimateCents: priceCents,
-      })
+      plan = declinedBefore
+        ? await this.holds.updateCard(card)
+        : await this.holds.saveCardAndPlan(card)
     } catch (err) {
-      await this.unfreezeIfNoHold(row.id, outreachId)
+      await this.returnToDraft(row.id, outreachId, row.outreach.date, froze)
       throw err
     }
 
     if (plan.outcome === 'declined') {
-      return {
-        outcome: 'declined',
-        declineCode: plan.declineCode,
-        email: await this.emails.get(scope, outreachId),
+      if (froze) {
+        await this.returnToDraft(row.id, outreachId, row.outreach.date, true)
       }
+      const body: EmailConfirmDeclined = {
+        message: 'Your card was declined.',
+        declineCode: plan.declineCode,
+      }
+      throw new HttpException(body, HttpStatus.PAYMENT_REQUIRED)
     }
 
     const promoted = await this.client.outreach.updateMany({
@@ -118,7 +139,6 @@ export class OutreachEmailConfirmService extends createPrismaBase(
     }
     return {
       outcome: plan.outcome,
-      declineCode: null,
       email: await this.emails.get(scope, outreachId),
     }
   }
@@ -217,18 +237,33 @@ export class OutreachEmailConfirmService extends createPrismaBase(
     })
   }
 
-  // The hold module refused before writing a hold (a bad card, a past send
-  // time), so nothing is reserved and the user can edit and retry the draft.
-  private async unfreezeIfNoHold(outreachEmailId: number, outreachId: number) {
-    const hold = await this.client.outreachPaymentHold.findUnique({
-      where: { outreachId },
-      select: { id: true },
-    })
-    if (hold) return
+  // The hold module placed nothing: it refused before writing a hold (a bad
+  // card, a past send time), or the card was declined. The send goes back to
+  // the draft it was, with its own date and no cap reserved, so the user can
+  // edit it or confirm again. A hold row that is being placed or was placed
+  // keeps the send where it is; checking the row's state in the same update
+  // means a confirm racing this one can't be undone under its hold. Only the
+  // confirm that froze the draft may revert a declined row: a later confirm
+  // reads the stored decline while the first may already be retrying it.
+  private async returnToDraft(
+    outreachEmailId: number,
+    outreachId: number,
+    date: Date | null,
+    froze: boolean,
+  ): Promise<void> {
     await this.client.$transaction(async (tx) => {
       const reverted = await tx.outreach.updateMany({
-        where: { id: outreachId, status: OutreachStatus.pending_payment },
-        data: { status: OutreachStatus.draft },
+        where: {
+          id: outreachId,
+          status: OutreachStatus.pending_payment,
+          OR: froze
+            ? [
+                { paymentHold: null },
+                { paymentHold: { state: OutreachHoldState.hold_failed } },
+              ]
+            : [{ paymentHold: null }],
+        },
+        data: { status: OutreachStatus.draft, date },
       })
       if (reverted.count === 1) {
         await tx.outreachEmail.update({
