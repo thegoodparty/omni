@@ -29,6 +29,8 @@
     "url": "https://github.com/thegoodparty/gp-api"
   },
   "dependencies": {
+    "@json-render/core": "0.21.3",
+    "@json-render/react": "0.21.3",
     "uuid": "^14.0.1",
     "validator": "^13.12.0",
     "zod": "4.4.3"

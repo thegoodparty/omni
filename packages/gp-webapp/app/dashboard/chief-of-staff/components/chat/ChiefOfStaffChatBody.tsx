@@ -51,6 +51,10 @@ import {
   type ClarifyWidgetContext,
 } from '../../../shared/agent-chat/clarifyWidget'
 import {
+  generatedUiWidgetTool,
+  type GeneratedUiWidgetContext,
+} from '../../../shared/agent-chat/generated-ui/generatedUiWidget'
+import {
   composeHandoffWidgetTool,
   type ComposeHandoffWidgetContext,
 } from '../../../shared/agent-chat/composeHandoffWidget'
@@ -285,7 +289,8 @@ const LIST_PROPOSAL_TOOL = 'present_list_proposal'
 type CosWidgetContext = CardWidgetContext &
   ClarifyWidgetContext &
   ComposeHandoffWidgetContext &
-  ManagedPanelWidgetContext
+  ManagedPanelWidgetContext &
+  GeneratedUiWidgetContext
 
 // show_list_map is deliberately not here: its map renders after the turn's
 // prose, once per turn, and moving it would change where it appears.
@@ -294,6 +299,7 @@ const cosWidgets = createWidgetRegistry<CosWidgetContext>([
   clarifyWidgetTool,
   composeHandoffWidgetTool,
   ...managedPanelWidgetTools,
+  generatedUiWidgetTool,
 ])
 
 // Pulls the widget payload back out of a persisted turn. Returns null for

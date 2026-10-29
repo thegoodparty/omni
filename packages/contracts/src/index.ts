@@ -1051,6 +1051,16 @@ export {
 } from './chats/ChiefOfStaffWidgets.schema'
 
 export {
+  PRESENT_GENERATED_UI_TOOL,
+  OUTREACH_CARD_CHANNELS,
+  GENERATED_UI_CATALOG_DATA,
+  GENERATED_UI_PROMPT,
+  GeneratedUiSpecSchema,
+  type GeneratedUiSpec,
+  checkGeneratedUiSpec,
+} from './chats/GeneratedUiCatalog'
+
+export {
   ComposeHandoffPayloadSchema,
   type ComposeHandoffPayload,
   type ComposeHandoffChannel,

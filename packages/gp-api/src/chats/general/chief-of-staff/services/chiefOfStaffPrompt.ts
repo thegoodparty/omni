@@ -1,6 +1,10 @@
 import { differenceInCalendarMonths, isAfter, parseISO } from 'date-fns'
 import { sanitizeUntrustedContent } from '@/ai/util/sanitizePromptInput.util'
 import { IS_NON_PROD_DEPLOY } from '@/shared/util/appEnvironment.util'
+import {
+  GENERATED_UI_PROMPT,
+  PRESENT_GENERATED_UI_TOOL,
+} from '@goodparty_org/contracts'
 import { FILTER_DIMENSION_PROVENANCE_RULES } from '@/contacts/filterDimensions.catalog'
 import { buildProductKnowledgeBlocks } from '../../product-knowledge/productKnowledgePrompt'
 import {
@@ -447,7 +451,20 @@ const TOOL_DESCRIPTIONS: Record<string, string> = {
     'show people from the user’s own contact records as a card',
   present_outside_contact:
     'show one person or office outside the user’s records to call, with a script',
+  [PRESENT_GENERATED_UI_TOOL]:
+    'show a small generated interface: numbers, a table, a person, a map, an outreach proposal, a question or a next-step button',
 }
+
+const GENERATED_UI_RULES = [
+  `GENERATED UI (\`${PRESENT_GENERATED_UI_TOOL}\`):`,
+  `- Call \`${PRESENT_GENERATED_UI_TOOL}\` when the user asks to see something visually, a comparison, a dashboard of numbers, a person, a place or a map, or when they need to pick from options you made up for them. Prefer it over a markdown table or list.`,
+  '- Keep the prose around it to one short line. Never repeat in prose what the interface shows.',
+  '- A question with options and a Submit button is a ChoiceQuestion inside the spec. A button that suggests the next step is an ActionButton.',
+  `- When the user asks you to ask them something with options, or asks for a multi-select, ask it with a ChoiceQuestion in \`${PRESENT_GENERATED_UI_TOOL}\` instead of \`ask_clarify_question\`.`,
+  `- When the user asks for a proposed outreach as a card, show it as an OutreachCard in \`${PRESENT_GENERATED_UI_TOOL}\` instead of \`present_outreach_proposal\`. Use a count you looked up, or 0 if you have none.`,
+  '- If the call returns an error, fix the spec and call it again once.',
+  GENERATED_UI_PROMPT,
+].join('\n')
 
 const anchoredIssueBlock = (anchor: ChatAnchor): string => {
   const { title, summary, highlightedText } = anchor.snapshot
@@ -740,6 +757,9 @@ export const buildChiefOfStaffSystemPrompt = (args: {
     ...[cardRulesBlock(toolNames)].filter(
       (block): block is string => block !== null,
     ),
+    ...(toolNames.includes(PRESENT_GENERATED_UI_TOOL)
+      ? [GENERATED_UI_RULES]
+      : []),
     ...(toolNames.includes('present_outreach_proposal') &&
     toolNames.includes('size_outreach_sample')
       ? [outreachSamplingBlock(toolNames)]
