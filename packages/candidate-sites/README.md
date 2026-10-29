@@ -34,10 +34,11 @@ There is also a preview route at `app/[vanityPath]/preview/page.tsx` used by `gp
 
 Create a `.env.local` (or set these in your deployment environment):
 
-| Variable                        | Description                                                                                              | Example                           |
-| ------------------------------- | -------------------------------------------------------------------------------------------------------- | --------------------------------- |
-| `NEXT_PUBLIC_API_BASE`          | Base URL of `gp-api`, including the version prefix. Falls back to `http://localhost:3000/v1` when unset. | `https://gp-api.goodparty.org/v1` |
-| `NEXT_PUBLIC_VERCEL_TARGET_ENV` | Set automatically on Vercel (`production` / `preview` / `development`); used by `appEnv.ts` flags.       | `production`                      |
+| Variable                        | Description                                                                                                                                                                                    | Example                           |
+| ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------- |
+| `NEXT_PUBLIC_API_BASE`          | Base URL of `gp-api`, including the version prefix. Falls back to `http://localhost:3000/v1` when unset.                                                                                       | `https://gp-api.goodparty.org/v1` |
+| `NEXT_PUBLIC_VERCEL_TARGET_ENV` | Set automatically on Vercel (`production` / `preview` / `development`); used by `appEnv.ts` flags.                                                                                             | `production`                      |
+| `GP_API_AUTH_MODE`              | Server-only. `oidc` makes the two website reads send the deployment's Vercel OIDC token as `Authorization: Bearer`. Unset sends no header. Only set it once gp-api accepts Vercel OIDC tokens. | `oidc`                            |
 
 ## Getting started
 
@@ -76,6 +77,7 @@ app/
   shared/                        # shared inputs, buttons, typography, utils
 helpers/
   fetchHelper.ts                 # thin wrapper around fetch against API_ROOT
+  gpApiReadAuthHeaders.ts        # Authorization header for the two website reads
 appEnv.ts                        # API_ROOT + environment flags
 ```
 

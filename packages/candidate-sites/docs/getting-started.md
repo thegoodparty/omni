@@ -42,7 +42,7 @@ NEXT_PUBLIC_API_BASE=http://localhost:3000/v1
 | `NEXT_PUBLIC_API_BASE`          | `http://localhost:3000/v1` | Full `gp-api` base URL **including** the `/v1` prefix. Used by `appEnv.ts` and `helpers/fetchHelper.ts`.                                                                                     |
 | `NEXT_PUBLIC_VERCEL_TARGET_ENV` | (unset)                    | Vercel sets this automatically on hosted envs (`production` / `preview` / `development`). Locally it's unset; `IS_LOCAL` is then derived from `NEXT_PUBLIC_API_BASE` containing `localhost`. |
 
-There is no auth env. This repo doesn't talk to any system that requires a token — `gp-api`'s public endpoints are the entire surface.
+`GP_API_AUTH_MODE` is optional and unset locally, so the two website reads send no `Authorization` header. Set it to `oidc` to send the Vercel OIDC token. Locally that token only exists if the folder is linked to the Vercel project (`vercel link`, then `vercel env pull`, which writes `VERCEL_OIDC_TOKEN`); without it the reads send no header.
 
 ## Install + run
 
