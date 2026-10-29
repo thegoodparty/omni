@@ -36,6 +36,10 @@ const toggleVariants = cva(
   },
 )
 
+/**
+ * @summary Use for one button that stays pressed or not, like a toolbar format
+ * button. For a set of choices, use ToggleGroup; for a setting, use Switch.
+ */
 function Toggle({
   className,
   variant,

@@ -2,6 +2,13 @@ import { useTheme } from 'next-themes'
 import { Toaster as Sonner, type ToasterProps } from 'sonner'
 import { cn } from '@styleguide/lib/utils'
 
+/**
+ * SnackbarProvider already mounts it in gp-webapp. Call useSnackbar() instead of
+ * toast() or a second Toaster.
+ *
+ * @summary Use for a brief, low-stakes confirmation that fades away. Never for
+ * form errors or the end of a flow; show errors by the field and a success view.
+ */
 const Toaster = ({ ...props }: ToasterProps) => {
   // Default resolvedTheme to 'light': next-themes returns it undefined on SSR
   // and the first client render, which would otherwise flash light tokens on a
