@@ -41,7 +41,13 @@ export const useCivicPanelChat = () => {
 
 export type CivicPanelChat = ReturnType<typeof useCivicPanelChat>
 
-export const CivicPanelChatDock = ({ chat }: { chat: CivicPanelChat }) => {
+export const CivicPanelChatDock = ({
+  chat,
+  full,
+}: {
+  chat: CivicPanelChat
+  full: boolean
+}) => {
   const [user] = useUser()
   const { state, setState } = chat
   return (
@@ -51,7 +57,11 @@ export const CivicPanelChatDock = ({ chat }: { chat: CivicPanelChat }) => {
         onOpen={chat.openNew}
         onOpenConversation={chat.openConversation}
         onAttachFile={chat.openWithFile}
-        placeholder={SERVE_CITIZENS_PANEL_COPY.chatPlaceholder}
+        placeholder={
+          full
+            ? SERVE_CITIZENS_PANEL_COPY.chatPlaceholderFull
+            : SERVE_CITIZENS_PANEL_COPY.chatPlaceholder
+        }
       />
       <ChiefOfStaffChatSurface
         open={state.open}
