@@ -12,6 +12,7 @@ import { CampaignPlanSharesModule } from '@/campaignPlanShares/campaignPlanShare
 import { CampaignsModule } from '@/campaigns/campaigns.module'
 import { CommunityIssuesModule } from '@/communityIssues/communityIssues.module'
 import { ContactEngagementModule } from '@/contactEngagement/contactEngagement.module'
+import { ContactUploadsModule } from '@/contactUploads/contactUploads.module'
 import { ContactInteractionModule } from '@/contactInteraction/contactInteraction.module'
 import { DoorKnockingModule } from './doorKnocking/doorKnocking.module'
 import { VendorDriftProbeModule } from './vendors/vendorDriftProbe.module'
@@ -142,6 +143,7 @@ import { VendorMocksModule } from '@/vendorMocks/vendorMocks.module'
     PeerlyModule,
     ContactsModule,
     ContactEngagementModule,
+    ContactUploadsModule,
     ContactInteractionModule,
     ContactNoteModule,
     ConstituentFeedbackModule,

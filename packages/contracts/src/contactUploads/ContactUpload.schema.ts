@@ -159,8 +159,10 @@ export type ListContactUploadRowsResponse = z.infer<
   typeof ListContactUploadRowsResponseSchema
 >
 
+// z.guid(), not z.uuid(): L2 person ids are uuid-shaped hashes that do not
+// carry an RFC version, which z.uuid() rejects.
 export const SetContactUploadRowMatchSchema = z.union([
-  z.object({ personId: z.string().uuid() }),
+  z.object({ personId: z.guid() }),
   z.object({ newPerson: z.literal(true) }),
   z.object({ skip: z.literal(true) }),
 ])

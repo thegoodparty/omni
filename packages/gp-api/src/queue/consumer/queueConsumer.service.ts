@@ -1,5 +1,5 @@
 import { APIPollStatus, derivePollStatus } from '@/polls/polls.types'
-import { Message } from '@aws-sdk/client-sqs'
+import { Message, MessageSystemAttributeName } from '@aws-sdk/client-sqs'
 import { isHighConfidence } from '@goodparty_org/contracts'
 import { Injectable, InternalServerErrorException } from '@nestjs/common'
 import {
@@ -66,6 +66,7 @@ import {
   OrdinanceQualityLoopMessageSchema,
   OutreachTextSendEventSchema,
   P2pPhoneListBuildMessageSchema,
+  ContactUploadMatchMessageSchema,
   EmailSendPrepareMessageSchema,
   EmailInboundMessageSchema,
   PollAnalysisCompleteEvent,
@@ -109,6 +110,7 @@ import { ExperimentRunStatus } from '../../generated/prisma'
 import { isJsonObject } from '@/shared/util/objects.util'
 import { isUndrawnSample } from '@/priorities/util/roundTwo.util'
 import { EmailOutreachQueueService } from '@/emailOutreach/services/emailOutreachQueue.service'
+import { ContactUploadMatchJobService } from '@/contactUploads/services/contactUploadMatchJob.service'
 
 const INITIAL_POLL_SEND_SEQ = 1
 
@@ -204,6 +206,7 @@ export class QueueConsumerService {
     private readonly feedbackSynthesisIngest: FeedbackSynthesisIngestService,
     private readonly textSendFunding: OutreachTextSendFundingService,
     private readonly emailOutreachQueue: EmailOutreachQueueService,
+    private readonly contactUploadMatchJob: ContactUploadMatchJobService,
   ) {
     this.logger.setContext(QueueConsumerService.name)
   }
@@ -578,6 +581,21 @@ export class QueueConsumerService {
         return await this.emailOutreachQueue.handleInbound(
           EmailInboundMessageSchema.parse(queueMessage.data),
         )
+      case QueueType.CONTACT_UPLOAD_MATCH: {
+        this.logger.info('received contactUploadMatch message')
+        // Malformed means our own producer's bug: throw and age to the DLQ.
+        const { uploadId } = ContactUploadMatchMessageSchema.parse(
+          queueMessage.data,
+        )
+        return await this.contactUploadMatchJob.handleQueuedMatch(
+          uploadId,
+          Number(
+            message.Attributes?.[
+              MessageSystemAttributeName.ApproximateReceiveCount
+            ] ?? 1,
+          ),
+        )
+      }
 
       default:
         this.logger.warn(

@@ -61,6 +61,9 @@ export const CONTROLLERS_WITHOUT_ROUTE_ALERTS: ControllerName[] = [
   // Non-prod only and judge-only: every prod request is a 404 by design, so
   // a rule here could only ever page on the gate working.
   'judge',
+  // Import contacts is flag-dark, and its six routes would push the route map
+  // past the Loki tenant series cap (500). Watch it before the flag ramps.
+  'contact-uploads',
 ]
 
 /**

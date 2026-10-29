@@ -269,6 +269,7 @@ export enum MessageGroup {
   p2pPhoneListBuild = 'p2pPhoneListBuild',
   emailSendPrepare = 'emailSendPrepare',
   emailInbound = 'emailInbound',
+  contactUploadMatch = 'contactUploadMatch',
 }
 
 const PollResponseJsonRowSchema = z.object({
