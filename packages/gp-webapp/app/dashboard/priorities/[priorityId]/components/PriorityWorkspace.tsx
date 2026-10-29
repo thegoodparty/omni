@@ -44,13 +44,9 @@ import {
   type PositionedWidget,
 } from '../../../shared/agent-chat/turnBlocks'
 import {
-  createWidgetRegistry,
-  type WidgetInstance,
-} from '../../../shared/agent-chat/widgetRegistry'
-import {
-  cardWidgetTools,
-  type CardWidgetContext,
-} from '../../../shared/agent-chat/cards/cardWidgets'
+  chatWidgets,
+  type ChatWidgetContext,
+} from '../../../shared/agent-chat/chatWidgets'
 import {
   ProposalFlowsProvider,
   useOnProposalSent,
@@ -63,11 +59,7 @@ import {
   CardDetailProvider,
   CardDetailSheetHost,
 } from '../../../shared/agent-chat/cards/cardDetail'
-import {
-  CLARIFY_TOOL,
-  clarifyWidgetTool,
-  type ClarifyWidgetContext,
-} from '../../../shared/agent-chat/clarifyWidget'
+import { CLARIFY_TOOL } from '../../../shared/agent-chat/clarifyWidget'
 import { useStreamingTurn } from '../../../shared/agent-chat/useStreamingTurn'
 import { usePinnedAutoScroll } from '../../../shared/agent-chat/usePinnedAutoScroll'
 import { useDictationAppend } from '../../../shared/dictation/useDictationAppend'
@@ -91,10 +83,8 @@ import {
   AUTHORITY_TOOL,
   COMPARABLES_TOOL,
   CURRENT_LAW_TOOL,
-  findingWidgetTools,
 } from '../../../ordinances/components/stepWidgets'
 import { PriorityStatusRail } from './PriorityStatusRail'
-import { StatusChangeMarker } from './StatusChangeMarker'
 import { ReadStatusRailBlock, ReadStatusStrip } from './ReadStatus'
 import {
   outreachProposedProperties,
@@ -138,23 +128,6 @@ const REPLY_POLL_MS = 2_000
 const REPLY_POLL_MAX_TRIES = 90
 
 type Phase = 'loading' | 'ready' | 'error'
-
-type PriorityWidgetContext = CardWidgetContext & ClarifyWidgetContext
-
-const priorityWidgets = createWidgetRegistry<PriorityWidgetContext>([
-  ...cardWidgetTools,
-  ...findingWidgetTools,
-  clarifyWidgetTool,
-])
-
-// A status move is not a registry widget: what it shows is the change the
-// rail went through, which lives in the surface's replay, not in the tool args.
-const statusMarker = (
-  changes: StepChange[],
-): WidgetInstance<PriorityWidgetContext> => ({
-  toolName: STATUS_TOOL,
-  render: () => <StatusChangeMarker changes={changes} />,
-})
 
 const RAIL_TITLE = 'Where this stands'
 const RESULTS_LINK = 'What we heard'
@@ -248,8 +221,13 @@ const PriorityWorkspaceBody = ({
     [],
   )
   const [liveWidgets, setLiveWidgets] = useState<
-    PositionedWidget<PriorityWidgetContext>[]
+    PositionedWidget<ChatWidgetContext>[]
   >([])
+  // What each status call in the turn in flight moved, by tool call id, for
+  // its marker.
+  const [liveStatusChanges, setLiveStatusChanges] = useState<
+    Record<string, StepChange[]>
+  >({})
   const [composer, setComposer] = useState('')
   const [streamError, setStreamError] = useState<string | null>(null)
   const [generatingTool, setGeneratingTool] = useState<string | null>(null)
@@ -291,12 +269,14 @@ const PriorityWorkspaceBody = ({
     onTurnStart: () => {
       setStreamError(null)
       setLiveWidgets([])
+      setLiveStatusChanges({})
       setGeneratingTool(null)
       setStreamDone(false)
       setAfterFinding(false)
     },
     onTurnSettle: () => {
       setLiveWidgets([])
+      setLiveStatusChanges({})
       setGeneratingTool(null)
       setStreamDone(false)
       setAfterFinding(false)
@@ -324,24 +304,16 @@ const PriorityWorkspaceBody = ({
       if (event.type === 'done') setStreamDone(true)
       // The call is only what the agent asked for. The server can refuse it,
       // so the rail and the marker wait for the result it stored.
-      if (event.type === 'tool_call' && event.toolName === STATUS_TOOL) {
-        return true
-      }
       if (event.type === 'tool_result' && event.toolName === STATUS_TOOL) {
         const settled = parseStatusToolResult(event.result)
         if (!settled) return true
         const changes = statusChanges(statusRef.current, settled.status)
         commitStatus(settled.status, settled.nextAction)
         if (changes.length > 0) {
-          const at = textLength()
-          setLiveWidgets((prev) => [
+          setLiveStatusChanges((prev) => ({
             ...prev,
-            {
-              key: `status-${event.toolCallId ?? prev.length}`,
-              instance: statusMarker(changes),
-              appearAfter: at,
-            },
-          ])
+            [event.toolCallId ?? '']: changes,
+          }))
         }
         return true
       }
@@ -357,8 +329,8 @@ const PriorityWorkspaceBody = ({
           })
         }
       }
-      if (event.type === 'tool_call' && priorityWidgets.has(event.toolName)) {
-        const instance = priorityWidgets.resolve(
+      if (event.type === 'tool_call' && chatWidgets.has(event.toolName)) {
+        const instance = chatWidgets.resolve(
           {
             toolName: event.toolName,
             conversationId: turnConversationId,
@@ -379,9 +351,7 @@ const PriorityWorkspaceBody = ({
           return true
         }
         // read_past_outreach is only sometimes a card; unparsed, it is a pill.
-        return (
-          priorityWidgets.entry(event.toolName)?.onParseFailure !== 'inline'
-        )
+        return chatWidgets.entry(event.toolName)?.onParseFailure !== 'inline'
       }
       // Everything else — counts, saved lists, web search — falls through to
       // the shared pill treatment the other chats use.
@@ -669,7 +639,7 @@ const PriorityWorkspaceBody = ({
   }, [messages])
 
   const { scrollRef, onScroll } = usePinnedAutoScroll(
-    [messages, visibleSegments, liveWidgets],
+    [messages, visibleSegments, liveWidgets, liveStatusChanges],
     { sending },
   )
 
@@ -846,20 +816,11 @@ const PriorityWorkspaceBody = ({
                     <AssistantRow key={message.id} fullWidth>
                       <TurnBlocks
                         blocks={persistedTurnBlocks({
-                          registry: priorityWidgets,
+                          registry: chatWidgets,
                           messageId: message.id,
                           segments: message.segments ?? [],
                           content: message.content,
                           conversationId: conversationId ?? '',
-                          surfaceWidget: (segment, index) => {
-                            if (segment.toolName !== STATUS_TOOL) return null
-                            const changes = markers.get(
-                              segmentKey(message.id, index),
-                            )
-                            return changes && changes.length > 0
-                              ? statusMarker(changes)
-                              : null
-                          },
                         })}
                         toolLabel={priorityToolLabel}
                         context={{
@@ -871,6 +832,12 @@ const PriorityWorkspaceBody = ({
                             message.id === activeClarifyId && !sending,
                           clarifyAnswer: clarifyAnswerById[message.id],
                           onClarifyAnswer: answerClarify,
+                          statusChanges: (call) =>
+                            call.segmentIndex === null
+                              ? undefined
+                              : markers.get(
+                                  segmentKey(message.id, call.segmentIndex),
+                                ),
                         }}
                       />
                     </AssistantRow>
@@ -889,6 +856,8 @@ const PriorityWorkspaceBody = ({
                         }),
                         clarifyInteractive: false,
                         onClarifyAnswer: answerClarify,
+                        statusChanges: (call) =>
+                          liveStatusChanges[call.toolCallId ?? ''],
                       }}
                     />
                     {working ? <ThinkingRow label={workingLabel} /> : null}

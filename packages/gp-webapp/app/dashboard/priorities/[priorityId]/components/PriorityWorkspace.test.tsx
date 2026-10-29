@@ -67,38 +67,25 @@ vi.mock('../../../shared/dictation/useDictationAppend', () => ({
 }))
 
 // The card components are another surface's concern; this asserts only that a
-// card tool call reaches the renderer, and with which key. The outside contact
-// is the exception, rendered for real, because where its detail opens is this
+// card tool call reaches the proposal card, and with which key. The outside
+// contact is rendered for real, because where its detail opens is this
 // surface's concern.
-vi.mock('../../../shared/agent-chat/cards/ChatCardRenderer', async () => {
-  const { OutsideContactCard } = await vi.importActual<
-    typeof import('../../../shared/agent-chat/cards/OutsideContactCard')
-  >('../../../shared/agent-chat/cards/OutsideContactCard')
-  return {
-    ChatCardRenderer: ({
-      card,
-      detailKey,
-      launchSource,
-    }: {
-      card: { kind: string; proposalKey?: string }
-      detailKey?: string
-      launchSource?: string
-    }) =>
-      card.kind === 'outside_contact' ? (
-        <OutsideContactCard
-          card={card as Parameters<typeof OutsideContactCard>[0]['card']}
-          {...(detailKey !== undefined && { detailKey })}
-        />
-      ) : (
-        <div
-          data-testid="chat-card"
-          data-kind={card.kind}
-          data-proposal-key={card.proposalKey ?? ''}
-          data-launch-source={launchSource ?? ''}
-        />
-      ),
-  }
-})
+vi.mock('../../../shared/agent-chat/cards/OutreachProposalCard', () => ({
+  OutreachProposalCard: ({
+    proposal,
+    launchSource,
+  }: {
+    proposal: { kind: string; proposalKey: string }
+    launchSource?: string
+  }) => (
+    <div
+      data-testid="chat-card"
+      data-kind={proposal.kind}
+      data-proposal-key={proposal.proposalKey}
+      data-launch-source={launchSource ?? ''}
+    />
+  ),
+}))
 
 // The outreach flows are the outreach page's components; mounting them here
 // is covered in proposalFlows.test.tsx.
@@ -507,7 +494,7 @@ describe('PriorityWorkspace', () => {
     )
   })
 
-  it('renders a card tool call through ChatCardRenderer with a derived proposalKey', async () => {
+  it('renders a card tool call through the widget registry with a derived proposalKey', async () => {
     mocks.listMessages.mockResolvedValue([
       {
         id: 'a1',

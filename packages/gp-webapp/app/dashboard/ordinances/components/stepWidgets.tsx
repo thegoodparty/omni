@@ -1,3 +1,5 @@
+import { Button } from '@styleguide'
+import { ChevronRightIcon } from '@styleguide/components/ui/icons'
 import {
   OrdinanceAuthorityFindingSchema,
   OrdinanceCurrentLawSummarySchema,
@@ -5,10 +7,7 @@ import {
   OrdinancePresentComparablesSchema,
   OrdinancePresentDraftSchema,
 } from '@goodparty_org/contracts'
-import {
-  createWidgetRegistry,
-  defineWidgetTool,
-} from '../../shared/agent-chat/widgetRegistry'
+import { defineWidgetTool } from '../../shared/agent-chat/widgetRegistry'
 import AuthorityFindingWidget from './AuthorityFindingWidget'
 import ComparablesWidget from './ComparablesWidget'
 import CurrentLawSummaryWidget from './CurrentLawSummaryWidget'
@@ -24,13 +23,39 @@ export const CURRENT_LAW_TOOL = 'present_current_law_summary'
 export const HISTORY_TOOL = 'present_legislative_history'
 export const COMPARABLES_TOOL = 'present_comparables'
 export const DRAFT_TOOL = 'present_draft'
+export const OFFER_NEXT_STEP_TOOL = 'offer_next_step'
 
-export type OrdinanceWidgetContext = { slug: string }
+export type OrdinanceWidgetContext = {
+  ordinanceSlug?: string
+  // The Continue button's step. Absent on the last step, which has none.
+  onAdvanceStep?: () => void
+  nextStepLabel?: string
+}
 
-// The finding cards that carry no ordinance context, so another chat can
-// register them as they are: the priority chat shows peer cities, current
-// code and legal authority on the same cards.
-export const findingWidgetTools = [
+const NextStepButton = ({
+  nextLabel,
+  onAdvance,
+}: {
+  nextLabel: string
+  onAdvance: () => void
+}): React.JSX.Element => (
+  <Button
+    type="button"
+    variant="outline"
+    onClick={onAdvance}
+    className="h-auto w-full justify-between rounded-lg border-border bg-card px-4 py-3 text-sm text-foreground shadow-sm hover:border-foreground/20 hover:bg-muted/50 hover:text-foreground"
+  >
+    <span>{nextLabel}</span>
+    <ChevronRightIcon
+      className="size-4 shrink-0 text-muted-foreground"
+      aria-hidden
+    />
+  </Button>
+)
+
+// The finding cards carry no ordinance context, so the priority chat shows
+// peer cities, current code and legal authority on the same cards.
+export const ordinanceWidgetTools = [
   defineWidgetTool({
     toolName: AUTHORITY_TOOL,
     parse: (args) => {
@@ -57,10 +82,6 @@ export const findingWidgetTools = [
     },
     render: (presentation) => <ComparablesWidget presentation={presentation} />,
   }),
-]
-
-export const ordinanceWidgets = createWidgetRegistry<OrdinanceWidgetContext>([
-  ...findingWidgetTools,
   defineWidgetTool({
     toolName: HISTORY_TOOL,
     parse: (args) => {
@@ -81,8 +102,23 @@ export const ordinanceWidgets = createWidgetRegistry<OrdinanceWidgetContext>([
       const parsed = OrdinancePresentDraftSchema.safeParse(args)
       return parsed.success && parsed.data.body.length > 0 ? parsed.data : null
     },
-    render: (draft, { slug }: OrdinanceWidgetContext) => (
-      <DraftReadyWidget draft={draft} slug={slug} />
-    ),
+    render: (draft, { ordinanceSlug }: OrdinanceWidgetContext) =>
+      ordinanceSlug ? (
+        <DraftReadyWidget draft={draft} slug={ordinanceSlug} />
+      ) : null,
   }),
-])
+  // The button's words are the next step's, not the call's `label`, and an
+  // unparsed call still offers it: the call itself is the offer.
+  defineWidgetTool({
+    toolName: OFFER_NEXT_STEP_TOOL,
+    placement: 'belowTurn',
+    parse: () => ({}),
+    render: (
+      _offer,
+      { onAdvanceStep, nextStepLabel }: OrdinanceWidgetContext,
+    ) =>
+      onAdvanceStep && nextStepLabel ? (
+        <NextStepButton nextLabel={nextStepLabel} onAdvance={onAdvanceStep} />
+      ) : null,
+  }),
+]

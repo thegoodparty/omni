@@ -11,6 +11,8 @@
 // humanized form of the name itself, which for almost every tool is already
 // right ("campaign_story" -> "Campaign story").
 
+import { COMPOSE_HANDOFF_TOOL } from './composeHandoffWidget'
+
 // Sentence case per the house style, not Title Case.
 export const humanizeToolName = (toolName: string): string => {
   const words = toolName.replace(/[_-]+/g, ' ').trim()
@@ -27,10 +29,14 @@ const TOOL_LABEL_OVERRIDES: Record<string, string> = {
   web_search: 'Web search',
 }
 
+// Null hides the pill. compose_handoff's call is a card on the surfaces that
+// render chat widgets, and its name is internal everywhere else.
 export const resolveToolLabel = (
   toolName: string,
   overrides?: Record<string, string>,
-): string =>
-  overrides?.[toolName] ??
-  TOOL_LABEL_OVERRIDES[toolName] ??
-  humanizeToolName(toolName)
+): string | null =>
+  toolName === COMPOSE_HANDOFF_TOOL
+    ? null
+    : (overrides?.[toolName] ??
+      TOOL_LABEL_OVERRIDES[toolName] ??
+      humanizeToolName(toolName))

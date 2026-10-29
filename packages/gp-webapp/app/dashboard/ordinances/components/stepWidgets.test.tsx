@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { render } from 'helpers/test-utils/render'
 import { screen } from '@testing-library/react'
-import { DRAFT_TOOL, ordinanceWidgets } from './stepWidgets'
+import { chatWidgets } from '../../shared/agent-chat/chatWidgets'
+import { DRAFT_TOOL } from './stepWidgets'
 
 const mocks = vi.hoisted(() => ({
   useOrdinanceQualityLoopFlag: vi.fn(),
@@ -19,9 +20,9 @@ beforeEach(() => {
 })
 
 const resolveDraft = (args: object) =>
-  ordinanceWidgets.resolve({ toolName: DRAFT_TOOL }, args)
+  chatWidgets.resolve({ toolName: DRAFT_TOOL }, args)
 
-describe('ordinanceWidgets — present_draft', () => {
+describe('ordinance step widgets — present_draft', () => {
   it('parses a valid draft payload into a DRAFT_TOOL instance', () => {
     const widget = resolveDraft({
       title: 'Draft amendment to Chapter 12',
@@ -30,7 +31,15 @@ describe('ordinanceWidgets — present_draft', () => {
     })
     expect(widget?.toolName).toBe(DRAFT_TOOL)
     if (!widget) throw new Error('expected draft widget')
-    render(<>{widget.render({ slug: 'public-safety-cameras' })}</>)
+    render(
+      <>
+        {widget.render({
+          ordinanceSlug: 'public-safety-cameras',
+          clarifyInteractive: false,
+          onClarifyAnswer: () => undefined,
+        })}
+      </>,
+    )
     expect(screen.getByText('Draft amendment to Chapter 12')).toBeVisible()
   })
 
@@ -44,7 +53,7 @@ describe('ordinanceWidgets — present_draft', () => {
   })
 
   it('recognizes present_draft as a step-widget tool', () => {
-    expect(ordinanceWidgets.has(DRAFT_TOOL)).toBe(true)
-    expect(ordinanceWidgets.has('not_a_widget')).toBe(false)
+    expect(chatWidgets.has(DRAFT_TOOL)).toBe(true)
+    expect(chatWidgets.has('not_a_widget')).toBe(false)
   })
 })

@@ -109,6 +109,12 @@ activity (60s idle = stalled), and when a stream ends without `done` it polls th
 transcript for up to 3 minutes for the still-generating turn before falling back
 to rendering the partial locally.
 
+The webapp turns a display tool's call into UI through one registry only:
+`chatWidgets.tsx` in `packages/gp-webapp/app/dashboard/shared/agent-chat/`,
+which every chat surface resolves both the live `tool_call` and the reloaded
+segment through. A new card is an entry there, never a branch in a surface
+(that folder's `AGENTS.md`, "Widgets").
+
 ### The chat-scope abstraction
 
 `src/chats/general/` is the architecture meant to generalize interactive chat.
