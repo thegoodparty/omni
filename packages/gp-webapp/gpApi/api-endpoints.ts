@@ -2127,6 +2127,10 @@ export type APIEndpoints = {
     Request: {}
     Response: AcceptSuggestedMatchesResponse
   }
+  'POST /v1/contact-uploads/:id/retry': {
+    Request: {}
+    Response: ContactUpload
+  }
   'GET /v1/contacts/:personId/sources': {
     Request: {}
     Response: ContactSourcesResponse

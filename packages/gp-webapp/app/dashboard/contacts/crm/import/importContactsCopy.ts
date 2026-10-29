@@ -127,7 +127,9 @@ export const SERVE_IMPORT_CONTACTS_COPY = {
     updated: 'updated people you imported before',
     unchanged: 'unchanged from your last upload',
     processing: "We're matching your people. This page updates when it's done.",
-    failed: "This upload didn't finish. Import the file again.",
+    failed: "This upload didn't finish. Try again.",
+    tryAgain: 'Try again',
+    retryFailed: "We couldn't restart this upload. Try again.",
     loadFailed: "We couldn't load this upload. Refresh the page to try again.",
   },
   review: {
