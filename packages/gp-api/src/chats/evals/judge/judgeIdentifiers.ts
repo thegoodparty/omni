@@ -152,10 +152,17 @@ export const resolveJudgeIdentifiers = async (
 // failure: the outputs go without race_id. Exits non-zero with one sentence
 // otherwise; judge.yml decides that a failure refuses the background agents
 // and not the sweep.
-if (require.main === module) {
-  const [out] = process.argv.slice(2)
-  const sweepId = process.env.JUDGE_SWEEP_ID
-  const run = async (): Promise<void> => {
+export const runJudgeIdentifiersEntry = async (
+  args: readonly string[],
+  env: NodeJS.ProcessEnv,
+  io: {
+    writeStdout: (text: string) => void
+    writeStderr: (text: string) => void
+  },
+): Promise<number> => {
+  const [out] = args
+  const sweepId = env.JUDGE_SWEEP_ID
+  try {
     if (!out || !sweepId) {
       throw new Error(
         'usage: JUDGE_SWEEP_ID=<id> JUDGE_FIXTURE_API_URL=<url> ' +
@@ -164,26 +171,33 @@ if (require.main === module) {
     }
     const ids = await resolveJudgeIdentifiers(
       sweepId,
-      process.env.JUDGE_FIXTURE_API_URL,
+      env.JUDGE_FIXTURE_API_URL,
     )
     appendFileSync(out, identifierOutputLines(ids))
     if (ids.raceUnavailable !== undefined) {
       // stdout, because that is where Actions reads workflow commands.
-      process.stdout.write(
+      io.writeStdout(
         `::warning::no race id for this sweep (${ids.raceUnavailable}), so ` +
           'the three background agents that need one are refused by name; ' +
           'the rest run\n',
       )
     }
-    process.stderr.write(
+    io.writeStderr(
       `background agents run as ${ids.orgSlug}, race ` +
         `${ids.raceId ?? 'none'}\n`,
     )
+    return 0
+  } catch (err) {
+    io.writeStderr(`${err instanceof Error ? err.message : String(err)}\n`)
+    return 1
   }
-  run().catch((err: unknown) => {
-    process.stderr.write(
-      `${err instanceof Error ? err.message : String(err)}\n`,
-    )
-    process.exit(1)
+}
+
+if (require.main === module) {
+  void runJudgeIdentifiersEntry(process.argv.slice(2), process.env, {
+    writeStdout: (text) => process.stdout.write(text),
+    writeStderr: (text) => process.stderr.write(text),
+  }).then((code) => {
+    if (code !== 0) process.exit(code)
   })
 }

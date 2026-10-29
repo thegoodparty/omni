@@ -164,6 +164,23 @@ If the real value matters (a customer hit it), pin it once with a plain assertio
 - Do not write "propagates X from <dependency>" tests, where a mock throws X and the test asserts X. Assert the error where it is thrown, or through a route test that reaches it.
 - Do not test the same pass-through at every layer ("delegates", "forwards", "returns what the service returns"). Test the layer that does the work, or the route.
 
+## CLI entry points
+
+Call a script's entry in-process, never through a subprocess per test. Spawning `tsx` costs ~3s a test. Export the `require.main === module` body as a function that takes its args, env and output writers and returns the exit code, and leave the `require.main` block calling only that:
+
+```ts
+export const runArmBudgetEntry = (args, env, writeStderr): number => { ... }
+
+if (require.main === module) {
+  const code = runArmBudgetEntry(process.argv.slice(2), process.env, (text) =>
+    process.stderr.write(text),
+  )
+  if (code !== 0) process.exit(code)
+}
+```
+
+Keep at most one subprocess test per entry, to prove the `require.main` wiring. See `src/chats/evals/judge/armBudget.test.ts`.
+
 ## Running tests
 
 ```bash
