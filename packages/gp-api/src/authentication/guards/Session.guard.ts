@@ -22,6 +22,10 @@ import { TRANSCRIBE_STREAM_PATH } from '@/speech/ws/speechToText.gateway'
 import { VENDOR_MOCKS_PREFIX } from '@/vendorMocks/vendorMockUrl.util'
 import { UsersService } from '@/users/services/users.service'
 import { SessionsService } from '@/users/services/sessions.service'
+import {
+  isVercelOidcToken,
+  VercelOidcService,
+} from '@/authentication/vercelOidc.service'
 
 @Injectable()
 export class SessionGuard implements CanActivate {
@@ -33,6 +37,7 @@ export class SessionGuard implements CanActivate {
     private readonly logger: PinoLogger,
     private readonly reflector: Reflector,
     private readonly agentMcpMarker: AgentMcpMarker,
+    private readonly vercelOidc: VercelOidcService,
   ) {
     this.logger.setContext(SessionGuard.name)
   }
@@ -60,6 +65,14 @@ export class SessionGuard implements CanActivate {
     const token = request.headers.authorization?.replace('Bearer ', '')
 
     if (!token) {
+      return this.allowPublicOrThrow(context)
+    }
+
+    // Checked before the Clerk paths so a Vercel deployment's OIDC token is
+    // never sent to Clerk. Like a JWT-format M2M token, it is only ever a
+    // service reader, never m2mToken.
+    if (isVercelOidcToken(token)) {
+      request.serviceReader = await this.vercelOidc.verify(token)
       return this.allowPublicOrThrow(context)
     }
 
