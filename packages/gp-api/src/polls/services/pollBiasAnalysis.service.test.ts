@@ -1,17 +1,11 @@
 import { BadGatewayException, BadRequestException } from '@nestjs/common'
-import { LlmService } from 'src/llm/services/llm.service'
-import { BraintrustService } from 'src/vendors/braintrust/braintrust.service'
+import type { LlmService } from 'src/llm/services/llm.service'
+import type { BraintrustService } from 'src/vendors/braintrust/braintrust.service'
 import { createMockLogger } from 'src/shared/test-utils/mockLogger.util'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { createPollBiasAnalysisPrompt } from '../utils/pollBiasPrompt.util'
+import * as pollBiasPromptUtil from '../utils/pollBiasPrompt.util'
 import { PollBiasAnalysisService } from './pollBiasAnalysis.service'
 import { POLL_BIAS_MODELS } from '../types/pollBias.types'
-
-vi.mock('src/llm/services/llm.service')
-vi.mock('src/vendors/braintrust/braintrust.service')
-vi.mock('../utils/pollBiasPrompt.util', () => ({
-  createPollBiasAnalysisPrompt: vi.fn(),
-}))
 
 describe('PollBiasAnalysisService', () => {
   let service: PollBiasAnalysisService
@@ -35,20 +29,16 @@ describe('PollBiasAnalysisService', () => {
       loadPromptMessages: vi.fn(),
     }
 
-    vi.mocked(LlmService).mockImplementation(
-      () => llmService as unknown as LlmService,
-    )
-    vi.mocked(BraintrustService).mockImplementation(
-      () => braintrustService as unknown as BraintrustService,
-    )
-
     service = new PollBiasAnalysisService(
       llmService as unknown as LlmService,
       braintrustService as unknown as BraintrustService,
       createMockLogger(),
     )
 
-    vi.mocked(createPollBiasAnalysisPrompt).mockReturnValue([
+    vi.spyOn(
+      pollBiasPromptUtil,
+      'createPollBiasAnalysisPrompt',
+    ).mockReturnValue([
       { role: 'system', content: 'You are a helpful assistant.' },
       { role: 'user', content: 'Analyze this text' },
     ])
@@ -140,7 +130,9 @@ describe('PollBiasAnalysisService', () => {
 
       await service.analyzePollText('test')
 
-      expect(createPollBiasAnalysisPrompt).toHaveBeenCalledWith('test')
+      expect(
+        pollBiasPromptUtil.createPollBiasAnalysisPrompt,
+      ).toHaveBeenCalledWith('test')
       expect(braintrustService.loadPromptMessages).not.toHaveBeenCalled()
     })
 

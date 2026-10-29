@@ -141,6 +141,20 @@ it('404s on a prod deploy', async () => {
 
 Overrides reset after every test and every file. They reach code that reads the constant when it runs; a value captured at import (the Vercel client and Peerly config resolve `vendorBaseUrl` at import) still needs `vi.mock`.
 
+What to use instead of a module mock:
+
+- **A function from one of our modules:** `import * as mod` and `vi.spyOn(mod, 'fn')`. The code under test sees the spy. The exception is `appEnvironment.util`: its mock is rebuilt for every file, so a spy on it misses code an earlier file already loaded. Examples: `vendorSchema.metrics` in `parseVendorResponse.test.ts`, `pollBiasPrompt.util` in `pollBiasAnalysis.service.test.ts`, `pdf.extractor` in `chatAttachmentsLink.service.test.ts`.
+- **A sleep or retry delay:** call `sleep` from `@/shared/util/sleep.util` and spy on it, as `campaignTasks.service.test.ts` and `cvStatusPoll.service.test.ts` do. Fake timers do not reach `timers/promises`, so do not import `setTimeout` from it in app code.
+- **A vendor SDK client:** spy on the prototype, `vi.spyOn(TranscribeClient.prototype, 'send')` (`robocallTranscription.service.test.ts`), or swap the instance field, `Object.defineProperty(service, 'graphQLClient', ...)` (`ballotReady.service.test.ts`). A lazy client such as a `pg` `Pool` is safe to build for real: spy on `service['pool'].connect` (`pollResponsesDownload.service.test.ts`).
+- **A third-party default export that is a plain object:** spy on it, `vi.spyOn(zipcodes, 'lookup')`.
+- **A collaborator class:** inject a stub through the constructor or the `Test.createTestingModule` provider. Do not mock the module the service imports it from (`outreach.service.test.ts` stubs `AreaCodeFromZipService`).
+- **A `createPrismaBase` service:** override `_prisma` (Pattern 1), never mock `prisma.util`.
+- **A module-level config object:** set the field in `beforeEach` and restore it in `afterEach` (`campaignPlanQueueConfig` in `aiGeneration.service.test.ts`).
+- **An env var read at import:** move the `process.env` read into the method that uses it, then `vi.stubEnv` it (`shouldEnableDomainPurchase`, `CallhubBaseConfig.apiKey`).
+- **A library you want to test against:** leave it real. A `vi.mock('slugify')` made the slugify tests assert the mock.
+
+Delete a `vi.mock` that no assertion reads. If one `describe` truly needs a module mock, move it to its own small file so the rest of the suite stays in `shared-modules` (`paymentEventsService.webhooksNotConfigured.test.ts`). An export of an externalized package (`getSignedUrl` from `@aws-sdk/s3-request-presigner`) is a real ESM namespace and cannot be spied, so that case keeps `vi.mock`.
+
 ## Limits and caps
 
 Never seed bulk rows, or build a huge array, to cross a limit. Make the limit overridable and cross a small one with a few rows. Seeding 200k rows to trip `MAX_RESOLVED_ID_SET_SIZE` cost 10-15s per test; a cap of 3 costs milliseconds.

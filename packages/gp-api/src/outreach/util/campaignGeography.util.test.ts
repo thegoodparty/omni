@@ -12,11 +12,11 @@ import {
   resolveP2pJobGeography,
 } from './campaignGeography.util'
 
-vi.mock('zipcodes', () => ({
-  default: { lookup: vi.fn() },
-}))
-
 describe('campaignGeography.util', () => {
+  beforeEach(() => {
+    vi.spyOn(zipcodes, 'lookup').mockReturnValue(undefined)
+  })
+
   describe('parseDetailsGeography', () => {
     it('returns null for null details', () => {
       expect(parseDetailsGeography(null)).toBe(null)

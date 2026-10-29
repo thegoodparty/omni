@@ -39,7 +39,7 @@ import {
   resetAllCounters,
 } from '@/shared/test-utils'
 import { PinoLogger } from 'nestjs-pino'
-import { recordVendorSchemaMismatch } from '../../shared/vendorSchema.metrics'
+import * as vendorSchemaMetrics from '../../shared/vendorSchema.metrics'
 
 /**
  * Create a mock user for peerly identity tests
@@ -88,10 +88,6 @@ const createMockCampaign = (
   })
 }
 
-vi.mock('../../shared/vendorSchema.metrics', () => ({
-  recordVendorSchemaMismatch: vi.fn(),
-}))
-
 describe('PeerlyIdentityService', () => {
   let service: PeerlyIdentityService
   let module: TestingModule
@@ -125,6 +121,10 @@ describe('PeerlyIdentityService', () => {
 
   beforeEach(async () => {
     resetAllCounters()
+    vi.spyOn(
+      vendorSchemaMetrics,
+      'recordVendorSchemaMismatch',
+    ).mockImplementation(() => undefined)
 
     module = await Test.createTestingModule({
       providers: [
@@ -1350,10 +1350,9 @@ describe('PeerlyIdentityService', () => {
       )
 
       expect(result).toBe(42)
-      expect(recordVendorSchemaMismatch).toHaveBeenCalledWith(
-        'peerly',
-        '/v2/tdlc/:id/retrieve_cv',
-      )
+      expect(
+        vendorSchemaMetrics.recordVendorSchemaMismatch,
+      ).toHaveBeenCalledWith('peerly', '/v2/tdlc/:id/retrieve_cv')
     })
 
     it('routes other errors through handleApiError', async () => {
