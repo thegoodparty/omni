@@ -36,21 +36,25 @@ const Harness = ({
   )
 }
 
-const mockDraft = (path: string, requests: unknown[]) =>
-  api.mock(`POST ${path}`, ({ body }) => {
+type DraftRoute =
+  | 'POST /v1/outreach/email/draft'
+  | 'POST /v1/outreach/serve/email/draft'
+
+const mockDraft = (route: DraftRoute, requests: unknown[]) =>
+  api.mock(route, ({ body }) => {
     requests.push(body)
     return { status: 200, data: AI_DRAFT }
   })
 
 describe('EmailComposeStep auto draft', () => {
-  it.each([
-    ['Win', WIN_EMAIL_SURFACE, '/v1/outreach/email/draft'],
-    ['Serve', SERVE_EMAIL_SURFACE, '/v1/outreach/serve/email/draft'],
+  it.each<[string, typeof WIN_EMAIL_SURFACE, DraftRoute]>([
+    ['Win', WIN_EMAIL_SURFACE, 'POST /v1/outreach/email/draft'],
+    ['Serve', SERVE_EMAIL_SURFACE, 'POST /v1/outreach/serve/email/draft'],
   ])(
     'requests one draft on entering compose with it empty (%s)',
-    async (_name, surface, path) => {
+    async (_name, surface, route) => {
       const requests: unknown[] = []
-      mockDraft(path, requests)
+      mockDraft(route, requests)
       render(<Harness surface={surface} start={initialCompose} />)
 
       await waitFor(() =>
@@ -64,7 +68,7 @@ describe('EmailComposeStep auto draft', () => {
 
   it('does not request a draft when content already exists', async () => {
     const requests: unknown[] = []
-    mockDraft('/v1/outreach/email/draft', requests)
+    mockDraft('POST /v1/outreach/email/draft', requests)
     render(
       <Harness
         surface={WIN_EMAIL_SURFACE}
