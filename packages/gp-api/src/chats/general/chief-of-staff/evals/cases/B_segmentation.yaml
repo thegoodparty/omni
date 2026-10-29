@@ -122,7 +122,7 @@
   # Change one and change the other.
   prompts:
     - Create a list called "Housing outreach" of constituents interested in housing.
-    - I created the list "Housing outreach" (list 52) from the card.
+    - I created the list "Housing outreach" (list 52) from the card, which now shows it on a map.
   turn_expectations:
     - Runs count_contacts and offers the list as a present_card
       list_proposal card, passing the same filter and its count. No crud_saved_filters mutation

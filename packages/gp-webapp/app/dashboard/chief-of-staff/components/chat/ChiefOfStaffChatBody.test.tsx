@@ -1936,7 +1936,7 @@ describe('<ChiefOfStaffChatBody>', () => {
       await waitFor(() =>
         expect(streamMessageMock).toHaveBeenCalledWith(
           expect.objectContaining({
-            content: `I created the list "${LIST.name}" (list ${LIST.listId}) from the card.`,
+            content: `I created the list "${LIST.name}" (list ${LIST.listId}) from the card, which now shows it on a map.`,
           }),
         ),
       )

@@ -774,8 +774,7 @@ const crmToolsBlock = (ctx: CampaignManagerContext): string | null => {
       'with, its count, a name of at most 40 characters and one plain ' +
       "sentence on who it holds. The candidate saves it with the card's " +
       'Create list button, and once it is saved the card becomes the list ' +
-      'on a map, where they can draw shapes to narrow it, with a link to ' +
-      'it in Voter Data. Name a list after the filters it actually applied, ' +
+      'on a map, with a link to it in Voter Data. Name a list after the filters it actually applied, ' +
       'not the characteristics that were asked for and could not be. If ' +
       'a requested place, trait, or threshold has no dimension behind it, ' +
       'it does not belong in the name, and abbreviating it does not make ' +

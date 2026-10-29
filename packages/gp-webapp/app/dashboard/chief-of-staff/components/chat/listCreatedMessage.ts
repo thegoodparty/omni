@@ -15,4 +15,5 @@ export const listCreatedMessage = ({
 }: {
   listId: number
   name: string
-}): string => `I created the list "${name}" (list ${listId}) from the card.`
+}): string =>
+  `I created the list "${name}" (list ${listId}) from the card, which now shows it on a map.`

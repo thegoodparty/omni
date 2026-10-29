@@ -934,7 +934,7 @@ describe('CampaignManagerHandler — CRM contact tools gating', () => {
     })
     const prompt = handler.buildSystemPrompt(ctx)
     expect(prompt).toContain('a link to it in Voter Data')
-    expect(prompt).toContain('draw shapes')
+    expect(prompt).toContain('the card becomes the list on a map')
   })
 
   it('presents every channel as a card in candidate words', async () => {
