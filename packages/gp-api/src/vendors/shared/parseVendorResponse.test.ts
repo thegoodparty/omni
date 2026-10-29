@@ -2,11 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 import { createMockLogger } from '../../shared/test-utils'
 import { parseVendorResponse } from './parseVendorResponse'
-import { recordVendorSchemaMismatch } from './vendorSchema.metrics'
-
-vi.mock('./vendorSchema.metrics', () => ({
-  recordVendorSchemaMismatch: vi.fn(),
-}))
+import * as vendorSchemaMetrics from './vendorSchema.metrics'
 
 const schema = z.object({ status: z.string(), ein: z.string() })
 
@@ -20,6 +16,10 @@ describe('parseVendorResponse', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.spyOn(
+      vendorSchemaMetrics,
+      'recordVendorSchemaMismatch',
+    ).mockImplementation(() => undefined)
   })
 
   it('returns the body for a valid response without counting', () => {
@@ -27,7 +27,9 @@ describe('parseVendorResponse', () => {
     expect(
       parseVendorResponse(schema, body, { ...options, mode: 'observe' }),
     ).toEqual(body)
-    expect(recordVendorSchemaMismatch).not.toHaveBeenCalled()
+    expect(
+      vendorSchemaMetrics.recordVendorSchemaMismatch,
+    ).not.toHaveBeenCalled()
     expect(logger.warn).not.toHaveBeenCalled()
   })
 
@@ -39,8 +41,10 @@ describe('parseVendorResponse', () => {
     })
 
     expect(result).toBe(body)
-    expect(recordVendorSchemaMismatch).toHaveBeenCalledTimes(1)
-    expect(recordVendorSchemaMismatch).toHaveBeenCalledWith(
+    expect(
+      vendorSchemaMetrics.recordVendorSchemaMismatch,
+    ).toHaveBeenCalledTimes(1)
+    expect(vendorSchemaMetrics.recordVendorSchemaMismatch).toHaveBeenCalledWith(
       'peerly',
       '/v2/tdlc/:id/retrieve_cv',
     )
@@ -113,8 +117,10 @@ describe('parseVendorResponse', () => {
         { ...options, mode: 'enforce' },
       ),
     ).toThrow(z.ZodError)
-    expect(recordVendorSchemaMismatch).toHaveBeenCalledTimes(1)
-    expect(recordVendorSchemaMismatch).toHaveBeenCalledWith(
+    expect(
+      vendorSchemaMetrics.recordVendorSchemaMismatch,
+    ).toHaveBeenCalledTimes(1)
+    expect(vendorSchemaMetrics.recordVendorSchemaMismatch).toHaveBeenCalledWith(
       'peerly',
       '/v2/tdlc/:id/retrieve_cv',
     )
@@ -126,6 +132,8 @@ describe('parseVendorResponse', () => {
     expect(
       parseVendorResponse(schema, body, { ...options, mode: 'enforce' }),
     ).toEqual(body)
-    expect(recordVendorSchemaMismatch).not.toHaveBeenCalled()
+    expect(
+      vendorSchemaMetrics.recordVendorSchemaMismatch,
+    ).not.toHaveBeenCalled()
   })
 })

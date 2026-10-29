@@ -21,6 +21,7 @@ import { firstOrThrow } from 'src/shared/test-utils/arrays.util'
 import { DomainsService } from './domains.service'
 import { RegisterDomainSchema } from '../schemas/RegisterDomain.schema'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
+import { appEnvOverrides } from '@/shared/test-utils/appEnvOverrides'
 import { MessageGroup, QueueType } from 'src/queue/queue.types'
 import {
   createMockCampaign,
@@ -2330,6 +2331,30 @@ describe('DomainsService', () => {
         },
         MessageGroup.domainEmailRedirect,
       )
+    })
+  })
+
+  describe('shouldEnableDomainPurchase', () => {
+    afterEach(() => {
+      vi.unstubAllEnvs()
+    })
+
+    it('is true in mock mode without ENABLE_DOMAIN_PURCHASE', () => {
+      appEnvOverrides.VENDOR_MODE = 'mock'
+      vi.stubEnv('ENABLE_DOMAIN_PURCHASE', '')
+      expect(service.shouldEnableDomainPurchase()).toBe(true)
+    })
+
+    it('is false in live mode with the env var unset', () => {
+      appEnvOverrides.VENDOR_MODE = 'live'
+      vi.stubEnv('ENABLE_DOMAIN_PURCHASE', '')
+      expect(service.shouldEnableDomainPurchase()).toBe(false)
+    })
+
+    it('is true in live mode when the env var is true', () => {
+      appEnvOverrides.VENDOR_MODE = 'live'
+      vi.stubEnv('ENABLE_DOMAIN_PURCHASE', 'true')
+      expect(service.shouldEnableDomainPurchase()).toBe(true)
     })
   })
 })
