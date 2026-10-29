@@ -105,6 +105,7 @@
     "@opentelemetry/sdk-node": "^0.218.0",
     "@opentelemetry/sdk-trace-base": "^2.7.1",
     "@opentelemetry/semantic-conventions": "^1.41.1",
+    "@openuidev/lang-core": "1.0.2",
     "@poppanator/http-constants": "^3.0.0",
     "@prisma/client": "^6.3.0",
     "@prisma/instrumentation": "^7.4.1",

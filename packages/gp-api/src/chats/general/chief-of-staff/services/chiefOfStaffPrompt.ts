@@ -27,6 +27,7 @@ import type { PeopleDataset } from '@/peopleDb/services/peopleDataset.service'
 import { localDay, todayLine } from '../../services/todayLine'
 import { PriorityRecord } from './prioritiesPort'
 import { CLARIFY_QUESTION_RULES } from '../../chat-tools/askClarifyQuestion.tool'
+import { OPEN_UI_PROMPT_BLOCK } from '../../chat-tools/presentGeneratedUi.tool'
 import {
   EXPLAIN_MANAGED_PANEL_TOOL,
   isManagedPanelSetUp,
@@ -432,6 +433,8 @@ const TOOL_DESCRIPTIONS: Record<string, string> = {
     'read what people said back to the office’s sends, word for word, and the themes found in it',
   present_past_outreach: 'show past sends as a card',
   present_outreach_proposal: 'show finished, ready-to-send outreach as a card',
+  present_generated_ui:
+    'draw a custom UI (stats, tables, contact, map, outreach, choices) from an openui-lang program',
   size_outreach_sample:
     'size a random sample for a text and price it against texting everyone',
   [EXPLAIN_MANAGED_PANEL_TOOL]:
@@ -737,6 +740,9 @@ export const buildChiefOfStaffSystemPrompt = (args: {
     ...(toolNames.includes('crud_saved_filters') ? [SAVED_FILTER_RULES] : []),
     ...(toolNames.includes('show_list_map') ? [LIST_MAP_RULES] : []),
     ...(toolNames.includes('compose_handoff') ? [COMPOSE_HANDOFF_RULES] : []),
+    ...(toolNames.includes('present_generated_ui')
+      ? [OPEN_UI_PROMPT_BLOCK]
+      : []),
     ...[cardRulesBlock(toolNames)].filter(
       (block): block is string => block !== null,
     ),

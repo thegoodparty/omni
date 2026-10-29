@@ -13,6 +13,8 @@
       "@shared/*": ["./app/shared/*"],
       "@styleguide": ["../styleguide/src"],
       "@styleguide/*": ["../styleguide/src/*"],
+      "zod/v4": ["./node_modules/zod/v4"],
+      "zod/v4/core": ["./node_modules/zod/v4/core"],
       "*": ["./*"]
     },
     "types": ["node", "google.maps"],
