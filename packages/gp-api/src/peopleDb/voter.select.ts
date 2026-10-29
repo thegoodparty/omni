@@ -25,6 +25,8 @@ const VOTER_SELECT_COLUMNS = [
   'Residence_Addresses_Longitude',
   'VoterTelephones_LandlineFormatted',
   'VoterTelephones_CellPhoneFormatted',
+  'Email',
+  'ContactIsNew',
   'Age',
   'Gender',
   'Parties_Description',
@@ -225,6 +227,13 @@ export const DOWNLOAD_COLUMNS = [
 ] as const satisfies ReadonlyArray<{ column: keyof Voter; header: string }>
 
 export type DownloadColumn = (typeof DOWNLOAD_COLUMNS)[number]['column']
+
+// Appended to the export only when the read joins the org's imported
+// contacts, so a download without them keeps its columns.
+export const CONTACT_OVERLAY_DOWNLOAD_COLUMNS = [
+  { column: 'Email', header: 'Email' },
+  { column: 'ContactIsNew', header: 'New Contact' },
+] as const satisfies ReadonlyArray<{ column: keyof Voter; header: string }>
 
 // Columns a caller may ask the download COPY to omit from its projection
 // (ENG-10696: the Serve party-visibility rule; ENG-10830: extended to the

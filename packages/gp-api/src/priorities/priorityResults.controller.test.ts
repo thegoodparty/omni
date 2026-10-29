@@ -206,7 +206,7 @@ beforeEach(async () => {
   vi.spyOn(
     service.app.get(ContactsService),
     'resolveEligibleDistrict',
-  ).mockResolvedValue({ districtId: 'd-1', dataset: 'voters' })
+  ).mockResolvedValue({ districtId: 'd-1', dataset: { base: 'voters' } })
   mrpInputs = vi
     .spyOn(
       service.app.get<CensusCompositionSource>(CENSUS_COMPOSITION_SOURCE),
@@ -276,7 +276,7 @@ describe('GET /v1/priorities/:id/results', () => {
     })
     expect(mrpInputs).toHaveBeenCalledWith({
       districtId: 'd-1',
-      dataset: 'voters',
+      dataset: { base: 'voters' },
       answers: expect.arrayContaining([expect.objectContaining({ yes: 1 })]),
     })
   })
@@ -886,7 +886,7 @@ describe('GET /v1/priorities/:id/read-status against census sex by age', () => {
 
     const target = await service.app
       .get<CensusCompositionSource>(CENSUS_COMPOSITION_SOURCE)
-      .districtAnswersNeeded({ districtId: 'd-1', dataset: 'voters' })
+      .districtAnswersNeeded({ districtId: 'd-1', dataset: { base: 'voters' } })
     // The 65 and over are 40%: three answers from them takes 8 in all,
     // more than the 6 the groups alone are missing.
     expect(target).toBe(8)
@@ -960,7 +960,12 @@ describe('POST /v1/voters/voter-file/filter kept to the parts not reached yet', 
     })
 
     expect(res.status).toBe(HttpStatus.CREATED)
-    expect(gridCells).toHaveBeenCalledWith('d-1', 'voters', [UNREACHED], 0.004)
+    expect(gridCells).toHaveBeenCalledWith(
+      'd-1',
+      { base: 'voters' },
+      [UNREACHED],
+      0.004,
+    )
     const row = await service.prisma.voterFileFilter.findUniqueOrThrow({
       where: { id: res.data.id },
     })

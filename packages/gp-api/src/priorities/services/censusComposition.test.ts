@@ -24,7 +24,7 @@ describe('DistrictCensusComposition.mrpInputs', () => {
   }
   const MODEL_INPUT = {
     districtId: 'd-1',
-    dataset: 'voters' as const,
+    dataset: { base: 'voters' as const },
     answers: [{ personId: '0190a1b2-0000-7000-8000-00000000000a', yes: 1 }],
   }
 

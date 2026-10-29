@@ -57,7 +57,7 @@ import {
   type DbxResidentRow,
   type DbxWalkableHouseholdRow,
   type DbxScopeArgs,
-  peopleTable,
+  contactOverlayTable,
 } from './databricksVoterSql.util'
 import type { PeopleDataset } from '../services/peopleDataset.service'
 import type { FilterData } from '../schemas/filters.schema'
@@ -226,7 +226,11 @@ export class DatabricksVoterService {
   ): Promise<DbxDistrict> {
     const withTable = (
       identity: Omit<DbxDistrict, 'dataset' | 'table'>,
-    ): DbxDistrict => ({ ...identity, dataset, table: peopleTable(dataset) })
+    ): DbxDistrict => ({
+      ...identity,
+      dataset,
+      table: contactOverlayTable({ ...identity, dataset }),
+    })
     const cached = this.districts.get(districtId)
     if (cached) return withTable(cached)
     const { type, name, state } =
@@ -916,11 +920,15 @@ const toDbPerson = (
   columns: readonly string[],
   row: Array<string | null>,
 ): BaseDbPerson => {
-  const record: Record<string, string | number | null> = {}
+  const record: Record<string, string | number | boolean | null> = {}
   columns.forEach((column, index) => {
     const value = row[index] ?? null
     record[column] =
-      value !== null && NUMERIC_LIST_COLUMNS.has(column) ? Number(value) : value
+      column === 'ContactIsNew'
+        ? value === 'true'
+        : value !== null && NUMERIC_LIST_COLUMNS.has(column)
+          ? Number(value)
+          : value
   })
   // The projection is built from the same column list the Postgres select
   // uses, so the row is assembled dynamically and asserted once here rather

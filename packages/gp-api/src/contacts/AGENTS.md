@@ -27,7 +27,14 @@ fixes track under ENG-10744.
   `PeopleQueryModule` (`src/peopleDb/`) from the `mart_gp_api` schema in
   Databricks. `personId` everywhere is that voter row's `id` — a stable hash
   of `LALVOTERID` (~97% month-over-month stability; orphaned enhancement
-  rows from L2 churn are accepted).
+  rows from L2 churn are accepted), or a gp-api-minted uuid for a person
+  only an import added (next point).
+- **Imported contacts join the read; nothing here stores them.** For a Serve
+  org with `serve-import-contacts` on, `PeopleDatasetService` puts the org
+  on the dataset and every people read joins the org's uploaded rows in
+  (`src/peopleDb/AGENTS.md`, "Imported contacts join the read"). Uploaded
+  phone, address and email win; `Person.email` and `Person.isNewContact`
+  carry the result. Uploads themselves live in `src/contactUploads/`.
 - **Enhancements live in gp-api Postgres**, keyed
   `(organizationSlug, personId)`: `ContactNote` plus the per-channel
   `ContactInteraction*` models. Orgs are legally isolated — outreach data

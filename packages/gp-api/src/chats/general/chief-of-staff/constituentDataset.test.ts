@@ -11,7 +11,12 @@ import {
   dataSourceRoutingRules,
 } from '@/llm/tools/dataSourceRouting'
 import type { DatabricksProvider } from '@/llm/tools/queryDatabricks.tool'
-import { PeopleDatasetService } from '@/peopleDb/services/peopleDataset.service'
+import {
+  PeopleDatasetService,
+  SERVE_CONSUMER_DATA_FLAG,
+} from '@/peopleDb/services/peopleDataset.service'
+import type { PositionsService } from '@/electionDb/positions/positions.service'
+import { SERVE_IMPORT_CONTACTS_FLAG } from '@goodparty_org/contracts'
 import { CampaignManagerHandler } from '../campaign-manager/campaignManager.handler'
 import type { CampaignManagerContext } from '../campaign-manager/campaignManagerPrompt'
 import { WIN_CONSTITUENT_TABLES } from '../campaign-manager/services/constituentDataScope'
@@ -45,10 +50,19 @@ const executeQuery = async (tool: LlmTool | undefined, sql: string) => {
 
 // With the local placeholder Amplitude key every flag reads ON, so the flag
 // is stubbed explicitly here rather than inherited from the environment.
-const peopleDatasetsWithFlag = (enabled: boolean) =>
-  new PeopleDatasetService({
-    isFeatureEnabled: vi.fn(() => Promise.resolve(enabled)),
-  } as unknown as FeaturesService)
+const peopleDatasetsWithFlag = (enabled: boolean, importContacts = false) =>
+  new PeopleDatasetService(
+    {
+      isFeatureEnabled: vi.fn(({ feature }: { feature: string }) =>
+        Promise.resolve(
+          feature === SERVE_CONSUMER_DATA_FLAG
+            ? enabled
+            : feature === SERVE_IMPORT_CONTACTS_FLAG && importContacts,
+        ),
+      ),
+    } as unknown as FeaturesService,
+    {} as PositionsService,
+  )
 
 const buildProvider = () => ({
   query: vi.fn(() =>
@@ -70,7 +84,12 @@ const buildChiefOfStaff = (
         conversationId: 'c1',
         electedOfficeId: 'office-1',
         organizationSlug: slug,
-        organization: { slug, ownerId: 9 } as Organization,
+        organization: {
+          slug,
+          ownerId: 9,
+          overrideDistrictId: 'district-1',
+          positionId: null,
+        } as Organization,
         userFirstName: 'Jordan',
         userLastName: 'Lee',
         officeTitle: 'Council Member',
@@ -85,7 +104,7 @@ const buildChiefOfStaff = (
         anchor: null,
         districtFilters: null,
         constituentToolEnabled: false,
-        peopleDataset: 'voters',
+        peopleDataset: { base: 'voters' },
       }),
     ),
   } as unknown as ChiefOfStaffContextService
@@ -164,8 +183,10 @@ describe('constituent data table per people dataset', () => {
       await peopleDatasetsWithFlag(true).resolve({
         slug: 'campaign-lansing',
         ownerId: 9,
+        overrideDistrictId: null,
+        positionId: null,
       }),
-    ).toBe('voters')
+    ).toEqual({ base: 'voters' })
 
     const provider = buildProvider()
     const tools = new CampaignManagerHandler(
@@ -194,7 +215,7 @@ describe('constituent data table per people dataset', () => {
     const ctx = await handler.loadContext('c1', 7)
     const tools = handler.buildTools(ctx)
 
-    expect(ctx.peopleDataset).toBe('constituents')
+    expect(ctx.peopleDataset).toEqual({ base: 'constituents' })
     expect(descriptionOf(tools.query_constituent_data)).toContain(
       'FROM serve_agent_constituents',
     )
@@ -216,6 +237,30 @@ describe('constituent data table per people dataset', () => {
     )
   })
 
+  it('joins the org imported contacts when serve-import-contacts is on', async () => {
+    const provider = buildProvider()
+    const handler = buildChiefOfStaff(
+      provider,
+      peopleDatasetsWithFlag(true, true),
+    )
+    const ctx = await handler.loadContext('c1', 7)
+    const sql =
+      'SELECT on_uploaded_list, COUNT(*) AS count' +
+      ` FROM serve_agent_constituents ${WHERE} GROUP BY on_uploaded_list`
+
+    expect(ctx.peopleDataset).toEqual({
+      base: 'constituents',
+      overlayOrgSlug: 'eo-lansing',
+      overlayDistrictId: 'district-1',
+    })
+    await executeQuery(handler.buildTools(ctx).query_constituent_data, sql)
+    expect(provider.query).toHaveBeenCalledWith(
+      expect.stringMatching(
+        /^SELECT on_uploaded_list, COUNT\(\*\) AS count FROM \(SELECT b\.\* EXCEPT .+ FULL OUTER JOIN .+\) AS serve_agent_constituents WHERE /,
+      ),
+    )
+  })
+
   it('reads serve_agent_voters for a Serve org with the flag off', async () => {
     const handler = buildChiefOfStaff(
       buildProvider(),
@@ -226,7 +271,7 @@ describe('constituent data table per people dataset', () => {
       handler.buildTools(ctx).query_constituent_data,
     )
 
-    expect(ctx.peopleDataset).toBe('voters')
+    expect(ctx.peopleDataset).toEqual({ base: 'voters' })
     expect(description).toContain('FROM serve_agent_voters')
     expect(description).not.toContain('not registered to vote')
   })
@@ -244,7 +289,7 @@ describe('constituent data table per people dataset', () => {
       'crud_saved_filters',
     ]) {
       expect(descriptionOf(tools[name])).toContain(
-        dataSourceRoutingRules('constituents'),
+        dataSourceRoutingRules({ base: 'constituents' }),
       )
       expect(descriptionOf(tools[name])).not.toContain(
         DATA_SOURCE_ROUTING_RULES,
@@ -276,10 +321,10 @@ describe('constituent data table per people dataset', () => {
     )
     const ctx = await handler.loadContext('c1', 7)
 
-    expect(ctx.peopleDataset).toBe('constituents')
+    expect(ctx.peopleDataset).toEqual({ base: 'constituents' })
     expect(handler.buildTools(ctx).query_constituent_data).toBeUndefined()
     expect(descriptionOf(handler.buildTools(ctx).count_contacts)).toContain(
-      dataSourceRoutingRules('constituents'),
+      dataSourceRoutingRules({ base: 'constituents' }),
     )
   })
 })

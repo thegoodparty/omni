@@ -106,7 +106,7 @@ describe('VoterDoorKnockingService', () => {
         evaluateRow(OTHER_ID),
       ])
 
-      const result = await service.evaluate(dto as never, 'voters')
+      const result = await service.evaluate(dto as never, { base: 'voters' })
 
       expect(result.people).toHaveLength(2)
       expect(result.people[0]).toMatchObject({
@@ -117,19 +117,19 @@ describe('VoterDoorKnockingService', () => {
     })
 
     it('measures the read as dk-evaluate for the district', async () => {
-      await service.evaluate(dto as never, 'voters')
+      await service.evaluate(dto as never, { base: 'voters' })
 
       expect(readLog.measure).toHaveBeenCalledTimes(1)
       expect(readLog.measure.mock.calls[0]?.[0]).toMatchObject({
         op: 'dk-evaluate',
         districtId: DISTRICT_ID,
-        dataset: 'voters',
+        dataset: { base: 'voters' },
       })
       // The third argument is the accuracy-gate option, forwarded verbatim;
       // door knocking passes none and so keeps the rooftop default.
       expect(databricks.doorKnockingEvaluateRows).toHaveBeenCalledWith(
         dto,
-        'voters',
+        { base: 'voters' },
         undefined,
       )
     })
@@ -142,9 +142,9 @@ describe('VoterDoorKnockingService', () => {
         evaluateRow('44444444-4444-4444-4444-444444444444'),
       ])
 
-      await expect(service.evaluate(dto as never, 'voters')).rejects.toThrow(
-        BadRequestException,
-      )
+      await expect(
+        service.evaluate(dto as never, { base: 'voters' }),
+      ).rejects.toThrow(BadRequestException)
     })
   })
 
@@ -164,7 +164,9 @@ describe('VoterDoorKnockingService', () => {
         evaluateRow(OTHER_ID),
       ])
 
-      const result = await service.evaluatePoints(dto as never, 'voters')
+      const result = await service.evaluatePoints(dto as never, {
+        base: 'voters',
+      })
 
       expect(result.truncated).toBe(false)
       expect(result.people).toHaveLength(2)
@@ -179,7 +181,9 @@ describe('VoterDoorKnockingService', () => {
         evaluateRow('44444444-4444-4444-4444-444444444444'),
       ])
 
-      const result = await service.evaluatePoints(dto as never, 'voters')
+      const result = await service.evaluatePoints(dto as never, {
+        base: 'voters',
+      })
 
       expect(result.truncated).toBe(true)
       // The cap, not the cap + 1 the query LIMITs to. Returning the probe row
@@ -188,9 +192,13 @@ describe('VoterDoorKnockingService', () => {
     })
 
     it('measures separately from evaluate and forwards the accuracy gate', async () => {
-      await service.evaluatePoints(dto as never, 'voters', {
-        requireRooftopAccuracy: false,
-      })
+      await service.evaluatePoints(
+        dto as never,
+        { base: 'voters' },
+        {
+          requireRooftopAccuracy: false,
+        },
+      )
 
       expect(readLog.measure.mock.calls[0]?.[0]).toMatchObject({
         op: 'dk-evaluate-points',
@@ -198,7 +206,7 @@ describe('VoterDoorKnockingService', () => {
       })
       expect(databricks.doorKnockingEvaluateRows).toHaveBeenCalledWith(
         dto,
-        'voters',
+        { base: 'voters' },
         { requireRooftopAccuracy: false },
       )
     })
@@ -218,14 +226,18 @@ describe('VoterDoorKnockingService', () => {
         households: 40,
       }
 
-      const result = await service.walkableArea(dto as never, 'voters')
+      const result = await service.walkableArea(dto as never, {
+        base: 'voters',
+      })
 
       expect(result).toEqual([door])
       expect(readLog.measure.mock.calls[0]?.[0]).toMatchObject({
         op: 'dk-walkable-area',
         districtId: DISTRICT_ID,
       })
-      expect(databricks.walkableAreaRows).toHaveBeenCalledWith(dto, 'voters')
+      expect(databricks.walkableAreaRows).toHaveBeenCalledWith(dto, {
+        base: 'voters',
+      })
     })
   })
 
@@ -237,7 +249,7 @@ describe('VoterDoorKnockingService', () => {
     }
 
     it('measures the read as dk-residents and caps at ten per target', async () => {
-      await service.residents(dto as never, 'voters')
+      await service.residents(dto as never, { base: 'voters' })
 
       expect(readLog.measure).toHaveBeenCalledTimes(1)
       expect(readLog.measure.mock.calls[0]?.[0]).toMatchObject({
@@ -246,7 +258,7 @@ describe('VoterDoorKnockingService', () => {
       })
       expect(databricks.doorKnockingResidentRows).toHaveBeenCalledWith(
         dto,
-        'voters',
+        { base: 'voters' },
         10,
       )
     })
@@ -257,7 +269,7 @@ describe('VoterDoorKnockingService', () => {
         residentRow(OTHER_ID),
       ])
 
-      const result = await service.residents(dto as never, 'voters')
+      const result = await service.residents(dto as never, { base: 'voters' })
 
       expect(result.addresses).toHaveLength(1)
       const [address] = result.addresses
@@ -304,7 +316,7 @@ describe('VoterDoorKnockingService', () => {
         residentRow(OTHER_ID),
       ])
 
-      const result = await service.residents(dto as never, 'voters')
+      const result = await service.residents(dto as never, { base: 'voters' })
 
       const [resident] = result.addresses[0]?.otherResidents ?? []
       expect(Object.keys(resident ?? {}).sort()).toEqual([
@@ -322,7 +334,7 @@ describe('VoterDoorKnockingService', () => {
         sparseRow(TARGET_ID),
       ])
 
-      const result = await service.residents(dto as never, 'voters')
+      const result = await service.residents(dto as never, { base: 'voters' })
 
       expect(result.addresses[0]?.targets[0]).toMatchObject({
         // 'Unknown' is the file's own sentinel and is not a turnout band, so
@@ -348,7 +360,7 @@ describe('VoterDoorKnockingService', () => {
         sparseRow(TARGET_ID),
       ])
 
-      const result = await service.residents(dto as never, 'voters')
+      const result = await service.residents(dto as never, { base: 'voters' })
 
       expect(result.addresses[0]?.targets[0]?.language).toBeNull()
     })
@@ -358,7 +370,7 @@ describe('VoterDoorKnockingService', () => {
         { ...residentRow(TARGET_ID), Language_Code: 'Portuguese' },
       ])
 
-      const result = await service.residents(dto as never, 'voters')
+      const result = await service.residents(dto as never, { base: 'voters' })
 
       expect(result.addresses[0]?.targets[0]?.language).toBe('Other')
     })
@@ -377,7 +389,7 @@ describe('VoterDoorKnockingService', () => {
           { ...residentRow(TARGET_ID), [column]: null },
         ])
 
-        const result = await service.residents(dto as never, 'voters')
+        const result = await service.residents(dto as never, { base: 'voters' })
 
         expect(result.addresses[0]?.targets[0]?.[field]).toBeNull()
       },
@@ -392,7 +404,7 @@ describe('VoterDoorKnockingService', () => {
         { ...residentRow(TARGET_ID), registered: false },
       ])
 
-      const result = await service.residents(dto as never, 'voters')
+      const result = await service.residents(dto as never, { base: 'voters' })
 
       expect(result.addresses[0]?.targets[0]?.registeredVoter).toBe(false)
     })
@@ -404,7 +416,7 @@ describe('VoterDoorKnockingService', () => {
         { ...residentRow(TARGET_ID), cellPhone: '', landline: '   ' },
       ])
 
-      const result = await service.residents(dto as never, 'voters')
+      const result = await service.residents(dto as never, { base: 'voters' })
 
       expect(result.addresses[0]?.targets[0]?.cellPhone).toBeNull()
       expect(result.addresses[0]?.targets[0]?.landline).toBeNull()
@@ -415,13 +427,13 @@ describe('VoterDoorKnockingService', () => {
         { ...residentRow(TARGET_ID), Parties_Description: null },
       ])
 
-      const result = await service.residents(dto as never, 'voters')
+      const result = await service.residents(dto as never, { base: 'voters' })
 
       expect(result.addresses[0]?.targets[0]?.politicalParty).toBeNull()
     })
 
     it('omits requested addressKeys that have no current residents', async () => {
-      const result = await service.residents(dto as never, 'voters')
+      const result = await service.residents(dto as never, { base: 'voters' })
 
       expect(result.addresses).toEqual([])
     })
@@ -435,9 +447,9 @@ describe('VoterDoorKnockingService', () => {
         ),
       )
 
-      await expect(service.residents(dto as never, 'voters')).rejects.toThrow(
-        BadRequestException,
-      )
+      await expect(
+        service.residents(dto as never, { base: 'voters' }),
+      ).rejects.toThrow(BadRequestException)
     })
 
     it('groups residents at a moved-away target address as otherResidents', async () => {
@@ -445,7 +457,7 @@ describe('VoterDoorKnockingService', () => {
         residentRow(OTHER_ID),
       ])
 
-      const result = await service.residents(dto as never, 'voters')
+      const result = await service.residents(dto as never, { base: 'voters' })
 
       const [address] = result.addresses
       expect(address?.targets).toEqual([])
@@ -468,7 +480,7 @@ describe('VoterDoorKnockingService', () => {
           addressKeys: [LEGACY_KEY],
           targetPersonIds: [TARGET_ID],
         } as never,
-        'voters',
+        { base: 'voters' },
       )
 
       expect(result.addresses[0]?.addressKey).toBe(LEGACY_KEY)
