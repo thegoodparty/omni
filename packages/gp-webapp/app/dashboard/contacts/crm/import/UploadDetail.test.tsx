@@ -6,7 +6,7 @@ import type {
   ContactUploadRow,
   SetContactUploadRowMatch,
 } from '@goodparty_org/contracts'
-import { render } from 'helpers/test-utils/render'
+import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { router } from 'helpers/test-utils/router-mocking'
 import { UploadDetail } from './UploadDetail'
@@ -14,6 +14,8 @@ import { UploadDetail } from './UploadDetail'
 vi.mock('@shared/organization-picker', () => ({
   useOrganization: () => ({ slug: 'eo-test' }),
 }))
+
+const PERSON_KEY = ['person', 'eo-test', 'person-1']
 
 const makeUpload = (overrides: Partial<ContactUpload> = {}): ContactUpload => ({
   id: 'upload-1',
@@ -238,6 +240,8 @@ describe('<UploadDetail>', () => {
     })
     const user = userEvent.setup()
 
+    testQueryClient.setQueryData(PERSON_KEY, {})
+
     render(<UploadDetail uploadId="upload-1" />)
 
     await user.click(
@@ -245,6 +249,11 @@ describe('<UploadDetail>', () => {
     )
 
     await waitFor(() => expect(accepted).toBe(true))
+    await waitFor(() =>
+      expect(testQueryClient.getQueryState(PERSON_KEY)?.isInvalidated).toBe(
+        true,
+      ),
+    )
   })
 
   it('leaves the rows waiting when the user decides later', async () => {
@@ -353,5 +362,23 @@ describe('<UploadDetail>', () => {
       ),
     ).toBeInTheDocument()
     expect(screen.queryByText('Processed rows')).not.toBeInTheDocument()
+  })
+
+  it("refreshes the org's people once the upload finishes", async () => {
+    testQueryClient.setQueryData(PERSON_KEY, {})
+    api.mockOrdered('GET /v1/contact-uploads/:id', [
+      { status: 200, data: makeUpload({ status: 'processing' }) },
+      { status: 200, data: makeUpload({ status: 'complete' }) },
+    ])
+    mockRows()
+
+    render(<UploadDetail uploadId="upload-1" />)
+
+    await screen.findByText(
+      "We're matching your people. This page updates when it's done.",
+    )
+    expect(testQueryClient.getQueryState(PERSON_KEY)?.isInvalidated).toBe(false)
+    await screen.findByText('Complete', undefined, { timeout: 6000 })
+    expect(testQueryClient.getQueryState(PERSON_KEY)?.isInvalidated).toBe(true)
   })
 })

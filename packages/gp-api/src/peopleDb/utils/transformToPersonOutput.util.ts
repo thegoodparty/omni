@@ -165,7 +165,12 @@ export function transformToPersonOutput(
     politicalParty: mapPoliticalParty(person.Parties_Description),
     voterStatus: mapVoterStatus(person.Voter_Status),
     earlyVoteStatus: earlyVoteStatusFromMart(person.Early_Vote_Status),
-    registeredVoter: 'Yes',
+    registeredVoter:
+      person.Registered_Voter === null
+        ? null
+        : person.Registered_Voter
+          ? 'Yes'
+          : 'No',
     state: person.State,
     address: {
       line1: person.Residence_Addresses_AddressLine,

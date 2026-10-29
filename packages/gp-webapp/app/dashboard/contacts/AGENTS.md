@@ -123,6 +123,11 @@ becomes a list card.
   Upload history. Files over 25 MB are turned away when picked.
 - **Upload history** (`/dashboard/contacts/uploads`, `UploadHistory`): one row
   per upload, status only; polls every 3s while any upload is processing.
+- **Fresh reads after an import.** `invalidateImportedPeople`
+  (`importContactsApi.ts`) drops the org's cached people, counts, person,
+  sources and activity. It runs when either poll sees an upload leave
+  processing, after a review save or Accept suggested, and after Change
+  match; without it the 5-minute `staleTime` shows pre-import data.
 - **Upload detail** (`/dashboard/contacts/uploads/[uploadId]`, `UploadDetail`):
   the counts, `NeedsInputReview` (answers saved together; Decide later changes
   nothing), and `ProcessedRows` (searchable, paged with Show more, Change match
@@ -139,6 +144,9 @@ becomes a list card.
   else the fields that upload changed, or Nothing changed. Only a first import
   of a person gp-api created says added as a new person (by you, for a New
   person pick); later ones read Imported from.
+- **Search by email.** A typeahead search with an `@` matches the imported
+  email (gp-api), and a result whose email is the search shows it under the
+  name (`ContactTypeahead`).
 - Copy lives in `importContactsCopy.ts` (`SERVE_IMPORT_CONTACTS_COPY`, so the
   vocabulary check reads it). Analytics: `docs/contacts-analytics.md`.
 

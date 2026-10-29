@@ -119,6 +119,45 @@ describe('<ImportedContactInformation>', () => {
     ).not.toBeInTheDocument()
   })
 
+  it('shows Unknown, not a lone state, for a person with no address', async () => {
+    api.mock('GET /v1/contacts/:personId/sources', {
+      status: 200,
+      data: sources({
+        fields: {
+          address: null,
+          email: UPLOAD,
+          cellPhone: null,
+          landline: null,
+        },
+      }),
+    })
+
+    render(
+      <ImportedContactInformation
+        person={{
+          ...person,
+          email: 'maria.lopez@example.com',
+          address: {
+            ...person.address,
+            line1: null,
+            city: null,
+            state: 'WY',
+            zip: null,
+          },
+        }}
+        showMap={false}
+      />,
+    )
+
+    await screen.findByRole('link', {
+      name: 'Came from upload Newsletter, Oct 2026',
+    })
+    expect(
+      within(fieldBlock('Address')).getByText('Unknown'),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/, WY/)).not.toBeInTheDocument()
+  })
+
   it('warns that notes and activity stay behind before changing a match', async () => {
     api.mock('GET /v1/contacts/:personId/sources', {
       status: 200,

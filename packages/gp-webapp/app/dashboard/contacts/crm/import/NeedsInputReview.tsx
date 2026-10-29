@@ -25,6 +25,7 @@ import { useOrganization } from '@shared/organization-picker'
 import {
   contactUploadRowsKey,
   contactUploadsKey,
+  invalidateImportedPeople,
   setContactUploadRowMatch,
 } from './importContactsApi'
 import {
@@ -82,7 +83,10 @@ export const NeedsInputReview = ({ upload }: { upload: ContactUpload }) => {
   const suggestedCount = rows.filter((row) => row.suggestedPersonId).length
 
   const refresh = () =>
-    queryClient.invalidateQueries({ queryKey: contactUploadsKey(orgSlug) })
+    Promise.all([
+      queryClient.invalidateQueries({ queryKey: contactUploadsKey(orgSlug) }),
+      invalidateImportedPeople(queryClient, orgSlug),
+    ])
 
   const save = useMutation({
     mutationFn: async () => {

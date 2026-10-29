@@ -77,13 +77,16 @@ export const ImportedContactInformation = ({
       <Field
         label="Address"
         value={
-          <>
-            <p>{person.address.line1}</p>
-            {person.address.line2 && <p>{person.address.line2}</p>}
-            <p>
-              {person.address.city}, {person.address.state} {person.address.zip}
-            </p>
-          </>
+          person.address.line1 || person.address.city || person.address.zip ? (
+            <>
+              <p>{person.address.line1}</p>
+              {person.address.line2 && <p>{person.address.line2}</p>}
+              <p>
+                {person.address.city}, {person.address.state}{' '}
+                {person.address.zip}
+              </p>
+            </>
+          ) : null
         }
         source={sources?.fields.address ?? null}
       />

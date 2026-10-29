@@ -150,6 +150,7 @@ export interface Voter {
   VoterTelephones_LandlineFormatted: string | null
   Email: string | null // Not a mart column: the imported-contact overlay's email, NULL on reads without it
   ContactIsNew: boolean // Not a mart column: true for a person only an import added, false on reads without the overlay
+  Registered_Voter: boolean | null // A gp_api_constituents column (false for consumer-only people). gp_api_voters has none, so voter reads project true; NULL for a person only an import added
 
   // Voter Turnout
   AnyElection_2017: string | null

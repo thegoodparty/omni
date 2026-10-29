@@ -22,8 +22,10 @@ import {
   SearchIcon,
   Spinner,
 } from '@styleguide'
+import { useOrganization } from '@shared/organization-picker'
 import { useContactTypeaheadSearch } from '../useContactTypeaheadSearch'
 import {
+  invalidateImportedPeople,
   setContactUploadRowMatch,
   useContactSources,
 } from './importContactsApi'
@@ -69,6 +71,7 @@ export const ChangeMatchDialog = ({
   candidates = [],
 }: ChangeMatchDialogProps) => {
   const queryClient = useQueryClient()
+  const orgSlug = useOrganization()?.slug
   const sources = useContactSources(currentPersonId, open)
   const [warningAccepted, setWarningAccepted] = useState(false)
   const [rowId, setRowId] = useState('')
@@ -98,9 +101,8 @@ export const ChangeMatchDialog = ({
     onSuccess: async () => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['contact-uploads'] }),
-        queryClient.invalidateQueries({ queryKey: ['contact-sources'] }),
-        queryClient.invalidateQueries({ queryKey: ['person'] }),
         queryClient.invalidateQueries({ queryKey: ['contact-engagement'] }),
+        invalidateImportedPeople(queryClient, orgSlug),
       ])
       onOpenChange(false)
     },
