@@ -1,6 +1,6 @@
 # Authentication Module
 
-JWT + Clerk M2M auth, role enforcement, and user-facing auth flows (set/reset password). The actual directory name is `src/authentication/` (not `src/auth/`).
+JWT + Clerk M2M + Vercel OIDC auth, role enforcement, and user-facing auth flows (set/reset password). The actual directory name is `src/authentication/` (not `src/auth/`).
 
 Auth state is enforced globally via three guards registered in order. Most routes are protected by default; opt-out is explicit via `@PublicAccess()`.
 
@@ -19,7 +19,8 @@ Auth state is enforced globally via three guards registered in order. Most route
 | `guards/Roles.guard.ts`                  | `RolesGuard` — reads `@Roles()` metadata and enforces                                    |
 | `guards/AdminOrM2M.guard.ts`             | Route-level: admin user OR M2M token                                                     |
 | `guards/M2MOnly.guard.ts`                | Route-level: M2M only                                                                    |
-| `guards/ServiceRead.guard.ts`            | Route-level: JWT-format M2M service reader, `mt_*` M2M, or admin                         |
+| `guards/ServiceRead.guard.ts`            | Route-level: service reader (JWT-format M2M or Vercel OIDC), `mt_*` M2M, or admin        |
+| `vercelOidc.service.ts`                  | Verifies a Vercel deployment's OIDC token against the project allowlist                  |
 | `guards/ServiceReadOrOwner.guard.ts`     | `ServiceReadGuard` plus the user whose `personId` matches the `personId` query param     |
 | `interceptors/AdminAudit.interceptor.ts` | Logs admin actions for the audit trail                                                   |
 | `util/setTokenCookie.util.ts`            | Cookie writer used after login/refresh                                                   |
@@ -41,6 +42,23 @@ Auth state is enforced globally via three guards registered in order. Most route
   would let any user with a `personId` self-authorize. gp-marketing reads the
   public person-profile endpoints this way.
 - **`@PublicAccess()` is the only escape hatch.** Don't conditionally skip auth inside a guard — opt out at the route level.
+- **A Vercel OIDC token is the other service reader.** gp-marketing and
+  candidate-sites run on Vercel, which signs each deployment a short-lived
+  RS256 token naming its project and environment, so they need no stored
+  secret. `SessionGuard` recognizes one by its unverified `iss`
+  (`https://oidc.vercel.com...`) before any Clerk path, and
+  `VercelOidcService` verifies it against Vercel's JWKS: issuer
+  `https://oidc.vercel.com/good-party` (team mode) or
+  `https://oidc.vercel.com` (global mode), audience
+  `https://vercel.com/good-party`. Its `project_id:environment` must be in
+  `VERCEL_OIDC_ALLOWED_PROJECTS` (set per env in `deploy/index.ts`; empty
+  turns the path off). A verified token sets `serviceReader` with
+  `source: 'vercel-oidc'`, never `m2mToken`, and passes only on
+  `@PublicAccess()` routes, exactly like a JWT-format M2M token. A bad or
+  unlisted token, or an unreachable JWKS, leaves no `serviceReader` and logs
+  one warn. The `user` field of the request log reads
+  `vercel:<project>:<environment>`. Clerk JWTs stay accepted while callers
+  migrate (`docs/adr/2026-10-29-vercel-callers-authenticate-with-oidc.md`).
 - **Absence of `@Roles()` = "any authenticated user".** `routeIsPublicAndNoRoles.util.ts` is what makes that work; don't rely on the decorator being present to imply auth.
 - Password resets issue a **short-lived JWT**, not a DB-stored token. Side effects after consumption must be done in the same request.
 - **Org-scoping guards resolve `request.user.id`, never `effectiveUser`.** Four
