@@ -226,6 +226,72 @@ describe('a widget placed after the prose or below the turn', () => {
   })
 })
 
+describe('one tool whose calls are different cards', () => {
+  const cardRegistry = createWidgetRegistry<Ctx>([
+    defineWidgetTool({
+      toolName: 'present_card',
+      parse: (args) =>
+        typeof args === 'object' &&
+        args !== null &&
+        'kind' in args &&
+        'name' in args
+          ? { kind: String(args.kind), name: String(args.name) }
+          : null,
+      placement: (card) => (card.kind === 'note' ? 'inline' : 'afterProse'),
+      slot: (card) => `present_card:${card.kind}`,
+      render: (card) => (
+        <p>
+          {card.kind} {card.name}
+        </p>
+      ),
+    }),
+  ])
+
+  const card = (toolCallId: string, kind: string, name: string) => ({
+    kind: 'tool' as const,
+    toolName: 'present_card',
+    toolCallId,
+    payload: { kind, name },
+  })
+
+  it('keeps each kind once per turn, and places each by its kind', () => {
+    render(
+      <TurnBlocks
+        blocks={persistedTurnBlocks({
+          registry: cardRegistry,
+          segments: [
+            card('t1', 'map', 'first'),
+            card('t2', 'proposal', 'only'),
+            card('t3', 'map', 'second'),
+            card('t4', 'note', 'inline'),
+            { kind: 'text', text: 'Below.' },
+          ],
+          content: '',
+          messageId: 'm1',
+          conversationId: 'c1',
+        })}
+        toolLabel={toolLabel}
+        context={{ label: 'ctx' }}
+      />,
+    )
+    expect(screen.getByText('map second')).toBeVisible()
+    expect(screen.queryByText('map first')).not.toBeInTheDocument()
+    expect(screen.getByText('proposal only')).toBeVisible()
+    expect(
+      screen
+        .getByText('note inline')
+        .compareDocumentPosition(screen.getByText('Below.')) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+    expect(
+      screen
+        .getByText('Below.')
+        .compareDocumentPosition(screen.getByText('proposal only')) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+  })
+})
+
 describe('a question written above the clarify widget', () => {
   const clarifyRegistry = createWidgetRegistry<Ctx>([
     defineWidgetTool({

@@ -1642,7 +1642,7 @@ function ChiefOfStaffChatThread({
         )}
 
         {/* A widget is its own reason to render this row. A turn can consist
-            of nothing but the show_list_map call, and onEvent consumes that
+            of nothing but the list map card's call, and onEvent consumes that
             event rather than pushing a segment, so gating the row on
             segments alone hid the map until the transcript reloaded. */}
         {visibleSegments.length > 0 || liveWidgets.length > 0 ? (

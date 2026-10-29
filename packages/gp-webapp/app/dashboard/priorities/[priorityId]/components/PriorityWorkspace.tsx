@@ -25,6 +25,8 @@ import {
   isReportBackMessage,
   isToolRefusal,
   parsePriorityStatus,
+  PRESENT_CARD_TOOL,
+  PresentCardInputSchema,
   reportBackMessage,
   type ChatAnchor,
   type PriorityReadStatus,
@@ -82,7 +84,6 @@ import { priorityToolLabel } from '../data/toolLabels'
 import {
   AUTHORITY_TOOL,
   COMPARABLES_TOOL,
-  CURRENT_LAW_TOOL,
 } from '../../../ordinances/components/stepWidgets'
 import { PriorityStatusRail } from './PriorityStatusRail'
 import { ReadStatusRailBlock, ReadStatusStrip } from './ReadStatus'
@@ -106,19 +107,21 @@ const KICKOFF =
 // back to their pill label.
 const GENERATING_LABELS: Record<string, string> = {
   [CLARIFY_TOOL]: 'Preparing your question...',
-  present_outside_contact: 'Looking up who to contact...',
+  // Which card it is arrives with the call, not before it.
+  [PRESENT_CARD_TOOL]: 'Preparing a card...',
   [OUTREACH_PROPOSAL_TOOL]: 'Building the outreach...',
-  present_constituents: 'Pulling the list...',
-  present_contacts: 'Pulling the list...',
-  present_past_outreach: "Checking what you've sent...",
   [STATUS_TOOL]: 'Updating where this stands...',
   web_search: 'Searching the web...',
   [COMPARABLES_TOOL]: 'Looking at what other places did...',
-  [CURRENT_LAW_TOOL]: 'Reading the current code...',
   [AUTHORITY_TOOL]: 'Checking what you can do here...',
 }
 
-const FINDING_TOOLS = [COMPARABLES_TOOL, CURRENT_LAW_TOOL, AUTHORITY_TOOL]
+const isFindingCall = (toolName: string, args: unknown): boolean =>
+  toolName === COMPARABLES_TOOL ||
+  toolName === AUTHORITY_TOOL ||
+  (toolName === PRESENT_CARD_TOOL &&
+    PresentCardInputSchema.safeParse(args).data?.card.kind ===
+      'current_law_summary')
 
 // Leaving mid-turn aborts the stream, but the server finishes and saves the
 // reply anyway. Coming back before it lands loads a transcript that ends on the
@@ -299,7 +302,7 @@ const PriorityWorkspaceBody = ({
       }
       if (event.type === 'tool_call') {
         setGeneratingTool(null)
-        setAfterFinding(FINDING_TOOLS.includes(event.toolName))
+        setAfterFinding(isFindingCall(event.toolName, event.args))
       }
       if (event.type === 'done') setStreamDone(true)
       // The call is only what the agent asked for. The server can refuse it,

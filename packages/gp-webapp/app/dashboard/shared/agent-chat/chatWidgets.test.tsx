@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { LEGACY_PRESENT_CARD_TOOLS } from '@goodparty_org/contracts'
 import { chatWidgets } from './chatWidgets'
 
 const SOURCE = { id: 's1', title: 'City code' }
@@ -72,6 +73,46 @@ const WIDGET_CALLS: Record<string, unknown> = {
   update_priority_status: { steps: [] },
 }
 
+// One present_card call per kind in the catalog.
+const PRESENT_CARDS: Record<string, Record<string, unknown>> = {
+  outside_contact: {
+    kind: 'outside_contact',
+    name: 'County engineer',
+    role: 'County engineer',
+    why: 'They own the culvert.',
+    askFor: 'The duty engineer',
+    script: 'Calling about the culvert on Mill St.',
+  },
+  past_outreach: {
+    kind: 'past_outreach',
+    outreachIds: [7],
+    note: 'It landed in March.',
+  },
+  constituents: {
+    kind: 'constituents',
+    contactIds: ['c1'],
+    note: 'They run the pantry.',
+  },
+  list_proposal: {
+    kind: 'list_proposal',
+    name: 'Renters',
+    summary: 'Renters in the district.',
+    count: 1200,
+    filters: { homeownerNo: true },
+  },
+  list_map: { kind: 'list_map', listId: 16, name: 'Renters' },
+  current_law_summary: {
+    kind: 'current_law_summary',
+    chapterLabel: 'Chapter 12',
+    does: [{ title: 'Limits hours' }],
+    gaps: [],
+  },
+  legislative_history: {
+    kind: 'legislative_history',
+    entries: [{ year: 2019, label: 'Amended', summary: 'Added a fee.' }],
+  },
+}
+
 const resolve = (toolName: string, args: unknown) =>
   chatWidgets.resolve(
     { toolName, conversationId: 'conv_1', toolCallId: 'toolu_1' },
@@ -92,15 +133,47 @@ describe('chatWidgets', () => {
     expect(resolve('from_a_newer_build', {})).toBeNull()
   })
 
+  it.each(Object.entries(PRESENT_CARDS))(
+    'resolves a present_card %s card',
+    (kind: string, card: Record<string, unknown>) => {
+      expect(resolve('present_card', { card })?.slot).toBe(
+        `present_card:${kind}`,
+      )
+    },
+  )
+
+  it.each(Object.entries(LEGACY_PRESENT_CARD_TOOLS))(
+    'resolves the old %s as a %s card',
+    (toolName: string, kind: string) => {
+      expect(resolve(toolName, WIDGET_CALLS[toolName])?.slot).toBe(
+        `present_card:${kind}`,
+      )
+    },
+  )
+
+  it('drops a present_card call whose card is not in the catalog', () => {
+    expect(
+      resolve('present_card', { card: { kind: 'from_a_newer_build' } }),
+    ).toBeNull()
+  })
+
   it('renders the list map and list proposal after the prose', () => {
-    expect(chatWidgets.entry('show_list_map')?.placement).toBe('afterProse')
-    expect(chatWidgets.entry('present_list_proposal')?.placement).toBe(
-      'afterProse',
-    )
+    for (const kind of ['list_map', 'list_proposal']) {
+      expect(
+        resolve('present_card', { card: PRESENT_CARDS[kind] })?.placement,
+      ).toBe('afterProse')
+    }
+    expect(
+      resolve('show_list_map', WIDGET_CALLS.show_list_map)?.placement,
+    ).toBe('afterProse')
+    expect(
+      resolve('present_card', { card: PRESENT_CARDS.outside_contact })
+        ?.placement,
+    ).toBe('inline')
   })
 
   it('renders the next-step offer under the turn', () => {
-    expect(chatWidgets.entry('offer_next_step')?.placement).toBe('belowTurn')
+    expect(resolve('offer_next_step', {})?.placement).toBe('belowTurn')
   })
 
   it('keeps the tools that are only sometimes a card as pills when unparsed', () => {

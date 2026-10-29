@@ -20,7 +20,7 @@ nearest reference wrapper.
 | `chatTypes.ts`                                             | `ChatMessageDto`, `ChatMessageSegment`, `ChatStreamEvent`, `ChatClient` — the single source of truth for message + stream shapes across every chat.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | `ClarifyQuestionWidget.tsx`                                | **The structured question.** Renders an `ask_clarify_question` tool call as option cards, plus an always-present "Or write your own..." card — the bail-out back to free chat, so no surface reimplements one. Its payload is `ChatClarifyQuestionSchema` in `@goodparty_org/contracts`, scope-agnostic on purpose: the ordinance flow and the priority flow both mount it. `SourceLine.tsx` is the cited-source chip its options use. With `multiSelect` the cards are checkboxes and one button sends the set; see "Multi-select answers" below.                                                                                                                                                            |
 | `chatWidgets.tsx` + `widgetRegistry.ts` + `turnBlocks.tsx` | **Tool calls rendered as UI.** `chatWidgets.tsx` is the one registry every chat resolves through. See "Widgets" below.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| `cards/`                                                   | **The outreach cards** (proposal, past outreach, constituents, outside contact) and `cardWidgets.tsx`, their entries in `chatWidgets`, one `defineWidgetTool` per card. Win's Campaign Manager mounts the Chief of Staff body, and its agent proposes any of the four channels (`present_outreach_proposal`) and offers lists to save (`present_list_proposal`, `ChatListProposal` in `mode` `win`). The proposal and past-outreach cards are mode-keyed (`CardMode`, `win` for the `campaign_assistant` scope): copy, links, and for past outreach the detail and results routes too; the other cards are Serve copy (`SERVE_*`). See "Cards" below.                                                         |
+| `cards/`                                                   | **The cards.** `presentCardWidgets.tsx` renders every `present_card` kind (outside contact, past outreach, constituents, list proposal, list map, current-law summary, legislative history) through one view per kind, and `cardWidgets.tsx` holds the outreach proposal, which is its own tool. Win's Campaign Manager mounts the Chief of Staff body, and its agent proposes any of the four channels (`present_outreach_proposal`) and offers lists to save (a `list_proposal` card, `ChatListProposal` in `mode` `win`). The proposal and past-outreach cards are mode-keyed (`CardMode`, `win` for the `campaign_assistant` scope): copy, links, and for past outreach the detail and results routes too; the other cards are Serve copy (`SERVE_*`). See "Cards" below. |
 | `clarifyWidget.tsx` / `composeHandoffWidget.tsx`           | Entries for `ask_clarify_question` and `compose_handoff`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | `MessageActionBar.tsx`                                     | **The per-message bar.** Copy + thumbs up/down under one assistant turn, with the optional-note bubble a rating opens. Opt-in per surface (`showMessageActions`), and it renders the thumbs only when the client implements the feedback calls.                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `chatHelpers.ts`                                           | `newClientMessageId`, `friendlyError`, and the server's cut-off marker (`CHAT_INTERRUPTED_BEFORE_OUTPUT_MARKER`, `isInterruptedTurn`) that a wrapper turns into a retry.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
@@ -76,11 +76,30 @@ each surface, and the surfaces cannot drift apart.
   may read a tool name only for side effects and its own chrome (analytics,
   query invalidation, its rail state, the working shimmer's label).
 
-**Add a widget:**
+**Add a display card: a kind, never a tool.** A card whose tool would only
+acknowledge its args is a kind of `present_card`, never a new `present_*`
+tool (ADR `docs/adr/2026-10-29-display-cards-are-present-card-kinds.md`). It
+is two files:
+
+1. A variant in `PresentCardSchema` (`contracts/src/chats/PresentCard.schema.ts`),
+   every field `.describe()`d, and its one-line `PRESENT_CARD_DESCRIPTIONS`
+   entry. gp-api writes the prompt text from these.
+2. A component, and its view in `PRESENT_CARD_VIEWS`
+   (`cards/presentCardWidgets.tsx`): `render`, plus `placement` when it is not
+   inline and `shows` when a parsed card can still have nothing to show. The
+   map is typed by kind, so a kind with no view fails the build.
+
+gp-api offers it on a surface by adding the kind to that handler's
+`buildPresentCardTool({ kinds })`. `present_card`'s calls are kept once per
+turn per kind (`slot`), not per tool. A kind that used to be its own tool
+keeps that name as an entry (`LEGACY_PRESENT_CARD_TOOLS`), parsed as its
+kind, because persisted segments carry it forever.
+
+**Add a widget** (a tool whose execute does real work: persists, gates,
+validates beyond its schema, or drives a control):
 
 1. Write `defineWidgetTool({ toolName, parse, render })` next to its component
-   (`cards/cardWidgets.tsx`, `chief-of-staff/components/chat/listWidgets.tsx`,
-   `ordinances/components/stepWidgets.tsx`, …). `parse(args, call)` returns the
+   (`cards/cardWidgets.tsx`, `ordinances/components/stepWidgets.tsx`, …). `parse(args, call)` returns the
    data or null. Null drops the widget, so args that fail to parse never render
    broken. `call` carries `conversationId`, `toolCallId`, `messageId` and
    `segmentIndex`, which is enough to derive an id. `render(data, ctx, call)`
@@ -102,16 +121,19 @@ sits in its turn:
 - `'inline'` (the default): at the point in the text where its tool fired, with
   prose above and below it.
 - `'afterProse'`: after the turn's last block, inside the assistant row, once
-  per turn: the last call that parses, in the place of that tool's first call.
-  The list map (`show_list_map`) and the list proposal
-  (`present_list_proposal`), which becomes that map once its list is created.
+  per turn per slot (the tool name, or the card kind for `present_card`): the
+  last call that parses, in the place of that slot's first call. The
+  `list_map` and `list_proposal` cards, the proposal because it becomes that
+  map once its list is created. `placement` may be a function of the parsed
+  data, which is how one `present_card` entry places each kind.
 - `'belowTurn'`: under the assistant row, outside it, once per turn. The
   ordinance flow's next-step button (`offer_next_step`). A surface renders
   these with a second `<TurnBlocks belowTurn />` after its row.
 
 Live, a widget of any placement appears once the reveal reaches the text that
 preceded its call. A legacy tool name stays an entry forever, since persisted
-segments carry it (`present_contacts`). An unknown tool name resolves to null,
+segments carry it (`present_contacts`, `show_list_map`). An unknown tool name
+or card kind resolves to null,
 so a thread written by a newer build still opens.
 
 **State that is not in the args comes through the context.** The context is
@@ -210,7 +232,7 @@ there is the agent's to say, once, in its message; no card repeats it.
   right over the page in `PersonOverlay`'s shell, with its X, closed by the X
   or Escape, handing focus back to the chip that opened it. Nothing on the
   page is replaced. A card outside any `CardDetailProvider` falls back to its
-  own sheet. The detail key is the tool call id (`cardWidgets.tsx`),
+  own sheet. The detail key is the tool call id (`cardDetailKey`, `cardWidgets.tsx`),
   which the live and persisted copies of one call share, so a panel opened
   mid-turn survives the turn settling. Each card registers its key with the
   provider, and the panel closes once no mounted card owns the open key (a

@@ -2,25 +2,20 @@ import { Button } from '@styleguide'
 import { ChevronRightIcon } from '@styleguide/components/ui/icons'
 import {
   OrdinanceAuthorityFindingSchema,
-  OrdinanceCurrentLawSummarySchema,
-  OrdinanceLegislativeHistorySchema,
   OrdinancePresentComparablesSchema,
   OrdinancePresentDraftSchema,
 } from '@goodparty_org/contracts'
 import { defineWidgetTool } from '../../shared/agent-chat/widgetRegistry'
 import AuthorityFindingWidget from './AuthorityFindingWidget'
 import ComparablesWidget from './ComparablesWidget'
-import CurrentLawSummaryWidget from './CurrentLawSummaryWidget'
 import DraftReadyWidget from './DraftReadyWidget'
-import LegislativeHistoryWidget from './LegislativeHistoryWidget'
 
 // The present_* tools the agent calls to render a step's finding as a
-// structured widget. Args/segment payloads parse against the contracts schema;
+// structured widget, where execute also saves it. The current-law summary and
+// history are present_card kinds (cards/presentCardWidgets.tsx). Args/segment payloads parse against the contracts schema;
 // a failed parse drops the widget silently (same policy as the clarify
 // widget), leaving the turn's prose intact.
 export const AUTHORITY_TOOL = 'present_authority_finding'
-export const CURRENT_LAW_TOOL = 'present_current_law_summary'
-export const HISTORY_TOOL = 'present_legislative_history'
 export const COMPARABLES_TOOL = 'present_comparables'
 export const DRAFT_TOOL = 'present_draft'
 export const OFFER_NEXT_STEP_TOOL = 'offer_next_step'
@@ -54,7 +49,7 @@ const NextStepButton = ({
 )
 
 // The finding cards carry no ordinance context, so the priority chat shows
-// peer cities, current code and legal authority on the same cards.
+// peer cities and legal authority on the same cards.
 export const ordinanceWidgetTools = [
   defineWidgetTool({
     toolName: AUTHORITY_TOOL,
@@ -65,14 +60,6 @@ export const ordinanceWidgetTools = [
     render: (finding) => <AuthorityFindingWidget finding={finding} />,
   }),
   defineWidgetTool({
-    toolName: CURRENT_LAW_TOOL,
-    parse: (args) => {
-      const parsed = OrdinanceCurrentLawSummarySchema.safeParse(args)
-      return parsed.success ? parsed.data : null
-    },
-    render: (summary) => <CurrentLawSummaryWidget summary={summary} />,
-  }),
-  defineWidgetTool({
     toolName: COMPARABLES_TOOL,
     parse: (args) => {
       const parsed = OrdinancePresentComparablesSchema.safeParse(args)
@@ -81,18 +68,6 @@ export const ordinanceWidgetTools = [
       return comparables.length > 0 || intro || takeaway ? parsed.data : null
     },
     render: (presentation) => <ComparablesWidget presentation={presentation} />,
-  }),
-  defineWidgetTool({
-    toolName: HISTORY_TOOL,
-    parse: (args) => {
-      // Valid but content-less payloads drop like parse failures so they never
-      // occupy an assistant row or suppress the working shimmer.
-      const parsed = OrdinanceLegislativeHistorySchema.safeParse(args)
-      return parsed.success && parsed.data.entries.length > 0
-        ? parsed.data
-        : null
-    },
-    render: (history) => <LegislativeHistoryWidget history={history} />,
   }),
   defineWidgetTool({
     toolName: DRAFT_TOOL,

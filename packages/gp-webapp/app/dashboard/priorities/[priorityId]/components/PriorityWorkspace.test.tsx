@@ -833,7 +833,7 @@ describe('PriorityWorkspace', () => {
       streamOf(
         [
           { type: 'text', delta: 'The county runs this. ' },
-          { type: 'tool_input_start', toolName: 'present_outside_contact' },
+          { type: 'tool_input_start', toolName: 'present_card' },
           { type: 'done', assistantMessageId: 'a1' },
         ],
         gate.promise,
@@ -846,9 +846,7 @@ describe('PriorityWorkspace', () => {
     await screen.findByText(/^The co/)
     await vi.advanceTimersByTimeAsync(2_000)
     expect(await screen.findByText(/The county runs this/)).toBeInTheDocument()
-    expect(
-      await screen.findByText('Looking up who to contact...'),
-    ).toBeInTheDocument()
+    expect(await screen.findByText('Preparing a card...')).toBeInTheDocument()
     gate.resolve()
   })
 
@@ -925,7 +923,7 @@ describe('PriorityWorkspace', () => {
         },
       }
       await next.promise
-      yield { type: 'tool_input_start', toolName: 'present_outside_contact' }
+      yield { type: 'tool_input_start', toolName: 'present_card' }
       await gate.promise
       yield { type: 'done', assistantMessageId: 'a1' }
     })
@@ -940,9 +938,38 @@ describe('PriorityWorkspace', () => {
     ).toBeInTheDocument()
     expect(screen.queryByText('Thinking...')).not.toBeInTheDocument()
     next.resolve()
-    expect(
-      await screen.findByText('Looking up who to contact...'),
-    ).toBeInTheDocument()
+    expect(await screen.findByText('Preparing a card...')).toBeInTheDocument()
+    gate.resolve()
+  })
+
+  it('holds the shimmer off after a current-law card, a finding shown through present_card', async () => {
+    const gate = deferred()
+    mocks.streamMessage.mockImplementation(async function* () {
+      yield { type: 'text', delta: 'Here is what the code says today. ' }
+      yield {
+        type: 'tool_call',
+        toolName: 'present_card',
+        toolCallId: 'tc-l',
+        args: {
+          card: {
+            kind: 'current_law_summary',
+            chapterLabel: 'Chapter 12',
+            does: [{ title: 'Bins must be lidded' }],
+            gaps: [],
+          },
+        },
+      }
+      await gate.promise
+      yield { type: 'done', assistantMessageId: 'a1' }
+    })
+
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    renderWorkspace()
+
+    await screen.findByText(/^Here/)
+    await vi.advanceTimersByTimeAsync(2_000)
+    expect(await screen.findByText(/Bins must be lidded/)).toBeInTheDocument()
+    expect(screen.queryByText('Thinking...')).not.toBeInTheDocument()
     gate.resolve()
   })
 

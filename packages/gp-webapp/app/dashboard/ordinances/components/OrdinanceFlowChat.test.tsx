@@ -338,13 +338,17 @@ describe('OrdinanceFlowChat step widgets (live stream)', () => {
         { kind: 'text', text: 'Here is the chapter.' },
         {
           kind: 'tool',
-          toolName: 'present_current_law_summary',
-          payload: currentLawPayload,
+          toolName: 'present_card',
+          toolCallId: 'tc-law',
+          payload: {
+            card: { kind: 'current_law_summary', ...currentLawPayload },
+          },
         },
         {
           kind: 'tool',
-          toolName: 'present_legislative_history',
-          payload: historyPayload,
+          toolName: 'present_card',
+          toolCallId: 'tc-history',
+          payload: { card: { kind: 'legislative_history', ...historyPayload } },
         },
         { kind: 'text', text: 'Next we weigh this against peer cities.' },
       ]),
@@ -365,13 +369,15 @@ describe('OrdinanceFlowChat step widgets (live stream)', () => {
       yield { type: 'text', delta: 'Here is the chapter.' }
       yield {
         type: 'tool_call',
-        toolName: 'present_current_law_summary',
-        args: currentLawPayload,
+        toolName: 'present_card',
+        toolCallId: 'tc-law',
+        args: { card: { kind: 'current_law_summary', ...currentLawPayload } },
       }
       yield {
         type: 'tool_call',
-        toolName: 'present_legislative_history',
-        args: historyPayload,
+        toolName: 'present_card',
+        toolCallId: 'tc-history',
+        args: { card: { kind: 'legislative_history', ...historyPayload } },
       }
       // Gate the trailing prose so the cards' positions are fixed at the lead-in
       // before it arrives (a real stream has a gap here).
@@ -432,8 +438,9 @@ describe('OrdinanceFlowChat step widgets (live stream)', () => {
     > {
       yield {
         type: 'tool_call',
-        toolName: 'present_legislative_history',
-        args: { entries: [] },
+        toolName: 'present_card',
+        toolCallId: 'tc-history',
+        args: { card: { kind: 'legislative_history', entries: [] } },
       }
       toolYielded = true
       await new Promise<void>(() => undefined)

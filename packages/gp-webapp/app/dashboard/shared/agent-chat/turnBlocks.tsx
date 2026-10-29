@@ -88,12 +88,12 @@ const dropQuestionsAboveClarify = <Ctx,>(
 
 type WidgetBlock<Ctx> = Extract<TurnBlock<Ctx>, { kind: 'widget' }>
 
-// An 'afterProse' or 'belowTurn' widget renders once per turn per tool: the
-// last call that parses, in the place of that tool's first call.
-const oncePerTool = <Ctx,>(blocks: WidgetBlock<Ctx>[]): WidgetBlock<Ctx>[] => {
-  const byTool = new Map<string, WidgetBlock<Ctx>>()
-  for (const block of blocks) byTool.set(block.instance.toolName, block)
-  return [...byTool.values()]
+// An 'afterProse' or 'belowTurn' widget renders once per turn per slot: the
+// last call that parses, in the place of that slot's first call.
+const oncePerSlot = <Ctx,>(blocks: WidgetBlock<Ctx>[]): WidgetBlock<Ctx>[] => {
+  const bySlot = new Map<string, WidgetBlock<Ctx>>()
+  for (const block of blocks) bySlot.set(block.instance.slot, block)
+  return [...bySlot.values()]
 }
 
 // Live turn: splice each shown widget into the revealed segments at its text
@@ -167,7 +167,7 @@ export const liveTurnBlocks = <Ctx,>(
   }
   placeWidgetsUpTo(acc)
   flushRun()
-  const trailing = oncePerTool(
+  const trailing = oncePerSlot(
     revealed
       .filter((w) => w.instance.placement !== 'inline')
       .map(
@@ -267,7 +267,7 @@ export const persistedTurnBlocks = <Ctx,>({
     if (entry.onParseFailure === 'inline') run.push(s)
   })
   flushRun()
-  return dropQuestionsAboveClarify([...blocks, ...oncePerTool(trailing)])
+  return dropQuestionsAboveClarify([...blocks, ...oncePerSlot(trailing)])
 }
 
 // Render a turn's interleaved blocks: inline runs via the shared

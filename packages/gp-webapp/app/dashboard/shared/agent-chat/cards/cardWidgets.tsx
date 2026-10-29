@@ -1,6 +1,4 @@
 import {
-  ConstituentRefSchema,
-  OutsideContactSchema,
   OutreachProposalSchema,
   PastOutreachRefSchema,
   mintProposalKey,
@@ -9,9 +7,7 @@ import {
 import type { OutreachLaunchSource } from 'app/dashboard/outreach/util/outreachAnalytics'
 import type { WidgetToolCall } from '../widgetRegistry'
 import { defineWidgetTool } from '../widgetRegistry'
-import { ConstituentsCard } from './ConstituentsCard'
 import { OutreachProposalCard } from './OutreachProposalCard'
-import { OutsideContactCard } from './OutsideContactCard'
 import { PastOutreachCard } from './PastOutreachCard'
 
 export type CardWidgetContext = {
@@ -26,7 +22,7 @@ export type CardWidgetContext = {
 // share it, so a panel opened mid-turn stays open across the swap: the tool
 // call id when there is one, because the live turn has no message row yet;
 // the segment position otherwise, which is stable on reload.
-const cardDetailKey = (call: WidgetToolCall): { detailKey?: string } => {
+export const cardDetailKey = (call: WidgetToolCall): { detailKey?: string } => {
   if (call.toolCallId) return { detailKey: `call:${call.toolCallId}` }
   if (call.messageId !== null && call.segmentIndex !== null) {
     return { detailKey: `segment:${call.messageId}:${call.segmentIndex}` }
@@ -61,30 +57,6 @@ export const parseOutreachProposal = (
   }
 }
 
-const parseConstituents = (
-  args: unknown,
-): Extract<ChatCard, { kind: 'constituents' }> | null => {
-  const parsed = ConstituentRefSchema.safeParse(args)
-  return parsed.success ? { kind: 'constituents', ...parsed.data } : null
-}
-
-const renderConstituents = (
-  card: Extract<ChatCard, { kind: 'constituents' }>,
-  _ctx: CardWidgetContext,
-  call: WidgetToolCall,
-) => <ConstituentsCard card={card} {...cardDetailKey(call)} />
-
-const parsePastOutreach = (
-  args: unknown,
-): Extract<ChatCard, { kind: 'past_outreach' }> | null => {
-  const parsed = PastOutreachRefSchema.safeParse(args)
-  return parsed.success ? { kind: 'past_outreach', ...parsed.data } : null
-}
-
-const renderPastOutreach = (
-  card: Extract<ChatCard, { kind: 'past_outreach' }>,
-) => <PastOutreachCard card={card} />
-
 export const cardWidgetTools = [
   defineWidgetTool({
     toolName: 'present_outreach_proposal',
@@ -97,41 +69,15 @@ export const cardWidgetTools = [
       />
     ),
   }),
-  defineWidgetTool({
-    toolName: 'present_constituents',
-    parse: parseConstituents,
-    render: renderConstituents,
-  }),
-  // The name present_constituents shipped under. Segments that already exist
-  // on dev and prod persist it, so it stays mapped forever.
-  defineWidgetTool({
-    toolName: 'present_contacts',
-    parse: parseConstituents,
-    render: renderConstituents,
-  }),
-  defineWidgetTool({
-    toolName: 'present_outside_contact',
-    parse: (args) => {
-      const parsed = OutsideContactSchema.safeParse(args)
-      return parsed.success
-        ? { kind: 'outside_contact' as const, ...parsed.data }
-        : null
-    },
-    render: (card, _ctx: CardWidgetContext, call) => (
-      <OutsideContactCard card={card} {...cardDetailKey(call)} />
-    ),
-  }),
-  defineWidgetTool({
-    toolName: 'present_past_outreach',
-    parse: parsePastOutreach,
-    render: renderPastOutreach,
-  }),
   // A data read whose args are `{ channel? }`, so it never parses and stays an
-  // ordinary tool pill; present_past_outreach is the call that carries a card.
+  // ordinary tool pill; present_card's past_outreach kind carries the card.
   defineWidgetTool({
     toolName: 'read_past_outreach',
-    parse: parsePastOutreach,
-    render: renderPastOutreach,
+    parse: (args): Extract<ChatCard, { kind: 'past_outreach' }> | null => {
+      const parsed = PastOutreachRefSchema.safeParse(args)
+      return parsed.success ? { kind: 'past_outreach', ...parsed.data } : null
+    },
+    render: (card) => <PastOutreachCard card={card} />,
     onParseFailure: 'inline',
   }),
 ]

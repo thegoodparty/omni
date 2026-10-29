@@ -20,18 +20,20 @@ export type WidgetToolCallInput = Pick<WidgetToolCall, 'toolName'> &
 // Where a widget sits in its turn. 'inline' is the point in the text where its
 // tool fired. 'afterProse' is after the turn's last block, inside the
 // assistant row, and 'belowTurn' is under the row, outside it; both render
-// once per turn per tool, the last call that parses.
+// once per turn per slot, the last call that parses.
 export type WidgetPlacement = 'inline' | 'afterProse' | 'belowTurn'
 
 export interface WidgetInstance<Ctx> {
   toolName: string
   placement: WidgetPlacement
+  // What an 'afterProse' or 'belowTurn' widget is kept once per turn by. The
+  // tool name, unless one tool draws different cards (present_card's kinds).
+  slot: string
   render: (ctx: Ctx) => ReactNode
 }
 
 export interface WidgetToolEntry<Ctx> {
   toolName: string
-  placement: WidgetPlacement
   // What a reloaded turn does with a registered tool whose args did not parse:
   // 'hide' drops the segment, 'inline' leaves it in the prose run as an
   // ordinary tool pill (for a tool that is only sometimes a widget).
@@ -45,20 +47,26 @@ export const defineWidgetTool = <Data extends object, Ctx>({
   render,
   onParseFailure = 'hide',
   placement = 'inline',
+  slot,
 }: {
   toolName: string
   parse: (args: unknown, call: WidgetToolCall) => Data | null
   render: (data: Data, ctx: Ctx, call: WidgetToolCall) => ReactNode
   onParseFailure?: 'hide' | 'inline'
-  placement?: WidgetPlacement
+  placement?: WidgetPlacement | ((data: Data) => WidgetPlacement)
+  slot?: (data: Data) => string
 }): WidgetToolEntry<Ctx> => ({
   toolName,
-  placement,
   onParseFailure,
   resolve: (args, call) => {
     const data = parse(args, call)
     if (data === null) return null
-    return { toolName, placement, render: (ctx) => render(data, ctx, call) }
+    return {
+      toolName,
+      placement: typeof placement === 'function' ? placement(data) : placement,
+      slot: slot ? slot(data) : toolName,
+      render: (ctx) => render(data, ctx, call),
+    }
   },
 })
 

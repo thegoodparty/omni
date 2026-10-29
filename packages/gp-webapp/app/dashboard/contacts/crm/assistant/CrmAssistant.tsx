@@ -14,7 +14,7 @@ import ChiefOfStaffChatSurface from '../../../chief-of-staff/components/chat/Chi
 // assistantChat.ts), whose prompt already carries the contact-list, saved-list
 // and list-map rules. So this mounts the real surface those scopes use rather
 // than a second one that looked like a different assistant and quietly lacked
-// its widgets (a `show_list_map` call rendered as a bare status pill, so the
+// its widgets (a list map call rendered as a bare status pill, so the
 // agent would say it had drawn a map that was never there).
 //
 // Mounted inside CrmContactsPage, so the CRM flag gate (ContactsPageGate)

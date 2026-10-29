@@ -42,8 +42,9 @@ The "Thinking..." shimmer covers the wait before anything paints, and comes
 back whenever the agent is working with nothing moving on screen: between tool
 calls, and while any widget's arguments stream in (`tool_input_start`, the same
 signal the ordinance chat uses). It is named for the widget being written
-("Looking up who to contact...", "Preparing your question...") or falls back to
-the tool's pill label. It stays off while a pill is shimmering, once a
+("Preparing your question...", "Building the outreach...") or falls back to
+the tool's pill label. A `present_card` call says only "Preparing a card...",
+because its kind arrives with the call, not before it. It stays off while a pill is shimmering, once a
 question card is up, and right after a finding card lands until the next tool
 starts, since either can end the turn. Contact,
 outreach and list work can take a long while, and without it the chat looked
@@ -528,12 +529,12 @@ call or a named source, and a text sample's size from `size_outreach_sample`.
 ## Research goes on the ordinance finding cards
 
 Peer cities, the current code or program, and whether the office can act are
-not written up in prose. They go on the ordinance chat's own cards
+not written up in prose. They go on the ordinance chat's own cards, each with
+its source line: `present_comparables` and `present_authority_finding`
 (`ordinanceWidgetTools` in `ordinances/components/stepWidgets.tsx`, the same
-registry entries): `present_comparables`, `present_current_law_summary` and
-`present_authority_finding`, each with its source line. The priority handler
-offers them display-only, with the ordinance schemas, because a priority has
-no ordinance to save them to. People to contact go on outside contact cards,
+registry entries), which the priority handler offers display-only because a
+priority has no ordinance to save them to, and a `current_law_summary` card
+through `present_card`. People to contact go on outside contact cards,
 never as a phone number in prose. The model otherwise wrote a long unsourced
 "here's the picture" and ended on a phone number.
 
@@ -553,7 +554,8 @@ Change the wording there, not in either prompt.
 ## Cards are keyed, not trusted
 
 A card is a tool call rendered inline through its entry in
-`shared/agent-chat/cards/cardWidgets.tsx`. `proposalKey` is **derived there
+`shared/agent-chat/cards/cardWidgets.tsx` (the outreach proposal) or its kind's
+view in `cards/presentCardWidgets.tsx` (every `present_card` card). `proposalKey` is **derived there
 (`parseOutreachProposal`), never read off the model's args**: `mintProposalKey(conversationId, toolCallId)`
 from `@goodparty_org/contracts`. Deterministic uuidv5, so the browser and the
 server arrive at the same key and the card can resolve the outreach sent
@@ -564,17 +566,18 @@ one drops rather than minting a key the server would not agree with.
 Args that fail to parse drop the card and leave the turn's prose alone.
 `read_past_outreach` is a data read whose args are `{ channel? }`, so it always
 takes that path and shows an ordinary pill (its registry entry is
-`onParseFailure: 'inline'`); `present_past_outreach` is the presenter that
-actually carries a card.
+`onParseFailure: 'inline'`); a `past_outreach` card through `present_card` is
+what actually carries one.
 
 Two cards are about people, and they are not interchangeable:
 
-- `constituents` (`present_constituents`) — contact ids from the office's own
-  CRM, resolved live. `present_contacts` is the name it shipped under; the
-  tool name is persisted on `chat_message_segment.tool_name`, so
-  `cardWidgets.tsx` registers both, forever. The card `kind` is derived client-side
-  and never stored, so it can be renamed freely.
-- `outside_contact` (`present_outside_contact`) — one person or office outside our data, built
+- `constituents` — contact ids from the office's own CRM, resolved live.
+  Before it was a `present_card` kind it was the `present_constituents` tool,
+  and before that `present_contacts`. Those names are persisted on
+  `chat_message_segment.tool_name`, so `LEGACY_PRESENT_CARD_TOOLS` keeps them
+  as entries, forever. The `kind` is persisted in `present_card`'s args, so it
+  is append-only.
+- `outside_contact` — one person or office outside our data, built
   from what the agent researched. Nothing resolves, so it is a snapshot. The
   mailto carries the script as its body, so the email opens written.
 

@@ -113,7 +113,9 @@ The webapp turns a display tool's call into UI through one registry only:
 `chatWidgets.tsx` in `packages/gp-webapp/app/dashboard/shared/agent-chat/`,
 which every chat surface resolves both the live `tool_call` and the reloaded
 segment through. A new card is an entry there, never a branch in a surface
-(that folder's `AGENTS.md`, "Widgets").
+(that folder's `AGENTS.md`, "Widgets"). A display-only card is a `present_card`
+kind with a view in `cards/presentCardWidgets.tsx`, not an entry of its own
+(**Display cards are kinds of one tool** below).
 
 ### The chat-scope abstraction
 
@@ -314,7 +316,9 @@ A card whose tool would only acknowledge its args is a **kind** of
 `.describe()`d, and a one-line `PRESENT_CARD_DESCRIPTIONS` entry per kind.
 
 - **Adding a display card** is a new kind in that catalog plus a component in
-  the webapp's kind map. Never add a new `present_*` tool for it. A surface
+  the webapp's kind map (`PRESENT_CARD_VIEWS`, `cards/presentCardWidgets.tsx`
+  in gp-webapp's `shared/agent-chat/`), typed by kind so a kind with no view
+  fails the build. Never add a new `present_*` tool for it. A surface
   offers it by adding the kind to the `kinds` it passes
   `buildPresentCardTool` (`chats/general/chat-tools/presentCard.tool.ts`).
 - **A new tool is only for something whose execute does real work**:
@@ -337,6 +341,9 @@ A card whose tool would only acknowledge its args is a **kind** of
   still renders them, and `replayAssistantContent` replays them to the model
   as the `present_card` call they would be today, so the model never sees a
   tool it cannot call.
+- **The kind arrives with the call.** `tool_input_start` carries only the
+  tool name, so a surface's working label for `present_card` is generic
+  ("Preparing a card..." on a priority).
 
 ### A list is saved from a card, not a typed "yes"
 
