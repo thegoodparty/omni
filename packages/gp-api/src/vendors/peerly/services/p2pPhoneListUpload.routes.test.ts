@@ -1480,6 +1480,34 @@ describe('P2P phone-list async build (Voter Outreach 2.0 S3b, managed flag gated
       ).toBe(1)
     })
 
+    it('checks in while it resolves, so a long build is never reaped', async () => {
+      const campaign = await seedWinCampaign()
+      const people = Array.from({ length: 10_000 }, (_, i) =>
+        personPayload({
+          id: `00000000-0000-0000-0000-${String(i).padStart(12, '0')}`,
+          cellPhone: `555${String(i).padStart(7, '0')}`,
+        }),
+      )
+      stubPeopleApiPaginated(
+        Array.from({ length: 10 }, (_, page) =>
+          people.slice(page * 1000, (page + 1) * 1000),
+        ),
+      )
+      stubPeerlyUpload()
+      const touch = vi.spyOn(
+        service.app.get(PeerlyPhoneListCaptureService),
+        'touchBuilding',
+      )
+      const build = await createQueuedRow(campaign.id)
+
+      await service.app
+        .get(P2pPhoneListUploadService)
+        .handleQueuedBuild(build.id)
+
+      expect(touch).toHaveBeenCalledTimes(1)
+      expect(touch).toHaveBeenCalledWith(build.id)
+    })
+
     it('Win SMS hold: caps the uploaded list at the PAID count when the resolved audience grew past the hold', async () => {
       vi.spyOn(
         service.app.get(FeaturesService),
@@ -1874,6 +1902,35 @@ describe('P2P phone-list async build (Voter Outreach 2.0 S3b, managed flag gated
           requestSnapshot: { name: 'Healthy in-flight build' },
         },
       })
+      const enqueue = vi
+        .spyOn(service.app.get(QueueProducerService), 'sendMessage')
+        .mockResolvedValue(undefined)
+
+      await service.app.get(P2pPhoneListUploadService).sweepStaleBuilding()
+
+      expect(
+        await service.prisma.peerlyPhoneList.findUnique({
+          where: { id: build.id },
+        }),
+      ).toMatchObject({ buildStatus: 'building' })
+      expect(enqueue).not.toHaveBeenCalled()
+    })
+
+    it('does not reap a long build that has checked in', async () => {
+      const campaign = await seedWinCampaign()
+      const build = await service.prisma.peerlyPhoneList.create({
+        data: {
+          organizationSlug: WIN_SLUG,
+          campaignId: campaign.id,
+          buildStatus: 'building',
+          buildAttempts: 1,
+          requestSnapshot: { name: 'Long healthy build' },
+        },
+      })
+      await ageBuildRow(build.id, 30)
+      await service.app
+        .get(PeerlyPhoneListCaptureService)
+        .touchBuilding(build.id)
       const enqueue = vi
         .spyOn(service.app.get(QueueProducerService), 'sendMessage')
         .mockResolvedValue(undefined)

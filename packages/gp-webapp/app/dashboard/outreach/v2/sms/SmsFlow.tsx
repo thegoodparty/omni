@@ -192,7 +192,7 @@ const STEP_TITLES: Record<StepId, string> = {
 const PRICE_PER_MESSAGE = PRICE_PER_TEXT
 // Mirrors gp-api MAX_AUDIENCE_RECIPIENTS: a larger list is refused at the
 // checkout quote and by the phone-list build.
-const SMS_MAX_RECIPIENTS = 100_000
+const SMS_MAX_RECIPIENTS = 200_000
 
 // SMS texts cell phones, so both counts use the cell dimension:
 // reachability.sms for a saved list, and a { hasCellPhone: true } overlay on
@@ -837,6 +837,10 @@ export const SmsFlow = ({
   const reachableCount = audience.reachableCount
   const reachableOverCap =
     reachableCount !== null && reachableCount > SMS_MAX_RECIPIENTS
+  const builderOverCap =
+    audience.mode === 'filters' &&
+    audience.builderCount !== undefined &&
+    audience.builderCount > SMS_MAX_RECIPIENTS
   // A text to civic panel members alone offers them a way off the panel in
   // place of the JOIN ask: the LEAVE line. Read off the picked list's
   // own criteria, the rule gp-api checks the create against.
@@ -2055,7 +2059,8 @@ export const SmsFlow = ({
               ) ||
               audience.builderCounting ||
               audience.builderZeroMatch ||
-              audience.builderCapError,
+              audience.builderCapError ||
+              builderOverCap,
             loading:
               hasAnyVoterFileSelection(
                 audience.builderFilters,
@@ -2470,7 +2475,7 @@ export const SmsFlow = ({
             builderCapError={audience.builderCapError}
             builderCountErrorMessage={audience.builderCountErrorMessage}
           />
-          {reachableOverCap && (
+          {(reachableOverCap || builderOverCap) && (
             <p className="mt-4 text-sm text-destructive" role="alert">
               {`This list reaches over ${SMS_MAX_RECIPIENTS.toLocaleString()} people, which is more than one text campaign can send to. Narrow your filters and try again.`}
             </p>

@@ -433,13 +433,13 @@ describe('SmsFlow', () => {
     expect(receiptCalls).toBe(0)
   })
 
-  it('stops a list over the 100,000 send cap at the audience step', async () => {
+  it('stops a list over the 200,000 send cap at the audience step', async () => {
     api.mock('GET /v1/contacts/list-detail', {
       status: 200,
       data: {
-        demographics: { people: 110000, avgAge: null, avgIncome: null },
+        demographics: { people: 220000, avgAge: null, avgIncome: null },
         reachability: {
-          sms: 104874,
+          sms: 204874,
           robocall: null,
           phoneBanking: null,
           doorKnocking: null,
@@ -453,10 +453,10 @@ describe('SmsFlow', () => {
     await user.click(await screen.findByText('Choose a voter list'))
     await user.click(await screen.findByText('Likely voters'))
     expect(
-      await screen.findByText(/reaches over 100,000 people/),
+      await screen.findByText(/reaches over 200,000 people/),
     ).toBeInTheDocument()
     expect(
-      screen.getByRole('button', { name: /Continue \(104,874\)/ }),
+      screen.getByRole('button', { name: /Continue \(204,874\)/ }),
     ).toBeDisabled()
   })
 
@@ -1974,6 +1974,35 @@ describe('SmsFlow', () => {
 
     expect(await screen.findByText(rejectionMessage)).toBeInTheDocument()
     expect(screen.queryByText('Scheduled!')).not.toBeInTheDocument()
+  })
+
+  it('stops a list built in-flow over the 200,000 send cap', async () => {
+    api.mock('POST /v1/contacts/count', {
+      status: 200,
+      data: { count: 250000 },
+    })
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    vi.setSystemTime(FROZEN_NOW)
+    user = userEvent.setup({
+      skipHover: true,
+      advanceTimers: vi.advanceTimersByTime,
+    })
+    openFlow()
+
+    await user.click(screen.getByText('Introduce myself to voters'))
+    await user.click(await screen.findByText('Choose a voter list'))
+    await user.click(await screen.findByText('Create a new list'))
+    await user.click(await screen.findByRole('button', { name: 'Super' }))
+    await act(() => vi.advanceTimersByTimeAsync(600))
+
+    expect(
+      await screen.findByRole(
+        'button',
+        { name: 'Continue (250,000)' },
+        { timeout: 3000 },
+      ),
+    ).toBeDisabled()
+    expect(screen.getByText(/reaches over 200,000 people/)).toBeInTheDocument()
   })
 
   it('builds a new list in-flow and continues into the message, then scheduling', async () => {

@@ -448,7 +448,7 @@ Before a campaign can send P2P texts, it must complete 10DLC (10-digit long code
 2. Transform audience filters (voter propensity, party, age, gender) to `CustomFilter[]`
 3. Resolve the audience through `ContactsService.findContactsForFilter` → generate CSV with `CHANNELS.TEXTING` + `PURPOSES.GOTV`
    - Same activityConditions/supportStatus/search resolution engine that list/count/download use
-   - Paged (`SEGMENT_PAGE_SIZE` 1000, 100k recipient cap) with `hasCellPhone` forced on
+   - Paged (`SEGMENT_PAGE_SIZE` 1000, 200k recipient cap) with `hasCellPhone` forced on
    - Column mapping: `first_name` (1), `last_name` (2), `lead_phone` (3), `state` (4), `city` (5), `zip` (6)
 4. Upload CSV buffer to Peerly via `POST /phonelists` with FormData (list name, identity ID, DNC scrubbing settings, phone list mapping, suppress landline phones)
 5. Return upload `token` for status polling
