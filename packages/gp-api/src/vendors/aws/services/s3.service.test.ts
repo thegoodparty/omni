@@ -153,6 +153,36 @@ describe('S3Service', () => {
     })
   })
 
+  describe('getSignedUrlForSizedUpload', () => {
+    it('signs the length and type and leaves out the empty-body checksum', async () => {
+      vi.stubEnv('AWS_PROFILE', undefined)
+      vi.stubEnv('AWS_ACCESS_KEY_ID', 'AKIATEST')
+      vi.stubEnv('AWS_SECRET_ACCESS_KEY', 'secret')
+      const presigner = await vi.importActual<
+        typeof import('@aws-sdk/s3-request-presigner')
+      >('@aws-sdk/s3-request-presigner')
+      mockGetSignedUrl.mockImplementationOnce(presigner.getSignedUrl)
+
+      const url = new URL(
+        await service.getSignedUrlForSizedUpload('test-bucket', 'org/a.csv', {
+          expiresIn: 900,
+          contentType: 'text/csv',
+          contentLength: 1234,
+        }),
+      )
+
+      expect(url.searchParams.get('X-Amz-SignedHeaders')).toBe(
+        'content-length;content-type;host',
+      )
+      expect(url.searchParams.get('X-Amz-Expires')).toBe('900')
+      expect(
+        [...url.searchParams.keys()].filter((name) =>
+          name.startsWith('x-amz-checksum'),
+        ),
+      ).toEqual([])
+    })
+  })
+
   describe('getSignedUrlForViewing', () => {
     const bucket = 'test-bucket'
     const key = 'folder/file.txt'
