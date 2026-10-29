@@ -145,6 +145,21 @@ and the line above it says what they agree to. It posts
 A text to civic panel members alone carries no LEAVE line either: STOP
 already takes a member off the civic panel, so it ends like any other text.
 
+**"Your civic panel" is the first card in every list-picking audience step**
+(`OutreachAudienceStep`: text, phone banking and polls on Serve) for an `eo-`
+org with `serve-citizen-panels` on and at least one member
+(`audience/useCivicPanelAudience.ts`, mounted by `useOutreachAudience` and
+passed as `audience.civicPanel`; the count is the civic panel summary's
+`members`). Like the universe row, a tap resolves it to a real saved list,
+reused when one exists, and selects it through `onSelect`: our name and
+`civicPanelMember` alone (`audience/civicPanelAudienceList.util.ts`), so the
+list is panel-only and every channel's members-only handling applies with
+nothing new on the create paths, which all take its `voterFileFilterId`. The
+list stays out of the picker's All lists and out of Constituent lists, where
+the built-in Civic panel row is the same audience. Door knocking's who step
+does not offer it: its door counts come from the voter pack, which has no
+civic panel membership, so a panel list previews as the whole district.
+
 Every rewrite (fresh draft, Improve, a tone pill, a carried-in body) strips
 every JOIN or LEAVE wording it finds (all of contracts'
 `CIVIC_PANEL_JOIN_LINES`, plus a model's partial echo of the ask): a fresh

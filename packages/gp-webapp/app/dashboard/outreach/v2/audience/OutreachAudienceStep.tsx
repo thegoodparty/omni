@@ -37,6 +37,8 @@ import { FREE_OFFER_CARD_CLASS } from 'app/dashboard/shared/robocallFreeOffer/fr
 import { RecommendedListNameDrawer } from './RecommendedListNameDrawer'
 import { RecommendedListCard } from './RecommendedListCard'
 import { useServeCitizenPanelsFlag } from 'app/shared/experiments/serveCitizenPanelsFlag'
+import type { CivicPanelAudience } from './useCivicPanelAudience'
+import { CIVIC_PANEL_AUDIENCE_NAME } from './civicPanelAudienceList.util'
 
 export type OutreachAudienceMode = 'picker' | 'filters' | 'name'
 
@@ -149,6 +151,9 @@ interface OutreachAudienceStepProps {
   preselectedRecommendation?: RecommendedList | null
   preselectedRecommendationApplied?: boolean
   onPreselectedRecommendationApplied?: () => void
+  // Serve's civic panel as an audience, from useOutreachAudience: the first
+  // card, members only. Null (or `show` false) leaves the step as it was.
+  civicPanel?: CivicPanelAudience | null
   // Robocall's free election-eve offer: its list, shown in a "Free offer"
   // section of its own between the recommendations and the saved lists, and
   // never under "Recommended for you" (even when carried in). `note` is the
@@ -225,6 +230,7 @@ export const OutreachAudienceStep = ({
   preselectedRecommendationApplied = false,
   onPreselectedRecommendationApplied,
   freeOffer = null,
+  civicPanel = null,
   reachableCount,
   reachableLoading,
   selectedListTotal = null,
@@ -259,6 +265,11 @@ export const OutreachAudienceStep = ({
   // into an element inside the drawer's scope instead — this ref, placed on
   // the picker's own root div — and scroll works.
   const pickerRootRef = useRef<HTMLDivElement | null>(null)
+  const civicPanelSelected =
+    civicPanel !== null &&
+    civicPanel.listId !== null &&
+    civicPanel.listId === selectedId
+  const showCivicPanel = civicPanel?.show === true
   const active = lists.find((l) => l.id === selectedId) ?? null
   // Both derived from the hook's resolved id, so this step cannot disagree
   // with the hook about which row is the universe.
@@ -268,7 +279,11 @@ export const OutreachAudienceStep = ({
   // two cannot disagree: the universe has its own row at the top, so an org
   // whose only saved list IS the universe list has no ordinary rows to show
   // and does still owe the empty-state line.
-  const otherLists = lists.filter((list) => list.id !== universeListId)
+  const otherLists = lists.filter(
+    (list) =>
+      list.id !== universeListId &&
+      !(showCivicPanel && list.id === civicPanel?.listId),
+  )
   // The three nouns this step states itself, rather than reading from `copy`:
   // a surface's OutreachAudienceCopy covers the titles and bodies, but these
   // sit inside shared controls. Serve never says "voter", so they key off the
@@ -462,7 +477,10 @@ export const OutreachAudienceStep = ({
         </div>
       )}
 
-      {(recommendationsLoading || recommendationsError || cards.length > 0) && (
+      {(showCivicPanel ||
+        recommendationsLoading ||
+        recommendationsError ||
+        cards.length > 0) && (
         <div className="space-y-2">
           <p className="text-xs font-bold uppercase text-primary">
             Recommended for you
@@ -477,6 +495,63 @@ export const OutreachAudienceStep = ({
             </div>
           ) : (
             <div className="space-y-2">
+              {/* First: the official's own civic panel, members only. */}
+              {civicPanel && showCivicPanel && (
+                <Card
+                  role="button"
+                  tabIndex={0}
+                  aria-pressed={civicPanelSelected}
+                  aria-busy={civicPanel.pending}
+                  data-testid="civic-panel-audience-card"
+                  onClick={() => {
+                    if (civicPanel.pending) return
+                    if (civicPanel.listId !== null) {
+                      onSelect(civicPanel.listId)
+                      return
+                    }
+                    void civicPanel.resolve().then((id) => {
+                      if (id !== null) onSelect(id)
+                    })
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key !== 'Enter' && event.key !== ' ') return
+                    event.preventDefault()
+                    event.currentTarget.click()
+                  }}
+                  className={cn(
+                    'cursor-pointer flex-row items-center justify-between gap-3 p-4 text-left transition-colors outline-none focus-visible:ring-[3px] focus-visible:ring-primary-focus',
+                    !civicPanelSelected && 'hover:border-primary/50',
+                    civicPanelSelected && 'border-primary bg-primary/5',
+                  )}
+                >
+                  <span className="min-w-0 space-y-1">
+                    <span className="block font-medium text-foreground">
+                      {CIVIC_PANEL_AUDIENCE_NAME}
+                    </span>
+                    <span className="block text-sm text-muted-foreground">
+                      Only the constituents on your civic panel.
+                    </span>
+                    <span className="block text-sm text-muted-foreground">
+                      {civicPanel.members.toLocaleString()} people
+                    </span>
+                  </span>
+                  {civicPanel.pending ? (
+                    <Loader2Icon className="size-5 shrink-0 animate-spin text-primary" />
+                  ) : (
+                    civicPanelSelected && (
+                      <CheckIcon className="size-5 shrink-0 text-primary" />
+                    )
+                  )}
+                </Card>
+              )}
+              {civicPanel?.error && !civicPanel.pending && (
+                <p
+                  data-testid="civic-panel-audience-error"
+                  className="text-sm text-destructive"
+                >
+                  Couldn&apos;t build that list. Try again.
+                </p>
+              )}
               {/* The purpose's own cards failed to load; a carried-in card
                   came from its own query and is still worth showing. */}
               {recommendationsError && (
@@ -541,7 +616,7 @@ export const OutreachAudienceStep = ({
                       // instructing the candidate to ignore what they
                       // were just offered. Same conditional door
                       // knocking's WhoStep already applies.
-                      (cards.length > 0
+                      (cards.length > 0 || showCivicPanel
                         ? 'View your lists here'
                         : emptyPickerLabel))}
                 </p>

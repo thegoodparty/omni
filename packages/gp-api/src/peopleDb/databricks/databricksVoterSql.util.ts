@@ -166,6 +166,7 @@ const UPLOAD_FIRST_COLUMNS = [
 // person with no L2 row there falls out of the scope filter.
 export const contactOverlayTable = (
   district: Omit<DbxDistrict, 'table'>,
+  personIdMarker?: string,
 ): string => {
   const { dataset } = district
   const orgSlug = dataset.overlayOrgSlug
@@ -205,13 +206,17 @@ export const contactOverlayTable = (
     'o.`email` AS `Email`',
     'coalesce(o.`is_new`, false) AS `ContactIsNew`',
   ].join(', ')
+  const onePerson =
+    personIdMarker === undefined ? '' : ` AND \`id\` = ${personIdMarker}`
   const base =
     `SELECT * FROM ${peopleTable(dataset)}` +
-    ` WHERE ${scope.map(([column, value]) => `${ident(column)} = ${value}`).join(' AND ')}`
+    ` WHERE ${scope.map(([column, value]) => `${ident(column)} = ${value}`).join(' AND ')}` +
+    onePerson
   const overlay =
     `SELECT * FROM ${TABLE(view)}` +
     ` WHERE organization_slug = ${stringLiteral(orgSlug)}` +
-    (ownDistrict ? '' : ' AND NOT is_new')
+    (ownDistrict ? '' : ' AND NOT is_new') +
+    onePerson
   return (
     `(SELECT ${projection} FROM (${base}) b` +
     ` FULL OUTER JOIN (${overlay}) o ON o.\`id\` = b.\`id\`)`
@@ -225,7 +230,19 @@ const NO_OVERLAY_COLUMNS = new Map<string, string>([
   ['ContactIsNew', 'false'],
 ])
 
+// gp_api_voters has no Registered_Voter column: everyone in it is
+// registered, except a person only an import added, whom no file holds.
+const registeredVoterSql = (district: DbxDistrict): string => {
+  if (district.dataset.base === 'constituents') return col('Registered_Voter')
+  return district.dataset.overlayOrgSlug === undefined
+    ? 'true'
+    : `if(${col('ContactIsNew')}, CAST(NULL AS BOOLEAN), true)`
+}
+
 const projectColumn = (district: DbxDistrict, column: string): string => {
+  if (column === 'Registered_Voter') {
+    return `${registeredVoterSql(district)} AS ${ident(column)}`
+  }
   const absent =
     district.dataset.overlayOrgSlug === undefined
       ? NO_OVERLAY_COLUMNS.get(column)
@@ -1047,13 +1064,20 @@ export const buildPersonSql = (
     `(${col('id')} IN (${EARLY_ABSENTEE_VOTED_IDS_SQL})) AS ${ident(PERSON_EARLY_ABSENTEE_VOTED_COLUMN)}`,
   ].join(', ')
   const scope = buildScopeSql(bag, args)
+  // Lowercased for the same reason idList is: this column is a STRING and
+  // compares byte-exact, where the Postgres path cast to `uuid` and folded
+  // case. z.guid() accepts a mixed-case guid and passes it through, so
+  // without this a bookmarked upper-case URL 404s a person who exists.
+  const idMarker = bag.bind(args.id.toLowerCase())
+  // With the overlay, the id goes inside both sides of the join too, so the
+  // warehouse joins one person instead of the whole district.
+  const table =
+    args.district.dataset.overlayOrgSlug === undefined
+      ? args.district.table
+      : contactOverlayTable(args.district, idMarker)
   const sql =
-    `SELECT ${projection} FROM ${args.district.table} v ${scope}` +
-    // Lowercased for the same reason idList is: this column is a STRING and
-    // compares byte-exact, where the Postgres path cast to `uuid` and folded
-    // case. z.guid() accepts a mixed-case guid and passes it through, so
-    // without this a bookmarked upper-case URL 404s a person who exists.
-    ` AND ${col('id')} = ${bag.bind(args.id.toLowerCase())}` +
+    `SELECT ${projection} FROM ${table} v ${scope}` +
+    ` AND ${col('id')} = ${idMarker}` +
     ` LIMIT 1`
   return { sql, params: bag.params }
 }

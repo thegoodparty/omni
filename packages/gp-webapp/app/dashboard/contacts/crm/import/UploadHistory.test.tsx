@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { ContactUpload } from '@goodparty_org/contracts'
-import { render } from 'helpers/test-utils/render'
+import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { router } from 'helpers/test-utils/router-mocking'
 import { UploadHistory } from './UploadHistory'
@@ -155,5 +155,41 @@ describe('<UploadHistory>', () => {
     expect(
       await screen.findByText('Complete', undefined, { timeout: 6000 }),
     ).toBeInTheDocument()
+  })
+
+  it("refreshes the org's people once an upload finishes", async () => {
+    const orgKeys = [
+      ['contacts', { orgSlug: 'eo-test', page: 1 }],
+      ['contacts-stats'],
+      ['list-detail', 'eo-test', 'all'],
+      ['person', 'eo-test', 'person-1'],
+      ['contact-sources', 'eo-test', 'person-1'],
+      ['contact-engagement', 'activities', 'eo-test', 'person-1', undefined],
+    ]
+    const otherOrgPerson = ['person', 'eo-other', 'person-1']
+    for (const key of [...orgKeys, otherOrgPerson]) {
+      testQueryClient.setQueryData(key, {})
+    }
+    api.mockOrdered('GET /v1/contact-uploads', [
+      {
+        status: 200,
+        data: { uploads: [makeUpload({ status: 'processing' })] },
+      },
+      { status: 200, data: { uploads: [makeUpload({ status: 'complete' })] } },
+    ])
+
+    render(<UploadHistory />)
+
+    expect(await screen.findByText('Processing')).toBeInTheDocument()
+    for (const key of orgKeys) {
+      expect(testQueryClient.getQueryState(key)?.isInvalidated).toBe(false)
+    }
+    await screen.findByText('Complete', undefined, { timeout: 6000 })
+    for (const key of orgKeys) {
+      expect(testQueryClient.getQueryState(key)?.isInvalidated).toBe(true)
+    }
+    expect(testQueryClient.getQueryState(otherOrgPerson)?.isInvalidated).toBe(
+      false,
+    )
   })
 })

@@ -926,9 +926,11 @@ const toDbPerson = (
     record[column] =
       column === 'ContactIsNew'
         ? value === 'true'
-        : value !== null && NUMERIC_LIST_COLUMNS.has(column)
-          ? Number(value)
-          : value
+        : column === 'Registered_Voter' && value !== null
+          ? value === 'true'
+          : value !== null && NUMERIC_LIST_COLUMNS.has(column)
+            ? Number(value)
+            : value
   })
   // The projection is built from the same column list the Postgres select
   // uses, so the row is assembled dynamically and asserted once here rather

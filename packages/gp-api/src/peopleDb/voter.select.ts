@@ -27,6 +27,7 @@ const VOTER_SELECT_COLUMNS = [
   'VoterTelephones_CellPhoneFormatted',
   'Email',
   'ContactIsNew',
+  'Registered_Voter',
   'Age',
   'Gender',
   'Parties_Description',
