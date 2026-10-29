@@ -142,7 +142,8 @@ export const PersonSchema = z.object({
   politicalParty: z
     .enum(['Independent', 'Democratic', 'Republican', 'Other'])
     .optional(),
-  registeredVoter: z.enum(['Yes', 'No']),
+  // Null for a person only an import added, whom no voter file holds.
+  registeredVoter: z.enum(['Yes', 'No']).nullable(),
   estimatedIncomeAmount: z.number().nullable(),
   voterStatus: z.enum(['Super', 'Likely', 'Unreliable', 'Unlikely']).nullable(),
   // Likelihood of voting before Election Day, early in person or by mail,

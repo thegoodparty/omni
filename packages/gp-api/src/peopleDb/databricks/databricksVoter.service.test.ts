@@ -921,6 +921,27 @@ describe('DatabricksVoterService', () => {
       expect(person).not.toHaveProperty('voted')
     })
 
+    it.each([
+      ['true', 'Yes'],
+      ['false', 'No'],
+      [null, null],
+    ])(
+      'reads registeredVoter %s from the projected column as %s',
+      async (registered, expected) => {
+        const { columnNames } = buildVoterSelectSql()
+        const row: Array<string | null> = columnNames.map(() => null)
+        row[0] = 'voter-1'
+        row[columnNames.indexOf('Registered_Voter')] = registered
+        query.mockResolvedValueOnce({ columns: [], rows: [[...row, 'false']] })
+
+        const person = await service.findPerson('voter-1', DISTRICT_ID, {
+          base: 'voters',
+        })
+
+        expect(person.registeredVoter).toBe(expected)
+      },
+    )
+
     // The webapp shows different copy for these two, so the distinction has to
     // survive the move to Databricks.
     it('says not-in-district when the district is scoped', async () => {

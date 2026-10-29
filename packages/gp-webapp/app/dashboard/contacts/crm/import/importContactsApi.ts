@@ -1,4 +1,9 @@
-import { useQuery } from '@tanstack/react-query'
+import { useEffect, useRef } from 'react'
+import {
+  useQuery,
+  useQueryClient,
+  type QueryClient,
+} from '@tanstack/react-query'
 import type {
   ContactUploadColumnMapping,
   ListContactUploadsResponse,
@@ -29,11 +34,34 @@ export const contactSourcesKey = (
 
 const POLL_MS = 3000
 
+// Every cached read an import can change: the people list and its counts, a
+// person, where their details came from, and their activity. The client
+// keeps data 5 minutes, so without this they show pre-import values.
+export const invalidateImportedPeople = (
+  queryClient: QueryClient,
+  orgSlug: string | undefined,
+) =>
+  Promise.all([
+    queryClient.invalidateQueries({ queryKey: ['contacts', { orgSlug }] }),
+    queryClient.invalidateQueries({
+      queryKey: ['contacts-typeahead', orgSlug],
+    }),
+    queryClient.invalidateQueries({ queryKey: ['list-people', orgSlug] }),
+    queryClient.invalidateQueries({ queryKey: ['contacts-stats'] }),
+    queryClient.invalidateQueries({ queryKey: ['list-detail', orgSlug] }),
+    queryClient.invalidateQueries({ queryKey: ['person', orgSlug] }),
+    queryClient.invalidateQueries({ queryKey: ['contact-sources', orgSlug] }),
+    queryClient.invalidateQueries({
+      queryKey: ['contact-engagement', 'activities', orgSlug],
+    }),
+  ])
+
 // Polls while any upload is still matching, so a row flips from Processing
 // without a refresh.
 export const useContactUploads = (enabled = true) => {
   const orgSlug = useOrganization()?.slug
-  return useQuery({
+  const queryClient = useQueryClient()
+  const query = useQuery({
     queryKey: contactUploadsKey(orgSlug),
     queryFn: async (): Promise<ListContactUploadsResponse> =>
       (await clientRequest('GET /v1/contact-uploads', {})).data,
@@ -43,11 +71,28 @@ export const useContactUploads = (enabled = true) => {
         ? POLL_MS
         : false,
   })
+  const processingIds = useRef<Set<string>>(new Set())
+  useEffect(() => {
+    const uploads = query.data?.uploads
+    if (!uploads) return
+    const stillProcessing = new Set(
+      uploads
+        .filter((upload) => upload.status === 'processing')
+        .map((upload) => upload.id),
+    )
+    const finished = [...processingIds.current].some(
+      (id) => !stillProcessing.has(id),
+    )
+    processingIds.current = stillProcessing
+    if (finished) void invalidateImportedPeople(queryClient, orgSlug)
+  }, [query.data, queryClient, orgSlug])
+  return query
 }
 
 export const useContactUpload = (uploadId: string) => {
   const orgSlug = useOrganization()?.slug
-  return useQuery({
+  const queryClient = useQueryClient()
+  const query = useQuery({
     queryKey: contactUploadKey(orgSlug, uploadId),
     queryFn: async () =>
       (await clientRequest('GET /v1/contact-uploads/:id', { id: uploadId }))
@@ -55,6 +100,16 @@ export const useContactUpload = (uploadId: string) => {
     refetchInterval: (query) =>
       query.state.data?.status === 'processing' ? POLL_MS : false,
   })
+  const wasProcessing = useRef(false)
+  useEffect(() => {
+    const status = query.data?.status
+    if (!status) return
+    if (wasProcessing.current && status !== 'processing') {
+      void invalidateImportedPeople(queryClient, orgSlug)
+    }
+    wasProcessing.current = status === 'processing'
+  }, [query.data, queryClient, orgSlug])
+  return query
 }
 
 export const useContactSources = (personId: string | null, enabled = true) => {

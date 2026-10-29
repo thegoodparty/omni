@@ -139,6 +139,36 @@ describe('ContactTypeahead — query threshold and debounce', () => {
     expect(searches).toEqual(['Jane.Doe@Example.com'])
   })
 
+  it('shows the email under the name when the search matched it', async () => {
+    mockContacts([
+      makePerson({ email: 'jane.doe@example.com' }),
+      makePerson({
+        id: 'person-2',
+        firstName: 'Janet',
+        email: 'janet@example.com',
+      }),
+    ])
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    render(<ContactTypeahead />)
+
+    await user.type(screen.getByRole('combobox'), 'Jane.Doe@Example.com')
+
+    await screen.findByText('Jane Doe')
+    expect(screen.getByText('jane.doe@example.com')).toBeInTheDocument()
+    expect(screen.queryByText('janet@example.com')).not.toBeInTheDocument()
+  })
+
+  it('leaves the email off a name search', async () => {
+    mockContacts([makePerson({ email: 'jane.doe@example.com' })])
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    render(<ContactTypeahead />)
+
+    await user.type(screen.getByRole('combobox'), 'Jane')
+
+    await screen.findByText('Jane Doe')
+    expect(screen.queryByText('jane.doe@example.com')).not.toBeInTheDocument()
+  })
+
   it('never renders a stale slower response over a newer one', async () => {
     let releaseSlow!: () => void
     const slowGate = new Promise<void>((resolve) => {

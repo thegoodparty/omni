@@ -1588,4 +1588,89 @@ describe('contactOverlayTable', () => {
       'lower(v.`FirstName`) LIKE :p0',
     )
   })
+
+  it('filters a person read by id inside both sides of the join', () => {
+    const district = overlaid(CONGRESSIONAL, CONGRESSIONAL.districtId)
+
+    const { sql, params } = buildPersonSql({
+      district,
+      filters: noFilters(),
+      columns: ['id'],
+      id: ID.toUpperCase(),
+    })
+
+    expect(sql).toContain(
+      ` FROM (SELECT * FROM ${VOTERS_TABLE}` +
+        " WHERE `State` = 'CA' AND `US_Congressional_District` = '29'" +
+        ' AND `id` = :p2) b' +
+        ` FULL OUTER JOIN (SELECT * FROM ${OVERLAY_VIEW}` +
+        " WHERE organization_slug = 'eo-123' AND `id` = :p2) o",
+    )
+    expect(sql).toMatch(/ AND v\.`id` = :p2 LIMIT 1$/)
+    expect(sql).not.toContain(district.table)
+    expect(params.map(({ value }) => value)).toEqual(['CA', '29', ID])
+  })
+
+  it('filters by id after dropping new people in another district', () => {
+    const district = overlaid(
+      CONGRESSIONAL,
+      'ffffffff-0000-0000-0000-000000000000',
+    )
+
+    const { sql } = buildPersonSql({
+      district,
+      filters: noFilters(),
+      columns: ['id'],
+      id: ID,
+    })
+
+    expect(sql).toContain(
+      " WHERE organization_slug = 'eo-123' AND NOT is_new AND `id` = :p2) o",
+    )
+  })
+
+  it('reads the plain table for a person without the overlay', () => {
+    const { sql } = buildPersonSql({
+      district: CONGRESSIONAL,
+      filters: noFilters(),
+      columns: ['id'],
+      id: ID,
+    })
+
+    expect(sql).toContain(`FROM ${VOTERS_TABLE} v WHERE`)
+    expect(sql).not.toContain('FULL OUTER JOIN')
+  })
+
+  it('projects Registered_Voter by dataset', () => {
+    const columns = ['Registered_Voter']
+    const project = (district: DbxDistrict) =>
+      buildPageSql({
+        district,
+        filters: noFilters(),
+        columns,
+        take: 1,
+        skip: 0,
+      }).sql
+
+    expect(project(CONGRESSIONAL)).toContain(
+      'SELECT true AS `Registered_Voter`',
+    )
+    expect(
+      project(overlaid(CONGRESSIONAL, CONGRESSIONAL.districtId)),
+    ).toContain(
+      'SELECT if(v.`ContactIsNew`, CAST(NULL AS BOOLEAN), true)' +
+        ' AS `Registered_Voter`',
+    )
+    const constituents: DbxDistrict = {
+      ...CONGRESSIONAL,
+      dataset: { base: 'constituents' },
+      table: CONSTITUENTS_TABLE,
+    }
+    expect(project(constituents)).toContain(
+      'SELECT v.`Registered_Voter` AS `Registered_Voter`',
+    )
+    expect(project(overlaid(constituents, CONGRESSIONAL.districtId))).toContain(
+      'SELECT v.`Registered_Voter` AS `Registered_Voter`',
+    )
+  })
 })

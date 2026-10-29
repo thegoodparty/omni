@@ -65,6 +65,12 @@ people table FULL OUTER JOIN the org's rows of
   (`stringLiteral`), because a table expression cannot carry bound
   parameters. One join, never a UNION (a union over the mart's columns
   doubled compile time).
+- A person read (`buildPersonSql`) rebuilds the join with its bound id
+  inside both sides, so the warehouse joins one person instead of the
+  district. Reads without the overlay are unchanged.
+- `Person.registeredVoter` reads `Registered_Voter`, a column only
+  `gp_api_constituents` has (false for consumer-only people). Voter reads
+  project `true`, and a new person reads NULL (`registeredVoterSql`).
 - The Serve agents' `query_constituent_data` gets the same join over
   `mart_serve_agents.<SERVE_AGENT_CONTACT_OVERLAY_VIEW>`, built in
   `constituentDataScope.ts` and swapped in only after the SQL validator

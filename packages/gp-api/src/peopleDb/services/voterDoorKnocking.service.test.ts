@@ -397,8 +397,7 @@ describe('VoterDoorKnockingService', () => {
 
     // The pack's own definition of the word (voterPack.service.ts): a person
     // with no state voter id is not registered in this file. Unlike the Person
-    // contract's `registeredVoter`, which is hardcoded 'Yes' and reads no
-    // column at all.
+    // contract's `registeredVoter`, which is 'Yes' for every gp_api_voters row.
     it('derives registeredVoter from the presence of a state voter id', async () => {
       databricks.doorKnockingResidentRows.mockResolvedValueOnce([
         { ...residentRow(TARGET_ID), registered: false },
