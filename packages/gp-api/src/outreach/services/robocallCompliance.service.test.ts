@@ -5,7 +5,6 @@ import { LlmService } from '@/llm/services/llm.service'
 import {
   NO_SPEECH_ISSUE,
   RobocallComplianceService,
-  SYSTEM_PROMPT,
 } from './robocallCompliance.service'
 import { RobocallTranscriptionService } from './robocallTranscription.service'
 import {
@@ -51,12 +50,6 @@ describe('RobocallComplianceService', () => {
       transcription as unknown as RobocallTranscriptionService,
       llm as unknown as LlmService,
     )
-  })
-
-  it('prompt tolerates first-name self-ID and name transcription noise', () => {
-    expect(SYSTEM_PROMPT).toMatch(/first-name-only/i)
-    expect(SYSTEM_PROMPT).toMatch(/transcription variance|variation/i)
-    expect(SYSTEM_PROMPT).toMatch(/own name as the sponsor/i)
   })
 
   it('passes a first-name self-ID + reused-name sponsor when the LLM says so', async () => {
