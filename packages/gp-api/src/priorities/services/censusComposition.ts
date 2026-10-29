@@ -37,12 +37,19 @@ export interface MrpInputs {
   raceNameable: boolean
 }
 
+// One cell of the model's values and how many of each theme's people sit
+// in it, in the order the themes were given.
+export interface ThemeCells {
+  values: Record<string, string | null>
+  themes: number[]
+}
+
 const DISTRICT_CELLS_CACHE_MINUTES = 15
 
 // Race folds into 'other' wherever the census puts it under the share the
 // comparison bars hide, and sits out when the census has no race figures.
 const modelValues = (
-  cell: DistrictCell,
+  cell: Omit<DistrictCell, 'count'>,
   races: Record<string, number> | undefined,
 ): Record<string, string | null> => ({
   age: cell.ageBand,
@@ -75,6 +82,14 @@ export interface CensusCompositionSource {
     dataset: PeopleDataset
     answers: PersonAnswer[]
   }): Promise<MrpInputs | null>
+  // Each theme's people (one list per theme) in the model's cells, race
+  // folded as the model folds it. Null when the district or its people
+  // could not be read.
+  themeCells(input: {
+    districtId: string
+    dataset: PeopleDataset
+    themes: string[][]
+  }): Promise<ThemeCells[] | null>
   // These tracts as a boundary a list can carry. Null when no one lives in
   // them. Throws when the warehouse cannot be read: a list must not be saved
   // as though the area were known.
@@ -172,6 +187,39 @@ export class DistrictCensusComposition implements CensusCompositionSource {
       this.logger.warn(
         { err, districtId: input.districtId },
         'model inputs read failed; reading the count alone',
+      )
+      return null
+    }
+  }
+
+  async themeCells(input: {
+    districtId: string
+    dataset: PeopleDataset
+    themes: string[][]
+  }): Promise<ThemeCells[] | null> {
+    try {
+      const [{ district, cells, tractAdults }, themeCells] = await Promise.all([
+        this.districtCellsOf(input),
+        this.stats.findThemeCells(
+          input.districtId,
+          input.dataset,
+          input.themes,
+        ),
+      ])
+      if (!district || cells.length === 0) return null
+      const { races } = this.frameOf(input.districtId, {
+        district,
+        cells,
+        tractAdults,
+      })
+      return themeCells.map((cell) => ({
+        values: modelValues(cell, races),
+        themes: cell.themes,
+      }))
+    } catch (err) {
+      this.logger.warn(
+        { err, districtId: input.districtId },
+        'theme cells read failed; themes go without a voices label',
       )
       return null
     }

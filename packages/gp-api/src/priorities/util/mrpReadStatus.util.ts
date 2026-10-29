@@ -3,6 +3,8 @@ import {
   type PriorityReadStatus,
   type PriorityResultsGroup,
   type ReadRepresentativeness,
+  THEME_VOICES_PER_GROUP,
+  type ThemeVoices,
   type UnderrepresentedGroup,
 } from '@goodparty_org/contracts'
 import {
@@ -228,34 +230,63 @@ export const mrpReadStatus = (input: {
   }
 }
 
-// Each major group the read counts, other than neighborhoods: its share of
-// the district against its share of the coded answers on that dimension,
-// for the results page's petals. Answers with no known value on a
-// dimension sit out of it.
-export const answerGroups = (read: MrpRead | null): PriorityResultsGroup[] => {
-  const groups = read?.result.groups ?? []
+// Each major group the read counts, other than neighborhoods, with the name
+// the page gives it: the results page's "who you're hearing from".
+const heardGroups = (
+  read: MrpRead | null,
+): Array<{ group: MrpGroupEstimate; named: UnderrepresentedGroup }> => {
   const dimensions = dimensionsOf(read?.raceNameable ?? false).filter(
     (dimension) => dimension !== 'tract',
   )
-  const answersOn = (dimension: string): number =>
-    groups
-      .filter((group) => group.dimension === dimension)
-      .reduce((sum, group) => sum + group.answers, 0)
-  return groups.flatMap((group) => {
+  return (read?.result.groups ?? []).flatMap((group) => {
     if (!isTargeted(group, dimensions)) return []
     const named = underrepresentedGroupOf(
       group.dimension,
       group.value,
       read?.raceNameable ?? false,
     )
-    if (!named) return []
-    const total = answersOn(group.dimension)
-    return [
-      {
-        group: named,
-        districtShare: group.share,
-        answerShare: total > 0 ? group.answers / total : 0,
-      },
-    ]
+    return named ? [{ group, named }] : []
   })
+}
+
+// Each heard group's share of the district against its share of the coded
+// answers on that dimension, for the results page's petals. Answers with no
+// known value on a dimension sit out of it.
+export const answerGroups = (read: MrpRead | null): PriorityResultsGroup[] => {
+  const groups = read?.result.groups ?? []
+  const answersOn = (dimension: string): number =>
+    groups
+      .filter((group) => group.dimension === dimension)
+      .reduce((sum, group) => sum + group.answers, 0)
+  return heardGroups(read).map(({ group, named }) => {
+    const total = answersOn(group.dimension)
+    return {
+      group: named,
+      districtShare: group.share,
+      answerShare: total > 0 ? group.answers / total : 0,
+    }
+  })
+}
+
+// How many heard groups have THEME_VOICES_PER_GROUP of a theme's people:
+// strong is all of them, fair at least half, thin fewer. `cells` are the
+// theme's people in the model's cells. Undefined with no groups to count,
+// since the district could not be read.
+export const themeVoices = (
+  read: MrpRead | null,
+  cells: ReadonlyArray<{
+    values: Record<string, string | null>
+    people: number
+  }>,
+): ThemeVoices | undefined => {
+  const groups = heardGroups(read)
+  if (groups.length === 0) return undefined
+  const enough = groups.filter(
+    ({ group }) =>
+      cells
+        .filter((cell) => cell.values[group.dimension] === group.value)
+        .reduce((sum, cell) => sum + cell.people, 0) >= THEME_VOICES_PER_GROUP,
+  ).length
+  if (enough === groups.length) return 'strong'
+  return enough * 2 >= groups.length ? 'fair' : 'thin'
 }

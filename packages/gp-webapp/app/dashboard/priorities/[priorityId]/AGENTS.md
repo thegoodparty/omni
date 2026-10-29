@@ -506,6 +506,21 @@ answered. After, it shows everything below.
   with the latest answers."; with none it says "We're reading what people
   said. Themes show up here soon." instead of asking for more answers. Each send's own report keeps its
   own themes and tags; a pooled run tags nothing.
+- **Themes are ranked.** gp-api sorts them by `people`, most first, the
+  run's own `rank` breaking ties (the run ranks by notes, before
+  unconfirmed ones are dropped), and the page numbers them in that order
+  with a round "#1" badge (`aria-label` "Rank 1"), the poll synthesis
+  card's look on the `info-background` token.
+- **Enough voices.** Each theme's `voices` is `strong` when every group in
+  `groups` (the same "who you're hearing from" groups, so no
+  neighborhoods) has at least `THEME_VOICES_PER_GROUP` (3) of the theme's
+  people, `fair` when at least half do, `thin` when fewer. gp-api counts it
+  from the theme's members in the read's cells (`themeVoices` in
+  `mrpReadStatus.util.ts`). Absent when the district could not be read,
+  and the page then shows no label. The chip ("Enough voices: Strong")
+  opens a popover with the three meanings (`RESULTS_COPY.voicesMeaning`), a
+  popover so it is one tap on a phone. It is the only representativeness
+  measure on a theme; nothing shows a share or a range.
 
 ## A check asks a sample, not everyone
 

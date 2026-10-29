@@ -331,6 +331,36 @@ export const buildAnswerCellsSql = (
   return { sql, params: bag.params }
 }
 
+// How many of each theme's people fall in each of buildDistrictCellsSql's
+// cells, one column per theme in the order given. Only the counts come
+// back, never a person.
+export const buildThemeCellsSql = (
+  district: DbxDistrict,
+  themes: string[][],
+): DbxStatement => {
+  const bag = createBag()
+  const where = buildScopeSql(bag, {
+    district,
+    filters: filtersSchema.parse({
+      id: { in: [...new Set(themes.flat())] },
+    }),
+  })
+  const counts = themes
+    .map((people, index) =>
+      people.length === 0
+        ? `0 AS theme_${index}`
+        : `sum(CASE WHEN ${col('id')} IN (${idList(people)})` +
+          ` THEN 1 ELSE 0 END) AS theme_${index}`,
+    )
+    .join(', ')
+  const sql =
+    `SELECT ${ageBandSql()} AS age_band, ${genderSql()} AS gender,` +
+    ` ${tractSql()} AS tract, ${raceSql()} AS race, ${counts}` +
+    ` FROM ${district.table} v ${where}` +
+    ' GROUP BY 1, 2, 3, 4'
+  return { sql, params: bag.params }
+}
+
 // Adults per tract, over the block groups the district's people live in.
 // A block group straddling the district line counts whole: the district
 // mart's own split is not published per block group.
@@ -393,6 +423,24 @@ export const mapAnswerCells = (
       race,
       yes: Number(yes),
       count: Number(answers),
+    }),
+  )
+
+const ThemeCellSchema = DistrictCellSchema.omit({ count: true }).extend({
+  themes: z.array(z.number().int().nonnegative()),
+})
+export type ThemeCell = z.infer<typeof ThemeCellSchema>
+
+export const mapThemeCells = (
+  rows: ReadonlyArray<ReadonlyArray<string | null>>,
+): ThemeCell[] =>
+  rows.map(([ageBand, gender, tract, race, ...themes]) =>
+    ThemeCellSchema.parse({
+      ageBand,
+      gender,
+      tract,
+      race,
+      themes: themes.map(Number),
     }),
   )
 
