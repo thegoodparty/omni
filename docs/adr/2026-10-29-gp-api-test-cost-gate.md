@@ -3,7 +3,7 @@ title: gp-api CI fails a run that adds test time past fixed ceilings
 status: active
 decided_by: [swain]
 date: 2026-10-29
-code: ['#TBD']
+code: ['#3386']
 scope:
   - packages/gp-api/src/test-cost-reporter.ts
   - packages/gp-api/test-cost-budget.json

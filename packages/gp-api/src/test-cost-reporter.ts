@@ -214,10 +214,15 @@ export default class TestCostReporter implements Reporter {
     }
     if (failures.length > 0) process.exitCode = 1
 
+    const medianBootMs = median(appBootMs)
+    this.vitest.logger.log(
+      `Test cost: median useTestService() boot ${medianBootMs === undefined ? 'n/a' : `${Math.round(medianBootMs)}ms`} ` +
+        `over ${appBootMs.length} boots (ceiling ${APP_BOOT_MEDIAN_CEILING_MS}ms).`,
+    )
+
     const summaryPath = process.env.GITHUB_STEP_SUMMARY
     if (!summaryPath) return
     const shard = this.vitest.config.shard
-    const medianBootMs = median(appBootMs)
     appendFileSync(
       summaryPath,
       [
