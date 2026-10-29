@@ -470,12 +470,14 @@ describe('ListsIndex — civic panel invite audiences', () => {
         { id: 1, name: 'Civic panel invite', civicPanelInvite: true },
         { id: 2, name: 'Civic panel calls, batch 2', civicPanelInvite: true },
         { id: 3, name: 'Seniors downtown', civicPanelInvite: false },
+        { id: 4, name: 'Your civic panel', civicPanelMember: true },
       ],
     })
 
     render(<ListsIndex />)
 
     expect(screen.getByText('Seniors downtown')).toBeInTheDocument()
+    expect(screen.queryByText('Your civic panel')).not.toBeInTheDocument()
     expect(screen.queryByText('Civic panel invite')).not.toBeInTheDocument()
     expect(
       screen.queryByText('Civic panel calls, batch 2'),

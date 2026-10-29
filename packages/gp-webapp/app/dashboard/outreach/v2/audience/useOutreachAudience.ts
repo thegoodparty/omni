@@ -18,6 +18,10 @@ import { useOrganization } from '@shared/organization-picker'
 import { fetchListDetailThrottled } from 'app/dashboard/contacts/crm/lists/useListRowDetail'
 import { getContactsLabels } from 'app/dashboard/shared/contactsLabels'
 import { isUniverseList } from './universeList.util'
+import {
+  useCivicPanelAudience,
+  type CivicPanelAudience,
+} from './useCivicPanelAudience'
 import { AUTO_VOTER_FILTER_NAME_PATTERN } from 'app/dashboard/outreach/util/autoVoterFilterName.util'
 import type {
   SegmentResponse,
@@ -247,6 +251,9 @@ export interface OutreachAudience {
   freeOfferRecommendation: RecommendedList | null
   preselectedRecommendationApplied: boolean
   markPreselectedRecommendationApplied: () => void
+  // Serve's civic panel, offered first in the picker when the office has a
+  // member and the flag is on.
+  civicPanel: CivicPanelAudience
 }
 
 export const useOutreachAudience = ({
@@ -454,6 +461,13 @@ export const useOutreachAudience = ({
   // Whether the saved-list popover is up. The step owns that state; this is
   // its copy, so the count below can wait for it.
   const [pickerOpen, setPickerOpen] = useState(false)
+
+  const civicPanel = useCivicPanelAudience({
+    isElectedOfficial,
+    orgSlug,
+    lists,
+    listsQueryKey: outreachAudienceListsKey(orgSlug),
+  })
 
   const universeQuery = useQuery({
     queryKey: ['outreach-audience-universe', orgSlug, reachabilityKey],
@@ -1068,5 +1082,6 @@ export const useOutreachAudience = ({
       appliedPreselectedVariant === preselectedRecommendedVariant,
     markPreselectedRecommendationApplied: () =>
       setAppliedPreselectedVariant(preselectedRecommendedVariant ?? null),
+    civicPanel,
   }
 }
