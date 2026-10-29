@@ -527,7 +527,10 @@ import { dirname, join, relative } from 'node:path'
 // D3). The unsubscribe and forward-confirm pages are opened from email by
 // people with no session and act on a button press, and the status page reads
 // the router, so all three are client components under server page files.
-const BASELINE = 599
+// 2026-10-29: 599 -> 600 for the A2UI generated UI playground (POC #3364).
+// It holds the edited payload and the event log in state, behind a server
+// page that 404s outside development and previews.
+const BASELINE = 600
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

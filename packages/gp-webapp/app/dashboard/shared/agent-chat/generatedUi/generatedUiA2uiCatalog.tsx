@@ -1,5 +1,3 @@
-'use client'
-
 import { Fragment, useState } from 'react'
 import dynamic from 'next/dynamic'
 import { Catalog } from '@a2ui/web_core/v0_9'
