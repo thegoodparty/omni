@@ -54,6 +54,10 @@ import {
   composeHandoffWidgetTool,
   type ComposeHandoffWidgetContext,
 } from '../../../shared/agent-chat/composeHandoffWidget'
+import {
+  generatedUiWidgetTool,
+  type GeneratedUiWidgetContext,
+} from '../../../shared/agent-chat/generatedUi/generatedUiWidget'
 import { useStreamingTurn } from '../../../shared/agent-chat/useStreamingTurn'
 import { usePinnedAutoScroll } from '../../../shared/agent-chat/usePinnedAutoScroll'
 import { useDictationAppend } from '../../../shared/dictation/useDictationAppend'
@@ -285,7 +289,8 @@ const LIST_PROPOSAL_TOOL = 'present_list_proposal'
 type CosWidgetContext = CardWidgetContext &
   ClarifyWidgetContext &
   ComposeHandoffWidgetContext &
-  ManagedPanelWidgetContext
+  ManagedPanelWidgetContext &
+  GeneratedUiWidgetContext
 
 // show_list_map is deliberately not here: its map renders after the turn's
 // prose, once per turn, and moving it would change where it appears.
@@ -294,6 +299,7 @@ const cosWidgets = createWidgetRegistry<CosWidgetContext>([
   clarifyWidgetTool,
   composeHandoffWidgetTool,
   ...managedPanelWidgetTools,
+  generatedUiWidgetTool,
 ])
 
 // Pulls the widget payload back out of a persisted turn. Returns null for
@@ -1736,6 +1742,7 @@ function ChiefOfStaffChatThread({
                   onClarifyAnswer: answerClarify,
                   onComposeHandoff: handleComposeHandoff,
                   onManagedPanelInviteClosed: handleManagedPanelInviteClosed,
+                  onGeneratedUiMessage: answerClarify,
                 }}
                 onCitationClick={
                   attachmentsEnabled && conversationId
@@ -1794,6 +1801,7 @@ function ChiefOfStaffChatThread({
                 onClarifyAnswer: answerClarify,
                 onComposeHandoff: handleComposeHandoff,
                 onManagedPanelInviteClosed: handleManagedPanelInviteClosed,
+                onGeneratedUiMessage: answerClarify,
               }}
               onCitationClick={
                 attachmentsEnabled && conversationId

@@ -58,6 +58,7 @@ import { buildAskClarifyQuestionTool } from '../chat-tools/askClarifyQuestion.to
 import { buildPresentOutsideContactTool } from '../chat-tools/presentOutsideContact.tool'
 import { buildPresentOutreachProposalTool } from '../chat-tools/presentOutreachProposal.tool'
 import { buildPresentPastOutreachTool } from '../chat-tools/presentPastOutreach.tool'
+import { buildPresentGeneratedUiTool } from '../chat-tools/presentGeneratedUi.tool'
 import { buildReadPastOutreachTool } from '../chat-tools/readPastOutreach.tool'
 import { buildReadOutreachFeedbackTool } from '../chat-tools/readOutreachFeedback.tool'
 import { FeaturesService } from '@/features/services/features.service'
@@ -440,6 +441,7 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
       )
     }
     tools.compose_handoff = buildComposeHandoffTool('serve_social')
+    tools.present_generated_ui = buildPresentGeneratedUiTool()
 
     return tools
   }

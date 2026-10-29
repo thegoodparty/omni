@@ -154,6 +154,7 @@ describe('ChiefOfStaffHandler', () => {
       'crud_priorities',
       'get_briefing',
       'list_briefings',
+      'present_generated_ui',
       'present_outside_contact',
       'web_search',
     ])

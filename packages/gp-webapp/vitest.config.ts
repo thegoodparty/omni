@@ -54,8 +54,10 @@ export default defineConfig({
     // bypasses package.json, and that is the invocation that strands people.
     globalSetup: ['../contracts/scripts/vitest-global-setup.ts'],
     globals: true,
-    // Inlined so the date-fns/locale alias above reaches its imports.
-    server: { deps: { inline: [/react-day-picker/] } },
+    // Inlined so the date-fns/locale alias above reaches its imports. The
+    // A2UI packages are ESM-only, and the vm pool cannot link them (or the
+    // contracts entry that imports them) as external modules.
+    server: { deps: { inline: [/react-day-picker/, /@a2ui\//, /genui-a2ui/] } },
     exclude: EXCLUDE,
     // A vm worker keeps some memory from every context it has run, and
     // vitest's default recycle point (a share of system RAM) sits above Node's
