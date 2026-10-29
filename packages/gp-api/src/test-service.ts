@@ -5,7 +5,7 @@ import axios, { AxiosInstance } from 'axios'
 import { randomBytes } from 'crypto'
 import jwt from 'jsonwebtoken'
 import { Client } from 'pg'
-import { afterAll, beforeAll, beforeEach, expect, vi } from 'vitest'
+import { afterAll, beforeAll, beforeEach, expect, inject, vi } from 'vitest'
 import { bootstrap } from './app'
 import {
   AUTH_PROVIDER_TOKEN,
@@ -22,6 +22,8 @@ import {
 } from './test-postgres'
 import { ElectionsService } from './elections/services/elections.service'
 import { District } from './elections/types/elections.types'
+import { NestContainer } from '@nestjs/core/injector/container'
+import { appEnvOverrides } from './shared/test-utils/appEnvOverrides'
 import { appendFileSync, mkdirSync } from 'fs'
 
 const PROFILE_DIR = process.env.BOOT_PROFILE_DIR
@@ -71,6 +73,154 @@ const RESET_TIMEOUT_MS = 30_000
 // machine during a full-suite run. This is a ceiling for pathology, not a
 // budget.
 const HOOK_TIMEOUT_MS = 60_000
+
+declare module 'vitest' {
+  export interface ProvidedContext {
+    testPostgresUri: string
+    testRunId: string
+    reuseTestApp: boolean
+  }
+}
+
+const cloneTemplate = async (baseUri: string, name: string) => {
+  // Clone the schema template that globalSetup built once, rather than
+  // replaying every migration here. The copy is a near-instant Postgres
+  // operation, which is what keeps 60+ suites off a per-suite migration
+  // replay against the one shared container.
+  //
+  // Held in shared mode against globalSetup's exclusive lock. Nothing
+  // rebuilds a template in place any more, but globalSetup does sweep
+  // superseded ones, and this is what stops a sweep dropping the template
+  // this clone is reading.
+  const admin = new Client({ connectionString: baseUri })
+  await admin.connect()
+  mark('adminConnect')
+  try {
+    await admin.query(`SELECT pg_advisory_lock_shared(${TEMPLATE_LOCK_KEY})`)
+    await admin.query(`CREATE DATABASE ${name} TEMPLATE ${templateDbName()}`)
+  } finally {
+    await admin.query(`SELECT pg_advisory_unlock_shared(${TEMPLATE_LOCK_KEY})`)
+    await admin.end()
+  }
+}
+
+// One server serves every checkout on the machine, so the pool Prisma
+// would size itself (cores * 2 + 1 per worker) lets concurrent runs
+// exhaust max_connections.
+const databaseUrlFor = (baseUri: string, name: string) =>
+  `${withDatabase(baseUri, name)}?connection_limit=${TEST_POOL_LIMIT}`
+
+// The shared-modules project runs many files in one worker with one module
+// graph, so this module's state lives as long as the worker. One database and
+// one booted app then serve every file the worker runs: the per-test reset
+// already empties every table, so a fresh clone and a fresh boot per file
+// bought nothing but ~1s of setup. The worker's database is dropped by
+// globalSetup's teardown, not here, because no hook runs when a worker exits.
+type WorkerDb = { name: string; tables: string[]; sequences: string[] }
+let workerDb: Promise<WorkerDb> | undefined
+
+type InstanceSnapshot = {
+  instance: Record<string | symbol, unknown>
+  descriptors: PropertyDescriptorMap
+  collections: Array<
+    | { map: Map<unknown, unknown>; entries: Array<[unknown, unknown]> }
+    | { set: Set<unknown>; values: unknown[] }
+  >
+}
+type SharedApp = {
+  app: NestFastifyApplication
+  bootKey: string
+  port: number
+  snapshots: InstanceSnapshot[]
+}
+let sharedApp: SharedApp | undefined
+
+// Anything a provider reads from the environment while booting is fixed for
+// the life of the app, so a file that changes the environment before it boots
+// (vi.stubEnv at the top, useAppEnvOverrides) gets its own app instead of the
+// shared one.
+const IGNORED_ENV = new Set(['DATABASE_URL', 'TEST_SCHEDULER'])
+const currentBootKey = () =>
+  JSON.stringify({
+    env: Object.entries(process.env)
+      .filter(([key]) => !IGNORED_ENV.has(key) && !key.startsWith('VITEST'))
+      .sort(([a], [b]) => a.localeCompare(b)),
+    appEnvOverrides,
+  })
+
+const appInstances = (app: NestFastifyApplication) => {
+  const container = (app as unknown as { container: NestContainer }).container
+  const instances = new Set<Record<string | symbol, unknown>>()
+  for (const mod of container.getModules().values()) {
+    for (const wrappers of [mod.providers, mod.controllers, mod.injectables]) {
+      for (const wrapper of wrappers.values()) {
+        const { instance } = wrapper
+        // PrismaClient is a Proxy over lazily built model delegates; nothing a
+        // test does to it is per-file state.
+        if (instance instanceof PrismaService) continue
+        if (instance && typeof instance === 'object') {
+          instances.add(instance as Record<string | symbol, unknown>)
+        }
+      }
+    }
+  }
+  return [...instances]
+}
+
+// What a file leaves on a singleton (a reassigned field, an
+// Object.defineProperty, a filled cache or rate-limit bucket) would otherwise
+// reach every later file in the worker. Each file starts from the state the
+// providers had right after boot: own properties and the contents of Maps and
+// Sets they hold directly. Deeper state (a vendor client's internals) is not
+// covered.
+const snapshotInstances = (app: NestFastifyApplication): InstanceSnapshot[] =>
+  appInstances(app).map((instance) => ({
+    instance,
+    descriptors: Object.getOwnPropertyDescriptors(instance),
+    collections: Reflect.ownKeys(instance).flatMap((key) => {
+      const value = instance[key]
+      if (value instanceof Map) return [{ map: value, entries: [...value] }]
+      if (value instanceof Set) return [{ set: value, values: [...value] }]
+      return []
+    }),
+  }))
+
+const restoreInstances = (snapshots: InstanceSnapshot[]) => {
+  for (const { instance, descriptors, collections } of snapshots) {
+    for (const key of Reflect.ownKeys(instance)) {
+      if (!(key in descriptors)) delete instance[key]
+    }
+    for (const key of Reflect.ownKeys(descriptors)) {
+      const descriptor = descriptors[key as string]
+      const current = Object.getOwnPropertyDescriptor(instance, key)
+      const changed =
+        !current ||
+        current.value !== descriptor.value ||
+        current.get !== descriptor.get ||
+        current.set !== descriptor.set
+      if (changed && (descriptor.configurable || descriptor.writable)) {
+        Object.defineProperty(instance, key, descriptor)
+      }
+    }
+    for (const collection of collections) {
+      if ('map' in collection) {
+        collection.map.clear()
+        for (const [k, v] of collection.entries) collection.map.set(k, v)
+      } else {
+        collection.set.clear()
+        for (const v of collection.values) collection.set.add(v)
+      }
+    }
+  }
+}
+
+const listenOnRandomPort = async (app: NestFastifyApplication) => {
+  // Start the application on a random available port
+  await app.listen({ port: 0, host: '127.0.0.1' })
+  // Get the actual port the app is listening on
+  const address = app.getHttpServer().address()
+  return typeof address === 'string' || !address ? 3000 : address.port
+}
 
 /**
  * Empty every table, then seed the one user the suite authenticates as.
@@ -155,6 +305,8 @@ export const useTestService = ({
   let user: User
   let uniqueDbName: string
   let tables: string[] = []
+  let ownsApp = false
+  let ownsDatabase = false
 
   // When a hook exceeds its timeout vitest rejects the hook's promise but
   // cannot cancel the queries already in flight, so an abandoned reset runs to
@@ -167,54 +319,92 @@ export const useTestService = ({
   beforeAll(async () => {
     if (PROFILE_DIR) globalThis.__bootMarks = []
     mark('start')
-    // Generate unique database name for this test suite. It's important to use unique
-    // database names per suite to ensure that suites are isolated from each other.
-    uniqueDbName = `test_db_${randomBytes(8).toString('hex')}`
 
-    baseConnectionUri = await testPostgresUri()
+    baseConnectionUri = inject('testPostgresUri') ?? (await testPostgresUri())
     mark('testPostgresUri')
 
-    // Clone the schema template that globalSetup built once, rather than
-    // replaying every migration here. The copy is a near-instant Postgres
-    // operation, which is what keeps 60+ suites off a per-suite migration
-    // replay against the one shared container.
-    //
-    // Held in shared mode against globalSetup's exclusive lock. Nothing
-    // rebuilds a template in place any more, but globalSetup does sweep
-    // superseded ones, and this is what stops a sweep dropping the template
-    // this clone is reading.
-    const admin = new Client({ connectionString: baseConnectionUri })
-    await admin.connect()
-    mark('adminConnect')
-    try {
-      await admin.query(`SELECT pg_advisory_lock_shared(${TEMPLATE_LOCK_KEY})`)
-      await admin.query(
-        `CREATE DATABASE ${uniqueDbName} TEMPLATE ${templateDbName()}`,
-      )
-    } finally {
-      await admin.query(
-        `SELECT pg_advisory_unlock_shared(${TEMPLATE_LOCK_KEY})`,
-      )
-      await admin.end()
+    // A scheduler app fires jobs on real timers, so it must not outlive its
+    // file; the fresh-modules project re-imports the app graph per file, so a
+    // shared app there would be built from another file's modules.
+    const reuse = inject('reuseTestApp') === true && !scheduler
+
+    if (!reuse) {
+      // Generate unique database name for this test suite. It's important to use unique
+      // database names per suite to ensure that suites are isolated from each other.
+      uniqueDbName = `test_db_${randomBytes(8).toString('hex')}`
+      await cloneTemplate(baseConnectionUri, uniqueDbName)
+      ownsDatabase = true
+      process.env.DATABASE_URL = databaseUrlFor(baseConnectionUri, uniqueDbName)
+    } else {
+      workerDb ??= (async () => {
+        const name = `test_db_${inject('testRunId')}_${randomBytes(4).toString('hex')}`
+        await cloneTemplate(baseConnectionUri, name)
+        const db = new Client({
+          connectionString: withDatabase(baseConnectionUri, name),
+        })
+        await db.connect()
+        try {
+          // Read once: the database is cloned from the template and never
+          // migrated again, so the reset would otherwise re-ask for the same
+          // 88 names before every single test.
+          const tableRows = await db.query<{ tablename: string }>(
+            "SELECT tablename FROM pg_tables WHERE schemaname = 'public'",
+          )
+          const sequenceRows = await db.query<{ name: string }>(
+            "SELECT format('%I.%I', schemaname, sequencename) AS name FROM pg_sequences WHERE schemaname = 'public'",
+          )
+          return {
+            name,
+            tables: tableRows.rows.map(({ tablename }) => tablename),
+            sequences: sequenceRows.rows.map(({ name }) => name),
+          }
+        } finally {
+          await db.end()
+        }
+      })()
+      const db = await workerDb
+      tables = db.tables
+      process.env.DATABASE_URL = databaseUrlFor(baseConnectionUri, db.name)
     }
     mark('cloneDb')
-
-    // One server serves every checkout on the machine, so the pool Prisma
-    // would size itself (cores * 2 + 1 per worker) lets concurrent runs
-    // exhaust max_connections.
-    const cloneUri = withDatabase(baseConnectionUri, uniqueDbName)
-    const databaseUrl = `${cloneUri}?connection_limit=${TEST_POOL_LIMIT}`
-    // Set DATABASE_URL for Prisma with the unique database
-    process.env.DATABASE_URL = databaseUrl
 
     // Read by AppModule's ScheduleModule factory during bootstrap.
     process.env.TEST_SCHEDULER = scheduler ? 'on' : 'off'
 
-    // Create NestJS application using the same bootstrap function as production
-    app = await bootstrap({ loggingEnabled: false })
-    mark('bootstrapReturned')
-    await app.init()
-    mark('appInit')
+    const bootKey = currentBootKey()
+    let port: number
+    if (reuse && sharedApp?.bootKey === bootKey) {
+      app = sharedApp.app
+      port = sharedApp.port
+      restoreInstances(sharedApp.snapshots)
+      mark('bootstrapReturned')
+      mark('appInit')
+    } else {
+      // Create NestJS application using the same bootstrap function as production
+      app = await bootstrap({ loggingEnabled: false })
+      mark('bootstrapReturned')
+      await app.init()
+      mark('appInit')
+      port = await listenOnRandomPort(app)
+      if (reuse && !sharedApp) {
+        sharedApp = { app, bootKey, port, snapshots: snapshotInstances(app) }
+      } else {
+        ownsApp = true
+      }
+    }
+
+    if (reuse) {
+      // A fresh clone starts every sequence at 1, and a test may lean on that
+      // for the ids of the rows it creates first.
+      const { sequences } = await workerDb!
+      if (sequences.length > 0) {
+        await app
+          .get(PrismaService)
+          .$executeRawUnsafe(
+            `SELECT ${sequences.map((seq) => `setval('${seq}', 1, false)`).join(', ')}`,
+          )
+      }
+    }
 
     const authProvider = app.get<AuthProvider>(AUTH_PROVIDER_TOKEN)
     // .bind() returns any — TypeScript cannot infer the bound method signature
@@ -283,17 +473,7 @@ export const useTestService = ({
     vi.spyOn(electionsService, 'getPositionById').mockResolvedValue(null)
 
     mark('spies')
-    // Start the application on a random available port
-    await app.listen({ port: 0, host: '127.0.0.1' })
     mark('listen')
-
-    // Get the actual port the app is listening on
-    const address = app.getHttpServer().address()
-    const port =
-      typeof address === 'string'
-        ? 3000
-        : // @ts-expect-error - address is not well-ttyped
-          address.port
 
     // Create Axios client targeting the test server
     client = axios.create({
@@ -317,14 +497,16 @@ export const useTestService = ({
       return config
     })
 
-    // Read once: the database is cloned from the template and never migrated
-    // again, so the reset would otherwise re-ask for the same 88 names before
-    // every single test.
-    tables = (
-      await app.get(PrismaService).$queryRaw<Array<{ tablename: string }>>`
-        SELECT tablename FROM pg_tables WHERE schemaname = 'public'
-      `
-    ).map(({ tablename }) => tablename)
+    if (!reuse) {
+      // Read once: the database is cloned from the template and never migrated
+      // again, so the reset would otherwise re-ask for the same 88 names before
+      // every single test.
+      tables = (
+        await app.get(PrismaService).$queryRaw<Array<{ tablename: string }>>`
+          SELECT tablename FROM pg_tables WHERE schemaname = 'public'
+        `
+      ).map(({ tablename }) => tablename)
+    }
     mark('tablesQuery')
   }, HOOK_TIMEOUT_MS)
 
@@ -341,7 +523,7 @@ export const useTestService = ({
   afterAll(async () => {
     mark('afterAllStart')
     // Close the NestJS application
-    if (app) {
+    if (app && ownsApp) {
       await app.close()
     }
     mark('appClose')
@@ -352,7 +534,11 @@ export const useTestService = ({
     // of them, which is what leaves a "warm" container measurably slower to
     // test against than a fresh one. FORCE covers any connection app.close()
     // left behind.
-    if (!baseConnectionUri) return
+    if (!baseConnectionUri || !ownsDatabase) {
+      mark('dropDb')
+      flushProfile(expect.getState().testPath ?? 'unknown')
+      return
+    }
     const admin = new Client({ connectionString: baseConnectionUri })
     await admin.connect()
     try {

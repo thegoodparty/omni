@@ -1,4 +1,6 @@
 import { Client } from 'pg'
+import { randomBytes } from 'crypto'
+import type { TestProject } from 'vitest/node'
 import {
   TEMPLATE_LOCK_KEY,
   TEMPLATE_PREFIX,
@@ -36,8 +38,13 @@ const CREATED_AT =
 // rebuild it, and one on different migrations builds its own. Nothing is
 // dropped and rebuilt in place, which is what the old fixed name required and
 // what forced the container to be scoped per checkout.
-export default async () => {
+export default async (project: TestProject) => {
   const baseUri = await testPostgresUri()
+  // Resolving the container goes through the Docker API, ~50-500ms a call, so
+  // every suite reads the URI from here instead of asking again.
+  project.provide('testPostgresUri', baseUri)
+  const runId = randomBytes(6).toString('hex')
+  project.provide('testRunId', runId)
 
   // One probe before any other work, so that a sidecar that never came up
   // reads as broken infrastructure instead of as hundreds of failing tests.
@@ -61,6 +68,25 @@ export default async () => {
   }
 
   const template = templateDbName()
+
+  // Each shared-modules worker clones one database and keeps it for every
+  // file it runs; a worker gets no hook when it exits, so they are dropped
+  // here once the whole run is over.
+  const dropWorkerDatabases = async () => {
+    const client = new Client({ connectionString: baseUri })
+    await client.connect()
+    try {
+      const { rows } = await client.query<{ datname: string }>(
+        'SELECT datname FROM pg_database WHERE datname LIKE $1',
+        [`test_db_${runId}_%`],
+      )
+      for (const { datname } of rows) {
+        await client.query(`DROP DATABASE IF EXISTS "${datname}" WITH (FORCE)`)
+      }
+    } finally {
+      await client.end()
+    }
+  }
 
   const admin = new Client({ connectionString: baseUri })
   await admin.connect()
@@ -100,7 +126,7 @@ export default async () => {
       'SELECT 1 FROM pg_database WHERE datname = $1',
       [template],
     )
-    if (existing.rowCount) return
+    if (existing.rowCount) return dropWorkerDatabases
 
     // Build under a scratch name and publish with a rename. CREATE DATABASE
     // makes a database visible before the migrations below finish replaying
@@ -127,4 +153,5 @@ export default async () => {
     await admin.query(`SELECT pg_advisory_unlock(${TEMPLATE_LOCK_KEY})`)
     await admin.end()
   }
+  return dropWorkerDatabases
 }

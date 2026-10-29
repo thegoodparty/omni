@@ -125,6 +125,7 @@ export default defineConfig({
           include: TEST_FILES,
           exclude: [...configDefaults.exclude, ...needsFreshModules],
           isolate: false,
+          provide: { reuseTestApp: true },
         },
       },
       {
@@ -132,6 +133,7 @@ export default defineConfig({
         test: {
           name: 'fresh-modules',
           include: needsFreshModules,
+          provide: { reuseTestApp: false },
         },
       },
     ],

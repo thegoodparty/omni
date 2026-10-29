@@ -122,7 +122,7 @@ const time = async <T>(label: string, fn: () => Promise<T>): Promise<T> => {
   }
 }
 
-test(
+test.skipIf(!process.env.BOOT_PROFILE_RUNS)(
   'boot profile',
   async () => {
     const session = new Session()
