@@ -31,12 +31,18 @@ pads `var(--chat-dock-height)` plus 8rem so the last card clears the bar.
   card), else `start` at 0 members, else `building`.
 - **Hero** (`CivicPanelHero`): the stage's title and line
   (`COPY.hero`; building names the place, "{members} {place} residents
-  are ready to share their views, on the way to {goal}."), the goal as 100 seats (`SeatArc` from `CivicPanelSeats`,
-  `quiet`, on `plainSeats`: filled is members over goal, in arc order, in
-  bands of the brand's three families) from `lg`, below it a `Progress`
-  bar (CSS breakpoints, both always rendered; "{members} of {goal} residents
-  have joined" sits over the bar only at the start, since every other
-  stage's line already says it), then the four milestones, First
+  are ready to share their views, on the way to {goal}."), the goal as 100 seats from `lg`
+  (`sourceSeats`: filled is members over goal as in `plainSeats`, split by
+  how members joined, text then door then phone, each in its color) with a
+  legend of the sources plus Empty seat, and below `lg` a bar of the same
+  three segments (each a source's share of the goal) with the legend minus
+  Empty seat (CSS breakpoints, both always rendered; "{members} of {goal}
+  residents have joined" sits over the bar only at the start, since every
+  other stage's line already says it). The sources are the summary's
+  `joinedBy`, folded by `joinedBySources`: added by hand counts with the
+  door. Colors: `primary` for text, `brand-midnight-800` for the door,
+  `orange-400` for the phone, apart in lightness as well as hue. A source
+  with no members is left out of the legend. Then the four milestones, First
   yes, `PANEL_MIN_MEMBERS_FOR_BALANCE` members, Halfway and Full civic panel
   (`milestones`, from `progress.goal`, never a fixed number).
 - **Who joins first** (`CivicPanelFirstJoin`) at 0 members: the first
@@ -52,8 +58,17 @@ pads `var(--chat-dock-height)` plus 8rem so the last card clears the bar.
   shows its `label` or "A part of {place}", never its number. A label
   starts its row, so its first letter is capitalized (`capitalizeFirst`:
   "Around Calm Water Dr"); mid-sentence uses keep it as stored. This is the
-  page's one answer to who's next, and it never tells the official to
-  invite: GoodParty sends the invites.
+  page's one answer to who's next. While GoodParty is inviting it never
+  tells the official to invite. Once exhausted the line is "Everyone we can
+  text has been invited. Reach these groups at the door or by phone." and
+  each row (not "some parts of your district") has Knock doors and Call
+  (lucide `DoorOpenIcon`, `PhoneIcon`): under the name and seats on a
+  phone, 44px targets, inline at the row's end from `lg`. Each posts
+  `POST /v1/contacts/civic-panel/reach-lists` (`useReachList`) with the
+  row's group and a list name ("Knock doors: {row}", "Call: {row}"), then
+  Knock doors opens `/dashboard/door-knocking?create=1&listId=` and Call
+  mounts `PhoneBankingFlow` (Serve surface) on the list. A 422 says
+  nobody there is left to reach that way.
 - **Rail**: the Invites card (`ManagedPanelControls`, only with a managed
   panel that is not stopped): one status line, while building Next invites
   (`managedPanelNextInvitesAt`: `nextWaveAt`, else `firstSendDate` before
@@ -76,7 +91,8 @@ pads `var(--chat-dock-height)` plus 8rem so the last card clears the bar.
   this page's question, `COPY.chatPlaceholder` ("Ask who still needs to
   join your civic panel", with "civic panel" held together), or
   `COPY.chatPlaceholderFull` once the stage is `ready` (no one left to
-  recruit); a page placeholder may wrap to two lines on a phone instead of
+  recruit), or `COPY.chatPlaceholderExhausted` ("Ask how to reach the
+  rest") while `exhausted`; a page placeholder may wrap to two lines on a phone instead of
   being cut off.
 - **Analytics.** The page fires `Contacts - Civic Panel Viewed` once per visit
   (members, goal, expected answers, `howCloseStatus` from the summary's

@@ -1294,7 +1294,8 @@ const unitKey = (columns: readonly string[]): string =>
     .map((name) => `upper(trim(coalesce(cast(${col(name)} AS STRING), '')))`)
     .join(', ')})`
 
-const currentUnitKey = (): string => unitKey(DOOR_KNOCKING_UNIT_KEY_COLUMNS)
+export const currentUnitKey = (): string =>
+  unitKey(DOOR_KNOCKING_UNIT_KEY_COLUMNS)
 const legacyUnitKey = (): string =>
   unitKey(DOOR_KNOCKING_LEGACY_UNIT_KEY_COLUMNS)
 

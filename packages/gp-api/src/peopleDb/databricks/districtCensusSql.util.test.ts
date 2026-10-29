@@ -9,6 +9,8 @@ import {
   buildDistrictCompositionSql,
   buildDistrictTractAdultsSql,
   buildPoolCellsSql,
+  buildReachHomesSql,
+  buildReachPeopleSql,
   buildRespondentCellsSql,
   buildTractGridCellsSql,
   buildTractPlacesSql,
@@ -17,6 +19,7 @@ import {
   mapAnswerCells,
   mapDistrictCells,
   mapGridCells,
+  mapReachHomes,
   mapRespondentCells,
   mapTractAdults,
   mapTractPlaces,
@@ -470,5 +473,82 @@ describe('sampleWeightSql', () => {
     )
     expect(sql).toContain('WHEN :p0 THEN CAST(:p1 AS DOUBLE) ELSE 1.0 END')
     expect(bag.params.map((p) => p.value)).toEqual(['black', '1.6', '0.5', '2'])
+  })
+})
+
+describe('buildReachPeopleSql', () => {
+  it('takes a tract with no cell phone on file, leaving out members', () => {
+    const { sql, params } = buildReachPeopleSql({
+      district: DISTRICT,
+      group: { kind: 'tract', tract: '53017950100' },
+      channel: 'door',
+      excludeIds: [PERSON_ID],
+      limit: 10_000,
+    })
+
+    expect(sql).toMatch(/^SELECT v\.`id` AS id FROM /)
+    expect(sql).toContain('substr(v.`Census_Block_Group_Geoid`, 1, 11) = :p')
+    expect(sql).toContain('v.`VoterTelephones_CellPhoneFormatted` IS NULL')
+    expect(sql).not.toContain('Landline')
+    expect(sql).toContain(PERSON_ID)
+    expect(sql).toMatch(/ORDER BY xxhash64\(v\.`id`\), v\.`id` LIMIT :p\d+$/)
+    expect(params.map((param) => param.value)).toContain('53017950100')
+    expect(params.at(-1)).toMatchObject({ type: 'INT' })
+  })
+
+  it('takes an age band with a landline and no cell phone for a call', () => {
+    const { sql, params } = buildReachPeopleSql({
+      district: DISTRICT,
+      group: { kind: 'age', band: '65plus' },
+      channel: 'phone',
+      excludeIds: [],
+      limit: 50,
+    })
+
+    expect(sql).toContain("THEN '65plus'")
+    expect(sql).toContain(
+      'v.`VoterTelephones_CellPhoneFormatted` IS NULL AND v.`VoterTelephones_LandlineFormatted` IS NOT NULL',
+    )
+    expect(sql).not.toContain('NOT IN')
+    expect(params.map((param) => param.value)).toContain('65plus')
+  })
+
+  it('takes a precinct by its county and precinct', () => {
+    const { sql, params } = buildReachPeopleSql({
+      district: DISTRICT,
+      group: { kind: 'precinct', county: 'Buncombe', precinct: '01.1' },
+      channel: 'door',
+      excludeIds: [],
+      limit: 50,
+    })
+
+    expect(sql).toMatch(/v\.`County` = :p\d+ AND v\.`Precinct` = :p\d+/)
+    expect(params.map((param) => param.value)).toEqual(
+      expect.arrayContaining(['Buncombe', '01.1']),
+    )
+  })
+})
+
+describe('buildReachHomesSql', () => {
+  it('counts homes with no cell phone, and of them with a landline', () => {
+    const { sql } = buildReachHomesSql({
+      district: DISTRICT,
+      group: { kind: 'gender', value: 'female' },
+      excludeIds: [PERSON_ID],
+    })
+
+    expect(sql).toMatch(
+      /^SELECT count\(DISTINCT CASE WHEN v\.`VoterTelephones_CellPhoneFormatted` IS NULL THEN concat_ws\(.*\) END\) AS no_cell, count\(DISTINCT CASE WHEN .* AND v\.`VoterTelephones_LandlineFormatted` IS NOT NULL THEN .* END\) AS landline FROM /,
+    )
+    expect(sql).not.toMatch(/FirstName|LastName/)
+    expect(sql).toContain(PERSON_ID)
+  })
+
+  it('maps the two counts', () => {
+    expect(mapReachHomes([['120', '45']])).toEqual({
+      noCell: 120,
+      landline: 45,
+    })
+    expect(mapReachHomes([])).toEqual({ noCell: 0, landline: 0 })
   })
 })

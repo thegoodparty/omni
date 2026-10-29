@@ -80,6 +80,8 @@ import {
   buildDistrictCompositionSql,
   buildDistrictTractAdultsSql,
   buildPoolCellsSql,
+  buildReachHomesSql,
+  buildReachPeopleSql,
   buildRespondentCellsSql,
   buildTractGridCellsSql,
   buildTractPlacesSql,
@@ -87,6 +89,7 @@ import {
   mapAnswerCells,
   mapDistrictCells,
   mapGridCells,
+  mapReachHomes,
   mapRespondentCells,
   mapTractAdults,
   mapTractPlaces,
@@ -95,6 +98,9 @@ import {
   type DistrictCell,
   type DistrictCells,
   type PersonAnswer,
+  type ReachChannelCell,
+  type ReachGroupCell,
+  type ReachHomes,
   type TractPlace,
   type WeightingInputs,
 } from './districtCensusSql.util'
@@ -301,6 +307,33 @@ export class DatabricksVoterService {
       }),
     )
     return mapDistrictCells(rows)
+  }
+
+  // The ids of the people in a group a text cannot reach (no cell phone on
+  // file; for a call, with a landline), up to `limit`.
+  async findReachPeople(
+    districtId: string,
+    dataset: PeopleDataset,
+    args: {
+      group: ReachGroupCell
+      channel: ReachChannelCell
+      excludeIds: readonly string[]
+      limit: number
+    },
+  ): Promise<string[]> {
+    const district = await this.resolveDistrict(districtId, dataset)
+    const { rows } = await this.run(buildReachPeopleSql({ district, ...args }))
+    return rows.flatMap((row) => (row[0] ? [row[0]] : []))
+  }
+
+  async findReachHomes(
+    districtId: string,
+    dataset: PeopleDataset,
+    args: { group: ReachGroupCell; excludeIds: readonly string[] },
+  ): Promise<ReachHomes> {
+    const district = await this.resolveDistrict(districtId, dataset)
+    const { rows } = await this.run(buildReachHomesSql({ district, ...args }))
+    return mapReachHomes(rows)
   }
 
   async getListDetailAggregates(

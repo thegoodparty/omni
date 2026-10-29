@@ -32,6 +32,7 @@ const COPY: OutreachAudienceCopy = {
 
 const summary = (members: number): CivicPanelSummary => ({
   members,
+  joinedBy: { text: 0, door: 0, phone: 0, hand: 0 },
   reachedRecently: 0,
   askableNow: members,
   lastOutreachAt: null,

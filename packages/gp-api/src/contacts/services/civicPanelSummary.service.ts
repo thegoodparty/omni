@@ -6,17 +6,21 @@ import {
   PANEL_ACTIVE_WINDOW_DAYS,
   panelExpectedAnswers,
   panelGoalMembers,
+  NO_CIVIC_PANEL_JOINS,
   type CivicPanelComposition,
+  type CivicPanelJoinedBy,
   type CivicPanelSummary,
 } from '@goodparty_org/contracts'
 import { subDays } from 'date-fns'
 import {
   CivicPanelStatus,
   ContactStatusField,
+  ContactStatusSource,
   ManagedCivicPanelStatus,
   Organization,
 } from '../../generated/prisma'
 import { PrismaService } from '@/prisma/prisma.service'
+import { CivicPanelHistoryService } from '@/contactInteraction/services/civicPanelHistory.service'
 import { ContactStatusService } from '@/contactInteraction/services/contactStatus.service'
 import { ContactsMadeResolutionService } from '@/contactInteraction/services/contactsMadeResolution.service'
 import { VoterQueryService } from '@/peopleDb/services/voterQuery.service'
@@ -38,6 +42,17 @@ import { CensusTractNameService } from './censusTractName.service'
 // page and the Constituents section do not each re-read the warehouse.
 const MIX_CACHE_MS = 15 * 60 * 1000
 
+// Each join source's share of the summary's `joinedBy`. A join from the
+// retired share page came by text.
+const JOINED_BY_BUCKET: Record<ContactStatusSource, keyof CivicPanelJoinedBy> =
+  {
+    [ContactStatusSource.sms]: 'text',
+    [ContactStatusSource.share_page]: 'text',
+    [ContactStatusSource.door_knock]: 'door',
+    [ContactStatusSource.phone_banking]: 'phone',
+    [ContactStatusSource.manual]: 'hand',
+  }
+
 // Serve's civic panel as a whole: how many are on it, how many can be
 // asked now, where it stands toward its goal, and who is on it
 // beside the district.
@@ -46,6 +61,7 @@ export class CivicPanelSummaryService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly contactStatusService: ContactStatusService,
+    private readonly civicPanelHistory: CivicPanelHistoryService,
     private readonly contactsMadeResolutionService: ContactsMadeResolutionService,
     private readonly contactsService: ContactsService,
     @Inject(CENSUS_COMPOSITION_SOURCE)
@@ -93,6 +109,7 @@ export class CivicPanelSummaryService {
     if (members.length === 0) {
       return {
         members: 0,
+        joinedBy: NO_CIVIC_PANEL_JOINS,
         reachedRecently: 0,
         askableNow: 0,
         lastOutreachAt: null,
@@ -101,7 +118,7 @@ export class CivicPanelSummaryService {
     }
     // The notContactedRecently list filter's rule, so askableNow is exactly
     // who a "Not contacted in the last 30 days" panel list holds.
-    const [reachedRecently, [lastOutreach]] = await Promise.all([
+    const [reachedRecently, [lastOutreach], joinedBy] = await Promise.all([
       this.contactsMadeResolutionService.countContactedSinceAmong(
         organization.slug,
         subDays(new Date(), CONTACT_REST_DAYS),
@@ -114,9 +131,11 @@ export class CivicPanelSummaryService {
         members,
         1,
       ),
+      this.joinedBy(organization, members.length),
     ])
     return {
       members: members.length,
+      joinedBy,
       reachedRecently,
       askableNow: members.length - reachedRecently,
       lastOutreachAt: lastOutreach
@@ -124,6 +143,26 @@ export class CivicPanelSummaryService {
         : null,
       ...standing,
     }
+  }
+
+  // The members by how they last joined. A member with no join event (a
+  // status written before the log) counts as added by hand, so the four
+  // always add up to the members.
+  private async joinedBy(
+    organization: Organization,
+    members: number,
+  ): Promise<CivicPanelJoinedBy> {
+    const counts = await this.civicPanelHistory.memberCountsByLatestJoinSource(
+      organization.slug,
+    )
+    const joinedBy = { ...NO_CIVIC_PANEL_JOINS }
+    for (const [source, count] of counts) {
+      joinedBy[JOINED_BY_BUCKET[source]] += count
+    }
+    const counted =
+      joinedBy.text + joinedBy.door + joinedBy.phone + joinedBy.hand
+    joinedBy.hand += Math.max(0, members - counted)
+    return joinedBy
   }
 
   private async memberIds(organization: Organization): Promise<string[]> {

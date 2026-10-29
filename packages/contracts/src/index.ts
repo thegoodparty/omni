@@ -205,9 +205,23 @@ export {
   type CivicPanelCompositionGroup,
   CivicPanelCompositionSchema,
   type CivicPanelComposition,
+  CivicPanelJoinedBySchema,
+  type CivicPanelJoinedBy,
+  NO_CIVIC_PANEL_JOINS,
   CivicPanelSummarySchema,
   type CivicPanelSummary,
 } from './people/CivicPanelSummary.schema'
+export {
+  CIVIC_PANEL_REACH_CHANNELS,
+  CivicPanelReachChannelSchema,
+  type CivicPanelReachChannel,
+  CivicPanelReachGroupSchema,
+  type CivicPanelReachGroup,
+  CreateCivicPanelReachListInputSchema,
+  type CreateCivicPanelReachListInput,
+  CivicPanelReachListResponseSchema,
+  type CivicPanelReachList,
+} from './people/CivicPanelReach.schema'
 export {
   MANAGED_CIVIC_PANEL_STATUSES,
   ManagedCivicPanelStatusSchema,
