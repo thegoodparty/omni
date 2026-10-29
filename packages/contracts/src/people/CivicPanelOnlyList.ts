@@ -1,7 +1,7 @@
 // Whether a saved list can only ever hold current civic panel members, read
 // off its criteria alone. Outreach to such a list is outreach to the panel:
-// a text carries the LEAVE line instead of the JOIN ask, and a door or call
-// asks whether they want to stay on rather than whether they want to join.
+// a text never asks them to join, and a door or call asks whether they
+// want to stay on rather than whether they want to join.
 //
 // Mirrors how gp-api resolves the panel filters (ContactsService
 // .resolveCivicPanelMember). The status group ORs member, left and never

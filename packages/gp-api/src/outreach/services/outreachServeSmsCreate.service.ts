@@ -312,17 +312,19 @@ export class OutreachServeSmsCreateService extends createPrismaBase(
     }
     const filterInput: ContactsFilterResolutionInput = { ...filter }
 
-    // The LEAVE line belongs to a send that reaches panel members alone, and
-    // a send never carries both civic panel lines: one asks people on, the
-    // other offers members a way off.
-    const asksToJoinCivicPanel = findCivicPanelJoinLine(input.message) !== null
-    const offersCivicPanelLeave =
-      findCivicPanelLeaveLine(input.message) !== null
-    if (asksToJoinCivicPanel && offersCivicPanelLeave) {
+    // Only the managed civic panel's invite asks people to join, and its
+    // waves write their rows without this route, so a JOIN line typed or
+    // pasted into any text created here is refused.
+    if (findCivicPanelJoinLine(input.message) !== null) {
       throw new BadRequestException(
-        "A text can't ask people to join your civic panel and offer a way to leave it. Remove one of those lines and try again.",
+        'Only the invite we send to build your civic panel can ask people to join it. Remove that line and try again.',
       )
     }
+    // The composer no longer writes the LEAVE line (STOP already takes a
+    // member off the panel), but a draft written before still carries it,
+    // and it only belongs on a send that reaches panel members alone.
+    const offersCivicPanelLeave =
+      findCivicPanelLeaveLine(input.message) !== null
     if (offersCivicPanelLeave && !isCivicPanelOnlyList(filter)) {
       throw new BadRequestException(
         'Only a text to your civic panel can offer a way to leave it. Remove that line and try again.',
@@ -359,9 +361,8 @@ export class OutreachServeSmsCreateService extends createPrismaBase(
       status: OutreachStatus.pending_payment,
       name: input.name,
       message: input.message,
-      // Read off the message, never a request flag, so the stored text and
-      // whether the ingest honors JOIN cannot disagree.
-      asksToJoinCivicPanel,
+      // Read off the message, never a request flag. asksToJoinCivicPanel
+      // keeps its default: a send created here never asks.
       offersCivicPanelLeave,
       imageUrl: input.imageUrl,
       // Date only. `date` (a UTC instant) and `scheduledLocalTime` stay

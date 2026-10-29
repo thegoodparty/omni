@@ -24,8 +24,6 @@ import {
   checkSmsStandards,
   findSmsRestrictedWords,
   findCivicPanelJoinLine,
-  findCivicPanelLeaveLine,
-  isCivicPanelOnlyList,
   MANAGED_CIVIC_PANEL_CONSENT_VERSION,
   mergeTagToken,
   PRICE_PER_TEXT,
@@ -118,7 +116,6 @@ import { ServeSmsScheduleStep } from './ServeSmsScheduleStep'
 import { SmsComposeStep, type SmsRequiredPart } from './SmsComposeStep'
 import { SmsReviewStep } from './SmsReviewStep'
 import { PHONE_LIST_BUILD_POLL_LIMIT } from './smsPhoneListPollLimit'
-import { useServeCitizenPanelsFlag } from 'app/shared/experiments/serveCitizenPanelsFlag'
 import { MANAGED_PANEL_COPY } from 'app/dashboard/contacts/citizens-panel/managedPanelCopy'
 import {
   addGreetingBack,
@@ -131,8 +128,7 @@ import {
   managedInviteBody,
   composeServeScript,
   paidForByLine,
-  withCivicPanelJoin,
-  withCivicPanelLines,
+  withOptOutUnderLastLine,
   ensureSmsIdentification,
   identificationIntro,
   provisionalCommitteeName,
@@ -374,8 +370,6 @@ interface SmsFlowProps {
   // paid one reads as sent and cannot be paid twice) and, on a priority, the
   // paid send puts its check out.
   proposalLink?: ProposalLink
-  // Serve: open with the civic panel ask on, as a chat card asked for.
-  initialAsksToJoinCivicPanel?: boolean
   // The caller saved and picked the list (preselectedListId), as a chat card
   // does, so with a seeded message the flow lands on the message.
   audienceSettled?: boolean
@@ -569,7 +563,6 @@ export const SmsFlow = ({
   initialPurpose,
   proposedAudience,
   proposalLink,
-  initialAsksToJoinCivicPanel = false,
   audienceSettled = false,
   reportBackForOutreachId,
   roundTwoSize,
@@ -622,31 +615,12 @@ export const SmsFlow = ({
   // The whole message as sent. The greeting, disclaimer and opt-out line
   // live in it as editable text rather than around it as separate regions.
   const [message, setMessage] = useState('')
-  // Serve only, behind serve-citizen-panels: whether this text asks people to
-  // reply JOIN for the official's civic panel. Every message the flow
-  // composes carries the line while it is on, and the toggle adds or removes
-  // it from the current one.
-  const { enabled: citizenPanelsEnabled } = useServeCitizenPanelsFlag(
-    surface.isServe,
-  )
-  const [asksToJoinCivicPanel, setAsksToJoinCivicPanelState] = useState(false)
-  // The seed is signed in an effect that can run in the same commit as the
-  // open that set this, while state still reads the last session's value; it
-  // reads the ref so a card's ask is not dropped on the way in.
-  const asksToJoinCivicPanelRef = useRef(false)
-  const setAsksToJoinCivicPanel = (asks: boolean) => {
-    asksToJoinCivicPanelRef.current = asks
-    setAsksToJoinCivicPanelState(asks)
-  }
-  // The managed panel's invite is its ask, so the ask cannot be unticked.
-  const civicPanelAskLocked = managed
-  // A report back goes to the people already asked, so it never asks them
-  // to join the panel.
-  const isReportBack = surface.isServe && purpose === REPORT_BACK_PURPOSE
-  const asksToJoin =
-    surface.isServe &&
-    !isReportBack &&
-    (asksToJoinCivicPanel || civicPanelAskLocked)
+  // A Serve text from a priority card ends on the residents' calls to
+  // action together: the reply instruction the assistant wrote, then the
+  // opt-out directly under it. Only the managed invite asks people to join
+  // the civic panel, and it composes its own lines.
+  const optOutUnderLastLine =
+    surface.isServe && !managed && proposalLink?.priorityId !== undefined
   // A report back's audience is one earlier send, which only its card can
   // name, so the picker never offers it.
   // The panel invite only goes out in the managed panel's waves.
@@ -841,20 +815,8 @@ export const SmsFlow = ({
     audience.mode === 'filters' &&
     audience.builderCount !== undefined &&
     audience.builderCount > SMS_MAX_RECIPIENTS
-  // A text to civic panel members alone offers them a way off the panel in
-  // place of the JOIN ask: the LEAVE line. Read off the picked list's
-  // own criteria, the rule gp-api checks the create against.
-  const offersCivicPanelLeave =
-    surface.isServe &&
-    citizenPanelsEnabled &&
-    selectedList !== null &&
-    isCivicPanelOnlyList(selectedList)
-  const panelLines = {
-    join: asksToJoin && !offersCivicPanelLeave,
-    leave: offersCivicPanelLeave,
-  }
   const composeMessage = (body: string, committee: string | null) =>
-    withCivicPanelLines(surface.composeMessage(body, committee), panelLines)
+    surface.composeMessage(body, committee)
 
   // Win p2p SMS hold billing: the pay step can render on the pre-pay estimate
   // before the phone-list build is ready (gp-api runs the matching rollout
@@ -920,8 +882,6 @@ export const SmsFlow = ({
       setMessage(initialScript ?? '')
       seedUncheckedRef.current = null
       setOwnWords(true)
-      asksToJoinCivicPanelRef.current = true
-      setAsksToJoinCivicPanelState(true)
       setUndoText(null)
       setToneDrafts({})
       setComposeContinueAttempts(0)
@@ -940,24 +900,17 @@ export const SmsFlow = ({
               : 'audience',
     )
     // A card that names its purpose as well as its words (a report back)
-    // keeps that purpose, so the flow treats the send as the purpose's own:
-    // a report back never gets the panel ask.
+    // keeps that purpose, so the flow treats the send as the purpose's own.
     setPurpose(initialPurpose ?? (initialScript ? 'custom' : carriedPurpose))
     resetEventDetails()
     confirmedEventRef.current = null
     setTone('warm')
-    const asks =
-      surface.isServe &&
-      carriedPurpose !== REPORT_BACK_PURPOSE &&
-      initialAsksToJoinCivicPanel
     const seeded = initialScript
-      ? withCivicPanelJoin(surface.composeMessage(initialScript, null), asks)
+      ? surface.composeMessage(initialScript, null)
       : ''
     loadMessage(seeded)
     seedUncheckedRef.current = initialScript || null
     setOwnWords(Boolean(initialScript))
-    asksToJoinCivicPanelRef.current = asks
-    setAsksToJoinCivicPanelState(asks)
     setUndoText(null)
     setToneDrafts({})
     resetAudience()
@@ -992,7 +945,6 @@ export const SmsFlow = ({
     resetEventDetails,
     initialScript,
     initialPurpose,
-    initialAsksToJoinCivicPanel,
     preselectedRecommendedVariant,
     resumeDraft,
     surface,
@@ -1096,15 +1048,9 @@ export const SmsFlow = ({
     // Repaired as a body, then composed: the identification follows the
     // greeting. Composed without a committee; the footer effect below adds
     // the line the message should name.
-    const repaired = withCivicPanelLines(
-      surface.composeMessage(withIdentification(seed, 'warm'), null),
-      {
-        join:
-          surface.isServe &&
-          asksToJoinCivicPanelRef.current &&
-          !offersCivicPanelLeave,
-        leave: offersCivicPanelLeave,
-      },
+    const repaired = surface.composeMessage(
+      withIdentification(seed, 'warm'),
+      null,
     )
     loadMessage(repaired)
     // eslint-disable-next-line react-hooks/exhaustive-deps -- runs once per seed, when the name resolves
@@ -1142,16 +1088,11 @@ export const SmsFlow = ({
   // it: a disclaimer they deleted is theirs to add back, not ours to restore
   // under them.
   const loadMessage = (next: string) => {
-    setMessage(upgradeFooter(next))
+    const upgraded = upgradeFooter(next)
+    setMessage(
+      optOutUnderLastLine ? withOptOutUnderLastLine(upgraded) : upgraded,
+    )
   }
-  // The list can settle after the message was composed (a card's list
-  // resolving after its seed) or change under it (back to the audience step
-  // for another list), so the civic panel line follows the list.
-  useEffect(() => {
-    if (!open || !surface.isServe || message === '') return
-    loadMessage(withCivicPanelLines(message, panelLines))
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- runs when the list changes, not per keystroke
-  }, [offersCivicPanelLeave])
   // The committee resolves after the flow opens, so a message composed
   // before it has the opt-out line alone. Same upgrade a resumed draft gets.
   useEffect(() => {
@@ -1181,19 +1122,9 @@ export const SmsFlow = ({
   const standardsFailures = rawStandards.failures.filter(
     (rule) => !ignoredStandardsRules.includes(rule),
   )
-  // The panel lines are no standards rule, but the reply reader only hears
-  // JOIN, and the create only offers LEAVE, on a send carrying the exact line.
-  const missingPanelLines: SmsRequiredPart[] = [
-    ...(panelLines.join && findCivicPanelJoinLine(composedMessage) === null
-      ? (['civic_panel_join'] as const)
-      : []),
-    ...(panelLines.leave && findCivicPanelLeaveLine(composedMessage) === null
-      ? (['civic_panel_leave'] as const)
-      : []),
-  ]
   const standards = {
-    passed: standardsFailures.length === 0 && missingPanelLines.length === 0,
-    failures: [...standardsFailures, ...missingPanelLines],
+    passed: standardsFailures.length === 0,
+    failures: standardsFailures,
   }
   const bracketsToFill = unfilledBrackets(message)
 
@@ -1311,25 +1242,17 @@ export const SmsFlow = ({
   // wrote them, because gp-api masks them. One that does not (a gp-api from
   // before masking, mid-deploy) has them composed back around its body, so a
   // polish can never send without the disclaimer or opt-out.
-  // The regions come from the message without its civic panel line: with
-  // one, the second paragraph is the JOIN line, not the footer, and taking
-  // it as the footer sent the ask twice and dropped the opt-out. The line
-  // the message should carry goes back above the opt-out afterwards.
+  // Any civic panel line in the reply is dropped: no text the flow sends
+  // carries one.
   const keepSystemRegions = (reply: string): string => {
     const [greeting = '', footer = ''] = surface
       .composeMessage('', footerCommittee)
       .split('\n\n')
-    return withCivicPanelLines(
-      restoreSmsSystemRegions(reply, {
-        greeting,
-        footer,
-        token: mergeTagToken(
-          'first_name',
-          surface.isServe ? 'serve' : 'peerly',
-        ),
-      }),
-      panelLines,
-    )
+    return restoreSmsSystemRegions(reply, {
+      greeting,
+      footer,
+      token: mergeTagToken('first_name', surface.isServe ? 'serve' : 'peerly'),
+    })
   }
 
   const requestDraft = (
@@ -1523,20 +1446,20 @@ export const SmsFlow = ({
   const handleAddRequiredBack = (rule: SmsRequiredPart) => {
     const [greeting = ''] = surface.composeMessage('', null).split('\n\n')
     const next =
-      rule === 'civic_panel_join' || rule === 'civic_panel_leave'
-        ? withCivicPanelLines(message, panelLines)
-        : rule === 'opt_out_line'
-          ? addOptOutBack(message)
-          : rule === 'first_name_token'
-            ? addGreetingBack(message, greeting)
-            : rule === 'candidate_name'
-              ? addIdentificationBack(message, {
-                  greeting,
-                  intro: introFor(tone),
-                })
-              : rule === 'paid_for_by' && footerCommittee
-                ? addPaidForByBack(message, footerCommittee)
-                : message
+      rule === 'opt_out_line'
+        ? optOutUnderLastLine
+          ? withOptOutUnderLastLine(addOptOutBack(message))
+          : addOptOutBack(message)
+        : rule === 'first_name_token'
+          ? addGreetingBack(message, greeting)
+          : rule === 'candidate_name'
+            ? addIdentificationBack(message, {
+                greeting,
+                intro: introFor(tone),
+              })
+            : rule === 'paid_for_by' && footerCommittee
+              ? addPaidForByBack(message, footerCommittee)
+              : message
     if (next === message) return
     handleMessageChange(next)
   }
@@ -1972,7 +1895,12 @@ export const SmsFlow = ({
         ...(proposalLink?.priorityId
           ? { priorityId: proposalLink.priorityId }
           : {}),
-        ...(surface.isServe ? { asksToJoinCivicPanel: asksToJoin } : {}),
+        ...(surface.isServe
+          ? {
+              asksToJoinCivicPanel:
+                findCivicPanelJoinLine(composedMessage) !== null,
+            }
+          : {}),
       }),
     })
     await onScheduled()
@@ -2589,21 +2517,6 @@ export const SmsFlow = ({
                 },
               },
             })}
-            civicPanelAsk={
-              surface.isServe &&
-              citizenPanelsEnabled &&
-              !isReportBack &&
-              !offersCivicPanelLeave
-                ? {
-                    checked: asksToJoin,
-                    locked: civicPanelAskLocked,
-                    onChange: (checked) => {
-                      setAsksToJoinCivicPanel(checked)
-                      loadMessage(withCivicPanelJoin(message, checked))
-                    },
-                  }
-                : undefined
-            }
           />
           {managed && managedError ? (
             <p className="mt-4 text-sm text-destructive" role="alert">

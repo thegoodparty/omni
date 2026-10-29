@@ -3,8 +3,6 @@
 import { useCallback, useEffect, useRef } from 'react'
 import type { ReactNode } from 'react'
 import {
-  CIVIC_PANEL_JOIN_LINE,
-  CIVIC_PANEL_LEAVE_LINE,
   MERGE_TAGS,
   type MergeTagChannel,
   mergeTagToken,
@@ -133,13 +131,6 @@ interface SmsComposeStepProps {
   // Presses of Continue while something was missing. Nothing shows as missing
   // before the first, and each one moves to the first field still missing.
   continueAttempts: number
-  // Serve only: the "Reply JOIN" ask for the official's civic panel. Locked
-  // on a text whose purpose is the ask, so the box cannot be unchecked.
-  civicPanelAsk?: {
-    checked: boolean
-    locked?: boolean
-    onChange: (checked: boolean) => void
-  }
   // Serve's civic panel invite that GoodParty sends in the official's name:
   // its own title, no tone, image or panel ask, the JOIN line and opt-out
   // locked under the editable body, and the official's approval below.
@@ -157,16 +148,11 @@ interface SmsComposeStepProps {
   }
 }
 
-// What a send needs beyond the standards rules: the civic panel line the
-// reply reader or the create looks for.
-export type SmsRequiredPart =
-  | SmsStandardsRule
-  | 'civic_panel_join'
-  | 'civic_panel_leave'
+export type SmsRequiredPart = SmsStandardsRule
 
 // What is wrong and how to fix it, per missing required part: rule 8 of
-// docs/product-copy.md. The greeting, name, disclaimer, opt-out and panel
-// line are written by the flow and editable like any other text, so these
+// docs/product-copy.md. The greeting, name, disclaimer and opt-out are
+// written by the flow and editable like any other text, so these
 // fire when an edit deletes one, and each shows the exact line to restore
 // plus a one-click way to restore it.
 interface StandardsFailureCopy {
@@ -227,22 +213,6 @@ export const standardsFailureCopy = (
       }),
     }
   }
-  if (rule === 'civic_panel_join') {
-    return {
-      problem: 'Your text needs its civic panel ask.',
-      fix: 'Add it back before the opt-out line:',
-      line: CIVIC_PANEL_JOIN_LINE,
-      addBackLabel: 'Add the civic panel ask back',
-    }
-  }
-  if (rule === 'civic_panel_leave') {
-    return {
-      problem: 'Your text needs the line for leaving your civic panel.',
-      fix: 'Add it back before the opt-out line:',
-      line: CIVIC_PANEL_LEAVE_LINE,
-      addBackLabel: 'Add the civic panel line back',
-    }
-  }
   if (rule === 'link_shortener') {
     return {
       problem: 'Your text has a shortened link, like bit.ly.',
@@ -289,7 +259,6 @@ export const SmsComposeStep = ({
   imageError,
   onImageError,
   continueAttempts,
-  civicPanelAsk,
   onDictated,
   managedInvite,
 }: SmsComposeStepProps) => {
@@ -589,28 +558,6 @@ export const SmsComposeStep = ({
               className="block text-sm font-normal"
             >
               {managedInvite.consent.label}
-            </Label>
-          </div>
-        )}
-        {civicPanelAsk && !managedInvite && (
-          <div className="flex items-start gap-3">
-            <Checkbox
-              id="civic-panel-ask"
-              checked={civicPanelAsk.checked}
-              disabled={civicPanelAsk.locked}
-              onCheckedChange={(value) =>
-                civicPanelAsk.onChange(value === true)
-              }
-              className="mt-0.5"
-            />
-            <Label htmlFor="civic-panel-ask" className="block">
-              <span className="block text-sm font-medium">
-                Ask them to join your civic panel
-              </span>
-              <span className="mt-0.5 block text-xs font-normal text-muted-foreground">
-                People who reply JOIN are added to your civic panel for future
-                questions.
-              </span>
             </Label>
           </div>
         )}

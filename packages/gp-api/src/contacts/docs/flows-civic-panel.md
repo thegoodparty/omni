@@ -121,9 +121,12 @@ texted LEAVE, or a texted STOP.
 A Serve text asks with a fixed, locked sentence (`CIVIC_PANEL_JOIN_LINE` in
 contracts: "Reply JOIN to join my civic panel. My office will text you
 about once a month to ask what you think before I decide. Sent with
-GoodParty.org.", in its own paragraph above the opt-out), and the create
-stamps `Outreach.asksToJoinCivicPanel` from the stored message. The create
-and the composer's lock recognize every wording in `CIVIC_PANEL_JOIN_LINES`
+GoodParty.org.", in its own paragraph above the opt-out). Only the managed
+civic panel's invite carries it: its waves write their rows with
+`Outreach.asksToJoinCivicPanel` set, and the Serve text create 400s any
+message carrying a JOIN line, so a priority's texts, the Outreach tab and a
+report back never ask. A card's `civicPanelAsk` is ignored by the webapp. The create
+and the composer recognize every wording in `CIVIC_PANEL_JOIN_LINES`
 (`findCivicPanelJoinLine`), because sends written before the line was
 rewritten carry an earlier one; the composer only writes the current line. The reply ingest
 (`OutreachTextIngestService.applyCivicPanelEvents`, `source: sms`, `sourceId`
@@ -139,12 +142,13 @@ reads as LEAVE. Replies apply in sent order, and a JOIN
 from anyone who has opted out on any send is skipped, so a STOP stays the
 last word across uploads.
 
-A text to a panel-only list carries `CIVIC_PANEL_LEAVE_LINE` ("Reply LEAVE to
-leave my civic panel.") instead of the JOIN line, appended and locked by the
-composer the same way, and the create stamps `Outreach.offersCivicPanelLeave`
-from the stored message. The create 400s a message carrying both lines, and
-the LEAVE line on a list that is not panel-only; the controller refuses it
-with `serve-citizen-panels` off, like the JOIN line.
+A text to a panel-only list ends like any other text: no JOIN line and no
+`CIVIC_PANEL_LEAVE_LINE` ("Reply LEAVE to leave my civic panel."), because
+STOP already takes a member off. LEAVE replies are still read (above), and a
+draft written before that still carries the LEAVE line is created with
+`Outreach.offersCivicPanelLeave` stamped from the stored message. The create
+400s the LEAVE line on a list that is not panel-only, and the controller
+refuses it with `serve-citizen-panels` off.
 
 **The audience side.** `voter_file_filter.civic_panel_member` is the saved-
 filter dimension for the panel, built exactly like `follow_up_requested`:

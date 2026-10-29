@@ -6,9 +6,7 @@ import type {
 import {
   checkSmsStandards,
   CIVIC_PANEL_JOIN_LINE,
-  CIVIC_PANEL_LEAVE_LINE,
   findCivicPanelJoinLine,
-  findCivicPanelLeaveLine,
   SMS_PURPOSE_VALUES,
 } from '@goodparty_org/contracts'
 import { SOCIAL_PURPOSE_LABELS } from '../socialPurposes'
@@ -517,28 +515,15 @@ export const withCivicPanelJoin = (script: string, on: boolean): string =>
       )
     : removeEvery(script, JOIN_LINE_PATTERNS)
 
-// Adds or removes the civic panel LEAVE line, which a text to panel members
-// alone carries in the JOIN line's place: its own paragraph just above the
-// opt-out. Adding it drops any JOIN line, so a message never carries both.
-export const withCivicPanelLeave = (script: string, on: boolean): string =>
-  on
-    ? withOnePanelLine(
-        removeEvery(script, JOIN_LINE_PATTERNS),
-        CIVIC_PANEL_LEAVE_LINE,
-        findCivicPanelLeaveLine(script),
-        LEAVE_LINE_PATTERNS,
-      )
-    : removeEvery(script, LEAVE_LINE_PATTERNS)
-
-// The civic panel line a message should carry: LEAVE on a text to panel
-// members alone, otherwise JOIN when the ask is on, otherwise neither.
-export const withCivicPanelLines = (
-  script: string,
-  lines: { join: boolean; leave: boolean },
-): string =>
-  lines.leave
-    ? withCivicPanelLeave(script, true)
-    : withCivicPanelJoin(withCivicPanelLeave(script, false), lines.join)
+// A priority's text ends on the residents' calls to action together: the
+// reply instruction as the body's last line, the opt-out directly under it.
+// Only a message closing on the opt-out is touched, so an edit that moved it
+// is left for the standards check.
+const OPT_OUT_PARAGRAPH = new RegExp(
+  `[ \\t]*\\n\\s*(${escapeRegExp(OPT_OUT_FOOTER)})$`,
+)
+export const withOptOutUnderLastLine = (script: string): string =>
+  script.replace(OPT_OUT_PARAGRAPH, '\n$1')
 
 // --- The managed civic panel invite ----------------------------------------
 //

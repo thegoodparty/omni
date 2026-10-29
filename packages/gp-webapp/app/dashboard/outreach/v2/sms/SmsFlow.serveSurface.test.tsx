@@ -1,14 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, screen, waitFor } from '@testing-library/react'
-import type { Editor } from '@tiptap/react'
+import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import type { ServeSmsDraftRequest } from '@goodparty_org/contracts'
-import {
-  checkSmsStandards,
-  CIVIC_PANEL_LEAVE_LINE,
-} from '@goodparty_org/contracts'
+import { checkSmsStandards } from '@goodparty_org/contracts'
 import { useServeCitizenPanelsFlag } from 'app/shared/experiments/serveCitizenPanelsFlag'
 import { SERVE_SMS_SURFACE, SmsFlow } from './SmsFlow'
 import {
@@ -26,17 +22,6 @@ let user: ReturnType<typeof userEvent.setup>
 beforeEach(() => {
   user = userEvent.setup({ skipHover: true })
 })
-
-const deleteLine = (editor: Editor, line: string) => {
-  let from = -1
-  editor.state.doc.descendants((node, pos) => {
-    const index = node.isText ? (node.text?.indexOf(line) ?? -1) : -1
-    if (from === -1 && index !== -1) from = pos + index
-  })
-  act(() => {
-    editor.view.dispatch(editor.state.tr.delete(from, from + line.length))
-  })
-}
 
 vi.mock('app/shared/experiments/serveCitizenPanelsFlag', () => ({
   useServeCitizenPanelsFlag: vi.fn(),
@@ -399,7 +384,13 @@ describe('SmsFlow (Serve surface)', () => {
     await screen.findByText(OPT_OUT_FOOTER)
   }
 
-  it('offers no civic panel ask with serve-citizen-panels off', async () => {
+  // Only the managed invite asks people to join the civic panel, so a text
+  // from the Outreach tab never offers the ask.
+  it('never asks to join on a text from the Outreach tab', async () => {
+    vi.mocked(useServeCitizenPanelsFlag).mockReturnValue({
+      ready: true,
+      enabled: true,
+    })
     await composeWithDraft()
 
     expect(
@@ -408,31 +399,8 @@ describe('SmsFlow (Serve surface)', () => {
     expect(screen.queryByText(/Reply JOIN/)).toBeNull()
   })
 
-  it('adds the JOIN line when the civic panel ask is checked', async () => {
-    vi.mocked(useServeCitizenPanelsFlag).mockReturnValue({
-      ready: true,
-      enabled: true,
-    })
-    await composeWithDraft()
-
-    const ask = screen.getByRole('checkbox', {
-      name: /join your civic panel/i,
-    })
-    expect(ask).not.toBeChecked()
-    expect(screen.queryByText(/Reply JOIN/)).toBeNull()
-
-    await user.click(ask)
-
-    expect(
-      await screen.findByText(/Reply JOIN to join my civic panel/),
-    ).toBeInTheDocument()
-    expect(ask).toBeChecked()
-  })
-
-  // A priority card that asks the panel and new residents in one send opens
-  // with the ask on. The seed is signed with the official's name after the
-  // flow opens, and that pass must not drop the ask.
-  it("keeps a chat card's civic panel ask through the seed's signing", async () => {
+  // Nor does a priority's text, even from a card that still says civicPanelAsk.
+  it("never asks to join on a priority card's text", async () => {
     vi.mocked(useServeCitizenPanelsFlag).mockReturnValue({
       ready: true,
       enabled: true,
@@ -444,9 +412,9 @@ describe('SmsFlow (Serve surface)', () => {
         onClose={vi.fn()}
         onScheduled={vi.fn().mockResolvedValue(undefined)}
         surface={SERVE_SMS_SURFACE}
-        initialScript="Has flooding damaged your home?"
-        initialAsksToJoinCivicPanel
+        initialScript="Has flooding damaged your home? Reply YES or NO."
         preselectedListId={41}
+        proposalLink={{ priorityId: 'priority-1' }}
       />,
     )
 
@@ -455,19 +423,21 @@ describe('SmsFlow (Serve surface)', () => {
     )
 
     expect(
-      await screen.findByText(/Reply JOIN to join my civic panel/),
+      await screen.findByText(/Has flooding damaged your home/),
     ).toBeInTheDocument()
-    const ask = screen.getByRole('checkbox', {
-      name: /join your civic panel/i,
-    })
-    expect(ask).toBeChecked()
-    // Not a panel-building text, so the official can still take it off.
-    expect(ask).not.toBeDisabled()
+    expect(screen.queryByText(/Reply JOIN/)).toBeNull()
+    expect(
+      screen.queryByRole('checkbox', { name: /join your civic panel/i }),
+    ).toBeNull()
   })
 
-  // A text to the civic panel alone offers members a way off it, in place of
-  // the JOIN ask: required like the JOIN line, and never beside it.
-  const panelOnlyLists = () =>
+  // A text to civic panel members alone carries no LEAVE line: STOP already
+  // takes a member off the civic panel, so it ends like any other text.
+  it('adds no LEAVE line on a text to civic panel members alone', async () => {
+    vi.mocked(useServeCitizenPanelsFlag).mockReturnValue({
+      ready: true,
+      enabled: true,
+    })
     api.mock('GET /v1/voters/voter-file/filters', {
       status: 200,
       data: [
@@ -475,86 +445,6 @@ describe('SmsFlow (Serve surface)', () => {
         { id: 42, name: 'Panel not asked lately', civicPanelMember: true },
       ],
     })
-
-  it('offers LEAVE on a text to panel members alone, and offers it back once deleted', async () => {
-    vi.mocked(useServeCitizenPanelsFlag).mockReturnValue({
-      ready: true,
-      enabled: true,
-    })
-    panelOnlyLists()
-    api.mock('POST /v1/outreach/serve/sms/draft', {
-      status: 200,
-      data: { draft: 'drafted body' },
-    })
-    openServeFlow()
-
-    await user.click(await screen.findByText('Explain a recent decision'))
-    await user.click(await screen.findByText('Choose a constituent list'))
-    await user.click(await screen.findByText('Panel not asked lately'))
-    await user.click(
-      await screen.findByRole('button', { name: /^Continue \(1,200\)$/ }),
-    )
-
-    expect(
-      await screen.findByText(/Reply LEAVE to leave my civic panel\./),
-    ).toBeInTheDocument()
-    expect(screen.queryByText(/Reply JOIN/)).toBeNull()
-    expect(
-      screen.queryByRole('checkbox', { name: /join your civic panel/i }),
-    ).toBeNull()
-
-    const box = screen.getByRole('textbox', { name: 'Message body' })
-    const editor = (box as HTMLElement & { editor: Editor }).editor
-    deleteLine(editor, CIVIC_PANEL_LEAVE_LINE)
-    expect(
-      await screen.findByText(
-        /Your text needs the line for leaving your civic panel\./,
-      ),
-    ).toBeInTheDocument()
-    expect(editor.getText()).not.toContain('Reply LEAVE')
-
-    await user.click(
-      screen.getByRole('button', { name: 'Add the civic panel line back' }),
-    )
-    await waitFor(() =>
-      expect(editor.getText()).toContain(CIVIC_PANEL_LEAVE_LINE),
-    )
-    expect(
-      screen.queryByText(/Your text needs the line for leaving/),
-    ).toBeNull()
-  })
-
-  it("swaps a card's JOIN ask for LEAVE when its list is the panel alone", async () => {
-    vi.mocked(useServeCitizenPanelsFlag).mockReturnValue({
-      ready: true,
-      enabled: true,
-    })
-    panelOnlyLists()
-    render(
-      <SmsFlow
-        source="deep_link"
-        open
-        onClose={vi.fn()}
-        onScheduled={vi.fn().mockResolvedValue(undefined)}
-        surface={SERVE_SMS_SURFACE}
-        initialScript="Has flooding damaged your home?"
-        initialAsksToJoinCivicPanel
-        preselectedListId={42}
-      />,
-    )
-
-    await user.click(
-      await screen.findByRole('button', { name: /^Continue \(1,200\)$/ }),
-    )
-
-    expect(
-      await screen.findByText(/Reply LEAVE to leave my civic panel\./),
-    ).toBeInTheDocument()
-    expect(screen.queryByText(/Reply JOIN/)).toBeNull()
-  })
-
-  it('offers no LEAVE line with serve-citizen-panels off', async () => {
-    panelOnlyLists()
     api.mock('POST /v1/outreach/serve/sms/draft', {
       status: 200,
       data: { draft: 'drafted body' },
@@ -570,11 +460,12 @@ describe('SmsFlow (Serve surface)', () => {
 
     expect(await screen.findByText(OPT_OUT_FOOTER)).toBeInTheDocument()
     expect(screen.queryByText(/Reply LEAVE/)).toBeNull()
+    expect(screen.queryByText(/Reply JOIN/)).toBeNull()
   })
 
-  // A report back goes to the people already asked: with the panel on, it
-  // still never carries the join line or offers the box.
-  it('keeps the join ask off a report back, whatever the card asked', async () => {
+  // A report back goes to the people already asked: it never carries the
+  // join line or offers the box.
+  it('keeps the join ask off a report back', async () => {
     vi.mocked(useServeCitizenPanelsFlag).mockReturnValue({
       ready: true,
       enabled: true,
@@ -588,7 +479,6 @@ describe('SmsFlow (Serve surface)', () => {
         surface={SERVE_SMS_SURFACE}
         initialPurpose="report_back"
         initialScript="Thanks for answering. Most of you named the drains."
-        initialAsksToJoinCivicPanel
         preselectedListId={41}
         reportBackForOutreachId={77}
       />,
@@ -645,7 +535,6 @@ describe('SmsFlow (Serve surface)', () => {
         preselectedListId={41}
         audienceSettled
         initialPurpose="explain_decision"
-        initialAsksToJoinCivicPanel
         initialScript="this is Jane, your Council Member. I am starting a civic panel to hear from all of you."
       />,
     )
