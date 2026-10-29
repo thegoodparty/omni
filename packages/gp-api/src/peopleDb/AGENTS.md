@@ -69,7 +69,9 @@ people table FULL OUTER JOIN the org's rows of
   `mart_serve_agents.<SERVE_AGENT_CONTACT_OVERLAY_VIEW>`, built in
   `constituentDataScope.ts` and swapped in only after the SQL validator
   accepts the model's query; it adds the `on_uploaded_list` and `has_email`
-  dimensions.
+  dimensions. With the overlay, `dataSourceRoutingRules`
+  (`llm/tools/dataSourceRouting.ts`) sends uploaded-list, imported-contact
+  and email questions there, since the CRM catalog has no such dimension.
 - Turning the flag off returns the org to the plain table at once. That is
   the kill switch for a federation outage, since every read for a flagged org
   depends on it.
