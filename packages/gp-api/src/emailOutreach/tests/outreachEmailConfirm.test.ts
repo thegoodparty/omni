@@ -249,6 +249,34 @@ describe('POST /v1/outreach/email/:id/confirm', () => {
     expect(track).toHaveBeenCalledTimes(1)
   })
 
+  it('leaves a send it did not freeze where it is on a stored decline', async () => {
+    saveCardAndPlan.mockResolvedValue({
+      outcome: 'declined',
+      declineCode: 'card_declined',
+    })
+    const { outreachId, outreachEmailId } = await winSend({
+      status: OutreachStatus.pending_payment,
+      recipientCap: 3,
+    })
+    await createHold(service.prisma, outreachId, OutreachHoldState.hold_failed)
+
+    const res = await post(
+      `/v1/outreach/email/${outreachId}/confirm`,
+      { paymentMethodId: 'card-on-file' },
+      winHeaders(),
+    )
+
+    expect(res.status).toBe(HttpStatus.PAYMENT_REQUIRED)
+    const outreach = await service.prisma.outreach.findUniqueOrThrow({
+      where: { id: outreachId },
+    })
+    expect(outreach.status).toBe(OutreachStatus.pending_payment)
+    const email = await service.prisma.outreachEmail.findUniqueOrThrow({
+      where: { id: outreachEmailId },
+    })
+    expect(email.recipientCap).toBe(3)
+  })
+
   it('returns the draft to editing when the hold module refuses before holding', async () => {
     saveCardAndPlan.mockRejectedValue(
       new BadRequestException('This card belongs to another customer'),

@@ -54,7 +54,7 @@ export class OutreachEmailConfirmService extends createPrismaBase(
   // its existing hold row, at the price this confirm froze. A pending_payment
   // send (a placement still resolving) can be confirmed again: the hold module
   // returns its stored outcome, and once that is held or scheduled the send
-  // moves to pending.
+  // moves to pending; a stored decline answers 402 and leaves it there.
   async confirm({
     scope,
     outreachId,
@@ -91,8 +91,9 @@ export class OutreachEmailConfirmService extends createPrismaBase(
     }
     const priceCents = emailPriceCents(frozen.recipientCap)
 
+    const froze = status === OutreachStatus.draft
     const declinedBefore =
-      status === OutreachStatus.draft &&
+      froze &&
       (await this.client.outreachPaymentHold.count({ where: { outreachId } })) >
         0
     const card = {
@@ -107,12 +108,14 @@ export class OutreachEmailConfirmService extends createPrismaBase(
         ? await this.holds.updateCard(card)
         : await this.holds.saveCardAndPlan(card)
     } catch (err) {
-      await this.returnToDraft(row.id, outreachId, row.outreach.date)
+      await this.returnToDraft(row.id, outreachId, row.outreach.date, froze)
       throw err
     }
 
     if (plan.outcome === 'declined') {
-      await this.returnToDraft(row.id, outreachId, row.outreach.date)
+      if (froze) {
+        await this.returnToDraft(row.id, outreachId, row.outreach.date, true)
+      }
       const body: EmailConfirmDeclined = {
         message: 'Your card was declined.',
         declineCode: plan.declineCode,
@@ -239,21 +242,26 @@ export class OutreachEmailConfirmService extends createPrismaBase(
   // the draft it was, with its own date and no cap reserved, so the user can
   // edit it or confirm again. A hold row that is being placed or was placed
   // keeps the send where it is; checking the row's state in the same update
-  // means a confirm racing this one can't be undone under its hold.
+  // means a confirm racing this one can't be undone under its hold. Only the
+  // confirm that froze the draft may revert a declined row: a later confirm
+  // reads the stored decline while the first may already be retrying it.
   private async returnToDraft(
     outreachEmailId: number,
     outreachId: number,
     date: Date | null,
+    froze: boolean,
   ): Promise<void> {
     await this.client.$transaction(async (tx) => {
       const reverted = await tx.outreach.updateMany({
         where: {
           id: outreachId,
           status: OutreachStatus.pending_payment,
-          OR: [
-            { paymentHold: null },
-            { paymentHold: { state: OutreachHoldState.hold_failed } },
-          ],
+          OR: froze
+            ? [
+                { paymentHold: null },
+                { paymentHold: { state: OutreachHoldState.hold_failed } },
+              ]
+            : [{ paymentHold: null }],
         },
         data: { status: OutreachStatus.draft, date },
       })
