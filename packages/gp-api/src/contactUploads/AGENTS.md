@@ -36,11 +36,15 @@ person's rows as `CONTACT_IMPORT` items (`ContactUploadMatchService.findForActiv
    without first and last name is `invalid`. With the bucket unset (a laptop
    without AWS access) the put is skipped and logged.
 2. **Match** (`services/contactUploadMatchJob.service.ts`), one chunk of
-   20,000 pending rows per delivery. While pending rows remain, the
+   up to 4,000 pending rows per delivery, cut shorter when the rows' JSON
+   would pass 800,000 characters (`fitContactUploadMatchRows`): Databricks
+   rejects a bound parameter over 1,048,576. While pending rows remain, the
    delivery queues the same message again (same `MessageGroupId`,
    deduplicated on the next pending `rowIndex`) before acking, so no
    delivery outlives the 5-minute visibility timeout. Per chunk, in order: duplicates within the chunk, the org's earlier
-   rows in Postgres (email, then phone + last name, then name + address),
+   rows in Postgres (email, then phone + last name, then name + address,
+   then for a name-only row a name-only row the user resolved by hand,
+   when every such row with that name points to one person),
    then one Databricks statement per chunk
    (`peopleDb/databricks/contactUploadMatchSql.util.ts`, through
    `VoterQueryService.matchContactUploadRows`). The outcome table is
