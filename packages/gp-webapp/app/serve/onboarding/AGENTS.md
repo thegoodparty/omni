@@ -54,7 +54,10 @@ What a win knows is filled in, and its steps still show:
 A winner who already holds a lead's term-less office with no campaign (a
 magic link, or Serve onboarding started and left) gets that office linked
 instead: gp-api's `create()` sets `campaignId` on it and keeps its own party
-and checkpoint, filling them from the win only when empty.
+and checkpoint, filling them from the win only when empty. Any other office
+the winner holds, finished or not, is left alone and the win gets a new one;
+a repeated win returns the office already linked to that campaign. The flow
+finishes that office by id (`PUT /v1/elected-office/:id`).
 
 Sign-in routing is unchanged and lands a winner on the dashboard;
 `DashboardLayout` sends any user holding a `campaignId` office with no

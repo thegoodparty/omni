@@ -582,7 +582,94 @@ describe('ElectedOfficeController', () => {
 
       // No 409: the win goes ahead without the looked-up term.
       expect(won.status).toBe(200)
-      expect(won.data.termStartDate).not.toBe('2026-12-01')
+      expect(won.data).toMatchObject({
+        campaignId: campaign.id,
+        termStartDate: null,
+        termEndDate: null,
+      })
+    })
+
+    it('gives a winner who already serves a new office linked to the win', async () => {
+      vi.spyOn(service.app.get(WinTermService), 'forWinner').mockResolvedValue(
+        null,
+      )
+      const held = await service.client.post('/v1/elected-office', {
+        termStartDate: '2020-01-01',
+        termEndDate: '2024-01-01',
+        onboardingCompletedAt: '2020-01-02T00:00:00.000Z',
+      })
+      expect(held.status).toBe(200)
+
+      const won = await createElectedOffice({
+        party: 'independent',
+        onboardingStep: 'confirm',
+      })
+
+      expect(won.status).toBe(200)
+      expect(won.data.id).not.toBe(held.data.id)
+      expect(won.data).toMatchObject({
+        campaignId: campaign.id,
+        party: 'independent',
+        onboardingStep: 'confirm',
+        termStartDate: null,
+        termEndDate: null,
+        onboardingCompletedAt: null,
+      })
+
+      const retry = await createElectedOffice({
+        party: 'independent',
+        onboardingStep: 'confirm',
+      })
+      expect(retry.data.id).toBe(won.data.id)
+
+      const offices = await service.prisma.electedOffice.findMany({
+        where: { userId: service.user.id },
+      })
+      expect(offices).toHaveLength(2)
+    })
+
+    it("does not hand a win another campaign's unfinished office", async () => {
+      vi.spyOn(service.app.get(WinTermService), 'forWinner').mockResolvedValue(
+        null,
+      )
+      const earlier = await createElectedOffice({ onboardingStep: 'confirm' })
+      const nextSlug = `campaign-next-${Date.now()}`
+      await service.prisma.organization.create({
+        data: { slug: nextSlug, ownerId: service.user.id },
+      })
+      const next = await service.prisma.campaign.create({
+        data: {
+          userId: service.user.id,
+          slug: `test-campaign-next-${Date.now()}`,
+          organizationSlug: nextSlug,
+        },
+      })
+
+      const won = await service.client.post(
+        '/v1/elected-office',
+        { onboardingStep: 'confirm' },
+        { headers: { 'x-organization-slug': nextSlug } },
+      )
+
+      expect(won.status).toBe(200)
+      expect(won.data.id).not.toBe(earlier.data.id)
+      expect(won.data.campaignId).toBe(next.id)
+    })
+
+    it('returns the held office to a create with no term and no campaign', async () => {
+      const held = await service.client.post('/v1/elected-office', {
+        termStartDate: '2020-01-01',
+        termEndDate: '2024-01-01',
+      })
+
+      const again = await service.client.post('/v1/elected-office', {})
+
+      expect(again.status).toBe(200)
+      expect(again.data.id).toBe(held.data.id)
+      const offices = await service.prisma.electedOffice.findMany({
+        where: { userId: service.user.id },
+      })
+      expect(offices).toHaveLength(1)
     })
 
     it('asks for the term when no record is found, and never for a non-win create', async () => {
