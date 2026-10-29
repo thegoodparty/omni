@@ -624,6 +624,7 @@ export const PollFlow = ({
             builderName={audience.builderName}
             onBuilderNameChange={audience.setBuilderName}
             isElectedOfficial={audience.isElectedOfficial}
+            civicPanel={audience.civicPanel}
             builderCount={audience.builderCount}
             builderCounting={audience.builderCounting}
             builderCapError={audience.builderCapError}

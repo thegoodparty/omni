@@ -11,6 +11,7 @@ import { getContactsLabels } from '../../../shared/contactsLabels'
 import { ALL_SEGMENTS } from '../shared/constants'
 import ListCard from './ListCard'
 import { CitizensPanelListCard } from './CitizensPanelListCard'
+import { isCivicPanelAudienceList } from 'app/dashboard/outreach/v2/audience/civicPanelAudienceList.util'
 
 // The Lovable design's first list row: the whole (unfiltered) universe.
 // Count comes from the same GET /v1/contacts/stats query DistrictStatCard
@@ -106,9 +107,12 @@ export default function ListsIndex() {
   // the mode resolves.
   const showSendOutreach = isWinContextReady && isWinContext
   // A civic panel invite's audience is the outreach's record, not a list the
-  // official keeps: the panel's one list is the built-in Civic panel row.
+  // official keeps: the panel's one list is the built-in Civic panel row. The
+  // list the outreach picker saves for "Your civic panel" is that same
+  // audience, so it stays out too.
   const savedLists = customSegments.filter(
-    (segment) => segment.civicPanelInvite !== true,
+    (segment) =>
+      segment.civicPanelInvite !== true && !isCivicPanelAudienceList(segment),
   )
 
   return (
