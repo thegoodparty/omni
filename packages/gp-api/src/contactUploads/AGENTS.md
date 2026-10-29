@@ -69,16 +69,12 @@ person's rows as `CONTACT_IMPORT` items (`ContactUploadMatchService.findForActiv
   it across a person's rows.
 - **Change match does not move history.** Notes, statuses and interactions
   stay on the old person id; `hasActivity` is there so the UI can warn.
-- **Opt-outs are not cleared by an upload.** That decision is on hold.
+- **Uploads never clear opt-outs, blocks or unsubscribes.** A file cannot
+  reopen anyone who opted out.
 - **No names, emails or phones in logs or analytics.** Ids and counts only.
 
 ## Not built here
 
-- Route alerts: `contact-uploads` is in `CONTROLLERS_WITHOUT_ROUTE_ALERTS`
-  (`deploy/components/alerts.ts`) because its routes would push the route
-  map past the Loki tenant series cap. Add alerting before the flag ramps
-  past internal users. The sources route rides the `contacts` controller and
-  is watched.
 - Deleting an org's files from the bucket: Postgres rows cascade with the
   org, but no org deletion hook exists to clear `<orgSlug>/` in S3.
 
