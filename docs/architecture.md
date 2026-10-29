@@ -47,14 +47,15 @@ nothing boring would work.
 
 ## Auth flows
 
-| Flow                        | Mechanism           | Notes                                            |
-| --------------------------- | ------------------- | ------------------------------------------------ |
-| User -> gp-webapp -> gp-api | JWT cookie          | HTTP-only cookie, `credentials: 'include'`       |
-| Staff -> gp-admin -> gp-api | Clerk org + M2M     | Active Clerk org selects env; per-env M2M secret |
-| gp-api -> Databricks        | OAuth M2M (SP)      | `PEOPLE_DATABRICKS_*`; see `peopleDbx.config.ts` |
-| gp-api -> election-db       | Prisma (in process) | Second client; ETL-owned, read-only              |
-| M2M caller -> gp-api        | Bearer `mt_*` token | `ClerkM2MAuthGuard`                              |
-| External -> gp-webapp       | Public              | Public election/candidate pages                  |
+| Flow                        | Mechanism                | Notes                                                   |
+| --------------------------- | ------------------------ | ------------------------------------------------------- |
+| User -> gp-webapp -> gp-api | JWT cookie               | HTTP-only cookie, `credentials: 'include'`              |
+| Staff -> gp-admin -> gp-api | Clerk org + M2M          | Active Clerk org selects env; per-env M2M secret        |
+| gp-api -> Databricks        | OAuth M2M (SP)           | `PEOPLE_DATABRICKS_*`; see `peopleDbx.config.ts`        |
+| gp-api -> election-db       | Prisma (in process)      | Second client; ETL-owned, read-only                     |
+| M2M caller -> gp-api        | Bearer `mt_*` token      | `ClerkM2MAuthGuard`                                     |
+| Vercel site -> gp-api       | Bearer Vercel OIDC token | Read-only service reader; gp-marketing, candidate-sites |
+| External -> gp-webapp       | Public                   | Public election/candidate pages                         |
 
 gp-api runs three global guards in order: `ClerkM2MAuthGuard`, `SessionGuard`,
 `RolesGuard`. Detail and decorators: `packages/gp-api/src/authentication/AGENTS.md`.
