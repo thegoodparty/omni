@@ -14,7 +14,11 @@ import {
 import { FeaturesService } from '@/features/services/features.service'
 import { ElectionDistrictService } from '@/peopleDb/services/electionDistrict.service'
 import { VoterQueryService } from '@/peopleDb/services/voterQuery.service'
-import type { ContactUploadMatchCandidateRow } from '@/peopleDb/databricks/contactUploadMatchSql.util'
+import {
+  buildContactUploadMatchSql,
+  CONTACT_UPLOAD_MATCH_INPUT_MAX_CHARS,
+  type ContactUploadMatchCandidateRow,
+} from '@/peopleDb/databricks/contactUploadMatchSql.util'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { QueueProducerService } from '@/queue/producer/queueProducer.service'
 import { MessageGroup, QueueType } from '@/queue/queue.types'
@@ -689,6 +693,140 @@ Ann,Able,,,,
       status: ContactUploadStatus.complete,
       newCount: MATCH_CHUNK_SIZE + 1,
     })
+  })
+
+  it('sizes a chunk of long rows to fit one Databricks parameter', async () => {
+    const { data } = await upload(`${HEADER_ROW}\nAnn,Able,,,,\n`)
+    await service.prisma.contactUploadMatch.createMany({
+      data: Array.from({ length: MATCH_CHUNK_SIZE }, (_, index) => ({
+        uploadId: data.id,
+        organizationSlug: slug,
+        rowIndex: index + 1,
+        firstName: 'A'.repeat(60),
+        lastName: 'B'.repeat(60),
+        cellPhone: `(616) 555-${String(index).padStart(4, '0')}`,
+        landline: `(517) 555-${String(index).padStart(4, '0')}`,
+        addressLine: `123456 ${'C'.repeat(40)} St`,
+        zip: '49503',
+      })),
+    })
+    sendMessage.mockClear()
+    const match = mockMatch([])
+
+    expect(await runMatch(data.id)).toBe(true)
+
+    const [, , inputs] = match.mock.calls[0]!
+    const { params } = buildContactUploadMatchSql({
+      district: {
+        districtId: randomUUID(),
+        state: 'MI',
+        districtType: 'City',
+        districtName: 'Lansing',
+        useVoterOnlyPath: false,
+        dataset: { base: 'constituents' },
+        table: '',
+      },
+      rows: inputs,
+    })
+    expect(inputs.length).toBeLessThan(MATCH_CHUNK_SIZE)
+    expect(params[0]?.value?.length).toBeLessThanOrEqual(
+      CONTACT_UPLOAD_MATCH_INPUT_MAX_CHARS,
+    )
+    expect(CONTACT_UPLOAD_MATCH_INPUT_MAX_CHARS).toBeLessThan(1_048_576)
+    expect(sendMessage).toHaveBeenCalledExactlyOnceWith(
+      { type: QueueType.CONTACT_UPLOAD_MATCH, data: { uploadId: data.id } },
+      `${MessageGroup.contactUploadMatch}-${slug}`,
+      {
+        throwOnError: true,
+        deduplicationId: `${QueueType.CONTACT_UPLOAD_MATCH}-${data.id}-${inputs.length}`,
+      },
+    )
+    expect(
+      await service.prisma.contactUploadMatch.count({
+        where: {
+          uploadId: data.id,
+          outcome: ContactUploadMatchOutcome.pending,
+        },
+      }),
+    ).toBe(MATCH_CHUNK_SIZE + 1 - inputs.length)
+  })
+
+  it('reuses the person a name-only row was resolved to by hand', async () => {
+    const first = await upload(
+      `${HEADER_ROW}\n` +
+        'Dee,Dunn,,,,\n' +
+        'Dee,Dunn,,,,\n' +
+        'Eve,Eads,,,,\n' +
+        'Hal,Hart,,,,\n' +
+        'Ivy,Ives,,,,\n' +
+        'Ivy,Ives,,,,\n' +
+        'Jo,Jones,,616-555-0105,,\n',
+    )
+    mockMatch(
+      [0, 1, 2, 3, 4, 5, 6].flatMap((rowIndex) =>
+        [PERSON_A, PERSON_B, PERSON_C, PERSON_D].map((personId) =>
+          candidate(rowIndex, personId, false, false, 4),
+        ),
+      ),
+    )
+    await runMatch(first.data.id)
+    const firstRows = await rowsOf(first.data.id)
+    const resolutions: [number, object][] = [
+      [0, { personId: PERSON_D }],
+      [1, { personId: PERSON_D }],
+      [2, { skip: true }],
+      [3, { newPerson: true }],
+      [4, { personId: PERSON_A }],
+      [5, { personId: PERSON_B }],
+      [6, { personId: PERSON_C }],
+    ]
+    for (const [rowIndex, body] of resolutions) {
+      const res = await service.client.put(
+        `/v1/contact-uploads/${first.data.id}/rows/${firstRows[rowIndex]!.id}/match`,
+        body,
+        { headers: { [HEADER]: slug } },
+      )
+      expect(res.status).toBe(HttpStatus.OK)
+    }
+    const hal = (await rowsOf(first.data.id))[3]!
+
+    const second = await upload(
+      `${HEADER_ROW}\n` +
+        'DEE,dunn,,,,\n' +
+        'Eve,Eads,,,,\n' +
+        'Hal,Hart,,,,\n' +
+        'Ivy,Ives,,,,\n' +
+        'Jo,Jones,,,,\n' +
+        'Dee,Dunn,,,,48933\n',
+    )
+    const match = mockMatch([])
+    await runMatch(second.data.id)
+
+    expect(match.mock.calls[0]![2].map((input) => input.rowIndex)).toEqual([
+      1, 3, 4, 5,
+    ])
+    const rows = await rowsOf(second.data.id)
+    expect(
+      [rows[0]!, rows[2]!].map((row) => [
+        row.outcome,
+        row.method,
+        row.personId,
+        row.isNewPerson,
+      ]),
+    ).toEqual([
+      [
+        ContactUploadMatchOutcome.matched,
+        ContactUploadMatchMethod.prior_upload,
+        PERSON_D,
+        false,
+      ],
+      [
+        ContactUploadMatchOutcome.matched,
+        ContactUploadMatchMethod.prior_upload,
+        hal.personId,
+        true,
+      ],
+    ])
   })
 
   it('redelivers when the next chunk cannot be queued, keeping the chunk it matched', async () => {
