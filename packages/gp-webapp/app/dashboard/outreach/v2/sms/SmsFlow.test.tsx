@@ -433,6 +433,33 @@ describe('SmsFlow', () => {
     expect(receiptCalls).toBe(0)
   })
 
+  it('stops a list over the 100,000 send cap at the audience step', async () => {
+    api.mock('GET /v1/contacts/list-detail', {
+      status: 200,
+      data: {
+        demographics: { people: 110000, avgAge: null, avgIncome: null },
+        reachability: {
+          sms: 104874,
+          robocall: null,
+          phoneBanking: null,
+          doorKnocking: null,
+          polls: null,
+        },
+        outreachHistory: [],
+      },
+    })
+    openFlow()
+    await user.click(screen.getByText('Introduce myself to voters'))
+    await user.click(await screen.findByText('Choose a voter list'))
+    await user.click(await screen.findByText('Likely voters'))
+    expect(
+      await screen.findByText(/reaches over 100,000 people/),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: /Continue \(104,874\)/ }),
+    ).toBeDisabled()
+  })
+
   it('walks purpose → audience → compose → schedule → review and back the same way', async () => {
     mockDraft()
     vi.mocked(createP2pPhoneList).mockClear()
