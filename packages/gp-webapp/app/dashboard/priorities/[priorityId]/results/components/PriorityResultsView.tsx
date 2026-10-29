@@ -184,13 +184,14 @@ export const PriorityResultsView = ({
 const ThemeVoicesChip = ({ voices }: { voices: ThemeVoices }) => (
   <Popover>
     <PopoverTrigger asChild>
-      <button
-        type="button"
-        className="mt-1 inline-flex w-fit items-center gap-1 rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-focus"
+      <Button
+        variant="neutral"
+        size="small"
+        className="mt-1 h-7 w-fit gap-1 px-2.5 text-xs font-normal tracking-normal"
       >
         {RESULTS_COPY.voicesLabel}: {RESULTS_COPY.voices[voices]}
         <InfoIcon className="size-3.5" aria-hidden />
-      </button>
+      </Button>
     </PopoverTrigger>
     <PopoverContent className="flex w-72 flex-col gap-1 text-sm">
       {RESULTS_COPY.voicesMeaning.map((line) => (
