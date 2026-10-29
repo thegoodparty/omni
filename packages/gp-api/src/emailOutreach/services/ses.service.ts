@@ -74,6 +74,13 @@ export const sesTemplateNameFor = (outreachEmailId: number): string =>
 
 export const SEND_TAG_NAME = 'outreachEmailId'
 
+// The tag value is the CloudWatch dimension auto-pause, warming and the admin
+// rates read. Dev and prod share the account's metrics and their send ids
+// overlap, so it carries the environment like every other SES name. The
+// writer and every reader go through here so they can't drift.
+export const sendTagValue = (outreachEmailId: number): string =>
+  `${sesEnvironment()}-${outreachEmailId}`
+
 export interface SesSendInput {
   from: string
   to: string
@@ -358,7 +365,7 @@ export class SesService extends AwsService {
             },
           },
           DefaultEmailTags: [
-            { Name: SEND_TAG_NAME, Value: String(input.outreachEmailId) },
+            { Name: SEND_TAG_NAME, Value: sendTagValue(input.outreachEmailId) },
           ],
           BulkEmailEntries: input.entries,
         }),
@@ -426,7 +433,7 @@ export class SesService extends AwsService {
                 Namespace: 'AWS/SES',
                 MetricName: name,
                 Dimensions: [
-                  { Name: SEND_TAG_NAME, Value: String(outreachEmailId) },
+                  { Name: SEND_TAG_NAME, Value: sendTagValue(outreachEmailId) },
                 ],
               },
               Period: METRIC_PERIOD_SECONDS,

@@ -21,9 +21,35 @@ export class OutreachEmailSettlementAdapter
       where: { outreachId },
       select: { id: true },
     })
-    await this.model.updateMany({
-      where: { id: row.id, stoppingAt: null },
-      data: { stoppingAt: new Date() },
+    await this.client.$transaction(async (tx) => {
+      const stopped = await tx.outreachEmail.updateMany({
+        where: { id: row.id, stoppingAt: null },
+        data: { stoppingAt: new Date() },
+      })
+      if (stopped.count === 0) return
+      // Both cancels set stoppingAt before they settle, so a send stopped
+      // here with recipients still queued is the hold's capture deadline
+      // (the expiry guard). Once some of it went out, the rest is marked
+      // failed so the send finishes as sent rather than canceled. One that
+      // sent nothing keeps its queue and ends canceled, charged nothing.
+      const { sentCount } = await tx.outreachEmail.findUniqueOrThrow({
+        where: { id: row.id },
+        select: { sentCount: true },
+      })
+      const inFlight = await tx.outreachEmailRecipient.count({
+        where: {
+          outreachEmailId: row.id,
+          status: OutreachEmailRecipientStatus.sending,
+        },
+      })
+      if (sentCount === 0 && inFlight === 0) return
+      await tx.outreachEmailRecipient.updateMany({
+        where: {
+          outreachEmailId: row.id,
+          status: OutreachEmailRecipientStatus.queued,
+        },
+        data: { status: OutreachEmailRecipientStatus.failed },
+      })
     })
     const inFlight = await this.client.outreachEmailRecipient.count({
       where: {

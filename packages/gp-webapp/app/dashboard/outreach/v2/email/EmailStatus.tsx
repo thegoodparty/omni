@@ -42,7 +42,10 @@ interface StatusCopy {
   caption: string
 }
 
-export const emailStatusCopy = (send: EmailSend): StatusCopy | null => {
+export const emailStatusCopy = (
+  send: EmailSend,
+  surface: EmailSurface,
+): StatusCopy | null => {
   const total = send.recipientCap ?? send.recipientCount
   switch (send.status) {
     case 'pending_payment':
@@ -76,11 +79,19 @@ export const emailStatusCopy = (send: EmailSend): StatusCopy | null => {
         title: `Sending ${formatCount(send.sentCount)} of ${formatCount(total)}.`,
         caption: 'This page updates as it goes.',
       }
-    case 'completed':
+    case 'completed': {
+      // Prepare trims the list to the cap, so once a send has run its
+      // recipients are everyone it meant to reach. Fewer sent means it was
+      // stopped at the payment deadline (or, rarely, SES refused a few).
+      const reach = Math.min(send.recipientCount, total)
       return {
         title: 'Sent.',
-        caption: `${formatCount(send.sentCount)} emails went out.`,
+        caption:
+          send.sentCount < reach
+            ? `Sent to ${formatCount(send.sentCount)} of ${formatCount(reach)} ${surface.recipientsNoun}. The rest couldn't go out in time.`
+            : `${formatCount(send.sentCount)} emails went out.`,
       }
+    }
     case 'canceled':
       return {
         title: 'Canceled.',
@@ -130,7 +141,7 @@ export const EmailStatus = ({ surface, id }: EmailStatusProps) => {
     )
   }
   if (!send) return null
-  const copy = emailStatusCopy(send) ?? {
+  const copy = emailStatusCopy(send, surface) ?? {
     title: 'Something is off with this email.',
     caption: 'Go back to your outreach and try again.',
   }
