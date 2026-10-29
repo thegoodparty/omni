@@ -1218,10 +1218,7 @@ with no composed introduction or thank-you around it. `POST /v1/outreach/door-kn
 `serve/` sibling return one `draft`. A fresh draft is 4 or 5 bullets, one
 action each, about the campaign's (or the office's) goal rather than the
 person at the door, assembled server-side so every line starts with the bullet marker. An
-Improve is a light polish that keeps whatever shape the candidate wrote. For
-one release the response also carries the optional `engagementQuestion`,
-`context` and `ask` filled from the draft's lines, so a tab open across the
-deploy keeps working.
+Improve is a light polish that keeps whatever shape the candidate wrote.
 
 **The list's purpose and its audience are the whole prompt input that is
 specific to this channel.** `DoorKnockingTurf.purpose` takes the same ten
