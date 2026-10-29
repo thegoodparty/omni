@@ -72,7 +72,8 @@ const CHANNEL_ICON = {
 
 export const OPEN_UI_COPY = {
   askAbout: 'Ask about them',
-  askAboutMessage: (name: string) => `Tell me more about ${name}.`,
+  askAboutMessage: (name: string, role?: string) =>
+    `How can ${name}${role ? `, our ${role},` : ''} help my office?`,
   call: 'Call',
   email: 'Email',
   startOutreach: (channel: OpenUiChannel) =>
@@ -228,7 +229,7 @@ const ContactCardView = ({
           size="small"
           variant="outline"
           onClick={() =>
-            triggerAction(OPEN_UI_COPY.askAboutMessage(props.name))
+            triggerAction(OPEN_UI_COPY.askAboutMessage(props.name, props.role))
           }
         >
           {OPEN_UI_COPY.askAbout}

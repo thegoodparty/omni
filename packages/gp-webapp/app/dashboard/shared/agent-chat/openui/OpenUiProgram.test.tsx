@@ -56,7 +56,7 @@ describe('OpenUiProgram', () => {
       screen.getByRole('button', { name: 'Start the text' }),
     )
     expect(onMessage.mock.calls).toEqual([
-      ['Tell me more about Jane Rivera.'],
+      ['How can Jane Rivera, our City Clerk, help my office?'],
       ['Summarize my week'],
       ["Let's set up the text outreach"],
     ])
