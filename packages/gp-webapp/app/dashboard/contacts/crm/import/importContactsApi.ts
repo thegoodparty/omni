@@ -137,7 +137,13 @@ export const createContactUpload = async ({
 }) => {
   const { data: presign } = await clientRequest(
     'POST /v1/contact-uploads/presign',
-    { byteSize: file.size },
+    {
+      byteSize: file.size,
+      fileName: file.name,
+      name,
+      consentAffirmed: true,
+      columnMapping,
+    },
   )
   // Straight to S3: the /api proxy can't carry a body over 4.5 MB.
   const put = await fetch(presign.uploadUrl, {
@@ -147,12 +153,8 @@ export const createContactUpload = async ({
   })
   if (!put.ok) throw new Error(`s3_upload_failed:${put.status}`)
   return (
-    await clientRequest('POST /v1/contact-uploads', {
-      uploadId: presign.uploadId,
-      fileName: file.name,
-      name,
-      consentAffirmed: true,
-      columnMapping,
+    await clientRequest('POST /v1/contact-uploads/:id/uploaded', {
+      id: presign.uploadId,
     })
   ).data
 }

@@ -66,7 +66,7 @@ import {
   OrdinanceQualityLoopMessageSchema,
   OutreachTextSendEventSchema,
   P2pPhoneListBuildMessageSchema,
-  ContactUploadMatchMessageSchema,
+  ContactUploadProcessMessageSchema,
   EmailSendPrepareMessageSchema,
   EmailInboundMessageSchema,
   PollAnalysisCompleteEvent,
@@ -110,7 +110,7 @@ import { ExperimentRunStatus } from '../../generated/prisma'
 import { isJsonObject } from '@/shared/util/objects.util'
 import { isUndrawnSample } from '@/priorities/util/roundTwo.util'
 import { EmailOutreachQueueService } from '@/emailOutreach/services/emailOutreachQueue.service'
-import { ContactUploadMatchJobService } from '@/contactUploads/services/contactUploadMatchJob.service'
+import { ContactUploadProcessJobService } from '@/contactUploads/services/contactUploadProcessJob.service'
 
 const INITIAL_POLL_SEND_SEQ = 1
 
@@ -206,7 +206,7 @@ export class QueueConsumerService {
     private readonly feedbackSynthesisIngest: FeedbackSynthesisIngestService,
     private readonly textSendFunding: OutreachTextSendFundingService,
     private readonly emailOutreachQueue: EmailOutreachQueueService,
-    private readonly contactUploadMatchJob: ContactUploadMatchJobService,
+    private readonly contactUploadProcessJob: ContactUploadProcessJobService,
   ) {
     this.logger.setContext(QueueConsumerService.name)
   }
@@ -581,13 +581,13 @@ export class QueueConsumerService {
         return await this.emailOutreachQueue.handleInbound(
           EmailInboundMessageSchema.parse(queueMessage.data),
         )
-      case QueueType.CONTACT_UPLOAD_MATCH: {
-        this.logger.info('received contactUploadMatch message')
+      case QueueType.CONTACT_UPLOAD_PROCESS: {
+        this.logger.info('received contactUploadProcess message')
         // Malformed means our own producer's bug: throw and age to the DLQ.
-        const { uploadId } = ContactUploadMatchMessageSchema.parse(
+        const { uploadId } = ContactUploadProcessMessageSchema.parse(
           queueMessage.data,
         )
-        return await this.contactUploadMatchJob.handleQueuedMatch(
+        return await this.contactUploadProcessJob.handleQueuedProcess(
           uploadId,
           Number(
             message.Attributes?.[

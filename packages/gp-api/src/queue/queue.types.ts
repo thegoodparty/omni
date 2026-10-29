@@ -42,10 +42,10 @@ export enum QueueType {
   // webhook from SES reply notifications.
   EMAIL_SEND_PREPARE = 'emailSendPrepare',
   EMAIL_INBOUND = 'emailInbound',
-  // Matches one contact upload's rows (src/contactUploads/AGENTS.md).
-  // Carries only the upload id; the handler works pending rows only, so a
-  // redelivery resumes where it stopped.
-  CONTACT_UPLOAD_MATCH = 'contactUploadMatch',
+  // Reads one contact upload's file into rows, then matches them
+  // (src/contactUploads/AGENTS.md). Carries only the upload id; both phases
+  // skip work already done, so a redelivery resumes where it stopped.
+  CONTACT_UPLOAD_PROCESS = 'contactUploadProcess',
 }
 
 export type QueueMessage =
@@ -121,7 +121,10 @@ export type QueueMessage =
       data: P2pPhoneListBuildMessage
     }
   | { type: QueueType.EMAIL_SEND_PREPARE; data: EmailSendPrepareMessage }
-  | { type: QueueType.CONTACT_UPLOAD_MATCH; data: ContactUploadMatchMessage }
+  | {
+      type: QueueType.CONTACT_UPLOAD_PROCESS
+      data: ContactUploadProcessMessage
+    }
   | { type: QueueType.EMAIL_INBOUND; data: EmailInboundMessage }
 
 export type GenerateAiContentMessageData = {
@@ -269,7 +272,7 @@ export enum MessageGroup {
   p2pPhoneListBuild = 'p2pPhoneListBuild',
   emailSendPrepare = 'emailSendPrepare',
   emailInbound = 'emailInbound',
-  contactUploadMatch = 'contactUploadMatch',
+  contactUploadProcess = 'contactUploadProcess',
 }
 
 const PollResponseJsonRowSchema = z.object({
@@ -366,12 +369,12 @@ export type P2pPhoneListBuildMessage = z.infer<
   typeof P2pPhoneListBuildMessageSchema
 >
 
-// The upload id only — see QueueType.CONTACT_UPLOAD_MATCH.
-export const ContactUploadMatchMessageSchema = z.object({
+// The upload id only — see QueueType.CONTACT_UPLOAD_PROCESS.
+export const ContactUploadProcessMessageSchema = z.object({
   uploadId: z.string().uuid(),
 })
-export type ContactUploadMatchMessage = z.infer<
-  typeof ContactUploadMatchMessageSchema
+export type ContactUploadProcessMessage = z.infer<
+  typeof ContactUploadProcessMessageSchema
 >
 
 export const EmailSendPrepareMessageSchema = z.object({

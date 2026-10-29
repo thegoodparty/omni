@@ -144,7 +144,9 @@ describe('<UploadHistory>', () => {
     api.mockOrdered('GET /v1/contact-uploads', [
       {
         status: 200,
-        data: { uploads: [makeUpload({ status: 'processing' })] },
+        data: {
+          uploads: [makeUpload({ status: 'processing', rowCount: null })],
+        },
       },
       { status: 200, data: { uploads: [makeUpload({ status: 'complete' })] } },
     ])

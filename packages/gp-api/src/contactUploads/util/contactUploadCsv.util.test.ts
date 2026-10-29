@@ -1,10 +1,14 @@
-import { BadRequestException } from '@nestjs/common'
+import { Readable } from 'stream'
 import { describe, expect, it } from 'vitest'
-import type { ContactUploadColumnMapping } from '@goodparty_org/contracts'
 import {
+  CONTACT_UPLOAD_MAX_ROWS,
+  type ContactUploadColumnMapping,
+} from '@goodparty_org/contracts'
+import {
+  ContactUploadFileError,
   normalizePhone,
   normalizeZip,
-  parseContactUploadCsv,
+  readContactUploadCsv,
 } from './contactUploadCsv.util'
 
 const MAPPING: ContactUploadColumnMapping = {
@@ -18,10 +22,18 @@ const MAPPING: ContactUploadColumnMapping = {
   zip: 'Zip',
 }
 
-const parse = (csv: string, mapping = MAPPING) =>
-  parseContactUploadCsv(Buffer.from(csv), mapping)
+const parse = async (csv: string, mapping = MAPPING) => {
+  const rows = []
+  for await (const row of readContactUploadCsv(
+    Readable.from([Buffer.from(csv)]),
+    mapping,
+  )) {
+    rows.push(row)
+  }
+  return rows
+}
 
-describe('parseContactUploadCsv', () => {
+describe('readContactUploadCsv', () => {
   it('maps by the chosen headers and normalizes each field', async () => {
     const rows = await parse(
       '\uFEFFFirst,Last,Email,Mobile,Street,Zip,Ignored\r\n' +
@@ -57,16 +69,66 @@ describe('parseContactUploadCsv', () => {
     ])
   })
 
-  it('400s when a mapped header is missing', async () => {
+  it('fails a file missing a mapped header, naming the column', async () => {
     await expect(
       parse('First,Last,Email,Mobile,Street\nJane,Doe,,,\n'),
-    ).rejects.toThrow(BadRequestException)
+    ).rejects.toThrow(
+      new ContactUploadFileError(
+        'This file has no column named "Zip". Import it again and pick columns it has.',
+      ),
+    )
   })
 
-  it('400s on a header row only', async () => {
+  it('fails a header row only', async () => {
     await expect(parse('First,Last,Email,Mobile,Street,Zip\n')).rejects.toThrow(
-      BadRequestException,
+      new ContactUploadFileError(
+        'This file has no people in it. Add them and import it again.',
+      ),
     )
+  })
+
+  it('fails a file over the row limit', async () => {
+    const minimal = {
+      ...MAPPING,
+      email: null,
+      cellPhone: null,
+      addressLine: null,
+      zip: null,
+    }
+    await expect(
+      parse(
+        `First,Last\n${'Jane,Doe\n'.repeat(CONTACT_UPLOAD_MAX_ROWS + 1)}`,
+        minimal,
+      ),
+    ).rejects.toThrow(
+      new ContactUploadFileError(
+        'This file has more than 100,000 people. Split it into smaller files and import each one.',
+      ),
+    )
+  })
+
+  it('fails a file it cannot read, like a quote that never closes', async () => {
+    await expect(
+      parse(
+        `First,Last,Email,Mobile,Street,Zip\nJane,"Doe${',x'.repeat(40_000)}\n`,
+      ),
+    ).rejects.toThrow(
+      new ContactUploadFileError(
+        "We couldn't read this file. Save it as a CSV and import it again.",
+      ),
+    )
+  })
+
+  it('rethrows an error from the source stream as is', async () => {
+    const source = new Readable({ read: () => undefined })
+    const reading = (async () => {
+      for await (const row of readContactUploadCsv(source, MAPPING)) {
+        void row
+      }
+    })()
+    source.destroy(new Error('socket hang up'))
+
+    await expect(reading).rejects.toThrow('socket hang up')
   })
 })
 

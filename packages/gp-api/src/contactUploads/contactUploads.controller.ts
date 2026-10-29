@@ -15,7 +15,6 @@ import {
 import {
   AcceptSuggestedMatchesResponseSchema,
   ContactUploadSchema,
-  CreateContactUploadSchema,
   ListContactUploadRowsQuerySchema,
   ListContactUploadRowsResponseSchema,
   ListContactUploadsResponseSchema,
@@ -56,30 +55,30 @@ export class ContactUploadsController {
   @ResponseSchema(PresignContactUploadFileResponseSchema)
   async presignFile(
     @ReqOrganization() organization: Organization,
+    @ReqUser() user: User,
     @Body(new ZodValidationPipe(PresignContactUploadFileSchema))
     body: PresignContactUploadFile,
   ) {
     await this.assertImportContactsOn(organization)
-    return this.uploads.presignFile(organization, body.byteSize)
-  }
-
-  @Post()
-  @ResponseSchema(ContactUploadSchema)
-  async createUpload(
-    @ReqOrganization() organization: Organization,
-    @ReqUser() user: User,
-    @Body(new ZodValidationPipe(CreateContactUploadSchema))
-    body: z.output<typeof CreateContactUploadSchema>,
-  ) {
-    await this.assertImportContactsOn(organization)
-    return this.uploads.createUpload({
+    return this.uploads.presignFile({
       organization,
       userId: user.id,
-      uploadId: body.uploadId,
+      byteSize: body.byteSize,
+      fileName: body.fileName,
       name: body.name,
       columnMapping: body.columnMapping,
-      fileName: body.fileName,
     })
+  }
+
+  @Post(':id/uploaded')
+  @HttpCode(HttpStatus.OK)
+  @ResponseSchema(ContactUploadSchema)
+  async confirmUploaded(
+    @ReqOrganization() organization: Organization,
+    @Param() { id }: ContactUploadParamsDTO,
+  ) {
+    await this.assertImportContactsOn(organization)
+    return this.uploads.confirmUploaded(organization, id)
   }
 
   @Get()

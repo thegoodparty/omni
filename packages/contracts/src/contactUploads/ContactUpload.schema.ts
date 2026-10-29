@@ -33,9 +33,14 @@ export type ContactUploadColumnMapping = z.infer<
 >
 
 // The browser declares the file's size up front; the presigned PUT is signed
-// for exactly that many bytes.
+// for exactly that many bytes. Presign also creates the upload, waiting for
+// the file.
 export const PresignContactUploadFileSchema = z.object({
   byteSize: z.number().int().positive().max(CONTACT_UPLOAD_MAX_BYTES),
+  fileName: z.string().trim().min(1).max(255),
+  name: z.string().trim().min(1).max(CONTACT_UPLOAD_NAME_MAX_LENGTH),
+  consentAffirmed: z.literal(true),
+  columnMapping: ContactUploadColumnMappingSchema,
 })
 export type PresignContactUploadFile = z.infer<
   typeof PresignContactUploadFileSchema
@@ -50,16 +55,8 @@ export type PresignContactUploadFileResponse = z.infer<
   typeof PresignContactUploadFileResponseSchema
 >
 
-export const CreateContactUploadSchema = z.object({
-  uploadId: z.uuid(),
-  fileName: z.string().trim().min(1).max(255),
-  name: z.string().trim().min(1).max(CONTACT_UPLOAD_NAME_MAX_LENGTH),
-  consentAffirmed: z.literal(true),
-  columnMapping: ContactUploadColumnMappingSchema,
-})
-export type CreateContactUpload = z.input<typeof CreateContactUploadSchema>
-
 export const ContactUploadStatusSchema = z.enum([
+  'awaiting_file',
   'processing',
   'needs_input',
   'complete',
@@ -90,7 +87,8 @@ export const ContactUploadSchema = z.object({
     .nullable(),
   status: ContactUploadStatusSchema,
   columnMapping: ContactUploadColumnMappingSchema,
-  rowCount: z.number(),
+  // Null until the file has been read into rows.
+  rowCount: z.number().nullable(),
   matchedCount: z.number(),
   newCount: z.number(),
   needsInputCount: z.number(),

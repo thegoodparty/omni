@@ -11,6 +11,7 @@ import { createPresignedPost } from '@aws-sdk/s3-presigned-post'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import { Injectable } from '@nestjs/common'
 import slugify from 'slugify'
+import { Readable } from 'stream'
 import { AwsService } from './aws.service'
 import { PinoLogger } from 'nestjs-pino'
 
@@ -250,6 +251,27 @@ export class S3Service extends AwsService {
         throw error
       }
     }, 'getFileBytes')
+  }
+
+  async getFileStream(
+    bucket: string,
+    key: string,
+  ): Promise<Readable | undefined> {
+    return this.executeAwsOperation(async () => {
+      try {
+        const response = await this.s3Client.send(
+          new GetObjectCommand({
+            Bucket: bucket,
+            Key: key,
+          }),
+        )
+        return response.Body instanceof Readable ? response.Body : undefined
+      } catch (error) {
+        if (error instanceof NoSuchKey) return undefined
+        if (isHttpStatusError(error, 404)) return undefined
+        throw error
+      }
+    }, 'getFileStream')
   }
 
   async getRangeBytes(

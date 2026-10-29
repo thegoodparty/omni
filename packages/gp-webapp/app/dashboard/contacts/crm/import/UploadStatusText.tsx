@@ -13,6 +13,7 @@ const STATUS_DISPLAY: Record<
   ContactUploadStatus,
   { icon: ReactNode; tone: 'primary' | 'warning' | 'success' | 'destructive' }
 > = {
+  awaiting_file: { icon: <Loader2Icon />, tone: 'primary' },
   processing: { icon: <Loader2Icon />, tone: 'primary' },
   needs_input: { icon: <CircleAlertIcon />, tone: 'warning' },
   complete: { icon: <CheckCircleIcon />, tone: 'success' },
@@ -27,7 +28,7 @@ export const UploadStatusText = ({
   <StatusText
     tone={STATUS_DISPLAY[status].tone}
     icon={STATUS_DISPLAY[status].icon}
-    spinning={status === 'processing'}
+    spinning={status === 'processing' || status === 'awaiting_file'}
   >
     {SERVE_IMPORT_CONTACTS_COPY.status[status]}
   </StatusText>

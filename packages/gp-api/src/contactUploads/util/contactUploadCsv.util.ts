@@ -1,4 +1,3 @@
-import { BadRequestException } from '@nestjs/common'
 import csvParser from 'csv-parser'
 import { Readable } from 'stream'
 import {
@@ -6,6 +5,8 @@ import {
   EmailSchema,
   type ContactUploadColumnMapping,
 } from '@goodparty_org/contracts'
+
+export class ContactUploadFileError extends Error {}
 
 export type ParsedContactUploadRow = {
   rowIndex: number
@@ -56,20 +57,31 @@ export const normalizeZip = (value: string | null): string | null => {
   return null
 }
 
-export const parseContactUploadCsv = async (
-  file: Buffer,
+// Row budget for the parser: a stray quote that never closes would otherwise
+// read the rest of the file as one value.
+const MAX_ROW_BYTES = 64 * 1024
+
+// Reads an upload's file one row at a time. Throws ContactUploadFileError,
+// whose message is shown to the user, for a file that can never import; an
+// error from the source stream itself is rethrown as is.
+export async function* readContactUploadCsv(
+  source: Readable,
   mapping: ContactUploadColumnMapping,
-): Promise<ParsedContactUploadRow[]> => {
-  const rows: ParsedContactUploadRow[] = []
+): AsyncGenerator<ParsedContactUploadRow> {
   let headers: string[] = []
-  const stream = Readable.from(file).pipe(
-    csvParser({
-      mapHeaders: ({ header }) => normalizeHeader(header),
-    }),
-  )
-  stream.on('headers', (parsed: string[]) => {
+  let sourceError: Error | null = null
+  const parser = csvParser({
+    mapHeaders: ({ header }) => normalizeHeader(header),
+    maxRowBytes: MAX_ROW_BYTES,
+  })
+  parser.on('headers', (parsed: string[]) => {
     headers = parsed
   })
+  source.on('error', (err) => {
+    sourceError = err
+    parser.destroy(err)
+  })
+  source.pipe(parser)
 
   const column = (header: string | null): string | null =>
     header === null ? null : normalizeHeader(header)
@@ -83,21 +95,34 @@ export const parseContactUploadCsv = async (
     city: column(mapping.city),
     zip: column(mapping.zip),
   }
+  const assertMappedColumns = () => {
+    const missing = Object.values(columns).filter(
+      (header): header is string =>
+        header !== null && !headers.includes(header),
+    )
+    if (missing.length > 0) {
+      throw new ContactUploadFileError(
+        `This file has no column named ${missing.map((h) => `"${h}"`).join(', ')}. Import it again and pick columns it has.`,
+      )
+    }
+  }
 
+  let rowIndex = 0
   try {
-    const records: AsyncIterable<Record<string, string>> = stream
+    const records: AsyncIterable<Record<string, string>> = parser
     for await (const record of records) {
-      if (rows.length >= CONTACT_UPLOAD_MAX_ROWS) {
-        throw new BadRequestException(
-          `The file has more than ${CONTACT_UPLOAD_MAX_ROWS} rows`,
+      if (rowIndex === 0) assertMappedColumns()
+      if (rowIndex >= CONTACT_UPLOAD_MAX_ROWS) {
+        throw new ContactUploadFileError(
+          `This file has more than ${CONTACT_UPLOAD_MAX_ROWS.toLocaleString('en-US')} people. Split it into smaller files and import each one.`,
         )
       }
       const read = (header: string | null): string | null =>
         header === null ? null : blankToNull(record[header])
       const firstName = read(columns.firstName)
       const lastName = read(columns.lastName)
-      rows.push({
-        rowIndex: rows.length,
+      yield {
+        rowIndex,
         firstName,
         lastName,
         email: normalizeEmail(read(columns.email)),
@@ -107,22 +132,23 @@ export const parseContactUploadCsv = async (
         city: read(columns.city),
         zip: normalizeZip(read(columns.zip)),
         hasName: firstName !== null && lastName !== null,
-      })
+      }
+      rowIndex++
     }
+  } catch (err) {
+    if (err instanceof ContactUploadFileError || err === sourceError) throw err
+    throw new ContactUploadFileError(
+      "We couldn't read this file. Save it as a CSV and import it again.",
+    )
   } finally {
-    stream.destroy()
+    parser.destroy()
+    source.destroy()
   }
 
-  const missing = Object.values(columns).filter(
-    (header): header is string => header !== null && !headers.includes(header),
-  )
-  if (missing.length > 0) {
-    throw new BadRequestException(
-      `The file has no column named ${missing.map((h) => `"${h}"`).join(', ')}`,
+  if (rowIndex === 0) {
+    assertMappedColumns()
+    throw new ContactUploadFileError(
+      'This file has no people in it. Add them and import it again.',
     )
   }
-  if (rows.length === 0) {
-    throw new BadRequestException('The file has no rows')
-  }
-  return rows
 }

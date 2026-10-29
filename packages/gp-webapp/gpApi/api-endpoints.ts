@@ -2,7 +2,6 @@ import type {
   AcceptSuggestedMatchesResponse,
   ContactSourcesResponse,
   ContactUpload,
-  CreateContactUpload,
   PresignContactUploadFile,
   PresignContactUploadFileResponse,
   ListContactUploadRowsQuery,
@@ -2102,14 +2101,14 @@ export type APIEndpoints = {
   }
 
   // Import contacts (Serve, behind serve-import-contacts). The file never goes
-  // through /api: presign, PUT it to the returned URL, then create with the
-  // upload id.
+  // through /api: presign creates the upload, the browser PUTs the file to the
+  // returned URL, then confirms it landed.
   'POST /v1/contact-uploads/presign': {
     Request: PresignContactUploadFile
     Response: PresignContactUploadFileResponse
   }
-  'POST /v1/contact-uploads': {
-    Request: CreateContactUpload
+  'POST /v1/contact-uploads/:id/uploaded': {
+    Request: {}
     Response: ContactUpload
   }
   'GET /v1/contact-uploads': {

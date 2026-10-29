@@ -348,10 +348,10 @@ describe('<UploadDetail>', () => {
     ).not.toBeInTheDocument()
   })
 
-  it('says it is still matching while the upload processes', async () => {
+  it('says it is still matching, without counts, before the file is read', async () => {
     api.mock('GET /v1/contact-uploads/:id', {
       status: 200,
-      data: makeUpload({ status: 'processing' }),
+      data: makeUpload({ status: 'processing', rowCount: null }),
     })
 
     render(<UploadDetail uploadId="upload-1" />)
@@ -361,6 +361,36 @@ describe('<UploadDetail>', () => {
         "We're matching your people. This page updates when it's done.",
       ),
     ).toBeInTheDocument()
+    expect(screen.getByText('Processing')).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        'newsletter-subscribers.csv · Uploaded Oct 20, 2026 by Sarah Chen',
+      ),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Processed rows')).not.toBeInTheDocument()
+  })
+
+  it('says why a file could not be imported, without counts', async () => {
+    api.mock('GET /v1/contact-uploads/:id', {
+      status: 200,
+      data: makeUpload({
+        status: 'failed',
+        rowCount: null,
+        failureReason:
+          'This file has no column named "Email". Import it again and pick columns it has.',
+      }),
+    })
+
+    render(<UploadDetail uploadId="upload-1" />)
+
+    expect(
+      await screen.findByText(
+        'This file has no column named "Email". Import it again and pick columns it has.',
+      ),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText('already in your constituents'),
+    ).not.toBeInTheDocument()
     expect(screen.queryByText('Processed rows')).not.toBeInTheDocument()
   })
 

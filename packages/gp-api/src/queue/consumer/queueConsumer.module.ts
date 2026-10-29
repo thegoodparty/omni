@@ -38,7 +38,7 @@ import { MessageSystemAttributeName } from '@aws-sdk/client-sqs'
           ...queueConfig,
           pollingWaitTimeMs: 1000,
           // Read by handlers that act on their last delivery before the
-          // DLQ (contactUploadMatch).
+          // DLQ (contactUploadProcess).
           messageSystemAttributeNames: [
             MessageSystemAttributeName.ApproximateReceiveCount,
           ],
@@ -78,7 +78,7 @@ import { MessageSystemAttributeName } from '@aws-sdk/client-sqs'
     ConstituentFeedbackModule,
     // For EmailOutreachQueueService, the email handlers.
     EmailOutreachModule,
-    // For ContactUploadMatchJobService, the `contactUploadMatch` handler.
+    // For ContactUploadProcessJobService, the `contactUploadProcess` handler.
     ContactUploadsModule,
   ],
   providers: [QueueConsumerService],
