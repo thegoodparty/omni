@@ -2,9 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { useQueryClient } from '@tanstack/react-query'
-import { useOrganization } from '@shared/organization-picker'
-import { managedCivicPanelQueryOptions } from '../../../contacts/citizens-panel/civicPanelSummary.query'
 import {
   Button,
   IconButton,
@@ -223,8 +220,6 @@ const PriorityWorkspaceBody = ({
 }: PriorityWorkspaceProps): React.JSX.Element => {
   const router = useRouter()
   const { enabled: panelsOn } = useServeCitizenPanelsFlag()
-  const queryClient = useQueryClient()
-  const orgSlug = useOrganization()?.slug
   // Read once: the param is dropped from the address after the turn is
   // queued, so a reload never asks twice.
   const reportBackRef = useRef(reportBackOutreachId)
@@ -279,15 +274,11 @@ const PriorityWorkspaceBody = ({
       void fetchPriorityReadStatus(priorityId).then((read) => {
         if (read) setReadStatus(read)
       })
-      // Residents join the civic panel while the official is here.
-      void queryClient.invalidateQueries({
-        queryKey: managedCivicPanelQueryOptions(orgSlug).queryKey,
-      })
     }
     const persisted = await fetchPriorityStatus(priorityId)
     if (!persisted) return
     commitStatus(persisted.status, persisted.nextAction)
-  }, [priorityId, commitStatus, panelsOn, queryClient, orgSlug])
+  }, [priorityId, commitStatus, panelsOn])
 
   const {
     messages,

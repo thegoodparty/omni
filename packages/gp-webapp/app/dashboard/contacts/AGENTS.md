@@ -116,21 +116,29 @@ becomes a list card.
   history. File (read in the browser by `parseCsvPreview` for headers,
   examples and the row count; CSV only, 25 MB), columns (`prefillColumnMapping`:
   the latest upload's mapping when every column it used is in the file, else
-  header names), then name and consent. `POST /v1/contact-uploads` is
-  multipart, then it routes to Upload history.
+  header names), then name and consent. Import presigns
+  (`POST /v1/contact-uploads/presign`), PUTs the file straight to S3 (the
+  `/api` proxy on Vercel caps bodies at 4.5 MB), then creates the upload with
+  its id (`createContactUpload` in `importContactsApi.ts`), then routes to
+  Upload history. Files over 25 MB are turned away when picked.
 - **Upload history** (`/dashboard/contacts/uploads`, `UploadHistory`): one row
   per upload, status only; polls every 3s while any upload is processing.
 - **Upload detail** (`/dashboard/contacts/uploads/[uploadId]`, `UploadDetail`):
   the counts, `NeedsInputReview` (answers saved together; Decide later changes
   nothing), and `ProcessedRows` (searchable, paged with Show more, Change match
-  per row).
+  per row). A choice reads name, address, then age (`candidateLabel`), so
+  two people at one address still differ.
 - **Person panel**: on Serve with the flag on, `PersonRecord` renders
   `person/ImportedContactInformation` in place of today's Contact Information
-  card: Email, a Came from line per detail from
+  card: Email, a "Came from upload <name>" line per detail from
   `GET /v1/contacts/:personId/sources`, and Change match.
   `ChangeMatchDialog` is shared with the upload detail and warns first when
   `hasActivity` (notes and activity stay with the old record). Import rows in
-  the activity feed are `CONTACT_IMPORT` (`ContactImportActivityRow`).
+  the activity feed are `CONTACT_IMPORT` (`ContactImportActivityRow`): the
+  title is the fields added on the person's first import (`isFirstImport`),
+  else the fields that upload changed, or Nothing changed. Only a first import
+  of a person gp-api created says added as a new person (by you, for a New
+  person pick); later ones read Imported from.
 - Copy lives in `importContactsCopy.ts` (`SERVE_IMPORT_CONTACTS_COPY`, so the
   vocabulary check reads it). Analytics: `docs/contacts-analytics.md`.
 

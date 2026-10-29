@@ -190,15 +190,21 @@ describe('PaymentHoldCard', () => {
     expect(onOutcome).not.toHaveBeenCalled()
   })
 
-  it('sends the retry after a first-card decline to the hold route', async () => {
+  it('sends the retry after a decline through the custom save too', async () => {
     mockIntent('win')
-    mockCard('win', {
-      status: 200,
-      data: { outcome: 'held', captureBefore: '2026-11-05T00:00:00.000Z' },
-    })
+    const cardRoute = vi.fn()
+    mockCard(
+      'win',
+      {
+        status: 200,
+        data: { outcome: 'held', captureBefore: '2026-11-05T00:00:00.000Z' },
+      },
+      cardRoute,
+    )
     const savePaymentMethod = vi
       .fn()
-      .mockResolvedValue({ outcome: 'declined', declineCode: null })
+      .mockResolvedValueOnce({ outcome: 'declined', declineCode: null })
+      .mockResolvedValueOnce({ outcome: 'scheduled' })
 
     render(
       <PaymentHoldCard
@@ -215,8 +221,11 @@ describe('PaymentHoldCard', () => {
     )
     await submit()
 
-    await waitFor(() => expect(onOutcome).toHaveBeenCalled())
-    expect(savePaymentMethod).toHaveBeenCalledTimes(1)
+    await waitFor(() =>
+      expect(onOutcome).toHaveBeenCalledWith({ outcome: 'scheduled' }),
+    )
+    expect(savePaymentMethod).toHaveBeenCalledTimes(2)
+    expect(cardRoute).not.toHaveBeenCalled()
   })
 
   it('does not ask to wait on a final 409 and offers another card', async () => {

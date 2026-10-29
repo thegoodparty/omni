@@ -80,12 +80,26 @@ export const createContactUpload = async ({
   name: string
   columnMapping: ContactUploadColumnMapping
 }) => {
-  const body = new FormData()
-  body.append('name', name)
-  body.append('consentAffirmed', 'true')
-  body.append('columnMapping', JSON.stringify(columnMapping))
-  body.append('file', file)
-  return (await clientRequest('POST /v1/contact-uploads', {}, { body })).data
+  const { data: presign } = await clientRequest(
+    'POST /v1/contact-uploads/presign',
+    { byteSize: file.size },
+  )
+  // Straight to S3: the /api proxy can't carry a body over 4.5 MB.
+  const put = await fetch(presign.uploadUrl, {
+    method: 'PUT',
+    body: file,
+    headers: { 'Content-Type': 'text/csv' },
+  })
+  if (!put.ok) throw new Error(`s3_upload_failed:${put.status}`)
+  return (
+    await clientRequest('POST /v1/contact-uploads', {
+      uploadId: presign.uploadId,
+      fileName: file.name,
+      name,
+      consentAffirmed: true,
+      columnMapping,
+    })
+  ).data
 }
 
 export const setContactUploadRowMatch = async (

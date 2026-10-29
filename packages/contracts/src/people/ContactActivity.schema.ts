@@ -214,7 +214,9 @@ export type StatusChangeConstituentActivity = z.infer<
 // added as a new person when the upload ran, or matched by hand (`manual`,
 // dated when the user picked). suppliedFields are the contact fields the row
 // carried; changedFields the ones that changed a value an earlier upload
-// gave this person. actorName/actorUserId name who matched it by hand.
+// gave this person. isFirstImport marks the person's earliest import row by
+// this item's date, the one that brought them in (and, with isNewPerson,
+// created them). actorName/actorUserId name who matched it by hand.
 export const ContactImportConstituentActivitySchema = z.object({
   type: z.literal(ConstituentActivityTypeSchema.enum.CONTACT_IMPORT),
   date: z.string(),
@@ -223,6 +225,7 @@ export const ContactImportConstituentActivitySchema = z.object({
     uploadId: z.string(),
     uploadName: z.string(),
     isNewPerson: z.boolean(),
+    isFirstImport: z.boolean(),
     suppliedFields: z.array(z.string()),
     changedFields: z.array(z.string()),
     manual: z.boolean(),

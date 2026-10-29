@@ -2,31 +2,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { firstOrThrow } from 'src/shared/test-utils/arrays.util'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { PositionLevel } from 'src/generated/graphql.types'
-
-// The module throws at import time if BALLOT_READY_KEY is unset, and creates a
-// GraphQLClient as a field initializer — stub the env and mock the client before
-// import. The gql mock reconstructs the interpolated string so we can assert no
-// attacker value is embedded in the query text.
-const { mockRequest } = vi.hoisted(() => ({ mockRequest: vi.fn() }))
-vi.hoisted(() => {
-  process.env.BALLOT_READY_KEY = 'test-key'
-})
-vi.mock('graphql-request', () => ({
-  gql: (strings: TemplateStringsArray, ...values: unknown[]) =>
-    strings.reduce(
-      (acc, str, i) => acc + str + (i < values.length ? String(values[i]) : ''),
-      '',
-    ),
-  GraphQLClient: class {
-    request = mockRequest
-  },
-}))
-vi.mock('zipcodes', () => ({
-  default: { lookup: vi.fn(() => ({ state: 'OR' })) },
-}))
-
 import zipcodes from 'zipcodes'
 import { BallotReadyService } from './ballotReady.service'
+
+const mockRequest = vi.fn()
 
 // A payload that breaks out of node(id: "...") under string interpolation.
 const INJECTION_ID = 'x") { __typename } node(id: "y'
@@ -38,6 +17,10 @@ describe('BallotReadyService GraphQL injection hardening', () => {
     vi.clearAllMocks()
     mockRequest.mockResolvedValue({ node: null })
     service = new BallotReadyService(createMockLogger())
+    Object.defineProperty(service, 'graphQLClient', {
+      value: { request: mockRequest },
+      configurable: true,
+    })
   })
 
   describe('race-id methods pass the id as a typed variable', () => {
@@ -188,7 +171,7 @@ describe('BallotReadyService GraphQL injection hardening', () => {
     it('omits the state filter when the zipcode lookup returns no state (no injection)', async () => {
       // The [A-Z]{2} guard drops a non-2-letter / missing state so nothing
       // unvalidated reaches the interpolated `state: "..."` filter.
-      vi.mocked(zipcodes.lookup).mockReturnValueOnce(undefined as never)
+      vi.spyOn(zipcodes, 'lookup').mockReturnValueOnce(undefined)
       mockRequest.mockResolvedValue({ races: { edges: [], pageInfo: {} } })
 
       await service.fetchRacesByZipcode('00000', null, null, null)

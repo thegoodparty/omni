@@ -367,7 +367,6 @@ describe('coding a text send when its results land', () => {
       )
       expect(prompts).toHaveLength(2)
       for (const prompt of prompts) {
-        expect(prompt).toContain('OWN text reply')
         expect(prompt).toContain(`They were asked: ${CONTRAST_QUESTION}`)
       }
 

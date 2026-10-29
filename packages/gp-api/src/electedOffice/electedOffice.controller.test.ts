@@ -482,13 +482,13 @@ describe('ElectedOfficeController', () => {
       const organization = await service.prisma.organization.findUnique({
         where: { slug: `eo-${result.data.id}` },
       })
-      expect(organization).toBeDefined()
+      expect(organization).not.toBeNull()
       expect(organization?.slug).toBe(`eo-${result.data.id}`)
 
       const electedOffice = await service.prisma.electedOffice.findFirst({
         where: { id: result.data.id },
       })
-      expect(electedOffice).toBeDefined()
+      expect(electedOffice).not.toBeNull()
       expect(electedOffice?.organizationSlug).toBe(organization?.slug)
     })
 
@@ -503,13 +503,13 @@ describe('ElectedOfficeController', () => {
       const organization = await service.prisma.organization.findUnique({
         where: { slug: `eo-${result.data.id}` },
       })
-      expect(organization).toBeDefined()
+      expect(organization).not.toBeNull()
       expect(organization?.slug).toBe(`eo-${result.data.id}`)
 
       const electedOffice = await service.prisma.electedOffice.findFirst({
         where: { id: result.data.id },
       })
-      expect(electedOffice).toBeDefined()
+      expect(electedOffice).not.toBeNull()
       expect(electedOffice?.organizationSlug).toBe(organization?.slug)
     })
 

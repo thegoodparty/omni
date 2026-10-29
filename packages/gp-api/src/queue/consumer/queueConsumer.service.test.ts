@@ -51,11 +51,6 @@ import { P2pPhoneListUploadService } from '@/vendors/peerly/services/p2pPhoneLis
 import { FeedbackSynthesisIngestService } from '@/constituentFeedback/services/feedbackSynthesisIngest.service'
 import { QueueConsumerService } from './queueConsumer.service'
 
-vi.mock('@/polls/utils/polls.utils', async (importOriginal) => ({
-  ...(await importOriginal()),
-  sendTevynAPIPollMessage: vi.fn(),
-}))
-
 const createPollAnalysisCompleteMessage = (data: {
   pollId: string
   totalResponses?: number

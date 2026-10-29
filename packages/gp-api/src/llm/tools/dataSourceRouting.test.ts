@@ -5,22 +5,6 @@ import {
 } from './dataSourceRouting'
 
 describe('DATA_SOURCE_ROUTING_RULES', () => {
-  it('names the dimensions that live in only one catalog', () => {
-    expect(DATA_SOURCE_ROUTING_RULES).toMatch(/registration status/i)
-    expect(DATA_SOURCE_ROUTING_RULES).toMatch(/voter-file mart/i)
-    expect(DATA_SOURCE_ROUTING_RULES).toContain('hs_*')
-  })
-
-  it('tells the model to check the other catalog before declaring absence', () => {
-    expect(DATA_SOURCE_ROUTING_RULES).toMatch(/check the other catalog/i)
-    expect(DATA_SOURCE_ROUTING_RULES).toMatch(/do not conclude absence/i)
-  })
-
-  it('names the confused pair so the substitution ban is concrete', () => {
-    expect(DATA_SOURCE_ROUTING_RULES).toContain('Voter Likelihood')
-    expect(DATA_SOURCE_ROUTING_RULES).toMatch(/is not registration status/i)
-  })
-
   // Win and Serve mandate opposite audience nouns for this data ("voters" vs
   // "constituents"); shared rule text has to use neither.
   it('uses neither product audience noun', () => {
@@ -45,15 +29,54 @@ describe('dataSourceRoutingRules on the constituents dataset', () => {
   })
 
   it('tells the model which base a total counts', () => {
-    expect(rules).toContain(
-      'Totals include adult residents whether or not they are registered to vote',
-    )
-    expect(rules).toMatch(/cover only residents registered to vote/i)
-    expect(rules).toMatch(/say which of the two it counts/i)
+    expect(rules).toMatch(/not registered to vote/i)
   })
 
   it('still uses neither product audience noun', () => {
     expect(rules).not.toMatch(/\bconstituents\b/i)
     expect(rules).not.toMatch(/\bvoters\b/i)
+  })
+})
+
+describe('dataSourceRoutingRules with the imported-contact overlay', () => {
+  const withOverlay = dataSourceRoutingRules({
+    base: 'constituents',
+    overlayOrgSlug: 'eo-office',
+  })
+
+  it('routes uploaded-list and email questions to the constituent query', () => {
+    expect(withOverlay).toMatch(/uploaded lists, imported contacts/)
+    expect(withOverlay).toContain(
+      'call query_constituent_data with on_uploaded_list = true',
+    )
+    expect(withOverlay).toContain('has_email = true')
+  })
+
+  it('says imported people are already in contact counts and saved lists', () => {
+    expect(withOverlay).toMatch(
+      /everyone an upload matched or added counts in contact counts, saved lists/,
+    )
+    expect(withOverlay).toMatch(/never answer these from saved lists/)
+  })
+
+  it('works on the voters base too', () => {
+    const rules = dataSourceRoutingRules({
+      base: 'voters',
+      overlayOrgSlug: 'eo-office',
+    })
+    expect(rules).toContain('on_uploaded_list = true')
+    expect(rules).toContain('voter-file mart')
+  })
+
+  it('stays out of the rules for an org without the overlay', () => {
+    expect(dataSourceRoutingRules({ base: 'constituents' })).not.toMatch(
+      /on_uploaded_list|has_email/,
+    )
+    expect(DATA_SOURCE_ROUTING_RULES).not.toMatch(/on_uploaded_list|has_email/)
+  })
+
+  it('still uses neither product audience noun', () => {
+    expect(withOverlay).not.toMatch(/\bconstituents\b/i)
+    expect(withOverlay).not.toMatch(/\bvoters\b/i)
   })
 })

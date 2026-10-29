@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common'
+import { subHours } from 'date-fns'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { resolveEnvVar } from '@/shared/env/env'
 import { isUniqueConstraintError } from '@/prisma/util/prismaErrors.util'
@@ -9,7 +10,11 @@ import {
   OutreachEmailReplyClass,
   OutreachEmailSender,
 } from '../../generated/prisma'
-import { EMAIL_OUTREACH_DOMAIN } from '../emailOutreach.const'
+import {
+  EMAIL_OUTREACH_DOMAIN,
+  REPLY_FORWARD_MAX_PER_ADDRESS_PER_DAY,
+  REPLY_FORWARD_MAX_PER_SENDER_PER_HOUR,
+} from '../emailOutreach.const'
 import {
   MimeAddress,
   ParsedMime,
@@ -65,7 +70,7 @@ export class OutreachEmailInboundService extends createPrismaBase(
       throw new Error('EMAIL_INBOUND_BUCKET is not set')
     }
     if (bucket !== expected.value) {
-      this.logger.error({ bucket, key }, 'inbound reply from an unknown bucket')
+      this.logger.warn({ bucket, key }, 'inbound reply from an unknown bucket')
       return
     }
     const existing = await this.model.findUnique({
@@ -237,6 +242,33 @@ export class OutreachEmailInboundService extends createPrismaBase(
     }
   }
 
+  // Counts replies already forwarded, so a capped reply doesn't use up room.
+  private async forwardCap(
+    senderId: number,
+    fromEmail: string,
+  ): Promise<string | null> {
+    const now = new Date()
+    const [fromAddress, fromSender] = await Promise.all([
+      this.model.count({
+        where: {
+          senderId,
+          fromEmail,
+          forwardedAt: { gt: subHours(now, 24) },
+        },
+      }),
+      this.model.count({
+        where: { senderId, forwardedAt: { gt: subHours(now, 1) } },
+      }),
+    ])
+    if (fromAddress >= REPLY_FORWARD_MAX_PER_ADDRESS_PER_DAY) {
+      return 'per_address_daily_cap'
+    }
+    if (fromSender >= REPLY_FORWARD_MAX_PER_SENDER_PER_HOUR) {
+      return 'per_sender_hourly_cap'
+    }
+    return null
+  }
+
   private async forward(
     reply: OutreachEmailReply,
     sender: OutreachEmailSender,
@@ -244,6 +276,14 @@ export class OutreachEmailInboundService extends createPrismaBase(
     subject: string | null,
     mime: ParsedMime,
   ): Promise<void> {
+    const cappedBy = await this.forwardCap(sender.id, reply.fromEmail)
+    if (cappedBy) {
+      this.logger.info(
+        { senderId: sender.id, replyId: reply.id, reason: cappedBy },
+        'reply saved but not forwarded: cap reached',
+      )
+      return
+    }
     const body = mime.text.slice(0, MAX_FORWARD_CHARS) || '(no message)'
     await this.ses.forwardReply({
       from: `${sender.localPart}@${EMAIL_OUTREACH_DOMAIN}`,

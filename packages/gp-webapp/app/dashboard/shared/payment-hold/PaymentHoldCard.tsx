@@ -81,9 +81,9 @@ interface PaymentHoldCardProps {
   mode: PaymentHoldCardMode
   outreachId: number
   submitLabel: string
-  // Saves the card for a send that has no hold yet. Left out, the card goes to
-  // the send's existing hold, which is how a declined one is fixed. Once any
-  // attempt has been declined the hold exists, so retries use that route.
+  // Saves every card, retries after a decline included, through the caller's
+  // own call (a channel's confirm, which keeps a declined send a draft). Left
+  // out, the card goes to the send's existing hold.
   savePaymentMethod?: (
     paymentMethodId: string,
   ) => Promise<PaymentHoldCardResponse>
@@ -101,7 +101,6 @@ export const PaymentHoldCard = ({
   const [declineCode, setDeclineCode] = useState<string | null | undefined>(
     undefined,
   )
-  const [holdExists, setHoldExists] = useState(false)
   const startedRef = useRef(false)
 
   const cardIntentMutation = useMutation({
@@ -134,7 +133,6 @@ export const PaymentHoldCard = ({
 
   const handleResult = (result: PaymentHoldCardResponse) => {
     if (result.outcome === 'declined') {
-      setHoldExists(true)
       setDeclineCode(result.declineCode)
       return
     }
@@ -189,7 +187,7 @@ export const PaymentHoldCard = ({
         mode={mode}
         outreachId={outreachId}
         submitLabel={submitLabel}
-        savePaymentMethod={holdExists ? undefined : savePaymentMethod}
+        savePaymentMethod={savePaymentMethod}
         onResult={handleResult}
         onUseDifferentCard={tryAnotherCard}
       />

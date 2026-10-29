@@ -734,6 +734,7 @@ describe('<PersonOverlay>', () => {
                 uploadId: 'upload-1',
                 uploadName: 'Newsletter, Oct 2026',
                 isNewPerson: false,
+                isFirstImport: true,
                 suppliedFields: ['email', 'landline'],
                 changedFields: [],
                 manual: false,

@@ -5,22 +5,19 @@ import { CampaignPositionsService } from './campaignPositions.service'
 const mockUpdateMany = vi.fn()
 const mockDeleteMany = vi.fn()
 
-vi.mock('src/prisma/util/prisma.util', () => ({
-  MODELS: { CampaignPosition: 'CampaignPosition' },
-  createPrismaBase: () =>
-    class {
-      model = {
-        updateMany: mockUpdateMany,
-        deleteMany: mockDeleteMany,
-      }
-    },
-}))
-
 describe('CampaignPositionsService', () => {
   let service: CampaignPositionsService
 
   beforeEach(() => {
     service = new CampaignPositionsService()
+    Object.defineProperty(service, '_prisma', {
+      get: () => ({
+        campaignPosition: {
+          updateMany: mockUpdateMany,
+          deleteMany: mockDeleteMany,
+        },
+      }),
+    })
   })
 
   describe('update', () => {

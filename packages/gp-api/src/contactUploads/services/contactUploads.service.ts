@@ -4,8 +4,10 @@ import {
   ConflictException,
   Injectable,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common'
 import {
+  CONTACT_UPLOAD_MAX_BYTES,
   type AcceptSuggestedMatchesResponse,
   type ContactUpload as ContactUploadResponse,
   type ContactUploadCandidate,
@@ -13,6 +15,7 @@ import {
   type ContactUploadRow,
   type ListContactUploadRowsResponse,
   type ListContactUploadsResponse,
+  type PresignContactUploadFileResponse,
   type SetContactUploadRowMatch,
 } from '@goodparty_org/contracts'
 import { MimeTypes } from 'http-constants-ts'
@@ -43,6 +46,21 @@ import {
 } from '../util/contactUploadCounts.util'
 
 const INSERT_CHUNK_SIZE = 5_000
+
+const FILE_UPLOAD_EXPIRES_SECONDS = 15 * 60
+
+const uploadsBucket = (): string => {
+  const bucket = process.env.CONTACT_UPLOADS_BUCKET
+  if (!bucket) {
+    throw new ServiceUnavailableException(
+      'CONTACT_UPLOADS_BUCKET is not configured',
+    )
+  }
+  return bucket
+}
+
+const fileKeyOf = (organization: Organization, uploadId: string): string =>
+  `${organization.slug}/${uploadId}.csv`
 
 const UPLOAD_USER_INCLUDE = {
   user: { select: { id: true, firstName: true, lastName: true } },
@@ -158,30 +176,51 @@ export class ContactUploadsService extends createPrismaBase(
     super()
   }
 
+  async presignFile(
+    organization: Organization,
+    byteSize: number,
+  ): Promise<PresignContactUploadFileResponse> {
+    const bucket = uploadsBucket()
+    const uploadId = uuidv7()
+    const uploadUrl = await this.s3.getSignedUrlForSizedUpload(
+      bucket,
+      fileKeyOf(organization, uploadId),
+      {
+        expiresIn: FILE_UPLOAD_EXPIRES_SECONDS,
+        contentType: MimeTypes.IMAGE_CSV,
+        contentLength: byteSize,
+      },
+    )
+    return {
+      uploadId,
+      uploadUrl,
+      expiresAt: new Date(
+        Date.now() + FILE_UPLOAD_EXPIRES_SECONDS * 1000,
+      ).toISOString(),
+    }
+  }
+
   async createUpload(args: {
     organization: Organization
     userId: number
+    uploadId: string
     name: string
     columnMapping: ContactUploadColumnMapping
     fileName: string
-    file: Buffer
   }): Promise<ContactUploadResponse> {
     const { organization, columnMapping } = args
-    const rows = await parseContactUploadCsv(args.file, columnMapping)
-
-    const id = uuidv7()
-    const fileKey = `${organization.slug}/${id}.csv`
-    const bucket = process.env.CONTACT_UPLOADS_BUCKET
-    if (bucket) {
-      await this.s3.uploadFile(bucket, args.file, fileKey, {
-        contentType: MimeTypes.IMAGE_CSV,
-      })
-    } else {
-      this.logger.warn(
-        { uploadId: id },
-        'CONTACT_UPLOADS_BUCKET is not configured; not storing the original file',
-      )
+    const bucket = uploadsBucket()
+    const id = args.uploadId
+    const fileKey = fileKeyOf(organization, id)
+    if (await this.model.findUnique({ where: { id }, select: { id: true } })) {
+      throw new ConflictException('This file was already imported')
     }
+    const file = await this.s3.getFileBytes(bucket, fileKey)
+    if (!file) throw new BadRequestException('upload_not_received')
+    if (file.length > CONTACT_UPLOAD_MAX_BYTES) {
+      throw new BadRequestException('upload_too_large')
+    }
+    const rows = await parseContactUploadCsv(file, columnMapping)
 
     const matchRows = rows.map((row) => ({
       uploadId: id,

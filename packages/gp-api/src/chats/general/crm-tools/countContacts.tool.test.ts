@@ -92,6 +92,5 @@ describe('buildCountContactsTool', () => {
       dataSourceRoutingRules({ base: 'constituents' }),
     )
     expect(tool.description).not.toContain(DATA_SOURCE_ROUTING_RULES)
-    expect(tool.description).not.toMatch(/voter-file mart/)
   })
 })

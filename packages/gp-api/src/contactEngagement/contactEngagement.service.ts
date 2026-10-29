@@ -458,20 +458,27 @@ export class ContactEngagementService {
           personId,
         )
       : []
+    const importDate = (row: (typeof importRows)[number]): Date =>
+      row.method === ContactUploadMatchMethod.manual && row.resolvedAt
+        ? row.resolvedAt
+        : row.upload.createdAt
+    const [firstImport] = [...importRows].sort(
+      (a, b) =>
+        importDate(a).getTime() - importDate(b).getTime() ||
+        a.id.localeCompare(b.id),
+    )
     const importActivities: ContactImportConstituentActivity[] = importRows.map(
       (row) => {
         const manual = row.method === ContactUploadMatchMethod.manual
         return {
           type: ConstituentActivityType.CONTACT_IMPORT,
-          date: (manual && row.resolvedAt
-            ? row.resolvedAt
-            : row.upload.createdAt
-          ).toISOString(),
+          date: importDate(row).toISOString(),
           data: {
             activityId: row.id,
             uploadId: row.upload.id,
             uploadName: row.upload.name,
             isNewPerson: row.isNewPerson,
+            isFirstImport: row.id === firstImport?.id,
             suppliedFields: CONTACT_UPLOAD_FIELDS.filter(
               (field) => row[field] !== null,
             ),

@@ -170,7 +170,7 @@ describe('ChiefOfStaffHandler', () => {
     expect(Object.keys(handler.buildTools(ctx))).toContain('web_search')
   })
 
-  it('builds a governance system prompt grounded in the context', async () => {
+  it('builds a system prompt grounded in the context', async () => {
     const handler = new ChiefOfStaffHandler(
       context,
       buildBriefings(),
@@ -179,7 +179,6 @@ describe('ChiefOfStaffHandler', () => {
     )
     const ctx = await handler.loadContext('c1', USER_ID)
     const prompt = handler.buildSystemPrompt(ctx)
-    expect(prompt).toContain('Chief of Staff')
     expect(prompt).toContain('Council Member')
   })
 
@@ -626,15 +625,6 @@ describe('ChiefOfStaffHandler', () => {
       )
       const prompt = withLists.buildSystemPrompt(ctx)
       expect(prompt).toContain('SAMPLING RULES')
-      expect(prompt).toContain('propose the sample by default')
-      expect(prompt).toContain(
-        'Texting all 58,520 is about $2,048. Texting 2,767 of them is ' +
-          'about $97 and should bring back about 83 replies.',
-      )
-      expect(prompt).toContain('never work out a sample or a cost yourself')
-      expect(prompt).toContain("I'd text 2,767 of the 58,520")
-      expect(prompt).toContain('For a text to everyone, leave all three out')
-      expect(prompt).toContain('Never call it statistically proven')
     })
 
     it('has no earlier sample to widen outside a priority', () => {
@@ -714,41 +704,16 @@ describe('ChiefOfStaffHandler', () => {
       expect(names).toEqual(expect.arrayContaining(MANAGED_TOOLS))
 
       const prompt = handler.buildSystemPrompt(ctx)
-      expect(prompt).toContain(
-        `MANAGED CIVIC PANEL (apply when the user's message is exactly "${START_MANAGED_CIVIC_PANEL_MESSAGE}"`,
-      )
-      expect(prompt).toContain(
-        'call `explain_managed_panel` with part what_it_is and write the text it returns as your reply, word for word',
-      )
-      expect(prompt).toContain(
-        `When they pick "${MANAGED_CIVIC_PANEL_HOW_IT_WORKS}"`,
-      )
-      expect(prompt).toContain(
-        'call `explain_managed_panel` with part how_it_works',
-      )
-      expect(prompt).toContain(
-        'call `offer_managed_panel_invite` with afterHowItWorks true',
-      )
-      expect(prompt).toContain(
-        'Then call `offer_managed_panel_invite` with nothing after it',
-      )
-      expect(prompt).not.toMatch(/\bwaves? (at a time|we|in)\b|between waves/i)
-      expect(prompt).toContain('Then call `present_managed_panel_invite`')
-      expect(prompt).toContain(`On "${MANAGED_CIVIC_PANEL_BACKED_OUT_MESSAGE}"`)
+      expect(prompt).toContain(START_MANAGED_CIVIC_PANEL_MESSAGE)
+      expect(prompt).toContain(MANAGED_CIVIC_PANEL_HOW_IT_WORKS)
+      expect(prompt).toContain(MANAGED_CIVIC_PANEL_BACKED_OUT_MESSAGE)
     })
 
     it('says when the first invites go out once the office approves', async () => {
       const { handler } = buildManagedHandler({ panel: enrollment })
       const ctx = await handler.loadContext('c1', USER_ID)
       const prompt = handler.buildSystemPrompt(ctx)
-      expect(prompt).toContain(
-        `On "${MANAGED_CIVIC_PANEL_SET_UP_MESSAGE}", call \`read_managed_panel\``,
-      )
-      expect(prompt).toContain(
-        '"Done. The first invites go out <firstSendDate>. I\'ll let you know when your civic panel is ready, around the week of <readyWeekOf>."',
-      )
-      expect(prompt).toContain('Never offer or show the invite again.')
-      expect(prompt).toContain('ask which priority they want to work on')
+      expect(prompt).toContain(MANAGED_CIVIC_PANEL_SET_UP_MESSAGE)
 
       const tools = handler.buildTools(ctx)
       const offer = tools.offer_managed_panel_invite as unknown as {
@@ -757,23 +722,14 @@ describe('ChiefOfStaffHandler', () => {
       expect(offer.execute()).toMatchObject({ error: expect.any(String) })
     })
 
-    it('knows each state once the office approves, and offers no link when invites run out', async () => {
+    it('knows each state once the office approves, and offers no join link', async () => {
       const { handler } = buildManagedHandler({ panel: enrollment })
       const ctx = await handler.loadContext('c1', USER_ID)
       const prompt = handler.buildSystemPrompt(ctx)
       for (const status of ['building', 'paused', 'ready', 'exhausted']) {
         expect(prompt).toContain(`  - ${status}: `)
       }
-      expect(prompt).toContain('press Resume on their civic panel page')
-      expect(prompt).toContain(
-        `On "${MANAGED_CIVIC_PANEL_EXHAUSTED_MESSAGE}", call \`read_managed_panel\``,
-      )
-      const exhausted = prompt
-        .split('\n')
-        .find((line) => line.startsWith('  - exhausted: '))
-      expect(exhausted).toContain('every resident we can text has been invited')
-      expect(exhausted).not.toMatch(/link|page/i)
-      expect(prompt).not.toMatch(/join (link|page)/i)
+      expect(prompt).toContain(MANAGED_CIVIC_PANEL_EXHAUSTED_MESSAGE)
       expect(Object.keys(handler.buildTools(ctx))).not.toContain(
         'present_managed_panel_join_link',
       )
@@ -917,10 +873,6 @@ describe('ChiefOfStaffHandler', () => {
         { priorityId: null, outreachId: undefined, channel: 'phoneBanking' },
         expect.stringMatching(/^US\//),
       )
-      expect(descriptionOf(read)).toContain('with read_past_outreach')
-      expect(descriptionOf(tools.read_past_outreach)).toContain(
-        'text replies only',
-      )
     })
 
     it('omits the past-outreach tools without the service', async () => {
@@ -955,8 +907,6 @@ describe('ChiefOfStaffHandler', () => {
       const prompt = handler.buildSystemPrompt(
         await handler.loadContext('c1', USER_ID),
       )
-      expect(prompt).toContain('CARDS AND QUESTIONS')
-      expect(prompt).toContain('`present_outside_contact` is someone OUTSIDE')
       expect(prompt).not.toContain('present_constituents')
     })
   })

@@ -34,31 +34,39 @@ jobs:
         with:
           app: gp-api
 
+      # The preview deploy role, not the admin deploy role: this runs on a
+      # pull_request event, so the workflow comes from the pull request. Step 7
+      # of thegoodparty/ops docs/deploy-role-trust.md.
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5
         with:
-          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          role-to-assume: arn:aws:iam::333022194791:role/github-actions-preview-deploy
           aws-region: us-west-2
 
       - name: Drop preview database
         # The database lives on the shared Aurora cluster (not Pulumi-managed)
-        # and must be dropped via a SQL op from inside the VPC.
+        # and must be dropped via a SQL op from inside the VPC, so it runs as a
+        # one-off ECS task.
         #
-        # Run this on the stable DEV cluster, NOT the per-PR cluster. A drop
-        # task launched into the per-PR cluster can outlive its work (e.g. a
-        # slow/blocked DROP) and then block that cluster's own destroy with
-        # ClusterContainsTasksException, stranding the stack and its ALB. The
-        # cron's drop-orphaned job already runs on the dev task def for the same
-        # reason; this mirrors it.
+        # The task is the preview's own task definition, in the preview's own
+        # cluster. It already carries everything the drop needs: DB_USER and
+        # DB_PASSWORD (GP_API_DEV, the shared cluster's master password), and
+        # the runner passes the shared cluster endpoint as DB_HOST. It is also
+        # all the preview deploy role can run, since that role holds nothing on
+        # the dev cluster or the dev task definition.
         #
-        # The dev task def (gp-develop-fargateCluster-gp-api-develop) supplies
-        # DB_USER (gpuser) + DB_PASSWORD (Secrets Manager via GP_API_DEV, the
-        # shared cluster's master password); the runner resolves the shared
-        # cluster endpoint and passes it as DB_HOST. drop-preview-db.ts uses
-        # DROP ... WITH (FORCE), so the still-running preview app can't block
-        # the drop.
+        # A drop task still running when the wait gives up is stopped, so it
+        # cannot hold the cluster open and fail the destroy below with
+        # ClusterContainsTasksException; drop-preview-db.ts also bounds its own
+        # connect and statement time, and uses DROP ... WITH (FORCE), so the
+        # still-running preview app can't block the drop. A preview that never
+        # deployed has no task definition to run, and the cron's orphan sweep
+        # in gp-api-cleanup-preview.yml is the backstop for its database.
         run: |
           PR="${{ github.event.number }}"
+          ECS_CLUSTER="gp-pr-${PR}-fargateCluster"
+          TASK_DEF_FAMILY="gp-pr-${PR}-fargateCluster-gp-api-pr-${PR}"
+          CONTAINER="gp-api-pr-${PR}"
 
           CLUSTER_ENDPOINT=$(aws rds describe-db-clusters \
             --db-cluster-identifier gp-api-preview-shared-db \
@@ -70,8 +78,17 @@ jobs:
             exit 0
           fi
 
-          ECS_CLUSTER="gp-develop-fargateCluster"
-          TASK_DEF_FAMILY="gp-develop-fargateCluster-gp-api-develop"
+          CLUSTER_STATUS=$(aws ecs describe-clusters \
+            --clusters "$ECS_CLUSTER" \
+            --query 'clusters[0].status' \
+            --output text 2>/dev/null || true)
+
+          if [ "$CLUSTER_STATUS" != "ACTIVE" ] || \
+            ! aws ecs describe-task-definition \
+              --task-definition "$TASK_DEF_FAMILY" >/dev/null 2>&1; then
+            echo "No preview cluster or task definition for PR #${PR}; skipping DB drop."
+            exit 0
+          fi
 
           echo "Running drop-preview-db for PR #${PR} against ${CLUSTER_ENDPOINT}..."
           TASK_ARN=$(aws ecs run-task \
@@ -86,7 +103,7 @@ jobs:
               }" \
             --overrides "{
               \"containerOverrides\": [{
-                \"name\": \"gp-api-develop\",
+                \"name\": \"${CONTAINER}\",
                 \"command\": [\"npx\",\"tsx\",\"scripts/drop-preview-db.ts\"],
                 \"environment\": [
                   {\"name\":\"DB_HOST\",\"value\":\"${CLUSTER_ENDPOINT}\"},
@@ -103,15 +120,19 @@ jobs:
           fi
 
           echo "Waiting for drop task ${TASK_ARN} to complete..."
-          aws ecs wait tasks-stopped \
+          if ! aws ecs wait tasks-stopped \
             --cluster "$ECS_CLUSTER" \
-            --tasks "$TASK_ARN"
+            --tasks "$TASK_ARN"; then
+            echo "Drop task did not stop in time; stopping it so the destroy is not blocked."
+            aws ecs stop-task --cluster "$ECS_CLUSTER" --task "$TASK_ARN" >/dev/null || true
+            exit 1
+          fi
 
           EXIT_CODE=$(aws ecs describe-tasks \
             --cluster "$ECS_CLUSTER" \
             --tasks "$TASK_ARN" \
             --query \
-              "tasks[0].containers[?name=='gp-api-develop'].exitCode" \
+              "tasks[0].containers[?name=='${CONTAINER}'].exitCode" \
             --output text)
 
           if [ "$EXIT_CODE" != "0" ]; then

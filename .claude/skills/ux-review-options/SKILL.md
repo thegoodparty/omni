@@ -1,14 +1,11 @@
 ---
 name: ux-review-options
-description: Produce 3 distinct design options for a feature ticket as one clickable wireframe page, published to a private Vercel artifact link. Use when a ticket moves to Committed (the Delegate trigger) or when someone asks for UX options, wireframes or a design review for a ticket, so the team can pick the UX direction before agents build it. Replaces ux-review-canvas.
+description: Produce 3 distinct design options for a feature ticket as one clickable wireframe page, published to a private Vercel artifact link. Use when a ticket moves to Committed (the Delegate trigger) or when someone asks for UX options, wireframes or a design review for a ticket, so the team can pick the UX direction before agents build it.
 ---
 
 Produce three design options for a feature, as one page the team can open, click
 through and comment on. The user gives you a ticket (ClickUp URL) and any docs,
 meeting notes or transcripts behind it.
-
-This replaces `ux-review-canvas`. Same goal. No Claude Design, a short brief
-instead of an overview page, and three options instead of eight to twelve.
 
 ## Why this skill exists
 
@@ -122,8 +119,10 @@ Work in a scratch folder outside any repo, `<work>/`, and keep the page in
    answers every question in the review lens against the page, checks the options
    are distinct and the copy rules hold, and fixes what it finds. Don't let it pull
    the options toward each other.
-8. **Publish.** `scripts/publish.sh <work>/page <slug>`, where the slug is
-   `ux-<ClickUp task id>`. Rules and commands are in `reference/publishing.md`.
+8. **Publish** with the `artifacts` skill (`.claude/skills/artifacts/SKILL.md`):
+   `.claude/skills/artifacts/scripts/publish.sh <work>/page <feature>-options`, for
+   example `import-contacts-options`.
+   Pass `--update` when you republish.
 9. **Post back.** Comment on the ticket (and reply in the Slack thread, if one
    asked) with the artifact link, one line per option, the feedback we want, the new
    components each option needs (or "None"), and every "Unknown" from the brief
@@ -136,8 +135,8 @@ Work in a scratch folder outside any repo, `<work>/`, and keep the page in
 When people comment after the first publish:
 
 1. Once a direction is picked, drop the other options. Keep only the chosen one.
-2. Read every open thread, on Vercel and on the ticket. Reply to each and resolve
-   it.
+2. Read every open thread, on Vercel (see the `artifacts` skill) and on the
+   ticket. Reply to each and resolve it.
 3. Ambiguity: apply a comment's fix everywhere the same pattern appears and say so
    in the reply, or ask. Never take the narrowest reading.
 4. Post which screens are today's and which are new, and ping the Slack thread.

@@ -37,6 +37,8 @@ const fieldList = (fields: string[]): string =>
 const capitalize = (text: string): string =>
   text.charAt(0).toUpperCase() + text.slice(1)
 
+type ImportActivityKind = 'matched' | 'new' | 'resolved' | 'resolvedNew'
+
 // Import contacts is Serve only, so every string here is Serve copy.
 export const SERVE_IMPORT_CONTACTS_COPY = {
   importContacts: 'Import contacts',
@@ -193,28 +195,36 @@ export const SERVE_IMPORT_CONTACTS_COPY = {
   },
   person: {
     email: 'Email',
-    cameFromUpload: (uploadName: string) => `Came from ${uploadName}`,
+    cameFromUpload: (uploadName: string) => `Came from upload ${uploadName}`,
     cameFromFile: 'Came from the constituent file',
     changeMatch: 'Change match',
     uploadRow: (uploadName: string, date: string) => `${uploadName}, ${date}`,
   },
   activity: {
     title: (
-      kind: 'matched' | 'new' | 'resolved',
-      addedFields: string[],
+      kind: ImportActivityKind,
+      isFirstImport: boolean,
+      suppliedFields: string[],
+      changedFields: string[],
     ): string => {
-      if (kind === 'new') return 'Added'
+      if (isFirstImport) {
+        return suppliedFields.length > 0
+          ? `${capitalize(fieldList(suppliedFields))} added`
+          : 'Imported'
+      }
       if (kind === 'resolved') return 'Matched by you'
-      return addedFields.length > 0
-        ? `${capitalize(fieldList(addedFields))} added`
-        : 'Imported'
+      return changedFields.length > 0
+        ? `${capitalize(fieldList(changedFields))} updated`
+        : 'Nothing changed'
     },
-    body: (kind: 'matched' | 'new' | 'resolved', uploadName: string) =>
+    body: (kind: ImportActivityKind, uploadName: string) =>
       kind === 'new'
         ? `Added as a new person from ${uploadName}.`
-        : kind === 'resolved'
-          ? `You matched this row from ${uploadName}.`
-          : `Imported from ${uploadName}.`,
+        : kind === 'resolvedNew'
+          ? `You added them as a new person from ${uploadName}.`
+          : kind === 'resolved'
+            ? `You matched this row from ${uploadName}.`
+            : `Imported from ${uploadName}.`,
   },
 }
 
@@ -223,12 +233,18 @@ export const candidateLabel = (candidate: {
   lastName: string | null
   addressLine: string | null
   city: string | null
+  age?: number | null
 }): string => {
   const name = [candidate.firstName, candidate.lastName]
     .filter(Boolean)
     .join(' ')
-  const place = candidate.addressLine ?? candidate.city
-  return place ? `${name}, ${place}` : name
+  return [
+    name,
+    candidate.addressLine ?? candidate.city,
+    candidate.age != null ? `${candidate.age} years old` : null,
+  ]
+    .filter(Boolean)
+    .join(', ')
 }
 
 export const formatUploadDate = (iso: string, now = new Date()): string => {

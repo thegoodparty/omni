@@ -245,6 +245,7 @@ export const ChangeMatchDialog = ({
                             lastName: person.lastName,
                             addressLine: person.address.line1,
                             city: person.address.city,
+                            age: person.age,
                           })}
                         />
                       ))}

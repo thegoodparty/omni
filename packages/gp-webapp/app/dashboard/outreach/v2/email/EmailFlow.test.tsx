@@ -82,7 +82,6 @@ const mockApi = () => {
     status: 200,
     data: {
       outcome: 'scheduled',
-      declineCode: null,
       email: { ...sendShape, status: 'pending', estimate: null },
     },
   })

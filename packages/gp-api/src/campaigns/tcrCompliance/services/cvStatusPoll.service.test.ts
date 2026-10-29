@@ -20,27 +20,7 @@ import { PeerlyIdentityService } from '../../../vendors/peerly/services/peerlyId
 import { CampaignTcrComplianceService } from './campaignTcrCompliance.service'
 import { CvStatusPollService } from './cvStatusPoll.service'
 import { disableVendorCrons } from '@/shared/test-utils/appEnvOverrides'
-
-// timers/promises below keeps this file in fresh-modules, which does not load
-// src/test-app-env-mock.ts, so it wires the vendor-cron gate itself.
-vi.mock('@/shared/util/appEnvironment.util', async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import('@/shared/util/appEnvironment.util')>()
-  const { appEnvOverrides } =
-    await import('@/shared/test-utils/appEnvOverrides.js')
-  return {
-    ...actual,
-    get VENDOR_CRONS_ENABLED() {
-      return appEnvOverrides.VENDOR_CRONS_ENABLED ?? actual.VENDOR_CRONS_ENABLED
-    },
-  }
-})
-
-// The scan sleeps RETRIEVE_CV_SPACING_MS (1 minute in prod) between records;
-// real timers would hang every multi-record test.
-vi.mock('timers/promises', () => ({
-  setTimeout: () => Promise.resolve(),
-}))
+import * as sleepUtil from '@/shared/util/sleep.util'
 
 const scanRecord = (
   id: string,
@@ -84,6 +64,9 @@ describe('CvStatusPollService', () => {
   let mockTcr: { applyCvDetection: ReturnType<typeof vi.fn> }
 
   beforeEach(async () => {
+    // The scan sleeps RETRIEVE_CV_SPACING_MS (1 minute in prod) between records;
+    // real timers would hang every multi-record test.
+    vi.spyOn(sleepUtil, 'sleep').mockResolvedValue(undefined)
     mockQueue = { sendMessage: vi.fn().mockResolvedValue(undefined) }
     mockModel = {
       findMany: vi.fn().mockResolvedValue([]),

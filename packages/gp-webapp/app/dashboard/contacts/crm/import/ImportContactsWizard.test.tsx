@@ -172,14 +172,35 @@ describe('<ImportContactsWizard>', () => {
     expect(trackEvent).not.toHaveBeenCalled()
   })
 
-  it('imports only with a name and the consent box, then goes to Upload history', async () => {
-    let sent: FormData | null = null
+  it('sends the file straight to S3, then imports with a name and the consent box', async () => {
+    const S3_PUT_URL = 'https://s3.example/put?sig=abc'
+    let presignBody: unknown
+    api.mock('POST /v1/contact-uploads/presign', ({ body }) => {
+      presignBody = body
+      return {
+        status: 200,
+        data: {
+          uploadId: 'upload-1',
+          uploadUrl: S3_PUT_URL,
+          expiresAt: '2026-10-01T12:15:00.000Z',
+        },
+      }
+    })
+    let put: { contentType: string | null; text: string } | null = null
     mswServer.use(
-      http.post('/api/v1/contact-uploads', async ({ request }) => {
-        sent = await request.formData()
-        return HttpResponse.json(makeUpload({ status: 'processing' }))
+      http.put(S3_PUT_URL, async ({ request }) => {
+        put = {
+          contentType: request.headers.get('content-type'),
+          text: await request.text(),
+        }
+        return new HttpResponse(null, { status: 200 })
       }),
     )
+    let createBody: unknown
+    api.mock('POST /v1/contact-uploads', ({ body }) => {
+      createBody = body
+      return { status: 200, data: makeUpload({ status: 'processing' }) }
+    })
     const user = userEvent.setup()
     const onOpenChange = renderWizard()
 
@@ -212,23 +233,27 @@ describe('<ImportContactsWizard>', () => {
       expect(router.push).toHaveBeenCalledWith('/dashboard/contacts/uploads'),
     )
     expect(onOpenChange).toHaveBeenCalledWith(false)
-    expect(sent).not.toBeNull()
-    const form = sent as unknown as FormData
-    expect(form.get('name')).toBe('Newsletter, Oct 2026')
-    expect(form.get('consentAffirmed')).toBe('true')
-    expect(JSON.parse(String(form.get('columnMapping')))).toEqual({
-      firstName: 'First name',
-      lastName: 'Last name',
-      email: 'Email',
-      cellPhone: 'Mobile',
-      landline: null,
-      addressLine: null,
-      city: null,
-      zip: null,
+    expect(presignBody).toEqual({ byteSize: NEWSLETTER.size })
+    expect(put).toEqual({
+      contentType: 'text/csv',
+      text: expect.stringMatching(/^First name,Last name,Email/),
     })
-    expect(await (form.get('file') as Blob).text()).toMatch(
-      /^First name,Last name,Email/,
-    )
+    expect(createBody).toEqual({
+      uploadId: 'upload-1',
+      fileName: 'newsletter.csv',
+      name: 'Newsletter, Oct 2026',
+      consentAffirmed: true,
+      columnMapping: {
+        firstName: 'First name',
+        lastName: 'Last name',
+        email: 'Email',
+        cellPhone: 'Mobile',
+        landline: null,
+        addressLine: null,
+        city: null,
+        zip: null,
+      },
+    })
     expect(trackEvent).toHaveBeenCalledWith(
       EVENTS.Contacts.ImportConsentAffirmed,
       { rowCount: 2 },
@@ -237,6 +262,48 @@ describe('<ImportContactsWizard>', () => {
       EVENTS.Contacts.ImportAbandoned,
       expect.anything(),
     )
+  })
+
+  it('does not create the upload when the S3 put fails', async () => {
+    const S3_PUT_URL = 'https://s3.example/put?sig=abc'
+    api.mock('POST /v1/contact-uploads/presign', {
+      status: 200,
+      data: {
+        uploadId: 'upload-1',
+        uploadUrl: S3_PUT_URL,
+        expiresAt: '2026-10-01T12:15:00.000Z',
+      },
+    })
+    mswServer.use(
+      http.put(S3_PUT_URL, () => new HttpResponse(null, { status: 403 })),
+    )
+    const create = vi.fn(() => ({
+      status: 200 as const,
+      data: makeUpload({ status: 'processing' }),
+    }))
+    api.mock('POST /v1/contact-uploads', create)
+    const user = userEvent.setup()
+    renderWizard()
+
+    await chooseFile(user, NEWSLETTER)
+    await screen.findByText(/2 people found/)
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.type(screen.getByLabelText('Upload name'), 'Newsletter')
+    await user.click(
+      screen.getByLabelText(
+        'These people agreed to hear from me. I am responsible for that.',
+      ),
+    )
+    await user.click(screen.getByRole('button', { name: 'Import 2 people' }))
+
+    expect(
+      await screen.findByText(
+        "We couldn't import this file. Check it and try again.",
+      ),
+    ).toBeInTheDocument()
+    expect(create).not.toHaveBeenCalled()
+    expect(router.push).not.toHaveBeenCalled()
   })
 
   it('records where the user left off when the wizard closes early', async () => {

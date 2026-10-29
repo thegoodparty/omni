@@ -32,26 +32,32 @@ export type ContactUploadColumnMapping = z.infer<
   typeof ContactUploadColumnMappingSchema
 >
 
-// Multipart fields sent beside the `file` part. columnMapping travels as a
-// JSON string because multipart fields are flat.
-export const CreateContactUploadFieldsSchema = z.object({
-  name: z.string().trim().min(1).max(CONTACT_UPLOAD_NAME_MAX_LENGTH),
-  consentAffirmed: z.literal('true'),
-  columnMapping: z
-    .string()
-    .transform((value, ctx) => {
-      try {
-        return JSON.parse(value) as unknown
-      } catch {
-        ctx.addIssue({ code: 'custom', message: 'columnMapping is not JSON' })
-        return z.NEVER
-      }
-    })
-    .pipe(ContactUploadColumnMappingSchema),
+// The browser declares the file's size up front; the presigned PUT is signed
+// for exactly that many bytes.
+export const PresignContactUploadFileSchema = z.object({
+  byteSize: z.number().int().positive().max(CONTACT_UPLOAD_MAX_BYTES),
 })
-export type CreateContactUploadFields = z.input<
-  typeof CreateContactUploadFieldsSchema
+export type PresignContactUploadFile = z.infer<
+  typeof PresignContactUploadFileSchema
 >
+
+export const PresignContactUploadFileResponseSchema = z.object({
+  uploadId: z.string(),
+  uploadUrl: z.string(),
+  expiresAt: z.string(),
+})
+export type PresignContactUploadFileResponse = z.infer<
+  typeof PresignContactUploadFileResponseSchema
+>
+
+export const CreateContactUploadSchema = z.object({
+  uploadId: z.uuid(),
+  fileName: z.string().trim().min(1).max(255),
+  name: z.string().trim().min(1).max(CONTACT_UPLOAD_NAME_MAX_LENGTH),
+  consentAffirmed: z.literal(true),
+  columnMapping: ContactUploadColumnMappingSchema,
+})
+export type CreateContactUpload = z.input<typeof CreateContactUploadSchema>
 
 export const ContactUploadStatusSchema = z.enum([
   'processing',

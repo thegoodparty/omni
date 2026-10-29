@@ -60,7 +60,7 @@ describe('CampaignTasksController', () => {
   })
 
   describe('listCampaignTasks', () => {
-    it('delegates to service with campaign', () => {
+    it('delegates to service with campaign', async () => {
       const campaign = makeCampaign()
       const tasks = [makeDbTask()]
       vi.mocked(mockTasksService.listCampaignTasks!).mockResolvedValue(tasks)
@@ -68,7 +68,7 @@ describe('CampaignTasksController', () => {
       const result = controller.listCampaignTasks(campaign)
 
       expect(mockTasksService.listCampaignTasks).toHaveBeenCalledWith(campaign)
-      expect(result).resolves.toEqual(tasks)
+      await expect(result).resolves.toEqual(tasks)
     })
   })
 

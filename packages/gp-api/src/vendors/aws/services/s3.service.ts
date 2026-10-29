@@ -44,6 +44,12 @@ export type PresignedUploadOptions = {
   maxBytes: number
 }
 
+export type SizedUploadOptions = {
+  expiresIn: number
+  contentType: string
+  contentLength: number
+}
+
 export type BuildKeyOptions = {
   slugifyFileName?: boolean
 }
@@ -51,10 +57,18 @@ export type BuildKeyOptions = {
 @Injectable()
 export class S3Service extends AwsService {
   private readonly s3Client: S3Client
+  // The default client puts the CRC32 of an empty body into a presigned PUT
+  // URL, and S3 checks it against the real file. This one adds a checksum
+  // only when the operation requires one.
+  private readonly presignClient: S3Client
 
   constructor(protected readonly logger: PinoLogger) {
     super(logger)
     this.s3Client = new S3Client({ region })
+    this.presignClient = new S3Client({
+      region,
+      requestChecksumCalculation: 'WHEN_REQUIRED',
+    })
   }
 
   buildKey(
@@ -133,6 +147,30 @@ export class S3Service extends AwsService {
         { expiresIn: options?.expiresIn || EXPIRES_IN_DEFAULT },
       )
     }, 'getSignedUrlForUpload')
+  }
+
+  // Presigned PUT with the length and type as signed headers, so S3 refuses
+  // any body other than the one the caller declared.
+  async getSignedUrlForSizedUpload(
+    bucket: string,
+    key: string,
+    options: SizedUploadOptions,
+  ) {
+    return this.executeAwsOperation(async () => {
+      return await getSignedUrl(
+        this.presignClient,
+        new PutObjectCommand({
+          Bucket: bucket,
+          Key: key,
+          ContentType: options.contentType,
+          ContentLength: options.contentLength,
+        }),
+        {
+          expiresIn: options.expiresIn,
+          signableHeaders: new Set(['content-type']),
+        },
+      )
+    }, 'getSignedUrlForSizedUpload')
   }
 
   // Presigned POST (not PUT): the policy's content-length-range lets S3 reject

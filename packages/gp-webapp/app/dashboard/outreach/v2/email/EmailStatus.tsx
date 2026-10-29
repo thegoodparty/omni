@@ -151,8 +151,9 @@ export const EmailStatus = ({ surface, id }: EmailStatusProps) => {
     }
   }
 
-  // A send waits on a card only after a decline, so its hold exists and the
-  // card goes to the hold's route. That leaves the send waiting on a confirm.
+  // A send waits on a card only when a placement that was still resolving
+  // came back declined, so its hold exists and the card goes to the hold's
+  // route. That leaves the send waiting on a confirm.
   const cardUpdated = async () => {
     setError(null)
     try {

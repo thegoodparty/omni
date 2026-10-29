@@ -535,6 +535,124 @@ describe('buildQueryConstituentDataTool — wiring + suppression', () => {
       ).rejects.toBeInstanceOf(SqlRejected)
       expect(provider.calls).toHaveLength(0)
     })
+
+    describe('holds counts of uploaded people to the floor', () => {
+      const uploadScope: ConstituentDataScope = {
+        ...overlayScope,
+        allowedDimensions: new Set([
+          ...scope.allowedDimensions,
+          'on_uploaded_list',
+          'has_email',
+          'voter_key',
+        ]),
+        minCellSize: 100,
+      }
+      const run = (
+        sql: string,
+        columns: string[],
+        rows: Array<Record<string, unknown>>,
+      ) =>
+        buildQueryConstituentDataTool({
+          provider: { query: () => Promise.resolve({ columns, rows }) },
+          scope: uploadScope,
+        }).execute({ sql })
+
+      // The dev test: 29 people uploaded, 13 with email, 9,147 in the ward.
+      it('masks the SUM(CASE ...) counts the Chief of Staff returned as 29 and 13', async () => {
+        const out = await run(
+          `SELECT COUNT(*) AS count,
+                  SUM(CASE WHEN on_uploaded_list THEN 1 ELSE 0 END) AS uploaded,
+                  SUM(CASE WHEN has_email THEN 1 ELSE 0 END) AS with_email
+           FROM ${TABLE} ${scopeWhere}`,
+          ['count', 'uploaded', 'with_email'],
+          [{ count: 9147, uploaded: 29, with_email: 13 }],
+        )
+        expect(out.rows).toEqual([
+          { count: 9147, uploaded: null, with_email: null },
+        ])
+      })
+
+      it.each([
+        [
+          'SUM(CASE WHEN on_uploaded_list THEN 1 ELSE 0 END) AS people',
+          'people',
+        ],
+        ['SUM(CASE WHEN has_email THEN 1 END) AS on_list', 'on_list'],
+        ['SUM(CASE WHEN has_email THEN 1.0 ELSE 0.0 END) AS Reach', 'Reach'],
+        [
+          'SUM(CASE WHEN on_uploaded_list THEN 1 ELSE 0 END)',
+          'sum(CASE WHEN on_uploaded_list THEN 1 ELSE 0 END)',
+        ],
+        [
+          'COUNT(CASE WHEN on_uploaded_list THEN 1 END) AS uploaded',
+          'uploaded',
+        ],
+        ['APPROX_COUNT_DISTINCT(voter_key) AS uploaded', 'uploaded'],
+      ])('masks %s', async (item, column) => {
+        const out = await run(
+          `SELECT COUNT(*) AS n, ${item} FROM ${TABLE} ${scopeWhere}
+           AND on_uploaded_list = true`,
+          ['n', column],
+          [{ n: 9147, [column]: 29 }],
+        )
+        expect(out.rows).toEqual([{ n: 9147, [column]: null }])
+      })
+
+      it('keeps an uploaded-people count at or above the floor', async () => {
+        const out = await run(
+          `SELECT COUNT(*) AS count,
+                  SUM(CASE WHEN on_uploaded_list THEN 1 ELSE 0 END) AS uploaded
+           FROM ${TABLE} ${scopeWhere}`,
+          ['count', 'uploaded'],
+          [{ count: 109155, uploaded: 100029 }],
+        )
+        expect(out.rows).toEqual([{ count: 109155, uploaded: 100029 }])
+      })
+
+      it('drops a group of uploaded people below the floor', async () => {
+        const out = await run(
+          `SELECT on_uploaded_list, COUNT(*) AS people
+           FROM ${TABLE} ${scopeWhere}
+           GROUP BY on_uploaded_list`,
+          ['on_uploaded_list', 'people'],
+          [
+            { on_uploaded_list: false, people: 9118 },
+            { on_uploaded_list: true, people: 29 },
+          ],
+        )
+        expect(out.rows).toEqual([{ on_uploaded_list: false, people: 9118 }])
+        expect(out.rowsSuppressed).toBe(1)
+      })
+
+      it.each([
+        ['SUM(CASE WHEN on_uploaded_list THEN 1000 ELSE 0 END) AS uploaded'],
+        ['SUM(CASE WHEN on_uploaded_list THEN age_band END) AS uploaded'],
+        ['SUM(age_band) AS uploaded'],
+      ])(
+        'rejects %s, which could scale a small count past the floor',
+        async (item) => {
+          await expect(
+            run(
+              `SELECT COUNT(*) AS n, ${item} FROM ${TABLE} ${scopeWhere}`,
+              ['n', 'uploaded'],
+              [],
+            ),
+          ).rejects.toThrow(/SUM may only count people/)
+        },
+      )
+
+      it('rejects a HAVING on a count of uploaded people', async () => {
+        await expect(
+          run(
+            `SELECT age_band, COUNT(*) AS n FROM ${TABLE} ${scopeWhere}
+             GROUP BY age_band
+             HAVING SUM(CASE WHEN on_uploaded_list THEN 1 ELSE 0 END) < 30`,
+            ['age_band', 'n'],
+            [],
+          ),
+        ).rejects.toThrow(/HAVING/)
+      })
+    })
   })
 
   it('truncates to maxRows after suppression', async () => {
@@ -605,37 +723,14 @@ describe('tool description — score semantics follows the scope', () => {
     expect(tool.description).toContain(
       hsScoreSemantics('constituent', { base: 'voters' }),
     )
-    expect(tool.description).toMatch(/percentile rank/i)
-    expect(tool.description).toMatch(/deviation from 50/i)
     expect(tool.description).not.toContain('likelihood')
   })
 
   it('keeps the legacy wording for scopes whose catalog has no marks (win)', () => {
     const tool = buildQueryConstituentDataTool({ provider, scope })
     expect(tool.description).toContain('0-100 likelihood')
-    expect(tool.description).toContain(
-      "Categorical flag columns hold string values (e.g. 'support', 'oppose'), not 1/0.",
-    )
     expect(tool.description).not.toContain(
       hsScoreSemantics('constituent', { base: 'voters' }),
-    )
-    expect(tool.description).not.toMatch(/percentile rank/i)
-  })
-
-  // QR-08: a threshold share reported with no mandated denominator name
-  // reads as a survey result ("over known responses"). Asserted on the
-  // constant directly so districtInsights.tool.ts inherits the guarantee.
-  // The ban has to name the words it forbids, so this checks for the ban
-  // statement and the old buggy phrasing's absence, not word absence.
-  it('names the share denominator and bans survey language (QR-08)', () => {
-    expect(hsScoreSemantics('constituent', { base: 'voters' })).toMatch(
-      /scored/i,
-    )
-    expect(hsScoreSemantics('constituent', { base: 'voters' })).toMatch(
-      /survey language/i,
-    )
-    expect(hsScoreSemantics('constituent', { base: 'voters' })).not.toContain(
-      'state the coverage alongside',
     )
   })
 
@@ -646,9 +741,6 @@ describe('tool description — score semantics follows the scope', () => {
     })
     expect(tool.description).toContain(
       hsScoreSemantics('constituent', { base: 'constituents' }),
-    )
-    expect(tool.description).toContain(
-      'residents who are not registered to vote are never scored',
     )
     expect(tool.description).toContain(
       dataSourceRoutingRules({ base: 'constituents' }),

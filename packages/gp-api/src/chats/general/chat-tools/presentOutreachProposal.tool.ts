@@ -51,7 +51,7 @@ const presentOutreachProposalInput = priorityProposalInputWithoutPanel.omit({
 // the flow, and the name rule is the one a drafted message kept missing.
 export const OUTREACH_MESSAGE_RULES = [
   'WHAT EACH CHANNEL NEEDS IN THE MESSAGE (the outreach flow checks these):',
-  `- Text: start with who is texting, signed as the official by full name and office, for example "this is Bryan Ortiz, your Asheville City Council Member." Never the first name alone. Never sign as a body or an office alone ("this is the City Council"), and never use a placeholder like [Name] or [your name]. Do not write a greeting or an opt-out line: the flow adds "Hello {{first_name}}," before it and "Reply STOP to opt out" after it. Never write how to join or leave the civic panel: replying STOP already takes a member off it. No link shorteners like bit.ly; paste the full web address. Keep it under 300 characters.`,
+  `- Text: start with who is texting, signed as the official by full name and office, for example "this is Bryan Ortiz, your Asheville City Council Member." Never the first name alone. Never sign as a body or an office alone ("this is the City Council"), and never use a placeholder like [Name] or [your name]. Do not write a greeting or an opt-out line: the flow adds "Hello {{first_name}}," before it and "Reply STOP to opt out" after it. No link shorteners like bit.ly; paste the full web address. Keep it under 300 characters.`,
   '- Phone banking: a script a volunteer reads aloud, opening with who they are calling for by the official\'s full name and office, for example "I am calling for Bryan Ortiz, your Asheville City Council Member." Never a placeholder for the official.',
   "- Social: a post in the official's own voice. No placeholders.",
   '- Door knocking: what to say at the door, in the same voice, naming the official the same way a call does.',
@@ -228,7 +228,7 @@ export const checkProposalRefusal = (
 }
 
 // Why a proposal's civic panel ask cannot be shown, or null. A send to the
-// panel alone never asks them to join.
+// panel alone never carries the join ask.
 export const checkPanelPart = (input: {
   channel: ProposalChannel
   civicPanelAsk?: boolean
@@ -307,13 +307,22 @@ export const checkFollowUpPart = (
 
 // The caller checks a named check with checkProposalRefusal before this runs,
 // since it holds the priority.
+// A priority text puts every call to action at the bottom: the question,
+// then how to reply, then the lines the flow adds under it.
+export const PRIORITY_TEXT_LAYOUT_RULE =
+  'A text that puts out a check ends with the question, then, as its own ' +
+  'last line, how to reply, like "Reply YES or NO." or whatever fits the ' +
+  'question. Write nothing after that line: the flow adds the opt-out ' +
+  'right under it.'
+
 export const buildPriorityOutreachProposalTool = (options: {
   citizenPanels: boolean
 }): LlmStreamTool<z.ZodType<z.infer<typeof priorityProposalInput>>> => ({
   description:
     DESCRIPTION +
     '\n\nWhen this puts out a check, pass stepId and side, so the check ' +
-    'moves to out on its own once the official sends it.',
+    'moves to out on its own once the official sends it. ' +
+    PRIORITY_TEXT_LAYOUT_RULE,
   // The schema without the panel parts parses into the same shape with them
   // absent, so one execute serves both.
   inputSchema: options.citizenPanels
