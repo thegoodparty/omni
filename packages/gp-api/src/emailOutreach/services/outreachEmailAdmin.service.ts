@@ -133,11 +133,18 @@ export class OutreachEmailAdminService extends createPrismaBase(
     if (row.outreach.status !== OutreachStatus.in_progress) {
       throw new ConflictException('This send is not running')
     }
-    if (hold && hold.state !== OutreachHoldState.held) {
+    if (!hold) throw new NotFoundException('No payment hold for this send')
+    if (hold.state !== OutreachHoldState.held) {
       throw new ConflictException(
         `This send's payment hold is ${hold.state}; it can't be canceled here`,
       )
     }
+    // Set before settle, so the settlement adapter can tell a cancel from
+    // the hold's capture deadline, which finishes the send as sent.
+    await this.model.updateMany({
+      where: { id: row.id, stoppingAt: null },
+      data: { stoppingAt: new Date() },
+    })
     await this.holds.settle({ outreachId })
     this.logger.info({ outreachId }, 'Email send canceled by staff')
   }

@@ -309,8 +309,11 @@ export class OutreachEmailLifecycleService extends createPrismaBase(
     await this.finish(outreachId)
   }
 
-  // Recipients still queued mean the send was stopped early, so it ends
-  // canceled. A clean completed send moves its sender up a warming step.
+  // Recipients still queued mean the send was canceled. One stopped at its
+  // hold's capture deadline after some went out has no queue left (the
+  // settlement adapter failed it), so it ends completed with what it sent.
+  // A send that sent nothing was never charged, so it ends canceled however
+  // it stopped. A clean completed send moves its sender up a warming step.
   async finish(outreachId: number): Promise<void> {
     const row = await this.model.findUniqueOrThrow({
       where: { outreachId },
@@ -339,7 +342,9 @@ export class OutreachEmailLifecycleService extends createPrismaBase(
       },
     })
     const finalStatus =
-      queuedLeft > 0 ? OutreachStatus.canceled : OutreachStatus.completed
+      queuedLeft > 0 || row.sentCount === 0
+        ? OutreachStatus.canceled
+        : OutreachStatus.completed
     const advance =
       finalStatus === OutreachStatus.completed &&
       row.sentCount > 0 &&

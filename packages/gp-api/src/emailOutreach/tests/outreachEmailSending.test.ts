@@ -1,23 +1,47 @@
 import { ConflictException } from '@nestjs/common'
 import {
+  GetMetricDataCommand,
+  GetMetricDataCommandOutput,
+  CloudWatchClient,
+} from '@aws-sdk/client-cloudwatch'
+import {
+  SendBulkEmailCommand,
+  SendBulkEmailCommandOutput,
+  SESv2Client,
+} from '@aws-sdk/client-sesv2'
+import type Stripe from 'stripe'
+import {
   addDays,
+  addHours,
   addMinutes,
   startOfMinute,
   subHours,
   subMinutes,
 } from 'date-fns'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  MockInstance,
+  vi,
+} from 'vitest'
+import { AnalyticsService } from '@/analytics/analytics.service'
 import { PaymentHoldsService } from '@/paymentHolds/services/paymentHolds.service'
+import { PaymentHoldsSweepService } from '@/paymentHolds/services/paymentHoldsSweep.service'
 import { QueueProducerService } from '@/queue/producer/queueProducer.service'
 import { QueueType } from '@/queue/queue.types'
 import { appEnvOverrides } from '@/shared/test-utils/appEnvOverrides'
 import { useTestService } from '@/test-service'
+import { StripeService } from '@/vendors/stripe/services/stripe.service'
 import {
   OutreachEmailPauseReason,
   OutreachEmailRecipientStatus,
   OutreachHoldState,
   OutreachStatus,
 } from '../../generated/prisma'
+import { OutreachEmailAdminService } from '../services/outreachEmailAdmin.service'
 import { OutreachEmailLifecycleService } from '../services/outreachEmailLifecycle.service'
 import { OutreachEmailPrepareService } from '../services/outreachEmailPrepare.service'
 import { OutreachEmailSendSweepService } from '../services/outreachEmailSendSweep.service'
@@ -27,7 +51,9 @@ import {
   SesBulkOutcome,
   SesSendMetrics,
   SesService,
+  sendTagValue,
 } from '../services/ses.service'
+import { emailChargeCents } from '../util/emailPricing.util'
 import { verifyUnsubscribeToken } from '../util/unsubscribeToken.util'
 import {
   createEmailOrgs,
@@ -971,5 +997,293 @@ describe('settling and finishing', () => {
         })
       ).status,
     ).toBe(OutreachStatus.canceled)
+  })
+})
+
+describe('the send tag', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  const metricData = (
+    values: Record<string, number>,
+  ): GetMetricDataCommandOutput => ({
+    $metadata: {},
+    MetricDataResults: Object.entries(values).map(([id, value]) => ({
+      Id: id,
+      Values: [value],
+    })),
+  })
+
+  it('carries the environment ahead of the send id', () => {
+    expect(sendTagValue(123)).toBe('test-123')
+  })
+
+  it('is what SendBulkEmail writes and what GetMetricData reads', async () => {
+    vi.mocked(ses.sendBulk).mockRestore()
+    vi.mocked(ses.getSendMetrics).mockRestore()
+    const bulk = vi.spyOn(SESv2Client.prototype, 'send').mockImplementation(
+      async (): Promise<SendBulkEmailCommandOutput> => ({
+        $metadata: {},
+        BulkEmailEntryResults: [],
+      }),
+    )
+    const read = vi
+      .spyOn(CloudWatchClient.prototype, 'send')
+      .mockImplementation(async () => metricData({ send: 1 }))
+
+    await ses.sendBulk({
+      from: 'a@example.com',
+      tenantName: 'test-tenant',
+      templateName: 'test-email-42',
+      outreachEmailId: 42,
+      entries: [],
+    })
+    await ses.getSendMetrics(42, subHours(new Date(), 1), new Date())
+
+    const bulkCommand = bulk.mock.calls[0]?.[0]
+    expect(bulkCommand).toBeInstanceOf(SendBulkEmailCommand)
+    expect(
+      bulkCommand instanceof SendBulkEmailCommand &&
+        bulkCommand.input.DefaultEmailTags,
+    ).toEqual([{ Name: 'outreachEmailId', Value: 'test-42' }])
+    const readCommand = read.mock.calls[0]?.[0]
+    expect(readCommand).toBeInstanceOf(GetMetricDataCommand)
+    const dimensions =
+      readCommand instanceof GetMetricDataCommand
+        ? readCommand.input.MetricDataQueries?.map(
+            (q) => q.MetricStat?.Metric?.Dimensions,
+          )
+        : []
+    expect(dimensions?.length).toBeGreaterThan(0)
+    for (const d of dimensions ?? []) {
+      expect(d).toEqual([{ Name: 'outreachEmailId', Value: 'test-42' }])
+    }
+  })
+
+  it('auto-pauses on numbers read under the prefixed dimension only', async () => {
+    vi.mocked(ses.getSendMetrics).mockRestore()
+    const send = await runningSend(1)
+    await service.prisma.outreachEmailRecipient.updateMany({
+      where: { outreachEmailId: send.outreachEmailId },
+      data: {
+        status: OutreachEmailRecipientStatus.sent,
+        sentAt: subMinutes(new Date(), 30),
+      },
+    })
+    // Bad numbers exist only under the other environment's bare id.
+    const tagged = new Map<string, Record<string, number>>([
+      [String(send.outreachEmailId), { send: 500, bounce: 400 }],
+    ])
+    vi.spyOn(CloudWatchClient.prototype, 'send').mockImplementation(
+      async (command) => {
+        const value =
+          command instanceof GetMetricDataCommand
+            ? command.input.MetricDataQueries?.[0]?.MetricStat?.Metric
+                ?.Dimensions?.[0]?.Value
+            : undefined
+        return metricData(tagged.get(value ?? '') ?? {})
+      },
+    )
+
+    await sweep.checkAutoPause({ id: send.outreachEmailId, ...send })
+    expect((await emailRow(send.outreachEmailId)).pausedAt).toBeNull()
+
+    tagged.set(sendTagValue(send.outreachEmailId), { send: 500, bounce: 21 })
+    sweep.clearCaches()
+    await sweep.checkAutoPause({ id: send.outreachEmailId, ...send })
+    expect((await emailRow(send.outreachEmailId)).pauseReason).toBe(
+      OutreachEmailPauseReason.bounce_rate,
+    )
+  })
+})
+
+describe('the hold capture deadline', () => {
+  let capture: MockInstance<StripeService['capturePaymentIntent']>
+  let cancelHold: MockInstance<StripeService['cancelHold']>
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  beforeEach(() => {
+    // Earlier cases stub settle on the shared service; these run the real one.
+    const holds = service.app.get(PaymentHoldsService)
+    if (vi.isMockFunction(holds.settle)) vi.mocked(holds.settle).mockRestore()
+    const stripe = service.app.get(StripeService)
+    capture = vi.spyOn(stripe, 'capturePaymentIntent').mockImplementation(
+      async (id: string, amount: number) =>
+        ({
+          id,
+          object: 'payment_intent',
+          status: 'succeeded',
+          amount_received: amount,
+        }) as Stripe.Response<Stripe.PaymentIntent>,
+    )
+    cancelHold = vi.spyOn(stripe, 'cancelHold').mockResolvedValue(undefined)
+    vi.spyOn(service.app.get(AnalyticsService), 'track').mockImplementation(
+      async () => undefined as never,
+    )
+    vi.spyOn(ses, 'deleteTemplate').mockResolvedValue()
+  })
+
+  // A long send: some went out half an hour ago, the rest is still queued
+  // when its hold nears captureBefore.
+  const longSend = async (total: number, sent: number) => {
+    const send = await runningSend(total)
+    const rows = await service.prisma.outreachEmailRecipient.findMany({
+      where: { outreachEmailId: send.outreachEmailId },
+      orderBy: { id: 'asc' },
+      take: sent,
+    })
+    await service.prisma.outreachEmailRecipient.updateMany({
+      where: { id: { in: rows.map((r) => r.id) } },
+      data: {
+        status: OutreachEmailRecipientStatus.sent,
+        sentAt: subMinutes(new Date(), 30),
+      },
+    })
+    await service.prisma.outreachEmail.update({
+      where: { id: send.outreachEmailId },
+      data: { sentCount: sent },
+    })
+    const hold = await createHold(
+      service.prisma,
+      send.outreachId,
+      OutreachHoldState.held,
+    )
+    await service.prisma.outreachPaymentHold.update({
+      where: { id: hold.id },
+      data: { captureBefore: addHours(new Date(), 6) },
+    })
+    return { ...send, paymentIntentId: hold.paymentIntentId }
+  }
+
+  const outreachStatus = async (outreachId: number) =>
+    (
+      await service.prisma.outreach.findUniqueOrThrow({
+        where: { id: outreachId },
+      })
+    ).status
+
+  it('charges what went out, stops the send and finishes it as sent', async () => {
+    const send = await longSend(800, 600)
+
+    await service.app.get(PaymentHoldsSweepService).settleExpiringHolds()
+
+    expect(capture).toHaveBeenCalledWith(
+      send.paymentIntentId,
+      emailChargeCents(600),
+      `outreach-capture-${send.paymentIntentId}`,
+    )
+    expect(
+      (
+        await service.prisma.outreachPaymentHold.findUniqueOrThrow({
+          where: { outreachId: send.outreachId },
+        })
+      ).capturedCents,
+    ).toBe(emailChargeCents(600))
+    expect(
+      (await recipientStatuses(service.prisma, send.outreachEmailId)).counts,
+    ).toEqual({ sent: 600, failed: 200 })
+
+    await service.app.get(OutreachEmailLifecycleService).settleFinishedSends()
+
+    expect(await outreachStatus(send.outreachId)).toBe(OutreachStatus.completed)
+    expect((await emailRow(send.outreachEmailId)).sentCount).toBe(600)
+  })
+
+  it('claims no further batches once stopped', async () => {
+    const send = await longSend(800, 600)
+
+    await service.app.get(PaymentHoldsSweepService).settleExpiringHolds()
+
+    expect(await sweep.claimBatch(send.outreachEmailId)).toEqual([])
+    await sweep.runTick()
+    expect(sendBulk).not.toHaveBeenCalled()
+  })
+
+  it('still finishes as sent when a batch in flight at the deadline comes back', async () => {
+    const send = await longSend(800, 600)
+    const claimed = await sweep.claimBatch(send.outreachEmailId)
+    const guard = service.app.get(PaymentHoldsSweepService)
+
+    await guard.settleExpiringHolds()
+    expect(capture).not.toHaveBeenCalled()
+
+    // The runner died mid-batch, so the tick takes the claim back.
+    await service.prisma.outreachEmailRecipient.updateMany({
+      where: { id: { in: claimed } },
+      data: { claimedAt: subHours(new Date(), 1) },
+    })
+    await sweep.runTick()
+    expect(sendBulk).not.toHaveBeenCalled()
+    await guard.settleExpiringHolds()
+
+    expect(capture).toHaveBeenCalledWith(
+      send.paymentIntentId,
+      emailChargeCents(600),
+      `outreach-capture-${send.paymentIntentId}`,
+    )
+    expect(
+      (await recipientStatuses(service.prisma, send.outreachEmailId)).counts,
+    ).toEqual({ sent: 600, failed: 200 })
+    await service.app.get(OutreachEmailLifecycleService).settleFinishedSends()
+    expect(await outreachStatus(send.outreachId)).toBe(OutreachStatus.completed)
+  })
+
+  it('ends canceled when a batch in flight at the deadline sent nothing', async () => {
+    const send = await longSend(5, 0)
+    const claimed = await sweep.claimBatch(send.outreachEmailId)
+    const guard = service.app.get(PaymentHoldsSweepService)
+
+    await guard.settleExpiringHolds()
+    await service.prisma.outreachEmailRecipient.updateMany({
+      where: { id: { in: claimed } },
+      data: { status: OutreachEmailRecipientStatus.failed },
+    })
+    await guard.settleExpiringHolds()
+
+    expect(capture).not.toHaveBeenCalled()
+    expect(cancelHold).toHaveBeenCalledWith(send.paymentIntentId)
+    await service.app.get(OutreachEmailLifecycleService).settleFinishedSends()
+    expect(await outreachStatus(send.outreachId)).toBe(OutreachStatus.canceled)
+  })
+
+  it('charges nothing and ends canceled when nothing went out', async () => {
+    const send = await longSend(5, 0)
+
+    await service.app.get(PaymentHoldsSweepService).settleExpiringHolds()
+
+    expect(capture).not.toHaveBeenCalled()
+    expect(cancelHold).toHaveBeenCalledWith(send.paymentIntentId)
+    const hold = await service.prisma.outreachPaymentHold.findUniqueOrThrow({
+      where: { outreachId: send.outreachId },
+    })
+    expect(hold.state).toBe(OutreachHoldState.released)
+    expect(hold.capturedCents).toBe(0)
+
+    await service.app.get(OutreachEmailLifecycleService).settleFinishedSends()
+
+    expect(await outreachStatus(send.outreachId)).toBe(OutreachStatus.canceled)
+  })
+
+  it('still ends a staff cancel as canceled', async () => {
+    const send = await longSend(800, 600)
+
+    await service.app.get(OutreachEmailAdminService).cancel(send.outreachId)
+
+    expect(await sweep.claimBatch(send.outreachEmailId)).toEqual([])
+
+    expect(capture).toHaveBeenCalledWith(
+      send.paymentIntentId,
+      emailChargeCents(600),
+      `outreach-capture-${send.paymentIntentId}`,
+    )
+    expect(
+      (await recipientStatuses(service.prisma, send.outreachEmailId)).counts,
+    ).toEqual({ sent: 600, queued: 200 })
+    await service.app.get(OutreachEmailLifecycleService).settleFinishedSends()
+    expect(await outreachStatus(send.outreachId)).toBe(OutreachStatus.canceled)
   })
 })

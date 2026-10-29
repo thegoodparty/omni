@@ -51,16 +51,21 @@ const send = (over: Partial<EmailSend> = {}): EmailSend => ({
 describe('emailStatusCopy', () => {
   it('shows progress against the frozen cap while sending', () => {
     expect(
-      emailStatusCopy(send({ status: 'in_progress', sentCount: 400 }))?.title,
+      emailStatusCopy(
+        send({ status: 'in_progress', sentCount: 400 }),
+        WIN_EMAIL_SURFACE,
+      )?.title,
     ).toBe('Sending 400 of 1,000.')
   })
 
   it('says a paused send is paused, and which kinds clear themselves', () => {
     const manual = emailStatusCopy(
       send({ status: 'in_progress', pauseReason: 'bounce_rate' }),
+      WIN_EMAIL_SURFACE,
     )
     const account = emailStatusCopy(
       send({ status: 'in_progress', pauseReason: 'daily_quota' }),
+      WIN_EMAIL_SURFACE,
     )
     expect(manual?.title).toBe('Paused.')
     expect(manual?.caption).toMatch(/until we clear it/)
@@ -69,24 +74,48 @@ describe('emailStatusCopy', () => {
 
   it('reports a finished send and a failed one', () => {
     expect(
-      emailStatusCopy(send({ status: 'completed', sentCount: 987 }))?.caption,
+      emailStatusCopy(
+        send({ status: 'completed', sentCount: 987, recipientCount: 987 }),
+        WIN_EMAIL_SURFACE,
+      )?.caption,
     ).toBe('987 emails went out.')
-    expect(emailStatusCopy(send({ status: 'failed' }))?.caption).toBe(
-      'Your card was not charged.',
+    expect(
+      emailStatusCopy(send({ status: 'failed' }), WIN_EMAIL_SURFACE)?.caption,
+    ).toBe('Your card was not charged.')
+  })
+
+  it('shows a send stopped at the payment deadline as sent, with the count', () => {
+    const stopped = send({
+      status: 'completed',
+      sentCount: 3200,
+      recipientCount: 5000,
+      recipientCap: 5000,
+    })
+    expect(emailStatusCopy(stopped, WIN_EMAIL_SURFACE)).toEqual({
+      title: 'Sent.',
+      caption: 'Sent to 3,200 of 5,000 people.',
+    })
+    expect(emailStatusCopy(stopped, SERVE_EMAIL_SURFACE)?.caption).toBe(
+      'Sent to 3,200 of 5,000 constituents.',
     )
   })
 
   it('does not say a failed send that sent some was not charged', () => {
     expect(
-      emailStatusCopy(send({ status: 'failed', sentCount: 12 }))?.caption,
+      emailStatusCopy(
+        send({ status: 'failed', sentCount: 12 }),
+        WIN_EMAIL_SURFACE,
+      )?.caption,
     ).toBe('12 went out before it stopped.')
   })
 
   it('says a draft is a draft, and has no copy for an unknown status', () => {
-    expect(emailStatusCopy(send({ status: 'draft' }))?.title).toBe(
-      'This email is still a draft.',
-    )
-    expect(emailStatusCopy(send({ status: 'mystery' }))).toBeNull()
+    expect(
+      emailStatusCopy(send({ status: 'draft' }), WIN_EMAIL_SURFACE)?.title,
+    ).toBe('This email is still a draft.')
+    expect(
+      emailStatusCopy(send({ status: 'mystery' }), WIN_EMAIL_SURFACE),
+    ).toBeNull()
   })
 })
 

@@ -21,6 +21,7 @@ import {
   OutreachEmailPauseReason,
   OutreachEmailRecipientStatus,
   OutreachStatus,
+  Prisma,
 } from '../../generated/prisma'
 import {
   ACCOUNT_CACHE_SECONDS,
@@ -62,6 +63,16 @@ const RETRYABLE_ENTRY_STATUSES = new Set<string>([
   BulkEmailStatus.CONFIGURATION_SET_SENDING_PAUSED,
   BulkEmailStatus.TRANSIENT_FAILURE,
 ])
+
+// Where a claimed row goes when its batch didn't send. A stopped send never
+// claims again, so a row returned to queued there would only sit; worse, at
+// the hold's capture deadline (see the settlement adapter) a leftover queued
+// row turns a send that went out into a canceled one. So it fails instead.
+// The send row is share-locked for it, as for the claim, so the settlement
+// adapter's stop either waits and then fails these rows as queued, or lands
+// first and is read here.
+const RETURN_STATUS_SQL = Prisma.sql`(CASE WHEN e.stopping_at IS NULL
+  THEN 'queued' ELSE 'failed' END)::"OutreachEmailRecipientStatus"`
 
 const ACCOUNT_PAUSE_REASONS: OutreachEmailPauseReason[] = [
   OutreachEmailPauseReason.ses_account,
@@ -213,13 +224,23 @@ export class OutreachEmailSendSweepService extends createPrismaBase(
 
     // A claim this old belongs to a runner that died mid-batch. SES may have
     // accepted it, which is the named duplicate-send exposure.
-    await this.client.outreachEmailRecipient.updateMany({
-      where: {
-        status: OutreachEmailRecipientStatus.sending,
-        claimedAt: { lt: subMinutes(new Date(), STUCK_SENDING_MINUTES) },
-      },
-      data: { status: OutreachEmailRecipientStatus.queued, claimedAt: null },
-    })
+    const stuckBefore = subMinutes(new Date(), STUCK_SENDING_MINUTES)
+    await this.client.$executeRaw`
+      WITH e AS (
+        SELECT id, stopping_at FROM outreach_email
+        WHERE id IN (
+          SELECT outreach_email_id FROM outreach_email_recipient
+          WHERE status = 'sending' AND claimed_at < ${stuckBefore}
+        )
+        FOR SHARE
+      )
+      UPDATE outreach_email_recipient AS r
+      SET status = ${RETURN_STATUS_SQL}, claimed_at = NULL
+      FROM e
+      WHERE e.id = r.outreach_email_id
+        AND r.status = 'sending'
+        AND r.claimed_at < ${stuckBefore}
+    `
 
     const signingKey = unsubscribeSigningKey()
     if (!signingKey) {
@@ -540,16 +561,19 @@ export class OutreachEmailSendSweepService extends createPrismaBase(
         })
       }
       if (retry.length > 0) {
-        await tx.outreachEmailRecipient.updateMany({
-          where: {
-            id: { in: retry },
-            status: OutreachEmailRecipientStatus.sending,
-          },
-          data: {
-            status: OutreachEmailRecipientStatus.queued,
-            claimedAt: null,
-          },
-        })
+        await tx.$executeRaw`
+          WITH e AS (
+            SELECT id, stopping_at FROM outreach_email
+            WHERE id = ${send.id}
+            FOR SHARE
+          )
+          UPDATE outreach_email_recipient AS r
+          SET status = ${RETURN_STATUS_SQL}, claimed_at = NULL
+          FROM e
+          WHERE e.id = r.outreach_email_id
+            AND r.id = ANY(${retry}::int[])
+            AND r.status = 'sending'
+        `
       }
     })
 
@@ -698,6 +722,25 @@ export class OutreachEmailSendSweepService extends createPrismaBase(
     ids: number[],
     status: OutreachEmailRecipientStatus,
   ): Promise<void> {
+    if (status === OutreachEmailRecipientStatus.queued) {
+      await this.client.$executeRaw`
+        WITH e AS (
+          SELECT id, stopping_at FROM outreach_email
+          WHERE id IN (
+            SELECT outreach_email_id FROM outreach_email_recipient
+            WHERE id = ANY(${ids}::int[])
+          )
+          FOR SHARE
+        )
+        UPDATE outreach_email_recipient AS r
+        SET status = ${RETURN_STATUS_SQL}, claimed_at = NULL
+        FROM e
+        WHERE e.id = r.outreach_email_id
+          AND r.id = ANY(${ids}::int[])
+          AND r.status = 'sending'
+      `
+      return
+    }
     await this.client.outreachEmailRecipient.updateMany({
       where: { id: { in: ids }, status: OutreachEmailRecipientStatus.sending },
       data: { status, claimedAt: null },

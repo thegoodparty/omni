@@ -245,6 +245,10 @@ describe('POST /v1/admin/outreach/email/:id/cancel', () => {
 
     expect(result.status).toBe(204)
     expect(settle).toHaveBeenCalledWith({ outreachId: send.outreachId })
+    const row = await service.prisma.outreachEmail.findUniqueOrThrow({
+      where: { outreachId: send.outreachId },
+    })
+    expect(row.stoppingAt).not.toBeNull()
   })
 
   it('refuses a send whose hold is not held', async () => {

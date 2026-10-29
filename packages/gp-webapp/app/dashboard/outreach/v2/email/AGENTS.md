@@ -4,16 +4,16 @@ The email stepper. Win opens at `/dashboard/outreach/email` behind `win-email-ou
 
 ## Key files
 
-| Path                      | Purpose                                                                                                                                                                 |
-| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `EmailFlow.tsx`           | Step state and the shell. Order: goal, compose, audience, schedule, review, pay; after payment it shows `EmailStatus`                                                   |
-| `emailSurface.ts`         | `EmailSurface`: every string that names the people, plus `isServe`. `WIN_EMAIL_SURFACE` and `SERVE_EMAIL_SURFACE`                                                       |
-| `emailFlow.util.ts`       | Compose validation, draft payload, schedule check, upload summary, warming cap ladder                                                                                   |
-| `emailApi.ts`             | Typed calls to `/v1/outreach/email/*`, or `/v1/outreach/serve/email/*` when `surface.isServe`                                                                           |
-| `EmailPayStep.tsx`        | `PaymentHoldCard` with `savePaymentMethod` calling `POST /:id/confirm`; the price comes from the send's `estimate`                                                      |
-| `EmailStatus.tsx`         | Scheduled, Sending X of Y, Paused, Sent, Canceled; update card on `pending_payment`; cancel. Win also mounts it at `/dashboard/outreach/email/[id]` (`EmailStatusPage`) |
-| `EmailPreview.tsx`        | Approximate preview from the theme's color roles                                                                                                                        |
-| `app/dev/email-templates` | Dev-only gallery of every layout and theme through `EmailPreview`; its Playwright test attaches screenshots                                                             |
+| Path                      | Purpose                                                                                                                                                                                                                       |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `EmailFlow.tsx`           | Step state and the shell. Order: goal, compose, audience, schedule, review, pay; after payment it shows `EmailStatus`                                                                                                         |
+| `emailSurface.ts`         | `EmailSurface`: every string that names the people, plus `isServe`. `WIN_EMAIL_SURFACE` and `SERVE_EMAIL_SURFACE`                                                                                                             |
+| `emailFlow.util.ts`       | Compose validation, draft payload, schedule check, upload summary, warming cap ladder                                                                                                                                         |
+| `emailApi.ts`             | Typed calls to `/v1/outreach/email/*`, or `/v1/outreach/serve/email/*` when `surface.isServe`                                                                                                                                 |
+| `EmailPayStep.tsx`        | `PaymentHoldCard` with `savePaymentMethod` calling `POST /:id/confirm`; the price comes from the send's `estimate`                                                                                                            |
+| `EmailStatus.tsx`         | Scheduled, Sending X of Y, Paused, Sent (Sent to X of Y when stopped at the payment deadline), Canceled; update card on `pending_payment`; cancel. Win also mounts it at `/dashboard/outreach/email/[id]` (`EmailStatusPage`) |
+| `EmailPreview.tsx`        | Approximate preview from the theme's color roles                                                                                                                                                                              |
+| `app/dev/email-templates` | Dev-only gallery of every layout and theme through `EmailPreview`; its Playwright test attaches screenshots                                                                                                                   |
 
 ## Gotchas
 
