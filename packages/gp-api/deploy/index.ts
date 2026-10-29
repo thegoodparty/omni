@@ -673,6 +673,16 @@ WedQREHPKVj/GBX8+0NOxdKibVUlppnVyXbDLG31UNXi5iFQVJ52r6B/+7KuZQya
 jwIDAQAB
 -----END PUBLIC KEY-----`,
       }),
+      // Vercel deployments whose OIDC token makes them a service reader, as
+      // project_id:environment (gp-marketing, candidate-sites). Not secret:
+      // the signed token is the credential. Preview and develop deployments
+      // of both projects read dev gp-api; production reads prod.
+      VERCEL_OIDC_ALLOWED_PROJECTS: select({
+        preview:
+          'prj_xUbQGrErwISW8pqTZtKzk9wN5gFc:preview,prj_PFN2Upwy18Fg5jjF0BTD3vcEq5eO:preview',
+        dev: 'prj_xUbQGrErwISW8pqTZtKzk9wN5gFc:preview,prj_PFN2Upwy18Fg5jjF0BTD3vcEq5eO:preview',
+        prod: 'prj_xUbQGrErwISW8pqTZtKzk9wN5gFc:production,prj_PFN2Upwy18Fg5jjF0BTD3vcEq5eO:production',
+      }),
       ASSET_DOMAIN: select({
         preview: 'assets-dev.goodparty.org',
         dev: 'assets-dev.goodparty.org',

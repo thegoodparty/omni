@@ -267,6 +267,7 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
 
   CLERK_AUTHORIZED_PARTIES: { tier: 'optional' },
   CLERK_API_TIMEOUT_MS: { tier: 'optional' },
+  VERCEL_OIDC_ALLOWED_PROJECTS: { tier: 'optional' },
 
   AWS_REGION: { tier: 'optional', default: 'us-west-2' },
   // Not read via `process.env.X` in our own code — the AWS SDK's default
