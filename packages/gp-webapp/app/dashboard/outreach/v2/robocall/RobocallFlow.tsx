@@ -1321,6 +1321,7 @@ export const RobocallFlow = ({
           callbackNumber={callbackNumber}
           recording={recorder.recording}
           script={script}
+          transcript={complianceMutation.data?.transcript ?? null}
           onFreeOfferList={
             freeOffer !== null &&
             (audience.selectedRecommendation?.variant ===
