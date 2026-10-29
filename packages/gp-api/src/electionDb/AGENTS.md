@@ -49,7 +49,10 @@ Every `src/elections/` controller also runs
 reads (`serviceReader` or `m2mToken`) run at once per gp-api task. The rest
 queue, and a read still waiting after 30s gets a 503. That leaves 20 of the 50
 election-db connections free for user-facing reads during a gp-marketing
-crawl. Human callers are not capped.
+crawl. Human callers are not capped. The cap bounds connections, not CPU, so
+the same interceptor also refuses machine reads with a 503 while the task's
+event-loop p99 lag is over 500ms (`eventLoopLag.ts`): a task that lags that far
+fails its health probe and is killed, taking user traffic with it (ENG-11524).
 Most of what the old service exposed has no HTTP surface at all any more — it
 is reached by direct injection from gp-api code.
 

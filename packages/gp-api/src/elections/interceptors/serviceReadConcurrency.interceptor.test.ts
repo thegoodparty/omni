@@ -1,11 +1,17 @@
 import { CallHandler, ExecutionContext } from '@nestjs/common'
 import { Observable, lastValueFrom } from 'rxjs'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { EVENT_LOOP_LAG_SHED_MS, recentEventLoopLagMs } from './eventLoopLag'
 import {
   SERVICE_READ_MAX_IN_FLIGHT,
   SERVICE_READ_MAX_WAIT_MS,
   ServiceReadConcurrencyInterceptor,
 } from './serviceReadConcurrency.interceptor'
+
+vi.mock('./eventLoopLag', () => ({
+  EVENT_LOOP_LAG_SHED_MS: 500,
+  recentEventLoopLagMs: vi.fn(() => 0),
+}))
 
 const contextFor = (req: object) =>
   ({
@@ -35,6 +41,35 @@ function deferredHandler() {
 describe('ServiceReadConcurrencyInterceptor', () => {
   afterEach(() => {
     vi.useRealTimers()
+    vi.mocked(recentEventLoopLagMs).mockReturnValue(0)
+  })
+
+  it('refuses machine reads while the event loop lags, and still serves humans', async () => {
+    vi.mocked(recentEventLoopLagMs).mockReturnValue(EVENT_LOOP_LAG_SHED_MS + 1)
+    const interceptor = new ServiceReadConcurrencyInterceptor()
+    const { handler, finish, started } = deferredHandler()
+    await expect(
+      lastValueFrom(interceptor.intercept(contextFor(machine), handler)),
+    ).rejects.toThrow('Election data is busy')
+    await expect(
+      lastValueFrom(
+        interceptor.intercept(contextFor({ m2mToken: {} }), handler),
+      ),
+    ).rejects.toThrow('Election data is busy')
+    const human = lastValueFrom(interceptor.intercept(contextFor({}), handler))
+    finish()
+    await human
+    expect(started).toHaveBeenCalledTimes(1)
+  })
+
+  it('serves machine reads while the event loop is healthy', async () => {
+    const interceptor = new ServiceReadConcurrencyInterceptor()
+    const { handler, finish } = deferredHandler()
+    const run = lastValueFrom(
+      interceptor.intercept(contextFor(machine), handler),
+    )
+    finish()
+    await expect(run).resolves.toBe('ok')
   })
 
   it('does not gate human callers', async () => {
