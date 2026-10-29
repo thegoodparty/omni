@@ -26,8 +26,8 @@ ask while it holds; answering either saves `wonGeneral`, which closes both.
   next." (`HOME_CARD_COPY`), and I won, I didn't win, Results aren't final
   yet in place of the task buttons. On the next-task Home, `NextTaskCard`
   (`surface="manager"`) draws it in front of the tasks with the task layers
-  behind and an `electionResult` headline; the plan never shows it. The
-  legacy Home puts it first in `CampaignManagerTasks`. It reads the chat
+  behind and the `electionResult` headline, "You ran a real race"; the plan
+  never shows it. The legacy Home puts it first in `CampaignManagerTasks`. It reads the chat
   hook's state through the chat context, so it only appears where that chat
   mounts, and its three answers are the chat's handlers, except "I didn't
   win" routes to `loss/` as the page does.
