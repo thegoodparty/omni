@@ -43,6 +43,28 @@ export interface ServiceConfig {
 const PREVIEW_ROLE_PERMISSIONS_BOUNDARY =
   'arn:aws:iam::333022194791:policy/GpApiPreviewRoleBoundary'
 
+// The ECS agent reads every container secret through the execution role, so
+// the role is granted exactly the secrets the task definition names. Derived
+// from the `valueFrom` entries themselves so the two cannot drift. The
+// `-??????` stands in for the random suffix Secrets Manager appends, which
+// keeps the grant valid if a secret is ever recreated under the same name.
+const SECRETS_MANAGER_VALUE_FROM =
+  /^(arn:aws:secretsmanager:[^:]+:\d{12}:secret:[^:]+-)[A-Za-z0-9]{6}(:|$)/
+
+export const executionRoleSecretArns = (valueFroms: string[]): string[] => {
+  const arns = valueFroms.map((valueFrom) => {
+    const match = SECRETS_MANAGER_VALUE_FROM.exec(valueFrom)
+    if (!match) {
+      throw new Error(
+        `Container secret ${valueFrom} is not a full Secrets Manager ARN, ` +
+          'so the execution role cannot be scoped to it.',
+      )
+    }
+    return `${match[1]}??????`
+  })
+  return [...new Set(arns)].sort()
+}
+
 type ServiceOutput = {
   ecsService: aws.ecs.Service
   url: pulumi.Output<string>
@@ -268,13 +290,10 @@ export function createService({
           Statement: [
             {
               Effect: 'Allow',
-              Action: [
-                'ssm:GetParameters',
-                'ssm:GetParameterHistory',
-                'ssm:GetParameter',
-                'secretsmanager:GetSecretValue',
-              ],
-              Resource: '*',
+              Action: ['secretsmanager:GetSecretValue'],
+              Resource: pulumi
+                .output(secrets)
+                .apply((sec) => executionRoleSecretArns(Object.values(sec))),
             },
           ],
         }),

@@ -35,6 +35,7 @@ const savedTurf = (id: number, name: string) => ({
   loggedCount: 0,
   routeSeconds: null,
   priorityId: null,
+  purpose: null,
   completed: false,
   archivedAt: null,
   createdAt: new Date('2026-08-10T00:00:00Z'),

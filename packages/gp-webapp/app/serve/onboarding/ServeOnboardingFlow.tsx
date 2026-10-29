@@ -1,7 +1,16 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { Button, Checkbox, Input, Label, Textarea } from '@styleguide'
+import {
+  Alert,
+  AlertAction,
+  AlertDescription,
+} from '@styleguide/components/ui/alert'
+import { InfoIcon } from '@styleguide/components/ui/icons'
+import { useIsImpersonating } from '@shared/hooks/useIsImpersonating'
+import { dismissElectionResult } from 'app/dashboard/election-result/dismissal'
 import { cn } from '@styleguide/lib/utils'
 import { LoaderCircle, Pencil } from 'lucide-react'
 import { clientRequest } from 'gpApi/typed-request'
@@ -12,7 +21,11 @@ import type {
 } from 'gpApi/api-endpoints'
 import type { OnboardingPriorityOption } from '@goodparty_org/contracts'
 import { setCookie } from 'helpers/cookieHelper'
-import { ORG_SLUG_COOKIE } from '@shared/organizations/constants'
+import {
+  ORG_SLUG_COOKIE,
+  ORG_SLUG_HEADER,
+} from '@shared/organizations/constants'
+import { servePartyFromCampaign } from './winParty'
 import { reportErrorToSentry } from '@shared/sentry'
 import { useSnackbar } from 'helpers/useSnackbar'
 import type { SelectedOffice } from 'app/onboarding/components/onboardingTypes'
@@ -24,7 +37,12 @@ import { PRIORITY_FORM_COPY } from 'app/dashboard/priorities/priorityFormCopy'
 import { useServeCitizenPanelsFlag } from '@shared/experiments/serveCitizenPanelsFlag'
 import { servePlaceOf } from 'app/dashboard/contacts/citizens-panel/managedPanelCopy'
 import ServeOfficePicker, { type OfficePick } from './ServeOfficePicker'
-import { DistrictStoryStep } from './districtStory/DistrictStoryStep'
+import {
+  DistrictStoryStep,
+  districtPointsQueryOptions,
+} from './districtStory/DistrictStoryStep'
+import { onboardingDistrictStatsQueryOptions } from 'app/onboarding/components/VoterDemographicsStep'
+import { useQueryClient } from '@tanstack/react-query'
 import {
   buildDisabledRanges,
   CALENDAR_END,
@@ -75,6 +93,27 @@ import {
 
 const DEFAULT_OFFICE_LABEL = 'your elected office'
 
+// An office from a win with no party of its own still has the campaign's, so
+// the party step comes preselected. Best-effort: a miss leaves it to them.
+const campaignParty = async (
+  eo: ElectedOffice,
+): Promise<string | undefined> => {
+  if (eo.campaignId == null) return undefined
+  try {
+    const res = await clientRequest(
+      'GET /v1/campaigns/mine',
+      {},
+      {
+        headers: { [ORG_SLUG_HEADER]: `campaign-${eo.campaignId}` },
+        ignoreResponseError: true,
+      },
+    )
+    return res.ok ? servePartyFromCampaign(res.data.details) : undefined
+  } catch {
+    return undefined
+  }
+}
+
 // The priorities step waits this long for starter issues, then shows what it
 // has and keeps checking in the background so late issues still appear.
 const STARTER_ISSUES_WAIT_MS = 10_000
@@ -99,6 +138,12 @@ const SERVE_STEP_VIEWED_EVENTS: Partial<Record<ServeStepId, string>> = {
 
 export default function ServeOnboardingFlow(): React.JSX.Element {
   const { errorSnackbar } = useSnackbar()
+  const router = useRouter()
+  const queryClient = useQueryClient()
+  // An impersonating admin can leave a winner's handoff without finishing it,
+  // the way they can leave the election-result question; the dashboard reads
+  // the same flag before sending them back here.
+  const isImpersonating = useIsImpersonating()
   // The load effect waits on `ready`, so the step list and resume target are
   // chosen once with the real answer and the wrong welcome never flashes.
   const { ready: flagReady, enabled: citizenPanels } =
@@ -232,7 +277,7 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
           // from this org's position) targets `eo-<id>` rather than a stale
           // candidate org — not just at persist().
           setCookie(ORG_SLUG_COOKIE, `eo-${eo.id}`)
-          setParty(eo.party ?? null)
+          setParty(eo.party ?? (await campaignParty(eo)) ?? null)
           setTermStartDate(toDate(eo.termStartDate))
           setTermEndDate(toDate(eo.termEndDate))
 
@@ -266,7 +311,10 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
         // real answer (welcome/inOffice persist nothing), so it signals the
         // user has started; term dates count as set only when BOTH bounds are
         // present, mirroring the flow's both-bounds requirement.
-        const hasParty = !!eo?.party
+        // A major party does not count: GoodParty doesn't serve partisan
+        // officials, and only the party step's own gate can say so. A win
+        // carries the campaign's party onto the office, majors included.
+        const hasParty = !!eo?.party && !isServeMajorParty(eo.party)
         const hasDates = !!(eo?.termStartDate && eo?.termEndDate)
 
         // Branch off the explicit `selfReported` marker rather than inferring
@@ -588,6 +636,35 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
   // position pointer (param-less) — the same path the Win flow uses — instead
   // of campaign-scoped resolution an EO has no campaign for.
   const storyPositionId = office?.positionId ?? orgPositionId
+
+  // The story draws its stand-in district if its data is not back within
+  // DISTRICT_DATA_WAIT_MS of the first story step, and never swaps it after.
+  // A district-wide read can take longer than that, so it starts as soon as
+  // the office is already on the org when the flow loads (a winner or a
+  // prefill) instead of when the story mounts. Only that office: a pick made
+  // this session reaches the org later, and reading before then would cache
+  // the old district under the new office.
+  const eoId = currentEO?.id
+  const prefetchPositionId = office ? undefined : orgPositionId
+  useEffect(() => {
+    if (loading || !citizenPanels || !officeOnOrg) return
+    if (!eoId || !prefetchPositionId) return
+    void queryClient.prefetchQuery(
+      districtPointsQueryOptions(eoId, prefetchPositionId),
+    )
+    void queryClient.prefetchQuery(
+      onboardingDistrictStatsQueryOptions({
+        orgPositionId: prefetchPositionId,
+      }),
+    )
+  }, [
+    loading,
+    citizenPanels,
+    officeOnOrg,
+    eoId,
+    prefetchPositionId,
+    queryClient,
+  ])
 
   const progress = getServeProgress(branch, step, citizenPanels)
   const afterTerm = firstStepAfterTerm(citizenPanels)
@@ -1260,6 +1337,27 @@ export default function ServeOnboardingFlow(): React.JSX.Element {
       />
 
       <main className="mx-auto w-full max-w-4xl px-4 pt-24 pb-6 sm:px-8 sm:pt-28 sm:pb-8">
+        {isImpersonating && currentEO?.campaignId != null && (
+          <Alert variant="info" icon={<InfoIcon />} className="mb-8">
+            <AlertDescription>
+              Impersonation mode: leave this without finishing it. It won&apos;t
+              change the account, and they&apos;ll still see it next time.
+            </AlertDescription>
+            <AlertAction>
+              <Button
+                type="button"
+                variant="alertFilled"
+                size="small"
+                onClick={() => {
+                  dismissElectionResult()
+                  router.push('/dashboard')
+                }}
+              >
+                Dismiss
+              </Button>
+            </AlertAction>
+          </Alert>
+        )}
         <div
           className={cn(
             'grid grid-cols-1 gap-8',

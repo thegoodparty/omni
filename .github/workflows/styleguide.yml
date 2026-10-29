@@ -41,3 +41,8 @@ jobs:
 
       - name: Test
         run: npm run test -w ${{ env.WORKSPACE }}
+
+      # COMPONENTS.md is how agents pick a component, so it must match the
+      # @summary tags in the source and every component must have one.
+      - name: Check components index
+        run: npm run check:components-doc -w ${{ env.WORKSPACE }}

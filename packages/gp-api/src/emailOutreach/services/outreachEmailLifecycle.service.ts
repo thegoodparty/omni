@@ -44,6 +44,7 @@ const SETTLED_HOLD_STATES: OutreachHoldState[] = [
   OutreachHoldState.captured,
   OutreachHoldState.released,
   OutreachHoldState.uncollectable,
+  OutreachHoldState.disputed,
 ]
 
 // Starting and finishing sends. Each step is a per-row compare-and-set on

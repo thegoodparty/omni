@@ -257,29 +257,36 @@ const PrioritiesHub = ({
                     >
                       {index + 1}
                     </span>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium text-foreground">
-                        {priority.title}
-                      </p>
-                      {priority.nextAction ? (
-                        <p className="truncate text-xs text-foreground/70">
-                          {priority.nextAction}
+                    <div className="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+                      <div className="min-w-0 flex-1">
+                        <p className="line-clamp-2 text-sm font-medium text-foreground sm:line-clamp-1">
+                          {priority.title}
                         </p>
-                      ) : null}
+                        {priority.nextAction ? (
+                          <p className="line-clamp-2 text-xs text-foreground/70 sm:line-clamp-1">
+                            {priority.nextAction}
+                          </p>
+                        ) : null}
+                      </div>
+                      <div className="flex shrink-0 flex-wrap items-center gap-2 sm:flex-nowrap sm:gap-3">
+                        {step ? (
+                          <Badge
+                            variant="outline"
+                            className="shrink-0 rounded-full"
+                          >
+                            {step}
+                          </Badge>
+                        ) : null}
+                        <Badge
+                          className={cn(
+                            'shrink-0 rounded-full',
+                            meta.pillClass,
+                          )}
+                        >
+                          {meta.label}
+                        </Badge>
+                      </div>
                     </div>
-                    {step ? (
-                      <Badge
-                        variant="outline"
-                        className="hidden shrink-0 rounded-full sm:inline-flex"
-                      >
-                        {step}
-                      </Badge>
-                    ) : null}
-                    <Badge
-                      className={cn('shrink-0 rounded-full', meta.pillClass)}
-                    >
-                      {meta.label}
-                    </Badge>
                     <ChevronRightIcon
                       className="size-4 shrink-0 text-muted-foreground"
                       aria-hidden

@@ -166,6 +166,7 @@ export const useTurfLifecycle = (turf: DoorKnockingTurf, isServe: boolean) => {
             launchSource: recalledLaunchSource('doorKnocking', turf.id),
             priorityId:
               completed?.data.priorityId ?? turf.priorityId ?? undefined,
+            purpose: completed?.data.purpose ?? turf.purpose ?? undefined,
           }),
           method: 'turf',
         })

@@ -156,7 +156,10 @@ the get-started cards in
 
 - Sentence case for every heading, label, and button. No title case.
 - No em dashes. Use a period or a comma.
-- No exclamation points. No emoji.
+- No exclamation points. No emoji. One exception: the win celebration's
+  title, "Congratulations, you won!" (`WON_COPY.title` in
+  `packages/gp-webapp/app/dashboard/election-result/electionResultCopy.ts`).
+  Nothing else earns one.
 - No bold or italic inside a caption for emphasis.
 - Numerals for numbers. "5 minutes", not "five minutes".
 - Titles: 12 words or fewer. Captions: 20 words or fewer.

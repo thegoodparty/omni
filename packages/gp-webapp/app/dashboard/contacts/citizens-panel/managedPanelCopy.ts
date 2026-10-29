@@ -32,6 +32,13 @@ export const MANAGED_PANEL_COPY = {
   inviteCardTitle: 'Your civic panel invite',
   inviteCardSubtitle: (place: string | null) => `Text to ${residentsOf(place)}`,
   reviewInvite: 'Review the invite',
+  // The Who gets the mic video on the answer to How does it work?. Its text
+  // alternative is the video's own on-screen lines.
+  video: {
+    label: 'Who gets the mic, a 1 minute video',
+    textAlternative:
+      "What the video says: You represent every resident in the district. Public comment speakers skew older (median age 61 vs 50 for their neighbors). And they don't reflect the whole community. Residents who reflect the whole district. Your civic panel is your community pulse.",
+  },
   panelCardTitle: 'Your civic panel',
   panelCardStatus: (
     status: ManagedCivicPanelStatus,

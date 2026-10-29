@@ -6,6 +6,14 @@ import { OTPInput, OTPInputContext } from 'input-otp'
 import { cn } from '@styleguide/lib/utils'
 import { MinusIcon } from './icons'
 
+/**
+ * Compose InputOTPGroup with one InputOTPSlot per character (index 0 to n-1) and
+ * set maxLength to match. Pass pattern={REGEXP_ONLY_DIGITS} from input-otp for
+ * numeric codes.
+ *
+ * @summary Use for entering a one-time code or PIN, one box per character. For
+ * any other short text, use Input.
+ */
 function InputOTP({
   className,
   containerClassName,

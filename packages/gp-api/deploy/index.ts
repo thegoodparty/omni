@@ -15,7 +15,7 @@ import {
 import { createPreviewSharedCluster } from './components/preview-shared-cluster'
 import {
   createEmailInbound,
-  emailInboundName,
+  emailInboundBucketName,
   emailInboundTopicArn,
 } from './components/email-inbound'
 import { createEmailOutreach } from './components/email-outreach'
@@ -526,7 +526,7 @@ export = async () => {
   // already whole-bucket, so no judge prefix needs widening on this side.
   const taskRoleReadOnlyBucketNames: pulumi.Input<string>[] = [
     agentArtifactsBucketName,
-    ...(environment !== 'preview' ? [emailInboundName(environment)] : []),
+    ...(environment !== 'preview' ? [emailInboundBucketName(environment)] : []),
   ]
   const taskRoleReadOnlyObjectArns = taskRoleReadOnlyBucketNames.map(
     (name) => pulumi.interpolate`arn:aws:s3:::${name}/*`,
@@ -774,7 +774,8 @@ jwIDAQAB
         ? `gpdb_pr_${prNumber}`
         : rdsCluster!.databaseName,
       SECRETS_MANAGER_KEYS: Object.keys(containerSecrets).join(','),
-      // An ARN, not a credential. The webhook accepts only this topic.
+      // Names, not credentials. The webhook accepts only this topic, and the
+      // reply handler reads only this bucket.
       ...(environment !== 'preview'
         ? {
             EMAIL_INBOUND_TOPIC_ARN: emailInboundTopicArn(
@@ -782,6 +783,7 @@ jwIDAQAB
               region,
               accountId,
             ),
+            EMAIL_INBOUND_BUCKET: emailInboundBucketName(environment),
           }
         : {}),
       ...(environment === 'preview' ? { IS_PREVIEW: 'true' } : {}),

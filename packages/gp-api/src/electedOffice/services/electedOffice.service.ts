@@ -107,6 +107,7 @@ export class ElectedOfficeService extends createPrismaBase(
     const newEnd = args.termEndDate ?? null
 
     let freshlyCreated = false
+    let campaignLinked = false
     const office = await this.client.$transaction(async (tx) => {
       // Serialize office creation per user. Task 01 removed the
       // @@unique([userId]) constraint, so this advisory lock is what stops two
@@ -136,8 +137,23 @@ export class ElectedOfficeService extends createPrismaBase(
       // inserting a duplicate — a term-less placeholder never "overlaps" a
       // dated term, so without this guard a later dated create would slip past
       // the overlap check below.
+      // A win's retry finds the office the first try linked to its campaign.
+      if (args.campaignId != null && !hasNewTerm) {
+        const linked = existingForUser.find(
+          (eo) => eo.campaignId === args.campaignId,
+        )
+        if (linked) return linked
+      }
+
+      // A term-less office another campaign's win already claimed is that
+      // seat's, not a placeholder for this win.
       const placeholder = existingForUser.find(
-        (eo) => eo.termStartDate === null && eo.termEndDate === null,
+        (eo) =>
+          eo.termStartDate === null &&
+          eo.termEndDate === null &&
+          (args.campaignId == null ||
+            eo.campaignId == null ||
+            eo.campaignId === args.campaignId),
       )
       if (placeholder) {
         // When this call carries the data the placeholder was waiting for — a
@@ -145,9 +161,17 @@ export class ElectedOfficeService extends createPrismaBase(
         // bare magic-link placeholder — fill it in now instead of dropping it.
         // Otherwise the admin prefill response would advertise term/position
         // data that never reached the database.
-        if (!hasNewTerm && !hasOrgPrefill) {
+        //
+        // A campaign win can also land on a lead's term-less office (a
+        // magic-link or mid-onboarding one). That office becomes the win's:
+        // linked to the campaign, so the dashboard sends the winner through
+        // Serve onboarding, keeping any party or checkpoint it already has.
+        const linksCampaign =
+          args.campaignId != null && placeholder.campaignId == null
+        if (!hasNewTerm && !hasOrgPrefill && !linksCampaign) {
           return placeholder
         }
+        campaignLinked = linksCampaign
         if (hasNewTerm) {
           // The placeholder itself has no term, but the user may hold other
           // dated offices — keep the no-overlap invariant when filling it. Any
@@ -180,7 +204,15 @@ export class ElectedOfficeService extends createPrismaBase(
           })
         }
         if (!hasNewTerm) {
-          return placeholder
+          if (!linksCampaign) return placeholder
+          return tx.electedOffice.update({
+            where: { id: placeholder.id },
+            data: {
+              campaignId: args.campaignId,
+              party: placeholder.party ?? args.party,
+              onboardingStep: placeholder.onboardingStep ?? args.onboardingStep,
+            },
+          })
         }
         // Adopt the placeholder with the FULL payload this call carries, not
         // just the term dates. A single onboarding-completion POST sends term
@@ -202,6 +234,7 @@ export class ElectedOfficeService extends createPrismaBase(
             // prefill completion never clobbers it; a net-new completion sets it.
             selfReported: args.selfReported,
             onboardingStep: args.onboardingStep,
+            ...(linksCampaign ? { campaignId: args.campaignId } : {}),
           },
         })
       }
@@ -230,10 +263,12 @@ export class ElectedOfficeService extends createPrismaBase(
             'Elected office term overlaps an existing elected office for this user',
           )
         }
-      } else if (existingForUser.length > 0) {
-        // No term dates provided (e.g. the legacy win→serve path). Preserve the
-        // historical "one elected office per user" idempotency / crash-recovery
-        // behavior by returning the existing record.
+      } else if (args.campaignId == null && existingForUser.length > 0) {
+        // No term dates and no campaign: preserve the historical "one elected
+        // office per user" idempotency / crash-recovery behavior by returning
+        // the existing record. A win (campaignId set) falls through and gets
+        // its own office, so a winner who already serves elsewhere still goes
+        // through Serve onboarding for the new seat.
         const existing = existingForUser[0]
         if (existing) {
           return existing
@@ -283,11 +318,12 @@ export class ElectedOfficeService extends createPrismaBase(
     // transaction that meant the per-user pg_advisory_xact_lock and a pooled
     // connection were held across those trips, and the total body regularly
     // tipped over Prisma's 5,000 ms budget → P2028 on POST /v1/elected-office
-    // (ENG-11116). Gated on freshlyCreated: the placeholder / idempotent-retry
-    // / bare-existing return paths never seeded and must not start doing so.
+    // (ENG-11116). Gated on freshlyCreated or a placeholder just linked to a
+    // campaign: the other idempotent-retry / bare-existing return paths never
+    // seeded and must not start doing so.
     // Failure is swallowed — a seed miss leaves the office intact; the seed
     // can be replayed and is idempotent — so it must never 5xx the create.
-    if (freshlyCreated) {
+    if (freshlyCreated || campaignLinked) {
       await this.priorities.seedFromWin(office.id).catch((err: Error) => {
         this.logger.error(
           { err, electedOfficeId: office.id },

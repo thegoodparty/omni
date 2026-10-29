@@ -7,6 +7,14 @@ interface InputProps extends React.ComponentProps<'input'> {
   icon?: React.ReactNode
 }
 
+/**
+ * Pair it with a Label. Pass `icon` for a leading icon, like search. Check the
+ * value on blur or submit, not while typing; set aria-invalid and show the error
+ * next to the field.
+ *
+ * @summary Use for one line of text, like a name, email or search. For several
+ * lines, use Textarea; with an attached action button, use InputWithButton.
+ */
 function Input({ className, type, icon, ...props }: InputProps) {
   if (icon) {
     return (
