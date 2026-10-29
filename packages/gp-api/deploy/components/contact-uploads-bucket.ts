@@ -12,9 +12,9 @@ export interface ContactUploadsBucketConfig {
  * Vercel caps request bodies at 4.5 MB; gp-api reads it back server-side.
  * All public access is blocked.
  *
- * No object expiry: the file is the record of what was uploaded and lets
- * matching be re-run. Only noncurrent versions expire, so a deleted
- * organization's files are gone for good after 30 days.
+ * Nothing expires, current or noncurrent: the file is the record of what was
+ * uploaded and lets matching be re-run. Versioning keeps every overwritten or
+ * deleted file, so removing someone's data means deleting every version.
  */
 export function createContactUploadsBucket({
   environment,
@@ -53,20 +53,6 @@ export function createContactUploadsBucket({
     versioningConfiguration: {
       status: 'Enabled',
     },
-  })
-
-  new aws.s3.BucketLifecycleConfigurationV2('contact-uploads-lifecycle', {
-    bucket: bucket.id,
-    rules: [
-      {
-        id: 'expire-noncurrent-versions',
-        status: 'Enabled',
-        filter: {},
-        noncurrentVersionExpiration: {
-          noncurrentDays: 30,
-        },
-      },
-    ],
   })
 
   // The webapp origins that serve /dashboard. PR previews share the dev

@@ -90,7 +90,9 @@ manual rows, else the upload's `createdAt`): the upload that brought them in.
 ## Not built here
 
 - Deleting an org's files from the bucket: Postgres rows cascade with the
-  org, but no org deletion hook exists to clear `<orgSlug>/` in S3.
+  org, but no org deletion hook exists to clear `<orgSlug>/` in S3. The
+  bucket is versioned and nothing expires, so a deletion has to remove every
+  version and delete marker under the prefix, not just the current objects.
 
 ## Tests
 
