@@ -30,7 +30,7 @@ export const buildReadPastOutreachTool = (deps: {
     'went, and how many replied. sentOn is null until a send has gone out; ' +
     'one with a scheduledFor day and no sentOn has not gone out yet, and ' +
     'one with status pending_payment, draft, canceled, denied or failed ' +
-    'never went: the official did not finish it, whatever its day. When ' +
+    'never went, whatever its day. When ' +
     "the conversation is about one priority, that priority's own sends " +
     "come back under priority and the office's other recent sends under " +
     'office, for comparison. Otherwise priority is empty and office holds ' +

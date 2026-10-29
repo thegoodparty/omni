@@ -868,7 +868,7 @@ describe('read_past_outreach send days', () => {
 
     const [anchor] = await outreach.summarizeAnchors(flooding, ZONE)
 
-    expect(anchor?.line).toContain('never sent: the official did not finish it')
+    expect(anchor?.line).toContain('never sent')
     expect(anchor?.line).not.toContain('scheduled for')
   })
 

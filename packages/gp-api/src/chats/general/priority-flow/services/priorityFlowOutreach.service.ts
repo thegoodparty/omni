@@ -225,7 +225,7 @@ export class PriorityFlowOutreachService extends createPrismaBase(
         row.sentOn !== null
           ? `sent ${row.sentOn}`
           : NEVER_SENT.includes(row.status)
-            ? 'never sent: the official did not finish it'
+            ? 'never sent'
             : row.scheduledFor === null
               ? 'not sent yet'
               : `scheduled for ${row.scheduledFor}, not sent yet`,
