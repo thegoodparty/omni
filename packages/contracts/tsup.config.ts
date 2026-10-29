@@ -1,7 +1,7 @@
 import { defineConfig } from 'tsup'
 
 export default defineConfig((options) => ({
-  entry: ['src/index.ts'],
+  entry: ['src/index.ts', 'src/openui.ts'],
   format: ['cjs', 'esm'],
   dts: {
     compilerOptions: { ignoreDeprecations: '6.0' },

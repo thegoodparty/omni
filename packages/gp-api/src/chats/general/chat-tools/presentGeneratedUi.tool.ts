@@ -1,8 +1,8 @@
 import {
-  openUiCatalog,
   PRESENT_GENERATED_UI_TOOL,
   PresentGeneratedUiSchema,
 } from '@goodparty_org/contracts'
+import { openUiCatalog } from '@goodparty_org/contracts/openui'
 import { createParser } from '@openuidev/lang-core'
 import type { LlmStreamTool } from '@/llm/services/llm.service'
 

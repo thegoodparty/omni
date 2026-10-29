@@ -861,20 +861,7 @@ export {
   PRESENT_GENERATED_UI_TOOL,
   PresentGeneratedUiSchema,
   type PresentGeneratedUi,
-  OPEN_UI_OUTREACH_CHANNELS,
-  OpenUiStack,
-  OpenUiHeading,
-  OpenUiText,
-  OpenUiStat,
-  OpenUiTable,
-  OpenUiContactCard,
-  OpenUiMapCard,
-  OpenUiOutreachCard,
-  OpenUiChoiceQuestion,
-  OpenUiActionButton,
-  OpenUiStartOutreach,
-  openUiCatalog,
-} from './chats/OpenUiCatalog'
+} from './chats/PresentGeneratedUi.schema'
 
 export {
   ChatSourceSchema,

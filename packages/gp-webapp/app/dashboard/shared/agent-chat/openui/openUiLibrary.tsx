@@ -22,7 +22,7 @@ import {
   OpenUiTable,
   OpenUiText,
   type OPEN_UI_OUTREACH_CHANNELS,
-} from '@goodparty_org/contracts'
+} from '@goodparty_org/contracts/openui'
 import {
   Button,
   Checkbox,
