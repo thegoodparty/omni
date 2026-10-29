@@ -3,7 +3,7 @@ title: A civic panel's door and call lists are frozen samples cut by the census 
 status: active
 decided_by: [agent]
 date: 2026-10-29
-code: ['#TBD']
+code: ['#3426']
 scope:
   - packages/gp-api/src/contacts/services/civicPanelReach.service.ts
   - packages/gp-api/src/peopleDb/databricks/districtCensusSql.util.ts
