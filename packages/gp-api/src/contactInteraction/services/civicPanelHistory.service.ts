@@ -7,7 +7,7 @@ import {
   Prisma,
 } from '@/generated/prisma'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
-import { MAX_RESOLVED_ID_SET_SIZE } from './activityConditionResolution.service'
+import { MAX_RESOLVED_ID_SET_SIZE } from '../resolvedIdSetCap.const'
 
 // An inclusive span of calendar days, YYYY-MM-DD in UTC. Either end open.
 export interface DayRange {

@@ -8,7 +8,7 @@ import {
 } from '@nestjs/common'
 import { format, isValid, parseISO } from 'date-fns'
 import parseCsv from 'neat-csv'
-import { MAX_RESOLVED_ID_SET_SIZE } from '@/contactInteraction/services/activityConditionResolution.service'
+import { MAX_RESOLVED_ID_SET_SIZE } from '@/contactInteraction/resolvedIdSetCap.const'
 import { ContactInteractionTextService } from '@/contactInteraction/services/contactInteractionText.service'
 import {
   ContactsFilterResolutionInput,

@@ -2,10 +2,8 @@ import { BadRequestException, Injectable } from '@nestjs/common'
 import { Prisma } from '@/generated/prisma'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import type { IdOverrides } from '@goodparty_org/contracts'
-import {
-  type IdFilterResolution,
-  MAX_RESOLVED_ID_SET_SIZE,
-} from './activityConditionResolution.service'
+import { type IdFilterResolution } from './activityConditionResolution.service'
+import { MAX_RESOLVED_ID_SET_SIZE } from '../resolvedIdSetCap.const'
 
 // 5 means "5+" (>= 5 logged interactions). Mirrors
 // CONTACTS_MADE_BUCKET_FIELDS in voterFileFilter.utils.ts.

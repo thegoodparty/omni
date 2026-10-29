@@ -47,8 +47,8 @@ import {
   ActivityConditionResolutionService,
   intersectIdFilterResolutions,
   type IdFilterResolution,
-  MAX_RESOLVED_ID_SET_SIZE,
 } from 'src/contactInteraction/services/activityConditionResolution.service'
+import { MAX_RESOLVED_ID_SET_SIZE } from 'src/contactInteraction/resolvedIdSetCap.const'
 import { ContactInteractionTextService } from 'src/contactInteraction/services/contactInteractionText.service'
 import {
   ContactsMadeResolutionService,
