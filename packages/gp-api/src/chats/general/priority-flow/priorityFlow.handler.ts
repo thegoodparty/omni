@@ -128,6 +128,8 @@ const unsignedDraftReason = (
         `they are calling for: "${officialName}, your" and their office.`
 }
 
+const MANAGED_PANEL_CACHE_SIZE = 1000
+
 @Injectable()
 export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext> {
   readonly scope = ChatScope.priority_flow
@@ -138,6 +140,14 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
   // read_past_outreach, web_search and then a present_* card, and a turn that
   // exhausts its budget mid-research never presents anything.
   readonly maxSteps = 30
+
+  // The managed civic panel moves at most once a day, so it is read when
+  // the page opens the conversation and reused for the turns after. In
+  // memory: a task that has not seen the conversation reads it again.
+  private readonly managedPanelByConversation = new Map<
+    string,
+    PriorityManagedCivicPanel | null
+  >()
 
   constructor(
     private readonly store: GeneralChatStoreService,
@@ -171,6 +181,23 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
     @Optional()
     private readonly logger?: PinoLogger,
   ) {}
+
+  private async sessionManagedCivicPanel(
+    conversationId: string,
+    organization: PriorityFlowContext['organization'],
+  ): Promise<PriorityManagedCivicPanel | null | undefined> {
+    if (this.managedPanelByConversation.has(conversationId)) {
+      return this.managedPanelByConversation.get(conversationId)
+    }
+    const panel = await this.readManagedCivicPanel(organization)
+    if (panel === undefined) return undefined
+    if (this.managedPanelByConversation.size >= MANAGED_PANEL_CACHE_SIZE) {
+      const [oldest] = this.managedPanelByConversation.keys()
+      if (oldest !== undefined) this.managedPanelByConversation.delete(oldest)
+    }
+    this.managedPanelByConversation.set(conversationId, panel)
+    return panel
+  }
 
   // Null when nothing is being built. A failed read is undefined, as if it
   // were not wired in, so the agent never tells an official they have none.
@@ -233,6 +260,7 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
     })
     const [existing] = candidates
     if (existing) {
+      this.managedPanelByConversation.delete(existing.id)
       return { conversationId: existing.id, created: false }
     }
 
@@ -278,7 +306,7 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
       ? await this.contextService.countCivicPanelMembers(ctx.organizationSlug)
       : undefined
     const managedCivicPanel = outreachFeedbackEnabled
-      ? await this.readManagedCivicPanel(ctx.organization)
+      ? await this.sessionManagedCivicPanel(conversationId, ctx.organization)
       : undefined
     const reportBacks =
       outreachFeedbackEnabled && this.reportBack

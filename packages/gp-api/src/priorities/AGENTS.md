@@ -20,6 +20,17 @@ from the claim that won: `answeredCount` (everyone who answered the
 priority), `themesShared` (its top themes, at most `MAX_THEMES`) and
 `channel` (`text`).
 
+## A check's first round
+
+Behind `serve-citizen-panels`, the priority chat
+(`chats/general/priority-flow/priorityFlow.prompt.ts`) picks how a check
+starts. With the office's managed civic panel ready, asking it is the
+default: the agent asks the official which way, with ask your civic panel
+listed first, then the round one text to residents across the district, then
+another kind of outreach. Otherwise round one is the text, sized by
+`size_round_one`, and it always carries the JOIN ask
+(`docs/adr/2026-10-29-ready-civic-panel-is-a-prioritys-default-first-round.md`).
+
 ## Answer coding
 
 `services/priorityAnswerCoding.service.ts`. Replies stay free text; an AI

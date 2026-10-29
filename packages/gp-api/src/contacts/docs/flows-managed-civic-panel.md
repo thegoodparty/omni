@@ -54,10 +54,13 @@ the ready one; words are rewritten on read; no Mark done; building and
 exhausted do not lapse. The read goes through `ManagedCivicPanelService`
 (by `ModuleRef`, before the lock) and a failed read leaves the card alone.
 The Chief of Staff (`managedCivicPanelBlock`, `read_managed_panel`)
-answers in each status's words. The priority chat reads it every turn too
-(`PriorityFlowHandler`, the `<priority>` "Civic panel" line), so a priority
-never sells a text as the way to build it, and asks a ready one; the
-priority page shows it under the read (`CivicPanelStanding`). See the
+answers in each status's words. The priority chat reads it too
+(`PriorityFlowHandler`, the `<priority>` "Civic panel" line), once when the
+page opens the conversation and reused for its later turns, so a priority
+never sells a text as the way to build it, and leads with asking a ready one
+as the first round of a check, the official's pick over the round one text
+or another kind of outreach; the priority page shows it under the read
+(`CivicPanelStanding`), read once with the page. See the
 webapp's `priorities/[priorityId]/AGENTS.md`. The civic panel page's rail shows
 `ManagedPanelControls` (the Invites card): the status, the next send day
 and ready week while building, Pause while building and Resume while
