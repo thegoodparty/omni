@@ -2121,7 +2121,7 @@ export type APIEndpoints = {
   }
   'PUT /v1/contact-uploads/:id/rows/:rowId/match': {
     Request: SetContactUploadRowMatch
-    Response: ContactUploadRow
+    Response: ContactUpload
   }
   'POST /v1/contact-uploads/:id/accept-suggested': {
     Request: {}

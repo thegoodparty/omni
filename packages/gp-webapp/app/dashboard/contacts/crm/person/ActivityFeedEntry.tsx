@@ -323,11 +323,13 @@ export const StatusChangeActivityRow: React.FC<{
 export const ContactImportActivityRow: React.FC<{
   activity: ContactImportConstituentActivity
 }> = ({ activity }) => {
-  const { kind, addedFields, uploadId, uploadName } = activity.data
+  const { isNewPerson, manual, suppliedFields, uploadId, uploadName } =
+    activity.data
+  const kind = manual ? 'resolved' : isNewPerson ? 'new' : 'matched'
   return (
     <div className="flex flex-col gap-1 mb-3">
       <p className="text-sm font-semibold text-foreground">
-        {SERVE_IMPORT_CONTACTS_COPY.activity.title(kind, addedFields)}
+        {SERVE_IMPORT_CONTACTS_COPY.activity.title(kind, suppliedFields)}
       </p>
       <Link
         href={uploadDetailPath(uploadId)}
