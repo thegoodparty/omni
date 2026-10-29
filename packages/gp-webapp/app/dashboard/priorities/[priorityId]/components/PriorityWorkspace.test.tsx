@@ -973,6 +973,44 @@ describe('PriorityWorkspace', () => {
     gate.resolve()
   })
 
+  it('holds the shimmer off after a current-law card streamed under its old tool name', async () => {
+    const gate = deferred()
+    mocks.streamMessage.mockImplementation(async function* () {
+      yield { type: 'text', delta: 'Here is what the code says today. ' }
+      yield {
+        type: 'tool_input_start',
+        toolName: 'present_current_law_summary',
+      }
+      yield {
+        type: 'tool_call',
+        toolName: 'present_current_law_summary',
+        toolCallId: 'tc-l',
+        args: {
+          chapterLabel: 'Chapter 12',
+          does: [{ title: 'Bins must be lidded' }],
+          gaps: [],
+        },
+      }
+      yield {
+        type: 'tool_result',
+        toolName: 'present_current_law_summary',
+        toolCallId: 'tc-l',
+        result: { presented: true },
+      }
+      await gate.promise
+      yield { type: 'done', assistantMessageId: 'a1' }
+    })
+
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    renderWorkspace()
+
+    await screen.findByText(/^Here/)
+    await vi.advanceTimersByTimeAsync(2_000)
+    expect(await screen.findByText(/Bins must be lidded/)).toBeInTheDocument()
+    expect(screen.queryByText('Thinking...')).not.toBeInTheDocument()
+    gate.resolve()
+  })
+
   it('drops the shimmer as soon as a question card is up', async () => {
     const gate = deferred()
     mocks.streamMessage.mockImplementation(

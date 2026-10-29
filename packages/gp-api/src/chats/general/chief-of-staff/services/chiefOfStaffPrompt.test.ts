@@ -647,6 +647,25 @@ describe('buildChiefOfStaffSystemPrompt', () => {
     expect(prompt).toContain('Drawing is optional')
   })
 
+  // The card a list is created from becomes its map, so a list_map card for
+  // that list draws the same map twice.
+  it('never shows a second map for a list created from its card', () => {
+    const prompt = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx(),
+      toolNames: [...ALL_TOOLS, 'present_card'],
+      cardKinds: ['list_proposal', 'list_map'],
+    })
+    expect(prompt).toContain(
+      'so never show a `list_map` card for that list. When you are told a list was created from the card, that map is already on screen.',
+    )
+    expect(prompt).toContain(
+      'That card has already become the list on a map, so never show a `list_map` card for it.',
+    )
+    expect(prompt).toContain(
+      "- `list_map`: A saved list on a map, where the user can draw shapes to narrow it. Never for a list created from a `list_proposal` card, which is already that list's map.",
+    )
+  })
+
   it('omits the map rules when the list_map card is not offered', () => {
     const prompt = buildChiefOfStaffSystemPrompt({
       ctx: baseCtx(),

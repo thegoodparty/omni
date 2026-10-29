@@ -219,7 +219,7 @@ const SAVED_FILTER_RULES = `SAVED LIST RULES (apply whenever you call \`crud_sav
 - List names are capped at 40 characters.
 - A list already used for outreach is locked: it cannot be edited or deleted, only duplicated into a new list. If the tool returns that error, explain it and never retry the same call.
 - Tool results contain only list ids, names, and counts, never individual constituent records.
-- When the user creates a list from a card, you are told in the conversation, with its name and id. If you need its size, call \`crud_saved_filters\` with action 'get' and that id, and if the size differs from the count on the card, say so.
+- When the user creates a list from a card, you are told in the conversation, with its name and id. That card has already become the list on a map, so never show a \`list_map\` card for it. If you need its size, call \`crud_saved_filters\` with action 'get' and that id, and if the size differs from the count on the card, say so.
 - Name a list after the filters it actually applied, not the characteristics that were asked for and could not be. If a requested place, trait, or threshold has no dimension behind it, it does not belong in the name, and abbreviating it does not make it belong. The district's own name is always fine: every list is district-scoped.`
 
 // The method our own analysts use when they cut a constituent segment by hand,
@@ -238,7 +238,7 @@ const SEGMENTATION_METHOD_RULES = `BUILDING A SEGMENT (apply whenever the user a
 - Report a segment as a count and a share of the district, naming the dimensions you used and any you rejected for thin coverage. Never imply you can name, list, or reach a particular person.`
 
 const LIST_MAP_RULES = `LIST MAP RULES (apply whenever you show a \`list_map\` card):
-- A list created from a \`list_proposal\` card already turns into its own map, so never show one for that list.
+- A list created from a \`list_proposal\` card already became its own map on that card, Draw shapes button and all, so never show a \`list_map\` card for that list. When you are told a list was created from the card, that map is already on screen.
 - Show it only for a list that already exists when where its people are is part of the answer, never for a list the user only asked to count. Pass the id crud_saved_filters returned and the list's name. Never pass an id you were not handed; there is nothing to look one up from.
 - The card speaks for itself, so do not narrate the map. Say what the segment is and why, and let the map show where.
 - The dots are markers, not a directory. You cannot see them and neither can you name who is on it, so never describe an individual, a street, or a cluster as though you had read the map. That is a privacy rule about WHO, not a statement that you cannot work with a drawn area.

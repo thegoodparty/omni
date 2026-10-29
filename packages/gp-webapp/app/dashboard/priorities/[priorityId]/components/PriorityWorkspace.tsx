@@ -23,7 +23,9 @@ import {
   GET_ANSWERS_MESSAGE,
   isGetAnswersMessage,
   isReportBackMessage,
+  isLegacyPresentCardTool,
   isToolRefusal,
+  LEGACY_PRESENT_CARD_TOOLS,
   parsePriorityStatus,
   PRESENT_CARD_TOOL,
   PresentCardInputSchema,
@@ -119,6 +121,9 @@ const GENERATING_LABELS: Record<string, string> = {
 const isFindingCall = (toolName: string, args: unknown): boolean =>
   toolName === COMPARABLES_TOOL ||
   toolName === AUTHORITY_TOOL ||
+  // An older gp-api still streams the card under its own tool name.
+  (isLegacyPresentCardTool(toolName) &&
+    LEGACY_PRESENT_CARD_TOOLS[toolName] === 'current_law_summary') ||
   (toolName === PRESENT_CARD_TOOL &&
     PresentCardInputSchema.safeParse(args).data?.card.kind ===
       'current_law_summary')

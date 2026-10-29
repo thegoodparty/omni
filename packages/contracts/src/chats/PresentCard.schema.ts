@@ -62,7 +62,9 @@ export const PRESENT_CARD_DESCRIPTIONS: Record<PresentCardKind, string> = {
     'A counted list the user saves with its Create list button, which then ' +
     'becomes the list on a map.',
   list_map:
-    'A saved list on a map, where the user can draw shapes to narrow it.',
+    'A saved list on a map, where the user can draw shapes to narrow it. ' +
+    'Never for a list created from a `list_proposal` card, which is ' +
+    "already that list's map.",
   current_law_summary:
     'What the current code, statute or program does today and where it ' +
     'falls short.',

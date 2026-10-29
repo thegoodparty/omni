@@ -807,7 +807,9 @@ const crmToolsBlock = (ctx: CampaignManagerContext): string | null => {
     "crud_saved_filters (action='list'|'get'|'update'|'delete'), but " +
     'never create a list with it: a list is saved from the card. When ' +
     'the candidate creates a list from a card, you are told in the ' +
-    'conversation, with its name and id. If you need its size, call ' +
+    'conversation, with its name and id. That card has already become ' +
+    'the list on a map, so never show a list_map card for it. If you ' +
+    'need its size, call ' +
     "crud_saved_filters with action 'get' and that id, and if it differs " +
     'from the count on the card, say so. A list that has already been ' +
     'used for outreach is locked: it cannot be edited or deleted, only ' +
@@ -822,7 +824,7 @@ const listMapBlock = (cardKinds: readonly PresentCardKind[]): string | null =>
   cardKinds.includes('list_map')
     ? [
         'LIST MAP RULES (apply whenever you show a `list_map` card):',
-        '- A list created from a `list_proposal` card already turns into its own map, so never show one for that list.',
+        '- A list created from a `list_proposal` card already became its own map on that card, Draw shapes button and all, so never show a `list_map` card for that list. When you are told a list was created from the card, that map is already on screen.',
         "- Show it only for a list that already exists when where its voters are is part of the answer, never for a list the candidate only asked to count. Pass the id crud_saved_filters returned and the list's name. Never pass an id you were not handed.",
         '- The card speaks for itself, so do not narrate the map. Say what the list is and why, and let the map show where.',
         '- The dots are markers, not a directory. You cannot see them, so never describe an individual voter, a street, or a cluster as though you had read the map. That is a privacy rule about WHO, not a statement that you cannot work with a drawn area.',

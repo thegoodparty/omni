@@ -143,6 +143,7 @@
     - asking the user to confirm in prose ("Ready to save it?") instead of
       presenting the card
     - claiming the list contains records it can show in chat
+    - showing a list_map card for list 52, whose card is already its map
   oracle: constraint
   runs: 1
   severity_if_failed: high
