@@ -27,6 +27,14 @@ export const RESULTS_COPY = {
   themesProcessing: "We're reading what people said. Themes show up here soon.",
   people: (count: number) =>
     count === 1 ? '1 person' : `${count.toLocaleString()} people`,
+  themeRank: (rank: number) => `Rank ${rank}`,
+  voicesLabel: 'Enough voices',
+  voices: { strong: 'Strong', fair: 'Fair', thin: 'Thin' },
+  voicesMeaning: [
+    'Strong means every group in your district had at least 3 people raise it.',
+    'Fair means at least half the groups did.',
+    'Thin means fewer than half did.',
+  ],
   mapTitle: 'Where answers came from',
   mapCaption: 'Darker squares mean more people answered from that area.',
   mapEmpty: 'Answers show up on the map as people reply.',

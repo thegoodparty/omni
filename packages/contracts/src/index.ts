@@ -963,6 +963,9 @@ export {
   PriorityResultsGroupSchema,
   type PriorityResultsGroup,
   type PriorityTheme,
+  ThemeVoicesSchema,
+  type ThemeVoices,
+  THEME_VOICES_PER_GROUP,
 } from './priorities/PriorityResults.schema'
 
 export {

@@ -14,6 +14,7 @@ import {
   buildRespondentCellsSql,
   buildTractGridCellsSql,
   buildTractPlacesSql,
+  buildThemeCellsSql,
   CENSUS_TABLE,
   DISTRICT_DEMOGRAPHICS_TABLE,
   mapAnswerCells,
@@ -21,6 +22,7 @@ import {
   mapGridCells,
   mapReachHomes,
   mapRespondentCells,
+  mapThemeCells,
   mapTractAdults,
   mapTractPlaces,
   sampleWeightSql,
@@ -250,6 +252,44 @@ describe('buildAnswerCellsSql', () => {
     expect(() =>
       buildAnswerCellsSql(DISTRICT, [{ personId: "x' OR 1=1", yes: 1 }]),
     ).toThrow()
+  })
+})
+
+describe('buildThemeCellsSql', () => {
+  const A = '0b9d1c2e-3f4a-4b5c-8d6e-7f8091a2b3c1'
+  const B = '0b9d1c2e-3f4a-4b5c-8d6e-7f8091a2b3c2'
+
+  it("counts each theme's people per cell, one column per theme", () => {
+    const { sql } = buildThemeCellsSql(DISTRICT, [[A, B], [B], []])
+
+    expect(sql).toContain(
+      `sum(CASE WHEN v.\`id\` IN ('${A}', '${B}') THEN 1 ELSE 0 END) AS theme_0,` +
+        ` sum(CASE WHEN v.\`id\` IN ('${B}') THEN 1 ELSE 0 END) AS theme_1,` +
+        ' 0 AS theme_2',
+    )
+    expect(sql).toContain(`v.\`id\` IN ('${A}', '${B}')`)
+    expect(sql).toContain('GROUP BY 1, 2, 3, 4')
+    expect(sql).not.toMatch(/FirstName|LastName|Phone|Address/)
+  })
+
+  it('refuses an id it could not inline safely', () => {
+    expect(() => buildThemeCellsSql(DISTRICT, [["x' OR 1=1"]])).toThrow()
+  })
+})
+
+describe('mapThemeCells', () => {
+  it("reads each theme's count after the cell's values", () => {
+    expect(
+      mapThemeCells([['65plus', 'female', null, 'asian', '2', '0']]),
+    ).toEqual([
+      {
+        ageBand: '65plus',
+        gender: 'female',
+        tract: null,
+        race: 'asian',
+        themes: [2, 0],
+      },
+    ])
   })
 })
 

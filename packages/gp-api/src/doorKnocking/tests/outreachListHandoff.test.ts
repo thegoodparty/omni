@@ -109,7 +109,7 @@ describe('outreach list handoff to door knocking', () => {
   const orgHeaders = () => ({ headers: { [ORG_SLUG_HEADER]: orgSlug } })
 
   beforeAll(() => {
-    process.env.GEOAPIFY_API_KEY ??= 'test-key'
+    vi.stubEnv('GEOAPIFY_API_KEY', 'test-key')
   })
 
   beforeEach(async () => {

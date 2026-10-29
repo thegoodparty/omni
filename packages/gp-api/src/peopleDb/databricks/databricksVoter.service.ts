@@ -75,6 +75,7 @@ import {
 import { type AffinityColumn } from '../affinityColumns.const'
 import {
   buildAnswerCellsSql,
+  buildThemeCellsSql,
   buildDistrictCellsSql,
   buildDistrictCensusSql,
   buildDistrictCompositionSql,
@@ -87,6 +88,7 @@ import {
   buildTractPlacesSql,
   mapAcsCounts,
   mapAnswerCells,
+  mapThemeCells,
   mapDistrictCells,
   mapGridCells,
   mapReachHomes,
@@ -101,6 +103,7 @@ import {
   type ReachChannelCell,
   type ReachGroupCell,
   type ReachHomes,
+  type ThemeCell,
   type TractPlace,
   type WeightingInputs,
 } from './districtCensusSql.util'
@@ -677,6 +680,19 @@ export class DatabricksVoterService {
       buildAnswerCellsSql(district, answers),
     )
     return mapAnswerCells(rows)
+  }
+
+  async findThemeCells(
+    districtId: string,
+    dataset: PeopleDataset,
+    themes: string[][],
+  ): Promise<ThemeCell[]> {
+    if (themes.every((people) => people.length === 0)) return []
+    const district = await this.resolveDistrict(districtId, dataset)
+    const { rows } = await this.client.query(
+      buildThemeCellsSql(district, themes),
+    )
+    return mapThemeCells(rows)
   }
 
   async findTractGridCells(

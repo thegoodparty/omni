@@ -45,8 +45,8 @@ describe('RobocallPhonebookService', () => {
   let service: RobocallPhonebookService
 
   beforeEach(() => {
-    process.env.ROBOCALL_AUDIO_BUCKET = 'robocall-audio-test'
-    delete process.env.ROBOCALL_TEST_OVERRIDE_NUMBER
+    vi.stubEnv('ROBOCALL_AUDIO_BUCKET', 'robocall-audio-test')
+    vi.stubEnv('ROBOCALL_TEST_OVERRIDE_NUMBER', undefined)
     contacts = {
       findContactsForFilter: vi.fn(),
       resolvePeopleDataset: vi.fn().mockResolvedValue({ base: 'voters' }),
@@ -299,7 +299,7 @@ describe('RobocallPhonebookService', () => {
 
   describe('ROBOCALL_TEST_OVERRIDE_NUMBER (live-test harness)', () => {
     it('loads ONLY the override number and never resolves the real audience', async () => {
-      process.env.ROBOCALL_TEST_OVERRIDE_NUMBER = '804-222-1111'
+      vi.stubEnv('ROBOCALL_TEST_OVERRIDE_NUMBER', '804-222-1111')
       phonebooks.getContactCount.mockResolvedValue(1)
 
       const result = await run()
@@ -317,7 +317,7 @@ describe('RobocallPhonebookService', () => {
     })
 
     it('normalizes a leading US country code and formatting', async () => {
-      process.env.ROBOCALL_TEST_OVERRIDE_NUMBER = '+1 (804) 222-1111'
+      vi.stubEnv('ROBOCALL_TEST_OVERRIDE_NUMBER', '+1 (804) 222-1111')
       phonebooks.getContactCount.mockResolvedValue(1)
 
       await run()
@@ -331,7 +331,7 @@ describe('RobocallPhonebookService', () => {
     })
 
     it('fails closed on a malformed override, never touching the real audience', async () => {
-      process.env.ROBOCALL_TEST_OVERRIDE_NUMBER = '555-1234' // 7 digits
+      vi.stubEnv('ROBOCALL_TEST_OVERRIDE_NUMBER', '555-1234') // 7 digits
 
       await expect(
         service.loadAudienceToPhonebook(campaign as Campaign, 99, false),

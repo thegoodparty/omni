@@ -416,6 +416,153 @@ describe('GET /v1/priorities/:id/results', () => {
     })
   })
 
+  describe('themes', () => {
+    let themeCells: MockInstance<CensusCompositionSource['themeCells']>
+
+    // Each theme's people by age band, from OLDER, the way the warehouse
+    // counts them.
+    beforeEach(() => {
+      themeCells = vi
+        .spyOn(
+          service.app.get<CensusCompositionSource>(CENSUS_COMPOSITION_SOURCE),
+          'themeCells',
+        )
+        .mockImplementation(async ({ themes }) =>
+          ['35to44', '65plus'].map((band) => ({
+            values: { age: band, gender: null, tract: null, race: null },
+            themes: themes.map(
+              (people) =>
+                people.filter((id) => OLDER.has(id) === (band === '65plus'))
+                  .length,
+            ),
+          })),
+        )
+      onTestFinished(() => themeCells.mockRestore())
+    })
+
+    // A completed run whose themes each hold the replies of the people
+    // given, in the run's own rank order.
+    const completedRun = async (
+      outreachId: number,
+      themes: Array<{ title: string; people: string[] }>,
+    ) => {
+      const replies = await service.prisma.pollIndividualMessage.findMany({
+        where: { outreachId },
+        select: { id: true, personId: true },
+      })
+      const replyOf = new Map(replies.map((r) => [r.personId, r.id]))
+      const run = await service.prisma.feedbackSynthesisRun.create({
+        data: {
+          organizationSlug: eoOrgSlug,
+          scope: SynthesisScope.priority,
+          priorityId,
+          status: SynthesisRunStatus.completed,
+          completedAt: new Date(),
+          conversations: 5,
+          memos: 5,
+          confirmed: 5,
+          engine: 'test',
+        },
+      })
+      for (const [index, theme] of themes.entries()) {
+        await service.prisma.feedbackTheme.create({
+          data: {
+            runId: run.id,
+            rank: index + 1,
+            title: theme.title,
+            summary: `${theme.title} summary`,
+            details: '',
+            members: {
+              create: theme.people.map((personId) => ({
+                textReplyId: replyOf.get(personId)!,
+              })),
+            },
+          },
+        })
+      }
+    }
+
+    it('ranks themes by the people who raised them', async () => {
+      const { outreach, respondents } = await createCodedSend(8, 3)
+      await completedRun(outreach.id, [
+        { title: 'Drains', people: respondents.slice(0, 2) },
+        { title: 'Insurance', people: respondents.slice(0, 5) },
+      ])
+
+      const res = await results()
+
+      expect(res.data.themes.map((theme) => theme.title)).toEqual([
+        'Insurance',
+        'Drains',
+      ])
+    })
+
+    it('labels each theme by how many groups have at least 3 of its people', async () => {
+      // The first 3 answered from the older band, the other 6 the younger.
+      const { outreach, respondents } = await createCodedSend(9, 3)
+      const older = respondents.slice(0, 3)
+      const younger = respondents.slice(3)
+      await completedRun(outreach.id, [
+        { title: 'Every group', people: [...older, ...younger.slice(0, 3)] },
+        { title: 'Half the groups', people: younger.slice(0, 5) },
+        { title: 'Few voices', people: [...older.slice(0, 2), younger[0]!] },
+      ])
+
+      const res = await results()
+
+      expect(res.status).toBe(HttpStatus.OK)
+      expect(
+        res.data.themes.map(({ title, voices }) => ({ title, voices })),
+      ).toEqual([
+        { title: 'Every group', voices: 'strong' },
+        { title: 'Half the groups', voices: 'fair' },
+        { title: 'Few voices', voices: 'thin' },
+      ])
+      expect(themeCells).toHaveBeenCalledWith({
+        districtId: 'd-1',
+        dataset: { base: 'voters' },
+        themes: [
+          expect.arrayContaining([...older, ...younger.slice(0, 3)]),
+          expect.arrayContaining(younger.slice(0, 5)),
+          expect.arrayContaining([...older.slice(0, 2), younger[0]]),
+        ],
+      })
+    })
+
+    it('leaves the label off when the district cannot be read', async () => {
+      mrpInputs.mockResolvedValue(null)
+      const { outreach, respondents } = await createCodedSend(6, 3)
+      await completedRun(outreach.id, [
+        { title: 'Drains', people: respondents },
+      ])
+
+      const res = await results()
+
+      expect(res.data.themes).toEqual([
+        {
+          id: expect.any(String),
+          title: 'Drains',
+          summary: 'Drains summary',
+          people: 6,
+        },
+      ])
+      expect(themeCells).not.toHaveBeenCalled()
+    })
+
+    it('leaves the label off when the theme counts cannot be read', async () => {
+      themeCells.mockResolvedValue(null)
+      const { outreach, respondents } = await createCodedSend(6, 3)
+      await completedRun(outreach.id, [
+        { title: 'Drains', people: respondents },
+      ])
+
+      const res = await results()
+
+      expect(res.status).toBe(HttpStatus.OK)
+      expect(res.data.themes[0]).not.toHaveProperty('voices')
+    })
+  })
+
   it("leaves out sends that are another priority's, unpaid or canceled", async () => {
     await createTextSend(3, 0, { priorityId: null })
     await createTextSend(3, 0, { status: OutreachStatus.pending_payment })
