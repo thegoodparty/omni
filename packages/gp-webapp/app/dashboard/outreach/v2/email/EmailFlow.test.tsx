@@ -146,26 +146,24 @@ describe('EmailFlow', () => {
     render(<EmailFlow open onClose={vi.fn()} />)
 
     await user.click(screen.getByText('Introduce myself to voters'))
-    await user.click(await screen.findByText('Urgent'))
-    await user.click(screen.getByRole('button', { name: 'Draft it with AI' }))
-
     await waitFor(() =>
       expect(screen.getByLabelText('Subject')).toHaveValue(
         'Meet your neighbor',
       ),
     )
-    expect(requests[0]).toEqual({
+    expect(requests).toHaveLength(1)
+    await user.click(screen.getByText('Urgent'))
+    await user.click(screen.getByRole('button', { name: 'Regenerate' }))
+    await waitFor(() => expect(requests).toHaveLength(2))
+    expect(requests[1]).toEqual({
       goal: 'Introduce myself to voters',
       tone: 'urgent',
       layout: 'newsletter',
     })
-    expect(
-      screen.getByRole('button', { name: 'Regenerate' }),
-    ).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Improve with AI' }))
-    await waitFor(() => expect(requests).toHaveLength(2))
-    expect(requests[1]).toMatchObject({
+    await waitFor(() => expect(requests).toHaveLength(3))
+    expect(requests[2]).toMatchObject({
       currentDraft: { subject: 'Meet your neighbor', headline: 'Hello' },
     })
   })
@@ -180,9 +178,6 @@ describe('EmailFlow', () => {
     render(<EmailFlow open onClose={vi.fn()} />)
 
     await user.click(screen.getByText('Introduce myself to voters'))
-    await user.click(
-      await screen.findByRole('button', { name: 'Draft it with AI' }),
-    )
 
     expect(
       await screen.findByText('We could not draft that. Try again.'),
