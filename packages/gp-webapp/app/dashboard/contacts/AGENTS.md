@@ -116,8 +116,11 @@ becomes a list card.
   history. File (read in the browser by `parseCsvPreview` for headers,
   examples and the row count; CSV only, 25 MB), columns (`prefillColumnMapping`:
   the latest upload's mapping when every column it used is in the file, else
-  header names), then name and consent. `POST /v1/contact-uploads` is
-  multipart, then it routes to Upload history.
+  header names), then name and consent. Import presigns
+  (`POST /v1/contact-uploads/presign`), PUTs the file straight to S3 (the
+  `/api` proxy on Vercel caps bodies at 4.5 MB), then creates the upload with
+  its id (`createContactUpload` in `importContactsApi.ts`), then routes to
+  Upload history. Files over 25 MB are turned away when picked.
 - **Upload history** (`/dashboard/contacts/uploads`, `UploadHistory`): one row
   per upload, status only; polls every 3s while any upload is processing.
 - **Upload detail** (`/dashboard/contacts/uploads/[uploadId]`, `UploadDetail`):

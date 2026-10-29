@@ -1,7 +1,10 @@
 import { randomUUID } from 'node:crypto'
 import { HttpStatus } from '@nestjs/common'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { SERVE_IMPORT_CONTACTS_FLAG } from '@goodparty_org/contracts'
+import {
+  CONTACT_UPLOAD_MAX_BYTES,
+  SERVE_IMPORT_CONTACTS_FLAG,
+} from '@goodparty_org/contracts'
 import { useTestService } from '@/test-service'
 import {
   ContactUploadMatchMethod,
@@ -48,7 +51,8 @@ const HEADER_ROW = 'First,Last,Email,Cell,Address,Zip'
 
 let slug: string
 let flagOn: boolean
-const uploadFile = vi.fn()
+const bucketObjects = new Map<string, Buffer>()
+const presignPut = vi.fn()
 const sendMessage = vi.fn()
 const track = vi.fn()
 
@@ -74,22 +78,39 @@ const person = (id: string, firstName: string, lastName: string) => ({
   address: { line1: `1 ${lastName} St`, city: 'Lansing', zip: '48933' },
 })
 
+const presign = (byteSize: number, orgSlug = slug) =>
+  service.client.post(
+    '/v1/contact-uploads/presign',
+    { byteSize },
+    { headers: { [HEADER]: orgSlug }, validateStatus: () => true },
+  )
+
+const create = (body: Record<string, unknown>, orgSlug = slug) =>
+  service.client.post(
+    '/v1/contact-uploads',
+    {
+      fileName: 'people.csv',
+      name: 'Newsletter',
+      consentAffirmed: true,
+      columnMapping: MAPPING,
+      ...body,
+    },
+    { headers: { [HEADER]: orgSlug }, validateStatus: () => true },
+  )
+
+// The browser's two steps: a presigned PUT straight to S3 (stood in for by
+// bucketObjects), then the create call naming the upload id.
 const upload = async (
   csv: string,
-  fields: Record<string, string> = {
-    name: 'Newsletter',
-    consentAffirmed: 'true',
-    columnMapping: JSON.stringify(MAPPING),
-  },
+  body: Record<string, unknown> = {},
   orgSlug = slug,
 ) => {
-  const form = new FormData()
-  Object.entries(fields).forEach(([key, value]) => form.append(key, value))
-  form.append('file', new Blob([csv], { type: 'text/csv' }), 'people.csv')
-  return service.client.post('/v1/contact-uploads', form, {
-    headers: { [HEADER]: orgSlug },
-    validateStatus: () => true,
-  })
+  const file = Buffer.from(csv)
+  const { data } = await presign(file.length, orgSlug)
+  if (data?.uploadId) {
+    bucketObjects.set(`${orgSlug}/${data.uploadId}.csv`, file)
+  }
+  return create({ uploadId: data?.uploadId ?? randomUUID(), ...body }, orgSlug)
 }
 
 const runMatch = async (uploadId: string, receiveCount = 1) =>
@@ -138,9 +159,17 @@ beforeEach(async () => {
     name: 'Lansing',
     state: 'MI',
   }))
-  uploadFile.mockReset().mockResolvedValue('https://s3/file')
-  vi.spyOn(service.app.get(S3Service), 'uploadFile').mockImplementation(
-    uploadFile,
+  bucketObjects.clear()
+  presignPut.mockReset().mockResolvedValue('https://s3.example/put?sig=1')
+  vi.spyOn(
+    service.app.get(S3Service),
+    'getSignedUrlForSizedUpload',
+  ).mockImplementation(presignPut)
+  vi.spyOn(service.app.get(S3Service), 'getFileBytes').mockImplementation(
+    async (bucket, key) =>
+      bucket === process.env.CONTACT_UPLOADS_BUCKET
+        ? bucketObjects.get(key)
+        : undefined,
   )
   sendMessage.mockReset().mockResolvedValue(undefined)
   vi.spyOn(
@@ -151,8 +180,54 @@ beforeEach(async () => {
   vi.spyOn(service.app.get(AnalyticsService), 'track').mockImplementation(track)
 })
 
+describe('POST /v1/contact-uploads/presign', () => {
+  it('signs a PUT for exactly the declared size under the org', async () => {
+    const res = await presign(5_500_000)
+
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(res.data).toEqual({
+      uploadId: expect.any(String),
+      uploadUrl: 'https://s3.example/put?sig=1',
+      expiresAt: expect.any(String),
+    })
+    expect(presignPut).toHaveBeenCalledWith(
+      process.env.CONTACT_UPLOADS_BUCKET,
+      `${slug}/${res.data.uploadId}.csv`,
+      { expiresIn: 900, contentType: 'text/csv', contentLength: 5_500_000 },
+    )
+  })
+
+  it('400s for a file over 25 MB', async () => {
+    const res = await presign(CONTACT_UPLOAD_MAX_BYTES + 1)
+
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+    expect(presignPut).not.toHaveBeenCalled()
+  })
+
+  it('503s when the bucket is not configured', async () => {
+    vi.stubEnv('CONTACT_UPLOADS_BUCKET', '')
+    try {
+      const res = await presign(100)
+
+      expect(res.status).toBe(HttpStatus.SERVICE_UNAVAILABLE)
+      expect(presignPut).not.toHaveBeenCalled()
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it('404s when the flag is off for the org owner', async () => {
+    flagOn = false
+
+    const res = await presign(100)
+
+    expect(res.status).toBe(HttpStatus.NOT_FOUND)
+    expect(presignPut).not.toHaveBeenCalled()
+  })
+})
+
 describe('POST /v1/contact-uploads', () => {
-  it('stores the file and normalized rows, then queues matching', async () => {
+  it('reads the file from S3, stores normalized rows, then queues matching', async () => {
     const res = await upload(
       `${HEADER_ROW}\n` +
         'Ann,Able,ANN@Example.com,616-555-0101,123 Oak St,49503-1111\n' +
@@ -172,12 +247,6 @@ describe('POST /v1/contact-uploads', () => {
     })
     const id: string = res.data.id
 
-    expect(uploadFile).toHaveBeenCalledWith(
-      process.env.CONTACT_UPLOADS_BUCKET,
-      expect.any(Buffer),
-      `${slug}/${id}.csv`,
-      expect.objectContaining({ contentType: 'text/csv' }),
-    )
     expect(sendMessage).toHaveBeenCalledWith(
       { type: QueueType.CONTACT_UPLOAD_MATCH, data: { uploadId: id } },
       `${MessageGroup.contactUploadMatch}-${slug}`,
@@ -234,12 +303,12 @@ describe('POST /v1/contact-uploads', () => {
     ])
   })
 
-  it('fails the request and writes nothing when the S3 put fails', async () => {
-    uploadFile.mockRejectedValue(new Error('S3 is down'))
+  it('400s and writes nothing when the file never reached S3', async () => {
+    const { data } = await presign(100)
 
-    const res = await upload(`${HEADER_ROW}\nAnn,Able,,,,\n`)
+    const res = await create({ uploadId: data.uploadId })
 
-    expect(res.status).toBeGreaterThanOrEqual(500)
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
     expect(
       await service.prisma.contactUpload.count({
         where: { organizationSlug: slug },
@@ -248,10 +317,47 @@ describe('POST /v1/contact-uploads', () => {
     expect(sendMessage).not.toHaveBeenCalled()
   })
 
+  it("400s for another org's upload id", async () => {
+    const otherSlug = `eo-import-${randomUUID()}`
+    await service.prisma.organization.create({
+      data: { slug: otherSlug, ownerId: service.user.id },
+    })
+    const { data } = await presign(100, otherSlug)
+    bucketObjects.set(
+      `${otherSlug}/${data.uploadId}.csv`,
+      Buffer.from(`${HEADER_ROW}\nAnn,Able,,,,\n`),
+    )
+
+    const res = await create({ uploadId: data.uploadId })
+
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+  })
+
+  it('409s when the same upload id is imported twice', async () => {
+    const first = await upload(`${HEADER_ROW}\nAnn,Able,,,,\n`)
+
+    const res = await create({ uploadId: first.data.id })
+
+    expect(res.status).toBe(HttpStatus.CONFLICT)
+    expect(sendMessage).toHaveBeenCalledTimes(1)
+  })
+
+  it('400s when the stored file is over 25 MB', async () => {
+    const { data } = await presign(100)
+    bucketObjects.set(
+      `${slug}/${data.uploadId}.csv`,
+      Buffer.alloc(CONTACT_UPLOAD_MAX_BYTES + 1),
+    )
+
+    const res = await create({ uploadId: data.uploadId })
+
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+    expect(res.data.message).toBe('upload_too_large')
+  })
+
   it('400s when consent is not affirmed', async () => {
     const res = await upload(`${HEADER_ROW}\nAnn,Able,,,,\n`, {
-      name: 'Newsletter',
-      columnMapping: JSON.stringify(MAPPING),
+      consentAffirmed: false,
     })
 
     expect(res.status).toBe(HttpStatus.BAD_REQUEST)
@@ -261,7 +367,11 @@ describe('POST /v1/contact-uploads', () => {
     const res = await upload('First,Last\nAnn,Able\n')
 
     expect(res.status).toBe(HttpStatus.BAD_REQUEST)
-    expect(uploadFile).not.toHaveBeenCalled()
+    expect(
+      await service.prisma.contactUpload.count({
+        where: { organizationSlug: slug },
+      }),
+    ).toBe(0)
   })
 
   it('404s when the flag is off for the org owner', async () => {
@@ -988,8 +1098,6 @@ describe('GET /v1/contacts/:personId/sources', () => {
     await runMatch(first.data.id)
     const second = await upload(`${HEADER_ROW}\nAnn,Able,,616-555-0101,,\n`, {
       name: 'Ward 3 event',
-      consentAffirmed: 'true',
-      columnMapping: JSON.stringify(MAPPING),
     })
     await runMatch(second.data.id)
 

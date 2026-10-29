@@ -2,6 +2,9 @@ import type {
   AcceptSuggestedMatchesResponse,
   ContactSourcesResponse,
   ContactUpload,
+  CreateContactUpload,
+  PresignContactUploadFile,
+  PresignContactUploadFileResponse,
   ListContactUploadRowsQuery,
   ListContactUploadRowsResponse,
   ListContactUploadsResponse,
@@ -2098,12 +2101,15 @@ export type APIEndpoints = {
     Response: GetPersonPriorityAnswersResponse
   }
 
-  // Import contacts (Serve, behind serve-import-contacts). The create is
-  // multipart (`file`, `name`, `consentAffirmed`, `columnMapping` as a JSON
-  // string): pass `{}` as the typed payload and the FormData as `{ body }` in
-  // the overrides argument of clientRequest.
+  // Import contacts (Serve, behind serve-import-contacts). The file never goes
+  // through /api: presign, PUT it to the returned URL, then create with the
+  // upload id.
+  'POST /v1/contact-uploads/presign': {
+    Request: PresignContactUploadFile
+    Response: PresignContactUploadFileResponse
+  }
   'POST /v1/contact-uploads': {
-    Request: {}
+    Request: CreateContactUpload
     Response: ContactUpload
   }
   'GET /v1/contact-uploads': {
