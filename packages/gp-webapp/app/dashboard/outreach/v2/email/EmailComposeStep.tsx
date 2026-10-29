@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   EMAIL_BODY_MAX_LENGTH,
   EMAIL_BUTTON_LABEL_MAX_LENGTH,
@@ -119,7 +119,7 @@ export const EmailComposeStep = ({
     },
   ]
 
-  const runDraft = async (improve: boolean) => {
+  const runDraft = async (improve: boolean, fillEmptyOnly = false) => {
     setAiBusy(true)
     setAiError(null)
     try {
@@ -138,19 +138,32 @@ export const EmailComposeStep = ({
             }
           : {}),
       })
-      onChange((prev) => ({
-        ...prev,
-        subject: draft.subject,
-        headline: draft.headline ?? '',
-        body: draft.body,
-        buttonLabel: draft.buttonLabel ?? prev.buttonLabel,
-      }))
+      onChange((prev) =>
+        fillEmptyOnly && (prev.subject.trim() || prev.body.trim())
+          ? prev
+          : {
+              ...prev,
+              subject: draft.subject,
+              headline: draft.headline ?? '',
+              body: draft.body,
+              buttonLabel: draft.buttonLabel ?? prev.buttonLabel,
+            },
+      )
     } catch (e) {
       setAiError(apiErrorMessage(e))
     } finally {
       setAiBusy(false)
     }
   }
+
+  const autoDraftedRef = useRef(false)
+  useEffect(() => {
+    if (autoDraftedRef.current || !goal) return
+    autoDraftedRef.current = true
+    if (value.subject.trim() || value.body.trim()) return
+    void runDraft(false, true)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const pickImage = async (file: File | undefined) => {
     if (!file) return
