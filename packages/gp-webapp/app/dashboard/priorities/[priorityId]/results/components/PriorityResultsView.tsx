@@ -2,9 +2,16 @@
 
 import { useEffect } from 'react'
 import Link from 'next/link'
-import type { PriorityResults } from '@goodparty_org/contracts'
-import { Button, cn, Progress } from '@styleguide'
-import { ArrowLeftIcon } from '@styleguide/components/ui/icons'
+import type { PriorityResults, ThemeVoices } from '@goodparty_org/contracts'
+import {
+  Button,
+  cn,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+  Progress,
+} from '@styleguide'
+import { ArrowLeftIcon, InfoIcon } from '@styleguide/components/ui/icons'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { RESULTS_COPY } from '../resultsCopy'
 import {
@@ -173,6 +180,27 @@ export const PriorityResultsView = ({
   )
 }
 
+// A popover, not a tooltip, so the meaning is one tap away on a phone.
+const ThemeVoicesChip = ({ voices }: { voices: ThemeVoices }) => (
+  <Popover>
+    <PopoverTrigger asChild>
+      <Button
+        variant="neutral"
+        size="small"
+        className="mt-1 h-7 w-fit gap-1 px-2.5 text-xs font-normal tracking-normal"
+      >
+        {RESULTS_COPY.voicesLabel}: {RESULTS_COPY.voices[voices]}
+        <InfoIcon className="size-3.5" aria-hidden />
+      </Button>
+    </PopoverTrigger>
+    <PopoverContent className="flex w-72 flex-col gap-1 text-sm">
+      {RESULTS_COPY.voicesMeaning.map((line) => (
+        <p key={line}>{line}</p>
+      ))}
+    </PopoverContent>
+  </Popover>
+)
+
 // Themes, the map and the census comparison: only once the answers are
 // enough to say what the community thinks.
 const HeardSections = ({ results }: { results: PriorityResults }) => (
@@ -195,24 +223,33 @@ const HeardSections = ({ results }: { results: PriorityResults }) => (
             : RESULTS_COPY.themesEmpty}
         </p>
       ) : (
-        <div className="flex flex-col gap-3">
-          {results.themes.map((theme) => (
-            <div
+        <ol className="flex flex-col gap-3">
+          {results.themes.map((theme, index) => (
+            <li
               key={theme.id}
-              className="flex flex-col gap-1 rounded-lg border border-border p-4"
+              className="flex gap-3 rounded-lg border border-border p-4"
             >
-              <div className="flex items-baseline justify-between gap-3">
-                <h3 className="text-sm font-semibold text-foreground">
-                  {theme.title}
-                </h3>
-                <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-                  {RESULTS_COPY.people(theme.people)}
-                </span>
+              <div
+                className="flex size-10 shrink-0 items-center justify-center rounded-full bg-info-background text-sm font-semibold text-foreground"
+                aria-label={RESULTS_COPY.themeRank(index + 1)}
+              >
+                #{index + 1}
               </div>
-              <p className="text-sm text-muted-foreground">{theme.summary}</p>
-            </div>
+              <div className="flex min-w-0 flex-1 flex-col gap-1">
+                <div className="flex items-baseline justify-between gap-3">
+                  <h3 className="text-sm font-semibold text-foreground">
+                    {theme.title}
+                  </h3>
+                  <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                    {RESULTS_COPY.people(theme.people)}
+                  </span>
+                </div>
+                <p className="text-sm text-muted-foreground">{theme.summary}</p>
+                {theme.voices && <ThemeVoicesChip voices={theme.voices} />}
+              </div>
+            </li>
           ))}
-        </div>
+        </ol>
       )}
     </Section>
 

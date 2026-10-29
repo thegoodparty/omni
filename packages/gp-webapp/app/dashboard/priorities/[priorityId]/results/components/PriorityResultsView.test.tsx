@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import type { PriorityResults } from '@goodparty_org/contracts'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
@@ -284,6 +285,104 @@ describe('PriorityResultsView', () => {
     expect(
       screen.queryByText('Updating with the latest answers.'),
     ).not.toBeInTheDocument()
+  })
+
+  it('numbers the themes in the order they come, first as #1', () => {
+    renderView(
+      results({
+        themes: [
+          { id: 't1', title: 'Drains', summary: 'Overflow.', people: 14 },
+          { id: 't2', title: 'Insurance', summary: 'Premiums.', people: 9 },
+        ],
+      }),
+    )
+
+    const items = screen.getAllByRole('listitem')
+    expect(items[0]).toHaveTextContent('#1')
+    expect(items[0]).toHaveTextContent('Drains')
+    expect(items[1]).toHaveTextContent('#2')
+    expect(items[1]).toHaveTextContent('Insurance')
+    expect(screen.getByLabelText('Rank 1')).toHaveTextContent('#1')
+    expect(screen.getByLabelText('Rank 2')).toHaveTextContent('#2')
+  })
+
+  it('labels each theme by how many voices are behind it', () => {
+    renderView(
+      results({
+        themes: [
+          {
+            id: 't1',
+            title: 'Drains',
+            summary: 'Overflow.',
+            people: 14,
+            voices: 'strong',
+          },
+          {
+            id: 't2',
+            title: 'Insurance',
+            summary: 'Premiums.',
+            people: 9,
+            voices: 'fair',
+          },
+          {
+            id: 't3',
+            title: 'Parking',
+            summary: 'Too few spots.',
+            people: 4,
+            voices: 'thin',
+          },
+        ],
+      }),
+    )
+
+    expect(
+      screen.getByRole('button', { name: 'Enough voices: Strong' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: 'Enough voices: Fair' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: 'Enough voices: Thin' }),
+    ).toBeInTheDocument()
+  })
+
+  it('explains the label one tap away', async () => {
+    const user = userEvent.setup()
+    renderView(
+      results({
+        themes: [
+          {
+            id: 't1',
+            title: 'Drains',
+            summary: 'Overflow.',
+            people: 14,
+            voices: 'strong',
+          },
+        ],
+      }),
+    )
+
+    expect(
+      screen.queryByText(
+        'Strong means every group in your district had at least 3 people raise it.',
+      ),
+    ).not.toBeInTheDocument()
+
+    await user.click(
+      screen.getByRole('button', { name: 'Enough voices: Strong' }),
+    )
+
+    expect(
+      await screen.findByText(
+        'Strong means every group in your district had at least 3 people raise it.',
+      ),
+    ).toBeInTheDocument()
+  })
+
+  it('shows no label when the district could not be read', () => {
+    renderView(results())
+
+    expect(screen.queryByText(/Enough voices/)).not.toBeInTheDocument()
   })
 
   it('says there are no themes yet when too few people have answered', () => {

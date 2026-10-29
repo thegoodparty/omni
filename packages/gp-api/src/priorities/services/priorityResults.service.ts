@@ -43,6 +43,7 @@ import {
   answerGroups,
   holdingBackTracts,
   mrpReadStatus,
+  themeVoices,
   type MrpRead,
 } from '../util/mrpReadStatus.util'
 import type { WeightingCensus } from '../util/censusWeighting.util'
@@ -88,6 +89,8 @@ interface CodedAnswers {
 }
 
 const NO_CODED_ANSWERS: CodedAnswers = { answers: [], key: 'none' }
+
+type ThemePeople = PriorityTheme & { personIds: string[] }
 
 @Injectable()
 export class PriorityResultsService extends createPrismaBase(MODELS.Priority) {
@@ -173,7 +176,7 @@ export class PriorityResultsService extends createPrismaBase(MODELS.Priority) {
       },
       sends: perSend.map(({ send }) => send),
       respondents: { total: ids.length, byChannel, joinedCivicPanel },
-      themes,
+      themes: await this.withVoices(organization, read, themes),
       summarizing,
       points: points.map(({ lat, lng }) => ({
         lat: roundCoordinate(lat),
@@ -515,7 +518,7 @@ export class PriorityResultsService extends createPrismaBase(MODELS.Priority) {
     organizationSlug: string,
     priorityId: string,
     answered: number,
-  ): Promise<{ themes: PriorityTheme[]; summarizing: boolean }> {
+  ): Promise<{ themes: ThemePeople[]; summarizing: boolean }> {
     const scope = {
       organizationSlug,
       priorityId,
@@ -563,26 +566,69 @@ export class PriorityResultsService extends createPrismaBase(MODELS.Priority) {
       // Same rule as the agent's read (themesWithPeople in
       // priorityFlowOutreach.service.ts): confirmed notes and replies,
       // distinct people, empty themes left out.
-      themes: (latest?.themes ?? []).flatMap((theme) => {
-        const people = new Set(
-          theme.members.flatMap((member) => {
-            const personId =
-              member.feedback?.personId ?? member.textReply?.personId
-            return personId === undefined ? [] : [personId]
-          }),
-        ).size
-        return people === 0
-          ? []
-          : [
-              {
-                id: theme.id,
-                title: theme.title,
-                summary: theme.summary,
-                people,
-              },
-            ]
-      }),
+      // Ranked by the people counted here, the run's own rank breaking ties:
+      // the run ranks by notes, before unconfirmed ones are left out.
+      themes: (latest?.themes ?? [])
+        .flatMap((theme) => {
+          const personIds = [
+            ...new Set(
+              theme.members.flatMap((member) => {
+                const personId =
+                  member.feedback?.personId ?? member.textReply?.personId
+                return personId === undefined ? [] : [personId]
+              }),
+            ),
+          ]
+          return personIds.length === 0
+            ? []
+            : [
+                {
+                  id: theme.id,
+                  title: theme.title,
+                  summary: theme.summary,
+                  people: personIds.length,
+                  personIds,
+                },
+              ]
+        })
+        .sort((a, b) => b.people - a.people),
     }
+  }
+
+  // Each theme with how many of the read's groups have enough of its
+  // people behind it. No read, or a warehouse read that fails, leaves the
+  // themes without one.
+  private async withVoices(
+    organization: Organization,
+    read: MrpRead | null,
+    themes: ThemePeople[],
+  ): Promise<PriorityTheme[]> {
+    const bare = themes.map(({ id, title, summary, people }) => ({
+      id,
+      title,
+      summary,
+      people,
+    }))
+    if (read === null || themes.length === 0) return bare
+    const district = await this.resolveContacts()
+      .resolveEligibleDistrict(organization)
+      .catch(() => null)
+    if (!district) return bare
+    const cells = await this.census.themeCells({
+      ...district,
+      themes: themes.map(({ personIds }) => personIds),
+    })
+    if (cells === null) return bare
+    return bare.map((theme, index) => {
+      const voices = themeVoices(
+        read,
+        cells.map(({ values, themes: people }) => ({
+          values,
+          people: people[index] ?? 0,
+        })),
+      )
+      return voices ? { ...theme, voices } : theme
+    })
   }
 
   // Resolved lazily: importing ContactsModule here closes the module cycle

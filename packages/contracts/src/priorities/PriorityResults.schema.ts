@@ -35,14 +35,24 @@ export const PriorityResultsPointSchema = z.object({
   lng: z.number(),
 })
 
-// One theme from the priority's latest pooled synthesis run. `people` is
-// distinct people counted now: confirmed notes and replies, so someone who
-// texted twice counts once.
+// Whether enough voices stand behind a theme: strong when every group the
+// read counts (the results page's "who you're hearing from") has at least
+// THEME_VOICES_PER_GROUP of the theme's people, fair when at least half the
+// groups do, thin when fewer.
+export const ThemeVoicesSchema = z.enum(['strong', 'fair', 'thin'])
+export type ThemeVoices = z.infer<typeof ThemeVoicesSchema>
+export const THEME_VOICES_PER_GROUP = 3
+
+// One theme from the priority's latest pooled synthesis run, most people
+// first. `people` is distinct people counted now: confirmed notes and
+// replies, so someone who texted twice counts once. `voices` is absent when
+// the district could not be read.
 export const PriorityThemeSchema = z.object({
   id: z.string(),
   title: z.string(),
   summary: z.string(),
   people: z.number().int(),
+  voices: ThemeVoicesSchema.optional(),
 })
 export type PriorityTheme = z.infer<typeof PriorityThemeSchema>
 
