@@ -80,8 +80,11 @@ voted early or absentee in the 2026 General, rebuilt twice daily from a
 manual upload (gp-data-platform#1266). Its sibling key
 `votedInElectionReportedIds` carries the people the campaign recorded as
 already voted, and the one clause ORs them in for Yes,
-`(id IN (SELECT id ...) OR id IN (...))`, and excludes both for No, with the
-subquery's `WHERE id IS NOT NULL` keeping `NOT IN` null-safe. Alone, the
+`(id IN (SELECT id ...) OR id IN (...))`, and excludes both for No as a
+`NOT EXISTS`. Both subqueries carry a `MERGE` join hint: left alone Spark
+broadcast the table and ran an executor out of memory (ENG-11522), and a
+`NOT IN` is a null-aware anti join that can only broadcast, hence
+`NOT EXISTS`. Alone, the
 sibling key emits nothing. It works the same on both people tables; a
 consumer-only constituent is never in the L2 table. It is apart from
 `gp_api_voters` because that table rebuilds monthly

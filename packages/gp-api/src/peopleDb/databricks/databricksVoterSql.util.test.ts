@@ -478,7 +478,7 @@ describe('buildVoterFiltersSql', () => {
           parseFilters({ votedInElection: { eq: 'Yes' } }),
         ),
       ).toBe(
-        'v.`id` IN (SELECT id FROM goodparty_data_catalog.mart_gp_api.gp_api_voter_eav_general_2026)',
+        'v.`id` IN (SELECT /*+ MERGE(eav) */ eav.id FROM goodparty_data_catalog.mart_gp_api.gp_api_voter_eav_general_2026 eav)',
       )
       expect(bag.params).toEqual([])
     })
@@ -493,21 +493,22 @@ describe('buildVoterFiltersSql', () => {
           }),
         ),
       ).toBe(
-        "(v.`id` IN (SELECT id FROM goodparty_data_catalog.mart_gp_api.gp_api_voter_eav_general_2026) OR v.`id` IN ('" +
+        "(v.`id` IN (SELECT /*+ MERGE(eav) */ eav.id FROM goodparty_data_catalog.mart_gp_api.gp_api_voter_eav_general_2026 eav) OR v.`id` IN ('" +
           REPORTED +
           "'))",
       )
     })
 
-    // NOT IN against a NULL id would match nobody.
-    it('No excludes L2 voters with a null-safe NOT IN', () => {
+    // NOT EXISTS, not NOT IN: a null-aware anti join can only broadcast, which
+    // is what ran an executor out of memory (ENG-11522).
+    it('No excludes L2 voters with a merge-joined NOT EXISTS', () => {
       expect(
         buildVoterFiltersSql(
           createBag(),
           parseFilters({ votedInElection: { eq: 'No' } }),
         ),
       ).toBe(
-        'v.`id` NOT IN (SELECT id FROM goodparty_data_catalog.mart_gp_api.gp_api_voter_eav_general_2026 WHERE id IS NOT NULL)',
+        'NOT EXISTS (SELECT /*+ MERGE(eav) */ 1 FROM goodparty_data_catalog.mart_gp_api.gp_api_voter_eav_general_2026 eav WHERE eav.id = v.`id`)',
       )
     })
 
@@ -521,7 +522,7 @@ describe('buildVoterFiltersSql', () => {
           }),
         ),
       ).toBe(
-        "(v.`id` NOT IN (SELECT id FROM goodparty_data_catalog.mart_gp_api.gp_api_voter_eav_general_2026 WHERE id IS NOT NULL) AND v.`id` NOT IN ('" +
+        "(NOT EXISTS (SELECT /*+ MERGE(eav) */ 1 FROM goodparty_data_catalog.mart_gp_api.gp_api_voter_eav_general_2026 eav WHERE eav.id = v.`id`) AND v.`id` NOT IN ('" +
           REPORTED +
           "'))",
       )
@@ -1192,7 +1193,7 @@ describe('buildPersonSql', () => {
     const { sql } = buildPersonSql({ ...scope, columns: ['id'], id: ID })
 
     expect(sql).toContain(
-      'SELECT v.`id` AS `id`, (v.`id` IN (SELECT id FROM goodparty_data_catalog.mart_gp_api.gp_api_voter_eav_general_2026)) AS `early_absentee_voted` FROM',
+      'SELECT v.`id` AS `id`, (v.`id` IN (SELECT /*+ MERGE(eav) */ eav.id FROM goodparty_data_catalog.mart_gp_api.gp_api_voter_eav_general_2026 eav)) AS `early_absentee_voted` FROM',
     )
   })
 
