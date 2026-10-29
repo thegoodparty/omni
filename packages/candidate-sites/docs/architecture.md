@@ -61,6 +61,7 @@ app/
     └── types/website.type.ts               # the Website shape (mirrors gp-api's website model)
 helpers/
 ├── fetchHelper.ts                          # fetch wrapper — returns T | null, swallows non-2xx
+├── gpApiReadAuthHeaders.ts                 # Authorization header for the two RSC website reads
 └── validations.ts
 appEnv.ts                                   # API_ROOT, IS_PROD/IS_PREVIEW/IS_DEV/IS_LOCAL flags
 next.config.ts                              # image domains, NEXT_PUBLIC_API_BASE, X-Robots-Tag header
@@ -118,12 +119,18 @@ If you add a new client → gp-api write path, add a proxy route. Don't `fetch(N
 
 ## Cross-service edges
 
-| Direction                      | Service         | Protocol               | Auth                  | Notes                                      |
-| ------------------------------ | --------------- | ---------------------- | --------------------- | ------------------------------------------ |
-| outbound (RSC + proxy routes)  | `gp-api`        | HTTP via `fetchHelper` | none                  | Public read endpoints + public-form writes |
-| inbound (iframe `postMessage`) | `gp-api` editor | `window.postMessage`   | none (origin-trusted) | Preview route only                         |
+| Direction                      | Service         | Protocol               | Auth                  | Notes                               |
+| ------------------------------ | --------------- | ---------------------- | --------------------- | ----------------------------------- |
+| outbound (RSC reads)           | `gp-api`        | HTTP via `fetchHelper` | Vercel OIDC (opt-in)  | `by-domain` + `/view` website reads |
+| outbound (proxy routes)        | `gp-api`        | HTTP via `fetchHelper` | none                  | Public-form writes                  |
+| inbound (iframe `postMessage`) | `gp-api` editor | `window.postMessage`   | none (origin-trusted) | Preview route only                  |
 
-There is **no `Authorization` header** anywhere in this repo. The endpoints we hit on `gp-api` are public. If that ever changes, plumbing a token would mean: add it as a server-only env var, accept it inside the proxy routes only, and never expose it to the browser bundle.
+The only `Authorization` header in this repo is on the two RSC website reads (`app/page.tsx`, `app/[vanityPath]/page.tsx`). Both call `helpers/gpApiReadAuthHeaders.ts`:
+
+- `GP_API_AUTH_MODE=oidc`: `Bearer ${await getVercelOidcToken()}` from `@vercel/oidc`. That reads the request's `x-vercel-oidc-token` header, then `VERCEL_OIDC_TOKEN_FILE`, then `VERCEL_OIDC_TOKEN`. It is fetched on every read because Vercel rotates it. If it can't be obtained (OIDC disabled on the project, local dev without a linked Vercel project), the read logs a warning and goes out with no header, so a token failure never fails the page.
+- Unset, or any other value: no header.
+
+The mode exists because gp-api's `SessionGuard` answers a bearer token it can't verify with a 401, even on `@PublicAccess` routes, so sending the OIDC token before gp-api accepts it would break every site. The token is attached at the two call sites, not in `fetchHelper`, so the `app/api/` proxies keep calling gp-api's public write routes without it. Both pages are `force-dynamic` and `fetchHelper` sets no cache options, so Next never stores these fetches in the data cache. Keep the token out of `appEnv.ts`, `next.config.ts` `env`, and anything under `'use client'`.
 
 ## Bootstrap
 
