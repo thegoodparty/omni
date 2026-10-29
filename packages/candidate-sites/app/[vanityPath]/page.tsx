@@ -18,7 +18,11 @@ async function getWebsite({
 }: {
   vanityPath: string
 }): Promise<Website | null> {
-  return await fetchHelper<Website>(`websites/${vanityPath}/view`)
+  return await fetchHelper<Website>(`websites/${vanityPath}/view`, {
+    headers: process.env.GP_API_M2M_TOKEN
+      ? { Authorization: `Bearer ${process.env.GP_API_M2M_TOKEN}` }
+      : {},
+  })
 }
 
 export const revalidate = 3600

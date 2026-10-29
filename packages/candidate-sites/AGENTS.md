@@ -4,7 +4,7 @@ Guidance for Claude Code and other AI agents working in `candidate-sites`. Keep 
 
 ## Project
 
-Next.js 15 (App Router) + React 19 + Radix UI + Tailwind 3 app that renders **public candidate websites** authored in `gp-api`. Each request fetches the site's content from `gp-api` server-side and renders. Two entry points: vanity path (`/[vanityPath]`) and custom domain (`Host` header). Deployed on Vercel. There is **no auth** in this repo and **no database** — `gp-api` is the only data source. When a custom-domain request can't resolve to a published site, the route renders a minimal placeholder (just an `<h1>`); when a vanity-path request can't, it 404s. See `README.md` for the user-facing overview.
+Next.js 15 (App Router) + React 19 + Radix UI + Tailwind 3 app that renders **public candidate websites** authored in `gp-api`. Each request fetches the site's content from `gp-api` server-side and renders. Two entry points: vanity path (`/[vanityPath]`) and custom domain (`Host` header). Deployed on Vercel. There is **no user auth** in this repo and **no database** — `gp-api` is the only data source. The two server-side website reads send a service token (`GP_API_M2M_TOKEN`, see Environment). When a custom-domain request can't resolve to a published site, the route renders a minimal placeholder (just an `<h1>`); when a vanity-path request can't, it 404s. See `README.md` for the user-facing overview.
 
 ## Commands (most-used first)
 
@@ -108,4 +108,6 @@ Both entry points (`app/page.tsx` for custom-domain, `app/[vanityPath]/page.tsx`
 - Required runtime env (set in Vercel or `.env.local`):
   - `NEXT_PUBLIC_API_BASE` — full `gp-api` base URL including `/v1` prefix (defaults to `http://localhost:3000/v1`).
   - `NEXT_PUBLIC_VERCEL_TARGET_ENV` — auto-set by Vercel; drives `appEnv.ts` flags.
+- Optional server-only env:
+  - `GP_API_M2M_TOKEN` — Clerk M2M JWT (~90-day) that `app/page.tsx` and `app/[vanityPath]/page.tsx` send as `Authorization: Bearer` on the `by-domain` and `/view` reads, for gp-api's `ServiceReadGuard` on those routes. Unset sends no header. The value is written into the Vercel project by gp-marketing's `rotate-election-api-token` workflow; don't set it by hand. Never prefix it `NEXT_PUBLIC_`, add it to `next.config.ts` `env`, read it in `appEnv.ts` or `helpers/fetchHelper.ts`, or send it from the `app/api/` proxies.
 - The `postinstall` hook (`scripts/postinstall.js`) initializes the `ai-rules/` submodule. It's a no-op when `.gitmodules` is absent, and on failure it prints a one-line warning and exits 0 so `npm install` still succeeds — the Next build doesn't depend on `ai-rules/`.

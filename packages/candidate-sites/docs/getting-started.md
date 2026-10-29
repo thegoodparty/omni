@@ -42,7 +42,7 @@ NEXT_PUBLIC_API_BASE=http://localhost:3000/v1
 | `NEXT_PUBLIC_API_BASE`          | `http://localhost:3000/v1` | Full `gp-api` base URL **including** the `/v1` prefix. Used by `appEnv.ts` and `helpers/fetchHelper.ts`.                                                                                     |
 | `NEXT_PUBLIC_VERCEL_TARGET_ENV` | (unset)                    | Vercel sets this automatically on hosted envs (`production` / `preview` / `development`). Locally it's unset; `IS_LOCAL` is then derived from `NEXT_PUBLIC_API_BASE` containing `localhost`. |
 
-There is no auth env. This repo doesn't talk to any system that requires a token — `gp-api`'s public endpoints are the entire surface.
+`GP_API_M2M_TOKEN` is optional locally. When set, the two website reads send it as `Authorization: Bearer`; when unset they send no header. On Vercel it's written by gp-marketing's `rotate-election-api-token` workflow.
 
 ## Install + run
 

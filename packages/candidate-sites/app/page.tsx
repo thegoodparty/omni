@@ -11,7 +11,11 @@ async function getWebsiteByDomain({
 }: {
   domain: string
 }): Promise<Website | null> {
-  return await fetchHelper<Website>(`websites/by-domain/${domain}`)
+  return await fetchHelper<Website>(`websites/by-domain/${domain}`, {
+    headers: process.env.GP_API_M2M_TOKEN
+      ? { Authorization: `Bearer ${process.env.GP_API_M2M_TOKEN}` }
+      : {},
+  })
 }
 
 export async function generateMetadata() {

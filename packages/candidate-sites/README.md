@@ -34,10 +34,11 @@ There is also a preview route at `app/[vanityPath]/preview/page.tsx` used by `gp
 
 Create a `.env.local` (or set these in your deployment environment):
 
-| Variable                        | Description                                                                                              | Example                           |
-| ------------------------------- | -------------------------------------------------------------------------------------------------------- | --------------------------------- |
-| `NEXT_PUBLIC_API_BASE`          | Base URL of `gp-api`, including the version prefix. Falls back to `http://localhost:3000/v1` when unset. | `https://gp-api.goodparty.org/v1` |
-| `NEXT_PUBLIC_VERCEL_TARGET_ENV` | Set automatically on Vercel (`production` / `preview` / `development`); used by `appEnv.ts` flags.       | `production`                      |
+| Variable                        | Description                                                                                                                                                                           | Example                           |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------- |
+| `NEXT_PUBLIC_API_BASE`          | Base URL of `gp-api`, including the version prefix. Falls back to `http://localhost:3000/v1` when unset.                                                                              | `https://gp-api.goodparty.org/v1` |
+| `NEXT_PUBLIC_VERCEL_TARGET_ENV` | Set automatically on Vercel (`production` / `preview` / `development`); used by `appEnv.ts` flags.                                                                                    | `production`                      |
+| `GP_API_M2M_TOKEN`              | Server-only. Clerk M2M JWT sent as `Authorization: Bearer` on the two website reads. Unset sends no header. Written to Vercel by gp-marketing's `rotate-election-api-token` workflow. | (a JWT)                           |
 
 ## Getting started
 

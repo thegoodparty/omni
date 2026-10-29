@@ -118,12 +118,13 @@ If you add a new client → gp-api write path, add a proxy route. Don't `fetch(N
 
 ## Cross-service edges
 
-| Direction                      | Service         | Protocol               | Auth                  | Notes                                      |
-| ------------------------------ | --------------- | ---------------------- | --------------------- | ------------------------------------------ |
-| outbound (RSC + proxy routes)  | `gp-api`        | HTTP via `fetchHelper` | none                  | Public read endpoints + public-form writes |
-| inbound (iframe `postMessage`) | `gp-api` editor | `window.postMessage`   | none (origin-trusted) | Preview route only                         |
+| Direction                      | Service         | Protocol               | Auth                  | Notes                               |
+| ------------------------------ | --------------- | ---------------------- | --------------------- | ----------------------------------- |
+| outbound (RSC reads)           | `gp-api`        | HTTP via `fetchHelper` | `GP_API_M2M_TOKEN`    | `by-domain` + `/view` website reads |
+| outbound (proxy routes)        | `gp-api`        | HTTP via `fetchHelper` | none                  | Public-form writes                  |
+| inbound (iframe `postMessage`) | `gp-api` editor | `window.postMessage`   | none (origin-trusted) | Preview route only                  |
 
-There is **no `Authorization` header** anywhere in this repo. The endpoints we hit on `gp-api` are public. If that ever changes, plumbing a token would mean: add it as a server-only env var, accept it inside the proxy routes only, and never expose it to the browser bundle.
+The only `Authorization` header in this repo is on the two RSC website reads (`app/page.tsx`, `app/[vanityPath]/page.tsx`): `Bearer ${GP_API_M2M_TOKEN}` when that server-only env var is set, nothing when it is unset. It is what gp-api's `ServiceReadGuard` on those routes checks. The token is read at the call sites, not in `fetchHelper`, so the `app/api/` proxies keep calling gp-api's public write routes without it. Keep it out of `appEnv.ts`, `next.config.ts` `env`, and anything under `'use client'`.
 
 ## Bootstrap
 
