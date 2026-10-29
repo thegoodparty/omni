@@ -2,7 +2,6 @@ import type {
   AcceptSuggestedMatchesResponse,
   ContactSourcesResponse,
   ContactUpload,
-  ContactUploadRow,
   ListContactUploadRowsQuery,
   ListContactUploadRowsResponse,
   ListContactUploadsResponse,
