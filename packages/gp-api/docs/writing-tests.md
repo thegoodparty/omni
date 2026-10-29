@@ -109,7 +109,7 @@ Under `src/shared/test-utils/`:
 - `createMockLogger()` — a fully-stubbed `PinoLogger`
 - `createMockClerkEnricher()` — stub for `ClerkUserEnricherService`
 - `createMockUser()`, `createMockCampaign()`, etc. — factories under `factories/`
-- `appEnvOverrides`, `useAppEnvOverrides()`, `disableVendorCrons()` — flip the deploy-env constants in `appEnvironment.util` (`IS_NON_PROD_DEPLOY`, `VENDOR_MODE`, `VENDOR_CRONS_ENABLED`, `APP_ROOT`, `WEBAPP_ROOT`)
+- `appEnvOverrides`, `useAppEnvOverrides()`, `disableVendorCrons()` — flip the deploy-env constants in `appEnvironment.util` (`IS_NON_PROD_DEPLOY`, `VENDOR_MODE`, `VENDOR_CRONS_ENABLED`, `APP_ROOT`, `WEBAPP_ROOT`), plus the id-filter cap `MAX_RESOLVED_ID_SET_SIZE`
 
 Prefer these over re-rolling stubs.
 
@@ -140,6 +140,23 @@ it('404s on a prod deploy', async () => {
 ```
 
 Overrides reset after every test and every file. They reach code that reads the constant when it runs; a value captured at import (the Vercel client and Peerly config resolve `vendorBaseUrl` at import) still needs `vi.mock`.
+
+## Limits and caps
+
+Never seed bulk rows, or build a huge array, to cross a limit. Make the limit overridable and cross a small one with a few rows. Seeding 200k rows to trip `MAX_RESOLVED_ID_SET_SIZE` cost 10-15s per test; a cap of 3 costs milliseconds.
+
+- For a module constant, give it its own module, add the key to `AppEnvOverrides`, and add a getter in `src/test-app-env-mock.ts` that reads `appEnvOverrides` first, as `src/contactInteraction/resolvedIdSetCap.const.ts` does. A module mock only changes what importers see, so code in the constant's own file would keep the real value.
+- Test both sides of the boundary: at the cap passes, one past it fails.
+
+```ts
+it('throws when the resolved set exceeds the cap', async () => {
+  appEnvOverrides.MAX_RESOLVED_ID_SET_SIZE = 3
+  await seedTexts(org, 4)
+  await expect(resolution.resolveIdFilter(org, conditions)).rejects.toThrow()
+})
+```
+
+If the real value matters (a customer hit it), pin it once with a plain assertion on the constant, as `intersectIdFilterResolutions.test.ts` does for ENG-11424.
 
 ## Running tests
 

@@ -29,6 +29,26 @@ vi.mock('@/shared/util/appEnvironment.util', async (importOriginal) => {
   }
 })
 
+vi.mock(
+  '@/contactInteraction/resolvedIdSetCap.const',
+  async (importOriginal) => {
+    const actual =
+      await importOriginal<
+        typeof import('@/contactInteraction/resolvedIdSetCap.const')
+      >()
+    const { appEnvOverrides } =
+      await import('@/shared/test-utils/appEnvOverrides.js')
+    return {
+      get MAX_RESOLVED_ID_SET_SIZE() {
+        return (
+          appEnvOverrides.MAX_RESOLVED_ID_SET_SIZE ??
+          actual.MAX_RESOLVED_ID_SET_SIZE
+        )
+      },
+    }
+  },
+)
+
 afterEach(() => {
   resetAppEnvOverrides()
 })
