@@ -3,7 +3,7 @@ title: Vercel callers authenticate to gp-api with Vercel OIDC tokens
 status: active
 decided_by: [swain]
 date: 2026-10-29
-code: ['#PR_NUMBER']
+code: ['#3395']
 scope:
   - packages/gp-api/src/authentication/**
   - packages/gp-api/deploy/index.ts
