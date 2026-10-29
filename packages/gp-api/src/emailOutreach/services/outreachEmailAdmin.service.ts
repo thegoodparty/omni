@@ -133,7 +133,8 @@ export class OutreachEmailAdminService extends createPrismaBase(
     if (row.outreach.status !== OutreachStatus.in_progress) {
       throw new ConflictException('This send is not running')
     }
-    if (hold && hold.state !== OutreachHoldState.held) {
+    if (!hold) throw new NotFoundException('No payment hold for this send')
+    if (hold.state !== OutreachHoldState.held) {
       throw new ConflictException(
         `This send's payment hold is ${hold.state}; it can't be canceled here`,
       )

@@ -1001,6 +1001,10 @@ describe('settling and finishing', () => {
 })
 
 describe('the send tag', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
   const metricData = (
     values: Record<string, number>,
   ): GetMetricDataCommandOutput => ({
@@ -1097,6 +1101,10 @@ describe('the send tag', () => {
 describe('the hold capture deadline', () => {
   let capture: MockInstance<StripeService['capturePaymentIntent']>
   let cancelHold: MockInstance<StripeService['cancelHold']>
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
 
   beforeEach(() => {
     // Earlier cases stub settle on the shared service; these run the real one.
@@ -1195,6 +1203,53 @@ describe('the hold capture deadline', () => {
     expect(sendBulk).not.toHaveBeenCalled()
   })
 
+  it('still finishes as sent when a batch in flight at the deadline comes back', async () => {
+    const send = await longSend(800, 600)
+    const claimed = await sweep.claimBatch(send.outreachEmailId)
+    const guard = service.app.get(PaymentHoldsSweepService)
+
+    await guard.settleExpiringHolds()
+    expect(capture).not.toHaveBeenCalled()
+
+    // The runner died mid-batch, so the tick takes the claim back.
+    await service.prisma.outreachEmailRecipient.updateMany({
+      where: { id: { in: claimed } },
+      data: { claimedAt: subHours(new Date(), 1) },
+    })
+    await sweep.runTick()
+    expect(sendBulk).not.toHaveBeenCalled()
+    await guard.settleExpiringHolds()
+
+    expect(capture).toHaveBeenCalledWith(
+      send.paymentIntentId,
+      emailChargeCents(600),
+      `outreach-capture-${send.paymentIntentId}`,
+    )
+    expect(
+      (await recipientStatuses(service.prisma, send.outreachEmailId)).counts,
+    ).toEqual({ sent: 600, failed: 200 })
+    await service.app.get(OutreachEmailLifecycleService).settleFinishedSends()
+    expect(await outreachStatus(send.outreachId)).toBe(OutreachStatus.completed)
+  })
+
+  it('ends canceled when a batch in flight at the deadline sent nothing', async () => {
+    const send = await longSend(5, 0)
+    const claimed = await sweep.claimBatch(send.outreachEmailId)
+    const guard = service.app.get(PaymentHoldsSweepService)
+
+    await guard.settleExpiringHolds()
+    await service.prisma.outreachEmailRecipient.updateMany({
+      where: { id: { in: claimed } },
+      data: { status: OutreachEmailRecipientStatus.failed },
+    })
+    await guard.settleExpiringHolds()
+
+    expect(capture).not.toHaveBeenCalled()
+    expect(cancelHold).toHaveBeenCalledWith(send.paymentIntentId)
+    await service.app.get(OutreachEmailLifecycleService).settleFinishedSends()
+    expect(await outreachStatus(send.outreachId)).toBe(OutreachStatus.canceled)
+  })
+
   it('charges nothing and ends canceled when nothing went out', async () => {
     const send = await longSend(5, 0)
 
@@ -1217,6 +1272,8 @@ describe('the hold capture deadline', () => {
     const send = await longSend(800, 600)
 
     await service.app.get(OutreachEmailAdminService).cancel(send.outreachId)
+
+    expect(await sweep.claimBatch(send.outreachEmailId)).toEqual([])
 
     expect(capture).toHaveBeenCalledWith(
       send.paymentIntentId,

@@ -82,13 +82,14 @@ export const emailStatusCopy = (
     case 'completed': {
       // Prepare trims the list to the cap, so once a send has run its
       // recipients are everyone it meant to reach. Fewer sent means it was
-      // stopped at the payment deadline (or, rarely, SES refused a few).
+      // stopped at the payment deadline, or SES refused a few addresses, so
+      // the caption gives the count and no reason.
       const reach = Math.min(send.recipientCount, total)
       return {
         title: 'Sent.',
         caption:
           send.sentCount < reach
-            ? `Sent to ${formatCount(send.sentCount)} of ${formatCount(reach)} ${surface.recipientsNoun}. The rest couldn't go out in time.`
+            ? `Sent to ${formatCount(send.sentCount)} of ${formatCount(reach)} ${surface.recipientsNoun}.`
             : `${formatCount(send.sentCount)} emails went out.`,
       }
     }

@@ -93,11 +93,10 @@ describe('emailStatusCopy', () => {
     })
     expect(emailStatusCopy(stopped, WIN_EMAIL_SURFACE)).toEqual({
       title: 'Sent.',
-      caption:
-        "Sent to 3,200 of 5,000 people. The rest couldn't go out in time.",
+      caption: 'Sent to 3,200 of 5,000 people.',
     })
     expect(emailStatusCopy(stopped, SERVE_EMAIL_SURFACE)?.caption).toBe(
-      "Sent to 3,200 of 5,000 constituents. The rest couldn't go out in time.",
+      'Sent to 3,200 of 5,000 constituents.',
     )
   })
 
