@@ -765,7 +765,7 @@ describe('which statuses count as an error', () => {
   it('excludes the designed client-error vocabulary, 400 included', () => {
     const { expr } = anyErrorAlert()
 
-    for (const code of [400, 401, 403, 404, 409, 498]) {
+    for (const code of [400, 401, 402, 403, 404, 409, 498]) {
       expect(expr).toContain(`response_statusCode != ${code}`)
     }
   })

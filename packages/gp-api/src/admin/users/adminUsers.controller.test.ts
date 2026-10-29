@@ -6,7 +6,6 @@ import { BadRequestException } from '@nestjs/common'
 import { User, UserRole } from '../../generated/prisma'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { AdminUsersController } from './adminUsers.controller'
-import { CampaignsService } from 'src/campaigns/services/campaigns.service'
 import { UsersService } from 'src/users/services/users.service'
 const mockUser: User = {
   id: 1,
@@ -48,7 +47,6 @@ function getGuards(methodName: keyof AdminUsersController) {
 describe('AdminUsersController', () => {
   let controller: AdminUsersController
   let usersService: UsersService
-  let campaignsService: CampaignsService
   let logger: PinoLogger
 
   beforeEach(() => {
@@ -63,11 +61,6 @@ describe('AdminUsersController', () => {
       createSignInLink: vi.fn(),
     }
     usersService = usersServiceMock as UsersService
-
-    const campaignsServiceMock: Partial<CampaignsService> = {
-      deleteAll: vi.fn(),
-    }
-    campaignsService = campaignsServiceMock as CampaignsService
 
     logger = createMockLogger()
     controller = new AdminUsersController(usersService, logger)
@@ -402,18 +395,6 @@ describe('AdminUsersController', () => {
         mockTargetUser.id,
         mockUser.id,
       )
-    })
-
-    it('does not call campaignsService.deleteAll — cascade handles it', async () => {
-      vi.spyOn(usersService, 'findUniqueOrThrow').mockResolvedValue(
-        mockTargetUser,
-      )
-      vi.spyOn(usersService, 'deleteUser').mockResolvedValue(undefined)
-      const deleteAllSpy = vi.spyOn(campaignsService, 'deleteAll')
-
-      await controller.delete(mockTargetUser.id, { id: mockUser.id })
-
-      expect(deleteAllSpy).not.toHaveBeenCalled()
     })
   })
 })

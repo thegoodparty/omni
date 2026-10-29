@@ -48,6 +48,8 @@ All in `PaymentHoldsSweepService`, gated on `VENDOR_CRONS_ENABLED`, with no `Cro
 
 A stale `capturing` row whose intent Stripe shows `canceled` becomes `uncollectable` with a CRITICAL log; there is no automatic recharge.
 
+**A draft's hold is left alone.** A channel returns a send to `draft` when its card is declined at confirm, leaving a `hold_failed` row. The unpaid and reminder sweeps and the attach-webhook retry skip a hold whose `Outreach` is `draft` (so no Canceled, Reminder or off-session placement for a send the user never scheduled), and the card route answers 409 for it. The channel's next confirm retries it through `updateCard`, passing `estimateCents` because the price can change between confirms; that is safe because a `hold_failed` row's `holdAttempt` has never reached Stripe.
+
 ## Payment events
 
 `PaymentHoldEventsService.emit` fires the `OutreachPayment` events through `AnalyticsService.track`, only from the transition that won, never throwing. HubSpot sends the emails (Win and Serve versions), so the names, the `messageId`s and the property keys are load-bearing.

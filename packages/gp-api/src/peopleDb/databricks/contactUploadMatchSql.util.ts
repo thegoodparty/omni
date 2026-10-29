@@ -35,15 +35,46 @@ export type ContactUploadMatchCandidateRow = {
 
 export const MAX_CANDIDATES_PER_ROW = 10
 
+// Databricks rejects a bound parameter over 1,048,576 characters; this leaves
+// headroom under it.
+export const CONTACT_UPLOAD_MATCH_INPUT_MAX_CHARS = 800_000
+
 const INPUT_SCHEMA =
   'array<struct<row_index:int,first_key:string,last_key:string,cell:string,' +
   'landline:string,house:string,street_key:string,zip:string>>'
 
 const EMPTY_FILTERS = filtersSchema.parse({})
 
+const toInputJson = (row: ContactUploadMatchInputRow) => ({
+  row_index: row.rowIndex,
+  first_key: row.firstKey,
+  last_key: row.lastKey,
+  cell: row.cell,
+  landline: row.landline,
+  house: row.house,
+  street_key: row.streetKey,
+  zip: row.zip,
+})
+
+// How many leading rows fit in one statement's bound JSON value. Always at
+// least one, so a chunk makes progress.
+export const fitContactUploadMatchRows = (
+  rows: ContactUploadMatchInputRow[],
+): number => {
+  let chars = 1
+  let fitted = 0
+  for (const row of rows) {
+    chars += JSON.stringify(toInputJson(row)).length + 1
+    if (fitted > 0 && chars > CONTACT_UPLOAD_MATCH_INPUT_MAX_CHARS) break
+    fitted += 1
+  }
+  return fitted
+}
+
 // Every row of a chunk travels as ONE bound JSON parameter and is exploded in
-// the statement, so 20,000 rows are one statement rather than 20,000 bound
-// values (the API caps a statement at 10,000 parameters).
+// the statement, so a chunk is one statement rather than one bound value per
+// row (the API caps a statement at 10,000 parameters). The caller sizes the
+// chunk with fitContactUploadMatchRows.
 //
 // Reads the plain people table, never `district.table`: matching is against
 // the district's L2 people only. The org's earlier uploads are matched in
@@ -54,20 +85,7 @@ export const buildContactUploadMatchSql = (args: {
   rows: ContactUploadMatchInputRow[]
 }): DbxStatement => {
   const bag = createBag()
-  const input = bag.bind(
-    JSON.stringify(
-      args.rows.map((row) => ({
-        row_index: row.rowIndex,
-        first_key: row.firstKey,
-        last_key: row.lastKey,
-        cell: row.cell,
-        landline: row.landline,
-        house: row.house,
-        street_key: row.streetKey,
-        zip: row.zip,
-      })),
-    ),
-  )
+  const input = bag.bind(JSON.stringify(args.rows.map(toInputJson)))
   const scope = buildScopeSql(bag, {
     district: args.district,
     filters: EMPTY_FILTERS,

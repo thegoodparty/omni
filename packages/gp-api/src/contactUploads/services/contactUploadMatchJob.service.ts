@@ -14,9 +14,10 @@ import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { ContactsService } from '@/contacts/services/contacts.service'
 import { VoterQueryService } from '@/peopleDb/services/voterQuery.service'
 import type { PeopleDataset } from '@/peopleDb/services/peopleDataset.service'
-import type {
-  ContactUploadMatchCandidateRow,
-  ContactUploadMatchInputRow,
+import {
+  fitContactUploadMatchRows,
+  type ContactUploadMatchCandidateRow,
+  type ContactUploadMatchInputRow,
 } from '@/peopleDb/databricks/contactUploadMatchSql.util'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { QueueProducerService } from '@/queue/producer/queueProducer.service'
@@ -30,7 +31,9 @@ import {
 } from '../util/contactUploadMatching.util'
 import { ContactUploadsService } from './contactUploads.service'
 
-export const MATCH_CHUNK_SIZE = 20_000
+// Rows of every field still fit fitContactUploadMatchRows' budget at this
+// size; only unusually long values make a chunk smaller.
+export const MATCH_CHUNK_SIZE = 4_000
 
 // The main queue's redrive maxReceiveCount (deploy/index.ts). The delivery
 // that reaches it is the last one, so it marks the upload failed instead of
@@ -50,12 +53,15 @@ type KeyedRow = {
 type PriorRow = {
   personId: string
   isNewPerson: boolean
+  outcome: ContactUploadMatchOutcome
+  method: ContactUploadMatchMethod | null
   firstName: string | null
   lastName: string | null
   email: string | null
   cellPhone: string | null
   landline: string | null
   addressLine: string | null
+  city: string | null
   zip: string | null
 }
 
@@ -71,6 +77,33 @@ type OverlayRow = Pick<
   | 'city'
   | 'zip'
 >
+
+const matchInput = (row: ContactUploadMatch): ContactUploadMatchInputRow => {
+  const { house, streetKey } = addressParts(row.addressLine)
+  return {
+    rowIndex: row.rowIndex,
+    firstKey: nameKey(row.firstName),
+    lastKey: nameKey(row.lastName),
+    cell: row.cellPhone,
+    landline: row.landline,
+    house,
+    streetKey,
+    zip: row.zip,
+  }
+}
+
+const isNameOnly = (
+  row: Pick<
+    ContactUploadMatch,
+    'email' | 'cellPhone' | 'landline' | 'addressLine' | 'city' | 'zip'
+  >,
+): boolean =>
+  row.email === null &&
+  row.cellPhone === null &&
+  row.landline === null &&
+  row.addressLine === null &&
+  row.city === null &&
+  row.zip === null
 
 const phoneKeys = (keyed: KeyedRow): string[] =>
   keyed.lastKey === ''
@@ -152,7 +185,7 @@ export class ContactUploadMatchJobService extends createPrismaBase(
     upload: ContactUpload,
     organization: Organization,
   ): Promise<void> {
-    const rows = await this.model.findMany({
+    const pending = await this.model.findMany({
       where: {
         uploadId: upload.id,
         outcome: ContactUploadMatchOutcome.pending,
@@ -160,6 +193,10 @@ export class ContactUploadMatchJobService extends createPrismaBase(
       orderBy: { rowIndex: Prisma.SortOrder.asc },
       take: MATCH_CHUNK_SIZE,
     })
+    const rows = pending.slice(
+      0,
+      fitContactUploadMatchRows(pending.map(matchInput)),
+    )
     if (rows.length > 0) {
       const { districtId, dataset } =
         await this.contacts.resolveEligibleDistrict(organization)
@@ -304,7 +341,8 @@ export class ContactUploadMatchJobService extends createPrismaBase(
     const decisions = new Map<string, MatchDecision>()
 
     // The org's earlier rows, this upload's earlier chunks included: by
-    // email, then phone and last name, then name and address.
+    // email, then phone and last name, then name and address, then a
+    // name-only row the user resolved by hand to one person.
     const emails = [
       ...new Set(
         leaders
@@ -326,9 +364,10 @@ export class ContactUploadMatchJobService extends createPrismaBase(
     ]
     const prior = await this.client.$queryRaw<PriorRow[]>`
       SELECT person_id AS "personId", is_new_person AS "isNewPerson",
+        outcome, method,
         first_name AS "firstName", last_name AS "lastName", email,
         cell_phone AS "cellPhone", landline, address_line AS "addressLine",
-        zip
+        city, zip
       FROM contact_upload_match
       WHERE organization_slug = ${upload.organizationSlug}
         AND person_id IS NOT NULL
@@ -344,8 +383,23 @@ export class ContactUploadMatchJobService extends createPrismaBase(
     const priorByEmail = new Map<string, PriorRow>()
     const priorByPhone = new Map<string, PriorRow>()
     const priorByNameAddress = new Map<string, PriorRow[]>()
+    const priorResolvedByName = new Map<string, PriorRow[]>()
     for (const row of prior) {
       const lastKey = nameKey(row.lastName)
+      const firstKey = nameKey(row.firstName)
+      if (
+        row.outcome === ContactUploadMatchOutcome.resolved &&
+        row.method === ContactUploadMatchMethod.manual &&
+        firstKey &&
+        lastKey &&
+        isNameOnly(row)
+      ) {
+        const key = `${firstKey}|${lastKey}`
+        priorResolvedByName.set(key, [
+          ...(priorResolvedByName.get(key) ?? []),
+          row,
+        ])
+      }
       if (row.email && !priorByEmail.has(row.email)) {
         priorByEmail.set(row.email, row)
       }
@@ -356,12 +410,7 @@ export class ContactUploadMatchJobService extends createPrismaBase(
         }
       }
       const { house, streetKey } = addressParts(row.addressLine)
-      const key = nameAddressKey(
-        nameKey(row.firstName),
-        lastKey,
-        house,
-        streetKey,
-      )
+      const key = nameAddressKey(firstKey, lastKey, house, streetKey)
       if (key) {
         priorByNameAddress.set(key, [
           ...(priorByNameAddress.get(key) ?? []),
@@ -378,6 +427,11 @@ export class ContactUploadMatchJobService extends createPrismaBase(
         entry.house,
         entry.streetKey,
       )
+      const resolvedByName =
+        entry.firstKey && entry.lastKey && isNameOnly(entry.row)
+          ? priorResolvedByName.get(`${entry.firstKey}|${entry.lastKey}`)
+          : undefined
+      const [onlyResolved] = resolvedByName ?? []
       const hit =
         (entry.row.email ? priorByEmail.get(entry.row.email) : undefined) ??
         phoneKeys(entry)
@@ -392,6 +446,10 @@ export class ContactUploadMatchJobService extends createPrismaBase(
                   entry.row.zip === null ||
                   row.zip === entry.row.zip,
               )
+          : undefined) ??
+        (onlyResolved &&
+        resolvedByName?.every((row) => row.personId === onlyResolved.personId)
+          ? onlyResolved
           : undefined)
       if (hit) {
         decisions.set(entry.row.id, {
@@ -407,16 +465,7 @@ export class ContactUploadMatchJobService extends createPrismaBase(
       }
     }
 
-    const inputs: ContactUploadMatchInputRow[] = toDistrict.map((entry) => ({
-      rowIndex: entry.row.rowIndex,
-      firstKey: entry.firstKey,
-      lastKey: entry.lastKey,
-      cell: entry.row.cellPhone,
-      landline: entry.row.landline,
-      house: entry.house,
-      streetKey: entry.streetKey,
-      zip: entry.row.zip,
-    }))
+    const inputs = toDistrict.map((entry) => matchInput(entry.row))
     const candidates =
       inputs.length === 0
         ? []

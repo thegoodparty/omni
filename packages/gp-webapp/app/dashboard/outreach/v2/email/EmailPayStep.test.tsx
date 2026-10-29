@@ -64,7 +64,6 @@ describe('EmailPayStep', () => {
         status: 200,
         data: {
           outcome: 'held',
-          declineCode: null,
           email: { ...send, status: 'pending', estimate: null },
         },
       }
@@ -92,14 +91,32 @@ describe('EmailPayStep', () => {
     expect(onConfirmAttempted).toHaveBeenCalled()
   })
 
-  it('keeps the card form up after a decline', async () => {
-    api.mock('POST /v1/outreach/email/:id/confirm', {
-      status: 200,
-      data: {
-        outcome: 'declined',
-        declineCode: 'expired_card',
-        email: { ...send, status: 'pending_payment', estimate: null },
-      },
+  it('shows a decline, then confirms again with the next card', async () => {
+    confirmSetupMock
+      .mockResolvedValueOnce({ setupIntent: { payment_method: 'pm_bad' } })
+      .mockResolvedValueOnce({ setupIntent: { payment_method: 'pm_good' } })
+    const bodies: unknown[] = []
+    let calls = 0
+    api.mock('POST /v1/outreach/email/:id/confirm', ({ body }) => {
+      bodies.push(body)
+      calls += 1
+      return (
+        calls === 1
+          ? {
+              status: 402,
+              data: {
+                message: 'Your card was declined.',
+                declineCode: 'expired_card',
+              },
+            }
+          : {
+              status: 200,
+              data: {
+                outcome: 'held',
+                email: { ...send, status: 'pending', estimate: null },
+              },
+            }
+      ) as never
     })
     const onPaid = vi.fn()
     const onConfirmAttempted = vi.fn()
@@ -119,6 +136,20 @@ describe('EmailPayStep', () => {
       'That card has expired. Try another.',
     )
     expect(onPaid).not.toHaveBeenCalled()
-    expect(onConfirmAttempted).toHaveBeenCalled()
+    expect(onConfirmAttempted).not.toHaveBeenCalled()
+
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Use a different card' }),
+    )
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Pay and send' }),
+    )
+
+    await waitFor(() => expect(onPaid).toHaveBeenCalledTimes(1))
+    expect(bodies).toEqual([
+      { paymentMethodId: 'pm_bad' },
+      { paymentMethodId: 'pm_good' },
+    ])
+    expect(onConfirmAttempted).toHaveBeenCalledTimes(1)
   })
 })

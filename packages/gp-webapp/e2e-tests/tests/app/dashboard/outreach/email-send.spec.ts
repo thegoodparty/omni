@@ -16,8 +16,9 @@ import { eventually } from 'tests/utils/eventually'
 import { withGatewayRetry } from 'tests/utils/headless-user'
 
 // The email send, end to end against the vendor-mock stack: upload a small
-// list, compose, confirm with Stripe's 4242 card (a real test-mode hold),
-// then run the real due, send and settle sweeps and wait for Sent.
+// list, compose, confirm with a card Stripe declines at the hold, confirm
+// again with Stripe's 4242 card (a real test-mode hold), then run the real
+// due, send and settle sweeps and wait for Sent.
 //
 // Only SES mailbox simulator addresses are ever uploaded, so this spec can
 // never email a person, even if a deploy it runs against sends for real.
@@ -41,7 +42,15 @@ const getSend = async (
   return data
 }
 
-const fillStripeCard = async (page: Page): Promise<void> => {
+// 0341 attaches to the customer and then declines every charge, so it fails
+// at the hold rather than at the card form (0002 fails at the card form).
+const DECLINED_AT_HOLD_CARD = '4000000000000341'
+const GOOD_CARD = '4242424242424242'
+
+const fillStripeCard = async (
+  page: Page,
+  cardNumber: string,
+): Promise<void> => {
   const frame = page
     .frameLocator('iframe[title="Secure payment input frame"]')
     .first()
@@ -49,7 +58,7 @@ const fillStripeCard = async (page: Page): Promise<void> => {
   await expect(cardInput).toBeVisible({ timeout: 30_000 })
   await expect(cardInput).toBeEditable({ timeout: 30_000 })
   await page.waitForTimeout(1_000)
-  await cardInput.fill('4242424242424242')
+  await cardInput.fill(cardNumber)
   await page.waitForTimeout(300)
   const exp = new Date()
   exp.setFullYear(exp.getFullYear() + 2)
@@ -79,7 +88,7 @@ test.describe('Email send — mock pipeline', () => {
     await blockSlowScripts(page)
   })
 
-  test('upload, compose, pay with 4242, and the send goes out', async ({
+  test('upload, compose, a declined card, pay with 4242, and the send goes out', async ({
     page,
   }) => {
     test.setTimeout(6 * 60 * 1000)
@@ -162,8 +171,25 @@ test.describe('Email send — mock pipeline', () => {
     await expect(stepHeading(page, 'How do you want to pay?')).toBeVisible({
       timeout: 30_000,
     })
-    await fillStripeCard(page)
+    // A decline at confirm keeps the send a draft on this step.
+    await fillStripeCard(page, DECLINED_AT_HOLD_CARD)
     const payButton = page.getByRole('button', { name: 'Pay and send' })
+    await expect(payButton).toBeEnabled({ timeout: 15_000 })
+    await payButton.scrollIntoViewIfNeeded()
+    const declinedConfirm = page.waitForResponse(
+      (res) =>
+        res.request().method() === 'POST' &&
+        CONFIRM_PATH.test(new URL(res.url()).pathname),
+    )
+    await payButton.click()
+    expect((await declinedConfirm).status()).toBe(402)
+    await expect(
+      page.getByText('Your card was declined. Try another card.'),
+    ).toBeVisible({ timeout: 30_000 })
+    await expect(stepHeading(page, 'How do you want to pay?')).toBeVisible()
+    await page.getByRole('button', { name: 'Use a different card' }).click()
+
+    await fillStripeCard(page, GOOD_CARD)
     await expect(payButton).toBeEnabled({ timeout: 15_000 })
     await payButton.scrollIntoViewIfNeeded()
     const confirmRequest = page.waitForRequest(

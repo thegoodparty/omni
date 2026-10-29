@@ -1,5 +1,4 @@
 import {
-  BadRequestException,
   Body,
   Controller,
   Get,
@@ -15,14 +14,16 @@ import {
 } from '@nestjs/common'
 import {
   AcceptSuggestedMatchesResponseSchema,
-  CONTACT_UPLOAD_MAX_BYTES,
   ContactUploadSchema,
-  CreateContactUploadFieldsSchema,
+  CreateContactUploadSchema,
   ListContactUploadRowsQuerySchema,
   ListContactUploadRowsResponseSchema,
   ListContactUploadsResponseSchema,
+  PresignContactUploadFileResponseSchema,
+  PresignContactUploadFileSchema,
   SERVE_IMPORT_CONTACTS_FLAG,
   SetContactUploadRowMatchSchema,
+  type PresignContactUploadFile,
   type SetContactUploadRowMatch,
 } from '@goodparty_org/contracts'
 import { ZodValidationPipe } from 'nestjs-zod'
@@ -31,9 +32,6 @@ import { Organization, User } from '@/generated/prisma'
 import { ReqUser } from '@/authentication/decorators/ReqUser.decorator'
 import { ReqOrganization } from '@/organizations/decorators/ReqOrganization.decorator'
 import { UseOrganization } from '@/organizations/decorators/UseOrganization.decorator'
-import { ReqFile } from '@/files/decorators/ReqFiles.decorator'
-import { FileUpload } from '@/files/files.types'
-import { FilesInterceptor } from '@/files/interceptors/files.interceptor'
 import { FeaturesService } from '@/features/services/features.service'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interceptor'
@@ -53,32 +51,34 @@ export class ContactUploadsController {
     private readonly features: FeaturesService,
   ) {}
 
+  @Post('presign')
+  @HttpCode(HttpStatus.OK)
+  @ResponseSchema(PresignContactUploadFileResponseSchema)
+  async presignFile(
+    @ReqOrganization() organization: Organization,
+    @Body(new ZodValidationPipe(PresignContactUploadFileSchema))
+    body: PresignContactUploadFile,
+  ) {
+    await this.assertImportContactsOn(organization)
+    return this.uploads.presignFile(organization, body.byteSize)
+  }
+
   @Post()
-  @UseInterceptors(
-    FilesInterceptor('file', {
-      mode: 'buffer',
-      sizeLimit: CONTACT_UPLOAD_MAX_BYTES,
-    }),
-  )
   @ResponseSchema(ContactUploadSchema)
   async createUpload(
     @ReqOrganization() organization: Organization,
     @ReqUser() user: User,
-    @Body(new ZodValidationPipe(CreateContactUploadFieldsSchema))
-    fields: z.output<typeof CreateContactUploadFieldsSchema>,
-    @ReqFile() file?: FileUpload,
+    @Body(new ZodValidationPipe(CreateContactUploadSchema))
+    body: z.output<typeof CreateContactUploadSchema>,
   ) {
     await this.assertImportContactsOn(organization)
-    if (!file || !Buffer.isBuffer(file.data)) {
-      throw new BadRequestException('No file found')
-    }
     return this.uploads.createUpload({
       organization,
       userId: user.id,
-      name: fields.name,
-      columnMapping: fields.columnMapping,
-      fileName: file.filename,
-      file: file.data,
+      uploadId: body.uploadId,
+      name: body.name,
+      columnMapping: body.columnMapping,
+      fileName: body.fileName,
     })
   }
 

@@ -128,13 +128,20 @@ export const EmailConfirmRequestSchema = z
 export type EmailConfirmRequest = z.infer<typeof EmailConfirmRequestSchema>
 
 export const EmailConfirmResponseSchema = z.object({
-  // held or scheduled confirm the send; declined leaves it awaiting a new
-  // card through the payment hold's card route.
-  outcome: z.enum(['held', 'scheduled', 'declined']),
-  declineCode: z.string().nullable(),
+  outcome: z.enum(['held', 'scheduled']),
   email: EmailSendSchema,
 })
 export type EmailConfirmResponse = z.infer<typeof EmailConfirmResponseSchema>
+
+// The 402 body confirm answers when the card is declined. The send stays a
+// draft, and confirming again with another card retries it.
+export const EmailConfirmDeclinedSchema = z.object({
+  message: z.string(),
+  // Stripe's decline_code, else its code, else the intent status
+  // (requires_action for a card that needs 3-D Secure).
+  declineCode: z.string().nullable(),
+})
+export type EmailConfirmDeclined = z.infer<typeof EmailConfirmDeclinedSchema>
 
 export const EmailRecipientUploadRequestSchema = z
   .object({

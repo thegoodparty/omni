@@ -162,9 +162,9 @@ export const cancelEmail = async (
   return data
 }
 
-// Once a send has a hold, confirm answers from the stored hold and never reads
-// the card id. A new card goes to the hold's own route, so a confirm after it
-// only moves the send out of pending_payment.
+// A pending_payment send's confirm answers from the stored hold and never
+// reads the card id. A new card goes to the hold's own route, so a confirm
+// after it only moves the send out of pending_payment.
 export const CARD_ON_FILE = 'card-on-file'
 
 export const apiErrorMessage = (error: unknown): string => {

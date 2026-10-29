@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   buildContactUploadMatchSql,
+  CONTACT_UPLOAD_MATCH_INPUT_MAX_CHARS,
+  fitContactUploadMatchRows,
   mapContactUploadMatchRows,
 } from './contactUploadMatchSql.util'
 import type { DbxDistrict } from './databricksVoterSql.util'
@@ -126,6 +128,56 @@ describe('buildContactUploadMatchSql', () => {
     expect(sql).toContain(
       'QUALIFY row_number() OVER (PARTITION BY row_index ORDER BY phone_agrees DESC, address_agrees DESC, id) <= 10',
     )
+  })
+})
+
+describe('fitContactUploadMatchRows', () => {
+  const DATABRICKS_PARAMETER_MAX_CHARS = 1_048_576
+  const worstCase = Array.from({ length: 20_000 }, (_, index) => ({
+    rowIndex: 99_999 - index,
+    firstKey: 'a'.repeat(60),
+    lastKey: 'b'.repeat(60),
+    cell: '(616) 555-0142',
+    landline: '(616) 555-0143',
+    house: '123456',
+    streetKey: 'c'.repeat(40),
+    zip: '49503',
+  }))
+
+  it('keeps a worst-case chunk under the Databricks parameter limit', () => {
+    const fitted = fitContactUploadMatchRows(worstCase)
+    const { params } = buildContactUploadMatchSql({
+      district: CITY,
+      rows: worstCase.slice(0, fitted),
+    })
+    const { params: oneMore } = buildContactUploadMatchSql({
+      district: CITY,
+      rows: worstCase.slice(0, fitted + 1),
+    })
+
+    expect(fitted).toBeLessThan(worstCase.length)
+    expect(params[0]?.value?.length).toBeLessThanOrEqual(
+      CONTACT_UPLOAD_MATCH_INPUT_MAX_CHARS,
+    )
+    expect(oneMore[0]?.value?.length).toBeGreaterThan(
+      CONTACT_UPLOAD_MATCH_INPUT_MAX_CHARS,
+    )
+    expect(CONTACT_UPLOAD_MATCH_INPUT_MAX_CHARS).toBeLessThan(
+      DATABRICKS_PARAMETER_MAX_CHARS,
+    )
+  })
+
+  it('takes every row of a chunk that fits', () => {
+    expect(fitContactUploadMatchRows([ROW, ROW, ROW])).toBe(3)
+  })
+
+  it('takes one row even when that row alone is over the budget', () => {
+    expect(
+      fitContactUploadMatchRows([
+        { ...ROW, firstKey: 'a'.repeat(CONTACT_UPLOAD_MATCH_INPUT_MAX_CHARS) },
+        ROW,
+      ]),
+    ).toBe(1)
   })
 })
 
