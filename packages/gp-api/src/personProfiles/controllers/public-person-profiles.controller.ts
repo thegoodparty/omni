@@ -100,7 +100,7 @@ function buildMarkerResponse(
 // The reads are gated (ServiceReadGuard, or ServiceReadOrOwnerGuard on the
 // render gate) because /unlisted and the removed marker reveal who asked for a
 // privacy takedown, and only our own servers read voter-density. The class
-// stays @PublicAccess so SessionGuard lets a JWT-format machine token through
+// stays @PublicAccess so SessionGuard lets a service-reader token through
 // to those guards, and so claim-request remains open to browsers.
 @Controller('public-person-profiles')
 @PublicAccess()

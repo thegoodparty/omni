@@ -18,9 +18,12 @@ superseded_by:
 
 `GET /v1/public-person-profiles/voter-density`, `GET /v1/public-campaigns`,
 `GET /v1/websites/:vanityPath/view` and `GET /v1/websites/by-domain/:domain`
-stay `@PublicAccess()` but are gated by `ServiceReadGuard`: a JWT-format M2M
-token, an `mt_*` M2M token, or an admin. Anonymous and ordinary signed-in
-callers get a 403. The per-IP rate limit on voter-density is removed.
+stay `@PublicAccess()` but are gated by `ServiceReadGuard`: a service-reader
+token, an `mt_*` M2M token, or an admin. Callers present a Vercel OIDC token
+([Vercel callers authenticate with OIDC](2026-10-29-vercel-callers-authenticate-with-oidc.md));
+a JWT-format Clerk M2M token is still accepted as a service reader. Anonymous and ordinary
+signed-in callers get a 403. The per-IP rate limit on voter-density is
+removed.
 
 ## Context
 
@@ -31,9 +34,9 @@ added nothing for them and let anyone scrape the same data straight from
 api.goodparty.org. The per-IP limit on voter-density never limited visitors,
 because every request arrived from a Vercel server address.
 
-`@PublicAccess()` stays because `SessionGuard` only lets a JWT-format M2M
-token through on public routes; it sets `serviceReader` and `ServiceReadGuard`
-decides from there.
+`@PublicAccess()` stays because `SessionGuard` only lets a service-reader
+token (Vercel OIDC or JWT-format Clerk M2M) through on public routes; it sets
+`serviceReader` and `ServiceReadGuard` decides from there.
 
 ## Alternatives rejected
 
@@ -42,7 +45,8 @@ decides from there.
   it either throttles real traffic or limits nothing.
 - An edge (WAF) rate limit. Same keying problem for server-side callers, and
   it still leaves the data readable by anyone under the limit.
-- `M2MOnly`. It rejects the JWT-format token gp-marketing sends.
+- `M2MOnly`. It rejects service-reader tokens, which is what both callers
+  send.
 
 ## Revisit if
 
