@@ -3,10 +3,8 @@ import { Annotation, ChatScope, MeetingBriefing } from '../../generated/prisma'
 import { z } from 'zod'
 import type { LlmTool } from '@/llm/services/llm.service'
 import type { FinalizeTurn } from '@/chats/services/chatStream.service'
-import {
-  buildDistrictInsightsTool,
-  type MandatoryFilter,
-} from '@/llm/tools/districtInsights.tool'
+import type { MandatoryFilter } from '@/llm/tools/constituentSql.validator'
+import { buildDistrictInsightsTool } from '@/llm/tools/districtInsights.tool'
 import { buildDistrictTopicsTool } from '@/llm/tools/districtTopics.tool'
 import {
   buildGetMyNotesTool,
@@ -25,6 +23,10 @@ import {
   legalAdviceBackstop,
   smallCountBackstop,
 } from '@/chats/general/services/guardrailBackstops'
+import {
+  buildConstituentDataScope,
+  CONSTITUENT_TABLES_BY_DATASET,
+} from '@/chats/general/chief-of-staff/services/constituentDataScope'
 import {
   ADVICE_SIGNALS,
   SECTION_MARK_SIGNAL,
@@ -49,13 +51,6 @@ import {
 } from './services/systemPromptBuilder'
 
 type ParsedBriefing = z.infer<typeof BriefingSchema>
-
-// Same schema and columns either way; serve_agent_constituents adds the
-// adult residents who are not registered to vote.
-const SERVE_AGENT_TABLE_BY_DATASET: Record<PeopleDataset['base'], string> = {
-  voters: 'serve_agent_voters',
-  constituents: 'serve_agent_constituents',
-}
 
 // Sensitive scope: district_insights reads the constituent (voter) mart and its
 // rows flow back into the model context, so this scope runs Anthropic-only. The
@@ -303,12 +298,20 @@ export class BriefingAnnotationHandler implements ChatScopeHandler<BriefingChatC
     }
 
     if (this.databricks && ctx.districtFilters) {
+      // The Chief of Staff's table and column allowlist. Only the base is
+      // passed: district_insights reads the bare mart, never the contact
+      // overlay, so the overlay's columns stay off the allowlist.
+      const scope = buildConstituentDataScope(
+        ctx.districtFilters,
+        CONSTITUENT_TABLES_BY_DATASET[ctx.peopleDataset.base],
+        { base: ctx.peopleDataset.base },
+      )
       tools.district_insights = buildDistrictInsightsTool({
         provider: this.databricks,
-        allowedTables: new Set([
-          SERVE_AGENT_TABLE_BY_DATASET[ctx.peopleDataset.base],
-        ]),
-        mandatoryFilters: ctx.districtFilters,
+        allowedTables: scope.allowedTables,
+        allowedDimensions: scope.allowedDimensions,
+        forbiddenColumns: scope.forbiddenColumns,
+        mandatoryFilters: scope.mandatoryFilters,
         peopleDataset: ctx.peopleDataset,
       })
       tools.list_district_topics = buildDistrictTopicsTool()

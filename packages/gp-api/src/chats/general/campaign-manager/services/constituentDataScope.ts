@@ -1,4 +1,4 @@
-import type { MandatoryFilter } from '@/llm/tools/districtInsights.tool'
+import type { MandatoryFilter } from '@/llm/tools/constituentSql.validator'
 import type {
   AdvertisedDimension,
   ConstituentDataScope,

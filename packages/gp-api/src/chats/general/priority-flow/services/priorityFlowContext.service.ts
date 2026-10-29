@@ -14,7 +14,7 @@ import {
   type PriorityStatus,
 } from '@goodparty_org/contracts'
 import { PriorityStatusService } from '@/priorities/services/priorityStatus.service'
-import type { MandatoryFilter } from '@/llm/tools/districtInsights.tool'
+import type { MandatoryFilter } from '@/llm/tools/constituentSql.validator'
 import type { PeopleDataset } from '@/peopleDb/services/peopleDataset.service'
 import type { ReportBackSend } from '@/outreach/services/outreachReportBack.service'
 import type { PriorityAnchorSummary } from './priorityFlowOutreach.service'
