@@ -44,6 +44,7 @@ const makeUpload = (overrides: Partial<ContactUpload> = {}): ContactUpload => ({
   unchangedCount: 0,
   completedAt: null,
   failureReason: null,
+  failureKind: null,
   ...overrides,
 })
 
@@ -346,7 +347,10 @@ describe('<UploadDetail>', () => {
     let status: ContactUpload['status'] = 'failed'
     api.mock('GET /v1/contact-uploads/:id', () => ({
       status: 200,
-      data: makeUpload({ status }),
+      data: makeUpload({
+        status,
+        failureKind: status === 'failed' ? 'transient' : null,
+      }),
     }))
     mockRows()
     let retried = false
@@ -397,7 +401,7 @@ describe('<UploadDetail>', () => {
     expect(screen.queryByText('Processed rows')).not.toBeInTheDocument()
   })
 
-  it('says why a file could not be imported, without counts', async () => {
+  it('says why a file could not be imported, without counts or Try again', async () => {
     api.mock('GET /v1/contact-uploads/:id', {
       status: 200,
       data: makeUpload({
@@ -405,6 +409,7 @@ describe('<UploadDetail>', () => {
         rowCount: null,
         failureReason:
           'This file has no column named "Email". Import it again and pick columns it has.',
+        failureKind: 'file',
       }),
     })
 
@@ -419,6 +424,9 @@ describe('<UploadDetail>', () => {
       screen.queryByText('already in your constituents'),
     ).not.toBeInTheDocument()
     expect(screen.queryByText('Processed rows')).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Try again' }),
+    ).not.toBeInTheDocument()
   })
 
   it("refreshes the org's people once the upload finishes", async () => {

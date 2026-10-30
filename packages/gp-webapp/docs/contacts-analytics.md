@@ -31,7 +31,7 @@ ENG-10767 closed the remaining CRM gaps (all ready-gated on `isWinContextReady` 
 
 Source the `context` from `isWinContext` (single source of truth in `ContactsTableProvider`) — don't recompute Win-vs-Serve. New events: follow `.claude/skills/instrument-analytics-event/SKILL.md`.
 
-Import contacts (Serve, and Win campaigns with Pro, behind `serve-import-contacts`) fires three events from `crm/import/ImportContactsWizard.tsx`; gp-api owns `Contacts - Import Completed` and the review events.
+Import contacts (Serve, and Win campaigns with Pro, behind `serve-import-contacts`) fires three events from `crm/import/ImportContactsWizard.tsx`; gp-api owns `Contacts - Import Completed` and the review events (`Contacts - Ambiguous Row Resolved`, `Contacts - Match Changed`). Every import event, web and gp-api, carries `product: 'win' | 'serve'` (gp-api reads it from the org slug: `eo-` is Serve).
 
 - `Contacts - Import Started` — once a chosen file is read and passes the CSV, 25 MB, empty and 100,000-row checks, `{ sourceType: 'csv', rowCount }`. Choosing another file fires it again.
 - `Contacts - Import Consent Affirmed` — once `POST /v1/contact-uploads/:id/uploaded` accepts the upload, which is only sent with the consent box checked, `{ rowCount }`. Never when a presign, PUT or confirm request fails; it still fires for a file the queue job later rejects.

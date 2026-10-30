@@ -96,6 +96,7 @@ export default function ImportContactsWizard({
     onSuccess: async () => {
       trackEvent(EVENTS.Contacts.ImportConsentAffirmed, {
         rowCount: preview?.rowCount ?? null,
+        product: isWin ? 'win' : 'serve',
       })
       await queryClient.invalidateQueries({
         queryKey: contactUploadsKey(orgSlug),
@@ -165,6 +166,7 @@ export default function ImportContactsWizard({
     trackEvent(EVENTS.Contacts.ImportStarted, {
       sourceType: 'csv',
       rowCount: parsed.rowCount,
+      product: isWin ? 'win' : 'serve',
     })
   }
 
@@ -174,6 +176,7 @@ export default function ImportContactsWizard({
       trackEvent(EVENTS.Contacts.ImportAbandoned, {
         lastStep: step,
         rowCount: preview?.rowCount ?? null,
+        product: isWin ? 'win' : 'serve',
       })
     }
     onOpenChange(next)

@@ -38,6 +38,7 @@ const makeUpload = (overrides: Partial<ContactUpload> = {}): ContactUpload => ({
   unchangedCount: 0,
   completedAt: null,
   failureReason: null,
+  failureKind: null,
   ...overrides,
 })
 

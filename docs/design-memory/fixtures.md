@@ -37,8 +37,14 @@ this repo.
 
 ## Win (candidates)
 
-*(No standard fixture yet. Add one the first time a Win design needs it, and reuse
-it from then on.)*
+**Persona: Dana Ortiz.** Candidate for Maplewood City Council, Seat 3. Election
+day is Nov 3. She is the default Win user in every design and discussion. Use
+"Dana" in copy, and her full name only where a product would show it: name
+fields, account cards, an email's To line.
+
+**Her voter file:** Maplewood, 12,480 registered voters.
+
+Jared stays her candidate success contact, the same as for Serve.
 
 ## Scale
 

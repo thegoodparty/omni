@@ -6,6 +6,13 @@ enum ContactUploadStatus {
   failed
 }
 
+/// file: the file itself cannot import, so retrying it fails the same way.
+/// transient: the job did not start or finish; a retry can succeed.
+enum ContactUploadFailureKind {
+  file
+  transient
+}
+
 enum ContactUploadMatchOutcome {
   pending
   matched
@@ -64,6 +71,7 @@ model ContactUpload {
   unchangedCount       Int                  @default(0) @map("unchanged_count")
   completedAt          DateTime?            @map("completed_at")
   failureReason        String?              @map("failure_reason")
+  failureKind          ContactUploadFailureKind? @map("failure_kind")
   matches              ContactUploadMatch[]
 
   @@index([organizationSlug, createdAt])

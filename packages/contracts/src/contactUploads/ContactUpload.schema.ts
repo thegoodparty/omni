@@ -64,6 +64,13 @@ export const ContactUploadStatusSchema = z.enum([
 ])
 export type ContactUploadStatus = z.infer<typeof ContactUploadStatusSchema>
 
+// file: the file cannot import, so a retry fails the same way. transient: the
+// job did not start or finish, so a retry can succeed.
+export const ContactUploadFailureKindSchema = z.enum(['file', 'transient'])
+export type ContactUploadFailureKind = z.infer<
+  typeof ContactUploadFailureKindSchema
+>
+
 export const ContactUploadMatchOutcomeSchema = z.enum([
   'pending',
   'matched',
@@ -98,6 +105,7 @@ export const ContactUploadSchema = z.object({
   unchangedCount: z.number(),
   completedAt: z.string().nullable(),
   failureReason: z.string().nullable(),
+  failureKind: ContactUploadFailureKindSchema.nullable(),
 })
 export type ContactUpload = z.infer<typeof ContactUploadSchema>
 

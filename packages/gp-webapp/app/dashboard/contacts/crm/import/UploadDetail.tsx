@@ -115,17 +115,19 @@ export const UploadDetail = ({
               ? COPY.detail.retryFailed
               : (upload.failureReason ?? COPY.detail.failed)}
           </AlertDescription>
-          <AlertAction>
-            <Button
-              type="button"
-              variant="alertFilled"
-              size="small"
-              onClick={() => retry.mutate()}
-              loading={retry.isPending}
-            >
-              {COPY.detail.tryAgain}
-            </Button>
-          </AlertAction>
+          {upload.failureKind !== 'file' && (
+            <AlertAction>
+              <Button
+                type="button"
+                variant="alertFilled"
+                size="small"
+                onClick={() => retry.mutate()}
+                loading={retry.isPending}
+              >
+                {COPY.detail.tryAgain}
+              </Button>
+            </AlertAction>
+          )}
         </Alert>
       )}
 
