@@ -53,6 +53,11 @@ const ROUTES: { controller: string; method: 'get' | 'post'; url: string }[] = [
     method: 'get',
     url: '/vendor-mocks/records',
   },
+  {
+    controller: 'TestFixturesVendorMocksController',
+    method: 'post',
+    url: '/vendor-mocks/people-db/email-audience',
+  },
 ]
 
 const call = (
@@ -64,7 +69,7 @@ const call = (
     : service.client.post(`/v1/test-fixtures${url}`, {}, config)
 
 describe('NonProdDeployGuard on every test-fixture controller', () => {
-  describe.each(ROUTES)('$controller', (route) => {
+  describe.each(ROUTES)('$controller $url', (route) => {
     it('answers 404 on a prod deploy, before any auth work', async () => {
       envNonProd.value = false
       expect((await call(route)).status).toBe(HttpStatus.NOT_FOUND)
@@ -83,7 +88,7 @@ describe('NonProdDeployGuard on every test-fixture controller', () => {
     const files = readdirSync(__dirname).filter((f) =>
       f.endsWith('.controller.ts'),
     )
-    expect(files.length).toBe(ROUTES.length)
+    expect(files.length).toBe(new Set(ROUTES.map((r) => r.controller)).size)
 
     const controllers = (
       await Promise.all(files.map((f) => import(join(__dirname, f))))
@@ -93,7 +98,7 @@ describe('NonProdDeployGuard on every test-fixture controller', () => {
       ),
     )
     expect(controllers.map(([name]) => name).sort()).toEqual(
-      ROUTES.map((r) => r.controller).sort(),
+      [...new Set(ROUTES.map((r) => r.controller))].sort(),
     )
 
     for (const [name, controller] of controllers) {
