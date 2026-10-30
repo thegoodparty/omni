@@ -110,7 +110,7 @@ the same cells. Each person's yes share rides in on an inlined id list
 shared with others of the same value, so only sums come back.
 `buildThemeCellsSql` (op `theme-cells`) counts each of a priority's themes'
 people in the same cells, one column per theme, for the results page's
-"enough voices" label.
+signal label (Strong, Some or Low signal).
 `buildRespondentCellsSql` counts people the same way plus L2 tenure,
 `buildDistrictTractAdultsSql` sums adults per tract,
 `buildPoolCellsSql` counts everyone a filter matches in the district's
