@@ -19,7 +19,11 @@ import {
   Prisma,
 } from '../../generated/prisma'
 import { EmailSendScope } from '../emailOutreach.types'
-import { emailContentOf } from '../util/emailContent.util'
+import {
+  emailContentOf,
+  fieldsContent,
+  previewableContentOf,
+} from '../util/emailContent.util'
 import {
   emailPriceCents,
   recipientCapFor,
@@ -248,16 +252,23 @@ export class OutreachEmailService extends createPrismaBase(
       }
     }
     assertEmailImageUrl(scope, input.imageUrl)
+    const fields = {
+      headline: input.headline ?? null,
+      imageUrl: input.imageUrl ?? null,
+      buttonLabel: input.buttonLabel ?? null,
+      buttonUrl: input.buttonUrl ?? null,
+    }
+    // Fields are sent as blocks, so the block rules (heading and paragraph
+    // length, merge tags, no HTML) are checked here rather than first at
+    // confirm.
+    previewableContentOf(fieldsContent({ ...input, ...fields }))
     return {
       goal: input.goal,
       layout: input.layout,
       theme: input.theme,
       subject: input.subject,
-      headline: input.headline ?? null,
       body: input.body,
-      imageUrl: input.imageUrl ?? null,
-      buttonLabel: input.buttonLabel ?? null,
-      buttonUrl: input.buttonUrl ?? null,
+      ...fields,
       content: Prisma.DbNull,
       paidForBy: scope.paidForBy,
     }

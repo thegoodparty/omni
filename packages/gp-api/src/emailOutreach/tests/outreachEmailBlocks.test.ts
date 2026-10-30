@@ -160,6 +160,29 @@ describe('saving a block draft', () => {
     expect(res.status).toBe(HttpStatus.CREATED)
   })
 
+  it('checks an old-field draft against the block rules when it is saved', async () => {
+    const fields = {
+      goal: 'g',
+      layout: 'newsletter',
+      theme: 'classic_blue',
+      subject: 'Town hall',
+      body: 'Join us.',
+    }
+    const longHeadline = await post(
+      '/v1/outreach/email',
+      { ...fields, headline: 'a'.repeat(130), body: 'One.\n\nTwo.' },
+      winHeaders(),
+    )
+    expect(longHeadline.status).toBe(HttpStatus.BAD_REQUEST)
+    const unknownTag = await post(
+      '/v1/outreach/email',
+      { ...fields, body: 'Hi {{city}}' },
+      winHeaders(),
+    )
+    expect(unknownTag.status).toBe(HttpStatus.BAD_REQUEST)
+    expect(unknownTag.data.message).toContain('{{first_name}}')
+  })
+
   it('maps an old-field draft to blocks, and clears the blocks when saved with fields again', async () => {
     const fields = {
       goal: 'g',
