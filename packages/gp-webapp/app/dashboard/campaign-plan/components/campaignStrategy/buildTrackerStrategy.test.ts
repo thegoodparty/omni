@@ -484,7 +484,7 @@ describe('buildTrackerStrategy with a task put off', () => {
   it('brings it back as the next task once its date arrives', () => {
     const data = buildTrackerStrategy([putOff], {
       electionDate: null,
-      today: startOfDay(new Date('2026-01-18')),
+      today: new Date(2026, 0, 18),
     })
     expect(nextIds(data)).toEqual(['put-off'])
   })
