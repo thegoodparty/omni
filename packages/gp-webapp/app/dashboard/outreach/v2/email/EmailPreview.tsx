@@ -73,7 +73,7 @@ export const EmailPreview = ({
 
   const fit = () => {
     const doc = frame.current?.contentDocument
-    if (doc?.body) setHeight(doc.documentElement.scrollHeight)
+    if (doc?.body) setHeight(doc.body.scrollHeight)
   }
 
   return (

@@ -29,9 +29,10 @@ export class OutreachEmailPreviewService {
     input: EmailPreviewRequest,
   ): Promise<EmailPreviewResponse> {
     assertEmailImageUrl(scope, input.imageUrl)
+    const buttonLabel = input.buttonLabel?.trim()
     const typedButton =
-      input.buttonLabel?.trim() && input.buttonUrl
-        ? { label: input.buttonLabel, url: input.buttonUrl }
+      buttonLabel && input.buttonUrl
+        ? { label: buttonLabel, url: input.buttonUrl }
         : null
     const button =
       typedButton ??

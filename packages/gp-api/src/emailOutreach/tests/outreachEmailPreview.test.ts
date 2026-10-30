@@ -147,6 +147,15 @@ describe('POST /v1/outreach/email/preview', () => {
     expect(res.data.html).toContain(imageUrl)
   })
 
+  it('keeps typed braces literal and fills only the merge tags', async () => {
+    const { data } = await previewWin(
+      previewBody({ body: 'Hi {{first_name}} and {{unsubscribe_url}} {{x}}' }),
+    )
+    expect(data.html).toContain('Hi Alex and')
+    expect(data.html).toContain('&#123;&#123;unsubscribe_url')
+    expect(data.html).not.toContain('{{x}}')
+  })
+
   it('rejects unknown fields and bad layouts', async () => {
     expect((await previewWin(previewBody({ goal: 'extra' }))).status).toBe(
       HttpStatus.BAD_REQUEST,
@@ -183,6 +192,12 @@ describe('POST /v1/outreach/serve/email/preview', () => {
     expect(win.data.html).toContain('Paid for by')
     expect(serve.data.html).not.toContain('Paid for by')
     expect(serve.data.html).not.toBe(win.data.html)
+  })
+
+  it('rejects an image presigned for another organization', async () => {
+    const imageUrl = `https://${ASSET_DOMAIN}/email-images/${winSlug}/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa.png`
+    const res = await previewServe(previewBody({ imageUrl }))
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
   })
 
   it('fills the recipient variables', async () => {
