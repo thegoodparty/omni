@@ -9,7 +9,7 @@ import {
   AUTH_PROVIDER_TOKEN,
   AuthProvider,
 } from '@/authentication/interfaces/auth-provider.interface'
-import { signTestM2MJwt, useTestService } from '@/test-service'
+import { useTestService } from '@/test-service'
 
 const service = useTestService()
 
@@ -106,7 +106,6 @@ describe('Vercel OIDC service readers', () => {
     )
 
     expect(res.status).toBe(200)
-    expect(authProvider.verifyM2MJwt).not.toHaveBeenCalled()
     expect(authProvider.verifySessionToken).not.toHaveBeenCalled()
   })
 
@@ -166,15 +165,6 @@ describe('Vercel OIDC service readers', () => {
     )
 
     expect(res.status).toBe(403)
-  })
-
-  it('still serves a Clerk JWT-format M2M token', async () => {
-    const res = await service.client.get(
-      SERVICE_READ_ROUTE,
-      withBearer(signTestM2MJwt()),
-    )
-
-    expect(res.status).toBe(200)
   })
 
   it('does not let a Vercel OIDC token through AdminOrM2MGuard', async () => {

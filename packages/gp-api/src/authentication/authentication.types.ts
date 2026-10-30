@@ -9,10 +9,7 @@ export interface IncomingRequest extends Request {
   actorUser?: User
   actorSub?: string
   m2mToken?: VerifiedM2MToken
-  serviceReader?:
-    | VerifiedM2MToken
-    | VercelOidcServiceReader
-    | GithubOidcServiceReader
+  serviceReader?: VercelOidcServiceReader | GithubOidcServiceReader
   agentToken?: boolean
   organizationRole?: OrganizationRole
 }

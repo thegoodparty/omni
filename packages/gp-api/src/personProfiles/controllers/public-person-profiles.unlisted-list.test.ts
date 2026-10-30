@@ -1,7 +1,9 @@
-import { signTestM2MJwt, useTestService } from '@/test-service'
+import { useTestService } from '@/test-service'
+import { signTestVercelOidcToken, useTestVercelOidc } from '@/test-vercel-oidc'
 import { describe, expect, it, vi } from 'vitest'
 
 const service = useTestService()
+useTestVercelOidc()
 
 const REMOVED_PERSON_ID = '55555555-5555-4555-8555-555555555555'
 const SECOND_REMOVED_PERSON_ID = '66666666-6666-4666-8666-666666666666'
@@ -10,10 +12,10 @@ const LIVE_PERSON_ID = '88888888-8888-4888-8888-888888888888'
 
 const UNLISTED_LIST = '/v1/public-person-profiles/unlisted'
 
-// The feed is ServiceReadGuard-gated; gp-marketing reads it with a JWT-format
-// M2M token, so the tests do too.
+// The feed is ServiceReadGuard-gated; gp-marketing reads it with a Vercel
+// OIDC token, so the tests do too.
 const asServiceReader = () => ({
-  headers: { Authorization: `Bearer ${signTestM2MJwt()}` },
+  headers: { Authorization: `Bearer ${signTestVercelOidcToken()}` },
 })
 
 const seedRemoval = (personId: string, note?: string) =>

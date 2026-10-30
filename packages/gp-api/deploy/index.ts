@@ -676,11 +676,13 @@ jwIDAQAB
       // Vercel deployments whose OIDC token makes them a service reader, as
       // project_id:environment (gp-marketing, candidate-sites). Not secret:
       // the signed token is the credential. Preview and develop deployments
-      // of both projects read dev gp-api; production reads prod.
+      // of both projects read dev gp-api; production reads prod. Dev and
+      // preview also take gp-marketing's development token, the one
+      // `vercel env pull` hands a local `next dev`.
       VERCEL_OIDC_ALLOWED_PROJECTS: select({
         preview:
-          'prj_xUbQGrErwISW8pqTZtKzk9wN5gFc:preview,prj_PFN2Upwy18Fg5jjF0BTD3vcEq5eO:preview',
-        dev: 'prj_xUbQGrErwISW8pqTZtKzk9wN5gFc:preview,prj_PFN2Upwy18Fg5jjF0BTD3vcEq5eO:preview',
+          'prj_xUbQGrErwISW8pqTZtKzk9wN5gFc:preview,prj_xUbQGrErwISW8pqTZtKzk9wN5gFc:development,prj_PFN2Upwy18Fg5jjF0BTD3vcEq5eO:preview',
+        dev: 'prj_xUbQGrErwISW8pqTZtKzk9wN5gFc:preview,prj_xUbQGrErwISW8pqTZtKzk9wN5gFc:development,prj_PFN2Upwy18Fg5jjF0BTD3vcEq5eO:preview',
         prod: 'prj_xUbQGrErwISW8pqTZtKzk9wN5gFc:production,prj_PFN2Upwy18Fg5jjF0BTD3vcEq5eO:production',
       }),
       // GitHub Actions workflows whose OIDC token (audience gp-api) makes them a

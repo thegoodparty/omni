@@ -8,18 +8,19 @@ import { PersonsService } from '@/electionDb/persons/persons.service'
 import { PlacesService } from '@/electionDb/places/places.service'
 import { PositionsService } from '@/electionDb/positions/positions.service'
 import { RacesService } from '@/electionDb/races/races.service'
-import { signTestM2MJwt, useTestService } from '@/test-service'
+import { useTestService } from '@/test-service'
+import { signTestVercelOidcToken, useTestVercelOidc } from '@/test-vercel-oidc'
 
 const service = useTestService()
+useTestVercelOidc()
 
 const PERSON_ID = '11111111-1111-4111-8111-111111111111'
 const POSITION_ID = '22222222-2222-4222-8222-222222222222'
 const RETIRED_ID = '33333333-3333-4333-8333-333333333333'
 
-// The ten routes gp-marketing reads. It authenticates with one long-lived
-// JWT-format machine token, which SessionGuard only ever turns into
-// `serviceReader`, so these must accept a service reader, not just an
-// opaque mt_ token.
+// The ten routes gp-marketing reads. It authenticates with a Vercel OIDC
+// token, which SessionGuard only ever turns into `serviceReader`, so these
+// must accept a service reader, not just an opaque mt_ token.
 const ROUTES = [
   {
     path: '/v1/elections/candidacies',
@@ -192,11 +193,11 @@ describe('election data routes read by gp-marketing', () => {
   )
 
   it.each(ROUTES)(
-    'serves $path to a JWT-format machine token',
+    'serves $path to a Vercel OIDC token',
     async ({ path, params, found, forwarded, body }) => {
       const res = await service.client.get(path, {
         params,
-        ...withBearer(signTestM2MJwt()),
+        ...withBearer(signTestVercelOidcToken()),
       })
       expect(res.status).toBe(found ? 200 : 404)
       expect(res.data).toEqual(body)
@@ -209,7 +210,7 @@ describe('election data routes read by gp-marketing', () => {
   it('narrows a person merge to the forwarding fields', async () => {
     const res = await service.client.get(
       `/v1/elections/person-merges/${RETIRED_ID}`,
-      withBearer(signTestM2MJwt()),
+      withBearer(signTestVercelOidcToken()),
     )
     expect(res.data).toEqual({
       retiredId: RETIRED_ID,
