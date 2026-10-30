@@ -870,6 +870,21 @@ jwIDAQAB
         Action: ['s3:ListBucket', 's3:GetBucketLocation'],
         Resource: taskRoleBucketArns,
       },
+      // The contact uploads bucket is versioned and nothing in it expires, so
+      // deleting an org or an abandoned upload has to list and delete every
+      // version of its files.
+      {
+        Effect: 'Allow',
+        Action: ['s3:ListBucketVersions'],
+        Resource: [pulumi.interpolate`arn:aws:s3:::${contactUploadsBucketName}`],
+      },
+      {
+        Effect: 'Allow',
+        Action: ['s3:DeleteObjectVersion'],
+        Resource: [
+          pulumi.interpolate`arn:aws:s3:::${contactUploadsBucketName}/*`,
+        ],
+      },
       {
         Effect: 'Allow',
         Action: ['s3:GetObject'],

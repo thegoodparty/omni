@@ -19,6 +19,7 @@ import { CrmUsersService } from './crmUsers.service'
 import { CronLockService } from '@/cron/services/cronLock.service'
 import { UserAvatarService } from './userAvatar.service'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
+import { S3Service } from '@/vendors/aws/services/s3.service'
 import { UserRole } from '../../generated/prisma'
 import { subDays, subHours } from 'date-fns'
 import { recordClerkUserCounts } from '../util/clerkUsers.metrics'
@@ -2576,6 +2577,90 @@ describe('UsersService', () => {
         query: 'qa-',
         offset: 0,
         orderBy: '+created_at',
+      })
+    })
+
+    describe('contact upload files', () => {
+      const seedStaleTestUserWithUpload = async () => {
+        const user = await service.prisma.user.create({
+          data: {
+            email: `uploads-${randomUUID()}@test.goodparty.org`,
+            createdAt: subDays(new Date(), 2),
+          },
+        })
+        const slug = `eo-${randomUUID()}`
+        await service.prisma.organization.create({
+          data: { slug, ownerId: user.id },
+        })
+        const fileKey = `${slug}/${randomUUID()}.csv`
+        await service.prisma.contactUpload.create({
+          data: {
+            organizationSlug: slug,
+            name: 'Newsletter',
+            fileName: 'people.csv',
+            fileKey,
+            firstNameColumn: 'First',
+            lastNameColumn: 'Last',
+            consentAffirmedAt: new Date(),
+          },
+        })
+        return { user, fileKey }
+      }
+
+      beforeEach(() => {
+        vi.spyOn(clerkClient.users, 'getUserList').mockResolvedValue({
+          data: [],
+          totalCount: 0,
+        } as Awaited<ReturnType<typeof clerkClient.users.getUserList>>)
+      })
+
+      it('deletes every version of a swept user\'s upload files', async () => {
+        const { user, fileKey } = await seedStaleTestUserWithUpload()
+        const purge = vi
+          .spyOn(service.app.get(S3Service), 'deleteAllObjectVersions')
+          .mockResolvedValue(1)
+
+        await usersService.deleteTestUsers()
+
+        expect(purge).toHaveBeenCalledWith(
+          process.env.CONTACT_UPLOADS_BUCKET,
+          [fileKey],
+        )
+        expect(
+          await service.prisma.user.findUnique({ where: { id: user.id } }),
+        ).toBeNull()
+      })
+
+      it('keeps a user whose files did not delete, for the next pass', async () => {
+        const failing = await seedStaleTestUserWithUpload()
+        const clean = await seedStaleTestUserWithUpload()
+        vi.spyOn(
+          service.app.get(S3Service),
+          'deleteAllObjectVersions',
+        ).mockImplementation(async (_bucket, keys) => {
+          if (keys.includes(failing.fileKey)) {
+            throw new BadGatewayException('Error communicating with AWS')
+          }
+          return keys.length
+        })
+
+        await usersService.deleteTestUsers()
+
+        expect(
+          await service.prisma.user.findUnique({
+            where: { id: failing.user.id },
+          }),
+        ).not.toBeNull()
+        expect(
+          await service.prisma.contactUpload.count({
+            where: { fileKey: failing.fileKey },
+          }),
+        ).toBe(1)
+        expect(
+          await service.prisma.user.findUnique({
+            where: { id: clean.user.id },
+          }),
+        ).toBeNull()
       })
     })
   })

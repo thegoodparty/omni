@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { HttpStatus } from '@nestjs/common'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
@@ -7,6 +8,7 @@ import {
 } from './judgeChatFixture/seed'
 import { ElectionsService } from '@/elections/services/elections.service'
 import { useTestService } from '@/test-service'
+import { S3Service } from '@/vendors/aws/services/s3.service'
 import {
   appEnvOverrides,
   useAppEnvOverrides,
@@ -276,6 +278,32 @@ describe('DELETE /v1/test-fixtures/judge-chat-cases/:organizationSlug', () => {
       annotations: 0,
       notes: 0,
     })
+  })
+
+  it('deletes every version of the fixture org\'s contact upload files', async () => {
+    const { data } = await setUp(BRIEFING_CASE)
+    const fileKey = `${data.organizationSlug}/${randomUUID()}.csv`
+    await service.prisma.contactUpload.create({
+      data: {
+        organizationSlug: data.organizationSlug,
+        name: 'Newsletter',
+        fileName: 'people.csv',
+        fileKey,
+        firstNameColumn: 'First',
+        lastNameColumn: 'Last',
+        consentAffirmedAt: new Date(),
+      },
+    })
+    const purge = vi
+      .spyOn(service.app.get(S3Service), 'deleteAllObjectVersions')
+      .mockResolvedValue(1)
+
+    const res = await tearDown(data.organizationSlug)
+
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(purge).toHaveBeenCalledWith(process.env.CONTACT_UPLOADS_BUCKET, [
+      fileKey,
+    ])
   })
 
   it('leaves a second case alone while removing the first', async () => {
