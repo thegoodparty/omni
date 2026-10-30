@@ -1,58 +1,72 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
-  EMAIL_BODY_MAX_LENGTH,
-  EMAIL_BUTTON_LABEL_MAX_LENGTH,
-  EMAIL_HEADLINE_MAX_LENGTH,
-  EMAIL_LAYOUTS,
-  EMAIL_SUBJECT_MAX_LENGTH,
-  EMAIL_THEMES,
-  EmailLayoutKeySchema,
-  EmailThemeKeySchema,
   EMAIL_IMAGE_ALLOWED_MIME_TYPES,
   EMAIL_IMAGE_MAX_BYTES,
-  MERGE_TAGS,
-  mergeTagToken,
+  EMAIL_LAYOUT_PRESETS,
+  EMAIL_SUBJECT_MAX_LENGTH,
+  EMAIL_THEMES,
+  EmailLayoutPresetKeySchema,
+  EmailThemeKeySchema,
   SOCIAL_TONE_VALUES,
-  type EmailLayoutKey,
+  type EmailBlockDraft,
+  type EmailLayoutPresetKey,
   type EmailThemeKey,
   type SocialTone,
 } from '@goodparty_org/contracts'
 import {
+  Alert,
+  AlertAction,
+  AlertDescription,
   Button,
-  Card,
   cn,
   FilterPill,
   FilterPillGroup,
-  IconButton,
   Input,
   Label,
-  seamlessFieldHost,
-  TokenField,
   type TokenFieldRef,
-  type TokenSpec,
 } from '@styleguide'
-import {
-  Loader2Icon,
-  MicIcon,
-  SquareIcon,
-} from '@styleguide/components/ui/icons'
+import { PlusIcon } from '@styleguide/components/ui/icons'
 import {
   type DictationStatus,
   useDictation,
 } from 'app/dashboard/shared/dictation/useDictation'
 import { Intro } from '../social/Intro'
+import { EmailBlockCard, blockLabel } from './EmailBlockCard'
 import { EmailPreview } from './EmailPreview'
 import { apiErrorMessage, draftEmailWithAi, uploadEmailImage } from './emailApi'
-import type { ComposeIssues, EmailComposeState } from './emailFlow.util'
+import {
+  addBlock,
+  addableKinds,
+  applyImprovedDraft,
+  canMove,
+  canRemove,
+  editorIssues,
+  fillFromAiDraft,
+  isUntouched,
+  moveBlock,
+  switchLayout,
+  toAiFields,
+  toContent,
+  type AddableKind,
+  type BlockError,
+  type EmailComposeState,
+} from './emailBlocks.util'
 import type { EmailSurface } from './emailSurface'
-
-const FIRST_NAME_TAG = MERGE_TAGS[0]
 
 const TONE_LABELS: Record<SocialTone, string> = {
   warm: 'Warm',
   direct: 'Direct',
   urgent: 'Urgent',
   friendly: 'Friendly',
+}
+
+const ADD_LABELS: Record<AddableKind, string> = {
+  headline: 'Headline',
+  subheading: 'Subheading',
+  paragraph: 'Paragraph',
+  image: 'Photo',
+  button: 'Button',
+  divider: 'Divider',
 }
 
 type ImageType = (typeof EMAIL_IMAGE_ALLOWED_MIME_TYPES)[number]
@@ -66,88 +80,123 @@ const ACTIVE_DICTATION: ReadonlySet<DictationStatus> = new Set([
   'stopping',
 ])
 
+const snapshot = (state: EmailComposeState): string =>
+  JSON.stringify(toContent(state))
+
+interface Notice {
+  text: string
+  previous: EmailComposeState
+}
+
 interface EmailComposeStepProps {
   surface: EmailSurface
   value: EmailComposeState
   onChange: (
     next: EmailComposeState | ((prev: EmailComposeState) => EmailComposeState),
   ) => void
-  issues: ComposeIssues
   showIssues: boolean
   goal: string
+  // A block confirm or the test send refused, shown on its card until the
+  // next edit.
+  serverError?: BlockError | null
 }
 
 export const EmailComposeStep = ({
   surface,
   value,
   onChange,
-  issues,
   showIssues,
   goal,
+  serverError = null,
 }: EmailComposeStepProps) => {
   const [tone, setTone] = useState<SocialTone>('warm')
   const [aiBusy, setAiBusy] = useState(false)
   const [aiError, setAiError] = useState<string | null>(null)
-  const [imageBusy, setImageBusy] = useState(false)
-  const [imageError, setImageError] = useState<string | null>(null)
-  const fieldRef = useRef<TokenFieldRef>(null)
-  const set = <K extends keyof EmailComposeState>(
-    key: K,
-    next: EmailComposeState[K],
-  ) => onChange({ ...value, [key]: next })
+  const [confirmRegenerate, setConfirmRegenerate] = useState(false)
+  const [notice, setNotice] = useState<Notice | null>(null)
+  const [imageBusyId, setImageBusyId] = useState<string | null>(null)
+  const [imageError, setImageError] = useState<{
+    id: string
+    message: string
+  } | null>(null)
+  const latest = useRef(value)
+  latest.current = value
+  // The content as the starter blocks or the last AI draft left it, so
+  // Regenerate knows whether it would throw away the user's own edits.
+  // Content already written when compose opens is the user's own.
+  const pristine = useRef(isUntouched(value) ? snapshot(value) : null)
 
+  const edit = (next: EmailComposeState) => {
+    setNotice(null)
+    onChange(next)
+  }
+
+  const setBlock = (index: number, block: EmailBlockDraft) =>
+    edit({
+      ...value,
+      blocks: value.blocks.map((entry, i) =>
+        i === index ? { ...entry, block } : entry,
+      ),
+    })
+
+  const fields = useRef(new Map<string, TokenFieldRef>())
+  const [dictatingId, setDictatingId] = useState<string | null>(null)
+  const dictatingRef = useRef<string | null>(null)
+  dictatingRef.current = dictatingId
   const dictation = useDictation({
     analyticsLabel: 'outreach-email-compose',
     onFinalTranscript: (text) => {
-      if (text) fieldRef.current?.insertText(` ${text}`)
+      const target = dictatingRef.current
+      if (text && target) fields.current.get(target)?.insertText(` ${text}`)
     },
   })
-  const isRecording = dictation.status === 'recording'
-  const dictationBusy = ACTIVE_DICTATION.has(dictation.status) && !isRecording
-  const toggleDictation = useCallback(async () => {
-    if (ACTIVE_DICTATION.has(dictation.status)) await dictation.stop()
-    else await dictation.start()
-  }, [dictation])
-
-  const tokens: TokenSpec[] = [
-    {
-      id: FIRST_NAME_TAG.id,
-      label: FIRST_NAME_TAG.label,
-      text: mergeTagToken(FIRST_NAME_TAG.id, 'email'),
+  const dictationActive = ACTIVE_DICTATION.has(dictation.status)
+  const toggleDictation = useCallback(
+    async (id: string) => {
+      if (ACTIVE_DICTATION.has(dictation.status)) {
+        await dictation.stop()
+        return
+      }
+      setDictatingId(id)
+      await dictation.start()
     },
-  ]
+    [dictation],
+  )
 
-  const runDraft = async (improve: boolean, fillEmptyOnly = false) => {
+  const runDraft = async (mode: 'auto' | 'regenerate' | 'improve') => {
     setAiBusy(true)
     setAiError(null)
+    setConfirmRegenerate(false)
+    const before = latest.current
     try {
       const draft = await draftEmailWithAi(surface.isServe, {
         goal,
         tone,
-        layout: value.layout,
-        ...(improve
-          ? {
-              currentDraft: {
-                subject: value.subject.trim(),
-                headline: value.headline.trim() || null,
-                body: value.body.trim(),
-                buttonLabel: value.buttonLabel.trim() || null,
-              },
-            }
-          : {}),
+        layout: before.layout,
+        theme: before.theme,
+        ...(mode === 'improve' ? { currentDraft: toAiFields(before) } : {}),
       })
-      onChange((prev) =>
-        fillEmptyOnly &&
-        (prev.subject.trim() || prev.headline.trim() || prev.body.trim())
-          ? prev
-          : {
-              ...prev,
-              subject: draft.subject,
-              headline: draft.headline ?? '',
-              body: draft.body,
-              buttonLabel: draft.buttonLabel ?? prev.buttonLabel,
-            },
-      )
+      const current = latest.current
+      if (mode === 'auto') {
+        if (!isUntouched(current)) return
+        const next = fillFromAiDraft(current, draft.content)
+        pristine.current = snapshot(next)
+        onChange(next)
+        return
+      }
+      const next =
+        mode === 'improve'
+          ? applyImprovedDraft(current, draft)
+          : fillFromAiDraft(current, draft.content)
+      pristine.current = snapshot(next)
+      onChange(next)
+      setNotice({
+        text:
+          mode === 'improve'
+            ? 'Your email was improved with AI.'
+            : 'Your email was replaced with a new draft.',
+        previous: current,
+      })
     } catch (e) {
       setAiError(apiErrorMessage(e))
     } finally {
@@ -159,53 +208,116 @@ export const EmailComposeStep = ({
   useEffect(() => {
     if (autoDraftedRef.current || !goal) return
     autoDraftedRef.current = true
-    if (value.subject.trim() || value.body.trim()) return
-    void runDraft(false, true)
+    if (!isUntouched(value)) return
+    void runDraft('auto')
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const pickImage = async (file: File | undefined) => {
+  const regenerate = () => {
+    const edited = !isUntouched(value) && snapshot(value) !== pristine.current
+    if (edited) setConfirmRegenerate(true)
+    else void runDraft('regenerate')
+  }
+
+  const pickImage = async (id: string, file: File | undefined) => {
     if (!file) return
     const type = imageType(file)
     if (!type) {
-      setImageError('Use a JPG, PNG or GIF.')
+      setImageError({ id, message: 'Use a JPG, PNG or GIF.' })
       return
     }
     if (file.size > EMAIL_IMAGE_MAX_BYTES) {
-      setImageError(
-        `Use an image under ${EMAIL_IMAGE_MAX_BYTES / 1_000_000} MB.`,
-      )
+      setImageError({
+        id,
+        message: `Use an image under ${EMAIL_IMAGE_MAX_BYTES / 1_000_000} MB.`,
+      })
       return
     }
-    setImageBusy(true)
+    setImageBusyId(id)
     setImageError(null)
     try {
-      const imageUrl = await uploadEmailImage(surface.isServe, file, type)
-      onChange((prev) => ({ ...prev, imageUrl }))
+      const url = await uploadEmailImage(surface.isServe, file, type)
+      setNotice(null)
+      onChange((prev) => ({
+        ...prev,
+        blocks: prev.blocks.map((entry) =>
+          entry.id === id && entry.block.type === 'image'
+            ? { ...entry, block: { ...entry.block, url } }
+            : entry,
+        ),
+      }))
     } catch (e) {
-      setImageError(apiErrorMessage(e))
+      setImageError({ id, message: apiErrorMessage(e) })
     } finally {
-      setImageBusy(false)
+      setImageBusyId(null)
     }
   }
 
-  const hasDraft = value.subject.trim() !== '' && value.body.trim() !== ''
+  const pickLayout = (layout: EmailLayoutPresetKey) => {
+    if (layout === value.layout) return
+    const { state, changes } = switchLayout(value, layout)
+    if (isUntouched(value)) pristine.current = snapshot(state)
+    onChange(state)
+    setNotice(
+      changes.length > 0
+        ? {
+            text: `Switched to ${EMAIL_LAYOUT_PRESETS[layout].label}. ${changes.join(' ')}`,
+            previous: value,
+          }
+        : null,
+    )
+  }
 
-  const pickLayout = (layout: EmailLayoutKey) =>
-    onChange({
-      ...value,
-      layout,
-      theme: EMAIL_LAYOUTS[layout].defaultTheme,
-    })
+  const issues = editorIssues(value, showIssues)
+  const hasText = !isUntouched(value)
+  const aiFields = toAiFields(value)
+  // The draft endpoint polishes a subject and some body text, so Improve
+  // waits for both.
+  const canImprove = aiFields.subject !== '' && aiFields.body !== ''
+  const kinds = addableKinds(value.layout, value.blocks)
+  const labels = value.blocks.map(({ block }) => blockLabel(block))
+  const titles = labels.map((label, i) => {
+    const same = labels.filter((l) => l === label).length
+    const ordinal = labels.slice(0, i + 1).filter((l) => l === label).length
+    return same > 1 ? `${label} ${ordinal}` : label
+  })
+  const emptyButtonLink = value.blocks.some(
+    ({ block }) => block.type === 'button' && !block.url.trim(),
+  )
 
   return (
     <div className="space-y-6">
       <Intro title={surface.compose.title} body={surface.compose.caption} />
 
+      <div className="space-y-2">
+        <span className="block text-sm font-medium text-foreground">
+          Layout
+        </span>
+        <FilterPillGroup
+          type="single"
+          value={value.layout}
+          aria-label="Layout"
+          onValueChange={(next) => {
+            const parsed = EmailLayoutPresetKeySchema.safeParse(next)
+            if (parsed.success) pickLayout(parsed.data)
+          }}
+        >
+          {EmailLayoutPresetKeySchema.options.map((key) => (
+            <FilterPill key={key} value={key}>
+              {EMAIL_LAYOUT_PRESETS[key].label}
+            </FilterPill>
+          ))}
+        </FilterPillGroup>
+        <p className="text-sm text-muted-foreground">
+          {EMAIL_LAYOUT_PRESETS[value.layout].description}
+        </p>
+      </div>
+
       <div className="space-y-3" data-testid="email-ai-draft">
         <FilterPillGroup
           type="single"
           value={tone}
+          aria-label="Tone"
           onValueChange={(next) => next && setTone(next as SocialTone)}
         >
           {SOCIAL_TONE_VALUES.map((t) => (
@@ -221,28 +333,72 @@ export const EmailComposeStep = ({
             variant="outline"
             loading={aiBusy}
             disabled={!goal}
-            onClick={() => {
-              void runDraft(false)
-            }}
+            onClick={regenerate}
           >
-            {hasDraft ? 'Regenerate' : 'Draft it with AI'}
+            {hasText ? 'Regenerate' : 'Draft it with AI'}
           </Button>
-          {hasDraft && (
+          {hasText && (
             <Button
               type="button"
               size="small"
               variant="outline"
               loading={aiBusy}
+              disabled={!goal || !canImprove}
               onClick={() => {
-                void runDraft(true)
+                void runDraft('improve')
               }}
             >
               Improve with AI
             </Button>
           )}
         </div>
+        {confirmRegenerate && (
+          <Alert data-testid="email-regenerate-confirm">
+            <AlertDescription>
+              Replace your email with a new draft? Your changes will be lost.
+            </AlertDescription>
+            <AlertAction className="flex gap-2">
+              <Button
+                type="button"
+                size="small"
+                onClick={() => {
+                  void runDraft('regenerate')
+                }}
+              >
+                Replace
+              </Button>
+              <Button
+                type="button"
+                size="small"
+                variant="ghost"
+                onClick={() => setConfirmRegenerate(false)}
+              >
+                Keep mine
+              </Button>
+            </AlertAction>
+          </Alert>
+        )}
         {aiError && <p className="text-xs text-destructive">{aiError}</p>}
       </div>
+
+      {notice && (
+        <Alert data-testid="email-change-notice">
+          <AlertDescription>{notice.text}</AlertDescription>
+          <AlertAction>
+            <Button
+              type="button"
+              size="small"
+              variant="outline"
+              onClick={() => {
+                onChange(notice.previous)
+                setNotice(null)
+              }}
+            >
+              Undo
+            </Button>
+          </AlertAction>
+        </Alert>
+      )}
 
       <div className="space-y-2">
         <Label htmlFor="email-subject">Subject</Label>
@@ -250,66 +406,83 @@ export const EmailComposeStep = ({
           id="email-subject"
           value={value.subject}
           maxLength={EMAIL_SUBJECT_MAX_LENGTH}
-          aria-invalid={showIssues && Boolean(issues.subject)}
-          onChange={(e) => set('subject', e.target.value)}
+          aria-invalid={Boolean(issues.subject)}
+          onChange={(e) => edit({ ...value, subject: e.target.value })}
         />
-        {showIssues && issues.subject && (
+        {issues.subject && (
           <p className="text-xs text-destructive">{issues.subject}</p>
         )}
       </div>
 
-      <div className="space-y-2">
-        <Label htmlFor="email-headline">Headline (optional)</Label>
-        <Input
-          id="email-headline"
-          value={value.headline}
-          maxLength={EMAIL_HEADLINE_MAX_LENGTH}
-          onChange={(e) => set('headline', e.target.value)}
-        />
-      </div>
+      {emptyButtonLink && !showIssues && (
+        <p className="text-sm text-foreground" data-testid="email-link-prompt">
+          Add a link to your button before you continue.
+        </p>
+      )}
 
-      <div className="space-y-2">
-        <span className="text-sm font-medium text-foreground">
-          Your message
-        </span>
-        <Card className={cn(seamlessFieldHost, 'p-4')}>
-          <TokenField
-            ref={fieldRef}
-            value={value.body}
-            onChange={(next) => set('body', next)}
-            tokens={tokens}
-            maxLength={EMAIL_BODY_MAX_LENGTH}
-            placeholder="Write your message…"
-            aria-label="Message body"
-            aria-invalid={showIssues && Boolean(issues.body)}
-            variant="seamless"
-            className="min-h-[160px]"
-          />
-          <div className="-mx-4 -mb-4 mt-4 flex items-center justify-end gap-1 border-t border-border p-2">
-            <IconButton
-              type="button"
-              variant={isRecording ? 'destructive' : 'ghost'}
-              size="small"
-              aria-label={isRecording ? 'Stop dictation' : 'Dictate message'}
-              disabled={dictation.status === 'stopping'}
-              onClick={() => {
-                void toggleDictation()
+      <div className="space-y-3" data-testid="email-blocks">
+        {value.blocks.map((entry, index) => {
+          const cardIssues = [
+            ...(serverError?.index === index ? [serverError.message] : []),
+            ...(issues.blocks[index] ?? []),
+          ]
+          const isDictating = dictatingId === entry.id
+          return (
+            <EmailBlockCard
+              key={entry.id}
+              id={entry.id}
+              title={titles[index] ?? labels[index] ?? ''}
+              block={entry.block}
+              issues={cardIssues}
+              buttonLinkHint={surface.compose.buttonLinkHint}
+              canMoveUp={canMove(value.layout, value.blocks, index, -1)}
+              canMoveDown={canMove(value.layout, value.blocks, index, 1)}
+              canRemove={canRemove(value.layout, value.blocks, index)}
+              onChange={(block) => setBlock(index, block)}
+              onMove={(direction) =>
+                edit({
+                  ...value,
+                  blocks: moveBlock(value.blocks, index, direction),
+                })
+              }
+              onRemove={() =>
+                edit({
+                  ...value,
+                  blocks: value.blocks.filter((_, i) => i !== index),
+                })
+              }
+              onPickImage={(file) => {
+                void pickImage(entry.id, file)
               }}
-              className={cn(!isRecording && 'text-muted-foreground')}
-            >
-              {dictationBusy ? (
-                <Loader2Icon className="size-4 animate-spin" aria-hidden />
-              ) : isRecording ? (
-                <SquareIcon className="size-4 fill-current" aria-hidden />
-              ) : (
-                <MicIcon className="size-5" aria-hidden />
-              )}
-            </IconButton>
-          </div>
-        </Card>
-        {showIssues && issues.body && (
-          <p className="text-xs text-destructive">{issues.body}</p>
-        )}
+              imageBusy={imageBusyId === entry.id}
+              imageError={
+                imageError?.id === entry.id ? imageError.message : null
+              }
+              dictation={{
+                recording: isDictating && dictation.status === 'recording',
+                busy:
+                  isDictating &&
+                  dictationActive &&
+                  dictation.status !== 'recording',
+                disabled:
+                  dictation.status === 'stopping' ||
+                  (dictationActive && !isDictating),
+                onToggle: () => {
+                  void toggleDictation(entry.id)
+                },
+              }}
+              fieldRef={(ref) => {
+                if (ref) fields.current.set(entry.id, ref)
+                else fields.current.delete(entry.id)
+              }}
+            />
+          )
+        })}
+        {issues.email.map((issue) => (
+          <p key={issue} className="text-xs text-destructive">
+            {issue}
+          </p>
+        ))}
         {dictation.status === 'error' && dictation.error !== null && (
           <p className="text-xs text-destructive">
             Dictation didn&apos;t start: {dictation.error}. Check your
@@ -318,72 +491,34 @@ export const EmailComposeStep = ({
         )}
       </div>
 
-      <div className="space-y-2" data-testid="email-image">
-        <Label htmlFor="email-image-file">Image (optional)</Label>
-        <Input
-          id="email-image-file"
-          type="file"
-          accept={EMAIL_IMAGE_ALLOWED_MIME_TYPES.join(',')}
-          disabled={imageBusy}
-          onChange={(e) => {
-            void pickImage(e.target.files?.[0])
-            e.target.value = ''
-          }}
-        />
-        {value.imageUrl && (
-          <Button
-            type="button"
-            size="small"
-            variant="ghost"
-            onClick={() => set('imageUrl', '')}
-          >
-            Remove image
-          </Button>
-        )}
-        {imageError && <p className="text-xs text-destructive">{imageError}</p>}
-      </div>
-
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <div className="space-y-2">
-          <Label htmlFor="email-button-label">Button label (optional)</Label>
-          <Input
-            id="email-button-label"
-            value={value.buttonLabel}
-            maxLength={EMAIL_BUTTON_LABEL_MAX_LENGTH}
-            onChange={(e) => set('buttonLabel', e.target.value)}
-          />
+      {kinds.length > 0 && (
+        <div className="space-y-2" data-testid="email-add-block">
+          <span className="block text-sm font-medium text-foreground">
+            Add a block
+          </span>
+          <div className="flex flex-wrap gap-2">
+            {kinds.map((kind) => (
+              <Button
+                key={kind}
+                type="button"
+                size="small"
+                variant="outline"
+                onClick={() =>
+                  edit({
+                    ...value,
+                    blocks: addBlock(value.layout, value.blocks, kind),
+                  })
+                }
+              >
+                <PlusIcon aria-hidden />
+                {ADD_LABELS[kind]}
+              </Button>
+            ))}
+          </div>
         </div>
-        <div className="space-y-2">
-          <Label htmlFor="email-button-url">Button link</Label>
-          <Input
-            id="email-button-url"
-            type="url"
-            placeholder="https://"
-            value={value.buttonUrl}
-            onChange={(e) => set('buttonUrl', e.target.value)}
-          />
-        </div>
-      </div>
-      {showIssues && issues.button && (
-        <p className="text-xs text-destructive">{issues.button}</p>
       )}
 
       <div className="space-y-3">
-        <span className="text-sm font-medium text-foreground">Layout</span>
-        <div className="flex flex-wrap gap-2">
-          {EmailLayoutKeySchema.options.map((key) => (
-            <Button
-              key={key}
-              type="button"
-              size="small"
-              variant={value.layout === key ? 'default' : 'outline'}
-              aria-pressed={value.layout === key}
-              onClick={() => pickLayout(key)}
-            >
-              {EMAIL_LAYOUTS[key].label}
-            </Button>
-          ))}
-        </div>
         <span className="block text-sm font-medium text-foreground">
           Colors
         </span>
@@ -395,7 +530,7 @@ export const EmailComposeStep = ({
               aria-label={EMAIL_THEMES[key].label}
               aria-pressed={value.theme === key}
               title={EMAIL_THEMES[key].label}
-              onClick={() => set('theme', key)}
+              onClick={() => edit({ ...value, theme: key })}
               className={cn(
                 'size-9 rounded-full border-2',
                 value.theme === key ? 'border-primary' : 'border-border',
@@ -408,17 +543,7 @@ export const EmailComposeStep = ({
 
       <div className="space-y-2">
         <span className="text-sm font-medium text-foreground">Preview</span>
-        <EmailPreview
-          serve={surface.isServe}
-          layout={value.layout}
-          theme={value.theme}
-          subject={value.subject}
-          headline={value.headline}
-          body={value.body}
-          buttonLabel={value.buttonLabel}
-          buttonUrl={value.buttonUrl}
-          imageUrl={value.imageUrl}
-        />
+        <EmailPreview serve={surface.isServe} content={toContent(value)} />
       </div>
     </div>
   )

@@ -9,7 +9,8 @@ export type EmailTemplateContext = {
   senderName: string
   // Win shows "Paid for by"; Serve passes null and gets no line.
   paidForBy: string | null
-  // The long_update masthead's date: the scheduled send time, or now.
+  // The long_update masthead's date: the scheduled send time, or now. Shown
+  // as the day in EMAIL_MASTHEAD_TIME_ZONE.
   sendDate: Date
 }
 

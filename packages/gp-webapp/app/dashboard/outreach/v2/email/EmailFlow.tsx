@@ -19,13 +19,15 @@ import {
   saveEmailDraft,
   useEmailSender,
 } from './emailApi'
+import { checkSchedule, toDraftSave } from './emailFlow.util'
 import {
-  checkSchedule,
-  composeIssues,
+  editorIssues,
+  hasIssues,
   initialCompose,
-  toDraftSave,
+  parseBlockError,
+  type BlockError,
   type EmailComposeState,
-} from './emailFlow.util'
+} from './emailBlocks.util'
 import { WIN_EMAIL_SURFACE, type EmailSurface } from './emailSurface'
 
 // Count-only, like robocall's landline overlay: the builder counts people
@@ -60,7 +62,14 @@ export const EmailFlow = ({
   const [confirmTried, setConfirmTried] = useState(false)
   const [goalId, setGoalId] = useState<string | null>(null)
   const [customGoal, setCustomGoal] = useState('')
-  const [compose, setCompose] = useState<EmailComposeState>(initialCompose)
+  const [compose, setComposeState] = useState<EmailComposeState>(initialCompose)
+  const [blockError, setBlockError] = useState<BlockError | null>(null)
+  const setCompose = (
+    next: EmailComposeState | ((prev: EmailComposeState) => EmailComposeState),
+  ) => {
+    setBlockError(null)
+    setComposeState(next)
+  }
   const [composeAttempted, setComposeAttempted] = useState(false)
   const [draftId, setDraftId] = useState<number | null>(null)
   const audience = useOutreachAudience({
@@ -85,13 +94,23 @@ export const EmailFlow = ({
     goalId === surface.customGoalId
       ? customGoal.trim()
       : (surface.goals.find((g) => g.id === goalId)?.label ?? '')
-  const issues = composeIssues(compose)
-  const composeValid = Object.keys(issues).length === 0
+  const composeValid = !hasIssues(editorIssues(compose, true))
   const index = STEP_ORDER.indexOf(step)
 
   const goTo = (next: EmailStep) => {
     setError(null)
     setStep(next)
+  }
+
+  // Confirm and the test send name the block they refuse; the fix is on
+  // that block's card.
+  const fixBlock = (message: string): boolean => {
+    const parsed = parseBlockError(message)
+    if (!parsed) return false
+    setComposeAttempted(true)
+    goTo('compose')
+    setBlockError(parsed)
+    return true
   }
 
   const save = async (date: string | undefined): Promise<boolean> => {
@@ -111,7 +130,8 @@ export const EmailFlow = ({
       })
       return true
     } catch (e) {
-      setError(apiErrorMessage(e))
+      const message = apiErrorMessage(e)
+      if (!fixBlock(message)) setError(message)
       return false
     } finally {
       setBusy(false)
@@ -236,9 +256,9 @@ export const EmailFlow = ({
             surface={surface}
             value={compose}
             onChange={setCompose}
-            issues={issues}
             showIssues={composeAttempted}
             goal={goalText}
+            serverError={blockError}
           />
         )}
         {step === 'audience' && (
@@ -269,6 +289,7 @@ export const EmailFlow = ({
             compose={compose}
             draftId={draftId}
             sendLabel={sendLabel}
+            onFixBlock={fixBlock}
           />
         )}
         {step === 'pay' && draftId !== null && (
@@ -277,6 +298,7 @@ export const EmailFlow = ({
             draftId={draftId}
             onPaid={() => setPaid(true)}
             onConfirmAttempted={() => setConfirmTried(true)}
+            onFixBlock={fixBlock}
           />
         )}
         {error && (

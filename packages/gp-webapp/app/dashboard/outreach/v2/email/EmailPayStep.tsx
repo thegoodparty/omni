@@ -8,11 +8,18 @@ import {
 } from '@goodparty_org/contracts'
 import { PaymentHoldCard } from 'app/dashboard/shared/payment-hold/PaymentHoldCard'
 import { Intro } from '../social/Intro'
-import { confirmEmail, emailSendQueryKey, useEmailSend } from './emailApi'
+import {
+  apiErrorMessage,
+  confirmEmail,
+  emailSendQueryKey,
+  useEmailSend,
+} from './emailApi'
+import { parseBlockError } from './emailBlocks.util'
 import { formatDollars } from './emailFlow.util'
 import type { EmailSurface } from './emailSurface'
 
 const PAYMENT_REQUIRED = 402
+const BAD_REQUEST = 400
 
 interface EmailPayStepProps {
   surface: EmailSurface
@@ -21,6 +28,9 @@ interface EmailPayStepProps {
   // Fired once a confirm may have moved the send past draft, so the flow
   // stops offering Back. A declined card leaves the send a draft.
   onConfirmAttempted: () => void
+  // Confirm refused the content and named a block: nothing left draft, so
+  // the flow goes back to that block.
+  onFixBlock: (message: string) => void
 }
 
 export const EmailPayStep = ({
@@ -28,6 +38,7 @@ export const EmailPayStep = ({
   draftId,
   onPaid,
   onConfirmAttempted,
+  onFixBlock,
 }: EmailPayStepProps) => {
   const queryClient = useQueryClient()
   const { data: send } = useEmailSend(surface.isServe, draftId)
@@ -59,6 +70,13 @@ export const EmailPayStep = ({
           : null
       if (declined?.success) {
         return { outcome: 'declined', declineCode: declined.data.declineCode }
+      }
+      if (e instanceof FetchError && e.status === BAD_REQUEST) {
+        const message = apiErrorMessage(e)
+        if (parseBlockError(message)) {
+          onFixBlock(message)
+          throw e
+        }
       }
       onConfirmAttempted()
       throw e

@@ -1,5 +1,5 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
-import { screen, waitFor } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { api } from 'helpers/test-utils/api-mocking'
 import { render } from 'helpers/test-utils/render'
@@ -130,12 +130,19 @@ const mockApi = () => {
   return saves
 }
 
+// The personal letter starts with three empty paragraphs: write the first
+// and remove the other two.
+const writeLetter = async (user: ReturnType<typeof userEvent.setup>) => {
+  await user.type(await screen.findByLabelText('Subject'), 'Hello')
+  await user.click(screen.getByRole('textbox', { name: 'Paragraph 1' }))
+  await user.keyboard('Hi there')
+  await user.click(screen.getByRole('button', { name: 'Remove paragraph 3' }))
+  await user.click(screen.getByRole('button', { name: 'Remove paragraph 2' }))
+}
+
 const fillCompose = async (user: ReturnType<typeof userEvent.setup>) => {
   await user.click(screen.getByText('Introduce myself to voters'))
-  await user.type(await screen.findByLabelText('Subject'), 'Hello')
-  const field = screen.getByLabelText('Message body')
-  await user.click(field)
-  await user.keyboard('Hi there')
+  await writeLetter(user)
 }
 
 // Typing into the message field scrolls to the cursor, which jsdom cannot
@@ -166,7 +173,8 @@ describe('EmailFlow', () => {
 
     expect(await screen.findByLabelText('Subject')).toBeInTheDocument()
     expect(screen.getByTestId('email-ai-draft')).toBeInTheDocument()
-    expect(screen.getByTestId('email-image')).toBeInTheDocument()
+    expect(screen.getAllByTestId('email-block')).toHaveLength(3)
+    expect(screen.getByTestId('email-add-block')).toBeInTheDocument()
   })
 
   it('drafts with AI, sending the goal and tone, and fills the fields', async () => {
@@ -178,10 +186,17 @@ describe('EmailFlow', () => {
         status: 200,
         data: {
           subject: 'Meet your neighbor',
-          headline: 'Hello',
+          headline: null,
           body: 'Hi {{first_name}}, I am running.',
           buttonLabel: null,
-          content: draft.content,
+          content: {
+            layout: 'personal_letter',
+            theme: 'cream_and_forest',
+            subject: 'Meet your neighbor',
+            blocks: [
+              { type: 'paragraph', text: 'Hi {{first_name}}, I am running.' },
+            ],
+          },
         },
       }
     })
@@ -201,13 +216,18 @@ describe('EmailFlow', () => {
     expect(requests[1]).toEqual({
       goal: 'Introduce myself to voters',
       tone: 'urgent',
-      layout: 'newsletter',
+      layout: 'personal_letter',
+      theme: 'cream_and_forest',
     })
 
     await user.click(screen.getByRole('button', { name: 'Improve with AI' }))
     await waitFor(() => expect(requests).toHaveLength(3))
     expect(requests[2]).toMatchObject({
-      currentDraft: { subject: 'Meet your neighbor', headline: 'Hello' },
+      currentDraft: {
+        subject: 'Meet your neighbor',
+        headline: null,
+        body: 'Hi {{first_name}}, I am running.',
+      },
     })
   })
 
@@ -255,16 +275,29 @@ describe('EmailFlow', () => {
     render(<EmailFlow open onClose={vi.fn()} />)
 
     await fillCompose(user)
+    await user.click(
+      within(screen.getByTestId('email-add-block')).getByRole('button', {
+        name: 'Photo',
+      }),
+    )
     await user.upload(
-      screen.getByLabelText('Image (optional)'),
+      screen.getByLabelText('Upload a photo'),
       new File(['x'], 'logo.png', { type: 'image/png' }),
     )
-    await screen.findByRole('button', { name: 'Remove image' })
+    await screen.findByText('Photo added.')
     expect([...posted[0]!.keys()]).toEqual(['key', 'Content-Type', 'file'])
+    await user.type(screen.getByLabelText('What the photo shows'), 'My logo')
 
     await user.click(screen.getByRole('button', { name: 'Next' }))
     await waitFor(() => expect(saves).toHaveLength(1))
-    expect(saves[0]).toMatchObject({ imageUrl: publicUrl })
+    expect(saves[0]).toMatchObject({
+      content: {
+        blocks: [
+          { type: 'paragraph', text: 'Hi there' },
+          { type: 'image', url: publicUrl, alt: 'My logo' },
+        ],
+      },
+    })
   })
 
   it('picks a list, says only people with email count, and saves it with consent', async () => {
@@ -275,10 +308,14 @@ describe('EmailFlow', () => {
     await fillCompose(user)
     await user.click(screen.getByRole('button', { name: 'Next' }))
     await waitFor(() => expect(saves).toHaveLength(1))
-    expect(saves[0]).toMatchObject({
+    expect(saves[0]).toEqual({
       goal: 'Introduce myself to voters',
-      subject: 'Hello',
-      layout: 'newsletter',
+      content: {
+        layout: 'personal_letter',
+        theme: 'cream_and_forest',
+        subject: 'Hello',
+        blocks: [{ type: 'paragraph', text: 'Hi there' }],
+      },
       consentConfirmed: false,
     })
 
@@ -399,6 +436,42 @@ describe('EmailFlow', () => {
     ).toBeInTheDocument()
   })
 
+  it('takes a refused test send back to the block it names', async () => {
+    mockApi()
+    api.mock('POST /v1/outreach/email/:id/test', {
+      status: 400,
+      data: {
+        message:
+          'Finish the email before sending it. Block 1: Keep this to one line',
+      },
+    })
+    const user = userEvent.setup()
+    render(<EmailFlow open onClose={vi.fn()} />)
+
+    await fillCompose(user)
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await pickList(user)
+    await user.click(
+      await screen.findByLabelText(
+        'These people agreed to get email from my campaign.',
+      ),
+    )
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await screen.findByText('When should it go out?')
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await screen.findByText('Ready to send?')
+    await user.click(screen.getByRole('button', { name: 'Send me a test' }))
+    await user.click(
+      await screen.findByRole('button', { name: 'Fix the email' }),
+    )
+
+    expect(
+      within(await screen.findByRole('group', { name: 'Paragraph' })).getByText(
+        'Keep this to one line.',
+      ),
+    ).toBeInTheDocument()
+  })
+
   it('sends the Serve surface through the office-scoped routes with constituent copy', async () => {
     api.mock('GET /v1/outreach/serve/email/sender', {
       status: 200,
@@ -414,9 +487,7 @@ describe('EmailFlow', () => {
     render(<EmailFlow open onClose={vi.fn()} surface={SERVE_EMAIL_SURFACE} />)
 
     await user.click(screen.getByText('Introduce myself to constituents'))
-    await user.type(await screen.findByLabelText('Subject'), 'Hello')
-    await user.click(screen.getByLabelText('Message body'))
-    await user.keyboard('Hi there')
+    await writeLetter(user)
     await user.click(screen.getByRole('button', { name: 'Next' }))
 
     expect(
