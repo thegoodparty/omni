@@ -1,7 +1,7 @@
 ---
 title: On Win, imported people not in the voter file are counted next to voters as "New contacts added"
 status: active
-decided_by: [swain]
+decided_by: [bryclevgp, swain]
 date: 2026-10-30
 code: ['#3459']
 scope:
