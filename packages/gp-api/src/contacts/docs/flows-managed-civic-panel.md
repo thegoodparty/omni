@@ -49,7 +49,9 @@ office one card at a time (`syncManagedPanelProgressCard`,
 `managedPanelPhase`): `building` (building or paused: "Your civic panel is
 filling up" with "{members} {place} residents are ready to share their
 views" (the place from `ManagedCivicPanelService.districtPlace`, looked up
-only for this card), or "Your civic panel starts here" at 0 members as on
+only while this card or the ready card shows; a found place is cached in
+process for 24 hours, keyed on the org's slug, position and district
+override), or "Your civic panel starts here" at 0 members as on
 the civic panel page with members of the goal, then the next send date; or
 "Invites are paused"), `ready` (for `MANAGED_PANEL_READY_CARD_DAYS`, 14, after
 `readyAt`), and `exhausted` ("Every resident we can text has an invite",

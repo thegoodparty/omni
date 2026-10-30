@@ -838,6 +838,10 @@ describe('GET /v1/dashboard/cards: the managed panel progress card', () => {
   })
 
   it('takes the ready card away two weeks after the panel was ready', async () => {
+    const districtPlace = vi.spyOn(
+      service.app.get(ManagedCivicPanelService),
+      'districtPlace',
+    )
     const orgSlug = 'eo-progress-ready-old'
     await seedElectedOffice(orgSlug)
     await seedEnrollment(orgSlug)
@@ -847,6 +851,8 @@ describe('GET /v1/dashboard/cards: the managed panel progress card', () => {
     })
 
     expect(await progressCards(orgSlug)).toHaveLength(0)
+    expect(districtPlace).not.toHaveBeenCalled()
+    districtPlace.mockRestore()
   })
 
   it('offers the rest at the door or by phone, with no link, once everyone a text can reach was invited', async () => {
