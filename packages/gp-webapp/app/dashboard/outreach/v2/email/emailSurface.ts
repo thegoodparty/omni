@@ -1,3 +1,4 @@
+import type { OutreachAudienceCopy } from '../audience/OutreachAudienceStep'
 import { SMS_PURPOSES } from '../sms/smsCompose.util'
 import { SERVE_SMS_PURPOSES } from '../serveSmsPurposes'
 
@@ -11,9 +12,9 @@ export interface EmailSurface {
   goal: { title: string; caption: string; customLabel: string }
   compose: { title: string; caption: string }
   audience: {
-    title: string
-    caption: string
+    picker: OutreachAudienceCopy
     consentLabel: string
+    noEmails: string
   }
   schedule: { title: string; caption: string }
   review: { title: string; caption: string }
@@ -34,9 +35,21 @@ export const WIN_EMAIL_SURFACE: EmailSurface = {
     caption: 'Write it your way. Voters see it just like the preview.',
   },
   audience: {
-    title: 'Who do you want to reach?',
-    caption: 'Upload a list with an email column. Names are optional.',
+    picker: {
+      pickerTitle: 'Who do you want to reach?',
+      pickerBody:
+        'Select a list or create a new one. Only voters with an email address are included.',
+      filtersTitle: 'Build a voter list',
+      filtersBody: 'Pick filters to define who this campaign reaches.',
+      nameTitle: 'Name your list',
+      nameBody: 'You can rename it any time.',
+      reachVerb: 'Email',
+      reachNoun: 'voters with an email address',
+      unitCostLabel: 'Each email costs',
+    },
     consentLabel: 'These people agreed to get email from my campaign.',
+    noEmails:
+      'No one in this list has an email address yet. Pick another list to keep going.',
   },
   schedule: {
     title: 'When should it go out?',
@@ -73,9 +86,16 @@ export const SERVE_EMAIL_SURFACE: EmailSurface = {
     caption: 'Write it your way. Constituents see it just like the preview.',
   },
   audience: {
-    title: 'Who do you want to reach?',
-    caption: 'Upload a list with an email column. Names are optional.',
+    picker: {
+      ...WIN_EMAIL_SURFACE.audience.picker,
+      pickerBody:
+        'Select a list or create a new one. Only constituents with an email address are included.',
+      filtersTitle: 'Build a constituent list',
+      filtersBody: 'Pick filters to define who this list reaches.',
+      reachNoun: 'constituents with an email address',
+    },
     consentLabel: 'These people agreed to get email from my office.',
+    noEmails: WIN_EMAIL_SURFACE.audience.noEmails,
   },
   schedule: {
     title: 'When should it go out?',

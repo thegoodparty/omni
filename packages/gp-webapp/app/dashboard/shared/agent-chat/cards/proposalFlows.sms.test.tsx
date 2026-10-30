@@ -115,6 +115,7 @@ describe('a text card, through the drawer', () => {
           robocall: null,
           phoneBanking: null,
           doorKnocking: null,
+          email: 0,
           polls: null,
         },
         outreachHistory: [],

@@ -4,12 +4,13 @@ import { useEffect } from 'react'
 import Link from 'next/link'
 import type { PriorityResults, ThemeVoices } from '@goodparty_org/contracts'
 import {
+  Badge,
   Button,
   cn,
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
   Progress,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
 } from '@styleguide'
 import { ArrowLeftIcon, InfoIcon } from '@styleguide/components/ui/icons'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
@@ -24,6 +25,7 @@ import {
 import { AnswerSeatsArc, AnswerSeatsLegend } from '../../components/AnswerSeats'
 import { READ_STATUS_PROPERTY } from '../../readStatusProperty'
 import { CivicPanelBloom } from 'app/dashboard/contacts/citizens-panel/components/CivicPanelBloom'
+import { useServePlace } from 'app/dashboard/contacts/citizens-panel/managedPanelCopy'
 import { RespondentHeatGrid } from './RespondentHeatGrid'
 
 const Section = ({
@@ -180,26 +182,33 @@ export const PriorityResultsView = ({
   )
 }
 
-// A popover, not a tooltip, so the meaning is one tap away on a phone.
-const ThemeVoicesChip = ({ voices }: { voices: ThemeVoices }) => (
-  <Popover>
-    <PopoverTrigger asChild>
-      <Button
-        variant="neutral"
-        size="small"
-        className="mt-1 h-7 w-fit gap-1 px-2.5 text-xs font-normal tracking-normal"
-      >
-        {RESULTS_COPY.voicesLabel}: {RESULTS_COPY.voices[voices]}
-        <InfoIcon className="size-3.5" aria-hidden />
-      </Button>
-    </PopoverTrigger>
-    <PopoverContent className="flex w-72 flex-col gap-1 text-sm">
-      {RESULTS_COPY.voicesMeaning.map((line) => (
-        <p key={line}>{line}</p>
-      ))}
-    </PopoverContent>
-  </Popover>
-)
+const SIGNAL_TONE: Record<ThemeVoices, string> = {
+  strong: 'bg-success-background text-success-dark',
+  fair: 'bg-warning-background text-warning-dark',
+  thin: 'bg-error-background text-error-dark',
+}
+
+// openOnClick so the meaning is one tap away on a phone, not hover only.
+const ThemeSignal = ({ voices }: { voices: ThemeVoices }) => {
+  const place = useServePlace()
+  const label = RESULTS_COPY.signal[voices]
+  return (
+    <div className="mt-1 flex items-center gap-1">
+      <Badge className={SIGNAL_TONE[voices]}>{label}</Badge>
+      <Tooltip openOnClick>
+        <TooltipTrigger
+          aria-label={RESULTS_COPY.signalInfo(label)}
+          className="inline-flex size-6 items-center justify-center rounded-full text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <InfoIcon className="size-4" aria-hidden />
+        </TooltipTrigger>
+        <TooltipContent className="max-w-xs">
+          {RESULTS_COPY.signalMeaning(place)[voices]}
+        </TooltipContent>
+      </Tooltip>
+    </div>
+  )
+}
 
 // Themes, the map and the census comparison: only once the answers are
 // enough to say what the community thinks.
@@ -245,7 +254,7 @@ const HeardSections = ({ results }: { results: PriorityResults }) => (
                   </span>
                 </div>
                 <p className="text-sm text-muted-foreground">{theme.summary}</p>
-                {theme.voices && <ThemeVoicesChip voices={theme.voices} />}
+                {theme.voices && <ThemeSignal voices={theme.voices} />}
               </div>
             </li>
           ))}

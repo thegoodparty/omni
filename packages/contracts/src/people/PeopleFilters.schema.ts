@@ -31,7 +31,8 @@ import { z } from 'zod'
  * }
  *
  * Filter Types:
- * - Boolean filters: hasCellPhone, hasLandline, hasAnyPhone, hasAddress (true = IS NOT NULL, false = IS NULL)
+ * - Boolean filters: hasCellPhone, hasLandline, hasAnyPhone, hasAddress, hasEmail (true = IS NOT NULL, false = IS NULL)
+ *   hasEmail reads the imported-contact overlay's Email; a read without the overlay has no emails
  * - Id filter: id — Operators: { in: string[] }, { notIn: string[] } (exactly one, each 1-200000 uuids)
  * - Enum filters: voterStatus, earlyVoteStatus, politicalParty, maritalStatus, veteranStatus, educationLevel,
  *   ethnicity, businessOwner, presenceOfChildren, homeowner, gender, language, ideology,
@@ -271,6 +272,7 @@ export const PeopleFiltersSchema = z.object({
   hasLandline: z.boolean().optional(),
   hasAnyPhone: z.boolean().optional(),
   hasAddress: z.boolean().optional(),
+  hasEmail: z.boolean().optional(),
   id: createIdFilterSchema().optional(),
   maritalStatus: createEnumFilterSchema(
     PEOPLE_FILTER_VALUE_ENUMS.maritalStatus,

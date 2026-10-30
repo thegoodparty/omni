@@ -216,7 +216,7 @@ export interface OutreachAudience {
   recommendationsError: boolean
   // The channel the recommendations were requested for — a recommendation
   // carries no channel of its own (it's the query param, one per request).
-  recommendedListsChannel: RecommendedListChannel
+  recommendedListsChannel: RecommendedListChannel | null
   // Seeds the builder from a recommendation and creates the saved list in
   // one call, using the caller's chosen name (the picker's naming drawer
   // pre-fills it from the recommendation's copy.title and lets the
@@ -267,6 +267,9 @@ export const useOutreachAudience = ({
   freeOfferEnabled = false,
   proposedAudience,
 }: UseOutreachAudienceParams): OutreachAudience => {
+  // Email has no recommended lists, so its picker shows saved lists only.
+  const recommendedChannel: RecommendedListChannel | null =
+    reachabilityKey === 'email' ? null : reachabilityKey
   const [mode, setMode] = useState<OutreachAudienceMode>('picker')
   const [selectedListId, setSelectedListId] = useState<number | null>(null)
   const [selectedRecommendation, setSelectedRecommendation] =
@@ -340,10 +343,11 @@ export const useOutreachAudience = ({
       recommendedListIntent,
     ],
     queryFn: async () => {
+      if (recommendedChannel === null) throw new Error('No list channel')
       const { data } = await clientRequest(
         'GET /v1/campaigns/mine/recommended-lists',
         {
-          channel: reachabilityKey,
+          channel: recommendedChannel,
           // Guarded by `enabled` below.
           intent: recommendedListIntent ?? undefined,
         },
@@ -356,7 +360,11 @@ export const useOutreachAudience = ({
     // warehouse-backed call on window-focus for schedule/compose/review —
     // steps that don't show it.
     enabled:
-      open && active && mode === 'picker' && recommendedListIntent !== null,
+      open &&
+      active &&
+      mode === 'picker' &&
+      recommendedListIntent !== null &&
+      recommendedChannel !== null,
     staleTime: 0,
   })
 
@@ -371,17 +379,21 @@ export const useOutreachAudience = ({
       preselectedRecommendedVariant,
     ],
     queryFn: async () => {
+      if (recommendedChannel === null) throw new Error('No list channel')
       const { data } = await clientRequest(
         'GET /v1/campaigns/mine/recommended-lists',
         {
-          channel: reachabilityKey,
+          channel: recommendedChannel,
           // Guarded by `enabled` below.
           variant: preselectedRecommendedVariant,
         },
       )
       return data[0] ?? null
     },
-    enabled: open && preselectedRecommendedVariant !== undefined,
+    enabled:
+      open &&
+      preselectedRecommendedVariant !== undefined &&
+      recommendedChannel !== null,
     refetchOnWindowFocus: false,
     // Always refetch on open: whether the list exists yet can change
     // between opens, and recommendationsLoading holds the step until the
@@ -400,10 +412,11 @@ export const useOutreachAudience = ({
       ROBOCALL_FREE_OFFER_VARIANT,
     ],
     queryFn: async () => {
+      if (recommendedChannel === null) throw new Error('No list channel')
       const { data } = await clientRequest(
         'GET /v1/campaigns/mine/recommended-lists',
         {
-          channel: reachabilityKey,
+          channel: recommendedChannel,
           variant: ROBOCALL_FREE_OFFER_VARIANT,
         },
       )
@@ -774,13 +787,14 @@ export const useOutreachAudience = ({
   // rather than staging the seed for a separate submit.
   const seedFromRecommendation = useCallback(
     (recommendation: RecommendedList, name: string) => {
+      if (recommendedChannel === null) return
       setBuilderFilters(builderFiltersFromRecommendation(recommendation.filter))
       setBuilderSupportStatus(recommendation.filter.supportStatus ?? [])
       setBuilderPrecincts(recommendation.filter.precincts ?? [])
       setBuilderName(name)
       setRecommendedMeta({
         variant: recommendation.variant,
-        channel: reachabilityKey,
+        channel: recommendedChannel,
         // The variant's own intent, not this flow's purpose: a recommendation
         // carried in from the voter data page belongs to whichever intent
         // the registry says, whatever purpose the candidate picked here.
@@ -790,7 +804,7 @@ export const useOutreachAudience = ({
         voteGoalShare: recommendation.voteGoalShare,
       })
     },
-    [reachabilityKey],
+    [recommendedChannel],
   )
 
   // The other half of the conversion measurement. A recommendation the
@@ -1072,7 +1086,7 @@ export const useOutreachAudience = ({
       preselectedRecommendationQuery.isFetching ||
       freeOfferQuery.isFetching,
     recommendationsError: recommendationsQuery.isError,
-    recommendedListsChannel: reachabilityKey,
+    recommendedListsChannel: recommendedChannel,
     createRecommendedList,
     trackRecommendationReused,
     preselectedRecommendation: preselectedRecommendationQuery.data ?? null,

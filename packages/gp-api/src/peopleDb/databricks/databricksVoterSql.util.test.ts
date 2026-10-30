@@ -279,6 +279,7 @@ describe('buildVoterFiltersSql', () => {
       hasLandline: true,
       hasAnyPhone: true,
       hasAddress: true,
+      hasEmail: true,
       id: { in: ['11111111-1111-1111-1111-111111111111'] },
       maritalStatus: { in: ['Married'] },
       veteranStatus: { in: ['Yes'] },
@@ -860,7 +861,8 @@ describe('aggregate and page queries', () => {
         ' AS phoneBanking,' +
         ' COUNT_IF((v.`Residence_Addresses_AddressLine` IS NOT NULL' +
         " AND v.`Residence_Addresses_AddressLine` != ''))" +
-        ' AS doorKnocking' +
+        ' AS doorKnocking,' +
+        ' COUNT_IF(FALSE) AS email' +
         ` FROM ${VOTERS_TABLE} v` +
         ' WHERE v.`State` = :p0 AND v.`US_Congressional_District` = :p1',
     )
@@ -920,6 +922,28 @@ describe('aggregate and page queries', () => {
       { name: 'p2', value: '50', type: 'INT' },
       { name: 'p3', value: '100', type: 'INT' },
     ])
+  })
+
+  it('pages by keyset after an id, with no OFFSET', () => {
+    const { sql, params } = buildPageSql({
+      district: CONGRESSIONAL,
+      filters: noFilters(),
+      columns: ['id'],
+      take: 10_000,
+      skip: 0,
+      afterId: 'p0009999',
+    })
+
+    expect(sql).toContain(
+      'WHERE v.`State` = :p0 AND v.`US_Congressional_District` = :p1' +
+        ' AND v.`id` > :p2 ORDER BY v.`id` LIMIT :p3',
+    )
+    expect(sql).not.toContain('OFFSET')
+    expect(params).toContainEqual({
+      name: 'p2',
+      value: 'p0009999',
+      type: 'STRING',
+    })
   })
 
   it('cuts the sample to a hash slice and binds size, seed and divisor', () => {
@@ -1548,6 +1572,39 @@ describe('contactOverlayTable', () => {
     expect(csv).toContain(
       "nvl(CAST(v.`ContactIsNew` AS STRING), '') AS `New Contact`",
     )
+  })
+
+  it('filters on the overlay email, and counts it per list', () => {
+    const district = overlaid(CONGRESSIONAL, CONGRESSIONAL.districtId)
+    const has = buildScopeSql(createBag(), {
+      district,
+      filters: parseFilters({ hasEmail: true }),
+    })
+    const lacks = buildScopeSql(createBag(), {
+      district,
+      filters: parseFilters({ hasEmail: false }),
+    })
+
+    expect(has).toContain('AND v.`Email` IS NOT NULL')
+    expect(lacks).toContain('AND v.`Email` IS NULL')
+    expect(
+      buildListDetailAggregatesSql({ district, filters: noFilters() }).sql,
+    ).toContain('COUNT_IF(v.`Email` IS NOT NULL) AS email')
+  })
+
+  it('finds no one with an email without the overlay, and reads no Email', () => {
+    const has = buildScopeSql(createBag(), {
+      district: CONGRESSIONAL,
+      filters: parseFilters({ hasEmail: true }),
+    })
+    const lacks = buildScopeSql(createBag(), {
+      district: CONGRESSIONAL,
+      filters: parseFilters({ hasEmail: false }),
+    })
+
+    expect(has).toContain('AND FALSE')
+    expect(lacks).toContain('AND TRUE')
+    expect(has).not.toContain('Email')
   })
 
   it('projects NULL and false without the overlay', () => {

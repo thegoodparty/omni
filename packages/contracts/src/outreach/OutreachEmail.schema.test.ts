@@ -1,8 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import {
-  EmailDraftSaveSchema,
-  EmailRecipientUploadRequestSchema,
-} from './OutreachEmail.schema'
+import { EmailDraftSaveSchema } from './OutreachEmail.schema'
 
 const base = {
   goal: 'Invite neighbors to the town hall',
@@ -69,21 +66,20 @@ describe('EmailDraftSaveSchema', () => {
   })
 })
 
-describe('EmailRecipientUploadRequestSchema', () => {
-  it('accepts the multipart string and the boolean', () => {
+describe('EmailDraftSaveSchema audience', () => {
+  it('takes a voter-file list and the consent statement', () => {
     expect(
-      EmailRecipientUploadRequestSchema.parse({ consentConfirmed: 'true' }),
-    ).toEqual({ consentConfirmed: true })
-    expect(
-      EmailRecipientUploadRequestSchema.parse({ consentConfirmed: true }),
-    ).toEqual({ consentConfirmed: true })
+      EmailDraftSaveSchema.parse({
+        ...base,
+        voterFileFilterId: 12,
+        consentConfirmed: true,
+      }),
+    ).toMatchObject({ voterFileFilterId: 12, consentConfirmed: true })
   })
 
-  it('refuses a missing or false consent', () => {
-    expect(EmailRecipientUploadRequestSchema.safeParse({}).success).toBe(false)
+  it('refuses a list id that is not a positive integer', () => {
     expect(
-      EmailRecipientUploadRequestSchema.safeParse({ consentConfirmed: 'false' })
-        .success,
+      EmailDraftSaveSchema.safeParse({ ...base, voterFileFilterId: 0 }).success,
     ).toBe(false)
   })
 })

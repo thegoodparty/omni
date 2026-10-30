@@ -11,8 +11,8 @@ model OutreachEmail {
   outreach                 Outreach                  @relation(fields: [outreachId], references: [id], onDelete: Cascade)
   senderId                 Int                       @map("sender_id")
   sender                   OutreachEmailSender       @relation(fields: [senderId], references: [id], onDelete: Cascade)
-  // Recipients are written straight onto the send by a test upload until
-  // the shared contact lists land; consent is confirmed per send meanwhile.
+  // Recipients come from the voter-file list on Outreach.voterFileFilterId.
+  // The user confirms consent on every send.
   consentConfirmedAt       DateTime?                 @map("consent_confirmed_at")
   consentConfirmedByUserId Int?                      @map("consent_confirmed_by_user_id")
   goal                     String
@@ -32,6 +32,10 @@ model OutreachEmail {
   // and the send agree.
   recipientCap             Int?                      @map("recipient_cap")
   sesTemplateName          String?                   @map("ses_template_name")
+  // Prepare resolves the audience in pages, a few minutes per queue
+  // delivery, and keeps its place here: the last person id written.
+  audienceCursor           String?                   @map("audience_cursor")
+  audienceResolvedAt       DateTime?                 @map("audience_resolved_at")
   preparedAt               DateTime?                 @map("prepared_at")
   stoppingAt               DateTime?                 @map("stopping_at")
   sentCount                Int                       @default(0) @map("sent_count")

@@ -1452,3 +1452,97 @@ describe('POST /v1/test-fixtures/vendor-mocks/outreach/:id/admin-actions', () =>
     expect(res.status).toBe(HttpStatus.BAD_REQUEST)
   })
 })
+
+describe('POST /v1/test-fixtures/vendor-mocks/people-db/email-audience', () => {
+  const post = (body: object) =>
+    service.client.post(
+      '/v1/test-fixtures/vendor-mocks/people-db/email-audience',
+      body,
+      { validateStatus: () => true },
+    )
+
+  beforeEach(async () => {
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { email: 'qa-00000000-0000-0000-0000-000000000000@goodparty.org' },
+    })
+  })
+
+  it('stores simulator people for the caller’s organization', async () => {
+    const campaign = await seedCampaign(service.user.id)
+
+    const res = await post({
+      campaignId: campaign.id,
+      people: [
+        { email: 'Success@simulator.amazonses.com', firstName: 'Sim' },
+        { email: 'bounce@simulator.amazonses.com' },
+      ],
+    })
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(res.data).toEqual({
+      organizationSlug: campaign.organizationSlug,
+      count: 2,
+    })
+    const record = await service.prisma.vendorMockRecord.findFirstOrThrow({
+      where: {
+        vendor: VendorMockVendor.people_db,
+        externalId: campaign.organizationSlug,
+      },
+    })
+    expect(record.state).toEqual({
+      people: [
+        {
+          id: 'fixture-0000',
+          email: 'success@simulator.amazonses.com',
+          firstName: 'Sim',
+          lastName: null,
+        },
+        {
+          id: 'fixture-0001',
+          email: 'bounce@simulator.amazonses.com',
+          firstName: null,
+          lastName: null,
+        },
+      ],
+    })
+  })
+
+  it('refuses any address that is not the SES simulator', async () => {
+    const campaign = await seedCampaign(service.user.id)
+    const res = await post({
+      campaignId: campaign.id,
+      people: [{ email: 'someone@example.com' }],
+    })
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+  })
+
+  it('is not served where vendors are live', async () => {
+    appEnvOverrides.VENDOR_MODE = 'live'
+    const campaign = await seedCampaign(service.user.id)
+    const res = await post({
+      campaignId: campaign.id,
+      people: [{ email: 'success@simulator.amazonses.com' }],
+    })
+    expect(res.status).toBe(HttpStatus.NOT_FOUND)
+  })
+
+  it('refuses another user’s campaign and a non-test user', async () => {
+    const other = await service.prisma.user.create({
+      data: { email: `other-${Math.random()}@example.com` },
+    })
+    const theirs = await seedCampaign(other.id)
+    const body = (campaignId: number) => ({
+      campaignId,
+      people: [{ email: 'success@simulator.amazonses.com' }],
+    })
+    expect((await post(body(theirs.id))).status).toBe(HttpStatus.FORBIDDEN)
+
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { email: 'nottest@goodparty.org' },
+    })
+    const mine = await seedCampaign(service.user.id)
+    expect((await post(body(mine.id))).status).toBe(HttpStatus.FORBIDDEN)
+  })
+})

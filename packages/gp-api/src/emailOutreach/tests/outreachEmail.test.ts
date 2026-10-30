@@ -5,6 +5,7 @@ import {
   OutreachStatus,
   OutreachType,
 } from '../../generated/prisma'
+import { ContactsService } from '@/contacts/services/contacts.service'
 import { EmailService } from '@/email/email.service'
 import { useTestService } from '@/test-service'
 import { EmailDomainCheckService } from '../services/emailDomainCheck.service'
@@ -86,21 +87,6 @@ const saveServe = (body: object) =>
     headers: serveHeaders(),
     validateStatus: () => true,
   })
-
-const uploadTo = (
-  base: 'email' | 'serve/email',
-  id: number,
-  csv: string | Buffer,
-  fields: Record<string, string> = { consentConfirmed: 'true' },
-) => {
-  const form = new FormData()
-  Object.entries(fields).forEach(([key, value]) => form.append(key, value))
-  form.append('file', new Blob([csv], { type: 'text/csv' }), 'people.csv')
-  return service.client.post(`/v1/outreach/${base}/${id}/recipients`, form, {
-    headers: base === 'email' ? winHeaders() : serveHeaders(),
-    validateStatus: () => true,
-  })
-}
 
 describe('POST /v1/outreach/email (Win draft)', () => {
   it('creates a draft with the sender, then updates it in place', async () => {
@@ -405,178 +391,144 @@ describe('sender', () => {
   })
 })
 
-describe('POST /:id/recipients (test upload)', () => {
-  const draftId = async (): Promise<number> =>
-    (await saveWin(draftBody())).data.id
+const listFor = (organizationSlug: string) =>
+  service.prisma.voterFileFilter.create({
+    data: { organizationSlug, name: `Supporters ${unique()}` },
+  })
 
-  it('counts clean, duplicate, invalid, bad-domain and unsubscribed rows', async () => {
-    findUndeliverableDomains.mockResolvedValue(new Set(['nxdomain.test']))
-    await service.prisma.outreachEmailSuppression.create({
-      data: {
-        email: 'gone@example.com',
-        organizationSlug: winSlug,
-        reason: 'link',
-      },
+const estimateOf = async (path: string, id: number, slug: string) =>
+  (
+    await service.client.get(`/v1/outreach/${path}/${id}`, {
+      headers: { 'x-organization-slug': slug },
     })
-    const id = await draftId()
-    const res = await uploadTo(
-      'email',
-      id,
-      [
-        'Email,First Name,Last Name',
-        'Ann@Example.com,Ann,Lee',
-        'bob@example.com,Bob,',
-        'ann@example.com,Ann,Dup',
-        'not-an-email,X,Y',
-        'ghost@nxdomain.test,G,H',
-        'gone@example.com,Gone,Away',
-      ].join('\n'),
+  ).data.estimate
+
+const countPage = (totalResults: number) => ({
+  people: [],
+  pagination: {
+    totalResults,
+    currentPage: 1,
+    pageSize: 1,
+    totalPages: 1,
+    hasNextPage: false,
+    hasPreviousPage: false,
+  },
+})
+
+describe('the audience', () => {
+  it('saves the list and prices the send from the email count', async () => {
+    const count = vi
+      .spyOn(service.app.get(ContactsService), 'findContactsForFilter')
+      .mockResolvedValue(countPage(4800))
+    const list = await listFor(winSlug)
+
+    const res = await saveWin(
+      draftBody({ voterFileFilterId: list.id, consentConfirmed: true }),
     )
-    expect(res.data).toEqual({
-      ready: 2,
-      invalid: 2,
-      duplicate: 1,
-      unsubscribed: 1,
-    })
 
-    const recipients = await service.prisma.outreachEmailRecipient.findMany({
-      where: { outreachEmail: { outreachId: id } },
-      orderBy: { id: 'asc' },
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(res.data.voterFileFilterId).toBe(list.id)
+    expect(res.data.consentConfirmedAt).not.toBeNull()
+    expect(count).not.toHaveBeenCalled()
+    expect(await estimateOf('email', res.data.id, winSlug)).toEqual({
+      audienceCount: 4800,
+      warmingCap: 1000,
+      recipientCap: 1000,
+      priceCents: 1000,
     })
-    expect(recipients.map((r) => r.email)).toEqual([
-      'ann@example.com',
-      'bob@example.com',
-    ])
-    expect(recipients[0]).toMatchObject({ firstName: 'Ann', lastName: 'Lee' })
-
-    const send = await service.prisma.outreachEmail.findUniqueOrThrow({
-      where: { outreachId: id },
-    })
-    expect(send.consentConfirmedAt).not.toBeNull()
-    expect(send.consentConfirmedByUserId).toBe(service.user.id)
-  })
-
-  it('ignores an unsubscribe that was undone', async () => {
-    await service.prisma.outreachEmailSuppression.create({
-      data: {
-        email: 'back@example.com',
-        organizationSlug: winSlug,
-        reason: 'link',
-        revokedAt: new Date(),
-      },
-    })
-    const res = await uploadTo(
-      'email',
-      await draftId(),
-      'email\nback@example.com',
+    expect(count).toHaveBeenCalledWith(
+      expect.objectContaining({ id: list.id, hasEmail: true }),
+      { resultsPerPage: 1, page: 1 },
+      expect.objectContaining({ slug: winSlug }),
     )
-    expect(res.data).toMatchObject({ ready: 1, unsubscribed: 0 })
   })
 
-  it('does not honor another organization’s unsubscribes', async () => {
-    await service.prisma.outreachEmailSuppression.create({
-      data: {
-        email: 'other@example.com',
-        organizationSlug: officeSlug,
-        reason: 'link',
-      },
-    })
-    const res = await uploadTo(
-      'email',
-      await draftId(),
-      'email\nother@example.com',
+  it('has no estimate until a list is picked', async () => {
+    const count = vi.spyOn(
+      service.app.get(ContactsService),
+      'findContactsForFilter',
     )
-    expect(res.data).toMatchObject({ ready: 1, unsubscribed: 0 })
+    const res = await saveWin(draftBody())
+    expect(res.data.voterFileFilterId).toBeNull()
+    expect(await estimateOf('email', res.data.id, winSlug)).toBeNull()
+    expect(count).not.toHaveBeenCalled()
   })
 
-  it('honors the campaign’s unsubscribes on an office send', async () => {
-    await service.prisma.outreachEmailSuppression.create({
-      data: {
-        email: 'optout@example.com',
-        organizationSlug: winSlug,
-        reason: 'one_click',
-      },
-    })
-    const serve = await saveServe(draftBody())
-    const res = await uploadTo(
-      'serve/email',
-      serve.data.id,
-      'email\noptout@example.com\nfine@example.com',
-    )
-    expect(res.data).toEqual({
-      ready: 1,
-      invalid: 0,
-      duplicate: 0,
-      unsubscribed: 1,
-    })
-  })
-
-  it('replaces the draft’s recipients on a re-upload', async () => {
-    const id = await draftId()
-    await uploadTo('email', id, 'email\na@example.com\nb@example.com')
-    const second = await uploadTo('email', id, 'email\nc@example.com')
-    expect(second.data.ready).toBe(1)
-
-    const emails = await service.prisma.outreachEmailRecipient.findMany({
-      where: { outreachEmail: { outreachId: id } },
-    })
-    expect(emails.map((r) => r.email)).toEqual(['c@example.com'])
-    const draft = await service.client.get(`/v1/outreach/email/${id}`, {
-      headers: winHeaders(),
-    })
-    expect(draft.data.recipientCount).toBe(1)
-  })
-
-  it('requires consent', async () => {
-    const id = await draftId()
-    const missing = await uploadTo('email', id, 'email\na@example.com', {})
-    const no = await uploadTo('email', id, 'email\na@example.com', {
-      consentConfirmed: 'false',
-    })
-    expect(missing.status).toBe(HttpStatus.BAD_REQUEST)
-    expect(no.status).toBe(HttpStatus.BAD_REQUEST)
-    expect(await service.prisma.outreachEmailRecipient.count()).toBe(0)
-  })
-
-  it('refuses a file over 5,000 rows and keeps the existing recipients', async () => {
-    const id = await draftId()
-    await uploadTo('email', id, 'email\nkeep@example.com')
-    const big =
-      'email\n' +
-      Array.from({ length: 5001 }, (_, i) => `u${i}@example.com`).join('\n')
-    const res = await uploadTo('email', id, big)
-    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
-    expect(await service.prisma.outreachEmailRecipient.count()).toBe(1)
-  })
-
-  it('answers a 4xx for a file over the size limit', async () => {
-    const id = await draftId()
-    const huge = 'email\n' + 'a@example.com\n'.repeat(200_000)
-    const res = await uploadTo('email', id, huge)
-    expect(res.status).toBeGreaterThanOrEqual(400)
-    expect(res.status).toBeLessThan(500)
-  })
-
-  it('refuses a file with no email column', async () => {
-    const res = await uploadTo('email', await draftId(), 'name\nAnn')
+  it('refuses a list another organization saved', async () => {
+    const officeList = await listFor(officeSlug)
+    const res = await saveWin(draftBody({ voterFileFilterId: officeList.id }))
     expect(res.status).toBe(HttpStatus.BAD_REQUEST)
   })
 
-  it('refuses uploads after the send is confirmed', async () => {
-    const id = await draftId()
-    await uploadTo('email', id, 'email\na@example.com')
-    await service.prisma.outreach.update({
-      where: { id },
-      data: { status: OutreachStatus.pending },
+  it('counts an office send against the office list', async () => {
+    const count = vi
+      .spyOn(service.app.get(ContactsService), 'findContactsForFilter')
+      .mockResolvedValue(countPage(12))
+    const list = await listFor(officeSlug)
+
+    const res = await saveServe(
+      draftBody({ voterFileFilterId: list.id, consentConfirmed: true }),
+    )
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(
+      await estimateOf('serve/email', res.data.id, officeSlug),
+    ).toMatchObject({
+      audienceCount: 12,
+      recipientCap: 12,
     })
-    const res = await uploadTo('email', id, 'email\nb@example.com')
-    expect(res.status).toBe(HttpStatus.CONFLICT)
-    expect(await service.prisma.outreachEmailRecipient.count()).toBe(1)
+    expect(count).toHaveBeenCalledWith(
+      expect.objectContaining({ id: list.id, hasEmail: true }),
+      expect.anything(),
+      expect.objectContaining({ slug: officeSlug }),
+    )
+    const winList = await listFor(winSlug)
+    const crossed = await saveServe(
+      draftBody({ voterFileFilterId: winList.id }),
+    )
+    expect(crossed.status).toBe(HttpStatus.BAD_REQUEST)
   })
 
-  it('refuses another organization’s draft', async () => {
-    const serve = await saveServe(draftBody())
-    const res = await uploadTo('email', serve.data.id, 'email\na@example.com')
-    expect(res.status).toBe(HttpStatus.NOT_FOUND)
+  it('reads no voter data for a Win draft without Pro', async () => {
+    await service.prisma.campaign.update({
+      where: { id: campaignId },
+      data: { isPro: false },
+    })
+    const count = vi.spyOn(
+      service.app.get(ContactsService),
+      'findContactsForFilter',
+    )
+    const list = await listFor(winSlug)
+    const res = await saveWin(draftBody({ voterFileFilterId: list.id }))
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(await estimateOf('email', res.data.id, winSlug)).toBeNull()
+    expect(count).not.toHaveBeenCalled()
+  })
+
+  it('keeps consent for the same list and asks again for a new one', async () => {
+    vi.spyOn(
+      service.app.get(ContactsService),
+      'findContactsForFilter',
+    ).mockResolvedValue(countPage(3))
+    const first = await listFor(winSlug)
+    const second = await listFor(winSlug)
+    const created = await saveWin(
+      draftBody({ voterFileFilterId: first.id, consentConfirmed: true }),
+    )
+    const given = created.data.consentConfirmedAt
+
+    const resaved = await saveWin(
+      draftBody({
+        id: created.data.id,
+        voterFileFilterId: first.id,
+        consentConfirmed: true,
+      }),
+    )
+    expect(resaved.data.consentConfirmedAt).toBe(given)
+
+    const switched = await saveWin(
+      draftBody({ id: created.data.id, voterFileFilterId: second.id }),
+    )
+    expect(switched.data.consentConfirmedAt).toBeNull()
   })
 })

@@ -115,7 +115,7 @@ share, and a good read fills them all (`representativeOf`). `unreachedAreaFor` t
 (`holdingBackTracts`: major tracts short of three answers or too unsure), so
 the area a list is saved to can never disagree with the status.
 
-## Theme ranks and enough voices
+## Theme ranks and signal
 
 The results response's themes come sorted by `people` (distinct people with
 a confirmed note or a reply in the theme), most first, the run's `rank`
@@ -125,8 +125,9 @@ model's cells in one warehouse read (`buildThemeCellsSql`, counts only),
 and `themeVoices` (`util/mrpReadStatus.util.ts`) checks each group
 `answerGroups` shows (major, nameable, no tracts) for
 `THEME_VOICES_PER_GROUP` of them: all is `strong`, at least half `fair`,
-fewer `thin`. No read, no district, or a failed theme read leaves `voices`
-off. Only the results route computes it.
+fewer `thin`, which the page shows as Strong signal, Some signal and Low
+signal. No read, no district, or a failed theme read leaves `voices` off.
+Only the results route computes it.
 
 ## Round 2 draw
 

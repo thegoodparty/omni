@@ -1,4 +1,6 @@
 import { addDays } from 'date-fns'
+import { vi } from 'vitest'
+import { ContactsService } from '@/contacts/services/contacts.service'
 import { PrismaClient } from '../../generated/prisma'
 import {
   OutreachEmailRecipientStatus,
@@ -82,6 +84,7 @@ export const createSend = async (
     recipientCap = null,
     prepared = false,
     consent = true,
+    audienceResolved = true,
   }: {
     organizationSlug: string
     campaignId: number | null
@@ -92,8 +95,12 @@ export const createSend = async (
     recipientCap?: number | null
     prepared?: boolean
     consent?: boolean
+    audienceResolved?: boolean
   },
 ) => {
+  const list = await prisma.voterFileFilter.create({
+    data: { organizationSlug, name: `Everyone ${unique()}` },
+  })
   const outreach = await prisma.outreach.create({
     data: {
       outreachType: OutreachType.email,
@@ -102,6 +109,7 @@ export const createSend = async (
       organizationSlug,
       name: 'Town hall',
       date,
+      voterFileFilterId: list.id,
       email: {
         create: {
           senderId,
@@ -112,6 +120,9 @@ export const createSend = async (
           body: 'Join us at 7pm.',
           recipientCap,
           consentConfirmedAt: consent ? new Date() : null,
+          // The fixture writes the recipients itself, standing in for the
+          // resolve prepare runs.
+          audienceResolvedAt: audienceResolved ? new Date() : null,
           ...(prepared
             ? { preparedAt: new Date(), sesTemplateName: 'local-email-test' }
             : {}),
@@ -130,8 +141,42 @@ export const createSend = async (
       firstName: `Person${index}`,
     })),
   })
-  return { outreachId: outreach.id, outreachEmailId: email.id }
+  return {
+    outreachId: outreach.id,
+    outreachEmailId: email.id,
+    voterFileFilterId: list.id,
+  }
 }
+
+// Stands in for the people DB: a fixture send's list holds exactly the
+// recipients the fixture wrote, so its email count is their number.
+export const stubAudienceFromRecipients = (
+  contacts: ContactsService,
+  prisma: PrismaClient,
+) =>
+  vi
+    .spyOn(contacts, 'findContactsForFilter')
+    .mockImplementation(async (filter) => {
+      const totalResults =
+        typeof filter.id === 'number'
+          ? await prisma.outreachEmailRecipient.count({
+              where: {
+                outreachEmail: { outreach: { voterFileFilterId: filter.id } },
+              },
+            })
+          : 0
+      return {
+        people: [],
+        pagination: {
+          totalResults,
+          currentPage: 1,
+          pageSize: 1,
+          totalPages: 1,
+          hasNextPage: false,
+          hasPreviousPage: false,
+        },
+      }
+    })
 
 export const createHold = (
   prisma: PrismaClient,

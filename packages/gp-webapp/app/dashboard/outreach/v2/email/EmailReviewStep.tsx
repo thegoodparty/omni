@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import type { EmailRecipientUploadResponse } from '@goodparty_org/contracts'
 import { Button, Input, Label } from '@styleguide'
 import { Intro } from '../social/Intro'
 import { EmailPreview } from './EmailPreview'
@@ -14,7 +13,6 @@ import {
   formatCount,
   formatDollars,
   nextWarmingCap,
-  warmingCap,
   type EmailComposeState,
 } from './emailFlow.util'
 import type { EmailSurface } from './emailSurface'
@@ -22,7 +20,6 @@ import type { EmailSurface } from './emailSurface'
 interface EmailReviewStepProps {
   surface: EmailSurface
   compose: EmailComposeState
-  result: EmailRecipientUploadResponse
   draftId: number | null
   sendLabel: string
 }
@@ -30,7 +27,6 @@ interface EmailReviewStepProps {
 export const EmailReviewStep = ({
   surface,
   compose,
-  result,
   draftId,
   sendLabel,
 }: EmailReviewStepProps) => {
@@ -61,8 +57,9 @@ export const EmailReviewStep = ({
     }
   }
 
-  const cap = sender ? warmingCap(sender.warmingStep) : null
-  const capped = cap !== null && result.ready > cap
+  const estimate = send?.estimate ?? null
+  const capped =
+    estimate !== null && estimate.audienceCount > estimate.recipientCap
 
   const saveAddress = async () => {
     setSaving(true)
@@ -98,28 +95,30 @@ export const EmailReviewStep = ({
           <dt className="text-muted-foreground">Subject</dt>
           <dd className="font-medium text-foreground">{compose.subject}</dd>
         </div>
-        <div>
-          <dt className="text-muted-foreground">Reaches</dt>
-          <dd className="font-medium text-foreground">
-            {capped && cap !== null
-              ? `${formatCount(cap)} of ${formatCount(result.ready)}`
-              : `${formatCount(result.ready)} ${surface.recipientsNoun}`}
-          </dd>
-          {capped && cap !== null && sender && (
-            <dd className="text-muted-foreground">
-              This send can reach up to {formatCount(cap)}{' '}
-              {surface.recipientsNoun}.
-              {nextWarmingCap(sender.warmingStep) !== null
-                ? ' You can reach more on your next send.'
-                : ''}
+        {estimate && (
+          <div data-testid="email-reach">
+            <dt className="text-muted-foreground">Reaches</dt>
+            <dd className="font-medium text-foreground">
+              {capped
+                ? `${formatCount(estimate.recipientCap)} of ${formatCount(estimate.audienceCount)}`
+                : `${formatCount(estimate.recipientCap)} ${surface.recipientsNoun}`}
             </dd>
-          )}
-        </div>
-        {send?.estimate && (
+            {capped && sender && (
+              <dd className="text-muted-foreground">
+                This send can reach up to {formatCount(estimate.recipientCap)}{' '}
+                {surface.recipientsNoun}.
+                {nextWarmingCap(sender.warmingStep) !== null
+                  ? ' You can reach more on your next send.'
+                  : ''}
+              </dd>
+            )}
+          </div>
+        )}
+        {estimate && (
           <div data-testid="email-price">
             <dt className="text-muted-foreground">Price</dt>
             <dd className="font-medium text-foreground">
-              Up to {formatDollars(send.estimate.priceCents)}
+              Up to {formatDollars(estimate.priceCents)}
             </dd>
             <dd className="text-muted-foreground">
               You are charged only for emails that go out.

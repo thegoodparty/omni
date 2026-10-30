@@ -66,6 +66,19 @@ people table FULL OUTER JOIN the org's rows of
   `Person.isNewContact` are always present. The CSV export appends `Email`
   and `New Contact` only with the overlay. Search with an `@` matches
   `lower(Email)` when the overlay is on.
+- The `hasEmail` filter is `Email IS NOT NULL` with the overlay and `FALSE`
+  without it (no column to test, and no one there has an email). The list
+  detail's `email` count compiles to the same predicate. Email outreach forces
+  it on every count and resolve (`src/emailOutreach/`).
+- Where vendors are mocked (never prod), a test organization can have a
+  stand-in email audience instead: `services/peopleEmailFixture.service.ts`
+  reads it from a `people_db` vendor mock record, and the list detail's
+  `email` count and email outreach's count and resolve use it in place of the
+  warehouse for that organization. It exists because a preview's database
+  never feeds the overlay, so the email E2E has no other way to reach anyone.
+  It holds SES simulator addresses only, checked again on read. The list
+  builder's live count (`POST /v1/contacts/count`) still reads the warehouse,
+  so a builder-made list shows 0 there for such an organization.
 - Org slug, state and district name are inlined as escaped literals
   (`stringLiteral`), because a table expression cannot carry bound
   parameters. One join, never a UNION (a union over the mart's columns
@@ -110,7 +123,7 @@ the same cells. Each person's yes share rides in on an inlined id list
 shared with others of the same value, so only sums come back.
 `buildThemeCellsSql` (op `theme-cells`) counts each of a priority's themes'
 people in the same cells, one column per theme, for the results page's
-"enough voices" label.
+signal label (Strong, Some or Low signal).
 `buildRespondentCellsSql` counts people the same way plus L2 tenure,
 `buildDistrictTractAdultsSql` sums adults per tract,
 `buildPoolCellsSql` counts everyone a filter matches in the district's
@@ -420,6 +433,18 @@ or Spanish on the strength of an empty column, so the service guarded it. It
 returns null for an absent value now, alongside the language filter's split of
 'Other' from 'Unknown', and the guard is gone. A present but unrecognized value
 is still `'Other'`.
+
+## Draining a whole audience: keyset pages, not OFFSET
+
+A page is `ORDER BY id LIMIT n OFFSET m`, so a reader walking a whole list
+re-sorts and skips everything before each page. `ListPeopleDTO.afterId`
+(`findContactsForFilter`'s `afterId`) pages by keyset instead:
+`AND id > :afterId ORDER BY id LIMIT n`, no OFFSET, ungrouped reads only.
+Each page is still one statement over the district (with the overlay join
+where there is one), but a top-n after a cursor rather than a deep sort and
+skip. Email outreach's prepare reads its audience this way, with `skipCount`.
+It relies on one row per `id`: the contact overlay view folds a person's
+upload rows into one, which is also why it ANDs `is_new` across them.
 
 ## Reject rather than truncate — do not "fix" this into pagination
 

@@ -78,6 +78,7 @@ import {
   type PeopleDataset,
   PeopleDatasetService,
 } from '@/peopleDb/services/peopleDataset.service'
+import { PeopleEmailFixtureService } from '@/peopleDb/services/peopleEmailFixture.service'
 import {
   DoorKnockingEvaluateDTO,
   WalkableAreaDTO,
@@ -327,6 +328,9 @@ export type ContactsFilterResolutionInput = Partial<
   supportStatus?: SupportStatusRollup[]
   votedStatus?: VotedStatus[]
   search?: string | null
+  // A channel's forced reach, never a saved list column: email sends count
+  // and resolve only people with an email address.
+  hasEmail?: boolean
 }
 
 @Injectable()
@@ -348,6 +352,7 @@ export class ContactsService {
     private readonly voterDoorKnockingService: VoterDoorKnockingService,
     private readonly peopleStatsService: StatsService,
     private readonly peopleDataset: PeopleDatasetService,
+    private readonly peopleEmailFixture: PeopleEmailFixtureService,
     private readonly contactsMadeResolutionService: ContactsMadeResolutionService,
     private readonly civicPanelHistory: CivicPanelHistoryService,
     private readonly independentAffinityColumn: IndependentAffinityColumnService,
@@ -1923,7 +1928,12 @@ export class ContactsService {
   // merge of the two (nullable row columns, relation-shaped conditions).
   async findContactsForFilter(
     filterInput: ContactsFilterResolutionInput,
-    pagination: { resultsPerPage: number; page: number; skipCount?: boolean },
+    pagination: {
+      resultsPerPage: number
+      page: number
+      skipCount?: boolean
+      afterId?: string
+    },
     organization: Organization,
     excludePersonIds?: Set<string>,
     // Pre-resolved by callers paging one org's audience (resolvePeopleDataset).
@@ -1969,6 +1979,7 @@ export class ContactsService {
           search,
           groupByHousehold: false,
           skipCount: pagination.skipCount ?? false,
+          afterId: pagination.afterId,
         }),
         districtParams.dataset,
       )
@@ -2054,6 +2065,7 @@ export class ContactsService {
           robocall: 0,
           phoneBanking: 0,
           doorKnocking: 0,
+          email: 0,
           polls: 0,
         },
         outreachHistory,
@@ -2118,6 +2130,7 @@ export class ContactsService {
           robocall: 0,
           phoneBanking: 0,
           doorKnocking: 0,
+          email: 0,
           polls: 0,
         },
         outreachHistory: [],
@@ -2178,6 +2191,11 @@ export class ContactsService {
         ),
     )
 
+    // A test organization's stand-in email audience, where a preview can't
+    // reach imported contacts (PeopleEmailFixtureService). Null elsewhere.
+    const emailFixture = await this.peopleEmailFixture.emailAudienceFor(
+      organization.slug,
+    )
     return {
       demographics: {
         people: aggregates.count,
@@ -2195,6 +2213,7 @@ export class ContactsService {
         // legacy raw-SQL export population.
         phoneBanking: aggregates.phoneBanking,
         doorKnocking: aggregates.doorKnocking,
+        email: emailFixture?.length ?? aggregates.email,
         // Polls are delivered by text, so reachability mirrors sms 1:1.
         polls: aggregates.sms,
       },

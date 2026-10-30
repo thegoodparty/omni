@@ -272,6 +272,23 @@ const hasIdOverrides = (
 // identical predicate and cannot drift apart.
 const isPresentSql = (field: string): string => `${col(field)} IS NOT NULL`
 
+// Email exists only on the imported-contact overlay. A read without it has
+// no column to test, and no one in it has an email.
+const emailPresentSql = (hasContactOverlay: boolean): string =>
+  hasContactOverlay ? isPresentSql('Email') : 'FALSE'
+
+const buildHasEmailFilter = (
+  hasContactOverlay: boolean,
+  op?: FilterOperator,
+): string | null => {
+  if (!op || op.operator !== 'is') return null
+  if (op.value === 'not_null') return emailPresentSql(hasContactOverlay)
+  if (op.value === 'null') {
+    return hasContactOverlay ? `${col('Email')} IS NULL` : 'TRUE'
+  }
+  return null
+}
+
 const anyPhonePresentSql = (): string =>
   `(${isPresentSql('VoterTelephones_CellPhoneFormatted')}` +
   ` OR ${isPresentSql('VoterTelephones_LandlineFormatted')})`
@@ -741,6 +758,9 @@ export const buildVoterFiltersSql = (
       case 'hasAddress':
         sql = buildHasAddressFilter(op)
         break
+      case 'hasEmail':
+        sql = buildHasEmailFilter(contactOverlay, op)
+        break
       case 'id':
         sql = buildIdFilter(op)
         break
@@ -1010,7 +1030,8 @@ export const buildListDetailAggregatesSql = (
     ` COUNT_IF(${cell}) AS sms,` +
     ` COUNT_IF(${landline}) AS robocall,` +
     ` COUNT_IF(${anyPhonePresentSql()}) AS phoneBanking,` +
-    ` COUNT_IF(${addressPresentSql()}) AS doorKnocking` +
+    ` COUNT_IF(${addressPresentSql()}) AS doorKnocking,` +
+    ` COUNT_IF(${emailPresentSql(args.district.dataset.overlayOrgSlug !== undefined)}) AS email` +
     ` FROM ${args.district.table} v ${buildScopeSql(bag, args)}`
   return { sql, params: bag.params }
 }
@@ -1175,6 +1196,10 @@ export const buildPageSql = (
     take: number
     skip: number
     groupByHousehold?: boolean
+    // Keyset paging: rows after this id, in id order. A reader draining a
+    // whole audience pages this way so no page sorts and skips everything
+    // before it, the way a deep OFFSET does.
+    afterId?: string
   },
 ): DbxStatement => {
   const bag = createBag()
@@ -1183,11 +1208,18 @@ export const buildPageSql = (
     .join(', ')
   const scope = buildScopeSql(bag, args)
   if (!args.groupByHousehold) {
+    const after =
+      args.afterId === undefined
+        ? ''
+        : ` AND ${col('id')} > ${bag.bind(args.afterId)}`
+    const limit = ` LIMIT ${bag.bind(num(args.take), 'INT')}`
+    const offset =
+      args.afterId === undefined
+        ? ` OFFSET ${bag.bind(num(args.skip), 'INT')}`
+        : ''
     const sql =
-      `SELECT ${projection} FROM ${args.district.table} v ${scope}` +
-      ` ORDER BY ${col('id')}` +
-      ` LIMIT ${bag.bind(num(args.take), 'INT')}` +
-      ` OFFSET ${bag.bind(num(args.skip), 'INT')}`
+      `SELECT ${projection} FROM ${args.district.table} v ${scope}${after}` +
+      ` ORDER BY ${col('id')}${limit}${offset}`
     return { sql, params: bag.params }
   }
   // Spark has no DISTINCT ON, so one representative per household comes from

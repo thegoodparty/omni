@@ -5,22 +5,10 @@ import {
   initialCompose,
   nextWarmingCap,
   toDraftSave,
-  uploadSummary,
   warmingCap,
 } from './emailFlow.util'
 
-describe('upload summary and warming', () => {
-  it('folds invalid and unsubscribed rows into skipped', () => {
-    expect(
-      uploadSummary({
-        ready: 4812,
-        invalid: 30,
-        unsubscribed: 7,
-        duplicate: 12,
-      }),
-    ).toBe('4,812 ready, 37 skipped, 12 duplicates')
-  })
-
+describe('warming', () => {
   it('reads the cap off the warming step and clamps past the last one', () => {
     expect(warmingCap(0)).toBe(1000)
     expect(warmingCap(1)).toBe(5000)
@@ -80,6 +68,7 @@ describe('toDraftSave', () => {
         },
         null,
         undefined,
+        { listId: null, consent: false },
       ),
     ).toMatchObject({
       imageUrl: 'https://assets.example.com/email-images/o/x.png',
@@ -93,6 +82,7 @@ describe('toDraftSave', () => {
         { ...initialCompose, subject: 'S', body: 'B' },
         null,
         undefined,
+        { listId: null, consent: false },
       ),
     ).toEqual({
       goal: 'Intro',
@@ -100,6 +90,7 @@ describe('toDraftSave', () => {
       theme: 'classic_blue',
       subject: 'S',
       body: 'B',
+      consentConfirmed: false,
     })
   })
 
@@ -115,9 +106,12 @@ describe('toDraftSave', () => {
       },
       7,
       '2026-11-01T10:00:00.000Z',
+      { listId: 42, consent: true },
     )
     expect(save).toMatchObject({
       id: 7,
+      voterFileFilterId: 42,
+      consentConfirmed: true,
       buttonLabel: 'Go',
       buttonUrl: 'https://example.com',
       date: '2026-11-01T10:00:00.000Z',
