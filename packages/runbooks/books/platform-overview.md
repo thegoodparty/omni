@@ -104,25 +104,25 @@ gp-data-platform (external — dbt + Databricks)
 
 ### Auth Between Services
 
-| From                          | To                  | Method                                                                                                                                                                                                                                        | Details                                                           |
-| ----------------------------- | ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
-| Browser → gp-webapp           | —                   | Cookie                                                                                                                                                                                                                                        | `token` HTTP-only cookie (120-day expiry), `user` readable cookie |
-| gp-webapp middleware → gp-api | JWT Bearer          | Middleware intercepts `/api/v1/*`, injects `Authorization` header from cookie                                                                                                                                                                 |
-| gp-admin → gp-api             | Clerk M2M           | `src/shared/gpApi` client, per-env Clerk M2M secret; active Clerk org selects env (no cookie flow)                                                                                                                                                 |
-| gp-api → Databricks           | OAuth M2M (SP)      | `PEOPLE_DATABRICKS_*` service-principal creds; Statement Execution API against `mart_gp_api`                                                                                                                                                  |
-| M2M caller → gp-api           | Bearer `mt_*` token | `ClerkM2MAuthGuard`                                                                                                                                                                                                                           |
-| gp-api guards                 | —                   | Three global guards in order: `ClerkM2MAuthGuard` → `SessionGuard` → `RolesGuard`                                                                                                                                                             |
-| Admin impersonation           | —                   | `impersonateToken`/`impersonateUser` cookies override normal auth                                                                                                                                                                             |
+| From                          | To                  | Method                                                                                                                          | Details                                                           |
+| ----------------------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| Browser → gp-webapp           | —                   | Cookie                                                                                                                          | `token` HTTP-only cookie (120-day expiry), `user` readable cookie |
+| gp-webapp middleware → gp-api | JWT Bearer          | Middleware intercepts `/api/v1/*`, injects `Authorization` header from cookie                                                   |
+| gp-admin → gp-api             | Clerk M2M           | `src/shared/gpApi` client, per-env Clerk M2M secret; active Clerk org selects env (no cookie flow)                              |
+| gp-api → Databricks           | OAuth M2M (SP)      | `PEOPLE_DATABRICKS_*` service-principal creds; Statement Execution API against `mart_gp_api`                                    |
+| M2M caller → gp-api           | Bearer `mt_*` token | `ClerkM2MAuthGuard`                                                                                                             |
+| gp-api guards                 | —                   | Three global guards in order: `NonProdDeployGuard` (404s `@NonProdDeployOnly()` routes on prod) → `SessionGuard` → `RolesGuard` |
+| Admin impersonation           | —                   | `impersonateToken`/`impersonateUser` cookies override normal auth                                                               |
 
 Guard detail and decorators: `gp-api/src/authentication/CLAUDE.md`.
 
 ### Frontend → Backend URL Config
 
-| App             | Config File                 | Env Vars                                                                                                                                                                                                                                                                    |
-| --------------- | --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| App             | Config File                 | Env Vars                                                                                                       |
+| --------------- | --------------------------- | -------------------------------------------------------------------------------------------------------------- |
 | gp-webapp       | `gp-webapp/appEnv.ts`       | `NEXT_PUBLIC_API_BASE` (per-PR override to `https://pr-<N>.preview.goodparty.org`), `NEXT_PUBLIC_OLD_API_BASE` |
-| gp-admin        | per-env config + Clerk org  | Talks to gp-api via the SDK; one Vercel deploy switches env by active Clerk org                                                                                                                                                                                             |
-| candidate-sites | `candidate-sites/appEnv.ts` | `NEXT_PUBLIC_API_BASE` (default: `localhost:3000/v1`)                                                                                                                                                                                                                       |
+| gp-admin        | per-env config + Clerk org  | Talks to gp-api via the SDK; one Vercel deploy switches env by active Clerk org                                |
+| candidate-sites | `candidate-sites/appEnv.ts` | `NEXT_PUBLIC_API_BASE` (default: `localhost:3000/v1`)                                                          |
 
 ---
 
@@ -132,26 +132,26 @@ Guard detail and decorators: `gp-api/src/authentication/CLAUDE.md`.
 
 **~53 API controllers** organized by domain:
 
-| Domain                  | Routes                                                                                                                                                                     | Purpose                                                                                                                                                                           |
-| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Campaigns               | `/campaigns`, `/public-campaigns`, `/campaigns/:id/positions`, `/campaigns/tasks`, `/campaigns/mine/update-history`, `/campaigns/map`                                      | Core campaign CRUD, positions, weekly tasks, history, map                                                                                                                         |
-| AI                      | `/campaigns/ai/chat`, `/campaigns/ai`                                                                                                                                      | AI chat assistant (thread management), AI content generation                                                                                                                      |
-| Agent Experiments       | `/agent-experiments` (PMF Engine)                                                                                                                                          | Dispatches `experiment_run` to SQS; a Lambda/Fargate worker runs the matching runbook and returns results on the agent-results queue. See `gp-api/src/agentExperiments/CLAUDE.md` |
-| Auth                    | `/authentication`                                                                                                                                                          | Login, social login (Google OAuth), JWT tokens                                                                                                                                    |
-| Users                   | `/users`, `/admin/users`                                                                                                                                                   | User management, admin user operations                                                                                                                                            |
-| Elections               | `/elections`                                                                                                                                                               | District and turnout data from the election database|
-| Contacts                | `/contacts`                                                                                                                                                                | Voter data (list, search, download, stats): Databricks `mart_gp_api` in-process via `src/peopleDb/`                                                                                |
-| Path to Victory         | `/path-to-victory`                                                                                                                                                         | Win number calculations — gold flow (BallotReady → election database) + silver flow (LLM-based, via SQS)                                                                               |
-| Outreach                | `/outreach`, `/contact-engagement`, `/scheduled-messaging`                                                                                                                 | Voter outreach campaigns, scheduled text messages                                                                                                                                 |
-| Polls                   | `/polls`                                                                                                                                                                   | Constituency polling — create, expand, analyze, bias check                                                                                                                        |
-| Websites                | `/websites`, `/domains`                                                                                                                                                    | Campaign website builder, domain purchase (Vercel), email forwarding (ForwardEmail)                                                                                               |
-| Payments                | `/payments`, `/payments/purchase`                                                                                                                                          | Stripe processing, pro upgrade                                                                                                                                                    |
-| Voters                  | `/voters`, voter file routes                                                                                                                                               | Voter file management, download access                                                                                                                                            |
-| CRM                     | `/crm`                                                                                                                                                                     | HubSpot sync (users + campaigns)                                                                                                                                                  |
-| Content                 | `/content`                                                                                                                                                                 | Contentful CMS content                                                                                                                                                            |
-| Compliance              | `/campaigns/tcr-compliance`                                                                                                                                                | 10DLC TCR compliance verification (Peerly)                                                                                                                                        |
-| P2P                     | `/p2p`                                                                                                                                                                     | Peerly SMS/calling — identity, phone lists, media, P2P jobs                                                                                                                       |
-| Annotations / Artifacts | `/annotations`, `/artifact-feedback`, `/artifact-review`, `/speech`                                                                                                        | Newer modules backing admin/agent workflows                                                                                                                                       |
+| Domain                  | Routes                                                                                                                                                      | Purpose                                                                                                                                                                           |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Campaigns               | `/campaigns`, `/public-campaigns`, `/campaigns/:id/positions`, `/campaigns/tasks`, `/campaigns/mine/update-history`, `/campaigns/map`                       | Core campaign CRUD, positions, weekly tasks, history, map                                                                                                                         |
+| AI                      | `/campaigns/ai/chat`, `/campaigns/ai`                                                                                                                       | AI chat assistant (thread management), AI content generation                                                                                                                      |
+| Agent Experiments       | `/agent-experiments` (PMF Engine)                                                                                                                           | Dispatches `experiment_run` to SQS; a Lambda/Fargate worker runs the matching runbook and returns results on the agent-results queue. See `gp-api/src/agentExperiments/CLAUDE.md` |
+| Auth                    | `/authentication`                                                                                                                                           | Login, social login (Google OAuth), JWT tokens                                                                                                                                    |
+| Users                   | `/users`, `/admin/users`                                                                                                                                    | User management, admin user operations                                                                                                                                            |
+| Elections               | `/elections`                                                                                                                                                | District and turnout data from the election database                                                                                                                              |
+| Contacts                | `/contacts`                                                                                                                                                 | Voter data (list, search, download, stats): Databricks `mart_gp_api` in-process via `src/peopleDb/`                                                                               |
+| Path to Victory         | `/path-to-victory`                                                                                                                                          | Win number calculations — gold flow (BallotReady → election database) + silver flow (LLM-based, via SQS)                                                                          |
+| Outreach                | `/outreach`, `/contact-engagement`, `/scheduled-messaging`                                                                                                  | Voter outreach campaigns, scheduled text messages                                                                                                                                 |
+| Polls                   | `/polls`                                                                                                                                                    | Constituency polling — create, expand, analyze, bias check                                                                                                                        |
+| Websites                | `/websites`, `/domains`                                                                                                                                     | Campaign website builder, domain purchase (Vercel), email forwarding (ForwardEmail)                                                                                               |
+| Payments                | `/payments`, `/payments/purchase`                                                                                                                           | Stripe processing, pro upgrade                                                                                                                                                    |
+| Voters                  | `/voters`, voter file routes                                                                                                                                | Voter file management, download access                                                                                                                                            |
+| CRM                     | `/crm`                                                                                                                                                      | HubSpot sync (users + campaigns)                                                                                                                                                  |
+| Content                 | `/content`                                                                                                                                                  | Contentful CMS content                                                                                                                                                            |
+| Compliance              | `/campaigns/tcr-compliance`                                                                                                                                 | 10DLC TCR compliance verification (Peerly)                                                                                                                                        |
+| P2P                     | `/p2p`                                                                                                                                                      | Peerly SMS/calling — identity, phone lists, media, P2P jobs                                                                                                                       |
+| Annotations / Artifacts | `/annotations`, `/artifact-feedback`, `/artifact-review`, `/speech`                                                                                         | Newer modules backing admin/agent workflows                                                                                                                                       |
 | Other                   | `/health`, `/v1/version`, `/jobs`, `/queue`, `/error-logger`, `/subscribe`, `/declare`, `/top-issues`, `/positions`, `/community-issues`, `/elected-office` | Utilities, integrations. `GET /v1/version` returns `{ commit }` for deploy verification                                                                                           |
 
 **Prisma schema** (modular `prisma/schema/*.prisma`, 20+ models): Campaign, User, PathToVictory, AiChat, Website, Domain, Poll, PollIssue, PollIndividualMessage, Outreach, ScheduledMessage, CampaignPosition, CampaignPlanVersion, CampaignUpdateHistory, TcrCompliance, VoterFileFilter, ElectedOffice, TopIssue, Position, CommunityIssue, Content, BlogArticleMeta, WebsiteContact, WebsiteView, CensusEntity. See `gp-api/prisma/CLAUDE.md`.
@@ -190,18 +190,17 @@ District (state + L2 type/name, unique constraint)
 
 **Election code logic**: `determineElectionCode(date)` classifies election dates in UTC — General (even year, first Tues after first Mon in Nov), everything else LocalOrMunicipal. It does not depend on state: the retrained turnout model dropped the ConsolidatedGeneral category the odd-November states used to read, and primary days arrive pre-tagged on the race row from the warehouse calendar.
 
-
 ### gp-ai-projects — AI Services (external repo)
 
 **uv workspace monorepo** at `$PROJECT_ROOT/gp-ai-projects` with 5 packages + shared utilities. Python 3.11+. All LLM calls use **Gemini exclusively** (no OpenAI).
 
 **Services**:
 
-| Service                         | Runtime     | Trigger                  | Purpose                                                                                                                                                                                |
-| ------------------------------- | ----------- | ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Campaign Plan API**           | FastAPI     | HTTP from gp-api         | Generate 6-section campaign plans (overview, strategy, timeline, budget, community, voter contact). Gemini + Tavily web search. Returns PDF/JSON.                                      |
-| **Serve-Analyze (V1 Pipeline)** | ECS Fargate | Lambda trigger           | Analyze constituent poll messages — consolidate → hierarchical clustering (embeddings, UMAP/PCA, HDBSCAN) → LLM ranking of top 3 clusters → publish `PollAnalysisCompleteEvent` to SQS |
-| **DDHQ Matcher**                | ECS Fargate | Lambda trigger           | Match HubSpot contacts to DDHQ election results via Google Sheets                                                                                                                      |
+| Service                         | Runtime     | Trigger          | Purpose                                                                                                                                                                                |
+| ------------------------------- | ----------- | ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Campaign Plan API**           | FastAPI     | HTTP from gp-api | Generate 6-section campaign plans (overview, strategy, timeline, budget, community, voter contact). Gemini + Tavily web search. Returns PDF/JSON.                                      |
+| **Serve-Analyze (V1 Pipeline)** | ECS Fargate | Lambda trigger   | Analyze constituent poll messages — consolidate → hierarchical clustering (embeddings, UMAP/PCA, HDBSCAN) → LLM ranking of top 3 clusters → publish `PollAnalysisCompleteEvent` to SQS |
+| **DDHQ Matcher**                | ECS Fargate | Lambda trigger   | Match HubSpot contacts to DDHQ election results via Google Sheets                                                                                                                      |
 
 **Campaign plan generation flow**:
 
@@ -494,12 +493,12 @@ Before a campaign can send P2P texts, it must complete 10DLC (10-digit long code
 
 ### Frontend (gp-webapp)
 
-| Route                         | Components                                                                                                                                                                                                  |
-| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/dashboard/outreach`         | `OutreachPage` — create/list outreach campaigns. `OutreachCreateCards` (text + P2P options), `OutreachTable` (campaign list with P2P job status from Peerly), `FreeTextsBanner`, `OutreachContext` provider |
-| `/dashboard/outreach/v2/audience` | Audience step of the v2 outreach flow — recommended lists, custom audience builder, list details under `listDetails`                                                                                    |
-| `/dashboard/contacts`         | Contacts CRM — the voter/contact records surface, with download and outreach actions                                                                                                                        |
-| `/profile/texting-compliance` | TCR compliance form                                                                                                                                                                                         |
+| Route                             | Components                                                                                                                                                                                                  |
+| --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/dashboard/outreach`             | `OutreachPage` — create/list outreach campaigns. `OutreachCreateCards` (text + P2P options), `OutreachTable` (campaign list with P2P job status from Peerly), `FreeTextsBanner`, `OutreachContext` provider |
+| `/dashboard/outreach/v2/audience` | Audience step of the v2 outreach flow — recommended lists, custom audience builder, list details under `listDetails`                                                                                        |
+| `/dashboard/contacts`             | Contacts CRM — the voter/contact records surface, with download and outreach actions                                                                                                                        |
+| `/profile/texting-compliance`     | TCR compliance form                                                                                                                                                                                         |
 
 ### Key Database Models
 
@@ -549,7 +548,7 @@ HubSpot, BallotReady, Amplitude, Stripe, gp-api PG, DDHQ (Google Drive), TechSpe
 
 | Model                                | Target DB               | Tables Written                                                               | Logic                                                                                                                                                    |
 | ------------------------------------ | ----------------------- | ---------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `write__election_api_db`             | election DB         | Place, Race, Candidacy, Issue, Stance, District, Position, Projected_Turnout | FK-safe order. Incremental by `updated_at`. Filters races to 1 day past → 2 years future. Cleans old races + orphaned candidacies.                       |
+| `write__election_api_db`             | election DB             | Place, Race, Candidacy, Issue, Stance, District, Position, Projected_Turnout | FK-safe order. Incremental by `updated_at`. Filters races to 1 day past → 2 years future. Cleans old races + orphaned candidacies.                       |
 | `write__people_api_db`               | people-db PG            | Voter, District, DistrictVoter                                               | State-by-state ascending by row count. Incremental by `updated_at`. Non-prod downsampled to 6 small states (WY, ND, VT, DC, AK, SD). ~375 voter columns. |
 | `write__l2_databricks_to_gp_api`     | Retired voter datastore | `Voter{STATE}` (per-state tables)                                            | No consumer left in gp-api — pending retirement in gp-data-platform, ahead of the cluster teardown.                                                      |
 | `write__l2_databricks_to_people_api` | people-db PG            | Voter                                                                        | Similar to write\_\_people_api_db, different upsert strategy. Non-prod: WY, ND, VT only. 2-second buffer for microsecond rounding.                       |
@@ -582,12 +581,12 @@ Catalog: `goodparty_data_catalog`. Read-only from app code (SELECT only). Write 
 
 ### AWS Secrets Manager
 
-| Secret Name         | Used By                    |
-| ------------------- | -------------------------- |
-| `GP_API_DEV`        | gp-api (dev + PR previews) |
-| `GP_API_PROD`       | gp-api (prod)              |
-| `AI_SECRETS_DEV`    | gp-ai-projects (dev)       |
-| `AI_SECRETS_PROD`   | gp-ai-projects (prod)      |
+| Secret Name       | Used By                    |
+| ----------------- | -------------------------- |
+| `GP_API_DEV`      | gp-api (dev + PR previews) |
+| `GP_API_PROD`     | gp-api (prod)              |
+| `AI_SECRETS_DEV`  | gp-ai-projects (dev)       |
+| `AI_SECRETS_PROD` | gp-ai-projects (prod)      |
 
 Read a secret: `AWS_PROFILE=$AWS_PROFILE aws secretsmanager get-secret-value --secret-id SECRET_NAME --query SecretString --output text | jq .`
 
@@ -595,21 +594,20 @@ Read a secret: `AWS_PROFILE=$AWS_PROFILE aws secretsmanager get-secret-value --s
 
 In the monorepo, each app keeps its own local env files — copy from each app's `.env.example` / `.env.local` template before starting it.
 
-| Package          | .env Location                                   | Notes                                                                                                                 |
-| ---------------- | ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| Package          | .env Location                                   | Notes                                                                                            |
+| ---------------- | ----------------------------------------------- | ------------------------------------------------------------------------------------------------ |
 | gp-api           | `omni/packages/gp-api/.env`                     | DB, AWS, Stripe, HubSpot, Slack, Peerly, Vercel, Clerk, `PEOPLE_DATABRICKS_*` (voter data), etc. |
-| gp-webapp        | `omni/packages/gp-webapp/.env.local`            | `NEXT_PUBLIC_*`, Sentry                                                                                               |
-| gp-admin         | `omni/packages/gp-admin/.env.local`             | Clerk M2M, SDK base URL                                                                                               |
-| candidate-sites  | `omni/packages/candidate-sites/.env.local`      | `NEXT_PUBLIC_API_BASE`                                                                                                |
-| gp-ai-projects   | `gp-ai-projects/.env` (external repo)           | GEMINI*API_KEY, TAVILY_API_KEY, DATABRICKS*\*, BRAINTRUST_API_KEY                                                     |
-| gp-data-platform | `gp-data-platform/.env.example` (external repo) | DBT_CLOUD_PROJECT_ID                                                                                                  |
+| gp-webapp        | `omni/packages/gp-webapp/.env.local`            | `NEXT_PUBLIC_*`, Sentry                                                                          |
+| gp-admin         | `omni/packages/gp-admin/.env.local`             | Clerk M2M, SDK base URL                                                                          |
+| candidate-sites  | `omni/packages/candidate-sites/.env.local`      | `NEXT_PUBLIC_API_BASE`                                                                           |
+| gp-ai-projects   | `gp-ai-projects/.env` (external repo)           | GEMINI*API_KEY, TAVILY_API_KEY, DATABRICKS*\*, BRAINTRUST_API_KEY                                |
+| gp-data-platform | `gp-data-platform/.env.example` (external repo) | DBT_CLOUD_PROJECT_ID                                                                             |
 
 Tests load `.env.test`.
 
 ### Key Env Vars by Service (names only)
 
 **gp-api**: DATABASE*URL, ELECTION_DATABASE_URL, PEOPLE_DATABRICKS_WAREHOUSE_ID, PEOPLE_DATABRICKS_CLIENT_ID, PEOPLE_DATABRICKS_CLIENT_SECRET, AUTH_SECRET, CONTENTFUL_SPACE_ID, CONTENTFUL_ACCESS_TOKEN, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, SQS_QUEUE, HUBSPOT_TOKEN, MAILGUN_API_KEY, STRIPE_SECRET_KEY, BALLOT_READY_KEY, SLACK_BOT*_*TOKEN, VERCEL_TOKEN, VERCEL_PROJECT_ID, VERCEL_TEAM_ID, PEERLY*_, CLERK_SECRET_KEY, GP_API_MACHINE_SECRET, BRAINTRUST_API_KEY
-
 
 **gp-ai-projects**: GEMINI_API_KEY, TAVILY_API_KEY, DATABRICKS_API_KEY, DATABRICKS_SERVER_HOSTNAME, DATABRICKS_HTTP_PATH, GOODPARTY_API_TOKEN, BRAINTRUST_API_KEY, ANTHROPIC_API_KEY, CLICKUP_API_KEY
 
@@ -625,12 +623,12 @@ Backend infra for gp-api is provisioned via **Pulumi** from `omni/packages/<app>
 
 ### ECS Clusters & Services
 
-| Cluster                               | Service                               | Tasks (prod)                  |
-| ------------------------------------- | ------------------------------------- | ----------------------------- |
-| `gp-master-fargateCluster`            | `gp-api-master`                       | 2                             |
-| `gp-develop-fargateCluster`           | `gp-api-develop`                      | —                             |
-| `gp-pr-*-fargateCluster`              | `gp-api-pr-*` (ephemeral PR previews) | 1 each                        |
-| `vpn-cluster`                         | `vpn-service`                         | 1                             |
+| Cluster                     | Service                               | Tasks (prod) |
+| --------------------------- | ------------------------------------- | ------------ |
+| `gp-master-fargateCluster`  | `gp-api-master`                       | 2            |
+| `gp-develop-fargateCluster` | `gp-api-develop`                      | —            |
+| `gp-pr-*-fargateCluster`    | `gp-api-pr-*` (ephemeral PR previews) | 1 each       |
+| `vpn-cluster`               | `vpn-service`                         | 1            |
 
 On-demand ECS (Lambda-triggered, gp-ai-projects): `serve-analyze-{dev,prod}`, `ddhq-matcher-{dev,prod}`
 
@@ -638,13 +636,13 @@ On-demand ECS (Lambda-triggered, gp-ai-projects): `serve-analyze-{dev,prod}`, `d
 
 ### RDS Aurora PostgreSQL Clusters
 
-| Cluster                   | Used By                 | Instance Class                                     |
-| ------------------------- | ----------------------- | -------------------------------------------------- |
-| `gp-api-db-prod`          | gp-api prod             | db.serverless                                      |
-| `gp-api-db`               | gp-api dev              | db.serverless                                      |
-| `gp-api-pr-*`             | PR previews (ephemeral) | db.serverless                                      |
-| `election-api-db-prod`    | election DB prod (gp-api stack) | Serverless v2 (1-64 ACU, 14-day backup)            |
-| `election-api-db-develop` | election DB dev (gp-api stack)  | Serverless v2 (0.5-64 ACU, 7-day backup)           |
+| Cluster                   | Used By                         | Instance Class                           |
+| ------------------------- | ------------------------------- | ---------------------------------------- |
+| `gp-api-db-prod`          | gp-api prod                     | db.serverless                            |
+| `gp-api-db`               | gp-api dev                      | db.serverless                            |
+| `gp-api-pr-*`             | PR previews (ephemeral)         | db.serverless                            |
+| `election-api-db-prod`    | election DB prod (gp-api stack) | Serverless v2 (1-64 ACU, 14-day backup)  |
+| `election-api-db-develop` | election DB dev (gp-api stack)  | Serverless v2 (0.5-64 ACU, 7-day backup) |
 
 ### S3 Buckets (key ones)
 
@@ -704,13 +702,13 @@ Per-stage: `{stage}-campaign-queue.fifo` + DLQ for develop, master, PR previews.
 
 ## Deployment & IaC Reference
 
-| Service                     | IaC / Host                                 | Config Location                                                           | CI/CD                                              |
-| --------------------------- | ------------------------------------------ | ------------------------------------------------------------------------- | -------------------------------------------------- |
-| gp-api                      | Pulumi → ECS Fargate                       | `omni/packages/gp-api/deploy/` (`index.ts`, `components/`, `Pulumi.yaml`) | GitHub Actions: Docker build → ECR → `pulumi up`   |
-| gp-webapp                   | Vercel (CLI)                               | `.github/actions/vercel-deploy`                                           | GitHub Actions, `rootDirectory=packages/gp-webapp` |
-| gp-admin                    | Vercel (CLI)                               | `.github/actions/vercel-deploy`                                           | Single deploy; Clerk org selects env               |
-| candidate-sites             | Vercel (CLI)                               | `.github/actions/vercel-deploy`                                           | GitHub Actions                                     |
-| gp-ai-projects              | Terraform + GitHub Actions (external repo) | `gp-ai-projects/infrastructure/`                                          | Docker → ECR per service                           |
+| Service         | IaC / Host                                 | Config Location                                                           | CI/CD                                              |
+| --------------- | ------------------------------------------ | ------------------------------------------------------------------------- | -------------------------------------------------- |
+| gp-api          | Pulumi → ECS Fargate                       | `omni/packages/gp-api/deploy/` (`index.ts`, `components/`, `Pulumi.yaml`) | GitHub Actions: Docker build → ECR → `pulumi up`   |
+| gp-webapp       | Vercel (CLI)                               | `.github/actions/vercel-deploy`                                           | GitHub Actions, `rootDirectory=packages/gp-webapp` |
+| gp-admin        | Vercel (CLI)                               | `.github/actions/vercel-deploy`                                           | Single deploy; Clerk org selects env               |
+| candidate-sites | Vercel (CLI)                               | `.github/actions/vercel-deploy`                                           | GitHub Actions                                     |
+| gp-ai-projects  | Terraform + GitHub Actions (external repo) | `gp-ai-projects/infrastructure/`                                          | Docker → ECR per service                           |
 
 ### CI layout
 
@@ -769,7 +767,7 @@ aws ec2 describe-security-groups --filters "Name=vpc-id,Values=<vpc-id>" --query
 | Braintrust      | gp-api, gp-ai-projects (LLM eval/observability)                                                  | `BRAINTRUST_API_KEY`                                                       |
 | Vercel          | gp-webapp, gp-admin, candidate-sites (hosting), gp-api (domain registration/DNS)                 | `VERCEL_TOKEN`, `VERCEL_PROJECT_ID`, `VERCEL_TEAM_ID`                      |
 | Clerk           | gp-api (M2M auth guard), gp-admin (M2M + org-per-env), gp-webapp                                 | `CLERK_SECRET_KEY`, `CLERK_PUBLISHABLE_KEY`                                |
-| Grafana Cloud   | gp-api (OTel logs/metrics/traces)                                                  | `GRAFANA_SERVICE_ACCOUNT_TOKEN` (MCP); dashboards as code in gp-api deploy |
+| Grafana Cloud   | gp-api (OTel logs/metrics/traces)                                                                | `GRAFANA_SERVICE_ACCOUNT_TOKEN` (MCP); dashboards as code in gp-api deploy |
 | Sentry          | gp-webapp (frontend errors)                                                                      | Org `goodparty`, region `https://us.sentry.io`                             |
 | Amplitude       | gp-webapp (product analytics + feature flags via Experiment)                                     | `AMPLITUDE_PROJECT_API_KEY` in gp-api .env                                 |
 | Peerly          | gp-api (SMS/calling, identity verification, TCR compliance, phone lists, media) — 5 sub-services | `PEERLY_*` vars in gp-api .env                                             |
@@ -823,14 +821,14 @@ cd $PROJECT_ROOT/gp-data-platform/airflow/astro && astro dev start  # :8080
 
 ## Monitoring
 
-| Tool           | What                                                                                      | Access                                                                                                                                                                 |
-| -------------- | ----------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Tool           | What                                                              | Access                                                                                                                                                                 |
+| -------------- | ----------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Grafana Cloud  | OTel logs (Loki), metrics (Prometheus), traces (Tempo) for gp-api | https://goodparty.grafana.net; `GRAFANA_SERVICE_ACCOUNT_TOKEN`. Datasource UIDs: Loki `grafanacloud-logs`, Tempo `grafanacloud-traces`, Prometheus `grafanacloud-prom` |
-| Sentry         | Frontend errors (gp-webapp)                                                               | Org `goodparty`, region `https://us.sentry.io`                                                                                                                         |
-| Amplitude      | Product analytics + feature flags (Experiment)                                            | Via gp-webapp                                                                                                                                                          |
-| Braintrust     | LLM eval/observability for AI services                                                    | `BRAINTRUST_API_KEY`                                                                                                                                                   |
-| Slack channels | Deploy notifications, AI failures, P2V issues, poll delivery                              | Configured in gp-api                                                                                                                                                   |
-| SNS            | Pipeline failure alerts                                                                   | ddhq-matcher, serve-analyze                                                                                                                                            |
+| Sentry         | Frontend errors (gp-webapp)                                       | Org `goodparty`, region `https://us.sentry.io`                                                                                                                         |
+| Amplitude      | Product analytics + feature flags (Experiment)                    | Via gp-webapp                                                                                                                                                          |
+| Braintrust     | LLM eval/observability for AI services                            | `BRAINTRUST_API_KEY`                                                                                                                                                   |
+| Slack channels | Deploy notifications, AI failures, P2V issues, poll delivery      | Configured in gp-api                                                                                                                                                   |
+| SNS            | Pipeline failure alerts                                           | ddhq-matcher, serve-analyze                                                                                                                                            |
 
 **Narrowing Grafana logs** — filter by `service_name` (`gp-api`) and `deployment_environment_name` (`dev` | `prod`):
 
