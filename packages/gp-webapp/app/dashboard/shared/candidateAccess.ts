@@ -3,7 +3,10 @@ import { headers } from 'next/headers'
 import { redirect, unstable_rethrow } from 'next/navigation'
 import { apiRoutes } from 'gpApi/routes'
 import { serverFetch } from 'gpApi/serverFetch'
-import { getCurrentUserOrganizations } from 'helpers/getCurrentUserOrganizations'
+import {
+  getCurrentUserOrganizations,
+  getCurrentUserOrganizationsOrThrow,
+} from 'helpers/getCurrentUserOrganizations'
 import { getServerUser } from 'helpers/userServerHelper'
 import {
   resolvePostAuthRedirectPath,
@@ -109,7 +112,9 @@ export default async function candidateAccess(): Promise<void> {
   // bounce orgless users away from `/dashboard` where the UI assumes an organization.
   const pathname = (await headers()).get('x-pathname') ?? ''
   if (pathname.startsWith('/dashboard')) {
-    const organizations = await getCurrentUserOrganizations()
+    // Throws on a failed fetch (error boundary) rather than treating it as
+    // "no orgs", which would send an established user to onboarding (ENG-11531).
+    const organizations = await getCurrentUserOrganizationsOrThrow()
     if (organizations.length === 0) {
       return redirect('/onboarding/office-selection')
     }

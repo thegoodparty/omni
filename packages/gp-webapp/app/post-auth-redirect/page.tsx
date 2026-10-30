@@ -58,6 +58,7 @@ const PostAuthRedirectPage = () => {
         // candidate onboarding instead of /volunteer (ENG-11071) — so retry
         // with backoff a couple of times before giving up.
         let organizations: Organization[] = []
+        let organizationsFetched = false
         const ORG_FETCH_RETRY_DELAYS_MS = [500, 1000]
         for (let attempt = 0; ; attempt++) {
           const res = await clientRequest(
@@ -67,11 +68,22 @@ const PostAuthRedirectPage = () => {
           )
           if (res.ok) {
             organizations = res.data.organizations
+            organizationsFetched = true
             break
           }
           const delay = ORG_FETCH_RETRY_DELAYS_MS[attempt]
           if (delay === undefined) break
           await new Promise((resolve) => setTimeout(resolve, delay))
+        }
+
+        // The orgs call failing on every attempt does NOT mean the user is
+        // new: sending them to onboarding re-onboards an established
+        // candidate on every login during an API blip (ENG-11531). Hand off
+        // to /dashboard, whose server gate re-fetches and errors out (rather
+        // than onboarding) if the API is still down.
+        if (!organizationsFetched) {
+          window.location.replace(safeNext ?? '/dashboard')
+          return
         }
 
         // The "serve" experience (briefings, polls) is scoped to the org that
