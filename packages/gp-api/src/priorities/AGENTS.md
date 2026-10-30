@@ -129,6 +129,26 @@ fewer `thin`, which the page shows as Strong signal, Some signal and Low
 signal. No read, no district, or a failed theme read leaves `voices` off.
 Only the results route computes it.
 
+## Theme responses and download
+
+`services/priorityThemeComments.service.ts` serves what people said behind
+a theme, words only, behind the same office check and `serve-citizen-panels`
+404 as the results route:
+
+- `GET :id/results/themes/:themeId/comments` (`PriorityThemeCommentsSchema`):
+  the theme's confirmed notes and text replies, oldest first, each as
+  `text` and `kind` (`reply` or `note`, a canvasser's summary). The theme
+  must come from a pooled run of this org on this priority, else 404.
+- `GET :id/results/comments/download[?themeId=]`: a CSV of `Comment` and
+  `Theme` only, every comment of the latest completed run once with its
+  themes joined, or one theme's. Cells go through `csvCell`
+  (`feedbackNotesExport.service.ts`), quoted and formula-guarded.
+
+Neither ever reads a name, number, address, person id or contact record:
+the member select is the words and their time, and the response schema
+strips anything else. A reply that only opted out is left out, as the polls
+download does.
+
 ## Round 2 draw
 
 `services/priorityRoundTwoDraw.service.ts`. A priority's round 2 text is

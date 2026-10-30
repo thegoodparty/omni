@@ -28,6 +28,12 @@ export const RESULTS_COPY = {
   people: (count: number) =>
     count === 1 ? '1 person' : `${count.toLocaleString()} people`,
   themeRank: (rank: number) => `Rank ${rank}`,
+  // A door or phone note is the canvasser's summary, never the resident's
+  // own words, so it says so. A text reply carries no label.
+  noteLabel: 'Notes from a conversation',
+  commentsEmpty: 'No responses to show for this theme.',
+  downloadTheme: 'Download responses',
+  downloadAll: 'Download all responses',
   signal: {
     strong: 'Strong signal',
     fair: 'Some signal',

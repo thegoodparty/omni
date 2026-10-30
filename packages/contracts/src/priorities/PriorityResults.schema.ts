@@ -56,6 +56,29 @@ export const PriorityThemeSchema = z.object({
 })
 export type PriorityTheme = z.infer<typeof PriorityThemeSchema>
 
+// What people said behind one theme, for the results page's theme view
+// (GET /v1/priorities/:id/results/themes/:themeId/comments). The words only:
+// nothing about who said them, so no name, number, address or person id
+// ever rides along. A `reply` is a resident's own text; a `note` is a
+// canvasser's summary of a door or phone conversation, never quoted as the
+// resident's words. Oldest first.
+export const PriorityThemeCommentKindSchema = z.enum(['reply', 'note'])
+export type PriorityThemeCommentKind = z.infer<
+  typeof PriorityThemeCommentKindSchema
+>
+
+export const PriorityThemeCommentSchema = z.object({
+  text: z.string(),
+  kind: PriorityThemeCommentKindSchema,
+})
+export type PriorityThemeComment = z.infer<typeof PriorityThemeCommentSchema>
+
+export const PriorityThemeCommentsSchema = z.object({
+  themeId: z.string(),
+  comments: z.array(PriorityThemeCommentSchema),
+})
+export type PriorityThemeComments = z.infer<typeof PriorityThemeCommentsSchema>
+
 // How far a priority's answers have got toward a read of every major group
 // in the district: no voices from some, too few from some, or the model
 // still unsure of some. `enoughAnswers` is a good read the census could not

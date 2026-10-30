@@ -154,6 +154,7 @@ import type {
   CreateTestOrganizationRequest,
   ApplyTestModeRequest,
   PriorityResults,
+  PriorityThemeComments,
   PriorityReadStatus,
   CivicPanelSummary,
   CIVIC_PANEL_SEGMENT,
@@ -1521,6 +1522,12 @@ export type APIEndpoints = {
   'GET /v1/priorities/:id/results': {
     Request: {}
     Response: PriorityResults
+  }
+
+  // Words only, no person details. 404 with serve-citizen-panels off.
+  'GET /v1/priorities/:id/results/themes/:themeId/comments': {
+    Request: {}
+    Response: PriorityThemeComments
   }
 
   // 404 with serve-citizen-panels off.

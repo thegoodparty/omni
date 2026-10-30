@@ -1,8 +1,12 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import type { PriorityResults, ThemeVoices } from '@goodparty_org/contracts'
+import type {
+  PriorityResults,
+  PriorityTheme,
+  ThemeVoices,
+} from '@goodparty_org/contracts'
 import {
   Badge,
   Button,
@@ -12,7 +16,11 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@styleguide'
-import { ArrowLeftIcon, InfoIcon } from '@styleguide/components/ui/icons'
+import {
+  ArrowLeftIcon,
+  ChevronRightIcon,
+  InfoIcon,
+} from '@styleguide/components/ui/icons'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { RESULTS_COPY } from '../resultsCopy'
 import {
@@ -26,7 +34,13 @@ import { AnswerSeatsArc, AnswerSeatsLegend } from '../../components/AnswerSeats'
 import { READ_STATUS_PROPERTY } from '../../readStatusProperty'
 import { CivicPanelBloom } from 'app/dashboard/contacts/citizens-panel/components/CivicPanelBloom'
 import { useServePlace } from 'app/dashboard/contacts/citizens-panel/managedPanelCopy'
+import { PollThemeDetail } from 'app/dashboard/outreach/v2/poll/results/PollThemeDetail'
+import { SERVE_POLL_RESULTS_COPY } from 'app/dashboard/outreach/v2/poll/results/pollResultsCopy'
 import { RespondentHeatGrid } from './RespondentHeatGrid'
+import {
+  PriorityCommentsDownload,
+  PriorityThemeComments,
+} from './PriorityThemeComments'
 
 const Section = ({
   title,
@@ -76,6 +90,10 @@ export const PriorityResultsView = ({
   results: PriorityResults
 }) => {
   const { respondents, readStatus } = results
+  const [openTheme, setOpenTheme] = useState<PriorityTheme | null>(null)
+  useEffect(() => {
+    window.scrollTo(0, 0)
+  }, [openTheme])
   useEffect(() => {
     trackEvent(EVENTS.Priorities.ResultsViewed, {
       priorityId,
@@ -92,6 +110,29 @@ export const PriorityResultsView = ({
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [priorityId])
+  if (openTheme && readStatus.good) {
+    return (
+      <div className="mx-auto flex w-full max-w-3xl flex-col gap-5 p-4 lg:p-6">
+        <PollThemeDetail
+          title={openTheme.title}
+          summary={openTheme.summary}
+          count={RESULTS_COPY.people(openTheme.people)}
+          onBack={() => setOpenTheme(null)}
+          action={
+            <PriorityCommentsDownload
+              priorityId={priorityId}
+              themeId={openTheme.id}
+            />
+          }
+        >
+          <PriorityThemeComments
+            priorityId={priorityId}
+            themeId={openTheme.id}
+          />
+        </PollThemeDetail>
+      </div>
+    )
+  }
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-5 p-4 lg:p-6">
       <div className="flex flex-col gap-1">
@@ -121,7 +162,11 @@ export const PriorityResultsView = ({
       </div>
 
       {readStatus.good ? (
-        <HeardSections results={results} />
+        <HeardSections
+          priorityId={priorityId}
+          results={results}
+          onOpenTheme={setOpenTheme}
+        />
       ) : (
         <section
           data-testid="results-held-back"
@@ -212,7 +257,15 @@ const ThemeSignal = ({ voices }: { voices: ThemeVoices }) => {
 
 // Themes, the map and the census comparison: only once the answers are
 // enough to say what the community thinks.
-const HeardSections = ({ results }: { results: PriorityResults }) => (
+const HeardSections = ({
+  priorityId,
+  results,
+  onOpenTheme,
+}: {
+  priorityId: string
+  results: PriorityResults
+  onOpenTheme: (theme: PriorityTheme) => void
+}) => (
   <>
     <Section
       title={RESULTS_COPY.themesTitle}
@@ -255,10 +308,21 @@ const HeardSections = ({ results }: { results: PriorityResults }) => (
                 </div>
                 <p className="text-sm text-muted-foreground">{theme.summary}</p>
                 {theme.voices && <ThemeSignal voices={theme.voices} />}
+                <div className="mt-2 flex justify-end">
+                  <Button type="button" onClick={() => onOpenTheme(theme)}>
+                    {SERVE_POLL_RESULTS_COPY.viewResponses}
+                    <ChevronRightIcon aria-hidden />
+                  </Button>
+                </div>
               </div>
             </li>
           ))}
         </ol>
+      )}
+      {results.themes.length > 0 && (
+        <div>
+          <PriorityCommentsDownload priorityId={priorityId} />
+        </div>
       )}
     </Section>
 
