@@ -3,7 +3,7 @@ title: Email content is typed blocks; layouts are presets
 status: active
 decided_by: [stephtea]
 date: 2026-10-30
-code: ['#PR']
+code: ['#3470']
 scope:
   - packages/contracts/src/outreach/EmailBlock.schema.ts
   - packages/contracts/src/outreach/EmailContent.schema.ts
