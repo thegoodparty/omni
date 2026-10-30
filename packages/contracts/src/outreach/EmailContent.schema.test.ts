@@ -298,19 +298,38 @@ describe('layout rules', () => {
     )
   })
 
-  it('personal_letter has no hero image or heading', () => {
-    rejects(
-      'personal_letter',
-      [
-        { type: 'image', url: 'https://example.org/a.png', alt: 'A park' },
-        paragraph('Dear neighbor'),
-      ],
-      'The Personal letter layout doesn’t use image blocks',
-    )
+  it('personal_letter has no headings', () => {
     rejects(
       'personal_letter',
       [{ type: 'heading', text: 'Hi', level: 1 }, paragraph('Dear neighbor')],
       'The Personal letter layout doesn’t use heading blocks',
+    )
+  })
+
+  it('personal_letter puts one photo at the very top or the very end', () => {
+    const accepts = (blocks: unknown[]) =>
+      expect(
+        messages(
+          EmailContentSchema.safeParse(withBlocks('personal_letter', blocks)),
+        ),
+      ).toEqual([])
+    accepts([photo, paragraph('Dear neighbor'), paragraph('Thanks')])
+    accepts([paragraph('Dear neighbor'), paragraph('Thanks'), photo])
+    accepts([paragraph('Dear neighbor'), button, photo])
+    rejects(
+      'personal_letter',
+      [paragraph('Dear neighbor'), photo, paragraph('Thanks')],
+      'Put the photo at the very top or the very end',
+    )
+    rejects(
+      'personal_letter',
+      [photo, paragraph('Dear neighbor'), paragraph('Thanks'), photo],
+      'Use at most one photo',
+    )
+    rejects(
+      'personal_letter',
+      [photo, button, paragraph('Dear neighbor')],
+      'Start with a paragraph',
     )
   })
 

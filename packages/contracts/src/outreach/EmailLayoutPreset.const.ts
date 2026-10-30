@@ -61,11 +61,14 @@ export const EMAIL_LAYOUT_PRESETS = {
   },
   personal_letter: {
     label: 'Personal letter',
-    description: 'A plain note from you, in paragraphs.',
+    description:
+      'A plain note from you, in paragraphs, with an optional photo.',
     defaultTheme: 'cream_and_forest',
-    allowedBlocks: ['paragraph', 'button'],
+    allowedBlocks: ['paragraph', 'image', 'button'],
     rules: [
-      'Only paragraphs, starting with one. No headings, photos or dividers.',
+      'Mostly paragraphs. No headings or dividers.',
+      'At most one photo, as the very first or the very last block, never in the middle.',
+      'The first block after any photo is a paragraph.',
       'Sign off in the last paragraph, such as "Thank you," then your name and office.',
       'At most one button, drawn as a quiet link.',
     ],
@@ -199,10 +202,23 @@ export const checkEmailLayout = (
   }
 
   if (layout === 'personal_letter') {
+    const imageIndexes = blocks.flatMap((block, index) =>
+      block.type === 'image' ? [index] : [],
+    )
+    if (imageIndexes.length > 1) {
+      add(null, 'Use at most one photo')
+    } else if (
+      imageIndexes.length === 1 &&
+      imageIndexes[0] !== 0 &&
+      imageIndexes[0] !== last
+    ) {
+      add(imageIndexes[0], 'Put the photo at the very top or the very end')
+    }
+    const openingAt = imageIndexes[0] === 0 ? 1 : 0
     if (countOf(blocks, 'paragraph') === 0) {
       missing('Add a paragraph')
-    } else if (blocks[0]?.type !== 'paragraph') {
-      add(0, 'Start with a paragraph')
+    } else if (blocks[openingAt]?.type !== 'paragraph') {
+      add(openingAt, 'Start with a paragraph')
     }
     atMostOne('button', 'button')
   }

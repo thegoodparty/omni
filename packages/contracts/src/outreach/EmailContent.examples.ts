@@ -167,6 +167,11 @@ export const EMAIL_CONTENT_EXAMPLES = {
       subject: 'Why I’m running',
       blocks: [
         {
+          type: 'image',
+          url: PLACEHOLDER_PHOTO,
+          alt: 'Sam Ortega with his Little League team on the field',
+        },
+        {
           type: 'paragraph',
           text: 'Dear {{first_name}},\n\nI’ve coached Little League in this town for eleven years. Last spring our field flooded for the third season in a row, and nobody at the county could tell me who was responsible for fixing the drain.',
         },
