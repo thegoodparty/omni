@@ -42,6 +42,7 @@ import { useCampaignManagerChat } from 'app/dashboard/campaign-manager/CampaignM
 import {
   buildTrackerStrategy,
   followingWeekStart,
+  isPutOffUntilLater,
 } from './buildTrackerStrategy'
 import {
   formatTaskDate,
@@ -114,8 +115,7 @@ const findFreeOfferTask = (
       isFreeOfferTaskHref(row.link) &&
       !row.completed &&
       !isTrackerTaskSetAside({ skipReason: row.skipReason ?? null }) &&
-      (row.skipReason !== 'later' ||
-        new Date(row.date.slice(0, 10).replace(/-/g, '/')) <= now),
+      !isPutOffUntilLater(row, now),
   )
 
 // What the plan has after the next task: the open tasks that follow it in its
@@ -134,7 +134,7 @@ const followingTasks = (
   if (!siblings) return []
   return siblings
     .slice(siblings.findIndex((task) => task.id === nextTask.id) + 1)
-    .filter((task) => !task.completed && task.setAside === null)
+    .filter((task) => !task.completed && task.setAside === null && !task.putOff)
 }
 
 // The main action on a phone: full width. The quiet buttons drop to
@@ -436,7 +436,9 @@ const NextTaskCard = ({
       nextTask,
       ...followingTasks(strategy, nextTask),
       ...selectTopDynamicTasks(tasks).filter(
-        (row) => !isTrackerTaskSetAside({ skipReason: row.skipReason ?? null }),
+        (row) =>
+          !isTrackerTaskSetAside({ skipReason: row.skipReason ?? null }) &&
+          !isPutOffUntilLater(row, new Date()),
       ),
     ]) {
       if (!deck.some((held) => held.id === task.id)) deck.push(task)
