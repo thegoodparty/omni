@@ -230,7 +230,11 @@ export default function ServeOfficePicker({
     mode === 'zip' ? isZipValid(zipInput) : isNameValid(nameInput)
 
   const query = useQuery({
-    queryKey: ['serve-onboarding-positions', submitted?.mode, submitted?.value],
+    // The zip key keeps its original shape; name searches get their own prefix.
+    queryKey:
+      submitted?.mode === 'name'
+        ? ['serve-onboarding-positions', 'name', submitted.value]
+        : ['serve-onboarding-positions', submitted?.value],
     queryFn: () => fetchPositions(submitted as PositionSearch),
     enabled: Boolean(submitted && isSearchValid(submitted)),
   })
