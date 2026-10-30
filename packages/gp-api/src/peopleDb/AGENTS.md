@@ -75,7 +75,12 @@ people table FULL OUTER JOIN the org's rows of
   `mart_serve_agents.<SERVE_AGENT_CONTACT_OVERLAY_VIEW>`, built in
   `constituentDataScope.ts` and swapped in only after the SQL validator
   accepts the model's query; it adds the `on_uploaded_list` and `has_email`
-  dimensions. With the overlay, `dataSourceRoutingRules`
+  dimensions. The Win Campaign Manager does the same over
+  `mart_win_agents.<WIN_AGENT_CONTACT_OVERLAY_VIEW>` joined to
+  `win_agent_voters` (`buildWinConstituentDataScope`), on its own
+  `sp_win_agent` credential, whenever its org's dataset carries the overlay.
+  Both build the join with `buildContactOverlayTable`. With the overlay,
+  `dataSourceRoutingRules`
   (`llm/tools/dataSourceRouting.ts`) sends uploaded-list, imported-contact
   and email questions there, since the CRM catalog has no such dimension.
 - Turning the flag off returns the org to the plain table at once. That is

@@ -4,7 +4,11 @@ import type {
   ConstituentDataScope,
 } from '@/llm/tools/queryConstituentData.tool'
 import { partyProvenanceForState } from '@/peopleDb/partySource'
-import type { ConstituentTableConfig } from '../../chief-of-staff/services/constituentDataScope'
+import type { PeopleDataset } from '@/peopleDb/services/peopleDataset.service'
+import {
+  buildContactOverlayTable,
+  type ConstituentTableConfig,
+} from '../../chief-of-staff/services/constituentDataScope'
 import { WIN_AGENT_VOTER_DIMENSIONS } from './constituentDimensions.winAgentVoters'
 import { WIN_AGENT_VOTER_SUGGESTED_DIMENSIONS } from './constituentSuggestedDimensions.winAgentVoters'
 
@@ -39,6 +43,20 @@ const FORBIDDEN_COLUMNS = new Set([
   'email',
   'voter_id',
 ])
+
+// The columns the campaign's imported-contact overlay adds. They are not in
+// the mart, so they are allowed only when the overlay join is swapped in.
+const CONTACT_OVERLAY_DIMENSIONS: AdvertisedDimension[] = [
+  {
+    name: 'on_uploaded_list',
+    label: 'On a contact list the campaign uploaded (values true or false)',
+  },
+  {
+    name: 'has_email',
+    label:
+      'Has an email address from a contact list the campaign uploaded (values true or false)',
+  },
+]
 
 // The generated catalog words the party dimensions as registrations, and a
 // label is the model's only meaning surface. Where the state records no
@@ -90,20 +108,44 @@ export const buildWinConstituentDataScope = (
   districtFilters: MandatoryFilter[],
   tables: ConstituentTableConfig[],
   state?: string | null,
+  peopleDataset: PeopleDataset = { base: 'voters' },
 ): ConstituentDataScope => {
   const party = partyProvenanceForState(state)
+  const overlayOrgSlug = peopleDataset.overlayOrgSlug
+  const advertised = withPartySource(
+    WIN_AGENT_VOTER_SUGGESTED_DIMENSIONS,
+    state,
+  )
   return {
     allowedTables: new Set(tables.map((t) => t.table)),
-    allowedDimensions: new Set(tables.flatMap((t) => t.dimensions)),
-    advertisedDimensions: withPartySource(
-      WIN_AGENT_VOTER_SUGGESTED_DIMENSIONS,
-      state,
-    ),
+    allowedDimensions: new Set([
+      ...tables.flatMap((t) => t.dimensions),
+      ...(overlayOrgSlug === undefined
+        ? []
+        : CONTACT_OVERLAY_DIMENSIONS.map((d) => d.name)),
+    ]),
+    advertisedDimensions:
+      overlayOrgSlug === undefined
+        ? advertised
+        : [...advertised, ...CONTACT_OVERLAY_DIMENSIONS],
     forbiddenColumns: FORBIDDEN_COLUMNS,
     mandatoryFilters: districtFilters,
     minCellSize: CONSTITUENT_MIN_CELL_SIZE,
     partisanQueriesAllowed: true,
     audienceNoun: 'voter',
     partyNote: party && party.source !== 'registration' ? party.sentence : null,
+    peopleDataset,
+    contactOverlayTable:
+      overlayOrgSlug === undefined || tables[0] === undefined
+        ? undefined
+        : buildContactOverlayTable({
+            schema: 'mart_win_agents',
+            table: tables[0].table,
+            view:
+              process.env.WIN_AGENT_CONTACT_OVERLAY_VIEW ||
+              'win_agent_contact_overlay',
+            districtFilters,
+            organizationSlug: overlayOrgSlug,
+          }),
   }
 }

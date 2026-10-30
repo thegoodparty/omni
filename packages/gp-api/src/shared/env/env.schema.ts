@@ -381,6 +381,11 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
     tier: 'optional',
     default: 'serve_agent_contact_overlay',
   },
+  // The same overlay for the Win Campaign Manager's mart.
+  WIN_AGENT_CONTACT_OVERLAY_VIEW: {
+    tier: 'optional',
+    default: 'win_agent_contact_overlay',
+  },
 
   CAMPAIGN_TRACKER_AUTOMATION_ENABLED: { tier: 'optional' },
   MEETINGS_AUTOMATION_ENABLED: { tier: 'optional' },
