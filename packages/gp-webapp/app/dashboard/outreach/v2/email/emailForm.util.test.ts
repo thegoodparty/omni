@@ -262,7 +262,7 @@ describe('serverFieldError', () => {
         state,
         'Finish the email before sending it. Block 2: Links must start with https://',
       ),
-    ).toEqual({ field: 'photo', message: 'Links must start with https://.' })
+    ).toEqual({ field: 'photo', message: 'Upload the photo again.' })
     expect(
       serverFieldError(state, 'Block 1: Keep this to one line')?.field,
     ).toBe('title')
@@ -315,6 +315,22 @@ describe('AI drafts', () => {
       buttonUrl: 'https://example.com',
     })
     expect(next.pristine).toBeDefined()
+  })
+
+  it('keeps a short_cta draft to 2 paragraphs when its text has blank lines', () => {
+    const next = fillFromAiDraft(switchLayout(initialCompose(), 'short_cta'), {
+      ...content,
+      blocks: [
+        { type: 'heading', text: 'Join us', level: 1 },
+        {
+          type: 'paragraph',
+          text: 'Hi {{first_name}},\n\nTwo hours.\n\nSee you.',
+        },
+        { type: 'button', label: 'Sign up', url: '' },
+      ],
+    })
+    expect(next.message).toBe('Hi {{first_name}},\n\nTwo hours.\nSee you.')
+    expect(composeIssues(next, false)).toEqual({})
   })
 
   it('puts Improve’s reply back into the fields', () => {

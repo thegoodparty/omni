@@ -207,6 +207,17 @@ export const switchLayout = (
       : state.theme,
 })
 
+// The AI keeps its blank lines inside short_cta's paragraphs, which would
+// split into more than the 2 paragraphs the layout allows.
+const fitMessage = (message: string, layout: EmailLayoutPresetKey): string => {
+  if (layout !== 'short_cta') return message
+  const [first = '', ...rest] = message
+    .split(/\n[ \t]*\n/)
+    .map((chunk) => chunk.trim())
+    .filter(Boolean)
+  return rest.length > 1 ? `${first}\n\n${rest.join('\n')}` : message
+}
+
 // The AI draft fills the form, keeping the user's layout, a photo they
 // uploaded and a link they typed. A field the draft leaves out keeps its
 // value.
@@ -219,7 +230,7 @@ export const fillFromAiDraft = (
     ...state,
     subject: drafted.subject,
     title: drafted.title || state.title,
-    message: drafted.message,
+    message: fitMessage(drafted.message, state.layout),
     buttonLabel: drafted.buttonLabel || state.buttonLabel,
     buttonUrl: state.buttonUrl.trim() ? state.buttonUrl : drafted.buttonUrl,
   }
@@ -245,7 +256,7 @@ export const applyImprovedDraft = (
   subject: draft.subject,
   title:
     usesTitle(state.layout) && draft.headline ? draft.headline : state.title,
-  message: draft.body,
+  message: fitMessage(draft.body, state.layout),
   buttonLabel:
     draft.buttonLabel && (state.buttonLabel.trim() || needsButton(state.layout))
       ? draft.buttonLabel
@@ -430,6 +441,10 @@ export const serverFieldError = (
   const field = block ? fieldOf(block) : 'message'
   return {
     field,
-    message: composeIssues(state, true)[field] ?? withPeriod(match[2]!.trim()),
+    message:
+      composeIssues(state, true)[field] ??
+      (field === 'photo'
+        ? 'Upload the photo again.'
+        : withPeriod(match[2]!.trim())),
   }
 }

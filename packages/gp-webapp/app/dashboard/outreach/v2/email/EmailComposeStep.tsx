@@ -195,6 +195,12 @@ export const EmailComposeStep = ({
         }
         return
       }
+      if (mode === 'improve' && snapshot(current) !== snapshot(before)) {
+        setAiError(
+          'You changed the email while it was being improved, so yours is unchanged.',
+        )
+        return
+      }
       onChange(
         mode === 'improve'
           ? applyImprovedDraft(current, draft)
@@ -246,6 +252,9 @@ export const EmailComposeStep = ({
     setImageError(null)
     try {
       const photoUrl = await uploadEmailImage(surface.isServe, file, type)
+      // An upload that lands after compose closed would reach the send with
+      // no description, so it is dropped.
+      if (!mounted.current) return
       setNotice(null)
       onChange((prev) => ({ ...prev, photoUrl }))
     } catch (e) {
