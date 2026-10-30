@@ -238,10 +238,17 @@ export class CivicPanelReachService {
         ]
       },
     )
+    // Two unnamed tracts ("a part of Asheville") read the same, and a pick
+    // is matched by its words, so only the first of a label is offered.
+    const labels = new Set<string>()
     return {
       place,
       mostlyNoCell: placeHomes > 0 && placeNoCell * 2 > placeHomes,
-      options,
+      options: options.filter(({ label }) => {
+        if (labels.has(label)) return false
+        labels.add(label)
+        return true
+      }),
     }
   }
 

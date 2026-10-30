@@ -375,6 +375,31 @@ describe('GET /v1/contacts/civic-panel/reach-options', () => {
     )
   })
 
+  it('offers one of two places that read the same', async () => {
+    const slug = await seedOrg()
+    stubOptions(() => ({ noCell: 10, landline: 0, homes: 50 }))
+    vi.spyOn(
+      service.app.get(CivicPanelSummaryService),
+      'summaryFor',
+    ).mockResolvedValue({
+      ...SUMMARY,
+      composition: {
+        ...SUMMARY.composition,
+        groups: [],
+        places: SUMMARY.composition.places.map(({ label: _label, ...p }) => ({
+          ...p,
+          members: 0,
+        })),
+      },
+    })
+
+    const res = await options(slug)
+
+    expect(res.data.options.map((option) => option.label)).toEqual([
+      'Knock doors in a part of Asheville',
+    ])
+  })
+
   it('leaves out a group nobody there can be reached in', async () => {
     const slug = await seedOrg()
     stubOptions(() => ({ noCell: 0, landline: 0, homes: 50 }))
