@@ -184,7 +184,7 @@ const offerTask = (
 
 describe('NextTaskCard free robocall offer', () => {
   it('leads with the offer while the campaign has it', () => {
-    mockFreeOffer.current = { offer: { eligible: true } }
+    mockFreeOffer.current = { offer: { eligible: true }, isLoading: false }
     mockTasks.current = [sendTask('text'), offerTask()]
     render(<NextTaskCard surface="manager" />)
 
@@ -198,7 +198,7 @@ describe('NextTaskCard free robocall offer', () => {
   })
 
   it('offers no Mark done on the offer, beside its button or under Skip', async () => {
-    mockFreeOffer.current = { offer: { eligible: true } }
+    mockFreeOffer.current = { offer: { eligible: true }, isLoading: false }
     mockTasks.current = [offerTask()]
     render(<NextTaskCard surface="manager" />)
 
@@ -221,7 +221,7 @@ describe('NextTaskCard free robocall offer', () => {
   })
 
   it('leads even when gp-api dated it tomorrow', () => {
-    mockFreeOffer.current = { offer: { eligible: true } }
+    mockFreeOffer.current = { offer: { eligible: true }, isLoading: false }
     const tomorrow = new Date()
     tomorrow.setDate(tomorrow.getDate() + 1)
     mockTasks.current = [
@@ -236,7 +236,7 @@ describe('NextTaskCard free robocall offer', () => {
   })
 
   it('steps back when the offer is put off or set aside', () => {
-    mockFreeOffer.current = { offer: { eligible: true } }
+    mockFreeOffer.current = { offer: { eligible: true }, isLoading: false }
     const later = new Date()
     later.setDate(later.getDate() + 3)
     for (const task of [
