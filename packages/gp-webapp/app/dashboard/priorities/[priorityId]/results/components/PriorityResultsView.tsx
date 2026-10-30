@@ -35,7 +35,6 @@ import { READ_STATUS_PROPERTY } from '../../readStatusProperty'
 import { CivicPanelBloom } from 'app/dashboard/contacts/citizens-panel/components/CivicPanelBloom'
 import { useServePlace } from 'app/dashboard/contacts/citizens-panel/managedPanelCopy'
 import { PollThemeDetail } from 'app/dashboard/outreach/v2/poll/results/PollThemeDetail'
-import { SERVE_POLL_RESULTS_COPY } from 'app/dashboard/outreach/v2/poll/results/pollResultsCopy'
 import { RespondentHeatGrid } from './RespondentHeatGrid'
 import {
   PriorityCommentsDownload,
@@ -243,7 +242,7 @@ const ThemeSignal = ({ voices }: { voices: ThemeVoices }) => {
       <Tooltip openOnClick>
         <TooltipTrigger
           aria-label={RESULTS_COPY.signalInfo(label)}
-          className="inline-flex size-6 items-center justify-center rounded-full text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+          className="relative z-10 inline-flex size-6 items-center justify-center rounded-full text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary-focus"
         >
           <InfoIcon className="size-4" aria-hidden />
         </TooltipTrigger>
@@ -289,8 +288,17 @@ const HeardSections = ({
           {results.themes.map((theme, index) => (
             <li
               key={theme.id}
-              className="flex gap-3 rounded-lg border border-border p-4"
+              className="relative flex gap-3 rounded-lg border border-border p-4 transition-colors has-[>button:hover]:border-foreground/20 has-[>button:hover]:bg-muted/50"
             >
+              {/* The whole card opens the theme. The button stretches over
+                  it rather than wrapping it, so the signal's info button
+                  stays a sibling on top, not a button inside a button. */}
+              <button
+                type="button"
+                aria-label={RESULTS_COPY.viewResponses(theme.title)}
+                onClick={() => onOpenTheme(theme)}
+                className="absolute inset-0 cursor-pointer rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-primary-focus"
+              />
               <div
                 className="flex size-10 shrink-0 items-center justify-center rounded-full bg-info-background text-sm font-semibold text-foreground"
                 aria-label={RESULTS_COPY.themeRank(index + 1)}
@@ -308,13 +316,11 @@ const HeardSections = ({
                 </div>
                 <p className="text-sm text-muted-foreground">{theme.summary}</p>
                 {theme.voices && <ThemeSignal voices={theme.voices} />}
-                <div className="mt-2 flex justify-end">
-                  <Button type="button" onClick={() => onOpenTheme(theme)}>
-                    {SERVE_POLL_RESULTS_COPY.viewResponses}
-                    <ChevronRightIcon aria-hidden />
-                  </Button>
-                </div>
               </div>
+              <ChevronRightIcon
+                className="size-5 shrink-0 self-center text-muted-foreground"
+                aria-hidden
+              />
             </li>
           ))}
         </ol>
