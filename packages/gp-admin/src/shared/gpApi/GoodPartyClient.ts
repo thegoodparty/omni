@@ -14,10 +14,20 @@ import { ElectionsResource } from './resources/ElectionsResource'
 import { OrganizationsResource } from './resources/OrganizationsResource'
 import { PersonProfilesResource } from './resources/PersonProfilesResource'
 import { UsersResource } from './resources/UsersResource'
+import { SdkError } from './types/result'
 import { ClerkService } from './vendor/clerk/clerk.service'
 
+export const GP_API_AUTH_MODE = {
+  CLERK: 'clerk',
+  OIDC: 'oidc',
+} as const
+
+export type GpApiAuthMode =
+  (typeof GP_API_AUTH_MODE)[keyof typeof GP_API_AUTH_MODE]
+
 export type GoodPartyClientConfig = {
-  m2mSecret: string
+  authMode: GpApiAuthMode
+  m2mSecret?: string
   gpApiRootUrl: string
 }
 
@@ -37,11 +47,15 @@ export class GoodPartyClient {
   readonly meetingBriefings: MeetingBriefingsResource
   readonly communityIssues: CommunityIssuesResource
   readonly domains: DomainsResource
-  private clerkService: ClerkService
+  private clerkService: ClerkService | null
 
-  private constructor(clerkService: ClerkService, gpApiRootUrl: string) {
+  private constructor(
+    clerkService: ClerkService | null,
+    gpApiRootUrl: string,
+    getToken: () => Promise<string>
+  ) {
     this.clerkService = clerkService
-    const httpClient = new HttpClient(gpApiRootUrl, clerkService.getToken)
+    const httpClient = new HttpClient(gpApiRootUrl, getToken)
     this.admin = new AdminResource(httpClient)
     this.adminAgentRuns = new AdminAgentRunsResource(httpClient)
     this.smsOutreachAdmin = new SmsOutreachAdminResource(httpClient)
@@ -62,13 +76,50 @@ export class GoodPartyClient {
   static create = async (
     config: GoodPartyClientConfig
   ): Promise<GoodPartyClient> => {
-    const { m2mSecret, gpApiRootUrl } = config
-    const clerkService = new ClerkService(m2mSecret)
-    await clerkService.getToken()
-    return new GoodPartyClient(clerkService, gpApiRootUrl)
+    const { authMode, m2mSecret, gpApiRootUrl } = config
+    const clerkService = m2mSecret ? new ClerkService(m2mSecret) : null
+
+    const getClerkToken = async (): Promise<string> => {
+      if (!clerkService) {
+        throw new SdkError(
+          0,
+          'No machine secret is set for this gp-api environment'
+        )
+      }
+      return clerkService.getToken()
+    }
+
+    // The OIDC token is read from the current request and rotated by Vercel,
+    // so it is fetched for every request and never cached. The import is
+    // dynamic because client components reach this file through the
+    // '@/shared/gpApi' barrel, and a static import ships jose to the browser.
+    const getOidcToken = async (): Promise<string> => {
+      try {
+        const { getVercelOidcToken } = await import('@vercel/oidc')
+        return await getVercelOidcToken()
+      } catch (error: unknown) {
+        if (!clerkService) {
+          const message =
+            error instanceof Error ? error.message : 'Unknown error'
+          throw new SdkError(
+            0,
+            `Vercel OIDC token unavailable and no machine secret is set: ${message}`
+          )
+        }
+        console.warn(
+          'Vercel OIDC token unavailable, falling back to the Clerk M2M token'
+        )
+        return clerkService.getToken()
+      }
+    }
+
+    const getToken =
+      authMode === GP_API_AUTH_MODE.OIDC ? getOidcToken : getClerkToken
+    await getToken()
+    return new GoodPartyClient(clerkService, gpApiRootUrl, getToken)
   }
 
   destroy = (): void => {
-    this.clerkService.destroy()
+    this.clerkService?.destroy()
   }
 }
