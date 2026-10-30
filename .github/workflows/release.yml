@@ -425,6 +425,9 @@ jobs:
       always() && needs.await-checks.result == 'success'
       && needs.await-checks.outputs.force != 'true'
     runs-on: ubuntu-latest
+    # Normal run is ~5 min (plus up to 15 min rollout wait in the verify step).
+    # Bound a hung/lost runner instead of holding the deploy concurrency group.
+    timeout-minutes: 30
     concurrency:
       group: gp-ai-deploy-dev
       cancel-in-progress: false
@@ -1126,6 +1129,9 @@ jobs:
       && needs.prod-gp-ai-images.result == 'success'
       && needs.prod-gp-ai-images.outputs.deploy == 'true'
     runs-on: ubuntu-latest
+    # Normal run is ~5 min (plus up to 15 min rollout wait in the verify step).
+    # A lost runner (ENG-11530) sat 47 min and held gp-ai-deploy-prod; bound it.
+    timeout-minutes: 30
     permissions:
       contents: read
       id-token: write
