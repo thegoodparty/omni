@@ -2221,7 +2221,13 @@ export const SmsFlow = ({
       // A React element is truthy even when it renders null, so the caller
       // gates the JSX (see GateBanner).
       banner={
-        gate.requirement !== null && !scheduled && !gateOpen ? (
+        // The managed invite's agreement sits right above the button, so
+        // pressing it is the consent.
+        managed ? (
+          <p className="text-sm text-muted-foreground">
+            {MANAGED_PANEL_COPY.flow.agreement(managedInvite?.place ?? null)}
+          </p>
+        ) : gate.requirement !== null && !scheduled && !gateOpen ? (
           <GateBanner
             channel="sms"
             state={gate}
@@ -2518,9 +2524,6 @@ export const SmsFlow = ({
                   managedInvite?.place ?? null,
                 ),
                 lockedLines: MANAGED_INVITE_LOCKED_LINES,
-                agreement: MANAGED_PANEL_COPY.flow.agreement(
-                  managedInvite?.place ?? null,
-                ),
               },
             })}
           />
