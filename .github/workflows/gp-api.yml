@@ -178,16 +178,19 @@ jobs:
 
       # vitest.config.ts keeps each transformed module on disk, so a restored
       # cache skips the swc transform of every module the run has not changed.
-      # The key holds what vitest would otherwise throw the whole cache away
-      # for (lockfile, Node version, the config), so anything restored is
-      # usable. Entries are keyed on module content and resolution, so a stale
-      # entry is a miss, never a wrong module.
+      # The key prefix holds what vitest would otherwise throw the whole cache
+      # away for (lockfile, patches, Node version, the config), so anything
+      # restored is usable, and a run restores the newest entry under it.
+      # Entries are keyed on module content and resolution, so a stale entry
+      # is a miss, never a wrong module.
       - name: Restore vitest module cache
         id: vitest-module-cache
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: ${{ env.WORKSPACE }}/.vitest-fs-module-cache
-          key: gp-api-vitest-modules-v1-${{ runner.os }}-${{ hashFiles('.nvmrc', 'package-lock.json', 'patches/**', 'packages/gp-api/vitest.config.ts') }}-shard-${{ matrix.shard }}
+          key: gp-api-vitest-modules-v1-${{ runner.os }}-${{ hashFiles('.nvmrc', 'package-lock.json', 'patches/**', 'packages/gp-api/vitest.config.ts') }}-shard-${{ matrix.shard }}-${{ github.sha }}
+          restore-keys: |
+            gp-api-vitest-modules-v1-${{ runner.os }}-${{ hashFiles('.nvmrc', 'package-lock.json', 'patches/**', 'packages/gp-api/vitest.config.ts') }}-shard-${{ matrix.shard }}-
 
       # Vitest's dependency fingerprint is the lockfile plus the mtime of
       # patches/, and it drops the whole cache when that changes. Every
@@ -199,11 +202,12 @@ jobs:
       - name: Test
         run: npm run test -w ${{ env.WORKSPACE }} -- --shard=${{ matrix.shard }}/${{ strategy.job-total }}
 
-      # Only main saves, once per key: the repo's Actions cache sits at its
-      # size cap, and a pull request can restore main's entries. Modules
-      # changed on main since the save miss and are transformed as usual.
+      # Every main push saves, so the newest entry tracks main's source and a
+      # pull request only transforms what it changed. Pull requests do not
+      # save: they can restore main's entries, and their own would only be
+      # read by later pushes to the same PR.
       - name: Save vitest module cache
-        if: github.event_name == 'push' && github.ref_name == 'main' && steps.vitest-module-cache.outputs.cache-hit != 'true'
+        if: github.event_name == 'push' && github.ref_name == 'main'
         uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: ${{ env.WORKSPACE }}/.vitest-fs-module-cache
