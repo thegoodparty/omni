@@ -669,7 +669,7 @@ describe('<TaskStack>', () => {
         progressCard('ready', {
           title: 'Your civic panel is ready',
           summary:
-            '250 residents said yes. Ask them what they think before your next vote.',
+            '250 residents said yes. Ask them what they think whenever you want to hear from your whole district.',
         }),
       ])
       render(<TaskStack onOpenCard={vi.fn()} onDiscussCard={vi.fn()} />)

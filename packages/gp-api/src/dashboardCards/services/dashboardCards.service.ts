@@ -169,9 +169,12 @@ export const managedPanelProgressCardContent = (
     ctaHref: CIVIC_PANEL_PAGE_HREF,
   }
   if (panel.status === 'ready') {
+    const hearFrom = place ? `all of ${place}` : 'your whole district'
     return {
       title: 'Your civic panel is ready',
-      summary: `${members} residents said yes. Ask them what they think before your next vote.`,
+      summary:
+        `${members} residents said yes. Ask them what they think ` +
+        `whenever you want to hear from ${hearFrom}.`,
       ...see,
     }
   }

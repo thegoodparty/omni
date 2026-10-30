@@ -802,7 +802,8 @@ describe('GET /v1/dashboard/cards: the managed panel progress card', () => {
     expect(cards[0]).toMatchObject({
       title: 'Your civic panel is ready',
       summary:
-        '100 residents said yes. Ask them what they think before your next vote.',
+        '100 residents said yes. Ask them what they think whenever you ' +
+        'want to hear from your whole district.',
       sourceItemId: 'ready',
     })
     expect(

@@ -105,6 +105,10 @@ describe('the managed panel ready email', () => {
 
     expect(words).toContain('Hi Dana,')
     expect(words).toContain('250 residents')
+    expect(words).toContain(
+      'Ask them what they think whenever you want to hear from your whole ' +
+        'district.',
+    )
     expect(words).toContain('/dashboard/contacts/citizens-panel')
     expect(words).not.toMatch(/voter|campaign/i)
     expect(words).not.toContain('?')
