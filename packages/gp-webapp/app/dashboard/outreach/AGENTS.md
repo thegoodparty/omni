@@ -137,8 +137,10 @@ and place, and never names the civic panel). The JOIN line and the opt-out sit
 locked under it as one block, the opt-out directly under the JOIN line
 (`composeManagedInvite`, `MANAGED_INVITE_LOCKED_LINES`), and Improve sends the
 whole invite and keeps only the body of the reply (`managedInviteBody`).
-There is no checkbox: pressing Approve and send in my name is the approval,
-and the line above it says what they agree to. It posts
+There is no checkbox: pressing Set up my civic panel is the approval, and a
+"By continuing, you agree..." line right above the button (the shell footer's
+`banner` slot) says what they agree to. The counter shows characters only, no
+SMS segments, since the invite goes out as MMS. It posts
 `/v1/contacts/civic-panel/managed` with contracts'
 `MANAGED_CIVIC_PANEL_CONSENT_VERSION` and calls `onSetUp`.
 
