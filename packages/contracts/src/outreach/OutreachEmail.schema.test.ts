@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { EmailDraftSaveSchema } from './OutreachEmail.schema'
+import {
+  EmailAiDraftRequestSchema,
+  EmailDraftSaveSchema,
+  EmailPreviewRequestSchema,
+} from './OutreachEmail.schema'
 
 const base = {
   goal: 'Invite neighbors to the town hall',
@@ -80,6 +84,81 @@ describe('EmailDraftSaveSchema audience', () => {
   it('refuses a list id that is not a positive integer', () => {
     expect(
       EmailDraftSaveSchema.safeParse({ ...base, voterFileFilterId: 0 }).success,
+    ).toBe(false)
+  })
+})
+
+describe('EmailDraftSaveSchema with blocks', () => {
+  const content = {
+    layout: 'personal_letter',
+    theme: 'cream_and_forest',
+    subject: 'About Tuesday',
+    blocks: [{ type: 'paragraph', text: 'Dear {{first_name}},' }],
+  }
+
+  it('takes block content instead of the fields', () => {
+    expect(EmailDraftSaveSchema.safeParse({ goal: 'g', content }).success).toBe(
+      true,
+    )
+  })
+
+  it('refuses content and fields together', () => {
+    expect(EmailDraftSaveSchema.safeParse({ ...base, content }).success).toBe(
+      false,
+    )
+  })
+
+  it('reports a block the layout does not allow at its path', () => {
+    const result = EmailDraftSaveSchema.safeParse({
+      goal: 'g',
+      content: {
+        ...content,
+        blocks: [{ type: 'divider' }, ...content.blocks],
+      },
+    })
+    expect(result.success).toBe(false)
+    expect(result.error?.issues[0]).toMatchObject({
+      path: ['content', 'blocks', 0],
+      message: 'The Personal letter layout doesn’t use divider blocks',
+    })
+  })
+})
+
+describe('EmailPreviewRequestSchema', () => {
+  it('takes either block content or the fields', () => {
+    expect(
+      EmailPreviewRequestSchema.safeParse({
+        content: {
+          layout: 'short_cta',
+          theme: 'bold_red',
+          subject: '',
+          blocks: [],
+        },
+      }).success,
+    ).toBe(true)
+    expect(EmailPreviewRequestSchema.safeParse(base).success).toBe(false)
+    expect(
+      EmailPreviewRequestSchema.safeParse({
+        layout: 'newsletter',
+        theme: 'classic_blue',
+        subject: '',
+        body: '',
+      }).success,
+    ).toBe(true)
+  })
+})
+
+describe('EmailAiDraftRequestSchema', () => {
+  it('takes a layout preset or an old layout key', () => {
+    const request = { goal: 'g', tone: 'warm' }
+    for (const layout of ['short_cta', 'newsletter']) {
+      expect(
+        EmailAiDraftRequestSchema.safeParse({ ...request, layout }).success,
+      ).toBe(true)
+    }
+    expect(
+      EmailAiDraftRequestSchema.safeParse({ ...request, layout: 'poster' })
+        .success,
     ).toBe(false)
   })
 })

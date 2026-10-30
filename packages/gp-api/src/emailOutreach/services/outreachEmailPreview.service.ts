@@ -1,12 +1,12 @@
 import { Injectable } from '@nestjs/common'
 import {
-  EMAIL_LAYOUTS,
   EmailPreviewRequest,
   EmailPreviewResponse,
 } from '@goodparty_org/contracts'
 import { EmailSendScope } from '../emailOutreach.types'
 import { EMAIL_VARIABLES } from '../templates/emailTemplate.const'
 import { renderEmailTemplate } from '../templates/renderEmailTemplate'
+import { fieldsContent, previewableContentOf } from '../util/emailContent.util'
 import { assertEmailImageUrl } from './outreachEmailImage.service'
 import { OutreachEmailSenderService } from './outreachEmailSender.service'
 
@@ -16,37 +16,40 @@ const SAMPLE_VALUES: Record<string, string> = {
   [EMAIL_VARIABLES.unsubscribeUrl]: '#',
 }
 
-const PLACEHOLDER_BUTTON = { label: 'Your button', url: 'https://example.com' }
-
 @Injectable()
 export class OutreachEmailPreviewService {
   constructor(private readonly senders: OutreachEmailSenderService) {}
 
-  // The same render a send uses, with the recipient variables filled in. It
-  // writes nothing and sends nothing.
+  // The same render a send uses, with the recipient variables filled in and
+  // today as the send date. It writes nothing and sends nothing.
   async render(
     scope: EmailSendScope,
     input: EmailPreviewRequest,
   ): Promise<EmailPreviewResponse> {
-    assertEmailImageUrl(scope, input.imageUrl)
-    const buttonLabel = input.buttonLabel?.trim()
-    const typedButton =
-      buttonLabel && input.buttonUrl
-        ? { label: buttonLabel, url: input.buttonUrl }
-        : null
-    const button =
-      typedButton ??
-      (EMAIL_LAYOUTS[input.layout].requiresButton ? PLACEHOLDER_BUTTON : null)
-    const { html } = await renderEmailTemplate(input.layout, input.theme, {
-      subject: input.subject,
-      headline: input.headline?.trim() || null,
-      body: input.body,
-      imageUrl: input.imageUrl ?? null,
-      button,
-      footer: {
-        senderName: await this.senders.displayNameFor(scope),
-        paidForBy: scope.paidForBy,
-      },
+    const content =
+      'content' in input
+        ? input.content
+        : previewableContentOf(
+            fieldsContent({
+              ...input,
+              headline: input.headline ?? null,
+              imageUrl: input.imageUrl ?? null,
+              buttonLabel:
+                input.buttonLabel?.trim() && input.buttonUrl
+                  ? input.buttonLabel.trim()
+                  : null,
+              buttonUrl: input.buttonUrl ?? null,
+            }),
+          )
+    for (const block of content.blocks) {
+      if (block.type === 'image' && block.url) {
+        assertEmailImageUrl(scope, block.url)
+      }
+    }
+    const { html } = await renderEmailTemplate(content, {
+      senderName: await this.senders.displayNameFor(scope),
+      paidForBy: scope.paidForBy,
+      sendDate: new Date(),
     })
     return {
       html: html.replace(

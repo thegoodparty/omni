@@ -1,18 +1,12 @@
 import { test, expect } from '@playwright/test'
 
-const LAYOUTS = ['newsletter', 'reminder', 'call_to_action']
-const THEMES = [
-  'classic_blue',
-  'fresh_green',
-  'warm_sunset',
-  'bold_red',
-  'cream_and_forest',
-]
+const LAYOUTS = ['short_cta', 'long_update', 'personal_letter']
+const MODES = ['win', 'serve']
 
 // The gallery exists only under `next dev`; deployed previews render a
 // "Not available" notice, so this runs locally.
 test.describe('email template gallery', () => {
-  test('renders every layout and theme combination', async ({
+  test('renders the Win and Serve example for every layout', async ({
     page,
   }, testInfo) => {
     await page.goto('/dev/email-templates')
@@ -23,11 +17,11 @@ test.describe('email template gallery', () => {
     )
 
     for (const layout of LAYOUTS) {
-      for (const theme of THEMES) {
-        const card = page.getByTestId(`email-gallery-${layout}-${theme}`)
+      for (const mode of MODES) {
+        const card = page.getByTestId(`email-gallery-${layout}-${mode}`)
         await expect(card).toBeVisible()
         await expect(card.locator('iframe')).toBeVisible()
-        await testInfo.attach(`${layout}-${theme}`, {
+        await testInfo.attach(`${layout}-${mode}`, {
           body: await card.screenshot(),
           contentType: 'image/png',
         })

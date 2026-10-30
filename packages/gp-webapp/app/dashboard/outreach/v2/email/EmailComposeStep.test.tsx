@@ -13,6 +13,12 @@ const AI_DRAFT = {
   headline: 'Hello',
   body: 'Hi, I am running.',
   buttonLabel: null,
+  content: {
+    layout: 'long_update' as const,
+    theme: 'classic_blue' as const,
+    subject: 'Hello',
+    blocks: [],
+  },
 }
 
 const Harness = ({

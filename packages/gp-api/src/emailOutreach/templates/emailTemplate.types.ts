@@ -1,30 +1,23 @@
-import { z } from 'zod'
+import type {
+  EmailBlockDraft,
+  EmailThemeColors,
+} from '@goodparty_org/contracts'
 
-const httpsUrl = z
-  .string()
-  .max(2000)
-  .refine((value) => {
-    try {
-      return new URL(value).protocol === 'https:'
-    } catch {
-      return false
-    }
-  }, 'Links must be https')
+// What the system adds around the author's blocks. None of it is author
+// content, so no author or agent can remove or edit it.
+export type EmailTemplateContext = {
+  senderName: string
+  // Win shows "Paid for by"; Serve passes null and gets no line.
+  paidForBy: string | null
+  // The long_update masthead's date: the scheduled send time, or now.
+  sendDate: Date
+}
 
-export const emailTemplateContentSchema = z.object({
-  subject: z.string().max(150),
-  headline: z.string().max(150).nullish(),
-  body: z.string().max(10_000),
-  imageUrl: httpsUrl.nullish(),
-  button: z.object({ label: z.string().max(40), url: httpsUrl }).nullish(),
-  footer: z.object({
-    senderName: z.string(),
-    // Win shows "Paid for by"; Serve passes null and gets no line.
-    paidForBy: z.string().nullish(),
-  }),
-})
-
-export type EmailTemplateContent = z.infer<typeof emailTemplateContentSchema>
+export type LayoutProps = {
+  colors: EmailThemeColors
+  blocks: EmailBlockDraft[]
+  context: EmailTemplateContext
+}
 
 export type RenderedEmailTemplate = {
   html: string

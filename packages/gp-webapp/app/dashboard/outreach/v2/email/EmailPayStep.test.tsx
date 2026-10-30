@@ -38,6 +38,12 @@ const send = {
   consentConfirmedAt: null,
   voterFileFilterId: 1,
   recipientCount: 4800,
+  content: {
+    layout: 'long_update' as const,
+    theme: 'classic_blue' as const,
+    subject: 'Hello',
+    blocks: [],
+  },
   recipientCap: null,
   sentCount: 0,
   pauseReason: null,

@@ -1,18 +1,20 @@
+import type { ReactElement } from 'react'
 import { render } from '@react-email/render'
 import {
-  EMAIL_LAYOUTS,
   EMAIL_THEMES,
-  type EmailLayoutKey,
-  type EmailThemeKey,
+  EmailContentDraftSchema,
+  type EmailBlockDraft,
+  type EmailContentDraft,
+  type EmailLayoutPresetKey,
 } from '@goodparty_org/contracts'
-import { EmailShell, type LayoutProps } from './components'
-import { CallToActionLayout } from './layouts/CallToActionLayout'
-import { NewsletterLayout } from './layouts/NewsletterLayout'
-import { ReminderLayout } from './layouts/ReminderLayout'
-import {
-  emailTemplateContentSchema,
-  type EmailTemplateContent,
-  type RenderedEmailTemplate,
+import { EmailShell } from './components'
+import { LongUpdateLayout } from './layouts/LongUpdateLayout'
+import { PersonalLetterLayout } from './layouts/PersonalLetterLayout'
+import { ShortCtaLayout } from './layouts/ShortCtaLayout'
+import type {
+  EmailTemplateContext,
+  LayoutProps,
+  RenderedEmailTemplate,
 } from './emailTemplate.types'
 import {
   protectUrl,
@@ -21,54 +23,82 @@ import {
   restorePlainText,
 } from './emailVariables.util'
 
-const LAYOUT_COMPONENTS: Record<
-  EmailLayoutKey,
-  (props: LayoutProps) => ReturnType<typeof NewsletterLayout>
+const LAYOUTS: Record<
+  EmailLayoutPresetKey,
+  {
+    Component: (props: LayoutProps) => ReactElement
+    page: 'bg' | 'card'
+  }
 > = {
-  newsletter: NewsletterLayout,
-  reminder: ReminderLayout,
-  call_to_action: CallToActionLayout,
+  short_cta: { Component: ShortCtaLayout, page: 'bg' },
+  long_update: { Component: LongUpdateLayout, page: 'bg' },
+  personal_letter: { Component: PersonalLetterLayout, page: 'card' },
 }
 
-const protectContent = (
-  content: EmailTemplateContent,
-): EmailTemplateContent => ({
-  subject: protectUserText(content.subject),
-  headline: content.headline ? protectUserText(content.headline) : null,
-  body: protectUserText(content.body),
-  imageUrl: content.imageUrl ? protectUrl(content.imageUrl) : null,
-  button: content.button
-    ? {
-        label: protectUserText(content.button.label),
-        url: protectUrl(content.button.url),
-      }
-    : null,
-  footer: {
-    senderName: protectUserText(content.footer.senderName),
-    paidForBy: content.footer.paidForBy
-      ? protectUserText(content.footer.paidForBy)
-      : null,
-  },
-})
+// A draft may still hold empty blocks; they render as nothing. A button
+// without its link yet points nowhere, which only a preview can reach: a
+// send is checked against EmailContentSchema first.
+const protectBlock = (block: EmailBlockDraft): EmailBlockDraft[] => {
+  switch (block.type) {
+    case 'heading':
+    case 'paragraph':
+      return block.text ? [{ ...block, text: protectUserText(block.text) }] : []
+    case 'image':
+      return block.url
+        ? [
+            {
+              ...block,
+              url: protectUrl(block.url),
+              alt: protectUserText(block.alt),
+            },
+          ]
+        : []
+    case 'button':
+      return block.label
+        ? [
+            {
+              ...block,
+              label: protectUserText(block.label),
+              url: block.url ? protectUrl(block.url) : '#',
+            },
+          ]
+        : []
+    case 'divider':
+      return [block]
+  }
+}
 
 // Returns the SES template parts. `{{first_name}}` and `{{last_name}}` stay as
 // variables and `{{unsubscribe_url}}` is the footer link's placeholder;
 // anything else a user typed, braces included, is escaped.
 export const renderEmailTemplate = async (
-  layoutKey: EmailLayoutKey,
-  themeKey: EmailThemeKey,
-  content: EmailTemplateContent,
+  content: EmailContentDraft,
+  context: EmailTemplateContext,
 ): Promise<RenderedEmailTemplate> => {
-  const parsed = emailTemplateContentSchema.parse(content)
-  if (EMAIL_LAYOUTS[layoutKey].requiresButton && !parsed.button) {
-    throw new Error(`The ${layoutKey} layout needs a button`)
-  }
-  const protectedContent = protectContent(parsed)
-  const colors = EMAIL_THEMES[themeKey].colors
-  const Layout = LAYOUT_COMPONENTS[layoutKey]
+  const parsed = EmailContentDraftSchema.parse(content)
+  const colors = EMAIL_THEMES[parsed.theme].colors
+  const { Component, page } = LAYOUTS[parsed.layout]
+  const subject = protectUserText(parsed.subject)
   const element = (
-    <EmailShell colors={colors} subject={protectedContent.subject}>
-      <Layout colors={colors} content={protectedContent} />
+    <EmailShell
+      colors={colors}
+      subject={subject}
+      previewText={
+        parsed.previewText ? protectUserText(parsed.previewText) : undefined
+      }
+      background={page}
+    >
+      <Component
+        colors={colors}
+        blocks={parsed.blocks.flatMap(protectBlock)}
+        context={{
+          senderName: protectUserText(context.senderName),
+          paidForBy: context.paidForBy
+            ? protectUserText(context.paidForBy)
+            : null,
+          sendDate: context.sendDate,
+        }}
+      />
     </EmailShell>
   )
   const [html, text] = await Promise.all([
@@ -80,6 +110,7 @@ export const renderEmailTemplate = async (
           { selector: 'img', format: 'skip' },
           { selector: '#__react-email-preview', format: 'skip' },
           { selector: 'h1', options: { uppercase: false } },
+          { selector: 'h2', options: { uppercase: false } },
         ],
       },
     }),
@@ -87,6 +118,6 @@ export const renderEmailTemplate = async (
   return {
     html: restoreHtml(html),
     text: restorePlainText(text),
-    subject: restorePlainText(protectedContent.subject),
+    subject: restorePlainText(subject),
   }
 }

@@ -49,6 +49,12 @@ const draft = {
   consentConfirmedAt: null,
   voterFileFilterId: null,
   recipientCount: 0,
+  content: {
+    layout: 'long_update' as const,
+    theme: 'classic_blue' as const,
+    subject: 'Hello',
+    blocks: [],
+  },
 }
 
 const sendShape = {
@@ -175,6 +181,7 @@ describe('EmailFlow', () => {
           headline: 'Hello',
           body: 'Hi {{first_name}}, I am running.',
           buttonLabel: null,
+          content: draft.content,
         },
       }
     })

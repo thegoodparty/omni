@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { BadRequestException, Injectable } from '@nestjs/common'
 import {
   EMAIL_IMAGE_MAX_BYTES,
+  EMAIL_SAMPLE_IMAGE_URLS,
   EmailImagePresignRequest,
   EmailImagePresignResponse,
 } from '@goodparty_org/contracts'
@@ -24,13 +25,17 @@ const EXTENSION_BY_TYPE: Record<
 const imagePrefix = (organizationSlug: string): string =>
   `https://${ASSET_DOMAIN}/${IMAGE_FOLDER}/${organizationSlug}/`
 
-// A saved image must be one this module presigned for the same organization.
+const SAMPLE_IMAGE_URLS: string[] = Object.values(EMAIL_SAMPLE_IMAGE_URLS)
+
+// A saved image must be one this module presigned for the same organization,
+// or one of the sample images the gallery and examples use.
 export const assertEmailImageUrl = (
   scope: EmailSendScope,
   imageUrl: string | undefined,
 ): void => {
   if (
     imageUrl !== undefined &&
+    !SAMPLE_IMAGE_URLS.includes(imageUrl) &&
     !new RegExp(
       `^${imagePrefix(scope.organizationSlug).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[0-9a-f-]{36}\\.(jpg|png|gif)$`,
     ).test(imageUrl)

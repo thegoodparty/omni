@@ -1,4 +1,5 @@
 import { addDays } from 'date-fns'
+import type { EmailContentDraft } from '@goodparty_org/contracts'
 import { vi } from 'vitest'
 import { ContactsService } from '@/contacts/services/contacts.service'
 import { PrismaClient } from '../../generated/prisma'
@@ -85,6 +86,7 @@ export const createSend = async (
     prepared = false,
     consent = true,
     audienceResolved = true,
+    content,
   }: {
     organizationSlug: string
     campaignId: number | null
@@ -96,6 +98,7 @@ export const createSend = async (
     prepared?: boolean
     consent?: boolean
     audienceResolved?: boolean
+    content?: EmailContentDraft
   },
 ) => {
   const list = await prisma.voterFileFilter.create({
@@ -118,6 +121,7 @@ export const createSend = async (
           theme: 'classic_blue',
           subject: 'Town hall on Thursday',
           body: 'Join us at 7pm.',
+          ...(content ? { content } : {}),
           recipientCap,
           consentConfirmedAt: consent ? new Date() : null,
           // The fixture writes the recipients itself, standing in for the
