@@ -34,7 +34,7 @@
     "@sentry/nextjs": "^10.75.3",
     "@tailwindcss/postcss": "^4.2.3",
     "@testing-library/dom": "^10.4.1",
-    "@vercel/oidc": "^4.0.5",
+    "@vercel/oidc": "^4.0.4",
     "date-fns": "^4.1.0",
     "isomorphic-dompurify": "^2.22.0",
     "libphonenumber-js": "^1.12.36",
