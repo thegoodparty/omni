@@ -19,14 +19,19 @@ import { clientRequest } from 'gpApi/typed-request'
 import { useOrganization } from '@shared/organization-picker'
 import { contactUploadsKey, useContactUpload } from './importContactsApi'
 import {
-  SERVE_IMPORT_CONTACTS_COPY,
   UPLOAD_HISTORY_PATH,
   formatUploadDate,
+  getImportContactsCopy,
 } from './importContactsCopy'
 
-const COPY = SERVE_IMPORT_CONTACTS_COPY
-
-export const UploadDetail = ({ uploadId }: { uploadId: string }) => {
+export const UploadDetail = ({
+  uploadId,
+  isWin,
+}: {
+  uploadId: string
+  isWin: boolean
+}) => {
+  const COPY = getImportContactsCopy(isWin)
   const uploadQuery = useContactUpload(uploadId)
   const upload = uploadQuery.data
   const queryClient = useQueryClient()
@@ -75,7 +80,7 @@ export const UploadDetail = ({ uploadId }: { uploadId: string }) => {
               <h1 className="text-[22px] font-bold text-foreground sm:text-[28px]">
                 {upload.name}
               </h1>
-              <UploadStatusText status={upload.status} />
+              <UploadStatusText status={upload.status} isWin={isWin} />
             </div>
             <p className="text-sm text-muted-foreground">
               {COPY.detail.meta(
@@ -139,9 +144,11 @@ export const UploadDetail = ({ uploadId }: { uploadId: string }) => {
             ))}
           </Card>
 
-          {upload.needsInputCount > 0 && <NeedsInputReview upload={upload} />}
+          {upload.needsInputCount > 0 && (
+            <NeedsInputReview upload={upload} isWin={isWin} />
+          )}
 
-          <ProcessedRows upload={upload} />
+          <ProcessedRows upload={upload} isWin={isWin} />
         </>
       )}
     </div>

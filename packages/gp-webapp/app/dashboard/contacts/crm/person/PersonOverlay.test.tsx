@@ -54,9 +54,27 @@ vi.mock('./NotesSection', () => ({
 // Came from, Change match); here it reads organization context PersonOverlay
 // does not provide, so it is stubbed.
 vi.mock('./ImportedContactInformation', () => ({
-  ImportedContactInformation: ({ person }: { person: { id: string } }) => (
-    <div data-testid="imported-contact-information-stub">{person.id}</div>
+  ImportedContactInformation: ({
+    person,
+    isWin,
+  }: {
+    person: { id: string }
+    isWin: boolean
+  }) => (
+    <div
+      data-testid="imported-contact-information-stub"
+      data-is-win={String(isWin)}
+    >
+      {person.id}
+    </div>
   ),
+}))
+
+const mockCampaign = vi.hoisted(() => ({
+  current: null as { isPro: boolean } | null,
+}))
+vi.mock('@shared/hooks/useCampaign', () => ({
+  useCampaign: () => [mockCampaign.current],
 }))
 
 // StatusRow has its own suite (StatusRow.test.tsx) covering its self-gating,
@@ -185,6 +203,7 @@ function setContext({
 
 describe('<PersonOverlay>', () => {
   beforeEach(() => {
+    mockCampaign.current = null
     mockedUseContactsTable.mockReset()
     mockedUseFlagOn.mockReset()
     mockedUseFlagOn.mockReturnValue({ ready: true, on: false })
@@ -698,9 +717,23 @@ describe('<PersonOverlay>', () => {
       ).toHaveTextContent('p_1')
     })
 
-    it("keeps today's card on Win, whatever the flag says", () => {
+    it('swaps in the imported card on a Pro Win campaign, keeping the voter-file card', () => {
       mockedUseFlagOn.mockImplementation(flagOn)
-      setContext({ isElectedOfficial: false })
+      mockCampaign.current = { isPro: true }
+      setContext({ isElectedOfficial: false, isWinContext: true })
+
+      render(<PersonOverlay />)
+
+      expect(
+        screen.getByTestId('imported-contact-information-stub'),
+      ).toHaveAttribute('data-is-win', 'true')
+      expect(screen.getByText('Voter Demographics')).toBeInTheDocument()
+      expect(screen.getByTestId('status-row-stub')).toBeInTheDocument()
+    })
+
+    it("keeps today's card on a Win campaign without Pro", () => {
+      mockedUseFlagOn.mockImplementation(flagOn)
+      setContext({ isElectedOfficial: false, isWinContext: true })
 
       render(<PersonOverlay />)
 
@@ -708,6 +741,17 @@ describe('<PersonOverlay>', () => {
         screen.queryByTestId('imported-contact-information-stub'),
       ).not.toBeInTheDocument()
       expect(screen.getByText('Cell Phone Number')).toBeInTheDocument()
+    })
+
+    it("keeps today's card on Win with the flag off", () => {
+      mockCampaign.current = { isPro: true }
+      setContext({ isElectedOfficial: false, isWinContext: true })
+
+      render(<PersonOverlay />)
+
+      expect(
+        screen.queryByTestId('imported-contact-information-stub'),
+      ).not.toBeInTheDocument()
     })
 
     it("keeps today's card on Serve with the flag off", () => {
@@ -752,6 +796,45 @@ describe('<PersonOverlay>', () => {
       expect(
         screen.getByRole('link', {
           name: 'Imported from Newsletter, Oct 2026.',
+        }),
+      ).toHaveAttribute('href', '/dashboard/contacts/uploads/upload-1')
+    })
+
+    it("renders an import entry in a Win campaign's activity feed", () => {
+      mockedUseFlagOn.mockImplementation(flagOn)
+      mockCampaign.current = { isPro: true }
+      mockedUseWinVoterContext.mockReturnValue({ isWin: true, isReady: true })
+      setContext({
+        isElectedOfficial: false,
+        isWinContext: true,
+        selectedPerson: {
+          activities: [
+            {
+              type: 'CONTACT_IMPORT',
+              date: '2026-10-29T15:41:00.000Z',
+              data: {
+                activityId: 'row-1',
+                uploadId: 'upload-1',
+                uploadName: 'Newsletter, Oct 2026',
+                isNewPerson: true,
+                isFirstImport: true,
+                suppliedFields: ['email'],
+                changedFields: [],
+                manual: false,
+                actorName: null,
+                actorUserId: null,
+              },
+            },
+          ],
+        },
+      })
+
+      render(<PersonOverlay />)
+
+      expect(screen.getByText('Email added')).toBeInTheDocument()
+      expect(
+        screen.getByRole('link', {
+          name: 'Added as a new person from Newsletter, Oct 2026.',
         }),
       ).toHaveAttribute('href', '/dashboard/contacts/uploads/upload-1')
     })

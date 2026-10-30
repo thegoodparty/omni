@@ -10,18 +10,23 @@ import type { Person } from '../shared/contacts-types'
 import { useContactSources } from '../import/importContactsApi'
 import { ChangeMatchDialog } from '../import/ChangeMatchDialog'
 import {
-  SERVE_IMPORT_CONTACTS_COPY,
   formatUploadDate,
+  getImportContactsCopy,
   uploadDetailPath,
 } from '../import/importContactsCopy'
-
-const COPY = SERVE_IMPORT_CONTACTS_COPY.person
 
 // `email` joins the Person contract with Import contacts; read it without
 // assuming the contract this build was compiled against already carries it.
 type PersonWithEmail = Person & { email?: string | null }
 
-const CameFrom = ({ source }: { source: ContactFieldSource | null }) => {
+const CameFrom = ({
+  source,
+  isWin,
+}: {
+  source: ContactFieldSource | null
+  isWin: boolean
+}) => {
+  const COPY = getImportContactsCopy(isWin).person
   if (!source) return null
   if (source.kind === 'constituent_file') {
     return <p className="text-sm text-muted-foreground">{COPY.cameFromFile}</p>
@@ -40,28 +45,33 @@ const Field = ({
   label,
   value,
   source,
+  isWin,
 }: {
   label: string
   value: ReactNode | string | null
   source: ContactFieldSource | null
+  isWin: boolean
 }) => (
   <div className="flex flex-col gap-1">
     <p className="text-sm text-muted-foreground">{label}</p>
     <div className="text-md">{value ?? 'Unknown'}</div>
-    {value !== null && <CameFrom source={source} />}
+    {value !== null && <CameFrom source={source} isWin={isWin} />}
   </div>
 )
 
-// Serve's Contact Information with Import contacts on: today's card plus
-// Email, a line under each detail saying where it came from, and Change match
-// when an upload row points at this person.
+// Contact Information with Import contacts on: today's card plus Email, a
+// line under each detail saying where it came from, and Change match when an
+// upload row points at this person.
 export const ImportedContactInformation = ({
   person,
   showMap,
+  isWin,
 }: {
   person: PersonWithEmail
   showMap: boolean
+  isWin: boolean
 }) => {
+  const COPY = getImportContactsCopy(isWin)
   const sourcesQuery = useContactSources(person.id)
   const sources = sourcesQuery.data
   const [changeOpen, setChangeOpen] = useState(false)
@@ -89,6 +99,7 @@ export const ImportedContactInformation = ({
           ) : null
         }
         source={sources?.fields.address ?? null}
+        isWin={isWin}
       />
       {showMap && person.address.latitude && person.address.longitude && (
         <Map
@@ -112,19 +123,22 @@ export const ImportedContactInformation = ({
         />
       )}
       <Field
-        label={COPY.email}
+        label={COPY.person.email}
         value={person.email ?? null}
         source={sources?.fields.email ?? null}
+        isWin={isWin}
       />
       <Field
         label="Cell Phone Number"
         value={person.cellPhone}
         source={sources?.fields.cellPhone ?? null}
+        isWin={isWin}
       />
       <Field
         label="Landline"
         value={person.landline}
         source={sources?.fields.landline ?? null}
+        isWin={isWin}
       />
       {uploadRows.length > 0 && (
         <>
@@ -134,7 +148,7 @@ export const ImportedContactInformation = ({
             className="self-start"
             onClick={() => setChangeOpen(true)}
           >
-            {COPY.changeMatch}
+            {COPY.person.changeMatch}
           </Button>
           <ChangeMatchDialog
             open={changeOpen}
@@ -142,20 +156,19 @@ export const ImportedContactInformation = ({
             rows={uploadRows.map((row) => ({
               rowId: row.rowId,
               uploadId: row.uploadId,
-              label: COPY.uploadRow(
+              label: COPY.person.uploadRow(
                 row.uploadName,
                 formatUploadDate(row.uploadedAt),
               ),
             }))}
             description={
               uploadRows.length === 1 && uploadRows[0]
-                ? SERVE_IMPORT_CONTACTS_COPY.changeMatch.fromUpload(
-                    uploadRows[0].uploadName,
-                  )
+                ? COPY.changeMatch.fromUpload(uploadRows[0].uploadName)
                 : undefined
             }
             currentPersonId={person.id}
             currentPersonName={name}
+            isWin={isWin}
           />
         </>
       )}

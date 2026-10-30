@@ -55,7 +55,9 @@ const NEWSLETTER = csv(
 )
 
 const renderWizard = (onOpenChange = vi.fn()) => {
-  render(<ImportContactsWizard open onOpenChange={onOpenChange} />)
+  render(
+    <ImportContactsWizard open onOpenChange={onOpenChange} isWin={false} />,
+  )
   return onOpenChange
 }
 

@@ -29,12 +29,7 @@ import {
   setContactUploadRowMatch,
   useContactSources,
 } from './importContactsApi'
-import {
-  SERVE_IMPORT_CONTACTS_COPY,
-  candidateLabel,
-} from './importContactsCopy'
-
-const COPY = SERVE_IMPORT_CONTACTS_COPY
+import { candidateLabel, getImportContactsCopy } from './importContactsCopy'
 
 const SOMEONE_ELSE = 'someone_else'
 const NEW_PERSON = 'new_person'
@@ -56,6 +51,7 @@ interface ChangeMatchDialogProps {
   currentPersonId: string | null
   currentPersonName: string
   candidates?: ContactUploadCandidate[]
+  isWin: boolean
 }
 
 // Repoints one upload row at another person, a new person, or nobody. Notes
@@ -69,7 +65,9 @@ export const ChangeMatchDialog = ({
   currentPersonId,
   currentPersonName,
   candidates = [],
+  isWin,
 }: ChangeMatchDialogProps) => {
+  const COPY = getImportContactsCopy(isWin)
   const queryClient = useQueryClient()
   const orgSlug = useOrganization()?.slug
   const sources = useContactSources(currentPersonId, open)
