@@ -53,7 +53,7 @@ runs:
         path: |
           node_modules
           packages/*/node_modules
-        key: workspace-node-modules-v3-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+        key: workspace-node-modules-v3-${{ runner.os }}-${{ hashFiles('package-lock.json', 'patches/**') }}
 
     - name: Restore npm cache
       id: npm-cache
