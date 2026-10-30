@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
+import { api } from 'helpers/test-utils/api-mocking'
 import type { PriorityResults } from '@goodparty_org/contracts'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { PriorityResultsView } from './PriorityResultsView'
@@ -538,5 +539,132 @@ describe('PriorityResultsView', () => {
         ) ?? []
     expect(properties).toMatchObject({ heldBack: true })
     expect(properties).not.toHaveProperty('themes')
+  })
+})
+
+describe('PriorityResultsView theme responses', () => {
+  beforeEach(() => {
+    place.current = 'Asheville'
+    api.reset()
+  })
+
+  it('opens a theme to read what people said, words only, and goes back', async () => {
+    let asked: { id: string; themeId: string } | null = null
+    api.mock(
+      'GET /v1/priorities/:id/results/themes/:themeId/comments',
+      ({ params }) => {
+        asked = { id: params.id, themeId: params.themeId }
+        return {
+          status: 200,
+          data: {
+            themeId: 't1',
+            comments: [
+              { text: 'Water comes up through my floor drain.', kind: 'reply' },
+              { text: 'She says the corner floods every storm.', kind: 'note' },
+            ],
+          },
+        }
+      },
+    )
+    const user = userEvent.setup()
+    renderView(results())
+
+    await user.click(screen.getByRole('button', { name: /view responses/i }))
+
+    expect(
+      screen.getByRole('heading', {
+        level: 1,
+        name: 'Drains back up into homes',
+      }),
+    ).toBeInTheDocument()
+    expect(screen.getByText('14 people')).toBeInTheDocument()
+    expect(
+      await screen.findByText('Water comes up through my floor drain.'),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText('She says the corner floods every storm.'),
+    ).toBeInTheDocument()
+    expect(screen.getByText('Notes from a conversation')).toBeInTheDocument()
+    expect(asked).toEqual({ id: 'p1', themeId: 't1' })
+    // The poll reader's per-person controls stay off: nothing names or
+    // opens a person.
+    expect(
+      screen.queryByRole('button', { name: /favorite/i }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: /show details/i }),
+    ).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Top themes' }))
+
+    expect(
+      screen.getByRole('heading', {
+        level: 1,
+        name: 'What we heard on Flooding',
+      }),
+    ).toBeInTheDocument()
+  })
+
+  it("downloads one theme's responses from the theme, and all of them from the list", async () => {
+    api.mock('GET /v1/priorities/:id/results/themes/:themeId/comments', {
+      status: 200,
+      data: { themeId: 't1', comments: [] },
+    })
+    const user = userEvent.setup()
+    renderView(results())
+
+    expect(
+      screen.getByRole('link', { name: 'Download all responses' }),
+    ).toHaveAttribute('href', '/api/v1/priorities/p1/results/comments/download')
+
+    await user.click(screen.getByRole('button', { name: /view responses/i }))
+
+    const link = screen.getByRole('link', { name: 'Download responses' })
+    expect(link).toHaveAttribute(
+      'href',
+      '/api/v1/priorities/p1/results/comments/download?themeId=t1',
+    )
+    expect(link).toHaveAttribute('download')
+    expect(
+      await screen.findByText('No responses to show for this theme.'),
+    ).toBeInTheDocument()
+  })
+
+  it('says so when the responses cannot be read', async () => {
+    api.mock('GET /v1/priorities/:id/results/themes/:themeId/comments', {
+      status: 500,
+      data: {},
+    })
+    const user = userEvent.setup()
+    renderView(results())
+
+    await user.click(screen.getByRole('button', { name: /view responses/i }))
+
+    expect(
+      await screen.findByText("We couldn't load the responses. Try again."),
+    ).toBeInTheDocument()
+  })
+
+  it('offers no responses or download while the results are held back', () => {
+    renderView(
+      results({
+        readStatus: {
+          answers: 5,
+          needed: 20,
+          groupsHeard: 2,
+          groupsTotal: 12,
+          good: false,
+          status: 'tooEarly',
+          underrepresented: [],
+        },
+      }),
+    )
+
+    expect(
+      screen.queryByRole('button', { name: /view responses/i }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('link', { name: /download/i }),
+    ).not.toBeInTheDocument()
   })
 })

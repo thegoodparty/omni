@@ -9,6 +9,8 @@ import {
   Param,
   Post,
   Put,
+  Query,
+  StreamableFile,
   UseInterceptors,
   UsePipes,
 } from '@nestjs/common'
@@ -17,6 +19,7 @@ import {
   PriorityReadStatusSchema,
   PriorityResultsSchema,
   PrioritySchema,
+  PriorityThemeCommentsSchema,
   parsePriorityStatus,
 } from '@goodparty_org/contracts'
 import { ZodValidationPipe } from 'nestjs-zod'
@@ -39,6 +42,8 @@ import {
 import {
   CreatePriorityDto,
   PriorityIdParamDto,
+  PriorityThemeCommentsExportQueryDto,
+  PriorityThemeParamDto,
   SetOnboardingPrioritiesDto,
   UpdatePriorityDto,
 } from './schemas/priority.schema'
@@ -51,6 +56,7 @@ import { PrioritiesService } from './services/priorities.service'
 import { PriorityOnboardingService } from './services/priorityOnboarding.service'
 import { PriorityResultsService } from './services/priorityResults.service'
 import { PriorityRoundTwoDrawService } from './services/priorityRoundTwoDraw.service'
+import { PriorityThemeCommentsService } from './services/priorityThemeComments.service'
 import { shownNextAction } from './services/priorityStatus.service'
 import { currentStepOf, priorityToApi } from './util/priority.util'
 
@@ -65,6 +71,7 @@ export class PrioritiesController {
     private readonly priorityResults: PriorityResultsService,
     private readonly features: FeaturesService,
     private readonly roundTwo: PriorityRoundTwoDrawService,
+    private readonly themeComments: PriorityThemeCommentsService,
   ) {}
 
   @Get()
@@ -146,6 +153,40 @@ export class PrioritiesController {
     })
     if (!enabled) throw new NotFoundException()
     return this.priorityResults.resultsFor(electedOffice, id)
+  }
+
+  // What people said behind one theme, words only (PriorityThemeComments).
+  @Get(':id/results/themes/:themeId/comments')
+  @ResponseSchema(PriorityThemeCommentsSchema)
+  async resultsThemeComments(
+    @ReqElectedOffice() electedOffice: ElectedOffice,
+    @ReqUser() user: User,
+    @Param() { id, themeId }: PriorityThemeParamDto,
+  ) {
+    await this.assertResultsEnabled(user)
+    return this.themeComments.commentsFor(electedOffice, id, themeId)
+  }
+
+  // The comments as a CSV of comment and theme, one theme's or every
+  // theme's. A file, so no @ResponseSchema; the webapp links to it
+  // directly, as the polls download does.
+  @Get(':id/results/comments/download')
+  async downloadComments(
+    @ReqElectedOffice() electedOffice: ElectedOffice,
+    @ReqUser() user: User,
+    @Param() { id }: PriorityIdParamDto,
+    @Query() { themeId }: PriorityThemeCommentsExportQueryDto,
+  ): Promise<StreamableFile> {
+    await this.assertResultsEnabled(user)
+    return this.themeComments.commentsCsv(electedOffice, id, themeId)
+  }
+
+  private async assertResultsEnabled(user: User): Promise<void> {
+    const enabled = await this.features.isFeatureEnabled({
+      user,
+      feature: SERVE_CITIZEN_PANELS_FLAG,
+    })
+    if (!enabled) throw new NotFoundException()
   }
 
   @Get(':id/read-status')

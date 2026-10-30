@@ -526,6 +526,19 @@ answered. After, it shows everything below.
   place (`RESULTS_COPY.signalMeaning`, `useServePlace`, else "your
   district"). It is the only representativeness
   measure on a theme; nothing shows a share or a range.
+- **A theme opens to what people said.** Each theme has the poll results
+  page's View responses button; it swaps the page for the poll page's own
+  theme view (`outreach/v2/poll/results/PollThemeDetail.tsx`: back to Top
+  themes, title, people count, summary) holding
+  `results/components/PriorityThemeComments.tsx`, the poll reader's list
+  with words only: no name, heart, read mark or details, since the
+  response carries none (`GET /v1/priorities/:id/results/themes/:themeId/comments`).
+  A door or phone note is labeled "Notes from a conversation", never quoted
+  as the resident's own words. Download responses (in the theme) and
+  Download all responses (under the list) are plain same-origin links to
+  gp-api's CSV of comment and theme, the polls `DownloadResults` pattern.
+  Neither fires an event: the poll page's theme view and download fire
+  none.
 
 ## A check asks a sample, not everyone
 

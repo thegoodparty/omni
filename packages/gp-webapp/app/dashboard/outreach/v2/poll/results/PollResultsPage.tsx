@@ -356,13 +356,13 @@ export const PollResultsPage = ({ outreachId }: { outreachId: number }) => {
       <Paper className="min-h-full">
         {view.kind === 'replies' && ready ? (
           <PollThemeDetail
-            outreachId={outreachId}
-            scope={view.scope}
             title={view.title}
             summary={view.summary}
             count={view.count}
             onBack={() => setView({ kind: 'overview' })}
-          />
+          >
+            <PollCommentList outreachId={outreachId} scope={view.scope} />
+          </PollThemeDetail>
         ) : (
           <div className="flex flex-col gap-6">
             <Link
