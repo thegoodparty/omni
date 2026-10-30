@@ -25,6 +25,7 @@ import { OutreachEmailInboundService } from './services/outreachEmailInbound.ser
 import { OutreachEmailUnsubscribeService } from './services/outreachEmailUnsubscribe.service'
 import { EmailOutreachQueueService } from './services/emailOutreachQueue.service'
 import { OutreachEmailGenerationService } from './services/outreachEmailGeneration.service'
+import { OutreachEmailPreviewService } from './services/outreachEmailPreview.service'
 import { OutreachEmailImageService } from './services/outreachEmailImage.service'
 import { OutreachEmailTestService } from './services/outreachEmailTest.service'
 import { SesService } from './services/ses.service'
@@ -73,6 +74,7 @@ import { OutreachEmailSenderService } from './services/outreachEmailSender.servi
     OutreachEmailAudienceService,
     OutreachEmailGenerationService,
     OutreachEmailImageService,
+    OutreachEmailPreviewService,
     OutreachEmailTestService,
     SesService,
     OutreachEmailConfirmService,

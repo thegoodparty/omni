@@ -13,8 +13,8 @@ The email stepper. Win opens at `/dashboard/outreach/email` behind `win-email-ou
 | `emailApi.ts`             | Typed calls to `/v1/outreach/email/*`, or `/v1/outreach/serve/email/*` when `surface.isServe`                                                                                                                                 |
 | `EmailPayStep.tsx`        | `PaymentHoldCard` with `savePaymentMethod` calling `POST /:id/confirm`; the price comes from the send's `estimate`                                                                                                            |
 | `EmailStatus.tsx`         | Scheduled, Sending X of Y, Paused, Sent (Sent to X of Y when stopped at the payment deadline), Canceled; update card on `pending_payment`; cancel. Win also mounts it at `/dashboard/outreach/email/[id]` (`EmailStatusPage`) |
-| `EmailPreview.tsx`        | Approximate preview from the theme's color roles                                                                                                                                                                              |
-| `app/dev/email-templates` | Dev-only gallery of every layout and theme through `EmailPreview`; its Playwright test attaches screenshots                                                                                                                   |
+| `EmailPreview.tsx`        | The real email: gp-api's `POST /preview` HTML (variables filled with samples, the mode's footer), in a script-less `<iframe srcDoc>`, debounced 400 ms; keeps the last good render while the next loads |
+| `app/dev/email-templates` | Dev-only gallery of every layout and theme through `EmailPreview` (needs a signed-in campaign user for the preview route); its Playwright test attaches screenshots |
 
 ## Gotchas
 

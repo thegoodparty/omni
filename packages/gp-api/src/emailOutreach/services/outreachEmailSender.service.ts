@@ -43,6 +43,15 @@ export class OutreachEmailSenderService extends createPrismaBase(
     }
   }
 
+  // What findOrCreate would name the sender, without creating the row.
+  async displayNameFor(scope: EmailSendScope): Promise<string> {
+    const existing = await this.model.findUnique({
+      where: { organizationSlug: scope.organizationSlug },
+      select: { displayName: true },
+    })
+    return existing?.displayName ?? (scope.senderName || scope.fallbackName)
+  }
+
   async findOrCreate(scope: EmailSendScope): Promise<OutreachEmailSender> {
     const existing = await this.model.findUnique({
       where: { organizationSlug: scope.organizationSlug },

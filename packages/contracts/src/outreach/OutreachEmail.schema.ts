@@ -73,6 +73,25 @@ export const EmailDraftSaveSchema = z
   })
 export type EmailDraftSave = z.infer<typeof EmailDraftSaveSchema>
 
+// The live preview renders whatever is typed so far, so unlike a draft save
+// every text field may be empty and a half-filled button is ignored.
+export const EmailPreviewRequestSchema = z
+  .object({
+    layout: EmailLayoutKeySchema,
+    theme: EmailThemeKeySchema,
+    subject: z.string().max(EMAIL_SUBJECT_MAX_LENGTH),
+    headline: z.string().max(EMAIL_HEADLINE_MAX_LENGTH).optional(),
+    body: z.string().max(EMAIL_BODY_MAX_LENGTH),
+    imageUrl: HttpsUrlSchema.optional(),
+    buttonLabel: z.string().max(EMAIL_BUTTON_LABEL_MAX_LENGTH).optional(),
+    buttonUrl: HttpsUrlSchema.optional(),
+  })
+  .strict()
+export type EmailPreviewRequest = z.infer<typeof EmailPreviewRequestSchema>
+
+export const EmailPreviewResponseSchema = z.object({ html: z.string() })
+export type EmailPreviewResponse = z.infer<typeof EmailPreviewResponseSchema>
+
 export const EmailSenderSchema = z.object({
   localPart: z.string(),
   address: z.string(),

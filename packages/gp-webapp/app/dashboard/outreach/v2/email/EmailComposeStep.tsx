@@ -74,7 +74,6 @@ interface EmailComposeStepProps {
   ) => void
   issues: ComposeIssues
   showIssues: boolean
-  senderName: string
   goal: string
 }
 
@@ -84,7 +83,6 @@ export const EmailComposeStep = ({
   onChange,
   issues,
   showIssues,
-  senderName,
   goal,
 }: EmailComposeStepProps) => {
   const [tone, setTone] = useState<SocialTone>('warm')
@@ -411,9 +409,10 @@ export const EmailComposeStep = ({
       <div className="space-y-2">
         <span className="text-sm font-medium text-foreground">Preview</span>
         <EmailPreview
+          serve={surface.isServe}
           layout={value.layout}
           theme={value.theme}
-          senderName={senderName}
+          subject={value.subject}
           headline={value.headline}
           body={value.body}
           buttonLabel={value.buttonLabel}

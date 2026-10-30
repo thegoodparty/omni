@@ -19,6 +19,10 @@ const DevEmailTemplateGallery = () => {
   return (
     <div className="space-y-10 p-8" data-testid="email-template-gallery">
       <h1 className="text-2xl font-bold">Email template gallery</h1>
+      <p className="text-sm text-muted-foreground">
+        Rendered by gp-api&apos;s email templates. Sign in as a campaign user
+        first; the previews come from an authed route.
+      </p>
       {LAYOUT_KEYS.map((layout) => (
         <section key={layout} className="space-y-4">
           <h2 className="text-xl font-semibold">
@@ -35,9 +39,10 @@ const DevEmailTemplateGallery = () => {
                   {EMAIL_THEMES[theme].label}
                 </p>
                 <EmailPreview
+                  serve={false}
                   layout={layout}
                   theme={theme}
-                  senderName="Jordan Rivera"
+                  subject="Join us this Saturday"
                   headline="Join us this Saturday"
                   body={
                     'Hi {{first_name}},\n\nWe are knocking doors and would love your help.'

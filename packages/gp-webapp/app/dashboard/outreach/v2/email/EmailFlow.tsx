@@ -54,7 +54,7 @@ export const EmailFlow = ({
   surface = WIN_EMAIL_SURFACE,
 }: EmailFlowProps) => {
   const queryClient = useQueryClient()
-  const { data: sender } = useEmailSender(surface.isServe)
+  useEmailSender(surface.isServe)
   const [step, setStep] = useState<EmailStep>('goal')
   const [paid, setPaid] = useState(false)
   const [confirmTried, setConfirmTried] = useState(false)
@@ -238,7 +238,6 @@ export const EmailFlow = ({
             onChange={setCompose}
             issues={issues}
             showIssues={composeAttempted}
-            senderName={sender?.displayName ?? ''}
             goal={goalText}
           />
         )}

@@ -7,6 +7,7 @@ import type {
   EmailDraft,
   EmailDraftSave,
   EmailImagePresignRequest,
+  EmailPreviewRequest,
   EmailSender,
   EmailTestSendResponse,
 } from '@goodparty_org/contracts'
@@ -61,6 +62,16 @@ export const draftEmailWithAi = async (
       ? clientRequest('POST /v1/outreach/serve/email/draft', input)
       : clientRequest('POST /v1/outreach/email/draft', input))
   ).data
+
+export const previewEmail = async (
+  serve: boolean,
+  input: EmailPreviewRequest,
+): Promise<string> =>
+  (
+    await (serve
+      ? clientRequest('POST /v1/outreach/serve/email/preview', input)
+      : clientRequest('POST /v1/outreach/email/preview', input))
+  ).data.html
 
 // The saved imageUrl must be the publicUrl gp-api presigned, so the file goes
 // straight to S3 with the returned form fields and the URL comes from here.

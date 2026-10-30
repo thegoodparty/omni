@@ -80,9 +80,10 @@ export const EmailReviewStep = ({
       <Intro title={surface.review.title} body={surface.review.caption} />
 
       <EmailPreview
+        serve={surface.isServe}
         layout={compose.layout}
         theme={compose.theme}
-        senderName={sender?.displayName ?? ''}
+        subject={compose.subject}
         headline={compose.headline}
         body={compose.body}
         buttonLabel={compose.buttonLabel}

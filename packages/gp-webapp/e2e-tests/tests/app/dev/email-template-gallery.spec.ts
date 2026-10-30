@@ -26,6 +26,7 @@ test.describe('email template gallery', () => {
       for (const theme of THEMES) {
         const card = page.getByTestId(`email-gallery-${layout}-${theme}`)
         await expect(card).toBeVisible()
+        await expect(card.locator('iframe')).toBeVisible()
         await testInfo.attach(`${layout}-${theme}`, {
           body: await card.screenshot(),
           contentType: 'image/png',
