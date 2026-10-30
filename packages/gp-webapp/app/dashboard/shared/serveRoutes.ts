@@ -17,7 +17,6 @@ export const SERVE_ROUTE_PREFIXES = [
   '/dashboard/public-profile',
   '/dashboard/constituent-outreach',
   '/dashboard/contacts/citizens-panel',
-  '/dashboard/contacts/uploads',
   '/dashboard/admin-review/briefings',
   // Elected-official onboarding. NOTE: the public /serve/welcome magic-link
   // redemption page is intentionally NOT listed — it is reached pre-auth and

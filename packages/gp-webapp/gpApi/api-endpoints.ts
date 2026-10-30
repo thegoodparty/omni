@@ -158,6 +158,9 @@ import type {
   ApproveManagedCivicPanelInput,
   ManagedCivicPanelResponse,
   UpdateManagedCivicPanelInput,
+  CivicPanelReachList,
+  CivicPanelReachOptions,
+  CreateCivicPanelReachListInput,
 } from '@goodparty_org/contracts'
 import type { Race } from 'app/onboarding/[slug]/[step]/components/ballotOffices/types'
 import type {
@@ -1766,6 +1769,19 @@ export type APIEndpoints = {
   'PATCH /v1/contacts/civic-panel/managed': {
     Request: UpdateManagedCivicPanelInput
     Response: ManagedCivicPanelResponse
+  }
+  // A list of a group still short of its civic panel seats that a text
+  // cannot reach, for door knocking or phone banking. 422 when nobody is
+  // left to reach that way.
+  // The short groups the Chief of Staff offers once a managed civic panel
+  // is exhausted, each with the one way that reaches the most of it.
+  'GET /v1/contacts/civic-panel/reach-options': {
+    Request: {}
+    Response: CivicPanelReachOptions
+  }
+  'POST /v1/contacts/civic-panel/reach-lists': {
+    Request: CreateCivicPanelReachListInput
+    Response: CivicPanelReachList
   }
   'GET /v1/contacts/:id': {
     Request: {}

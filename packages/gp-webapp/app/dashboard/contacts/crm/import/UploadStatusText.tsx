@@ -7,7 +7,7 @@ import {
   StatusText,
   XCircleIcon,
 } from '@styleguide'
-import { SERVE_IMPORT_CONTACTS_COPY } from './importContactsCopy'
+import { getImportContactsCopy } from './importContactsCopy'
 
 const STATUS_DISPLAY: Record<
   ContactUploadStatus,
@@ -22,14 +22,16 @@ const STATUS_DISPLAY: Record<
 
 export const UploadStatusText = ({
   status,
+  isWin,
 }: {
   status: ContactUploadStatus
+  isWin: boolean
 }) => (
   <StatusText
     tone={STATUS_DISPLAY[status].tone}
     icon={STATUS_DISPLAY[status].icon}
     spinning={status === 'processing' || status === 'awaiting_file'}
   >
-    {SERVE_IMPORT_CONTACTS_COPY.status[status]}
+    {getImportContactsCopy(isWin).status[status]}
   </StatusText>
 )

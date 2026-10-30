@@ -123,6 +123,23 @@ that initializes the `ai-rules` git submodule — if `ls ai-rules/` is empty, ru
 `git submodule update --init --recursive ai-rules`), then copy each app's
 `.env.example` / `.env.local` template before starting it.
 
+## Patched dependencies
+
+`patches/` holds `patch-package` patches that the root `postinstall` applies to
+`node_modules` on every install, including the gp-api image build.
+`patch-package` is a gp-api runtime dependency because the image installs with
+`--omit=dev` and still runs the root `postinstall`. The install fails if
+`patches/` is missing or a patch does not apply. The patch file name pins the
+package version, and the install also fails if the installed version differs.
+To upgrade a patched package, edit its files in `node_modules`, run
+`npx patch-package <package>`, and delete the old patch file. If the upgrade
+already contains the fix, delete the patch instead; when that empties
+`patches/`, also remove `patch-package`, the `postinstall` step, the
+Dockerfile `COPY patches`, and `patches/**` from the CI cache keys.
+`npm ci --ignore-scripts` skips the patches; run
+`npx patch-package --error-on-fail --error-on-warn` after it. Why each patch
+exists and when it goes: `docs/adr/`.
+
 ## Run the core loop
 
 ```bash

@@ -1,4 +1,4 @@
-import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { BadRequestException, NotFoundException } from '@nestjs/common'
 import { ChatScope } from '../../../generated/prisma'
 import {
@@ -58,16 +58,9 @@ describe('OrdinanceFlowHandler', () => {
   let fetchService: OrdinanceFlowFetchService
   let searchService: OrdinanceFlowSearchService
 
-  const originalAnthropicKey = process.env.ANTHROPIC_API_KEY
-  const originalBraveKey = process.env.BRAVE_API_KEY
-  afterAll(() => {
-    process.env.ANTHROPIC_API_KEY = originalAnthropicKey
-    process.env.BRAVE_API_KEY = originalBraveKey
-  })
-
   beforeEach(() => {
-    process.env.ANTHROPIC_API_KEY = 'test-key'
-    process.env.BRAVE_API_KEY = 'test-brave-key'
+    vi.stubEnv('ANTHROPIC_API_KEY', 'test-key')
+    vi.stubEnv('BRAVE_API_KEY', 'test-brave-key')
     store = {
       findByAnchorResource: vi.fn(() => Promise.resolve([])),
       createScopedConversation: vi.fn(() => Promise.resolve({ id: 'fresh' })),
@@ -375,7 +368,7 @@ describe('OrdinanceFlowHandler', () => {
       Object.keys(handler.buildTools({ ...baseCtx(), step: 'comparables' })),
     ).not.toContain('brave_search')
 
-    delete process.env.BRAVE_API_KEY
+    vi.stubEnv('BRAVE_API_KEY', undefined)
     expect(
       Object.keys(handler.buildTools({ ...baseCtx(), step: 'current_law' })),
     ).not.toContain('brave_search')

@@ -29,7 +29,21 @@ const setup = (flags: string[]) => {
 }
 
 describe('PeopleDatasetService.resolve', () => {
-  it('reads voters for a Win org without asking any flag', async () => {
+  it('reads voters for a Win org without asking the consumer-data flag', async () => {
+    const { service, isFeatureEnabled, getPositionById } = setup([
+      SERVE_CONSUMER_DATA_FLAG,
+    ])
+
+    await expect(
+      service.resolve({ ...ORG, slug: 'campaign-1' }),
+    ).resolves.toEqual({ base: 'voters' })
+    expect(isFeatureEnabled).not.toHaveBeenCalledWith(
+      expect.objectContaining({ feature: SERVE_CONSUMER_DATA_FLAG }),
+    )
+    expect(getPositionById).not.toHaveBeenCalled()
+  })
+
+  it('joins a Win org to its imported contacts over voters when the flag is on', async () => {
     const { service, isFeatureEnabled } = setup([
       SERVE_CONSUMER_DATA_FLAG,
       SERVE_IMPORT_CONTACTS_FLAG,
@@ -37,8 +51,15 @@ describe('PeopleDatasetService.resolve', () => {
 
     await expect(
       service.resolve({ ...ORG, slug: 'campaign-1' }),
-    ).resolves.toEqual({ base: 'voters' })
-    expect(isFeatureEnabled).not.toHaveBeenCalled()
+    ).resolves.toEqual({
+      base: 'voters',
+      overlayOrgSlug: 'campaign-1',
+      overlayDistrictId: 'district-1',
+    })
+    expect(isFeatureEnabled).toHaveBeenCalledWith({
+      user: 7,
+      feature: SERVE_IMPORT_CONTACTS_FLAG,
+    })
   })
 
   it('has no overlay when serve-import-contacts is off', async () => {

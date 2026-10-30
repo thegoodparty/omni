@@ -200,6 +200,7 @@ def run_npm_ci(omni_dir: str) -> None:
 # npm_ci_needed mismatch, since ignore-scripts skipped these regardless of
 # whether node_modules itself needed reinstalling.
 POST_BAKE_STEPS: tuple[tuple[str, ...], ...] = (
+    ("npx", "--no-install", "patch-package", "--error-on-fail", "--error-on-warn"),
     ("git", "submodule", "update", "--init", "--recursive", "ai-rules"),
     ("npm", "run", "build", "-w", "packages/contracts"),
     ("npm", "run", "build", "-w", "packages/nest-common"),

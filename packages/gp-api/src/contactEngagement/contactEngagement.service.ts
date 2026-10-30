@@ -450,14 +450,12 @@ export class ContactEngagementService {
         },
       }))
 
-    // Import contacts rows exist only for Serve. Read whole rather than
-    // windowed (see findForActivityFeed); the merge below places the cursor.
-    const importRows = isServe
-      ? await this.contactUploadMatches.findForActivityFeed(
-          organizationSlug,
-          personId,
-        )
-      : []
+    // Read whole rather than windowed (see findForActivityFeed); the merge
+    // below places the cursor.
+    const importRows = await this.contactUploadMatches.findForActivityFeed(
+      organizationSlug,
+      personId,
+    )
     const importDate = (row: (typeof importRows)[number]): Date =>
       row.method === ContactUploadMatchMethod.manual && row.resolvedAt
         ? row.resolvedAt

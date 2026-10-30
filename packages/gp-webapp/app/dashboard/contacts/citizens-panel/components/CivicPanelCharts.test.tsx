@@ -269,7 +269,7 @@ describe('CivicPanelBloom', () => {
 
 describe('CivicPanelHero', () => {
   const filledSeats = (container: HTMLElement) =>
-    container.querySelectorAll('circle[stroke-width="1"]').length
+    container.querySelectorAll('circle[data-source]').length
 
   it('starts with every seat empty and no milestone done', () => {
     const { container } = render(
@@ -326,12 +326,12 @@ describe('CivicPanelHero', () => {
       within(bar).queryByText('60 of 240 residents have joined'),
     ).not.toBeInTheDocument()
     expect(
-      within(bar).getByRole('progressbar', {
+      within(bar).getByRole('img', {
         name: '60 of 240 residents have joined',
       }),
     ).toBeInTheDocument()
-    expect(bar.querySelector('[data-slot="progress-indicator"]')).toHaveStyle({
-      transform: 'translateX(-75%)',
+    expect(bar.querySelector('[data-source="text"]')).toHaveStyle({
+      width: '25%',
     })
     const steps = screen.getByRole('list', {
       name: "Your civic panel's milestones",
@@ -342,20 +342,57 @@ describe('CivicPanelHero', () => {
   })
 
   it('names a precinct district by precinct, never by tract', () => {
-    render(
-      <CivicPanelHero
-        stage="building"
-        members={60}
-        goal={GOAL}
-        placeKind="precinct"
-      />,
-    )
-    const arc = screen.getByRole('img')
+    render(<CivicPanelHero stage="building" members={60} goal={GOAL} />)
+    const arc = screen.getByTestId('civic-panel-hero-seats')
     expect(arc).toHaveAttribute(
       'aria-label',
       'Your district as 100 seats. 25 of 100 seats filled.',
     )
     expect(arc.getAttribute('aria-label')).not.toMatch(/tract/)
+  })
+
+  it('splits the bar and the seats by how members joined', () => {
+    const { container } = render(
+      <CivicPanelHero
+        stage="exhausted"
+        members={120}
+        goal={GOAL}
+        joinedBy={{ text: 90, door: 18, phone: 0, hand: 12 }}
+      />,
+    )
+    const bar = screen.getByTestId('civic-panel-hero-bar')
+    expect(bar.querySelector('[data-source="text"]')).toHaveStyle({
+      width: '37.5%',
+    })
+    // Added by hand counts with the door.
+    expect(bar.querySelector('[data-source="door"]')).toHaveStyle({
+      width: '12.5%',
+    })
+    expect(bar.querySelector('[data-source="phone"]')).toBeNull()
+    const legend = screen.getByTestId('civic-panel-hero-bar-legend')
+    expect(within(legend).getByText('90 by text')).toBeInTheDocument()
+    expect(within(legend).getByText('30 at the door')).toBeInTheDocument()
+    expect(within(legend).queryByText(/by phone/)).not.toBeInTheDocument()
+    expect(within(legend).queryByText('Empty seat')).not.toBeInTheDocument()
+
+    expect(
+      container.querySelectorAll('circle[data-source="text"]').length,
+    ).toBe(38)
+    expect(
+      container.querySelectorAll('circle[data-source="door"]').length,
+    ).toBe(12)
+    expect(
+      within(screen.getByTestId('civic-panel-hero-seats-legend')).getByText(
+        'Empty seat',
+      ),
+    ).toBeInTheDocument()
+  })
+
+  it('shows no legend before anyone joins', () => {
+    render(<CivicPanelHero stage="start" members={0} goal={GOAL} />)
+    expect(
+      screen.queryByTestId('civic-panel-hero-bar-legend'),
+    ).not.toBeInTheDocument()
   })
 
   it('never claims seats a ready panel lost', () => {

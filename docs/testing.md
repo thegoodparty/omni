@@ -35,6 +35,13 @@ npx vitest run --testNamePattern "name"                 # by test name
 
 CI runs each package's validate job (lint, typecheck, test) on PRs that touch it.
 
+gp-api caches transformed modules on disk between runs
+(`packages/gp-api/.vitest-fs-module-cache/`), so its first run after a
+lockfile, Node or `vitest.config.ts` change is slower than the ones after it.
+If a run ever behaves as if it is running code that is no longer in the
+source, clear the cache from `packages/gp-api` with `npx vitest --clearCache`
+(or delete the directory) and run again.
+
 ## Docker for testcontainers (OrbStack, macOS)
 
 `useTestService()` suites need Docker. Under OrbStack two exports are required, and

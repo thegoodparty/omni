@@ -162,7 +162,9 @@ export function transformToPersonOutput(
     nameSuffix: person.NameSuffix ?? null,
     gender: mapGender(person.Gender),
     age: mapAge(person),
-    politicalParty: mapPoliticalParty(person.Parties_Description),
+    politicalParty: person.ContactIsNew
+      ? null
+      : mapPoliticalParty(person.Parties_Description),
     voterStatus: mapVoterStatus(person.Voter_Status),
     earlyVoteStatus: earlyVoteStatusFromMart(person.Early_Vote_Status),
     registeredVoter:

@@ -44,6 +44,7 @@ const makeUpload = (overrides: Partial<ContactUpload> = {}): ContactUpload => ({
   unchangedCount: 0,
   completedAt: '2026-10-01T12:01:00.000Z',
   failureReason: null,
+  failureKind: null,
   ...overrides,
 })
 
@@ -54,8 +55,10 @@ const NEWSLETTER = csv(
   'First name,Last name,Email,Mobile,Heard about me\nMaria,Lopez,maria@example.com,(616) 555-0142,Flyer\nDana,Whitfield,dana@example.com,,Friend\n',
 )
 
-const renderWizard = (onOpenChange = vi.fn()) => {
-  render(<ImportContactsWizard open onOpenChange={onOpenChange} />)
+const renderWizard = (onOpenChange = vi.fn(), isWin = false) => {
+  render(
+    <ImportContactsWizard open onOpenChange={onOpenChange} isWin={isWin} />,
+  )
   return onOpenChange
 }
 
@@ -90,6 +93,7 @@ describe('<ImportContactsWizard>', () => {
     expect(trackEvent).toHaveBeenCalledWith(EVENTS.Contacts.ImportStarted, {
       sourceType: 'csv',
       rowCount: 2,
+      product: 'serve',
     })
 
     await user.click(screen.getByRole('button', { name: 'Continue' }))
@@ -264,7 +268,7 @@ describe('<ImportContactsWizard>', () => {
     })
     expect(trackEvent).toHaveBeenCalledWith(
       EVENTS.Contacts.ImportConsentAffirmed,
-      { rowCount: 2 },
+      { rowCount: 2, product: 'serve' },
     )
     expect(trackEvent).not.toHaveBeenCalledWith(
       EVENTS.Contacts.ImportAbandoned,
@@ -316,7 +320,7 @@ describe('<ImportContactsWizard>', () => {
 
   it('records where the user left off when the wizard closes early', async () => {
     const user = userEvent.setup()
-    const onOpenChange = renderWizard()
+    const onOpenChange = renderWizard(vi.fn(), true)
 
     await chooseFile(user, NEWSLETTER)
     await screen.findByText(/2 people found/)
@@ -327,6 +331,7 @@ describe('<ImportContactsWizard>', () => {
     expect(trackEvent).toHaveBeenCalledWith(EVENTS.Contacts.ImportAbandoned, {
       lastStep: 'columns',
       rowCount: 2,
+      product: 'win',
     })
   })
 })

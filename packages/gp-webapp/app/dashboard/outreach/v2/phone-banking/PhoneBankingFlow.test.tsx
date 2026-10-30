@@ -1651,6 +1651,80 @@ describe('PhoneBankingFlow with the serve surface', () => {
     })
   })
 
+  // A civic panel short group's call list: the goal, the list and the
+  // script are known, so the official reviews the script and creates.
+  it('opens a civic panel invite on its script and creates from there', async () => {
+    const draftCalls = mockServeDraft()
+    const createCalls: ServePhoneBankingCreate[] = []
+    api.mock('POST /v1/phone-banking/serve/lists', ({ body }) => {
+      createCalls.push(body)
+      return { status: 200, data: createResponse }
+    })
+    mockSavedLists([{ id: 3, name: 'Call: People 65 and over' }])
+    mockListDetail(130)
+    render(
+      <PhoneBankingFlow
+        source="deep_link"
+        open
+        onClose={vi.fn()}
+        surface={SERVE_PHONE_BANKING_SURFACE}
+        preselectedListId={3}
+        initialName="Call: People 65 and over"
+        civicPanelInvite={{ script: 'You: Would you like to be one of them?' }}
+      />,
+    )
+
+    expect(
+      (await screen.findAllByText('Does this call script sound right?')).length,
+    ).toBeGreaterThan(0)
+    expect(screen.queryByRole('button', { name: 'Back' })).toBeNull()
+    expect(scriptText()).toBe('You: Would you like to be one of them?')
+    expect(screen.getByLabelText('Campaign name')).toHaveValue(
+      'Call: People 65 and over',
+    )
+
+    const create = screen.getByRole('button', { name: 'Create call list' })
+    await waitFor(() => expect(create).toBeEnabled())
+    await user.click(create)
+
+    expect(
+      (await screen.findAllByText('Your call sheet is ready')).length,
+    ).toBeGreaterThan(0)
+    expect(draftCalls).toHaveLength(0)
+    expect(createCalls[0]).toMatchObject({
+      purpose: 'build_citizens_panel',
+      voterFileFilterId: 3,
+      name: 'Call: People 65 and over',
+      script: 'You: Would you like to be one of them?',
+      sheetCount: 3,
+    })
+  })
+
+  it('says so when the civic panel call list is not found', async () => {
+    mockServeDraft()
+    mockSavedLists([{ id: 3, name: 'Somebody else' }])
+    render(
+      <PhoneBankingFlow
+        source="deep_link"
+        open
+        onClose={vi.fn()}
+        surface={SERVE_PHONE_BANKING_SURFACE}
+        preselectedListId={99}
+        initialName="Call: People 65 and over"
+        civicPanelInvite={{ script: 'You: Hi.' }}
+      />,
+    )
+
+    expect(
+      await screen.findByText(
+        "We couldn't find this call list. Close this and try again.",
+      ),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: 'Create call list' }),
+    ).toBeDisabled()
+  })
+
   it('leaves the name empty with the CTA disabled for the custom purpose', async () => {
     mockServeDraft()
     mockSavedLists([{ id: 3, name: 'Constituents near downtown' }])

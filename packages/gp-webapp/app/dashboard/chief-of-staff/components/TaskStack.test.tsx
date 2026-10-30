@@ -637,13 +637,14 @@ describe('<TaskStack>', () => {
       expect(screen.queryByText(/due/i)).toBeNull()
     })
 
-    it('opens the Chief of Staff on where the panel stands once invites run out', async () => {
+    it('opens the Chief of Staff on reaching the rest once invites run out', async () => {
       const user = userEvent.setup()
       const onDiscussCard = vi.fn()
       withCards([
         progressCard('exhausted', {
           title: 'Every resident we can text has an invite',
-          summary: '12 of 250 residents have joined your civic panel.',
+          summary:
+            '12 of 250 residents have joined. Door knocking and calls can reach the rest.',
           ctaLabel: MANAGED_CIVIC_PANEL_EXHAUSTED_CARD_CTA,
         }),
       ])
@@ -651,8 +652,11 @@ describe('<TaskStack>', () => {
 
       expect(screen.queryByText(/join link/i)).toBeNull()
       await user.click(
-        screen.getByRole('button', { name: 'See where it stands' }),
+        screen.getByRole('button', { name: 'Reach the rest another way' }),
       )
+      expect(
+        screen.getByRole('button', { name: /ask about this/i }),
+      ).toBeInTheDocument()
 
       expect(onDiscussCard).toHaveBeenCalledWith(
         MANAGED_CIVIC_PANEL_EXHAUSTED_MESSAGE,
@@ -746,6 +750,7 @@ describe('<TaskStack>', () => {
         status: 200,
         data: {
           members: 12,
+          joinedBy: { text: 0, door: 0, phone: 0, hand: 0 },
           reachedRecently: 0,
           askableNow: 12,
           lastOutreachAt: null,

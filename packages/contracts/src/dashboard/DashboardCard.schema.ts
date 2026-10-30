@@ -112,9 +112,11 @@ export const managedPanelProgressPhase = (
       ) ?? null)
     : null
 
-// The exhausted card's button: the home opens the Chief of Staff, which says
-// where the panel stands, rather than following the card's link.
-export const MANAGED_CIVIC_PANEL_EXHAUSTED_CARD_CTA = 'See where it stands'
+// The exhausted card's one button: the home opens the Chief of Staff on
+// reaching the rest at the door or on a call, rather than following the
+// card's link.
+export const MANAGED_CIVIC_PANEL_EXHAUSTED_CARD_CTA =
+  'Reach the rest another way'
 export const MANAGED_CIVIC_PANEL_PROGRESS_CARD_CTA = 'See your civic panel'
 
 export const DashboardCardsResponseSchema = z.object({

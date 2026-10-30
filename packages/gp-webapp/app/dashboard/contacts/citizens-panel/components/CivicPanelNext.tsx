@@ -1,16 +1,19 @@
 import { useState } from 'react'
 import {
+  CIVIC_PANEL_SHORT_GROUPS_SHOWN,
   UNDERREPRESENTED_GROUP_NAMES,
   type CivicPanelComposition,
 } from '@goodparty_org/contracts'
 import { Button } from '@styleguide'
+import { DoorOpenIcon, PhoneIcon } from '@styleguide/components/ui/icons'
 import {
   capitalizeFirst,
   SERVE_CITIZENS_PANEL_COPY as COPY,
 } from '../citizensPanelCopy'
 import { shortGroups, type ShortGroup } from './panelCharts'
+import { reachGroupOf, useReachList } from './useReachList'
 
-const SHOWN = 4
+const SHOWN = CIVIC_PANEL_SHORT_GROUPS_SHOWN
 
 const Card = ({
   title,
@@ -64,18 +67,28 @@ const rowName = (row: ShortGroup, kind: PlaceKind, place: string): string => {
     : COPY.unnamedTract(place)
 }
 
+type Reach = ReturnType<typeof useReachList>
+
+// 44px targets on a phone, under the group; inline at the row's end from lg.
+const REACH_BUTTON = 'min-h-11 flex-1 lg:min-h-0 lg:flex-none'
+
 const Row = ({
   row,
   kind,
   place,
+  reach,
 }: {
   row: ShortGroup
   kind: PlaceKind
   place: string
+  // Once every resident a text can reach has an invite, each row opens a
+  // door or call list of its own.
+  reach: Reach | null
 }) => {
   const name = rowName(row, kind, place)
-  return (
-    <li className="flex flex-col gap-1.5">
+  const group = reach ? reachGroupOf(row, kind) : null
+  const seats = (
+    <div className="flex min-w-0 flex-1 flex-col gap-1.5">
       <div className="flex items-baseline justify-between gap-3">
         <span
           className="min-w-0 truncate text-base text-foreground"
@@ -96,26 +109,63 @@ const Row = ({
           style={{ width: `${Math.round((row.have / row.need) * 100)}%` }}
         />
       </span>
+    </div>
+  )
+  if (!reach || !group) return <li>{seats}</li>
+  const busy = reach.pending !== null
+  return (
+    <li className="flex flex-col gap-3 lg:flex-row lg:items-center lg:gap-6">
+      {seats}
+      <div className="flex gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          size="medium"
+          className={REACH_BUTTON}
+          disabled={busy}
+          onClick={() =>
+            void reach.reach(group, 'door', COPY.reachListName.door(name))
+          }
+        >
+          <DoorOpenIcon className="size-4" aria-hidden />
+          {COPY.knockDoors}
+          <span className="sr-only">{`, ${name}`}</span>
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="medium"
+          className={REACH_BUTTON}
+          disabled={busy}
+          onClick={() =>
+            void reach.reach(group, 'phone', COPY.reachListName.phone(name))
+          }
+        >
+          <PhoneIcon className="size-4" aria-hidden />
+          {COPY.call}
+          <span className="sr-only">{`, ${name}`}</span>
+        </Button>
+      </div>
     </li>
   )
 }
 
-// The groups furthest below their share of the district, across age,
-// gender, race and place: the page's one answer to who's next. It never
-// asks the official to invite anyone; GoodParty sends the invites.
-export const CivicPanelNext = ({
-  composition,
-  members,
-  goal,
-  exhausted,
-  place,
-}: {
+type NextProps = {
   composition: CivicPanelComposition
   members: number
   goal: number
   exhausted: boolean
   place: string | null
-}) => {
+}
+
+const NextCard = ({
+  composition,
+  members,
+  goal,
+  exhausted,
+  place,
+  reach,
+}: NextProps & { reach: Reach | null }) => {
   const [expanded, setExpanded] = useState(false)
   const rows = shortGroups({ composition, members, goal })
   if (rows.length === 0) return null
@@ -124,7 +174,7 @@ export const CivicPanelNext = ({
   return (
     <Card
       title={exhausted ? COPY.nextTitleExhausted : COPY.nextTitle}
-      line={exhausted ? COPY.nextLineExhausted(where) : COPY.nextLine(where)}
+      line={exhausted ? COPY.nextLineExhausted() : COPY.nextLine(where)}
       testId="civic-panel-next"
     >
       <ul className="flex flex-col gap-4">
@@ -134,6 +184,7 @@ export const CivicPanelNext = ({
             row={row}
             kind={composition.placeKind}
             place={where}
+            reach={reach}
           />
         ))}
       </ul>
@@ -148,6 +199,24 @@ export const CivicPanelNext = ({
           {COPY.seeEveryGroup}
         </Button>
       ) : null}
+      {reach?.flow}
     </Card>
   )
 }
+
+const ReachableNext = (props: NextProps) => {
+  const reach = useReachList()
+  return <NextCard {...props} reach={reach} />
+}
+
+// The groups furthest below their share of the district, across age,
+// gender, race and place: the page's one answer to who's next. While
+// GoodParty sends the invites it never asks the official to invite anyone;
+// once every resident a text can reach has one, each group can be knocked
+// or called.
+export const CivicPanelNext = (props: NextProps) =>
+  props.exhausted ? (
+    <ReachableNext {...props} />
+  ) : (
+    <NextCard {...props} reach={null} />
+  )

@@ -58,6 +58,7 @@ describe('<ImportedContactInformation>', () => {
 
     render(
       <ImportedContactInformation
+        isWin={false}
         person={{ ...person, email: 'maria.lopez@example.com' }}
         showMap={false}
       />,
@@ -104,6 +105,7 @@ describe('<ImportedContactInformation>', () => {
 
     render(
       <ImportedContactInformation
+        isWin={false}
         person={{ ...person, email: null, landline: null }}
         showMap={false}
       />,
@@ -134,6 +136,7 @@ describe('<ImportedContactInformation>', () => {
 
     render(
       <ImportedContactInformation
+        isWin={false}
         person={{
           ...person,
           email: 'maria.lopez@example.com',
@@ -156,6 +159,38 @@ describe('<ImportedContactInformation>', () => {
       within(fieldBlock('Address')).getByText('Unknown'),
     ).toBeInTheDocument()
     expect(screen.queryByText(/, WY/)).not.toBeInTheDocument()
+  })
+
+  it('reads Win nouns for a campaign: the voter file, and searching voters', async () => {
+    api.mock('GET /v1/contacts/:personId/sources', {
+      status: 200,
+      data: sources({
+        uploadRows: [
+          {
+            rowId: 'row-1',
+            uploadId: 'upload-1',
+            uploadName: 'Newsletter, Oct 2026',
+            uploadedAt: '2026-10-20T12:00:00.000Z',
+          },
+        ],
+      }),
+    })
+    const user = userEvent.setup()
+
+    render(<ImportedContactInformation isWin person={person} showMap={false} />)
+
+    expect(
+      await within(fieldBlock('Address')).findByText(
+        'Came from the voter file',
+      ),
+    ).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Change match' }))
+    await user.click(await screen.findByLabelText('Someone else'))
+
+    expect(
+      screen.getByRole('textbox', { name: 'Search your voters' }),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/constituent/i)).not.toBeInTheDocument()
   })
 
   it('warns that notes and activity stay behind before changing a match', async () => {
@@ -205,12 +240,19 @@ describe('<ImportedContactInformation>', () => {
           unchangedCount: 0,
           completedAt: null,
           failureReason: null,
+          failureKind: null,
         },
       }
     })
     const user = userEvent.setup()
 
-    render(<ImportedContactInformation person={person} showMap={false} />)
+    render(
+      <ImportedContactInformation
+        isWin={false}
+        person={person}
+        showMap={false}
+      />,
+    )
 
     await user.click(
       await screen.findByRole('button', { name: 'Change match' }),

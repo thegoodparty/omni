@@ -294,6 +294,8 @@ interface CreateListFlowProps {
   // The question a priority card carried for the community input purpose,
   // so that purpose arrives answered rather than asking it again.
   initialQuestion?: string
+  // The civic panel invite's talking points, for a short group's walk.
+  initialTalkingPoints?: string
   // Which saved list the who step is currently attached to. The draft is
   // booleans, and a list's support-status, activity and precinct clauses are
   // not, so the surface above cannot assemble the address-preview request from
@@ -417,6 +419,14 @@ const STAGE_META: Record<
   },
 }
 
+// A civic panel invite arrives with its points written, so the step asks for
+// a review rather than a draft.
+const CIVIC_PANEL_POINTS_META = {
+  title: 'Do these talking points sound right?',
+  caption:
+    'Notes to say at each door, in your own words. Edit anything you like.',
+}
+
 // The purpose union across both rails this one route serves — same
 // convention as PhoneBankingFlow's PhoneBankingFlowPurpose.
 type CreateFlowPurpose = DoorKnockingPurpose | ServeDoorKnockingPurpose
@@ -454,6 +464,7 @@ export default function CreateListFlow({
   onRecommendedPreselectApplied,
   initialPurpose,
   initialQuestion,
+  initialTalkingPoints,
   onSelectedListChange,
   siblingTurfs,
   campaignOutreachId,
@@ -469,6 +480,16 @@ export default function CreateListFlow({
 }: CreateListFlowProps) {
   const queryClient = useQueryClient()
   const serveMode = useDoorKnockingServeMode()
+  // A civic panel short group's walk (useReachList): the goal and the list
+  // are known, so the flow is the talking points and the map. The campaign
+  // takes the list's name. Latched: the page spends the carried list and
+  // purpose once the list is applied, before the points are reviewed.
+  const invitedNow =
+    serveMode &&
+    initialPurpose === BUILD_CITIZENS_PANEL_PURPOSE &&
+    preselectedListId !== undefined
+  const [civicPanelInvite, setCivicPanelInvite] = useState(invitedNow)
+  if (invitedNow && !civicPanelInvite) setCivicPanelInvite(true)
   // The roster the cards name an assignee from. Shares a cache key with the
   // drawing surface's own read, so the two cost one request between them.
   const teamOptions = useTeamOptions(orgSlug)
@@ -603,14 +624,20 @@ export default function CreateListFlow({
 
   // The talking points the canvassers will read: free text, which a fresh
   // draft fills with bullets and the candidate may reshape however they like.
-  const [talkingPoints, setTalkingPoints] = useState('')
+  const [talkingPoints, setTalkingPoints] = useState(
+    civicPanelInvite ? (initialTalkingPoints ?? '') : '',
+  )
   // Whether the field holds unmodified AI output or text the candidate typed.
   // It decides whether a regenerate is allowed to send the current text as
   // `previousDraft`. Once they have edited, their own words are not something
   // the model should be told to diverge from — an explicit Regenerate still
   // sends it, since that is the candidate asking to discard what is on
   // screen.
-  const [pointsManuallyEdited, setPointsManuallyEdited] = useState(false)
+  // The civic panel invite's points are handed over written, so they are
+  // never drafted over.
+  const [pointsManuallyEdited, setPointsManuallyEdited] = useState(
+    civicPanelInvite && Boolean(initialTalkingPoints),
+  )
   const [instructions, setInstructions] = useState('')
   // Discards a response that arrives after a newer request was fired, so a
   // slow first draft cannot overwrite a fast regenerate.
@@ -1044,8 +1071,14 @@ export default function CreateListFlow({
     if (nextStep === 'filters') setPreDrawStage(next as PreDrawStage)
     if (nextStep !== step) onStepChange(nextStep)
   }
+  const previousOf = (from: CreateFlowStage): CreateFlowStage | null =>
+    civicPanelInvite
+      ? from === 'draw'
+        ? 'points'
+        : null
+      : previousStage(from, extraStage)
   const back = () => {
-    const previous = previousStage(stage, extraStage)
+    const previous = previousOf(stage)
     if (previous) goToStage(previous)
   }
 
@@ -1674,14 +1707,23 @@ export default function CreateListFlow({
   // Joining a campaign never shows the flow's sheet, see above.
   if (joining) return null
 
-  const title = stage === 'success' ? '' : STAGE_META[stage].title
+  const pickedListName = savedLists.find(({ id }) => id === savedListId)?.name
+  const stageMeta =
+    civicPanelInvite && stage === 'points'
+      ? CIVIC_PANEL_POINTS_META
+      : stage === 'success'
+        ? null
+        : STAGE_META[stage]
+  const title = stageMeta?.title ?? ''
   const caption =
-    stage === 'success'
-      ? ''
-      : stage === 'details' && eventDetails.prefillNote
-        ? eventDetails.prefillNote
-        : STAGE_META[stage].caption
-  const { currentStep, totalSteps } = stepperPosition(stage, extraStage)
+    stage === 'details' && eventDetails.prefillNote
+      ? eventDetails.prefillNote
+      : (stageMeta?.caption ?? '')
+  const { currentStep, totalSteps } = civicPanelInvite
+    ? stage === 'success'
+      ? { currentStep: 0, totalSteps: 0 }
+      : { currentStep: stage === 'draw' ? 2 : 1, totalSteps: 2 }
+    : stepperPosition(stage, extraStage)
   // Null on the purpose stage, whose cards are the advance.
   const detailsCta =
     stage === 'details'
@@ -1711,7 +1753,7 @@ export default function CreateListFlow({
       locked={lockedAtOpen}
       trackedStep={gateOpen || stage === 'success' ? null : stage}
       settled={stage === 'success'}
-      onBack={previousStage(stage, extraStage) && !gateOpen ? back : undefined}
+      onBack={previousOf(stage) && !gateOpen ? back : undefined}
       dirty={dirty}
       // A React element is truthy even when it renders null, so the caller
       // gates the JSX (see GateBanner). Not on the draw stage: the map is the
@@ -1807,7 +1849,23 @@ export default function CreateListFlow({
                       // lands after the step is still in state when Build route
                       // reads it.
                       label: 'Continue',
-                      onClick: () => goToStage('name'),
+                      onClick: () => {
+                        if (!civicPanelInvite) {
+                          goToStage('name')
+                          return
+                        }
+                        if (name.trim() === '') {
+                          setName(
+                            (
+                              pickedListName ??
+                              purposeNameSuggestion(
+                                BUILD_CITIZENS_PANEL_PURPOSE,
+                              )
+                            ).slice(0, MAX_CAMPAIGN_NAME_LENGTH),
+                          )
+                        }
+                        goToStage('draw')
+                      },
                     }
                   : stage === 'name'
                     ? {
@@ -2079,7 +2137,11 @@ export default function CreateListFlow({
             <TalkingPointsStep
               // The name they gave the list one step ago, which says more about
               // who is being walked than any summary of the pills would.
-              audienceLabel={name.trim() || 'this list'}
+              audienceLabel={
+                name.trim() ||
+                (civicPanelInvite ? pickedListName : undefined) ||
+                'this list'
+              }
               text={talkingPoints}
               onTextChange={(value) => {
                 // An edit wins over a reply still in flight, which would

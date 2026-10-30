@@ -135,6 +135,47 @@ describe('GET /v1/contacts/civic-panel', () => {
     })
   })
 
+  it('splits the members by how each last joined', async () => {
+    const slug = await seedOrg('eo')
+    const join = (personId: string, source: ContactStatusSource) =>
+      service.app.get(ContactStatusService).changeStatus({
+        organizationSlug: slug,
+        personId,
+        field: ContactStatusField.civic_panel,
+        toValue: CivicPanelStatus.member,
+        source,
+        actorUserId: null,
+        fallbackFromValue: CivicPanelStatus.left,
+      })
+    await join(randomUUID(), ContactStatusSource.sms)
+    await join(randomUUID(), ContactStatusSource.sms)
+    await join(randomUUID(), ContactStatusSource.phone_banking)
+    await join(randomUUID(), ContactStatusSource.manual)
+    // Texted in, left, and back at the door: the door counts.
+    const rejoined = randomUUID()
+    await join(rejoined, ContactStatusSource.sms)
+    await setPanel(slug, rejoined, CivicPanelStatus.left)
+    await join(rejoined, ContactStatusSource.door_knock)
+    // Joined by text and left: not a member.
+    const gone = randomUUID()
+    await join(gone, ContactStatusSource.sms)
+    await setPanel(slug, gone, CivicPanelStatus.left)
+
+    const res = await summary(slug)
+
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(res.data.members).toBe(5)
+    expect(res.data.joinedBy).toEqual({ text: 2, door: 1, phone: 1, hand: 1 })
+  })
+
+  it('reads no joins on an empty panel', async () => {
+    const slug = await seedOrg('eo')
+
+    const res = await summary(slug)
+
+    expect(res.data.joinedBy).toEqual({ text: 0, door: 0, phone: 0, hand: 0 })
+  })
+
   it("does not count another office's outreach as reaching a member", async () => {
     const slug = await seedOrg('eo')
     const other = await seedOrg('eo')

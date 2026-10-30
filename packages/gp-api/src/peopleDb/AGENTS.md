@@ -25,8 +25,9 @@ the choice (`'voters' | 'constituents'`) and `peopleTable(dataset)` in
 `services/peopleDataset.service.ts` decides it per organization: a Serve
 (`eo-`) org whose owner has the `serve-consumer-data` flag reads
 `constituents`; every other org, and every Win org without exception, reads
-`voters`. It is an Amplitude call, so the caller resolves it once per
-request, job or chat turn and passes it down. `ContactsService` does that in
+`voters`. It is an Amplitude call (two for Serve, one for Win, which asks
+only about imported contacts), so the caller resolves it once per request,
+job or chat turn and passes it down. `ContactsService` does that in
 `withOrgDistrictResolution`, beside the district, and hands it to modules
 that call this one directly through `resolveEligibleDistrict`.
 
@@ -42,8 +43,12 @@ are the same for both.
 
 ## Imported contacts join the read
 
-A Serve org whose owner has `serve-import-contacts` gets `overlayOrgSlug` and
-`overlayDistrictId` (its own district) on the dataset. `resolveDistrict` then
+Any org, Serve or Win, whose owner has `serve-import-contacts` gets
+`overlayOrgSlug` and `overlayDistrictId` (its own district, from its override
+district or position, as `ContactsService` resolves it) on the dataset. A Win
+campaign keeps `voters` as the base, so its imported people read NULL, so
+unknown, in party, voter status, turnout and the other voter-only columns, and
+`Registered_Voter` reads NULL for them (`registeredVoterSql`). `resolveDistrict` then
 sets `district.table` to `contactOverlayTable(...)`: the district-filtered
 people table FULL OUTER JOIN the org's rows of
 `mart_gp_api.<PEOPLE_DBX_CONTACT_OVERLAY_VIEW>`, a dbt view over gp-api's
@@ -84,11 +89,21 @@ people table FULL OUTER JOIN the org's rows of
 - `Person.registeredVoter` reads `Registered_Voter`, a column only
   `gp_api_constituents` has (false for consumer-only people). Voter reads
   project `true`, and a new person reads NULL (`registeredVoterSql`).
+- A new person's party is unknown, not Other: `Person.politicalParty` is
+  null for `ContactIsNew` rows (`transformToPersonOutput`), and with the
+  overlay the Other party filter adds `AND NOT ContactIsNew`
+  (`buildPartyValuePredicate`). A voter-file person with no party is still
+  Other, and the pack never holds a new person (no rooftop point).
 - The Serve agents' `query_constituent_data` gets the same join over
   `mart_serve_agents.<SERVE_AGENT_CONTACT_OVERLAY_VIEW>`, built in
   `constituentDataScope.ts` and swapped in only after the SQL validator
   accepts the model's query; it adds the `on_uploaded_list` and `has_email`
-  dimensions. With the overlay, `dataSourceRoutingRules`
+  dimensions. The Win Campaign Manager does the same over
+  `mart_win_agents.<WIN_AGENT_CONTACT_OVERLAY_VIEW>` joined to
+  `win_agent_voters` (`buildWinConstituentDataScope`), on its own
+  `sp_win_agent` credential, whenever its org's dataset carries the overlay.
+  Both build the join with `buildContactOverlayTable`. With the overlay,
+  `dataSourceRoutingRules`
   (`llm/tools/dataSourceRouting.ts`) sends uploaded-list, imported-contact
   and email questions there, since the CRM catalog has no such dimension.
 - Turning the flag off returns the org to the plain table at once. That is
@@ -106,6 +121,9 @@ empty map and the frame keeps the voter file's tracts), and
 `buildAnswerCellsSql` (op `answer-cells`) sums the given people's answers in
 the same cells. Each person's yes share rides in on an inlined id list
 shared with others of the same value, so only sums come back.
+`buildThemeCellsSql` (op `theme-cells`) counts each of a priority's themes'
+people in the same cells, one column per theme, for the results page's
+"enough voices" label.
 `buildRespondentCellsSql` counts people the same way plus L2 tenure,
 `buildDistrictTractAdultsSql` sums adults per tract,
 `buildPoolCellsSql` counts everyone a filter matches in the district's

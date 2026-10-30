@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Organization } from '../../../generated/prisma'
 import type { CampaignsService } from '@/campaigns/services/campaigns.service'
 import type { ContactsService } from '@/contacts/services/contacts.service'
@@ -12,6 +12,7 @@ import {
 } from '@/llm/tools/dataSourceRouting'
 import type { DatabricksProvider } from '@/llm/tools/queryDatabricks.tool'
 import {
+  type PeopleDataset,
   PeopleDatasetService,
   SERVE_CONSUMER_DATA_FLAG,
 } from '@/peopleDb/services/peopleDataset.service'
@@ -325,6 +326,204 @@ describe('constituent data table per people dataset', () => {
     expect(handler.buildTools(ctx).query_constituent_data).toBeUndefined()
     expect(descriptionOf(handler.buildTools(ctx).count_contacts)).toContain(
       dataSourceRoutingRules({ base: 'constituents' }),
+    )
+  })
+})
+
+describe('Win Campaign Manager imported-contact overlay', () => {
+  const SLUG = 'campaign-lansing'
+  const OVERLAY_DATASET: PeopleDataset = {
+    base: 'voters',
+    overlayOrgSlug: SLUG,
+    overlayDistrictId: 'district-1',
+  }
+
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  // The other services stay unset; the dataset is stubbed at the field the
+  // handler reads, so this holds whichever orgs PeopleDatasetService gives
+  // the overlay.
+  const buildCampaignManager = (
+    provider: DatabricksProvider,
+    dataset: PeopleDataset,
+  ) => {
+    const organization = {
+      slug: SLUG,
+      ownerId: 9,
+      overrideDistrictId: 'district-1',
+      positionId: null,
+    } as Organization
+    const peopleDatasets = {
+      resolve: vi.fn(() => Promise.resolve(dataset)),
+    } as unknown as PeopleDatasetService
+    const handler = new CampaignManagerHandler(
+      {
+        findFirst: vi.fn(() =>
+          Promise.resolve({ id: 'c1', organizationSlug: SLUG }),
+        ),
+      } as unknown as GeneralChatStoreService,
+      {
+        client: {
+          campaign: {
+            findFirst: vi.fn(() =>
+              Promise.resolve({ id: 5, details: {}, data: {}, user: null }),
+            ),
+          },
+          campaignTrackerTask: { findMany: vi.fn(() => Promise.resolve([])) },
+          organization: {
+            findFirst: vi.fn(() => Promise.resolve(organization)),
+          },
+        },
+      } as unknown as CampaignsService,
+      {} as ChatStoreService,
+      WIN_CONSTITUENT_TABLES,
+      provider,
+      {
+        resolveByOrgSlug: vi.fn(() =>
+          Promise.resolve({
+            state: 'MI',
+            l2DistrictType: 'City',
+            l2DistrictName: 'Lansing',
+          }),
+        ),
+        toMandatoryFilters: vi.fn(() => FILTERS),
+      } as unknown as DistrictResolverService,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      peopleDatasets,
+    )
+    return { handler, peopleDatasets, organization }
+  }
+
+  it('swaps the Win overlay join in after validation when the dataset carries it', async () => {
+    vi.stubEnv(
+      'WIN_AGENT_CONTACT_OVERLAY_VIEW',
+      'win_agent_contact_overlay_dev',
+    )
+    const provider = buildProvider()
+    const { handler, peopleDatasets, organization } = buildCampaignManager(
+      provider,
+      OVERLAY_DATASET,
+    )
+    const ctx = await handler.loadContext('c1', 7)
+    const sql =
+      'SELECT on_uploaded_list, COUNT(*) AS count' +
+      ` FROM win_agent_voters ${WHERE} GROUP BY on_uploaded_list`
+
+    expect(peopleDatasets.resolve).toHaveBeenCalledWith(organization)
+    expect(ctx.peopleDataset).toEqual(OVERLAY_DATASET)
+    await executeQuery(handler.buildTools(ctx).query_constituent_data, sql)
+    expect(provider.query).toHaveBeenCalledWith(
+      'SELECT on_uploaded_list, COUNT(*) AS count FROM (SELECT b.* EXCEPT' +
+        ' (`voter_key`, `state_postal_code`, `City`),' +
+        ' coalesce(b.`voter_key`, o.`voter_key`) AS `voter_key`,' +
+        " 'MI' AS `state_postal_code`, 'Lansing' AS `City`," +
+        ' coalesce(o.`on_uploaded_list`, false) AS `on_uploaded_list`,' +
+        ' coalesce(o.`has_email`, false) AS `has_email`' +
+        ' FROM (SELECT * FROM' +
+        ' goodparty_data_catalog.mart_win_agents.win_agent_voters' +
+        " WHERE `state_postal_code` = 'MI' AND `City` = 'Lansing') b" +
+        ' FULL OUTER JOIN (SELECT * FROM' +
+        ' goodparty_data_catalog.mart_win_agents.win_agent_contact_overlay_dev' +
+        ` WHERE organization_slug = '${SLUG}') o` +
+        ' ON o.`voter_key` = b.`voter_key`) AS win_agent_voters' +
+        ` ${WHERE} GROUP BY on_uploaded_list`,
+    )
+  })
+
+  it('rejects a query the validator refuses before any overlay read', async () => {
+    const provider = buildProvider()
+    const { handler } = buildCampaignManager(provider, OVERLAY_DATASET)
+    const tools = handler.buildTools(await handler.loadContext('c1', 7))
+
+    await expect(
+      executeQuery(
+        tools.query_constituent_data,
+        'SELECT has_email, COUNT(*) AS count FROM win_agent_voters' +
+          " WHERE state_postal_code = 'MI' GROUP BY has_email",
+      ),
+    ).rejects.toThrow()
+    await expect(
+      executeQuery(
+        tools.query_constituent_data,
+        `SELECT COUNT(*) AS count FROM win_agent_contact_overlay ${WHERE}`,
+      ),
+    ).rejects.toThrow(/table not in allowlist/)
+    expect(provider.query).not.toHaveBeenCalled()
+  })
+
+  it('keeps the floor on overlay results', async () => {
+    const provider = {
+      query: vi.fn(() =>
+        Promise.resolve({
+          columns: ['on_uploaded_list', 'count'],
+          rows: [
+            { on_uploaded_list: false, count: 5000 },
+            { on_uploaded_list: true, count: 29 },
+          ],
+        }),
+      ),
+    }
+    const { handler } = buildCampaignManager(provider, OVERLAY_DATASET)
+    const result = await executeQuery(
+      handler.buildTools(await handler.loadContext('c1', 7))
+        .query_constituent_data,
+      'SELECT on_uploaded_list, COUNT(*) AS count' +
+        ` FROM win_agent_voters ${WHERE} GROUP BY on_uploaded_list`,
+    )
+
+    expect(result).toMatchObject({
+      rows: [{ on_uploaded_list: false, count: 5000 }],
+      rowsSuppressed: 1,
+    })
+  })
+
+  it('names the uploaded-list dimensions in the routing rules only with the overlay', async () => {
+    const withOverlay = buildCampaignManager(buildProvider(), OVERLAY_DATASET)
+    const without = buildCampaignManager(buildProvider(), { base: 'voters' })
+
+    expect(
+      descriptionOf(
+        withOverlay.handler.buildTools(
+          await withOverlay.handler.loadContext('c1', 7),
+        ).query_constituent_data,
+      ),
+    ).toContain(dataSourceRoutingRules(OVERLAY_DATASET))
+    expect(
+      descriptionOf(
+        without.handler.buildTools(await without.handler.loadContext('c1', 7))
+          .query_constituent_data,
+      ),
+    ).toContain(DATA_SOURCE_ROUTING_RULES)
+  })
+
+  it('reads the bare table and refuses overlay columns without the overlay', async () => {
+    const provider = buildProvider()
+    const { handler } = buildCampaignManager(provider, { base: 'voters' })
+    const tools = handler.buildTools(await handler.loadContext('c1', 7))
+
+    await expect(
+      executeQuery(
+        tools.query_constituent_data,
+        'SELECT on_uploaded_list, COUNT(*) AS count' +
+          ` FROM win_agent_voters ${WHERE} GROUP BY on_uploaded_list`,
+      ),
+    ).rejects.toThrow(/on_uploaded_list/)
+    await executeQuery(
+      tools.query_constituent_data,
+      `SELECT COUNT(*) AS count FROM win_agent_voters ${WHERE}`,
+    )
+    expect(provider.query).toHaveBeenCalledWith(
+      `SELECT COUNT(*) AS count FROM win_agent_voters ${WHERE}`,
     )
   })
 })

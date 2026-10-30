@@ -8,6 +8,7 @@ import {
 import type { Organization } from '../../../../generated/prisma'
 import type { LlmStreamTool } from '@/llm/services/llm.service'
 import type { ManagedCivicPanelService } from '@/contacts/services/managedCivicPanel.service'
+import type { CivicPanelReachService } from '@/contacts/services/civicPanelReach.service'
 import { managedPanelSchedule } from '@/contacts/utils/managedPanelSchedule.util'
 
 export const EXPLAIN_MANAGED_PANEL_TOOL = 'explain_managed_panel'
@@ -15,6 +16,8 @@ export const OFFER_MANAGED_PANEL_INVITE_TOOL = 'offer_managed_panel_invite'
 export const PRESENT_MANAGED_PANEL_INVITE_TOOL = 'present_managed_panel_invite'
 export const READ_MANAGED_PANEL_TOOL = 'read_managed_panel'
 export const PRESENT_MANAGED_PANEL_TOOL = 'present_managed_panel'
+export const READ_REACH_THE_REST_TOOL = 'read_reach_the_rest'
+export const OFFER_REACH_THE_REST_TOOL = 'offer_reach_the_rest'
 
 // GoodParty builds the panel for the office (the managed panel): the
 // official approves one invite and GoodParty texts it in waves. The
@@ -58,10 +61,13 @@ export const isManagedPanelSetUp = (
 
 export const buildManagedCivicPanelTools = ({
   panels,
+  reach,
   organization,
   setUp,
 }: {
   panels: ManagedCivicPanelService
+  // Reaching the rest of an exhausted civic panel at the door or on a call.
+  reach?: CivicPanelReachService
   organization: Organization
   // Whether the office had approved the panel when the turn started.
   setUp: boolean
@@ -161,7 +167,57 @@ export const buildManagedCivicPanelTools = ({
     },
   }
 
+  const notExhausted = {
+    error:
+      'Their civic panel is still being filled by text, or is not set ' +
+      `up. Call ${READ_MANAGED_PANEL_TOOL} and say where it stands instead.`,
+  }
+  const isExhausted = async (): Promise<boolean> =>
+    (await panels.read(organization)).panel?.status === 'exhausted'
+
+  const readReach: LlmStreamTool<typeof noInput> = {
+    description:
+      'Once every resident a text can reach has an invite (exhausted): ' +
+      'the place, whether most homes in the parts still short have no cell ' +
+      'phone on file (mostlyNoCell), and the short groups to reach at the ' +
+      'door or on a call, each with its label and line. Read it before ' +
+      `${OFFER_REACH_THE_REST_TOOL}.`,
+    inputSchema: noInput,
+    execute: async () => {
+      if (!reach || !(await isExhausted())) return notExhausted
+      const { place, mostlyNoCell, options } =
+        await reach.optionsFor(organization)
+      return {
+        place,
+        mostlyNoCell,
+        options: options.map(({ label, detail }) => ({ label, detail })),
+      }
+    },
+  }
+
+  const offerReach: LlmStreamTool<typeof noInput> = {
+    description:
+      'Show the short groups as single-choice options, each opening door ' +
+      'knocking or phone banking on a list of that group. The app shows ' +
+      'the options and Or write your own..., so never write them as chat ' +
+      'text. Only once their civic panel is exhausted.',
+    inputSchema: noInput,
+    execute: async () => {
+      if (!reach || !(await isExhausted())) return notExhausted
+      const { options } = await reach.optionsFor(organization)
+      return options.length > 0
+        ? { offered: true }
+        : {
+            error:
+              'There is no group to offer. Say door knocking and calls can ' +
+              'reach people a text can not, and offer to help plan them.',
+          }
+    },
+  }
+
   return {
+    [READ_REACH_THE_REST_TOOL]: readReach,
+    [OFFER_REACH_THE_REST_TOOL]: offerReach,
     [EXPLAIN_MANAGED_PANEL_TOOL]: explain,
     [OFFER_MANAGED_PANEL_INVITE_TOOL]: offer,
     [PRESENT_MANAGED_PANEL_INVITE_TOOL]: presentInvite,

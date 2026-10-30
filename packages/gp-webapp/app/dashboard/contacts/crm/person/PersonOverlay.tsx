@@ -35,6 +35,7 @@ import { isNotNil } from 'es-toolkit'
 import { ReactNode, useEffect, useRef } from 'react'
 import Map from '@shared/utils/Map'
 import { useFlagOn } from '@shared/experiments/FeatureFlagsProvider'
+import { useCampaign } from '@shared/hooks/useCampaign'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useWinVoterContext } from '../../../shared/useWinVoterContext'
 import { InfoSection } from './InfoSection'
@@ -307,7 +308,13 @@ const ActivitiesContent: React.FC = () => {
           case 'PHONE_BANKING':
             return <PhoneBankingActivityRow key={idx} activity={activity} />
           case 'CONTACT_IMPORT':
-            return <ContactImportActivityRow key={idx} activity={activity} />
+            return (
+              <ContactImportActivityRow
+                key={idx}
+                activity={activity}
+                isWin={isWinContext}
+              />
+            )
           case 'STATUS_CHANGE': {
             // Belt-and-suspenders mirror of the field filter gp-api already
             // applies: Win's editable statuses are Win facts and follow-up is
@@ -398,6 +405,7 @@ export const PersonRecord: React.FC<{
 }) => {
   const { enabled: issueCaptureEnabled } = useIssueCaptureFlag(false)
   const { enabled: importContactsEnabled } = useServeImportContactsFlag(false)
+  const [campaign] = useCampaign()
   const { on: showActivitiesAndIssues } = useFlagOn(
     'serve-contacts-activities-and-issues',
   )
@@ -472,8 +480,12 @@ export const PersonRecord: React.FC<{
           </InfoSection>
         ) : null}
 
-        {isServe && importContactsEnabled ? (
-          <ImportedContactInformation person={person} showMap={showMap} />
+        {importContactsEnabled && (isServe || campaign?.isPro) ? (
+          <ImportedContactInformation
+            person={person}
+            showMap={showMap}
+            isWin={!isServe}
+          />
         ) : (
           <InfoSection
             title="Contact Information"

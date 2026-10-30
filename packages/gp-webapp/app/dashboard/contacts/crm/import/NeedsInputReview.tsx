@@ -29,12 +29,11 @@ import {
   setContactUploadRowMatch,
 } from './importContactsApi'
 import {
-  SERVE_IMPORT_CONTACTS_COPY,
   UPLOAD_HISTORY_PATH,
   candidateLabel,
+  getImportContactsCopy,
 } from './importContactsCopy'
 
-const COPY = SERVE_IMPORT_CONTACTS_COPY
 const PAGE_SIZE = 50
 const NEW_PERSON = 'new_person'
 const SKIP = 'skip'
@@ -57,7 +56,14 @@ const rowDetails = (row: ContactUploadRow): string =>
 
 // The rows matching could not settle on its own. Answers are saved together,
 // and whatever is left keeps waiting: Decide later changes nothing.
-export const NeedsInputReview = ({ upload }: { upload: ContactUpload }) => {
+export const NeedsInputReview = ({
+  upload,
+  isWin,
+}: {
+  upload: ContactUpload
+  isWin: boolean
+}) => {
+  const COPY = getImportContactsCopy(isWin)
   const router = useRouter()
   const queryClient = useQueryClient()
   const orgSlug = useOrganization()?.slug

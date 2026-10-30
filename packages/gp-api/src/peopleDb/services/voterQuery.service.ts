@@ -14,7 +14,12 @@ import {
 import { Injectable } from '@nestjs/common'
 import { DatabricksVoterService } from '../databricks/databricksVoter.service'
 import { VoterReadLogService } from '../databricks/voterReadLog.service'
-import type { DistrictCell } from '../databricks/districtCensusSql.util'
+import type {
+  DistrictCell,
+  ReachChannelCell,
+  ReachGroupCell,
+  ReachHomes,
+} from '../databricks/districtCensusSql.util'
 import type {
   ContactUploadMatchCandidateRow,
   ContactUploadMatchInputRow,
@@ -67,6 +72,37 @@ export class VoterQueryService {
       dataset,
       read: () =>
         this.databricks.findPrecinctMembers(districtId, dataset, personIds),
+    })
+  }
+
+  async findReachPeople(
+    districtId: string,
+    dataset: PeopleDataset,
+    args: {
+      group: ReachGroupCell
+      channel: ReachChannelCell
+      excludeIds: readonly string[]
+      limit: number
+    },
+  ): Promise<string[]> {
+    return this.readLog.measure({
+      op: 'reach-people',
+      districtId,
+      dataset,
+      read: () => this.databricks.findReachPeople(districtId, dataset, args),
+    })
+  }
+
+  async findReachHomes(
+    districtId: string,
+    dataset: PeopleDataset,
+    args: { group: ReachGroupCell; excludeIds: readonly string[] },
+  ): Promise<ReachHomes> {
+    return this.readLog.measure({
+      op: 'reach-homes',
+      districtId,
+      dataset,
+      read: () => this.databricks.findReachHomes(districtId, dataset, args),
     })
   }
 

@@ -239,15 +239,19 @@ const SERVE_PURPOSE_PROMPTS: Record<
   ServeDoorKnockingTalkingPointsPurpose,
   string
 > = {
+  // Same voice as the civic panel's SMS invite (managedInviteDraft in the
+  // webapp), which the reach flow seeds these points with.
   build_citizens_panel:
-    'Purpose: inviting the resident to join the civic panel, a group of ' +
-    'residents who agree to tell the official what they think before they ' +
-    'decide. Keep it to three short bullets. One says who is at the door, ' +
-    'by full name and office. One says what the panel is in plain words: ' +
-    'now and then the official asks members a question, and members can ' +
-    'leave any time. The ask is whether they want to join the civic panel, ' +
-    'a yes-or-no. Never call the panel representative, a poll or a survey, ' +
-    'and never promise how often members are asked.',
+    'Purpose: inviting the resident into a group of residents the ' +
+    'official hears from before they decide. Keep it to three or four ' +
+    'short bullets, in the first person: the official is at the door ' +
+    'themselves. One introduces them by full name and office. One says the official wants to hear from people across the ' +
+    'place, not just those who come to meetings. One says the office ' +
+    'checks in about once a month to ask what they think, and they can ' +
+    'stop any time. The ask is whether they want to be one of them, a ' +
+    'yes-or-no. Never name it a civic panel or a panel, never call it ' +
+    'representative, a poll or a survey, and never say how the office ' +
+    'will reach them.',
   introduce_myself:
     'Purpose: a first introduction from the office. The bullets cover what ' +
     'the office is working on. One bullet asks what the constituent cares ' +

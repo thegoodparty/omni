@@ -87,12 +87,12 @@ export type ManagedCivicPanelResponse = z.infer<
   typeof ManagedCivicPanelResponseSchema
 >
 
-// The words the official agrees to when approving the invite ("I approve
-// GoodParty sending this invite in my name."). Stored on the enrollment, so
-// change it whenever those words change: each approval then records which
-// words it agreed to.
+// The words the official agrees to when approving the invite ("By
+// continuing, you agree to GoodParty texting this invite to <place> residents
+// in your name."). Stored on the enrollment, so change it whenever those
+// words change: each approval then records which words it agreed to.
 export const MANAGED_CIVIC_PANEL_CONSENT_VERSION =
-  'managed-panel-invite-2026-10-22'
+  'managed-panel-invite-2026-10-30'
 
 // The hidden turn the Serve home sends when the official presses Build my
 // civic panel (the home card or the intro's next step): the Chief of Staff
@@ -117,6 +117,7 @@ export const MANAGED_CIVIC_PANEL_BACKED_OUT_MESSAGE =
 
 // The hidden turn the Serve home sends from the card shown once every
 // resident a text can reach has been invited and the panel is short of its
-// goal: the Chief of Staff says so, with how many residents joined.
+// goal: the Chief of Staff says texting reached everyone it can and offers
+// the short groups at the door or on a call.
 export const MANAGED_CIVIC_PANEL_EXHAUSTED_MARKER = '[Civic panel invites done]'
 export const MANAGED_CIVIC_PANEL_EXHAUSTED_MESSAGE = `${MANAGED_CIVIC_PANEL_EXHAUSTED_MARKER} Help me fill the rest of my civic panel.`

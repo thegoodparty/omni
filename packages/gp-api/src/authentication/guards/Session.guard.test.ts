@@ -73,8 +73,6 @@ describe('SessionGuard — impersonating flag', () => {
       isM2MToken: vi.fn().mockReturnValue(false),
       verifySessionToken: vi.fn(),
       verifyM2MToken: vi.fn(),
-      isM2MJwt: vi.fn().mockReturnValue(false),
-      verifyM2MJwt: vi.fn(),
       getUser: vi.fn(),
     }
 
@@ -91,6 +89,7 @@ describe('SessionGuard — impersonating flag', () => {
       createMockLogger(),
       new Reflector(),
       { token: 'test-token', matches: vi.fn().mockReturnValue(false) } as never,
+      { verify: vi.fn() } as never,
       { verify: vi.fn() } as never,
     )
   })
@@ -258,6 +257,7 @@ describe('SessionGuard — impersonating flag', () => {
           token: MARKER,
           matches: (v: string | string[] | undefined) => v === MARKER,
         } as never,
+        { verify: vi.fn() } as never,
         { verify: vi.fn() } as never,
       )
     })

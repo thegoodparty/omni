@@ -1,14 +1,15 @@
 import axios from 'axios'
-import jwt from 'jsonwebtoken'
 import { describe, expect, it, vi } from 'vitest'
 import { UserRole } from '../../generated/prisma'
 import {
   AUTH_PROVIDER_TOKEN,
   AuthProvider,
 } from '@/authentication/interfaces/auth-provider.interface'
-import { signTestM2MJwt, useTestService } from '@/test-service'
+import { useTestService } from '@/test-service'
+import { signTestVercelOidcToken, useTestVercelOidc } from '@/test-vercel-oidc'
 
 const service = useTestService()
+useTestVercelOidc()
 
 const PERSON_ID = '33333333-3333-4333-8333-333333333333'
 
@@ -41,14 +42,14 @@ describe('ServiceReadGuard and ServiceReadOrOwnerGuard on the public person-prof
   )
 
   it.each(READS)(
-    'serves $path to a JWT-format M2M token',
+    'serves $path to a Vercel OIDC token',
     async ({ path, params }) => {
       await service.prisma.personProfileRemoval.create({
         data: { personId: PERSON_ID, appliedBy: 'ops@goodparty.org' },
       })
       const res = await service.client.get(path, {
         params,
-        ...withBearer(signTestM2MJwt()),
+        ...withBearer(signTestVercelOidcToken()),
       })
       expect(res.status).toBe(200)
     },
@@ -82,19 +83,6 @@ describe('ServiceReadGuard and ServiceReadOrOwnerGuard on the public person-prof
     })
     const res = await service.client.get(path, { params })
     expect(res.status).toBe(200)
-  })
-
-  it('403s a JWT signed with the wrong key, even with an mch_ subject', async () => {
-    const forged = jwt.sign({ sub: 'mch_forged' }, 'not-the-secret', {
-      expiresIn: '1h',
-    })
-    const res = await service.client.get(
-      '/v1/public-person-profiles/unlisted',
-      {
-        ...withBearer(forged),
-      },
-    )
-    expect(res.status).toBe(403)
   })
 
   it('serves the render gate to the owner of the requested personId', async () => {
@@ -144,31 +132,5 @@ describe('ServiceReadGuard and ServiceReadOrOwnerGuard on the public person-prof
     })
 
     expect(res.status).toBe(403)
-  })
-
-  it('does not let a JWT-format M2M token through AdminOrM2MGuard', async () => {
-    // Any machine in the Clerk instance can mint a JWT that verifies, so it
-    // must stay a read tier and never act as a full M2M caller.
-    const res = await service.client.post(
-      '/v1/person-profiles/removals',
-      { personId: PERSON_ID, appliedBy: 'privacy@goodparty.org' },
-      withBearer(signTestM2MJwt()),
-    )
-
-    expect(res.status).toBe(401)
-    expect(
-      await service.prisma.personProfileRemoval.count({
-        where: { personId: PERSON_ID },
-      }),
-    ).toBe(0)
-  })
-
-  it('does not let a JWT-format M2M token onto a plain authenticated route', async () => {
-    const res = await service.client.get(
-      '/v1/person-profiles/mine',
-      withBearer(signTestM2MJwt()),
-    )
-
-    expect(res.status).toBe(401)
   })
 })

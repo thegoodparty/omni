@@ -5,6 +5,7 @@ import {
   buildScopeSql,
   col,
   createBag,
+  currentUnitKey,
   idList,
   tractSql,
   type Bag,
@@ -331,6 +332,36 @@ export const buildAnswerCellsSql = (
   return { sql, params: bag.params }
 }
 
+// How many of each theme's people fall in each of buildDistrictCellsSql's
+// cells, one column per theme in the order given. Only the counts come
+// back, never a person.
+export const buildThemeCellsSql = (
+  district: DbxDistrict,
+  themes: string[][],
+): DbxStatement => {
+  const bag = createBag()
+  const where = buildScopeSql(bag, {
+    district,
+    filters: filtersSchema.parse({
+      id: { in: [...new Set(themes.flat())] },
+    }),
+  })
+  const counts = themes
+    .map((people, index) =>
+      people.length === 0
+        ? `0 AS theme_${index}`
+        : `sum(CASE WHEN ${col('id')} IN (${idList(people)})` +
+          ` THEN 1 ELSE 0 END) AS theme_${index}`,
+    )
+    .join(', ')
+  const sql =
+    `SELECT ${ageBandSql()} AS age_band, ${genderSql()} AS gender,` +
+    ` ${tractSql()} AS tract, ${raceSql()} AS race, ${counts}` +
+    ` FROM ${district.table} v ${where}` +
+    ' GROUP BY 1, 2, 3, 4'
+  return { sql, params: bag.params }
+}
+
 // Adults per tract, over the block groups the district's people live in.
 // A block group straddling the district line counts whole: the district
 // mart's own split is not published per block group.
@@ -393,6 +424,24 @@ export const mapAnswerCells = (
       race,
       yes: Number(yes),
       count: Number(answers),
+    }),
+  )
+
+const ThemeCellSchema = DistrictCellSchema.omit({ count: true }).extend({
+  themes: z.array(z.number().int().nonnegative()),
+})
+export type ThemeCell = z.infer<typeof ThemeCellSchema>
+
+export const mapThemeCells = (
+  rows: ReadonlyArray<ReadonlyArray<string | null>>,
+): ThemeCell[] =>
+  rows.map(([ageBand, gender, tract, race, ...themes]) =>
+    ThemeCellSchema.parse({
+      ageBand,
+      gender,
+      tract,
+      race,
+      themes: themes.map(Number),
     }),
   )
 
@@ -537,3 +586,117 @@ export const mapGridCells = (
     const c = figure(column)
     return r === null || c === null ? [] : [{ row: r, col: c }]
   })
+
+// One group a civic panel is short of, in the cells above, for reaching the
+// residents its texts could not.
+export type ReachGroupCell =
+  | { kind: 'age'; band: AdultAgeBand }
+  | { kind: 'gender'; value: 'male' | 'female' }
+  | { kind: 'race'; value: Exclude<RaceValue, 'other'> }
+  | { kind: 'tract'; tract: string }
+  | { kind: 'precinct'; county: string; precinct: string }
+
+// Who a text cannot reach (no cell phone on file), and of them who a call
+// can (a landline).
+export type ReachChannelCell = 'door' | 'phone'
+
+const reachGroupSql = (bag: Bag, group: ReachGroupCell): string => {
+  switch (group.kind) {
+    case 'age':
+      return `${ageBandSql()} = ${bag.bind(group.band)}`
+    case 'gender':
+      return `${genderSql()} = ${bag.bind(group.value)}`
+    case 'race':
+      return `${raceSql()} = ${bag.bind(group.value)}`
+    case 'tract':
+      return `${tractSql()} = ${bag.bind(group.tract)}`
+    case 'precinct':
+      return (
+        `${col('County')} = ${bag.bind(group.county)}` +
+        ` AND ${col('Precinct')} = ${bag.bind(group.precinct)}`
+      )
+  }
+}
+
+const noCellSql = (): string =>
+  `${col('VoterTelephones_CellPhoneFormatted')} IS NULL`
+const hasLandlineSql = (): string =>
+  `${col('VoterTelephones_LandlineFormatted')} IS NOT NULL`
+
+const reachWhere = (
+  bag: Bag,
+  args: {
+    district: DbxDistrict
+    group: ReachGroupCell
+    excludeIds: readonly string[]
+  },
+): string => {
+  const parts = [
+    buildScopeSql(bag, {
+      district: args.district,
+      filters: filtersSchema.parse({}),
+    }),
+    `AND ${reachGroupSql(bag, args.group)}`,
+  ]
+  if (args.excludeIds.length > 0) {
+    parts.push(`AND ${col('id')} NOT IN (${idList(args.excludeIds)})`)
+  }
+  return parts.join(' ')
+}
+
+// The people in a group a text cannot reach, for a door or call list: no
+// cell phone on file, and for a call a landline. Leaves out `excludeIds`
+// (the civic panel's members and who left it). In a fixed order, so the
+// same group cut to `limit` takes the same people.
+export const buildReachPeopleSql = (args: {
+  district: DbxDistrict
+  group: ReachGroupCell
+  channel: ReachChannelCell
+  excludeIds: readonly string[]
+  limit: number
+}): DbxStatement => {
+  const bag = createBag()
+  const channel =
+    args.channel === 'door'
+      ? noCellSql()
+      : `${noCellSql()} AND ${hasLandlineSql()}`
+  const sql =
+    `SELECT ${col('id')} AS id FROM ${args.district.table} v` +
+    ` ${reachWhere(bag, args)} AND ${channel}` +
+    ` ORDER BY xxhash64(${col('id')}), ${col('id')}` +
+    ` LIMIT ${bag.bind(Math.max(1, Math.trunc(args.limit)), 'INT')}`
+  return { sql, params: bag.params }
+}
+
+// How many homes in a group have no cell phone on file, how many of those
+// have a landline, and how many homes it has: counts of homes, never a
+// person.
+export const buildReachHomesSql = (args: {
+  district: DbxDistrict
+  group: ReachGroupCell
+  excludeIds: readonly string[]
+}): DbxStatement => {
+  const bag = createBag()
+  const home = currentUnitKey()
+  const sql =
+    `SELECT count(DISTINCT CASE WHEN ${noCellSql()} THEN ${home} END)` +
+    ` AS no_cell, count(DISTINCT CASE WHEN ${noCellSql()}` +
+    ` AND ${hasLandlineSql()} THEN ${home} END) AS landline,` +
+    ` count(DISTINCT ${home}) AS homes` +
+    ` FROM ${args.district.table} v ${reachWhere(bag, args)}`
+  return { sql, params: bag.params }
+}
+
+export interface ReachHomes {
+  noCell: number
+  landline: number
+  homes: number
+}
+
+export const mapReachHomes = (
+  rows: ReadonlyArray<ReadonlyArray<string | null>>,
+): ReachHomes => ({
+  noCell: Number(rows[0]?.[0] ?? 0),
+  landline: Number(rows[0]?.[1] ?? 0),
+  homes: Number(rows[0]?.[2] ?? 0),
+})

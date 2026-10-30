@@ -14,7 +14,7 @@ import {
 import { useUser } from '@shared/hooks/useUser'
 import { PriorityAnswerLine } from './PriorityAnswerLine'
 import {
-  SERVE_IMPORT_CONTACTS_COPY,
+  getImportContactsCopy,
   uploadDetailPath,
 } from '../import/importContactsCopy'
 import type {
@@ -322,7 +322,9 @@ export const StatusChangeActivityRow: React.FC<{
 // An upload row pointing at this person, linked to that upload's page.
 export const ContactImportActivityRow: React.FC<{
   activity: ContactImportConstituentActivity
-}> = ({ activity }) => {
+  isWin: boolean
+}> = ({ activity, isWin }) => {
+  const COPY = getImportContactsCopy(isWin)
   const {
     isNewPerson,
     isFirstImport,
@@ -343,7 +345,7 @@ export const ContactImportActivityRow: React.FC<{
   return (
     <div className="flex flex-col gap-1 mb-3">
       <p className="text-sm font-semibold text-foreground">
-        {SERVE_IMPORT_CONTACTS_COPY.activity.title(
+        {COPY.activity.title(
           kind,
           isFirstImport,
           suppliedFields,
@@ -354,7 +356,7 @@ export const ContactImportActivityRow: React.FC<{
         href={uploadDetailPath(uploadId)}
         className="text-sm font-normal text-link underline underline-offset-4"
       >
-        {SERVE_IMPORT_CONTACTS_COPY.activity.body(kind, uploadName)}
+        {COPY.activity.body(kind, uploadName)}
       </Link>
       <p className="text-sm font-normal text-muted-foreground">
         {formatDateTime(activity.date)}

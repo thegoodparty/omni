@@ -393,7 +393,7 @@ describe('delivering an approved expansion', () => {
   let objects: Map<string, string>
 
   beforeEach(() => {
-    process.env.OUTREACH_TEXT_CSVS_BUCKET = 'expansion-csvs'
+    vi.stubEnv('OUTREACH_TEXT_CSVS_BUCKET', 'expansion-csvs')
     handoffs = []
     objects = new Map()
     const port: TextDeliveryHandoffPort = service.app.get(

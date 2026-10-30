@@ -205,9 +205,36 @@ export {
   type CivicPanelCompositionGroup,
   CivicPanelCompositionSchema,
   type CivicPanelComposition,
+  CivicPanelJoinedBySchema,
+  type CivicPanelJoinedBy,
+  NO_CIVIC_PANEL_JOINS,
   CivicPanelSummarySchema,
   type CivicPanelSummary,
 } from './people/CivicPanelSummary.schema'
+export {
+  CIVIC_PANEL_SEAT_COUNT,
+  CIVIC_PANEL_SHORT_GROUPS_SHOWN,
+  allocateSeats,
+  placeSeats,
+  type PlaceSeats,
+  civicPanelShortGroups,
+  type CivicPanelShortGroup,
+} from './people/CivicPanelShortGroups'
+export {
+  CIVIC_PANEL_REACH_CHANNELS,
+  CivicPanelReachChannelSchema,
+  type CivicPanelReachChannel,
+  CivicPanelReachGroupSchema,
+  type CivicPanelReachGroup,
+  CreateCivicPanelReachListInputSchema,
+  type CreateCivicPanelReachListInput,
+  CivicPanelReachListResponseSchema,
+  type CivicPanelReachList,
+  CivicPanelReachOptionSchema,
+  type CivicPanelReachOption,
+  CivicPanelReachOptionsResponseSchema,
+  type CivicPanelReachOptions,
+} from './people/CivicPanelReach.schema'
 export {
   MANAGED_CIVIC_PANEL_STATUSES,
   ManagedCivicPanelStatusSchema,
@@ -949,6 +976,9 @@ export {
   PriorityResultsGroupSchema,
   type PriorityResultsGroup,
   type PriorityTheme,
+  ThemeVoicesSchema,
+  type ThemeVoices,
+  THEME_VOICES_PER_GROUP,
 } from './priorities/PriorityResults.schema'
 
 export {

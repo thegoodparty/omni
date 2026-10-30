@@ -158,6 +158,8 @@ const TOOL_DISPLAY_NAMES: Record<string, string> = {
   present_managed_panel_invite: 'Getting your civic panel invite',
   read_managed_panel: 'Checking your civic panel',
   present_managed_panel: 'Checking your civic panel',
+  read_reach_the_rest: "Finding who a text can't reach",
+  offer_reach_the_rest: "Finding who a text can't reach",
   constituent_data: 'Reviewing district data',
   query_constituent_data: 'Reviewing district data',
   describe_constituent_data: 'Reviewing district data',

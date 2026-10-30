@@ -36,7 +36,7 @@
 import { overrideEnvForEvals } from '../../../evals/envOverride'
 
 // Must run BEFORE LlmService import: .env.test stubs would otherwise win.
-overrideEnvForEvals()
+if (process.env.RUN_LLM_EVALS === '1') overrideEnvForEvals()
 
 import { ForbiddenException } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'

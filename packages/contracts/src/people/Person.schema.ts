@@ -138,9 +138,11 @@ export const PersonSchema = z.object({
   // Absent (not null) for `eo-` (Serve) organizations: gp-api strips this key
   // before serializing list, detail, and typeahead responses to an elected-
   // office org, per the server-enforced Serve party-visibility rule
-  // (ENG-10696). Win responses always carry it.
+  // (ENG-10696). Win responses always carry it. Null for a person only an
+  // import added, whom no voter file holds.
   politicalParty: z
     .enum(['Independent', 'Democratic', 'Republican', 'Other'])
+    .nullable()
     .optional(),
   // Null for a person only an import added, whom no voter file holds.
   registeredVoter: z.enum(['Yes', 'No']).nullable(),

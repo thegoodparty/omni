@@ -20,7 +20,6 @@ import {
 } from '@nestjs/common'
 import { ZodValidationPipe } from 'nestjs-zod'
 import { ProfileClaimRequestRateLimitGuard } from '../guards/profileClaimRequestRateLimit.guard'
-import { VoterDensityRateLimitGuard } from '../guards/voterDensityRateLimit.guard'
 import { GetPublicPersonProfileDto } from '../schemas/public/GetPublicPersonProfile.schema'
 import {
   PublicPersonProfileResponse,
@@ -98,10 +97,11 @@ function buildMarkerResponse(
 // Deletion still outranks unpublished: an owner who deleted a draft asked for
 // the page to be gone, which is a stronger request than "not live right now".
 //
-// The three reads are gated (ServiceReadGuard, or ServiceReadOrOwnerGuard on
-// the render gate) because /unlisted and the removed marker reveal who asked
-// for a privacy takedown. The class stays
-// @PublicAccess so voter-density and claim-request remain open to browsers.
+// The reads are gated (ServiceReadGuard, or ServiceReadOrOwnerGuard on the
+// render gate) because /unlisted and the removed marker reveal who asked for a
+// privacy takedown, and only our own servers read voter-density. The class
+// stays @PublicAccess so SessionGuard lets a service-reader token through
+// to those guards, and so claim-request remains open to browsers.
 @Controller('public-person-profiles')
 @PublicAccess()
 @UsePipes(ZodValidationPipe)
@@ -113,15 +113,15 @@ export class PublicPersonProfilesController {
     private readonly voterDensityProxy: VoterDensityProxyService,
   ) {}
 
-  // Voter-density heat-map cells for the person's office/district. Public +
-  // progressive enhancement: one election-db read resolves the person's L2
-  // district and returns the precomputed, k-anonymized cells for it. 404 when
-  // the person maps to no district so the page renders no map. Metered per IP
-  // and answered from a 60s in-memory cache, so repeated renders of the same
-  // page do not each re-read election-db.
+  // Voter-density heat-map cells for the person's office/district. Progressive
+  // enhancement: one election-db read resolves the person's L2 district and
+  // returns the precomputed, k-anonymized cells for it. 404 when the person
+  // maps to no district so the page renders no map. Answered from a 60s
+  // in-memory cache, so repeated renders of the same page do not each re-read
+  // election-db.
   @Get('voter-density')
   @ResponseSchema(VoterDensityResponseSchema)
-  @UseGuards(VoterDensityRateLimitGuard)
+  @UseGuards(ServiceReadGuard)
   async getVoterDensity(
     @Query() dto: GetVoterDensityDto,
   ): Promise<VoterDensityResponse> {

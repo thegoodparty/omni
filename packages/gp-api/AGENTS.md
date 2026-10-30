@@ -84,11 +84,22 @@ Overrides reset after every test and file. They only reach code that reads the
 constant when it runs, not a value captured at import (`vercel.service.ts` and
 `peerlyBaseConfig.ts` resolve `vendorBaseUrl` at import), which still needs a
 `vi.mock`. Between files vitest restores mocks, and
-`src/test-file-cleanup.ts` also restores real timers and undoes
-`vi.stubEnv`/`vi.stubGlobal`. A file that left fake timers on used to hang the
-next file's `app.close()` until its hook timed out. Anything else a test leaves
-behind (a mutated singleton, a direct `process.env` write) still reaches the
-next file in its worker, so clean it up in `afterEach`/`afterAll`.
+`src/test-file-cleanup.ts` also restores real timers, undoes
+`vi.stubEnv`/`vi.stubGlobal`, and resets `process.env` to the worker's
+starting env. A file that left fake timers on used to hang the next file's
+`app.close()` until its hook timed out. Anything else a test leaves behind (a
+mutated singleton) still reaches the next file in its worker, so clean it up in
+`afterEach`/`afterAll`.
+
+Vitest's `experimental.fsModuleCache` keeps each module's swc output in
+`.vitest-fs-module-cache/` (gitignored) and reuses it on later runs, which
+roughly halves a single-file run once warm. The first run after a lockfile,
+Node or `vitest.config.ts` change is cold. Vitest's own key misses tsconfig and
+`.swcrc` edits and an unchanged import that now resolves to another file, so
+the `fs-module-cache-key` plugin in `vitest.config.ts` adds both; keep it.
+CI restores the cache per shard in `gp-api.yml`. If a run ever executes code
+that is no longer in the source, run `npx vitest --clearCache` and say so in
+the PR.
 
 One container serves every checkout on the machine, and three things are what
 make that safe. The template is named for a digest of the migrations it holds

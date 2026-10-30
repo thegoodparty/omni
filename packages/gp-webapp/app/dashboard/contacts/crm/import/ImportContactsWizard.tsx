@@ -36,8 +36,8 @@ import { useOrganization } from '@shared/organization-picker'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import CrmSheet from '../shared/CrmSheet'
 import {
-  SERVE_IMPORT_CONTACTS_COPY,
   UPLOAD_HISTORY_PATH,
+  getImportContactsCopy,
 } from './importContactsCopy'
 import {
   emptyColumnMapping,
@@ -52,7 +52,6 @@ import {
   useContactUploads,
 } from './importContactsApi'
 
-const COPY = SERVE_IMPORT_CONTACTS_COPY
 const STEPS = ['file', 'columns', 'name'] as const
 type ImportStep = (typeof STEPS)[number]
 
@@ -65,6 +64,7 @@ const isCsvFile = (file: File): boolean =>
 interface ImportContactsWizardProps {
   open: boolean
   onOpenChange: (open: boolean) => void
+  isWin: boolean
 }
 
 // The Create new list sheet's shell and stepper, for a CSV of people: the
@@ -72,7 +72,9 @@ interface ImportContactsWizardProps {
 export default function ImportContactsWizard({
   open,
   onOpenChange,
+  isWin,
 }: ImportContactsWizardProps) {
+  const COPY = getImportContactsCopy(isWin)
   const router = useRouter()
   const queryClient = useQueryClient()
   const orgSlug = useOrganization()?.slug
@@ -94,6 +96,7 @@ export default function ImportContactsWizard({
     onSuccess: async () => {
       trackEvent(EVENTS.Contacts.ImportConsentAffirmed, {
         rowCount: preview?.rowCount ?? null,
+        product: isWin ? 'win' : 'serve',
       })
       await queryClient.invalidateQueries({
         queryKey: contactUploadsKey(orgSlug),
@@ -163,6 +166,7 @@ export default function ImportContactsWizard({
     trackEvent(EVENTS.Contacts.ImportStarted, {
       sourceType: 'csv',
       rowCount: parsed.rowCount,
+      product: isWin ? 'win' : 'serve',
     })
   }
 
@@ -172,6 +176,7 @@ export default function ImportContactsWizard({
       trackEvent(EVENTS.Contacts.ImportAbandoned, {
         lastStep: step,
         rowCount: preview?.rowCount ?? null,
+        product: isWin ? 'win' : 'serve',
       })
     }
     onOpenChange(next)

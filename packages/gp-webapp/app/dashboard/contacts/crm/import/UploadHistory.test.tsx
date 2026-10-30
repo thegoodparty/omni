@@ -38,6 +38,7 @@ const makeUpload = (overrides: Partial<ContactUpload> = {}): ContactUpload => ({
   unchangedCount: 0,
   completedAt: null,
   failureReason: null,
+  failureKind: null,
   ...overrides,
 })
 
@@ -72,7 +73,7 @@ describe('<UploadHistory>', () => {
       },
     })
 
-    render(<UploadHistory />)
+    render(<UploadHistory isWin={false} />)
 
     const rows = await screen.findAllByRole('button', { name: /\.csv/ })
     expect(
@@ -101,7 +102,7 @@ describe('<UploadHistory>', () => {
     })
     const user = userEvent.setup()
 
-    render(<UploadHistory />)
+    render(<UploadHistory isWin={false} />)
     await user.click(
       await screen.findByRole('button', { name: /Town hall sign-in/ }),
     )
@@ -117,7 +118,7 @@ describe('<UploadHistory>', () => {
       data: { uploads: [] },
     })
 
-    render(<UploadHistory />)
+    render(<UploadHistory isWin={false} />)
 
     expect(await screen.findByText('No uploads yet')).toBeInTheDocument()
     expect(
@@ -128,10 +129,30 @@ describe('<UploadHistory>', () => {
     ).toBeGreaterThan(0)
   })
 
+  it('reads Win nouns for a campaign, and goes back to Voter Data', async () => {
+    api.mock('GET /v1/contact-uploads', {
+      status: 200,
+      data: { uploads: [] },
+    })
+
+    render(<UploadHistory isWin />)
+
+    expect(
+      await screen.findByText('Import a file to add people to your campaign.'),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText('Files you have imported for your campaign'),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('link', { name: 'Back to Voter Data' }),
+    ).toHaveAttribute('href', '/dashboard/contacts')
+    expect(screen.queryByText(/constituent/i)).not.toBeInTheDocument()
+  })
+
   it('says so when the list cannot load', async () => {
     api.mock('GET /v1/contact-uploads', { status: 500, data: {} })
 
-    render(<UploadHistory />)
+    render(<UploadHistory isWin={false} />)
 
     expect(
       await screen.findByText(
@@ -151,7 +172,7 @@ describe('<UploadHistory>', () => {
       { status: 200, data: { uploads: [makeUpload({ status: 'complete' })] } },
     ])
 
-    render(<UploadHistory />)
+    render(<UploadHistory isWin={false} />)
 
     expect(await screen.findByText('Processing')).toBeInTheDocument()
     expect(
@@ -180,7 +201,7 @@ describe('<UploadHistory>', () => {
       { status: 200, data: { uploads: [makeUpload({ status: 'complete' })] } },
     ])
 
-    render(<UploadHistory />)
+    render(<UploadHistory isWin={false} />)
 
     expect(await screen.findByText('Processing')).toBeInTheDocument()
     for (const key of orgKeys) {

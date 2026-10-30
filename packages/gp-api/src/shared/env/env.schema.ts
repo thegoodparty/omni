@@ -265,6 +265,7 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
   CLERK_AUTHORIZED_PARTIES: { tier: 'optional' },
   CLERK_API_TIMEOUT_MS: { tier: 'optional' },
   VERCEL_OIDC_ALLOWED_PROJECTS: { tier: 'optional' },
+  GITHUB_OIDC_ALLOWED_WORKFLOWS: { tier: 'optional' },
 
   AWS_REGION: { tier: 'optional', default: 'us-west-2' },
   // Not read via `process.env.X` in our own code — the AWS SDK's default
@@ -379,6 +380,11 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
   SERVE_AGENT_CONTACT_OVERLAY_VIEW: {
     tier: 'optional',
     default: 'serve_agent_contact_overlay',
+  },
+  // The same overlay for the Win Campaign Manager's mart.
+  WIN_AGENT_CONTACT_OVERLAY_VIEW: {
+    tier: 'optional',
+    default: 'win_agent_contact_overlay',
   },
 
   CAMPAIGN_TRACKER_AUTOMATION_ENABLED: { tier: 'optional' },

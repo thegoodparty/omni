@@ -2,10 +2,12 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   MANAGED_CIVIC_PANEL_HOW_IT_WORKS,
   managedCivicPanelOneInN,
+  type CivicPanelReachOptions,
   type ManagedCivicPanel,
 } from '@goodparty_org/contracts'
 import type { Organization } from '../../../../generated/prisma'
 import type { ManagedCivicPanelService } from '@/contacts/services/managedCivicPanel.service'
+import type { CivicPanelReachService } from '@/contacts/services/civicPanelReach.service'
 import {
   buildManagedCivicPanelTools,
   isManagedPanelSetUp,
@@ -218,5 +220,94 @@ describe('the civic panel explanation', () => {
       ),
     ]
     for (const text of said) expect(text).not.toMatch(/wave/i)
+  })
+})
+
+describe('reaching the rest of an exhausted civic panel', () => {
+  const OPTIONS: CivicPanelReachOptions = {
+    place: 'Asheville',
+    mostlyNoCell: true,
+    options: [
+      {
+        label: 'Knock doors in West Asheville',
+        detail: '4 seats short. 120 homes there have no cell phone on file.',
+        group: { kind: 'tract', key: '37021000100' },
+        channel: 'door',
+        seatsShort: 4,
+        homes: 120,
+      },
+      {
+        label: 'Call people 65 and over',
+        detail: '3 seats short. 45 of their homes have a landline.',
+        group: { kind: 'group', group: 'age65plus' },
+        channel: 'phone',
+        seatsShort: 3,
+        homes: 45,
+      },
+    ],
+  }
+
+  const reachTools = (
+    status: ManagedCivicPanel['status'],
+    options = OPTIONS,
+  ) => {
+    const optionsFor = vi.fn(() => Promise.resolve(options))
+    const tools = buildManagedCivicPanelTools({
+      panels: {
+        read: vi.fn(() => Promise.resolve({ panel: panel({ status }) })),
+      } as unknown as ManagedCivicPanelService,
+      reach: { optionsFor } as unknown as CivicPanelReachService,
+      organization,
+      setUp: true,
+    })
+    const run = (name: keyof typeof tools) =>
+      (
+        tools[name] as unknown as { execute: (input: object) => unknown }
+      ).execute({})
+    return { run, optionsFor }
+  }
+
+  it('reads the place, whether most homes have no cell phone, and each option', async () => {
+    expect(await reachTools('exhausted').run('read_reach_the_rest')).toEqual({
+      place: 'Asheville',
+      mostlyNoCell: true,
+      options: [
+        {
+          label: 'Knock doors in West Asheville',
+          detail: '4 seats short. 120 homes there have no cell phone on file.',
+        },
+        {
+          label: 'Call people 65 and over',
+          detail: '3 seats short. 45 of their homes have a landline.',
+        },
+      ],
+    })
+  })
+
+  it('offers the options once exhausted', async () => {
+    expect(await reachTools('exhausted').run('offer_reach_the_rest')).toEqual({
+      offered: true,
+    })
+  })
+
+  it('offers nothing while texts are still going out', async () => {
+    const building = reachTools('building')
+    expect(await building.run('read_reach_the_rest')).toMatchObject({
+      error: expect.stringContaining('read_managed_panel'),
+    })
+    expect(await building.run('offer_reach_the_rest')).toMatchObject({
+      error: expect.any(String),
+    })
+    expect(building.optionsFor).not.toHaveBeenCalled()
+  })
+
+  it('says a door or a call can reach people a text cannot when no group is left', async () => {
+    expect(
+      await reachTools('exhausted', {
+        place: 'Asheville',
+        mostlyNoCell: false,
+        options: [],
+      }).run('offer_reach_the_rest'),
+    ).toMatchObject({ error: expect.stringContaining('door knocking') })
   })
 })

@@ -21,7 +21,6 @@ import { PersonIdBackfillService } from './services/person-id-backfill.service'
 import { PersonIdReconcileService } from './services/person-id-reconcile.service'
 import { PersonLookupService } from './services/person-lookup.service'
 import { PublicProfileAddressService } from './services/public-profile-address.service'
-import { VoterDensityRateLimitGuard } from './guards/voterDensityRateLimit.guard'
 import { PERSON_PROFILES_DATABRICKS } from './personProfiles.constants'
 
 // Single-row identifier lookups against the Serve mart, on the shared Serve
@@ -72,7 +71,6 @@ const serveDatabricksProviderFactory = (): DatabricksProvider | null => {
     PersonIdReconcileService,
     PersonLookupService,
     PublicProfileAddressService,
-    VoterDensityRateLimitGuard,
     {
       provide: PERSON_PROFILES_DATABRICKS,
       useFactory: serveDatabricksProviderFactory,

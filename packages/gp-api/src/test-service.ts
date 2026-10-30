@@ -21,18 +21,10 @@ import {
   withDatabase,
 } from './test-postgres'
 import { ElectionsService } from './elections/services/elections.service'
+import { PositionsService } from './electionDb/positions/positions.service'
 import { District } from './elections/types/elections.types'
 
 export const TEST_CLERK_ID = 'user_test_123'
-export const TEST_M2M_JWT_SUBJECT = 'mch_test_machine'
-
-// Stands in for a Clerk JWT-format M2M token. The harness verifies it with
-// AUTH_SECRET instead of the Clerk JWKS; see the verifyM2MJwt stub below.
-export const signTestM2MJwt = (): string =>
-  jwt.sign({ sub: TEST_M2M_JWT_SUBJECT }, process.env.AUTH_SECRET!, {
-    expiresIn: '1h',
-    jwtid: 'm2m_test_jwt',
-  })
 
 // The reset below is a few tens of milliseconds of work. This ceiling is here
 // only to survive real pathology (a starved runner, a lock held by work that
@@ -182,8 +174,16 @@ export const useTestService = ({
     // Read by AppModule's ScheduleModule factory during bootstrap.
     process.env.TEST_SCHEDULER = scheduler ? 'on' : 'off'
 
+    // Constructing PrismaClient loads packages/gp-api/.env again, which CI
+    // does not have. Drop what it adds, as test-file-cleanup.ts does on import.
+    const envBeforeBoot = new Set(Object.keys(process.env))
+
     // Create NestJS application using the same bootstrap function as production
     app = await bootstrap({ loggingEnabled: false })
+
+    for (const key of Object.keys(process.env)) {
+      if (!envBeforeBoot.has(key)) delete process.env[key]
+    }
 
     const authProvider = app.get<AuthProvider>(AUTH_PROVIDER_TOKEN)
     // .bind() returns any — TypeScript cannot infer the bound method signature
@@ -208,16 +208,6 @@ export const useTestService = ({
           throw new UnauthorizedException('Invalid test token')
         }
         return { externalUserId: sub }
-      },
-    )
-
-    vi.spyOn(authProvider, 'verifyM2MJwt').mockImplementation(
-      async (token: string) => {
-        const decoded = jwt.verify(token, process.env.AUTH_SECRET!)
-        if (typeof decoded !== 'object' || !decoded.sub?.startsWith('mch_')) {
-          throw new UnauthorizedException('Invalid test M2M JWT')
-        }
-        return { id: decoded.jti ?? '', subject: decoded.sub }
       },
     )
 
@@ -250,6 +240,22 @@ export const useTestService = ({
     // ballotLevel) accordingly. Manufacturing one here would silently take that
     // fallback away. Suites that need a real position stub it themselves.
     vi.spyOn(electionsService, 'getPositionById').mockResolvedValue(null)
+    // PeopleDatasetService reads the position straight from PositionsService
+    // for every org with serve-import-contacts on, which is every org here:
+    // the placeholder Amplitude key turns flags on. A position with no
+    // district, so the overlay gets the same no-district answer the stub
+    // above gives ContactsService.
+    vi.spyOn(app.get(PositionsService), 'getPositionById').mockImplementation(
+      async ({ id }) => ({
+        id,
+        brPositionId: id,
+        brDatabaseId: id,
+        state: 'IL',
+        level: null,
+        isWinIcp: null,
+        isServeIcp: null,
+      }),
+    )
 
     // Start the application on a random available port
     await app.listen({ port: 0, host: '127.0.0.1' })

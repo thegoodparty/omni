@@ -19,26 +19,32 @@ import { clientRequest } from 'gpApi/typed-request'
 import { useOrganization } from '@shared/organization-picker'
 import { ChangeMatchDialog } from './ChangeMatchDialog'
 import { contactUploadRowsKey } from './importContactsApi'
-import {
-  SERVE_IMPORT_CONTACTS_COPY,
-  candidateLabel,
-} from './importContactsCopy'
+import { candidateLabel, getImportContactsCopy } from './importContactsCopy'
 
-const COPY = SERVE_IMPORT_CONTACTS_COPY
 const PAGE_SIZE = 50
 const SEARCH_DEBOUNCE_MS = 300
 
 const rowName = (row: ContactUploadRow): string =>
   [row.firstName, row.lastName].filter(Boolean).join(' ')
 
-const whatWeDid = (row: ContactUploadRow): string =>
-  row.outcome === 'matched' ||
-  row.outcome === 'new' ||
-  row.outcome === 'resolved'
-    ? COPY.processed.whatWeDid(row.outcome, row.isNewPerson, row.changedFields)
-    : ''
-
-export const ProcessedRows = ({ upload }: { upload: ContactUpload }) => {
+export const ProcessedRows = ({
+  upload,
+  isWin,
+}: {
+  upload: ContactUpload
+  isWin: boolean
+}) => {
+  const COPY = getImportContactsCopy(isWin)
+  const whatWeDid = (row: ContactUploadRow): string =>
+    row.outcome === 'matched' ||
+    row.outcome === 'new' ||
+    row.outcome === 'resolved'
+      ? COPY.processed.whatWeDid(
+          row.outcome,
+          row.isNewPerson,
+          row.changedFields,
+        )
+      : ''
   const orgSlug = useOrganization()?.slug
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
@@ -188,6 +194,7 @@ export const ProcessedRows = ({ upload }: { upload: ContactUpload }) => {
         currentPersonId={changing?.personId ?? null}
         currentPersonName={changing ? rowName(changing) : ''}
         candidates={changing?.candidates ?? []}
+        isWin={isWin}
       />
     </section>
   )

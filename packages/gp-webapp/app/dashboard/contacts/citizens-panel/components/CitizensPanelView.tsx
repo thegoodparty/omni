@@ -116,8 +116,8 @@ export const CitizensPanelView = ({
               stage={stage}
               members={summary.members}
               goal={progress.goal}
-              placeKind={composition?.placeKind}
               place={place}
+              joinedBy={summary.joinedBy}
             />
             {summary.members === 0 ? (
               <CivicPanelFirstJoin
@@ -151,7 +151,7 @@ export const CitizensPanelView = ({
           </aside>
         </div>
       </div>
-      <CivicPanelChatDock chat={chat} full={stage === 'ready'} />
+      <CivicPanelChatDock chat={chat} stage={stage} />
     </>
   )
 }

@@ -123,8 +123,22 @@ that purpose the way a carried recommendation does; a chat proposal card
 passes its `purpose`. With `initialScript` too, the seeded words are kept on
 that purpose rather than opening on `custom`. The civic panel invite
 (`build_citizens_panel`) is never offered in the purpose picker, on texts,
-phone banking or door knocking: the invite only goes out in the managed
-panel's waves, through the `managedInvite` mode below.
+phone banking or door knocking: a text invite only goes out in the managed
+panel's waves, through the `managedInvite` mode below, and a door or call
+invite only from a civic panel short group (contacts AGENTS.md).
+
+`PhoneBankingFlow`'s `civicPanelInvite` (`{ script }`, with
+`preselectedListId` and `initialName`) is that call invite: the flow is
+the script ("Does this call script sound right?", no Back) and a Create
+call list press that creates on `build_citizens_panel` with the sheet
+count sized to the list, then the ready screen. No purpose, audience or
+sheets step, and the seeded script is never drafted over (tone and
+Improve polish it). A list that never resolves says so under the script
+and keeps Create call list disabled. Door knocking's twin is
+`CreateListFlow` with `initialPurpose` `build_citizens_panel`, a carried
+list and `initialTalkingPoints`: the points ("Do these talking points
+sound right?") then the map, two steps, the campaign named after the
+list.
 
 `SmsFlow` also has a `managedInvite` mode (Serve only, `{ place, onSetUp }`)
 for the invite GoodParty texts in the official's name to build their civic
@@ -137,8 +151,10 @@ and place, and never names the civic panel). The JOIN line and the opt-out sit
 locked under it as one block, the opt-out directly under the JOIN line
 (`composeManagedInvite`, `MANAGED_INVITE_LOCKED_LINES`), and Improve sends the
 whole invite and keeps only the body of the reply (`managedInviteBody`).
-There is no checkbox: pressing Approve and send in my name is the approval,
-and the line above it says what they agree to. It posts
+There is no checkbox: pressing Set up my civic panel is the approval, and a
+"By continuing, you agree..." line right above the button (the shell footer's
+`banner` slot) says what they agree to. The counter shows characters only, no
+SMS segments, since the invite goes out as MMS. It posts
 `/v1/contacts/civic-panel/managed` with contracts'
 `MANAGED_CIVIC_PANEL_CONSENT_VERSION` and calls `onSetUp`.
 

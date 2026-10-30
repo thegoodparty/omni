@@ -36,7 +36,7 @@ const PLACE_DOT: Record<SeatHue, string> = {
 }
 
 // The arc alone, tight to the seats so it reads large on a phone.
-const FRAME = {
+export const SEAT_FRAME = {
   width: 2 * (SEAT_R_OUT + SEAT_SIZE),
   top: SEAT_R_OUT + SEAT_SIZE,
 }
@@ -56,13 +56,13 @@ export const SeatArc = ({
   quiet?: boolean
   className?: string
 }) => {
-  const cx = FRAME.width / 2
-  const cy = FRAME.top
+  const cx = SEAT_FRAME.width / 2
+  const cy = SEAT_FRAME.top
   const height = cy + SEAT_SIZE / 2 + 4
   const nearFull = !quiet && chart.stage === 'nearFull'
   return (
     <svg
-      viewBox={`0 0 ${FRAME.width} ${height}`}
+      viewBox={`0 0 ${SEAT_FRAME.width} ${height}`}
       className={cn('h-auto w-full', className)}
       role="img"
       aria-label={

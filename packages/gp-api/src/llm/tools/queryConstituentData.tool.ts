@@ -56,7 +56,8 @@ export interface ConstituentDataScope extends ConstituentSqlScope {
   // Which people the table holds, from PeopleDatasetService for the chat's
   // org. 'constituents' (Serve with the consumer-data flag) adds adult
   // residents who are not registered to vote, so the description names that
-  // base. Scopes that omit it (Win) read voters only.
+  // base. Win's base is always voters; it sets the dataset only for the
+  // imported-contact overlay.
   peopleDataset?: PeopleDataset
   // One sentence on how L2 assigns Parties_Description in this district's
   // state when it is not a registration (peopleDb/partySource.ts), so a

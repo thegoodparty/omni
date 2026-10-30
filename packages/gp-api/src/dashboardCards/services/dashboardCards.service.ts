@@ -178,7 +178,7 @@ export const managedPanelProgressCardContent = (
   if (panel.status === 'exhausted') {
     return {
       title: 'Every resident we can text has an invite',
-      summary: `${members} of ${goalMembers} residents have joined your civic panel.`,
+      summary: `${joined}. Door knocking and calls can reach the rest.`,
       ctaLabel: MANAGED_CIVIC_PANEL_EXHAUSTED_CARD_CTA,
       ctaHref: CIVIC_PANEL_PAGE_HREF,
     }

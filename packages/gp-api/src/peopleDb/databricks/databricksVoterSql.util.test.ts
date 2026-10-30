@@ -1638,6 +1638,45 @@ describe('contactOverlayTable', () => {
     ])
   })
 
+  it('leaves people only an import added out of the Other party', () => {
+    const district = overlaid(CONGRESSIONAL, CONGRESSIONAL.districtId)
+    const filters = parseFilters({ politicalParty: { in: ['Other'] } })
+    const other =
+      '((v.`Parties_Description` IS NULL OR v.`Parties_Description`' +
+      ' NOT IN (:p2, :p3, :p4, :p5, :p6, :p7)) AND NOT v.`ContactIsNew`)'
+
+    for (const { sql } of [
+      buildCountSql({ district, filters }),
+      buildListDetailAggregatesSql({ district, filters }),
+      buildRankPrecinctsSql({ district, filters }),
+    ]) {
+      expect(sql).toContain(other)
+    }
+    const { sql: overlap } = buildOverlapCountSql({
+      district,
+      filters: noFilters(),
+      savedFilterSets: [filters],
+    })
+    expect(overlap).toContain('AND NOT v.`ContactIsNew`)')
+  })
+
+  it('keeps the named parties and the Other party as they were', () => {
+    const district = overlaid(CONGRESSIONAL, CONGRESSIONAL.districtId)
+
+    const { sql } = buildCountSql({
+      district,
+      filters: parseFilters({ politicalParty: { in: ['Democratic'] } }),
+    })
+    expect(sql).toMatch(/ AND \(v\.`Parties_Description` IN \(:p2\)\)$/)
+
+    const { sql: plain } = buildCountSql({
+      district: CONGRESSIONAL,
+      filters: parseFilters({ politicalParty: { in: ['Other'] } }),
+    })
+    expect(plain).toContain('v.`Parties_Description` IS NULL OR')
+    expect(plain).not.toContain('ContactIsNew')
+  })
+
   it('keeps name search for an @ without the overlay', () => {
     const bag = createBag()
 

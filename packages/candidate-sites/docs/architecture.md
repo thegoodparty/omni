@@ -128,7 +128,7 @@ If you add a new client → gp-api write path, add a proxy route. Don't `fetch(N
 The only `Authorization` header in this repo is on the two RSC website reads (`app/page.tsx`, `app/[vanityPath]/page.tsx`). Both call `helpers/gpApiReadAuthHeaders.ts`:
 
 - `GP_API_AUTH_MODE=oidc`: `Bearer ${await getVercelOidcToken()}` from `@vercel/oidc`. That reads the request's `x-vercel-oidc-token` header, then `VERCEL_OIDC_TOKEN_FILE`, then `VERCEL_OIDC_TOKEN`. It is fetched on every read because Vercel rotates it. If it can't be obtained (OIDC disabled on the project, local dev without a linked Vercel project), the read logs a warning and goes out with no header, so a token failure never fails the page.
-- Unset, or any other value: no header.
+- Unset, or any other value: no header, and gp-api answers both reads with a 403.
 
 The mode exists because gp-api's `SessionGuard` answers a bearer token it can't verify with a 401, even on `@PublicAccess` routes, so sending the OIDC token before gp-api accepts it would break every site. The token is attached at the two call sites, not in `fetchHelper`, so the `app/api/` proxies keep calling gp-api's public write routes without it. Both pages are `force-dynamic` and `fetchHelper` sets no cache options, so Next never stores these fetches in the data cache. Keep the token out of `appEnv.ts`, `next.config.ts` `env`, and anything under `'use client'`.
 

@@ -31,12 +31,18 @@ pads `var(--chat-dock-height)` plus 8rem so the last card clears the bar.
   card), else `start` at 0 members, else `building`.
 - **Hero** (`CivicPanelHero`): the stage's title and line
   (`COPY.hero`; building names the place, "{members} {place} residents
-  are ready to share their views, on the way to {goal}."), the goal as 100 seats (`SeatArc` from `CivicPanelSeats`,
-  `quiet`, on `plainSeats`: filled is members over goal, in arc order, in
-  bands of the brand's three families) from `lg`, below it a `Progress`
-  bar (CSS breakpoints, both always rendered; "{members} of {goal} residents
-  have joined" sits over the bar only at the start, since every other
-  stage's line already says it), then the four milestones, First
+  are ready to share their views, on the way to {goal}."), the goal as 100 seats from `lg`
+  (`sourceSeats`: filled is members over goal as in `plainSeats`, split by
+  how members joined, text then door then phone, each in its color) with a
+  legend of the sources plus Empty seat, and below `lg` a bar of the same
+  three segments (each a source's share of the goal) with the legend minus
+  Empty seat (CSS breakpoints, both always rendered; "{members} of {goal}
+  residents have joined" sits over the bar only at the start, since every
+  other stage's line already says it). The sources are the summary's
+  `joinedBy`, folded by `joinedBySources`: added by hand counts with the
+  door. Colors: `primary` for text, `brand-midnight-800` for the door,
+  `orange-400` for the phone, apart in lightness as well as hue. A source
+  with no members is left out of the legend. Then the four milestones, First
   yes, `PANEL_MIN_MEMBERS_FOR_BALANCE` members, Halfway and Full civic panel
   (`milestones`, from `progress.goal`, never a fixed number).
 - **Who joins first** (`CivicPanelFirstJoin`) at 0 members: the first
@@ -44,7 +50,8 @@ pads `var(--chat-dock-height)` plus 8rem so the last card clears the bar.
   managed panel the sentence is dropped) and what the page will show.
 - **Who we're inviting next** (`CivicPanelNext`, "Groups still short" when
   exhausted) with members, a composition and the panel not ready: the 4
-  rows of `shortGroups` (`panelCharts.ts`) furthest below their share, age,
+  rows of `shortGroups` (contracts' `civicPanelShortGroups`, which the
+  Chief of Staff's reach-the-rest offer reads too) furthest below their share, age,
   gender and race groups and places alike, in the hero's seat units
   (a group's share of 100 seats beside `memberShare` times the fill; a
   place's `buildSeats` count beside its filled), each "{have} of {need}
@@ -52,8 +59,26 @@ pads `var(--chat-dock-height)` plus 8rem so the last card clears the bar.
   shows its `label` or "A part of {place}", never its number. A label
   starts its row, so its first letter is capitalized (`capitalizeFirst`:
   "Around Calm Water Dr"); mid-sentence uses keep it as stored. This is the
-  page's one answer to who's next, and it never tells the official to
-  invite: GoodParty sends the invites.
+  page's one answer to who's next. While GoodParty is inviting it never
+  tells the official to invite. Once exhausted the line is "Everyone we can
+  text has been invited. Reach these groups at the door or by phone." and
+  each row (not "some parts of your district") has Knock doors and Call
+  (lucide `DoorOpenIcon`, `PhoneIcon`): under the name and seats on a
+  phone, 44px targets, inline at the row's end from `lg`. Each posts
+  `POST /v1/contacts/civic-panel/reach-lists` (`useReachList`) with the
+  row's group and a list name ("Knock doors: {row}", "Call: {row}"), then
+  opens the flow as a civic panel invite: the goal and the list are known,
+  so neither is asked. Knock doors opens
+  `/dashboard/door-knocking?create=1&listId=&purpose=build_citizens_panel`,
+  which lands on the invite's talking points, then the map (two steps; the
+  campaign takes the list's name). Call mounts `PhoneBankingFlow` (Serve
+  surface) with `civicPanelInvite`, the list's name and the list: the
+  script, then Create call list (sheets sized to the list). Both scripts
+  are `civicPanelReachScript.ts`, in the SMS invite's voice, spoken by the official in the first person,
+  never naming the civic panel or how the office checks in, and closing on
+  a note to mark a yes, which the knock and call forms' join question
+  records as a door or phone join. A 422 says nobody there is left to
+  reach that way.
 - **Rail**: the Invites card (`ManagedPanelControls`, only with a managed
   panel that is not stopped): one status line, while building Next invites
   (`managedPanelNextInvitesAt`: `nextWaveAt`, else `firstSendDate` before
@@ -76,7 +101,8 @@ pads `var(--chat-dock-height)` plus 8rem so the last card clears the bar.
   this page's question, `COPY.chatPlaceholder` ("Ask who still needs to
   join your civic panel", with "civic panel" held together), or
   `COPY.chatPlaceholderFull` once the stage is `ready` (no one left to
-  recruit); a page placeholder may wrap to two lines on a phone instead of
+  recruit), or `COPY.chatPlaceholderExhausted` ("Ask how to reach the
+  rest") while `exhausted`; a page placeholder may wrap to two lines on a phone instead of
   being cut off.
 - **Analytics.** The page fires `Contacts - Civic Panel Viewed` once per visit
   (members, goal, expected answers, `howCloseStatus` from the summary's
@@ -114,12 +140,16 @@ pads `var(--chat-dock-height)` plus 8rem so the last card clears the bar.
 
 ## Import contacts (`crm/import/`, `uploads/`)
 
-Serve only, behind `serve-import-contacts` (`useServeImportContactsFlag`; the
-upload pages 404 server-side with it off). Lists are untouched: an upload never
-becomes a list card.
+Serve and Win, behind `serve-import-contacts` (`useServeImportContactsFlag`),
+and for Win only with Pro (`canUseProFeatures`, the same rule gp-api applies).
+The upload pages gate server-side in `uploads/importContactsAccess.ts`: 404
+with the flag off or for a Win campaign without Pro, else `isWin` from
+`GET /v1/elected-office/current`. They are not Serve routes
+(`SERVE_ROUTE_PREFIXES`) and keep the contacts nav item highlighted. Lists are
+untouched: an upload never becomes a list card.
 
 - **Wizard** (`ImportContactsWizard`): the Create new list sheet and stepper
-  (`CrmSheet`), opened from Import contacts on Constituents and on Upload
+  (`CrmSheet`), opened from Import contacts on the contacts page and on Upload
   history. File (read in the browser by `parseCsvPreview` for headers,
   examples and the row count; CSV only, 25 MB), columns (`prefillColumnMapping`:
   the latest upload's mapping when every column it used is in the file, else
@@ -144,14 +174,17 @@ becomes a list card.
   while processing, or failed before the file was read (`rowCount` null), no
   counts or rows, and the meta line drops the row count. A failed upload
   shows gp-api's `failureReason` (what went wrong with the file), else a
-  generic line, with Try again. Otherwise the counts, `NeedsInputReview`
+  generic line, with Try again unless `failureKind` is `file` (a missing
+  column, too many rows, an unreadable file or one that never arrived fails
+  the same way again). Otherwise the counts, `NeedsInputReview`
   (answers saved together; Decide later changes nothing), and `ProcessedRows`
   (searchable, paged with Show more, Change match per row). A choice reads
   name, address, then age (`candidateLabel`), so two people at one address
   still differ.
-- **Person panel**: on Serve with the flag on, `PersonRecord` renders
-  `person/ImportedContactInformation` in place of today's Contact Information
-  card: Email, a "Came from upload <name>" line per detail from
+- **Person panel**: with the flag on, on Serve or a Pro Win campaign,
+  `PersonRecord` renders `person/ImportedContactInformation` in place of
+  today's Contact Information card (Win keeps its status row and Voter
+  Demographics card): Email, a "Came from upload <name>" line per detail from
   `GET /v1/contacts/:personId/sources`, and Change match.
   `ChangeMatchDialog` is shared with the upload detail and warns first when
   `hasActivity` (notes and activity stay with the old record). Import rows in
@@ -163,8 +196,12 @@ becomes a list card.
 - **Search by email.** A typeahead search with an `@` matches the imported
   email (gp-api), and a result whose email is the search shows it under the
   name (`ContactTypeahead`).
-- Copy lives in `importContactsCopy.ts` (`SERVE_IMPORT_CONTACTS_COPY`, so the
-  vocabulary check reads it). Analytics: `docs/contacts-analytics.md`.
+- Copy lives in `importContactsCopy.ts`, mode-keyed through
+  `getImportContactsCopy(isWin)`: `SERVE_IMPORT_CONTACTS_COPY` holds every
+  string (so the vocabulary check reads it) and `WIN_IMPORT_CONTACTS_COPY`
+  swaps its nouns (the voter file, voters, your campaign). Every import
+  component takes `isWin`; a new string with a mode noun needs its Win
+  override. Analytics: `docs/contacts-analytics.md`.
 
 ## Patterns
 

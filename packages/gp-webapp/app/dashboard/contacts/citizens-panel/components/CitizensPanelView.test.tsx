@@ -21,6 +21,9 @@ vi.mock('@shared/organization-picker', async (importOriginal) => ({
     district: { l2Name: 'ASHEVILLE CITY' },
   }),
 }))
+vi.mock('helpers/useSnackbar', () => ({
+  useSnackbar: () => ({ errorSnackbar: vi.fn() }),
+}))
 vi.mock('@shared/hooks/useUser', () => ({
   useUser: () => [{ firstName: 'Ana' }],
 }))
@@ -79,6 +82,7 @@ const COMPOSITION = {
 
 const SUMMARY: CivicPanelSummary = {
   members: 40,
+  joinedBy: { text: 0, door: 0, phone: 0, hand: 0 },
   reachedRecently: 15,
   askableNow: 25,
   lastOutreachAt: null,
@@ -97,6 +101,7 @@ const SUMMARY: CivicPanelSummary = {
 const EMPTY: CivicPanelSummary = {
   ...SUMMARY,
   members: 0,
+  joinedBy: { text: 0, door: 0, phone: 0, hand: 0 },
   reachedRecently: 0,
   askableNow: 0,
   progress: { ...SUMMARY.progress, members: 0, expectedAnswers: 0 },
@@ -345,9 +350,27 @@ describe('CitizensPanelView', () => {
     ).toBeInTheDocument()
     expect(
       screen.getByText(
-        'Everyone we can text has been invited. These groups have fewer seats than their share of Asheville.',
+        'Everyone we can text has been invited. Reach these groups at the door or by phone.',
       ),
     ).toBeInTheDocument()
+    expect(
+      screen.getAllByRole('button', { name: /^Knock doors, / }).length,
+    ).toBeGreaterThan(0)
+    expect(
+      screen.getByRole('button', { name: 'Ask how to reach the rest' }),
+    ).toBeInTheDocument()
+  })
+
+  it('offers no door or call buttons while invites go out', () => {
+    render(
+      <CitizensPanelView summary={SUMMARY} managed={managed('building')} />,
+    )
+    expect(
+      screen.queryByRole('button', { name: /^Knock doors/ }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: /^Call/ }),
+    ).not.toBeInTheDocument()
   })
 
   it('shows the full panel with no list of who is next', () => {

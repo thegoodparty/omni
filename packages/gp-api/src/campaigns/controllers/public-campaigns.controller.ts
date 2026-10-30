@@ -1,4 +1,5 @@
 import { PublicAccess } from '@/authentication/decorators/PublicAccess.decorator'
+import { ServiceReadGuard } from '@/authentication/guards/ServiceRead.guard'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interceptor'
 import {
@@ -6,6 +7,7 @@ import {
   Get,
   NotFoundException,
   Query,
+  UseGuards,
   UseInterceptors,
   UsePipes,
 } from '@nestjs/common'
@@ -16,6 +18,7 @@ import { PublicCampaignsService } from '../services/public-campaigns.service'
 
 @Controller('public-campaigns')
 @PublicAccess()
+@UseGuards(ServiceReadGuard)
 @UsePipes(ZodValidationPipe)
 @UseInterceptors(ZodResponseInterceptor)
 export class PublicCampaignsController {

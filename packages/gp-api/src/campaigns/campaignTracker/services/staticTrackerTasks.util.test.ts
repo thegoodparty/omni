@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 
 // Tracker dates are naive calendar days at UTC midnight, so the expectations
 // do day arithmetic in UTC too (date-fns works in local time, which shifts an
@@ -261,12 +261,11 @@ describe('tracker row dates', () => {
   // Every tracker date is a naive calendar day stored at UTC midnight. A local
   // start-of-day put it at the previous evening on a server west of UTC, so a
   // send due Oct 8 read Oct 7.
-  const originalTz = process.env.TZ
   beforeAll(() => {
-    process.env.TZ = 'America/Los_Angeles'
+    vi.stubEnv('TZ', 'America/Los_Angeles')
   })
   afterAll(() => {
-    process.env.TZ = originalTz
+    vi.unstubAllEnvs()
   })
 
   it('stores every date at UTC midnight, whatever the server timezone', () => {

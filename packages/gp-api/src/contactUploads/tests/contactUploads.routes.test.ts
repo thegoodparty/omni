@@ -9,6 +9,7 @@ import {
 } from '@goodparty_org/contracts'
 import { useTestService } from '@/test-service'
 import {
+  ContactUploadFailureKind,
   ContactUploadMatchMethod,
   ContactUploadMatchOutcome,
   ContactUploadStatus,
@@ -24,7 +25,12 @@ import {
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { QueueProducerService } from '@/queue/producer/queueProducer.service'
 import { MessageGroup, QueueType } from '@/queue/queue.types'
-import { ContactsService } from '@/contacts/services/contacts.service'
+import {
+  ContactsService,
+  PRO_FEATURE_REQUIRED_MESSAGE,
+} from '@/contacts/services/contacts.service'
+import { PeopleDbxStatementClient } from '@/peopleDb/databricks/peopleDbxStatement.client'
+import { buildVoterSelectSql } from '@/peopleDb/voter.select'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import { ConstituentActivityType } from '@/contactEngagement/contactEngagement.types'
@@ -295,17 +301,6 @@ describe('POST /v1/contact-uploads/presign', () => {
     expect(list.status).toBe(HttpStatus.NOT_FOUND)
     expect(presignPut).not.toHaveBeenCalled()
   })
-
-  it('404s for a Win org even with the flag on', async () => {
-    const winSlug = `campaign-import-${randomUUID()}`
-    await service.prisma.organization.create({
-      data: { slug: winSlug, ownerId: service.user.id },
-    })
-
-    const res = await presign(100, {}, winSlug)
-
-    expect(res.status).toBe(HttpStatus.NOT_FOUND)
-  })
 })
 
 describe('POST /v1/contact-uploads/:id/uploaded', () => {
@@ -429,6 +424,7 @@ describe('POST /v1/contact-uploads/:id/uploaded', () => {
     expect(await storedUpload(data.uploadId)).toMatchObject({
       status: ContactUploadStatus.failed,
       failureReason: "We couldn't start this upload. Try again.",
+      failureKind: ContactUploadFailureKind.transient,
     })
   })
 
@@ -467,6 +463,7 @@ describe('the process job, reading the file', () => {
     expect(await storedUpload(uploadId)).toMatchObject({
       status: ContactUploadStatus.failed,
       failureReason,
+      failureKind: ContactUploadFailureKind.file,
       rowCount: null,
       ingestedAt: null,
     })
@@ -628,6 +625,7 @@ describe('the process job, reading the file', () => {
     expect(await storedUpload(data.id)).toMatchObject({
       status: ContactUploadStatus.failed,
       failureReason: "This upload didn't finish. Try again.",
+      failureKind: ContactUploadFailureKind.transient,
       ingestedAt: null,
     })
   })
@@ -748,6 +746,7 @@ describe('the process job, matching', () => {
         ambiguousCount: 3,
         emailsGained: 2,
         isReimport: false,
+        product: 'serve',
       }),
     )
   })
@@ -1110,6 +1109,7 @@ Ann,Able,,,,
     ).toMatchObject({
       status: ContactUploadStatus.failed,
       failureReason: "This upload didn't finish. Try again.",
+      failureKind: ContactUploadFailureKind.transient,
     })
   })
 
@@ -1289,12 +1289,12 @@ describe('review', () => {
     expect(track).toHaveBeenCalledWith(
       service.user.id,
       EVENTS.Contacts.AmbiguousRowResolved,
-      { resolution: 'person', rowIndex: 0 },
+      { resolution: 'person', rowIndex: 0, product: 'serve' },
     )
     expect(track).toHaveBeenCalledWith(
       service.user.id,
       EVENTS.Contacts.MatchChanged,
-      { from: 'l2', to: 'none' },
+      { from: 'l2', to: 'none', product: 'serve' },
     )
   })
 
@@ -1302,7 +1302,7 @@ describe('review', () => {
     const { uploadId, rows } = await uploadNeedingInput()
     const findPerson = vi
       .spyOn(service.app.get(ContactsService), 'findPerson')
-      .mockResolvedValue({} as never)
+      .mockResolvedValueOnce({} as never)
 
     const res = await service.client.put(
       `/v1/contact-uploads/${uploadId}/rows/${rows[2]!.id}/match`,
@@ -1318,7 +1318,7 @@ describe('review', () => {
     expect(track).toHaveBeenCalledWith(
       service.user.id,
       EVENTS.Contacts.MatchChanged,
-      { from: 'l2', to: 'l2' },
+      { from: 'l2', to: 'l2', product: 'serve' },
     )
   })
 
@@ -1343,6 +1343,11 @@ describe('review', () => {
       personId: PERSON_D,
       resolvedByUserId: service.user.id,
     })
+    expect(track).toHaveBeenCalledWith(
+      service.user.id,
+      EVENTS.Contacts.AmbiguousRowResolved,
+      { resolution: 'acceptedSuggested', rowCount: 1, product: 'serve' },
+    )
   })
 
   it('404s another org’s upload', async () => {
@@ -1369,6 +1374,7 @@ describe('POST /v1/contact-uploads/:id/retry', () => {
       data: {
         status: ContactUploadStatus.failed,
         failureReason: "This upload didn't finish. Try again.",
+        failureKind: ContactUploadFailureKind.transient,
       },
     })
     sendMessage.mockClear()
@@ -1392,6 +1398,7 @@ describe('POST /v1/contact-uploads/:id/retry', () => {
       id: uploadId,
       status: 'processing',
       failureReason: null,
+      failureKind: null,
     })
     expect(sendMessage).toHaveBeenCalledExactlyOnceWith(
       { type: QueueType.CONTACT_UPLOAD_PROCESS, data: { uploadId } },
@@ -1432,6 +1439,7 @@ describe('POST /v1/contact-uploads/:id/retry', () => {
     ).toMatchObject({
       status: ContactUploadStatus.failed,
       failureReason: "We couldn't start this upload. Try again.",
+      failureKind: ContactUploadFailureKind.transient,
     })
   })
 
@@ -1609,5 +1617,230 @@ describe('the person activity feed', () => {
       { activityId: later!.id, isFirstImport: false },
       { activityId: created!.id, isFirstImport: true },
     ])
+  })
+})
+
+describe('Win campaigns', () => {
+  const createWinOrg = async (isPro: boolean) => {
+    const winSlug = `campaign-import-${randomUUID()}`
+    const districtId = randomUUID()
+    await service.prisma.organization.create({
+      data: {
+        slug: winSlug,
+        ownerId: service.user.id,
+        overrideDistrictId: districtId,
+      },
+    })
+    await service.prisma.campaign.create({
+      data: {
+        userId: service.user.id,
+        slug: `${winSlug}-campaign`,
+        organizationSlug: winSlug,
+        isPro,
+      },
+    })
+    return { winSlug, districtId }
+  }
+
+  it('lets a Pro campaign with the flag upload, match against voters and read its rows', async () => {
+    const { winSlug, districtId } = await createWinOrg(true)
+    const { data } = await upload(
+      `${HEADER_ROW}\nAnn,Able,ann@example.com,616-555-0101,,\nDee,Dunn,,,,\n`,
+      {},
+      winSlug,
+    )
+    expect(data.status).toBe('processing')
+    const match = mockMatch([candidate(0, PERSON_A, true, false, 1)])
+
+    expect(await runJob(data.id)).toBe(true)
+
+    expect(match).toHaveBeenCalledWith(
+      districtId,
+      {
+        base: 'voters',
+        overlayOrgSlug: winSlug,
+        overlayDistrictId: districtId,
+      },
+      expect.any(Array),
+    )
+    expect(await storedUpload(data.id)).toMatchObject({
+      organizationSlug: winSlug,
+      status: ContactUploadStatus.complete,
+      matchedCount: 1,
+      newCount: 1,
+    })
+    expect(track).toHaveBeenCalledWith(
+      service.user.id,
+      EVENTS.Contacts.ImportCompleted,
+      expect.objectContaining({ uploadId: data.id, product: 'win' }),
+    )
+    const headers = { [HEADER]: winSlug }
+    const rows = await service.client.get(
+      `/v1/contact-uploads/${data.id}/rows`,
+      { headers },
+    )
+    expect(rows.status).toBe(HttpStatus.OK)
+    expect(
+      rows.data.rows.map((row: { outcome: string }) => row.outcome),
+    ).toEqual(['matched', 'new'])
+    const sources = await service.client.get(
+      `/v1/contacts/${PERSON_A}/sources`,
+      { headers },
+    )
+    expect(sources.status).toBe(HttpStatus.OK)
+    expect(sources.data.fields.email).toMatchObject({
+      kind: 'upload',
+      uploadId: data.id,
+    })
+    const feed = await service.client.get(
+      `/v1/contact-engagement/${PERSON_A}/activities`,
+      { headers },
+    )
+    expect(feed.status).toBe(HttpStatus.OK)
+    expect(feed.data.results).toMatchObject([
+      {
+        type: ConstituentActivityType.CONTACT_IMPORT,
+        data: { uploadId: data.id, isFirstImport: true },
+      },
+    ])
+  })
+
+  it('reads a new person over voters with no voter-file values as unknown', async () => {
+    const { winSlug } = await createWinOrg(true)
+    const personId = randomUUID()
+    const { columnNames } = buildVoterSelectSql()
+    const values: Record<string, string> = {
+      id: personId,
+      FirstName: 'Dee',
+      LastName: 'Dunn',
+      State: 'MI',
+      Email: 'dee@example.com',
+      ContactIsNew: 'true',
+    }
+    const query = vi
+      .spyOn(service.app.get(PeopleDbxStatementClient), 'query')
+      .mockResolvedValue({
+        columns: [],
+        rows: [[...columnNames.map((column) => values[column] ?? null), null]],
+      })
+
+    const res = await service.client.get(`/v1/contacts/${personId}`, {
+      headers: { [HEADER]: winSlug },
+    })
+
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(res.data).toMatchObject({
+      id: personId,
+      email: 'dee@example.com',
+      isNewContact: true,
+      politicalParty: null,
+      registeredVoter: null,
+      voterStatus: null,
+      voterLikelihood: 'unknown',
+      supportStatus: 'unknown',
+      voted: false,
+    })
+    const sql = query.mock.calls[0]?.[0].sql
+    expect(sql).toContain(
+      'FROM (SELECT * FROM goodparty_data_catalog.mart_gp_api.gp_api_voters',
+    )
+    expect(sql).toContain(`WHERE organization_slug = '${winSlug}'`)
+  })
+
+  it('still reads a voter-file person with no party as Other', async () => {
+    const { winSlug } = await createWinOrg(true)
+    const { columnNames } = buildVoterSelectSql()
+    const values: Record<string, string> = {
+      id: PERSON_A,
+      FirstName: 'Ann',
+      LastName: 'Avery',
+      State: 'MI',
+      ContactIsNew: 'false',
+    }
+    vi.spyOn(
+      service.app.get(PeopleDbxStatementClient),
+      'query',
+    ).mockResolvedValue({
+      columns: [],
+      rows: [[...columnNames.map((column) => values[column] ?? null), null]],
+    })
+
+    const res = await service.client.get(`/v1/contacts/${PERSON_A}`, {
+      headers: { [HEADER]: winSlug },
+    })
+
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(res.data).toMatchObject({
+      id: PERSON_A,
+      isNewContact: false,
+      politicalParty: 'Other',
+    })
+  })
+
+  it('counts the Other party without the people only an import added', async () => {
+    const { winSlug } = await createWinOrg(true)
+    vi.spyOn(service.app.get(VoterQueryService), 'findPeople').mockRestore()
+    const countSql = async () => {
+      const query = vi
+        .spyOn(service.app.get(PeopleDbxStatementClient), 'query')
+        .mockClear()
+        .mockResolvedValue({ columns: ['voter_count'], rows: [['7']] })
+      const res = await service.client.post(
+        '/v1/contacts/count',
+        { partyOther: true },
+        { headers: { [HEADER]: winSlug } },
+      )
+      expect(res.status).toBe(HttpStatus.CREATED)
+      expect(res.data).toEqual({ count: 7 })
+      return query.mock.calls.map(([statement]) => statement.sql).join('\n')
+    }
+
+    const withImports = await countSql()
+    expect(withImports).toContain(`WHERE organization_slug = '${winSlug}'`)
+    expect(withImports).toContain(
+      '(v.`Parties_Description` IS NULL OR v.`Parties_Description` NOT IN',
+    )
+    expect(withImports).toContain('AND NOT v.`ContactIsNew`)')
+
+    flagOn = false
+    const withoutImports = await countSql()
+    expect(withoutImports).toContain(
+      '(v.`Parties_Description` IS NULL OR v.`Parties_Description` NOT IN',
+    )
+    expect(withoutImports).not.toContain('NOT v.`ContactIsNew`')
+  })
+
+  it('403s a campaign without Pro, the same as opening a contact', async () => {
+    const { winSlug } = await createWinOrg(false)
+
+    const res = await presign(100, {}, winSlug)
+    const list = await service.client.get('/v1/contact-uploads', {
+      headers: { [HEADER]: winSlug },
+      validateStatus: () => true,
+    })
+    const sources = await service.client.get(
+      `/v1/contacts/${PERSON_A}/sources`,
+      { headers: { [HEADER]: winSlug }, validateStatus: () => true },
+    )
+
+    for (const response of [res, list, sources]) {
+      expect(response.status).toBe(HttpStatus.FORBIDDEN)
+      expect(response.data.message).toBe(PRO_FEATURE_REQUIRED_MESSAGE)
+    }
+    expect(presignPut).not.toHaveBeenCalled()
+  })
+
+  it('404s a Pro campaign when the flag is off', async () => {
+    const { winSlug } = await createWinOrg(true)
+    flagOn = false
+
+    const res = await presign(100, {}, winSlug)
+    const sources = await service.client.get(
+      `/v1/contacts/${PERSON_A}/sources`,
+      { headers: { [HEADER]: winSlug }, validateStatus: () => true },
+    )
+
+    expect(res.status).toBe(HttpStatus.NOT_FOUND)
+    expect(sources.status).toBe(HttpStatus.NOT_FOUND)
   })
 })
