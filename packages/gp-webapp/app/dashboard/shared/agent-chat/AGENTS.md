@@ -144,7 +144,10 @@ reason, because once its list is created the card becomes that map.
 A card is never the full thing in the stream. Each one renders as a row in
 the clarify question's own option-card style (`optionCard.ts`, which
 `ClarifyQuestionWidget` uses too, so an answer and a contact read as one
-family): a title, one short line, and whatever it leads to. Why a card is
+family): a title, one short line, and whatever it leads to. The title and
+line wrap, never truncate. A row with its own button (`CompactCardStatic`)
+is a container query: under `@sm` (24rem of card, a phone's chat column) the
+button drops onto its own row below the text. Why a card is
 there is the agent's to say, once, in its message; no card repeats it.
 
 - **People open a panel here.** `OutsideContactCard` is one row (name, role)
