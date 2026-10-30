@@ -30,7 +30,6 @@ const Harness = ({
       onChange={setValue}
       issues={{}}
       showIssues={false}
-      senderName="Sam"
       goal="Introduce myself"
     />
   )

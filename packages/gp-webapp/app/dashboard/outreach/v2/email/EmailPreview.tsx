@@ -1,14 +1,14 @@
-import {
-  EMAIL_THEMES,
-  MERGE_TAGS,
-  type EmailLayoutKey,
-  type EmailThemeKey,
-} from '@goodparty_org/contracts'
+import { useEffect, useRef, useState } from 'react'
+import type { EmailLayoutKey, EmailThemeKey } from '@goodparty_org/contracts'
+import { apiErrorMessage, previewEmail } from './emailApi'
+
+export const EMAIL_PREVIEW_DEBOUNCE_MS = 400
 
 interface EmailPreviewProps {
+  serve: boolean
   layout: EmailLayoutKey
   theme: EmailThemeKey
-  senderName: string
+  subject: string
   headline: string
   body: string
   buttonLabel: string
@@ -16,96 +16,93 @@ interface EmailPreviewProps {
   imageUrl?: string
 }
 
-const FIRST_NAME = MERGE_TAGS[0]
-
-const withSampleName = (text: string): string =>
-  text.split(FIRST_NAME.token.email).join(FIRST_NAME.sample)
-
-// An approximation of the sent email for the compose and review steps. The
-// real render is gp-api's template; this follows the same color roles.
+// The sent email, rendered by gp-api's template. The last good render stays
+// up while the next one loads.
 export const EmailPreview = ({
+  serve,
   layout,
   theme,
-  senderName,
+  subject,
   headline,
   body,
   buttonLabel,
   buttonUrl,
   imageUrl,
 }: EmailPreviewProps) => {
-  const c = EMAIL_THEMES[theme].colors
-  const hasButton = buttonLabel.trim() !== '' && buttonUrl.trim() !== ''
-  const text = withSampleName(body)
+  const [html, setHtml] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [height, setHeight] = useState(480)
+  const frame = useRef<HTMLIFrameElement>(null)
+
+  useEffect(() => {
+    let current = true
+    const timer = setTimeout(async () => {
+      try {
+        const next = await previewEmail(serve, {
+          layout,
+          theme,
+          subject,
+          body,
+          ...(headline.trim() && { headline }),
+          ...(imageUrl && { imageUrl }),
+          ...(buttonLabel.trim() &&
+            buttonUrl.trim() && { buttonLabel, buttonUrl }),
+        })
+        if (!current) return
+        setHtml(next)
+        setError(null)
+      } catch (err) {
+        if (current) setError(apiErrorMessage(err))
+      }
+    }, EMAIL_PREVIEW_DEBOUNCE_MS)
+    return () => {
+      current = false
+      clearTimeout(timer)
+    }
+  }, [
+    serve,
+    layout,
+    theme,
+    subject,
+    headline,
+    body,
+    buttonLabel,
+    buttonUrl,
+    imageUrl,
+  ])
+
+  const fit = () => {
+    const doc = frame.current?.contentDocument
+    if (doc?.body) setHeight(doc.documentElement.scrollHeight)
+  }
 
   return (
     <div
       data-testid="email-preview"
       data-layout={layout}
       data-theme={theme}
-      className="overflow-hidden rounded-lg border border-border p-3"
-      style={{ backgroundColor: c.bg }}
+      className="space-y-2"
     >
-      <div
-        className="mx-auto max-w-[520px] overflow-hidden rounded-md"
-        style={{ backgroundColor: c.card }}
-      >
-        <div
-          className="px-5 py-3 text-sm font-semibold"
-          style={{
-            backgroundColor: c.header,
-            color: c.headerText,
-            borderBottom: `2px solid ${c.rule}`,
-          }}
-        >
-          {senderName}
-        </div>
-        <div className="space-y-3 px-5 py-5">
-          {headline.trim() && (
-            <h4
-              className="text-xl font-bold leading-tight"
-              style={{ color: c.headline }}
-            >
-              {headline}
-            </h4>
-          )}
-          {imageUrl && (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={imageUrl} alt="" className="w-full rounded" />
-          )}
-          {layout === 'reminder' && (
-            <div
-              className="inline-block rounded px-2 py-1 text-xs font-semibold uppercase"
-              style={{ backgroundColor: c.accent, color: c.accentText }}
-            >
-              Reminder
-            </div>
-          )}
-          <p
-            className="whitespace-pre-line text-sm leading-relaxed"
-            style={{ color: c.body }}
-          >
-            {text.trim() || 'Your message shows up here.'}
-          </p>
-          {hasButton && (
-            <div
-              className={layout === 'call_to_action' ? 'py-2 text-center' : ''}
-            >
-              <span
-                className="inline-block rounded-md px-5 py-2.5 text-sm font-semibold"
-                style={{ backgroundColor: c.cta, color: c.ctaText }}
-              >
-                {buttonLabel}
-              </span>
-            </div>
-          )}
-        </div>
-        <div
-          className="px-5 py-3 text-xs"
-          style={{ color: c.meta, borderTop: `1px solid ${c.divider}` }}
-        >
-          Unsubscribe
-        </div>
-      </div>
+      {error && (
+        <p role="alert" className="text-xs text-destructive">
+          {`Preview could not update. ${error}`}
+        </p>
+      )}
+      {html === null ? (
+        !error && (
+          <div className="h-48 animate-pulse rounded-lg border border-border bg-muted" />
+        )
+      ) : (
+        <iframe
+          ref={frame}
+          title="Email preview"
+          srcDoc={html}
+          sandbox="allow-same-origin"
+          onLoad={fit}
+          style={{ height }}
+          className="w-full rounded-lg border border-border bg-white"
+        />
+      )}
     </div>
   )
 }

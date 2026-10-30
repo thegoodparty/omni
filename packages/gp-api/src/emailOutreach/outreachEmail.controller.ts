@@ -25,6 +25,10 @@ import {
   EmailSend,
   EmailSendSchema,
   EmailImagePresignRequest,
+  EmailPreviewRequest,
+  EmailPreviewRequestSchema,
+  EmailPreviewResponse,
+  EmailPreviewResponseSchema,
   EmailImagePresignRequestSchema,
   EmailImagePresignResponse,
   EmailImagePresignResponseSchema,
@@ -45,6 +49,7 @@ import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interc
 import { User } from '../generated/prisma'
 import { OutreachEmailConfirmService } from './services/outreachEmailConfirm.service'
 import { OutreachEmailGenerationService } from './services/outreachEmailGeneration.service'
+import { OutreachEmailPreviewService } from './services/outreachEmailPreview.service'
 import { OutreachEmailImageService } from './services/outreachEmailImage.service'
 import { OutreachEmailTestService } from './services/outreachEmailTest.service'
 import { OutreachEmailService } from './services/outreachEmail.service'
@@ -61,6 +66,7 @@ export class OutreachEmailController {
     private readonly emails: OutreachEmailService,
     private readonly generation: OutreachEmailGenerationService,
     private readonly images: OutreachEmailImageService,
+    private readonly previews: OutreachEmailPreviewService,
     private readonly tests: OutreachEmailTestService,
     private readonly confirms: OutreachEmailConfirmService,
   ) {}
@@ -101,6 +107,20 @@ export class OutreachEmailController {
     input: EmailAiDraftRequest,
   ): Promise<EmailAiDraftResponse> {
     return this.generation.draftForCampaign(campaign, user, input)
+  }
+
+  @Post('preview')
+  @ResponseSchema(EmailPreviewResponseSchema)
+  async preview(
+    @ReqUser() user: User,
+    @ReqCampaign() campaign: CampaignWith<'user'>,
+    @Body(new ZodValidationPipe(EmailPreviewRequestSchema))
+    input: EmailPreviewRequest,
+  ): Promise<EmailPreviewResponse> {
+    return this.previews.render(
+      await this.scopes.forCampaign(campaign, user),
+      input,
+    )
   }
 
   @Post('images/presign')

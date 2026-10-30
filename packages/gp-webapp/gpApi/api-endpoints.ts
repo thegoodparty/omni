@@ -19,6 +19,8 @@ import type {
   EmailAiDraftRequest,
   EmailAiDraftResponse,
   EmailImagePresignRequest,
+  EmailPreviewRequest,
+  EmailPreviewResponse,
   EmailImagePresignResponse,
   EmailTestSendResponse,
   EmailSender,
@@ -575,6 +577,11 @@ export type APIEndpoints = {
     Response: EmailAiDraftResponse
   }
 
+  'POST /v1/outreach/email/preview': {
+    Request: EmailPreviewRequest
+    Response: EmailPreviewResponse
+  }
+
   'POST /v1/outreach/email/images/presign': {
     Request: EmailImagePresignRequest
     Response: EmailImagePresignResponse
@@ -646,6 +653,11 @@ export type APIEndpoints = {
   'POST /v1/outreach/serve/email/draft': {
     Request: EmailAiDraftRequest
     Response: EmailAiDraftResponse
+  }
+
+  'POST /v1/outreach/serve/email/preview': {
+    Request: EmailPreviewRequest
+    Response: EmailPreviewResponse
   }
 
   'POST /v1/outreach/serve/email/images/presign': {
