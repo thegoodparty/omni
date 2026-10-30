@@ -813,6 +813,30 @@ describe('GET /v1/dashboard/cards: the managed panel progress card', () => {
     ).toBe(0)
   })
 
+  it('names the place its members live once it is ready', async () => {
+    const districtPlace = vi
+      .spyOn(service.app.get(ManagedCivicPanelService), 'districtPlace')
+      .mockResolvedValue('Asheville')
+    const orgSlug = 'eo-progress-ready-place'
+    await seedElectedOffice(orgSlug)
+    await seedEnrollment(orgSlug)
+    await joinMembers(orgSlug, 100)
+    await setPanel(orgSlug, {
+      status: ManagedCivicPanelStatus.ready,
+      readyAt: new Date(),
+    })
+
+    const [card] = await progressCards(orgSlug)
+    districtPlace.mockRestore()
+
+    expect(card).toMatchObject({
+      title: 'Your civic panel is ready',
+      summary:
+        '100 residents said yes. Ask them what they think whenever you ' +
+        'want to hear from all of Asheville.',
+    })
+  })
+
   it('takes the ready card away two weeks after the panel was ready', async () => {
     const orgSlug = 'eo-progress-ready-old'
     await seedElectedOffice(orgSlug)
