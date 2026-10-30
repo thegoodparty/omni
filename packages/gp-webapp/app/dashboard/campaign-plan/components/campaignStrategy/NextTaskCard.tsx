@@ -471,7 +471,9 @@ const NextTaskCard = ({
   const canHeadStart = activeWeeks.some(
     (week) =>
       week.start === followingWeek &&
-      week.tasks.some((task) => !task.completed && task.setAside === null),
+      week.tasks.some(
+        (task) => !task.completed && task.setAside === null && !task.putOff,
+      ),
   )
   const emptyKind = weekDone ? 'weekDone' : 'caughtUp'
 

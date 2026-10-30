@@ -276,12 +276,16 @@ describe('NextTaskCard put off', () => {
         skipReason: 'later',
       },
     ]
-    render(<NextTaskCard surface="manager" />)
+    const { container } = render(<NextTaskCard surface="manager" />)
 
     expect(
       screen.getByRole('heading', { name: 'Send an introduction text' }),
     ).toBeInTheDocument()
-    expect(screen.queryByText('A put-off priority')).toBeNull()
+    // Stacked cards are empty decorative layers; the put-off priority would
+    // have added one behind the front card.
+    expect(
+      container.querySelectorAll('.absolute[aria-hidden="true"]'),
+    ).toHaveLength(0)
   })
 })
 
