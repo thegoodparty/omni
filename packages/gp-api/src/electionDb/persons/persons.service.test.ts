@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { NotFoundException } from '@nestjs/common'
 import { PersonsService } from './persons.service'
 import { DEFAULT_PERSON_PAGE_SIZE } from './persons.schema'
+import { Prisma } from '@/generated/election-prisma'
 
 const PAGING = {
   orderBy: { id: 'asc' },
@@ -308,6 +309,56 @@ describe('PersonsService', () => {
   })
 
   describe('getPersonBySlug', () => {
+    it('retries once when election-db is unreachable (P1001)', async () => {
+      const unreachable = new Prisma.PrismaClientKnownRequestError(
+        "Can't reach database server",
+        { code: 'P1001', clientVersion: 'test' },
+      )
+      findMany
+        .mockRejectedValueOnce(unreachable)
+        .mockResolvedValueOnce([
+          { id: 'a1b2c3d4-...', slug: 'jane-doe-a1b2c3d4', OfficeHolders: [] },
+        ])
+
+      const result = await service.getPersonBySlug('jane-doe-a1b2c3d4')
+
+      expect(findMany).toHaveBeenCalledTimes(2)
+      expect(result.slug).toBe('jane-doe-a1b2c3d4')
+    })
+
+    it('retries once on a PrismaClientInitializationError P1001', async () => {
+      findMany
+        .mockRejectedValueOnce(
+          new Prisma.PrismaClientInitializationError(
+            "Can't reach database server",
+            'test',
+            'P1001',
+          ),
+        )
+        .mockResolvedValueOnce([
+          { id: 'a1b2c3d4-...', slug: 'jane-doe-a1b2c3d4', OfficeHolders: [] },
+        ])
+
+      const result = await service.getPersonBySlug('jane-doe-a1b2c3d4')
+
+      expect(findMany).toHaveBeenCalledTimes(2)
+      expect(result.slug).toBe('jane-doe-a1b2c3d4')
+    })
+
+    it('does not retry other database errors', async () => {
+      findMany.mockRejectedValueOnce(
+        new Prisma.PrismaClientKnownRequestError('pool timeout', {
+          code: 'P2024',
+          clientVersion: 'test',
+        }),
+      )
+
+      await expect(
+        service.getPersonBySlug('jane-doe-a1b2c3d4'),
+      ).rejects.toMatchObject({ code: 'P2024' })
+      expect(findMany).toHaveBeenCalledTimes(1)
+    })
+
     it('resolves by the 8-hex id suffix via an indexed range scan (not the slug column)', async () => {
       findMany.mockResolvedValueOnce([
         { id: 'a1b2c3d4-...', slug: 'jane-doe-a1b2c3d4', OfficeHolders: [] },
