@@ -36,7 +36,6 @@ const withBlocks = (
 })
 
 const paragraph = (text: string) => ({ type: 'paragraph', text })
-const signature = { type: 'signature', name: 'Sam Ortega', title: 'Candidate' }
 const masthead = { type: 'heading', text: 'Update', level: 1 }
 const subheading = (text: string) => ({ type: 'heading', text, level: 2 })
 const photo = {
@@ -139,7 +138,7 @@ const AGENT_DRAFTS: Record<EmailLayoutPresetKey, string> = {
       { "type": "paragraph", "text": "The council will hear a draft noise ordinance on October 8. It sets quiet hours after 11pm on weeknights." },
       { "type": "divider" },
       { "type": "paragraph", "text": "The senior center now stays open until 7pm on weekdays." },
-      { "type": "signature", "name": "Dana Whitfield", "title": "City Council Member, Ward 2" }
+      { "type": "paragraph", "text": "Thank you,\\nDana Whitfield\\nCity Council Member, Ward 2" }
     ]
   }`,
   personal_letter: `{
@@ -149,7 +148,7 @@ const AGENT_DRAFTS: Record<EmailLayoutPresetKey, string> = {
     "blocks": [
       { "type": "paragraph", "text": "Dear {{first_name}},\\n\\nThank you for coming to Thursday's meeting. Forty neighbors showed up, and the board heard every one of you." },
       { "type": "paragraph", "text": "I'll write again once the board decides. Until then, just reply if you have questions." },
-      { "type": "signature", "name": "Priya Natarajan", "title": "Township Trustee" }
+      { "type": "paragraph", "text": "Thank you,\\nPriya Natarajan\\nTownship Trustee" }
     ]
   }`,
 }
@@ -305,31 +304,26 @@ describe('layout rules', () => {
       [
         { type: 'image', url: 'https://example.org/a.png', alt: 'A park' },
         paragraph('Dear neighbor'),
-        signature,
       ],
       'The Personal letter layout doesn’t use image blocks',
     )
     rejects(
       'personal_letter',
-      [
-        { type: 'heading', text: 'Hi', level: 1 },
-        paragraph('Dear neighbor'),
-        signature,
-      ],
+      [{ type: 'heading', text: 'Hi', level: 1 }, paragraph('Dear neighbor')],
       'The Personal letter layout doesn’t use heading blocks',
     )
   })
 
-  it('personal_letter is signed once, at the end', () => {
+  it('personal_letter is only paragraphs and one button', () => {
     rejects(
       'personal_letter',
-      [paragraph('Dear neighbor')],
-      'Sign it with your name',
+      [paragraph('Dear neighbor'), button, paragraph('Thanks'), button],
+      'Use at most one button',
     )
     rejects(
       'personal_letter',
-      [paragraph('Dear neighbor'), signature, paragraph('PS')],
-      'The signature goes last',
+      [paragraph('Dear neighbor'), { type: 'divider' }, paragraph('Thanks')],
+      'The Personal letter layout doesn’t use divider blocks',
     )
   })
 })
@@ -410,7 +404,6 @@ describe('field rules', () => {
     expect(parseBlock({ type: 'image', url, alt: 'A park' }).success).toBe(
       false,
     )
-    expect(parseBlock({ ...signature, photoUrl: url }).success).toBe(false)
   })
 
   it('allows only the two merge tags', () => {
@@ -488,18 +481,10 @@ describe('more layout rules', () => {
     )
   })
 
-  it('puts the long_update signature last', () => {
-    rejects(
-      'long_update',
-      [masthead, paragraph('A'), signature, paragraph('B')],
-      'The signature goes last',
-    )
-  })
-
   it('starts a personal_letter with a paragraph', () => {
     rejects(
       'personal_letter',
-      [button, paragraph('Hi'), signature],
+      [button, paragraph('Hi')],
       'Start with a paragraph',
     )
   })
@@ -531,7 +516,7 @@ describe('draft rules', () => {
     expect(
       messages(draft('short_cta', [{ type: 'heading', text: '', level: 1 }])),
     ).toEqual([])
-    expect(messages(draft('personal_letter', [paragraph('')]))).toEqual([])
+    expect(messages(draft('personal_letter', []))).toEqual([])
     expect(
       messages(draft('long_update', [masthead, subheading(''), paragraph('')])),
     ).toEqual([])
@@ -539,18 +524,10 @@ describe('draft rules', () => {
 
   it('still rejects a block the layout does not use, or the wrong order', () => {
     expect(
-      messages(
-        draft('personal_letter', [
-          paragraph(''),
-          { type: 'divider' },
-          signature,
-        ]),
-      ),
+      messages(draft('personal_letter', [paragraph(''), { type: 'divider' }])),
     ).toContain('The Personal letter layout doesn’t use divider blocks')
     expect(
-      messages(
-        draft('personal_letter', [paragraph(''), signature, paragraph('')]),
-      ),
-    ).toContain('The signature goes last')
+      messages(draft('personal_letter', [button, paragraph('')])),
+    ).toContain('Start with a paragraph')
   })
 })

@@ -6,7 +6,6 @@ import type { EmailLayoutPresetKey } from './EmailLayoutPreset.const'
 // drafting agent, so they must always pass EmailContentSchema (tested).
 // Images point at a placeholder service until the gallery has real ones.
 const PLACEHOLDER_PHOTO = 'https://placehold.co/1200x600.png'
-const PLACEHOLDER_HEADSHOT = 'https://placehold.co/200x200.png'
 
 export const EMAIL_CONTENT_EXAMPLES = {
   short_cta: {
@@ -112,9 +111,8 @@ export const EMAIL_CONTENT_EXAMPLES = {
           url: 'https://example.org/jordan-ellis/water-plan',
         },
         {
-          type: 'signature',
-          name: 'Jordan Ellis',
-          title: 'Candidate for City Council, Ward 3',
+          type: 'paragraph',
+          text: 'Thank you,\nJordan Ellis\nCandidate for City Council, Ward 3',
         },
       ],
     },
@@ -156,10 +154,8 @@ export const EMAIL_CONTENT_EXAMPLES = {
           url: 'https://example.org/riverton/ward-2-survey',
         },
         {
-          type: 'signature',
-          name: 'Dana Whitfield',
-          title: 'City Council Member, Ward 2',
-          photoUrl: PLACEHOLDER_HEADSHOT,
+          type: 'paragraph',
+          text: 'Thank you,\nDana Whitfield\nCity Council Member, Ward 2',
         },
       ],
     },
@@ -184,10 +180,8 @@ export const EMAIL_CONTENT_EXAMPLES = {
           url: 'https://example.org/sam-ortega/issues',
         },
         {
-          type: 'signature',
-          name: 'Sam Ortega',
-          title: 'Independent candidate for County Commission',
-          photoUrl: PLACEHOLDER_HEADSHOT,
+          type: 'paragraph',
+          text: 'Thank you,\nSam Ortega\nIndependent candidate for County Commission',
         },
       ],
     },
@@ -209,9 +203,8 @@ export const EMAIL_CONTENT_EXAMPLES = {
           text: 'The fee starts Saturday, November 7, and the board will review it at the May meeting.',
         },
         {
-          type: 'signature',
-          name: 'Priya Natarajan',
-          title: 'Township Trustee',
+          type: 'paragraph',
+          text: 'Thank you,\nPriya Natarajan\nTownship Trustee',
         },
       ],
     },

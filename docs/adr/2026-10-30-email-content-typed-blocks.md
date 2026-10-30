@@ -18,7 +18,7 @@ superseded_by:
 
 ## Decision
 
-An outreach email is `{ layout, theme, subject, previewText?, blocks }`, where `blocks` is an ordered list from a closed set of six types: `heading`, `paragraph`, `image`, `button`, `signature`, `divider` (`EmailContentSchema` in contracts). A layout is a preset, not a template: a starting arrangement of blocks, structure rules (`checkEmailLayout`) and a visual treatment. The three presets are `short_cta` (optional photo, one headline, one or two short paragraphs, one big button last), `long_update` (a level 1 masthead, then mostly paragraphs, at least 2, broken up by level 2 subheadings and dividers; one optional photo right after the masthead; an optional button and signature, with the signature last) and `personal_letter` (paragraphs ending in one signature, an optional understated button, no headings or photos). Every theme in `EMAIL_THEMES` works with every layout. `EmailContentSchema`, with `.describe()` text on every field, checks what is sent and what an AI agent returns, so an agent can draft a whole email the way other channels produce structured drafts. The editor saves through `EmailContentDraftSchema`: the same blocks and rules, except that text and links may be empty and a required block may still be missing.
+An outreach email is `{ layout, theme, subject, previewText?, blocks }`, where `blocks` is an ordered list from a closed set of five types: `heading`, `paragraph`, `image`, `button`, `divider` (`EmailContentSchema` in contracts). A layout is a preset, not a template: a starting arrangement of blocks, structure rules (`checkEmailLayout`) and a visual treatment. The three presets are `short_cta` (optional photo, one headline, one or two short paragraphs, one big button last), `long_update` (a level 1 masthead, then mostly paragraphs, at least 2, broken up by level 2 subheadings and dividers; one optional photo right after the masthead; at most one button) and `personal_letter` (only paragraphs, signed off in the last one, plus at most one understated button). Every theme in `EMAIL_THEMES` works with every layout. `EmailContentSchema`, with `.describe()` text on every field, checks what is sent and what an AI agent returns, so an agent can draft a whole email the way other channels produce structured drafts. The editor saves through `EmailContentDraftSchema`: the same blocks and rules, except that text and links may be empty and a required block may still be missing.
 
 The footer (paid-for-by, postal address, why the reader is getting it, unsubscribe) is not a block. gp-api adds it to every send, so no author or agent can remove or edit it.
 
@@ -26,7 +26,7 @@ The footer (paid-for-by, postal address, why the reader is getting it, unsubscri
 
 Drafts had fixed fields (subject, headline, body, image, button) and three layouts (`newsletter`, `reminder`, `call_to_action`) that rendered nearly the same email. Stephen and Bryan want layouts that look clearly different, without designing for specific cases before we know what candidates and officials will send. A Chief of Staff conversation should be able to turn progress on issues into a constituent update in one step.
 
-Text stays plain (line breaks only) and only `{{first_name}}` and `{{last_name}}` merge, because the gp-api renderer escapes every other brace for SES's Handlebars templates. Links must be `https`. The schema stores them as typed, so the renderer still runs `protectUrl` on every one. The upload flow's check that an image is ours (`assertEmailImageUrl`) covers only the old `imageUrl` today; step 2 applies it to `image.url` and `signature.photoUrl`.
+Text stays plain (line breaks only) and only `{{first_name}}` and `{{last_name}}` merge, because the gp-api renderer escapes every other brace for SES's Handlebars templates. Links must be `https`. The schema stores them as typed, so the renderer still runs `protectUrl` on every one. The upload flow's check that an image is ours (`assertEmailImageUrl`) covers only the old `imageUrl` today; step 2 applies it to every `image` block.
 
 Limits suit a long letter: 2,000 characters per paragraph, 30 blocks and 15,000 characters of text per email (about 2,500 words).
 
@@ -34,7 +34,7 @@ Rollout:
 
 - Step 1 (this record): the contracts schema, the presets and example drafts. Nothing reads them yet.
 - Step 2: a renderer per block and a treatment per layout in `templates/`, a JSON column on `OutreachEmail` (schema-only migration), and the compose block editor. Email is at 0% in prod, so only dev drafts use the old fields. They are mapped to blocks in code when loaded (headline to heading, body to paragraph, image, button), with no data migration. The old columns and `EMAIL_LAYOUTS` are deleted once nothing reads them.
-- Step 3: AI and agent drafting return `EmailContent`, using `EMAIL_CONTENT_EXAMPLES` as few-shot examples.
+- Step 3: AI and agent drafting return `EmailContent`, using `EMAIL_CONTENT_EXAMPLES` as few-shot examples. The schema rejects HTML and unknown merge tags but can't reliably detect markdown, so step 3 strips markdown (`**`, `#`, `[text](url)`) from agent text before validating.
 
 ## Alternatives rejected
 

@@ -43,21 +43,14 @@ export const EMAIL_LAYOUT_PRESETS = {
     description:
       'A longer read: a headline, then several paragraphs broken up with subheadings.',
     defaultTheme: 'classic_blue',
-    allowedBlocks: [
-      'heading',
-      'paragraph',
-      'image',
-      'button',
-      'divider',
-      'signature',
-    ],
+    allowedBlocks: ['heading', 'paragraph', 'image', 'button', 'divider'],
     rules: [
       'Starts with a level 1 heading (the masthead).',
       'Mostly paragraphs, at least 2. Break up the text with level 2 subheadings and dividers.',
       'Any heading after the masthead is level 2.',
       'At most one photo, and only right after the masthead.',
-      'At most one button and one signature.',
-      'A signature, if any, is the last block.',
+      'At most one button.',
+      'End with a closing paragraph, such as "Thank you," then your name.',
     ],
     starterBlocks: [
       { type: 'heading', text: '', level: 1 },
@@ -68,18 +61,18 @@ export const EMAIL_LAYOUT_PRESETS = {
   },
   personal_letter: {
     label: 'Personal letter',
-    description: 'A plain note from you, signed with your name.',
+    description: 'A plain note from you, in paragraphs.',
     defaultTheme: 'cream_and_forest',
-    allowedBlocks: ['paragraph', 'button', 'signature'],
+    allowedBlocks: ['paragraph', 'button'],
     rules: [
-      'Starts with a paragraph. No headings and no photos except the signature headshot.',
+      'Only paragraphs, starting with one. No headings, photos or dividers.',
+      'Sign off in the last paragraph, such as "Thank you," then your name and office.',
       'At most one button, drawn as a quiet link.',
-      'Exactly one signature, and it is the last block.',
     ],
     starterBlocks: [
       { type: 'paragraph', text: '' },
       { type: 'paragraph', text: '' },
-      { type: 'signature', name: '', title: '' },
+      { type: 'paragraph', text: '' },
     ],
   },
 } as const satisfies Record<string, EmailLayoutPreset>
@@ -203,11 +196,6 @@ export const checkEmailLayout = (
       }
     })
     atMostOne('button', 'button')
-    atMostOne('signature', 'signature')
-    const signatureAt = blocks.findIndex((block) => block.type === 'signature')
-    if (signatureAt !== -1 && signatureAt !== last) {
-      add(signatureAt, 'The signature goes last')
-    }
   }
 
   if (layout === 'personal_letter') {
@@ -217,14 +205,6 @@ export const checkEmailLayout = (
       add(0, 'Start with a paragraph')
     }
     atMostOne('button', 'button')
-    const signatures = countOf(blocks, 'signature')
-    if (signatures === 0) {
-      missing('Sign it with your name')
-    } else if (signatures > 1) {
-      add(null, 'Use exactly one signature')
-    } else if (blocks[last]?.type !== 'signature') {
-      add(last, 'The signature goes last')
-    }
   }
 
   return issues

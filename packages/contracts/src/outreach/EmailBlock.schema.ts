@@ -9,8 +9,6 @@ export const EMAIL_HEADING_MAX_LENGTH = 120
 export const EMAIL_PARAGRAPH_MAX_LENGTH = 2000
 export const EMAIL_IMAGE_ALT_MAX_LENGTH = 150
 export const EMAIL_BLOCK_BUTTON_LABEL_MAX_LENGTH = 40
-export const EMAIL_SIGNATURE_NAME_MAX_LENGTH = 80
-export const EMAIL_SIGNATURE_TITLE_MAX_LENGTH = 120
 export const EMAIL_MAX_BLOCKS = 30
 // Every text field summed, so thirty full blocks can't make a 60,000
 // character email. Room for a long update of about 2,500 words.
@@ -133,38 +131,13 @@ const blockSchemas = (mode: Mode) => {
       'A button that opens a link. Use one per email, for the main ask.',
     )
 
-  const signature = z
-    .object({
-      type: z.literal('signature'),
-      name: text(mode, EMAIL_SIGNATURE_NAME_MAX_LENGTH, false).describe(
-        'The sender’s name as they sign it, like "Maria Lopez".',
-      ),
-      title: text(mode, EMAIL_SIGNATURE_TITLE_MAX_LENGTH, false).describe(
-        'The line under the name, like "Candidate for City Council, Ward 3" or "Mayor of Riverton".',
-      ),
-      photoUrl: url(mode)
-        .optional()
-        .describe(
-          'An optional https link to a headshot the sender uploaded. Never invent one.',
-        ),
-    })
-    .strict()
-    .describe('The sign-off at the end of the email.')
-
   const divider = z
     .object({ type: z.literal('divider') })
     .strict()
     .describe('A thin line between parts of a long email.')
 
   return z
-    .discriminatedUnion('type', [
-      heading,
-      paragraph,
-      image,
-      button,
-      signature,
-      divider,
-    ])
+    .discriminatedUnion('type', [heading, paragraph, image, button, divider])
     .describe('One block of the email. `type` decides which fields it takes.')
 }
 
@@ -182,7 +155,6 @@ export const EMAIL_BLOCK_TYPES = [
   'paragraph',
   'image',
   'button',
-  'signature',
   'divider',
 ] as const satisfies readonly EmailBlockType[]
 
@@ -207,8 +179,6 @@ export const emailBlockTextLength = (block: EmailBlockDraft): number => {
       return block.alt.length
     case 'button':
       return block.label.length
-    case 'signature':
-      return block.name.length + block.title.length
     case 'divider':
       return 0
   }
