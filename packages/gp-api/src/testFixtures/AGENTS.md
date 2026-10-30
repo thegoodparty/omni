@@ -5,6 +5,14 @@ any script that needs a dev user in a known product state.
 
 ## Endpoints (all 404 outside dev/preview)
 
+Every controller in this folder carries `@NonProdDeployOnly()`
+(`guards/NonProdDeploy.guard.ts`), which 404s when `IS_NON_PROD_DEPLOY` is
+false. A new controller here must use it; `testFixtures.nonProdGuard.routes.test.ts`
+fails when one does not. The guard is also registered as an `APP_GUARD` ahead of
+`SessionGuard` in `AppModule`, because Nest runs global guards before class
+guards and prod would otherwise answer 401 before 404. Keep the per-route
+`assertNonProdDeploy()` calls as the second layer.
+
 Four auth tiers. Most routes live in `TestFixturesController` and require
 `AdminOrM2MGuard`. The vendor-mock routes live in
 `TestFixturesVendorMocksController` and require only a normal signed-in session

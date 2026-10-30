@@ -271,10 +271,11 @@ Provides `this.model`, `this.client`, `this.logger`, bound passthroughs (`findMa
 
 ## Auth
 
-Two global guards run in order:
+Three global guards run in order:
 
-1. `SessionGuard` — accepts user JWTs from cookies, and verifies Clerk M2M (`mt_*`) tokens
-2. `RolesGuard` — enforces `@Roles(...)`
+1. `NonProdDeployGuard` (`app.module.ts`) — 404s `@NonProdDeployOnly()` test-fixture routes on prod, before any auth
+2. `SessionGuard` — accepts user JWTs from cookies, and verifies Clerk M2M (`mt_*`) tokens
+3. `RolesGuard` — enforces `@Roles(...)`
 
 Decorators: `@PublicAccess()`, `@Roles(UserRole.X)`, `@ReqUser()`. Route-level guards: `AdminOrM2MGuard`, `M2MOnly`.
 

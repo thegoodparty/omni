@@ -1,3 +1,4 @@
+import { NonProdDeployOnly } from './guards/NonProdDeploy.guard'
 import {
   BadRequestException,
   Body,
@@ -50,6 +51,7 @@ import { JudgeChatFixtureService } from './services/judgeChatFixture.service'
 // is the same split TestFixturesVendorMocksController already makes for
 // Playwright.
 @Controller('test-fixtures/judge-chat-cases')
+@NonProdDeployOnly()
 export class TestFixturesJudgeController {
   constructor(private readonly judgeFixture: JudgeChatFixtureService) {}
 
