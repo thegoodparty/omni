@@ -494,10 +494,11 @@ export class DashboardCardsService extends createPrismaBase(
         strict: false,
       })
       const { panel } = await panels.read(organization)
-      // Only the filling-up card names the place, which takes a district
-      // lookup.
+      // Only the filling-up card and the ready card name the place, which
+      // takes a district lookup.
       const place =
-        panel?.status === 'building' && panel.progress.members > 0
+        (panel?.status === 'building' && panel.progress.members > 0) ||
+        panel?.status === 'ready'
           ? await panels.districtPlace(organization)
           : null
       return { panel, place }
