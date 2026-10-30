@@ -14,7 +14,7 @@ import {
   emailSendQueryKey,
   useEmailSend,
 } from './emailApi'
-import { parseBlockError } from './emailBlocks.util'
+import { isBlockError } from './emailForm.util'
 import { formatDollars } from './emailFlow.util'
 import type { EmailSurface } from './emailSurface'
 
@@ -29,7 +29,7 @@ interface EmailPayStepProps {
   // stops offering Back. A declined card leaves the send a draft.
   onConfirmAttempted: () => void
   // Confirm refused the content and named a block: nothing left draft, so
-  // the flow goes back to that block.
+  // the flow goes back to the field it came from.
   onFixBlock: (message: string) => void
 }
 
@@ -75,7 +75,7 @@ export const EmailPayStep = ({
       // and Back stays.
       if (e instanceof FetchError && e.status === BAD_REQUEST) {
         const message = apiErrorMessage(e)
-        if (parseBlockError(message)) onFixBlock(message)
+        if (isBlockError(message)) onFixBlock(message)
         throw e
       }
       onConfirmAttempted()

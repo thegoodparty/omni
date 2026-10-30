@@ -2,7 +2,7 @@ import {
   EMAIL_SEND_WINDOW_DAYS,
   type EmailDraftSaveContent,
 } from '@goodparty_org/contracts'
-import { toContent, type EmailComposeState } from './emailBlocks.util'
+import { toContent, type EmailComposeState } from './emailForm.util'
 
 // The warming ladder from the TDD, indexed by the sender's `warmingStep`.
 // gp-api freezes the real cap when the send is confirmed; this is the number

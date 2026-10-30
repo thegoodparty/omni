@@ -33,8 +33,12 @@ Limits suit a long letter: 2,000 characters per paragraph, 30 blocks and 15,000 
 Rollout:
 
 - Step 1 (this record): the contracts schema, the presets and example drafts. Nothing reads them yet.
-- Step 2: a renderer per block and a treatment per layout in `templates/`, a JSON column on `OutreachEmail` (schema-only migration), and the compose block editor. Email is at 0% in prod, so only dev drafts use the old fields. They are mapped to blocks in code when loaded (headline to heading, body to paragraph, image, button), with no data migration. The old columns and `EMAIL_LAYOUTS` are deleted once nothing reads them. In `personal_letter` the photo renders padded and centered like a photo in a normal email, not full-bleed.
+- Step 2: a renderer per block and a treatment per layout in `templates/`, a JSON column on `OutreachEmail` (schema-only migration), and the compose UI. Email is at 0% in prod, so only dev drafts use the old fields. They are mapped to blocks in code when loaded (headline to heading, body to paragraph, image, button), with no data migration. The old columns and `EMAIL_LAYOUTS` are deleted once nothing reads them. In `personal_letter` the photo renders padded and centered like a photo in a normal email, not full-bleed.
 - Step 3: AI and agent drafting return `EmailContent`, using `EMAIL_CONTENT_EXAMPLES` as few-shot examples. The schema rejects HTML and unknown merge tags but can't reliably detect markdown, so step 3 strips markdown (`**`, `#`, `[text](url)`) from agent text before validating.
+
+## Compose UI
+
+The author never edits blocks directly. Compose is a simple form (subject, a title for the H1, one message box, one optional photo, one optional button) that converts to and from blocks in the webapp (`emailForm.util.ts`): a blank line splits paragraphs, a `## ` line is an H2 in `long_update` only, and dividers are not in the form. The data model, the renderer and the API stay blocks, so an agent can still return any `EmailContent`. A card-per-block editor shipped first (#3477) and was replaced by the form because it was too complicated to use.
 
 ## Alternatives rejected
 

@@ -1,5 +1,5 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
-import { screen, waitFor, within } from '@testing-library/react'
+import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { api } from 'helpers/test-utils/api-mocking'
 import { render } from 'helpers/test-utils/render'
@@ -130,14 +130,10 @@ const mockApi = () => {
   return saves
 }
 
-// The personal letter starts with three empty paragraphs: write the first
-// and remove the other two.
 const writeLetter = async (user: ReturnType<typeof userEvent.setup>) => {
   await user.type(await screen.findByLabelText('Subject'), 'Hello')
-  await user.click(screen.getByRole('textbox', { name: 'Paragraph 1' }))
+  await user.click(screen.getByRole('textbox', { name: 'Message' }))
   await user.keyboard('Hi there')
-  await user.click(screen.getByRole('button', { name: 'Remove paragraph 3' }))
-  await user.click(screen.getByRole('button', { name: 'Remove paragraph 2' }))
 }
 
 const fillCompose = async (user: ReturnType<typeof userEvent.setup>) => {
@@ -173,8 +169,9 @@ describe('EmailFlow', () => {
 
     expect(await screen.findByLabelText('Subject')).toBeInTheDocument()
     expect(screen.getByTestId('email-ai-draft')).toBeInTheDocument()
-    expect(screen.getAllByTestId('email-block')).toHaveLength(3)
-    expect(screen.getByTestId('email-add-block')).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: 'Message' })).toBeInTheDocument()
+    expect(screen.getByTestId('email-photo')).toBeInTheDocument()
+    expect(screen.getByTestId('email-button')).toBeInTheDocument()
   })
 
   it('drafts with AI, sending the goal and tone, and fills the fields', async () => {
@@ -275,13 +272,8 @@ describe('EmailFlow', () => {
     render(<EmailFlow open onClose={vi.fn()} />)
 
     await fillCompose(user)
-    await user.click(
-      within(screen.getByTestId('email-add-block')).getByRole('button', {
-        name: 'Photo',
-      }),
-    )
     await user.upload(
-      screen.getByLabelText('Upload a photo'),
+      screen.getByLabelText('Photo (optional)'),
       new File(['x'], 'logo.png', { type: 'image/png' }),
     )
     await screen.findByText('Photo added.')
@@ -293,8 +285,8 @@ describe('EmailFlow', () => {
     expect(saves[0]).toMatchObject({
       content: {
         blocks: [
-          { type: 'paragraph', text: 'Hi there' },
           { type: 'image', url: publicUrl, alt: 'My logo' },
+          { type: 'paragraph', text: 'Hi there' },
         ],
       },
     })
@@ -436,7 +428,7 @@ describe('EmailFlow', () => {
     ).toBeInTheDocument()
   })
 
-  it('takes a refused test send back to the block it names', async () => {
+  it('takes a refused test send back to the field it names', async () => {
     mockApi()
     api.mock('POST /v1/outreach/email/:id/test', {
       status: 400,
@@ -466,10 +458,12 @@ describe('EmailFlow', () => {
     )
 
     expect(
-      within(await screen.findByRole('group', { name: 'Paragraph' })).getByText(
-        'Keep this to one line.',
-      ),
+      await screen.findByText('Keep this to one line.'),
     ).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: 'Message' })).toHaveAttribute(
+      'aria-invalid',
+      'true',
+    )
   })
 
   it('sends the Serve surface through the office-scoped routes with constituent copy', async () => {
