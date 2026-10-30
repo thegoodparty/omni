@@ -71,6 +71,7 @@ import { VotersModule } from '@/voters/voters.module'
 import { WebsitesModule } from '@/websites/websites.module'
 import { Module } from '@nestjs/common'
 import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core'
+import { NonProdDeployGuard } from '@/testFixtures/guards/NonProdDeploy.guard'
 import { ScheduleModule } from '@nestjs/schedule'
 import { loggerModule } from './observability/logging/logger-module'
 // Imported last (after all feature modules) so its transitive import chain
@@ -183,6 +184,10 @@ import { VendorMocksModule } from '@/vendorMocks/vendorMocks.module'
     .concat(process.env.NODE_ENV === 'test' ? [] : [QueueConsumerModule]),
   providers: [
     SessionsService,
+    {
+      provide: APP_GUARD,
+      useClass: NonProdDeployGuard,
+    },
     {
       provide: APP_GUARD,
       useClass: SessionGuard,

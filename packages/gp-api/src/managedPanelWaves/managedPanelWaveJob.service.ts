@@ -621,7 +621,8 @@ export const managedPanelReadyEmail = (
     '',
     `Your civic panel is ready. ${members} residents from across your district said yes to hearing from you.`,
     '',
-    'Ask them what they think before your next vote.',
+    'Ask them what they think whenever you want to hear from your whole ' +
+      'district.',
     '',
     `See your civic panel: ${APP_ROOT}${CIVIC_PANEL_PAGE_HREF}`,
     '',

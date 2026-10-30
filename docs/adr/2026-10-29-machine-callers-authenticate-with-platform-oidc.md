@@ -1,6 +1,6 @@
 ---
 title: Machine callers authenticate to gp-api with their platform's OIDC token
-status: active
+status: superseded
 decided_by: [swain]
 date: 2026-10-29
 code: ['#3395', '#3421', '#3435']
@@ -9,7 +9,7 @@ scope:
   - packages/gp-api/deploy/index.ts
 supersedes:
   - 2026-10-29-vercel-callers-authenticate-with-oidc.md
-superseded_by:
+superseded_by: 2026-10-29-gp-admin-is-a-vercel-oidc-machine-caller.md
 ---
 
 # Machine callers authenticate to gp-api with their platform's OIDC token

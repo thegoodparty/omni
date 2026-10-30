@@ -56,10 +56,12 @@ nothing boring would work.
 | gp-api -> election-db       | Prisma (in process)      | Second client; ETL-owned, read-only                     |
 | M2M caller -> gp-api        | Bearer `mt_*` token      | `ClerkM2MAuthGuard`                                     |
 | Vercel site -> gp-api       | Bearer Vercel OIDC token | Read-only service reader; gp-marketing, candidate-sites |
+| gp-admin -> gp-api          | Bearer Vercel OIDC token | Full M2M caller; prod takes only its production deploy  |
 | GitHub workflow -> gp-api   | Bearer GitHub OIDC token | Read-only service reader; gp-marketing sitemap workflow |
 | External -> gp-webapp       | Public                   | Public election/candidate pages                         |
 
-gp-api runs three global guards in order: `ClerkM2MAuthGuard`, `SessionGuard`,
+gp-api runs three global guards in order: `NonProdDeployGuard` (404s routes
+marked `@NonProdDeployOnly()` on prod, before auth), `SessionGuard`,
 `RolesGuard`. Detail and decorators: `packages/gp-api/src/authentication/AGENTS.md`.
 
 ## Contracts — the cross-service source of truth

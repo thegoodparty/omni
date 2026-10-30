@@ -69,6 +69,10 @@ model VoterFileFilter {
   /// Encoded `county|precinct` pairs; an empty precinct side is the "no
   /// precinct on file" bucket. Per-district vocabulary, so there is no enum.
   precincts                  String[]                           @default([]) @map("precincts")
+  /// Win only. `voterFile` (people the voter file holds) and/or `imported`
+  /// (people only an import added, new contacts). Both, or neither, is no
+  /// constraint.
+  source                     String[]                           @default([]) @map("source")
   incomeUnknown              Boolean?                           @default(false) @map("income_unknown")
   ethnicityAsian             Boolean?                           @default(false) @map("ethnicity_asian")
   ethnicityEuropean          Boolean?                           @default(false) @map("ethnicity_european")

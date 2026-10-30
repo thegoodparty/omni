@@ -1,7 +1,7 @@
 /// <reference lib="webworker" />
 import { defaultCache } from '@serwist/next/worker'
 import type { PrecacheEntry, SerwistGlobalConfig } from 'serwist'
-import { ExpirationPlugin, NetworkFirst, Serwist } from 'serwist'
+import { NetworkOnly, Serwist } from 'serwist'
 
 // Precache manifest is injected by `serwist build` at build time.
 declare global {
@@ -18,28 +18,21 @@ const serwist = new Serwist({
   clientsClaim: true,
   navigationPreload: true,
   runtimeCaching: [
-    // defaultCache's /api rule without its 10s networkTimeoutSeconds: a slow
-    // read got the URL's last cached response, which is keyed by URL while the
-    // org travels in a header. The cache now answers only when offline.
+    // API responses are never cached: the cache was keyed by URL while the
+    // org travels in a header, so it could answer with another org's data.
     {
       matcher: ({ sameOrigin, url: { pathname } }) =>
-        sameOrigin &&
-        pathname.startsWith('/api/') &&
-        !pathname.startsWith('/api/auth/'),
+        sameOrigin && pathname.startsWith('/api/'),
       method: 'GET',
-      handler: new NetworkFirst({
-        cacheName: 'apis',
-        plugins: [
-          new ExpirationPlugin({
-            maxEntries: 16,
-            maxAgeSeconds: 24 * 60 * 60,
-            maxAgeFrom: 'last-used',
-          }),
-        ],
-      }),
+      handler: new NetworkOnly(),
     },
     ...defaultCache,
   ],
+})
+
+// Devices that ran the earlier worker still hold its API cache.
+self.addEventListener('activate', (event) => {
+  event.waitUntil(caches.delete('apis'))
 })
 
 serwist.addEventListeners()

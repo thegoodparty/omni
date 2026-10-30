@@ -37,6 +37,7 @@ const sortedJoin = (values: readonly (string | number)[]): string =>
 
 const canonicalizeFilterValue = (value: FilterValue): string => {
   if (typeof value === 'boolean') return String(value)
+  if (Array.isArray(value)) return sortedJoin(value)
   const or = value._or
     ?.map((range) => `${range.gte ?? ''}-${range.lte ?? ''}`)
     .sort()

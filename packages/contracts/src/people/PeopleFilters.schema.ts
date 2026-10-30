@@ -44,6 +44,9 @@ import { z } from 'zod'
  * - votedInElectionReportedIds: { in: string[] } (1-200000 uuids). Not a filter
  *   on its own: the people the campaign recorded as already voted, OR-ed into
  *   votedInElection's Yes and excluded by its No.
+ * - source: ('voterFile' | 'imported')[] — a plain array, no operator. voterFile
+ *   is a person the voter file holds, imported a person only an import added
+ *   (the overlay's ContactIsNew). Both or neither is no constraint.
  */
 export type IncomeRange = { min: number; max: number | null }
 
@@ -128,6 +131,12 @@ export const PEOPLE_FILTER_VALUE_ENUMS = {
   // state does not report.
   votedInElection: ['Yes', 'No'] as const,
 } as const
+
+// Where a person comes from on Win: the voter file, or an import that
+// could not be matched to anyone in it (a "new contact").
+export const PEOPLE_FILTER_SOURCES = ['voterFile', 'imported'] as const
+export const PeopleFilterSourceSchema = z.enum(PEOPLE_FILTER_SOURCES)
+export type PeopleFilterSource = z.infer<typeof PeopleFilterSourceSchema>
 
 export const createEnumFilterSchema = <T extends readonly string[]>(
   allowedValues: T,
@@ -325,9 +334,7 @@ export const PeopleFiltersSchema = z.object({
   estimatedIncomeAmountInt: createNumericFilterSchema().optional(),
   ageInt: createNumericFilterSchema().optional(),
   precinct: createPrecinctFilterSchema().optional(),
-  // Win: voterFile is everyone in the voter file, imported is the new
-  // contacts only an import added. Both or neither is no filter.
-  source: z.array(z.enum(['voterFile', 'imported'])).optional(),
+  source: z.array(PeopleFilterSourceSchema).optional(),
 })
 
 export type PeopleFilters = z.infer<typeof PeopleFiltersSchema>

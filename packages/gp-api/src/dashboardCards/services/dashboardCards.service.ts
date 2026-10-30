@@ -169,9 +169,12 @@ export const managedPanelProgressCardContent = (
     ctaHref: CIVIC_PANEL_PAGE_HREF,
   }
   if (panel.status === 'ready') {
+    const hearFrom = place ? `all of ${place}` : 'your whole district'
     return {
       title: 'Your civic panel is ready',
-      summary: `${members} residents said yes. Ask them what they think before your next vote.`,
+      summary:
+        `${members} residents said yes. Ask them what they think ` +
+        `whenever you want to hear from ${hearFrom}.`,
       ...see,
     }
   }
@@ -491,10 +494,11 @@ export class DashboardCardsService extends createPrismaBase(
         strict: false,
       })
       const { panel } = await panels.read(organization)
-      // Only the filling-up card names the place, which takes a district
-      // lookup.
+      // Only the filling-up card and the ready card name the place, which
+      // takes a district lookup.
       const place =
-        panel?.status === 'building' && panel.progress.members > 0
+        (panel?.status === 'building' && panel.progress.members > 0) ||
+        panel?.status === 'ready'
           ? await panels.districtPlace(organization)
           : null
       return { panel, place }

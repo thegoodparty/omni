@@ -526,8 +526,12 @@ answered. After, it shows everything below.
   place (`RESULTS_COPY.signalMeaning`, `useServePlace`, else "your
   district"). It is the only representativeness
   measure on a theme; nothing shows a share or a range.
-- **A theme opens to what people said.** Each theme has the poll results
-  page's View responses button; it swaps the page for the poll page's own
+- **A theme opens to what people said.** Each theme card is one button
+  ("View responses for <theme>") with a trailing chevron, the chat's
+  civic panel row pattern. It stretches over the card as an absolute
+  overlay rather than wrapping it, so the signal's info button stays a
+  sibling on top (`relative z-10`) and a tap on it never opens the theme.
+  Opening swaps the page for the poll page's own
   theme view (`outreach/v2/poll/results/PollThemeDetail.tsx`: back to Top
   themes, title, people count, summary) holding
   `results/components/PriorityThemeComments.tsx`, the poll reader's list

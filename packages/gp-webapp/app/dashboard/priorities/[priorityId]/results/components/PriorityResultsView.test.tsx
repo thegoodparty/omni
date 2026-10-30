@@ -388,6 +388,14 @@ describe('PriorityResultsView', () => {
     })
 
     expect((await screen.findAllByText(meaning)).length).toBeGreaterThan(0)
+    // The info button sits on the clickable theme card; a tap on it must
+    // not open the theme's responses.
+    expect(
+      screen.getByRole('heading', {
+        level: 1,
+        name: 'What we heard on Flooding',
+      }),
+    ).toBeInTheDocument()
   })
 
   it('opens the meaning from the keyboard', async () => {
@@ -569,7 +577,11 @@ describe('PriorityResultsView theme responses', () => {
     const user = userEvent.setup()
     renderView(results())
 
-    await user.click(screen.getByRole('button', { name: /view responses/i }))
+    await user.click(
+      screen.getByRole('button', {
+        name: 'View responses for Drains back up into homes',
+      }),
+    )
 
     expect(
       screen.getByRole('heading', {
@@ -617,7 +629,11 @@ describe('PriorityResultsView theme responses', () => {
       screen.getByRole('link', { name: 'Download all responses' }),
     ).toHaveAttribute('href', '/api/v1/priorities/p1/results/comments/download')
 
-    await user.click(screen.getByRole('button', { name: /view responses/i }))
+    await user.click(
+      screen.getByRole('button', {
+        name: 'View responses for Drains back up into homes',
+      }),
+    )
 
     const link = screen.getByRole('link', { name: 'Download responses' })
     expect(link).toHaveAttribute(
@@ -638,7 +654,11 @@ describe('PriorityResultsView theme responses', () => {
     const user = userEvent.setup()
     renderView(results())
 
-    await user.click(screen.getByRole('button', { name: /view responses/i }))
+    await user.click(
+      screen.getByRole('button', {
+        name: 'View responses for Drains back up into homes',
+      }),
+    )
 
     expect(
       await screen.findByText("We couldn't load the responses. Try again."),

@@ -11,7 +11,9 @@ export const ListDetailDemographicsSchema = z.object({
   people: z.number().int().min(0),
   avgAge: z.number().nullable(),
   avgIncome: z.number().nullable(),
-  // Of `people`, the new contacts only an import added. Absent without one.
+  // Of `people`, how many only an import added (new contacts, not voters).
+  // Set for a Win campaign with imported contacts; voters are
+  // `people - newContactsCount`.
   newContactsCount: z.number().int().min(0).optional(),
 })
 export type ListDetailDemographics = z.infer<
@@ -37,6 +39,18 @@ export type ListDetailReachability = z.infer<
   typeof ListDetailReachabilitySchema
 >
 
+// Of each `reachability` channel, how many only an import added (new
+// contacts, not voters). Same shape as reachability.
+export const NewContactsReachableSchema = z.object({
+  sms: z.number().int().min(0).nullable(),
+  robocall: z.number().int().min(0).nullable(),
+  phoneBanking: z.number().int().min(0).nullable(),
+  doorKnocking: z.number().int().min(0).nullable(),
+  email: z.number().int().min(0).nullable(),
+  polls: z.number().int().min(0).nullable(),
+})
+export type NewContactsReachable = z.infer<typeof NewContactsReachableSchema>
+
 export const ListDetailOutreachHistoryEntrySchema = z.object({
   id: z.number().int(),
   name: z.string().nullable(),
@@ -51,13 +65,15 @@ export type ListDetailOutreachHistoryEntry = z.infer<
   typeof ListDetailOutreachHistoryEntrySchema
 >
 
+// `demographics.people` and `reachability` count everyone. For a Win
+// campaign with imported contacts, `demographics.newContactsCount` and
+// `newContactsReachable` say how many of them are new contacts; absent
+// otherwise.
 export const ListDetailContactsResponseSchema = z.object({
   demographics: ListDetailDemographicsSchema,
   reachability: ListDetailReachabilitySchema,
-  // Of each `reachability` count, the new contacts only an import added.
-  // Absent without one.
-  newContactsReachable: ListDetailReachabilitySchema.optional(),
   outreachHistory: z.array(ListDetailOutreachHistoryEntrySchema),
+  newContactsReachable: NewContactsReachableSchema.optional(),
 })
 export type ListDetailContactsResponse = z.infer<
   typeof ListDetailContactsResponseSchema
