@@ -428,7 +428,8 @@ describe('Win Campaign Manager imported-contact overlay', () => {
         ' coalesce(b.`voter_key`, o.`voter_key`) AS `voter_key`,' +
         " 'MI' AS `state_postal_code`, 'Lansing' AS `City`," +
         ' coalesce(o.`on_uploaded_list`, false) AS `on_uploaded_list`,' +
-        ' coalesce(o.`has_email`, false) AS `has_email`' +
+        ' coalesce(o.`has_email`, false) AS `has_email`,' +
+        ' coalesce(o.`is_new`, false) AS `new_contact`' +
         ' FROM (SELECT * FROM' +
         ' goodparty_data_catalog.mart_win_agents.win_agent_voters' +
         " WHERE `state_postal_code` = 'MI' AND `City` = 'Lansing') b" +

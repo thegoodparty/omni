@@ -32,6 +32,9 @@ export type ComputedDistrictStats = {
   totalConstituentsWithCellPhone: number
   districtPopulation: number | null
   buckets: DistrictStatsBuckets
+  // Only when the read splits new contacts out: everything above is then
+  // voters only, and this counts the people only an import added.
+  newContactsCount?: number
 }
 
 export const STATS_DIMENSION_KEYS = [
@@ -157,8 +160,19 @@ export const TOTAL_DIMENSION = 'TOTAL'
 // plus a grand-total row from the empty set, which is where the two totals come
 // from -- so five distributions and both totals cost a single pass rather than
 // one aggregate per dimension.
-export const buildDistrictStatsSql = (district: DbxDistrict): DbxStatement => {
+//
+// With `splitNewContacts` (a Win campaign with imported contacts, read
+// through the overlay) every count is voters only, and the TOTAL row's
+// trailing new_count counts the people only an import added. A bucket only
+// new contacts fall in comes back as 0 and is dropped.
+export const buildDistrictStatsSql = (
+  district: DbxDistrict,
+  options: { splitNewContacts?: boolean } = {},
+): DbxStatement => {
   const bag = createBag()
+  const split =
+    options.splitNewContacts === true &&
+    district.dataset.overlayOrgSlug !== undefined
   const scope = buildScopeSql(bag, {
     district,
     filters: { filters: [], filterValues: {}, filterOperators: {} },
@@ -171,13 +185,19 @@ export const buildDistrictStatsSql = (district: DbxDistrict): DbxStatement => {
   ).join(' ')
   const labelCoalesce = STATS_DIMENSIONS.map(([key]) => key).join(', ')
   const groupingSets = STATS_DIMENSIONS.map(([key]) => `(${key})`).join(', ')
+  const counts = split
+    ? 'COUNT_IF(NOT is_new) AS count,' +
+      ' COUNT_IF(cell IS NOT NULL AND NOT is_new) AS with_cell,' +
+      ' COUNT_IF(is_new) AS new_count'
+    : 'COUNT(*) AS count, COUNT(cell) AS with_cell'
   const sql =
     `WITH scoped AS (SELECT ${projections},` +
     ` ${col('VoterTelephones_CellPhoneFormatted')} AS cell` +
+    (split ? `, coalesce(${col('ContactIsNew')}, false) AS is_new` : '') +
     ` FROM ${district.table} v ${scope})` +
     ` SELECT CASE ${dimensionCase} ELSE ${quote(TOTAL_DIMENSION)} END AS dimension,` +
     ` coalesce(${labelCoalesce}, ${quote('all')}) AS label,` +
-    ` COUNT(*) AS count, COUNT(cell) AS with_cell` +
+    ` ${counts}` +
     ` FROM scoped GROUP BY GROUPING SETS (${groupingSets}, ())`
   return { sql, params: bag.params }
 }
@@ -203,6 +223,7 @@ export const mapDistrictStatsRows = (
 ): ComputedDistrictStats | null => {
   let total = 0
   let withCell = 0
+  let newContactsCount: number | undefined
   const collected: Record<StatsDimensionKey, DistrictStatsBucket[]> = {
     age: [],
     education: [],
@@ -211,13 +232,15 @@ export const mapDistrictStatsRows = (
     estimatedIncomeRange: [],
   }
   const pending: Array<[StatsDimensionKey, string, number]> = []
-  for (const [dimension, label, count, cell] of rows) {
+  for (const [dimension, label, count, cell, newCount] of rows) {
     if (dimension === TOTAL_DIMENSION) {
       total = Number(count ?? 0)
       withCell = Number(cell ?? 0)
+      if (newCount !== undefined) newContactsCount = Number(newCount ?? 0)
       continue
     }
     if (!dimension || !isDimensionKey(dimension)) continue
+    if (Number(count ?? 0) === 0) continue
     pending.push([dimension, label ?? '', Number(count ?? 0)])
   }
   if (total === 0) return null
@@ -240,5 +263,6 @@ export const mapDistrictStatsRows = (
     totalConstituentsWithCellPhone: withCell,
     districtPopulation,
     buckets: collected,
+    ...(newContactsCount === undefined ? {} : { newContactsCount }),
   }
 }

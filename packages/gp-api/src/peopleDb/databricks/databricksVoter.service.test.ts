@@ -380,6 +380,78 @@ describe('DatabricksVoterService', () => {
       })
     })
 
+    it('reads new contacts beside the voters when split over the overlay', async () => {
+      query.mockResolvedValueOnce({
+        columns: [],
+        rows: [
+          [
+            '900',
+            '47.5',
+            '82000.25',
+            '700',
+            '200',
+            '500',
+            '100',
+            '30',
+            '14',
+            '9',
+            '1',
+            '10',
+            '0',
+            '12',
+          ],
+        ],
+      })
+
+      const result = await service.getListDetailAggregates(
+        aggregatesSchema.parse({ districtId: DISTRICT_ID }),
+        {
+          base: 'voters',
+          overlayOrgSlug: 'campaign-1',
+          overlayDistrictId: DISTRICT_ID,
+        },
+        { splitNewContacts: true },
+      )
+
+      expect(query.mock.calls[0]?.[0].sql).toContain(
+        'COUNT_IF(coalesce(v.`ContactIsNew`, false)) AS new_count',
+      )
+      expect(result).toEqual({
+        count: 900,
+        avgAge: 47.5,
+        avgIncome: 82000.25,
+        sms: 700,
+        robocall: 200,
+        phoneBanking: 500,
+        doorKnocking: 100,
+        email: 30,
+        newContacts: {
+          count: 14,
+          sms: 9,
+          robocall: 1,
+          phoneBanking: 10,
+          doorKnocking: 0,
+          email: 12,
+        },
+      })
+    })
+
+    it('does not split without the overlay', async () => {
+      query.mockResolvedValueOnce({
+        columns: [],
+        rows: [['999', null, null, '7', '2', '5', '1', '0']],
+      })
+
+      const result = await service.getListDetailAggregates(
+        aggregatesSchema.parse({ districtId: DISTRICT_ID }),
+        { base: 'voters' },
+        { splitNewContacts: true },
+      )
+
+      expect(query.mock.calls[0]?.[0].sql).not.toContain('new_count')
+      expect(result).not.toHaveProperty('newContacts')
+    })
+
     // All-or-nothing now: there is no per-channel settling left to degrade to,
     // so a warehouse outage has to surface as a 502 rather than zeroed tiles,
     // which the product would read as "this office has nobody to reach".

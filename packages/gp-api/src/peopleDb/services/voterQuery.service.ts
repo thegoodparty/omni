@@ -150,12 +150,14 @@ export class VoterQueryService {
   async getListDetailAggregates(
     dto: AggregatesDTO,
     dataset: PeopleDataset,
+    options: { splitNewContacts?: boolean } = {},
   ): Promise<PeopleListDetailAggregatesResponse> {
     return this.readLog.measure({
       op: 'list-detail-aggregates',
       districtId: dto.districtId,
       dataset,
-      read: () => this.databricks.getListDetailAggregates(dto, dataset),
+      read: () =>
+        this.databricks.getListDetailAggregates(dto, dataset, options),
     })
   }
 

@@ -125,6 +125,33 @@ describe('buildCampaignManagerSystemPrompt', () => {
     expect(prompt).not.toContain('on the basis of ethnicity')
   })
 
+  it('calls imported people not in the voter file new contacts added, apart from voters', () => {
+    const prompt = buildCampaignManagerSystemPrompt(
+      ctx({
+        peopleDataset: {
+          base: 'voters',
+          overlayOrgSlug: 'campaign-springfield',
+          overlayDistrictId: 'district-1',
+        },
+      }),
+    )
+    expect(prompt).toContain('are "new contacts added", never voters')
+    expect(prompt).toContain(
+      'give voters and new contacts added as two separate numbers',
+    )
+  })
+
+  it('says nothing about new contacts without imported contacts', () => {
+    expect(buildCampaignManagerSystemPrompt(ctx())).not.toContain(
+      'new contacts added',
+    )
+    expect(
+      buildCampaignManagerSystemPrompt(
+        ctx({ peopleDataset: { base: 'voters' } }),
+      ),
+    ).not.toContain('new contacts added')
+  })
+
   it('always includes the honest reporting rules', () => {
     const prompt = buildCampaignManagerSystemPrompt(ctx())
     expect(prompt).toContain(HONEST_REPORTING_BLOCK)

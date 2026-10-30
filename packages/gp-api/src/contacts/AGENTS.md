@@ -35,6 +35,17 @@ fixes track under ENG-10744.
   (`src/peopleDb/AGENTS.md`, "Imported contacts join the read"). Uploaded
   phone, address and email win; `Person.email` and `Person.isNewContact`
   carry the result. Uploads themselves live in `src/contactUploads/`.
+- **On Win, a person only an import added is a "new contact added", never a
+  voter.** For a Win campaign with the overlay (`ContactsService.splitsNewContacts`),
+  `GET /v1/contacts/stats` and both list-detail routes count voters only
+  (`totalConstituents`, `demographics.people`, every `reachability` channel)
+  and return `newContactsCount` (and `newContactsReachable` per channel)
+  beside them, from the same statement. Serve, and Win without imports, omit
+  both and count as before. `POST /v1/contacts/count` still counts everyone
+  a filter matches. The `source` filter (`voterFile` / `imported`, a
+  `VoterFileFilter` column and a Win-only catalog dimension offered only
+  with the overlay) picks one side; Serve 400s on it like party.
+  `docs/adr/2026-10-30-win-new-contacts-counted-next-to-voters.md`.
 - **Enhancements live in gp-api Postgres**, keyed
   `(organizationSlug, personId)`: `ContactNote` plus the per-channel
   `ContactInteraction*` models. Orgs are legally isolated — outreach data

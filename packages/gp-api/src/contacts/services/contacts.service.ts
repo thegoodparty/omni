@@ -130,6 +130,7 @@ import {
   CITIZEN_PANEL_DIMENSION_KEYS,
   FILTER_DIMENSIONS,
   type FilterDimension,
+  SOURCE_DIMENSION_KEY,
 } from '../filterDimensions.catalog'
 import { buildPreviewContacts } from '../utils/previewContacts.utils'
 
@@ -366,6 +367,19 @@ export class ContactsService {
     return organization.slug.startsWith('eo-')
   }
 
+  // A Win campaign with imported contacts counts the people only an import
+  // added next to its voters, never inside them, so "Voters in your
+  // district" stays a count of voters. Serve counts everyone together.
+  private splitsNewContacts(
+    organization: Organization,
+    dataset: PeopleDataset,
+  ): boolean {
+    return (
+      !this.hasElectedOfficeAccess(organization) &&
+      dataset.overlayOrgSlug !== undefined
+    )
+  }
+
   // The filter vocabulary the AI assistant may describe and validate against,
   // mode-filtered: an `eo-` (Serve) org never sees Win-only dimensions
   // (party, ethnicity), mirroring assertNoPartyFilterForElectedOffice and
@@ -378,7 +392,11 @@ export class ContactsService {
   // account of how it assigned the value (peopleDb/partySource.ts).
   getFilterDimensions(
     organization: Organization,
-    options: { citizenPanels: boolean; state?: string | null },
+    options: {
+      citizenPanels: boolean
+      state?: string | null
+      contactOverlay?: boolean
+    },
   ): FilterDimension[] {
     const excludedMode = this.hasElectedOfficeAccess(organization)
       ? 'win'
@@ -388,7 +406,9 @@ export class ContactsService {
       (dimension) =>
         dimension.modes !== excludedMode &&
         (options.citizenPanels ||
-          !CITIZEN_PANEL_DIMENSION_KEYS.has(dimension.key)),
+          !CITIZEN_PANEL_DIMENSION_KEYS.has(dimension.key)) &&
+        (options.contactOverlay === true ||
+          dimension.key !== SOURCE_DIMENSION_KEY),
     ).map((dimension) =>
       dimension.key === 'party' && party && party.provenance !== 'observed'
         ? { ...dimension, provenance: party.provenance, note: party.sentence }
@@ -479,6 +499,19 @@ export class ContactsService {
     if (this.hasElectedOfficeAccess(organization) && 'ethnicity' in filters) {
       throw new BadRequestException(
         'Ethnicity filtering is not available for this organization',
+      )
+    }
+  }
+
+  // Win-only, gated like ethnicity: a Serve office counts imported people
+  // with everyone else, so it has no voter file to split them from.
+  private assertNoSourceFilterForElectedOffice(
+    organization: Organization,
+    filters: FilterObject,
+  ): void {
+    if (this.hasElectedOfficeAccess(organization) && 'source' in filters) {
+      throw new BadRequestException(
+        'Source filtering is not available for this organization',
       )
     }
   }
@@ -644,6 +677,7 @@ export class ContactsService {
     const baseFilters = convertVoterFileFilterToFilters(filterInput)
     this.assertNoPartyFilterForElectedOffice(organization, baseFilters)
     this.assertNoEthnicityFilterForElectedOffice(organization, baseFilters)
+    this.assertNoSourceFilterForElectedOffice(organization, baseFilters)
     this.assertNoRecommendedListFilterForElectedOffice(
       organization,
       baseFilters,
@@ -1229,6 +1263,7 @@ export class ContactsService {
       await this.segmentToFilters(segment, organization)
     this.assertNoPartyFilterForElectedOffice(organization, filters)
     this.assertNoEthnicityFilterForElectedOffice(organization, filters)
+    this.assertNoSourceFilterForElectedOffice(organization, filters)
     this.assertNoRecommendedListFilterForElectedOffice(organization, filters)
     const groupByHousehold = this.segmentGroupsByHousehold(segment)
     // A list saved from a search result set persists its search term. When the
@@ -2170,7 +2205,13 @@ export class ContactsService {
     // alike, because all three read the reachability leaf below.
     search?: string,
   ): Promise<
-    Pick<ListDetailContactsResponse, 'demographics' | 'reachability'>
+    Pick<
+      ListDetailContactsResponse,
+      | 'demographics'
+      | 'reachability'
+      | 'newContactsCount'
+      | 'newContactsReachable'
+    >
   > {
     const aggregates = await this.withOrgDistrictResolution(
       organization,
@@ -2188,8 +2229,10 @@ export class ContactsService {
             ),
           }),
           dataset,
+          { splitNewContacts: this.splitsNewContacts(organization, dataset) },
         ),
     )
+    const { newContacts } = aggregates
 
     // A test organization's stand-in email audience, where a preview can't
     // reach imported contacts (PeopleEmailFixtureService). Null elsewhere.
@@ -2217,6 +2260,19 @@ export class ContactsService {
         // Polls are delivered by text, so reachability mirrors sms 1:1.
         polls: aggregates.sms,
       },
+      ...(newContacts
+        ? {
+            newContactsCount: newContacts.count,
+            newContactsReachable: {
+              sms: newContacts.sms,
+              robocall: newContacts.robocall,
+              phoneBanking: newContacts.phoneBanking,
+              doorKnocking: newContacts.doorKnocking,
+              email: newContacts.email,
+              polls: newContacts.sms,
+            },
+          }
+        : {}),
     }
   }
 
@@ -2945,6 +3001,7 @@ export class ContactsService {
       await this.segmentToFilters(segment, organization)
     this.assertNoPartyFilterForElectedOffice(organization, filters)
     this.assertNoEthnicityFilterForElectedOffice(organization, filters)
+    this.assertNoSourceFilterForElectedOffice(organization, filters)
     this.assertNoRecommendedListFilterForElectedOffice(organization, filters)
     const groupByHousehold = this.segmentGroupsByHousehold(segment)
     const excludeColumns = this.hasElectedOfficeAccess(organization)
@@ -2983,6 +3040,7 @@ export class ContactsService {
       await this.resolveSavedFilterForQuery(organization, filter)
     this.assertNoPartyFilterForElectedOffice(organization, filters)
     this.assertNoEthnicityFilterForElectedOffice(organization, filters)
+    this.assertNoSourceFilterForElectedOffice(organization, filters)
     this.assertNoRecommendedListFilterForElectedOffice(organization, filters)
     const excludeColumns = this.hasElectedOfficeAccess(organization)
       ? SERVE_EXCLUDED_DOWNLOAD_COLUMNS
@@ -3050,6 +3108,7 @@ export class ContactsService {
     const filters = convertVoterFileFilterToFilters(filterInput)
     this.assertNoPartyFilterForElectedOffice(organization, filters)
     this.assertNoEthnicityFilterForElectedOffice(organization, filters)
+    this.assertNoSourceFilterForElectedOffice(organization, filters)
     this.assertNoRecommendedListFilterForElectedOffice(organization, filters)
 
     return this.withOrgDistrictResolution(
@@ -3080,6 +3139,7 @@ export class ContactsService {
     const filters = convertVoterFileFilterToFilters(filterInput)
     this.assertNoPartyFilterForElectedOffice(organization, filters)
     this.assertNoEthnicityFilterForElectedOffice(organization, filters)
+    this.assertNoSourceFilterForElectedOffice(organization, filters)
     this.assertNoRecommendedListFilterForElectedOffice(organization, filters)
 
     return this.withOrgDistrictResolution(organization, (params) =>
@@ -3138,7 +3198,9 @@ export class ContactsService {
     return this.withOrgDistrictResolution(
       organization,
       ({ districtId, dataset }) =>
-        this.fetchStatsByDistrictId(districtId, dataset),
+        this.fetchStatsByDistrictId(districtId, dataset, {
+          splitNewContacts: this.splitsNewContacts(organization, dataset),
+        }),
     )
   }
 
@@ -3155,10 +3217,12 @@ export class ContactsService {
   async fetchStatsByDistrictId(
     districtId: string,
     dataset: PeopleDataset,
+    options: { splitNewContacts?: boolean } = {},
   ): Promise<StatsResponse> {
     const stats = await this.peopleStatsService.findStats(
       StatsDTO.create({ districtId }),
       dataset,
+      options,
     )
 
     // A district with no stats row is the same user-facing state as an org

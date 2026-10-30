@@ -289,6 +289,24 @@ const buildHasEmailFilter = (
   return null
 }
 
+const newContactSql = (): string => `coalesce(${col('ContactIsNew')}, false)`
+
+// voterFile is a person the voter file holds, imported a person only an
+// import added. Without the overlay everyone is in the voter file, so
+// imported alone matches no one rather than erroring.
+const buildSourceFilter = (
+  hasContactOverlay: boolean,
+  op?: FilterOperator,
+): string | null => {
+  if (!op || op.operator !== 'in') return null
+  const values = (op.values ?? []).map(String)
+  const voterFile = values.includes('voterFile')
+  const imported = values.includes('imported')
+  if (voterFile === imported) return null
+  if (!hasContactOverlay) return imported ? 'FALSE' : null
+  return imported ? newContactSql() : `NOT ${newContactSql()}`
+}
+
 const anyPhonePresentSql = (): string =>
   `(${isPresentSql('VoterTelephones_CellPhoneFormatted')}` +
   ` OR ${isPresentSql('VoterTelephones_LandlineFormatted')})`
@@ -899,6 +917,9 @@ export const buildVoterFiltersSql = (
       case 'precinct':
         sql = buildPrecinctFilter(bag, op)
         break
+      case 'source':
+        sql = buildSourceFilter(contactOverlay, op)
+        break
     }
     if (sql) andClauses.push(sql)
   }
@@ -1017,21 +1038,42 @@ export const buildAggregatesSql = (args: DbxScopeArgs): DbxStatement => {
 // No household de-duplication here, because the aggregates path has never
 // had any: COUNT(*) counts voters, and the conditional counts have to count
 // the same population the base count does.
+//
+// With `splitNewContacts` (a Win campaign with imported contacts) every count
+// is voters only, and the people only an import added are counted beside
+// them in the trailing new_* columns, from the same scan.
 export const buildListDetailAggregatesSql = (
-  args: DbxScopeArgs,
+  args: DbxScopeArgs & { splitNewContacts?: boolean },
 ): DbxStatement => {
   const bag = createBag()
-  const cell = isPresentSql('VoterTelephones_CellPhoneFormatted')
-  const landline = isPresentSql('VoterTelephones_LandlineFormatted')
+  const hasOverlay = args.district.dataset.overlayOrgSlug !== undefined
+  const split = hasOverlay && args.splitNewContacts === true
+  const channels: Array<[string, string]> = [
+    ['sms', isPresentSql('VoterTelephones_CellPhoneFormatted')],
+    ['robocall', isPresentSql('VoterTelephones_LandlineFormatted')],
+    ['phoneBanking', anyPhonePresentSql()],
+    ['doorKnocking', addressPresentSql()],
+    ['email', emailPresentSql(hasOverlay)],
+  ]
+  const voterCounts = channels.map(([name, predicate]) =>
+    split
+      ? `COUNT_IF(${predicate} AND NOT ${newContactSql()}) AS ${name}`
+      : `COUNT_IF(${predicate}) AS ${name}`,
+  )
+  const newContactCounts = split
+    ? [
+        `COUNT_IF(${newContactSql()}) AS new_count`,
+        ...channels.map(
+          ([name, predicate]) =>
+            `COUNT_IF(${predicate} AND ${newContactSql()}) AS new_${name}`,
+        ),
+      ]
+    : []
   const sql =
-    `SELECT COUNT(*) AS count,` +
+    `SELECT ${split ? `COUNT_IF(NOT ${newContactSql()})` : 'COUNT(*)'} AS count,` +
     ` AVG(${col('Age_Int')}) AS avgAge,` +
     ` AVG(${col('Estimated_Income_Amount_Int')}) AS avgIncome,` +
-    ` COUNT_IF(${cell}) AS sms,` +
-    ` COUNT_IF(${landline}) AS robocall,` +
-    ` COUNT_IF(${anyPhonePresentSql()}) AS phoneBanking,` +
-    ` COUNT_IF(${addressPresentSql()}) AS doorKnocking,` +
-    ` COUNT_IF(${emailPresentSql(args.district.dataset.overlayOrgSlug !== undefined)}) AS email` +
+    ` ${[...voterCounts, ...newContactCounts].join(', ')}` +
     ` FROM ${args.district.table} v ${buildScopeSql(bag, args)}`
   return { sql, params: bag.params }
 }

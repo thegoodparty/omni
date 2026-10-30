@@ -80,3 +80,32 @@ describe('dataSourceRoutingRules with the imported-contact overlay', () => {
     expect(withOverlay).not.toMatch(/\bvoters\b/i)
   })
 })
+
+describe('dataSourceRoutingRules for a Win campaign with imported contacts', () => {
+  const rules = dataSourceRoutingRules({
+    base: 'voters',
+    overlayOrgSlug: 'campaign-springfield',
+    overlayDistrictId: 'district-1',
+  })
+
+  it('names people only an import added new contacts added, never voters', () => {
+    expect(rules).toContain(
+      'A person an upload added who is not in the voter file is a new contact added, never a voter',
+    )
+    expect(rules).toContain(
+      'give voters and new contacts added as two separate numbers',
+    )
+  })
+
+  it('points the CRM catalog at the source dimension and the mart at new_contact', () => {
+    expect(rules).toContain('source ["voterFile"] for voters')
+    expect(rules).toContain('["imported"] for new contacts added')
+    expect(rules).toContain('new_contact = true marks a new contact added')
+    expect(rules).toContain('add new_contact = false to any total')
+  })
+
+  it('drops the Serve rule that only the mart can single them out', () => {
+    expect(rules).not.toMatch(/never answer these from saved lists/)
+    expect(rules).not.toMatch(/\bconstituents?\b/i)
+  })
+})

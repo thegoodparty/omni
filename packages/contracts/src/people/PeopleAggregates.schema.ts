@@ -26,6 +26,18 @@ export const PeopleListDetailAggregatesResponseSchema = z.object({
   phoneBanking: z.number().int().min(0),
   doorKnocking: z.number().int().min(0),
   email: z.number().int().min(0),
+  // Set only when the read splits new contacts out (a Win campaign with
+  // imported contacts): the counts above are then voters only.
+  newContacts: z
+    .object({
+      count: z.number().int().min(0),
+      sms: z.number().int().min(0),
+      robocall: z.number().int().min(0),
+      phoneBanking: z.number().int().min(0),
+      doorKnocking: z.number().int().min(0),
+      email: z.number().int().min(0),
+    })
+    .optional(),
 })
 export type PeopleListDetailAggregatesResponse = z.infer<
   typeof PeopleListDetailAggregatesResponseSchema

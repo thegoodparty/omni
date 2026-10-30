@@ -193,6 +193,7 @@ describe('win constituent scope: imported-contact overlay', () => {
     expect(scope.contactOverlayTable).toBeUndefined()
     expect(scope.allowedDimensions.has('on_uploaded_list')).toBe(false)
     expect(scope.allowedDimensions.has('has_email')).toBe(false)
+    expect(scope.allowedDimensions.has('new_contact')).toBe(false)
     expect(scope.advertisedDimensions).toBe(
       WIN_AGENT_VOTER_SUGGESTED_DIMENSIONS,
     )
@@ -221,7 +222,8 @@ describe('win constituent scope: imported-contact overlay', () => {
         " 'IL' AS `state_postal_code`," +
         " 'WARD 3' AS `City_Council_Commissioner_District`," +
         ' coalesce(o.`on_uploaded_list`, false) AS `on_uploaded_list`,' +
-        ' coalesce(o.`has_email`, false) AS `has_email`' +
+        ' coalesce(o.`has_email`, false) AS `has_email`,' +
+        ' coalesce(o.`is_new`, false) AS `new_contact`' +
         ' FROM (SELECT * FROM' +
         ' goodparty_data_catalog.mart_win_agents.win_agent_voters' +
         " WHERE `state_postal_code` = 'IL'" +
@@ -233,12 +235,16 @@ describe('win constituent scope: imported-contact overlay', () => {
     )
     expect(scope.allowedDimensions.has('on_uploaded_list')).toBe(true)
     expect(scope.allowedDimensions.has('has_email')).toBe(true)
+    expect(scope.allowedDimensions.has('new_contact')).toBe(true)
     expect(
       scope.advertisedDimensions
-        .filter((d) => ['on_uploaded_list', 'has_email'].includes(d.name))
+        .filter((d) =>
+          ['on_uploaded_list', 'new_contact', 'has_email'].includes(d.name),
+        )
         .map((d) => d.label),
     ).toEqual([
-      'On a contact list the campaign uploaded (values true or false)',
+      'On a contact list the campaign uploaded, voter or new contact (values true or false)',
+      'A new contact added: an imported person not in the voter file, never a voter (values true or false)',
       'Has an email address from a contact list the campaign uploaded (values true or false)',
     ])
   })
