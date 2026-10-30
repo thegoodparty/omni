@@ -25,8 +25,9 @@ the choice (`'voters' | 'constituents'`) and `peopleTable(dataset)` in
 `services/peopleDataset.service.ts` decides it per organization: a Serve
 (`eo-`) org whose owner has the `serve-consumer-data` flag reads
 `constituents`; every other org, and every Win org without exception, reads
-`voters`. It is an Amplitude call, so the caller resolves it once per
-request, job or chat turn and passes it down. `ContactsService` does that in
+`voters`. It is an Amplitude call (two for Serve, one for Win, which asks
+only about imported contacts), so the caller resolves it once per request,
+job or chat turn and passes it down. `ContactsService` does that in
 `withOrgDistrictResolution`, beside the district, and hands it to modules
 that call this one directly through `resolveEligibleDistrict`.
 
@@ -42,8 +43,12 @@ are the same for both.
 
 ## Imported contacts join the read
 
-A Serve org whose owner has `serve-import-contacts` gets `overlayOrgSlug` and
-`overlayDistrictId` (its own district) on the dataset. `resolveDistrict` then
+Any org, Serve or Win, whose owner has `serve-import-contacts` gets
+`overlayOrgSlug` and `overlayDistrictId` (its own district, from its override
+district or position, as `ContactsService` resolves it) on the dataset. A Win
+campaign keeps `voters` as the base, so its imported people read NULL, so
+unknown, in party, voter status, turnout and the other voter-only columns, and
+`Registered_Voter` reads NULL for them (`registeredVoterSql`). `resolveDistrict` then
 sets `district.table` to `contactOverlayTable(...)`: the district-filtered
 people table FULL OUTER JOIN the org's rows of
 `mart_gp_api.<PEOPLE_DBX_CONTACT_OVERLAY_VIEW>`, a dbt view over gp-api's

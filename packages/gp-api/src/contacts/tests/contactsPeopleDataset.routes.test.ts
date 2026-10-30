@@ -19,13 +19,13 @@ const CONSTITUENTS_TABLE =
 // request from the org and threaded down, and the statement is the only place
 // a wrong choice would be visible.
 describe('POST /v1/contacts/count — people table', () => {
-  const createWinProOrg = async () => {
+  const createWinProOrg = async (overrideDistrictId: string = randomUUID()) => {
     const slug = `campaign-dataset-${randomUUID()}`
     await service.prisma.organization.create({
       data: {
         slug,
         ownerId: service.user.id,
-        overrideDistrictId: randomUUID(),
+        overrideDistrictId,
       },
     })
     await service.prisma.campaign.create({
@@ -133,6 +133,23 @@ describe('POST /v1/contacts/count — people table', () => {
     expect(sql.length).toBeGreaterThan(0)
     for (const statement of sql) {
       expect(statement).toContain(`FROM ${VOTERS_TABLE} v`)
+      expect(statement).not.toContain(CONSTITUENTS_TABLE)
+    }
+  })
+
+  it('joins a Win org imported contacts over gp_api_voters when serve-import-contacts is on', async () => {
+    const slug = await createWinProOrg()
+
+    const { sql } = await countSqlFor(slug, true, true)
+
+    expect(sql.length).toBeGreaterThan(0)
+    for (const statement of sql) {
+      expect(statement).toContain(
+        `FROM (SELECT * FROM ${VOTERS_TABLE}` +
+          " WHERE `State` = 'MI' AND `City` = 'Lansing') b FULL OUTER JOIN",
+      )
+      expect(statement).toContain(`WHERE organization_slug = '${slug}') o`)
+      expect(statement).not.toContain('AND NOT is_new')
       expect(statement).not.toContain(CONSTITUENTS_TABLE)
     }
   })

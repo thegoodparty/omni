@@ -29,8 +29,8 @@ fixes track under ENG-10744.
   of `LALVOTERID` (~97% month-over-month stability; orphaned enhancement
   rows from L2 churn are accepted), or a gp-api-minted uuid for a person
   only an import added (next point).
-- **Imported contacts join the read; nothing here stores them.** For a Serve
-  org with `serve-import-contacts` on, `PeopleDatasetService` puts the org
+- **Imported contacts join the read; nothing here stores them.** For an org
+  (Serve, or Win) with `serve-import-contacts` on, `PeopleDatasetService` puts the org
   on the dataset and every people read joins the org's uploaded rows in
   (`src/peopleDb/AGENTS.md`, "Imported contacts join the read"). Uploaded
   phone, address and email win; `Person.email` and `Person.isNewContact`
@@ -119,7 +119,7 @@ fixes track under ENG-10744.
 | `src/vendors/peerly/`                        | Peerly client, phone-list upload + capture (`PeerlyPhoneList[Recipient]`)                                                                                                          |
 | `src/chats/general/crm-tools/`               | The AI assistant's in-code tools (`count_contacts`, `describe_filter_dimensions`, `crud_saved_filters`)                                                                            |
 | `src/peopleDb/`                              | The voter engine: filter pipeline, `id in/notIn`, name search, stats/aggregates, read from Databricks. See `src/peopleDb/CLAUDE.md`                                                |
-| `src/contactUploads/`                        | Import contacts (Serve): CSV upload, matching to people, review, per-field "Came from". See `src/contactUploads/AGENTS.md`                                                         |
+| `src/contactUploads/`                        | Import contacts (Serve, and Win Pro): CSV upload, matching to people, review, per-field "Came from". See `src/contactUploads/AGENTS.md`                                            |
 | `packages/gp-webapp/app/dashboard/contacts/` | All UI (own CLAUDE.md)                                                                                                                                                             |
 
 Not this feature: `src/crm/` is the HubSpot **company** sync. `WebsiteContact`

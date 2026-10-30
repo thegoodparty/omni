@@ -32,6 +32,7 @@ import { ReqUser } from '@/authentication/decorators/ReqUser.decorator'
 import { ReqOrganization } from '@/organizations/decorators/ReqOrganization.decorator'
 import { UseOrganization } from '@/organizations/decorators/UseOrganization.decorator'
 import { FeaturesService } from '@/features/services/features.service'
+import { ContactsService } from '@/contacts/services/contacts.service'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interceptor'
 import {
@@ -48,6 +49,7 @@ export class ContactUploadsController {
   constructor(
     private readonly uploads: ContactUploadsService,
     private readonly features: FeaturesService,
+    private readonly contacts: ContactsService,
   ) {}
 
   @Post('presign')
@@ -156,16 +158,16 @@ export class ContactUploadsController {
     return this.uploads.retryUpload(organization, id)
   }
 
-  // Serve only, and rolled out per org: the flag follows the org's owner.
+  // Rolled out per org: the flag follows the org's owner. A Win campaign
+  // also needs Pro, the same gate as opening a contact's details.
   private async assertImportContactsOn(
     organization: Organization,
   ): Promise<void> {
-    const enabled =
-      organization.slug.startsWith('eo-') &&
-      (await this.features.isFeatureEnabled({
-        user: organization.ownerId,
-        feature: SERVE_IMPORT_CONTACTS_FLAG,
-      }))
+    const enabled = await this.features.isFeatureEnabled({
+      user: organization.ownerId,
+      feature: SERVE_IMPORT_CONTACTS_FLAG,
+    })
     if (!enabled) throw new NotFoundException()
+    await this.contacts.assertProAccess(organization)
   }
 }

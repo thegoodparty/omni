@@ -27,12 +27,13 @@ export class PeopleDatasetService {
       'slug' | 'ownerId' | 'overrideDistrictId' | 'positionId'
     >,
   ): Promise<PeopleDataset> => {
-    if (!organization.slug.startsWith('eo-')) return { base: 'voters' }
+    const isServe = organization.slug.startsWith('eo-')
     const [consumerData, importContacts] = await Promise.all([
-      this.features.isFeatureEnabled({
-        user: organization.ownerId,
-        feature: SERVE_CONSUMER_DATA_FLAG,
-      }),
+      isServe &&
+        this.features.isFeatureEnabled({
+          user: organization.ownerId,
+          feature: SERVE_CONSUMER_DATA_FLAG,
+        }),
       this.features.isFeatureEnabled({
         user: organization.ownerId,
         feature: SERVE_IMPORT_CONTACTS_FLAG,
