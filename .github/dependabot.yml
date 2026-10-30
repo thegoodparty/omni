@@ -4,7 +4,7 @@
 #
 # docker: Dependabot has no security updates for docker, so a limit of 0 would
 # never open a PR. Base images get version updates instead, so a Node security
-# patch (22.23.4 -> 22.23.5) arrives as a PR. Majors (Node 22 -> 24) and Python
+# patch (24.22.2 -> 24.22.3) arrives as a PR. Majors (Node 24 -> 26) and Python
 # minors (3.12 -> 3.13) are runtime upgrades, so a human makes those.
 #
 # github-actions: weekly version updates in one grouped PR. Every third-party

@@ -62,7 +62,7 @@ resource "aws_lambda_function" "slack_notifier" {
   function_name    = "shared-slack-notifier"
   role             = aws_iam_role.slack_notifier.arn
   handler          = "index.handler"
-  runtime          = "nodejs22.x"
+  runtime          = "nodejs24.x"
   timeout          = 30
   source_code_hash = filebase64sha256("${path.module}/slack-notifier.zip")
 

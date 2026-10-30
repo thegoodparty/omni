@@ -19,8 +19,8 @@ import { dirname, join } from 'path'
 // and it is routinely scrolled past; the whole point is to stop before
 // producing results nobody should trust.
 //
-// MAJOR only, deliberately. `engines` says `22`, and 22.23.2 against a pinned
-// 22.23.0 is not the problem this guards — refusing it would train people to
+// MAJOR only, deliberately. `engines` says `24`, and 24.22.1 against a pinned
+// 24.22.2 is not the problem this guards — refusing it would train people to
 // bypass the check, which is worse than not having one.
 const majorOf = (version: string): string | null => {
   const match = /(\d+)/.exec(version.trim())

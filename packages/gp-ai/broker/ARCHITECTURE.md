@@ -210,7 +210,7 @@ Note: runner → broker traffic inside the VPC is HTTP (no TLS). Not a leak — 
 ## Image management
 
 - **Broker image** (`broker/Dockerfile`): FastAPI + uvicorn + sqlglot + httpx + boto3. Pushed as `gp-ai-projects:broker-dev`. Rebuilt + pushed manually today; CI wiring is a future task.
-- **Runner image** (`pmf_engine/Dockerfile`): Python 3.12 + Claude CLI (pinned) + Node 22 + AWS CLI + `pdftotext` (poppler-utils) + `pmf_runtime` shim. Playwright/chromium stripped — runner has no internet egress, browser automation would be useless.
+- **Runner image** (`pmf_engine/Dockerfile`): Python 3.12 + Claude CLI (pinned) + Node 24 + AWS CLI + `pdftotext` (poppler-utils) + `pmf_runtime` shim. Playwright/chromium stripped — runner has no internet egress, browser automation would be useless.
 - **Lambda package** (`pmf_engine/.lambda_build/`): flat dispatch_handler + broker_client + scope_derivation + dispatch_registry + vendored httpx (via `pip install --target --platform manylinux2014_aarch64`). Built via `pmf_engine/scripts/build_lambda_package.sh`.
 
 ---
