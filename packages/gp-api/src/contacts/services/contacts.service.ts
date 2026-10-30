@@ -1114,6 +1114,17 @@ export class ContactsService {
     const { districtId } = await this.resolveDistrictInfoFromOrg(org)
 
     if (!districtId) {
+      // A 4xx is invisible to the route-error alert, so without this line an
+      // org that was never given a district shows empty voter data and nothing
+      // names it. The slug is what staff need to set the district.
+      this.logger.warn(
+        {
+          organizationSlug: org.slug,
+          hasPositionId: !!org.positionId,
+          hasCustomPositionName: !!org.customPositionName,
+        },
+        'Organization has no district; voter data unavailable until staff set one',
+      )
       throw new BadRequestException({
         message:
           'Organization does not have sufficient data to resolve district',

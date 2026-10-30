@@ -647,6 +647,28 @@ describe('ContactsService', () => {
         )
       })
 
+      it('logs the org slug when it has no district to resolve', async () => {
+        const org = makeOrganization({ slug: 'eo-no-district' })
+
+        await expect(
+          service.findContacts(
+            {
+              resultsPerPage: 10,
+              page: 1,
+              search: undefined,
+              segment: 'all',
+            },
+            org,
+          ),
+        ).rejects.toThrow()
+
+        const { logger } = service as unknown as { logger: PinoLogger }
+        expect(logger.warn).toHaveBeenCalledWith(
+          expect.objectContaining({ organizationSlug: 'eo-no-district' }),
+          expect.stringContaining('no district'),
+        )
+      })
+
       it('uses overrideDistrictId for getDistrictStats', async () => {
         const org = makeOrganization({
           overrideDistrictId: OVERRIDE_DISTRICT_ID,
