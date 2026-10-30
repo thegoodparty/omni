@@ -1,3 +1,4 @@
+import { NonProdDeployOnly } from './guards/NonProdDeploy.guard'
 import { ReqUser } from '@/authentication/decorators/ReqUser.decorator'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import {
@@ -47,6 +48,7 @@ import { TestFixturesService } from './services/testFixtures.service'
 // Playwright specs can arm mock flags using the test user's own session token
 // without needing admin credentials.
 @Controller('test-fixtures/vendor-mocks')
+@NonProdDeployOnly()
 export class TestFixturesVendorMocksController {
   constructor(
     private readonly testFixtures: TestFixturesService,
