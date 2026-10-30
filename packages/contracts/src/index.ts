@@ -1162,6 +1162,46 @@ export {
 export * from './outreach/OutreachEmail.schema'
 export * from './outreach/EmailPublic.schema'
 export {
+  EMAIL_BLOCK_BUTTON_LABEL_MAX_LENGTH,
+  EMAIL_BLOCK_TYPES,
+  EMAIL_CONTENT_TEXT_MAX_LENGTH,
+  EMAIL_DETAILS_LABEL_MAX_LENGTH,
+  EMAIL_DETAILS_MAX_ROWS,
+  EMAIL_DETAILS_VALUE_MAX_LENGTH,
+  EMAIL_HEADING_MAX_LENGTH,
+  EMAIL_IMAGE_ALT_MAX_LENGTH,
+  EMAIL_MAX_BLOCKS,
+  EMAIL_MAX_SECTIONS,
+  EMAIL_MERGE_TAGS,
+  EMAIL_PARAGRAPH_MAX_LENGTH,
+  EMAIL_PREVIEW_TEXT_MAX_LENGTH,
+  EMAIL_SECTION_HEADING_MAX_LENGTH,
+  EMAIL_SECTION_TEXT_MAX_LENGTH,
+  EMAIL_SIGNATURE_NAME_MAX_LENGTH,
+  EMAIL_SIGNATURE_TITLE_MAX_LENGTH,
+  EmailBlockDraftSchema,
+  EmailBlockSchema,
+  type EmailBlock,
+  type EmailBlockDraft,
+  type EmailBlockType,
+} from './outreach/EmailBlock.schema'
+export {
+  EMAIL_LAYOUT_PRESETS,
+  EMAIL_SHORT_CTA_PARAGRAPH_MAX_LENGTH,
+  EmailLayoutPresetKeySchema,
+  checkEmailLayout,
+  type EmailLayoutIssue,
+  type EmailLayoutPreset,
+  type EmailLayoutPresetKey,
+} from './outreach/EmailLayoutPreset.const'
+export {
+  EmailContentDraftSchema,
+  EmailContentSchema,
+  type EmailContent,
+  type EmailContentDraft,
+} from './outreach/EmailContent.schema'
+export { EMAIL_CONTENT_EXAMPLES } from './outreach/EmailContent.examples'
+export {
   MERGE_TAGS,
   mergeTagToken,
   type MergeTagChannel,
