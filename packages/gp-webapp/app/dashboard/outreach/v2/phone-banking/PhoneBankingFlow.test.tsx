@@ -1635,15 +1635,18 @@ describe('PhoneBankingFlow with the serve surface', () => {
     )
 
     await waitFor(() => expect(scriptText()).not.toBe(''))
+    expect(screen.queryByText(/volunteers/)).toBeNull()
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await screen.findAllByText(
       'How many call sheets would you like me to create?',
     )
+    expect(screen.queryByText(/volunteers/)).toBeNull()
     await user.click(screen.getByRole('button', { name: 'Continue' }))
 
     expect(
       (await screen.findAllByText('Your call sheet is ready')).length,
     ).toBeGreaterThan(0)
+    expect(screen.queryByText(/volunteers/)).toBeNull()
     expect(createCalls).toHaveLength(1)
     expect(createCalls[0]).toMatchObject({
       purpose: 'explain_decision',
@@ -1677,6 +1680,12 @@ describe('PhoneBankingFlow with the serve surface', () => {
     expect(
       (await screen.findAllByText('Does this call script sound right?')).length,
     ).toBeGreaterThan(0)
+    expect(
+      screen.getAllByText(
+        "You'll read this on each call. Edit anything you like.",
+      ).length,
+    ).toBeGreaterThan(0)
+    expect(screen.queryByText(/volunteers/)).toBeNull()
     expect(screen.queryByRole('button', { name: 'Back' })).toBeNull()
     expect(scriptText()).toBe('You: Would you like to be one of them?')
     expect(screen.getByLabelText('Campaign name')).toHaveValue(
