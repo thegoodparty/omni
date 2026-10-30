@@ -11,6 +11,10 @@ export const ListDetailDemographicsSchema = z.object({
   people: z.number().int().min(0),
   avgAge: z.number().nullable(),
   avgIncome: z.number().nullable(),
+  // Of `people`, how many only an import added (new contacts, not voters).
+  // Set for a Win campaign with imported contacts; voters are
+  // `people - newContactsCount`.
+  newContactsCount: z.number().int().min(0).optional(),
 })
 export type ListDetailDemographics = z.infer<
   typeof ListDetailDemographicsSchema
@@ -35,15 +39,15 @@ export type ListDetailReachability = z.infer<
   typeof ListDetailReachabilitySchema
 >
 
-// The people only an import added (new contacts) a Win campaign can reach on
-// each channel, counted next to `reachability` rather than inside it.
+// Of each `reachability` channel, how many only an import added (new
+// contacts, not voters). Same shape as reachability.
 export const NewContactsReachableSchema = z.object({
-  sms: z.number().int().min(0),
-  robocall: z.number().int().min(0),
-  phoneBanking: z.number().int().min(0),
-  doorKnocking: z.number().int().min(0),
-  email: z.number().int().min(0),
-  polls: z.number().int().min(0),
+  sms: z.number().int().min(0).nullable(),
+  robocall: z.number().int().min(0).nullable(),
+  phoneBanking: z.number().int().min(0).nullable(),
+  doorKnocking: z.number().int().min(0).nullable(),
+  email: z.number().int().min(0).nullable(),
+  polls: z.number().int().min(0).nullable(),
 })
 export type NewContactsReachable = z.infer<typeof NewContactsReachableSchema>
 
@@ -61,16 +65,14 @@ export type ListDetailOutreachHistoryEntry = z.infer<
   typeof ListDetailOutreachHistoryEntrySchema
 >
 
-// For a Win campaign with imported contacts, `demographics.people` and every
-// `reachability` channel count voters only, and the new contacts come back
-// beside them; a channel reaches `reachability[c] + newContactsReachable[c]`.
-// Absent for Serve and for a campaign without imported contacts, whose
-// counts are everyone as before.
+// `demographics.people` and `reachability` count everyone. For a Win
+// campaign with imported contacts, `demographics.newContactsCount` and
+// `newContactsReachable` say how many of them are new contacts; absent
+// otherwise.
 export const ListDetailContactsResponseSchema = z.object({
   demographics: ListDetailDemographicsSchema,
   reachability: ListDetailReachabilitySchema,
   outreachHistory: z.array(ListDetailOutreachHistoryEntrySchema),
-  newContactsCount: z.number().int().min(0).optional(),
   newContactsReachable: NewContactsReachableSchema.optional(),
 })
 export type ListDetailContactsResponse = z.infer<

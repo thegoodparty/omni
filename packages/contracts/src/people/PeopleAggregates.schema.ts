@@ -26,8 +26,9 @@ export const PeopleListDetailAggregatesResponseSchema = z.object({
   phoneBanking: z.number().int().min(0),
   doorKnocking: z.number().int().min(0),
   email: z.number().int().min(0),
-  // Set only when the read splits new contacts out (a Win campaign with
-  // imported contacts): the counts above are then voters only.
+  // Set only when the read counts new contacts (a Win campaign with
+  // imported contacts): of each count above, the people only an import
+  // added.
   newContacts: z
     .object({
       count: z.number().int().min(0),
