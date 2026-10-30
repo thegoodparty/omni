@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
@@ -9,6 +9,12 @@ import { PriorityResultsView } from './PriorityResultsView'
 vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
   ...(await importOriginal<typeof import('helpers/analyticsHelper')>()),
   trackEvent: vi.fn(),
+}))
+
+const place = vi.hoisted(() => ({ current: 'Asheville' as string | null }))
+
+vi.mock('app/dashboard/contacts/citizens-panel/managedPanelCopy', () => ({
+  useServePlace: () => place.current,
 }))
 
 vi.mock('./RespondentHeatGrid', () => ({
@@ -69,6 +75,10 @@ const renderView = (data: PriorityResults) =>
   )
 
 describe('PriorityResultsView', () => {
+  beforeEach(() => {
+    place.current = 'Asheville'
+  })
+
   describe('before a good read', () => {
     const early = () =>
       results({
@@ -306,83 +316,125 @@ describe('PriorityResultsView', () => {
     expect(screen.getByLabelText('Rank 2')).toHaveTextContent('#2')
   })
 
-  it('labels each theme by how many voices are behind it', () => {
-    renderView(
-      results({
-        themes: [
-          {
-            id: 't1',
-            title: 'Drains',
-            summary: 'Overflow.',
-            people: 14,
-            voices: 'strong',
-          },
-          {
-            id: 't2',
-            title: 'Insurance',
-            summary: 'Premiums.',
-            people: 9,
-            voices: 'fair',
-          },
-          {
-            id: 't3',
-            title: 'Parking',
-            summary: 'Too few spots.',
-            people: 4,
-            voices: 'thin',
-          },
-        ],
-      }),
-    )
-
-    expect(
-      screen.getByRole('button', { name: 'Enough voices: Strong' }),
-    ).toBeInTheDocument()
-    expect(
-      screen.getByRole('button', { name: 'Enough voices: Fair' }),
-    ).toBeInTheDocument()
-    expect(
-      screen.getByRole('button', { name: 'Enough voices: Thin' }),
-    ).toBeInTheDocument()
+  const signalThemes = results({
+    themes: [
+      {
+        id: 't1',
+        title: 'Drains',
+        summary: 'Overflow.',
+        people: 14,
+        voices: 'strong',
+      },
+      {
+        id: 't2',
+        title: 'Insurance',
+        summary: 'Premiums.',
+        people: 9,
+        voices: 'fair',
+      },
+      {
+        id: 't3',
+        title: 'Parking',
+        summary: 'Too few spots.',
+        people: 4,
+        voices: 'thin',
+      },
+    ],
   })
 
-  it('explains the label one tap away', async () => {
+  it('labels each theme by how strong a signal it is, in color', () => {
+    renderView(signalThemes)
+
+    expect(screen.getByText('Strong signal')).toHaveClass(
+      'bg-success-background',
+      'text-success-dark',
+    )
+    expect(screen.getByText('Some signal')).toHaveClass(
+      'bg-warning-background',
+      'text-warning-dark',
+    )
+    expect(screen.getByText('Low signal')).toHaveClass(
+      'bg-error-background',
+      'text-error-dark',
+    )
+    expect(screen.queryByText(/Enough voices/)).not.toBeInTheDocument()
+  })
+
+  it.each([
+    [
+      'strong signal',
+      'Every group in Asheville had enough people weigh in on this.',
+    ],
+    [
+      'some signal',
+      'At least half the groups in Asheville had enough people weigh in on this.',
+    ],
+    [
+      'low signal',
+      'Fewer than half the groups in Asheville had enough people weigh in on this.',
+    ],
+  ])('explains %s one tap away', async (label, meaning) => {
+    // A touch tap, the phone case openOnClick exists for: a mouse click
+    // would hover-open the tooltip and then toggle it shut.
     const user = userEvent.setup()
-    renderView(
-      results({
-        themes: [
-          {
-            id: 't1',
-            title: 'Drains',
-            summary: 'Overflow.',
-            people: 14,
-            voices: 'strong',
-          },
-        ],
+    renderView(signalThemes)
+
+    expect(screen.queryByText(meaning)).not.toBeInTheDocument()
+
+    await user.pointer({
+      keys: '[TouchA]',
+      target: screen.getByRole('button', { name: `What does ${label} mean?` }),
+    })
+
+    expect((await screen.findAllByText(meaning)).length).toBeGreaterThan(0)
+  })
+
+  it('opens the meaning from the keyboard', async () => {
+    const user = userEvent.setup()
+    renderView(signalThemes)
+
+    await user.tab()
+    while (
+      document.activeElement !==
+      screen.getByRole('button', { name: 'What does strong signal mean?' })
+    ) {
+      await user.tab()
+    }
+
+    expect(
+      (
+        await screen.findAllByText(
+          'Every group in Asheville had enough people weigh in on this.',
+        )
+      ).length,
+    ).toBeGreaterThan(0)
+  })
+
+  it('says your district when the place is not known', async () => {
+    place.current = null
+    const user = userEvent.setup()
+    renderView(signalThemes)
+
+    await user.pointer({
+      keys: '[TouchA]',
+      target: screen.getByRole('button', {
+        name: 'What does strong signal mean?',
       }),
-    )
+    })
 
     expect(
-      screen.queryByText(
-        'Strong means every group in your district had at least 3 people raise it.',
-      ),
-    ).not.toBeInTheDocument()
-
-    await user.click(
-      screen.getByRole('button', { name: 'Enough voices: Strong' }),
-    )
-
-    expect(
-      await screen.findByText(
-        'Strong means every group in your district had at least 3 people raise it.',
-      ),
-    ).toBeInTheDocument()
+      (
+        await screen.findAllByText(
+          'Every group in your district had enough people weigh in on this.',
+        )
+      ).length,
+    ).toBeGreaterThan(0)
   })
 
   it('shows no label when the district could not be read', () => {
     renderView(results())
 
-    expect(screen.queryByText(/Enough voices/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/signal/)).not.toBeInTheDocument()
   })
 
   it('says there are no themes yet when too few people have answered', () => {

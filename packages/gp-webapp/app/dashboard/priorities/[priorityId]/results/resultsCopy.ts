@@ -28,13 +28,20 @@ export const RESULTS_COPY = {
   people: (count: number) =>
     count === 1 ? '1 person' : `${count.toLocaleString()} people`,
   themeRank: (rank: number) => `Rank ${rank}`,
-  voicesLabel: 'Enough voices',
-  voices: { strong: 'Strong', fair: 'Fair', thin: 'Thin' },
-  voicesMeaning: [
-    'Strong means every group in your district had at least 3 people raise it.',
-    'Fair means at least half the groups did.',
-    'Thin means fewer than half did.',
-  ],
+  signal: {
+    strong: 'Strong signal',
+    fair: 'Some signal',
+    thin: 'Low signal',
+  },
+  signalInfo: (label: string) => `What does ${label.toLowerCase()} mean?`,
+  signalMeaning: (place: string | null) => {
+    const where = place ?? 'your district'
+    return {
+      strong: `Every group in ${where} had enough people weigh in on this.`,
+      fair: `At least half the groups in ${where} had enough people weigh in on this.`,
+      thin: `Fewer than half the groups in ${where} had enough people weigh in on this.`,
+    }
+  },
   mapTitle: 'Where answers came from',
   mapCaption: 'Darker squares mean more people answered from that area.',
   mapEmpty: 'Answers show up on the map as people reply.',
