@@ -698,6 +698,50 @@ describe('<PersonOverlay>', () => {
       expect(screen.getByText('Likely')).toBeInTheDocument()
       expect(screen.queryByText(/Already voted/)).not.toBeInTheDocument()
     })
+
+    it('labels a new contact Not in your voter file, on the record and its Registered Voter row', () => {
+      setContext({
+        isElectedOfficial: false,
+        selectedPerson: {
+          person: makePerson({ isNewContact: true, registeredVoter: null }),
+        },
+      })
+
+      render(<PersonOverlay />)
+
+      expect(screen.getAllByText('Not in your voter file')).toHaveLength(2)
+      expect(
+        within(screen.getByText('Registered Voter').parentElement!).getByText(
+          'Not in your voter file',
+        ),
+      ).toBeInTheDocument()
+    })
+
+    it('reads a voter as before', () => {
+      setContext({
+        isElectedOfficial: false,
+        selectedPerson: { person: makePerson({ registeredVoter: 'Yes' }) },
+      })
+
+      render(<PersonOverlay />)
+
+      expect(
+        screen.queryByText('Not in your voter file'),
+      ).not.toBeInTheDocument()
+    })
+
+    it('never labels a new contact on Serve', () => {
+      setContext({
+        isElectedOfficial: true,
+        selectedPerson: { person: makePerson({ isNewContact: true }) },
+      })
+
+      render(<PersonOverlay />)
+
+      expect(
+        screen.queryByText('Not in your voter file'),
+      ).not.toBeInTheDocument()
+    })
   })
 
   describe('Import contacts', () => {

@@ -14,6 +14,25 @@ export const WIN_UNIVERSE_STAT_LABELS = {
   votersNeededToWin: 'Voters needed to win',
 } as const
 
+// Win only: imported people we couldn't match to a voter, counted next to
+// the voters rather than inside them.
+const voters = (count: number): string =>
+  `${count.toLocaleString()} ${count === 1 ? 'voter' : 'voters'}`
+
+const newContacts = (count: number): string =>
+  `${count.toLocaleString()} new ${count === 1 ? 'contact' : 'contacts'} added`
+
+export const WIN_NEW_CONTACTS_LABELS = {
+  statLabel: 'New contacts added',
+  statInfo: "Imported people we couldn't match to a voter record.",
+  statInfoButton: 'About new contacts added',
+  allContactsTitle: 'All voters and contacts',
+  notInVoterFile: 'Not in your voter file',
+  newContacts,
+  votersAndNewContacts: (voterCount: number, newContactCount: number) =>
+    `${voters(voterCount)}, ${newContacts(newContactCount)}`,
+} as const
+
 export interface ContactsLabels {
   dataTitle: string
   universeTitle: string

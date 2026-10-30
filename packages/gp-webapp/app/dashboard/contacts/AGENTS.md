@@ -202,6 +202,21 @@ untouched: an upload never becomes a list card.
 - **Search by email.** A typeahead search with an `@` matches the imported
   email (gp-api), and a result whose email is the search shows it under the
   name (`ContactTypeahead`).
+- **New contacts on Win.** People an import added who match no voter
+  (`isNewContact`) are counted next to the voters, never inside them. gp-api's
+  totals keep them in (`totalConstituents`, list-detail `people` and
+  `reachability`, so pricing reads the total); `newContactsCount` (stats,
+  list-detail `demographics`) and `newContactsReachable` (list-detail) are the
+  subset, and the UI shows voters as total minus that. Win only, labels in
+  `WIN_NEW_CONTACTS_LABELS` (`contactsLabels.ts`): `DistrictStatCard`'s New
+  contacts added row with its info tooltip (hidden at 0), `ListsIndex`'s All
+  voters and contacts card, the channel picker's header, the outreach
+  audience step's reach line ("Message 8,912 voters and 198 new contacts
+  added"), and Not in your voter file on typeahead rows and the record
+  (`PersonRecord`, also its Registered Voter row). The universe's saved list
+  keeps its `allContactsTitle` name, which is how outreach finds it. Create
+  new list's Source filter (`source: ['voterFile' | 'imported']`, Win with
+  the flag and Pro) rides the saved filter like `votedStatus`.
 - Copy lives in `importContactsCopy.ts`, mode-keyed through
   `getImportContactsCopy(isWin)`: `SERVE_IMPORT_CONTACTS_COPY` holds every
   string (so the vocabulary check reads it) and `WIN_IMPORT_CONTACTS_COPY`

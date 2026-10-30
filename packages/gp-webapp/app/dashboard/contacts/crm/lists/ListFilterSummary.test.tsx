@@ -325,3 +325,23 @@ describe('buildFilterSummary — recommended-list dimensions', () => {
     expect(summary).toBe('Phone Has Any Phone.')
   })
 })
+
+describe('buildFilterSummary — Source', () => {
+  it('names a single source on a Win list', () => {
+    expect(
+      buildFilterSummary(
+        baseSegment({ source: ['imported'], genderFemale: true }),
+        false,
+      ),
+    ).toBe('Gender Female and Source Imported.')
+  })
+
+  it('leaves out both sources, which is no filter', () => {
+    expect(
+      buildFilterSummary(
+        baseSegment({ source: ['voterFile', 'imported'] }),
+        false,
+      ),
+    ).toBe('Everyone in your file — no filters applied.')
+  })
+})

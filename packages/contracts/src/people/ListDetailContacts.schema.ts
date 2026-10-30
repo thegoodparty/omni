@@ -11,6 +11,8 @@ export const ListDetailDemographicsSchema = z.object({
   people: z.number().int().min(0),
   avgAge: z.number().nullable(),
   avgIncome: z.number().nullable(),
+  // Of `people`, the new contacts only an import added. Absent without one.
+  newContactsCount: z.number().int().min(0).optional(),
 })
 export type ListDetailDemographics = z.infer<
   typeof ListDetailDemographicsSchema
@@ -52,6 +54,9 @@ export type ListDetailOutreachHistoryEntry = z.infer<
 export const ListDetailContactsResponseSchema = z.object({
   demographics: ListDetailDemographicsSchema,
   reachability: ListDetailReachabilitySchema,
+  // Of each `reachability` count, the new contacts only an import added.
+  // Absent without one.
+  newContactsReachable: ListDetailReachabilitySchema.optional(),
   outreachHistory: z.array(ListDetailOutreachHistoryEntrySchema),
 })
 export type ListDetailContactsResponse = z.infer<

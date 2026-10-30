@@ -325,6 +325,9 @@ export const PeopleFiltersSchema = z.object({
   estimatedIncomeAmountInt: createNumericFilterSchema().optional(),
   ageInt: createNumericFilterSchema().optional(),
   precinct: createPrecinctFilterSchema().optional(),
+  // Win: voterFile is everyone in the voter file, imported is the new
+  // contacts only an import added. Both or neither is no filter.
+  source: z.array(z.enum(['voterFile', 'imported'])).optional(),
 })
 
 export type PeopleFilters = z.infer<typeof PeopleFiltersSchema>
