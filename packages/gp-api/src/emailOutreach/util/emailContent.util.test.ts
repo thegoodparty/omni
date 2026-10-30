@@ -73,6 +73,14 @@ describe('fieldsContent (drafts saved with the old fields)', () => {
     expect(EmailContentSchema.safeParse(content).success).toBe(true)
   })
 
+  it('turns a headline too long for a heading into the opening paragraph', () => {
+    const headline = 'a'.repeat(130)
+    const content = fieldsContent(fields({ headline }))
+    expect(content.layout).toBe('personal_letter')
+    expect(content.blocks[0]).toEqual({ type: 'paragraph', text: headline })
+    expect(EmailContentSchema.safeParse(content).success).toBe(true)
+  })
+
   it('reads a block draft from its content column instead', () => {
     const blocks = [{ type: 'paragraph', text: 'From the column' }]
     expect(

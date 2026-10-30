@@ -168,12 +168,12 @@ describe('saving a block draft', () => {
       subject: 'Town hall',
       body: 'Join us.',
     }
-    const longHeadline = await post(
+    const longParagraph = await post(
       '/v1/outreach/email',
-      { ...fields, headline: 'a'.repeat(130), body: 'One.\n\nTwo.' },
+      { ...fields, body: 'a'.repeat(2001) },
       winHeaders(),
     )
-    expect(longHeadline.status).toBe(HttpStatus.BAD_REQUEST)
+    expect(longParagraph.status).toBe(HttpStatus.BAD_REQUEST)
     const unknownTag = await post(
       '/v1/outreach/email',
       { ...fields, body: 'Hi {{city}}' },

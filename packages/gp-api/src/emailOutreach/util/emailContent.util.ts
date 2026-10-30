@@ -101,18 +101,28 @@ export const fieldsToBlocks = (
 }
 
 // A draft saved with the fixed fields takes its old layout's preset when its
-// blocks fit that preset's structure, and personal_letter, which fits any of
-// them, when they don't, so a draft that could be sent before still can.
+// blocks fit it, structure and block limits both, and otherwise
+// personal_letter, which takes any of them and turns a headline too long for
+// a heading into a paragraph. The one thing no preset holds is a paragraph
+// over the block limit; a save refuses that at compose.
 export const fieldsContent = (row: FieldsDraft): EmailContentView => {
   const parsedLayout = EmailLayoutKeySchema.safeParse(row.layout)
   const natural = parsedLayout.success
     ? PRESET_FOR_LAYOUT[parsedLayout.data]
     : 'personal_letter'
+  const theme = EmailThemeKeySchema.parse(row.theme)
   const naturalBlocks = fieldsToBlocks(natural, row)
-  const fits = checkEmailLayout(natural, naturalBlocks).length === 0
+  const fits =
+    checkEmailLayout(natural, naturalBlocks).length === 0 &&
+    EmailContentDraftSchema.safeParse({
+      layout: natural,
+      theme,
+      subject: row.subject,
+      blocks: naturalBlocks,
+    }).success
   return {
     layout: fits ? natural : 'personal_letter',
-    theme: EmailThemeKeySchema.parse(row.theme),
+    theme,
     subject: row.subject,
     blocks: fits ? naturalBlocks : fieldsToBlocks('personal_letter', row),
   }
