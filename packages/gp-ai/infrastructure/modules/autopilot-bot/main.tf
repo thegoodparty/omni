@@ -241,8 +241,8 @@ resource "aws_iam_role_policy" "autopilot_bot_ecs" {
           "ecs:RunTask"
         ]
         Resource = [
-          "arn:aws:ecs:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:task-definition/${var.ecs_task_definition_family}:*",
-          "arn:aws:ecs:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:task-definition/${var.ecs_task_definition_family_playwright}:*"
+          "arn:aws:ecs:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:task-definition/${var.ecs_task_definition_family}:*",
+          "arn:aws:ecs:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:task-definition/${var.ecs_task_definition_family_playwright}:*"
         ]
         Condition = {
           ArnEquals = {
@@ -256,7 +256,7 @@ resource "aws_iam_role_policy" "autopilot_bot_ecs" {
           "ecs:TagResource"
         ]
         Resource = [
-          "arn:aws:ecs:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:task/${element(split("/", var.ecs_cluster_arn), 1)}/*"
+          "arn:aws:ecs:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:task/${element(split("/", var.ecs_cluster_arn), 1)}/*"
         ]
       },
       {
@@ -287,7 +287,7 @@ resource "aws_iam_role_policy" "autopilot_bot_secrets" {
       {
         Effect   = "Allow"
         Action   = ["secretsmanager:GetSecretValue"]
-        Resource = "arn:aws:secretsmanager:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:secret:${local.ai_secrets_name}-??????"
+        Resource = "arn:aws:secretsmanager:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:secret:${local.ai_secrets_name}-??????"
       }
     ]
   })
@@ -311,7 +311,7 @@ resource "aws_iam_role_policy" "autopilot_bot_self_invoke" {
         Action = [
           "lambda:InvokeFunction"
         ]
-        Resource = "arn:aws:lambda:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:function:autopilot-bot-${var.environment}"
+        Resource = "arn:aws:lambda:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:function:autopilot-bot-${var.environment}"
       }
     ]
   })

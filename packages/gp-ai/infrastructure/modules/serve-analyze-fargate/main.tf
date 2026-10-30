@@ -118,7 +118,7 @@ resource "aws_iam_role_policy" "task_execution_secrets_access" {
         Action = [
           "secretsmanager:GetSecretValue"
         ]
-        Resource = "arn:aws:secretsmanager:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:secret:AI_SECRETS_${upper(var.environment)}-*"
+        Resource = "arn:aws:secretsmanager:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:secret:AI_SECRETS_${upper(var.environment)}-*"
       }
     ]
   })
@@ -234,7 +234,7 @@ resource "aws_ecs_task_definition" "pipeline" {
         logDriver = "awslogs"
         options = {
           "awslogs-group"         = aws_cloudwatch_log_group.pipeline.name
-          "awslogs-region"        = data.aws_region.current.name
+          "awslogs-region"        = data.aws_region.current.region
           "awslogs-stream-prefix" = "ecs"
         }
       }
@@ -242,19 +242,19 @@ resource "aws_ecs_task_definition" "pipeline" {
       secrets = [
         {
           name      = "GEMINI_API_KEY"
-          valueFrom = "arn:aws:secretsmanager:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:secret:AI_SECRETS_${upper(var.environment)}:GEMINI_API_KEY::"
+          valueFrom = "arn:aws:secretsmanager:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:secret:AI_SECRETS_${upper(var.environment)}:GEMINI_API_KEY::"
         },
         {
           name      = "SERVE_API_KEY"
-          valueFrom = "arn:aws:secretsmanager:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:secret:AI_SECRETS_${upper(var.environment)}:SERVE_API_KEY::"
+          valueFrom = "arn:aws:secretsmanager:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:secret:AI_SECRETS_${upper(var.environment)}:SERVE_API_KEY::"
         },
         {
           name      = "SLACK_WEBHOOK_URL"
-          valueFrom = "arn:aws:secretsmanager:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:secret:AI_SECRETS_${upper(var.environment)}:SLACK_WEBHOOK_URL::"
+          valueFrom = "arn:aws:secretsmanager:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:secret:AI_SECRETS_${upper(var.environment)}:SLACK_WEBHOOK_URL::"
         },
         {
           name      = "BRAINTRUST_API_KEY"
-          valueFrom = "arn:aws:secretsmanager:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:secret:AI_SECRETS_${upper(var.environment)}:BRAINTRUST_API_KEY::"
+          valueFrom = "arn:aws:secretsmanager:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:secret:AI_SECRETS_${upper(var.environment)}:BRAINTRUST_API_KEY::"
         }
       ]
 
@@ -501,7 +501,7 @@ resource "aws_cloudwatch_event_target" "send_to_sns" {
   "stoppedReason": <stoppedReason>,
   "exitCode": <exitCode>,
   "time": <time>,
-  "logs": "https://console.aws.amazon.com/cloudwatch/home?region=${data.aws_region.current.name}#logsV2:log-groups/log-group/$252Fecs$252Fserve-analyze-${var.environment}",
+  "logs": "https://console.aws.amazon.com/cloudwatch/home?region=${data.aws_region.current.region}#logsV2:log-groups/log-group/$252Fecs$252Fserve-analyze-${var.environment}",
   "s3_bucket": "${aws_s3_bucket.pipeline_data.id}",
   "description": "Serve-Analyze pipeline failed during execution. Check CloudWatch logs for detailed error information."
 }
@@ -533,7 +533,7 @@ resource "aws_cloudwatch_event_target" "send_startup_failure_to_sns" {
   "stoppedReason": <stoppedReason>,
   "stopCode": <stopCode>,
   "time": <time>,
-  "logs": "https://console.aws.amazon.com/cloudwatch/home?region=${data.aws_region.current.name}#logsV2:log-groups/log-group/$252Fecs$252Fserve-analyze-${var.environment}",
+  "logs": "https://console.aws.amazon.com/cloudwatch/home?region=${data.aws_region.current.region}#logsV2:log-groups/log-group/$252Fecs$252Fserve-analyze-${var.environment}",
   "s3_bucket": "${aws_s3_bucket.pipeline_data.id}",
   "description": "Serve-Analyze task failed to start. Common causes: image pull failure, resource constraints, or configuration issues."
 }
@@ -604,7 +604,7 @@ resource "aws_iam_role_policy" "step_functions_ecs" {
           "ecs:StopTask",
           "ecs:DescribeTasks"
         ]
-        Resource = "arn:aws:ecs:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:task/${aws_ecs_cluster.pipeline.name}/*"
+        Resource = "arn:aws:ecs:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:task/${aws_ecs_cluster.pipeline.name}/*"
         Condition = {
           ArnEquals = {
             "ecs:cluster" = aws_ecs_cluster.pipeline.arn
@@ -616,7 +616,7 @@ resource "aws_iam_role_policy" "step_functions_ecs" {
         Action = [
           "ecs:TagResource"
         ]
-        Resource = "arn:aws:ecs:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:task/${aws_ecs_cluster.pipeline.name}/*"
+        Resource = "arn:aws:ecs:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:task/${aws_ecs_cluster.pipeline.name}/*"
       },
       {
         Effect = "Allow"
