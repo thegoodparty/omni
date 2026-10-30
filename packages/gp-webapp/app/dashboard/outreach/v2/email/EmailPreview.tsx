@@ -7,6 +7,14 @@ import { apiErrorMessage, previewEmail } from './emailApi'
 
 export const EMAIL_PREVIEW_DEBOUNCE_MS = 400
 
+const isHttpsUrl = (value: string): boolean => {
+  try {
+    return new URL(value.trim()).protocol === 'https:'
+  } catch {
+    return false
+  }
+}
+
 // A link still being typed ("http") breaks the draft rules, which would hold
 // the preview back until it is finished.
 const withoutPartialLinks = (
@@ -14,7 +22,7 @@ const withoutPartialLinks = (
 ): EmailContentDraft => ({
   ...content,
   blocks: content.blocks.map((block) =>
-    block.type === 'button' && !block.url.startsWith('https://')
+    block.type === 'button' && !isHttpsUrl(block.url)
       ? { ...block, url: '' }
       : block,
   ),
@@ -59,7 +67,7 @@ export const EmailPreview = ({ serve, content }: EmailPreviewProps) => {
         if (!mounted.current || id < shown.current) return
         shown.current = id
         setHtml(next)
-        setError(null)
+        if (id === requested.current) setError(null)
       } catch (err) {
         if (mounted.current && id === requested.current) {
           setError(apiErrorMessage(err))
