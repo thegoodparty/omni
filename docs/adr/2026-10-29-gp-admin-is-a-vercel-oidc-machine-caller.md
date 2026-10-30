@@ -30,9 +30,7 @@ gp-admin's `production` deployment; dev and preview also hold its `preview`
 and `development`. A GitHub Actions workflow sends a GitHub OIDC token with
 audience `gp-api`, verified against GitHub's JWKS, a `repository` and
 `repository_id` pair pinned in code, and `job_workflow_ref` in
-`GITHUB_OIDC_ALLOWED_WORKFLOWS`; it is a service reader only. The Clerk
-service-read path (JWT-format Clerk M2M tokens) is removed once no caller
-sends one.
+`GITHUB_OIDC_ALLOWED_WORKFLOWS`; it is a service reader only.
 
 ## Context
 
