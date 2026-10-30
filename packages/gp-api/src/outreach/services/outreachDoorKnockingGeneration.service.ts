@@ -244,8 +244,8 @@ const SERVE_PURPOSE_PROMPTS: Record<
   build_citizens_panel:
     'Purpose: inviting the resident into a group of residents the ' +
     'official hears from before they decide. Keep it to three or four ' +
-    'short bullets. One says who the visit is for, by full name and ' +
-    'office. One says the official wants to hear from people across the ' +
+    'short bullets, in the first person: the official is at the door ' +
+    'themselves. One introduces them by full name and office. One says the official wants to hear from people across the ' +
     'place, not just those who come to meetings. One says the office ' +
     'checks in about once a month to ask what they think, and they can ' +
     'stop any time. The ask is whether they want to be one of them, a ' +

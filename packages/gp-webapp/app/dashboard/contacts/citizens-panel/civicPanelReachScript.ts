@@ -14,9 +14,9 @@ const MARK_A_YES = 'If they say yes, mark them as joining the civic panel.'
 
 // The civic panel invite read at a door or on a call to a short group, in
 // the SMS invite's voice (managedInviteDraft): who it is from, hearing from
-// people across the place, about once a month. Spoken by whoever knocks or
-// calls, so it says "we", and it never says how the office will check in:
-// these homes have no cell phone on file.
+// people across the place, about once a month. The official knocks or calls
+// themselves, so it speaks in the first person, and it never says how the
+// office will check in: these homes have no cell phone on file.
 export const civicPanelReachScript = ({
   channel,
   name,
@@ -29,28 +29,28 @@ export const civicPanelReachScript = ({
   place: string | null
 }): string => {
   const official = office.trim() || 'local elected official'
-  const forWhom = name.trim()
+  const whoIAm = name.trim()
     ? `${name.trim()}, your ${official}`
     : `your ${official}`
   const why =
-    `We want to hear from people across ${place ?? 'our community'}, not ` +
-    "just those who come to meetings, so we're inviting a group of " +
+    `I want to hear from people across ${place ?? 'our community'}, not ` +
+    "just those who come to meetings, so I'm inviting a group of " +
     'residents to share their views.'
   if (channel === 'door') {
     return [
-      `${DOOR_KNOCKING_BULLET}Hi, I'm here for ${forWhom}.`,
+      `${DOOR_KNOCKING_BULLET}Hi, I'm ${whoIAm}.`,
       `${DOOR_KNOCKING_BULLET}${why}`,
-      `${DOOR_KNOCKING_BULLET}About once a month, we'll check in to ask what you think. You can stop any time.`,
+      `${DOOR_KNOCKING_BULLET}About once a month, I'll check in to ask what you think. You can stop any time.`,
       `${DOOR_KNOCKING_BULLET}Would you like to be one of them?`,
       MARK_A_YES,
     ].join('\n')
   }
   return [
-    `You: Hi, is this ${CONSTITUENT_NAME_TOKEN}? I'm calling for ${forWhom}. Do you have a minute?`,
+    `You: Hi, is this ${CONSTITUENT_NAME_TOKEN}? This is ${whoIAm}. Do you have a minute?`,
     'Constituent: Sure.',
-    `You: ${why} About once a month, we'll check in to ask what you think, and you can stop any time. Would you like to be one of them?`,
+    `You: ${why} About once a month, I'll check in to ask what you think, and you can stop any time. Would you like to be one of them?`,
     'Constituent: Yes, count me in.',
-    "You: Thank you. We'll be in touch soon.",
+    "You: Thank you. I'll be in touch soon.",
     MARK_A_YES,
   ].join('\n')
 }

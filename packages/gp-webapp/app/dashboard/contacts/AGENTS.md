@@ -74,7 +74,7 @@ pads `var(--chat-dock-height)` plus 8rem so the last card clears the bar.
   campaign takes the list's name). Call mounts `PhoneBankingFlow` (Serve
   surface) with `civicPanelInvite`, the list's name and the list: the
   script, then Create call list (sheets sized to the list). Both scripts
-  are `civicPanelReachScript.ts`, in the SMS invite's voice, spoken as "we",
+  are `civicPanelReachScript.ts`, in the SMS invite's voice, spoken by the official in the first person,
   never naming the civic panel or how the office checks in, and closing on
   a note to mark a yes, which the knock and call forms' join question
   records as a door or phone join. A 422 says nobody there is left to

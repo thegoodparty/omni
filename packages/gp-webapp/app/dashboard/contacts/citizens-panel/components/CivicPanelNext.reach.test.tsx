@@ -135,7 +135,7 @@ describe('CivicPanelNext, once every resident we can text has an invite', () => 
       'Call: People 65 and over',
     )
     expect(screen.getByTestId('script')).toHaveTextContent(
-      'We want to hear from people across Asheville',
+      'I want to hear from people across Asheville',
     )
     expect(push).not.toHaveBeenCalled()
   })

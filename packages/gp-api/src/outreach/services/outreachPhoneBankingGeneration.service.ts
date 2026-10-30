@@ -344,7 +344,8 @@ const SERVE_PURPOSE_PROMPTS: Record<ServePhoneBankingPurpose, string> = {
     'Write a short phonebank script inviting a constituent into a group ' +
     'of residents the elected official hears from before they decide. ' +
     'Format as alternating You:/Constituent: lines. After the opener, ' +
-    'which says who the call is for by full name and office, say in one ' +
+    'in which the official introduces themselves by full name and office ' +
+    '(they make the call themselves, so write it in the first person), say in one ' +
     'or two plain sentences that the official wants to hear from people ' +
     'across the place, not just those who come to meetings, and that the ' +
     'office checks in about once a month to ask what they think, and they ' +
