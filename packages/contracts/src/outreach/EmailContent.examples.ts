@@ -27,12 +27,8 @@ export const EMAIL_CONTENT_EXAMPLES = {
           text: 'Hi {{first_name}},\n\nThe election is four weeks out, and the best way to win is talking with voters face to face. Join me for two hours of door knocking. No experience needed. We’ll pair you with someone who has done it before.',
         },
         {
-          type: 'details',
-          rows: [
-            { label: 'When', value: 'Saturday, October 10, 10am to noon' },
-            { label: 'Where', value: 'Maple Heights Library, 210 Oak Street' },
-            { label: 'Bring', value: 'Comfortable shoes and a phone' },
-          ],
+          type: 'paragraph',
+          text: 'Saturday, October 10, 10am to noon, at the Maple Heights Library, 210 Oak Street. Bring comfortable shoes and your phone.',
         },
         {
           type: 'button',
@@ -58,11 +54,8 @@ export const EMAIL_CONTENT_EXAMPLES = {
           text: 'Hi {{first_name}}, work starts in the spring. Before we set the schedule, I want to hear from the people who live and work on Elm. Come tell me what the crews should plan around.',
         },
         {
-          type: 'details',
-          rows: [
-            { label: 'When', value: 'Tuesday, November 3, 6:30pm' },
-            { label: 'Where', value: 'Riverton City Hall, Room 2' },
-          ],
+          type: 'paragraph',
+          text: 'Tuesday, November 3, at 6:30pm in Room 2 at Riverton City Hall.',
         },
         {
           type: 'button',
@@ -110,11 +103,8 @@ export const EMAIL_CONTENT_EXAMPLES = {
           text: 'Early voting starts October 26. If you have a question about any of this, just reply. I read every email myself.',
         },
         {
-          type: 'details',
-          rows: [
-            { label: 'Forum', value: 'Tuesday, October 20, 7pm, Central High' },
-            { label: 'Early voting', value: 'Starts Monday, October 26' },
-          ],
+          type: 'paragraph',
+          text: 'The candidate forum is Tuesday, October 20, at 7pm at Central High.',
         },
         {
           type: 'button',
@@ -215,11 +205,8 @@ export const EMAIL_CONTENT_EXAMPLES = {
           text: 'The fee covers about a third of the park’s repair backlog. I agree the repairs can’t wait. But families who use the park most told me $2 every weekend adds up, and I think we can close the gap with the state grant we applied for in August.\n\nThe fee is up for review in six months. Before then, I’d like to know what you think.',
         },
         {
-          type: 'details',
-          rows: [
-            { label: 'Fee starts', value: 'Saturday, November 7' },
-            { label: 'Review', value: 'May board meeting' },
-          ],
+          type: 'paragraph',
+          text: 'The fee starts Saturday, November 7, and the board will review it at the May meeting.',
         },
         {
           type: 'signature',

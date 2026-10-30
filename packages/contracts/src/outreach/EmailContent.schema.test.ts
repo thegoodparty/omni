@@ -355,15 +355,7 @@ describe('field rules', () => {
     expect(
       parseBlock(paragraph('a'.repeat(EMAIL_PARAGRAPH_MAX_LENGTH + 1))).success,
     ).toBe(false)
-    expect(
-      parseBlock({
-        type: 'details',
-        rows: Array.from({ length: 7 }, () => ({
-          label: 'When',
-          value: 'Now',
-        })),
-      }).success,
-    ).toBe(false)
+    expect(parseBlock({ ...button, label: 'a'.repeat(41) }).success).toBe(false)
   })
 
   it('caps blocks per email', () => {
@@ -507,11 +499,7 @@ describe('more layout rules', () => {
   it('starts a personal_letter with a paragraph', () => {
     rejects(
       'personal_letter',
-      [
-        { type: 'details', rows: [{ label: 'When', value: 'Now' }] },
-        paragraph('Hi'),
-        signature,
-      ],
+      [button, paragraph('Hi'), signature],
       'Start with a paragraph',
     )
   })
@@ -520,7 +508,7 @@ describe('more layout rules', () => {
     const result = EmailContentSchema.safeParse(
       withBlocks('short_cta', [
         { type: 'heading', text: 'Join us', level: 1 },
-        { type: 'details' },
+        { type: 'button' },
         paragraph('Hi'),
         button,
       ]),

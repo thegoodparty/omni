@@ -9,9 +9,6 @@ export const EMAIL_HEADING_MAX_LENGTH = 120
 export const EMAIL_PARAGRAPH_MAX_LENGTH = 2000
 export const EMAIL_IMAGE_ALT_MAX_LENGTH = 150
 export const EMAIL_BLOCK_BUTTON_LABEL_MAX_LENGTH = 40
-export const EMAIL_DETAILS_MAX_ROWS = 6
-export const EMAIL_DETAILS_LABEL_MAX_LENGTH = 24
-export const EMAIL_DETAILS_VALUE_MAX_LENGTH = 200
 export const EMAIL_SIGNATURE_NAME_MAX_LENGTH = 80
 export const EMAIL_SIGNATURE_TITLE_MAX_LENGTH = 120
 export const EMAIL_MAX_BLOCKS = 30
@@ -136,31 +133,6 @@ const blockSchemas = (mode: Mode) => {
       'A button that opens a link. Use one per email, for the main ask.',
     )
 
-  const details = z
-    .object({
-      type: z.literal('details'),
-      rows: z
-        .array(
-          z
-            .object({
-              label: text(mode, EMAIL_DETAILS_LABEL_MAX_LENGTH, false).describe(
-                'A one or two word label, like "When", "Where" or "Bring".',
-              ),
-              value: text(mode, EMAIL_DETAILS_VALUE_MAX_LENGTH, false).describe(
-                'The fact itself, one line, like "Saturday, May 3, 10am to noon".',
-              ),
-            })
-            .strict(),
-        )
-        .min(1)
-        .max(EMAIL_DETAILS_MAX_ROWS)
-        .describe(`1 to ${EMAIL_DETAILS_MAX_ROWS} label and value rows.`),
-    })
-    .strict()
-    .describe(
-      'A short box of key facts the reader needs to act, such as when, where and what to bring for an event or a deadline.',
-    )
-
   const signature = z
     .object({
       type: z.literal('signature'),
@@ -190,7 +162,6 @@ const blockSchemas = (mode: Mode) => {
       paragraph,
       image,
       button,
-      details,
       signature,
       divider,
     ])
@@ -211,7 +182,6 @@ export const EMAIL_BLOCK_TYPES = [
   'paragraph',
   'image',
   'button',
-  'details',
   'signature',
   'divider',
 ] as const satisfies readonly EmailBlockType[]
@@ -237,11 +207,6 @@ export const emailBlockTextLength = (block: EmailBlockDraft): number => {
       return block.alt.length
     case 'button':
       return block.label.length
-    case 'details':
-      return block.rows.reduce(
-        (sum, row) => sum + row.label.length + row.value.length,
-        0,
-      )
     case 'signature':
       return block.name.length + block.title.length
     case 'divider':

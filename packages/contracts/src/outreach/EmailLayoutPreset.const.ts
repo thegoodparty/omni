@@ -24,12 +24,11 @@ export const EMAIL_LAYOUT_PRESETS = {
     label: 'Short with a button',
     description: 'A photo, a headline, a few lines and one big button.',
     defaultTheme: 'bold_red',
-    allowedBlocks: ['image', 'heading', 'paragraph', 'details', 'button'],
+    allowedBlocks: ['image', 'heading', 'paragraph', 'button'],
     rules: [
       'Optional photo, and if there is one it comes first.',
       'Exactly one level 1 heading, right after the photo (or first).',
       `1 or 2 paragraphs, ${EMAIL_SHORT_CTA_PARAGRAPH_MAX_LENGTH} characters at most between them.`,
-      'Optional details box for when and where.',
       'Exactly one button, and it is the last block.',
     ],
     starterBlocks: [
@@ -48,7 +47,6 @@ export const EMAIL_LAYOUT_PRESETS = {
       'heading',
       'paragraph',
       'image',
-      'details',
       'button',
       'divider',
       'signature',
@@ -58,7 +56,7 @@ export const EMAIL_LAYOUT_PRESETS = {
       'Mostly paragraphs, at least 2. Break up the text with level 2 subheadings and dividers.',
       'Any heading after the masthead is level 2.',
       'At most one photo, and only right after the masthead.',
-      'At most one details box, one button and one signature.',
+      'At most one button and one signature.',
       'A signature, if any, is the last block.',
     ],
     starterBlocks: [
@@ -72,10 +70,10 @@ export const EMAIL_LAYOUT_PRESETS = {
     label: 'Personal letter',
     description: 'A plain note from you, signed with your name.',
     defaultTheme: 'cream_and_forest',
-    allowedBlocks: ['paragraph', 'details', 'button', 'signature'],
+    allowedBlocks: ['paragraph', 'button', 'signature'],
     rules: [
       'Starts with a paragraph. No headings and no photos except the signature headshot.',
-      'At most one details box and one button; the button is drawn as a quiet link.',
+      'At most one button, drawn as a quiet link.',
       'Exactly one signature, and it is the last block.',
     ],
     starterBlocks: [
@@ -173,7 +171,6 @@ export const checkEmailLayout = (
         `Keep the text to ${EMAIL_SHORT_CTA_PARAGRAPH_MAX_LENGTH} characters, or use a long update`,
       )
     }
-    atMostOne('details', 'details box')
     const buttons = countOf(blocks, 'button')
     if (buttons === 0) {
       missing('Add a button')
@@ -205,7 +202,6 @@ export const checkEmailLayout = (
         add(index, 'Only the first heading is level 1')
       }
     })
-    atMostOne('details', 'details box')
     atMostOne('button', 'button')
     atMostOne('signature', 'signature')
     const signatureAt = blocks.findIndex((block) => block.type === 'signature')
@@ -220,7 +216,6 @@ export const checkEmailLayout = (
     } else if (blocks[0]?.type !== 'paragraph') {
       add(0, 'Start with a paragraph')
     }
-    atMostOne('details', 'details box')
     atMostOne('button', 'button')
     const signatures = countOf(blocks, 'signature')
     if (signatures === 0) {
