@@ -82,6 +82,14 @@ Nov 8, 2022`), which tells apart cohort twins with the same name. Primaries
 and runoffs are not when an official was elected, so they never set the date.
 A failed past lookup drops the dates, never the list.
 
+The zip search maps a zip to districts through its voters, so a PO box or any
+voterless zip (28406 in Wilmington NC) finds nothing. "Can't find your office?
+Search by name" under the input switches to a name search that sends `name`
+with no zip to the same `races-by-year` lookups; "Back to ZIP code search"
+returns. A name needs 3 letters, rows show their state, and the list is capped
+at 50 with a hint to narrow it. No backend change: election-api already
+filters on `name`.
+
 Each story step has its own `Viewed` / `Completed` pair, named for what it
 tells the official (`SERVE_STORY_EVENTS`: You Represent, Hear From The Loudest
 Voices, Where Your Community Stands, Build And Grow Your List), and
