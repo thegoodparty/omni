@@ -84,7 +84,8 @@ export class AdminAuditInterceptor implements NestInterceptor {
       this.logger.info({
         timestamp: new Date().toISOString(),
         authSource: 'm2m',
-        // The Clerk machine that holds the token, as Clerk verified it.
+        // The verified caller: the Clerk machine (`mch_`) for an mt_ token,
+        // `vercel:<project>:<environment>` for a Vercel OIDC admin token.
         machineId: m2mToken.subject,
         // gp-admin names the staff member it is calling for, in the body or
         // the query string. Nothing verifies it, and null means none was

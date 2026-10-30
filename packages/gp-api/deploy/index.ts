@@ -685,6 +685,17 @@ jwIDAQAB
         dev: 'prj_xUbQGrErwISW8pqTZtKzk9wN5gFc:preview,prj_xUbQGrErwISW8pqTZtKzk9wN5gFc:development,prj_PFN2Upwy18Fg5jjF0BTD3vcEq5eO:preview',
         prod: 'prj_xUbQGrErwISW8pqTZtKzk9wN5gFc:production,prj_PFN2Upwy18Fg5jjF0BTD3vcEq5eO:production',
       }),
+      // Vercel deployments whose OIDC token makes them a full M2M caller, the
+      // same as an mt_ token, as project_id:environment (gp-admin). Kept apart
+      // from the reader list so a reader entry can never grant admin. The one
+      // gp-admin production deployment calls both dev and prod; prod accepts
+      // nothing else, so a preview or `vercel env pull` holds no prod admin.
+      VERCEL_OIDC_ADMIN_PROJECTS: select({
+        preview:
+          'prj_ZT7POAebSPy3jFf2u0xKIUZTQpcT:production,prj_ZT7POAebSPy3jFf2u0xKIUZTQpcT:preview,prj_ZT7POAebSPy3jFf2u0xKIUZTQpcT:development',
+        dev: 'prj_ZT7POAebSPy3jFf2u0xKIUZTQpcT:production,prj_ZT7POAebSPy3jFf2u0xKIUZTQpcT:preview,prj_ZT7POAebSPy3jFf2u0xKIUZTQpcT:development',
+        prod: 'prj_ZT7POAebSPy3jFf2u0xKIUZTQpcT:production',
+      }),
       // GitHub Actions workflows whose OIDC token (audience gp-api) makes them a
       // service reader, as <owner>/<repo>/<path>@<ref>; <ref> may be *. Not
       // secret: the signed token is the credential. Prod takes only the

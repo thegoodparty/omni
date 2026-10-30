@@ -20,7 +20,7 @@ Auth state is enforced globally via three guards registered in order. Most route
 | `guards/AdminOrM2M.guard.ts`             | Route-level: admin user OR M2M token                                                     |
 | `guards/M2MOnly.guard.ts`                | Route-level: M2M only                                                                    |
 | `guards/ServiceRead.guard.ts`            | Route-level: service reader (Vercel or GitHub OIDC), `mt_*` M2M, or admin                |
-| `vercelOidc.service.ts`                  | Verifies a Vercel deployment's OIDC token against the project allowlist                  |
+| `vercelOidc.service.ts`                  | Verifies a Vercel deployment's OIDC token against the admin and reader allowlists        |
 | `githubOidc.service.ts`                  | Verifies a GitHub Actions workflow's OIDC token against the workflow allowlist           |
 | `guards/ServiceReadOrOwner.guard.ts`     | `ServiceReadGuard` plus the user whose `personId` matches the `personId` query param     |
 | `interceptors/AdminAudit.interceptor.ts` | Logs admin actions for the audit trail                                                   |
@@ -34,7 +34,8 @@ Auth state is enforced globally via three guards registered in order. Most route
   verified by Clerk against `GP_API_MACHINE_SECRET`, which enforces machine
   scope, and sets `request.m2mToken` — full M2M, trusted by
   `AdminOrM2MGuard`, `M2MOnly` and `UserOrM2M`. A Vercel or GitHub OIDC token
-  sets `request.serviceReader`, never `m2mToken`, and passes `SessionGuard`
+  sets `request.serviceReader` (unless its Vercel project is on the admin
+  list, below), never `m2mToken`, and passes `SessionGuard`
   only on `@PublicAccess()` routes (401 elsewhere). Gate a read for a service
   reader with `ServiceReadGuard`. Use `ServiceReadOrOwnerGuard` only where the
   `personId` query param names the one record returned; on a list route it
@@ -61,6 +62,15 @@ Auth state is enforced globally via three guards registered in order. Most route
   gp-marketing's `development` environment, so a local `next dev` can send
   the token `vercel env pull` writes
   (`docs/adr/2026-10-29-machine-callers-authenticate-with-platform-oidc.md`).
+- **A Vercel project on `VERCEL_OIDC_ADMIN_PROJECTS` is a full M2M caller.**
+  Same token, same verification, but its `project_id:environment` is checked
+  against this separate list first, so a reader entry can never grant admin
+  (on both lists, admin wins). A match sets `m2mToken` with
+  `source: 'vercel-oidc'` and `subject` `vercel:<project>:<environment>`, the
+  same privilege as an `mt_` token (which sets `source: 'clerk'`). gp-admin
+  uses it: prod lists only gp-admin's `production` deployment, dev and
+  preview also list its `preview` and `development`, so a gp-admin preview or
+  `vercel env pull` cannot act as admin on prod.
 - **A GitHub Actions OIDC token is the other service reader.** gp-marketing's
   `generate-people-sitemaps` workflow requests one with audience `gp-api`, so
   it needs no stored secret. `SessionGuard` recognizes it by its unverified
@@ -126,7 +136,7 @@ Auth state is enforced globally via three guards registered in order. Most route
   subject from `req.user`.
 - `AdminAudit.interceptor.ts` is registered **globally** as an `APP_INTERCEPTOR` in `app.module.ts` and fires on every route whose `@Roles()` includes `admin` or whose `@UseGuards()` names `AdminOrM2MGuard` or `M2MOnly` — no opt-in needed. It writes one `Admin route accessed` log line (that log is the audit store; there is no table) with the endpoint, method, IP, user agent and body, plus `authSource`:
   - `session`: `userId`/`userEmail` from `effectiveUser` (the accountable admin), adding `impersonatedUserId`/`impersonatedUserEmail` only while impersonating, and `unresolvedActorSub` when an `act` claim did not resolve to a local user.
-  - `m2m`: `machineId` is the verified token's Clerk `subject` (the `mch_` machine). `suppliedActorEmail` is the `actorEmail` the caller put in the body or query string (gp-admin names the staff member that way); nothing verifies it, and it is `null` when none was sent.
+  - `m2m`: `machineId` is the verified `m2mToken.subject`: the Clerk `mch_` machine for an `mt_` token, `vercel:<project>:<environment>` for a Vercel OIDC admin token. `suppliedActorEmail` is the `actorEmail` the caller put in the body or query string (gp-admin names the staff member that way); nothing verifies it, and it is `null` when none was sent.
 
   It logs before pipes and the handler run, so a request that then fails validation is still recorded. A couple of controllers also list it in `@UseInterceptors()`; that is redundant, not load-bearing.
 

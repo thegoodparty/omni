@@ -20,6 +20,26 @@ export type VercelOidcServiceReader = {
   environment: string
 }
 
+export type VercelOidcMachine = {
+  source: 'vercel-oidc'
+  subject: string
+  projectId: string
+  project: string
+  environment: string
+}
+
+export type VercelOidcCaller =
+  | { tier: 'admin'; m2mToken: VercelOidcMachine }
+  | { tier: 'reader'; serviceReader: VercelOidcServiceReader }
+
+const parseProjectAllowlist = (value: string | undefined): Set<string> =>
+  new Set(
+    (value ?? '')
+      .split(',')
+      .map((entry) => entry.trim())
+      .filter(Boolean),
+  )
+
 export const isVercelOidcToken = (token: string): boolean => {
   try {
     const { iss } = decodeJwt(token)
@@ -47,14 +67,12 @@ export class VercelOidcService {
     this.logger.setContext(VercelOidcService.name)
   }
 
-  async verify(token: string): Promise<VercelOidcServiceReader | undefined> {
-    const allowed = new Set(
-      (process.env.VERCEL_OIDC_ALLOWED_PROJECTS ?? '')
-        .split(',')
-        .map((entry) => entry.trim())
-        .filter(Boolean),
+  async verify(token: string): Promise<VercelOidcCaller | undefined> {
+    const admins = parseProjectAllowlist(process.env.VERCEL_OIDC_ADMIN_PROJECTS)
+    const readers = parseProjectAllowlist(
+      process.env.VERCEL_OIDC_ALLOWED_PROJECTS,
     )
-    if (allowed.size === 0) {
+    if (admins.size === 0 && readers.size === 0) {
       this.logger.debug('Vercel OIDC token ignored: no projects allowed')
       return undefined
     }
@@ -74,19 +92,38 @@ export class VercelOidcService {
       if (
         typeof project_id !== 'string' ||
         typeof project !== 'string' ||
-        typeof environment !== 'string' ||
-        !allowed.has(`${project_id}:${environment}`)
+        typeof environment !== 'string'
       ) {
-        throw new Error(
-          `Vercel project ${String(project_id)} (${String(environment)}) is not allowed`,
-        )
+        throw new Error('Vercel OIDC token is missing its project claims')
       }
-      return {
-        source: 'vercel-oidc',
-        projectId: project_id,
-        project,
-        environment,
+      const entry = `${project_id}:${environment}`
+      // The two lists are separate so a reader entry can never grant admin.
+      if (admins.has(entry)) {
+        return {
+          tier: 'admin',
+          m2mToken: {
+            source: 'vercel-oidc',
+            subject: `vercel:${project}:${environment}`,
+            projectId: project_id,
+            project,
+            environment,
+          },
+        }
       }
+      if (readers.has(entry)) {
+        return {
+          tier: 'reader',
+          serviceReader: {
+            source: 'vercel-oidc',
+            projectId: project_id,
+            project,
+            environment,
+          },
+        }
+      }
+      throw new Error(
+        `Vercel project ${project_id} (${environment}) is not allowed`,
+      )
     } catch (err) {
       this.logger.warn({ err }, 'Vercel OIDC token verification failed')
       return undefined
