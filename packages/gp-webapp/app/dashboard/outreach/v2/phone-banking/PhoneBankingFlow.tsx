@@ -134,10 +134,14 @@ const QUESTION_STEP_BODY = {
 }
 
 // A civic panel invite arrives with its script written, so the step asks for
-// a review rather than a draft.
+// a review rather than a draft. An elected official makes the calls
+// themselves, so Serve's body names no volunteers.
 const CIVIC_PANEL_SCRIPT_INTRO = {
   title: 'Does this call script sound right?',
-  body: 'Your volunteers will read this on each call. Edit anything you like.',
+  body: {
+    win: 'Your volunteers will read this on each call. Edit anything you like.',
+    serve: "You'll read this on each call. Edit anything you like.",
+  },
 }
 
 const CIVIC_PANEL_LIST_MISSING =
@@ -1263,7 +1267,14 @@ export const PhoneBankingFlow = ({
       ) : stepId === 'script' ? (
         <>
           <ScriptStep
-            {...(civicPanelInvite && { intro: CIVIC_PANEL_SCRIPT_INTRO })}
+            {...(civicPanelInvite && {
+              intro: {
+                title: CIVIC_PANEL_SCRIPT_INTRO.title,
+                body: surface.isServe
+                  ? CIVIC_PANEL_SCRIPT_INTRO.body.serve
+                  : CIVIC_PANEL_SCRIPT_INTRO.body.win,
+              },
+            })}
             isServe={surface.isServe}
             name={name}
             onNameChange={(value) => {
@@ -1305,6 +1316,7 @@ export const PhoneBankingFlow = ({
         </>
       ) : stepId === 'sheets' ? (
         <SheetCountStep
+          isServe={surface.isServe}
           sheetCount={sheetCount}
           onSheetCountChange={handleSheetCountChange}
           createErrorMessage={createErrorMessage}

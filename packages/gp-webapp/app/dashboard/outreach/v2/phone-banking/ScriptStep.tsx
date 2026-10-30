@@ -54,6 +54,14 @@ const CONTACT_NAME_TOKEN: Record<'win' | 'serve', TokenSpec> = {
   },
 }
 
+// An elected official makes the calls themselves, so Serve's body names no
+// volunteers.
+const DEFAULT_INTRO_BODY = {
+  win: 'This is the script your volunteers will read on the phone. Edit it to sound like you.',
+  serve:
+    "This is the script you'll read on the phone. Edit it to sound like you.",
+}
+
 const TONE_LABELS: Record<SocialTone, string> = {
   warm: 'Warm',
   direct: 'Direct',
@@ -92,10 +100,7 @@ interface ScriptStepProps {
 }
 
 export const ScriptStep = ({
-  intro = {
-    title: 'Write your call script',
-    body: 'This is the script your volunteers will read on the phone. Edit it to sound like you.',
-  },
+  intro: introOverride,
   isServe,
   name,
   onNameChange,
@@ -114,6 +119,10 @@ export const ScriptStep = ({
   isDraftError,
   isCustomPurpose,
 }: ScriptStepProps) => {
+  const intro = introOverride ?? {
+    title: 'Write your call script',
+    body: isServe ? DEFAULT_INTRO_BODY.serve : DEFAULT_INTRO_BODY.win,
+  }
   const dictation = useDictationAppend({
     analyticsLabel: 'outreach-phone-banking-script',
     value: script,
