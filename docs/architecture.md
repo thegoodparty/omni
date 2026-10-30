@@ -59,7 +59,8 @@ nothing boring would work.
 | GitHub workflow -> gp-api   | Bearer GitHub OIDC token | Read-only service reader; gp-marketing sitemap workflow |
 | External -> gp-webapp       | Public                   | Public election/candidate pages                         |
 
-gp-api runs three global guards in order: `ClerkM2MAuthGuard`, `SessionGuard`,
+gp-api runs three global guards in order: `NonProdDeployGuard` (404s routes
+marked `@NonProdDeployOnly()` on prod, before auth), `SessionGuard`,
 `RolesGuard`. Detail and decorators: `packages/gp-api/src/authentication/AGENTS.md`.
 
 ## Contracts — the cross-service source of truth
