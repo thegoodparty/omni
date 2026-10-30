@@ -24,35 +24,37 @@ interface ContentShape {
   blocks: readonly EmailBlockDraft[]
 }
 
-const checkContent = (data: ContentShape, ctx: z.RefinementCtx) => {
-  const sections = data.blocks.filter((block) => block.type === 'section')
-  if (sections.length > EMAIL_MAX_SECTIONS) {
-    ctx.addIssue({
-      code: 'custom',
-      path: ['blocks'],
-      message: `Use at most ${EMAIL_MAX_SECTIONS} sections`,
-    })
+const checkContent =
+  (mode: 'final' | 'draft') => (data: ContentShape, ctx: z.RefinementCtx) => {
+    const sections = data.blocks.filter((block) => block.type === 'section')
+    if (sections.length > EMAIL_MAX_SECTIONS) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['blocks'],
+        message: `Use at most ${EMAIL_MAX_SECTIONS} sections`,
+      })
+    }
+    const textLength =
+      data.subject.length +
+      (data.previewText?.length ?? 0) +
+      data.blocks.reduce((sum, block) => sum + emailBlockTextLength(block), 0)
+    if (textLength > EMAIL_CONTENT_TEXT_MAX_LENGTH) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['blocks'],
+        message: `Keep the whole email under ${EMAIL_CONTENT_TEXT_MAX_LENGTH.toLocaleString('en-US')} characters`,
+      })
+    }
+    for (const issue of checkEmailLayout(data.layout, data.blocks)) {
+      if (mode === 'draft' && issue.incomplete) continue
+      ctx.addIssue({
+        code: 'custom',
+        path:
+          issue.blockIndex === null ? ['blocks'] : ['blocks', issue.blockIndex],
+        message: issue.message,
+      })
+    }
   }
-  const textLength =
-    data.subject.length +
-    (data.previewText?.length ?? 0) +
-    data.blocks.reduce((sum, block) => sum + emailBlockTextLength(block), 0)
-  if (textLength > EMAIL_CONTENT_TEXT_MAX_LENGTH) {
-    ctx.addIssue({
-      code: 'custom',
-      path: ['blocks'],
-      message: `Keep the whole email under ${EMAIL_CONTENT_TEXT_MAX_LENGTH.toLocaleString('en-US')} characters`,
-    })
-  }
-  for (const issue of checkEmailLayout(data.layout, data.blocks)) {
-    ctx.addIssue({
-      code: 'custom',
-      path:
-        issue.blockIndex === null ? ['blocks'] : ['blocks', issue.blockIndex],
-      message: issue.message,
-    })
-  }
-}
 
 const blocksDescription = `The email body, top to bottom. 1 to ${EMAIL_MAX_BLOCKS} blocks, following the layout's rules. Don't add a footer, unsubscribe link, address or "paid for by" line: the system adds those to every email.`
 
@@ -74,14 +76,15 @@ export const EmailContentSchema = z
       .describe(blocksDescription),
   })
   .strict()
-  .superRefine(checkContent)
+  .superRefine(checkContent('final'))
   .describe(
     'An outreach email: a layout, a color theme, a subject and an ordered list of content blocks.',
   )
 export type EmailContent = z.infer<typeof EmailContentSchema>
 
-// The editor's save and live-preview shape: the same structure rules, but any
-// text or link may still be empty.
+// The editor's save and live-preview shape: any text or link may still be
+// empty and a required block may still be missing, but nothing may be too
+// long, in the wrong place or not allowed in the layout.
 export const EmailContentDraftSchema = z
   .object({
     layout: EmailLayoutPresetKeySchema,
@@ -91,5 +94,5 @@ export const EmailContentDraftSchema = z
     blocks: z.array(EmailBlockDraftSchema).max(EMAIL_MAX_BLOCKS),
   })
   .strict()
-  .superRefine(checkContent)
+  .superRefine(checkContent('draft'))
 export type EmailContentDraft = z.infer<typeof EmailContentDraftSchema>

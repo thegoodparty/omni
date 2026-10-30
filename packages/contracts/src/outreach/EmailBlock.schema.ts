@@ -30,6 +30,9 @@ export const EMAIL_MERGE_TAGS = ['{{first_name}}', '{{last_name}}'] as const
 const MERGE_TAG_HINT =
   'Only {{first_name}} and {{last_name}} can be merged, written exactly like that'
 
+const MERGE_TAG_NOTE =
+  ' To greet each reader by name, write {{first_name}} or {{last_name}} exactly like that; no other {{tags}} work.'
+
 const hasOnlyKnownMergeTags = (value: string): boolean => {
   const rest = EMAIL_MERGE_TAGS.reduce(
     (text, tag) => text.replaceAll(tag, ''),
@@ -38,7 +41,7 @@ const hasOnlyKnownMergeTags = (value: string): boolean => {
   return !rest.includes('{{') && !rest.includes('}}')
 }
 
-const HTML_TAG_PATTERN = /<\/?[a-z!][^>]*>/i
+const HTML_TAG_PATTERN = /<\/?[a-z][a-z0-9-]*(\s[^<>]*)?\/?>|<!--/i
 
 // Draft mode is what the editor saves and previews while the author is still
 // typing: every text and URL may be empty, but nothing may be too long or
@@ -56,7 +59,7 @@ const text = (mode: Mode, max: number, multiline: boolean) => {
       'Plain text only, without HTML tags',
     )
     .refine(
-      (value) => multiline || !/[\r\n]/.test(value),
+      (value) => multiline || !/[\r\n\u2028\u2029]/.test(value),
       'Keep this to one line',
     )
   return mode === 'final' ? base.min(1, 'This can’t be empty') : base
@@ -85,7 +88,8 @@ const blockSchemas = (mode: Mode) => {
     .object({
       type: z.literal('heading'),
       text: text(mode, EMAIL_HEADING_MAX_LENGTH, false).describe(
-        'The heading, one line, plain text. Short and specific, like a newspaper headline.',
+        'The heading, one line, plain text. Short and specific, like a newspaper headline.' +
+          MERGE_TAG_NOTE,
       ),
       level: z
         .union([z.literal(1), z.literal(2)])
@@ -100,7 +104,8 @@ const blockSchemas = (mode: Mode) => {
     .object({
       type: z.literal('paragraph'),
       text: text(mode, EMAIL_PARAGRAPH_MAX_LENGTH, true).describe(
-        'Plain text. A single line break starts a new line and a blank line starts a new paragraph. No HTML, no markdown (no **, #, or [links]); put links in a button or section.',
+        'Plain text. A single line break starts a new line and a blank line starts a new paragraph. No HTML, no markdown (no **, #, or [links]); put links in a button or section.' +
+          MERGE_TAG_NOTE,
       ),
     })
     .strict()
@@ -166,7 +171,8 @@ const blockSchemas = (mode: Mode) => {
         'A short title for this item, like "New crosswalk on Elm Street".',
       ),
       text: text(mode, EMAIL_SECTION_TEXT_MAX_LENGTH, true).describe(
-        'A few sentences on this item: what happened, and what it means for the reader. Plain text, line breaks allowed.',
+        'A few sentences on this item: what happened, and what it means for the reader. Plain text, line breaks allowed.' +
+          MERGE_TAG_NOTE,
       ),
       image: z
         .object({
@@ -261,7 +267,8 @@ export const EMAIL_BLOCK_TYPES = [
 
 export const emailSubjectSchema = (mode: Mode) =>
   text(mode, EMAIL_SUBJECT_MAX_LENGTH, false).describe(
-    'The subject line. Under about 60 characters reads best on a phone. Specific, not salesy; no ALL CAPS or emoji strings.',
+    'The subject line. Under about 60 characters reads best on a phone. Specific, not salesy; no ALL CAPS or emoji strings.' +
+      MERGE_TAG_NOTE,
   )
 
 export const emailPreviewTextSchema = (mode: Mode) =>

@@ -163,6 +163,8 @@ describe('agent drafts', () => {
     )
     expect(schema).toContain('"description"')
     expect(schema).toContain('Never invent or guess an image URL')
+    expect(schema).toContain('{{first_name}}')
+    expect(schema).toContain('Exactly one button, and it is the last block.')
   })
 
   it('rejects a block type that does not exist', () => {
@@ -202,7 +204,7 @@ describe('layout rules', () => {
   ]
 
   it('short_cta needs exactly one button, last', () => {
-    rejects('short_cta', cta(), 'Use exactly one button')
+    rejects('short_cta', cta(), 'Add a button')
     rejects(
       'short_cta',
       cta({ after: [button, button] }),
@@ -277,6 +279,16 @@ describe('layout rules', () => {
         section('A'),
         section('B'),
       ],
+      'Add an intro paragraph',
+    )
+    rejects(
+      'long_update',
+      [
+        { type: 'heading', text: 'Update', level: 1 },
+        section('A'),
+        paragraph('Intro'),
+        section('B'),
+      ],
       'Follow the heading with an intro paragraph',
     )
   })
@@ -306,7 +318,7 @@ describe('layout rules', () => {
     rejects(
       'personal_letter',
       [paragraph('Dear neighbor')],
-      'Sign it with exactly one signature',
+      'Sign it with your name',
     )
     rejects(
       'personal_letter',
@@ -361,7 +373,12 @@ describe('field rules', () => {
     const result = EmailContentSchema.safeParse(
       withBlocks('long_update', blocks),
     )
-    expect(result.success).toBe(false)
+    expect(
+      result.error?.issues.some(
+        (issue) =>
+          issue.code === 'too_big' && issue.path.join('.') === 'blocks',
+      ),
+    ).toBe(true)
   })
 
   it('caps the text of the whole email', () => {
@@ -429,5 +446,121 @@ describe('field rules', () => {
         image: { url: 'https://example.org/a.png' },
       }).success,
     ).toBe(false)
+  })
+
+  it('reads a lone < as text and a tag as HTML', () => {
+    expect(
+      parseBlock(paragraph('Kids <3 the splash pad, ages 3-5 > 40 of them'))
+        .success,
+    ).toBe(true)
+    expect(parseBlock(paragraph('<a href="https://x.org">x</a>')).success).toBe(
+      false,
+    )
+    expect(parseBlock(paragraph('Hi <!-- note -->')).success).toBe(false)
+  })
+
+  it('treats Unicode line separators as line breaks', () => {
+    expect(
+      parseBlock({ type: 'heading', text: 'One\u2028Two', level: 1 }).success,
+    ).toBe(false)
+  })
+})
+
+describe('more layout rules', () => {
+  const rejects = (
+    layout: EmailLayoutPresetKey,
+    blocks: unknown[],
+    message: string,
+  ) => {
+    const result = EmailContentSchema.safeParse(withBlocks(layout, blocks))
+    expect(messages(result)).toContain(message)
+  }
+
+  it('checks heading levels', () => {
+    rejects(
+      'short_cta',
+      [{ type: 'heading', text: 'Join us', level: 2 }, paragraph('Hi'), button],
+      'The headline is level 1',
+    )
+    rejects(
+      'long_update',
+      [
+        { type: 'heading', text: 'Update', level: 1 },
+        paragraph('Intro'),
+        section('A'),
+        { type: 'heading', text: 'Also', level: 1 },
+        section('B'),
+      ],
+      'Only the first heading is level 1',
+    )
+  })
+
+  it('puts the long_update signature last', () => {
+    rejects(
+      'long_update',
+      [
+        { type: 'heading', text: 'Update', level: 1 },
+        paragraph('Intro'),
+        section('A'),
+        signature,
+        section('B'),
+      ],
+      'The signature goes last',
+    )
+  })
+
+  it('starts a personal_letter with a paragraph', () => {
+    rejects(
+      'personal_letter',
+      [
+        { type: 'details', rows: [{ label: 'When', value: 'Now' }] },
+        paragraph('Hi'),
+        signature,
+      ],
+      'Start with a paragraph',
+    )
+  })
+
+  it('does not crash on a malformed block', () => {
+    const result = EmailContentSchema.safeParse(
+      withBlocks('short_cta', [
+        { type: 'heading', text: 'Join us', level: 1 },
+        { type: 'details' },
+        paragraph('Hi'),
+        button,
+      ]),
+    )
+    expect(result.success).toBe(false)
+  })
+})
+
+describe('draft rules', () => {
+  const draft = (layout: EmailLayoutPresetKey, blocks: unknown[]) =>
+    EmailContentDraftSchema.safeParse({
+      layout,
+      theme: 'classic_blue',
+      subject: '',
+      blocks,
+    })
+
+  it('saves a draft that is still missing a required block', () => {
+    expect(messages(draft('short_cta', []))).toEqual([])
+    expect(
+      messages(draft('short_cta', [{ type: 'heading', text: '', level: 1 }])),
+    ).toEqual([])
+    expect(messages(draft('personal_letter', [paragraph('')]))).toEqual([])
+  })
+
+  it('still rejects a block the layout does not use, or the wrong order', () => {
+    expect(
+      messages(
+        draft('personal_letter', [paragraph(''), section('A'), signature]),
+      ),
+    ).toContain('The Personal letter layout doesn’t use section blocks')
+    expect(
+      messages(
+        draft('personal_letter', [paragraph(''), signature, paragraph('')]),
+      ),
+    ).toContain('The signature goes last')
   })
 })

@@ -91,13 +91,22 @@ export type EmailLayoutPresetKey = keyof typeof EMAIL_LAYOUT_PRESETS
 export const EmailLayoutPresetKeySchema = z
   .enum(['short_cta', 'long_update', 'personal_letter'])
   .describe(
-    'short_cta: one ask with a big button. long_update: several topics as sections. personal_letter: a signed note in paragraphs.',
+    (Object.keys(EMAIL_LAYOUT_PRESETS) as EmailLayoutPresetKey[])
+      .map(
+        (key) =>
+          `${key}: ${EMAIL_LAYOUT_PRESETS[key].description} Allowed blocks: ${EMAIL_LAYOUT_PRESETS[key].allowedBlocks.join(', ')}. ${EMAIL_LAYOUT_PRESETS[key].rules.join(' ')}`,
+      )
+      .join('\n'),
   ) satisfies z.ZodType<EmailLayoutPresetKey>
 
 export interface EmailLayoutIssue {
   // Index into `blocks`, or null for a rule about the email as a whole.
   blockIndex: number | null
   message: string
+  // A required block is still missing. The editor may save that; a send may
+  // not. Everything else (a block the layout doesn't use, too many, the wrong
+  // order) is wrong in both.
+  incomplete: boolean
 }
 
 const countOf = (
@@ -105,16 +114,17 @@ const countOf = (
   type: EmailBlockType,
 ): number => blocks.filter((block) => block.type === type).length
 
-// Structure only (which blocks, how many, in what order), so it runs the same
-// on a half-written draft and on a finished one. Field rules live on the
-// block schemas.
+// Structure only (which blocks, how many, in what order). Field rules live on
+// the block schemas.
 export const checkEmailLayout = (
   layout: EmailLayoutPresetKey,
   blocks: readonly EmailBlockDraft[],
 ): EmailLayoutIssue[] => {
   const issues: EmailLayoutIssue[] = []
   const add = (blockIndex: number | null, message: string) =>
-    issues.push({ blockIndex, message })
+    issues.push({ blockIndex, message, incomplete: false })
+  const missing = (message: string) =>
+    issues.push({ blockIndex: null, message, incomplete: true })
   const preset: EmailLayoutPreset = EMAIL_LAYOUT_PRESETS[layout]
   const last = blocks.length - 1
 
@@ -132,17 +142,17 @@ export const checkEmailLayout = (
     const imageIndexes = blocks.flatMap((block, index) =>
       block.type === 'image' ? [index] : [],
     )
-    if (imageIndexes.length > 1) add(null, 'Use at most one photo')
-    if (imageIndexes.some((index) => index !== 0)) {
-      add(
-        imageIndexes.find((index) => index !== 0) ?? null,
-        'The photo goes first',
-      )
+    if (imageIndexes.length > 1) {
+      add(null, 'Use at most one photo')
+    } else if (imageIndexes.length === 1 && imageIndexes[0] !== 0) {
+      add(imageIndexes[0], 'The photo goes first')
     }
     const headingAt = imageIndexes[0] === 0 ? 1 : 0
     const headings = countOf(blocks, 'heading')
     const heading = blocks[headingAt]
-    if (headings !== 1) {
+    if (headings === 0) {
+      missing('Add a headline')
+    } else if (headings > 1) {
       add(null, 'Use exactly one headline')
     } else if (heading?.type !== 'heading') {
       add(null, 'The headline goes at the top, after the photo if there is one')
@@ -150,9 +160,8 @@ export const checkEmailLayout = (
       add(headingAt, 'The headline is level 1')
     }
     const paragraphs = blocks.filter((block) => block.type === 'paragraph')
-    if (paragraphs.length < 1 || paragraphs.length > 2) {
-      add(null, 'Use 1 or 2 paragraphs')
-    }
+    if (paragraphs.length === 0) missing('Add a paragraph')
+    if (paragraphs.length > 2) add(null, 'Use 1 or 2 paragraphs')
     const paragraphLength = paragraphs.reduce(
       (sum, block) =>
         sum + (block.type === 'paragraph' ? block.text.length : 0),
@@ -165,7 +174,10 @@ export const checkEmailLayout = (
       )
     }
     atMostOne('details', 'details box')
-    if (countOf(blocks, 'button') !== 1) {
+    const buttons = countOf(blocks, 'button')
+    if (buttons === 0) {
+      missing('Add a button')
+    } else if (buttons > 1) {
       add(null, 'Use exactly one button')
     } else if (blocks[last]?.type !== 'button') {
       add(last, 'The button goes last')
@@ -174,19 +186,25 @@ export const checkEmailLayout = (
 
   if (layout === 'long_update') {
     const first = blocks[0]
-    if (first?.type !== 'heading' || first.level !== 1) {
+    if (!blocks.some((b) => b.type === 'heading' && b.level === 1)) {
+      missing('Start with a level 1 heading')
+    } else if (first?.type !== 'heading' || first.level !== 1) {
       add(0, 'Start with a level 1 heading')
     }
-    if (blocks[1]?.type !== 'paragraph') {
-      add(1, 'Follow the heading with an intro paragraph')
+    if (countOf(blocks, 'paragraph') === 0) {
+      missing('Add an intro paragraph')
+    } else if (blocks[1]?.type !== 'paragraph') {
+      add(
+        blocks.length > 1 ? 1 : null,
+        'Follow the heading with an intro paragraph',
+      )
     }
     blocks.forEach((block, index) => {
       if (index > 0 && block.type === 'heading' && block.level !== 2) {
         add(index, 'Only the first heading is level 1')
       }
     })
-    const sections = countOf(blocks, 'section')
-    if (sections < 2) add(null, 'Add at least 2 sections')
+    if (countOf(blocks, 'section') < 2) missing('Add at least 2 sections')
     atMostOne('details', 'details box')
     atMostOne('button', 'button')
     atMostOne('signature', 'signature')
@@ -197,11 +215,18 @@ export const checkEmailLayout = (
   }
 
   if (layout === 'personal_letter') {
-    if (blocks[0]?.type !== 'paragraph') add(0, 'Start with a paragraph')
+    if (countOf(blocks, 'paragraph') === 0) {
+      missing('Add a paragraph')
+    } else if (blocks[0]?.type !== 'paragraph') {
+      add(0, 'Start with a paragraph')
+    }
     atMostOne('details', 'details box')
     atMostOne('button', 'button')
-    if (countOf(blocks, 'signature') !== 1) {
-      add(null, 'Sign it with exactly one signature')
+    const signatures = countOf(blocks, 'signature')
+    if (signatures === 0) {
+      missing('Sign it with your name')
+    } else if (signatures > 1) {
+      add(null, 'Use exactly one signature')
     } else if (blocks[last]?.type !== 'signature') {
       add(last, 'The signature goes last')
     }
