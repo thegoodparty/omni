@@ -76,39 +76,39 @@ export const EMAIL_CONTENT_EXAMPLES = {
     win: {
       layout: 'long_update',
       theme: 'fresh_green',
-      subject: 'Campaign update: 1,200 doors and counting',
-      previewText: 'What we heard from voters this month, and what’s next.',
+      subject: 'What 1,200 conversations taught me',
+      previewText:
+        'What I heard at the doors this month, and what I’ll do about it.',
       blocks: [
-        { type: 'heading', text: 'October campaign update', level: 1 },
+        { type: 'heading', text: 'What I heard at your doors', level: 1 },
+        {
+          type: 'image',
+          url: PLACEHOLDER_PHOTO,
+          alt: 'A volunteer talking with a resident on a front porch',
+        },
         {
           type: 'paragraph',
-          text: 'Hi {{first_name}}, thank you for being part of this. Here’s what our campaign did this month and what voters told us.',
+          text: 'Hi {{first_name}},\n\nThis month our volunteers and I knocked on 1,200 doors east of the river. I want to tell you what voters told us, because it changed what this campaign will focus on for the next four weeks.',
         },
         {
-          type: 'section',
-          heading: '1,200 doors knocked',
-          text: 'Twenty-two volunteers covered every street east of the river. The top concern we heard was the cost of water bills, followed by speeding near schools.',
-          image: {
-            url: PLACEHOLDER_PHOTO,
-            alt: 'A volunteer talking with a resident on a front porch',
-          },
+          type: 'paragraph',
+          text: 'I expected to hear about property taxes. Some people did bring them up. But the thing almost everyone mentioned first was their water bill. One retired teacher on Birch Street showed me three months of bills that had gone up by a third, with no letter from the utility explaining why.',
         },
+        { type: 'heading', text: 'Why water bills keep going up', level: 2 },
         {
-          type: 'section',
-          heading: 'My plan for water bills',
-          text: 'I published a three-step plan to audit the utility’s rate increases and put the results online. It takes about two minutes to read.',
-          link: {
-            label: 'Read the plan',
-            url: 'https://example.org/jordan-ellis/water-plan',
-          },
+          type: 'paragraph',
+          text: 'The city council approved two rate increases in the last eighteen months. Both passed on the consent agenda, without public discussion. The utility says the money pays for pipe repairs, but it hasn’t published which repairs, where, or what they cost.\n\nI don’t think that’s good enough. If we’re paying more, we deserve to see where the money goes.',
         },
+        { type: 'heading', text: 'What I’ll do on the council', level: 2 },
         {
-          type: 'section',
-          heading: 'Candidate forum on October 20',
-          text: 'All three candidates will answer questions from the League of Women Voters. Come see us side by side.',
+          type: 'paragraph',
+          text: 'First, I’ll ask for an independent audit of the last two rate increases and put the results online. Second, I’ll move every future rate change off the consent agenda so it gets a real public hearing. Third, I’ll push for a simple monthly report showing which pipes were fixed and what each repair cost.',
         },
         { type: 'divider' },
-        { type: 'heading', text: 'Coming up', level: 2 },
+        {
+          type: 'paragraph',
+          text: 'Early voting starts October 26. If you have a question about any of this, just reply. I read every email myself.',
+        },
         {
           type: 'details',
           rows: [
@@ -118,8 +118,8 @@ export const EMAIL_CONTENT_EXAMPLES = {
         },
         {
           type: 'button',
-          label: 'Volunteer for a shift',
-          url: 'https://example.org/jordan-ellis/volunteer',
+          label: 'Read my full water plan',
+          url: 'https://example.org/jordan-ellis/water-plan',
         },
         {
           type: 'signature',
@@ -131,37 +131,34 @@ export const EMAIL_CONTENT_EXAMPLES = {
     serve: {
       layout: 'long_update',
       theme: 'classic_blue',
-      subject: 'What I worked on in October',
+      subject: 'Your October update from Ward 2',
       previewText:
-        'Crosswalks, the library budget and a new recycling pickup day.',
+        'Crosswalks, the library budget and a change to recycling day.',
       blocks: [
         { type: 'heading', text: 'Your October update from Ward 2', level: 1 },
         {
           type: 'paragraph',
-          text: 'Hi {{first_name}}, here’s a short look at what moved forward this month on the issues you raised with me.',
+          text: 'Hi {{first_name}},\n\nA lot moved forward this month on the issues you’ve raised with me. Here’s where things stand, what I voted for and why, and what’s coming up next.',
+        },
+        { type: 'heading', text: 'A safer crossing at Pine and 5th', level: 2 },
+        {
+          type: 'paragraph',
+          text: 'After more than 40 of you wrote in about near misses outside Lincoln Elementary, I asked the traffic engineer to study the intersection. The study found that most drivers were going well over the school-zone limit at drop-off time.\n\nOn October 14 the council approved a raised crosswalk and two new flashing signs. Construction starts next week and should finish before winter break.',
         },
         {
-          type: 'section',
-          heading: 'New crosswalk at Pine and 5th',
-          text: 'After 40 of you wrote in about near misses outside Lincoln Elementary, the council approved a raised crosswalk. Construction finishes before winter break.',
-          image: {
-            url: PLACEHOLDER_PHOTO,
-            alt: 'The intersection of Pine Street and 5th Avenue',
-          },
+          type: 'heading',
+          text: 'The library keeps its Sunday hours',
+          level: 2,
         },
         {
-          type: 'section',
-          heading: 'Library hours stay the same',
-          text: 'The draft budget cut Sunday hours. I voted no on that line, and the final budget keeps the library open seven days a week.',
-          link: {
-            label: 'See the final budget',
-            url: 'https://example.org/riverton/budget-2027',
-          },
+          type: 'paragraph',
+          text: 'The first draft of next year’s budget closed the main library on Sundays to save about $40,000. I voted against that line. Sunday is the only day many working parents can bring their kids, and the library is the only free place in the ward with reliable internet.\n\nThe final budget keeps the library open seven days a week. The savings will come from delaying a vehicle purchase instead.',
         },
+        { type: 'divider' },
+        { type: 'heading', text: 'Recycling moves to Thursdays', level: 2 },
         {
-          type: 'section',
-          heading: 'Recycling moves to Thursdays',
-          text: 'Starting November 5, recycling pickup in Ward 2 moves from Monday to Thursday. Trash day doesn’t change.',
+          type: 'paragraph',
+          text: 'Starting November 5, recycling pickup in Ward 2 moves from Monday to Thursday. Trash day doesn’t change. The city will leave a reminder tag on every bin the week before.',
         },
         {
           type: 'button',

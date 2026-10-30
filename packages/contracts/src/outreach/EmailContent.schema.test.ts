@@ -37,11 +37,13 @@ const withBlocks = (
 
 const paragraph = (text: string) => ({ type: 'paragraph', text })
 const signature = { type: 'signature', name: 'Sam Ortega', title: 'Candidate' }
-const section = (heading: string) => ({
-  type: 'section',
-  heading,
-  text: 'What happened and why it matters.',
-})
+const masthead = { type: 'heading', text: 'Update', level: 1 }
+const subheading = (text: string) => ({ type: 'heading', text, level: 2 })
+const photo = {
+  type: 'image',
+  url: 'https://example.org/a.png',
+  alt: 'A park',
+}
 const button = {
   type: 'button',
   label: 'RSVP now',
@@ -131,9 +133,12 @@ const AGENT_DRAFTS: Record<EmailLayoutPresetKey, string> = {
     "blocks": [
       { "type": "heading", "level": 1, "text": "Your September update" },
       { "type": "paragraph", "text": "Hi {{first_name}}, here's where things stand on the issues you told me matter most." },
-      { "type": "section", "heading": "Potholes on River Road", "text": "Crews filled 38 potholes in two weeks. The full repave is scheduled for April." },
-      { "type": "section", "heading": "Late-night noise downtown", "text": "The council will hear a draft noise ordinance on October 8.", "link": { "label": "Read the draft", "url": "https://example.org/noise-ordinance" } },
-      { "type": "section", "heading": "Senior center hours", "text": "The center now stays open until 7pm on weekdays." },
+      { "type": "heading", "level": 2, "text": "Potholes on River Road" },
+      { "type": "paragraph", "text": "Crews filled 38 potholes in two weeks. The full repave is scheduled for April, once the ground thaws." },
+      { "type": "heading", "level": 2, "text": "Late-night noise downtown" },
+      { "type": "paragraph", "text": "The council will hear a draft noise ordinance on October 8. It sets quiet hours after 11pm on weeknights." },
+      { "type": "divider" },
+      { "type": "paragraph", "text": "The senior center now stays open until 7pm on weekdays." },
       { "type": "signature", "name": "Dana Whitfield", "title": "City Council Member, Ward 2" }
     ]
   }`,
@@ -217,12 +222,7 @@ describe('layout rules', () => {
     )
   })
 
-  it('short_cta puts the photo first and allows no sections', () => {
-    const photo = {
-      type: 'image',
-      url: 'https://example.org/a.png',
-      alt: 'A park',
-    }
+  it('short_cta puts the photo first and allows no dividers', () => {
     rejects(
       'short_cta',
       [
@@ -235,8 +235,8 @@ describe('layout rules', () => {
     )
     rejects(
       'short_cta',
-      cta({ after: [section('Extra'), button] }),
-      'The Short with a button layout doesn’t use section blocks',
+      cta({ after: [{ type: 'divider' }, button] }),
+      'The Short with a button layout doesn’t use divider blocks',
     )
   })
 
@@ -253,43 +253,49 @@ describe('layout rules', () => {
     )
   })
 
-  it('long_update needs 2 to 6 sections', () => {
-    const start = [
-      { type: 'heading', text: 'Update', level: 1 },
-      paragraph('Intro'),
-    ]
-    rejects('long_update', start, 'Add at least 2 sections')
+  it('long_update needs at least 2 paragraphs', () => {
     rejects(
       'long_update',
-      [...start, ...Array.from({ length: 7 }, (_, i) => section(`Item ${i}`))],
-      'Use at most 6 sections',
+      [masthead, paragraph('Only one')],
+      'Add at least 2 paragraphs',
     )
   })
 
-  it('long_update starts with a masthead and intro', () => {
+  it('long_update starts with a masthead', () => {
     rejects(
       'long_update',
-      [paragraph('Intro'), section('A'), section('B')],
+      [paragraph('One'), paragraph('Two')],
       'Start with a level 1 heading',
     )
     rejects(
       'long_update',
-      [
-        { type: 'heading', text: 'Update', level: 1 },
-        section('A'),
-        section('B'),
-      ],
-      'Add an intro paragraph',
+      [paragraph('One'), masthead, paragraph('Two')],
+      'Start with a level 1 heading',
+    )
+  })
+
+  it('long_update allows one photo, right after the masthead', () => {
+    expect(
+      messages(
+        EmailContentSchema.safeParse(
+          withBlocks('long_update', [
+            masthead,
+            photo,
+            paragraph('A'),
+            paragraph('B'),
+          ]),
+        ),
+      ),
+    ).toEqual([])
+    rejects(
+      'long_update',
+      [masthead, paragraph('A'), photo, paragraph('B')],
+      'The photo goes right after the headline',
     )
     rejects(
       'long_update',
-      [
-        { type: 'heading', text: 'Update', level: 1 },
-        section('A'),
-        paragraph('Intro'),
-        section('B'),
-      ],
-      'Follow the heading with an intro paragraph',
+      [masthead, photo, paragraph('A'), photo, paragraph('B')],
+      'Use at most one photo',
     )
   })
 
@@ -362,11 +368,10 @@ describe('field rules', () => {
 
   it('caps blocks per email', () => {
     const blocks = [
-      { type: 'heading', text: 'Update', level: 1 },
-      paragraph('Intro'),
-      section('A'),
-      section('B'),
-      ...Array.from({ length: EMAIL_MAX_BLOCKS - 3 }, () => ({
+      masthead,
+      paragraph('A'),
+      paragraph('B'),
+      ...Array.from({ length: EMAIL_MAX_BLOCKS - 2 }, () => ({
         type: 'divider',
       })),
     ]
@@ -385,11 +390,14 @@ describe('field rules', () => {
     const blocks: EmailBlock[] = [
       { type: 'heading', text: 'Update', level: 1 },
       ...Array.from(
-        { length: 6 },
+        {
+          length:
+            Math.ceil(
+              EMAIL_CONTENT_TEXT_MAX_LENGTH / EMAIL_PARAGRAPH_MAX_LENGTH,
+            ) + 1,
+        },
         () => paragraph('a'.repeat(EMAIL_PARAGRAPH_MAX_LENGTH)) as EmailBlock,
       ),
-      section('A') as EmailBlock,
-      section('B') as EmailBlock,
     ]
     const content: EmailContent = {
       ...EMAIL_CONTENT_EXAMPLES.long_update.win,
@@ -411,9 +419,6 @@ describe('field rules', () => {
       false,
     )
     expect(parseBlock({ ...signature, photoUrl: url }).success).toBe(false)
-    expect(
-      parseBlock({ ...section('A'), link: { label: 'More', url } }).success,
-    ).toBe(false)
   })
 
   it('allows only the two merge tags', () => {
@@ -441,10 +446,7 @@ describe('field rules', () => {
         .success,
     ).toBe(false)
     expect(
-      parseBlock({
-        ...section('A'),
-        image: { url: 'https://example.org/a.png' },
-      }).success,
+      parseBlock({ type: 'image', url: 'https://example.org/a.png' }).success,
     ).toBe(false)
   })
 
@@ -485,11 +487,10 @@ describe('more layout rules', () => {
     rejects(
       'long_update',
       [
-        { type: 'heading', text: 'Update', level: 1 },
-        paragraph('Intro'),
-        section('A'),
+        masthead,
+        paragraph('A'),
         { type: 'heading', text: 'Also', level: 1 },
-        section('B'),
+        paragraph('B'),
       ],
       'Only the first heading is level 1',
     )
@@ -498,13 +499,7 @@ describe('more layout rules', () => {
   it('puts the long_update signature last', () => {
     rejects(
       'long_update',
-      [
-        { type: 'heading', text: 'Update', level: 1 },
-        paragraph('Intro'),
-        section('A'),
-        signature,
-        section('B'),
-      ],
+      [masthead, paragraph('A'), signature, paragraph('B')],
       'The signature goes last',
     )
   })
@@ -549,14 +544,21 @@ describe('draft rules', () => {
       messages(draft('short_cta', [{ type: 'heading', text: '', level: 1 }])),
     ).toEqual([])
     expect(messages(draft('personal_letter', [paragraph('')]))).toEqual([])
+    expect(
+      messages(draft('long_update', [masthead, subheading(''), paragraph('')])),
+    ).toEqual([])
   })
 
   it('still rejects a block the layout does not use, or the wrong order', () => {
     expect(
       messages(
-        draft('personal_letter', [paragraph(''), section('A'), signature]),
+        draft('personal_letter', [
+          paragraph(''),
+          { type: 'divider' },
+          signature,
+        ]),
       ),
-    ).toContain('The Personal letter layout doesn’t use section blocks')
+    ).toContain('The Personal letter layout doesn’t use divider blocks')
     expect(
       messages(
         draft('personal_letter', [paragraph(''), signature, paragraph('')]),

@@ -2,7 +2,6 @@ import { z } from 'zod'
 import {
   EMAIL_CONTENT_TEXT_MAX_LENGTH,
   EMAIL_MAX_BLOCKS,
-  EMAIL_MAX_SECTIONS,
   EmailBlockDraftSchema,
   EmailBlockSchema,
   emailBlockTextLength,
@@ -26,14 +25,6 @@ interface ContentShape {
 
 const checkContent =
   (mode: 'final' | 'draft') => (data: ContentShape, ctx: z.RefinementCtx) => {
-    const sections = data.blocks.filter((block) => block.type === 'section')
-    if (sections.length > EMAIL_MAX_SECTIONS) {
-      ctx.addIssue({
-        code: 'custom',
-        path: ['blocks'],
-        message: `Use at most ${EMAIL_MAX_SECTIONS} sections`,
-      })
-    }
     const textLength =
       data.subject.length +
       (data.previewText?.length ?? 0) +

@@ -12,15 +12,12 @@ export const EMAIL_BLOCK_BUTTON_LABEL_MAX_LENGTH = 40
 export const EMAIL_DETAILS_MAX_ROWS = 6
 export const EMAIL_DETAILS_LABEL_MAX_LENGTH = 24
 export const EMAIL_DETAILS_VALUE_MAX_LENGTH = 200
-export const EMAIL_SECTION_HEADING_MAX_LENGTH = 100
-export const EMAIL_SECTION_TEXT_MAX_LENGTH = 1200
 export const EMAIL_SIGNATURE_NAME_MAX_LENGTH = 80
 export const EMAIL_SIGNATURE_TITLE_MAX_LENGTH = 120
-export const EMAIL_MAX_BLOCKS = 20
-export const EMAIL_MAX_SECTIONS = 6
-// Every text field summed, so twenty full blocks can't make a 40,000
-// character email. Matches the old single-body cap.
-export const EMAIL_CONTENT_TEXT_MAX_LENGTH = 10_000
+export const EMAIL_MAX_BLOCKS = 30
+// Every text field summed, so thirty full blocks can't make a 60,000
+// character email. Room for a long update of about 2,500 words.
+export const EMAIL_CONTENT_TEXT_MAX_LENGTH = 15_000
 
 // gp-api's renderer keeps exactly these two as SES (Handlebars) variables and
 // escapes any other brace, so `{{city}}` or `{{ first_name }}` would reach the
@@ -104,7 +101,7 @@ const blockSchemas = (mode: Mode) => {
     .object({
       type: z.literal('paragraph'),
       text: text(mode, EMAIL_PARAGRAPH_MAX_LENGTH, true).describe(
-        'Plain text. A single line break starts a new line and a blank line starts a new paragraph. No HTML, no markdown (no **, #, or [links]); put links in a button or section.' +
+        'Plain text. A single line break starts a new line and a blank line starts a new paragraph. No HTML, no markdown (no **, #, or [links]); put a link in a button.' +
           MERGE_TAG_NOTE,
       ),
     })
@@ -164,50 +161,6 @@ const blockSchemas = (mode: Mode) => {
       'A short box of key facts the reader needs to act, such as when, where and what to bring for an event or a deadline.',
     )
 
-  const section = z
-    .object({
-      type: z.literal('section'),
-      heading: text(mode, EMAIL_SECTION_HEADING_MAX_LENGTH, false).describe(
-        'A short title for this item, like "New crosswalk on Elm Street".',
-      ),
-      text: text(mode, EMAIL_SECTION_TEXT_MAX_LENGTH, true).describe(
-        'A few sentences on this item: what happened, and what it means for the reader. Plain text, line breaks allowed.' +
-          MERGE_TAG_NOTE,
-      ),
-      image: z
-        .object({
-          url: url(mode).describe(
-            'An https link to an image the sender uploaded. Never invent one.',
-          ),
-          alt: text(mode, EMAIL_IMAGE_ALT_MAX_LENGTH, false).describe(
-            'What the image shows, in one short sentence.',
-          ),
-        })
-        .strict()
-        .optional()
-        .describe('An optional small photo for this item.'),
-      link: z
-        .object({
-          label: text(
-            mode,
-            EMAIL_BLOCK_BUTTON_LABEL_MAX_LENGTH,
-            false,
-          ).describe(
-            'Link text that says where it goes, like "Read the plan".',
-          ),
-          url: url(mode).describe(
-            'The https link. Use only a link the sender gave you.',
-          ),
-        })
-        .strict()
-        .optional()
-        .describe('An optional "read more" link for this item.'),
-    })
-    .strict()
-    .describe(
-      'One item in a longer update: a small heading, a few sentences, and optionally a photo and a link. Use one per topic.',
-    )
-
   const signature = z
     .object({
       type: z.literal('signature'),
@@ -238,7 +191,6 @@ const blockSchemas = (mode: Mode) => {
       image,
       button,
       details,
-      section,
       signature,
       divider,
     ])
@@ -260,7 +212,6 @@ export const EMAIL_BLOCK_TYPES = [
   'image',
   'button',
   'details',
-  'section',
   'signature',
   'divider',
 ] as const satisfies readonly EmailBlockType[]
@@ -290,13 +241,6 @@ export const emailBlockTextLength = (block: EmailBlockDraft): number => {
       return block.rows.reduce(
         (sum, row) => sum + row.label.length + row.value.length,
         0,
-      )
-    case 'section':
-      return (
-        block.heading.length +
-        block.text.length +
-        (block.image?.alt.length ?? 0) +
-        (block.link?.label.length ?? 0)
       )
     case 'signature':
       return block.name.length + block.title.length

@@ -42,30 +42,30 @@ export const EMAIL_LAYOUT_PRESETS = {
   long_update: {
     label: 'Long update',
     description:
-      'A newsletter with several short stories, each with its own heading.',
+      'A longer read: a headline, then several paragraphs broken up with subheadings.',
     defaultTheme: 'classic_blue',
     allowedBlocks: [
       'heading',
       'paragraph',
-      'section',
+      'image',
       'details',
       'button',
       'divider',
       'signature',
     ],
     rules: [
-      'Starts with a level 1 heading (the masthead), then an intro paragraph.',
-      'Any other heading is level 2.',
-      '2 to 6 sections, one per topic.',
+      'Starts with a level 1 heading (the masthead).',
+      'Mostly paragraphs, at least 2. Break up the text with level 2 subheadings and dividers.',
+      'Any heading after the masthead is level 2.',
+      'At most one photo, and only right after the masthead.',
       'At most one details box, one button and one signature.',
       'A signature, if any, is the last block.',
     ],
     starterBlocks: [
       { type: 'heading', text: '', level: 1 },
       { type: 'paragraph', text: '' },
-      { type: 'section', heading: '', text: '' },
-      { type: 'section', heading: '', text: '' },
-      { type: 'section', heading: '', text: '' },
+      { type: 'heading', text: '', level: 2 },
+      { type: 'paragraph', text: '' },
     ],
   },
   personal_letter: {
@@ -191,20 +191,20 @@ export const checkEmailLayout = (
     } else if (first?.type !== 'heading' || first.level !== 1) {
       add(0, 'Start with a level 1 heading')
     }
-    if (countOf(blocks, 'paragraph') === 0) {
-      missing('Add an intro paragraph')
-    } else if (blocks[1]?.type !== 'paragraph') {
-      add(
-        blocks.length > 1 ? 1 : null,
-        'Follow the heading with an intro paragraph',
-      )
+    const imageIndexes = blocks.flatMap((block, index) =>
+      block.type === 'image' ? [index] : [],
+    )
+    if (imageIndexes.length > 1) {
+      add(null, 'Use at most one photo')
+    } else if (imageIndexes.length === 1 && imageIndexes[0] !== 1) {
+      add(imageIndexes[0], 'The photo goes right after the headline')
     }
+    if (countOf(blocks, 'paragraph') < 2) missing('Add at least 2 paragraphs')
     blocks.forEach((block, index) => {
       if (index > 0 && block.type === 'heading' && block.level !== 2) {
         add(index, 'Only the first heading is level 1')
       }
     })
-    if (countOf(blocks, 'section') < 2) missing('Add at least 2 sections')
     atMostOne('details', 'details box')
     atMostOne('button', 'button')
     atMostOne('signature', 'signature')
