@@ -266,21 +266,20 @@ describe('useDoorScript', () => {
       )
     })
 
-    // The failure this branch exists to prevent, and the sharper half of the
-    // bug: a volunteer reaching the Serve path would be introduced, by their
-    // own name, as the office holder.
-    it('never introduces the volunteer as the office holder', () => {
+    // Serve has no volunteers: the official is the only speaker, so a route
+    // still marked as a volunteer's opens in the official's first person,
+    // naming the official from `representing` rather than the user's session.
+    it('speaks as the official on the serve rail', () => {
       asVolunteer({ name: 'Jane Doe', office: 'City Council' })
       useDoorKnockingServeModeMock.mockReturnValue(true)
 
       const { result } = renderHook(() => useDoorScript(), { wrapper })
 
       expect(result.current.intro).toBe(
-        "Hi, I'm Sam Reed, and I'm a volunteer for Jane Doe, your City Council Member.",
+        "Hi, I'm Jane Doe, your City Council Member.",
       )
-      expect(result.current.intro).not.toBe(
-        "Hi, I'm Sam Reed, your City Council Member.",
-      )
+      expect(result.current.intro).not.toMatch(/volunteer/i)
+      expect(result.current.intro).not.toContain('Sam Reed')
     })
 
     // "campaign for" is a claim about a ballot an elected official is not on —

@@ -250,28 +250,33 @@ describe('buildServeIntro', () => {
     // Already a person, and left alone.
     ['Mayor', "Hi, I'm Jane Doe, your Mayor."],
   ])('speaks the office as a person: %s', (office, expected) => {
-    expect(buildServeIntro(user(), office)).toBe(expected)
+    expect(buildServeIntro('Jane Doe', office)).toBe(expected)
   })
 
   // The one word this sentence exists to avoid. An elected official knocking
   // their own constituents is not running for the seat they hold.
   it('never says running for', () => {
-    expect(buildServeIntro(user(), 'City Council')).not.toContain('running')
+    expect(buildServeIntro('Jane Doe', 'City Council')).not.toContain('running')
   })
 
   // Same clause-dropping rule as the Win intro, for the same reason: a
   // placeholder is something the canvasser has to read around out loud.
   it('drops the office when there is none', () => {
-    expect(buildServeIntro(user(), null)).toBe("Hi, I'm Jane Doe.")
+    expect(buildServeIntro('Jane Doe', null)).toBe("Hi, I'm Jane Doe.")
   })
 
   it('drops the name when there is none', () => {
-    expect(
-      buildServeIntro(
-        user({ firstName: undefined, lastName: undefined }),
-        'City Council',
-      ),
-    ).toBe("Hi, I'm your City Council Member.")
+    expect(buildServeIntro('', 'City Council')).toBe(
+      "Hi, I'm your City Council Member.",
+    )
+  })
+
+  // Serve has no volunteers: the opener is the official speaking, never a
+  // third party introducing them.
+  it('is always first person', () => {
+    const intro = buildServeIntro('Jane Doe', 'City Council')
+    expect(intro).toBe("Hi, I'm Jane Doe, your City Council Member.")
+    expect(intro).not.toMatch(/volunteer/i)
   })
 
   it('is empty with neither', () => {
