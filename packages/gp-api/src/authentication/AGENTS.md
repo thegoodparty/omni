@@ -41,7 +41,10 @@ Auth state is enforced globally via three guards registered in order. Most route
   `ServiceReadGuard`. Use `ServiceReadOrOwnerGuard` only where the
   `personId` query param names the one record returned; on a list route it
   would let any user with a `personId` self-authorize. gp-marketing reads the
-  public person-profile endpoints this way.
+  public person-profile and public-campaign endpoints as a service reader
+  (Vercel OIDC, Clerk JWT fallback), and candidate-sites reads
+  `GET /websites/:vanityPath/view` and `GET /websites/by-domain/:domain` with
+  its Vercel OIDC token.
 - **`@PublicAccess()` is the only escape hatch.** Don't conditionally skip auth inside a guard — opt out at the route level.
 - **A Vercel OIDC token is the other service reader.** gp-marketing and
   candidate-sites run on Vercel, which signs each deployment a short-lived

@@ -42,7 +42,7 @@ NEXT_PUBLIC_API_BASE=http://localhost:3000/v1
 | `NEXT_PUBLIC_API_BASE`          | `http://localhost:3000/v1` | Full `gp-api` base URL **including** the `/v1` prefix. Used by `appEnv.ts` and `helpers/fetchHelper.ts`.                                                                                     |
 | `NEXT_PUBLIC_VERCEL_TARGET_ENV` | (unset)                    | Vercel sets this automatically on hosted envs (`production` / `preview` / `development`). Locally it's unset; `IS_LOCAL` is then derived from `NEXT_PUBLIC_API_BASE` containing `localhost`. |
 
-`GP_API_AUTH_MODE` is optional and unset locally, so the two website reads send no `Authorization` header. Set it to `oidc` to send the Vercel OIDC token. Locally that token only exists if the folder is linked to the Vercel project (`vercel link`, then `vercel env pull`, which writes `VERCEL_OIDC_TOKEN`); without it the reads send no header.
+`GP_API_AUTH_MODE` is optional and unset locally, so the two website reads send no `Authorization` header. Set it to `oidc` to send the Vercel OIDC token. Locally that token only exists if the folder is linked to the Vercel project (`vercel link`, then `vercel env pull`, which writes `VERCEL_OIDC_TOKEN`); without it the reads send no header. gp-api answers a read with no token with a 403, so the site won't render. A local gp-api accepts the token only once `VERCEL_OIDC_ALLOWED_PROJECTS` in its `.env` lists the candidate-sites project as `<project_id>:development`.
 
 ## Install + run
 
