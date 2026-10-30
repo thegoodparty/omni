@@ -98,9 +98,6 @@ describe('GET /v1/contacts/list-detail reachability', () => {
     )
   })
 
-  // The universe row has no saved row behind it, so there is no stored
-  // search to carry — and passing one would narrow the whole district by a
-  // string nobody typed here.
   // The email E2E's stand-in audience (PeopleEmailFixtureService): only
   // where vendors are mocked, and only for the organization it was set on.
   it('counts emails from a test organization’s stand-in audience', async () => {
@@ -134,10 +131,24 @@ describe('GET /v1/contacts/list-detail reachability', () => {
     appEnvOverrides.VENDOR_MODE = 'mock'
     expect(await get()).toBe(1)
 
+    appEnvOverrides.IS_NON_PROD_DEPLOY = false
+    expect(await get()).toBe(333)
+
+    appEnvOverrides.IS_NON_PROD_DEPLOY = true
     appEnvOverrides.VENDOR_MODE = 'live'
     expect(await get()).toBe(333)
+
+    appEnvOverrides.VENDOR_MODE = 'mock'
+    const other = await setupOrg('email-fixture-other')
+    const theirs = await service.client.get('/v1/contacts/list-detail', {
+      headers: { [ORG_SLUG_HEADER]: other },
+    })
+    expect(theirs.data.reachability.email).toBe(333)
   })
 
+  // The universe row has no saved row behind it, so there is no stored
+  // search to carry — and passing one would narrow the whole district by a
+  // string nobody typed here.
   it('sends no search for the unfiltered universe row', async () => {
     const slug = await setupOrg('universe')
     const spy = mockAggregates({})

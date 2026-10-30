@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common'
 import { z } from 'zod'
+import { EMAIL_AUDIENCE_FIXTURE_DOMAIN } from '@goodparty_org/contracts'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import {
   IS_NON_PROD_DEPLOY,
@@ -11,7 +12,12 @@ export const EMAIL_AUDIENCE_FIXTURE_KIND = 'email_audience'
 
 const EmailFixturePersonSchema = z.object({
   id: z.string(),
-  email: z.string(),
+  // Checked again on read, so a hand-edited row can never reach a person.
+  email: z
+    .string()
+    .refine((email) =>
+      email.toLowerCase().endsWith(`@${EMAIL_AUDIENCE_FIXTURE_DOMAIN}`),
+    ),
   firstName: z.string().nullable(),
   lastName: z.string().nullable(),
 })

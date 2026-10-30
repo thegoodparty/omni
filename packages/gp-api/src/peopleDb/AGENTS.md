@@ -71,7 +71,9 @@ people table FULL OUTER JOIN the org's rows of
   `email` count and email outreach's count and resolve use it in place of the
   warehouse for that organization. It exists because a preview's database
   never feeds the overlay, so the email E2E has no other way to reach anyone.
-  It holds SES simulator addresses only.
+  It holds SES simulator addresses only, checked again on read. The list
+  builder's live count (`POST /v1/contacts/count`) still reads the warehouse,
+  so a builder-made list shows 0 there for such an organization.
 - Org slug, state and district name are inlined as escaped literals
   (`stringLiteral`), because a table expression cannot carry bound
   parameters. One join, never a UNION (a union over the mart's columns
