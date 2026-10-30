@@ -5,6 +5,7 @@ import { http, HttpResponse } from 'msw'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { api, mswServer } from 'helpers/test-utils/api-mocking'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { PollFlow } from './PollFlow'
 
 // No test here is about hover, and the pointer move user-event makes before
@@ -451,5 +452,114 @@ describe('PollFlow', () => {
 
     await waitFor(() => expect(createBodies).toHaveLength(2))
     expect(maxInFlight).toBe(1)
+  })
+
+  describe('analytics', () => {
+    const completedCalls = () =>
+      vi
+        .mocked(trackEvent)
+        .mock.calls.filter(
+          ([event]) =>
+            event === EVENTS.Dashboard.VoterContact.CampaignCompleted,
+        )
+        .map(([, props]) => props as Record<string, unknown>)
+
+    const schedule = async () => {
+      await user.click(
+        await screen.findByRole('button', { name: 'Schedule poll' }),
+      )
+      await waitFor(() => expect(completedCalls()).toHaveLength(1))
+      return completedCalls()[0]!
+    }
+
+    beforeEach(() => {
+      vi.mocked(trackEvent).mockClear()
+    })
+
+    it('reports the sent poll as a Serve text with its setup choices', async () => {
+      openFlow()
+      await pickTopic('Public safety')
+      await user.click(
+        await screen.findByRole('button', { name: /^Continue \(2,767\)$/ }),
+      )
+      await throughQuestion()
+
+      expect(await schedule()).toEqual({
+        medium: 'text',
+        fanout: 'one-to-many',
+        product: 'serve',
+        outreachType: 'poll',
+        recipientCount: 2700,
+        voterContacts: 2700,
+        sendDate: '2026-09-04',
+        price: 0,
+        outreachCampaignId: 91,
+        audienceSource: 'sample',
+        pollTopic: 'public_safety',
+        pollTone: 'Neutral',
+        sampleSize: 2767,
+        questionSource: 'ai',
+        hasImage: false,
+        biasOverridden: false,
+      })
+    })
+
+    it('reports a saved list and a question edited from the draft', async () => {
+      openFlow()
+      await pickTopic('Housing')
+      await user.click(await screen.findByText('Choose a constituent list'))
+      await user.click(await screen.findByText('Northside residents'))
+      await user.click(
+        await screen.findByRole('button', { name: /^Continue \(1,200\)$/ }),
+      )
+      await screen.findByRole('textbox', { name: 'Poll question' })
+      await waitFor(() => expect(questionText()).toMatch(/How safe/))
+      await typeQuestion('How safe do you feel on your street at night?')
+      await throughQuestion()
+
+      const props = await schedule()
+      expect(props).toMatchObject({
+        audienceSource: 'savedList',
+        listId: 41,
+        questionSource: 'ai_edited',
+      })
+      expect(props).not.toHaveProperty('sampleSize')
+    })
+
+    it("reports the official's own question with no tone", async () => {
+      openFlow()
+      await pickTopic('Write my own')
+      await user.click(await screen.findByRole('button', { name: /^Continue/ }))
+      await screen.findByRole('textbox', { name: 'Poll question' })
+      await typeQuestion('Should the library stay open on Sundays?')
+      await throughQuestion()
+
+      const props = await schedule()
+      expect(props).toMatchObject({
+        pollTopic: 'custom',
+        questionSource: 'own',
+      })
+      expect(props).not.toHaveProperty('pollTone')
+    })
+
+    it('records each stage of the flow as a poll on the text medium', async () => {
+      openFlow()
+      await pickTopic('Public safety')
+
+      await waitFor(() =>
+        expect(trackEvent).toHaveBeenCalledWith(
+          EVENTS.Outreach.Flow.StepCompleted,
+          expect.objectContaining({
+            channel: 'poll',
+            medium: 'text',
+            step: 'topic',
+          }),
+        ),
+      )
+      expect(trackEvent).toHaveBeenCalledWith(
+        EVENTS.Outreach.Flow.StepViewed,
+        expect.objectContaining({ channel: 'poll', step: 'audience' }),
+      )
+    })
   })
 })

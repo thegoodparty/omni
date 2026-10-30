@@ -22,7 +22,11 @@ import { useTotalConstituentsWithCellPhone } from 'app/dashboard/polls/shared/au
 import { CheckoutSessionProvider } from 'app/dashboard/purchase/components/CheckoutSessionProvider'
 import { PURCHASE_TYPES } from 'helpers/purchaseTypes'
 import { hasAnyVoterFileSelection } from 'app/dashboard/contacts/crm/shared/voterFileFilterTransform.util'
-import type { OutreachFlowSource } from 'app/dashboard/outreach/util/outreachAnalytics'
+import {
+  outreachEventProps,
+  type OutreachFlowSource,
+} from 'app/dashboard/outreach/util/outreachAnalytics'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { OUTREACH_TYPES } from 'app/dashboard/outreach/constants'
 import { OutreachFlowShell, type FlowShellCta } from '../OutreachFlowShell'
 import { ChannelBadge } from '../channelMeta'
@@ -194,6 +198,11 @@ export const PollFlow = ({
   // Undo can put it back. Unlike SMS and Social, it is kept even when the
   // words replaced were the AI's own draft.
   const [undoText, setUndoText] = useState<string | null>(null)
+  // The last words the AI wrote into the field, and the value that held when
+  // the write Undo would reverse happened, so the sent question can be
+  // reported as the AI's, edited from it, or the official's own.
+  const aiTextRef = useRef<string | null>(null)
+  const undoAiTextRef = useRef<string | null>(null)
   // Set by a Continue press while it waits on the check. A check that
   // leaving the field started must not disable Continue: the press that
   // blurred the field lands after it, and would be swallowed.
@@ -271,6 +280,8 @@ export const PollFlow = ({
       })
       if (request !== draftRequestRef.current) return
       setUndoText(prior.trim() && prior !== drafted ? prior : null)
+      undoAiTextRef.current = aiTextRef.current
+      aiTextRef.current = drafted
       setQuestion(drafted)
       setDrafted(true)
       setImproveResult(null)
@@ -292,6 +303,8 @@ export const PollFlow = ({
     setQuestion('')
     setDrafted(false)
     setUndoText(null)
+    aiTextRef.current = null
+    undoAiTextRef.current = null
     setImproveResult(null)
     improveRequestRef.current += 1
     // A list picked on an earlier pass must not ride into this poll.
@@ -356,6 +369,8 @@ export const PollFlow = ({
     setQuestion('')
     setDrafted(false)
     setUndoText(null)
+    aiTextRef.current = null
+    undoAiTextRef.current = null
     setDrafting(false)
     setDraftError(false)
     setImproveResult(null)
@@ -417,6 +432,8 @@ export const PollFlow = ({
       return
     }
     setUndoText(prior.trim() && prior !== improved ? prior : null)
+    undoAiTextRef.current = aiTextRef.current
+    aiTextRef.current = improved
     setQuestion(improved)
   }
 
@@ -435,6 +452,8 @@ export const PollFlow = ({
     setDrafting(false)
     setQuestion(undoText)
     setUndoText(null)
+    aiTextRef.current = undoAiTextRef.current
+    undoAiTextRef.current = null
   }
 
   const handleQuestionContinue = async () => {
@@ -465,8 +484,42 @@ export const PollFlow = ({
     setStepId('schedule')
   }
 
-  const handleComplete = async () => {
+  const questionSource = (): 'ai' | 'ai_edited' | 'own' => {
+    const aiText = aiTextRef.current
+    if (aiText === null) return 'own'
+    return question.trim() === aiText.trim() ? 'ai' : 'ai_edited'
+  }
+
+  const handleComplete = async (paid: boolean) => {
     setScheduled(true)
+    if (created && topic && scheduledAt) {
+      trackEvent(EVENTS.Dashboard.VoterContact.CampaignCompleted, {
+        ...outreachEventProps({
+          channel: 'text',
+          isServe: true,
+          outreachType: 'poll',
+          recipientCount: created.recipientCount,
+          sendDate: format(scheduledAt, 'yyyy-MM-dd'),
+          price: paid ? created.amountCents / 100 : 0,
+          outreachCampaignId: created.outreachId,
+          ...(effectiveKind === 'list' && audience.selectedListId !== null
+            ? { listId: audience.selectedListId }
+            : {}),
+          audienceSource:
+            effectiveKind === 'sample'
+              ? 'sample'
+              : audience.selectedRecommendation
+                ? 'recommended'
+                : 'savedList',
+        }),
+        pollTopic: topic,
+        ...(drafted ? { pollTone: tone } : {}),
+        ...(effectiveKind === 'sample' ? { sampleSize } : {}),
+        questionSource: questionSource(),
+        hasImage: imageUrl !== undefined,
+        biasOverridden: biasFlagged,
+      })
+    }
     await onScheduled()
   }
 
@@ -544,7 +597,9 @@ export const PollFlow = ({
       onClose={onClose}
       title={scheduled ? 'Done' : STEP_TITLES[stepId]}
       headerBadge={<ChannelBadge type="poll" />}
+      channel="poll"
       source={source}
+      trackedStep={scheduled ? null : stepId}
       settled={scheduled}
       currentStep={stepIndex + 1}
       totalSteps={scheduled ? 0 : STEP_ORDER.length}

@@ -56,8 +56,8 @@ Its values are the canonical `TaskChannelSchema`
 outreach event and a campaign-tracker task join on one value.
 `outreachChannel()` in `app/dashboard/outreach/util/outreachAnalytics.ts` is the
 whole cross-walk from `OutreachType`, and it exists because the two vocabularies
-disagree in four places: `p2p` → `text`, `nativeDoorKnocking` → `doorKnocking`,
-`nativePhoneBanking` → `phoneBanking`, `events` → `event`.
+disagree in five places: `p2p` → `text`, `nativeDoorKnocking` → `doorKnocking`,
+`nativePhoneBanking` → `phoneBanking`, `events` → `event`, `poll` → `text`.
 
 | `medium`       | Fanout      | Completion fires when                           | `recipientCount` | `price`  |
 | -------------- | ----------- | ----------------------------------------------- | ---------------- | -------- |
@@ -73,6 +73,14 @@ disagree in four places: `p2p` → `text`, `nativeDoorKnocking` → `doorKnockin
 
 † On a one-to-one channel it is the people actually contacted when the list
 finished, not the list size.
+
+**A Serve poll is `medium: text`.** A poll is an SMS send, so it counts
+wherever a text does, and `outreachType: 'poll'` is what tells it apart: a
+chart of plain texts filters it out, a chart of polls filters on it. Its
+Completed fires when the poll's payment settles (`PollFlow`) and carries the
+setup choices below. A poll fires no `Outreach - Campaign Created`: gp-api's
+`Polls - Poll Created` covers that moment, and fires on each re-entry to
+review, so it counts drafts rather than sends.
 
 **`socialMedia` is a new value on `TaskChannelSchema`.** The enum had no social
 value: the three social tracker tasks (`schedule-social-posts`,
@@ -197,13 +205,27 @@ The campaign reached voters. One event, every channel.
 | `listId`               | number                                                                        | the parent list — the turf, the call list, or the audience list                     |
 | `trackerTaskId`        | string (cuid)                                                                 | when launched from a tracker task                                                   |
 | `phase`                | `preLaunch \| launch \| active \| gotv`                                       | with `trackerTaskId`, never alone                                                   |
-| `audienceSource`       | `'recommended' \| 'savedList'`                                                | when the audience step ran                                                          |
+| `audienceSource`       | `'recommended' \| 'savedList' \| 'sample'`                                    | when the audience step ran; `sample` is a poll's random sample                      |
 | `campaignName`         | string                                                                        | the name the candidate gave it; **omitted** where nothing is named                  |
 | `method`               | `'manual' \| 'turf' \| 'campaign'`                                            | on the paths that need disambiguating                                               |
 | `purpose`              | purpose slug (`introduce_myself`, `build_citizens_panel`, `report_back`, ...) | every channel's Created and Completed, when the picker set one                      |
 | `priorityId`           | string (cuid)                                                                 | when a priority's chat card opened the flow                                         |
 | `asksToJoinCivicPanel` | boolean                                                                       | Serve texts only                                                                    |
 | `launchSource`         | agent surface slug, below                                                     | when an agent surface launched it; never on robocall                                |
+| `outreachType`         | `'poll'`                                                                      | Serve polls only; omitted on every other send                                       |
+
+A poll's Completed also carries what the official picked while setting it up.
+These are poll-only and sit beside the shared properties, not in
+`outreachEventProps`:
+
+| Property         | Type                                    | Notes                                                                                          |
+| ---------------- | --------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `pollTopic`      | `PollTopic` slug, or `custom`           | always                                                                                         |
+| `pollTone`       | `Neutral \| Warm \| Direct \| Friendly` | only when the AI drafted the question; the official's own words have no tone                   |
+| `sampleSize`     | number                                  | when `audienceSource` is `sample`; a list sends `listId` instead                               |
+| `questionSource` | `'ai' \| 'ai_edited' \| 'own'`          | the sent question is the AI's last words as they were, edited from them, or the official's own |
+| `hasImage`       | boolean                                 | always                                                                                         |
+| `biasOverridden` | boolean                                 | the bias check flagged the question and it was sent anyway                                     |
 
 `launchSource` names the agent surface that launched the outreach:
 `expand_panel` is a priority card that answers the hidden Get answers turn
@@ -300,7 +322,8 @@ per-voter completion signal; the campaign event fires once for the whole list.
 ### `Voter Outreach - Flow Step Viewed` / `Flow Step Completed` (extended)
 
 The per-stage funnel, now fired by every channel flow: phone banking and door
-knocking joined text, robocall and social. Both events add two properties.
+knocking joined text, robocall and social, and Serve polls report `channel:
+poll` with `medium: text`. Both events add two properties.
 
 | Property | Values                                                                                                         |
 | -------- | -------------------------------------------------------------------------------------------------------------- |

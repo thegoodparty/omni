@@ -14,6 +14,7 @@ import {
   TabsTrigger,
   cn,
 } from '@styleguide'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { PollCrmPanel } from './PollCrmPanel'
 import { SERVE_POLL_READER_COPY } from './pollResultsCopy'
 import {
@@ -185,12 +186,16 @@ export const PollCommentList = ({
                 reply={reply}
                 open={openId === reply.id}
                 onToggleOpen={() => toggleOpen(reply)}
-                onToggleFavorite={() =>
-                  flags.mutate({
-                    replyId: reply.id,
-                    update: { favorited: reply.favorited !== true },
-                  })
-                }
+                onToggleFavorite={() => {
+                  const favorited = reply.favorited !== true
+                  flags.mutate({ replyId: reply.id, update: { favorited } })
+                  if (favorited) {
+                    trackEvent(EVENTS.polls.replyFavorited, {
+                      outreachId,
+                      scope: scope.kind,
+                    })
+                  }
+                }}
               />
             ))}
           </ul>

@@ -6,9 +6,10 @@ import type {
 
 // The analytics channel vocabulary is the campaign tracker's `TaskChannel`,
 // not `OutreachType`, so an outreach event and a tracker task can be joined on
-// one value. The two vocabularies differ in four places and this map is the
-// whole cross-walk: `p2p` is a text send, the two `native*` types collapse onto
-// the channel they are a surface of, and `events` is singular in the contract.
+// one value. The two vocabularies differ in five places and this map is the
+// whole cross-walk: `p2p` and `poll` are text sends, the two `native*` types
+// collapse onto the channel they are a surface of, and `events` is singular in
+// the contract.
 //
 // Pre-cutover rows carry the un-normalized `OutreachType` spellings; see
 // `docs/features/voter-outreach-analytics.md` for the cutover date.
@@ -33,6 +34,9 @@ const OUTREACH_TYPE_TO_CHANNEL: Record<string, TaskChannel> = {
   door: 'doorKnocking',
   'phone-bank': 'phoneBanking',
   'Phone Banking': 'phoneBanking',
+  // A Serve poll is an SMS send, so it counts wherever a text does. The
+  // `outreachType: 'poll'` property is what tells it apart from a plain text.
+  poll: 'text',
 }
 
 export const outreachChannel = (type: string): TaskChannel =>
@@ -159,6 +163,9 @@ export interface OutreachEventInput {
   // Serve texts only: whether the send asks people to join the civic panel.
   asksToJoinCivicPanel?: boolean
   launchSource?: OutreachLaunchSource
+  // Set only when a send is a kind of outreach that rides on another channel's
+  // `medium`: a poll reports `medium: text`. Omitted for every plain send.
+  outreachType?: 'poll'
 }
 
 // A Date is reduced to its LOCAL calendar day, never `toISOString()`'s UTC
@@ -217,4 +224,5 @@ export const outreachEventProps = (
     ? { asksToJoinCivicPanel: input.asksToJoinCivicPanel }
     : {}),
   ...(input.launchSource ? { launchSource: input.launchSource } : {}),
+  ...(input.outreachType ? { outreachType: input.outreachType } : {}),
 })
