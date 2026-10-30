@@ -35,7 +35,8 @@ Every public service here takes the dataset as a required argument, so a new
 caller cannot compile without choosing. `DatabricksVoterService`'s
 `resolveDistrict(districtId, dataset)` returns the district with its `table`,
 and every SQL builder reads `district.table`; there is no module-level voter
-table to fall back on. The district cache holds only the district's identity and the
+table to fall back on. The district cache (1h TTL, so a redistricting reload in election-api
+is picked up without a restart) holds only the district's identity and the
 table is attached per call, so one org's choice never leaks to another org in
 the same district. The census marts (`gp_api_district_census_stats`,
 `gp_api_district_census_demographics`, `gp_api_block_group_census_demographics`)
