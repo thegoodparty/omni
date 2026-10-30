@@ -21,6 +21,7 @@ import {
   withDatabase,
 } from './test-postgres'
 import { ElectionsService } from './elections/services/elections.service'
+import { PositionsService } from './electionDb/positions/positions.service'
 import { District } from './elections/types/elections.types'
 
 export const TEST_CLERK_ID = 'user_test_123'
@@ -258,6 +259,22 @@ export const useTestService = ({
     // ballotLevel) accordingly. Manufacturing one here would silently take that
     // fallback away. Suites that need a real position stub it themselves.
     vi.spyOn(electionsService, 'getPositionById').mockResolvedValue(null)
+    // PeopleDatasetService reads the position straight from PositionsService
+    // for every org with serve-import-contacts on, which is every org here:
+    // the placeholder Amplitude key turns flags on. A position with no
+    // district, so the overlay gets the same no-district answer the stub
+    // above gives ContactsService.
+    vi.spyOn(app.get(PositionsService), 'getPositionById').mockImplementation(
+      async ({ id }) => ({
+        id,
+        brPositionId: id,
+        brDatabaseId: id,
+        state: 'IL',
+        level: null,
+        isWinIcp: null,
+        isServeIcp: null,
+      }),
+    )
 
     // Start the application on a random available port
     await app.listen({ port: 0, host: '127.0.0.1' })

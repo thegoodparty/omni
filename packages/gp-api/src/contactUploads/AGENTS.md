@@ -1,13 +1,18 @@
 # Import contacts (contactUploads)
 
-A Serve user uploads a CSV of their own constituents; every row is matched to
-a person we already hold or becomes a new person. Postgres is the system of
-record (`contact_upload`, `contact_upload_match`,
+A Serve office or a Win campaign uploads a CSV of its own people; every row
+is matched to a person we already hold or becomes a new person. Postgres is
+the system of record (`contact_upload`, `contact_upload_match`,
 `prisma/schema/contactUpload.prisma`); Databricks reads those rows live
 through federation and folds them into every people read for the org (the
-read seam lives in `src/peopleDb/`, not here). Serve only (`eo-`), and every
-route 404s unless `serve-import-contacts` (`SERVE_IMPORT_CONTACTS_FLAG`) is on
-for the org's owner. Contracts: `contracts/src/contactUploads/`.
+read seam lives in `src/peopleDb/`, not here). Every route 404s unless
+`serve-import-contacts` (`SERVE_IMPORT_CONTACTS_FLAG`) is on for the org's
+owner, the one flag for Serve and Win. A Win campaign also needs Pro
+(`ContactsService.assertProAccess`, the contact-detail rule): without it the
+routes 403 with `PRO_FEATURE_REQUIRED_MESSAGE`
+(`docs/adr/2026-10-29-import-contacts-covers-win-pro-campaigns.md`). A Win
+campaign matches against and reads `gp_api_voters`; an imported person reads
+NULL in every voter-only column. Contracts: `contracts/src/contactUploads/`.
 
 ## Routes
 
@@ -24,7 +29,8 @@ for the org's owner. Contracts: `contracts/src/contactUploads/`.
 | `GET /v1/contacts/:personId/sources`            | Per-field "Came from", the person's upload rows, `hasActivity`                                   |
 
 The person feed (`GET /v1/contact-engagement/:id/activities`) reads this
-person's rows as `CONTACT_IMPORT` items (`ContactUploadMatchService.findForActivityFeed`).
+person's rows as `CONTACT_IMPORT` items (`ContactUploadMatchService.findForActivityFeed`),
+for Serve and Win alike.
 `isFirstImport` marks the person's earliest row by feed date (`resolvedAt` for
 manual rows, else the upload's `createdAt`): the upload that brought them in.
 
@@ -117,7 +123,8 @@ manual rows, else the upload's `createdAt`): the upload that brought them in.
 ## Tests
 
 `tests/contactUploads.routes.test.ts` drives everything through
-`useTestService()`, standing in for the bucket by spying
+`useTestService()` (a Serve org, plus a `Win campaigns` block for Pro,
+non-Pro and flag off), standing in for the bucket by spying
 `S3Service.getSignedUrlForSizedUpload`, `headObject` and `getFileStream`,
 spying
 `VoterQueryService.matchContactUploadRows` and
