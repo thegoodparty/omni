@@ -309,6 +309,31 @@ holding at least `PANEL_MEMBERS_PER_GROUP` (8: three answers at the 40%
 answer rate) members. The census is read for any panel with a member, and
 both are 0 when it cannot be.
 
+**How members joined.** The summary's `joinedBy` is `{ text, door, phone,
+hand }`, for every status: each current member by the source of the event
+that last made them a member (`CivicPanelHistoryService.memberCountsByLatestJoinSource`,
+the same latest join the joined-by list filters read). `sms` and the
+retired `share_page` are `text`, `door_knock` is `door`, `phone_banking`
+is `phone`, `manual` is `hand`; a member with no join event counts as
+`hand`, so the four add up to `members`. The panel page folds `hand` into
+the door.
+
+**Reaching the rest** (`POST /civic-panel/reach-lists`,
+`CivicPanelReachService`). Once a managed civic panel is exhausted the page
+offers each short group at the door or on a call. The route takes the
+group as the page counts it (`CivicPanelReachGroupSchema`: an age band,
+gender or race group, a tract, or a precinct as `county|precinct`; never
+"some parts of your district"), a channel and a name, and saves an
+ordinary list (not `civicPanelInvite`) frozen as a sample of the people
+`VoterQueryService.findReachPeople` returns: in that census cell
+(`buildReachPeopleSql`, the same `ageBandSql`/`genderSql`/`raceSql`/
+`tractSql` expressions the seats were counted in), no cell phone on file,
+and for `phone` a landline (the list also keeps `hasLandline`), leaving
+out members and anyone who left, up to `MAX_LIST_SAMPLE_SIZE`. Nobody
+found is a 422 and saves nothing. Joining stays a yes marked at the door
+or on the call. `findReachHomes` (`buildReachHomesSql`) counts the same
+group's homes with no cell phone, and of them with a landline.
+
 **Active members past the goal.** A panel past its goal is judged on active
 coverage. An active member is a panel member who answered a priority's text,
 call or door in the last `PANEL_ACTIVE_WINDOW_DAYS` (90) days

@@ -1,6 +1,7 @@
 import {
   PANEL_MIN_MEMBERS_FOR_BALANCE,
   type CivicPanelComposition,
+  type CivicPanelJoinedBy,
   type CivicPanelCompositionGroup,
   type CivicPanelCompositionPlace,
   type UnderrepresentedGroup,
@@ -467,6 +468,53 @@ export const plainSeats = (members: number, goal: number): SeatChart => {
     stage: filled >= SEAT_COUNT ? 'full' : 'building',
     behind: [],
     mostEmpty: [],
+  }
+}
+
+// The three ways the page shows members joining. Members the office added
+// by hand count with the door.
+export const JOIN_SOURCES = ['text', 'door', 'phone'] as const
+export type JoinSource = (typeof JOIN_SOURCES)[number]
+
+export const joinedBySources = (
+  joinedBy: CivicPanelJoinedBy,
+): Record<JoinSource, number> => ({
+  text: joinedBy.text,
+  door: joinedBy.door + joinedBy.hand,
+  phone: joinedBy.phone,
+})
+
+export interface SourceSeat {
+  x: number
+  y: number
+  // Null for an empty seat.
+  source: JoinSource | null
+}
+
+// The plain seats filled as plainSeats fills them, split by how the members
+// joined: text first, then the door, then the phone, so each source sits
+// together. With no join sources to split by, every filled seat is text.
+export const sourceSeats = (
+  members: number,
+  goal: number,
+  joinedBy: CivicPanelJoinedBy,
+): { seats: SourceSeat[]; filled: number } => {
+  const { filled } = plainSeats(members, goal)
+  const bySource = joinedBySources(joinedBy)
+  const weights = JOIN_SOURCES.map((source) => bySource[source])
+  const counts = weights.some((w) => w > 0)
+    ? allocate(weights, filled)
+    : [filled, 0, 0]
+  const order = JOIN_SOURCES.flatMap((source, i) =>
+    Array.from({ length: counts[i] ?? 0 }, () => source),
+  )
+  return {
+    filled,
+    seats: seatSpots(0, 0).map((spot, i) => ({
+      x: spot.x,
+      y: spot.y,
+      source: order[i] ?? null,
+    })),
   }
 }
 

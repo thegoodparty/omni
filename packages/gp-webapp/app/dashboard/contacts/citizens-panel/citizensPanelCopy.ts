@@ -195,8 +195,18 @@ export const SERVE_CITIZENS_PANEL_COPY = {
   nextTitleExhausted: 'Groups still short',
   nextLine: (place: string) =>
     `These groups have fewer seats than their share of ${place}, so the next invites lean toward them.`,
-  nextLineExhausted: (place: string) =>
-    `Everyone we can text has been invited. These groups have fewer seats than their share of ${place}.`,
+  nextLineExhausted: () =>
+    'Everyone we can text has been invited. Reach these groups at the door or by phone.',
+  // Each short group's two ways to reach it once the texts are done, and
+  // the list each one saves.
+  knockDoors: 'Knock doors',
+  call: 'Call',
+  reachListName: {
+    door: (name: string) => `Knock doors: ${name}`,
+    phone: (name: string) => `Call: ${name}`,
+  },
+  reachError: "We couldn't make that list. Try again.",
+  reachNobody: 'Nobody there is left to reach this way.',
   groupSeats: (have: number, need: number) =>
     `${have} of ${need} ${need === 1 ? 'seat' : 'seats'}`,
   seeEveryGroup: 'See every group',
@@ -208,4 +218,14 @@ export const SERVE_CITIZENS_PANEL_COPY = {
   chatPlaceholder: 'Ask who still needs to join your civic\u00a0panel',
   // Once the civic panel is full there is no one left to recruit.
   chatPlaceholderFull: 'Ask what your civic\u00a0panel should weigh in\u00a0on',
+  // Once every resident a text can reach has an invite.
+  chatPlaceholderExhausted: 'Ask how to reach the rest',
+  // How the members joined, under the hero's bar and seats. Members the
+  // office added by hand count with the door (`joinedBySources`).
+  joinedBy: {
+    text: (n: number) => `${count(n)} by text`,
+    door: (n: number) => `${count(n)} at the door`,
+    phone: (n: number) => `${count(n)} by phone`,
+  },
+  joinedByLabel: 'How members joined',
 } as const

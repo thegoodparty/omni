@@ -37,6 +37,7 @@ const summary = (
   const members = overrides.members ?? 0
   return {
     members,
+    joinedBy: { text: 0, door: 0, phone: 0, hand: 0 },
     reachedRecently: 0,
     askableNow: members,
     lastOutreachAt: null,
@@ -93,6 +94,7 @@ describe('CitizensPanelSection', () => {
       status: 200,
       data: summary({
         members: 120,
+        joinedBy: { text: 0, door: 0, phone: 0, hand: 0 },
         reachedRecently: 30,
         askableNow: 90,
         composition: {
@@ -128,6 +130,7 @@ describe('CitizensPanelSection', () => {
       status: 200,
       data: summary({
         members: 120,
+        joinedBy: { text: 0, door: 0, phone: 0, hand: 0 },
         reachedRecently: 30,
         askableNow: 90,
         composition: {

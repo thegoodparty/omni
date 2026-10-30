@@ -746,6 +746,7 @@ describe('<TaskStack>', () => {
         status: 200,
         data: {
           members: 12,
+          joinedBy: { text: 0, door: 0, phone: 0, hand: 0 },
           reachedRecently: 0,
           askableNow: 12,
           lastOutreachAt: null,
