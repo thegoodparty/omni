@@ -112,12 +112,15 @@ export const buildContactOverlayTable = ({
   view,
   districtFilters,
   organizationSlug,
+  newContactColumn = false,
 }: {
   schema: string
   table: string
   view: string
   districtFilters: MandatoryFilter[]
   organizationSlug: string
+  // Win's `new_contact`: a person only an import added, not a voter.
+  newContactColumn?: boolean
 }): string => {
   const identifiers = [
     schema,
@@ -141,6 +144,9 @@ export const buildContactOverlayTable = ({
     ...filters.map((f) => `${stringLiteral(f.value)} AS \`${f.column}\``),
     'coalesce(o.`on_uploaded_list`, false) AS `on_uploaded_list`',
     'coalesce(o.`has_email`, false) AS `has_email`',
+    ...(newContactColumn
+      ? ['coalesce(o.`is_new`, false) AS `new_contact`']
+      : []),
   ].join(', ')
   const base =
     `SELECT * FROM ${qualified(table)} WHERE ` +

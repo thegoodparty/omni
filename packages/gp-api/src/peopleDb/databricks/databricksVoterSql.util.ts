@@ -289,6 +289,24 @@ const buildHasEmailFilter = (
   return null
 }
 
+const newContactSql = (): string => `coalesce(${col('ContactIsNew')}, false)`
+
+// voterFile is a person the voter file holds, imported a person only an
+// import added. Without the overlay everyone is in the voter file, so
+// imported alone matches no one rather than erroring.
+const buildSourceFilter = (
+  hasContactOverlay: boolean,
+  op?: FilterOperator,
+): string | null => {
+  if (!op || op.operator !== 'in') return null
+  const values = (op.values ?? []).map(String)
+  const voterFile = values.includes('voterFile')
+  const imported = values.includes('imported')
+  if (voterFile === imported) return null
+  if (!hasContactOverlay) return imported ? 'FALSE' : null
+  return imported ? newContactSql() : `NOT ${newContactSql()}`
+}
+
 const anyPhonePresentSql = (): string =>
   `(${isPresentSql('VoterTelephones_CellPhoneFormatted')}` +
   ` OR ${isPresentSql('VoterTelephones_LandlineFormatted')})`
@@ -899,6 +917,9 @@ export const buildVoterFiltersSql = (
       case 'precinct':
         sql = buildPrecinctFilter(bag, op)
         break
+      case 'source':
+        sql = buildSourceFilter(contactOverlay, op)
+        break
     }
     if (sql) andClauses.push(sql)
   }
@@ -1017,27 +1038,52 @@ export const buildAggregatesSql = (args: DbxScopeArgs): DbxStatement => {
 // No household de-duplication here, because the aggregates path has never
 // had any: COUNT(*) counts voters, and the conditional counts have to count
 // the same population the base count does.
+//
+// With `countNewContacts` (a Win campaign with imported contacts) the trailing
+// new_* columns count, of the same people, those only an import added.
 export const buildListDetailAggregatesSql = (
-  args: DbxScopeArgs,
+  args: DbxScopeArgs & { countNewContacts?: boolean },
 ): DbxStatement => {
   const bag = createBag()
-  const cell = isPresentSql('VoterTelephones_CellPhoneFormatted')
-  const landline = isPresentSql('VoterTelephones_LandlineFormatted')
+  const hasOverlay = args.district.dataset.overlayOrgSlug !== undefined
+  const channels: Array<[string, string]> = [
+    ['sms', isPresentSql('VoterTelephones_CellPhoneFormatted')],
+    ['robocall', isPresentSql('VoterTelephones_LandlineFormatted')],
+    ['phoneBanking', anyPhonePresentSql()],
+    ['doorKnocking', addressPresentSql()],
+    ['email', emailPresentSql(hasOverlay)],
+  ]
+  const newContactCounts =
+    hasOverlay && args.countNewContacts === true
+      ? [
+          `COUNT_IF(${newContactSql()}) AS new_count`,
+          ...channels.map(
+            ([name, predicate]) =>
+              `COUNT_IF(${predicate} AND ${newContactSql()}) AS new_${name}`,
+          ),
+        ]
+      : []
   const sql =
     `SELECT COUNT(*) AS count,` +
     ` AVG(${col('Age_Int')}) AS avgAge,` +
     ` AVG(${col('Estimated_Income_Amount_Int')}) AS avgIncome,` +
-    ` COUNT_IF(${cell}) AS sms,` +
-    ` COUNT_IF(${landline}) AS robocall,` +
-    ` COUNT_IF(${anyPhonePresentSql()}) AS phoneBanking,` +
-    ` COUNT_IF(${addressPresentSql()}) AS doorKnocking,` +
-    ` COUNT_IF(${emailPresentSql(args.district.dataset.overlayOrgSlug !== undefined)}) AS email` +
+    ` ${[
+      ...channels.map(
+        ([name, predicate]) => `COUNT_IF(${predicate}) AS ${name}`,
+      ),
+      ...newContactCounts,
+    ].join(', ')}` +
     ` FROM ${args.district.table} v ${buildScopeSql(bag, args)}`
   return { sql, params: bag.params }
 }
 
+// With `countNewContacts` (ungrouped, over the overlay) a second column
+// counts, of the same people, those only an import added.
 export const buildCountSql = (
-  args: DbxScopeArgs & { groupByHousehold?: boolean },
+  args: DbxScopeArgs & {
+    groupByHousehold?: boolean
+    countNewContacts?: boolean
+  },
 ): DbxStatement => {
   const bag = createBag()
   // COUNT(DISTINCT key) so totalResults counts households rather than voters,
@@ -1045,8 +1091,14 @@ export const buildCountSql = (
   const countExpr = args.groupByHousehold
     ? `COUNT(DISTINCT ${householdKey()})`
     : 'COUNT(*)'
+  const newCount =
+    args.countNewContacts === true &&
+    !args.groupByHousehold &&
+    args.district.dataset.overlayOrgSlug !== undefined
+      ? `, COUNT_IF(${newContactSql()}) AS new_count`
+      : ''
   const sql =
-    `SELECT ${countExpr} AS voter_count FROM ${args.district.table} v` +
+    `SELECT ${countExpr} AS voter_count${newCount} FROM ${args.district.table} v` +
     ` ${buildScopeSql(bag, args)}`
   return { sql, params: bag.params }
 }

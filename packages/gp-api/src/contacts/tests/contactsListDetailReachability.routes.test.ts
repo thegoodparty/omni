@@ -74,6 +74,7 @@ describe('GET /v1/contacts/list-detail reachability', () => {
     expect(spy).toHaveBeenCalledWith(
       expect.objectContaining({ search: 'elm' }),
       expect.anything(),
+      expect.anything(),
     )
   })
 
@@ -94,6 +95,7 @@ describe('GET /v1/contacts/list-detail reachability', () => {
     expect(response.status).toBe(201)
     expect(spy).toHaveBeenCalledWith(
       expect.objectContaining({ search: 'elm' }),
+      expect.anything(),
       expect.anything(),
     )
   })
@@ -160,6 +162,7 @@ describe('GET /v1/contacts/list-detail reachability', () => {
     expect(response.status).toBe(200)
     expect(spy).toHaveBeenCalledWith(
       expect.objectContaining({ search: undefined }),
+      expect.anything(),
       expect.anything(),
     )
   })

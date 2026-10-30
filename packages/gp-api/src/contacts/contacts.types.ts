@@ -21,6 +21,9 @@ export type StatsResponse = {
   totalConstituents: number
   totalConstituentsWithCellPhone: number
   districtPopulation: number | null
+  // A Win campaign with imported contacts: the people only an import added,
+  // counted next to the voters above rather than inside them.
+  newContactsCount?: number
   buckets: {
     age: DistrictStatCategory
     homeowner: DistrictStatCategory

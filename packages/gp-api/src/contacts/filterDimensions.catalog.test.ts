@@ -231,7 +231,7 @@ describe('ContactsService.getFilterDimensions', () => {
 
   const organization = (slug: string): Organization =>
     ({ slug }) as Organization
-  const PANELS_ON = { citizenPanels: true }
+  const PANELS_ON = { citizenPanels: true, contactOverlay: true }
 
   it('leaves the civic panel dimensions out while the flag is off', () => {
     const off = buildService()
@@ -252,6 +252,20 @@ describe('ContactsService.getFilterDimensions', () => {
       'contactHistory',
       'lastAsked',
     ])
+  })
+
+  it('offers source only to a Win campaign with imported contacts', () => {
+    const keysFor = (slug: string, contactOverlay: boolean) =>
+      buildService()
+        .getFilterDimensions(organization(slug), {
+          citizenPanels: true,
+          contactOverlay,
+        })
+        .map((d) => d.key)
+
+    expect(keysFor('win-campaign', true)).toContain('source')
+    expect(keysFor('win-campaign', false)).not.toContain('source')
+    expect(keysFor('eo-city-council', true)).not.toContain('source')
   })
 
   it('includes party for a Win organization', () => {

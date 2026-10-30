@@ -116,6 +116,42 @@ describe('buildDistrictStatsSql', () => {
     }
     expect(sql).toContain("ELSE '250k+'")
   })
+
+  describe('counting new contacts', () => {
+    const OVERLAID: DbxDistrict = {
+      ...DISTRICT,
+      dataset: {
+        base: 'voters',
+        overlayOrgSlug: 'campaign-1',
+        overlayDistrictId: DISTRICT.districtId,
+      },
+    }
+
+    it('counts everyone, and of them the new contacts', () => {
+      const { sql } = buildDistrictStatsSql(OVERLAID, {
+        countNewContacts: true,
+      })
+
+      expect(sql).toContain(
+        ', coalesce(v.`ContactIsNew`, false) AS is_new FROM ',
+      )
+      expect(sql).toContain(
+        'COUNT(*) AS count, COUNT(cell) AS with_cell,' +
+          ' COUNT_IF(is_new) AS new_count FROM scoped',
+      )
+    })
+
+    it('reads as before when not asked, or without the overlay', () => {
+      const plain = sqlFor()
+
+      expect(buildDistrictStatsSql(OVERLAID).sql).toBe(plain)
+      expect(
+        buildDistrictStatsSql(DISTRICT, { countNewContacts: true }).sql,
+      ).toBe(plain)
+      expect(plain).toContain('COUNT(*) AS count, COUNT(cell) AS with_cell')
+      expect(plain).not.toContain('is_new')
+    })
+  })
 })
 
 describe('mapDistrictStatsRows', () => {
@@ -170,6 +206,25 @@ describe('mapDistrictStatsRows', () => {
 
   it('returns null for an empty result', () => {
     expect(mapDistrictStatsRows('d-1', [])).toBeNull()
+  })
+
+  it('reads the new contacts count from the grand-total row', () => {
+    const stats = mapDistrictStatsRows('d-1', [
+      ['TOTAL', 'all', '200', '80', '14'],
+      ['age', '51+', '150', null, '0'],
+      ['age', 'Unknown', '50', null, '14'],
+    ])
+
+    expect(stats?.totalConstituents).toBe(200)
+    expect(stats?.totalConstituentsWithCellPhone).toBe(80)
+    expect(stats?.newContactsCount).toBe(14)
+    expect(stats?.buckets.age.map((b) => b.label)).toEqual(['51+', 'Unknown'])
+  })
+
+  it('carries no new contacts count when not asked for', () => {
+    expect(mapDistrictStatsRows('d-1', rows)).not.toHaveProperty(
+      'newContactsCount',
+    )
   })
 
   it('ignores a dimension it does not publish', () => {

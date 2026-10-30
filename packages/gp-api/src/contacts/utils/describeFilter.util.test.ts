@@ -136,6 +136,17 @@ describe('describeFilter', () => {
     expect(describeFilter(filter(both), { isServe: true })).toBe('Age 65+.')
   })
 
+  it('names the source a Win list keeps', () => {
+    expect(
+      describeFilter(filter({ source: ['imported'], age65Plus: true }), {
+        isServe: false,
+      }),
+    ).toBe('Source Imported and Age 65+.')
+    expect(
+      describeFilter(filter({ source: ['voterFile'] }), { isServe: true }),
+    ).toBe('Everyone in your file — no filters applied.')
+  })
+
   it('omits precincts for a serve org', () => {
     expect(
       describeFilter(filter({ precincts: ['travis|0104'] }), { isServe: true }),

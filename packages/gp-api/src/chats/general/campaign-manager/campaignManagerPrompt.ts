@@ -754,6 +754,18 @@ const dataBlock = (ctx: CampaignManagerContext): string | null =>
       '" Never guess at the groups left out.'
     : null
 
+// Only for a campaign whose people reads join its imported contacts. The
+// people-data tools' routing rules say how to count them apart; this keeps
+// the words right in every answer, tool or not.
+const newContactsBlock = (ctx: CampaignManagerContext): string | null =>
+  ctx.peopleDataset?.overlayOrgSlug === undefined
+    ? null
+    : 'This campaign imported contacts. People an import added who are not ' +
+      'in the voter file are "new contacts added", never voters: do not ' +
+      'call them voters or count them as voters in the district. When a ' +
+      'number can include them, give voters and new contacts added as two ' +
+      'separate numbers.'
+
 // Advertised only when the CRM contact tools are actually registered
 // (crmToolsEnabled folds in flag + service + org), so the prompt never
 // promises a tool the model can't call.
@@ -1155,6 +1167,7 @@ export const buildCampaignManagerSystemPrompt = (
     tasksBlock(ctx),
     dataBlock(ctx),
     crmToolsBlock(ctx),
+    newContactsBlock(ctx),
     listMapBlock(toolNames),
     textingClosedBlock(ctx),
     outreachSamplingBlock(ctx, toolNames),

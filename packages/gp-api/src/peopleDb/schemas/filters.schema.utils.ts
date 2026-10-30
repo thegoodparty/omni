@@ -45,6 +45,13 @@ export const transformFilters = <T extends string>(
         filterOperators[key] = { operator: 'is', value: 'null' }
         filterValues[key] = []
       }
+    } else if (Array.isArray(value)) {
+      if (value.length > 0) {
+        const values = value.map(String)
+        filterList.push(asFilterKey(key))
+        filterValues[key] = values
+        filterOperators[key] = { operator: 'in', values }
+      }
     } else if (
       value &&
       typeof value === 'object' &&

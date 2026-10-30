@@ -25,9 +25,11 @@ describe('StatsService', () => {
       { base: 'constituents' },
     )
 
-    expect(findStats).toHaveBeenCalledWith(DISTRICT_ID, {
-      base: 'constituents',
-    })
+    expect(findStats).toHaveBeenCalledWith(
+      DISTRICT_ID,
+      { base: 'constituents' },
+      {},
+    )
     expect(measure).toHaveBeenCalledWith(
       expect.objectContaining({
         op: 'stats',

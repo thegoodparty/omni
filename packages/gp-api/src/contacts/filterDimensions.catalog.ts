@@ -219,7 +219,26 @@ export const CITIZEN_PANEL_DIMENSION_KEYS: ReadonlySet<string> = new Set([
   'contactHistory',
 ])
 
+// Offered only to a campaign with imported contacts: getFilterDimensions
+// leaves it out otherwise, since without an import everyone is in the voter
+// file.
+export const SOURCE_DIMENSION_KEY = 'source'
+
 export const FILTER_DIMENSIONS: readonly FilterDimension[] = [
+  {
+    // Whether a person is in the voter file or only an import added them (a
+    // new contact, not a voter). Win only: Serve counts imported people with
+    // everyone else.
+    key: SOURCE_DIMENSION_KEY,
+    label: 'Source',
+    kind: 'multi-value',
+    modes: 'win',
+    provenance: 'observed',
+    values: [
+      { key: 'voterFile', label: 'Voter file' },
+      { key: 'imported', label: 'Imported' },
+    ],
+  },
   {
     key: 'audience',
     label: 'Voter Likelihood',

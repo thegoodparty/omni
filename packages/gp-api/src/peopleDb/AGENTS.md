@@ -94,6 +94,22 @@ people table FULL OUTER JOIN the org's rows of
   overlay the Other party filter adds `AND NOT ContactIsNew`
   (`buildPartyValuePredicate`). A voter-file person with no party is still
   Other, and the pack never holds a new person (no rooftop point).
+- A Win campaign is told how many of its people are new
+  (`docs/adr/2026-10-30-win-new-contacts-counted-next-to-voters.md`).
+  `countNewContacts` on `buildDistrictStatsSql`,
+  `buildListDetailAggregatesSql` and `buildCountSql` (ungrouped only; set
+  by `ContactsService` for a non-`eo-` org with the overlay, through
+  `ListPeopleDTO.countNewContacts` for a count) leaves every count as it was and adds, of each, the
+  people with `ContactIsNew` as trailing `new_*` columns of the same
+  statement (`newContactsCount` on `ComputedDistrictStats`, `newContacts`
+  on `PeopleListDetailAggregatesResponse`). Without the overlay the option
+  is a no-op, so the statement is unchanged.
+- The `source` filter (`PeopleFilters.source`, a plain array, the one key
+  `transformFilters` reads without an operator): `voterFile` is
+  `NOT coalesce(ContactIsNew, false)`, `imported` is
+  `coalesce(ContactIsNew, false)`, both or neither emit nothing. Without the
+  overlay `imported` alone is `FALSE` (nobody, not an error) and
+  `voterFile` alone emits nothing.
 - The Serve agents' `query_constituent_data` gets the same join over
   `mart_serve_agents.<SERVE_AGENT_CONTACT_OVERLAY_VIEW>`, built in
   `constituentDataScope.ts` and swapped in only after the SQL validator
@@ -102,10 +118,13 @@ people table FULL OUTER JOIN the org's rows of
   `mart_win_agents.<WIN_AGENT_CONTACT_OVERLAY_VIEW>` joined to
   `win_agent_voters` (`buildWinConstituentDataScope`), on its own
   `sp_win_agent` credential, whenever its org's dataset carries the overlay.
-  Both build the join with `buildContactOverlayTable`. With the overlay,
+  Both build the join with `buildContactOverlayTable`; Win's also projects
+  `new_contact` (the view's `is_new`). With the overlay,
   `dataSourceRoutingRules`
-  (`llm/tools/dataSourceRouting.ts`) sends uploaded-list, imported-contact
-  and email questions there, since the CRM catalog has no such dimension.
+  (`llm/tools/dataSourceRouting.ts`) sends Serve's uploaded-list,
+  imported-contact and email questions there, since the CRM catalog has no
+  such dimension; for Win it says new contacts added are never voters and
+  points at the CRM `source` dimension and the mart's `new_contact`.
 - Turning the flag off returns the org to the plain table at once. That is
   the kill switch for a federation outage, since every read for a flagged org
   depends on it.

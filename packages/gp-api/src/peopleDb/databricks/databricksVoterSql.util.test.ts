@@ -58,7 +58,7 @@ const STATEWIDE: DbxDistrict = {
 const noFilters = (): FilterData => filtersSchema.parse({})
 
 const parseFilters = (
-  filters: Record<string, boolean | Record<string, unknown>>,
+  filters: Record<string, boolean | string[] | Record<string, unknown>>,
 ): FilterData => filtersSchema.parse(filters)
 
 describe('buildScopeSql', () => {
@@ -274,35 +274,37 @@ describe('buildVoterFiltersSql', () => {
   // would silently drop the filter and widen the audience, which is the one
   // failure mode this path can have that nobody sees.
   it('emits a clause for every PeopleFilters key', () => {
-    const sample: Record<string, boolean | Record<string, unknown>> = {
-      hasCellPhone: true,
-      hasLandline: true,
-      hasAnyPhone: true,
-      hasAddress: true,
-      hasEmail: true,
-      id: { in: ['11111111-1111-1111-1111-111111111111'] },
-      maritalStatus: { in: ['Married'] },
-      veteranStatus: { in: ['Yes'] },
-      educationLevel: { in: ['College Degree'] },
-      ethnicity: { in: ['European'] },
-      businessOwner: { in: ['Yes'] },
-      presenceOfChildren: { in: ['Yes'] },
-      homeowner: { in: ['Yes'] },
-      gender: { in: ['F'] },
-      voterStatus: { in: ['Super'] },
-      earlyVoteStatus: { in: ['Likely'] },
-      politicalParty: { in: ['Democratic'] },
-      language: { in: ['English'] },
-      estimatedIncomeAmountInt: { gte: 50000 },
-      ageInt: { gte: 30 },
-      precinct: { in: ['ORANGE|711'] },
-      ideology: { in: ['Conservative'] },
-      independentAffinity: { in: ['Yes'] },
-      votedInElection: { in: ['No'] },
-      votedInElectionReportedIds: {
-        in: ['0b3f1c1e-8f7a-4c1b-9d2e-3a4b5c6d7e8f'],
-      },
-    }
+    const sample: Record<string, boolean | string[] | Record<string, unknown>> =
+      {
+        hasCellPhone: true,
+        hasLandline: true,
+        hasAnyPhone: true,
+        hasAddress: true,
+        hasEmail: true,
+        id: { in: ['11111111-1111-1111-1111-111111111111'] },
+        maritalStatus: { in: ['Married'] },
+        veteranStatus: { in: ['Yes'] },
+        educationLevel: { in: ['College Degree'] },
+        ethnicity: { in: ['European'] },
+        businessOwner: { in: ['Yes'] },
+        presenceOfChildren: { in: ['Yes'] },
+        homeowner: { in: ['Yes'] },
+        gender: { in: ['F'] },
+        voterStatus: { in: ['Super'] },
+        earlyVoteStatus: { in: ['Likely'] },
+        politicalParty: { in: ['Democratic'] },
+        language: { in: ['English'] },
+        estimatedIncomeAmountInt: { gte: 50000 },
+        ageInt: { gte: 30 },
+        precinct: { in: ['ORANGE|711'] },
+        ideology: { in: ['Conservative'] },
+        independentAffinity: { in: ['Yes'] },
+        votedInElection: { in: ['No'] },
+        votedInElectionReportedIds: {
+          in: ['0b3f1c1e-8f7a-4c1b-9d2e-3a4b5c6d7e8f'],
+        },
+        source: ['imported'],
+      }
 
     expect(Object.keys(sample).sort()).toEqual(
       Object.keys(PeopleFiltersSchema.shape).sort(),
@@ -1675,6 +1677,130 @@ describe('contactOverlayTable', () => {
     })
     expect(plain).toContain('v.`Parties_Description` IS NULL OR')
     expect(plain).not.toContain('ContactIsNew')
+  })
+
+  describe('source filter', () => {
+    const district = overlaid(CONGRESSIONAL, CONGRESSIONAL.districtId)
+    const scopeWith = (target: DbxDistrict, source: string[]) =>
+      buildScopeSql(createBag(), {
+        district: target,
+        filters: parseFilters({ source }),
+      })
+
+    it('reads voterFile as people the voter file holds', () => {
+      expect(scopeWith(district, ['voterFile'])).toMatch(
+        / AND NOT coalesce\(v\.`ContactIsNew`, false\)$/,
+      )
+    })
+
+    it('reads imported as people only an import added', () => {
+      expect(scopeWith(district, ['imported'])).toMatch(
+        / AND coalesce\(v\.`ContactIsNew`, false\)$/,
+      )
+    })
+
+    it('constrains nothing for both or neither', () => {
+      const unfiltered = scopeWith(district, [])
+      expect(scopeWith(district, ['voterFile', 'imported'])).toBe(unfiltered)
+      expect(unfiltered).not.toContain('ContactIsNew')
+    })
+
+    it('without the overlay, matches no one for imported alone and everyone for voterFile', () => {
+      expect(scopeWith(CONGRESSIONAL, ['imported'])).toMatch(/ AND FALSE$/)
+      expect(scopeWith(CONGRESSIONAL, ['voterFile'])).toBe(
+        scopeWith(CONGRESSIONAL, []),
+      )
+      expect(scopeWith(CONGRESSIONAL, ['imported'])).not.toContain(
+        'ContactIsNew',
+      )
+    })
+  })
+
+  it('counts everyone and, of them, the new contacts in the list detail', () => {
+    const district = overlaid(CONGRESSIONAL, CONGRESSIONAL.districtId)
+    const { sql } = buildListDetailAggregatesSql({
+      district,
+      filters: noFilters(),
+      countNewContacts: true,
+    })
+    const isNew = 'coalesce(v.`ContactIsNew`, false)'
+
+    expect(sql).toMatch(/^SELECT COUNT\(\*\) AS count,/)
+    expect(sql).toContain(
+      'COUNT_IF(v.`VoterTelephones_CellPhoneFormatted` IS NOT NULL) AS sms,',
+    )
+    expect(sql).toContain('COUNT_IF(v.`Email` IS NOT NULL) AS email,')
+    expect(sql).toContain(` COUNT_IF(${isNew}) AS new_count,`)
+    expect(sql).toContain(
+      `COUNT_IF(v.\`VoterTelephones_CellPhoneFormatted\` IS NOT NULL AND ${isNew}) AS new_sms,`,
+    )
+    expect(sql).toContain(
+      `COUNT_IF(v.\`Email\` IS NOT NULL AND ${isNew}) AS new_email FROM `,
+    )
+    const columns = sql.slice(0, sql.indexOf(' FROM '))
+    expect(columns.match(/ AS (\w+)/g)).toEqual([
+      ' AS count',
+      ' AS avgAge',
+      ' AS avgIncome',
+      ' AS sms',
+      ' AS robocall',
+      ' AS phoneBanking',
+      ' AS doorKnocking',
+      ' AS email',
+      ' AS new_count',
+      ' AS new_sms',
+      ' AS new_robocall',
+      ' AS new_phoneBanking',
+      ' AS new_doorKnocking',
+      ' AS new_email',
+    ])
+  })
+
+  it('counts the new contacts beside the count, never by household', () => {
+    const district = overlaid(CONGRESSIONAL, CONGRESSIONAL.districtId)
+    const isNew = 'coalesce(v.`ContactIsNew`, false)'
+
+    expect(
+      buildCountSql({ district, filters: noFilters(), countNewContacts: true })
+        .sql,
+    ).toMatch(
+      new RegExp(
+        `^SELECT COUNT\\(\\*\\) AS voter_count, COUNT_IF\\(${isNew.replace(/[()`.]/g, '\\$&')}\\) AS new_count FROM `,
+      ),
+    )
+    expect(
+      buildCountSql({
+        district,
+        filters: noFilters(),
+        countNewContacts: true,
+        groupByHousehold: true,
+      }).sql,
+    ).not.toContain('new_count')
+    expect(
+      buildCountSql({
+        district: CONGRESSIONAL,
+        filters: noFilters(),
+        countNewContacts: true,
+      }).sql,
+    ).not.toContain('new_count')
+  })
+
+  it('counts no new contacts without the overlay, or when not asked', () => {
+    const overlay = overlaid(CONGRESSIONAL, CONGRESSIONAL.districtId)
+    const plain = buildListDetailAggregatesSql({
+      district: CONGRESSIONAL,
+      filters: noFilters(),
+      countNewContacts: true,
+    }).sql
+    const unasked = buildListDetailAggregatesSql({
+      district: overlay,
+      filters: noFilters(),
+    }).sql
+
+    expect(plain).not.toContain('ContactIsNew')
+    expect(plain).toMatch(/^SELECT COUNT\(\*\) AS count,/)
+    expect(unasked).not.toContain('new_count')
+    expect(unasked).toMatch(/^SELECT COUNT\(\*\) AS count,/)
   })
 
   it('keeps name search for an @ without the overlay', () => {
