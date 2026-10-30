@@ -339,8 +339,8 @@ const NextTaskCard = ({
   className?: string
 }): React.JSX.Element | null => {
   const [campaign] = useCampaign()
-  const { tasks } = useTrackerTasks()
-  const { offer: freeOffer } = useRobocallFreeOffer()
+  const { tasks, isPending: tasksPending } = useTrackerTasks()
+  const { offer: freeOffer, isLoading: offerLoading } = useRobocallFreeOffer()
   const queryClient = useQueryClient()
   // gp-api writes the offer's plan task while answering the offer request,
   // which runs beside the plan's own fetch, so a first load can see the
@@ -351,14 +351,23 @@ const NextTaskCard = ({
     freeOffer !== null &&
     tasks.length > 0 &&
     !tasks.some((row) => isFreeOfferTaskHref(row.link))
+  // The card holds while that one retry runs, so the offer's task does not
+  // jump to the front a second time after the card has painted.
+  const [retriedFor, setRetriedFor] = useState<unknown>(null)
+  const offerRetried = retriedFor === (campaign?.id ?? 'none')
   useEffect(() => {
-    if (!offerTaskMissing) return
+    if (!offerTaskMissing || offerRetried) return
     void queryClient
       .invalidateQueries({ queryKey: [ROBOCALL_FREE_OFFER_QUERY_KEY] })
       .then(() =>
         queryClient.invalidateQueries({ queryKey: TRACKER_TASKS_QUERY_KEY }),
       )
-  }, [offerTaskMissing, queryClient])
+      .finally(() => setRetriedFor(campaign?.id ?? 'none'))
+  }, [offerTaskMissing, offerRetried, queryClient, campaign?.id])
+  // Home's first card is the one it keeps: until the plan and the offer have
+  // both answered, which task leads is not known yet.
+  const deckSettling =
+    tasksPending || offerLoading || (offerTaskMissing && !offerRetried)
   const chat = useCampaignManagerChat()
   const { smsCompliance, smsCutoffDate } = useSmsCompliance()
   // The task just marked done, held in front while it celebrates and leaves.
@@ -493,6 +502,7 @@ const NextTaskCard = ({
       ? Math.min(asking ? stack.length : stack.length - 1, 2)
       : 0
 
+  if (deckSettling && !asking) return countModal
   if (!strategy && !asking) return countModal
 
   const due = frontTask ? taskDueLabel(frontTask.date, new Date()) : null

@@ -8,20 +8,30 @@ import { render } from 'helpers/test-utils/render'
 import type { TrackerTasksResult } from './useTrackerTasks'
 import NextTaskCard from './NextTaskCard'
 
-const { mockChat, mockFreeOffer, mockSmsCompliance, mockTasks } = vi.hoisted(
-  () => ({
-    mockChat: { current: null as Record<string, unknown> | null },
-    mockFreeOffer: { current: { offer: null as { eligible: true } | null } },
-    mockSmsCompliance: {
-      current: {
-        smsCompliance: 'open',
-        smsCutoffDate: null as string | null,
-        generalElectionDate: null as string | null,
-      },
+const {
+  mockChat,
+  mockFreeOffer,
+  mockSmsCompliance,
+  mockTasks,
+  mockTasksPending,
+} = vi.hoisted(() => ({
+  mockTasksPending: { current: false },
+  mockChat: { current: null as Record<string, unknown> | null },
+  mockFreeOffer: {
+    current: {
+      offer: null as { eligible: true } | null,
+      isLoading: false,
     },
-    mockTasks: { current: [] as CampaignTrackerTask[] },
-  }),
-)
+  },
+  mockSmsCompliance: {
+    current: {
+      smsCompliance: 'open',
+      smsCutoffDate: null as string | null,
+      generalElectionDate: null as string | null,
+    },
+  },
+  mockTasks: { current: [] as CampaignTrackerTask[] },
+}))
 
 vi.mock('app/dashboard/shared/smsCutoff/useSmsCompliance', () => ({
   useSmsCompliance: () => mockSmsCompliance.current,
@@ -43,7 +53,7 @@ vi.mock('./useTrackerTasks', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./useTrackerTasks')>()),
   useTrackerTasks: (): TrackerTasksResult => ({
     tasks: mockTasks.current,
-    isPending: false,
+    isPending: mockTasksPending.current,
     isError: false,
     isGeneratingDynamic: false,
   }),
@@ -71,7 +81,8 @@ const sendTask = (flowType: 'text' | 'robocall'): CampaignTrackerTask => ({
 beforeEach(() => {
   window.localStorage.clear()
   mockChat.current = null
-  mockFreeOffer.current = { offer: null }
+  mockFreeOffer.current = { offer: null, isLoading: false }
+  mockTasksPending.current = false
   mockSmsCompliance.current = {
     smsCompliance: 'open',
     smsCutoffDate: null,
@@ -173,7 +184,7 @@ const offerTask = (
 
 describe('NextTaskCard free robocall offer', () => {
   it('leads with the offer while the campaign has it', () => {
-    mockFreeOffer.current = { offer: { eligible: true } }
+    mockFreeOffer.current = { offer: { eligible: true }, isLoading: false }
     mockTasks.current = [sendTask('text'), offerTask()]
     render(<NextTaskCard surface="manager" />)
 
@@ -187,7 +198,7 @@ describe('NextTaskCard free robocall offer', () => {
   })
 
   it('offers no Mark done on the offer, beside its button or under Skip', async () => {
-    mockFreeOffer.current = { offer: { eligible: true } }
+    mockFreeOffer.current = { offer: { eligible: true }, isLoading: false }
     mockTasks.current = [offerTask()]
     render(<NextTaskCard surface="manager" />)
 
@@ -210,7 +221,7 @@ describe('NextTaskCard free robocall offer', () => {
   })
 
   it('leads even when gp-api dated it tomorrow', () => {
-    mockFreeOffer.current = { offer: { eligible: true } }
+    mockFreeOffer.current = { offer: { eligible: true }, isLoading: false }
     const tomorrow = new Date()
     tomorrow.setDate(tomorrow.getDate() + 1)
     mockTasks.current = [
@@ -225,7 +236,7 @@ describe('NextTaskCard free robocall offer', () => {
   })
 
   it('steps back when the offer is put off or set aside', () => {
-    mockFreeOffer.current = { offer: { eligible: true } }
+    mockFreeOffer.current = { offer: { eligible: true }, isLoading: false }
     const later = new Date()
     later.setDate(later.getDate() + 3)
     for (const task of [
@@ -242,6 +253,56 @@ describe('NextTaskCard free robocall offer', () => {
       ).toBeInTheDocument()
       unmount()
     }
+  })
+})
+
+describe('NextTaskCard first paint', () => {
+  it('shows no card while the offer is still loading, then the offer task', () => {
+    mockFreeOffer.current = { offer: null, isLoading: true }
+    mockTasks.current = [sendTask('text'), offerTask()]
+    const { rerender } = render(<NextTaskCard surface="manager" />)
+
+    expect(screen.queryByRole('heading', { level: 3 })).toBeNull()
+
+    mockFreeOffer.current = { offer: { eligible: true }, isLoading: false }
+    rerender(<NextTaskCard surface="manager" />)
+    expect(
+      screen.getByRole('heading', { name: offerTask().title }),
+    ).toBeInTheDocument()
+  })
+
+  it('shows no card while the plan is still loading', () => {
+    mockTasksPending.current = true
+    mockTasks.current = [sendTask('text')]
+    render(<NextTaskCard surface="manager" />)
+
+    expect(screen.queryByRole('heading', { level: 3 })).toBeNull()
+  })
+
+  it('holds when the offer is there but its task is not, until the retry lands', async () => {
+    mockFreeOffer.current = { offer: { eligible: true }, isLoading: false }
+    mockTasks.current = [sendTask('text')]
+    const { rerender } = render(<NextTaskCard surface="manager" />)
+
+    expect(screen.queryByRole('heading', { level: 3 })).toBeNull()
+
+    mockTasks.current = [sendTask('text'), offerTask()]
+    rerender(<NextTaskCard surface="manager" />)
+    expect(
+      await screen.findByRole('heading', { name: offerTask().title }),
+    ).toBeInTheDocument()
+  })
+
+  it('shows the plan task once the retry finds no offer task', async () => {
+    mockFreeOffer.current = { offer: { eligible: true }, isLoading: false }
+    mockTasks.current = [sendTask('text')]
+    render(<NextTaskCard surface="manager" />)
+
+    expect(
+      await screen.findByRole('heading', {
+        name: 'Send an introduction text',
+      }),
+    ).toBeInTheDocument()
   })
 })
 
