@@ -29,8 +29,7 @@ verifies it against GitHub's JWKS (issuer
 `job_workflow_ref` to match an entry of `GITHUB_OIDC_ALLOWED_WORKFLOWS`
 (`<owner>/<repo>/<path>@<ref>`, `<ref>` may be `*`), set per gp-api
 environment in `deploy/index.ts`. Either token is a service reader, never a
-full M2M caller. The Clerk service-read path (JWT-format Clerk M2M tokens) is
-removed once no caller sends one.
+full M2M caller, and no other token is a service reader.
 
 ## Context
 

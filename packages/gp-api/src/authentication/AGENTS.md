@@ -19,7 +19,7 @@ Auth state is enforced globally via three guards registered in order. Most route
 | `guards/Roles.guard.ts`                  | `RolesGuard` — reads `@Roles()` metadata and enforces                                    |
 | `guards/AdminOrM2M.guard.ts`             | Route-level: admin user OR M2M token                                                     |
 | `guards/M2MOnly.guard.ts`                | Route-level: M2M only                                                                    |
-| `guards/ServiceRead.guard.ts`            | Route-level: service reader (M2M JWT, Vercel or GitHub OIDC), `mt_*` M2M, or admin       |
+| `guards/ServiceRead.guard.ts`            | Route-level: service reader (Vercel or GitHub OIDC), `mt_*` M2M, or admin                |
 | `vercelOidc.service.ts`                  | Verifies a Vercel deployment's OIDC token against the project allowlist                  |
 | `githubOidc.service.ts`                  | Verifies a GitHub Actions workflow's OIDC token against the workflow allowlist           |
 | `guards/ServiceReadOrOwner.guard.ts`     | `ServiceReadGuard` plus the user whose `personId` matches the `personId` query param     |
@@ -30,23 +30,20 @@ Auth state is enforced globally via three guards registered in order. Most route
 ## Patterns
 
 - **Global guards run in order**: `SessionGuard` → `RolesGuard` (`SessionGuard` wired as `APP_GUARD` in `app.module.ts`, `RolesGuard` in `authentication.module.ts`). M2M `mt_*` tokens are verified inside `SessionGuard`. New guards belong route-level, not global, unless they're truly cross-cutting.
-- **Clerk M2M has two tiers.** An opaque `mt_*` token is verified by Clerk
-  against `GP_API_MACHINE_SECRET`, which enforces machine scope, and sets
-  `request.m2mToken` — full M2M, trusted by `AdminOrM2MGuard`, `M2MOnly` and
-  `UserOrM2M`. A JWT-format M2M token (`sub` starts with `mch_`) is verified
-  only against the instance JWKS; Clerk checks neither its scopes nor our
-  secret, so any machine in the instance can mint one. It sets
-  `request.serviceReader`, never `m2mToken`, and passes `SessionGuard` only on
-  `@PublicAccess()` routes (401 elsewhere). Gate a read for it with
-  `ServiceReadGuard`. Use `ServiceReadOrOwnerGuard` only where the
+- **Machine callers come in two tiers.** An opaque Clerk `mt_*` token is
+  verified by Clerk against `GP_API_MACHINE_SECRET`, which enforces machine
+  scope, and sets `request.m2mToken` — full M2M, trusted by
+  `AdminOrM2MGuard`, `M2MOnly` and `UserOrM2M`. A Vercel or GitHub OIDC token
+  sets `request.serviceReader`, never `m2mToken`, and passes `SessionGuard`
+  only on `@PublicAccess()` routes (401 elsewhere). Gate a read for a service
+  reader with `ServiceReadGuard`. Use `ServiceReadOrOwnerGuard` only where the
   `personId` query param names the one record returned; on a list route it
   would let any user with a `personId` self-authorize. gp-marketing reads the
-  public person-profile and public-campaign endpoints as a service reader
-  (Vercel OIDC, Clerk JWT fallback), and candidate-sites reads
-  `GET /websites/:vanityPath/view` and `GET /websites/by-domain/:domain` with
-  its Vercel OIDC token.
+  public person-profile and public-campaign endpoints with its Vercel OIDC
+  token, and candidate-sites reads `GET /websites/:vanityPath/view` and
+  `GET /websites/by-domain/:domain` with its own.
 - **`@PublicAccess()` is the only escape hatch.** Don't conditionally skip auth inside a guard — opt out at the route level.
-- **A Vercel OIDC token is the other service reader.** gp-marketing and
+- **A Vercel OIDC token is a service reader.** gp-marketing and
   candidate-sites run on Vercel, which signs each deployment a short-lived
   RS256 token naming its project and environment, so they need no stored
   secret. `SessionGuard` recognizes one by its unverified `iss`
@@ -58,12 +55,13 @@ Auth state is enforced globally via three guards registered in order. Most route
   `VERCEL_OIDC_ALLOWED_PROJECTS` (set per env in `deploy/index.ts`; empty
   turns the path off). A verified token sets `serviceReader` with
   `source: 'vercel-oidc'`, never `m2mToken`, and passes only on
-  `@PublicAccess()` routes, exactly like a JWT-format M2M token. A bad or
-  unlisted token, or an unreachable JWKS, leaves no `serviceReader` and logs
-  one warn. The `user` field of the request log reads
-  `vercel:<project>:<environment>`. Clerk JWTs stay accepted while callers
-  migrate (`docs/adr/2026-10-29-machine-callers-authenticate-with-platform-oidc.md`).
-- **A GitHub Actions OIDC token is the third service reader.** gp-marketing's
+  `@PublicAccess()` routes. A bad or unlisted token, or an unreachable JWKS,
+  leaves no `serviceReader` and logs one warn. The `user` field of the
+  request log reads `vercel:<project>:<environment>`. Dev also allows
+  gp-marketing's `development` environment, so a local `next dev` can send
+  the token `vercel env pull` writes
+  (`docs/adr/2026-10-29-machine-callers-authenticate-with-platform-oidc.md`).
+- **A GitHub Actions OIDC token is the other service reader.** gp-marketing's
   `generate-people-sitemaps` workflow requests one with audience `gp-api`, so
   it needs no stored secret. `SessionGuard` recognizes it by its unverified
   `iss` (`https://token.actions.githubusercontent.com`), right after the
@@ -159,15 +157,11 @@ Auth state is enforced globally via three guards registered in order. Most route
   `vendors/clerk/clerk.consts.ts`) and wrapped in `clerkCall()`, which also
   emits the span — the SDK uses undici, which our OTel setup does not
   instrument, so a call made without that wrapper is invisible in Tempo.
-  Session tokens and M2M JWTs verify locally against `CLERK_JWT_KEY`, the
-  instance's PEM public key, set per environment in `deploy/index.ts`; opaque
-  `mt_` M2M tokens still call Clerk. A JWT M2M token verified locally (key
-  set) skips the `CLERK_API_TIMEOUT_MS` race (`clerkCall(..., null)`), since
-  the timer there only fires when the event loop was frozen; `mt_` tokens
-  keep it. Without the key the SDK refetches
-  Clerk's JWKS every 5 minutes on the request path, and a fetch slower than
-  2s rejects the request (about 0.06% of gp-marketing's M2M calls on
-  2026-10-19).
+  Session tokens verify locally against `CLERK_JWT_KEY`, the instance's PEM
+  public key, set per environment in `deploy/index.ts`; opaque `mt_` M2M
+  tokens still call Clerk. Without the key the SDK refetches Clerk's JWKS
+  every 5 minutes on the request path, and a fetch slower than 2s rejects the
+  request.
 - **gp-api owns the user's first and last name; Clerk holds a copy.** The
   name enters through Clerk at sign-up and `findOrProvisionByClerk` copies it
   once. After that the only writers are `PUT /v1/users/me` (the webapp's

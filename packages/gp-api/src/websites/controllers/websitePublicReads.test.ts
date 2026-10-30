@@ -1,6 +1,7 @@
 import axios from 'axios'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { signTestM2MJwt, useTestService } from '@/test-service'
+import { useTestService } from '@/test-service'
+import { signTestVercelOidcToken, useTestVercelOidc } from '@/test-vercel-oidc'
 import {
   AUTH_PROVIDER_TOKEN,
   AuthProvider,
@@ -8,6 +9,7 @@ import {
 import { WebsiteStatus } from '../../generated/prisma'
 
 const service = useTestService()
+useTestVercelOidc()
 
 const VANITY_PATH = 'jordan-for-council'
 const DOMAIN = 'jordanforcouncil.com'
@@ -66,8 +68,11 @@ describe('public website reads', () => {
     },
   )
 
-  it.each(READS)('serves $path to a JWT-format M2M token', async ({ path }) => {
-    const res = await service.client.get(path, withBearer(signTestM2MJwt()))
+  it.each(READS)('serves $path to a Vercel OIDC token', async ({ path }) => {
+    const res = await service.client.get(
+      path,
+      withBearer(signTestVercelOidcToken()),
+    )
 
     expect(res.status).toBe(200)
     expect(res.data.vanityPath).toBe(VANITY_PATH)
