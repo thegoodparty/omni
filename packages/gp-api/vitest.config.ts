@@ -1,7 +1,7 @@
-import { resolve } from 'path'
+import { dirname, resolve } from 'path'
 import dotenv from 'dotenv'
 import { sync as glob } from 'fast-glob'
-import { readFileSync } from 'fs'
+import { existsSync, readFileSync } from 'fs'
 import swc from 'unplugin-swc'
 import tsconfigPaths from 'vite-tsconfig-paths'
 import {
@@ -9,6 +9,7 @@ import {
   coverageConfigDefaults,
   defineConfig,
 } from 'vitest/config'
+import type { CacheKeyIdGenerator } from 'vitest/node'
 
 // deploy/ is excluded from tsconfig and the lint glob (it resolves against
 // Pulumi's separate dependency tree), but the alert definitions under it
@@ -43,6 +44,52 @@ const needsFreshModules = glob(TEST_FILES, {
   MODULE_MOCKING.test(readFileSync(resolve(__dirname, file), 'utf8')),
 )
 
+// experimental.fsModuleCache keys a transformed module on its own source and
+// this file, so on its own it replays a stale transform when a tsconfig or
+// .swcrc option changes, or when an unchanged import now resolves to another
+// file (foo.ts added beside foo/index.ts, a file moved into a folder). This
+// adds those inputs to the key: the transform config files, and which of the
+// files every path-like string in the module could resolve to exist.
+const TRANSFORM_INPUTS = [
+  'tsconfig.json',
+  '../../tsconfig.base.json',
+  '.swcrc',
+  '../contracts/package.json',
+  '../contracts/tsconfig.json',
+  '../nest-common/package.json',
+  '../nest-common/tsconfig.json',
+]
+  .map((file) => readFileSync(resolve(__dirname, file), 'utf8'))
+  .join('\n')
+const PATH_SPECIFIER = /['"]((?:\.{1,2}|@|src)\/[^'"?]*)/g
+const RESOLVE_SUFFIXES = [
+  '',
+  ...['.mjs', '.js', '.mts', '.ts', '.jsx', '.tsx', '.json'].flatMap((ext) => [
+    ext,
+    `/index${ext}`,
+  ]),
+  '/package.json',
+]
+// One function for every project: vitest keeps generators in a Set, and each
+// project's configureVitest registers it again.
+const fsModuleCacheKey: CacheKeyIdGenerator = ({ id, sourceCode }) => {
+  if (sourceCode.includes('import(`')) return false
+  const candidates = [...sourceCode.matchAll(PATH_SPECIFIER)].map(
+    ([, specifier = '']) => {
+      const base = specifier.startsWith('@/')
+        ? resolve(__dirname, 'src', specifier.slice(2))
+        : specifier.startsWith('src/')
+          ? resolve(__dirname, specifier)
+          : resolve(dirname(id), specifier)
+      return [...new Set([base, base.replace(/\.[cm]?js$/, '')])]
+        .flatMap((path) => RESOLVE_SUFFIXES.map((suffix) => path + suffix))
+        .filter((path) => existsSync(path))
+        .join(',')
+    },
+  )
+  return TRANSFORM_INPUTS + candidates.join(';')
+}
+
 export default defineConfig({
   // We have to disable esbuild and use swc because esbuild doesn't support
   // the required decorator metadata features that NestJS uses.
@@ -57,6 +104,11 @@ export default defineConfig({
     }),
     // We use tsconfigpaths, and therefore we need this.
     tsconfigPaths(),
+    {
+      name: 'fs-module-cache-key',
+      configureVitest: (context) =>
+        context.experimental_defineCacheKeyGenerator(fsModuleCacheKey),
+    },
   ],
   resolve: {
     alias: {
@@ -70,6 +122,14 @@ export default defineConfig({
     },
   },
   test: {
+    // Transformed modules are cached on disk across runs, which takes the
+    // swc transform of the app graph off every run after the first. Outside
+    // node_modules, which CI already caches whole, so gp-api.yml caches it
+    // separately.
+    experimental: {
+      fsModuleCache: true,
+      fsModuleCachePath: '.vitest-fs-module-cache',
+    },
     globalSetup: [
       '../contracts/scripts/vitest-global-setup.ts',
       './src/test-global-setup.ts',
