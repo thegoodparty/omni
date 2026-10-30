@@ -206,7 +206,8 @@ check was out with residents through a text they discarded. Judge case
 **The civic panel on the page.** `CivicPanelStanding` sits under the read
 until it is good (the desktop rail, and the top of the phone's Where this
 stands sheet): the civic panel page's title for its status and "82 of 240
-residents have joined" (`civicPanelStanding` in `readStatusCopy.ts`),
+residents have joined", or once ready the page's ready line naming the
+place from `useServePlace` (`civicPanelStanding` in `readStatusCopy.ts`),
 linked to the civic panel page. It reads `managedCivicPanelQueryOptions`
 once with the page (not on turn settle), and shows nothing for none or
 stopped.
