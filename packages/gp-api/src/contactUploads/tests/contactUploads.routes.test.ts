@@ -9,6 +9,7 @@ import {
 } from '@goodparty_org/contracts'
 import { useTestService } from '@/test-service'
 import {
+  ContactUploadFailureKind,
   ContactUploadMatchMethod,
   ContactUploadMatchOutcome,
   ContactUploadStatus,
@@ -423,6 +424,7 @@ describe('POST /v1/contact-uploads/:id/uploaded', () => {
     expect(await storedUpload(data.uploadId)).toMatchObject({
       status: ContactUploadStatus.failed,
       failureReason: "We couldn't start this upload. Try again.",
+      failureKind: ContactUploadFailureKind.transient,
     })
   })
 
@@ -461,6 +463,7 @@ describe('the process job, reading the file', () => {
     expect(await storedUpload(uploadId)).toMatchObject({
       status: ContactUploadStatus.failed,
       failureReason,
+      failureKind: ContactUploadFailureKind.file,
       rowCount: null,
       ingestedAt: null,
     })
@@ -622,6 +625,7 @@ describe('the process job, reading the file', () => {
     expect(await storedUpload(data.id)).toMatchObject({
       status: ContactUploadStatus.failed,
       failureReason: "This upload didn't finish. Try again.",
+      failureKind: ContactUploadFailureKind.transient,
       ingestedAt: null,
     })
   })
@@ -742,6 +746,7 @@ describe('the process job, matching', () => {
         ambiguousCount: 3,
         emailsGained: 2,
         isReimport: false,
+        product: 'serve',
       }),
     )
   })
@@ -1104,6 +1109,7 @@ Ann,Able,,,,
     ).toMatchObject({
       status: ContactUploadStatus.failed,
       failureReason: "This upload didn't finish. Try again.",
+      failureKind: ContactUploadFailureKind.transient,
     })
   })
 
@@ -1283,12 +1289,12 @@ describe('review', () => {
     expect(track).toHaveBeenCalledWith(
       service.user.id,
       EVENTS.Contacts.AmbiguousRowResolved,
-      { resolution: 'person', rowIndex: 0 },
+      { resolution: 'person', rowIndex: 0, product: 'serve' },
     )
     expect(track).toHaveBeenCalledWith(
       service.user.id,
       EVENTS.Contacts.MatchChanged,
-      { from: 'l2', to: 'none' },
+      { from: 'l2', to: 'none', product: 'serve' },
     )
   })
 
@@ -1312,7 +1318,7 @@ describe('review', () => {
     expect(track).toHaveBeenCalledWith(
       service.user.id,
       EVENTS.Contacts.MatchChanged,
-      { from: 'l2', to: 'l2' },
+      { from: 'l2', to: 'l2', product: 'serve' },
     )
   })
 
@@ -1337,6 +1343,11 @@ describe('review', () => {
       personId: PERSON_D,
       resolvedByUserId: service.user.id,
     })
+    expect(track).toHaveBeenCalledWith(
+      service.user.id,
+      EVENTS.Contacts.AmbiguousRowResolved,
+      { resolution: 'acceptedSuggested', rowCount: 1, product: 'serve' },
+    )
   })
 
   it('404s another org’s upload', async () => {
@@ -1363,6 +1374,7 @@ describe('POST /v1/contact-uploads/:id/retry', () => {
       data: {
         status: ContactUploadStatus.failed,
         failureReason: "This upload didn't finish. Try again.",
+        failureKind: ContactUploadFailureKind.transient,
       },
     })
     sendMessage.mockClear()
@@ -1386,6 +1398,7 @@ describe('POST /v1/contact-uploads/:id/retry', () => {
       id: uploadId,
       status: 'processing',
       failureReason: null,
+      failureKind: null,
     })
     expect(sendMessage).toHaveBeenCalledExactlyOnceWith(
       { type: QueueType.CONTACT_UPLOAD_PROCESS, data: { uploadId } },
@@ -1426,6 +1439,7 @@ describe('POST /v1/contact-uploads/:id/retry', () => {
     ).toMatchObject({
       status: ContactUploadStatus.failed,
       failureReason: "We couldn't start this upload. Try again.",
+      failureKind: ContactUploadFailureKind.transient,
     })
   })
 
@@ -1655,6 +1669,11 @@ describe('Win campaigns', () => {
       matchedCount: 1,
       newCount: 1,
     })
+    expect(track).toHaveBeenCalledWith(
+      service.user.id,
+      EVENTS.Contacts.ImportCompleted,
+      expect.objectContaining({ uploadId: data.id, product: 'win' }),
+    )
     const headers = { [HEADER]: winSlug }
     const rows = await service.client.get(
       `/v1/contact-uploads/${data.id}/rows`,

@@ -3,6 +3,7 @@ import { CONTACT_UPLOAD_FIELDS } from '@goodparty_org/contracts'
 import { v7 as uuidv7 } from 'uuid'
 import {
   ContactUpload,
+  ContactUploadFailureKind,
   ContactUploadMatch,
   ContactUploadMatchMethod,
   ContactUploadMatchOutcome,
@@ -173,7 +174,7 @@ export class ContactUploadProcessJobService extends createPrismaBase(
     }
 
     let failureReason: string | null = null
-    let badFile = false
+    let failureKind: ContactUploadFailureKind | null = null
     try {
       if (upload.ingestedAt === null) await this.ingest(upload)
       await this.matchNextChunk(upload, upload.organization)
@@ -184,7 +185,7 @@ export class ContactUploadProcessJobService extends createPrismaBase(
           'contactUploadProcess: the file cannot be imported',
         )
         failureReason = err.message
-        badFile = true
+        failureKind = ContactUploadFailureKind.file
       } else {
         const lastAttempt = receiveCount >= CONTACT_UPLOAD_PROCESS_MAX_RECEIVES
         this.logger.error(
@@ -193,13 +194,20 @@ export class ContactUploadProcessJobService extends createPrismaBase(
         )
         if (!lastAttempt) return false
         failureReason = FAILURE_REASON
+        failureKind = ContactUploadFailureKind.transient
       }
     }
-    if (badFile) await this.model.deleteMany({ where: { uploadId } })
+    if (failureKind === ContactUploadFailureKind.file) {
+      await this.model.deleteMany({ where: { uploadId } })
+    }
     if (failureReason !== null) {
       await this.client.contactUpload.updateMany({
         where: { id: uploadId, status: ContactUploadStatus.processing },
-        data: { status: ContactUploadStatus.failed, failureReason },
+        data: {
+          status: ContactUploadStatus.failed,
+          failureReason,
+          failureKind,
+        },
       })
     }
     return true
@@ -318,6 +326,7 @@ export class ContactUploadProcessJobService extends createPrismaBase(
             : ContactUploadStatus.complete,
           completedAt: needsInput ? null : new Date(),
           failureReason: null,
+          failureKind: null,
         },
       })
     })
@@ -369,6 +378,7 @@ export class ContactUploadProcessJobService extends createPrismaBase(
           ambiguousCount: finished.needsInputCount,
           emailsGained: gained?.count ?? 0,
           isReimport: earlierUploads > 0,
+          product: upload.organizationSlug.startsWith('eo-') ? 'serve' : 'win',
         })
         .catch(() => undefined)
     }

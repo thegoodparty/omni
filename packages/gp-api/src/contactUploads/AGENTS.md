@@ -65,7 +65,10 @@ manual rows, else the upload's `createdAt`): the upload that brought them in.
    can never import (a mapped column missing, over 100,000 rows, no rows,
    unreadable, or gone from the bucket) throws `ContactUploadFileError`: the
    upload goes `failed` on the first delivery with the error's message as
-   `failureReason`, which the UI shows, and its partial rows are deleted.
+   `failureReason`, which the UI shows, and `failureKind` `file`, and its
+   partial rows are deleted. Every other failure (the last delivery failing,
+   or the job never queued) is `failureKind` `transient`; the UI offers Try
+   again only for those, since retrying a bad file fails the same way.
 3. **Match**, the second phase of the same job, one chunk of
    up to 4,000 pending rows per delivery, cut shorter when the rows' JSON
    would pass 800,000 characters (`fitContactUploadMatchRows`): Databricks

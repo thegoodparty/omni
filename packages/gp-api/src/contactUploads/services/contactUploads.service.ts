@@ -22,6 +22,7 @@ import { MimeTypes } from 'http-constants-ts'
 import { v7 as uuidv7 } from 'uuid'
 import {
   ContactUpload,
+  ContactUploadFailureKind,
   ContactUploadMatch,
   ContactUploadMatchMethod,
   ContactUploadMatchOutcome,
@@ -131,6 +132,7 @@ const toUploadResponse = (
   unchangedCount: upload.unchangedCount,
   completedAt: upload.completedAt?.toISOString() ?? null,
   failureReason: upload.failureReason,
+  failureKind: upload.failureKind,
 })
 
 const toRowResponse = (
@@ -272,6 +274,7 @@ export class ContactUploadsService extends createPrismaBase(
         data: {
           status: ContactUploadStatus.failed,
           failureReason: START_FAILED_REASON,
+          failureKind: ContactUploadFailureKind.transient,
         },
       })
       throw new BadGatewayException('Could not start this upload')
@@ -420,6 +423,7 @@ export class ContactUploadsService extends createPrismaBase(
           resolution:
             'skip' in body ? 'skipped' : 'newPerson' in body ? 'new' : 'person',
           rowIndex: row.rowIndex,
+          product: organization.slug.startsWith('eo-') ? 'serve' : 'win',
         })
         .catch(() => undefined)
     } else {
@@ -427,6 +431,7 @@ export class ContactUploadsService extends createPrismaBase(
         .track(userId, EVENTS.Contacts.MatchChanged, {
           from: personKind(row),
           to: personKind(target),
+          product: organization.slug.startsWith('eo-') ? 'serve' : 'win',
         })
         .catch(() => undefined)
     }
@@ -463,6 +468,7 @@ export class ContactUploadsService extends createPrismaBase(
         .track(args.userId, EVENTS.Contacts.AmbiguousRowResolved, {
           resolution: 'acceptedSuggested',
           rowCount: accepted,
+          product: args.organization.slug.startsWith('eo-') ? 'serve' : 'win',
         })
         .catch(() => undefined)
     }
@@ -476,7 +482,11 @@ export class ContactUploadsService extends createPrismaBase(
     await this.findOwnedUpload(organization, id)
     const { count } = await this.model.updateMany({
       where: { id, status: ContactUploadStatus.failed },
-      data: { status: ContactUploadStatus.processing, failureReason: null },
+      data: {
+        status: ContactUploadStatus.processing,
+        failureReason: null,
+        failureKind: null,
+      },
     })
     if (count === 0) {
       throw new ConflictException('Only a failed upload can be retried')
@@ -499,6 +509,7 @@ export class ContactUploadsService extends createPrismaBase(
         data: {
           status: ContactUploadStatus.failed,
           failureReason: START_FAILED_REASON,
+          failureKind: ContactUploadFailureKind.transient,
         },
       })
       throw new BadGatewayException('Could not start this upload')

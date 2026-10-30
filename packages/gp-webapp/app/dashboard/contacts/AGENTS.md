@@ -165,7 +165,9 @@ untouched: an upload never becomes a list card.
   while processing, or failed before the file was read (`rowCount` null), no
   counts or rows, and the meta line drops the row count. A failed upload
   shows gp-api's `failureReason` (what went wrong with the file), else a
-  generic line, with Try again. Otherwise the counts, `NeedsInputReview`
+  generic line, with Try again unless `failureKind` is `file` (a missing
+  column, too many rows, an unreadable file or one that never arrived fails
+  the same way again). Otherwise the counts, `NeedsInputReview`
   (answers saved together; Decide later changes nothing), and `ProcessedRows`
   (searchable, paged with Show more, Change match per row). A choice reads
   name, address, then age (`candidateLabel`), so two people at one address

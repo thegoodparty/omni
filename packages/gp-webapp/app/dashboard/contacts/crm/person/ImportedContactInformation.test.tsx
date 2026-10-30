@@ -240,6 +240,7 @@ describe('<ImportedContactInformation>', () => {
           unchangedCount: 0,
           completedAt: null,
           failureReason: null,
+          failureKind: null,
         },
       }
     })
