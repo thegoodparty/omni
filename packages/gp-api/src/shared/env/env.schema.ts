@@ -265,6 +265,7 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
   CLERK_AUTHORIZED_PARTIES: { tier: 'optional' },
   CLERK_API_TIMEOUT_MS: { tier: 'optional' },
   VERCEL_OIDC_ALLOWED_PROJECTS: { tier: 'optional' },
+  VERCEL_OIDC_ADMIN_PROJECTS: { tier: 'optional' },
   GITHUB_OIDC_ALLOWED_WORKFLOWS: { tier: 'optional' },
 
   AWS_REGION: { tier: 'optional', default: 'us-west-2' },

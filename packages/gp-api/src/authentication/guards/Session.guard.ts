@@ -74,10 +74,16 @@ export class SessionGuard implements CanActivate {
     }
 
     // Checked before the Clerk paths so a Vercel deployment's or GitHub
-    // workflow's OIDC token is never sent to Clerk. It is only ever a service
-    // reader, never m2mToken.
+    // workflow's OIDC token is never sent to Clerk. A Vercel project on the
+    // admin allowlist is a full M2M caller, like an mt_ token; any other
+    // verified OIDC token is only a service reader, never m2mToken.
     if (isVercelOidcToken(token)) {
-      request.serviceReader = await this.vercelOidc.verify(token)
+      const caller = await this.vercelOidc.verify(token)
+      if (caller?.tier === 'admin') {
+        request.m2mToken = caller.m2mToken
+        return true
+      }
+      request.serviceReader = caller?.serviceReader
       return this.allowPublicOrThrow(context)
     }
 
@@ -88,7 +94,10 @@ export class SessionGuard implements CanActivate {
 
     if (this.authProvider.isM2MToken(token)) {
       try {
-        request.m2mToken = await this.authProvider.verifyM2MToken(token)
+        request.m2mToken = {
+          source: 'clerk',
+          ...(await this.authProvider.verifyM2MToken(token)),
+        }
         return true
       } catch {
         // Reason is already logged at the ClerkAuthService boundary; here we
