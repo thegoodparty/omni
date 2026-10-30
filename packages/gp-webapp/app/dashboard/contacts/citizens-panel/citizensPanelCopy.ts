@@ -14,6 +14,9 @@ export type CivicPanelStage =
 
 const count = (n: number): string => n.toLocaleString('en-US')
 
+const askWhenever = (place: string | null): string =>
+  `Ask them what they think whenever you want to hear from ${place ? `all of ${place}` : 'your whole district'}.`
+
 // A name that starts its line: a group, or a tract label like "around Calm
 // Water Dr", which reads lower case mid-sentence.
 export const capitalizeFirst = (words: string): string =>
@@ -168,10 +171,10 @@ export const SERVE_CITIZENS_PANEL_COPY = {
       title: 'Your civic panel is ready',
       // A managed panel stays ready as members leave, so it only claims
       // every seat while they still fill the goal.
-      line: (members: number, goal: number) =>
+      line: (members: number, goal: number, place: string | null) =>
         members >= goal
-          ? `All ${count(goal)} seats are filled. Ask them before your next vote.`
-          : `${count(members)} ${members === 1 ? 'resident is' : 'residents are'} on your civic panel. Ask them before your next vote.`,
+          ? `All ${count(goal)} seats are filled. ${askWhenever(place)}`
+          : `Your civic panel has ${count(members)} ${members === 1 ? 'resident' : 'residents'}. ${askWhenever(place)}`,
     },
     exhausted: {
       title: 'Every resident we can text has an invite',

@@ -3,7 +3,7 @@ title: Machine callers authenticate to gp-api with their platform's OIDC token
 status: active
 decided_by: [swain]
 date: 2026-10-29
-code: ['#3395', '#3421']
+code: ['#3395', '#3421', '#3435']
 scope:
   - packages/gp-api/src/authentication/**
   - packages/gp-api/deploy/index.ts
@@ -29,8 +29,7 @@ verifies it against GitHub's JWKS (issuer
 `job_workflow_ref` to match an entry of `GITHUB_OIDC_ALLOWED_WORKFLOWS`
 (`<owner>/<repo>/<path>@<ref>`, `<ref>` may be `*`), set per gp-api
 environment in `deploy/index.ts`. Either token is a service reader, never a
-full M2M caller. The Clerk service-read path (JWT-format Clerk M2M tokens) is
-removed once no caller sends one.
+full M2M caller, and no other token is a service reader.
 
 ## Context
 

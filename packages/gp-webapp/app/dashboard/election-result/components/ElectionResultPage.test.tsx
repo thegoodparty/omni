@@ -193,6 +193,44 @@ describe('ElectionResultPage', () => {
     ])
   })
 
+  it('starts the confetti only once the congratulations has painted', async () => {
+    const frames: FrameRequestCallback[] = []
+    const raf = vi
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation((cb) => frames.push(cb))
+    const flushFrame = (): void => {
+      act(() => {
+        frames.splice(0).forEach((cb) => cb(performance.now()))
+      })
+    }
+    let finishSave: ((value: never) => void) | undefined
+    mockUpdateCampaign.mockReturnValue(
+      new Promise((resolve) => {
+        finishSave = resolve
+      }),
+    )
+    render(<ElectionResultPage startWithWin />)
+
+    flushFrame()
+    flushFrame()
+    expect(
+      screen.queryByRole('heading', { name: 'Congratulations, you won!' }),
+    ).toBeNull()
+    expect(screen.queryAllByTestId('confetti-piece')).toHaveLength(0)
+
+    await act(async () => finishSave?.({ id: 1 } as never))
+    expect(
+      screen.getByRole('heading', { name: 'Congratulations, you won!' }),
+    ).toBeInTheDocument()
+    expect(screen.queryAllByTestId('confetti-piece')).toHaveLength(0)
+
+    flushFrame()
+    expect(screen.queryAllByTestId('confetti-piece')).toHaveLength(0)
+    flushFrame()
+    expect(screen.queryAllByTestId('confetti-piece')).toHaveLength(26)
+    raf.mockRestore()
+  })
+
   it('shows no subscription alert for a non-Pro campaign', () => {
     render(<ElectionResultPage />)
 

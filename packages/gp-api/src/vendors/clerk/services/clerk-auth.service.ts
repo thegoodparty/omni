@@ -9,10 +9,7 @@ import {
   VerifiedSession,
 } from '@/authentication/interfaces/auth-provider.interface'
 import { CLERK_CLIENT_PROVIDER_TOKEN } from '@/vendors/clerk/providers/clerk-client.provider'
-import {
-  M2M_JWT_SUBJECT_PREFIX,
-  M2M_TOKEN_PREFIX,
-} from '@/vendors/clerk/clerk.consts'
+import { M2M_TOKEN_PREFIX } from '@/vendors/clerk/clerk.consts'
 import { clerkCall } from '@/vendors/clerk/util/clerkCall.util'
 
 const {
@@ -167,43 +164,6 @@ export class ClerkAuthService implements AuthProvider {
 
   isM2MToken(token: string): boolean {
     return token.startsWith(M2M_TOKEN_PREFIX)
-  }
-
-  async verifyM2MJwt(token: string): Promise<VerifiedM2MToken> {
-    try {
-      // With CLERK_JWT_KEY set the SDK verifies a three-part JWT locally, with
-      // no network call, so the timeout race could only fire when the event
-      // loop was frozen and would 403 a valid token. Without the key it still
-      // refetches the JWKS, so keep the timeout there.
-      const verifiesLocally =
-        !!process.env.CLERK_JWT_KEY && token.split('.').length === 3
-      const { id, subject, expired } = await clerkCall(
-        'm2m.verify',
-        {},
-        () => this.clerkClient.m2m.verify({ token }),
-        verifiesLocally ? null : undefined,
-      )
-      if (expired) {
-        throw new Error('M2M JWT is expired')
-      }
-      return { id, subject }
-    } catch (err) {
-      this.logger.warn({ err }, 'M2M JWT verification failed')
-      throw new UnauthorizedException('M2M JWT verification failed')
-    }
-  }
-
-  isM2MJwt(token: string): boolean {
-    if (token.split('.').length !== 3) {
-      return false
-    }
-    const unverified = jwt.decode(token)
-    return (
-      typeof unverified === 'object' &&
-      unverified !== null &&
-      typeof unverified.sub === 'string' &&
-      unverified.sub.startsWith(M2M_JWT_SUBJECT_PREFIX)
-    )
   }
 
   async getUser(externalUserId: string): Promise<{

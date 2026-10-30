@@ -42,9 +42,9 @@ src/electionDb/
 Controllers do **not** live here. The HTTP surface these services back is in
 `src/elections/`, namespaced under `/v1/elections/*`. The routes gp-marketing
 reads are `@PublicAccess()` + `ServiceReadGuard`, not `M2MOnly`: gp-marketing
-sends a JWT-format machine token, a Vercel OIDC token, or (from its sitemap
-workflow) a GitHub Actions OIDC token, which `SessionGuard` only turns into
-`serviceReader`, never `m2mToken`, so `M2MOnly` would 403 it.
+sends a Vercel OIDC token or (from its sitemap workflow) a GitHub Actions OIDC
+token, which `SessionGuard` only turns into `serviceReader`, never
+`m2mToken`, so `M2MOnly` would 403 it.
 Every `src/elections/` controller also runs
 `ServiceReadConcurrencyInterceptor`, which lets at most 30 machine-caller
 reads (`serviceReader` or `m2mToken`) run at once per gp-api task. The rest

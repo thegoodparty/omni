@@ -75,7 +75,9 @@ of the podium (a crop of the 0:02 frame). A visually hidden paragraph carries
 the video's own lines as its description; those lines name the civic panel,
 the page's copy does not. The winner without Pro (`CongratulationsStep.tsx`)
 gets no video. Confetti is the Pro upgrade's `ConfettiField`, hidden under
-reduced motion.
+reduced motion. Its one-shot burst waits for the frame that paints the
+message and for the page to be showing, so it falls over the words rather
+than before them.
 
 `dismissal.ts` lets an impersonating admin leave the question, and the Serve
 handoff, without answering (sessionStorage, cleared at every impersonation
