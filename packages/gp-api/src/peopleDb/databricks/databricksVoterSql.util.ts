@@ -559,11 +559,18 @@ const buildLanguageFilter = (bag: Bag, op?: FilterOperator): string | null => {
   return `(${conditions.join(' OR ')})`
 }
 
-const buildPartyValuePredicate = (bag: Bag, value: string): string | null => {
+const buildPartyValuePredicate = (
+  bag: Bag,
+  value: string,
+  contactOverlay: boolean,
+): string | null => {
   const target = col('Parties_Description')
   if (value === POLITICAL_PARTY_OTHER) {
     const known = ALL_KNOWN_PARTY_VALUES.map((party) => bag.bind(party))
-    return `(${target} IS NULL OR ${target} NOT IN (${known.join(', ')}))`
+    const other = `(${target} IS NULL OR ${target} NOT IN (${known.join(', ')}))`
+    // A voter-file person with no party is Other; a person only an import
+    // added has no voter-file party at all, so is unknown.
+    return contactOverlay ? `(${other} AND NOT ${col('ContactIsNew')})` : other
   }
   if ((RULED_POLITICAL_PARTIES as readonly string[]).includes(value)) {
     // The includes() check above confirms membership at runtime; TS cannot
@@ -578,6 +585,7 @@ const buildPartyValuePredicate = (bag: Bag, value: string): string | null => {
 
 const buildPoliticalPartyFilter = (
   bag: Bag,
+  contactOverlay: boolean,
   op?: FilterOperator,
 ): string | null => {
   if (!op) return null
@@ -594,7 +602,7 @@ const buildPoliticalPartyFilter = (
         ? [String(op.value)]
         : []
   const predicates = selected
-    .map((value) => buildPartyValuePredicate(bag, value))
+    .map((value) => buildPartyValuePredicate(bag, value, contactOverlay))
     .filter((predicate): predicate is string => predicate !== null)
   if (predicates.length === 0) return null
   return `(${predicates.join(' OR ')})`
@@ -708,6 +716,7 @@ export const buildVoterFiltersSql = (
   idOverrides?: IdOverrides,
   contactsMadeIdOverrides?: IdOverrides,
   affinityColumn?: AffinityColumn,
+  contactOverlay = false,
 ): string | null => {
   const { filters, filterOperators } = filterData
   const andClauses: string[] = []
@@ -859,7 +868,7 @@ export const buildVoterFiltersSql = (
         break
       }
       case 'politicalParty':
-        sql = buildPoliticalPartyFilter(bag, op)
+        sql = buildPoliticalPartyFilter(bag, contactOverlay, op)
         break
       case 'gender':
         sql = buildMappedFieldFilter(bag, 'Gender', op, VALUE_MAPPERS.gender)
@@ -960,6 +969,7 @@ export const buildScopeSql = (bag: Bag, args: DbxScopeArgs): string => {
     idOverrides,
     args.contactsMadeIdOverrides,
     affinityColumnForDataset(args),
+    district.dataset.overlayOrgSlug !== undefined,
   )
   if (filterSql) parts.push(filterSql)
 
@@ -1036,6 +1046,7 @@ export const buildOverlapCountSql = (
         undefined,
         undefined,
         affinityColumnForDataset(args),
+        args.district.dataset.overlayOrgSlug !== undefined,
       ) ?? 'TRUE',
   )
   const savedSetsClause =

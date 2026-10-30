@@ -76,6 +76,11 @@ people table FULL OUTER JOIN the org's rows of
 - `Person.registeredVoter` reads `Registered_Voter`, a column only
   `gp_api_constituents` has (false for consumer-only people). Voter reads
   project `true`, and a new person reads NULL (`registeredVoterSql`).
+- A new person's party is unknown, not Other: `Person.politicalParty` is
+  null for `ContactIsNew` rows (`transformToPersonOutput`), and with the
+  overlay the Other party filter adds `AND NOT ContactIsNew`
+  (`buildPartyValuePredicate`). A voter-file person with no party is still
+  Other, and the pack never holds a new person (no rooftop point).
 - The Serve agents' `query_constituent_data` gets the same join over
   `mart_serve_agents.<SERVE_AGENT_CONTACT_OVERLAY_VIEW>`, built in
   `constituentDataScope.ts` and swapped in only after the SQL validator
