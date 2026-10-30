@@ -76,16 +76,20 @@ const robocallSendLaunchSpacingMs = () =>
 // sweep frees (ABORTs) a dialed run's CallHub campaign — slack for vendor lag,
 // clock skew, and the final contact's own call duration. The SCALING safety is
 // the rate divisor below; this is the fixed floor on top. Lowered 180 → 30 on
-// 2026-10-15: at the full-pool 120/min rate the flat 180 dominated the ceiling
-// and over-held the pool for hours on a fast dial, re-stacking the serial queue.
-// The rate divisor (÷1.1 since 2026-10-27) now only models a ~10% pacing margin —
-// not the up-to-2x it absorbed before #3263 removed the 60/min clamp — so on a
-// large run this flat 30 can be the dominant margin before the pool frees. Keep
-// both in view when tuning either: shrinking this while the divisor is near 1
-// biases the completion floor toward an early abort. Env-overridable; read at
-// call time.
+// 2026-10-15 (at the full-pool 120/min rate the flat 180 dominated the ceiling
+// and over-held the pool for hours on a fast dial, re-stacking the serial
+// queue), then 30 → 10 on 2026-10-30: each campaign holds the shared pool
+// for its dial PLUS this flat pad regardless of size, so an evening cluster of
+// sends drains slower than the 09:00-21:00 window allows and the tail rolls to
+// the next morning. No run has dialed slower than the configured 120 (frequency
+// confirmed in CallHub, every run completes 100%), so this pad is NOT pacing
+// insurance (the ÷1.1 divisor below is that) but a small fixed floor for the
+// per-call completion tail (ring-out, AMD) the proportional haircut barely
+// covers on a SMALL run; that is why it stays non-zero. The send sweep only
+// re-evaluates every ~10 min, so a value much under that buys little. Env-
+// overridable and read at call time, so it can be dialed live without a deploy.
 const robocallDialEstimateBufferMinutes = () =>
-  envInt(process.env.ROBOCALL_DIAL_ESTIMATE_BUFFER_MINUTES, 30)
+  envInt(process.env.ROBOCALL_DIAL_ESTIMATE_BUFFER_MINUTES, 10)
 
 // The MONEY-SAFE floor's scaling margin. The dial-completion estimate assumes
 // CallHub places calls at the configured rate, but the real dial can run SLOWER
