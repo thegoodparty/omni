@@ -631,7 +631,7 @@ jobs:
       # on either branch. The base arm is likewise the PR's own base ref, not
       # `main`: the judge's whole claim is "better or worse than what this
       # branches from", and for a stacked PR that is not main.
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: steps.gate.outputs.skip != 'true' && steps.select.outputs.agents != ''
         with:
           ref: ${{ steps.gate.outputs.candidate_sha }}
@@ -1410,7 +1410,7 @@ jobs:
           || steps.cli.outputs.comment_path != ''
           || steps.estimate.outputs.comment_path != ''
           || steps.empty.outputs.comment_path != '')
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           PR_NUMBER: ${{ inputs.pr_number }}
           COMMENT_PATH: >-
@@ -1659,7 +1659,7 @@ jobs:
             echo "gp-api will reach Databricks at $host"
           fi
 
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.plan.outputs.candidate_sha }}
           # Full history and every branch, unlike `plan` above. The runners
@@ -1751,7 +1751,7 @@ jobs:
       - name: Get credentials for staging and dispatching
         id: judge_credentials
         continue-on-error: true
-        uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
           role-to-assume: arn:aws:iam::333022194791:role/github-actions-judge-sweep
           role-session-name: judge-sweep-${{ github.run_id }}
@@ -2348,7 +2348,7 @@ jobs:
       # in the private bucket; the records stay out of artifacts.
       - name: Keep the report for the PR
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: judge-report
           path: ${{ runner.temp }}/judge-report/report.md
@@ -2445,13 +2445,13 @@ jobs:
     steps:
       - name: Fetch the report
         continue-on-error: true
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: judge-report
           path: ${{ runner.temp }}/judge-report
 
       - name: Post the verdict
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           PR_NUMBER: ${{ inputs.pr_number }}
           SWEEP_RESULT: ${{ needs.sweep.result }}
