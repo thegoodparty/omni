@@ -120,7 +120,7 @@ describe('PostAuthRedirectPage', () => {
     expect(mockSetCookie).toHaveBeenCalledWith('organization-slug', 'org-one')
   })
 
-  it('exhausted-retries path: orgs call fails on every attempt; falls through to /onboarding/office-selection', async () => {
+  it('exhausted-retries path: orgs call fails on every attempt; hands off to /dashboard, never onboarding (ENG-11531)', async () => {
     api.mock('GET /v1/organizations', {
       status: 500,
       data: { message: 'down' },
@@ -141,11 +141,10 @@ describe('PostAuthRedirectPage', () => {
 
     render(<PostAuthRedirectPage />)
 
-    await waitFor(
-      () =>
-        expect(replaceSpy).toHaveBeenCalledWith('/onboarding/office-selection'),
-      { timeout: 4000 },
-    )
+    await waitFor(() => expect(replaceSpy).toHaveBeenCalledWith('/dashboard'), {
+      timeout: 4000,
+    })
+    expect(replaceSpy).not.toHaveBeenCalledWith('/onboarding/office-selection')
     expect(mockSetCookie).not.toHaveBeenCalled()
   })
 
