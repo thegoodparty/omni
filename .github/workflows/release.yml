@@ -325,7 +325,7 @@ jobs:
         id: docker-cache
         if: steps.ecr-image.outputs.exists != 'true'
         run: |
-          TAG="buildcache-${{ hashFiles('package-lock.json', 'package.json', 'packages/gp-api/package.json', 'packages/contracts/package.json', 'packages/nest-common/package.json', 'packages/gp-api/deploy/Dockerfile') }}"
+          TAG="buildcache-${{ hashFiles('package-lock.json', 'package.json', 'packages/gp-api/package.json', 'packages/contracts/package.json', 'packages/nest-common/package.json', 'packages/gp-api/deploy/Dockerfile', 'patches/**') }}"
           echo "from=type=registry,ref=${{ env.ECR_REPO }}:$TAG" >> "$GITHUB_OUTPUT"
           if aws ecr describe-images --repository-name gp-api --image-ids imageTag="$TAG" >/dev/null 2>&1; then
             echo "to=" >> "$GITHUB_OUTPUT"
