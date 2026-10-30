@@ -193,7 +193,7 @@ resource "aws_iam_role_policy" "task_execution_secrets_access" {
         Action = [
           "secretsmanager:GetSecretValue"
         ]
-        Resource = "arn:aws:secretsmanager:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:secret:AI_SECRETS_${upper(var.environment)}-??????"
+        Resource = "arn:aws:secretsmanager:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:secret:AI_SECRETS_${upper(var.environment)}-??????"
       }
     ]
   })
@@ -289,7 +289,7 @@ resource "aws_ecs_task_definition" "matcher" {
         logDriver = "awslogs"
         options = {
           "awslogs-group"         = aws_cloudwatch_log_group.matcher.name
-          "awslogs-region"        = data.aws_region.current.name
+          "awslogs-region"        = data.aws_region.current.region
           "awslogs-stream-prefix" = "ecs"
         }
       }
@@ -297,31 +297,31 @@ resource "aws_ecs_task_definition" "matcher" {
       secrets = [
         {
           name      = "GEMINI_API_KEY"
-          valueFrom = "arn:aws:secretsmanager:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:secret:AI_SECRETS_${upper(var.environment)}:GEMINI_API_KEY::"
+          valueFrom = "arn:aws:secretsmanager:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:secret:AI_SECRETS_${upper(var.environment)}:GEMINI_API_KEY::"
         },
         {
           name      = "DATABRICKS_API_KEY"
-          valueFrom = "arn:aws:secretsmanager:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:secret:AI_SECRETS_${upper(var.environment)}:DATABRICKS_API_KEY::"
+          valueFrom = "arn:aws:secretsmanager:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:secret:AI_SECRETS_${upper(var.environment)}:DATABRICKS_API_KEY::"
         },
         {
           name      = "DATABRICKS_SERVER_HOSTNAME"
-          valueFrom = "arn:aws:secretsmanager:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:secret:AI_SECRETS_${upper(var.environment)}:DATABRICKS_SERVER_HOSTNAME::"
+          valueFrom = "arn:aws:secretsmanager:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:secret:AI_SECRETS_${upper(var.environment)}:DATABRICKS_SERVER_HOSTNAME::"
         },
         {
           name      = "DATABRICKS_HTTP_PATH"
-          valueFrom = "arn:aws:secretsmanager:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:secret:AI_SECRETS_${upper(var.environment)}:DATABRICKS_HTTP_PATH::"
+          valueFrom = "arn:aws:secretsmanager:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:secret:AI_SECRETS_${upper(var.environment)}:DATABRICKS_HTTP_PATH::"
         },
         {
           name      = "DATABRICKS_CATALOG"
-          valueFrom = "arn:aws:secretsmanager:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:secret:AI_SECRETS_${upper(var.environment)}:DATABRICKS_CATALOG::"
+          valueFrom = "arn:aws:secretsmanager:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:secret:AI_SECRETS_${upper(var.environment)}:DATABRICKS_CATALOG::"
         },
         {
           name      = "DATABRICKS_SCHEMA"
-          valueFrom = "arn:aws:secretsmanager:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:secret:AI_SECRETS_${upper(var.environment)}:DATABRICKS_SCHEMA::"
+          valueFrom = "arn:aws:secretsmanager:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:secret:AI_SECRETS_${upper(var.environment)}:DATABRICKS_SCHEMA::"
         },
         {
           name      = "BRAINTRUST_API_KEY"
-          valueFrom = "arn:aws:secretsmanager:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:secret:AI_SECRETS_${upper(var.environment)}:BRAINTRUST_API_KEY::"
+          valueFrom = "arn:aws:secretsmanager:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:secret:AI_SECRETS_${upper(var.environment)}:BRAINTRUST_API_KEY::"
         }
       ]
 
@@ -549,7 +549,7 @@ resource "aws_cloudwatch_event_target" "send_to_sns" {
   "stoppedReason": <stoppedReason>,
   "exitCode": <exitCode>,
   "time": <time>,
-  "logs": "https://console.aws.amazon.com/cloudwatch/home?region=${data.aws_region.current.name}#logsV2:log-groups/log-group/$252Fecs$252Fddhq-matcher-${var.environment}",
+  "logs": "https://console.aws.amazon.com/cloudwatch/home?region=${data.aws_region.current.region}#logsV2:log-groups/log-group/$252Fecs$252Fddhq-matcher-${var.environment}",
   "s3_bucket": "${aws_s3_bucket.matcher_output.id}",
   "description": "DDHQ Matcher pipeline failed during execution. Check CloudWatch logs for detailed error information."
 }
