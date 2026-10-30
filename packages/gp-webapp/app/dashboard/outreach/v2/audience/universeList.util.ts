@@ -32,7 +32,12 @@ export const isCriteriaFreeList = (list: SegmentResponse): boolean =>
   !list.supportStatus?.length &&
   !list.votedStatus?.length &&
   !list.activityConditions?.length &&
-  !(Array.isArray(list.precincts) && list.precincts.length > 0)
+  !(Array.isArray(list.precincts) && list.precincts.length > 0) &&
+  !(Array.isArray(list.languageCodes) && list.languageCodes.length > 0) &&
+  !(Array.isArray(list.voterStatus) && list.voterStatus.length > 0) &&
+  !(Array.isArray(list.incomeRanges) && list.incomeRanges.length > 0) &&
+  // Both sources, like neither, is everyone; only one of the two narrows.
+  new Set(list.source).size !== 1
 
 // Which saved list IS the universe row.
 //

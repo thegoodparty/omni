@@ -49,8 +49,31 @@ describe('isCriteriaFreeList', () => {
     ['a support status', { supportStatus: ['supporter'] }],
     ['an activity condition', { activityConditions: [{ channel: 'sms' }] }],
     ['precincts', { precincts: ['0012'] }],
+    ['a voted status', { votedStatus: ['already_voted'] }],
+    ['languages', { languageCodes: ['es'] }],
+    ['a voter status', { voterStatus: ['Active'] }],
+    ['income ranges', { incomeRanges: ['50k-75k'] }],
+    ['the voter file source', { source: ['voterFile'] }],
+    ['the imported source', { source: ['imported'] }],
   ])('refuses a list narrowed by %s', (_label, overrides) => {
     expect(isCriteriaFreeList(list(overrides))).toBe(false)
+  })
+
+  // A list named "All voters" that keeps only the voter file would be reused
+  // as everyone and drop the new contacts an import added.
+  it('refuses a Source-only list named like the universe', () => {
+    expect(
+      isUniverseList(
+        list({ name: 'All voters', source: ['voterFile'] }),
+        'All voters',
+      ),
+    ).toBe(false)
+  })
+
+  it('treats both sources as no filter', () => {
+    expect(
+      isCriteriaFreeList(list({ source: ['voterFile', 'imported'] })),
+    ).toBe(true)
   })
 
   // Empty carriers are not criteria — a saved list can round-trip these as
@@ -65,6 +88,11 @@ describe('isCriteriaFreeList', () => {
           supportStatus: [],
           activityConditions: [],
           precincts: [],
+          votedStatus: [],
+          languageCodes: [],
+          voterStatus: [],
+          incomeRanges: [],
+          source: [],
         }),
       ),
     ).toBe(true)
