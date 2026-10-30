@@ -3,7 +3,7 @@ title: Priority theme responses leave gp-api as words only
 status: active
 decided_by: [agent]
 date: 2026-10-30
-code: ['feat/priority-theme-verbatims']
+code: ['#3453']
 scope:
   - packages/gp-api/src/priorities/services/priorityThemeComments.service.ts
   - packages/contracts/src/priorities/PriorityResults.schema.ts
