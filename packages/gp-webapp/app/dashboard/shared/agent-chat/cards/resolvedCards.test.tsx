@@ -4,8 +4,9 @@ import userEvent from '@testing-library/user-event'
 import type { ChatCard, OutreachDetail, Person } from '@goodparty_org/contracts'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
-import { toChatCard } from './toChatCard'
-import { ChatCardRenderer } from './ChatCardRenderer'
+import { chatWidgets } from '../chatWidgets'
+import { ConstituentsCard } from './ConstituentsCard'
+import { PastOutreachCard } from './PastOutreachCard'
 import { useProposalFlows } from './proposalFlows'
 
 // Null is what every card sees outside a chat surface, so the Serve
@@ -29,7 +30,13 @@ vi.mock('helpers/useSnackbar', () => ({
   }),
 }))
 
-const renderCard = (card: ChatCard) => render(<ChatCardRenderer card={card} />)
+const renderPastOutreach = (
+  card: Extract<ChatCard, { kind: 'past_outreach' }>,
+) => render(<PastOutreachCard card={card} />)
+
+const renderConstituents = (
+  card: Extract<ChatCard, { kind: 'constituents' }>,
+) => render(<ConstituentsCard card={card} />)
 
 const openChip = async (name: RegExp) => {
   await userEvent.click(await screen.findByRole('button', { name }))
@@ -118,7 +125,7 @@ describe('PastOutreachCard', () => {
       data: { contacts: 310, responded: 22, optedOut: 1 },
     })
 
-    renderCard({
+    renderPastOutreach({
       kind: 'past_outreach',
       outreachIds: [11, 12],
       note: 'Both of these reached the same block.',
@@ -161,7 +168,7 @@ describe('PastOutreachCard', () => {
         data: { contacts: 310, responded: 22, optedOut: 1 },
       })
 
-      renderCard({
+      renderPastOutreach({
         kind: 'past_outreach',
         outreachIds: [21, 22],
         note: 'One is still to go out.',
@@ -193,7 +200,7 @@ describe('PastOutreachCard', () => {
       data: { contacts: 310, responded: 22, optedOut: 1 },
     })
 
-    renderCard({
+    renderPastOutreach({
       kind: 'past_outreach',
       outreachIds: [11],
       note: 'This one pulled the most replies.',
@@ -212,7 +219,7 @@ describe('PastOutreachCard', () => {
       data: { message: 'Not Found' },
     })
 
-    const { container } = renderCard({
+    const { container } = renderPastOutreach({
       kind: 'past_outreach',
       outreachIds: [11],
       note: 'Both of these reached the same block.',
@@ -234,7 +241,7 @@ describe('ConstituentsCard', () => {
       data: { results: [] },
     })
 
-    renderCard({
+    renderConstituents({
       kind: 'constituents',
       contactIds: ['p1', 'p2'],
       note: 'Both chair neighborhood groups on the west side.',
@@ -266,15 +273,23 @@ describe('ConstituentsCard', () => {
         data: person(params.id, 'Ada'),
       }))
 
-      const card = toChatCard({
-        toolName,
-        args: { contactIds: ['p1'], note: 'She chairs the west side group.' },
-        toolCallId: 'toolu_01xyz',
-        conversationId: 'conversation-1',
-      })
-      expect(card?.kind).toBe('constituents')
-      if (!card) throw new Error('expected a card')
-      renderCard(card)
+      const widget = chatWidgets.resolve(
+        {
+          toolName,
+          toolCallId: 'toolu_01xyz',
+          conversationId: 'conversation-1',
+        },
+        { contactIds: ['p1'], note: 'She chairs the west side group.' },
+      )
+      if (!widget) throw new Error('expected a card')
+      render(
+        <>
+          {widget.render({
+            clarifyInteractive: false,
+            onClarifyAnswer: () => undefined,
+          })}
+        </>,
+      )
 
       expect(
         await screen.findByRole('button', { name: /Ada Okafor/ }),
@@ -288,7 +303,7 @@ describe('ConstituentsCard', () => {
       data: { message: 'Not Found' },
     })
 
-    const { container } = renderCard({
+    const { container } = renderConstituents({
       kind: 'constituents',
       contactIds: ['p1'],
       note: 'Both chair neighborhood groups on the west side.',

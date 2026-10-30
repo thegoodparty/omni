@@ -43,7 +43,7 @@ export const EXPLAIN_MANAGED_PANEL_TOOL = 'explain_managed_panel'
 
 // What the invite review tells the conversation when it closes.
 export type ManagedPanelWidgetContext = {
-  onManagedPanelInviteClosed: (setUp: boolean) => void
+  onManagedPanelInviteClosed?: (setUp: boolean) => void
 }
 
 // Fixed words, so the app draws the offer rather than the model writing it.
@@ -277,7 +277,7 @@ export const managedPanelWidgetTools = [
         question={question}
         disabled={!clarifyInteractive}
         answer={clarifyAnswer}
-        onAnswer={onClarifyAnswer}
+        onAnswer={(answer) => onClarifyAnswer(answer, question)}
         showWrittenAnswer={false}
       />
     ),
@@ -291,7 +291,7 @@ export const managedPanelWidgetTools = [
       call,
     ) => (
       <ManagedPanelInviteCard
-        onClosed={onManagedPanelInviteClosed}
+        onClosed={(setUp) => onManagedPanelInviteClosed?.(setUp)}
         live={call.messageId === null}
       />
     ),

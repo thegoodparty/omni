@@ -47,6 +47,14 @@ describe('resolveToolLabel', () => {
     expect(resolveToolLabel(toolName)).toBe(expected)
   })
 
+  // Its call is a card wherever chat widgets render, and its name is internal.
+  it('gives compose_handoff no pill, even with an override', () => {
+    expect(resolveToolLabel('compose_handoff')).toBeNull()
+    expect(
+      resolveToolLabel('compose_handoff', { compose_handoff: 'Composing' }),
+    ).toBeNull()
+  })
+
   it('falls back past an override map that does not list the tool', () => {
     expect(
       resolveToolLabel('campaign_story', { web_search: 'Searching' }),

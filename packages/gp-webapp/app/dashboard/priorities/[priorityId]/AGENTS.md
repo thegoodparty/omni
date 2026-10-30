@@ -29,13 +29,15 @@ Everything streaming comes from `app/dashboard/shared/agent-chat` — read its
 conversation bootstrap, and an `onEvent` handler. `useStreamingTurn` owns the
 loop, the reveal, the idle watchdog and the commit poll.
 
-The cards and the clarify question are widget registry entries from the shared
-kit (`shared/agent-chat/cards/cardWidgets.tsx`, `shared/agent-chat/clarifyWidget.tsx`),
-because Chief of Staff renders the same ones. `PriorityWorkspace` builds its
-registry from them and renders through the shared `TurnBlocks`. The status
-marker is the one block that is not a registry entry: what it shows comes from
-the replay in state, not from the tool args, so it goes in through
-`persistedTurnBlocks`' `surfaceWidget` and a hand-built live instance.
+The cards, the clarify question, the finding cards and the status marker all
+resolve through the one chat widget registry (`shared/agent-chat/chatWidgets.tsx`),
+and `PriorityWorkspace` renders them through the shared `TurnBlocks`. What it
+adds is context. The status marker's entry
+(`components/statusMarkerWidget.tsx`) reads what the rail went through from
+`statusChanges` in that context, since a stored patch says what a step became
+but not what it was: on reload from the replay in state
+(`replayStatusMarkers`), on the live turn from each status tool result as it
+lands.
 
 The "Thinking..." shimmer covers the wait before anything paints, and comes
 back whenever the agent is working with nothing moving on screen: between tool
@@ -618,8 +620,8 @@ call or a named source, and a text sample's size from `size_outreach_sample`.
 
 Peer cities, the current code or program, and whether the office can act are
 not written up in prose. They go on the ordinance chat's own cards
-(`findingWidgetTools` in `ordinances/components/stepWidgets.tsx`, registered
-here unchanged): `present_comparables`, `present_current_law_summary` and
+(`ordinanceWidgetTools` in `ordinances/components/stepWidgets.tsx`, the same
+registry entries): `present_comparables`, `present_current_law_summary` and
 `present_authority_finding`, each with its source line. The priority handler
 offers them display-only, with the ordinance schemas, because a priority has
 no ordinance to save them to. People to contact go on outside contact cards,
@@ -641,9 +643,9 @@ Change the wording there, not in either prompt.
 
 ## Cards are keyed, not trusted
 
-A card is a tool call rendered inline through `shared/agent-chat/cards/ChatCardRenderer`.
-`proposalKey` is **derived in `shared/agent-chat/cards/toChatCard.ts`, never
-read off the model's args**: `mintProposalKey(conversationId, toolCallId)`
+A card is a tool call rendered inline through its entry in
+`shared/agent-chat/cards/cardWidgets.tsx`. `proposalKey` is **derived there
+(`parseOutreachProposal`), never read off the model's args**: `mintProposalKey(conversationId, toolCallId)`
 from `@goodparty_org/contracts`. Deterministic uuidv5, so the browser and the
 server arrive at the same key and the card can resolve the outreach sent
 under it, which is how a proposal reads as sent. This needs `toolCallId`,

@@ -17,13 +17,21 @@ export interface WidgetToolCall {
 export type WidgetToolCallInput = Pick<WidgetToolCall, 'toolName'> &
   Partial<Omit<WidgetToolCall, 'toolName'>>
 
+// Where a widget sits in its turn. 'inline' is the point in the text where its
+// tool fired. 'afterProse' is after the turn's last block, inside the
+// assistant row, and 'belowTurn' is under the row, outside it; both render
+// once per turn per tool, the last call that parses.
+export type WidgetPlacement = 'inline' | 'afterProse' | 'belowTurn'
+
 export interface WidgetInstance<Ctx> {
   toolName: string
+  placement: WidgetPlacement
   render: (ctx: Ctx) => ReactNode
 }
 
 export interface WidgetToolEntry<Ctx> {
   toolName: string
+  placement: WidgetPlacement
   // What a reloaded turn does with a registered tool whose args did not parse:
   // 'hide' drops the segment, 'inline' leaves it in the prose run as an
   // ordinary tool pill (for a tool that is only sometimes a widget).
@@ -36,18 +44,21 @@ export const defineWidgetTool = <Data extends object, Ctx>({
   parse,
   render,
   onParseFailure = 'hide',
+  placement = 'inline',
 }: {
   toolName: string
   parse: (args: unknown, call: WidgetToolCall) => Data | null
   render: (data: Data, ctx: Ctx, call: WidgetToolCall) => ReactNode
   onParseFailure?: 'hide' | 'inline'
+  placement?: WidgetPlacement
 }): WidgetToolEntry<Ctx> => ({
   toolName,
+  placement,
   onParseFailure,
   resolve: (args, call) => {
     const data = parse(args, call)
     if (data === null) return null
-    return { toolName, render: (ctx) => render(data, ctx, call) }
+    return { toolName, placement, render: (ctx) => render(data, ctx, call) }
   },
 })
 
@@ -66,6 +77,10 @@ export const createWidgetRegistry = <Ctx>(
   entries: WidgetToolEntry<Ctx>[],
 ): WidgetRegistry<Ctx> => {
   const byName = new Map(entries.map((e) => [e.toolName, e]))
+  // A second entry for a name would silently replace the first.
+  if (byName.size !== entries.length) {
+    throw new Error('Two widget entries share a tool name')
+  }
   return {
     has: (toolName) => byName.has(toolName),
     entry: (toolName) => byName.get(toolName),
