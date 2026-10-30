@@ -7,6 +7,19 @@ import { apiErrorMessage, previewEmail } from './emailApi'
 
 export const EMAIL_PREVIEW_DEBOUNCE_MS = 400
 
+// A link still being typed ("http") breaks the draft rules, which would hold
+// the preview back until it is finished.
+const withoutPartialLinks = (
+  content: EmailContentDraft,
+): EmailContentDraft => ({
+  ...content,
+  blocks: content.blocks.map((block) =>
+    block.type === 'button' && !block.url.startsWith('https://')
+      ? { ...block, url: '' }
+      : block,
+  ),
+})
+
 interface EmailPreviewProps {
   serve: boolean
   content: EmailContentDraft
@@ -21,25 +34,39 @@ export const EmailPreview = ({ serve, content }: EmailPreviewProps) => {
   const [height, setHeight] = useState(480)
   const frame = useRef<HTMLIFrameElement>(null)
   const key = JSON.stringify(content)
+  const requested = useRef(0)
+  const shown = useRef(0)
+  const mounted = useRef(true)
 
   useEffect(() => {
-    const parsed = EmailContentDraftSchema.safeParse(JSON.parse(key))
+    mounted.current = true
+    return () => {
+      mounted.current = false
+    }
+  }, [])
+
+  useEffect(() => {
+    const parsed = EmailContentDraftSchema.safeParse(
+      withoutPartialLinks(JSON.parse(key)),
+    )
     if (!parsed.success) return
-    let current = true
     const timer = setTimeout(async () => {
+      const id = ++requested.current
       try {
         const next = await previewEmail(serve, { content: parsed.data })
-        if (!current) return
+        // A slow answer to an older edit still shows, but never replaces the
+        // answer to a newer one.
+        if (!mounted.current || id < shown.current) return
+        shown.current = id
         setHtml(next)
         setError(null)
       } catch (err) {
-        if (current) setError(apiErrorMessage(err))
+        if (mounted.current && id === requested.current) {
+          setError(apiErrorMessage(err))
+        }
       }
     }, EMAIL_PREVIEW_DEBOUNCE_MS)
-    return () => {
-      current = false
-      clearTimeout(timer)
-    }
+    return () => clearTimeout(timer)
   }, [serve, key])
 
   const fit = () => {

@@ -286,53 +286,6 @@ export const EmailComposeStep = ({
     <div className="space-y-6">
       <Intro title={surface.compose.title} body={surface.compose.caption} />
 
-      <div className="space-y-2">
-        <span className="block text-sm font-medium text-foreground">
-          Layout
-        </span>
-        <FilterPillGroup
-          type="single"
-          value={value.layout}
-          aria-label="Layout"
-          onValueChange={(next) => {
-            const parsed = EmailLayoutPresetKeySchema.safeParse(next)
-            if (parsed.success) pickLayout(parsed.data)
-          }}
-        >
-          {EmailLayoutPresetKeySchema.options.map((key) => (
-            <FilterPill key={key} value={key}>
-              {EMAIL_LAYOUT_PRESETS[key].label}
-            </FilterPill>
-          ))}
-        </FilterPillGroup>
-        <p className="text-sm text-muted-foreground">
-          {EMAIL_LAYOUT_PRESETS[value.layout].description}
-        </p>
-      </div>
-
-      <div className="space-y-3">
-        <span className="block text-sm font-medium text-foreground">
-          Colors
-        </span>
-        <div className="flex flex-wrap gap-3">
-          {EmailThemeKeySchema.options.map((key: EmailThemeKey) => (
-            <button
-              key={key}
-              type="button"
-              aria-label={EMAIL_THEMES[key].label}
-              aria-pressed={value.theme === key}
-              title={EMAIL_THEMES[key].label}
-              onClick={() => set('theme', key)}
-              className={cn(
-                'size-9 rounded-full border-2',
-                value.theme === key ? 'border-primary' : 'border-border',
-              )}
-              style={{ backgroundColor: EMAIL_THEMES[key].colors.header }}
-            />
-          ))}
-        </div>
-      </div>
-
       <div className="space-y-3" data-testid="email-ai-draft">
         <FilterPillGroup
           type="single"
@@ -598,6 +551,53 @@ export const EmailComposeStep = ({
           </p>
         )}
         <FieldError message={errorFor('button')} />
+      </div>
+
+      <div className="space-y-2">
+        <span className="block text-sm font-medium text-foreground">
+          Layout
+        </span>
+        <FilterPillGroup
+          type="single"
+          value={value.layout}
+          aria-label="Layout"
+          onValueChange={(next) => {
+            const parsed = EmailLayoutPresetKeySchema.safeParse(next)
+            if (parsed.success) pickLayout(parsed.data)
+          }}
+        >
+          {EmailLayoutPresetKeySchema.options.map((key) => (
+            <FilterPill key={key} value={key}>
+              {EMAIL_LAYOUT_PRESETS[key].label}
+            </FilterPill>
+          ))}
+        </FilterPillGroup>
+        <p className="text-sm text-muted-foreground">
+          {EMAIL_LAYOUT_PRESETS[value.layout].description}
+        </p>
+      </div>
+
+      <div className="space-y-3">
+        <span className="block text-sm font-medium text-foreground">
+          Colors
+        </span>
+        <div className="flex flex-wrap gap-3">
+          {EmailThemeKeySchema.options.map((key: EmailThemeKey) => (
+            <button
+              key={key}
+              type="button"
+              aria-label={EMAIL_THEMES[key].label}
+              aria-pressed={value.theme === key}
+              title={EMAIL_THEMES[key].label}
+              onClick={() => set('theme', key)}
+              className={cn(
+                'size-9 rounded-full border-2',
+                value.theme === key ? 'border-primary' : 'border-border',
+              )}
+              style={{ backgroundColor: EMAIL_THEMES[key].colors.header }}
+            />
+          ))}
+        </div>
       </div>
 
       <div className="space-y-2">
