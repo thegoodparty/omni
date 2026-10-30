@@ -10,6 +10,7 @@ Entries marked `(earned)` came from corrections in product design sessions, firs
 captured 2026-10-07 from the candidate Home and Game Plan work. Rules 31 to 41 were
 added 2026-10-28 from the head of product's distilled design review notes.
 Rules 42 to 46 came from the same day's review of the import contacts prototype.
+Rule 47 came from the 2026-10-30 review of the import contacts targeting prototype.
 
 ---
 
@@ -134,6 +135,10 @@ Rules 42 to 46 came from the same day's review of the import contacts prototype.
     open thread, say what is today's and what is new, and ping Slack. (earned)
 46. Never invent a screen. Build today's screens from their source and compare
     them to the page before changing anything. (earned)
+47. A frame that mirrors a product screen must measure like it. Copy the real
+    Tailwind classes from the component source, convert them to px, and measure
+    the rendered rows. Reset heading and paragraph margins like Tailwind does. A
+    mirrored control keeps the product's size, even under 44px. (earned)
 
 ---
 
