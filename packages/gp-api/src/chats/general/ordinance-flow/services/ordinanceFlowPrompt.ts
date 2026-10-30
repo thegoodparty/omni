@@ -45,7 +45,6 @@ const isLegislative = (level: BallotReadyPositionLevel | null): boolean =>
 const DASH = '—'
 
 const STEP_LABELS: Record<OrdinanceFlowStep, string> = {
-  intro: 'Getting started',
   clarify: 'Clarifying the goal',
   authority: 'Authority check',
   current_law: 'Current law',
@@ -55,7 +54,6 @@ const STEP_LABELS: Record<OrdinanceFlowStep, string> = {
 }
 
 const STEP_GOALS: Record<OrdinanceFlowStep, string> = {
-  intro: 'Orient the user and confirm what they want this ordinance to do.',
   clarify:
     'Ask one focused question at a time to pin down the policy choices this ' +
     'ordinance must make. Do not move on until the current question is answered.',
@@ -75,7 +73,6 @@ const STEP_GOALS: Record<OrdinanceFlowStep, string> = {
 }
 
 const STEP_GOALS_STATE: Record<OrdinanceFlowStep, string> = {
-  intro: 'Orient the user and confirm what they want this bill to do.',
   clarify:
     'Ask one focused question at a time to pin down the policy choices this ' +
     'bill must make. Do not move on until the current question is answered.',

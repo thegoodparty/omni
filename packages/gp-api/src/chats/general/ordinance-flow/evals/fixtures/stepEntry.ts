@@ -59,7 +59,6 @@ type NullableFixtureField = {
 // that step's outputs and every later step's outputs stripped, exactly the
 // state the agent sees when the step's conversation starts.
 const PRODUCED_BY: Record<OrdinanceFlowStep, NullableFixtureField[]> = {
-  intro: [],
   clarify: ['clarifyAnswers'],
   authority: ['authority'],
   current_law: ['existingLaw'],
@@ -69,7 +68,6 @@ const PRODUCED_BY: Record<OrdinanceFlowStep, NullableFixtureField[]> = {
 }
 
 const STEP_ORDER: OrdinanceFlowStep[] = [
-  'intro',
   'clarify',
   'authority',
   'current_law',

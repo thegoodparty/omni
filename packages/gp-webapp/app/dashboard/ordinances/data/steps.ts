@@ -7,7 +7,6 @@ export const ORDINANCE_STEP_ORDER: readonly OrdinanceFlowStep[] =
   ORDINANCE_FLOW_STEP_VALUES
 
 export const ORDINANCE_STEP_LABELS: Record<OrdinanceFlowStep, string> = {
-  intro: 'Get started',
   clarify: 'Clarify',
   authority: 'Authority',
   current_law: 'Current law',
@@ -22,7 +21,6 @@ export const ORDINANCE_STEP_LABELS: Record<OrdinanceFlowStep, string> = {
 // destination produced buttons that contradicted where they went (e.g.
 // "Research current law" on the comparables step, whose next step is draft).
 export const ORDINANCE_NEXT_STEP_CTA: Record<OrdinanceFlowStep, string> = {
-  intro: 'Get started',
   clarify: 'Start clarifying the goal',
   authority: 'Check our legal authority',
   current_law: 'Show me the current law',
@@ -34,8 +32,8 @@ export const ORDINANCE_NEXT_STEP_CTA: Record<OrdinanceFlowStep, string> = {
 export const isOrdinanceStep = (value: string): value is OrdinanceFlowStep =>
   (ORDINANCE_FLOW_STEP_VALUES as readonly string[]).includes(value)
 
-// Intro is an entry point (used when not seeded from a community issue), not a
-// numbered step. The wizard progress counts only the five substantive steps.
+// Review is a post-draft lifecycle stage, not a numbered step. The wizard
+// progress counts only the five substantive steps.
 export const ORDINANCE_NUMBERED_STEPS: readonly OrdinanceFlowStep[] = [
   'clarify',
   'authority',
@@ -44,18 +42,16 @@ export const ORDINANCE_NUMBERED_STEPS: readonly OrdinanceFlowStep[] = [
   'draft',
 ]
 
-// 1-based position in the numbered flow, or null for intro (uncounted).
+// 1-based position in the numbered flow, or null for review (uncounted).
 export const ordinanceStepNumber = (step: OrdinanceFlowStep): number | null => {
   const index = ORDINANCE_NUMBERED_STEPS.indexOf(step)
   return index === -1 ? null : index + 1
 }
 
-// The step to advance to from the current one, or null if there is none. Intro
-// enters the numbered flow at the first step.
+// The step to advance to from the current one, or null if there is none.
 export const nextOrdinanceStep = (
   current: OrdinanceFlowStep,
 ): OrdinanceFlowStep | null => {
-  if (current === 'intro') return ORDINANCE_NUMBERED_STEPS[0] ?? null
   const index = ORDINANCE_NUMBERED_STEPS.indexOf(current)
   if (index === -1) return null
   return ORDINANCE_NUMBERED_STEPS[index + 1] ?? null
