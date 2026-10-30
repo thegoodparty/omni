@@ -85,9 +85,9 @@ describe('NonProdDeployGuard on every test-fixture controller', () => {
   })
 
   it('covers every controller class in the folder', async () => {
-    const files = readdirSync(__dirname).filter((f) =>
-      f.endsWith('.controller.ts'),
-    )
+    const files = readdirSync(__dirname, { recursive: true })
+      .map(String)
+      .filter((f) => f.endsWith('.controller.ts'))
     expect(files.length).toBe(new Set(ROUTES.map((r) => r.controller)).size)
 
     const controllers = (
