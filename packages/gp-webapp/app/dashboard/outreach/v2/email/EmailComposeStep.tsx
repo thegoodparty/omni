@@ -5,7 +5,6 @@ import {
   EMAIL_CONTENT_TEXT_MAX_LENGTH,
   EMAIL_HEADING_MAX_LENGTH,
   EMAIL_IMAGE_ALLOWED_MIME_TYPES,
-  EMAIL_IMAGE_ALT_MAX_LENGTH,
   EMAIL_IMAGE_MAX_BYTES,
   EMAIL_LAYOUT_PRESETS,
   EMAIL_MERGE_TAGS,
@@ -536,16 +535,6 @@ export const EmailComposeStep = ({
               >
                 Remove photo
               </Button>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="email-photo-alt">What the photo shows</Label>
-              <Input
-                id="email-photo-alt"
-                value={value.photoAlt}
-                maxLength={EMAIL_IMAGE_ALT_MAX_LENGTH}
-                placeholder="Volunteers cleaning up Riverside Park"
-                onChange={(e) => set('photoAlt', e.target.value)}
-              />
             </div>
             {value.layout === 'personal_letter' && (
               <FilterPillGroup

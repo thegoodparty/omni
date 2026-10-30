@@ -278,14 +278,13 @@ describe('EmailFlow', () => {
     )
     await screen.findByText('Photo added.')
     expect([...posted[0]!.keys()]).toEqual(['key', 'Content-Type', 'file'])
-    await user.type(screen.getByLabelText('What the photo shows'), 'My logo')
 
     await user.click(screen.getByRole('button', { name: 'Next' }))
     await waitFor(() => expect(saves).toHaveLength(1))
     expect(saves[0]).toMatchObject({
       content: {
         blocks: [
-          { type: 'image', url: publicUrl, alt: 'My logo' },
+          { type: 'image', url: publicUrl, alt: '' },
           { type: 'paragraph', text: 'Hi there' },
         ],
       },

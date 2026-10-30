@@ -246,7 +246,6 @@ describe('EmailComposeStep form', () => {
           subject: 'Hi',
           message: 'Hello',
           photoUrl: 'https://assets.example.com/a.png',
-          photoAlt: 'Me',
         }}
       />,
     )

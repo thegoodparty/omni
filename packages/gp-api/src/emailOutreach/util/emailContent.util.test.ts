@@ -35,7 +35,7 @@ describe('fieldsContent (drafts saved with the old fields)', () => {
       subject: 'Town hall on Thursday',
       blocks: [
         { type: 'heading', text: 'Come to the town hall', level: 1 },
-        { type: 'image', url: 'https://cdn.example.com/a.jpg', alt: 'Photo' },
+        { type: 'image', url: 'https://cdn.example.com/a.jpg', alt: '' },
         { type: 'paragraph', text: 'Hi {{first_name}},' },
         { type: 'paragraph', text: 'We meet at 7pm.' },
         { type: 'button', label: 'RSVP', url: 'https://example.com/rsvp' },

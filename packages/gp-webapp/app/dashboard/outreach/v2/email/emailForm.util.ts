@@ -1,7 +1,6 @@
 import {
   EMAIL_BLOCK_BUTTON_LABEL_MAX_LENGTH,
   EMAIL_HEADING_MAX_LENGTH,
-  EMAIL_IMAGE_ALT_MAX_LENGTH,
   EMAIL_LAYOUT_PRESETS,
   EMAIL_PARAGRAPH_MAX_LENGTH,
   EMAIL_SHORT_CTA_PARAGRAPH_MAX_LENGTH,
@@ -26,7 +25,6 @@ export interface EmailComposeState {
   title: string
   message: string
   photoUrl: string
-  photoAlt: string
   // Only a personal letter lets the author pick; the other layouts fix it.
   photoPosition: PhotoPosition
   buttonLabel: string
@@ -55,7 +53,6 @@ export const initialCompose = (): EmailComposeState => ({
   title: '',
   message: '',
   photoUrl: '',
-  photoAlt: '',
   photoPosition: 'top',
   buttonLabel: '',
   buttonUrl: '',
@@ -111,7 +108,7 @@ export const messageToBlocks = (
 export const toContent = (state: EmailComposeState): EmailContentDraft => {
   const { layout } = state
   const photo: EmailBlockDraft[] = state.photoUrl
-    ? [{ type: 'image', url: state.photoUrl, alt: state.photoAlt }]
+    ? [{ type: 'image', url: state.photoUrl, alt: '' }]
     : []
   const title: EmailBlockDraft[] = usesTitle(layout)
     ? [{ type: 'heading', text: state.title, level: 1 }]
@@ -141,7 +138,7 @@ export const fromContent = (
   const { layout } = content
   const parts: string[] = []
   let title: string | null = null
-  let photo: { url: string; alt: string; position: PhotoPosition } | null = null
+  let photo: { url: string; position: PhotoPosition } | null = null
   let button: { label: string; url: string } | null = null
   for (const [index, block] of content.blocks.entries()) {
     if (block.type === 'heading') {
@@ -157,7 +154,6 @@ export const fromContent = (
     } else if (block.type === 'image') {
       photo ??= {
         url: block.url,
-        alt: block.alt,
         position: layout === 'personal_letter' && index > 0 ? 'bottom' : 'top',
       }
     } else if (block.type === 'button') {
@@ -171,7 +167,6 @@ export const fromContent = (
     title: title ?? '',
     message: parts.join('\n\n'),
     photoUrl: photo?.url ?? '',
-    photoAlt: photo?.alt ?? '',
     photoPosition: photo?.position ?? 'top',
     buttonLabel: button?.label ?? '',
     buttonUrl: button?.url ?? '',
@@ -291,9 +286,7 @@ const tooLong = (block: EmailBlockDraft, key: unknown): string => {
     case 'paragraph':
       return `Keep each paragraph under ${EMAIL_PARAGRAPH_MAX_LENGTH.toLocaleString('en-US')} characters.`
     case 'image':
-      return key === 'alt'
-        ? `Keep the photo description under ${EMAIL_IMAGE_ALT_MAX_LENGTH} characters.`
-        : 'Upload the photo again.'
+      return 'Upload the photo again.'
     case 'button':
       return key === 'label'
         ? `Keep the button text under ${EMAIL_BLOCK_BUTTON_LABEL_MAX_LENGTH} characters.`
@@ -313,9 +306,7 @@ const missing = (block: EmailBlockDraft, key: unknown): string => {
     case 'divider':
       return 'Write your message.'
     case 'image':
-      return key === 'alt'
-        ? 'Describe the photo for people who can’t see it.'
-        : 'Upload the photo again.'
+      return 'Upload the photo again.'
     case 'button':
       return key === 'url'
         ? 'Add the link this button opens.'
