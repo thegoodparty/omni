@@ -419,8 +419,9 @@ describe("account deletion purges the owned orgs' contact upload files", () => {
       where: { id: service.user.id },
       data: { roles: [UserRole.admin] },
     })
-    vi.spyOn(service.app.get(AnalyticsService), 'track').mockResolvedValue(
-      undefined,
+    const analytics = service.app.get(AnalyticsService)
+    vi.spyOn(analytics, 'track').mockResolvedValue(
+      {} as Awaited<ReturnType<typeof analytics.track>>,
     )
   })
 
