@@ -246,7 +246,6 @@ describe('EmailComposeStep form', () => {
           subject: 'Hi',
           message: 'Hello',
           photoUrl: 'https://assets.example.com/a.png',
-          photoAlt: 'Me',
         }}
       />,
     )
@@ -284,6 +283,73 @@ describe('EmailComposeStep form', () => {
           { type: 'paragraph', text: 'It moved to December.' },
         ],
       },
+    })
+  })
+})
+
+describe('EmailComposeStep preview', () => {
+  const start: EmailComposeState = {
+    ...switchLayout(initialCompose(), 'short_cta'),
+    subject: 'October',
+    title: 'Ward 2 update',
+    message: 'Dear neighbor',
+    photoUrl: 'https://assets.example.com/a.png',
+    buttonLabel: 'RSVP',
+    buttonUrl: 'https://example.org/rsvp',
+  }
+
+  const settled = async () => {
+    await waitFor(() => expect(previews.length).toBeGreaterThan(0))
+    await new Promise((resolve) => setTimeout(resolve, 100))
+  }
+
+  const refreshesOn = async (
+    edit: (user: ReturnType<typeof userEvent.setup>) => Promise<void>,
+  ) => {
+    const user = userEvent.setup()
+    render(<Harness start={start} />)
+    await settled()
+    const before = previews.length
+    await edit(user)
+    await waitFor(() => expect(previews.length).toBeGreaterThan(before))
+  }
+
+  it.each<
+    [string, (user: ReturnType<typeof userEvent.setup>) => Promise<void>]
+  >([
+    ['subject', (u) => u.type(screen.getByLabelText('Subject'), '!')],
+    ['title', (u) => u.type(screen.getByLabelText('Title'), '!')],
+    ['message', (u) => u.type(message(), '!')],
+    [
+      'photo',
+      (u) => u.click(screen.getByRole('button', { name: 'Remove photo' })),
+    ],
+    ['button text', (u) => u.type(screen.getByLabelText('Button text'), '!')],
+    ['button link', (u) => u.type(screen.getByLabelText('Button link'), 'x')],
+    [
+      'layout',
+      (u) => u.click(screen.getByRole('radio', { name: 'Personal letter' })),
+    ],
+    [
+      'theme',
+      (u) => u.click(screen.getAllByRole('button', { pressed: false })[0]!),
+    ],
+  ])('refreshes after a change to the %s', async (_name, edit) => {
+    await refreshesOn(edit)
+  })
+
+  it('ends on the last of several quick edits', async () => {
+    const user = userEvent.setup()
+    render(<Harness start={start} />)
+    await settled()
+    await user.type(screen.getByLabelText('Subject'), ' one')
+    await user.type(screen.getByLabelText('Title'), ' two')
+    await user.type(screen.getByLabelText('Button text'), ' three')
+    await waitFor(() => {
+      const last = JSON.stringify(previews[previews.length - 1])
+      expect(last).toContain('October one')
+      expect(last).toContain('Ward 2 update two')
+      expect(last).toContain('RSVP three')
     })
   })
 })

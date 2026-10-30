@@ -184,6 +184,19 @@ describe('renderEmailTemplate', () => {
     })
   })
 
+  it('renders an empty alt when a photo has no description', async () => {
+    const { html } = await renderEmailTemplate(
+      letter({
+        blocks: [
+          { type: 'paragraph', text: 'Thank you' },
+          { type: 'image', url: 'https://cdn.example.com/a.jpg', alt: '' },
+        ],
+      }),
+      WIN,
+    )
+    expect(html).toContain('alt=""')
+  })
+
   it('shows Paid for by on Win and leaves it off on Serve', async () => {
     const win = await renderEmailTemplate(letter(), WIN)
     const serve = await renderEmailTemplate(letter(), SERVE)

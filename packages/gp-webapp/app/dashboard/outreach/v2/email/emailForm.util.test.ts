@@ -28,7 +28,6 @@ const form = (
   title: 'Ward 2 update',
   message: 'Dear neighbor,\n\nThank you,\nRenee',
   photoUrl: PHOTO,
-  photoAlt: 'The new park',
   buttonLabel: 'Read more',
   buttonUrl: 'https://example.com',
   ...overrides,
@@ -58,7 +57,7 @@ describe('toContent', () => {
     })
     expect(toContent(state).blocks).toEqual([
       { type: 'heading', text: 'Ward 2 update', level: 1 },
-      { type: 'image', url: PHOTO, alt: 'The new park' },
+      { type: 'image', url: PHOTO, alt: '' },
       { type: 'paragraph', text: 'Dear neighbor,' },
       { type: 'heading', text: 'The vote', level: 2 },
       { type: 'paragraph', text: 'It moved.' },
@@ -144,7 +143,7 @@ describe('fromContent', () => {
       subject: 'October',
       blocks: [
         { type: 'heading', text: 'Ward 2 update', level: 1 },
-        { type: 'image', url: PHOTO, alt: 'Park' },
+        { type: 'image', url: PHOTO, alt: '' },
         { type: 'paragraph', text: 'Dear neighbor,' },
         { type: 'divider' },
         { type: 'heading', text: 'The vote', level: 2 },
@@ -156,7 +155,6 @@ describe('fromContent', () => {
       title: 'Ward 2 update',
       message: 'Dear neighbor,\n\n## The vote\n\nIt moved.',
       photoUrl: PHOTO,
-      photoAlt: 'Park',
       photoPosition: 'top',
       buttonLabel: 'Read',
       buttonUrl: '',
@@ -171,7 +169,7 @@ describe('fromContent', () => {
         subject: 'Hi',
         blocks: [
           { type: 'paragraph', text: 'Hi' },
-          { type: 'image', url: PHOTO, alt: 'Me' },
+          { type: 'image', url: PHOTO, alt: '' },
         ],
       }).photoPosition,
     ).toBe('bottom')
@@ -209,14 +207,12 @@ describe('composeIssues', () => {
       composeIssues(
         form('short_cta', {
           title: '',
-          photoAlt: '',
           buttonUrl: '',
         }),
         true,
       ),
     ).toEqual({
       title: 'Add a title.',
-      photo: 'Describe the photo for people who can’t see it.',
       button: 'Add the link this button opens.',
     })
   })

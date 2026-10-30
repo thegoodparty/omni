@@ -444,14 +444,17 @@ describe('field rules', () => {
     ).toBe(false)
   })
 
-  it('needs alt text on every image', () => {
+  it('does not need alt text on an image', () => {
+    const parsed = parseBlock({
+      type: 'image',
+      url: 'https://example.org/a.png',
+    })
+    expect(parsed.success).toBe(true)
+    expect(parsed.data).toMatchObject({ alt: '' })
     expect(
       parseBlock({ type: 'image', url: 'https://example.org/a.png', alt: '' })
         .success,
-    ).toBe(false)
-    expect(
-      parseBlock({ type: 'image', url: 'https://example.org/a.png' }).success,
-    ).toBe(false)
+    ).toBe(true)
   })
 
   it('reads a lone < as text and a tag as HTML', () => {
