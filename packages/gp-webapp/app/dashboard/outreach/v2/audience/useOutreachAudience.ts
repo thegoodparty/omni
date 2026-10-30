@@ -127,6 +127,9 @@ export interface OutreachAudience {
   listsFetching: boolean
   selectedList: SegmentResponse | null
   reachableCount: number | null
+  // Of reachableCount, the new contacts an import added (Win names them next
+  // to the voters). 0 when there are none or the count is not in hand.
+  reachableNewContactsCount: number
   // The selected list's TOTAL people count (list-detail demographics), so a
   // channel can render the reachable-of-total delta (ENG-10957). Null on the
   // same terms as reachableCount.
@@ -171,6 +174,8 @@ export interface OutreachAudience {
   // exactly what the CRM's universe row reads, so the number on the row is
   // the same number the contacts tab shows.
   universeCount: number | null
+  // Of universeCount, the new contacts an import added.
+  universeNewContactsCount: number
   universeLoading: boolean
   // Resolves the row to a REAL criteria-free saved list — reused when the org
   // already has one, created when it does not — and RETURNS its id without
@@ -490,7 +495,10 @@ export const useOutreachAudience = ({
         {},
         { signal },
       )
-      return data.reachability[reachabilityKey]
+      return {
+        reachable: data.reachability[reachabilityKey],
+        newContactsReachable: data.newContactsReachable?.[reachabilityKey] ?? 0,
+      }
     },
     // Not merely `open`: see `onPickerOpenChange`. The flow being open is not
     // a reason to read the whole district.
@@ -567,6 +575,8 @@ export const useOutreachAudience = ({
       return {
         reachable: detail.reachability[reachabilityKey],
         total: detail.demographics.people,
+        newContactsReachable:
+          detail.newContactsReachable?.[reachabilityKey] ?? 0,
       }
     },
     // A list built in the flow is selected as we leave the audience step
@@ -604,6 +614,13 @@ export const useOutreachAudience = ({
         ? recommendationSnapshot.count
         : null))
   const selectedListTotal = reachabilityQuery.data?.total ?? null
+  // Only alongside the list-detail count it is part of: a recommendation's
+  // count carries no split.
+  const reachableNewContactsCount =
+    !selectedRecommendation &&
+    typeof reachabilityQuery.data?.reachable === 'number'
+      ? reachabilityQuery.data.newContactsReachable
+      : 0
 
   // Filters the user built, translated for the backend. The saved list is
   // created from THIS (overlay-free); the count adds the overlay on top.
@@ -1015,6 +1032,7 @@ export const useOutreachAudience = ({
     listsFetching: listsQuery.isFetching,
     selectedList,
     reachableCount,
+    reachableNewContactsCount,
     selectedListTotal,
     // isFetching (not isLoading) so a re-selected, already-cached list still
     // shows the spinner during its background refetch — isLoading is true only
@@ -1044,7 +1062,8 @@ export const useOutreachAudience = ({
     onSelect: selectList,
     universeName,
     universeListId: universeList?.id ?? null,
-    universeCount: universeQuery.data ?? null,
+    universeCount: universeQuery.data?.reachable ?? null,
+    universeNewContactsCount: universeQuery.data?.newContactsReachable ?? 0,
     universeLoading: universeQuery.isFetching,
     selectUniverse: async () => {
       try {

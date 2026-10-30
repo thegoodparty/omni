@@ -1,5 +1,6 @@
 'use client'
 import {
+  Badge,
   Button,
   Card,
   CardContent,
@@ -38,6 +39,7 @@ import { useFlagOn } from '@shared/experiments/FeatureFlagsProvider'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useWinVoterContext } from '../../../shared/useWinVoterContext'
+import { WIN_NEW_CONTACTS_LABELS } from '../../../shared/contactsLabels'
 import { InfoSection } from './InfoSection'
 import { ConstituentFeedbackSection } from './ConstituentFeedbackSection'
 import { PriorityAnswersSection } from './PriorityAnswersSection'
@@ -445,12 +447,18 @@ export const PersonRecord: React.FC<{
   // still sees the voter-file score.
   const withVoted = (value: string | null) =>
     person.voted ? `${value ?? 'Unknown'} (Already voted)` : value
+  const isWinNewContact = !isServe && person.isNewContact
 
   return (
     <div>
       <h2 className="text-3xl font-semibold pt-4 pb-2">
         {formatPersonName(person)}
       </h2>
+      {isWinNewContact && (
+        <Badge variant="outline" className="mb-2">
+          {WIN_NEW_CONTACTS_LABELS.notInVoterFile}
+        </Badge>
+      )}
       <p className="text-xl font-semibold mb-6">{details}</p>
       {/* ENG-10836: Win-only status row (Voter Likelihood / Support Status
           dropdowns + read-only Opt In Status pill) — replaces the Win branch
@@ -541,7 +549,14 @@ export const PersonRecord: React.FC<{
             title="Voter Demographics"
             icon={<LuClipboardList size={24} />}
           >
-            <Field label="Registered Voter" value={person.registeredVoter} />
+            <Field
+              label="Registered Voter"
+              value={
+                isWinNewContact
+                  ? WIN_NEW_CONTACTS_LABELS.notInVoterFile
+                  : person.registeredVoter
+              }
+            />
             <Field label="Voter Status" value={withVoted(person.voterStatus)} />
             <Field
               label="Early Vote Likelihood"

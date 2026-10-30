@@ -244,6 +244,7 @@ export const WIN_IMPORT_CONTACTS_COPY: typeof SERVE_IMPORT_CONTACTS_COPY = {
   detail: {
     ...SERVE_IMPORT_CONTACTS_COPY.detail,
     matched: 'already in your voter file',
+    added: 'added, not in your voter file',
   },
   processed: {
     ...SERVE_IMPORT_CONTACTS_COPY.processed,

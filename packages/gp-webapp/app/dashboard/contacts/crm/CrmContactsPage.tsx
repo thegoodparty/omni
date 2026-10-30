@@ -227,6 +227,7 @@ export const CrmContactsPage = () => {
                           : labels.districtPopulationLabel
                       }
                       additionalRows={universeMetricRows}
+                      showNewContacts={isWinContext}
                     />
                   </div>
 

@@ -25,7 +25,10 @@ import {
   formatOutreachCost,
   outreachCostCents,
 } from 'app/dashboard/outreach/util/outreachPricing'
-import { getContactsLabels } from '../../../../shared/contactsLabels'
+import {
+  getContactsLabels,
+  WIN_NEW_CONTACTS_LABELS,
+} from '../../../../shared/contactsLabels'
 import { useContactsTable } from '../../ContactsTableProvider'
 import { recommendedListDetailQueryOptions } from '../../recommended/recommendedListDetail.query'
 import CrmSheet from '../CrmSheet'
@@ -124,12 +127,20 @@ export default function ChannelPickerSheet({
   const detailQuery =
     target?.kind === 'recommended' ? recommendedDetailQuery : listDetailQuery
 
+  // Win names the new contacts an import added next to the voters, the way
+  // the list's card does. A recommendation's count carries no split.
+  const newContactsCount =
+    isWinContext && target?.kind !== 'recommended'
+      ? (detailQuery.data?.demographics.newContactsCount ?? 0)
+      : 0
   const name =
     target?.kind === 'list'
       ? target.segment.name || 'Untitled list'
       : target?.kind === 'recommended'
         ? target.recommendation.copy.title
-        : labels.allContactsTitle
+        : newContactsCount > 0
+          ? WIN_NEW_CONTACTS_LABELS.allContactsTitle
+          : labels.allContactsTitle
   const count =
     target?.kind === 'recommended'
       ? target.recommendation.count
@@ -166,9 +177,11 @@ export default function ChannelPickerSheet({
             Choose a channel
           </DrawerTitle>
           <p className="text-sm text-muted-foreground">
-            {count !== undefined
-              ? `${name} · ${count.toLocaleString()} voters`
-              : name}
+            {count === undefined
+              ? name
+              : newContactsCount > 0
+                ? `${name} · ${WIN_NEW_CONTACTS_LABELS.votersAndNewContacts(count - newContactsCount, newContactsCount)}`
+                : `${name} · ${count.toLocaleString()} voters`}
           </p>
         </div>
       }

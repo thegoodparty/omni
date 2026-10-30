@@ -338,6 +338,9 @@ describe('<UploadDetail>', () => {
     ).toBeInTheDocument()
     expect(screen.getByText('already in your voter file')).toBeInTheDocument()
     expect(
+      screen.getByText('added, not in your voter file'),
+    ).toBeInTheDocument()
+    expect(
       screen.getByRole('link', { name: 'Back to Upload history' }),
     ).toHaveAttribute('href', '/dashboard/contacts/uploads')
     expect(screen.queryByText(/constituent/i)).not.toBeInTheDocument()

@@ -22,6 +22,7 @@ import type {
   SupportStatusRollup,
 } from '../shared/contacts-types'
 import type { VotedStatus } from '@goodparty_org/contracts'
+import type { PeopleFilterSource } from '../shared/activityConditionOptions'
 import {
   countSelectedFilterCategories,
   hasAnyVoterFileSelection,
@@ -48,6 +49,7 @@ import { useListWizardOverlapCount } from './useListWizardOverlapCount'
 import { useListWizardPolygonCount } from './useListWizardPolygonCount'
 import OverlapBar from './OverlapBar'
 import { useServeCitizenPanelsFlag } from 'app/shared/experiments/serveCitizenPanelsFlag'
+import { useServeImportContactsFlag } from 'app/shared/experiments/serveImportContactsFlag'
 
 type WizardStepName = 'branch' | 'conditions' | 'boundary' | 'name'
 
@@ -89,10 +91,14 @@ export default function CreateListWizard({
     selectList,
     customSegments,
     voterDataUnavailable,
+    canUseProFeatures,
   } = useContactsTable()
   const { successSnackbar, errorSnackbar } = useSnackbar()
   const { enabled: citizenPanelsEnabled } =
     useServeCitizenPanelsFlag(isElectedOfficial)
+  const { enabled: importContactsEnabled } = useServeImportContactsFlag(false)
+  const showSourceFilter =
+    isWinContext && canUseProFeatures && importContactsEnabled
   const queryClient = useQueryClient()
   const orgSlug = useOrganization()?.slug
   const bodyRef = useRef<HTMLDivElement>(null)
@@ -116,6 +122,7 @@ export default function CreateListWizard({
     useState<VoterFileFilters>({})
   const [supportStatus, setSupportStatus] = useState<SupportStatusRollup[]>([])
   const [votedStatus, setVotedStatus] = useState<VotedStatus[]>([])
+  const [source, setSource] = useState<PeopleFilterSource[]>([])
   const [precincts, setPrecincts] = useState<string[]>([])
   // Gated on `open` because this component never unmounts — CrmContactsPage
   // always renders it and only toggles `open` — so an ungated fetch ran on
@@ -167,6 +174,7 @@ export default function CreateListWizard({
     )
     setSupportStatus(editingSegment?.supportStatus ?? [])
     setVotedStatus(editingSegment?.votedStatus ?? [])
+    setSource(editingSegment?.source ?? [])
     setPrecincts(
       Array.isArray(editingSegment?.precincts)
         ? (editingSegment.precincts as string[])
@@ -245,6 +253,7 @@ export default function CreateListWizard({
         ...transformVoterFileFiltersForBackend(demographicFilters),
         ...(supportStatus.length ? { supportStatus } : {}),
         ...(votedStatus.length ? { votedStatus } : {}),
+        ...(source.length ? { source } : {}),
         ...(precincts.length ? { precincts } : {}),
         ...(editingSearch ? { search: editingSearch } : {}),
       }
@@ -266,6 +275,7 @@ export default function CreateListWizard({
     demographicFilters,
     supportStatus,
     votedStatus,
+    source,
     precincts,
     activityConditions,
     isEditing,
@@ -282,6 +292,7 @@ export default function CreateListWizard({
           supportStatus,
           precincts,
           votedStatus,
+          source,
         )
       : activeBranch === 'activity'
         ? isActivityStepValid(activityConditions)
@@ -471,7 +482,8 @@ export default function CreateListWizard({
           const variableCount =
             countSelectedFilterCategories(demographicFilters) +
             (supportStatus.length > 0 ? 1 : 0) +
-            (votedStatus.length > 0 ? 1 : 0)
+            (votedStatus.length > 0 ? 1 : 0) +
+            (source.length > 0 ? 1 : 0)
           trackEvent(
             isWinContext
               ? EVENTS.VoterData.ListCreated
@@ -828,6 +840,8 @@ export default function CreateListWizard({
           onSupportStatusChange={setSupportStatus}
           votedStatus={votedStatus}
           onVotedStatusChange={setVotedStatus}
+          source={source}
+          onSourceChange={showSourceFilter ? setSource : undefined}
           precincts={precincts}
           onPrecinctsChange={setPrecincts}
           precinctOptions={precinctOptions}

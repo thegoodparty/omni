@@ -533,3 +533,69 @@ describe('OutreachAudienceStep - the universe row before its label is known', ()
     expect(screen.queryByText('All constituents')).toBeNull()
   })
 })
+
+describe('OutreachAudienceStep — new contacts on Win', () => {
+  const selectedListProps = () => ({
+    ...baseProps(),
+    lists: [{ id: 78, name: 'Ward 3' } as never],
+    selectedId: 78,
+    reachableCount: 9110,
+  })
+
+  it('names voters and new contacts apart, priced on the total', () => {
+    render(
+      <OutreachAudienceStep
+        {...selectedListProps()}
+        reachableNewContactsCount={198}
+      />,
+    )
+
+    expect(
+      screen.getByText(
+        'Message 8,912 voters and 198 new contacts added for $318.85',
+      ),
+    ).toBeInTheDocument()
+  })
+
+  it('reads as before without new contacts', () => {
+    render(<OutreachAudienceStep {...selectedListProps()} />)
+
+    expect(
+      screen.getByText('Message 9,110 voters for $318.85'),
+    ).toBeInTheDocument()
+  })
+
+  it('never splits the count on Serve', () => {
+    render(
+      <OutreachAudienceStep
+        {...selectedListProps()}
+        copy={{ ...COPY, reachNoun: 'constituents' }}
+        isElectedOfficial
+        reachableNewContactsCount={198}
+      />,
+    )
+
+    expect(
+      screen.getByText('Message 9,110 constituents for $318.85'),
+    ).toBeInTheDocument()
+  })
+
+  it('splits the whole-district row too', async () => {
+    render(
+      <OutreachAudienceStep
+        {...baseProps()}
+        universeCount={9110}
+        universeNewContactsCount={198}
+      />,
+    )
+    await userEvent.click(
+      await screen.findByRole('button', { name: /Choose a voter list/i }),
+    )
+
+    expect(
+      await screen.findByText(
+        'Message 8,912 voters and 198 new contacts added',
+      ),
+    ).toBeVisible()
+  })
+})

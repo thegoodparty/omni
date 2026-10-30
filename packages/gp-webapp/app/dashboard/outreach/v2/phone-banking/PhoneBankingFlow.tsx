@@ -1209,6 +1209,7 @@ export const PhoneBankingFlow = ({
             universeName={audience.universeName}
             universeListId={audience.universeListId}
             universeCount={audience.universeCount}
+            universeNewContactsCount={audience.universeNewContactsCount}
             universeLoading={audience.universeLoading}
             onSelectUniverse={audience.selectUniverse}
             universePending={audience.universePending}
@@ -1239,6 +1240,7 @@ export const PhoneBankingFlow = ({
               audience.markPreselectedRecommendationApplied
             }
             reachableCount={audience.reachableCount}
+            reachableNewContactsCount={audience.reachableNewContactsCount}
             reachableLoading={audience.reachableLoading}
             selectedListTotal={audience.selectedListTotal}
             pricePerContact={PRICE_PER_CONTACT}
