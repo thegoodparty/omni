@@ -106,6 +106,12 @@ export const EVENTS = {
     resultsViewed: 'Polls - Poll Results Overview Viewed',
     issueDetailsViewed: 'Polls - Poll Results Issue Details Viewed',
     lowConfidenceModalClicked: 'Polls - Low Confidence Modal Clicked',
+    // Results Overview and Issue Details also fire from the outreach results
+    // page (outreach/v2/poll/results), with `outreachId`; the legacy
+    // /dashboard/polls pages send no id. Reply Favorited is the one action an
+    // official can take on a single reply there; opening a reply marks it read
+    // on its own, so read is not tracked.
+    replyFavorited: 'Polls - Poll Reply Favorited',
   },
   // Shared across every polls surface that can hard-block on missing
   // constituent data (onboarding, create, expand) — one event with a `source`

@@ -338,9 +338,10 @@ way `useDraftGate.saveDraft(cta)` does.
 
 `medium` uses the campaign tracker's `TaskChannel` vocabulary, not
 `OutreachType`; `outreachChannel()` is the whole cross-walk, and it exists
-because the two disagree in four places (`p2p`, `nativeDoorKnocking`,
-`nativePhoneBanking`, `events`). Full schema, the fan-out rule and the
-migration: **`docs/features/voter-outreach-analytics.md`**.
+because the two disagree in five places (`p2p`, `nativeDoorKnocking`,
+`nativePhoneBanking`, `events`, `poll`). A Serve poll reports `medium: text`
+and is told apart by `outreachType: 'poll'`. Full schema, the fan-out rule and
+the migration: **`docs/features/voter-outreach-analytics.md`**.
 
 ## Patterns
 
