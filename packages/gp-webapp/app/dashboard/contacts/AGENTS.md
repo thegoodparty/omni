@@ -160,8 +160,11 @@ untouched: an upload never becomes a list card.
   mapping and consent (`POST /v1/contact-uploads/presign`, which creates the
   upload), PUTs the file straight to S3 (the `/api` proxy on Vercel caps
   bodies at 4.5 MB), confirms it (`POST /v1/contact-uploads/:id/uploaded`;
-  all three in `createContactUpload`, `importContactsApi.ts`), then routes to
-  Upload history at once: gp-api reads and matches the file in a queue job.
+  all three in `createContactUpload`, `importContactsApi.ts`), showing
+  Uploading your file meanwhile, then routes to Upload history at once:
+  gp-api reads and matches the file in a queue job. The sheet stays on that
+  screen until the route is Upload history, so the contacts page never shows
+  in between.
   Files that are not CSV, over 25 MB, empty or over 100,000 rows are turned
   away when picked, and mapped columns come from the file's own headers, so
   a file the job rejects is rare.

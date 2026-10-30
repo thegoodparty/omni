@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { usePathname } from 'next/navigation'
 import { http, HttpResponse } from 'msw'
 import type { ContactUpload } from '@goodparty_org/contracts'
 import { render } from 'helpers/test-utils/render'
@@ -73,6 +74,7 @@ describe('<ImportContactsWizard>', () => {
   beforeEach(() => {
     vi.mocked(trackEvent).mockClear()
     vi.mocked(router.push!).mockClear()
+    vi.mocked(usePathname).mockReturnValue('/dashboard/contacts')
     api.mock('GET /v1/contact-uploads', {
       status: 200,
       data: { uploads: [] },
@@ -213,7 +215,7 @@ describe('<ImportContactsWizard>', () => {
       }
     })
     const user = userEvent.setup()
-    const onOpenChange = renderWizard()
+    renderWizard()
 
     await chooseFile(user, NEWSLETTER)
     await screen.findByText(/2 people found/)
@@ -243,7 +245,6 @@ describe('<ImportContactsWizard>', () => {
     await waitFor(() =>
       expect(router.push).toHaveBeenCalledWith('/dashboard/contacts/uploads'),
     )
-    expect(onOpenChange).toHaveBeenCalledWith(false)
     expect(calls).toEqual(['presign', 'put', 'confirm'])
     expect(put).toEqual({
       contentType: 'text/csv',
@@ -270,6 +271,108 @@ describe('<ImportContactsWizard>', () => {
       EVENTS.Contacts.ImportConsentAffirmed,
       { rowCount: 2, product: 'serve' },
     )
+    expect(trackEvent).not.toHaveBeenCalledWith(
+      EVENTS.Contacts.ImportAbandoned,
+      expect.anything(),
+    )
+  })
+
+  const importNewsletter = async (user: ReturnType<typeof userEvent.setup>) => {
+    await chooseFile(user, NEWSLETTER)
+    await screen.findByText(/2 people found/)
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.type(screen.getByLabelText('Upload name'), 'Newsletter')
+    await user.click(
+      screen.getByLabelText(
+        'These people agreed to hear from me. I am responsible for that.',
+      ),
+    )
+    await user.click(screen.getByRole('button', { name: 'Import 2 people' }))
+  }
+
+  const mockSuccessfulUpload = (putDone?: Promise<void>) => {
+    const S3_PUT_URL = 'https://s3.example/put?sig=abc'
+    api.mock('POST /v1/contact-uploads/presign', {
+      status: 200,
+      data: {
+        uploadId: 'upload-1',
+        uploadUrl: S3_PUT_URL,
+        expiresAt: '2026-10-01T12:15:00.000Z',
+      },
+    })
+    mswServer.use(
+      http.put(S3_PUT_URL, async () => {
+        await putDone
+        return new HttpResponse(null, { status: 200 })
+      }),
+    )
+    api.mock('POST /v1/contact-uploads/:id/uploaded', {
+      status: 200,
+      data: makeUpload({ status: 'processing', rowCount: null }),
+    })
+  }
+
+  it('says the file is uploading while it is sent', async () => {
+    let finishPut: (() => void) | undefined
+    mockSuccessfulUpload(
+      new Promise<void>((resolve) => {
+        finishPut = resolve
+      }),
+    )
+    const user = userEvent.setup()
+    renderWizard(vi.fn(), true)
+
+    await importNewsletter(user)
+
+    expect(
+      await screen.findByRole('heading', { name: 'Uploading your file' }),
+    ).toBeInTheDocument()
+    expect(screen.getByText('Sending 2 people')).toBeInTheDocument()
+    expect(screen.queryByText(/Importing/)).not.toBeInTheDocument()
+    finishPut?.()
+    await waitFor(() => expect(router.push).toHaveBeenCalled())
+  })
+
+  it('stays open on the uploading screen until Upload history is the route', async () => {
+    mockSuccessfulUpload()
+    const user = userEvent.setup()
+    const onOpenChange = vi.fn()
+    const { rerender } = render(
+      <ImportContactsWizard open onOpenChange={onOpenChange} isWin={false} />,
+    )
+
+    await importNewsletter(user)
+
+    await waitFor(() =>
+      expect(router.push).toHaveBeenCalledWith('/dashboard/contacts/uploads'),
+    )
+    expect(onOpenChange).not.toHaveBeenCalledWith(false)
+    expect(
+      screen.getByRole('heading', { name: 'Uploading your file' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Import 2 people' }),
+    ).not.toBeInTheDocument()
+
+    vi.mocked(usePathname).mockReturnValue('/dashboard/contacts/uploads')
+    rerender(
+      <ImportContactsWizard open onOpenChange={onOpenChange} isWin={false} />,
+    )
+
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false))
+  })
+
+  it('closes once the upload is sent when opened from Upload history', async () => {
+    vi.mocked(usePathname).mockReturnValue('/dashboard/contacts/uploads')
+    mockSuccessfulUpload()
+    const user = userEvent.setup()
+    const onOpenChange = renderWizard()
+
+    await importNewsletter(user)
+
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false))
+    expect(router.push).toHaveBeenCalledWith('/dashboard/contacts/uploads')
     expect(trackEvent).not.toHaveBeenCalledWith(
       EVENTS.Contacts.ImportAbandoned,
       expect.anything(),
