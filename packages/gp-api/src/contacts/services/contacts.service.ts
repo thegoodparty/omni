@@ -78,6 +78,7 @@ import {
   type PeopleDataset,
   PeopleDatasetService,
 } from '@/peopleDb/services/peopleDataset.service'
+import { PeopleEmailFixtureService } from '@/peopleDb/services/peopleEmailFixture.service'
 import {
   DoorKnockingEvaluateDTO,
   WalkableAreaDTO,
@@ -351,6 +352,7 @@ export class ContactsService {
     private readonly voterDoorKnockingService: VoterDoorKnockingService,
     private readonly peopleStatsService: StatsService,
     private readonly peopleDataset: PeopleDatasetService,
+    private readonly peopleEmailFixture: PeopleEmailFixtureService,
     private readonly contactsMadeResolutionService: ContactsMadeResolutionService,
     private readonly civicPanelHistory: CivicPanelHistoryService,
     private readonly independentAffinityColumn: IndependentAffinityColumnService,
@@ -2189,6 +2191,11 @@ export class ContactsService {
         ),
     )
 
+    // A test organization's stand-in email audience, where a preview can't
+    // reach imported contacts (PeopleEmailFixtureService). Null elsewhere.
+    const emailFixture = await this.peopleEmailFixture.emailAudienceFor(
+      organization.slug,
+    )
     return {
       demographics: {
         people: aggregates.count,
@@ -2206,7 +2213,7 @@ export class ContactsService {
         // legacy raw-SQL export population.
         phoneBanking: aggregates.phoneBanking,
         doorKnocking: aggregates.doorKnocking,
-        email: aggregates.email,
+        email: emailFixture?.length ?? aggregates.email,
         // Polls are delivered by text, so reachability mirrors sms 1:1.
         polls: aggregates.sms,
       },

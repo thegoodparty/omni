@@ -117,3 +117,46 @@ export const AdminOutreachActionResponseSchema = z.object({
 export type AdminOutreachActionResponse = z.infer<
   typeof AdminOutreachActionResponseSchema
 >
+
+// A test organization's email audience, served in place of the people DB
+// where a preview can't reach imported contacts. Only SES mailbox simulator
+// addresses, so a fixture can never email a person.
+export const EMAIL_AUDIENCE_FIXTURE_DOMAIN = 'simulator.amazonses.com'
+
+export const EmailAudienceFixtureRequestSchema = z
+  .object({
+    campaignId: z.number().int().positive(),
+    people: z
+      .array(
+        z
+          .object({
+            email: z
+              .string()
+              .email()
+              .refine(
+                (email) =>
+                  email
+                    .toLowerCase()
+                    .endsWith(`@${EMAIL_AUDIENCE_FIXTURE_DOMAIN}`),
+                'Only SES mailbox simulator addresses',
+              ),
+            firstName: z.string().max(100).optional(),
+            lastName: z.string().max(100).optional(),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(50),
+  })
+  .strict()
+export type EmailAudienceFixtureRequest = z.infer<
+  typeof EmailAudienceFixtureRequestSchema
+>
+
+export const EmailAudienceFixtureResponseSchema = z.object({
+  organizationSlug: z.string(),
+  count: z.number().int().nonnegative(),
+})
+export type EmailAudienceFixtureResponse = z.infer<
+  typeof EmailAudienceFixtureResponseSchema
+>

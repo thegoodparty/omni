@@ -4,6 +4,9 @@ import { BadGatewayException } from '@nestjs/common'
 import type { PeopleListDetailAggregatesResponse } from '@goodparty_org/contracts'
 import { useTestService } from '@/test-service'
 import { VoterQueryService } from '@/peopleDb/services/voterQuery.service'
+import { VendorMockVendor } from '@/generated/prisma'
+import { EMAIL_AUDIENCE_FIXTURE_KIND } from '@/peopleDb/services/peopleEmailFixture.service'
+import { appEnvOverrides } from '@/shared/test-utils/appEnvOverrides'
 
 const service = useTestService()
 
@@ -98,6 +101,43 @@ describe('GET /v1/contacts/list-detail reachability', () => {
   // The universe row has no saved row behind it, so there is no stored
   // search to carry — and passing one would narrow the whole district by a
   // string nobody typed here.
+  // The email E2E's stand-in audience (PeopleEmailFixtureService): only
+  // where vendors are mocked, and only for the organization it was set on.
+  it('counts emails from a test organization’s stand-in audience', async () => {
+    const slug = await setupOrg('email-fixture')
+    await service.prisma.vendorMockRecord.create({
+      data: {
+        vendor: VendorMockVendor.people_db,
+        kind: EMAIL_AUDIENCE_FIXTURE_KIND,
+        externalId: slug,
+        state: {
+          people: [
+            {
+              id: 'fixture-0000',
+              email: 'success@simulator.amazonses.com',
+              firstName: null,
+              lastName: null,
+            },
+          ],
+        },
+      },
+    })
+    mockAggregates({})
+    const get = async () =>
+      (
+        await service.client.get('/v1/contacts/list-detail', {
+          headers: { [ORG_SLUG_HEADER]: slug },
+        })
+      ).data.reachability.email
+
+    appEnvOverrides.IS_NON_PROD_DEPLOY = true
+    appEnvOverrides.VENDOR_MODE = 'mock'
+    expect(await get()).toBe(1)
+
+    appEnvOverrides.VENDOR_MODE = 'live'
+    expect(await get()).toBe(333)
+  })
+
   it('sends no search for the unfiltered universe row', async () => {
     const slug = await setupOrg('universe')
     const spy = mockAggregates({})

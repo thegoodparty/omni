@@ -1,5 +1,6 @@
 import { forwardRef, Module } from '@nestjs/common'
 import { ContactsModule } from '@/contacts/contacts.module'
+import { PeopleQueryModule } from '@/peopleDb/peopleQuery.module'
 import { VotersModule } from '@/voters/voters.module'
 import { PaymentHoldsModule } from '@/paymentHolds/paymentHolds.module'
 import { PaymentHoldsService } from '@/paymentHolds/services/paymentHolds.service'
@@ -52,6 +53,7 @@ import { OutreachEmailSenderService } from './services/outreachEmailSender.servi
     // module already imports.
     forwardRef(() => ContactsModule),
     forwardRef(() => VotersModule),
+    PeopleQueryModule,
   ],
   controllers: [
     OutreachEmailController,

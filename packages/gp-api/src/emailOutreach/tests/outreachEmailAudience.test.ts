@@ -8,11 +8,14 @@ import {
 import { ContactsService } from '@/contacts/services/contacts.service'
 import { QueueProducerService } from '@/queue/producer/queueProducer.service'
 import { QueueType } from '@/queue/queue.types'
+import { EMAIL_AUDIENCE_FIXTURE_KIND } from '@/peopleDb/services/peopleEmailFixture.service'
+import { appEnvOverrides } from '@/shared/test-utils/appEnvOverrides'
 import { useTestService } from '@/test-service'
 import {
   OutreachHoldState,
   OutreachStatus,
   Prisma,
+  VendorMockVendor,
 } from '../../generated/prisma'
 import { EmailDomainCheckService } from '../services/emailDomainCheck.service'
 import { OutreachEmailAudienceService } from '../services/outreachEmailAudience.service'
@@ -424,5 +427,39 @@ describe('prepare resolves the audience', () => {
     expect(rows.every((r) => r.firstName === null && r.lastName === null)).toBe(
       true,
     )
+  })
+
+  it('reads a test organization’s stand-in audience where vendors are mocked', async () => {
+    appEnvOverrides.IS_NON_PROD_DEPLOY = true
+    appEnvOverrides.VENDOR_MODE = 'mock'
+    const peopleDb = vi.spyOn(
+      service.app.get(ContactsService),
+      'findContactsForFilter',
+    )
+    await service.prisma.vendorMockRecord.create({
+      data: {
+        vendor: VendorMockVendor.people_db,
+        kind: EMAIL_AUDIENCE_FIXTURE_KIND,
+        externalId: orgs.winSlug,
+        state: {
+          people: ['b', 'a', 'c'].map((name, i) => ({
+            id: `fixture-000${i}`,
+            email: `success+${name}@simulator.amazonses.com`,
+            firstName: null,
+            lastName: null,
+          })),
+        },
+      },
+    })
+    const { outreachEmailId } = await pendingSend({ recipientCap: 3 })
+
+    await prepare(outreachEmailId)
+
+    expect(peopleDb).not.toHaveBeenCalled()
+    expect((await recipientsOf(outreachEmailId)).map((r) => r.email)).toEqual([
+      'success+b@simulator.amazonses.com',
+      'success+a@simulator.amazonses.com',
+      'success+c@simulator.amazonses.com',
+    ])
   })
 })

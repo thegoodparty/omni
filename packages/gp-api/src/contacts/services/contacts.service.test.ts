@@ -213,6 +213,7 @@ describe('ContactsService', () => {
         {} as never,
         mockStatsService as never,
         { resolve: vi.fn().mockResolvedValue({ base: 'voters' }) } as never,
+        { emailAudienceFor: vi.fn().mockResolvedValue(null) } as never,
         mockContactsMadeResolutionService as never,
         { latestEvent: vi.fn().mockResolvedValue(null) } as never,
         {

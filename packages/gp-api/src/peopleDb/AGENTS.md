@@ -65,6 +65,13 @@ people table FULL OUTER JOIN the org's rows of
   without it (no column to test, and no one there has an email). The list
   detail's `email` count compiles to the same predicate. Email outreach forces
   it on every count and resolve (`src/emailOutreach/`).
+- Where vendors are mocked (never prod), a test organization can have a
+  stand-in email audience instead: `services/peopleEmailFixture.service.ts`
+  reads it from a `people_db` vendor mock record, and the list detail's
+  `email` count and email outreach's count and resolve use it in place of the
+  warehouse for that organization. It exists because a preview's database
+  never feeds the overlay, so the email E2E has no other way to reach anyone.
+  It holds SES simulator addresses only.
 - Org slug, state and district name are inlined as escaped literals
   (`stringLiteral`), because a table expression cannot carry bound
   parameters. One join, never a UNION (a union over the mart's columns

@@ -5,6 +5,7 @@ import {
   ContactsFilterResolutionInput,
   ContactsService,
 } from '@/contacts/services/contacts.service'
+import { PeopleEmailFixtureService } from '@/peopleDb/services/peopleEmailFixture.service'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
 import { Organization, Prisma } from '../../generated/prisma'
@@ -29,6 +30,13 @@ export type AudienceResolveRow = {
 // delivery advanced the cursor first, so this one stops.
 export type AudienceResolveOutcome = 'done' | 'more' | 'moved'
 
+type AudiencePerson = {
+  id: string
+  email: string | null
+  firstName: string | null
+  lastName: string | null
+}
+
 type Recipient = {
   email: string
   firstName: string | null
@@ -45,6 +53,7 @@ export class OutreachEmailAudienceService extends createPrismaBase(
     private readonly contacts: ContactsService,
     private readonly voterFileFilters: VoterFileFilterService,
     private readonly domainCheck: EmailDomainCheckService,
+    private readonly emailFixture: PeopleEmailFixtureService,
   ) {
     super()
   }
@@ -65,6 +74,8 @@ export class OutreachEmailAudienceService extends createPrismaBase(
       organizationSlug,
       voterFileFilterId,
     )
+    const fixture = await this.emailFixture.emailAudienceFor(organizationSlug)
+    if (fixture) return fixture.length
     const { pagination } = await this.contacts.findContactsForFilter(
       filter,
       { resultsPerPage: 1, page: 1 },
@@ -105,6 +116,9 @@ export class OutreachEmailAudienceService extends createPrismaBase(
     }
     const organization = await this.organizationFor(row.organizationSlug)
     const dataset = await this.contacts.resolvePeopleDataset(organization)
+    const fixture = await this.emailFixture.emailAudienceFor(
+      row.organizationSlug,
+    )
     const deadline = addMilliseconds(
       new Date(),
       EMAIL_AUDIENCE_DELIVERY_BUDGET_MS,
@@ -126,18 +140,25 @@ export class OutreachEmailAudienceService extends createPrismaBase(
       }
       if (isAfter(new Date(), deadline)) return 'more'
 
-      const { people } = await this.contacts.findContactsForFilter(
-        emailFilter,
-        {
-          resultsPerPage: MAX_RESULTS_PER_PAGE,
-          page: 1,
-          skipCount: true,
-          ...(cursor === null ? {} : { afterId: cursor }),
-        },
-        organization,
-        undefined,
-        dataset,
-      )
+      const people: AudiencePerson[] = fixture
+        ? fixture
+            .filter((person) => cursor === null || person.id > cursor)
+            .sort((a, b) => (a.id < b.id ? -1 : 1))
+            .slice(0, MAX_RESULTS_PER_PAGE)
+        : (
+            await this.contacts.findContactsForFilter(
+              emailFilter,
+              {
+                resultsPerPage: MAX_RESULTS_PER_PAGE,
+                page: 1,
+                skipCount: true,
+                ...(cursor === null ? {} : { afterId: cursor }),
+              },
+              organization,
+              undefined,
+              dataset,
+            )
+          ).people
       const last = people.at(-1)
       if (!last) break
 
