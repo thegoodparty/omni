@@ -1,5 +1,6 @@
 'use client'
 
+import { parseElectionYear } from '@/shared/district/parseElectionYear'
 import {
   TextField,
   TextArea,
@@ -171,12 +172,6 @@ function isBallotLevel(value: string): value is BallotReadyPositionLevel {
 
 function isElectionLevel(value: string): value is ElectionLevel {
   return Object.values(ElectionLevel).includes(value as ElectionLevel)
-}
-
-function parseElectionYear(electionDate: string | null | undefined): number {
-  if (!electionDate) return 0
-  const year = Number(electionDate.split('-')[0])
-  return Number.isFinite(year) ? year : 0
 }
 
 interface CampaignFormProps {
