@@ -1,3 +1,4 @@
+import { addHours, isAfter } from 'date-fns'
 import {
   BadRequestException,
   ConflictException,
@@ -53,6 +54,8 @@ const WAVES_INCLUDE = {
 
 type Action = UpdateManagedCivicPanelInput['action']
 
+const DISTRICT_PLACE_TTL_HOURS = 24
+
 // Which statuses each action may leave from. A ready or exhausted panel has
 // nothing left to send, so there is nothing to pause or resume, but it can
 // still be stopped.
@@ -84,6 +87,11 @@ export class ManagedCivicPanelService extends createPrismaBase(
   ) {
     super()
   }
+
+  private readonly placeCache = new Map<
+    string,
+    { place: string; expiresAt: Date }
+  >()
 
   async read(organization: Organization): Promise<ManagedCivicPanelResponse> {
     assertServeOrg(organization)
@@ -215,7 +223,17 @@ export class ManagedCivicPanelService extends createPrismaBase(
   }
 
   // "Asheville", the way Serve copy names the office's place, or null.
+  // Cached per process: the place behind an office changes only when its
+  // position or district override does, and both are in the key.
   async districtPlace(organization: Organization): Promise<string | null> {
+    const key = [
+      organization.slug,
+      organization.positionId,
+      organization.overrideDistrictId,
+    ].join(':')
+    const now = new Date()
+    const cached = this.placeCache.get(key)
+    if (cached && isAfter(cached.expiresAt, now)) return cached.place
     try {
       const district = await this.organizations.getDistrictForOrgSlug(
         organization.slug,
@@ -223,7 +241,14 @@ export class ManagedCivicPanelService extends createPrismaBase(
       const city = district?.l2Name
         ? OrganizationsService.extractCityFromDistrictName(district.l2Name)
         : null
-      return city ? cityNameCase(city) : null
+      const place = city ? cityNameCase(city) : null
+      if (place) {
+        this.placeCache.set(key, {
+          place,
+          expiresAt: addHours(now, DISTRICT_PLACE_TTL_HOURS),
+        })
+      }
+      return place
     } catch {
       return null
     }

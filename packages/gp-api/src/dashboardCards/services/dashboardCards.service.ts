@@ -498,7 +498,7 @@ export class DashboardCardsService extends createPrismaBase(
       // takes a district lookup.
       const place =
         (panel?.status === 'building' && panel.progress.members > 0) ||
-        panel?.status === 'ready'
+        (panel && managedPanelPhase(panel, new Date()) === 'ready')
           ? await panels.districtPlace(organization)
           : null
       return { panel, place }
