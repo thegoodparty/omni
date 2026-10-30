@@ -54,7 +54,7 @@ echo
 echo "Tools:"
 check "node $(node --version 2>/dev/null || echo '(not found)')" \
       'command -v node' \
-      'Install Node 22.x via nvm / fnm / mise.'
+      'Install Node 24.x via nvm / fnm / mise.'
 check "autocannon (HTTP load — §1)" \
       'command -v autocannon' \
       'Falls back to: npx --yes autocannon (no install needed; first run is slow).'

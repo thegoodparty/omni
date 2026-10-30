@@ -39,7 +39,7 @@
     "schema": "prisma/schema"
   },
   "engines": {
-    "node": "22",
+    "node": "24",
     "npm": ">=10.9.0"
   },
   "dependencies": {
@@ -214,7 +214,7 @@
     "@types/bcrypt": "^5.0.2",
     "@types/cli-progress": "^3.11.6",
     "@types/lodash": "^4.17.13",
-    "@types/node": "^20.3.1",
+    "@types/node": "^24.10.0",
     "@types/passport-jwt": "^4.0.1",
     "@types/pdf-parse": "^1.1.5",
     "@types/pdfkit": "^0.17.6",
