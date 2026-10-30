@@ -21,13 +21,13 @@ import {
 } from './emailApi'
 import { checkSchedule, toDraftSave } from './emailFlow.util'
 import {
-  editorIssues,
+  composeIssues,
   hasIssues,
   initialCompose,
-  parseBlockError,
-  type BlockError,
+  serverFieldError,
+  type ComposeFieldError,
   type EmailComposeState,
-} from './emailBlocks.util'
+} from './emailForm.util'
 import { WIN_EMAIL_SURFACE, type EmailSurface } from './emailSurface'
 
 // Count-only, like robocall's landline overlay: the builder counts people
@@ -63,11 +63,11 @@ export const EmailFlow = ({
   const [goalId, setGoalId] = useState<string | null>(null)
   const [customGoal, setCustomGoal] = useState('')
   const [compose, setComposeState] = useState<EmailComposeState>(initialCompose)
-  const [blockError, setBlockError] = useState<BlockError | null>(null)
+  const [fieldError, setFieldError] = useState<ComposeFieldError | null>(null)
   const setCompose = (
     next: EmailComposeState | ((prev: EmailComposeState) => EmailComposeState),
   ) => {
-    setBlockError(null)
+    setFieldError(null)
     setComposeState(next)
   }
   const [composeAttempted, setComposeAttempted] = useState(false)
@@ -94,7 +94,7 @@ export const EmailFlow = ({
     goalId === surface.customGoalId
       ? customGoal.trim()
       : (surface.goals.find((g) => g.id === goalId)?.label ?? '')
-  const composeValid = !hasIssues(editorIssues(compose, true))
+  const composeValid = !hasIssues(composeIssues(compose, true))
   const index = STEP_ORDER.indexOf(step)
 
   const goTo = (next: EmailStep) => {
@@ -103,13 +103,13 @@ export const EmailFlow = ({
   }
 
   // Confirm and the test send name the block they refuse; the fix is on
-  // that block's card.
+  // the form field that block came from.
   const fixBlock = (message: string): boolean => {
-    const parsed = parseBlockError(message)
+    const parsed = serverFieldError(compose, message)
     if (!parsed) return false
     setComposeAttempted(true)
     goTo('compose')
-    setBlockError(parsed)
+    setFieldError(parsed)
     return true
   }
 
@@ -258,7 +258,7 @@ export const EmailFlow = ({
             onChange={setCompose}
             showIssues={composeAttempted}
             goal={goalText}
-            serverError={blockError}
+            serverError={fieldError}
           />
         )}
         {step === 'audience' && (

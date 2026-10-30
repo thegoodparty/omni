@@ -5,7 +5,7 @@ import {
   toDraftSave,
   warmingCap,
 } from './emailFlow.util'
-import { initialCompose, withIds } from './emailBlocks.util'
+import { initialCompose } from './emailForm.util'
 
 describe('warming', () => {
   it('reads the cap off the warming step and clamps past the last one', () => {
@@ -21,10 +21,10 @@ describe('toDraftSave', () => {
   const state = {
     ...initialCompose(),
     subject: 'S',
-    blocks: withIds([{ type: 'paragraph', text: 'B' }]),
+    message: 'B',
   }
 
-  it('sends the blocks as content, without the editor keys', () => {
+  it('sends the form as block content', () => {
     expect(
       toDraftSave('Intro', state, null, undefined, {
         listId: null,

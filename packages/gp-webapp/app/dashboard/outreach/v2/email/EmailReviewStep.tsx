@@ -11,10 +11,10 @@ import {
 } from './emailApi'
 import { formatCount, formatDollars, nextWarmingCap } from './emailFlow.util'
 import {
-  parseBlockError,
+  isBlockError,
   toContent,
   type EmailComposeState,
-} from './emailBlocks.util'
+} from './emailForm.util'
 import type { EmailSurface } from './emailSurface'
 
 interface EmailReviewStepProps {
@@ -22,7 +22,7 @@ interface EmailReviewStepProps {
   compose: EmailComposeState
   draftId: number | null
   sendLabel: string
-  // Opens compose on the block a refused test send names.
+  // Opens compose on the field a refused test send names.
   onFixBlock: (message: string) => void
 }
 
@@ -202,7 +202,7 @@ export const EmailReviewStep = ({
             <p className="text-xs text-muted-foreground">{testResult}</p>
           )}
           {testError && <p className="text-xs text-destructive">{testError}</p>}
-          {testError && parseBlockError(testError) && (
+          {testError && isBlockError(testError) && (
             <Button
               type="button"
               size="small"

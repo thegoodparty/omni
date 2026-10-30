@@ -16,8 +16,8 @@ import {
 import { eventually } from 'tests/utils/eventually'
 import { withGatewayRetry } from 'tests/utils/headless-user'
 
-// The email send, end to end against the vendor-mock stack: compose with
-// blocks, pick a voter-file list with the email filter forced on, confirm
+// The email send, end to end against the vendor-mock stack: compose in the
+// form, pick a voter-file list with the email filter forced on, confirm
 // with a card Stripe declines at the hold, confirm again with Stripe's 4242
 // card (a real test-mode hold), then run the real due, prepare, send and
 // settle steps and wait for Sent.
@@ -87,7 +87,7 @@ const fillStripeCard = async (
   await page.waitForTimeout(500)
 }
 
-// The AI draft is answered here so the blocks it fills are known: a model's
+// The AI draft is answered here so the form it fills is known: a model's
 // draft varies run to run, and this spec is about the send.
 const AI_DRAFT = {
   subject: 'Meet your candidate',
@@ -111,18 +111,20 @@ const mockAiDraft = (page: Page) =>
     route.fulfill({ json: AI_DRAFT }),
   )
 
-// Compose with blocks: the draft fills a personal letter, switching to the
-// short layout keeps its text and adds a headline, then the headline and the
+// Compose in the form: the draft fills a personal letter, switching to the
+// short layout keeps the message and shows Title, then the title and the
 // button's link are filled in.
-const composeWithBlocks = async (page: Page) => {
+const composeEmail = async (page: Page) => {
   await expect(page.locator('#email-subject')).toHaveValue(
     'Meet your candidate',
     { timeout: 30_000 },
   )
   await page.getByRole('radio', { name: 'Short with a button' }).click()
-  await expect(page.getByTestId('email-block')).toHaveCount(4)
-  await page.getByRole('textbox', { name: 'Headline' }).fill('Fixing our roads')
-  await page.getByLabel('Button link').fill('https://goodparty.org')
+  await expect(page.getByRole('textbox', { name: 'Message' })).toContainText(
+    'I am running to fix our roads.',
+  )
+  await page.locator('#email-title').fill('Fixing our roads')
+  await page.locator('#email-button-url').fill('https://goodparty.org')
 }
 
 test.describe('Email send — mock pipeline', () => {
@@ -177,7 +179,7 @@ test.describe('Email send — mock pipeline', () => {
     await expect(stepHeading(page, 'What do you want to say?')).toBeVisible({
       timeout: 30_000,
     })
-    await composeWithBlocks(page)
+    await composeEmail(page)
     await page.getByRole('button', { name: 'Next' }).click()
 
     // ── Audience: a voter-file list, email forced on ────────────────────
@@ -320,7 +322,7 @@ test.describe('Email send — mock pipeline', () => {
     await expect(stepHeading(page, 'What do you want to say?')).toBeVisible({
       timeout: 30_000,
     })
-    await composeWithBlocks(page)
+    await composeEmail(page)
     await page.getByRole('button', { name: 'Next' }).click()
 
     await expect(stepHeading(page, 'Who do you want to reach?')).toBeVisible({
