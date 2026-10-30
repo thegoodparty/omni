@@ -900,10 +900,18 @@ export class PaymentEventsService {
       )
     }
 
-    await this.sendProCancellationSlackMessage(user, campaign)
+    await this.sendProCancellationSlackMessage(
+      user,
+      campaign,
+      subscription.cancellation_details?.reason ?? null,
+    )
   }
 
-  async sendProCancellationSlackMessage(user: User, campaign: Campaign) {
+  async sendProCancellationSlackMessage(
+    user: User,
+    campaign: Campaign,
+    cancellationReason: Stripe.Subscription.CancellationDetails.Reason | null = null,
+  ) {
     const fullName = getUserFullName(user)
     const { organizationSlug, slug } = campaign
     const positionName = organizationSlug
@@ -918,7 +926,11 @@ export class PaymentEventsService {
           user.email
         }, running for '${positionName || 'Unknown Office'}' and campaign slug \`${
           slug
-        }\` ended their pro subscription!`,
+        }\` ended their pro subscription!${
+          cancellationReason === 'payment_failed'
+            ? ' Stripe canceled it after the payment failed; the candidate did not cancel.'
+            : ''
+        }`,
       },
       IS_PROD_DEPLOY ? SlackChannel.botPolitics : SlackChannel.botDev,
     )
