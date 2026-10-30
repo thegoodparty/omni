@@ -27,6 +27,26 @@ import type { SelectedOffice } from 'app/onboarding/components/onboardingTypes'
 // signal that tells apart cohort twins sharing an identical name.
 const isZipValid = (value: string): boolean => /^\d{5}$/.test(value.trim())
 
+// The zip flow maps a zip to districts through its voters, so a PO box or
+// other voterless zip finds nothing. Searching by name skips the zip and is
+// the way out. A short term would match most of the country, so it needs a few
+// letters, and the list is capped so a broad term stays usable.
+const MIN_NAME_SEARCH_LENGTH = 3
+const MAX_NAME_RESULTS = 50
+
+type SearchMode = 'zip' | 'name'
+
+interface PositionSearch {
+  mode: SearchMode
+  value: string
+}
+
+const isNameValid = (value: string): boolean =>
+  value.trim().length >= MIN_NAME_SEARCH_LENGTH
+
+const isSearchValid = ({ mode, value }: PositionSearch): boolean =>
+  mode === 'zip' ? isZipValid(value) : isNameValid(value)
+
 interface PositionRow {
   positionId: string
   positionName: string
@@ -60,12 +80,14 @@ const KNOWN_PILLS = [
 const OTHER_PILL = 'Other'
 
 const fetchRaces = async (
-  zip: string,
+  { mode, value }: PositionSearch,
   timeframe: 'future' | 'past',
 ): Promise<Race[]> => {
   const resp = await clientFetch<Race[]>(
     apiRoutes.elections.racesByYear,
-    { zipcode: zip, timeframe },
+    mode === 'zip'
+      ? { zipcode: value, timeframe }
+      : { name: value.trim(), timeframe },
     { revalidate: 3600 },
   )
   if (!resp.ok) {
@@ -82,13 +104,16 @@ interface PositionRaces {
 }
 
 // A failed past lookup only costs the dates, so it never fails the picker.
-const fetchPositions = async (zip: string): Promise<PositionRaces> => {
+const fetchPositions = async (
+  search: PositionSearch,
+): Promise<PositionRaces> => {
   const [upcoming, past] = await Promise.all([
-    fetchRaces(zip, 'future'),
-    fetchRaces(zip, 'past').catch((error: Error) => {
+    fetchRaces(search, 'future'),
+    fetchRaces(search, 'past').catch((error: Error) => {
       reportErrorToSentry(error, {
         context: 'serveOnboarding.officePicker.fetchPastRaces',
-        zip,
+        mode: search.mode,
+        value: search.value,
       })
       return []
     }),
@@ -193,25 +218,31 @@ export default function ServeOfficePicker({
   onCantFindOffice,
 }: ServeOfficePickerProps): React.JSX.Element {
   const [zipInput, setZipInput] = useState(zip ?? '')
-  const [submittedZip, setSubmittedZip] = useState<string | undefined>(zip)
+  const [mode, setMode] = useState<SearchMode>('zip')
+  const [nameInput, setNameInput] = useState('')
+  const [submitted, setSubmitted] = useState<PositionSearch | undefined>(
+    zip ? { mode: 'zip', value: zip } : undefined,
+  )
   const [nameFilter, setNameFilter] = useState('')
   const [activePill, setActivePill] = useState<string | null>(null)
 
-  const canSearch = isZipValid(zipInput)
+  const canSearch =
+    mode === 'zip' ? isZipValid(zipInput) : isNameValid(nameInput)
 
   const query = useQuery({
-    queryKey: ['serve-onboarding-positions', submittedZip],
-    queryFn: () => fetchPositions(submittedZip as string),
-    enabled: Boolean(submittedZip && isZipValid(submittedZip)),
+    queryKey: ['serve-onboarding-positions', submitted?.mode, submitted?.value],
+    queryFn: () => fetchPositions(submitted as PositionSearch),
+    enabled: Boolean(submitted && isSearchValid(submitted)),
   })
 
   useEffect(() => {
     if (!query.error) return
     reportErrorToSentry(query.error, {
       context: 'serveOnboarding.officePicker.fetchPositions',
-      zip: submittedZip,
+      mode: submitted?.mode,
+      value: submitted?.value,
     })
-  }, [query.error, submittedZip])
+  }, [query.error, submitted])
 
   const positions = useMemo(
     () => dedupeToPositions(query.data ?? { upcoming: [], past: [] }),
@@ -254,11 +285,25 @@ export default function ServeOfficePicker({
 
   const handleSearch = () => {
     if (!canSearch) return
-    const cleaned = zipInput.trim()
-    setSubmittedZip(cleaned)
+    const cleaned = (mode === 'zip' ? zipInput : nameInput).trim()
+    setSubmitted({ mode, value: cleaned })
     setNameFilter('')
     setActivePill(null)
-    onZipChange(cleaned)
+    if (mode === 'zip') onZipChange(cleaned)
+    onSelect(undefined)
+  }
+
+  const switchMode = (next: SearchMode) => {
+    setMode(next)
+    setSubmitted(
+      next === 'zip' && isZipValid(zipInput)
+        ? { mode: 'zip', value: zipInput.trim() }
+        : next === 'name' && isNameValid(nameInput)
+          ? { mode: 'name', value: nameInput.trim() }
+          : undefined,
+    )
+    setNameFilter('')
+    setActivePill(null)
     onSelect(undefined)
   }
 
@@ -267,41 +312,87 @@ export default function ServeOfficePicker({
     handleSearch()
   }
 
-  const showResults = Boolean(submittedZip) && query.isSuccess
+  const showResults = Boolean(submitted) && query.isSuccess
+  const isNameMode = submitted?.mode === 'name'
+  const visiblePositions = isNameMode
+    ? filteredPositions.slice(0, MAX_NAME_RESULTS)
+    : filteredPositions
 
   return (
     <div className="space-y-5 text-left">
       <form noValidate onSubmit={handleSubmit}>
-        <InputWithButton
-          label="ZIP code"
-          inputMode="numeric"
-          maxLength={5}
-          pattern="[0-9]{5}"
-          placeholder="Enter 5 digit zip code"
-          value={zipInput}
-          onChange={(event) =>
-            setZipInput(event.target.value.replace(/\D/g, ''))
-          }
-          aria-invalid={
-            query.isError || (Boolean(zipInput) && !canSearch) || undefined
-          }
-          buttonLabel="Search"
-          buttonProps={{
-            type: 'submit',
-            disabled: !canSearch || query.isFetching,
-            loading: query.isFetching,
-          }}
-        />
+        {mode === 'zip' ? (
+          <InputWithButton
+            label="ZIP code"
+            inputMode="numeric"
+            maxLength={5}
+            pattern="[0-9]{5}"
+            placeholder="Enter 5 digit zip code"
+            value={zipInput}
+            onChange={(event) =>
+              setZipInput(event.target.value.replace(/\D/g, ''))
+            }
+            aria-invalid={
+              query.isError || (Boolean(zipInput) && !canSearch) || undefined
+            }
+            buttonLabel="Search"
+            buttonProps={{
+              type: 'submit',
+              disabled: !canSearch || query.isFetching,
+              loading: query.isFetching,
+            }}
+          />
+        ) : (
+          <InputWithButton
+            label="Office name"
+            placeholder="Enter your office name, e.g. Wilmington City Council"
+            value={nameInput}
+            onChange={(event) => setNameInput(event.target.value)}
+            aria-invalid={
+              query.isError || (Boolean(nameInput) && !canSearch) || undefined
+            }
+            buttonLabel="Search"
+            buttonProps={{
+              type: 'submit',
+              disabled: !canSearch || query.isFetching,
+              loading: query.isFetching,
+            }}
+          />
+        )}
+        <div className="pt-1">
+          <Button
+            type="button"
+            variant="link"
+            size="small"
+            onClick={() => switchMode(mode === 'zip' ? 'name' : 'zip')}
+          >
+            {mode === 'zip'
+              ? "Can't find your office? Search by name"
+              : 'Back to ZIP code search'}
+          </Button>
+        </div>
       </form>
 
-      {!submittedZip && !query.isFetching ? (
-        <EmptyState message="Enter your ZIP code above to find your office." />
+      {!submitted && !query.isFetching ? (
+        <EmptyState
+          message={
+            mode === 'zip'
+              ? 'Enter your ZIP code above to find your office.'
+              : `Enter at least ${MIN_NAME_SEARCH_LENGTH} letters of your office name to search all offices.`
+          }
+        />
       ) : null}
 
       {query.isFetching ? <PickerSkeleton /> : null}
 
       {query.isError ? (
-        <EmptyState message="We couldn't load offices for that ZIP code. Try again." />
+        <EmptyState
+          message={
+            isNameMode
+              ? "We couldn't load offices for that name. Try again."
+              : "We couldn't load offices for that ZIP code. Try again."
+          }
+        />
       ) : null}
 
       {showResults ? (
@@ -336,13 +427,18 @@ export default function ServeOfficePicker({
             {`${filteredPositions.length} office${
               filteredPositions.length === 1 ? '' : 's'
             } found`}
+            {visiblePositions.length < filteredPositions.length
+              ? `, showing the first ${MAX_NAME_RESULTS}. Add more of the name to narrow it.`
+              : ''}
           </div>
 
           {filteredPositions.length === 0 ? (
             <EmptyState
               message={
                 positions.length === 0
-                  ? "We couldn't find any offices for that ZIP code. Enter your office manually below."
+                  ? isNameMode
+                    ? "We couldn't find any offices with that name. Try another spelling or enter your office manually below."
+                    : "We couldn't find any offices for that ZIP code. Try searching by name, or enter your office manually below."
                   : 'No offices match that search. Try another term or enter your office manually below.'
               }
             />
@@ -352,7 +448,7 @@ export default function ServeOfficePicker({
               className="max-h-[480px] overflow-y-auto p-1"
               value={selected?.positionId ?? ''}
               onValueChange={(positionId) => {
-                const row = filteredPositions.find(
+                const row = visiblePositions.find(
                   (candidate) => candidate.positionId === positionId,
                 )
                 if (row) {
@@ -363,7 +459,7 @@ export default function ServeOfficePicker({
                 }
               }}
             >
-              {filteredPositions.map((row) => (
+              {visiblePositions.map((row) => (
                 <RadioCardItem
                   key={row.positionId}
                   value={row.positionId}
@@ -372,6 +468,7 @@ export default function ServeOfficePicker({
                   description={
                     [
                       row.level,
+                      isNameMode ? row.state : undefined,
                       row.lastElectedDate
                         ? `Last elected: ${dateUsHelper(row.lastElectedDate)}`
                         : undefined,
