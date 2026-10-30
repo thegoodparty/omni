@@ -3,7 +3,7 @@ title: Machine callers authenticate to gp-api with their platform's OIDC token
 status: active
 decided_by: [swain]
 date: 2026-10-29
-code: ['#3395', '#3421']
+code: ['#3395', '#3421', '#3435']
 scope:
   - packages/gp-api/src/authentication/**
   - packages/gp-api/deploy/index.ts

@@ -3,7 +3,7 @@ title: Public read routes that only our servers call require a service read toke
 status: active
 decided_by: [swain]
 date: 2026-10-29
-code: ['#3382']
+code: ['#3382', '#3435']
 scope:
   - packages/gp-api/src/personProfiles/controllers/public-person-profiles.controller.ts
   - packages/gp-api/src/campaigns/controllers/public-campaigns.controller.ts
