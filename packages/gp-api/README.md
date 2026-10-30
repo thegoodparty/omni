@@ -31,7 +31,7 @@
 ### Prerequisites
 
 - Be sure to [install Node](https://docs.npmjs.com/downloading-and-installing-node-js-and-npm) if you haven't already.
-- You will need to be on node `22.12+`
+- You will need to be on node `24` (the version in `.nvmrc`)
 - If you have `nvm` installed, you can run `nvm use` to get the version from the `.nvmrc` file.
 
 ### Setup

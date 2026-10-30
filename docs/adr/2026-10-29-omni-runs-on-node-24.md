@@ -12,6 +12,8 @@ scope:
   - packages/gp-ai/autopilot/Dockerfile
   - packages/gp-ai/pmf_engine/Dockerfile
   - .github/actions/setup-node-workspace/**
+  - packages/gp-ai/infrastructure/modules/serve-analyze-fargate/main.tf
+  - packages/gp-ai/infrastructure/shared/slack-notifier/main.tf
 supersedes: []
 superseded_by:
 ---
@@ -20,8 +22,8 @@ superseded_by:
 
 ## Decision
 
-Every TypeScript package, CI job, Vercel project and the gp-api container
-runs Node 24. `.nvmrc` holds the exact patch (`24.22.2`), and the gp-api
+Every TypeScript package, CI job, Vercel project, the gp-api container and
+the gp-ai Lambdas (`nodejs24.x`) run Node 24. `.nvmrc` holds the exact patch (`24.22.2`), and the gp-api
 Dockerfile uses the same tag. Every `engines.node` says `24` or `24.x`, and
 `@types/node` is `^24`. The packages move together because the contracts
 guard (`packages/contracts/scripts/assert-node-version.ts`) fails any test run
@@ -52,11 +54,22 @@ gp-api calls completed a handshake on 24 before the switch.
 
 ## Follow-up
 
-The gp-ai Lambdas `serve-analyze-trigger` and `shared-slack-notifier` stay on
-`nodejs22.x`. gp-ai Terraform pins `hashicorp/aws ~> 5.0` (5.100.0), which
-rejects `nodejs24.x`. Moving them needs the AWS provider v6 upgrade across the
-gp-ai roots, and it must land before AWS deprecates `nodejs22.x` (around April
-2027).
+The release train applies the `serve-analyze-trigger` runtime with the
+serve-analyze-fargate roots. `shared-slack-notifier` is not in CI, so after
+merge someone applies it by hand from the repo root:
+
+```bash
+cd packages/gp-ai/infrastructure/modules/serve-analyze-fargate/slack-notifier
+npm install && npm run package
+cp slack-notifier.zip ../../../shared/slack-notifier/
+cd ../../../shared/slack-notifier
+terraform init
+terraform plan -var environment=prod -out=tfplan
+terraform apply tfplan
+```
+
+The plan should change only `runtime`, plus `source_code_hash` if the zip
+differs from the last one applied.
 
 ## Revisit if
 
