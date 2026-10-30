@@ -19,14 +19,17 @@ superseded_by:
 ## Decision
 
 A Win campaign's imported people that match no voter become contacts like
-any voter (searchable, on lists, reached by outreach), but they are counted
-next to the voters, never inside them, as "New contacts added". For a Win
-campaign whose reads join its imported contacts, `GET /v1/contacts/stats`
-and both list-detail routes count voters only and return `newContactsCount`
-(and `newContactsReachable` per channel) beside them, from the same
-statement (`splitNewContacts`). A `source` filter (`voterFile`, `imported`)
-on `PeopleFilters` and the saved `VoterFileFilter` picks one side. Serve is
-unchanged: an office counts everyone together, and the filter 400s there.
+any voter (searchable, on lists, reached by outreach), but the product
+shows them next to the voters, never inside them, as "New contacts added".
+Every existing total keeps counting everyone. For a Win campaign whose reads
+join its imported contacts, `GET /v1/contacts/stats` and
+`POST /v1/contacts/count` add `newContactsCount`, and the list-detail routes
+add `demographics.newContactsCount` and `newContactsReachable` per channel:
+of each total, the new contacts, from the same statement
+(`countNewContacts`). The UI shows voters as the total less them. A
+`source` filter (`voterFile`, `imported`) on `PeopleFilters` and the saved
+`VoterFileFilter` keeps one side. Serve is unchanged: an office counts
+everyone together, and the filter 400s there.
 
 This applies the read model of
 `2026-10-29-import-contacts-covers-win-pro-campaigns.md` to counts.
@@ -48,6 +51,10 @@ and Swain chose option A of three (#tmp-import-contacts).
   everyone would quietly skip people the campaign brought in.
 - **Count them inside the voter totals with a label.** Keeps one number but
   it is no longer a count of voters.
+- **Make the existing totals voters only and return new contacts beside
+  them.** Changes the meaning of fields every current reader (pricing,
+  outreach sizing, the assistant) already uses; the subset leaves them as
+  they are.
 
 ## Revisit if
 

@@ -9,7 +9,9 @@ import { voterFilterBaseSchema } from '@/shared/schemas/voterFilterBase.schema'
 import { dataSourceRoutingRules } from '@/llm/tools/dataSourceRouting'
 import type { PeopleDataset } from '@/peopleDb/services/peopleDataset.service'
 
-export type CountContactsOutput = { count: number } | { error: string }
+export type CountContactsOutput =
+  | { count: number; newContactsCount?: number }
+  | { error: string }
 
 const countContactsInputSchema = voterFilterBaseSchema.strict()
 
@@ -44,7 +46,9 @@ export const buildCountContactsTool = (deps: {
     'Count the contacts matching a filter, using the same filter shape and ' +
     'rules as the saved-list builder. Input fields must come from ' +
     'describe_filter_dimensions — call it first. Returns { count }, never ' +
-    'individual records. Returns a structured error instead of a count when ' +
+    'individual records. For a campaign with imported contacts it adds ' +
+    'newContactsCount: how many of count are new contacts added, not ' +
+    'voters. Returns a structured error instead of a count when ' +
     'the organization cannot run the filter (e.g. a Win campaign without ' +
     'Pro, or a political-party filter on an elected-office organization).' +
     '\n\n' +

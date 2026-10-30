@@ -247,7 +247,7 @@ describe('ContactsService — people-db (sole path)', () => {
       ).toHaveBeenCalledWith(
         expect.objectContaining({ districtId: OVERRIDE_DISTRICT_ID }),
         { base: 'constituents' },
-        { splitNewContacts: false },
+        { countNewContacts: false },
       )
       expect(ListDetailContactsResponseSchema.safeParse(result).success).toBe(
         true,

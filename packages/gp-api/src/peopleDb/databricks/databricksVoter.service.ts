@@ -342,11 +342,11 @@ export class DatabricksVoterService {
   async getListDetailAggregates(
     dto: AggregatesDTO,
     dataset: PeopleDataset,
-    options: { splitNewContacts?: boolean } = {},
+    options: { countNewContacts?: boolean } = {},
   ): Promise<PeopleListDetailAggregatesResponse> {
     const district = await this.resolveDistrict(dto.districtId, dataset)
-    const split =
-      options.splitNewContacts === true && dataset.overlayOrgSlug !== undefined
+    const countNew =
+      options.countNewContacts === true && dataset.overlayOrgSlug !== undefined
     const { rows } = await this.run(
       buildListDetailAggregatesSql({
         district,
@@ -355,7 +355,7 @@ export class DatabricksVoterService {
         idOverrides: dto.idOverrides,
         contactsMadeIdOverrides: dto.contactsMadeIdOverrides,
         affinityColumn: dto.affinityColumn,
-        splitNewContacts: split,
+        countNewContacts: countNew,
       }),
     )
     const [row] = rows
@@ -368,7 +368,7 @@ export class DatabricksVoterService {
       phoneBanking: Number(row?.[5] ?? 0),
       doorKnocking: Number(row?.[6] ?? 0),
       email: Number(row?.[7] ?? 0),
-      ...(split
+      ...(countNew
         ? {
             newContacts: {
               count: Number(row?.[8] ?? 0),
@@ -554,10 +554,16 @@ export class DatabricksVoterService {
     // shortcut for the unfiltered count here — DistrictStats runs 8-22 days
     // stale and the live count is cheap enough not to need it.
     const { groupByHousehold } = dto
+    const countNewContacts =
+      dto.countNewContacts === true &&
+      !groupByHousehold &&
+      dataset.overlayOrgSlug !== undefined
     const [countRows, pageRows] = await Promise.all([
       dto.skipCount
         ? Promise.resolve(null)
-        : this.run(buildCountSql({ ...scope, groupByHousehold })),
+        : this.run(
+            buildCountSql({ ...scope, groupByHousehold, countNewContacts }),
+          ),
       this.run(
         buildPageSql({
           ...scope,
@@ -578,6 +584,9 @@ export class DatabricksVoterService {
     const totalResults = countRows ? Number(countRows.rows[0]?.[0] ?? 0) : 0
     const totalPages = Math.max(1, Math.ceil(totalResults / dto.resultsPerPage))
     return {
+      ...(countNewContacts && countRows
+        ? { newContactsCount: Number(countRows.rows[0]?.[1] ?? 0) }
+        : {}),
       pagination: {
         totalResults,
         currentPage: page,
@@ -602,7 +611,7 @@ export class DatabricksVoterService {
   async findStats(
     districtId: string,
     dataset: PeopleDataset,
-    options: { splitNewContacts?: boolean } = {},
+    options: { countNewContacts?: boolean } = {},
   ): Promise<ComputedDistrictStats | null> {
     const district = await this.resolveDistrict(districtId, dataset)
     const statsRead = this.run(buildDistrictStatsSql(district, options))

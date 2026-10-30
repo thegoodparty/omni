@@ -98,6 +98,9 @@ describe('dataSourceRoutingRules for a Win campaign with imported contacts', () 
   })
 
   it('points the CRM catalog at the source dimension and the mart at new_contact', () => {
+    expect(rules).toContain(
+      'count_contacts returns newContactsCount beside count, so voters are count minus newContactsCount',
+    )
     expect(rules).toContain('source ["voterFile"] for voters')
     expect(rules).toContain('["imported"] for new contacts added')
     expect(rules).toContain('new_contact = true marks a new contact added')

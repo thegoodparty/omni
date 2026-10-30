@@ -1791,7 +1791,7 @@ describe('Win campaigns', () => {
         { headers: { [HEADER]: winSlug } },
       )
       expect(res.status).toBe(HttpStatus.CREATED)
-      expect(res.data).toEqual({ count: 7 })
+      expect(res.data.count).toBe(7)
       return query.mock.calls.map(([statement]) => statement.sql).join('\n')
     }
 

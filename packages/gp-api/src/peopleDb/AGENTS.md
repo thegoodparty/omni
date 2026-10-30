@@ -94,16 +94,16 @@ people table FULL OUTER JOIN the org's rows of
   overlay the Other party filter adds `AND NOT ContactIsNew`
   (`buildPartyValuePredicate`). A voter-file person with no party is still
   Other, and the pack never holds a new person (no rooftop point).
-- A Win campaign counts new people next to its voters, never inside them
+- A Win campaign is told how many of its people are new
   (`docs/adr/2026-10-30-win-new-contacts-counted-next-to-voters.md`).
-  `splitNewContacts` on `buildDistrictStatsSql` and
-  `buildListDetailAggregatesSql` (set by `ContactsService` for a non-`eo-`
-  org with the overlay) turns every count into `COUNT_IF(NOT ContactIsNew)`
-  and adds the new people's counts as trailing `new_*` columns of the same
+  `countNewContacts` on `buildDistrictStatsSql`,
+  `buildListDetailAggregatesSql` and `buildCountSql` (ungrouped only; set
+  by `ContactsService` for a non-`eo-` org with the overlay, through
+  `ListPeopleDTO.countNewContacts` for a count) leaves every count as it was and adds, of each, the
+  people with `ContactIsNew` as trailing `new_*` columns of the same
   statement (`newContactsCount` on `ComputedDistrictStats`, `newContacts`
-  on `PeopleListDetailAggregatesResponse`). A stats bucket only new people
-  fall in comes back 0 and is dropped. Without the overlay the option is a
-  no-op, so the statement is unchanged.
+  on `PeopleListDetailAggregatesResponse`). Without the overlay the option
+  is a no-op, so the statement is unchanged.
 - The `source` filter (`PeopleFilters.source`, a plain array, the one key
   `transformFilters` reads without an operator): `voterFile` is
   `NOT coalesce(ContactIsNew, false)`, `imported` is

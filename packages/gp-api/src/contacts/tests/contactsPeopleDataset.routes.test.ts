@@ -87,7 +87,7 @@ describe('POST /v1/contacts/count — people table', () => {
     )
 
     expect(response.status).toBe(201)
-    expect(response.data).toEqual({ count: 7 })
+    expect(response.data.count).toBe(7)
     return {
       sql: query.mock.calls.map(([statement]) => statement.sql),
       isFeatureEnabled,

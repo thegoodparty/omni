@@ -380,7 +380,7 @@ describe('DatabricksVoterService', () => {
       })
     })
 
-    it('reads new contacts beside the voters when split over the overlay', async () => {
+    it('reads the new contacts among them when counted over the overlay', async () => {
       query.mockResolvedValueOnce({
         columns: [],
         rows: [
@@ -410,7 +410,7 @@ describe('DatabricksVoterService', () => {
           overlayOrgSlug: 'campaign-1',
           overlayDistrictId: DISTRICT_ID,
         },
-        { splitNewContacts: true },
+        { countNewContacts: true },
       )
 
       expect(query.mock.calls[0]?.[0].sql).toContain(
@@ -436,7 +436,7 @@ describe('DatabricksVoterService', () => {
       })
     })
 
-    it('does not split without the overlay', async () => {
+    it('counts no new contacts without the overlay', async () => {
       query.mockResolvedValueOnce({
         columns: [],
         rows: [['999', null, null, '7', '2', '5', '1', '0']],
@@ -445,7 +445,7 @@ describe('DatabricksVoterService', () => {
       const result = await service.getListDetailAggregates(
         aggregatesSchema.parse({ districtId: DISTRICT_ID }),
         { base: 'voters' },
-        { splitNewContacts: true },
+        { countNewContacts: true },
       )
 
       expect(query.mock.calls[0]?.[0].sql).not.toContain('new_count')

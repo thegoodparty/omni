@@ -367,10 +367,10 @@ export class ContactsService {
     return organization.slug.startsWith('eo-')
   }
 
-  // A Win campaign with imported contacts counts the people only an import
-  // added next to its voters, never inside them, so "Voters in your
-  // district" stays a count of voters. Serve counts everyone together.
-  private splitsNewContacts(
+  // A Win campaign with imported contacts also reports how many of its
+  // people only an import added (new contacts, not voters), so the product
+  // can show voters as the total less them. Serve counts everyone together.
+  private countsNewContacts(
     organization: Organization,
     dataset: PeopleDataset,
   ): boolean {
@@ -1336,7 +1336,7 @@ export class ContactsService {
   async countContacts(
     filterInput: CountContactsDTO,
     organization: Organization,
-  ): Promise<{ count: number }> {
+  ): Promise<{ count: number; newContactsCount?: number }> {
     // No Pro gate here, on overlapCount, getListDetail or getFilterDetail:
     // a count is a number about the district, not a voter record, and the
     // outreach build path (outreach-pro-gating-v2) prices a saved or unsaved
@@ -1375,7 +1375,7 @@ export class ContactsService {
     }: {
       districtId: string
       dataset: PeopleDataset
-    }): Promise<{ count: number }> => {
+    }): Promise<{ count: number; newContactsCount?: number }> => {
       const response = await this.voterQueryService.findPeople(
         ListPeopleDTO.create({
           districtId,
@@ -1387,10 +1387,18 @@ export class ContactsService {
           affinityColumn: await this.affinityColumnFor(organization, filters),
           search,
           groupByHousehold: false,
+          ...(this.countsNewContacts(organization, dataset)
+            ? { countNewContacts: true }
+            : {}),
         }),
         dataset,
       )
-      return { count: response.pagination.totalResults }
+      return {
+        count: response.pagination.totalResults,
+        ...(response.newContactsCount === undefined
+          ? {}
+          : { newContactsCount: response.newContactsCount }),
+      }
     }
 
     return this.withOrgDistrictResolution(organization, fetchCount)
@@ -2207,10 +2215,7 @@ export class ContactsService {
   ): Promise<
     Pick<
       ListDetailContactsResponse,
-      | 'demographics'
-      | 'reachability'
-      | 'newContactsCount'
-      | 'newContactsReachable'
+      'demographics' | 'reachability' | 'newContactsReachable'
     >
   > {
     const aggregates = await this.withOrgDistrictResolution(
@@ -2229,7 +2234,7 @@ export class ContactsService {
             ),
           }),
           dataset,
-          { splitNewContacts: this.splitsNewContacts(organization, dataset) },
+          { countNewContacts: this.countsNewContacts(organization, dataset) },
         ),
     )
     const { newContacts } = aggregates
@@ -2244,6 +2249,7 @@ export class ContactsService {
         people: aggregates.count,
         avgAge: aggregates.avgAge,
         avgIncome: aggregates.avgIncome,
+        ...(newContacts ? { newContactsCount: newContacts.count } : {}),
       },
       reachability: {
         sms: aggregates.sms,
@@ -2262,7 +2268,6 @@ export class ContactsService {
       },
       ...(newContacts
         ? {
-            newContactsCount: newContacts.count,
             newContactsReachable: {
               sms: newContacts.sms,
               robocall: newContacts.robocall,
@@ -3199,7 +3204,7 @@ export class ContactsService {
       organization,
       ({ districtId, dataset }) =>
         this.fetchStatsByDistrictId(districtId, dataset, {
-          splitNewContacts: this.splitsNewContacts(organization, dataset),
+          countNewContacts: this.countsNewContacts(organization, dataset),
         }),
     )
   }
@@ -3217,7 +3222,7 @@ export class ContactsService {
   async fetchStatsByDistrictId(
     districtId: string,
     dataset: PeopleDataset,
-    options: { splitNewContacts?: boolean } = {},
+    options: { countNewContacts?: boolean } = {},
   ): Promise<StatsResponse> {
     const stats = await this.peopleStatsService.findStats(
       StatsDTO.create({ districtId }),

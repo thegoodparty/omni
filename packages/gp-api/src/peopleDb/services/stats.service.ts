@@ -23,7 +23,7 @@ export class StatsService {
   async findStats(
     dto: StatsDTO,
     dataset: PeopleDataset,
-    options: { splitNewContacts?: boolean } = {},
+    options: { countNewContacts?: boolean } = {},
   ): Promise<ComputedDistrictStats | null> {
     return this.readLog.measure({
       op: 'stats',

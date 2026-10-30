@@ -11,10 +11,10 @@ const service = useTestService()
 const ORG_SLUG_HEADER = 'X-Organization-Slug'
 const NEW_CONTACT = 'coalesce(v.`ContactIsNew`, false)'
 
-// A Win campaign with imported contacts counts the people only an import
-// added next to its voters, never inside them; Serve counts everyone
-// together. Asserted on the statements that reach the warehouse and on the
-// response, the two places a wrong split would show.
+// Totals count everyone. A Win campaign with imported contacts also gets how
+// many of them only an import added, so the product can show voters as the
+// total less them; Serve counts everyone together. Asserted on the statements
+// that reach the warehouse and on the response.
 describe('new contacts on Win', () => {
   const createWinOrg = async () => {
     const slug = `campaign-new-contacts-${randomUUID()}`
@@ -98,7 +98,10 @@ describe('new contacts on Win', () => {
           }
         }
         if (sql.includes('AS voter_count')) {
-          return { columns: ['voter_count'], rows: [['7']] }
+          return {
+            columns: [],
+            rows: [sql.includes('AS new_count') ? ['900', '14'] : ['7']],
+          }
         }
         return { columns: [], rows: [] }
       })
@@ -108,7 +111,7 @@ describe('new contacts on Win', () => {
     query.mock.calls.map(([statement]) => statement.sql)
 
   describe('GET /v1/contacts/stats', () => {
-    it('counts voters only, with new contacts beside them', async () => {
+    it('counts everyone, and of them the new contacts', async () => {
       const slug = await createWinOrg()
       const query = stubWarehouse(true)
 
@@ -125,7 +128,8 @@ describe('new contacts on Win', () => {
       const stats = statementsFor(query).find((sql) =>
         sql.includes('GROUPING SETS'),
       )
-      expect(stats).toContain('COUNT_IF(NOT is_new) AS count')
+      expect(stats).toContain('COUNT(*) AS count')
+      expect(stats).toContain('COUNT_IF(is_new) AS new_count')
     })
 
     it('is unchanged for a Win campaign without imported contacts', async () => {
@@ -164,7 +168,7 @@ describe('new contacts on Win', () => {
   })
 
   describe('GET /v1/contacts/list-detail', () => {
-    it('reaches voters on each channel, with new contacts beside them', async () => {
+    it('reaches everyone on each channel, and says how many are new contacts', async () => {
       const slug = await createWinOrg()
       const query = stubWarehouse(true)
 
@@ -173,7 +177,12 @@ describe('new contacts on Win', () => {
       })
 
       expect(response.status).toBe(200)
-      expect(response.data.demographics.people).toBe(900)
+      expect(response.data.demographics).toEqual({
+        people: 900,
+        avgAge: 47,
+        avgIncome: null,
+        newContactsCount: 14,
+      })
       expect(response.data.reachability).toEqual({
         sms: 700,
         robocall: 200,
@@ -182,7 +191,6 @@ describe('new contacts on Win', () => {
         email: 30,
         polls: 700,
       })
-      expect(response.data.newContactsCount).toBe(14)
       expect(response.data.newContactsReachable).toEqual({
         sms: 9,
         robocall: 1,
@@ -194,7 +202,8 @@ describe('new contacts on Win', () => {
       const aggregates = statementsFor(query).find((sql) =>
         sql.includes('AS phoneBanking'),
       )
-      expect(aggregates).toContain(`SELECT COUNT_IF(NOT ${NEW_CONTACT})`)
+      expect(aggregates).toMatch(/^SELECT COUNT\(\*\) AS count,/)
+      expect(aggregates).toContain(`COUNT_IF(${NEW_CONTACT}) AS new_count`)
     })
 
     it('is unchanged for Serve with imported contacts', async () => {
@@ -207,7 +216,7 @@ describe('new contacts on Win', () => {
 
       expect(response.status).toBe(200)
       expect(response.data.demographics.people).toBe(900)
-      expect(response.data).not.toHaveProperty('newContactsCount')
+      expect(response.data.demographics).not.toHaveProperty('newContactsCount')
       expect(response.data).not.toHaveProperty('newContactsReachable')
     })
 
@@ -240,7 +249,41 @@ describe('new contacts on Win', () => {
     })
   })
 
-  describe('POST /v1/contacts/count with a source', () => {
+  describe('POST /v1/contacts/count', () => {
+    it('counts everyone, and of them the new contacts', async () => {
+      const slug = await createWinOrg()
+      const query = stubWarehouse(true)
+
+      const response = await service.client.post(
+        '/v1/contacts/count',
+        {},
+        { headers: { [ORG_SLUG_HEADER]: slug } },
+      )
+
+      expect(response.status).toBe(201)
+      expect(response.data).toEqual({ count: 900, newContactsCount: 14 })
+      const count = statementsFor(query).find((sql) =>
+        sql.includes('AS voter_count'),
+      )
+      expect(count).toMatch(
+        /^SELECT COUNT\(\*\) AS voter_count, COUNT_IF\(coalesce\(v\.`ContactIsNew`, false\)\) AS new_count FROM /,
+      )
+    })
+
+    it('is unchanged without imported contacts', async () => {
+      const slug = await createWinOrg()
+      stubWarehouse(false)
+
+      const response = await service.client.post(
+        '/v1/contacts/count',
+        {},
+        { headers: { [ORG_SLUG_HEADER]: slug } },
+      )
+
+      expect(response.status).toBe(201)
+      expect(response.data).toEqual({ count: 7 })
+    })
+
     it('counts only new contacts for imported', async () => {
       const slug = await createWinOrg()
       const query = stubWarehouse(true)
@@ -252,11 +295,12 @@ describe('new contacts on Win', () => {
       )
 
       expect(response.status).toBe(201)
-      expect(response.data).toEqual({ count: 7 })
       const count = statementsFor(query).find((sql) =>
         sql.includes('AS voter_count'),
       )
-      expect(count).toContain(` AND ${NEW_CONTACT}`)
+      expect(count).toMatch(
+        new RegExp(` AND ${NEW_CONTACT.replace(/[()`.]/g, '\\$&')}$`),
+      )
     })
 
     it('counts only voters for voterFile', async () => {

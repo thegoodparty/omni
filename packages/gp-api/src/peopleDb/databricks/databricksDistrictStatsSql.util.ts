@@ -32,8 +32,8 @@ export type ComputedDistrictStats = {
   totalConstituentsWithCellPhone: number
   districtPopulation: number | null
   buckets: DistrictStatsBuckets
-  // Only when the read splits new contacts out: everything above is then
-  // voters only, and this counts the people only an import added.
+  // Only when the read counts new contacts: of totalConstituents, the people
+  // only an import added.
   newContactsCount?: number
 }
 
@@ -161,17 +161,16 @@ export const TOTAL_DIMENSION = 'TOTAL'
 // from -- so five distributions and both totals cost a single pass rather than
 // one aggregate per dimension.
 //
-// With `splitNewContacts` (a Win campaign with imported contacts, read
-// through the overlay) every count is voters only, and the TOTAL row's
-// trailing new_count counts the people only an import added. A bucket only
-// new contacts fall in comes back as 0 and is dropped.
+// With `countNewContacts` (a Win campaign with imported contacts, read
+// through the overlay) the TOTAL row's trailing new_count counts, of
+// everyone, the people only an import added.
 export const buildDistrictStatsSql = (
   district: DbxDistrict,
-  options: { splitNewContacts?: boolean } = {},
+  options: { countNewContacts?: boolean } = {},
 ): DbxStatement => {
   const bag = createBag()
-  const split =
-    options.splitNewContacts === true &&
+  const countNew =
+    options.countNewContacts === true &&
     district.dataset.overlayOrgSlug !== undefined
   const scope = buildScopeSql(bag, {
     district,
@@ -185,19 +184,15 @@ export const buildDistrictStatsSql = (
   ).join(' ')
   const labelCoalesce = STATS_DIMENSIONS.map(([key]) => key).join(', ')
   const groupingSets = STATS_DIMENSIONS.map(([key]) => `(${key})`).join(', ')
-  const counts = split
-    ? 'COUNT_IF(NOT is_new) AS count,' +
-      ' COUNT_IF(cell IS NOT NULL AND NOT is_new) AS with_cell,' +
-      ' COUNT_IF(is_new) AS new_count'
-    : 'COUNT(*) AS count, COUNT(cell) AS with_cell'
   const sql =
     `WITH scoped AS (SELECT ${projections},` +
     ` ${col('VoterTelephones_CellPhoneFormatted')} AS cell` +
-    (split ? `, coalesce(${col('ContactIsNew')}, false) AS is_new` : '') +
+    (countNew ? `, coalesce(${col('ContactIsNew')}, false) AS is_new` : '') +
     ` FROM ${district.table} v ${scope})` +
     ` SELECT CASE ${dimensionCase} ELSE ${quote(TOTAL_DIMENSION)} END AS dimension,` +
     ` coalesce(${labelCoalesce}, ${quote('all')}) AS label,` +
-    ` ${counts}` +
+    ` COUNT(*) AS count, COUNT(cell) AS with_cell` +
+    (countNew ? ', COUNT_IF(is_new) AS new_count' : '') +
     ` FROM scoped GROUP BY GROUPING SETS (${groupingSets}, ())`
   return { sql, params: bag.params }
 }
@@ -240,7 +235,6 @@ export const mapDistrictStatsRows = (
       continue
     }
     if (!dimension || !isDimensionKey(dimension)) continue
-    if (Number(count ?? 0) === 0) continue
     pending.push([dimension, label ?? '', Number(count ?? 0)])
   }
   if (total === 0) return null

@@ -150,7 +150,7 @@ export class VoterQueryService {
   async getListDetailAggregates(
     dto: AggregatesDTO,
     dataset: PeopleDataset,
-    options: { splitNewContacts?: boolean } = {},
+    options: { countNewContacts?: boolean } = {},
   ): Promise<PeopleListDetailAggregatesResponse> {
     return this.readLog.measure({
       op: 'list-detail-aggregates',

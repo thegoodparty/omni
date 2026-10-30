@@ -1716,22 +1716,20 @@ describe('contactOverlayTable', () => {
     })
   })
 
-  it('counts voters and new contacts apart in the list detail when split', () => {
+  it('counts everyone and, of them, the new contacts in the list detail', () => {
     const district = overlaid(CONGRESSIONAL, CONGRESSIONAL.districtId)
     const { sql } = buildListDetailAggregatesSql({
       district,
       filters: noFilters(),
-      splitNewContacts: true,
+      countNewContacts: true,
     })
     const isNew = 'coalesce(v.`ContactIsNew`, false)'
 
-    expect(sql).toContain(`SELECT COUNT_IF(NOT ${isNew}) AS count,`)
+    expect(sql).toMatch(/^SELECT COUNT\(\*\) AS count,/)
     expect(sql).toContain(
-      `COUNT_IF(v.\`VoterTelephones_CellPhoneFormatted\` IS NOT NULL AND NOT ${isNew}) AS sms,`,
+      'COUNT_IF(v.`VoterTelephones_CellPhoneFormatted` IS NOT NULL) AS sms,',
     )
-    expect(sql).toContain(
-      `COUNT_IF(v.\`Email\` IS NOT NULL AND NOT ${isNew}) AS email,`,
-    )
+    expect(sql).toContain('COUNT_IF(v.`Email` IS NOT NULL) AS email,')
     expect(sql).toContain(` COUNT_IF(${isNew}) AS new_count,`)
     expect(sql).toContain(
       `COUNT_IF(v.\`VoterTelephones_CellPhoneFormatted\` IS NOT NULL AND ${isNew}) AS new_sms,`,
@@ -1758,12 +1756,41 @@ describe('contactOverlayTable', () => {
     ])
   })
 
-  it('does not split the list detail without the overlay, or when not asked', () => {
+  it('counts the new contacts beside the count, never by household', () => {
+    const district = overlaid(CONGRESSIONAL, CONGRESSIONAL.districtId)
+    const isNew = 'coalesce(v.`ContactIsNew`, false)'
+
+    expect(
+      buildCountSql({ district, filters: noFilters(), countNewContacts: true })
+        .sql,
+    ).toMatch(
+      new RegExp(
+        `^SELECT COUNT\\(\\*\\) AS voter_count, COUNT_IF\\(${isNew.replace(/[()`.]/g, '\\$&')}\\) AS new_count FROM `,
+      ),
+    )
+    expect(
+      buildCountSql({
+        district,
+        filters: noFilters(),
+        countNewContacts: true,
+        groupByHousehold: true,
+      }).sql,
+    ).not.toContain('new_count')
+    expect(
+      buildCountSql({
+        district: CONGRESSIONAL,
+        filters: noFilters(),
+        countNewContacts: true,
+      }).sql,
+    ).not.toContain('new_count')
+  })
+
+  it('counts no new contacts without the overlay, or when not asked', () => {
     const overlay = overlaid(CONGRESSIONAL, CONGRESSIONAL.districtId)
     const plain = buildListDetailAggregatesSql({
       district: CONGRESSIONAL,
       filters: noFilters(),
-      splitNewContacts: true,
+      countNewContacts: true,
     }).sql
     const unasked = buildListDetailAggregatesSql({
       district: overlay,

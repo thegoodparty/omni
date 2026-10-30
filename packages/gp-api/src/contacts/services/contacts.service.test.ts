@@ -663,7 +663,7 @@ describe('ContactsService', () => {
         expect(mockStatsService.findStats).toHaveBeenCalledWith(
           expect.objectContaining({ districtId: OVERRIDE_DISTRICT_ID }),
           { base: 'voters' },
-          { splitNewContacts: false },
+          { countNewContacts: false },
         )
       })
 
@@ -1824,7 +1824,7 @@ describe('ContactsService', () => {
             }),
           }),
           { base: 'voters' },
-          { splitNewContacts: false },
+          { countNewContacts: false },
         )
         expect(result).toEqual({
           demographics: { people: 4200, avgAge: 44, avgIncome: 58000 },
