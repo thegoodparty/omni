@@ -199,8 +199,11 @@ jobs:
       - name: Test
         run: npm run test -w ${{ env.WORKSPACE }} -- --shard=${{ matrix.shard }}/${{ strategy.job-total }}
 
+      # Only main saves, once per key: the repo's Actions cache sits at its
+      # size cap, and a pull request can restore main's entries. Modules
+      # changed on main since the save miss and are transformed as usual.
       - name: Save vitest module cache
-        if: steps.vitest-module-cache.outputs.cache-hit != 'true'
+        if: github.event_name == 'push' && github.ref_name == 'main' && steps.vitest-module-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: ${{ env.WORKSPACE }}/.vitest-fs-module-cache
