@@ -2,7 +2,7 @@
 
 JWT + Clerk M2M + Vercel and GitHub Actions OIDC auth, role enforcement, and user-facing auth flows (set/reset password). The actual directory name is `src/authentication/` (not `src/auth/`).
 
-Auth state is enforced globally via three guards registered in order. Most routes are protected by default; opt-out is explicit via `@PublicAccess()`.
+Auth state is enforced globally via global guards registered in order. Most routes are protected by default; opt-out is explicit via `@PublicAccess()`.
 
 ## Key files
 
@@ -29,7 +29,7 @@ Auth state is enforced globally via three guards registered in order. Most route
 
 ## Patterns
 
-- **Global guards run in order**: `NonProdDeployGuard` (404s `@NonProdDeployOnly()` routes on prod, before any auth) → `SessionGuard` → `RolesGuard` (`SessionGuard` wired as `APP_GUARD` in `app.module.ts`, `RolesGuard` in `authentication.module.ts`). M2M `mt_*` tokens are verified inside `SessionGuard`. New guards belong route-level, not global, unless they're truly cross-cutting.
+- **Global guards run in order**: `NonProdDeployGuard` (404s `@NonProdDeployOnly()` routes on prod, before any auth; an `APP_GUARD` in `app.module.ts` declared before `SessionGuard`) → `SessionGuard` → `RolesGuard` (`SessionGuard` wired as `APP_GUARD` in `app.module.ts`, `RolesGuard` in `authentication.module.ts`). M2M `mt_*` tokens are verified inside `SessionGuard`. New guards belong route-level, not global, unless they're truly cross-cutting.
 - **Machine callers come in two tiers.** An opaque Clerk `mt_*` token is
   verified by Clerk against `GP_API_MACHINE_SECRET`, which enforces machine
   scope, and sets `request.m2mToken` — full M2M, trusted by

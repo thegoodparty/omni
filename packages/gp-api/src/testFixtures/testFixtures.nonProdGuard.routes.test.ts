@@ -1,24 +1,13 @@
 import { HttpStatus } from '@nestjs/common'
 import { readdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
+import { appEnvOverrides } from '@/shared/test-utils/appEnvOverrides'
 import { useTestService } from '@/test-service'
 import {
   NON_PROD_DEPLOY_ONLY_KEY,
   NonProdDeployGuard,
 } from './guards/NonProdDeploy.guard'
-
-const { envNonProd } = vi.hoisted(() => ({ envNonProd: { value: false } }))
-vi.mock('@/shared/util/appEnvironment.util', async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import('@/shared/util/appEnvironment.util')>()
-  return {
-    ...actual,
-    get IS_NON_PROD_DEPLOY() {
-      return envNonProd.value
-    },
-  }
-})
 
 const service = useTestService()
 
@@ -71,13 +60,13 @@ const call = (
 describe('NonProdDeployGuard on every test-fixture controller', () => {
   describe.each(ROUTES)('$controller $url', (route) => {
     it('answers 404 on a prod deploy, before any auth work', async () => {
-      envNonProd.value = false
+      appEnvOverrides.IS_NON_PROD_DEPLOY = false
       expect((await call(route)).status).toBe(HttpStatus.NOT_FOUND)
       expect((await call(route, anonymous)).status).toBe(HttpStatus.NOT_FOUND)
     })
 
     it('leaves the route to its own auth on a non-prod deploy', async () => {
-      envNonProd.value = true
+      appEnvOverrides.IS_NON_PROD_DEPLOY = true
       expect((await call(route, anonymous)).status).toBe(
         HttpStatus.UNAUTHORIZED,
       )
