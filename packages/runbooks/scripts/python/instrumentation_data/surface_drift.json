@@ -1,6 +1,6 @@
 {
  "meta": {
-  "backend_not_examined": 80,
+  "backend_not_examined": 88,
   "signals": "ok",
   "thresholds": {
    "agreement": 0.8,
@@ -9,25 +9,24 @@
    "min_coverage": 0.5,
    "min_users": 5
   },
-  "traced": 355,
+  "traced": 370,
   "unmapped_prefixes": {
    "Campaign Manager": 1,
-   "Civic Panel": 1,
    "Constituent Data": 5,
-   "Issue Capture": 5,
+   "Issue Capture": 2,
    "Win": 1
   },
   "verdicts": {
-   "consistent": 191,
-   "dashboard_wide": 49,
+   "consistent": 203,
+   "dashboard_wide": 55,
    "flow": 63,
-   "moved": 7,
-   "moved_then_quiet": 4,
-   "stale_area_name": 22,
+   "moved": 8,
+   "moved_then_quiet": 3,
+   "stale_area_name": 23,
    "unclear": 34,
-   "unmapped": 16
+   "unmapped": 12
   },
-  "web_events": 386
+  "web_events": 401
  },
  "rows": {
   "Campaign Story - Rewrite Limit Reached": {
@@ -65,7 +64,7 @@
    "disposition": "new",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-22",
+   "last_seen": "2026-10-29",
    "live_routes": [
     "/dashboard/campaign-story",
     "/onboarding/office-selection"
@@ -98,7 +97,7 @@
    "disposition": "new",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-22",
+   "last_seen": "2026-10-29",
    "live_routes": [
     "/dashboard/contacts/[[...attr]]"
    ],
@@ -111,13 +110,49 @@
    "removal_commit": null,
    "signal": {
     "agreement": 1.0,
-    "attributed": 63,
-    "coverage": 0.955,
-    "fires": 66,
-    "impersonated": 9,
-    "on_reached": 63,
-    "users": 40
+    "attributed": 93,
+    "coverage": 0.959,
+    "fires": 97,
+    "impersonated": 10,
+    "on_reached": 93,
+    "users": 55
    },
+   "source": "detector",
+   "surface_options": [
+    "constituents",
+    "voter-data"
+   ],
+   "verdict": "stale_area_name"
+  },
+  "Contacts - Civic Panel Viewed": {
+   "applied_date": "",
+   "area_keys": [
+    "/dashboard/contacts"
+   ],
+   "areas": [
+    "Voter Data"
+   ],
+   "claimed": "Contacts",
+   "claimed_kind": "prefix",
+   "confidence": "proposed",
+   "dead_routes": [],
+   "dismissed_areas": [],
+   "display_name": "Contacts - Civic Panel Viewed",
+   "disposition": "new",
+   "first_seen": "2026-10-29",
+   "gap_files": [],
+   "last_seen": "2026-10-29",
+   "live_routes": [
+    "/dashboard/contacts/citizens-panel"
+   ],
+   "okr": false,
+   "proposed_display_name": "Voter Data - Civic Panel Viewed",
+   "proposed_fires_on": "Voter Data (/dashboard/contacts/citizens-panel)",
+   "proposed_surface": "voter-data",
+   "proposed_url": "/dashboard/contacts/citizens-panel",
+   "reason": "",
+   "removal_commit": null,
+   "signal": null,
    "source": "detector",
    "surface_options": [
     "constituents",
@@ -142,7 +177,7 @@
    "disposition": "new",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-22",
+   "last_seen": "2026-10-29",
    "live_routes": [
     "/dashboard/contacts/[[...attr]]"
    ],
@@ -154,13 +189,13 @@
    "reason": "",
    "removal_commit": null,
    "signal": {
-    "agreement": 0.944,
-    "attributed": 6107,
-    "coverage": 0.941,
-    "fires": 6492,
-    "impersonated": 383,
-    "on_reached": 5763,
-    "users": 845
+    "agreement": 0.939,
+    "attributed": 6229,
+    "coverage": 0.938,
+    "fires": 6639,
+    "impersonated": 418,
+    "on_reached": 5846,
+    "users": 831
    },
    "source": "detector",
    "surface_options": [
@@ -186,7 +221,7 @@
    "disposition": "new",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-22",
+   "last_seen": "2026-10-29",
    "live_routes": [
     "/dashboard/contacts/[[...attr]]"
    ],
@@ -199,12 +234,12 @@
    "removal_commit": null,
    "signal": {
     "agreement": 0.995,
-    "attributed": 836,
-    "coverage": 0.984,
-    "fires": 850,
-    "impersonated": 31,
-    "on_reached": 832,
-    "users": 219
+    "attributed": 823,
+    "coverage": 0.986,
+    "fires": 835,
+    "impersonated": 34,
+    "on_reached": 819,
+    "users": 211
    },
    "source": "detector",
    "surface_options": [
@@ -230,7 +265,7 @@
    "disposition": "new",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-22",
+   "last_seen": "2026-10-29",
    "live_routes": [
     "/dashboard/contacts/[[...attr]]"
    ],
@@ -242,13 +277,13 @@
    "reason": "",
    "removal_commit": null,
    "signal": {
-    "agreement": 0.994,
-    "attributed": 164,
-    "coverage": 0.965,
-    "fires": 170,
-    "impersonated": 19,
-    "on_reached": 163,
-    "users": 65
+    "agreement": 0.996,
+    "attributed": 242,
+    "coverage": 0.96,
+    "fires": 252,
+    "impersonated": 26,
+    "on_reached": 241,
+    "users": 86
    },
    "source": "detector",
    "surface_options": [
@@ -274,7 +309,7 @@
    "disposition": "new",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-22",
+   "last_seen": "2026-10-29",
    "live_routes": [
     "/dashboard/contacts/[[...attr]]"
    ],
@@ -286,13 +321,13 @@
    "reason": "",
    "removal_commit": null,
    "signal": {
-    "agreement": 0.99,
-    "attributed": 196,
-    "coverage": 0.947,
-    "fires": 207,
-    "impersonated": 26,
-    "on_reached": 194,
-    "users": 67
+    "agreement": 0.993,
+    "attributed": 283,
+    "coverage": 0.946,
+    "fires": 299,
+    "impersonated": 33,
+    "on_reached": 281,
+    "users": 89
    },
    "source": "detector",
    "surface_options": [
@@ -318,7 +353,7 @@
    "disposition": "new",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-22",
+   "last_seen": "2026-10-29",
    "live_routes": [
     "/dashboard/contacts/[[...attr]]"
    ],
@@ -331,12 +366,12 @@
    "removal_commit": null,
    "signal": {
     "agreement": 0.989,
-    "attributed": 716,
-    "coverage": 0.942,
-    "fires": 760,
-    "impersonated": 40,
-    "on_reached": 708,
-    "users": 186
+    "attributed": 757,
+    "coverage": 0.951,
+    "fires": 796,
+    "impersonated": 45,
+    "on_reached": 749,
+    "users": 184
    },
    "source": "detector",
    "surface_options": [
@@ -362,7 +397,7 @@
    "disposition": "new",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-22",
+   "last_seen": "2026-10-29",
    "live_routes": [
     "/dashboard/contacts/[[...attr]]"
    ],
@@ -374,13 +409,13 @@
    "reason": "",
    "removal_commit": null,
    "signal": {
-    "agreement": 0.992,
-    "attributed": 1161,
-    "coverage": 0.94,
-    "fires": 1235,
-    "impersonated": 96,
-    "on_reached": 1152,
-    "users": 248
+    "agreement": 0.993,
+    "attributed": 1224,
+    "coverage": 0.949,
+    "fires": 1290,
+    "impersonated": 118,
+    "on_reached": 1215,
+    "users": 242
    },
    "source": "detector",
    "surface_options": [
@@ -406,7 +441,7 @@
    "disposition": "new",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-22",
+   "last_seen": "2026-10-29",
    "live_routes": [
     "/dashboard/contacts/[[...attr]]"
    ],
@@ -419,12 +454,12 @@
    "removal_commit": null,
    "signal": {
     "agreement": 0.992,
-    "attributed": 1068,
-    "coverage": 0.948,
-    "fires": 1127,
-    "impersonated": 77,
-    "on_reached": 1059,
-    "users": 236
+    "attributed": 1130,
+    "coverage": 0.956,
+    "fires": 1182,
+    "impersonated": 99,
+    "on_reached": 1121,
+    "users": 231
    },
    "source": "detector",
    "surface_options": [
@@ -450,7 +485,7 @@
    "disposition": "new",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-22",
+   "last_seen": "2026-10-29",
    "live_routes": [
     "/dashboard/contacts/[[...attr]]"
    ],
@@ -462,13 +497,13 @@
    "reason": "",
    "removal_commit": null,
    "signal": {
-    "agreement": 0.992,
-    "attributed": 1522,
-    "coverage": 0.953,
-    "fires": 1597,
-    "impersonated": 105,
-    "on_reached": 1510,
-    "users": 253
+    "agreement": 0.993,
+    "attributed": 1612,
+    "coverage": 0.959,
+    "fires": 1681,
+    "impersonated": 131,
+    "on_reached": 1600,
+    "users": 248
    },
    "source": "detector",
    "surface_options": [
@@ -494,7 +529,7 @@
    "disposition": "new",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-22",
+   "last_seen": "2026-10-29",
    "live_routes": [
     "/dashboard/contacts/[[...attr]]"
    ],
@@ -506,13 +541,13 @@
    "reason": "",
    "removal_commit": null,
    "signal": {
-    "agreement": 0.987,
-    "attributed": 606,
-    "coverage": 0.947,
-    "fires": 640,
-    "impersonated": 31,
-    "on_reached": 598,
-    "users": 175
+    "agreement": 0.989,
+    "attributed": 642,
+    "coverage": 0.955,
+    "fires": 672,
+    "impersonated": 36,
+    "on_reached": 635,
+    "users": 173
    },
    "source": "detector",
    "surface_options": [
@@ -538,7 +573,7 @@
    "disposition": "new",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-22",
+   "last_seen": "2026-10-29",
    "live_routes": [
     "/dashboard/contacts/[[...attr]]"
    ],
@@ -551,12 +586,12 @@
    "removal_commit": null,
    "signal": {
     "agreement": 0.99,
-    "attributed": 694,
-    "coverage": 0.947,
-    "fires": 733,
-    "impersonated": 33,
-    "on_reached": 687,
-    "users": 184
+    "attributed": 729,
+    "coverage": 0.957,
+    "fires": 762,
+    "impersonated": 38,
+    "on_reached": 722,
+    "users": 182
    },
    "source": "detector",
    "surface_options": [
@@ -582,7 +617,7 @@
    "disposition": "new",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-22",
+   "last_seen": "2026-10-29",
    "live_routes": [
     "/dashboard/contacts/[[...attr]]"
    ],
@@ -595,12 +630,12 @@
    "removal_commit": null,
    "signal": {
     "agreement": 0.985,
-    "attributed": 67,
+    "attributed": 65,
     "coverage": 1.0,
-    "fires": 67,
+    "fires": 65,
     "impersonated": 2,
-    "on_reached": 66,
-    "users": 14
+    "on_reached": 64,
+    "users": 13
    },
    "source": "detector",
    "surface_options": [
@@ -626,7 +661,7 @@
    "disposition": "new",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-22",
+   "last_seen": "2026-10-29",
    "live_routes": [
     "/dashboard/contacts/[[...attr]]"
    ],
@@ -639,11 +674,11 @@
    "removal_commit": null,
    "signal": {
     "agreement": 1.0,
-    "attributed": 138,
-    "coverage": 0.958,
-    "fires": 144,
-    "impersonated": 9,
-    "on_reached": 138,
+    "attributed": 150,
+    "coverage": 0.968,
+    "fires": 155,
+    "impersonated": 10,
+    "on_reached": 150,
     "users": 43
    },
    "source": "detector",
@@ -670,7 +705,7 @@
    "disposition": "new",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-22",
+   "last_seen": "2026-10-29",
    "live_routes": [
     "/dashboard/contacts/[[...attr]]"
    ],
@@ -683,12 +718,12 @@
    "removal_commit": null,
    "signal": {
     "agreement": 1.0,
-    "attributed": 264,
+    "attributed": 275,
     "coverage": 0.989,
-    "fires": 267,
+    "fires": 278,
     "impersonated": 5,
-    "on_reached": 264,
-    "users": 46
+    "on_reached": 275,
+    "users": 48
    },
    "source": "detector",
    "surface_options": [
@@ -714,7 +749,7 @@
    "disposition": "new",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-22",
+   "last_seen": "2026-10-29",
    "live_routes": [
     "/dashboard/contacts/[[...attr]]"
    ],
@@ -726,13 +761,13 @@
    "reason": "",
    "removal_commit": null,
    "signal": {
-    "agreement": 0.986,
-    "attributed": 2044,
-    "coverage": 0.958,
-    "fires": 2134,
-    "impersonated": 122,
-    "on_reached": 2016,
-    "users": 267
+    "agreement": 0.987,
+    "attributed": 2115,
+    "coverage": 0.964,
+    "fires": 2195,
+    "impersonated": 137,
+    "on_reached": 2088,
+    "users": 265
    },
    "source": "detector",
    "surface_options": [
@@ -758,7 +793,7 @@
    "disposition": "new",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-22",
+   "last_seen": "2026-10-29",
    "live_routes": [
     "/dashboard/contacts/[[...attr]]"
    ],
@@ -770,13 +805,13 @@
    "reason": "",
    "removal_commit": null,
    "signal": {
-    "agreement": 0.935,
-    "attributed": 199,
-    "coverage": 0.957,
-    "fires": 208,
+    "agreement": 0.907,
+    "attributed": 172,
+    "coverage": 0.961,
+    "fires": 179,
     "impersonated": 19,
-    "on_reached": 186,
-    "users": 69
+    "on_reached": 156,
+    "users": 64
    },
    "source": "detector",
    "surface_options": [
@@ -820,7 +855,7 @@
    "disposition": "new",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-22",
+   "last_seen": "2026-10-29",
    "live_routes": [
     "/dashboard",
     "/dashboard/campaign-plan"
@@ -833,13 +868,13 @@
    "reason": "",
    "removal_commit": null,
    "signal": {
-    "agreement": 0.996,
-    "attributed": 1964,
-    "coverage": 0.95,
-    "fires": 2067,
+    "agreement": 0.997,
+    "attributed": 2848,
+    "coverage": 0.954,
+    "fires": 2984,
     "impersonated": 2,
-    "on_reached": 1956,
-    "users": 227
+    "on_reached": 2839,
+    "users": 299
    },
    "source": "detector",
    "verdict": "stale_area_name"
@@ -861,7 +896,7 @@
    "disposition": "new",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-22",
+   "last_seen": "2026-10-29",
    "live_routes": [
     "/dashboard"
    ],
@@ -873,46 +908,14 @@
    "reason": "",
    "removal_commit": null,
    "signal": {
-    "agreement": 0.967,
-    "attributed": 210,
-    "coverage": 0.968,
-    "fires": 217,
-    "impersonated": 12,
-    "on_reached": 203,
-    "users": 129
+    "agreement": 0.966,
+    "attributed": 178,
+    "coverage": 0.962,
+    "fires": 185,
+    "impersonated": 10,
+    "on_reached": 172,
+    "users": 113
    },
-   "source": "detector",
-   "verdict": "stale_area_name"
-  },
-  "Issue Capture - Report Viewed": {
-   "applied_date": "",
-   "area_keys": [
-    "/dashboard/issue-capture/[outreachId]"
-   ],
-   "areas": [
-    "What we heard"
-   ],
-   "claimed": "Issue Capture",
-   "claimed_kind": "prefix",
-   "confidence": "proposed",
-   "dead_routes": [],
-   "dismissed_areas": [],
-   "display_name": "Issue Capture - Report Viewed",
-   "disposition": "new",
-   "first_seen": "2026-10-08",
-   "gap_files": [],
-   "last_seen": "2026-10-22",
-   "live_routes": [
-    "/dashboard/issue-capture/[outreachId]"
-   ],
-   "okr": false,
-   "proposed_display_name": "What we heard - Report Viewed",
-   "proposed_fires_on": "What we heard (/dashboard/issue-capture/[outreachId])",
-   "proposed_surface": "what-we-heard",
-   "proposed_url": "/dashboard/issue-capture/[outreachId]",
-   "reason": "",
-   "removal_commit": null,
-   "signal": null,
    "source": "detector",
    "verdict": "stale_area_name"
   },
@@ -933,7 +936,7 @@
    "disposition": "new",
    "first_seen": "2026-10-08",
    "gap_files": [],
-   "last_seen": "2026-10-22",
+   "last_seen": "2026-10-29",
    "live_routes": [
     "/dashboard/issue-capture/[outreachId]"
    ],
@@ -942,6 +945,38 @@
    "proposed_fires_on": "What we heard (/dashboard/issue-capture/[outreachId])",
    "proposed_surface": "what-we-heard",
    "proposed_url": "/dashboard/issue-capture/[outreachId]",
+   "reason": "",
+   "removal_commit": null,
+   "signal": null,
+   "source": "detector",
+   "verdict": "stale_area_name"
+  },
+  "Issue Capture - Theme Viewed": {
+   "applied_date": "",
+   "area_keys": [
+    "/dashboard/issue-capture/[outreachId]"
+   ],
+   "areas": [
+    "What we heard"
+   ],
+   "claimed": "Issue Capture",
+   "claimed_kind": "prefix",
+   "confidence": "proposed",
+   "dead_routes": [],
+   "dismissed_areas": [],
+   "display_name": "Issue Capture - Theme Viewed",
+   "disposition": "new",
+   "first_seen": "2026-10-29",
+   "gap_files": [],
+   "last_seen": "2026-10-29",
+   "live_routes": [
+    "/dashboard/issue-capture/[outreachId]/theme/[themeId]"
+   ],
+   "okr": false,
+   "proposed_display_name": "What we heard - Theme Viewed",
+   "proposed_fires_on": "What we heard (/dashboard/issue-capture/[outreachId]/theme/[themeId])",
+   "proposed_surface": "what-we-heard",
+   "proposed_url": "/dashboard/issue-capture/[outreachId]/theme/[themeId]",
    "reason": "",
    "removal_commit": null,
    "signal": null,
@@ -983,7 +1018,7 @@
    "disposition": "new",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-22",
+   "last_seen": "2026-10-29",
    "live_routes": [
     "/serve/welcome",
     "/win/welcome"
@@ -996,13 +1031,13 @@
    "reason": "",
    "removal_commit": null,
    "signal": {
-    "agreement": 0.831,
-    "attributed": 71,
-    "coverage": 0.877,
-    "fires": 81,
+    "agreement": 0.788,
+    "attributed": 52,
+    "coverage": 0.852,
+    "fires": 61,
     "impersonated": 0,
-    "on_reached": 59,
-    "users": 43
+    "on_reached": 41,
+    "users": 30
    },
    "source": "detector",
    "verdict": "moved"
@@ -1042,7 +1077,7 @@
    "disposition": "new",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-22",
+   "last_seen": "2026-10-29",
    "live_routes": [
     "/dashboard/door-knocking",
     "/volunteer/door-knocking/[turfId]"
@@ -1093,7 +1128,7 @@
    "disposition": "new",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-22",
+   "last_seen": "2026-10-29",
    "live_routes": [
     "/dashboard/door-knocking",
     "/volunteer/door-knocking/[turfId]"
@@ -1106,13 +1141,13 @@
    "reason": "",
    "removal_commit": null,
    "signal": {
-    "agreement": 0.382,
-    "attributed": 1634,
-    "coverage": 0.862,
-    "fires": 1896,
+    "agreement": 0.319,
+    "attributed": 2026,
+    "coverage": 0.852,
+    "fires": 2377,
     "impersonated": 0,
-    "on_reached": 624,
-    "users": 23
+    "on_reached": 647,
+    "users": 32
    },
    "source": "detector",
    "verdict": "moved"
@@ -1134,7 +1169,7 @@
    "disposition": "new",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-22",
+   "last_seen": "2026-10-29",
    "live_routes": [
     "/dashboard/door-knocking"
    ],
@@ -1146,13 +1181,13 @@
    "reason": "",
    "removal_commit": null,
    "signal": {
-    "agreement": 0.956,
-    "attributed": 565,
-    "coverage": 0.615,
-    "fires": 918,
+    "agreement": 0.961,
+    "attributed": 642,
+    "coverage": 0.634,
+    "fires": 1013,
     "impersonated": 1,
-    "on_reached": 540,
-    "users": 88
+    "on_reached": 617,
+    "users": 96
    },
    "source": "detector",
    "verdict": "moved"
@@ -1174,7 +1209,7 @@
    "disposition": "new",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-22",
+   "last_seen": "2026-10-29",
    "live_routes": [
     "/dashboard/door-knocking"
    ],
@@ -1224,7 +1259,7 @@
    "disposition": "new",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-22",
+   "last_seen": "2026-10-29",
    "live_routes": [
     "/dashboard/door-knocking",
     "/volunteer/door-knocking/[turfId]"
@@ -1275,7 +1310,7 @@
    "disposition": "new",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-22",
+   "last_seen": "2026-10-29",
    "live_routes": [
     "/dashboard/door-knocking",
     "/volunteer/door-knocking/[turfId]"
@@ -1287,9 +1322,17 @@
    "proposed_url": "",
    "reason": "",
    "removal_commit": null,
-   "signal": null,
+   "signal": {
+    "agreement": 1.0,
+    "attributed": 1,
+    "coverage": 1.0,
+    "fires": 1,
+    "impersonated": 0,
+    "on_reached": 1,
+    "users": 1
+   },
    "source": "detector",
-   "verdict": "moved_then_quiet"
+   "verdict": "moved"
   },
   "Outreach - Door Knocking Route Build Failed": {
    "applied_date": "",
@@ -1326,7 +1369,7 @@
    "disposition": "new",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-22",
+   "last_seen": "2026-10-29",
    "live_routes": [
     "/dashboard/door-knocking",
     "/volunteer/door-knocking/[turfId]"
@@ -1385,7 +1428,7 @@
    "disposition": "new",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-22",
+   "last_seen": "2026-10-29",
    "live_routes": [
     "/dashboard/door-knocking",
     "/volunteer/door-knocking/[turfId]"
@@ -1398,13 +1441,13 @@
    "reason": "",
    "removal_commit": null,
    "signal": {
-    "agreement": 0.801,
-    "attributed": 246,
-    "coverage": 0.95,
-    "fires": 259,
+    "agreement": 0.777,
+    "attributed": 314,
+    "coverage": 0.94,
+    "fires": 334,
     "impersonated": 1,
-    "on_reached": 197,
-    "users": 51
+    "on_reached": 244,
+    "users": 60
    },
    "source": "detector",
    "verdict": "moved"
@@ -1444,7 +1487,7 @@
    "disposition": "new",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-22",
+   "last_seen": "2026-10-29",
    "live_routes": [
     "/dashboard/door-knocking",
     "/volunteer/door-knocking/[turfId]"
@@ -1457,13 +1500,13 @@
    "reason": "",
    "removal_commit": null,
    "signal": {
-    "agreement": 0.4,
-    "attributed": 25,
-    "coverage": 0.758,
-    "fires": 33,
+    "agreement": 0.423,
+    "attributed": 26,
+    "coverage": 0.722,
+    "fires": 36,
     "impersonated": 0,
-    "on_reached": 10,
-    "users": 14
+    "on_reached": 11,
+    "users": 17
    },
    "source": "detector",
    "verdict": "moved"
@@ -1503,7 +1546,7 @@
    "disposition": "new",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-22",
+   "last_seen": "2026-10-29",
    "live_routes": [
     "/dashboard/door-knocking",
     "/volunteer/door-knocking/[turfId]"
@@ -1516,13 +1559,13 @@
    "reason": "",
    "removal_commit": null,
    "signal": {
-    "agreement": 0.62,
-    "attributed": 986,
-    "coverage": 0.955,
-    "fires": 1032,
-    "impersonated": 2,
-    "on_reached": 611,
-    "users": 97
+    "agreement": 0.597,
+    "attributed": 1192,
+    "coverage": 0.961,
+    "fires": 1241,
+    "impersonated": 3,
+    "on_reached": 712,
+    "users": 110
    },
    "source": "detector",
    "verdict": "moved"
@@ -1544,7 +1587,7 @@
    "disposition": "new",
    "first_seen": "2026-10-02",
    "gap_files": [],
-   "last_seen": "2026-10-22",
+   "last_seen": "2026-10-29",
    "live_routes": [
     "/dashboard/profile"
    ],
@@ -1556,13 +1599,13 @@
    "reason": "",
    "removal_commit": null,
    "signal": {
-    "agreement": 0.971,
-    "attributed": 69,
-    "coverage": 0.972,
-    "fires": 71,
+    "agreement": 0.944,
+    "attributed": 54,
+    "coverage": 0.964,
+    "fires": 56,
     "impersonated": 1,
-    "on_reached": 67,
-    "users": 59
+    "on_reached": 51,
+    "users": 51
    },
    "source": "detector",
    "surface_options": [
@@ -1578,7 +1621,7 @@
    "dismissed_areas": [],
    "disposition": "accepted",
    "first_seen": "2026-10-08",
-   "last_seen": "2026-10-22",
+   "last_seen": "2026-10-29",
    "proposed_display_name": "Know Your Opponent - Opponent Activity Viewed",
    "proposed_surface": "know-your-opponent",
    "reason": "Product name in the prefix; fires only on Know Your Opponent",
@@ -1592,7 +1635,7 @@
    "dismissed_areas": [],
    "disposition": "accepted",
    "first_seen": "2026-10-08",
-   "last_seen": "2026-10-22",
+   "last_seen": "2026-10-29",
    "proposed_display_name": "Know Your Opponent - Opponent Profile Viewed",
    "proposed_surface": "know-your-opponent",
    "reason": "Product name in the prefix; fires only on Know Your Opponent",
@@ -1606,7 +1649,7 @@
    "dismissed_areas": [],
    "disposition": "accepted",
    "first_seen": "2026-10-08",
-   "last_seen": "2026-10-22",
+   "last_seen": "2026-10-29",
    "proposed_display_name": "Know Your Opponent - Opponent Research Started",
    "proposed_surface": "know-your-opponent",
    "reason": "Product name in the prefix; fires only on Know Your Opponent",
@@ -1620,7 +1663,7 @@
    "dismissed_areas": [],
    "disposition": "accepted",
    "first_seen": "2026-10-08",
-   "last_seen": "2026-10-22",
+   "last_seen": "2026-10-29",
    "proposed_display_name": "Know Your Opponent - Opponent Standout Action Clicked",
    "proposed_surface": "know-your-opponent",
    "reason": "Product name in the prefix; fires only on Know Your Opponent",
@@ -1634,7 +1677,7 @@
    "dismissed_areas": [],
    "disposition": "accepted",
    "first_seen": "2026-10-08",
-   "last_seen": "2026-10-22",
+   "last_seen": "2026-10-29",
    "proposed_display_name": "Know Your Opponent - Opponent Standout Actions Viewed",
    "proposed_surface": "know-your-opponent",
    "reason": "Product name in the prefix; fires only on Know Your Opponent",
@@ -1648,7 +1691,7 @@
    "dismissed_areas": [],
    "disposition": "accepted",
    "first_seen": "2026-10-08",
-   "last_seen": "2026-10-22",
+   "last_seen": "2026-10-29",
    "proposed_display_name": "Know Your Opponent - Opponent Upgrade Viewed",
    "proposed_surface": "know-your-opponent",
    "reason": "Product name in the prefix; fires only on Know Your Opponent",
@@ -1662,7 +1705,7 @@
    "dismissed_areas": [],
    "disposition": "accepted",
    "first_seen": "2026-10-08",
-   "last_seen": "2026-10-22",
+   "last_seen": "2026-10-29",
    "proposed_display_name": "Know Your Opponent - Opponents Manually Added",
    "proposed_surface": "know-your-opponent",
    "reason": "Product name in the prefix; fires only on Know Your Opponent",
@@ -1670,5 +1713,5 @@
    "verdict": "relabel"
   }
  },
- "run_date": "2026-10-22"
+ "run_date": "2026-10-29"
 }
