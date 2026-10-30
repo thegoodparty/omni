@@ -1714,6 +1714,7 @@ describe('Win campaigns', () => {
       id: personId,
       email: 'dee@example.com',
       isNewContact: true,
+      politicalParty: null,
       registeredVoter: null,
       voterStatus: null,
       voterLikelihood: 'unknown',
@@ -1725,6 +1726,69 @@ describe('Win campaigns', () => {
       'FROM (SELECT * FROM goodparty_data_catalog.mart_gp_api.gp_api_voters',
     )
     expect(sql).toContain(`WHERE organization_slug = '${winSlug}'`)
+  })
+
+  it('still reads a voter-file person with no party as Other', async () => {
+    const { winSlug } = await createWinOrg(true)
+    const { columnNames } = buildVoterSelectSql()
+    const values: Record<string, string> = {
+      id: PERSON_A,
+      FirstName: 'Ann',
+      LastName: 'Avery',
+      State: 'MI',
+      ContactIsNew: 'false',
+    }
+    vi.spyOn(
+      service.app.get(PeopleDbxStatementClient),
+      'query',
+    ).mockResolvedValue({
+      columns: [],
+      rows: [[...columnNames.map((column) => values[column] ?? null), null]],
+    })
+
+    const res = await service.client.get(`/v1/contacts/${PERSON_A}`, {
+      headers: { [HEADER]: winSlug },
+    })
+
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(res.data).toMatchObject({
+      id: PERSON_A,
+      isNewContact: false,
+      politicalParty: 'Other',
+    })
+  })
+
+  it('counts the Other party without the people only an import added', async () => {
+    const { winSlug } = await createWinOrg(true)
+    vi.spyOn(service.app.get(VoterQueryService), 'findPeople').mockRestore()
+    const countSql = async () => {
+      const query = vi
+        .spyOn(service.app.get(PeopleDbxStatementClient), 'query')
+        .mockClear()
+        .mockResolvedValue({ columns: ['voter_count'], rows: [['7']] })
+      const res = await service.client.post(
+        '/v1/contacts/count',
+        { partyOther: true },
+        { headers: { [HEADER]: winSlug } },
+      )
+      expect(res.status).toBe(HttpStatus.CREATED)
+      expect(res.data).toEqual({ count: 7 })
+      return query.mock.calls.map(([statement]) => statement.sql).join('\n')
+    }
+
+    const withImports = await countSql()
+    expect(withImports).toContain(`WHERE organization_slug = '${winSlug}'`)
+    expect(withImports).toContain(
+      '(v.`Parties_Description` IS NULL OR v.`Parties_Description` NOT IN',
+    )
+    expect(withImports).toContain('AND NOT v.`ContactIsNew`)')
+
+    flagOn = false
+    const withoutImports = await countSql()
+    expect(withoutImports).toContain(
+      '(v.`Parties_Description` IS NULL OR v.`Parties_Description` NOT IN',
+    )
+    expect(withoutImports).not.toContain('NOT v.`ContactIsNew`')
   })
 
   it('403s a campaign without Pro, the same as opening a contact', async () => {
