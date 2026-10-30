@@ -261,8 +261,8 @@ announced. Every closed reason is `SMS_CUTOFF_COPY.closedReason` ("The
   `ChannelTileGrid` renders the closed text tile greyed ("Not available for
   this race") with the closed reason in a styleguide `Tooltip` (hover, and
   tap through `openOnClick`); a click opens nothing and fires nothing. While
-  `closing` it carries `SMS_CUTOFF_COPY.countdownChip` ("Verify to send SMS
-  by {cutoff}").
+  `closing` its corner tag is `SMS_CUTOFF_COPY.countdownTag` ("Verify by
+  {cutoff}"), which outranks the Pro tag when both apply.
 - **Deep links are the fallback.** `OutreachComposeDeepLink` opens
   `SmsCutoffNoticeDialog` (surface `compose_deep_link`) for `?compose=text`,
   which covers every link that opens a new text, and never fires
