@@ -170,6 +170,7 @@ export const civicPanelStanding = (
   status: Exclude<ManagedCivicPanelStatus, 'stopped'>,
   members: number,
   goal: number,
+  place: string | null,
 ): { title: string; line: string } => {
   const hero = SERVE_CITIZENS_PANEL_COPY.hero
   const joined = SERVE_CITIZENS_PANEL_COPY.joinedOfGoal(members, goal)
@@ -181,6 +182,9 @@ export const civicPanelStanding = (
     case 'exhausted':
       return { title: hero.exhausted.title, line: joined }
     case 'ready':
-      return { title: hero.ready.title, line: hero.ready.line(members, goal) }
+      return {
+        title: hero.ready.title,
+        line: hero.ready.line(members, goal, place),
+      }
   }
 }

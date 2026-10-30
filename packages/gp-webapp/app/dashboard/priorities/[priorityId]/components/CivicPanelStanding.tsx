@@ -4,6 +4,7 @@ import { cn } from '@styleguide'
 import { useOrganization } from '@shared/organization-picker'
 import { managedCivicPanelQueryOptions } from '../../../contacts/citizens-panel/civicPanelSummary.query'
 import { CITIZENS_PANEL_PATH } from '../../../contacts/citizens-panel/citizensPanelCopy'
+import { useServePlace } from '../../../contacts/citizens-panel/managedPanelCopy'
 import { civicPanelStanding } from '../readStatusCopy'
 
 // Where the civic panel GoodParty builds for the office stands, under the
@@ -15,6 +16,7 @@ export const CivicPanelStanding = ({
   className?: string
 }): React.JSX.Element | null => {
   const orgSlug = useOrganization()?.slug
+  const place = useServePlace()
   const { data: panel } = useQuery({
     ...managedCivicPanelQueryOptions(orgSlug),
     enabled: Boolean(orgSlug),
@@ -24,6 +26,7 @@ export const CivicPanelStanding = ({
     panel.status,
     panel.progress.members,
     panel.progress.goalMembers,
+    place,
   )
   return (
     <Link
