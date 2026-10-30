@@ -5,6 +5,10 @@ import type {
   CivicPanelReachChannel,
   CivicPanelReachGroup,
 } from '@goodparty_org/contracts'
+import {
+  BUILD_CITIZENS_PANEL_PURPOSE,
+  PHONE_BANKING_NAME_MAX_LENGTH,
+} from '@goodparty_org/contracts'
 import { clientRequest } from 'gpApi/typed-request'
 import { useSnackbar } from 'helpers/useSnackbar'
 import {
@@ -12,6 +16,7 @@ import {
   SERVE_PHONE_BANKING_SURFACE,
 } from 'app/dashboard/outreach/v2/phone-banking/PhoneBankingFlow'
 import { SERVE_CITIZENS_PANEL_COPY as COPY } from '../citizensPanelCopy'
+import { useCivicPanelReachScript } from '../civicPanelReachScript'
 import type { ShortGroup } from './panelCharts'
 
 // A short group as the reach-lists route names it. "Some parts of your
@@ -31,14 +36,24 @@ const statusOf = (error: object | null): number | undefined =>
     ? error.status
     : undefined
 
+// The invite purpose rides along, so door knocking skips the goal and the
+// list and opens on the invite's talking points.
 export const doorKnockingHref = (listId: number): string =>
   `/dashboard/door-knocking?${new URLSearchParams({
     create: '1',
     listId: String(listId),
+    purpose: BUILD_CITIZENS_PANEL_PURPOSE,
   }).toString()}`
 
-// Saves a group's door or call list, then opens the existing flow on it:
-// door knocking's create flow by its page, phone banking over this one.
+interface CallList {
+  listId: number
+  name: string
+  invite: { script: string }
+}
+
+// Saves a group's door or call list, then opens the existing flow on it as
+// a civic panel invite: door knocking's create flow by its page, phone
+// banking over this one, each on the invite's script.
 export const useReachList = (): {
   reach: (
     group: CivicPanelReachGroup,
@@ -51,7 +66,8 @@ export const useReachList = (): {
   const router = useRouter()
   const { errorSnackbar } = useSnackbar()
   const [pending, setPending] = useState<string | null>(null)
-  const [callListId, setCallListId] = useState<number | null>(null)
+  const [call, setCall] = useState<CallList | null>(null)
+  const callScript = useCivicPanelReachScript('phone')
 
   const reach = useCallback(
     async (
@@ -70,7 +86,11 @@ export const useReachList = (): {
         if (channel === 'door') {
           router.push(doorKnockingHref(data.listId))
         } else {
-          setCallListId(data.listId)
+          setCall({
+            listId: data.listId,
+            name: name.slice(0, PHONE_BANKING_NAME_MAX_LENGTH),
+            invite: { script: callScript },
+          })
         }
       } catch (error) {
         errorSnackbar(
@@ -82,17 +102,18 @@ export const useReachList = (): {
         setPending(null)
       }
     },
-    [pending, router, errorSnackbar],
+    [pending, router, errorSnackbar, callScript],
   )
 
   const flow =
-    callListId !== null ? (
+    call !== null ? (
       <PhoneBankingFlow
         open
-        onClose={() => setCallListId(null)}
-        onSaved={() => setCallListId(null)}
+        onClose={() => setCall(null)}
         surface={SERVE_PHONE_BANKING_SURFACE}
-        preselectedListId={callListId}
+        preselectedListId={call.listId}
+        initialName={call.name}
+        civicPanelInvite={call.invite}
         source="deep_link"
       />
     ) : null

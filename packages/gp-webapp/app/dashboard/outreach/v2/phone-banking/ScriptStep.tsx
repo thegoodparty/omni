@@ -69,6 +69,8 @@ const TONE_ICONS: Record<SocialTone, ReactNode> = {
 }
 
 interface ScriptStepProps {
+  // A script handed over whole asks for a review instead of a draft.
+  intro?: { title: string; body: string }
   isServe: boolean
   name: string
   onNameChange: (name: string) => void
@@ -90,6 +92,10 @@ interface ScriptStepProps {
 }
 
 export const ScriptStep = ({
+  intro = {
+    title: 'Write your call script',
+    body: 'This is the script your volunteers will read on the phone. Edit it to sound like you.',
+  },
   isServe,
   name,
   onNameChange,
@@ -120,11 +126,7 @@ export const ScriptStep = ({
 
   return (
     <div className="space-y-6">
-      <Intro
-        channel="phoneBanking"
-        title="Write your call script"
-        body="This is the script your volunteers will read on the phone. Edit it to sound like you."
-      />
+      <Intro channel="phoneBanking" title={intro.title} body={intro.body} />
 
       <div className="space-y-2">
         <Label htmlFor="phone-banking-campaign-name">Campaign name</Label>

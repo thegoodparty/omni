@@ -13,14 +13,34 @@ const errorSnackbar = vi.fn()
 vi.mock('helpers/useSnackbar', () => ({
   useSnackbar: () => ({ errorSnackbar }),
 }))
+vi.mock('@shared/organization-picker', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  useOrganization: () => ({
+    slug: 'eo-test',
+    positionName: 'Mayor',
+    district: { l2Name: 'City of Asheville' },
+  }),
+}))
 const clientRequest = vi.fn()
 vi.mock('gpApi/typed-request', () => ({
   clientRequest: (...args: object[]) => clientRequest(...args),
 }))
 vi.mock('app/dashboard/outreach/v2/phone-banking/PhoneBankingFlow', () => ({
   SERVE_PHONE_BANKING_SURFACE: {},
-  PhoneBankingFlow: ({ preselectedListId }: { preselectedListId: number }) => (
-    <div data-testid="phone-banking-flow">{preselectedListId}</div>
+  PhoneBankingFlow: ({
+    preselectedListId,
+    initialName,
+    civicPanelInvite,
+  }: {
+    preselectedListId: number
+    initialName: string
+    civicPanelInvite: { script: string }
+  }) => (
+    <div data-testid="phone-banking-flow">
+      <span data-testid="list-id">{preselectedListId}</span>
+      <span data-testid="list-name">{initialName}</span>
+      <span data-testid="script">{civicPanelInvite.script}</span>
+    </div>
   ),
 }))
 
@@ -87,7 +107,7 @@ describe('CivicPanelNext, once every resident we can text has an invite', () => 
     )
     await waitFor(() =>
       expect(push).toHaveBeenCalledWith(
-        '/dashboard/door-knocking?create=1&listId=42',
+        '/dashboard/door-knocking?create=1&listId=42&purpose=build_citizens_panel',
       ),
     )
   })
@@ -110,8 +130,12 @@ describe('CivicPanelNext, once every resident we can text has an invite', () => 
         name: 'Call: People 65 and over',
       },
     )
-    expect(await screen.findByTestId('phone-banking-flow')).toHaveTextContent(
-      '7',
+    expect(await screen.findByTestId('list-id')).toHaveTextContent('7')
+    expect(screen.getByTestId('list-name')).toHaveTextContent(
+      'Call: People 65 and over',
+    )
+    expect(screen.getByTestId('script')).toHaveTextContent(
+      'We want to hear from people across Asheville',
     )
     expect(push).not.toHaveBeenCalled()
   })

@@ -2160,6 +2160,63 @@ describe('CreateListFlow preselected list', () => {
     expect(draftBodies[0]).toMatchObject({ purpose: 'explain_decision' })
   })
 
+  // A civic panel short group's walk: the goal and the list are known, so
+  // it opens on the invite's points, never drafted over, and Continue goes
+  // straight to the map under the list's name.
+  it('opens a civic panel invite on its points and skips the name', async () => {
+    let drafts = 0
+    api.mock('POST /v1/outreach/serve/door-knocking/draft', () => {
+      drafts += 1
+      return { status: 200, data: { draft: '• Something else' } }
+    })
+    const onStepChange = vi.fn()
+    const props = {
+      ...baseProps,
+      savedLists,
+      preselectedListId: 9,
+      initialPurpose: 'build_citizens_panel' as const,
+      initialTalkingPoints: '• Would you like to be one of them?',
+      onStepChange,
+    }
+
+    const { rerender } = render(
+      <DoorKnockingSurfaceProvider value={true}>
+        <CreateListFlow {...props} step="filters" />
+      </DoorKnockingSurfaceProvider>,
+    )
+    await waitFor(() => expect(onStepChange).toHaveBeenCalledWith('points'))
+    rerender(
+      <DoorKnockingSurfaceProvider value={true}>
+        <CreateListFlow {...props} step="points" />
+      </DoorKnockingSurfaceProvider>,
+    )
+
+    expect(
+      screen.getAllByText('Do these talking points sound right?').length,
+    ).toBeGreaterThan(0)
+    expect(screen.queryByRole('button', { name: 'Back' })).toBeNull()
+    const field = screen.getByLabelText('Talking points') as HTMLElement & {
+      editor: Editor
+    }
+    expect(field.editor.getText({ blockSeparator: '\n' })).toBe(
+      '• Would you like to be one of them?',
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    expect(onStepChange).toHaveBeenLastCalledWith('draw')
+    rerender(
+      <DoorKnockingSurfaceProvider value={true}>
+        <CreateListFlow {...props} step="draw" />
+      </DoorKnockingSurfaceProvider>,
+    )
+    expect(
+      screen.getAllByText('Where do you want to knock?').length,
+    ).toBeGreaterThan(0)
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+    expect(onStepChange).toHaveBeenLastCalledWith('points')
+    expect(drafts).toBe(0)
+  })
+
   // A priority card's walk arrives with its goal and the check's question,
   // so it lands on the talking points drafted from that question rather
   // than on an empty goal picker.

@@ -330,8 +330,19 @@ ordinary list (not `civicPanelInvite`) frozen as a sample of the people
 `tractSql` expressions the seats were counted in), no cell phone on file,
 and for `phone` a landline (the list also keeps `hasLandline`), leaving
 out members and anyone who left, up to `MAX_LIST_SAMPLE_SIZE`. Nobody
-found is a 422 and saves nothing. Joining stays a yes marked at the door
-or on the call. `findReachHomes` (`buildReachHomesSql`) counts the same
+found is a 422 and saves nothing. The webapp opens door knocking or phone
+banking on the list as a civic panel invite (`build_citizens_panel`,
+which both create routes take behind `serve-citizen-panels`): no goal or
+list step, the invite's script prefilled, then the map or Create call
+list. Joining stays a yes marked at the door or on the call, through the
+knock and call forms' join question (`joinCivicPanel` yes writes
+`civic_panel = member` with source `door_knock` or `phone_banking`).
+The door and call draft prompts for `build_citizens_panel`
+(`outreachDoorKnockingGeneration.service.ts`,
+`outreachPhoneBankingGeneration.service.ts`) keep the SMS invite's voice
+for Regenerate and Improve: about once a month, never naming the civic
+panel or how the office checks in, since these homes have no cell phone
+on file. `findReachHomes` (`buildReachHomesSql`) counts the same
 group's homes with no cell phone, of them with a landline, and all its
 homes; `GET /civic-panel/reach-options` (`optionsFor`) is the Chief of
 Staff's offer built on it (`flows-managed-civic-panel.md`, "Reaching the

@@ -123,8 +123,22 @@ that purpose the way a carried recommendation does; a chat proposal card
 passes its `purpose`. With `initialScript` too, the seeded words are kept on
 that purpose rather than opening on `custom`. The civic panel invite
 (`build_citizens_panel`) is never offered in the purpose picker, on texts,
-phone banking or door knocking: the invite only goes out in the managed
-panel's waves, through the `managedInvite` mode below.
+phone banking or door knocking: a text invite only goes out in the managed
+panel's waves, through the `managedInvite` mode below, and a door or call
+invite only from a civic panel short group (contacts AGENTS.md).
+
+`PhoneBankingFlow`'s `civicPanelInvite` (`{ script }`, with
+`preselectedListId` and `initialName`) is that call invite: the flow is
+the script ("Does this call script sound right?", no Back) and a Create
+call list press that creates on `build_citizens_panel` with the sheet
+count sized to the list, then the ready screen. No purpose, audience or
+sheets step, and the seeded script is never drafted over (tone and
+Improve polish it). A list that never resolves says so under the script
+and keeps Create call list disabled. Door knocking's twin is
+`CreateListFlow` with `initialPurpose` `build_citizens_panel`, a carried
+list and `initialTalkingPoints`: the points ("Do these talking points
+sound right?") then the map, two steps, the campaign named after the
+list.
 
 `SmsFlow` also has a `managedInvite` mode (Serve only, `{ place, onSetUp }`)
 for the invite GoodParty texts in the official's name to build their civic
