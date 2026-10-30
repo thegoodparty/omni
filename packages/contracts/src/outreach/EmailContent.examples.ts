@@ -4,8 +4,14 @@ import type { EmailLayoutPresetKey } from './EmailLayoutPreset.const'
 // One finished email per layout for each product, with fictional people and
 // places. Used by the template gallery and as few-shot examples for the
 // drafting agent, so they must always pass EmailContentSchema (tested).
-// Images point at a placeholder service until the gallery has real ones.
-const PLACEHOLDER_PHOTO = 'https://placehold.co/1200x600.png'
+
+// Neutral illustrations committed to gp-webapp's public folder, so the
+// gallery and few-shot examples never depend on a third-party image host.
+// gp-api accepts exactly these as image URLs alongside uploaded ones.
+export const EMAIL_SAMPLE_IMAGE_URLS = {
+  hills: 'https://app.goodparty.org/images/email-samples/hills.jpg',
+  street: 'https://app.goodparty.org/images/email-samples/street.jpg',
+} as const
 
 export const EMAIL_CONTENT_EXAMPLES = {
   short_cta: {
@@ -17,7 +23,7 @@ export const EMAIL_CONTENT_EXAMPLES = {
       blocks: [
         {
           type: 'image',
-          url: PLACEHOLDER_PHOTO,
+          url: EMAIL_SAMPLE_IMAGE_URLS.street,
           alt: 'Volunteers with clipboards on a sidewalk in Maple Heights',
         },
         { type: 'heading', text: 'Help me meet Maple Heights', level: 1 },
@@ -44,7 +50,7 @@ export const EMAIL_CONTENT_EXAMPLES = {
       blocks: [
         {
           type: 'image',
-          url: PLACEHOLDER_PHOTO,
+          url: EMAIL_SAMPLE_IMAGE_URLS.street,
           alt: 'Elm Street at the corner of Second Avenue',
         },
         { type: 'heading', text: 'Elm Street is getting repaved', level: 1 },
@@ -75,7 +81,7 @@ export const EMAIL_CONTENT_EXAMPLES = {
         { type: 'heading', text: 'What I heard at your doors', level: 1 },
         {
           type: 'image',
-          url: PLACEHOLDER_PHOTO,
+          url: EMAIL_SAMPLE_IMAGE_URLS.hills,
           alt: 'A volunteer talking with a resident on a front porch',
         },
         {
@@ -168,7 +174,7 @@ export const EMAIL_CONTENT_EXAMPLES = {
       blocks: [
         {
           type: 'image',
-          url: PLACEHOLDER_PHOTO,
+          url: EMAIL_SAMPLE_IMAGE_URLS.hills,
           alt: 'Sam Ortega with his Little League team on the field',
         },
         {

@@ -19,6 +19,7 @@ import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import { OutreachHoldState, OutreachStatus, User } from '../../generated/prisma'
 import { EmailSendScope } from '../emailOutreach.types'
+import { sendableContentOf } from '../util/emailContent.util'
 import { emailPriceCents, recipientCapFor } from '../util/emailPricing.util'
 import { OutreachEmailAudienceService } from './outreachEmailAudience.service'
 import { OutreachEmailService } from './outreachEmail.service'
@@ -72,6 +73,7 @@ export class OutreachEmailConfirmService extends createPrismaBase(
       if (mode === 'win' && !isPro) {
         throw new ForbiddenException('Email sends require Pro.')
       }
+      sendableContentOf(row)
       if (!row.consentConfirmedAt) {
         throw new BadRequestException(
           'Confirm these contacts agreed to get email from you',

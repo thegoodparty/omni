@@ -5,25 +5,25 @@ import {
   Html,
   Img,
   Link,
+  Preview,
   Text,
 } from '@react-email/components'
 import type { ReactNode } from 'react'
 import type { EmailThemeColors } from '@goodparty_org/contracts'
 import { EMAIL_POSTAL_ADDRESS, EMAIL_VARIABLES } from './emailTemplate.const'
 import { emailVariableToken } from './emailTemplate.const'
-import type { EmailTemplateContent } from './emailTemplate.types'
+import type { EmailTemplateContext } from './emailTemplate.types'
 
 const FONT_STACK =
   "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif"
 
+const CARD_WIDTH = 600
+
+type Align = 'left' | 'center'
+
 // bgcolor is a legacy attribute that email clients still honor and React's
 // types omit.
 const bgcolor = (color: string): { bgcolor: string } => ({ bgcolor: color })
-
-export type LayoutProps = {
-  colors: EmailThemeColors
-  content: EmailTemplateContent
-}
 
 // Clients that recolor emails in dark mode leave an element alone when it
 // carries a solid bgcolor attribute plus a background-color in CSS, so every
@@ -35,13 +35,16 @@ const darkModeCss = (colors: EmailThemeColors): string => {
     ['em-card', 'background-color', colors.card],
     ['em-header', 'background-color', colors.header],
     ['em-rule', 'background-color', colors.rule],
+    ['em-divider', 'background-color', colors.divider],
     ['em-accent', 'background-color', colors.accent],
     ['em-cta', 'background-color', colors.cta],
     ['em-header-text', 'color', colors.headerText],
     ['em-headline', 'color', colors.headline],
+    ['em-subheading', 'color', colors.rule],
     ['em-body', 'color', colors.body],
     ['em-meta', 'color', colors.meta],
     ['em-cta-text', 'color', colors.ctaText],
+    ['em-cta-link', 'color', colors.cta],
     ['em-accent-text', 'color', colors.accentText],
   ]
   const declarations = rules
@@ -56,12 +59,12 @@ type BlockProps = {
   background: string
   className: string
   children?: ReactNode
-  align?: 'left' | 'center'
+  align?: Align
   padding?: string
   height?: number
 }
 
-const Block = ({
+export const Block = ({
   background,
   className,
   children,
@@ -102,139 +105,172 @@ const Block = ({
   </table>
 )
 
+// `background` is the page around the card: the theme's tint, or the card
+// color for a layout that should read like a plain email.
 export const EmailShell = ({
   colors,
   subject,
+  previewText,
+  background,
   children,
 }: {
   colors: EmailThemeColors
   subject: string
+  previewText?: string
+  background: 'bg' | 'card'
   children: ReactNode
-}) => (
-  <Html lang="en">
-    <Head>
-      <meta name="color-scheme" content="light only" />
-      <meta name="supported-color-schemes" content="light only" />
-      <title>{subject}</title>
-      <style>{darkModeCss(colors)}</style>
-    </Head>
-    <Body
-      style={{
-        margin: 0,
-        padding: 0,
-        backgroundColor: colors.bg,
-        fontFamily: FONT_STACK,
-      }}
-      {...bgcolor(colors.bg)}
-      className="em-bg"
-    >
-      <Block background={colors.bg} className="em-bg" padding="24px 12px">
-        <table
-          role="presentation"
-          width="600"
-          cellPadding={0}
-          cellSpacing={0}
-          border={0}
-          {...bgcolor(colors.card)}
-          className="em-card"
-          style={{
-            width: '100%',
-            maxWidth: 600,
-            backgroundColor: colors.card,
-            margin: '0 auto',
-          }}
-        >
-          <tbody>
-            <tr>
-              <td style={{ padding: 0 }}>{children}</td>
-            </tr>
-          </tbody>
-        </table>
-      </Block>
-    </Body>
-  </Html>
-)
-
-// A light header (cream_and_forest) needs the rule line to separate it from
-// the card; for solid headers the rule is the header's own color and
-// disappears.
-export const EmailHeader = ({
-  colors,
-  senderName,
-  align = 'left',
-}: {
-  colors: EmailThemeColors
-  senderName: string
-  align?: 'left' | 'center'
-}) => (
-  <>
-    <Block
-      background={colors.header}
-      className="em-header"
-      align={align}
-      padding="20px 32px"
-    >
-      <Text
-        className="em-header-text"
+}) => {
+  const page = colors[background]
+  const pageClass = background === 'bg' ? 'em-bg' : 'em-card'
+  return (
+    <Html lang="en">
+      <Head>
+        <meta name="color-scheme" content="light only" />
+        <meta name="supported-color-schemes" content="light only" />
+        <title>{subject}</title>
+        <style>{darkModeCss(colors)}</style>
+      </Head>
+      {previewText ? <Preview>{previewText}</Preview> : null}
+      <Body
         style={{
           margin: 0,
-          color: colors.headerText,
-          fontSize: 18,
-          fontWeight: 700,
-          lineHeight: '24px',
+          padding: 0,
+          backgroundColor: page,
+          fontFamily: FONT_STACK,
         }}
+        {...bgcolor(page)}
+        className={pageClass}
       >
-        {senderName}
-      </Text>
-    </Block>
-    <Block background={colors.rule} className="em-rule" height={3} />
-  </>
-)
+        <Block background={page} className={pageClass} padding="24px 12px">
+          <table
+            role="presentation"
+            width={CARD_WIDTH}
+            cellPadding={0}
+            cellSpacing={0}
+            border={0}
+            {...bgcolor(colors.card)}
+            className="em-card"
+            style={{
+              width: '100%',
+              maxWidth: CARD_WIDTH,
+              backgroundColor: colors.card,
+              margin: '0 auto',
+            }}
+          >
+            <tbody>
+              <tr>
+                <td style={{ padding: 0 }}>{children}</td>
+              </tr>
+            </tbody>
+          </table>
+        </Block>
+      </Body>
+    </Html>
+  )
+}
 
-export const EmailImage = ({ url }: { url: string }) => (
+export const EmailRule = ({
+  colors,
+  height,
+}: {
+  colors: EmailThemeColors
+  height: number
+}) => <Block background={colors.rule} className="em-rule" height={height} />
+
+// Edge to edge across the card.
+export const EmailFullImage = ({ url, alt }: { url: string; alt: string }) => (
   <Img
     src={url}
-    alt=""
-    width="600"
-    style={{ display: 'block', width: '100%', maxWidth: 600, height: 'auto' }}
+    alt={alt}
+    width={String(CARD_WIDTH)}
+    style={{
+      display: 'block',
+      width: '100%',
+      maxWidth: CARD_WIDTH,
+      height: 'auto',
+    }}
   />
 )
 
-export const EmailHeadline = ({
-  colors,
-  text,
-  size = 28,
-  align = 'left',
-}: {
-  colors: EmailThemeColors
-  text: string
-  size?: number
-  align?: 'left' | 'center'
-}) => (
-  <Heading
-    as="h1"
-    className="em-headline"
-    style={{
-      margin: '0 0 16px',
-      color: colors.headline,
-      fontSize: size,
-      lineHeight: `${size + 8}px`,
-      fontWeight: 700,
-      textAlign: align,
-    }}
+// Like a photo pasted into a normal email: padded and centered, narrower
+// than the text column.
+export const EmailInsetImage = ({ url, alt }: { url: string; alt: string }) => (
+  <table
+    role="presentation"
+    width="100%"
+    cellPadding={0}
+    cellSpacing={0}
+    border={0}
+    style={{ width: '100%', margin: '8px 0 24px' }}
   >
-    {text}
-  </Heading>
+    <tbody>
+      <tr>
+        <td align="center">
+          <Img
+            src={url}
+            alt={alt}
+            width="416"
+            style={{
+              display: 'block',
+              width: '78%',
+              maxWidth: 416,
+              height: 'auto',
+              margin: '0 auto',
+              borderRadius: 4,
+            }}
+          />
+        </td>
+      </tr>
+    </tbody>
+  </table>
 )
 
-export const EmailParagraphs = ({
+export const EmailHeading = ({
   colors,
   text,
+  level,
   align = 'left',
+  size,
 }: {
   colors: EmailThemeColors
   text: string
-  align?: 'left' | 'center'
+  level: 1 | 2
+  align?: Align
+  size?: number
+}) => {
+  const fontSize = size ?? (level === 1 ? 28 : 21)
+  return (
+    <Heading
+      as={level === 1 ? 'h1' : 'h2'}
+      className={level === 1 ? 'em-headline' : 'em-subheading'}
+      style={{
+        margin: level === 1 ? '0 0 16px' : '28px 0 12px',
+        color: level === 1 ? colors.headline : colors.rule,
+        fontSize,
+        lineHeight: `${Math.round(fontSize * 1.25)}px`,
+        fontWeight: level === 1 ? 800 : 700,
+        textAlign: align,
+      }}
+    >
+      {text}
+    </Heading>
+  )
+}
+
+// A blank line in the text starts a new paragraph and a single line break a
+// new line.
+export const EmailParagraph = ({
+  colors,
+  text,
+  align = 'left',
+  fontSize = 16,
+  lineHeight = 26,
+}: {
+  colors: EmailThemeColors
+  text: string
+  align?: Align
+  fontSize?: number
+  lineHeight?: number
 }) => (
   <>
     {text
@@ -247,8 +283,8 @@ export const EmailParagraphs = ({
           style={{
             margin: '0 0 16px',
             color: colors.body,
-            fontSize: 16,
-            lineHeight: '26px',
+            fontSize,
+            lineHeight: `${lineHeight}px`,
             textAlign: align,
           }}
         >
@@ -264,16 +300,22 @@ export const EmailParagraphs = ({
 )
 
 export const EmailButton = ({
-  colors,
   label,
   url,
+  background,
+  backgroundClass,
+  textColor,
+  textClass,
   align = 'left',
   large = false,
 }: {
-  colors: EmailThemeColors
   label: string
   url: string
-  align?: 'left' | 'center'
+  background: string
+  backgroundClass: string
+  textColor: string
+  textClass: string
+  align?: Align
   large?: boolean
 }) => (
   <table
@@ -282,26 +324,26 @@ export const EmailButton = ({
     cellSpacing={0}
     border={0}
     align={align}
-    style={{ margin: align === 'center' ? '8px auto 16px' : '8px 0 16px' }}
+    style={{ margin: align === 'center' ? '0 auto' : '8px 0 16px' }}
   >
     <tbody>
       <tr>
         <td
           align="center"
-          {...bgcolor(colors.cta)}
-          className="em-cta"
-          style={{ backgroundColor: colors.cta, borderRadius: 6 }}
+          {...bgcolor(background)}
+          className={backgroundClass}
+          style={{ backgroundColor: background, borderRadius: 6 }}
         >
           <Link
             href={url}
-            className="em-cta-text"
+            className={textClass}
             style={{
               display: 'inline-block',
-              padding: large ? '18px 40px' : '14px 28px',
-              color: colors.ctaText,
-              fontSize: large ? 18 : 16,
+              padding: large ? '18px 40px' : '12px 24px',
+              color: textColor,
+              fontSize: large ? 19 : 15,
               fontWeight: 700,
-              lineHeight: '20px',
+              lineHeight: '22px',
               textDecoration: 'none',
             }}
           >
@@ -313,85 +355,116 @@ export const EmailButton = ({
   </table>
 )
 
+export const EmailTextLink = ({
+  colors,
+  label,
+  url,
+}: {
+  colors: EmailThemeColors
+  label: string
+  url: string
+}) => (
+  <Text
+    className="em-body"
+    style={{
+      margin: '0 0 16px',
+      color: colors.body,
+      fontSize: 16,
+      lineHeight: '26px',
+    }}
+  >
+    <Link
+      href={url}
+      className="em-cta-link"
+      style={{ color: colors.cta, textDecoration: 'underline' }}
+    >
+      {label}
+    </Link>
+  </Text>
+)
+
+export const EmailDivider = ({ colors }: { colors: EmailThemeColors }) => (
+  <table
+    role="presentation"
+    width="100%"
+    cellPadding={0}
+    cellSpacing={0}
+    border={0}
+    style={{ width: '100%', margin: '12px 0 20px' }}
+  >
+    <tbody>
+      <tr>
+        <td
+          {...bgcolor(colors.divider)}
+          className="em-divider"
+          height={1}
+          style={{
+            backgroundColor: colors.divider,
+            height: 1,
+            lineHeight: '1px',
+            fontSize: 1,
+          }}
+        >
+          &nbsp;
+        </td>
+      </tr>
+    </tbody>
+  </table>
+)
+
 export const EmailBodyBlock = ({
   colors,
   children,
   align = 'left',
+  padding = '32px 32px 16px',
 }: {
   colors: EmailThemeColors
   children: ReactNode
-  align?: 'left' | 'center'
+  align?: Align
+  padding?: string
 }) => (
   <Block
     background={colors.card}
     className="em-card"
     align={align}
-    padding="32px 32px 16px"
+    padding={padding}
   >
     {children}
   </Block>
 )
 
-export const EmailAccentBlock = ({
+export const EmailFooter = ({
   colors,
-  text,
+  context,
   align = 'left',
 }: {
   colors: EmailThemeColors
-  text: string
-  align?: 'left' | 'center'
-}) => (
-  <Block
-    background={colors.accent}
-    className="em-accent"
-    align={align}
-    padding="24px 32px"
-  >
-    <Heading
-      as="h1"
-      className="em-accent-text"
-      style={{
-        margin: 0,
-        color: colors.accentText,
-        fontSize: 26,
-        lineHeight: '34px',
-        fontWeight: 700,
-        textAlign: align,
-      }}
-    >
-      {text}
-    </Heading>
-  </Block>
-)
-
-export const EmailFooter = ({
-  colors,
-  footer,
-}: {
-  colors: EmailThemeColors
-  footer: EmailTemplateContent['footer']
+  context: EmailTemplateContext
+  align?: Align
 }) => {
   const textStyle = {
     margin: '0 0 8px',
     color: colors.meta,
     fontSize: 13,
     lineHeight: '20px',
+    textAlign: align,
   }
   return (
     <>
-      <Block background={colors.divider} className="em-card" height={1} />
+      <Block background={colors.divider} className="em-divider" height={1} />
       <Block
         background={colors.card}
         className="em-card"
+        align={align}
         padding="24px 32px 32px"
       >
-        {footer.paidForBy ? (
+        {context.paidForBy ? (
           <Text className="em-meta" style={textStyle}>
-            {`Paid for by ${footer.paidForBy}`}
+            {`Paid for by ${context.paidForBy}`}
           </Text>
         ) : null}
         <Text className="em-meta" style={textStyle}>
-          {`You\u2019re getting this email because you asked to hear from ${footer.senderName}.`}
+          {`You’re getting this email because you asked to hear from ${context.senderName}.`}
         </Text>
         <Text className="em-meta" style={textStyle}>
           {EMAIL_POSTAL_ADDRESS}

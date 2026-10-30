@@ -37,6 +37,7 @@ export class OutreachEmailPrepareService extends createPrismaBase(
             organizationSlug: true,
             campaignId: true,
             voterFileFilterId: true,
+            date: true,
           },
         },
         sender: true,
@@ -117,7 +118,11 @@ export class OutreachEmailPrepareService extends createPrismaBase(
     await this.ses.createTemplate(
       tenantName,
       templateName,
-      await renderOutreachEmail(row, row.sender.displayName),
+      await renderOutreachEmail(
+        row,
+        row.sender.displayName,
+        row.outreach.date ?? new Date(),
+      ),
     )
 
     const cap = row.recipientCap

@@ -1,5 +1,6 @@
 import { HttpStatus } from '@nestjs/common'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { EMAIL_CONTENT_EXAMPLES } from '@goodparty_org/contracts'
 import { OfficeLevel } from '../../generated/prisma'
 import { ASSET_DOMAIN } from '@/shared/util/appEnvironment.util'
 import { useTestService } from '@/test-service'
@@ -85,23 +86,51 @@ beforeEach(async () => {
 })
 
 describe('POST /v1/outreach/email/preview', () => {
-  it('returns materially different HTML for each layout', async () => {
-    const layouts = ['newsletter', 'reminder', 'call_to_action']
-    const htmls = await Promise.all(
-      layouts.map(async (layout) => {
-        const res = await previewWin(previewBody({ layout }))
-        expect(res.status).toBe(HttpStatus.CREATED)
-        return res.data.html as string
-      }),
+  it('renders each layout preset from blocks with its own treatment', async () => {
+    const [shortCta, longUpdate, letter] = await Promise.all(
+      (['short_cta', 'long_update', 'personal_letter'] as const).map(
+        async (layout) => {
+          const res = await previewWin({
+            content: EMAIL_CONTENT_EXAMPLES[layout].win,
+          })
+          expect(res.status).toBe(HttpStatus.CREATED)
+          return res.data.html as string
+        },
+      ),
     )
-    const [newsletter, reminder, callToAction] = htmls
-    expect(new Set(htmls).size).toBe(3)
-    expect(reminder).toContain('class="em-accent"')
-    expect(newsletter).not.toContain('class="em-accent"')
-    expect(callToAction).not.toContain('class="em-accent"')
-    expect(callToAction).toContain('font-size:34px')
-    expect(newsletter).not.toContain('font-size:34px')
-    expect(reminder).not.toContain('font-size:34px')
+    expect(shortCta).toContain('font-size:36px')
+    expect(shortCta).toContain('class="em-accent"')
+    expect(longUpdate).toContain('class="em-header"')
+    expect(longUpdate).toContain('class="em-subheading"')
+    expect(letter).not.toContain('class="em-header"')
+    expect(letter).toContain('class="em-cta-link"')
+    expect(letter).toContain('Dear Alex,')
+  })
+
+  it('shows the sender and today on the long update masthead', async () => {
+    const { data } = await previewServe({
+      content: EMAIL_CONTENT_EXAMPLES.long_update.serve,
+    })
+    expect(data.html).toMatch(/ · [A-Z][a-z]+ \d{1,2}, \d{4}</)
+  })
+
+  it('renders the old fields as blocks', async () => {
+    const res = await previewWin(
+      previewBody({ body: 'Hi {{first_name}},\n\nCome say hello.' }),
+    )
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(res.data.html).toContain('class="em-header"')
+    expect(res.data.html).toContain('>Join us</h1>')
+  })
+
+  it('rejects a block the layout does not allow', async () => {
+    const res = await previewWin({
+      content: {
+        ...EMAIL_CONTENT_EXAMPLES.personal_letter.win,
+        blocks: [{ type: 'divider' }, { type: 'paragraph', text: 'Hi' }],
+      },
+    })
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
   })
 
   it('fills the recipient variables with sample values', async () => {
@@ -118,19 +147,33 @@ describe('POST /v1/outreach/email/preview', () => {
     expect(data.html).toContain('Paid for by Jane for Texas')
   })
 
-  it('renders a half-typed draft and a call to action with no button', async () => {
-    const res = await previewWin(
-      previewBody({
-        layout: 'call_to_action',
+  it('renders a half-typed draft', async () => {
+    const res = await previewWin({
+      content: {
+        layout: 'short_cta',
+        theme: 'bold_red',
         subject: '',
-        body: '',
-        headline: undefined,
-        buttonLabel: undefined,
-        buttonUrl: undefined,
-      }),
-    )
+        blocks: [
+          { type: 'image', url: '', alt: '' },
+          { type: 'heading', text: 'Half', level: 1 },
+          { type: 'paragraph', text: '' },
+          { type: 'button', label: 'RSVP', url: '' },
+        ],
+      },
+    })
     expect(res.status).toBe(HttpStatus.CREATED)
-    expect(res.data.html).toContain('Your button')
+    expect(res.data.html).toContain('>Half</h1>')
+    expect(res.data.html).toContain('RSVP')
+  })
+
+  it('accepts the sample images the examples use', async () => {
+    const res = await previewWin({
+      content: EMAIL_CONTENT_EXAMPLES.short_cta.win,
+    })
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(res.data.html).toContain(
+      'https://app.goodparty.org/images/email-samples/street.jpg',
+    )
   })
 
   it('rejects an image this module did not presign', async () => {
@@ -149,11 +192,16 @@ describe('POST /v1/outreach/email/preview', () => {
 
   it('keeps typed braces literal and fills only the merge tags', async () => {
     const { data } = await previewWin(
-      previewBody({ body: 'Hi {{first_name}} and {{unsubscribe_url}} {{x}}' }),
+      previewBody({ body: 'Hi {{first_name}} and {x}' }),
     )
-    expect(data.html).toContain('Hi Alex and')
-    expect(data.html).toContain('&#123;&#123;unsubscribe_url')
-    expect(data.html).not.toContain('{{x}}')
+    expect(data.html).toContain('Hi Alex and &#123;x&#125;')
+  })
+
+  it('rejects merge tags other than first and last name', async () => {
+    const res = await previewWin(
+      previewBody({ body: 'Hi {{first_name}} and {{unsubscribe_url}}' }),
+    )
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
   })
 
   it('rejects unknown fields and bad layouts', async () => {

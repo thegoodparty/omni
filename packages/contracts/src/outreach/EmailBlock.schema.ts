@@ -2,7 +2,7 @@ import { z } from 'zod'
 import {
   EMAIL_SUBJECT_MAX_LENGTH,
   EMAIL_URL_MAX_LENGTH,
-} from './OutreachEmail.schema'
+} from './EmailLimits.const'
 
 export const EMAIL_PREVIEW_TEXT_MAX_LENGTH = 140
 export const EMAIL_HEADING_MAX_LENGTH = 120

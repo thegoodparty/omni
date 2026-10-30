@@ -46,6 +46,12 @@ const send = (over: Partial<EmailSend> = {}): EmailSend => ({
   pauseReason: null,
   stopping: false,
   estimate: null,
+  content: {
+    layout: 'long_update',
+    theme: 'classic_blue',
+    subject: 'Hello',
+    blocks: [],
+  },
   ...over,
 })
 

@@ -1,4 +1,5 @@
 import { ConflictException } from '@nestjs/common'
+import { EMAIL_CONTENT_EXAMPLES } from '@goodparty_org/contracts'
 import {
   GetMetricDataCommand,
   GetMetricDataCommandOutput,
@@ -587,6 +588,29 @@ describe('prepare', () => {
         })
       ).sesTenantName,
     ).toBe(`test-${orgs.winSlug}`)
+  })
+
+  it('renders a block send with the sender and send date on the masthead', async () => {
+    vi.spyOn(ses, 'ensureTenant').mockResolvedValue()
+    const createTemplate = vi.spyOn(ses, 'createTemplate').mockResolvedValue()
+    const sender = await createSender(service.prisma, orgs.officeSlug)
+    const { outreachId, outreachEmailId } = await createSend(service.prisma, {
+      organizationSlug: orgs.officeSlug,
+      campaignId: null,
+      senderId: sender.id,
+      emails: emails(2),
+      status: OutreachStatus.in_progress,
+      recipientCap: 2,
+      date: new Date(2026, 10, 3, 9, 0),
+      content: EMAIL_CONTENT_EXAMPLES.long_update.serve,
+    })
+    await createHold(service.prisma, outreachId, OutreachHoldState.held)
+    await service.app.get(OutreachEmailPrepareService).prepare(outreachEmailId)
+    const rendered = createTemplate.mock.calls[0]?.[2]
+    expect(rendered?.subject).toBe('Your October update from Ward 2')
+    expect(rendered?.html).toContain(`${sender.displayName} · November 3, 2026`)
+    expect(rendered?.html).toContain('class="em-subheading"')
+    expect(rendered?.html).not.toContain('Paid for by')
   })
 
   it("skips the campaign's unsubscribes on an office send", async () => {

@@ -1192,7 +1192,10 @@ export {
   type EmailContent,
   type EmailContentDraft,
 } from './outreach/EmailContent.schema'
-export { EMAIL_CONTENT_EXAMPLES } from './outreach/EmailContent.examples'
+export {
+  EMAIL_CONTENT_EXAMPLES,
+  EMAIL_SAMPLE_IMAGE_URLS,
+} from './outreach/EmailContent.examples'
 export {
   MERGE_TAGS,
   mergeTagToken,
