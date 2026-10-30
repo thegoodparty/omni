@@ -16,11 +16,11 @@ import {
 import { eventually } from 'tests/utils/eventually'
 import { withGatewayRetry } from 'tests/utils/headless-user'
 
-// The email send, end to end against the vendor-mock stack: compose, pick a
-// voter-file list with the email filter forced on, confirm with a card Stripe
-// declines at the hold, confirm again with Stripe's 4242 card (a real
-// test-mode hold), then run the real due, prepare, send and settle steps and
-// wait for Sent.
+// The email send, end to end against the vendor-mock stack: compose with
+// blocks, pick a voter-file list with the email filter forced on, confirm
+// with a card Stripe declines at the hold, confirm again with Stripe's 4242
+// card (a real test-mode hold), then run the real due, prepare, send and
+// settle steps and wait for Sent.
 //
 // Emails reach the people DB only through imported contacts, read from dev's
 // database, which a preview's own database never feeds. So the campaign's
@@ -87,6 +87,44 @@ const fillStripeCard = async (
   await page.waitForTimeout(500)
 }
 
+// The AI draft is answered here so the blocks it fills are known: a model's
+// draft varies run to run, and this spec is about the send.
+const AI_DRAFT = {
+  subject: 'Meet your candidate',
+  headline: null,
+  body: 'Hi {{first_name}},\n\nI am running to fix our roads.',
+  buttonLabel: 'Say hello',
+  content: {
+    layout: 'personal_letter',
+    theme: 'cream_and_forest',
+    subject: 'Meet your candidate',
+    blocks: [
+      { type: 'paragraph', text: 'Hi {{first_name}},' },
+      { type: 'paragraph', text: 'I am running to fix our roads.' },
+      { type: 'button', label: 'Say hello', url: '' },
+    ],
+  },
+}
+
+const mockAiDraft = (page: Page) =>
+  page.route('**/v1/outreach/email/draft', (route) =>
+    route.fulfill({ json: AI_DRAFT }),
+  )
+
+// Compose with blocks: the draft fills a personal letter, switching to the
+// short layout keeps its text and adds a headline, then the headline and the
+// button's link are filled in.
+const composeWithBlocks = async (page: Page) => {
+  await expect(page.locator('#email-subject')).toHaveValue(
+    'Meet your candidate',
+    { timeout: 30_000 },
+  )
+  await page.getByRole('radio', { name: 'Short with a button' }).click()
+  await expect(page.getByTestId('email-block')).toHaveCount(4)
+  await page.getByRole('textbox', { name: 'Headline' }).fill('Fixing our roads')
+  await page.getByLabel('Button link').fill('https://goodparty.org')
+}
+
 test.describe('Email send — mock pipeline', () => {
   test.use({ serviceWorkers: 'block' })
 
@@ -100,6 +138,7 @@ test.describe('Email send — mock pipeline', () => {
     test.setTimeout(6 * 60 * 1000)
 
     await setFlagOverrides(page, { 'win-email-outreach': 'on' })
+    await mockAiDraft(page)
     const { client } = await setupProCampaignUser(page)
     const { data: mine } = await client.get<{ id: number }>(
       '/v1/campaigns/mine',
@@ -138,10 +177,7 @@ test.describe('Email send — mock pipeline', () => {
     await expect(stepHeading(page, 'What do you want to say?')).toBeVisible({
       timeout: 30_000,
     })
-    await page.locator('#email-subject').fill('Meet your candidate')
-    const body = page.locator('[aria-label="Message body"]').first()
-    await body.click()
-    await page.keyboard.type('I am running to fix our roads. Say hello.')
+    await composeWithBlocks(page)
     await page.getByRole('button', { name: 'Next' }).click()
 
     // ── Audience: a voter-file list, email forced on ────────────────────
@@ -267,6 +303,7 @@ test.describe('Email send — mock pipeline', () => {
     test.setTimeout(3 * 60 * 1000)
 
     await setFlagOverrides(page, { 'win-email-outreach': 'on' })
+    await mockAiDraft(page)
     await setupProCampaignUser(page)
 
     await page.goto('/dashboard/outreach/email', {
@@ -283,10 +320,7 @@ test.describe('Email send — mock pipeline', () => {
     await expect(stepHeading(page, 'What do you want to say?')).toBeVisible({
       timeout: 30_000,
     })
-    await page.locator('#email-subject').fill('Meet your candidate')
-    const body = page.locator('[aria-label="Message body"]').first()
-    await body.click()
-    await page.keyboard.type('I am running to fix our roads. Say hello.')
+    await composeWithBlocks(page)
     await page.getByRole('button', { name: 'Next' }).click()
 
     await expect(stepHeading(page, 'Who do you want to reach?')).toBeVisible({

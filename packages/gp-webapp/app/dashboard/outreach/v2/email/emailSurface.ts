@@ -10,7 +10,7 @@ export interface EmailSurface {
   goals: { id: string; label: string }[]
   customGoalId: string
   goal: { title: string; caption: string; customLabel: string }
-  compose: { title: string; caption: string }
+  compose: { title: string; caption: string; buttonLinkHint: string }
   audience: {
     picker: OutreachAudienceCopy
     consentLabel: string
@@ -33,6 +33,7 @@ export const WIN_EMAIL_SURFACE: EmailSurface = {
   compose: {
     title: 'What do you want to say?',
     caption: 'Write it your way. Voters see it just like the preview.',
+    buttonLinkHint: 'Add the link voters go to when they tap it.',
   },
   audience: {
     picker: {
@@ -84,6 +85,7 @@ export const SERVE_EMAIL_SURFACE: EmailSurface = {
   compose: {
     title: 'What do you want to say?',
     caption: 'Write it your way. Constituents see it just like the preview.',
+    buttonLinkHint: 'Add the link constituents go to when they tap it.',
   },
   audience: {
     picker: {

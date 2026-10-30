@@ -13,7 +13,7 @@ import { renderEmailTemplate } from './renderEmailTemplate'
 const WIN: EmailTemplateContext = {
   senderName: 'Renee Wells',
   paidForBy: 'Wells for Mayor',
-  sendDate: new Date(2026, 10, 3, 9, 0),
+  sendDate: new Date('2026-11-03T17:00:00Z'),
 }
 const SERVE: EmailTemplateContext = { ...WIN, paidForBy: null }
 
@@ -97,6 +97,15 @@ describe('renderEmailTemplate', () => {
         ),
       )
       expect(text).toContain('Your October update from Ward 2')
+      expect(text).toContain('Renee Wells · November 3, 2026')
+    })
+
+    it('dates the masthead by the Pacific day, not the UTC one', async () => {
+      // 8:30pm on November 3 in Los Angeles is already November 4 in UTC.
+      const { text } = await renderEmailTemplate(example, {
+        ...SERVE,
+        sendDate: new Date('2026-11-04T04:30:00Z'),
+      })
       expect(text).toContain('Renee Wells · November 3, 2026')
     })
 

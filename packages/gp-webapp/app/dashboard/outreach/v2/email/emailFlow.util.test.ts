@@ -1,12 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import {
   checkSchedule,
-  composeIssues,
-  initialCompose,
   nextWarmingCap,
   toDraftSave,
   warmingCap,
 } from './emailFlow.util'
+import { initialCompose, withIds } from './emailBlocks.util'
 
 describe('warming', () => {
   it('reads the cap off the warming step and clamps past the last one', () => {
@@ -18,102 +17,41 @@ describe('warming', () => {
   })
 })
 
-describe('composeIssues', () => {
-  const filled = { ...initialCompose, subject: 'Hi', body: 'Hello' }
-
-  it('needs a subject and a body', () => {
-    expect(composeIssues(initialCompose)).toEqual({
-      subject: 'Add a subject line.',
-      body: 'Write your message.',
-    })
-    expect(composeIssues(filled)).toEqual({})
-  })
-
-  it('requires a button on call to action', () => {
-    expect(
-      composeIssues({ ...filled, layout: 'call_to_action' }).button,
-    ).toBeDefined()
-    expect(
-      composeIssues({
-        ...filled,
-        layout: 'call_to_action',
-        buttonLabel: 'Donate',
-        buttonUrl: 'https://example.com',
-      }),
-    ).toEqual({})
-  })
-
-  it('wants both halves of a button and an https link', () => {
-    expect(composeIssues({ ...filled, buttonLabel: 'Go' }).button).toBeDefined()
-    expect(
-      composeIssues({
-        ...filled,
-        buttonLabel: 'Go',
-        buttonUrl: 'http://example.com',
-      }).button,
-    ).toBeDefined()
-  })
-})
-
 describe('toDraftSave', () => {
-  it('includes the uploaded image url', () => {
-    expect(
-      toDraftSave(
-        'Intro',
-        {
-          ...initialCompose,
-          subject: 'S',
-          body: 'B',
-          imageUrl: 'https://assets.example.com/email-images/o/x.png',
-        },
-        null,
-        undefined,
-        { listId: null, consent: false },
-      ),
-    ).toMatchObject({
-      imageUrl: 'https://assets.example.com/email-images/o/x.png',
-    })
-  })
+  const state = {
+    ...initialCompose(),
+    subject: 'S',
+    blocks: withIds([{ type: 'paragraph', text: 'B' }]),
+  }
 
-  it('omits empty optionals so the full-replace save clears them', () => {
+  it('sends the blocks as content, without the editor keys', () => {
     expect(
-      toDraftSave(
-        'Intro',
-        { ...initialCompose, subject: 'S', body: 'B' },
-        null,
-        undefined,
-        { listId: null, consent: false },
-      ),
+      toDraftSave('Intro', state, null, undefined, {
+        listId: null,
+        consent: false,
+      }),
     ).toEqual({
       goal: 'Intro',
-      layout: 'newsletter',
-      theme: 'classic_blue',
-      subject: 'S',
-      body: 'B',
+      content: {
+        layout: 'personal_letter',
+        theme: 'cream_and_forest',
+        subject: 'S',
+        blocks: [{ type: 'paragraph', text: 'B' }],
+      },
       consentConfirmed: false,
     })
   })
 
-  it('carries the draft id, the button and the date', () => {
-    const save = toDraftSave(
-      'Intro',
-      {
-        ...initialCompose,
-        subject: 'S',
-        body: 'B',
-        buttonLabel: 'Go',
-        buttonUrl: 'https://example.com',
-      },
-      7,
-      '2026-11-01T10:00:00.000Z',
-      { listId: 42, consent: true },
-    )
-    expect(save).toMatchObject({
+  it('carries the draft id, the list and the date', () => {
+    expect(
+      toDraftSave('Intro', state, 7, '2026-11-01T10:00:00.000Z', {
+        listId: 42,
+        consent: true,
+      }),
+    ).toMatchObject({
       id: 7,
       voterFileFilterId: 42,
       consentConfirmed: true,
-      buttonLabel: 'Go',
-      buttonUrl: 'https://example.com',
       date: '2026-11-01T10:00:00.000Z',
     })
   })

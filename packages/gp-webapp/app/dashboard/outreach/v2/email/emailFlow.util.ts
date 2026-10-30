@@ -1,10 +1,8 @@
 import {
-  EMAIL_LAYOUTS,
   EMAIL_SEND_WINDOW_DAYS,
-  type EmailDraftSave,
-  type EmailLayoutKey,
-  type EmailThemeKey,
+  type EmailDraftSaveContent,
 } from '@goodparty_org/contracts'
+import { toContent, type EmailComposeState } from './emailBlocks.util'
 
 // The warming ladder from the TDD, indexed by the sender's `warmingStep`.
 // gp-api freezes the real cap when the send is confirmed; this is the number
@@ -21,88 +19,20 @@ export const nextWarmingCap = (warmingStep: number): number | null =>
 export const formatCount = (count: number): string =>
   count.toLocaleString('en-US')
 
-export interface EmailComposeState {
-  layout: EmailLayoutKey
-  theme: EmailThemeKey
-  subject: string
-  headline: string
-  body: string
-  buttonLabel: string
-  buttonUrl: string
-  imageUrl: string
-}
-
-export const initialCompose: EmailComposeState = {
-  layout: 'newsletter',
-  theme: EMAIL_LAYOUTS.newsletter.defaultTheme,
-  subject: '',
-  headline: '',
-  body: '',
-  buttonLabel: '',
-  buttonUrl: '',
-  imageUrl: '',
-}
-
-const isHttps = (value: string): boolean => {
-  try {
-    return new URL(value).protocol === 'https:'
-  } catch {
-    return false
-  }
-}
-
-export interface ComposeIssues {
-  subject?: string
-  body?: string
-  button?: string
-}
-
-export const composeIssues = (state: EmailComposeState): ComposeIssues => {
-  const issues: ComposeIssues = {}
-  if (!state.subject.trim()) issues.subject = 'Add a subject line.'
-  if (!state.body.trim()) issues.body = 'Write your message.'
-  const hasLabel = state.buttonLabel.trim() !== ''
-  const hasUrl = state.buttonUrl.trim() !== ''
-  if (EMAIL_LAYOUTS[state.layout].requiresButton && !(hasLabel && hasUrl)) {
-    issues.button = 'This layout needs a button label and a link.'
-  } else if (hasLabel !== hasUrl) {
-    issues.button = 'A button needs both a label and a link.'
-  } else if (hasUrl && !isHttps(state.buttonUrl.trim())) {
-    issues.button = 'The link must start with https://.'
-  }
-  return issues
-}
-
 export const toDraftSave = (
   goal: string,
   state: EmailComposeState,
   id: number | null,
   date: string | undefined,
   audience: { listId: number | null; consent: boolean },
-): EmailDraftSave => {
-  const headline = state.headline.trim()
-  const hasButton =
-    state.buttonLabel.trim() !== '' && state.buttonUrl.trim() !== ''
-  return {
-    ...(id !== null ? { id } : {}),
-    goal,
-    layout: state.layout,
-    theme: state.theme,
-    subject: state.subject,
-    ...(headline ? { headline } : {}),
-    body: state.body,
-    ...(state.imageUrl ? { imageUrl: state.imageUrl } : {}),
-    ...(hasButton
-      ? {
-          buttonLabel: state.buttonLabel.trim(),
-          buttonUrl: state.buttonUrl.trim(),
-        }
-      : {}),
-    ...(date ? { date } : {}),
-    ...(audience.listId !== null ? { voterFileFilterId: audience.listId } : {}),
-    consentConfirmed: audience.consent,
-  }
-}
+): EmailDraftSaveContent => ({
+  ...(id !== null ? { id } : {}),
+  goal,
+  content: toContent(state),
+  ...(date ? { date } : {}),
+  ...(audience.listId !== null ? { voterFileFilterId: audience.listId } : {}),
+  consentConfirmed: audience.consent,
+})
 
 const pad = (n: number): string => String(n).padStart(2, '0')
 

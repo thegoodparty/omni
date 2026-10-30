@@ -8,3 +8,8 @@ export const EMAIL_VARIABLES = {
 } as const
 
 export const emailVariableToken = (name: string): string => `{{${name}}}`
+
+// No campaign or office stores a time zone, so the masthead date is the
+// Pacific calendar day: the server runs in UTC, which would show an evening
+// Pacific send as the next day.
+export const EMAIL_MASTHEAD_TIME_ZONE = 'America/Los_Angeles'

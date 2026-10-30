@@ -9,12 +9,12 @@ import {
   useEmailSend,
   useEmailSender,
 } from './emailApi'
+import { formatCount, formatDollars, nextWarmingCap } from './emailFlow.util'
 import {
-  formatCount,
-  formatDollars,
-  nextWarmingCap,
+  parseBlockError,
+  toContent,
   type EmailComposeState,
-} from './emailFlow.util'
+} from './emailBlocks.util'
 import type { EmailSurface } from './emailSurface'
 
 interface EmailReviewStepProps {
@@ -22,6 +22,8 @@ interface EmailReviewStepProps {
   compose: EmailComposeState
   draftId: number | null
   sendLabel: string
+  // Opens compose on the block a refused test send names.
+  onFixBlock: (message: string) => void
 }
 
 export const EmailReviewStep = ({
@@ -29,6 +31,7 @@ export const EmailReviewStep = ({
   compose,
   draftId,
   sendLabel,
+  onFixBlock,
 }: EmailReviewStepProps) => {
   const { data: sender } = useEmailSender(surface.isServe)
   const { data: send } = useEmailSend(surface.isServe, draftId)
@@ -79,17 +82,7 @@ export const EmailReviewStep = ({
     <div className="space-y-6">
       <Intro title={surface.review.title} body={surface.review.caption} />
 
-      <EmailPreview
-        serve={surface.isServe}
-        layout={compose.layout}
-        theme={compose.theme}
-        subject={compose.subject}
-        headline={compose.headline}
-        body={compose.body}
-        buttonLabel={compose.buttonLabel}
-        buttonUrl={compose.buttonUrl}
-        imageUrl={compose.imageUrl}
-      />
+      <EmailPreview serve={surface.isServe} content={toContent(compose)} />
 
       <dl className="space-y-3 text-sm">
         <div>
@@ -209,6 +202,16 @@ export const EmailReviewStep = ({
             <p className="text-xs text-muted-foreground">{testResult}</p>
           )}
           {testError && <p className="text-xs text-destructive">{testError}</p>}
+          {testError && parseBlockError(testError) && (
+            <Button
+              type="button"
+              size="small"
+              variant="outline"
+              onClick={() => onFixBlock(testError)}
+            >
+              Fix the email
+            </Button>
+          )}
         </div>
       </div>
     </div>
