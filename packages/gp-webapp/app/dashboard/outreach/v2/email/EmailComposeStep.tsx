@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
+  EMAIL_BODY_MAX_LENGTH,
   EMAIL_IMAGE_ALLOWED_MIME_TYPES,
   EMAIL_IMAGE_MAX_BYTES,
   EMAIL_LAYOUT_PRESETS,
@@ -42,8 +43,10 @@ import {
   canRemove,
   editorIssues,
   fillFromAiDraft,
+  hasNoWriting,
   isUntouched,
   moveBlock,
+  snapshot,
   switchLayout,
   toAiFields,
   toContent,
@@ -80,9 +83,6 @@ const ACTIVE_DICTATION: ReadonlySet<DictationStatus> = new Set([
   'stopping',
 ])
 
-const snapshot = (state: EmailComposeState): string =>
-  JSON.stringify(toContent(state))
-
 interface Notice {
   text: string
   previous: EmailComposeState
@@ -114,6 +114,7 @@ export const EmailComposeStep = ({
   const [aiError, setAiError] = useState<string | null>(null)
   const [confirmRegenerate, setConfirmRegenerate] = useState(false)
   const [notice, setNotice] = useState<Notice | null>(null)
+  const [layoutError, setLayoutError] = useState<string | null>(null)
   const [imageBusyId, setImageBusyId] = useState<string | null>(null)
   const [imageError, setImageError] = useState<{
     id: string
@@ -121,10 +122,15 @@ export const EmailComposeStep = ({
   } | null>(null)
   const latest = useRef(value)
   latest.current = value
-  // The content as the starter blocks or the last AI draft left it, so
-  // Regenerate knows whether it would throw away the user's own edits.
-  // Content already written when compose opens is the user's own.
-  const pristine = useRef(isUntouched(value) ? snapshot(value) : null)
+  // A draft that lands after the user left compose (Back to the goal) was
+  // for the old goal, so it is dropped.
+  const mounted = useRef(true)
+  useEffect(() => {
+    mounted.current = true
+    return () => {
+      mounted.current = false
+    }
+  }, [])
 
   const edit = (next: EmailComposeState) => {
     setNotice(null)
@@ -176,20 +182,27 @@ export const EmailComposeStep = ({
         theme: before.theme,
         ...(mode === 'improve' ? { currentDraft: toAiFields(before) } : {}),
       })
+      if (!mounted.current) return
       const current = latest.current
       if (mode === 'auto') {
-        if (!isUntouched(current)) return
+        if (!hasNoWriting(current)) return
         const next = fillFromAiDraft(current, draft.content)
-        pristine.current = snapshot(next)
-        onChange(next)
+        onChange({ ...next, pristine: snapshot(next) })
         return
       }
-      const next =
-        mode === 'improve'
-          ? applyImprovedDraft(current, draft)
-          : fillFromAiDraft(current, draft.content)
-      pristine.current = snapshot(next)
-      onChange(next)
+      if (mode === 'improve') {
+        const next = applyImprovedDraft(current, draft)
+        if (!next) {
+          setAiError(
+            'The improved email didn’t fit this layout, so yours is unchanged.',
+          )
+          return
+        }
+        onChange(next)
+      } else {
+        const next = fillFromAiDraft(current, draft.content)
+        onChange({ ...next, pristine: snapshot(next) })
+      }
       setNotice({
         text:
           mode === 'improve'
@@ -214,7 +227,7 @@ export const EmailComposeStep = ({
   }, [])
 
   const regenerate = () => {
-    const edited = !isUntouched(value) && snapshot(value) !== pristine.current
+    const edited = !isUntouched(value) && snapshot(value) !== value.pristine
     if (edited) setConfirmRegenerate(true)
     else void runDraft('regenerate')
   }
@@ -255,9 +268,16 @@ export const EmailComposeStep = ({
 
   const pickLayout = (layout: EmailLayoutPresetKey) => {
     if (layout === value.layout) return
-    const { state, changes } = switchLayout(value, layout)
-    if (isUntouched(value)) pristine.current = snapshot(state)
-    onChange(state)
+    const result = switchLayout(value, layout)
+    if ('error' in result) {
+      setLayoutError(result.error)
+      return
+    }
+    setLayoutError(null)
+    const { state, changes } = result
+    onChange(
+      isUntouched(value) ? { ...state, pristine: snapshot(state) } : state,
+    )
     setNotice(
       changes.length > 0
         ? {
@@ -273,7 +293,10 @@ export const EmailComposeStep = ({
   const aiFields = toAiFields(value)
   // The draft endpoint polishes a subject and some body text, so Improve
   // waits for both.
-  const canImprove = aiFields.subject !== '' && aiFields.body !== ''
+  const canImprove =
+    aiFields.subject !== '' &&
+    aiFields.body !== '' &&
+    aiFields.body.length <= EMAIL_BODY_MAX_LENGTH
   const kinds = addableKinds(value.layout, value.blocks)
   const labels = value.blocks.map(({ block }) => blockLabel(block))
   const titles = labels.map((label, i) => {
@@ -311,6 +334,11 @@ export const EmailComposeStep = ({
         <p className="text-sm text-muted-foreground">
           {EMAIL_LAYOUT_PRESETS[value.layout].description}
         </p>
+        {layoutError && (
+          <p role="alert" className="text-xs text-destructive">
+            {layoutError}
+          </p>
+        )}
       </div>
 
       <div className="space-y-3" data-testid="email-ai-draft">
@@ -442,7 +470,12 @@ export const EmailComposeStep = ({
               onMove={(direction) =>
                 edit({
                   ...value,
-                  blocks: moveBlock(value.blocks, index, direction),
+                  blocks: moveBlock(
+                    value.layout,
+                    value.blocks,
+                    index,
+                    direction,
+                  ),
                 })
               }
               onRemove={() =>

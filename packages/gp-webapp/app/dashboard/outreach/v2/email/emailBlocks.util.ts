@@ -25,6 +25,10 @@ export interface EmailComposeState {
   theme: EmailThemeKey
   subject: string
   blocks: EditorBlock[]
+  // The content as the starter blocks or the last AI draft left it, so
+  // Regenerate knows whether it would throw away the user's own edits. Kept
+  // in state so it survives leaving compose and coming back.
+  pristine?: string
 }
 
 let lastId = 0
@@ -81,6 +85,24 @@ export const isUntouched = (state: EmailComposeState): boolean =>
   state.subject.trim() === '' &&
   state.blocks.every(({ block }) => !blockHasContent(block))
 
+export const snapshot = (state: EmailComposeState): string =>
+  JSON.stringify(toContent(state))
+
+// Nothing written yet. An uploaded photo or a typed link doesn't count, since
+// the AI draft keeps both.
+export const hasNoWriting = (state: EmailComposeState): boolean =>
+  state.subject.trim() === '' &&
+  state.blocks.every(({ block }) =>
+    block.type === 'image'
+      ? block.alt.trim() === ''
+      : block.type === 'button'
+        ? block.label.trim() === ''
+        : !blockHasContent(block),
+  )
+
+const fitsDraft = (state: EmailComposeState): boolean =>
+  EmailContentDraftSchema.safeParse(toContent(state)).success
+
 // Layout rule messages, so a change can be judged by whether it breaks a rule
 // that holds now. Indexes shift on every edit, so only messages are compared.
 const ruleMessages = (
@@ -97,30 +119,47 @@ const breaksNoRule = (
   return ruleMessages(layout, after).every((message) => held.includes(message))
 }
 
+// A move swaps a block with its neighbor. A personal letter's photo may only
+// sit at the very start or end, so a swap would strand it in between: it
+// jumps to the other end instead.
+const moved = (
+  layout: EmailLayoutPresetKey,
+  blocks: readonly EditorBlock[],
+  index: number,
+  direction: -1 | 1,
+): EditorBlock[] | null => {
+  const target = index + direction
+  if (target < 0 || target >= blocks.length) return null
+  const entry = blocks[index]!
+  const last = blocks.length - 1
+  const jumps =
+    layout === 'personal_letter' &&
+    entry.block.type === 'image' &&
+    ((index === 0 && direction === 1) || (index === last && direction === -1))
+  const rest = blocks.filter((_, i) => i !== index)
+  const next = jumps
+    ? direction === 1
+      ? [...rest, entry]
+      : [entry, ...rest]
+    : blocks.map((block, i) =>
+        i === index ? blocks[target]! : i === target ? entry : block,
+      )
+  return breaksNoRule(layout, plain(blocks), plain(next)) ? next : null
+}
+
 export const canMove = (
   layout: EmailLayoutPresetKey,
   blocks: readonly EditorBlock[],
   index: number,
   direction: -1 | 1,
-): boolean => {
-  const target = index + direction
-  if (target < 0 || target >= blocks.length) return false
-  const before = plain(blocks)
-  const after = [...before]
-  ;[after[index], after[target]] = [after[target]!, after[index]!]
-  return breaksNoRule(layout, before, after)
-}
+): boolean => moved(layout, blocks, index, direction) !== null
 
 export const moveBlock = (
+  layout: EmailLayoutPresetKey,
   blocks: readonly EditorBlock[],
   index: number,
   direction: -1 | 1,
-): EditorBlock[] => {
-  const next = [...blocks]
-  const target = index + direction
-  ;[next[index], next[target]] = [next[target]!, next[index]!]
-  return next
-}
+): EditorBlock[] => moved(layout, blocks, index, direction) ?? [...blocks]
 
 export const canRemove = (
   layout: EmailLayoutPresetKey,
@@ -420,7 +459,7 @@ export const convertBlocks = (
 export const switchLayout = (
   state: EmailComposeState,
   layout: EmailLayoutPresetKey,
-): { state: EmailComposeState; changes: string[] } => {
+): { state: EmailComposeState; changes: string[] } | { error: string } => {
   const theme =
     state.theme === EMAIL_LAYOUT_PRESETS[state.layout].defaultTheme
       ? EMAIL_LAYOUT_PRESETS[layout].defaultTheme
@@ -429,7 +468,15 @@ export const switchLayout = (
     return { state: { ...starterCompose(layout), theme }, changes: [] }
   }
   const { blocks, changes } = convertBlocks(state.blocks, layout)
-  return { state: { ...state, layout, theme, blocks }, changes }
+  const next = { ...state, layout, theme, blocks }
+  // Every word is kept, so an email can be too long for the new layout, such
+  // as a long update's text in Short with a button.
+  if (!fitsDraft(next)) {
+    return {
+      error: `Your email is too long for the ${EMAIL_LAYOUT_PRESETS[layout].label} layout. Shorten it, then switch.`,
+    }
+  }
+  return { state: next, changes }
 }
 
 // The AI draft's blocks, fitted to the layout the user has now, keeping a
@@ -494,28 +541,39 @@ export const toAiFields = (state: EmailComposeState): EmailAiDraftFields => {
   }
 }
 
+const chunksOf = (text: string): string[] =>
+  text
+    .split(/\n{2,}/)
+    .map((chunk) => chunk.trim())
+    .filter(Boolean)
+
 // Puts an improved draft back in place. Subheadings, photos, dividers and the
-// link stay where they are. Paragraphs take the reply's paragraphs in order:
-// extra ones join the last paragraph, and paragraphs the reply merged away
-// are removed.
+// link stay where they are. Each paragraph takes back as many of the reply's
+// paragraphs as it sent (a paragraph can hold blank lines), the last one
+// takes any extra, and paragraphs the reply merged away are removed. Null
+// when the result breaks a limit, such as a headline too long for a heading.
 export const applyImprovedDraft = (
   state: EmailComposeState,
   draft: EmailAiDraftFields,
-): EmailComposeState => {
-  const chunks = draft.body
-    .split(/\n{2,}/)
-    .map((text) => text.trim())
-    .filter(Boolean)
+): EmailComposeState | null => {
+  const chunks = chunksOf(draft.body)
   const written = state.blocks.filter(
     ({ block }) => block.type === 'paragraph' && block.text.trim() !== '',
   )
+  let taken = 0
   const textFor = new Map<string, string | null>(
-    written.map((entry, i) => [
-      entry.id,
-      i < written.length - 1
-        ? (chunks[i] ?? null)
-        : chunks.slice(i).join('\n\n') || null,
-    ]),
+    written.map((entry, i) => {
+      const sent =
+        entry.block.type === 'paragraph'
+          ? Math.max(1, chunksOf(entry.block.text).length)
+          : 1
+      const mine =
+        i < written.length - 1
+          ? chunks.slice(taken, taken + sent)
+          : chunks.slice(taken)
+      taken += sent
+      return [entry.id, mine.join('\n\n') || null]
+    }),
   )
   let headlineDone = false
   const blocks = state.blocks.flatMap((entry): EditorBlock[] => {
@@ -537,7 +595,8 @@ export const applyImprovedDraft = (
     }
     return [entry]
   })
-  return { ...state, subject: draft.subject, blocks }
+  const next = { ...state, subject: draft.subject, blocks }
+  return fitsDraft(next) ? next : null
 }
 
 export interface EditorIssues {

@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import type { EmailBlockDraft } from '@goodparty_org/contracts'
+import type {
+  EmailBlockDraft,
+  EmailLayoutPresetKey,
+} from '@goodparty_org/contracts'
 import {
   addBlock,
   addableKinds,
@@ -9,6 +12,8 @@ import {
   convertBlocks,
   editorIssues,
   fillFromAiDraft,
+  hasNoWriting,
+  moveBlock,
   parseBlockError,
   starterCompose,
   switchLayout,
@@ -25,6 +30,12 @@ const texts = (state: { blocks: { block: EmailBlockDraft }[] }) =>
   state.blocks.flatMap(({ block }) =>
     block.type === 'heading' || block.type === 'paragraph' ? [block.text] : [],
   )
+
+const switched = (state: EmailComposeState, layout: EmailLayoutPresetKey) => {
+  const result = switchLayout(state, layout)
+  if ('error' in result) throw new Error(result.error)
+  return result
+}
 
 const PHOTO = 'https://assets.example.com/email-images/o/x.png'
 
@@ -83,7 +94,7 @@ describe('adding, moving and removing within the rules', () => {
 
 describe('switching layouts', () => {
   it('keeps every word and says what it dropped', () => {
-    const { state, changes } = switchLayout(update, 'personal_letter')
+    const { state, changes } = switched(update, 'personal_letter')
     expect(types(state)).toEqual([
       'image',
       'paragraph',
@@ -100,7 +111,7 @@ describe('switching layouts', () => {
   })
 
   it('fits a long update into short with a button', () => {
-    const { state } = switchLayout(update, 'short_cta')
+    const { state } = switched(update, 'short_cta')
     expect(types(state)).toEqual([
       'image',
       'h1',
@@ -125,7 +136,7 @@ describe('switching layouts', () => {
   })
 
   it('takes the starter blocks when nothing is written', () => {
-    const { state, changes } = switchLayout(
+    const { state, changes } = switched(
       starterCompose('personal_letter'),
       'short_cta',
     )
@@ -201,7 +212,7 @@ describe('the AI draft', () => {
       headline: 'Ward 2, in October',
       body: 'Hello neighbor,\n\nThe vote is in December.\n\nThanks, Renee',
       buttonLabel: 'Read my plan',
-    })
+    })!
     expect(next.subject).toBe('Your October update')
     expect(texts(next)).toEqual([
       'Ward 2, in October',
@@ -211,6 +222,79 @@ describe('the AI draft', () => {
       'Thanks, Renee',
     ])
     expect(types(next)).toEqual(types(update))
+  })
+})
+
+describe('review fixes', () => {
+  it('gives a paragraph with a blank line back its own text on Improve', () => {
+    const state: EmailComposeState = {
+      ...starterCompose('long_update'),
+      subject: 'S',
+      blocks: withIds([
+        { type: 'heading', text: 'H', level: 1 },
+        { type: 'paragraph', text: 'A\n\nB' },
+        { type: 'heading', text: 'Sub', level: 2 },
+        { type: 'paragraph', text: 'C' },
+      ]),
+    }
+    const next = applyImprovedDraft(state, {
+      subject: 'S',
+      headline: 'H',
+      body: 'A\n\nB\n\nC',
+      buttonLabel: null,
+    })!
+    expect(texts(next)).toEqual(['H', 'A\n\nB', 'Sub', 'C'])
+  })
+
+  it('refuses an Improve reply that breaks a limit', () => {
+    expect(
+      applyImprovedDraft(update, {
+        subject: 'S',
+        headline: 'x'.repeat(130),
+        body: 'a',
+        buttonLabel: null,
+      }),
+    ).toBeNull()
+  })
+
+  it('refuses a switch the text is too long for', () => {
+    const state: EmailComposeState = {
+      ...starterCompose('long_update'),
+      subject: 'S',
+      blocks: withIds([
+        { type: 'heading', text: 'H', level: 1 },
+        { type: 'paragraph', text: 'a'.repeat(400) },
+        { type: 'paragraph', text: 'b'.repeat(400) },
+      ]),
+    }
+    expect(switchLayout(state, 'short_cta')).toEqual({
+      error:
+        'Your email is too long for the Short with a button layout. Shorten it, then switch.',
+    })
+  })
+
+  it('moves a letter’s photo from the top straight to the end', () => {
+    const blocks = withIds([
+      { type: 'image', url: PHOTO, alt: 'Me' },
+      { type: 'paragraph', text: 'Hi' },
+      { type: 'paragraph', text: 'Bye' },
+    ])
+    expect(canMove('personal_letter', blocks, 0, 1)).toBe(true)
+    expect(
+      types({ blocks: moveBlock('personal_letter', blocks, 0, 1) }),
+    ).toEqual(['paragraph', 'paragraph', 'image'])
+  })
+
+  it('lets the first AI draft in past an uploaded photo', () => {
+    const state: EmailComposeState = {
+      ...starterCompose('personal_letter'),
+      blocks: withIds([
+        { type: 'image', url: PHOTO, alt: '' },
+        { type: 'paragraph', text: '' },
+      ]),
+    }
+    expect(hasNoWriting(state)).toBe(true)
+    expect(hasNoWriting({ ...state, subject: 'Hi' })).toBe(false)
   })
 })
 

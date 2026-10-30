@@ -71,12 +71,12 @@ export const EmailPayStep = ({
       if (declined?.success) {
         return { outcome: 'declined', declineCode: declined.data.declineCode }
       }
+      // A 400 refuses before anything changes, so the send is still a draft
+      // and Back stays.
       if (e instanceof FetchError && e.status === BAD_REQUEST) {
         const message = apiErrorMessage(e)
-        if (parseBlockError(message)) {
-          onFixBlock(message)
-          throw e
-        }
+        if (parseBlockError(message)) onFixBlock(message)
+        throw e
       }
       onConfirmAttempted()
       throw e
