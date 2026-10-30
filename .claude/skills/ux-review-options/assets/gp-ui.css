@@ -20,7 +20,9 @@
   --gp-sunken: var(--brand-surface-tertiary);
   --gp-dark: var(--tw-slate-900);
 }
-.gp h1, .gp h2, .gp h3, .gp p { margin: 0; }
+/* Tailwind preflight zeroes every heading, paragraph and list margin. Do the same, or an h4 or ul
+   picks up the browser's default ~1.33em margin and every gap in the frame drifts. */
+.gp h1, .gp h2, .gp h3, .gp h4, .gp h5, .gp h6, .gp p, .gp ul, .gp ol, .gp dl, .gp dd, .gp figure, .gp blockquote { margin: 0; }
 .gp :focus-visible { outline: none; box-shadow: 0 0 0 3px var(--gp-ring); border-color: var(--gp-primary); }
 @media (prefers-reduced-motion: reduce) { .gp * { transition: none !important; animation: none !important; } }
 
@@ -60,7 +62,7 @@
   border: 1px solid var(--gp-border); border-radius: 12px; background: #fff; cursor: pointer;
 }
 .gp-choice input { accent-color: var(--gp-primary); width: 18px; height: 18px; margin: 0; }
-.gp-choice:has(input:checked) { border: 2px solid var(--gp-primary); padding: 11px 15px; }
+.gp-choice:has(input:checked) { border-color: var(--gp-primary); box-shadow: inset 0 0 0 1px var(--gp-primary); }
 
 /* Card */
 .gp-card {
@@ -89,3 +91,22 @@
   background: var(--gp-sunken); border: 1px dashed var(--brand-border-strong); border-radius: 8px;
   color: var(--gp-muted); font-size: 14px;
 }
+
+/* Filter pills (mirrors PILL_TOGGLE_ITEM_CLASSNAME in
+   packages/gp-webapp/app/dashboard/contacts/crm/shared/constants.ts, rendered by the styleguide
+   ToggleGroupItem). Real classes: h-9 (36px, wins over the py-2 content height) rounded-full border px-4
+   text-sm font-normal. Selected: dark fill, white text. Group: flex flex-wrap gap-2. Label: text-xs
+   font-semibold. Group stack: flex flex-col gap-2. Do not raise the height for touch targets: the
+   real control is 36px, and spacing parity is what the review judges. */
+.gp-filter-groups { display: flex; flex-direction: column; gap: 24px; }
+.gp-filter-group { display: flex; flex-direction: column; gap: 8px; }
+.gp-filter-group__head { display: flex; align-items: center; justify-content: space-between; }
+.gp-filter-group__label { font-size: 12px; line-height: 16px; font-weight: 600; color: var(--brand-text-primary); }
+.gp-pills { display: flex; flex-wrap: wrap; gap: 8px; }
+.gp-pill {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 36px; min-width: 36px;
+  padding: 0 16px; border-radius: 999px; border: 1px solid var(--gp-input-border); background: transparent;
+  font: 400 14px/20px 'Open Sans', system-ui, sans-serif; color: var(--brand-text-primary);
+  white-space: nowrap; cursor: pointer;
+}
+.gp-pill[aria-pressed='true'] { background: var(--gp-dark); border-color: var(--gp-dark); color: #fff; }

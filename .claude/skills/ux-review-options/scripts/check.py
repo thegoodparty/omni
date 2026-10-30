@@ -83,6 +83,20 @@ def main():
     for m in re.finditer(r'<svg\b[^>]*>(.*?)</svg>', html, flags=re.S | re.I):
         if not re.search(r'<(path|circle|rect|line|polyline|polygon|ellipse)\b', m.group(1)):
             problems.append('blank icon: <svg> with no shapes')
+    # Spacing parity: Tailwind spacing moves in 2px steps at its finest (0.5), so an odd px value is
+    # never a real class. A pill, chip or toggle rule at 40px or taller is not the product's 36px.
+    for sel, body in re.findall(r'([^{}<>]+)\{([^{}]*)\}', '\n'.join(re.findall(r'<style\b[^>]*>(.*?)</style>', html, flags=re.S | re.I))):
+        sel = sel.strip()
+        if sel.startswith('@') or ':root' in sel:
+            continue
+        for prop, val in re.findall(r'\b(gap|row-gap|column-gap|padding(?:-[a-z]+)?|margin(?:-[a-z]+)?)\s*:\s*([^;]+)', body):
+            for n in re.findall(r'(?<![\d.#-])(\d+(?:\.\d+)?)px', val):
+                if float(n) % 2:
+                    problems.append(f'off-scale spacing {prop}: {val.strip()} in "{sel[:50]}" (use real Tailwind steps, see design-rules "Spacing parity")')
+        if re.search(r'pill|chip|toggle', sel, flags=re.I):
+            for prop, n in re.findall(r'\b((?:min-)?height)\s*:\s*(\d+)px', body):
+                if int(n) >= 40:
+                    problems.append(f'"{sel[:50]}" {prop}: {n}px; the product filter pill is 36px (h-9). Use gp-pill or the real height')
     if re.search(r'id="option-d"', html):
         problems.append('more than three options')
     if '<iframe' in html.lower():

@@ -104,6 +104,41 @@ it. Don't redraw it from memory or from the ticket.
 4. **Check the data.** Show only fields the product has today (for example the
    person panel's real sections), and flag any field the feature adds.
 
+## Spacing parity
+
+A frame that mirrors an existing screen must measure the same as the real one. The
+reviewer judges the change, and wrong gaps make the whole screen look off. A v2
+filter prototype shipped with groups 16px too far apart and pills 8px too tall
+because of two mistakes below.
+
+1. **Copy the real class strings, then convert them.** Open the component and read
+   the Tailwind classes on the wrapper, the label, the row and the control (for the
+   filter pills: `PILL_TOGGLE_ITEM_CLASSNAME` in
+   `contacts/crm/shared/constants.ts`, the `flex flex-col gap-2` group and the
+   `flex flex-wrap gap-2` row in `VoterFileStep.tsx`). Convert each class to px
+   (spacing is 4px per step: `gap-2` is 8px, `gap-6` is 24px, `h-9` is 36px,
+   `px-4` is 16px; `text-sm` is 14px on a 20px line, `text-xs` is 12px on a 16px
+   line). Put the source file and the classes in a comment above your CSS rule.
+2. **Check every constraint on size.** A fixed height (`h-9`) beats the padding
+   and line height around it. The pill is 36px because of `h-9`, not 38px from
+   `py-2`. Read the base variant too (`toggleVariants`, `ToggleGroup`) before you
+   decide a size.
+3. **Reset like Tailwind does.** Tailwind's preflight zeroes the margin on every
+   heading, paragraph and list. `gp-ui.css` does this for you under `.gp`. If you
+   write your own wrapper, do the same. An unreset `h4` adds about 16px above and
+   below each label.
+4. **Don't enlarge for touch targets.** The 44px rule is for controls you invent. A
+   mirrored control keeps the product's size. Say so in the post-back if the
+   product's size is under 44px.
+5. **Use the ready components.** `gp-filter-groups`, `gp-filter-group`, `gp-pills`
+   and `gp-pill` in `gp-ui.css` are the real filter pill look. Add a rule of your
+   own only for a shape the product doesn't have, and build it from the same
+   spacing steps.
+6. **Measure.** After rendering, read `getBoundingClientRect()` for the mirrored
+   rows (label to pills, group to group, pill height) and compare them with the
+   px you computed from the classes. `check.py` flags off-scale spacing values and
+   oversized pill rules, but only the measurement catches an unreset heading.
+
 ## Information architecture
 
 Think about the information architecture before any screen. It is guidance, not a
@@ -141,8 +176,10 @@ screen in review and confirm no icon is blank.
   in-page panel, never a `mailto:` link).
 - Any commitment the user makes (a pledge, a consent) is their own deliberate act:
   an unchecked box and its own button, never pre-checked.
-- Real `<button>`, `<input>` and `<label>`, 44px minimum touch targets, a visible
-  focus ring, and 4.5:1 text contrast.
+- Real `<button>`, `<input>` and `<label>`, a visible focus ring, and 4.5:1 text
+  contrast. New controls the feature invents get 44px minimum touch targets. A
+  control that mirrors one in the product keeps the product's size (see "Spacing
+  parity").
 - A landing state inside the frame. Never link to anything outside the page.
 - A Sends line above the frame (`#a-sends`): every email, text or notification the
   flow triggers, and when. "Nothing" if it triggers none.
