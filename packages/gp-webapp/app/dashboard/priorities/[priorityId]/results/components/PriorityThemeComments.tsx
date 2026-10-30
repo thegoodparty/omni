@@ -1,5 +1,4 @@
-'use client'
-
+// No 'use client': PriorityResultsView is a client component.
 import { useQuery } from '@tanstack/react-query'
 import { Button, DownloadIcon, Spinner } from '@styleguide'
 import { API_VERSION_PREFIX } from 'appEnv'
