@@ -76,8 +76,8 @@ falls in. The cards are dated, prioritized tasks the candidate checks off. Featu
   by its link, `isFreeOfferTaskHref`) is the card's front task whenever it
   is open, due and not Not for me; the plan's own next task stands behind
   it. Home shows no separate offer card, so it stays one card. "Show in 3
-  days" dates it later and it steps back until then; only a put-off
-  offer task waits on its date. If the offer arrives with no task (gp-api
+  days" dates it later and it steps back until then; like any put-off
+  task it waits on its date before it can lead or join the deck. If the offer arrives with no task (gp-api
   skips writing it before the plan has rows), the card asks for the offer
   again, then rereads the plan. The card and the row
   carry the shared `FreeOfferLabel` above the title, the card takes the
@@ -117,11 +117,12 @@ falls in. The cards are dated, prioritized tasks the candidate checks off. Featu
 - **Skipping is saved on the server.** The next task's Skip (on the card and
   its row), every other open row's menu, and the API (`useSetTrackerTaskAside`, optimistic like
   completion) offer "Show in 3 days", which moves the task's date three days
-  out so the plan sorts it behind what's due sooner, and "Not for me", which
+  out; the plan list still shows it, but it can't be the next task (or join
+  Home's deck, or count toward "Get a head start") until that date, and "Not for me", which
   sets it aside until "Bring it back" in its menu. Tasks dated by fact (the
   Election admin dates, Election Day) can't be put off, and ballot access
   can't be Not for me; the rules live in contracts' `TrackerTaskSkip.ts`,
-  shared with gp-api. `buildTrackerStrategy` never makes a not-for-me task
+  shared with gp-api. `buildTrackerStrategy` never makes a not-for-me or put-off task
   the next one (`canBeNext`).
 - **A row's date line is its status line.** Open tasks show when they're due
   (orange and in words when soon or overdue); a done task says Done (check

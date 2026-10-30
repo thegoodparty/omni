@@ -245,6 +245,50 @@ describe('NextTaskCard free robocall offer', () => {
   })
 })
 
+describe('NextTaskCard put off', () => {
+  const inThreeDays = () => {
+    const later = new Date()
+    later.setDate(later.getDate() + 3)
+    return `${format(later, 'yyyy-MM-dd')}T00:00:00.000Z`
+  }
+
+  it('does not keep a put-off task in front when it is the only one', () => {
+    mockTasks.current = [
+      { ...sendTask('text'), date: inThreeDays(), skipReason: 'later' },
+    ]
+    render(<NextTaskCard surface="manager" />)
+
+    expect(
+      screen.queryByRole('heading', { name: 'Send an introduction text' }),
+    ).toBeNull()
+    expect(screen.getByText('Nothing due this week')).toBeInTheDocument()
+  })
+
+  it('keeps a put-off priority out of the stack behind the front card', () => {
+    mockTasks.current = [
+      sendTask('text'),
+      {
+        ...sendTask('robocall'),
+        id: 'priority',
+        title: 'A put-off priority',
+        isDefaultTask: false,
+        date: inThreeDays(),
+        skipReason: 'later',
+      },
+    ]
+    const { container } = render(<NextTaskCard surface="manager" />)
+
+    expect(
+      screen.getByRole('heading', { name: 'Send an introduction text' }),
+    ).toBeInTheDocument()
+    // Stacked cards are empty decorative layers; the put-off priority would
+    // have added one behind the front card.
+    expect(
+      container.querySelectorAll('.absolute[aria-hidden="true"]'),
+    ).toHaveLength(0)
+  })
+})
+
 describe('NextTaskCard election result question', () => {
   const asking = () => {
     const question = {
