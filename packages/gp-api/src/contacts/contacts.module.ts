@@ -51,6 +51,7 @@ import { GeoapifyModule } from '@/vendors/geoapify/geoapify.module'
   ],
   exports: [
     ContactsService,
+    CivicPanelReachService,
     ManagedCivicPanelService,
     ManagedPanelWaveDrawService,
     IndependentAffinityColumnService,

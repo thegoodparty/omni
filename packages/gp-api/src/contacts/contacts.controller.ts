@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -33,6 +34,7 @@ import {
   UpdateManagedCivicPanelInputSchema,
   type UpdateManagedCivicPanelInput,
   CivicPanelReachListResponseSchema,
+  CivicPanelReachOptionsResponseSchema,
   CreateCivicPanelReachListInputSchema,
   type CreateCivicPanelReachListInput,
 } from '@goodparty_org/contracts'
@@ -208,6 +210,21 @@ export class ContactsController {
   ) {
     await this.assertCivicPanelsOn(user)
     return this.managedCivicPanel.update(organization, body.action)
+  }
+
+  @Get('civic-panel/reach-options')
+  @ResponseSchema(CivicPanelReachOptionsResponseSchema)
+  async getCivicPanelReachOptions(
+    @ReqOrganization() organization: Organization,
+    @ReqUser() user: User,
+  ) {
+    await this.assertCivicPanelsOn(user)
+    if (!organization.slug.startsWith('eo-')) {
+      throw new BadRequestException(
+        'The civic panel is not available for this organization',
+      )
+    }
+    return this.civicPanelReach.optionsFor(organization)
   }
 
   @Post('civic-panel/reach-lists')

@@ -63,6 +63,7 @@ import { buildReadOutreachFeedbackTool } from '../chat-tools/readOutreachFeedbac
 import { FeaturesService } from '@/features/services/features.service'
 import { OutreachReportBackService } from '@/outreach/services/outreachReportBack.service'
 import { ManagedCivicPanelService } from '@/contacts/services/managedCivicPanel.service'
+import { CivicPanelReachService } from '@/contacts/services/civicPanelReach.service'
 import {
   buildManagedCivicPanelTools,
   isManagedPanelSetUp,
@@ -143,6 +144,8 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
     private readonly priorityResults?: PriorityResultsService,
     @Optional()
     private readonly managedPanels?: ManagedCivicPanelService,
+    @Optional()
+    private readonly civicPanelReach?: CivicPanelReachService,
   ) {}
 
   async loadContext(
@@ -434,6 +437,7 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
         tools,
         buildManagedCivicPanelTools({
           panels: this.managedPanels,
+          reach: this.civicPanelReach,
           organization: ctx.organization,
           setUp: isManagedPanelSetUp(ctx.managedPanel),
         }),

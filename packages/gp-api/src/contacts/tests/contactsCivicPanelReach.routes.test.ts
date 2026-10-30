@@ -3,6 +3,8 @@ import { HttpStatus } from '@nestjs/common'
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import {
   MAX_LIST_SAMPLE_SIZE,
+  type CivicPanelReachOptions,
+  type CivicPanelSummary,
   type CivicPanelReachList,
   type CreateCivicPanelReachListInput,
 } from '@goodparty_org/contracts'
@@ -17,6 +19,9 @@ import { FeaturesService } from '@/features/services/features.service'
 import { VoterQueryService } from '@/peopleDb/services/voterQuery.service'
 import type { PeopleDataset } from '@/peopleDb/services/peopleDataset.service'
 import { ContactsService } from '../services/contacts.service'
+import { CivicPanelSummaryService } from '../services/civicPanelSummary.service'
+import { ManagedCivicPanelService } from '../services/managedCivicPanel.service'
+import type { ReachHomes } from '@/peopleDb/databricks/districtCensusSql.util'
 
 const service = useTestService()
 
@@ -218,5 +223,214 @@ describe('POST /v1/contacts/civic-panel/reach-lists', () => {
     })
 
     expect(res.status).toBe(HttpStatus.NOT_FOUND)
+  })
+})
+
+// 40 of 100 members. The first tract trails its share far behind, people 65
+// and over and women trail theirs, men are at theirs.
+const SUMMARY = {
+  members: 40,
+  joinedBy: { text: 40, door: 0, phone: 0, hand: 0 },
+  reachedRecently: 0,
+  askableNow: 40,
+  lastOutreachAt: null,
+  progress: {
+    members: 40,
+    goal: 100,
+    answersNeeded: 40,
+    expectedAnswers: 16,
+    groupsCovered: 3,
+    groupsTotal: 8,
+  },
+  balance: null,
+  composition: {
+    placeKind: 'tract',
+    places: [
+      {
+        key: '37021000100',
+        name: '0001.00',
+        label: 'around Pine St',
+        districtShare: 0.5,
+        members: 2,
+      },
+      {
+        key: '37021000200',
+        name: '0002.00',
+        label: 'West Asheville',
+        districtShare: 0.5,
+        members: 38,
+      },
+    ],
+    groups: [
+      { group: 'age65plus', districtShare: 0.3, memberShare: 0.05 },
+      { group: 'women', districtShare: 0.5, memberShare: 0.3 },
+      { group: 'men', districtShare: 0.5, memberShare: 1.25 },
+    ],
+  },
+} satisfies CivicPanelSummary
+
+const stubOptions = (homesFor: (kind: string) => ReachHomes) => {
+  const spies = [
+    vi
+      .spyOn(service.app.get(CivicPanelSummaryService), 'summaryFor')
+      .mockResolvedValue(SUMMARY),
+    vi
+      .spyOn(service.app.get(ManagedCivicPanelService), 'districtPlace')
+      .mockResolvedValue('Asheville'),
+    vi
+      .spyOn(service.app.get(ContactsService), 'resolveEligibleDistrict')
+      .mockResolvedValue({
+        districtId: DISTRICT_ID,
+        dataset: { base: 'voters' } satisfies PeopleDataset,
+      }),
+  ]
+  const homes = vi
+    .spyOn(service.app.get(VoterQueryService), 'findReachHomes')
+    .mockImplementation(async (_district, _dataset, { group }) =>
+      homesFor(group.kind),
+    )
+  onTestFinished(() => {
+    for (const spy of spies) spy.mockRestore()
+    homes.mockRestore()
+  })
+  return homes
+}
+
+const options = (slug: string) =>
+  service.client.get<CivicPanelReachOptions>(
+    '/v1/contacts/civic-panel/reach-options',
+    {
+      headers: { 'X-Organization-Slug': slug },
+      validateStatus: () => true,
+    },
+  )
+
+describe('GET /v1/contacts/civic-panel/reach-options', () => {
+  it('offers the short tract at the door and the short groups on a call', async () => {
+    const slug = await seedOrg()
+    const member = randomUUID()
+    await setPanel(slug, member, CivicPanelStatus.member)
+    const homes = stubOptions((kind) =>
+      kind === 'tract'
+        ? { noCell: 120, landline: 30, homes: 200 }
+        : kind === 'age'
+          ? { noCell: 60, landline: 45, homes: 400 }
+          : { noCell: 80, landline: 0, homes: 900 },
+    )
+
+    const res = await options(slug)
+
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(res.data).toEqual({
+      place: 'Asheville',
+      mostlyNoCell: true,
+      options: [
+        {
+          label: 'Knock doors around Pine St',
+          detail: '48 seats short. 120 homes there have no cell phone on file.',
+          group: { kind: 'tract', key: '37021000100' },
+          channel: 'door',
+          seatsShort: 48,
+          homes: 120,
+        },
+        {
+          label: 'Call people 65 and over',
+          detail: '28 seats short. 45 of their homes have a landline.',
+          group: { kind: 'group', group: 'age65plus' },
+          channel: 'phone',
+          seatsShort: 28,
+          homes: 45,
+        },
+        {
+          label: 'Knock doors for women',
+          detail:
+            '38 seats short. 80 of their homes have no cell phone on file.',
+          group: { kind: 'group', group: 'women' },
+          channel: 'door',
+          seatsShort: 38,
+          homes: 80,
+        },
+        {
+          label: 'Knock doors in West Asheville',
+          detail: '12 seats short. 120 homes there have no cell phone on file.',
+          group: { kind: 'tract', key: '37021000200' },
+          channel: 'door',
+          seatsShort: 12,
+          homes: 120,
+        },
+      ],
+    })
+    expect(homes.mock.calls[0]?.[2].excludeIds).toContain(member)
+  })
+
+  it('does not say most homes have no cell phone when most do', async () => {
+    const slug = await seedOrg()
+    stubOptions(() => ({ noCell: 20, landline: 5, homes: 200 }))
+
+    const res = await options(slug)
+
+    expect(res.data.mostlyNoCell).toBe(false)
+    expect(res.data.options[0]?.detail).toBe(
+      '48 seats short. 20 homes there have no cell phone on file.',
+    )
+  })
+
+  it('offers one of two places that read the same', async () => {
+    const slug = await seedOrg()
+    stubOptions(() => ({ noCell: 10, landline: 0, homes: 50 }))
+    vi.spyOn(
+      service.app.get(CivicPanelSummaryService),
+      'summaryFor',
+    ).mockResolvedValue({
+      ...SUMMARY,
+      composition: {
+        ...SUMMARY.composition,
+        groups: [],
+        places: SUMMARY.composition.places.map(({ label: _label, ...p }) => ({
+          ...p,
+          members: 0,
+        })),
+      },
+    })
+
+    const res = await options(slug)
+
+    expect(res.data.options.map((option) => option.label)).toEqual([
+      'Knock doors in a part of Asheville',
+    ])
+  })
+
+  it('leaves out a group nobody there can be reached in', async () => {
+    const slug = await seedOrg()
+    stubOptions(() => ({ noCell: 0, landline: 0, homes: 50 }))
+
+    const res = await options(slug)
+
+    expect(res.data).toEqual({
+      place: 'Asheville',
+      mostlyNoCell: false,
+      options: [],
+    })
+  })
+
+  it('offers nothing rather than a guess when the warehouse fails', async () => {
+    const slug = await seedOrg()
+    const homes = stubOptions(() => ({ noCell: 1, landline: 1, homes: 1 }))
+    homes.mockRejectedValue(new Error('warehouse down'))
+
+    const res = await options(slug)
+
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(res.data.options).toEqual([])
+  })
+
+  it('404s with serve-citizen-panels off', async () => {
+    const slug = await seedOrg()
+    const flag = vi
+      .spyOn(service.app.get(FeaturesService), 'isFeatureEnabled')
+      .mockResolvedValue(false)
+    onTestFinished(() => flag.mockRestore())
+
+    expect((await options(slug)).status).toBe(HttpStatus.NOT_FOUND)
   })
 })

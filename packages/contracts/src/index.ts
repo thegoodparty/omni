@@ -212,6 +212,15 @@ export {
   type CivicPanelSummary,
 } from './people/CivicPanelSummary.schema'
 export {
+  CIVIC_PANEL_SEAT_COUNT,
+  CIVIC_PANEL_SHORT_GROUPS_SHOWN,
+  allocateSeats,
+  placeSeats,
+  type PlaceSeats,
+  civicPanelShortGroups,
+  type CivicPanelShortGroup,
+} from './people/CivicPanelShortGroups'
+export {
   CIVIC_PANEL_REACH_CHANNELS,
   CivicPanelReachChannelSchema,
   type CivicPanelReachChannel,
@@ -221,6 +230,10 @@ export {
   type CreateCivicPanelReachListInput,
   CivicPanelReachListResponseSchema,
   type CivicPanelReachList,
+  CivicPanelReachOptionSchema,
+  type CivicPanelReachOption,
+  CivicPanelReachOptionsResponseSchema,
+  type CivicPanelReachOptions,
 } from './people/CivicPanelReach.schema'
 export {
   MANAGED_CIVIC_PANEL_STATUSES,

@@ -12,9 +12,15 @@ export const CLARIFY_TOOL = 'ask_clarify_question'
 // words the app draws (chief-of-staff managedPanelWidgets), answered like a
 // clarify question.
 export const MANAGED_PANEL_OFFER_TOOL = 'offer_managed_panel_invite'
+// The short groups of an exhausted civic panel, offered at the door or on a
+// call (chief-of-staff managedPanelWidgets), answered like a clarify
+// question.
+export const REACH_THE_REST_OFFER_TOOL = 'offer_reach_the_rest'
 
 export const isQuestionTool = (toolName: string | null | undefined): boolean =>
-  toolName === CLARIFY_TOOL || toolName === MANAGED_PANEL_OFFER_TOOL
+  toolName === CLARIFY_TOOL ||
+  toolName === MANAGED_PANEL_OFFER_TOOL ||
+  toolName === REACH_THE_REST_OFFER_TOOL
 
 export const parseClarifyQuestion = (
   args: unknown,

@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import {
+  CIVIC_PANEL_SHORT_GROUPS_SHOWN,
   UNDERREPRESENTED_GROUP_NAMES,
   type CivicPanelComposition,
 } from '@goodparty_org/contracts'
@@ -12,7 +13,7 @@ import {
 import { shortGroups, type ShortGroup } from './panelCharts'
 import { reachGroupOf, useReachList } from './useReachList'
 
-const SHOWN = 4
+const SHOWN = CIVIC_PANEL_SHORT_GROUPS_SHOWN
 
 const Card = ({
   title,

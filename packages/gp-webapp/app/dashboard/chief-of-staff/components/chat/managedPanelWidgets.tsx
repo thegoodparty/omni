@@ -17,6 +17,8 @@ import {
   type ClarifyWidgetContext,
 } from '../../../shared/agent-chat/clarifyWidget'
 import { defineWidgetTool } from '../../../shared/agent-chat/widgetRegistry'
+import { REACH_THE_REST_OFFER_TOOL } from '../../../shared/agent-chat/clarifyWidget'
+import { ReachTheRestOffer } from './ReachTheRestOffer'
 import {
   CompactCardLink,
   CompactCardLoading,
@@ -298,5 +300,23 @@ export const managedPanelWidgetTools = [
     toolName: MANAGED_PANEL_TOOL,
     parse: (args) => (isCall(args) ? {} : null),
     render: () => <ManagedPanelCard />,
+  }),
+  defineWidgetTool({
+    toolName: REACH_THE_REST_OFFER_TOOL,
+    parse: (args) => (isCall(args) ? {} : null),
+    render: (
+      _data,
+      {
+        clarifyInteractive,
+        clarifyAnswer,
+        onClarifyAnswer,
+      }: ClarifyWidgetContext,
+    ) => (
+      <ReachTheRestOffer
+        disabled={!clarifyInteractive}
+        answer={clarifyAnswer}
+        onAnswer={onClarifyAnswer}
+      />
+    ),
   }),
 ]

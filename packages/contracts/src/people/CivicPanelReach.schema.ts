@@ -55,3 +55,30 @@ export const CivicPanelReachListResponseSchema = z.object({
 export type CivicPanelReachList = z.infer<
   typeof CivicPanelReachListResponseSchema
 >
+
+// One way the Chief of Staff offers to reach a short group (GET
+// /v1/contacts/civic-panel/reach-options): "Knock doors in West Asheville",
+// with "3 seats short. 120 homes there have no cell phone on file." A
+// place is offered at the door, an age, gender or race group on a call
+// when it has landlines; `homes` is the count the detail names.
+export const CivicPanelReachOptionSchema = z.object({
+  label: z.string(),
+  detail: z.string(),
+  group: CivicPanelReachGroupSchema,
+  channel: CivicPanelReachChannelSchema,
+  seatsShort: z.number().int().positive(),
+  homes: z.number().int().positive(),
+})
+export type CivicPanelReachOption = z.infer<typeof CivicPanelReachOptionSchema>
+
+// The short groups the civic panel page lists first, each with the one way
+// that reaches the most of it. `mostlyNoCell` is true when most homes in the
+// short places have no cell phone on file, so the Chief of Staff may say so.
+export const CivicPanelReachOptionsResponseSchema = z.object({
+  place: z.string().nullable(),
+  mostlyNoCell: z.boolean(),
+  options: z.array(CivicPanelReachOptionSchema),
+})
+export type CivicPanelReachOptions = z.infer<
+  typeof CivicPanelReachOptionsResponseSchema
+>

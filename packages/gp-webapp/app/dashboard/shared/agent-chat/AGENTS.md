@@ -367,13 +367,22 @@ are widgets in `chief-of-staff/components/chat/managedPanelWidgets.tsx`:
   `MANAGED_PANEL_COPY.panelCardStatus`, N of goal members) to the panel
   page.
 
-The home's exhausted progress card sends the hidden
-`MANAGED_CIVIC_PANEL_EXHAUSTED_MESSAGE`, which the Serve home hides on
-reload like the other panel turns.
+The home's exhausted progress card (Reach the rest another way) sends the
+hidden `MANAGED_CIVIC_PANEL_EXHAUSTED_MESSAGE`, which the Serve home hides
+on reload like the other panel turns. The agent then calls
+`offer_reach_the_rest`, drawn by `ReachTheRestOffer`
+(`chief-of-staff/components/chat/`): the options read live from
+`GET /v1/contacts/civic-panel/reach-options`, as a `ClarifyQuestionWidget`
+with `plainRationale` (each option's line without "Why this option:") and
+Or write your own...; `isQuestionTool` counts it as a clarify question.
+A pick answers the question and, through the civic panel page's
+`useReachList`, saves the group's list and opens door knocking (by its
+page) or phone banking (over the chat) on it.
 
 Tool pills: `explain_managed_panel` reads Explaining your civic panel, the
 offer and the invite Getting your civic panel invite, `read_managed_panel`
-and `present_managed_panel` Checking your civic panel (`chatConstants.ts`).
+and `present_managed_panel` Checking your civic panel, `read_reach_the_rest`
+and `offer_reach_the_rest` Finding who a text can't reach (`chatConstants.ts`).
 
 **Analytics** (`EVENTS.Contacts`, the setup before gp-api's approval):
 
