@@ -190,7 +190,7 @@
     "vitest": "^4.0.15",
     "yargs": "^18.0.0",
     "zipcodes": "^8.0.0",
-    "zod": "4.4.3",
+    "zod": "4.6.6",
     "zod-to-json-schema": "^3.25.2"
   },
   "devDependencies": {
