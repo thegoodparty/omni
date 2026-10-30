@@ -227,8 +227,8 @@ cell phone, else "door knocking and calls can reach people a text can't".
 It then calls `offer_reach_the_rest`, which the webapp draws as a
 single-choice question read live from `GET /civic-panel/reach-options`;
 a pick saves the list through `POST /civic-panel/reach-lists` and opens
-door knocking or phone banking on it (`flows-civic-panel.md`, "Reaching
-the rest"). A failed warehouse read offers nothing.
+door knocking or phone banking on it as a civic panel invite, landing on
+the invite's script (`flows-civic-panel.md`, "Reaching the rest"). A failed warehouse read offers nothing.
 
 **Analytics** (`EVENTS.Contacts` in `segment.types.ts`, to the office's
 user through `trackForOffice`, fire-and-forget). Each fires only from the

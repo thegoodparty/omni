@@ -67,9 +67,18 @@ pads `var(--chat-dock-height)` plus 8rem so the last card clears the bar.
   phone, 44px targets, inline at the row's end from `lg`. Each posts
   `POST /v1/contacts/civic-panel/reach-lists` (`useReachList`) with the
   row's group and a list name ("Knock doors: {row}", "Call: {row}"), then
-  Knock doors opens `/dashboard/door-knocking?create=1&listId=` and Call
-  mounts `PhoneBankingFlow` (Serve surface) on the list. A 422 says
-  nobody there is left to reach that way.
+  opens the flow as a civic panel invite: the goal and the list are known,
+  so neither is asked. Knock doors opens
+  `/dashboard/door-knocking?create=1&listId=&purpose=build_citizens_panel`,
+  which lands on the invite's talking points, then the map (two steps; the
+  campaign takes the list's name). Call mounts `PhoneBankingFlow` (Serve
+  surface) with `civicPanelInvite`, the list's name and the list: the
+  script, then Create call list (sheets sized to the list). Both scripts
+  are `civicPanelReachScript.ts`, in the SMS invite's voice, spoken by the official in the first person,
+  never naming the civic panel or how the office checks in, and closing on
+  a note to mark a yes, which the knock and call forms' join question
+  records as a door or phone join. A 422 says nobody there is left to
+  reach that way.
 - **Rail**: the Invites card (`ManagedPanelControls`, only with a managed
   panel that is not stopped): one status line, while building Next invites
   (`managedPanelNextInvitesAt`: `nextWaveAt`, else `firstSendDate` before

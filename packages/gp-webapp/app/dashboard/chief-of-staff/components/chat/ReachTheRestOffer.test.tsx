@@ -18,8 +18,20 @@ vi.mock('@shared/organization-picker', async (importOriginal) => ({
 }))
 vi.mock('app/dashboard/outreach/v2/phone-banking/PhoneBankingFlow', () => ({
   SERVE_PHONE_BANKING_SURFACE: {},
-  PhoneBankingFlow: ({ preselectedListId }: { preselectedListId: number }) => (
-    <div data-testid="phone-banking-flow">{preselectedListId}</div>
+  PhoneBankingFlow: ({
+    preselectedListId,
+    initialName,
+    civicPanelInvite,
+  }: {
+    preselectedListId: number
+    initialName: string
+    civicPanelInvite: { script: string }
+  }) => (
+    <div data-testid="phone-banking-flow">
+      <span data-testid="list-id">{preselectedListId}</span>
+      <span data-testid="list-name">{initialName}</span>
+      <span data-testid="script">{civicPanelInvite.script}</span>
+    </div>
   ),
 }))
 
@@ -98,7 +110,7 @@ describe('ReachTheRestOffer', () => {
     )
     await waitFor(() =>
       expect(push).toHaveBeenCalledWith(
-        '/dashboard/door-knocking?create=1&listId=42',
+        '/dashboard/door-knocking?create=1&listId=42&purpose=build_citizens_panel',
       ),
     )
   })
@@ -108,8 +120,9 @@ describe('ReachTheRestOffer', () => {
 
     await userEvent.click(await screen.findByText('Call people 65 and over'))
 
-    expect(await screen.findByTestId('phone-banking-flow')).toHaveTextContent(
-      '42',
+    expect(await screen.findByTestId('list-id')).toHaveTextContent('42')
+    expect(screen.getByTestId('script')).toHaveTextContent(
+      'Would you like to be one of them?',
     )
   })
 
