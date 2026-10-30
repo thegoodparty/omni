@@ -254,7 +254,7 @@ completion is known. It has one wired signal, the money-SAFE floor:
 - **Estimate floor (always available, serial OR concurrent).** The merged
   `estimateRobocallDialCompletion({ audienceSize: billableCount, callsPerMinute:
 safeRate, startAt: dialedAt })` + `ROBOCALL_DIAL_ESTIMATE_BUFFER_MINUTES` (env,
-  default 30), where `safeRate = floor(configuredRate /
+  default 10), where `safeRate = floor(configuredRate /
 ROBOCALL_DIAL_SAFETY_RATE_DIVISOR)` (env divisor, default 1.1) and `configuredRate
 = CallhubCampaignService.getConfiguredCallsPerMinute()` — the SAME source
   `createVoiceBroadcast` dials at. The floor reports done ONLY when the campaign is
@@ -289,13 +289,21 @@ pacing. #3263 removed the clamp and campaigns now dial at the configured 120
 pool close to the real dial time. It is env-overridable and read at call time: if a
 real large run shows the dial materially lags 120, raise the env toward ÷1.5 with no
 deploy. The durable fix is the count speedup above, which removes the guess
-entirely.) The flat BUFFER was lowered 180 → 30 on 2026-10-15: at the full-pool
+entirely.) The flat BUFFER was lowered 180 → 30 on 2026-10-15 (at the full-pool
 120/min rate the 180 dominated the ceiling and over-held the pool for hours on a
-fast dial. Do NOT drop the divisor to 1 and lean on the flat pad alone — at ÷1 the
-haircut vanishes, and a constant pad under-covers a large list if any real pacing
-slowdown remains (a 20% slowdown on a 7.5k-call run is ~15 min, eating most of the
-30-min buffer), which is the early-abort the haircut exists to prevent. For a large
-audience
+fast dial), then 30 → 10 on 2026-10-30: each campaign holds the shared pool
+for its dial PLUS this flat pad regardless of size, so an evening cluster of sends
+drained slower than the window allowed and the tail rolled to the next morning. No
+run has dialed slower than the configured 120 (frequency confirmed in CallHub,
+every run completes 100%), so this pad is a small fixed floor for the per-call
+completion tail (ring-out, AMD) that the proportional ÷1.1 haircut barely covers on
+a SMALL run, NOT pacing insurance — the haircut is that. It stays non-zero for that
+tail; the send sweep only re-evaluates every ~10 min, so a value much under that
+buys little. Do NOT drop the divisor to 1 and lean on the flat pad alone — at ÷1
+the haircut vanishes, and a constant pad under-covers a large list if any real
+pacing slowdown remains (a 20% slowdown on a 7.5k-call run is ~15 min, exceeding
+the 10-min buffer), which is the early-abort the haircut exists to prevent. For a
+large audience
 the ceiling can exceed the 48h settlement floor, in which case the completion sweep
 settles first and the early free simply does not fire (correct, just not faster).
 
