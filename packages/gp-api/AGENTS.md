@@ -45,8 +45,8 @@ makes those tests pass here and fail there.
 
 In CI (`.github/workflows/gp-api.yml`) the same work is split for speed: a
 `Checks` job runs lint, typecheck, and `prisma migrate diff ... --exit-code`
-against a shadow DB; a `Test` job fans the vitest suite across 6 shards
-(`--shard=N/6`, no coverage), one runner each, because each runner's 4 cores
+against a shadow DB; a `Test` job fans the vitest suite across 4 shards
+(`--shard=N/4`, no coverage), one runner each, because each runner's 4 cores
 are saturated by its own workers plus Postgres; and an empty `Validate` gate
 `needs` both so the branch-protection-required `Validate` check is green only
 when all of them pass.
@@ -124,6 +124,11 @@ to a container. Start that server with the same flags `test-postgres.ts` sets
 `max_connections`) — the harness cannot set them on a server it did not start,
 and the sweep's `pg_stat_file()` needs superuser, so it has to be a server we
 own rather than a managed cluster. Unset, nothing changes.
+
+In gp-pi, that server is a sidecar started from the host with
+`scripts/gp-pi-testdb.sh`; set `OMNI_TEST_POSTGRES_URL` to
+`postgresql://test_user:test_password@127.0.0.1:55432/postgres`. See
+`docs/testing.md` § In gp-pi.
 
 Two things about that container and the per-test reset are load-bearing, not
 incidental. It runs with `fsync`/`synchronous_commit`/`full_page_writes` off,
