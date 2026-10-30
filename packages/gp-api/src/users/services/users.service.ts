@@ -54,6 +54,10 @@ import { clerkThrottle } from '@/vendors/clerk/util/clerkThrottle.util'
 import { clerkCall } from '@/vendors/clerk/util/clerkCall.util'
 import { CronLockService } from '@/cron/services/cronLock.service'
 import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
+import {
+  CONTACT_UPLOAD_FILE_SELECT,
+  ContactUploadFilesService,
+} from '@/contactUploads/services/contactUploadFiles.service'
 
 /** Result of resolving a gp-api Clerk user by email for impersonation actor.sub. */
 export type ResolvedActorIdentity =
@@ -101,6 +105,7 @@ export class UsersService extends createPrismaBase(MODELS.User) {
     private readonly userAvatar: UserAvatarService,
     private readonly marketingRevalidation: MarketingRevalidationService,
     private readonly cronLock: CronLockService,
+    private readonly contactUploadFiles: ContactUploadFilesService,
   ) {
     super()
   }
@@ -699,6 +704,10 @@ export class UsersService extends createPrismaBase(MODELS.User) {
         // UserAgendaUpload has one) is rejected before Clerk or Stripe is
         // touched at all, leaving a user who cannot be deleted with both an
         // identity and a subscription rather than neither.
+        const uploadFiles = await tx.contactUpload.findMany({
+          where: { organization: { ownerId: id } },
+          select: CONTACT_UPLOAD_FILE_SELECT,
+        })
         await tx.user.delete({ where: { id } })
         this.logger.info({ userId: id }, 'User deleted from database')
 
@@ -729,6 +738,11 @@ export class UsersService extends createPrismaBase(MODELS.User) {
             throw err
           }
         }
+
+        // The uploads bucket is versioned and nothing in it expires, so the
+        // owned orgs' files go here or never: after the commit no row is left
+        // to name them. A failure rolls the delete back for a retry.
+        await this.contactUploadFiles.deleteFiles(uploadFiles)
 
         // Clerk goes last because it is the one step nothing can undo, and a
         // rolled-back deletion restores the user row with its old clerkId:
@@ -1245,6 +1259,12 @@ export class UsersService extends createPrismaBase(MODELS.User) {
       let dbDeleted = 0
       for (const dbUser of dbUsers) {
         try {
+          await this.contactUploadFiles.deleteFiles(
+            await this.client.contactUpload.findMany({
+              where: { organization: { ownerId: dbUser.id } },
+              select: CONTACT_UPLOAD_FILE_SELECT,
+            }),
+          )
           await this.model.delete({ where: { id: dbUser.id } })
           dbDeleted++
           this.logger.info({ userId: dbUser.id }, 'Deleted DB test user')

@@ -2,6 +2,7 @@ import { HttpModule } from '@nestjs/axios'
 import { Global, Module } from '@nestjs/common'
 import { AwsModule } from '@/vendors/aws/aws.module'
 import { AuthenticationModule } from '@/authentication/authentication.module'
+import { ContactUploadFilesModule } from '@/contactUploads/contactUploadFiles.module'
 import { CrmModule } from '@/crm/crmModule'
 import { CronModule } from '@/cron/cron.module'
 import { PersonProfilesModule } from '@/personProfiles/personProfiles.module'
@@ -20,6 +21,7 @@ import { UsersController } from './users.controller'
   imports: [
     AwsModule,
     AuthenticationModule,
+    ContactUploadFilesModule,
     CrmModule,
     CronModule,
     HttpModule,

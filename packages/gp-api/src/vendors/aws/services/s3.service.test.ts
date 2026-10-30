@@ -1,7 +1,9 @@
 import {
+  DeleteObjectsCommand,
   GetObjectCommand,
   GetObjectCommandOutput,
   ListObjectsV2Command,
+  ListObjectVersionsCommand,
   NoSuchKey,
   PutObjectCommand,
   S3Client,
@@ -751,6 +753,137 @@ describe('S3Service', () => {
       await expect(service.listKeys(bucket, prefix)).rejects.toThrow(
         UnauthorizedException,
       )
+    })
+  })
+
+  describe('deleteAllObjectVersions', () => {
+    const bucket = 'test-bucket'
+    const key = 'eo-org/upload-1.csv'
+
+    const deletedIdentifiers = () =>
+      s3Mock
+        .commandCalls(DeleteObjectsCommand)
+        .map((call) => call.args[0].input.Delete?.Objects ?? [])
+
+    it('deletes every version and delete marker of the key', async () => {
+      s3Mock.on(ListObjectVersionsCommand).resolves({
+        Versions: [
+          { Key: key, VersionId: 'v2' },
+          { Key: key, VersionId: 'v1' },
+        ],
+        DeleteMarkers: [{ Key: key, VersionId: 'm1' }],
+        IsTruncated: false,
+        $metadata: {},
+      })
+      s3Mock.on(DeleteObjectsCommand).resolves({ $metadata: {} })
+
+      const deleted = await service.deleteAllObjectVersions(bucket, [key])
+
+      expect(deleted).toBe(3)
+      expect(
+        s3Mock.commandCalls(ListObjectVersionsCommand)[0]?.args[0].input,
+      ).toMatchObject({ Bucket: bucket, Prefix: key })
+      expect(deletedIdentifiers()).toEqual([
+        [
+          { Key: key, VersionId: 'v2' },
+          { Key: key, VersionId: 'v1' },
+          { Key: key, VersionId: 'm1' },
+        ],
+      ])
+    })
+
+    it('follows the key and version markers across pages', async () => {
+      s3Mock
+        .on(ListObjectVersionsCommand, { KeyMarker: undefined })
+        .resolves({
+          Versions: [{ Key: key, VersionId: 'v2' }],
+          IsTruncated: true,
+          NextKeyMarker: key,
+          NextVersionIdMarker: 'v2',
+          $metadata: {},
+        })
+        .on(ListObjectVersionsCommand, {
+          KeyMarker: key,
+          VersionIdMarker: 'v2',
+        })
+        .resolves({
+          Versions: [{ Key: key, VersionId: 'v1' }],
+          IsTruncated: false,
+          $metadata: {},
+        })
+      s3Mock.on(DeleteObjectsCommand).resolves({ $metadata: {} })
+
+      const deleted = await service.deleteAllObjectVersions(bucket, [key])
+
+      expect(deleted).toBe(2)
+      expect(s3Mock.commandCalls(ListObjectVersionsCommand)).toHaveLength(2)
+      expect(deletedIdentifiers().flat()).toEqual([
+        { Key: key, VersionId: 'v2' },
+        { Key: key, VersionId: 'v1' },
+      ])
+    })
+
+    it('deletes in batches of 1,000', async () => {
+      s3Mock.on(ListObjectVersionsCommand).resolves({
+        Versions: Array.from({ length: 1001 }, (_, i) => ({
+          Key: key,
+          VersionId: `v${i}`,
+        })),
+        IsTruncated: false,
+        $metadata: {},
+      })
+      s3Mock.on(DeleteObjectsCommand).resolves({ $metadata: {} })
+
+      const deleted = await service.deleteAllObjectVersions(bucket, [key])
+
+      expect(deleted).toBe(1001)
+      expect(deletedIdentifiers().map((batch) => batch.length)).toEqual([
+        1000, 1,
+      ])
+    })
+
+    it('leaves a key that only starts with the one asked for', async () => {
+      s3Mock.on(ListObjectVersionsCommand).resolves({
+        Versions: [
+          { Key: key, VersionId: 'v1' },
+          { Key: `${key}.bak`, VersionId: 'other' },
+        ],
+        IsTruncated: false,
+        $metadata: {},
+      })
+      s3Mock.on(DeleteObjectsCommand).resolves({ $metadata: {} })
+
+      await service.deleteAllObjectVersions(bucket, [key])
+
+      expect(deletedIdentifiers()).toEqual([[{ Key: key, VersionId: 'v1' }]])
+    })
+
+    it('sends no delete when the key has no versions', async () => {
+      s3Mock.on(ListObjectVersionsCommand).resolves({
+        IsTruncated: false,
+        $metadata: {},
+      })
+
+      const deleted = await service.deleteAllObjectVersions(bucket, [key])
+
+      expect(deleted).toBe(0)
+      expect(s3Mock.commandCalls(DeleteObjectsCommand)).toHaveLength(0)
+    })
+
+    it('throws when S3 refuses any version', async () => {
+      s3Mock.on(ListObjectVersionsCommand).resolves({
+        Versions: [{ Key: key, VersionId: 'v1' }],
+        IsTruncated: false,
+        $metadata: {},
+      })
+      s3Mock.on(DeleteObjectsCommand).resolves({
+        Errors: [{ Key: key, VersionId: 'v1', Code: 'AccessDenied' }],
+        $metadata: {},
+      })
+
+      await expect(
+        service.deleteAllObjectVersions(bucket, [key]),
+      ).rejects.toThrow(BadGatewayException)
     })
   })
 

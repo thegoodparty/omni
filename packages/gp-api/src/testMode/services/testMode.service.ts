@@ -1,5 +1,9 @@
 import { CampaignsService } from '@/campaigns/services/campaigns.service'
 import { ComplianceStateService } from '@/campaigns/tcrCompliance/services/complianceState.service'
+import {
+  CONTACT_UPLOAD_FILE_SELECT,
+  ContactUploadFilesService,
+} from '@/contactUploads/services/contactUploadFiles.service'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
 import {
   DEFAULT_CUSTOM_POSITION_NAME,
@@ -112,6 +116,7 @@ export class TestModeService {
     private readonly organizations: OrganizationsService,
     private readonly complianceState: ComplianceStateService,
     private readonly transitions: StateTransitionsService,
+    private readonly contactUploadFiles: ContactUploadFilesService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(TestModeService.name)
@@ -253,7 +258,12 @@ export class TestModeService {
             data: { campaignId: null },
           })
         }
+        const uploadFiles = await tx.contactUpload.findMany({
+          where: { organizationSlug: org.slug },
+          select: CONTACT_UPLOAD_FILE_SELECT,
+        })
         await tx.organization.delete({ where: { slug: org.slug } })
+        await this.contactUploadFiles.deleteFiles(uploadFiles)
       },
       { timeout: DELETE_TEST_ORGANIZATION_TX_TIMEOUT_MS },
     )

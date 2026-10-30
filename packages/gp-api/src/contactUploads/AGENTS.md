@@ -111,17 +111,43 @@ manual rows, else the upload's `createdAt`): the upload that brought them in.
   reopen anyone who opted out.
 - **No names, emails or phones in logs or analytics.** Ids and counts only.
 
-## Not built here
+## Deleting files
 
-- Cleaning up abandoned uploads: one left `awaiting_file` (the browser
-  closed before its PUT or confirm) stays in Postgres, and maybe in the
-  bucket, forever. Upload history and every read route hide `awaiting_file`
-  uploads, so the user never sees it, but nothing deletes them yet.
+The bucket is versioned and nothing in it expires, so a file is gone only
+when every version and delete marker of its key is deleted
+(`S3Service.deleteAllObjectVersions`: `ListObjectVersions` per key,
+exact-key matches only, `DeleteObjects` in batches of 1,000).
+`ContactUploadFilesService.deleteFiles` takes `contact_upload` rows and does
+that per org, logging the org slug and rethrowing on failure. It works from
+the rows' `fileKey`s, never a bare `<orgSlug>/` prefix: previews and local
+share the dev bucket with their own databases, where `campaign-<id>` slugs
+collide with dev's. That is complete, because presign creates the row
+before the browser can PUT, so every object has a row. The task role holds
+`s3:ListBucketVersions` and `s3:DeleteObjectVersion` on this bucket
+(`deploy/index.ts`). A preview's role is capped by the ops-owned
+`GpApiPreviewRoleBoundary`, which does not list this bucket, so on a
+preview any S3 call here is `AccessDenied` until ops adds it.
 
-- Deleting an org's files from the bucket: Postgres rows cascade with the
-  org, but no org deletion hook exists to clear `<orgSlug>/` in S3. The
-  bucket is versioned and nothing expires, so a deletion has to remove every
-  version and delete marker under the prefix, not just the current objects.
+Every path that deletes an org reads its rows before the database delete
+and deletes the files:
+
+| Path                                                         | Where it deletes the files                                                                    |
+| ------------------------------------------------------------ | --------------------------------------------------------------------------------------------- |
+| Account deletion, self and admin (`UsersService.deleteUser`) | In the transaction, after the Stripe cancel and before Clerk; a failure rolls the delete back |
+| Test-user sweep (`UsersService.deleteTestUsers`)             | Before each user's delete; a failure skips that user until the next hourly pass               |
+| Test mode org delete (`TestModeService.deleteOrganization`)  | In the transaction, after the org delete; a failure rolls it back                             |
+| Judge chat fixture teardown (`removeChatOrgFixture`)         | In the transaction, after the org delete; a failure rolls it back                             |
+
+A new path that deletes users or organizations has to do the same.
+
+**Abandoned uploads.** `ContactUploadAbandonedSweepService`
+(`contactUploadAbandonedSweep`, `43 * * * *`, hourly claim) deletes up to
+200 uploads a run, oldest first, still `awaiting_file` 24 hours after
+creation (the browser closed before the PUT or the confirm; the presigned
+URL lasted 15 minutes). The file goes first and the row only after, and
+only while it is still `awaiting_file`, so a failed delete leaves the row
+for the next run. No deploy allowlist: it touches only this deploy's rows,
+and their keys carry the upload's uuid. Logs counts.
 
 ## Tests
 
@@ -134,3 +160,10 @@ spying
 `findPeople` for Databricks and calling `handleQueuedProcess` directly (the
 consumer does not run in tests). Pure logic: `util/*.test.ts`; the statement:
 `peopleDb/databricks/contactUploadMatchSql.util.test.ts`.
+File deletion: `tests/contactUploadAbandonedSweep.test.ts`, the
+`deleteAllObjectVersions` block in `vendors/aws/services/s3.service.test.ts`,
+and one test per deletion path in `users/users.routes.test.ts`,
+`users/services/users.service.test.ts` (sweep),
+`testMode/tests/testMode.routes.test.ts` and
+`testFixtures/testFixtures.judge.routes.test.ts`, each spying
+`S3Service.deleteAllObjectVersions`.
