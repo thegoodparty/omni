@@ -9,9 +9,12 @@ export const ROBOCALL_FREE_OFFER_QUERY_KEY = 'robocall-free-offer'
 // campaign: every surface that shows the offer reads this one answer, so a
 // campaign never sees it in one place and not another. gp-api checks the
 // flag and eligibility; the webapp only renders. Loading and errors read as
-// "no offer", so nothing renders until gp-api has said yes.
+// "no offer", so nothing renders until gp-api has said yes. A surface that
+// reorders its content around the offer (Home's next-task card) reads
+// isLoading to hold until the answer is in, rather than paint without it.
 export const useRobocallFreeOffer = (): {
   offer: RobocallFreeOfferResponse | null
+  isLoading: boolean
 } => {
   const orgSlug = useOrganization()?.slug
 
@@ -29,5 +32,8 @@ export const useRobocallFreeOffer = (): {
     retry: false,
   })
 
-  return { offer: query.data?.eligible ? query.data : null }
+  return {
+    offer: query.data?.eligible ? query.data : null,
+    isLoading: query.isLoading,
+  }
 }
