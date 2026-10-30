@@ -133,15 +133,14 @@ interface SmsComposeStepProps {
   continueAttempts: number
   // Serve's civic panel invite that GoodParty sends in the official's name:
   // its own title, no tone, image or panel ask, the JOIN line and opt-out
-  // locked under the editable body, and what approving means above the button.
+  // locked under the editable body. What approving means sits in the shell
+  // footer above the button (SmsFlow's banner), not here.
   // A dictated passage landed in the message.
   onDictated?: () => void
   managedInvite?: {
     title: string
     caption: string
     lockedLines: string
-    // What approving means, shown just above the approve button.
-    agreement: string
   }
 }
 
@@ -451,7 +450,11 @@ export const SmsComposeStep = ({
                 overLimit && 'text-destructive',
               )}
             >
-              {composedLength} chars · {segments} SMS
+              {/* The managed invite goes out as MMS (a required header
+                  image), so SMS segments would be wrong for it. */}
+              {managedInvite
+                ? `${composedLength} chars`
+                : `${composedLength} chars · ${segments} SMS`}
             </span>
           </div>
           <TokenField
@@ -602,11 +605,6 @@ export const SmsComposeStep = ({
           <p className="text-xs text-destructive">
             Keep the whole message (including the identification and opt-out
             lines) under {SMS_COMPOSED_MAX_LENGTH} characters.
-          </p>
-        )}
-        {managedInvite && (
-          <p className="text-sm text-muted-foreground">
-            {managedInvite.agreement}
           </p>
         )}
       </div>

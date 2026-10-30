@@ -31,10 +31,11 @@ contracts' `SHOW_MANAGED_CIVIC_PANEL_INVITE`). The card never shows the
 words; Review the invite opens the webapp's text flow, where they are shown
 and edited. The body is the official's full name, office and place, and it
 never names the civic panel; "Reply JOIN to share your perspectives." and
-"Reply STOP to opt out." follow as one block. There is no checkbox: Approve
-and send in my name is the approval (POST, with contracts'
-`MANAGED_CIVIC_PANEL_CONSENT_VERSION`), under one line saying we'll text the
-invite to <place> residents in their name. The flow's
+"Reply STOP to opt out." follow as one block. There is no checkbox: Set up my
+civic panel is the approval (POST, with contracts'
+`MANAGED_CIVIC_PANEL_CONSENT_VERSION`), right under one line: "By continuing,
+you agree to GoodParty texting this invite to <place> residents in your name."
+The flow's
 close sends a hidden `MANAGED_CIVIC_PANEL_SET_UP_MESSAGE` or
 `MANAGED_CIVIC_PANEL_BACKED_OUT_MESSAGE`; on set up the agent reads
 `read_managed_panel` (status, members, goal, the first send date,

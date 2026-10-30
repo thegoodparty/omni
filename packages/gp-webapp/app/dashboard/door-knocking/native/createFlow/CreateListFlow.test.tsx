@@ -2185,9 +2185,16 @@ describe('CreateListFlow preselected list', () => {
       </DoorKnockingSurfaceProvider>,
     )
     await waitFor(() => expect(onStepChange).toHaveBeenCalledWith('points'))
+    // The page spends the carried list and purpose once the list is applied.
+    const {
+      preselectedListId: _list,
+      initialPurpose: _purpose,
+      initialTalkingPoints: _points,
+      ...spent
+    } = props
     rerender(
       <DoorKnockingSurfaceProvider value={true}>
-        <CreateListFlow {...props} step="points" />
+        <CreateListFlow {...spent} step="points" />
       </DoorKnockingSurfaceProvider>,
     )
 
@@ -2206,7 +2213,7 @@ describe('CreateListFlow preselected list', () => {
     expect(onStepChange).toHaveBeenLastCalledWith('draw')
     rerender(
       <DoorKnockingSurfaceProvider value={true}>
-        <CreateListFlow {...props} step="draw" />
+        <CreateListFlow {...spent} step="draw" />
       </DoorKnockingSurfaceProvider>,
     )
     expect(

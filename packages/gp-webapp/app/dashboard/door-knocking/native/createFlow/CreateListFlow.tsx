@@ -482,11 +482,14 @@ export default function CreateListFlow({
   const serveMode = useDoorKnockingServeMode()
   // A civic panel short group's walk (useReachList): the goal and the list
   // are known, so the flow is the talking points and the map. The campaign
-  // takes the list's name.
-  const civicPanelInvite =
+  // takes the list's name. Latched: the page spends the carried list and
+  // purpose once the list is applied, before the points are reviewed.
+  const invitedNow =
     serveMode &&
     initialPurpose === BUILD_CITIZENS_PANEL_PURPOSE &&
     preselectedListId !== undefined
+  const [civicPanelInvite, setCivicPanelInvite] = useState(invitedNow)
+  if (invitedNow && !civicPanelInvite) setCivicPanelInvite(true)
   // The roster the cards name an assignee from. Shares a cache key with the
   // drawing surface's own read, so the two cost one request between them.
   const teamOptions = useTeamOptions(orgSlug)
