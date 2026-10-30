@@ -280,7 +280,7 @@ describe('DELETE /v1/test-fixtures/judge-chat-cases/:organizationSlug', () => {
     })
   })
 
-  it('deletes every version of the fixture org\'s contact upload files', async () => {
+  it("deletes every version of the fixture org's contact upload files", async () => {
     const { data } = await setUp(BRIEFING_CASE)
     const fileKey = `${data.organizationSlug}/${randomUUID()}.csv`
     await service.prisma.contactUpload.create({

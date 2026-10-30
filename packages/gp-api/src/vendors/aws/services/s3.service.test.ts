@@ -802,7 +802,10 @@ describe('S3Service', () => {
           NextVersionIdMarker: 'v2',
           $metadata: {},
         })
-        .on(ListObjectVersionsCommand, { KeyMarker: key, VersionIdMarker: 'v2' })
+        .on(ListObjectVersionsCommand, {
+          KeyMarker: key,
+          VersionIdMarker: 'v2',
+        })
         .resolves({
           Versions: [{ Key: key, VersionId: 'v1' }],
           IsTruncated: false,

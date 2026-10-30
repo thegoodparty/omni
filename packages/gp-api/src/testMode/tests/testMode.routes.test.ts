@@ -586,7 +586,7 @@ describe('DELETE /v1/test-mode/organizations/:slug', () => {
     return fileKey
   }
 
-  it('deletes every version of the org\'s contact upload files', async () => {
+  it("deletes every version of the org's contact upload files", async () => {
     const created = await createOrg(officeBundle())
     const fileKey = await seedUpload(created.slug)
     const purge = vi

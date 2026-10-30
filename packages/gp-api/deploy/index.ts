@@ -876,7 +876,9 @@ jwIDAQAB
       {
         Effect: 'Allow',
         Action: ['s3:ListBucketVersions'],
-        Resource: [pulumi.interpolate`arn:aws:s3:::${contactUploadsBucketName}`],
+        Resource: [
+          pulumi.interpolate`arn:aws:s3:::${contactUploadsBucketName}`,
+        ],
       },
       {
         Effect: 'Allow',

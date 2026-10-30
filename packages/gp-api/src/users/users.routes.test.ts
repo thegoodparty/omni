@@ -367,7 +367,7 @@ describe('POST /v1/users/me/crm-registration', () => {
   })
 })
 
-describe('account deletion purges the owned orgs\' contact upload files', () => {
+describe("account deletion purges the owned orgs' contact upload files", () => {
   const seedOwnerWithUploads = async () => {
     const owner = await service.prisma.user.create({
       data: { email: `upload-owner-${randomUUID()}@goodparty.org` },
@@ -427,27 +427,24 @@ describe('account deletion purges the owned orgs\' contact upload files', () => 
   it.each([
     ['DELETE /v1/users/:id', (id: number) => `/v1/users/${id}`],
     ['DELETE /v1/admin/users/:id', (id: number) => `/v1/admin/users/${id}`],
-  ])(
-    '%s deletes every version of each upload file',
-    async (_route, url) => {
-      const { owner, keys } = await seedOwnerWithUploads()
-      await otherOrgUpload()
-      const purge = deleteAllObjectVersions().mockResolvedValue(3)
+  ])('%s deletes every version of each upload file', async (_route, url) => {
+    const { owner, keys } = await seedOwnerWithUploads()
+    await otherOrgUpload()
+    const purge = deleteAllObjectVersions().mockResolvedValue(3)
 
-      const res = await service.client.delete(url(owner.id))
+    const res = await service.client.delete(url(owner.id))
 
-      expect(res.status).toBe(HttpStatus.NO_CONTENT)
-      expect(purge).toHaveBeenCalledTimes(1)
-      expect(purge).toHaveBeenCalledWith(
-        process.env.CONTACT_UPLOADS_BUCKET,
-        expect.arrayContaining(keys),
-      )
-      expect(purge.mock.calls[0]?.[1]).toHaveLength(keys.length)
-      expect(
-        await service.prisma.user.findUnique({ where: { id: owner.id } }),
-      ).toBeNull()
-    },
-  )
+    expect(res.status).toBe(HttpStatus.NO_CONTENT)
+    expect(purge).toHaveBeenCalledTimes(1)
+    expect(purge).toHaveBeenCalledWith(
+      process.env.CONTACT_UPLOADS_BUCKET,
+      expect.arrayContaining(keys),
+    )
+    expect(purge.mock.calls[0]?.[1]).toHaveLength(keys.length)
+    expect(
+      await service.prisma.user.findUnique({ where: { id: owner.id } }),
+    ).toBeNull()
+  })
 
   it('keeps the account and its login when the purge fails, for a retry', async () => {
     const { owner, slug } = await seedOwnerWithUploads()

@@ -2614,7 +2614,7 @@ describe('UsersService', () => {
         } as Awaited<ReturnType<typeof clerkClient.users.getUserList>>)
       })
 
-      it('deletes every version of a swept user\'s upload files', async () => {
+      it("deletes every version of a swept user's upload files", async () => {
         const { user, fileKey } = await seedStaleTestUserWithUpload()
         const purge = vi
           .spyOn(service.app.get(S3Service), 'deleteAllObjectVersions')
@@ -2622,10 +2622,9 @@ describe('UsersService', () => {
 
         await usersService.deleteTestUsers()
 
-        expect(purge).toHaveBeenCalledWith(
-          process.env.CONTACT_UPLOADS_BUCKET,
-          [fileKey],
-        )
+        expect(purge).toHaveBeenCalledWith(process.env.CONTACT_UPLOADS_BUCKET, [
+          fileKey,
+        ])
         expect(
           await service.prisma.user.findUnique({ where: { id: user.id } }),
         ).toBeNull()
