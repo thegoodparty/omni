@@ -353,7 +353,8 @@ const NextTaskCard = ({
     !tasks.some((row) => isFreeOfferTaskHref(row.link))
   // The card holds while that one retry runs, so the offer's task does not
   // jump to the front a second time after the card has painted.
-  const [offerRetried, setOfferRetried] = useState(false)
+  const [retriedFor, setRetriedFor] = useState<unknown>(null)
+  const offerRetried = retriedFor === (campaign?.id ?? 'none')
   useEffect(() => {
     if (!offerTaskMissing || offerRetried) return
     void queryClient
@@ -361,8 +362,8 @@ const NextTaskCard = ({
       .then(() =>
         queryClient.invalidateQueries({ queryKey: TRACKER_TASKS_QUERY_KEY }),
       )
-      .finally(() => setOfferRetried(true))
-  }, [offerTaskMissing, offerRetried, queryClient])
+      .finally(() => setRetriedFor(campaign?.id ?? 'none'))
+  }, [offerTaskMissing, offerRetried, queryClient, campaign?.id])
   // Home's first card is the one it keeps: until the plan and the offer have
   // both answered, which task leads is not known yet.
   const deckSettling =
