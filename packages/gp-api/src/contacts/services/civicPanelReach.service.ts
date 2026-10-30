@@ -18,6 +18,7 @@ import {
   type CivicPanelShortGroup,
   type CreateCivicPanelReachListInput,
 } from '@goodparty_org/contracts'
+import { PinoLogger } from 'nestjs-pino'
 import {
   CivicPanelStatus,
   ContactStatusField,
@@ -153,7 +154,10 @@ export class CivicPanelReachService {
     private readonly voterFileFilterService: VoterFileFilterService,
     private readonly summaries: CivicPanelSummaryService,
     private readonly managedPanels: ManagedCivicPanelService,
-  ) {}
+    private readonly logger: PinoLogger,
+  ) {
+    this.logger.setContext(CivicPanelReachService.name)
+  }
 
   // The short groups the civic panel page lists first, each with the one
   // way that reaches the most of it: what the Chief of Staff offers once
@@ -180,12 +184,17 @@ export class CivicPanelReachService {
     })
     const shown = rows.slice(0, CIVIC_PANEL_SHORT_GROUPS_SHOWN)
     if (shown.length === 0) return none
+    const [excludeIds, district] = await Promise.all([
+      this.onOrOffThePanel(organization),
+      this.contactsService.resolveEligibleDistrict(organization),
+    ])
+    let counted: {
+      row: CivicPanelShortGroup
+      group: CivicPanelReachGroup
+      homes: ReachHomes
+    }[]
     try {
-      const [excludeIds, district] = await Promise.all([
-        this.onOrOffThePanel(organization),
-        this.contactsService.resolveEligibleDistrict(organization),
-      ])
-      const counted = await Promise.all(
+      counted = await Promise.all(
         shown.map(async ({ row, group }) => ({
           row,
           group,
@@ -196,40 +205,43 @@ export class CivicPanelReachService {
           ),
         })),
       )
-      const places = counted.filter(({ row }) => row.kind === 'place')
-      const placeHomes = places.reduce((sum, { homes }) => sum + homes.homes, 0)
-      const placeNoCell = places.reduce(
-        (sum, { homes }) => sum + homes.noCell,
-        0,
+    } catch (err) {
+      // A warehouse read that fails offers no group rather than a guess at
+      // who a door or a call reaches.
+      this.logger.warn(
+        { err, organizationSlug: organization.slug },
+        'civic panel reach homes read failed',
       )
-      const options = counted.flatMap(
-        ({ row, group, homes }): CivicPanelReachOption[] => {
-          const channel = channelFor(row, homes)
-          if (!channel) return []
-          const count = channel === 'door' ? homes.noCell : homes.landline
-          return [
-            {
-              ...reachOptionWords(
-                row,
-                shortGroupName(row, composition.placeKind, place),
-                channel,
-                count,
-              ),
-              group,
-              channel,
-              seatsShort: row.need - row.have,
-              homes: count,
-            },
-          ]
-        },
-      )
-      return {
-        place,
-        mostlyNoCell: placeHomes > 0 && placeNoCell * 2 > placeHomes,
-        options,
-      }
-    } catch {
       return none
+    }
+    const places = counted.filter(({ row }) => row.kind === 'place')
+    const placeHomes = places.reduce((sum, { homes }) => sum + homes.homes, 0)
+    const placeNoCell = places.reduce((sum, { homes }) => sum + homes.noCell, 0)
+    const options = counted.flatMap(
+      ({ row, group, homes }): CivicPanelReachOption[] => {
+        const channel = channelFor(row, homes)
+        if (!channel) return []
+        const count = channel === 'door' ? homes.noCell : homes.landline
+        return [
+          {
+            ...reachOptionWords(
+              row,
+              shortGroupName(row, composition.placeKind, place),
+              channel,
+              count,
+            ),
+            group,
+            channel,
+            seatsShort: row.need - row.have,
+            homes: count,
+          },
+        ]
+      },
+    )
+    return {
+      place,
+      mostlyNoCell: placeHomes > 0 && placeNoCell * 2 > placeHomes,
+      options,
     }
   }
 
