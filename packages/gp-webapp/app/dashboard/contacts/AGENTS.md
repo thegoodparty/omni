@@ -31,10 +31,13 @@ pads `var(--chat-dock-height)` plus 8rem so the last card clears the bar.
   card), else `start` at 0 members, else `building`.
 - **Hero** (`CivicPanelHero`): the stage's title and line
   (`COPY.hero`; building names the place, "{members} {place} residents
-  are ready to share their views, on the way to {goal}."), the goal as 100 seats from `lg`
+  are ready to share their views, on the way to {goal}."; ready names it
+  too, "Ask them what they think whenever you want to hear from all of
+  {place}.", never only before a vote), the goal as 100 seats from `lg`
   (`sourceSeats`: filled is members over goal as in `plainSeats`, split by
   how members joined, text then door then phone, each in its color) with a
-  legend of the sources plus Empty seat, and below `lg` a bar of the same
+  legend of the sources plus Empty seat (dropped once every seat is
+  filled, as `CivicPanelSeats` drops its empty keys), and below `lg` a bar of the same
   three segments (each a source's share of the goal) with the legend minus
   Empty seat (CSS breakpoints, both always rendered; "{members} of {goal}
   residents have joined" sits over the bar only at the start, since every
