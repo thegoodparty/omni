@@ -187,7 +187,14 @@ jobs:
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: ${{ env.WORKSPACE }}/.vitest-fs-module-cache
-          key: gp-api-vitest-modules-v1-${{ runner.os }}-${{ hashFiles('.nvmrc', 'package-lock.json', 'packages/gp-api/vitest.config.ts') }}-shard-${{ matrix.shard }}
+          key: gp-api-vitest-modules-v1-${{ runner.os }}-${{ hashFiles('.nvmrc', 'package-lock.json', 'patches/**', 'packages/gp-api/vitest.config.ts') }}-shard-${{ matrix.shard }}
+
+      # Vitest's dependency fingerprint is the lockfile plus the mtime of
+      # patches/, and it drops the whole cache when that changes. Every
+      # checkout gives patches/ a new mtime, so pin it. The key above already
+      # covers what is in patches/.
+      - name: Pin patches/ mtime for the vitest module cache
+        run: touch -c -t 200001010000 patches
 
       - name: Test
         run: npm run test -w ${{ env.WORKSPACE }} -- --shard=${{ matrix.shard }}/${{ strategy.job-total }}
