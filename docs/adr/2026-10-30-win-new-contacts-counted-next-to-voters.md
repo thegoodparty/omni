@@ -3,7 +3,7 @@ title: On Win, imported people not in the voter file are counted next to voters 
 status: active
 decided_by: [swain]
 date: 2026-10-30
-code: ['#PR']
+code: ['#3459']
 scope:
   - packages/gp-api/src/contacts/services/contacts.service.ts
   - packages/gp-api/src/peopleDb/databricks/databricksVoterSql.util.ts
