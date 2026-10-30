@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import { CIRCLE_COMMUNITY_BASE } from 'appEnv'
 import { getDashboardMenuItems } from './DashboardMenu'
 
 const links = ({
@@ -283,5 +284,15 @@ describe('getDashboardMenuItems — Door Knocking has no standalone nav item', (
   it('never includes a door-knocking item', () => {
     const items = links({ isElectedOffice: true })
     expect(items.some((i) => i.id === 'door-knocking-dashboard')).toBe(false)
+  })
+})
+
+describe('getDashboardMenuItems — Community link', () => {
+  it('opens the Circle community root so sign-in goes through SSO, never a native-signup invitation link', () => {
+    // ENG-11532: /join?invitation_token=... lets a visitor create a native
+    // Circle member, after which SSO refuses with "you already have an account".
+    const community = links().find((i) => i.id === 'community-dashboard')
+    expect(community?.link).toBe(CIRCLE_COMMUNITY_BASE)
+    expect(community?.link).not.toContain('invitation_token')
   })
 })
