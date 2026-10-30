@@ -86,6 +86,7 @@ import { EMAIL_OUTREACH_DOMAIN } from '../src/emailOutreach/emailOutreach.const'
 import { OutreachEmailInboundService } from '../src/emailOutreach/services/outreachEmailInbound.service'
 import { OutreachEmailLifecycleService } from '../src/emailOutreach/services/outreachEmailLifecycle.service'
 import { OutreachEmailPauseAlertService } from '../src/emailOutreach/services/outreachEmailPauseAlert.service'
+import { OutreachEmailAudienceService } from '../src/emailOutreach/services/outreachEmailAudience.service'
 import { OutreachEmailPrepareService } from '../src/emailOutreach/services/outreachEmailPrepare.service'
 import { OutreachEmailSendSweepService } from '../src/emailOutreach/services/outreachEmailSendSweep.service'
 import { OutreachEmailUnsubscribeService } from '../src/emailOutreach/services/outreachEmailUnsubscribe.service'
@@ -110,8 +111,9 @@ const POLL_MS = 20_000
 const INBOUND_CLOCK_SLACK_MINUTES = 5
 
 // The script's own copy of the services it drives. The lifecycle service's
-// hold and queue dependencies are never reached by `finish`, so they are
-// given empty stand-ins rather than their modules.
+// hold and queue dependencies are never reached by `finish`, and fixtures
+// arrive with their audience already written, so those get empty stand-ins
+// rather than their modules.
 @Module({
   imports: [loggerModule, PrismaModule, AwsModule, SlackModule],
   providers: [
@@ -124,6 +126,7 @@ const INBOUND_CLOCK_SLACK_MINUTES = 5
     OutreachEmailLifecycleService,
     { provide: PaymentHoldsService, useValue: {} },
     { provide: QueueProducerService, useValue: {} },
+    { provide: OutreachEmailAudienceService, useValue: {} },
   ],
 })
 class EmailDevE2eModule {}
@@ -274,6 +277,8 @@ const createFixture = async (
           headline: 'Dev end-to-end check',
           body: 'This went to the SES mailbox simulator.',
           recipientCap: recipients.length,
+          // Simulator addresses are written below, not read from a list.
+          audienceResolvedAt: new Date(),
           consentConfirmedAt: new Date(),
           consentConfirmedByUserId: ownerId,
         },

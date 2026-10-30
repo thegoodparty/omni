@@ -2,7 +2,6 @@ import {
   Body,
   Controller,
   Get,
-  BadRequestException,
   ForbiddenException,
   Param,
   ParseIntPipe,
@@ -25,9 +24,6 @@ import {
   EmailDraftSchema,
   EmailSend,
   EmailSendSchema,
-  EmailRecipientUploadRequestSchema,
-  EmailRecipientUploadResponse,
-  EmailRecipientUploadResponseSchema,
   EmailImagePresignRequest,
   EmailImagePresignRequestSchema,
   EmailImagePresignResponse,
@@ -44,19 +40,14 @@ import { ReqUser } from '@/authentication/decorators/ReqUser.decorator'
 import { ReqCampaign } from '@/campaigns/decorators/ReqCampaign.decorator'
 import { UseCampaign } from '@/campaigns/decorators/UseCampaign.decorator'
 import { CampaignWith } from '@/campaigns/campaigns.types'
-import { ReqFile } from '@/files/decorators/ReqFiles.decorator'
-import { FileUpload } from '@/files/files.types'
-import { FilesInterceptor } from '@/files/interceptors/files.interceptor'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interceptor'
 import { User } from '../generated/prisma'
-import { EMAIL_UPLOAD_MAX_BYTES } from './emailOutreach.const'
 import { OutreachEmailConfirmService } from './services/outreachEmailConfirm.service'
 import { OutreachEmailGenerationService } from './services/outreachEmailGeneration.service'
 import { OutreachEmailImageService } from './services/outreachEmailImage.service'
 import { OutreachEmailTestService } from './services/outreachEmailTest.service'
 import { OutreachEmailService } from './services/outreachEmail.service'
-import { OutreachEmailRecipientService } from './services/outreachEmailRecipient.service'
 import { OutreachEmailScopeService } from './services/outreachEmailScope.service'
 import { OutreachEmailSenderService } from './services/outreachEmailSender.service'
 
@@ -68,7 +59,6 @@ export class OutreachEmailController {
     private readonly scopes: OutreachEmailScopeService,
     private readonly senders: OutreachEmailSenderService,
     private readonly emails: OutreachEmailService,
-    private readonly recipients: OutreachEmailRecipientService,
     private readonly generation: OutreachEmailGenerationService,
     private readonly images: OutreachEmailImageService,
     private readonly tests: OutreachEmailTestService,
@@ -183,6 +173,7 @@ export class OutreachEmailController {
     return this.emails.saveDraft(
       await this.scopes.forCampaign(campaign, user),
       input,
+      user.id,
     )
   }
 
@@ -194,32 +185,5 @@ export class OutreachEmailController {
     @Param('id', ParseIntPipe) id: number,
   ): Promise<EmailSend> {
     return this.emails.get(await this.scopes.forCampaign(campaign, user), id)
-  }
-
-  @Post(':id/recipients')
-  @UseInterceptors(
-    FilesInterceptor('file', {
-      mode: 'buffer',
-      sizeLimit: EMAIL_UPLOAD_MAX_BYTES,
-    }),
-  )
-  @ResponseSchema(EmailRecipientUploadResponseSchema)
-  async uploadRecipients(
-    @ReqUser() user: User,
-    @ReqCampaign() campaign: CampaignWith<'user'>,
-    @Param('id', ParseIntPipe) id: number,
-    @Body(new ZodValidationPipe(EmailRecipientUploadRequestSchema))
-    _body: object,
-    @ReqFile() file?: FileUpload,
-  ): Promise<EmailRecipientUploadResponse> {
-    if (!file) {
-      throw new BadRequestException('No file found')
-    }
-    return this.recipients.replaceFromCsv(
-      await this.scopes.forCampaign(campaign, user),
-      id,
-      file.data,
-      user.id,
-    )
   }
 }

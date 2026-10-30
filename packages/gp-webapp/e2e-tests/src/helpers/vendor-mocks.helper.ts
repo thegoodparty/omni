@@ -3,6 +3,8 @@ import type {
   AdminOutreachActionRequest,
   AdminOutreachActionResponse,
   DeliverStripeEventResponse,
+  EmailAudienceFixtureRequest,
+  EmailAudienceFixtureResponse,
   MockAction,
   MockRecordsResponse,
   TestFixtureStateResponse,
@@ -170,6 +172,22 @@ export const applyProWin10DlcMock = async (
 ): Promise<TestFixtureStateResponse> => {
   const { data } = await client.post<TestFixtureStateResponse>(
     `/v1/test-fixtures/users/${userId}/states/pro-win-10dlc-mock`,
+  )
+  return data
+}
+
+/**
+ * Stands in for the people DB's email audience of a test campaign, since a
+ * preview's database never feeds the imported-contact overlay. gp-api takes
+ * SES mailbox simulator addresses only.
+ */
+export const seedEmailAudience = async (
+  client: AxiosInstance,
+  body: EmailAudienceFixtureRequest,
+): Promise<EmailAudienceFixtureResponse> => {
+  const { data } = await client.post<EmailAudienceFixtureResponse>(
+    '/v1/test-fixtures/vendor-mocks/people-db/email-audience',
+    body,
   )
   return data
 }

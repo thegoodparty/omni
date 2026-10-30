@@ -10,18 +10,24 @@ import { uniqueToken } from 'src/helpers/testIdentifiers.helper'
 import {
   mockRecords,
   runJob,
+  seedEmailAudience,
   timeTravel,
 } from 'src/helpers/vendor-mocks.helper'
 import { eventually } from 'tests/utils/eventually'
 import { withGatewayRetry } from 'tests/utils/headless-user'
 
-// The email send, end to end against the vendor-mock stack: upload a small
-// list, compose, confirm with a card Stripe declines at the hold, confirm
-// again with Stripe's 4242 card (a real test-mode hold), then run the real
-// due, send and settle sweeps and wait for Sent.
+// The email send, end to end against the vendor-mock stack: compose, pick a
+// voter-file list with the email filter forced on, confirm with a card Stripe
+// declines at the hold, confirm again with Stripe's 4242 card (a real
+// test-mode hold), then run the real due, prepare, send and settle steps and
+// wait for Sent.
 //
-// Only SES mailbox simulator addresses are ever uploaded, so this spec can
-// never email a person, even if a deploy it runs against sends for real.
+// Emails reach the people DB only through imported contacts, read from dev's
+// database, which a preview's own database never feeds. So the campaign's
+// email audience is a test fixture (gp-api's PeopleEmailFixtureService, mock
+// vendors only) holding SES mailbox simulator addresses alone: this spec can
+// never email a person. A Win campaign without it has no one to email, which
+// the second case asserts.
 
 // The flow shell repeats each step's title in an sr-only drawer title (h2),
 // so match the visible step heading (h3) to stay strict-mode safe.
@@ -88,7 +94,7 @@ test.describe('Email send — mock pipeline', () => {
     await blockSlowScripts(page)
   })
 
-  test('upload, compose, a declined card, pay with 4242, and the send goes out', async ({
+  test('pick a list, compose, a declined card, pay with 4242, and the send goes out', async ({
     page,
   }) => {
     test.setTimeout(6 * 60 * 1000)
@@ -110,10 +116,10 @@ test.describe('Email send — mock pipeline', () => {
     const addresses = ['success', 'success', 'success'].map(
       (kind, i) => `${kind}+e2e${label}n${i}@simulator.amazonses.com`,
     )
-    const csv = [
-      'Email,First Name',
-      ...addresses.map((a, i) => `${a},Sim${i}`),
-    ].join('\n')
+    await seedEmailAudience(client, {
+      campaignId: mine.id,
+      people: addresses.map((email, i) => ({ email, firstName: `Sim${i}` })),
+    })
 
     await page.goto('/dashboard/outreach/email', {
       waitUntil: 'domcontentloaded',
@@ -138,20 +144,18 @@ test.describe('Email send — mock pipeline', () => {
     await page.keyboard.type('I am running to fix our roads. Say hello.')
     await page.getByRole('button', { name: 'Next' }).click()
 
-    // ── Audience: a CSV of simulator addresses ───────────────────────────
+    // ── Audience: a voter-file list, email forced on ────────────────────
     await expect(stepHeading(page, 'Who do you want to reach?')).toBeVisible({
       timeout: 30_000,
     })
-    await page.locator('#email-list-file').setInputFiles({
-      name: 'simulator-list.csv',
-      mimeType: 'text/csv',
-      buffer: Buffer.from(csv, 'utf8'),
-    })
+    await page.getByText('Choose a voter list').click()
+    await page.getByRole('button', { name: /All voters/ }).click()
+    await expect(
+      page
+        .getByText(`Email ${addresses.length} voters with an email address`)
+        .first(),
+    ).toBeVisible({ timeout: 60_000 })
     await page.locator('#email-consent').click()
-    await page.getByRole('button', { name: 'Check my list' }).click()
-    await expect(page.getByTestId('email-upload-summary')).toContainText('3', {
-      timeout: 30_000,
-    })
     await page.getByRole('button', { name: 'Next' }).click()
 
     // ── Schedule: send as soon as it is paid (the default) ──────────────
@@ -255,5 +259,46 @@ test.describe('Email send — mock pipeline', () => {
     const status = page.getByTestId('email-status')
     await expect(status).toContainText('Sent.', { timeout: 30_000 })
     await expect(status).toContainText('3 emails went out.')
+  })
+
+  test('a Win list with no one to email says so and stops', async ({
+    page,
+  }) => {
+    test.setTimeout(3 * 60 * 1000)
+
+    await setFlagOverrides(page, { 'win-email-outreach': 'on' })
+    await setupProCampaignUser(page)
+
+    await page.goto('/dashboard/outreach/email', {
+      waitUntil: 'domcontentloaded',
+    })
+    await NavigationHelper.dismissOverlays(page)
+
+    await expect(stepHeading(page, 'What do you want to do?')).toBeVisible({
+      timeout: 30_000,
+    })
+    await page
+      .getByRole('button', { name: 'Introduce myself to voters' })
+      .click()
+    await expect(stepHeading(page, 'What do you want to say?')).toBeVisible({
+      timeout: 30_000,
+    })
+    await page.locator('#email-subject').fill('Meet your candidate')
+    const body = page.locator('[aria-label="Message body"]').first()
+    await body.click()
+    await page.keyboard.type('I am running to fix our roads. Say hello.')
+    await page.getByRole('button', { name: 'Next' }).click()
+
+    await expect(stepHeading(page, 'Who do you want to reach?')).toBeVisible({
+      timeout: 30_000,
+    })
+    await page.getByText('Choose a voter list').click()
+    await page.getByRole('button', { name: /All voters/ }).click()
+    await expect(page.getByTestId('email-audience-empty')).toContainText(
+      'No one in this list has an email address yet.',
+      { timeout: 60_000 },
+    )
+    await expect(page.locator('#email-consent')).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'Next' })).toBeDisabled()
   })
 })

@@ -12,6 +12,9 @@ import {
   DeliverStripeEventRequestSchema,
   DeliverStripeEventResponseSchema,
   type DeliverStripeEventRequest,
+  type EmailAudienceFixtureRequest,
+  EmailAudienceFixtureRequestSchema,
+  EmailAudienceFixtureResponseSchema,
   type MockAction,
   MockActionResponseSchema,
   MockActionSchema,
@@ -141,6 +144,31 @@ export class TestFixturesVendorMocksController {
       throw new NotFoundException()
     }
     await this.tcrCompliance.overrideCvValidation(campaign.id)
+  }
+
+  // Stands in for the people DB's email audience of the caller's campaign,
+  // since a preview's database never feeds the imported-contact overlay.
+  // Simulator addresses only (the schema refuses any other), and only where
+  // the vendors are mocked.
+  @Post('people-db/email-audience')
+  @ResponseSchema(EmailAudienceFixtureResponseSchema)
+  async emailAudienceFixture(
+    @Body(new ZodValidationPipe(EmailAudienceFixtureRequestSchema))
+    body: EmailAudienceFixtureRequest,
+    @ReqUser() user: User,
+  ) {
+    this.assertNonProdDeploy()
+    if (VENDOR_MODE !== 'mock') {
+      throw new NotFoundException()
+    }
+    if (!user.email || !isTestUser({ email: user.email })) {
+      throw new ForbiddenException('Test users only')
+    }
+    await this.assertCampaignOwner(body.campaignId, user.id)
+    return this.testFixtures.setEmailAudienceFixture(
+      body.campaignId,
+      body.people,
+    )
   }
 
   @Post('outreach/:id/admin-actions')

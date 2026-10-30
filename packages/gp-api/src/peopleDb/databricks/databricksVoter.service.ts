@@ -363,6 +363,7 @@ export class DatabricksVoterService {
       robocall: Number(row?.[4] ?? 0),
       phoneBanking: Number(row?.[5] ?? 0),
       doorKnocking: Number(row?.[6] ?? 0),
+      email: Number(row?.[7] ?? 0),
     })
   }
 
@@ -548,6 +549,7 @@ export class DatabricksVoterService {
           take: dto.resultsPerPage,
           skip: (page - 1) * dto.resultsPerPage,
           groupByHousehold,
+          afterId: dto.afterId,
         }),
       ),
     ])

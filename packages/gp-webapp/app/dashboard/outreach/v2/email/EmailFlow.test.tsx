@@ -6,6 +6,10 @@ import { render } from 'helpers/test-utils/render'
 import { EmailFlow } from './EmailFlow'
 import { SERVE_EMAIL_SURFACE } from './emailSurface'
 
+vi.mock('@shared/organization-picker', () => ({
+  useOrganization: () => ({ slug: 'test-org' }),
+}))
+
 vi.mock('@stripe/stripe-js', () => ({
   loadStripe: vi.fn(() => Promise.resolve(null)),
 }))
@@ -43,6 +47,7 @@ const draft = {
   paidForBy: null,
   date: null,
   consentConfirmedAt: null,
+  voterFileFilterId: null,
   recipientCount: 0,
 }
 
@@ -55,6 +60,35 @@ const sendShape = {
   estimate: null,
 }
 
+// The people with an email address in a saved list come off the list
+// detail's email count, as robocall's landlines do.
+const mockLists = (email: number) => {
+  api.mock('GET /v1/voters/voter-file/filters', {
+    status: 200,
+    data: [{ id: 1, name: 'Renters in 98103' }],
+  })
+  api.mock('GET /v1/contacts/list-detail', {
+    status: 200,
+    data: {
+      demographics: { people: 6000, avgAge: null, avgIncome: null },
+      reachability: {
+        sms: 500,
+        robocall: 500,
+        phoneBanking: 500,
+        doorKnocking: 700,
+        email,
+        polls: 500,
+      },
+      outreachHistory: [],
+    },
+  })
+}
+
+const pickList = async (user: ReturnType<typeof userEvent.setup>) => {
+  await user.click(await screen.findByText(/Choose a (voter|constituent) list/))
+  await user.click(await screen.findByText('Renters in 98103'))
+}
+
 const mockApi = () => {
   // Registered first so `/sender` is not read as an id.
   api.mock('GET /v1/outreach/email/:id', {
@@ -65,7 +99,12 @@ const mockApi = () => {
       sentCount: 0,
       pauseReason: null,
       stopping: false,
-      estimate: { warmingCap: 1000, recipientCap: 1000, priceCents: 1000 },
+      estimate: {
+        audienceCount: 4800,
+        warmingCap: 1000,
+        recipientCap: 1000,
+        priceCents: 1000,
+      },
     },
   })
   api.mock('GET /v1/outreach/email/sender', { status: 200, data: sender })
@@ -74,10 +113,7 @@ const mockApi = () => {
     saves.push(body)
     return { status: 200, data: draft }
   })
-  api.mock('POST /v1/outreach/email/:id/recipients', {
-    status: 200,
-    data: { ready: 4800, invalid: 30, unsubscribed: 7, duplicate: 12 },
-  })
+  mockLists(4800)
   api.mock('POST /v1/outreach/email/:id/confirm', {
     status: 200,
     data: {
@@ -224,38 +260,73 @@ describe('EmailFlow', () => {
     expect(saves[0]).toMatchObject({ imageUrl: publicUrl })
   })
 
-  it('saves the draft, uploads the list and shows the cap copy', async () => {
+  it('picks a list, says only people with email count, and saves it with consent', async () => {
     const saves = mockApi()
     const user = userEvent.setup()
     render(<EmailFlow open onClose={vi.fn()} />)
 
     await fillCompose(user)
     await user.click(screen.getByRole('button', { name: 'Next' }))
-
     await waitFor(() => expect(saves).toHaveLength(1))
     expect(saves[0]).toMatchObject({
       goal: 'Introduce myself to voters',
       subject: 'Hello',
       layout: 'newsletter',
+      consentConfirmed: false,
     })
 
-    await screen.findByText('Who do you want to reach?')
-    const file = new File(['email\na@b.com'], 'list.csv', { type: 'text/csv' })
-    await user.upload(screen.getByLabelText('Your list (CSV)'), file)
-    await user.click(
-      screen.getByLabelText(
-        'These people agreed to get email from my campaign.',
-      ),
-    )
-    await user.click(screen.getByRole('button', { name: 'Check my list' }))
-
     expect(
-      await screen.findByText('4,800 ready, 37 skipped, 12 duplicates'),
+      await screen.findByText(
+        'Select a list or create a new one. Only voters with an email address are included.',
+      ),
+    ).toBeInTheDocument()
+    await pickList(user)
+    expect(
+      await screen.findByText(/Email 4,800 voters with an email address/),
     ).toBeInTheDocument()
     expect(
       screen.getByText(/This send can reach up to 1,000 people/),
     ).toBeInTheDocument()
     expect(screen.getByText('1,000 of 4,800')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Next' })).toBeDisabled()
+
+    await user.click(
+      screen.getByLabelText(
+        'These people agreed to get email from my campaign.',
+      ),
+    )
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await waitFor(() => expect(saves).toHaveLength(2))
+    expect(saves[1]).toMatchObject({
+      voterFileFilterId: 1,
+      consentConfirmed: true,
+    })
+    expect(
+      await screen.findByText('When should it go out?'),
+    ).toBeInTheDocument()
+  })
+
+  it('says so and stops when no one in the list has an email address', async () => {
+    mockApi()
+    mockLists(0)
+    const user = userEvent.setup()
+    render(<EmailFlow open onClose={vi.fn()} />)
+
+    await fillCompose(user)
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await pickList(user)
+
+    expect(
+      await screen.findByText(
+        'No one in this list has an email address yet. Pick another list to keep going.',
+      ),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByLabelText(
+        'These people agreed to get email from my campaign.',
+      ),
+    ).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Next' })).toBeDisabled()
   })
 
   it('reaches review with the reply-to line and the price', async () => {
@@ -265,18 +336,12 @@ describe('EmailFlow', () => {
 
     await fillCompose(user)
     await user.click(screen.getByRole('button', { name: 'Next' }))
-    await screen.findByText('Who do you want to reach?')
-    await user.upload(
-      screen.getByLabelText('Your list (CSV)'),
-      new File(['email\na@b.com'], 'list.csv', { type: 'text/csv' }),
-    )
+    await pickList(user)
     await user.click(
-      screen.getByLabelText(
+      await screen.findByLabelText(
         'These people agreed to get email from my campaign.',
       ),
     )
-    await user.click(screen.getByRole('button', { name: 'Check my list' }))
-    await screen.findByTestId('email-upload-summary')
     await user.click(screen.getByRole('button', { name: 'Next' }))
 
     await screen.findByText('When should it go out?')
@@ -287,9 +352,10 @@ describe('EmailFlow', () => {
       await screen.findByText(/Replies go to renee@example.com/),
     ).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Change' })).toBeInTheDocument()
-    expect(await screen.findByTestId('email-price')).toHaveTextContent(
-      'Up to $10.00',
+    expect(await screen.findByTestId('email-reach')).toHaveTextContent(
+      '1,000 of 4,800',
     )
+    expect(screen.getByTestId('email-price')).toHaveTextContent('Up to $10.00')
     await user.click(
       screen.getByRole('button', { name: 'Continue to payment' }),
     )
@@ -309,18 +375,12 @@ describe('EmailFlow', () => {
 
     await fillCompose(user)
     await user.click(screen.getByRole('button', { name: 'Next' }))
-    await screen.findByText('Who do you want to reach?')
-    await user.upload(
-      screen.getByLabelText('Your list (CSV)'),
-      new File(['email\na@b.com'], 'list.csv', { type: 'text/csv' }),
-    )
+    await pickList(user)
     await user.click(
-      screen.getByLabelText(
+      await screen.findByLabelText(
         'These people agreed to get email from my campaign.',
       ),
     )
-    await user.click(screen.getByRole('button', { name: 'Check my list' }))
-    await screen.findByTestId('email-upload-summary')
     await user.click(screen.getByRole('button', { name: 'Next' }))
     await screen.findByText('When should it go out?')
     await user.click(screen.getByRole('button', { name: 'Next' }))
@@ -337,11 +397,12 @@ describe('EmailFlow', () => {
       status: 200,
       data: sender,
     })
-    api.mock('POST /v1/outreach/serve/email', { status: 200, data: draft })
-    api.mock('POST /v1/outreach/serve/email/:id/recipients', {
-      status: 200,
-      data: { ready: 40, invalid: 0, unsubscribed: 0, duplicate: 0 },
+    const saves: unknown[] = []
+    api.mock('POST /v1/outreach/serve/email', ({ body }) => {
+      saves.push(body)
+      return { status: 200, data: draft }
     })
+    mockLists(40)
     const user = userEvent.setup()
     render(<EmailFlow open onClose={vi.fn()} surface={SERVE_EMAIL_SURFACE} />)
 
@@ -351,17 +412,23 @@ describe('EmailFlow', () => {
     await user.keyboard('Hi there')
     await user.click(screen.getByRole('button', { name: 'Next' }))
 
-    await screen.findByText('Who do you want to reach?')
-    await user.upload(
-      screen.getByLabelText('Your list (CSV)'),
-      new File(['email\na@b.com'], 'list.csv', { type: 'text/csv' }),
-    )
+    expect(
+      await screen.findByText(
+        'Select a list or create a new one. Only constituents with an email address are included.',
+      ),
+    ).toBeInTheDocument()
+    await pickList(user)
+    expect(
+      await screen.findByText(/Email 40 constituents with an email address/),
+    ).toBeInTheDocument()
     await user.click(
       screen.getByLabelText('These people agreed to get email from my office.'),
     )
-    await user.click(screen.getByRole('button', { name: 'Check my list' }))
-    expect(
-      await screen.findByText('40 ready, 0 skipped, 0 duplicates'),
-    ).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await waitFor(() => expect(saves).toHaveLength(2))
+    expect(saves[1]).toMatchObject({
+      voterFileFilterId: 1,
+      consentConfirmed: true,
+    })
   })
 })

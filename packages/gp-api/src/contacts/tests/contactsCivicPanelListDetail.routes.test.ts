@@ -168,6 +168,7 @@ const stubAggregates = () =>
       robocall: 0,
       phoneBanking: 2,
       doorKnocking: 2,
+      email: 0,
     })
 
 const panelDetail = (slug: string) =>

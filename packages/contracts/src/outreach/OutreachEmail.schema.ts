@@ -13,7 +13,6 @@ export const EMAIL_BODY_MAX_LENGTH = 10_000
 export const EMAIL_GOAL_MAX_LENGTH = 500
 export const EMAIL_BUTTON_LABEL_MAX_LENGTH = 40
 export const EMAIL_URL_MAX_LENGTH = 2000
-export const EMAIL_UPLOAD_MAX_ROWS = 5000
 export const EMAIL_SEND_WINDOW_DAYS = 30
 
 const HttpsUrlSchema = z
@@ -45,6 +44,12 @@ export const EmailDraftSaveSchema = z
       .optional(),
     buttonUrl: HttpsUrlSchema.optional(),
     date: z.string().datetime({ offset: true }).optional(),
+    // The saved voter-file list the send goes to. Only its people with an
+    // email address are counted and sent to.
+    voterFileFilterId: z.number().int().positive().optional(),
+    // The user's statement that these people agreed to get email from them.
+    // Sent on every save, since a save is a full replace.
+    consentConfirmed: z.boolean().optional(),
   })
   .strict()
   .superRefine((data, ctx) => {
@@ -98,6 +103,8 @@ export const EmailDraftSchema = z.object({
   paidForBy: z.string().nullable(),
   date: z.string().nullable(),
   consentConfirmedAt: z.string().nullable(),
+  voterFileFilterId: z.number().int().positive().nullable(),
+  // Recipient rows on the send. Written at prepare, so 0 until it runs.
   recipientCount: z.number().int().nonnegative(),
 })
 export type EmailDraft = z.infer<typeof EmailDraftSchema>
@@ -111,9 +118,11 @@ export const EmailSendSchema = EmailDraftSchema.extend({
   pauseReason: z.string().nullable(),
   stopping: z.boolean(),
   // What confirming now would freeze and hold, shown on the review step.
-  // Null once the send has left draft.
+  // Null once the send has left draft, or while it has no audience.
   estimate: z
     .object({
+      // People in the audience with an email address, counted server-side.
+      audienceCount: z.number().int().nonnegative(),
       warmingCap: z.number().int().nonnegative(),
       recipientCap: z.number().int().nonnegative(),
       priceCents: z.number().int().nonnegative(),
@@ -142,28 +151,6 @@ export const EmailConfirmDeclinedSchema = z.object({
   declineCode: z.string().nullable(),
 })
 export type EmailConfirmDeclined = z.infer<typeof EmailConfirmDeclinedSchema>
-
-export const EmailRecipientUploadRequestSchema = z
-  .object({
-    consentConfirmed: z.union([
-      z.literal(true),
-      z.literal('true').transform(() => true as const),
-    ]),
-  })
-  .strict()
-export type EmailRecipientUploadRequest = z.infer<
-  typeof EmailRecipientUploadRequestSchema
->
-
-export const EmailRecipientUploadResponseSchema = z.object({
-  ready: z.number().int().nonnegative(),
-  invalid: z.number().int().nonnegative(),
-  duplicate: z.number().int().nonnegative(),
-  unsubscribed: z.number().int().nonnegative(),
-})
-export type EmailRecipientUploadResponse = z.infer<
-  typeof EmailRecipientUploadResponseSchema
->
 
 export const EMAIL_IMAGE_MAX_BYTES = 1_000_000
 export const EMAIL_IMAGE_ALLOWED_MIME_TYPES = [

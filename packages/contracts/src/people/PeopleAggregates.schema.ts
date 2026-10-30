@@ -25,6 +25,7 @@ export const PeopleListDetailAggregatesResponseSchema = z.object({
   robocall: z.number().int().min(0),
   phoneBanking: z.number().int().min(0),
   doorKnocking: z.number().int().min(0),
+  email: z.number().int().min(0),
 })
 export type PeopleListDetailAggregatesResponse = z.infer<
   typeof PeopleListDetailAggregatesResponseSchema

@@ -26,6 +26,7 @@ import { CLERK_CLIENT_PROVIDER_TOKEN } from '@/vendors/clerk/providers/clerk-cli
 import { clerkThrottle } from '@/vendors/clerk/util/clerkThrottle.util'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
 import { VendorMockRecordService } from '@/vendorMocks/vendorMockRecord.service'
+import { EMAIL_AUDIENCE_FIXTURE_KIND } from '@/peopleDb/services/peopleEmailFixture.service'
 import { ClerkClient } from '@clerk/backend'
 import {
   type ApplyTestFixtureElectionResponse,
@@ -39,6 +40,8 @@ import {
   type MockRecordsResponse,
   type RunJobResponse,
   type TimeTravel,
+  type EmailAudienceFixtureRequest,
+  type EmailAudienceFixtureResponse,
   type TimeTravelResponse,
   DeleteTestFixtureUsersResponse,
   PeerlyCvVerificationStatus,
@@ -74,6 +77,7 @@ import {
   OutreachType,
   TcrComplianceStatus,
   User,
+  VendorMockVendor,
   WebsiteStatus,
 } from '@/generated/prisma'
 import {
@@ -740,6 +744,37 @@ export class TestFixturesService {
       throw new BadRequestException(`Unsupported action: ${action}`)
     }
     return this.getMockRecords(campaignId)
+  }
+
+  // Replaces the campaign organization's stand-in email audience. Ids are
+  // stable and sort in the order given, as the people DB's keyset pages do.
+  async setEmailAudienceFixture(
+    campaignId: number,
+    people: EmailAudienceFixtureRequest['people'],
+  ): Promise<EmailAudienceFixtureResponse> {
+    const campaign = await this.campaigns.findFirst({
+      where: { id: campaignId },
+      select: { organizationSlug: true },
+    })
+    if (!campaign) throw new NotFoundException()
+    await this.vendorMockRecord.upsert(
+      VendorMockVendor.people_db,
+      EMAIL_AUDIENCE_FIXTURE_KIND,
+      campaign.organizationSlug,
+      {
+        people: people.map((person, i) => ({
+          id: `fixture-${String(i).padStart(4, '0')}`,
+          email: person.email.toLowerCase(),
+          firstName: person.firstName ?? null,
+          lastName: person.lastName ?? null,
+        })),
+      },
+      campaignId,
+    )
+    return {
+      organizationSlug: campaign.organizationSlug,
+      count: people.length,
+    }
   }
 
   async getMockRecordsByOrganization(

@@ -6,6 +6,7 @@ import { AnalyticsService } from '@/analytics/analytics.service'
 import { PaymentHoldsService } from '@/paymentHolds/services/paymentHolds.service'
 import { PaymentHoldsSweepService } from '@/paymentHolds/services/paymentHoldsSweep.service'
 import { useAppEnvOverrides } from '@/shared/test-utils/appEnvOverrides'
+import { ContactsService } from '@/contacts/services/contacts.service'
 import { useTestService } from '@/test-service'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import {
@@ -20,6 +21,7 @@ import {
   createSender,
   EmailFixtureOrgs,
   emails,
+  stubAudienceFromRecipients,
 } from './emailSendFixtures'
 
 // The real hold module, with only Stripe stubbed: these tests are about what
@@ -37,6 +39,7 @@ let placeSpy: MockInstance<StripeService['createOutreachManualCaptureHold']>
 let track: MockInstance<AnalyticsService['track']>
 
 beforeEach(async () => {
+  stubAudienceFromRecipients(service.app.get(ContactsService), service.prisma)
   const stripe = service.app.get(StripeService)
   vi.spyOn(stripe, 'ensureCustomer').mockResolvedValue(CUSTOMER_ID)
   vi.spyOn(stripe, 'retrievePaymentMethod').mockImplementation(

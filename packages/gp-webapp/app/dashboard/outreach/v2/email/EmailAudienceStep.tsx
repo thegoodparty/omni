@@ -1,118 +1,116 @@
-import { useRef, useState } from 'react'
-import type { EmailRecipientUploadResponse } from '@goodparty_org/contracts'
-import { Alert, AlertDescription, Button, Checkbox, Label } from '@styleguide'
+import { Alert, AlertDescription, Checkbox, Label } from '@styleguide'
 import { CircleAlertIcon } from '@styleguide/components/ui/icons'
-import { Intro } from '../social/Intro'
-import {
-  apiErrorMessage,
-  uploadEmailRecipients,
-  useEmailSender,
-} from './emailApi'
-import { formatCount, uploadSummary, warmingCap } from './emailFlow.util'
+import { OutreachAudienceStep } from '../audience/OutreachAudienceStep'
+import type { OutreachAudience } from '../audience/useOutreachAudience'
+import { useEmailSender } from './emailApi'
+import { formatCount, warmingCap } from './emailFlow.util'
 import type { EmailSurface } from './emailSurface'
 
 interface EmailAudienceStepProps {
   surface: EmailSurface
-  draftId: number
-  result: EmailRecipientUploadResponse | null
-  onUploaded: (result: EmailRecipientUploadResponse) => void
+  audience: OutreachAudience
+  consent: boolean
+  onConsentChange: (consent: boolean) => void
 }
 
 export const EmailAudienceStep = ({
   surface,
-  draftId,
-  result,
-  onUploaded,
+  audience,
+  consent,
+  onConsentChange,
 }: EmailAudienceStepProps) => {
   const { data: sender } = useEmailSender(surface.isServe)
-  const inputRef = useRef<HTMLInputElement>(null)
-  const [file, setFile] = useState<File | null>(null)
-  const [consent, setConsent] = useState(false)
-  const [uploading, setUploading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
   const cap = sender ? warmingCap(sender.warmingStep) : null
-  const capped = result !== null && cap !== null && result.ready > cap
-
-  const upload = async () => {
-    if (!file || !consent) return
-    setUploading(true)
-    setError(null)
-    try {
-      onUploaded(await uploadEmailRecipients(surface.isServe, draftId, file))
-    } catch (e) {
-      setError(apiErrorMessage(e))
-    } finally {
-      setUploading(false)
-    }
-  }
+  const reachable = audience.reachableLoading ? null : audience.reachableCount
+  const picked = audience.mode === 'picker' && audience.selectedList !== null
 
   return (
     <div className="space-y-6">
-      <Intro title={surface.audience.title} body={surface.audience.caption} />
-
-      <div className="space-y-2">
-        <Label htmlFor="email-list-file">Your list (CSV)</Label>
-        <input
-          ref={inputRef}
-          id="email-list-file"
-          type="file"
-          accept=".csv,text/csv"
-          className="block w-full text-sm"
-          onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-        />
-      </div>
-
-      <div className="flex items-start gap-3">
-        <Checkbox
-          id="email-consent"
-          checked={consent}
-          onCheckedChange={(value) => setConsent(value === true)}
-          className="mt-0.5"
-        />
-        <Label htmlFor="email-consent" className="block text-sm font-normal">
-          {surface.audience.consentLabel}
-        </Label>
-      </div>
-
-      <Button
-        type="button"
-        variant="outline"
-        disabled={!file || !consent}
-        loading={uploading}
-        onClick={() => {
-          void upload()
+      <OutreachAudienceStep
+        channel="email"
+        copy={surface.audience.picker}
+        mode={audience.mode}
+        lists={audience.lists}
+        listsLoading={audience.listsLoading}
+        selectedId={audience.selectedListId}
+        onSelect={audience.onSelect}
+        universeName={audience.universeName}
+        universeListId={audience.universeListId}
+        universeCount={audience.universeCount}
+        universeLoading={audience.universeLoading}
+        onSelectUniverse={audience.selectUniverse}
+        universePending={audience.universePending}
+        universeError={audience.universeError}
+        onPickerOpenChange={audience.onPickerOpenChange}
+        onStartBuilder={audience.startBuilder}
+        recommendations={audience.recommendations}
+        recommendationsLoading={audience.recommendationsLoading}
+        recommendationsError={audience.recommendationsError}
+        recommendedListsChannel={audience.recommendedListsChannel}
+        onCreateRecommendedList={async (recommendation, name) => {
+          await audience.createRecommendedList(recommendation, name)
         }}
-      >
-        {result ? 'Replace my list' : 'Check my list'}
-      </Button>
+        onRecommendationReused={audience.trackRecommendationReused}
+        selectedRecommendation={audience.selectedRecommendation}
+        onSelectRecommendation={audience.selectRecommendation}
+        reachableCount={audience.reachableCount}
+        reachableLoading={audience.reachableLoading}
+        pricePerContact={0}
+        builderFilters={audience.builderFilters}
+        onBuilderFiltersChange={audience.setBuilderFilters}
+        builderSupportStatus={audience.builderSupportStatus}
+        builderPrecincts={audience.builderPrecincts}
+        onBuilderPrecinctsChange={audience.setBuilderPrecincts}
+        precinctOptions={audience.precinctOptions}
+        onBuilderSupportStatusChange={audience.setBuilderSupportStatus}
+        builderName={audience.builderName}
+        onBuilderNameChange={audience.setBuilderName}
+        isElectedOfficial={audience.isElectedOfficial}
+        builderCount={audience.builderCount}
+        builderCounting={audience.builderCounting}
+        builderCapError={audience.builderCapError}
+        builderCountErrorMessage={audience.builderCountErrorMessage}
+      />
 
-      {error && (
-        <Alert variant="destructive" icon={<CircleAlertIcon />}>
-          <AlertDescription>{error}</AlertDescription>
+      {audience.createListError && audience.mode === 'name' && (
+        <p className="text-sm text-destructive">
+          We couldn&apos;t create this list. Try again.
+        </p>
+      )}
+
+      {picked && reachable === 0 && (
+        <Alert
+          variant="info"
+          icon={<CircleAlertIcon />}
+          data-testid="email-audience-empty"
+        >
+          <AlertDescription>{surface.audience.noEmails}</AlertDescription>
         </Alert>
       )}
 
-      {result && (
-        <div
-          className="space-y-2"
-          role="status"
-          data-testid="email-upload-summary"
-        >
-          <p className="text-base font-medium text-foreground">
-            {uploadSummary(result)}
+      {picked && reachable !== null && cap !== null && reachable > cap && (
+        <div className="space-y-1" data-testid="email-audience-cap">
+          <p className="text-sm text-muted-foreground">
+            This send can reach up to {formatCount(cap)}{' '}
+            {surface.recipientsNoun}. You can reach more on your next send.
           </p>
-          {capped && cap !== null && (
-            <>
-              <p className="text-sm text-muted-foreground">
-                This send can reach up to {formatCount(cap)}{' '}
-                {surface.recipientsNoun}. You can reach more on your next send.
-              </p>
-              <p className="text-sm text-muted-foreground">
-                {formatCount(cap)} of {formatCount(result.ready)}
-              </p>
-            </>
-          )}
+          <p className="text-sm text-muted-foreground">
+            {formatCount(cap)} of {formatCount(reachable)}
+          </p>
+        </div>
+      )}
+
+      {picked && reachable !== null && reachable > 0 && (
+        <div className="flex items-start gap-3">
+          <Checkbox
+            id="email-consent"
+            checked={consent}
+            onCheckedChange={(value) => onConsentChange(value === true)}
+            className="mt-0.5"
+          />
+          <Label htmlFor="email-consent" className="block text-sm font-normal">
+            {surface.audience.consentLabel}
+          </Label>
         </div>
       )}
     </div>

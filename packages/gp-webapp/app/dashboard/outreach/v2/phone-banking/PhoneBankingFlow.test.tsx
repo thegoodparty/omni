@@ -100,6 +100,7 @@ const mockListDetail = (phoneBankingCount: number | null) =>
         robocall: null,
         phoneBanking: phoneBankingCount,
         doorKnocking: null,
+        email: 0,
         polls: null,
       },
       outreachHistory: [],

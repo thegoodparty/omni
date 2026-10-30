@@ -128,6 +128,7 @@ const mockPhoneBankingAudience = () => {
         robocall: null,
         phoneBanking: 10,
         doorKnocking: null,
+        email: 0,
         polls: null,
       },
       outreachHistory: [],

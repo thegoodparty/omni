@@ -4,6 +4,9 @@ import { BadGatewayException } from '@nestjs/common'
 import type { PeopleListDetailAggregatesResponse } from '@goodparty_org/contracts'
 import { useTestService } from '@/test-service'
 import { VoterQueryService } from '@/peopleDb/services/voterQuery.service'
+import { VendorMockVendor } from '@/generated/prisma'
+import { EMAIL_AUDIENCE_FIXTURE_KIND } from '@/peopleDb/services/peopleEmailFixture.service'
+import { appEnvOverrides } from '@/shared/test-utils/appEnvOverrides'
 
 const service = useTestService()
 
@@ -42,6 +45,7 @@ describe('GET /v1/contacts/list-detail reachability', () => {
         robocall: 222,
         phoneBanking: 555,
         doorKnocking: 111,
+        email: 333,
         ...aggregates,
       })
 
@@ -94,6 +98,54 @@ describe('GET /v1/contacts/list-detail reachability', () => {
     )
   })
 
+  // The email E2E's stand-in audience (PeopleEmailFixtureService): only
+  // where vendors are mocked, and only for the organization it was set on.
+  it('counts emails from a test organization’s stand-in audience', async () => {
+    const slug = await setupOrg('email-fixture')
+    await service.prisma.vendorMockRecord.create({
+      data: {
+        vendor: VendorMockVendor.people_db,
+        kind: EMAIL_AUDIENCE_FIXTURE_KIND,
+        externalId: slug,
+        state: {
+          people: [
+            {
+              id: 'fixture-0000',
+              email: 'success@simulator.amazonses.com',
+              firstName: null,
+              lastName: null,
+            },
+          ],
+        },
+      },
+    })
+    mockAggregates({})
+    const get = async () =>
+      (
+        await service.client.get('/v1/contacts/list-detail', {
+          headers: { [ORG_SLUG_HEADER]: slug },
+        })
+      ).data.reachability.email
+
+    appEnvOverrides.IS_NON_PROD_DEPLOY = true
+    appEnvOverrides.VENDOR_MODE = 'mock'
+    expect(await get()).toBe(1)
+
+    appEnvOverrides.IS_NON_PROD_DEPLOY = false
+    expect(await get()).toBe(333)
+
+    appEnvOverrides.IS_NON_PROD_DEPLOY = true
+    appEnvOverrides.VENDOR_MODE = 'live'
+    expect(await get()).toBe(333)
+
+    appEnvOverrides.VENDOR_MODE = 'mock'
+    const other = await setupOrg('email-fixture-other')
+    const theirs = await service.client.get('/v1/contacts/list-detail', {
+      headers: { [ORG_SLUG_HEADER]: other },
+    })
+    expect(theirs.data.reachability.email).toBe(333)
+  })
+
   // The universe row has no saved row behind it, so there is no stored
   // search to carry — and passing one would narrow the whole district by a
   // string nobody typed here.
@@ -131,6 +183,8 @@ describe('GET /v1/contacts/list-detail reachability', () => {
         // conditional count, not the landline one robocall uses.
         phoneBanking: 555,
         doorKnocking: 111,
+        // People with an imported email address.
+        email: 333,
         // Polls are delivered by text, so reachability mirrors sms 1:1.
         polls: 777,
       }),

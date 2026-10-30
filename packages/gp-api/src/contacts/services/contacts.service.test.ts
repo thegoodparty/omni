@@ -213,6 +213,7 @@ describe('ContactsService', () => {
         {} as never,
         mockStatsService as never,
         { resolve: vi.fn().mockResolvedValue({ base: 'voters' }) } as never,
+        { emailAudienceFor: vi.fn().mockResolvedValue(null) } as never,
         mockContactsMadeResolutionService as never,
         { latestEvent: vi.fn().mockResolvedValue(null) } as never,
         {
@@ -1775,6 +1776,7 @@ describe('ContactsService', () => {
           robocall: 6,
           phoneBanking: 7,
           doorKnocking: 10,
+          email: 0,
         })
 
         const result = await service.getFilterDetail(
@@ -1803,6 +1805,7 @@ describe('ContactsService', () => {
           robocall: 2900,
           phoneBanking: 3100,
           doorKnocking: 4200,
+          email: 0,
         })
 
         const result = await service.getFilterDetail(
@@ -1828,6 +1831,7 @@ describe('ContactsService', () => {
             robocall: 2900,
             phoneBanking: 3100,
             doorKnocking: 4200,
+            email: 0,
             polls: 2600,
           },
           outreachHistory: [],
@@ -1885,6 +1889,7 @@ describe('ContactsService', () => {
         robocall: 45,
         phoneBanking: 80,
         doorKnocking: 30,
+        email: 0,
         ...channels,
       })
 
@@ -1970,6 +1975,7 @@ describe('ContactsService', () => {
           robocall: 0,
           phoneBanking: 0,
           doorKnocking: 0,
+          email: 0,
           polls: 0,
         })
         // Outreach history is independent of person-membership — it still
@@ -2019,6 +2025,7 @@ describe('ContactsService', () => {
           // count, no longer landline-only.
           phoneBanking: 80,
           doorKnocking: 30,
+          email: 0,
           // Polls are delivered by text, so they mirror the sms count.
           polls: 60,
         })
@@ -2142,6 +2149,7 @@ describe('ContactsService', () => {
             // phoneBanking (ENG-10914): any phone, cell or landline.
             phoneBanking: 75000,
             doorKnocking: 30000,
+            email: 0,
             polls: 60000,
           })
           expect(result.outreachHistory).toEqual([])
