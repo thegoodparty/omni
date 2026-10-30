@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   CONTACT_UPLOAD_FIELDS,
@@ -76,6 +76,7 @@ export default function ImportContactsWizard({
 }: ImportContactsWizardProps) {
   const COPY = getImportContactsCopy(isWin)
   const router = useRouter()
+  const pathname = usePathname()
   const queryClient = useQueryClient()
   const orgSlug = useOrganization()?.slug
   const bodyRef = useRef<HTMLDivElement>(null)
@@ -101,11 +102,19 @@ export default function ImportContactsWizard({
       await queryClient.invalidateQueries({
         queryKey: contactUploadsKey(orgSlug),
       })
-      onOpenChange(false)
       router.push(UPLOAD_HISTORY_PATH)
     },
   })
   const resetUpload = upload.reset
+  const isSending = upload.isPending || upload.isSuccess
+
+  // Stays open on the sending screen until Upload history is the route, so
+  // the page it was opened from never shows in between.
+  useEffect(() => {
+    if (upload.isSuccess && pathname === UPLOAD_HISTORY_PATH) {
+      onOpenChange(false)
+    }
+  }, [upload.isSuccess, pathname, onOpenChange])
 
   useEffect(() => {
     if (!open) return
@@ -210,7 +219,7 @@ export default function ImportContactsWizard({
       open={open}
       onOpenChange={handleOpenChange}
       onBack={
-        stepIndex > 0 && !upload.isPending
+        stepIndex > 0 && !isSending
           ? () => setStep(STEPS[stepIndex - 1] ?? 'file')
           : undefined
       }
@@ -227,7 +236,7 @@ export default function ImportContactsWizard({
         </>
       }
       footer={
-        upload.isPending ? undefined : (
+        isSending ? undefined : (
           <>
             {step === 'file' && (
               <Button
@@ -263,17 +272,17 @@ export default function ImportContactsWizard({
         )
       }
     >
-      {upload.isPending ? (
+      {isSending ? (
         <div
           className="flex flex-col items-center gap-3 py-16 text-center"
           role="status"
         >
           <Spinner />
           <h3 className="text-2xl font-semibold text-foreground">
-            {COPY.wizard.importingTitle}
+            {COPY.wizard.sendingTitle}
           </h3>
           <p className="text-base text-muted-foreground">
-            {COPY.wizard.importingLine(rowCount)}
+            {COPY.wizard.sendingLine(rowCount)}
           </p>
         </div>
       ) : (

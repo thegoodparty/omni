@@ -77,8 +77,8 @@ export const SERVE_IMPORT_CONTACTS_COPY = {
     consent: 'These people agreed to hear from me. I am responsible for that.',
     continue: 'Continue',
     importPeople: (count: number) => `Import ${people(count)}`,
-    importingTitle: 'Importing your file',
-    importingLine: (count: number) => `Reading ${people(count)}`,
+    sendingTitle: 'Uploading your file',
+    sendingLine: (count: number) => `Sending ${people(count)}`,
     importFailed: "We couldn't import this file. Check it and try again.",
   },
   fields: {
