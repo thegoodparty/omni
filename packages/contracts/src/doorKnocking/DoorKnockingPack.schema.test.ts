@@ -50,13 +50,13 @@ describe('DoorKnockingPackManifestSchema', () => {
     )
   })
 
-  it('rejects a dim without a matching u8 byte plane', () => {
+  it('rejects a dim without a matching u8 or u16 byte plane', () => {
     const manifest = {
       ...validManifest,
       dims: [...validManifest.dims, { key: 'age', values: ['18_25'] }],
     }
     expect(() => DoorKnockingPackManifestSchema.parse(manifest)).toThrow(
-      /dim .+age.+ needs a u8 array/,
+      /dim .+age.+ needs a u8 or u16 array/,
     )
   })
 
@@ -105,7 +105,7 @@ describe('DoorKnockingPackManifestSchema', () => {
     ).toThrow()
   })
 
-  it('rejects a dim whose byte plane is not u8', () => {
+  it('rejects a dim whose byte plane is not u8 or u16', () => {
     const manifest = {
       ...validManifest,
       arrays: validManifest.arrays.map((a) =>
@@ -113,7 +113,7 @@ describe('DoorKnockingPackManifestSchema', () => {
       ),
     }
     expect(() => DoorKnockingPackManifestSchema.parse(manifest)).toThrow(
-      /dim .+party.+ needs a u8 array/,
+      /dim .+party.+ needs a u8 or u16 array/,
     )
   })
 })

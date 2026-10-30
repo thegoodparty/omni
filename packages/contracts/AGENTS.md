@@ -41,5 +41,8 @@ Shared Zod schemas and TypeScript types consumed by `gp-api`, `gp-webapp`, and `
 Reproduce the CI **Validate** job (`.github/workflows/contracts.yml`) before opening a PR. From the repo root:
 
 ```bash
+npm run lint -w packages/contracts
+npm run typecheck -w packages/contracts
+npm run test -w packages/contracts    # vitest; CI runs it too
 npm run build -w packages/contracts   # generate-enums + tsup
 ```
