@@ -620,8 +620,8 @@ record.
 - **Replaces today:** the redirect, `ProUpgradeModal`, the outreach gate
   screens, `OpponentProLockedView`, the door knocking page gate and the
   contacts locked panel.
-- **Exists in DS?** Partly: `ProBadge` and `ChannelCard` `locked` exist; the
-  behavior doesn't.
+- **Exists in DS?** Partly: `ProBadge` and `ChannelCard`'s Pro `tag` exist;
+  the behavior doesn't.
 - **Priority:** high · **Status:** proposed · ClickUp: —
 
 ### C-03 RequirementNotice

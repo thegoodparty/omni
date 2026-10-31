@@ -10,6 +10,7 @@ Entries marked `(earned)` came from corrections in product design sessions, firs
 captured 2026-10-07 from the candidate Home and Game Plan work. Rules 31 to 41 were
 added 2026-10-28 from the head of product's distilled design review notes.
 Rules 42 to 46 came from the same day's review of the import contacts prototype.
+Rule 47 came from the outreach channel tile labels review on 2026-10-30.
 
 ---
 
@@ -42,6 +43,14 @@ Rules 42 to 46 came from the same day's review of the import contacts prototype.
     description, not a badge. It turns warning (never red, which means an
     error) and says so in words only when it is close or past: "Due today",
     "3 days overdue". At most one badge per card. (earned)
+47. A channel tile (`ChannelCard`) carries at most one tag, in its top-left
+    corner: an icon and a few words. Muted for a condition or a deadline (Pro,
+    or "Verify by Nov. 14" with rule 30's calendar icon), info blue for an
+    offer ("Free offer"). Never orange or red: a deadline is a reminder, not
+    an alarm. The tag replaces dimming the tile, and every tile keeps the
+    tag's room so a tag never moves the icon. This is the one place a date
+    sits in a label rather than as rule 30's muted line, because a tile has no
+    description line to carry it. (earned)
 31. A call to action names the specific thing the user gets: "5,000 free texts"
     beats "Free bonus offer". Flat, vague or template-sounding copy gets
     rewritten. (earned)
