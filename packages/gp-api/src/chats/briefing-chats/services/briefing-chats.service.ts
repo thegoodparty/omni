@@ -94,7 +94,7 @@ export class BriefingChatsService {
         ...(args.clientMessageId && { clientMessageId: args.clientMessageId }),
         ...(finalizing && {
           finalizeText: (text, turn) =>
-            finalizing.finalizeAssistantText(text, turn),
+            finalizing.finalizeAssistantText(text, turn, ctx),
         }),
       })
 

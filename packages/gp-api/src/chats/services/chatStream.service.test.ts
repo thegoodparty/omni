@@ -700,6 +700,7 @@ describe('ChatStreamService', () => {
 
       expect(seen).toEqual([
         {
+          conversationId: CONVERSATION_ID,
           toolEvents: [
             {
               toolCallId: 'test-query_constituent_data',
@@ -728,7 +729,9 @@ describe('ChatStreamService', () => {
         }),
       )
 
-      expect(seen).toEqual([{ toolEvents: [] }])
+      expect(seen).toEqual([
+        { toolEvents: [], conversationId: CONVERSATION_ID },
+      ])
     })
 
     it('gives two calls to the same tool their own results, by id', async () => {
