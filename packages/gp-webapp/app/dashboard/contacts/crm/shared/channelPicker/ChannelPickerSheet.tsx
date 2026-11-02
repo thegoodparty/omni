@@ -5,6 +5,7 @@ import {
   ChevronRightIcon,
   cn,
   DrawerTitle,
+  Skeleton,
   Tooltip,
   TooltipContent,
   TooltipTrigger,
@@ -176,13 +177,17 @@ export default function ChannelPickerSheet({
           <DrawerTitle className="text-base font-semibold">
             Choose a channel
           </DrawerTitle>
-          <p className="text-sm text-muted-foreground">
-            {count === undefined
-              ? name
-              : newContactsCount > 0
-                ? `${name} · ${WIN_NEW_CONTACTS_LABELS.votersAndNewContacts(count - newContactsCount, newContactsCount)}`
-                : `${name} · ${count.toLocaleString()} voters`}
-          </p>
+          {count === undefined && detailQuery.isLoading ? (
+            <Skeleton className="h-5 w-56" />
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              {count === undefined
+                ? name
+                : newContactsCount > 0
+                  ? `${name} · ${WIN_NEW_CONTACTS_LABELS.votersAndNewContacts(count - newContactsCount, newContactsCount)}`
+                  : `${name} · ${count.toLocaleString()} voters`}
+            </p>
+          )}
         </div>
       }
     >

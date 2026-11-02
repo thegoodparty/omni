@@ -324,6 +324,58 @@ describe('ChannelPickerSheet — new contacts on Win', () => {
     expect(rowNamed(/^SMS/)).toHaveTextContent('16,449 reachable · $575.72')
   })
 
+  it('drops the voters half when every contact is new', async () => {
+    api.mock('GET /v1/contacts/list-detail', {
+      status: 200,
+      data: {
+        ...DETAIL_WITH_NEW_CONTACTS,
+        demographics: {
+          ...DETAIL.demographics,
+          people: 30,
+          newContactsCount: 30,
+        },
+      },
+    })
+
+    render(
+      <ChannelPickerSheet target={{ kind: 'universe' }} onClose={vi.fn()} />,
+    )
+
+    expect(
+      await screen.findByText(
+        'All voters and contacts · 30 new contacts added',
+      ),
+    ).toBeInTheDocument()
+  })
+
+  it('holds the header in its loading state until the counts land', async () => {
+    let respond: () => void = () => {}
+    const responded = new Promise<void>((resolve) => {
+      respond = resolve
+    })
+    api.mock('GET /v1/contacts/list-detail', async () => {
+      await responded
+      return { status: 200, data: DETAIL_WITH_NEW_CONTACTS }
+    })
+
+    render(
+      <ChannelPickerSheet target={{ kind: 'universe' }} onClose={vi.fn()} />,
+    )
+
+    await screen.findByRole('heading', { name: 'Choose a channel' })
+    expect(document.querySelector('[data-slot="skeleton"]')).toBeInTheDocument()
+    expect(screen.queryByText(/^All voters/)).toBeNull()
+
+    respond()
+
+    expect(
+      await screen.findByText(
+        'All voters and contacts · 19,867 voters, 214 new contacts added',
+      ),
+    ).toBeInTheDocument()
+    expect(document.querySelector('[data-slot="skeleton"]')).toBeNull()
+  })
+
   it('keeps the total on Serve', async () => {
     vi.mocked(useContactsTable).mockReturnValue({
       canUseProFeatures: true,

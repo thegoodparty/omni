@@ -210,9 +210,10 @@ untouched: an upload never becomes a list card.
   subset, and the UI shows voters as total minus that. Win only, labels in
   `WIN_NEW_CONTACTS_LABELS` (`contactsLabels.ts`): `DistrictStatCard`'s New
   contacts added row with its info tooltip (hidden at 0), `ListsIndex`'s All
-  voters and contacts card, the channel picker's header, the outreach
-  audience step's reach line ("Message 8,912 voters and 198 new contacts
-  added"), and Not in your voter file on typeahead rows and the record
+  voters and contacts card, the channel picker's header (a skeleton until
+  the counts land, so the title never switches), the outreach audience
+  step's reach line ("Message 8,912 voters and 198 new contacts added"; a
+  list of only new contacts drops the 0 voters half), and Not in your voter file on typeahead rows and the record
   (`PersonRecord`, also its Registered Voter row). The universe's saved list
   keeps its `allContactsTitle` name, which is how outreach finds it. Create
   new list's Source filter (`source: ['voterFile' | 'imported']`, Win with
