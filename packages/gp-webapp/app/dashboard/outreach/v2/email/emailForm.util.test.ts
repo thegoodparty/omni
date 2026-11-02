@@ -68,18 +68,31 @@ describe('toContent', () => {
     expect(EmailContentSchema.safeParse(toContent(state)).success).toBe(true)
   })
 
-  it('leaves the title out of personal_letter and places the photo as picked', () => {
+  it('places a personal letter’s photo as picked', () => {
     const top = form('personal_letter')
-    expect(types(top)).toEqual(['image', 'paragraph', 'paragraph', 'button'])
+    expect(types(top)).toEqual([
+      'image',
+      'h1',
+      'paragraph',
+      'paragraph',
+      'button',
+    ])
     expect(EmailContentSchema.safeParse(toContent(top)).success).toBe(true)
 
     const bottom = form('personal_letter', { photoPosition: 'bottom' })
-    expect(types(bottom)).toEqual(['paragraph', 'paragraph', 'button', 'image'])
+    expect(types(bottom)).toEqual([
+      'h1',
+      'paragraph',
+      'paragraph',
+      'button',
+      'image',
+    ])
     expect(EmailContentSchema.safeParse(toContent(bottom)).success).toBe(true)
   })
 
-  it('leaves out an optional photo and button that are empty', () => {
+  it('leaves out a title, photo and button that are empty', () => {
     const state = form('personal_letter', {
+      title: '',
       photoUrl: '',
       buttonLabel: '',
       buttonUrl: '',
@@ -87,18 +100,19 @@ describe('toContent', () => {
     expect(types(state)).toEqual(['paragraph', 'paragraph'])
   })
 
-  it('keeps short_cta’s button even while it is empty', () => {
-    expect(
-      types(form('short_cta', { buttonLabel: '', buttonUrl: '' })).at(-1),
-    ).toBe('button')
-  })
+  it.each<EmailLayoutPresetKey>(['short_cta', 'long_update'])(
+    'sends %s with no button and no title',
+    (layout) => {
+      const state = form(layout, { title: '', buttonLabel: '', buttonUrl: '' })
+      expect(types(state)).toEqual(['image', 'paragraph', 'paragraph'])
+      expect(EmailContentSchema.safeParse(toContent(state)).success).toBe(true)
+    },
+  )
 })
 
 describe('the ## rule', () => {
-  const message = 'Hello\n\n## Roads\nWe paved Main St.'
-
-  it('makes a subheading only in long_update', () => {
-    expect(messageToBlocks(message, 'long_update')).toEqual([
+  it('makes a subheading', () => {
+    expect(messageToBlocks('Hello\n\n## Roads\nWe paved Main St.')).toEqual([
       { type: 'paragraph', text: 'Hello' },
       { type: 'heading', text: 'Roads', level: 2 },
       { type: 'paragraph', text: 'We paved Main St.' },
@@ -106,17 +120,16 @@ describe('the ## rule', () => {
   })
 
   it.each<EmailLayoutPresetKey>(['short_cta', 'personal_letter'])(
-    'is plain text in %s, without the mark',
+    'can be sent in %s',
     (layout) => {
-      expect(messageToBlocks(message, layout)).toEqual([
-        { type: 'paragraph', text: 'Hello' },
-        { type: 'paragraph', text: 'Roads\nWe paved Main St.' },
-      ])
+      const state = form(layout, { message: 'Hello\n\n## Roads\nPaved.' })
+      expect(types(state)).toContain('h2')
+      expect(composeIssues(state, true)).toEqual({})
     },
   )
 
   it('splits paragraphs on a blank line, even one holding spaces', () => {
-    expect(messageToBlocks('One\nline two\n  \nThree', 'long_update')).toEqual([
+    expect(messageToBlocks('One\nline two\n  \nThree')).toEqual([
       { type: 'paragraph', text: 'One\nline two' },
       { type: 'paragraph', text: 'Three' },
     ])
@@ -130,7 +143,7 @@ describe('fromContent', () => {
       'long_update',
       { message: 'Dear neighbor,\n\n## The vote\n\nIt moved.\n\nThank you' },
     ],
-    ['personal_letter', { title: '', photoPosition: 'bottom' }],
+    ['personal_letter', { photoPosition: 'bottom' }],
     ['personal_letter', { title: '', photoPosition: 'top' }],
   ])('round-trips the form in %s', (layout, overrides) => {
     const state = form(layout, overrides)
@@ -178,7 +191,7 @@ describe('fromContent', () => {
 })
 
 describe('switchLayout', () => {
-  it('keeps every value and hides the ones the layout doesn’t use', () => {
+  it('keeps every value', () => {
     const state = form('long_update', {
       message: 'Hi\n\n## Roads\n\nPaved.',
     })
@@ -189,7 +202,8 @@ describe('switchLayout', () => {
       photoUrl: PHOTO,
       buttonLabel: 'Read more',
     })
-    expect(types(letter)).not.toContain('h1')
+    expect(types(letter)).toContain('h1')
+    expect(types(letter)).toContain('h2')
     expect(switchLayout(letter, 'long_update').title).toBe('Ward 2 update')
   })
 
@@ -204,71 +218,45 @@ describe('switchLayout', () => {
 
 describe('composeIssues', () => {
   it('names the field, not the block', () => {
-    expect(
-      composeIssues(
-        form('short_cta', {
-          title: '',
-          buttonUrl: '',
-        }),
-        true,
-      ),
-    ).toEqual({
-      title: 'Add a title.',
+    expect(composeIssues(form('short_cta', { buttonUrl: '' }), true)).toEqual({
       button: 'Add the link this button opens.',
     })
   })
 
-  it('says a message too long for short_cta in the form’s terms', () => {
-    expect(
-      composeIssues(form('short_cta', { message: 'a'.repeat(601) }), false)
-        .message,
-    ).toBe('Keep the message under 600 characters for this layout.')
-  })
-
-  it('asks for 2 paragraphs in a long update only on Next', () => {
-    const state = form('long_update', { message: 'Just one.' })
-    expect(composeIssues(state, false)).toEqual({})
-    expect(composeIssues(state, true).message).toBe(
-      'Write at least 2 paragraphs, with a blank line between them.',
+  it.each<EmailLayoutPresetKey>([
+    'short_cta',
+    'long_update',
+    'personal_letter',
+  ])('takes a long message of many paragraphs in %s', (layout) => {
+    const message = Array.from({ length: 5 }, () => 'a'.repeat(900)).join(
+      '\n\n',
     )
+    expect(composeIssues(form(layout, { message }), true)).toEqual({})
   })
 
-  it('says too many paragraphs for short_cta on the message', () => {
-    expect(
-      composeIssues(form('short_cta', { message: 'a\n\nb\n\nc' }), false)
-        .message,
-    ).toBe('Use 1 or 2 paragraphs for this layout, or switch to Long update.')
-  })
-
-  it('asks for the subject, title and message of an empty form', () => {
+  it('asks for the subject and message of an empty form', () => {
     expect(
       composeIssues({ ...initialCompose(), layout: 'long_update' }, true),
-    ).toMatchObject({
+    ).toEqual({
       subject: 'Add a subject line.',
-      title: 'Add a title.',
-      message: 'Write at least 2 paragraphs, with a blank line between them.',
+      message: 'Write your message.',
     })
   })
 })
 
 describe('writeStepIssues', () => {
-  it('leaves the picked layout’s rules to the look step', () => {
-    const state = form('short_cta', {
-      title: '',
-      message: 'a'.repeat(601),
-      buttonUrl: '',
-    })
-    expect(writeStepIssues(state, true)).toEqual({})
-    expect(composeIssues(state, true)).toMatchObject({
-      title: 'Add a title.',
-      message: 'Keep the message under 600 characters for this layout.',
+  it('flags an empty subheading', () => {
+    expect(
+      writeStepIssues(form('long_update', { message: 'a\n\n## \n\nb' }), true),
+    ).toEqual({
+      message: 'Write the subheading after ##, or remove that line.',
     })
   })
 
-  it('leaves an empty subheading to the look step', () => {
-    expect(
-      writeStepIssues(form('long_update', { message: 'a\n\n##\n\nb' }), true),
-    ).toEqual({})
+  it('leaves the button to the look step', () => {
+    expect(writeStepIssues(form('short_cta', { buttonUrl: '' }), true)).toEqual(
+      {},
+    )
   })
 
   it('asks for the subject and message in every layout', () => {
@@ -353,7 +341,7 @@ describe('AI drafts', () => {
     expect(next.pristine).toBeDefined()
   })
 
-  it('keeps a short_cta draft to 2 paragraphs when its text has blank lines', () => {
+  it('keeps the blank lines of a short_cta draft', () => {
     const next = fillFromAiDraft(switchLayout(initialCompose(), 'short_cta'), {
       ...content,
       blocks: [
@@ -365,7 +353,7 @@ describe('AI drafts', () => {
         { type: 'button', label: 'Sign up', url: '' },
       ],
     })
-    expect(next.message).toBe('Hi {{first_name}},\n\nTwo hours.\nSee you.')
+    expect(next.message).toBe('Hi {{first_name}},\n\nTwo hours.\n\nSee you.')
     expect(composeIssues(next, false)).toEqual({})
   })
 

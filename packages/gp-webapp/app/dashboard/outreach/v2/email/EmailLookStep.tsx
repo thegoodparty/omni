@@ -8,25 +8,13 @@ import {
   type EmailLayoutPresetKey,
   type EmailThemeKey,
 } from '@goodparty_org/contracts'
-import {
-  Alert,
-  AlertDescription,
-  cn,
-  FilterPill,
-  FilterPillGroup,
-  Input,
-  Label,
-} from '@styleguide'
-import { CircleAlertIcon } from '@styleguide/components/ui/icons'
+import { cn, FilterPill, FilterPillGroup, Input, Label } from '@styleguide'
 import { Intro } from '../social/Intro'
 import { EmailPreview } from './EmailPreview'
 import {
   composeIssues,
-  needsButton,
   switchLayout,
   toContent,
-  WRITE_FIELDS,
-  writeIssues,
   type ComposeFieldError,
   type EmailComposeState,
   type PhotoPosition,
@@ -37,13 +25,6 @@ const PHOTO_POSITIONS: { value: PhotoPosition; label: string }[] = [
   { value: 'top', label: 'Top' },
   { value: 'bottom', label: 'Bottom' },
 ]
-
-const WRITE_FIELD_LABELS: Record<(typeof WRITE_FIELDS)[number], string> = {
-  subject: 'Subject',
-  title: 'Title',
-  message: 'Message',
-  photo: 'Photo',
-}
 
 interface EmailLookStepProps {
   surface: EmailSurface
@@ -72,14 +53,10 @@ export const EmailLookStep = ({
     onChange(switchLayout(value, layout))
   }
 
-  // What was written on the write step but doesn't fit this layout. It shows
-  // at once, since the fix is a layout pick here or an edit back there.
-  const misfits = writeIssues(composeIssues(value, true))
   const buttonError =
     serverError?.field === 'button'
       ? serverError.message
       : composeIssues(value, showIssues).button
-  const buttonRequired = needsButton(value.layout)
 
   return (
     <div className="space-y-6">
@@ -107,23 +84,6 @@ export const EmailLookStep = ({
         <p className="text-sm text-muted-foreground">
           {EMAIL_LAYOUT_PRESETS[value.layout].description}
         </p>
-        {Object.keys(misfits).length > 0 && (
-          <Alert
-            variant="destructive"
-            icon={<CircleAlertIcon />}
-            data-testid="email-layout-misfit"
-          >
-            <AlertDescription>
-              <ul className="space-y-1">
-                {WRITE_FIELDS.filter((field) => misfits[field]).map((field) => (
-                  <li key={field}>
-                    {`${WRITE_FIELD_LABELS[field]}: ${misfits[field]}`}
-                  </li>
-                ))}
-              </ul>
-            </AlertDescription>
-          </Alert>
-        )}
       </div>
 
       <div className="space-y-3">
@@ -174,7 +134,7 @@ export const EmailLookStep = ({
 
       <div className="space-y-3" data-testid="email-button">
         <span className="block text-sm font-medium text-foreground">
-          {buttonRequired ? 'Button' : 'Button (optional)'}
+          Button (optional)
         </span>
         <div className="space-y-2">
           <Label htmlFor="email-button-label">Button text</Label>

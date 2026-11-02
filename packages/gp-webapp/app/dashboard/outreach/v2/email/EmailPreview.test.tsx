@@ -61,19 +61,17 @@ describe('EmailPreview', () => {
     expect(requests[1]).toEqual({ content: content('Hi there, neighbors') })
   })
 
-  it('waits while the blocks break a layout rule', async () => {
+  it('waits while the blocks break a rule', async () => {
     const requests: unknown[] = []
     api.mock('POST /v1/outreach/email/preview', ({ body }) => {
       requests.push(body)
       return { status: 200, data: { html: '<p>ok</p>' } }
     })
+    const button = { type: 'button' as const, label: 'Go', url: '' }
     render(
       <EmailPreview
         serve={false}
-        content={{
-          ...content('Hi'),
-          blocks: [{ type: 'heading', text: 'No headings here', level: 1 }],
-        }}
+        content={{ ...content('Hi'), blocks: [button, button] }}
       />,
     )
     await advance(EMAIL_PREVIEW_DEBOUNCE_MS * 2)

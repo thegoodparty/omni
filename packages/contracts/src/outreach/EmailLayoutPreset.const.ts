@@ -2,15 +2,14 @@ import { z } from 'zod'
 import type { EmailBlockDraft, EmailBlockType } from './EmailBlock.schema'
 import type { EmailThemeKey } from './EmailTemplate.const'
 
-export const EMAIL_SHORT_CTA_PARAGRAPH_MAX_LENGTH = 600
-
 export interface EmailLayoutPreset {
   label: string
   description: string
   defaultTheme: EmailThemeKey
-  allowedBlocks: readonly EmailBlockType[]
-  // Read by an agent drafting for this layout, so it is written as guidance.
-  rules: readonly string[]
+  // What the layout usually holds, read by an agent drafting for it. Never
+  // checked: content valid in one layout is valid in every layout.
+  usualBlocks: readonly EmailBlockType[]
+  guidance: readonly string[]
   // What the editor opens with. Text and links are empty for the author to
   // fill, so these pass the draft schema, not the send schema.
   starterBlocks: readonly EmailBlockDraft[]
@@ -24,11 +23,11 @@ export const EMAIL_LAYOUT_PRESETS = {
     label: 'Short with a button',
     description: 'A photo, a headline, a few lines and one big button.',
     defaultTheme: 'bold_red',
-    allowedBlocks: ['image', 'heading', 'paragraph', 'button'],
-    rules: [
+    usualBlocks: ['image', 'heading', 'paragraph', 'button'],
+    guidance: [
       'Optional photo, and if there is one it comes first.',
       'Exactly one level 1 heading, right after the photo (or first).',
-      `1 or 2 paragraphs, ${EMAIL_SHORT_CTA_PARAGRAPH_MAX_LENGTH} characters at most between them.`,
+      '1 or 2 paragraphs, 600 characters at most between them.',
       'Exactly one button, and it is the last block.',
     ],
     starterBlocks: [
@@ -43,8 +42,8 @@ export const EMAIL_LAYOUT_PRESETS = {
     description:
       'A longer read: a headline, then several paragraphs broken up with subheadings.',
     defaultTheme: 'classic_blue',
-    allowedBlocks: ['heading', 'paragraph', 'image', 'button', 'divider'],
-    rules: [
+    usualBlocks: ['heading', 'paragraph', 'image', 'button', 'divider'],
+    guidance: [
       'Starts with a level 1 heading (the masthead).',
       'Mostly paragraphs, at least 2. Break up the text with level 2 subheadings and dividers.',
       'Any heading after the masthead is level 2.',
@@ -64,8 +63,8 @@ export const EMAIL_LAYOUT_PRESETS = {
     description:
       'A plain note from you, in paragraphs, with an optional photo.',
     defaultTheme: 'cream_and_forest',
-    allowedBlocks: ['paragraph', 'image', 'button'],
-    rules: [
+    usualBlocks: ['paragraph', 'image', 'button'],
+    guidance: [
       'Mostly paragraphs. No headings or dividers.',
       'At most one photo, as the very first or the very last block, never in the middle.',
       'The first block after any photo is a paragraph.',
@@ -88,18 +87,15 @@ export const EmailLayoutPresetKeySchema = z
     (Object.keys(EMAIL_LAYOUT_PRESETS) as EmailLayoutPresetKey[])
       .map(
         (key) =>
-          `${key}: ${EMAIL_LAYOUT_PRESETS[key].description} Allowed blocks: ${EMAIL_LAYOUT_PRESETS[key].allowedBlocks.join(', ')}. ${EMAIL_LAYOUT_PRESETS[key].rules.join(' ')}`,
+          `${key}: ${EMAIL_LAYOUT_PRESETS[key].description} Usually: ${EMAIL_LAYOUT_PRESETS[key].usualBlocks.join(', ')}. ${EMAIL_LAYOUT_PRESETS[key].guidance.join(' ')}`,
       )
       .join('\n'),
   ) satisfies z.ZodType<EmailLayoutPresetKey>
 
-export interface EmailLayoutIssue {
-  // Index into `blocks`, or null for a rule about the email as a whole.
-  blockIndex: number | null
+export interface EmailBlocksIssue {
   message: string
   // A required block is still missing. The editor may save that; a send may
-  // not. Everything else (a block the layout doesn't use, too many, the wrong
-  // order) is wrong in both.
+  // not.
   incomplete: boolean
 }
 
@@ -108,120 +104,20 @@ const countOf = (
   type: EmailBlockType,
 ): number => blocks.filter((block) => block.type === type).length
 
-// Structure only (which blocks, how many, in what order). Field rules live on
-// the block schemas.
-export const checkEmailLayout = (
-  layout: EmailLayoutPresetKey,
+// The structure every layout shares. A layout's usual shape is guidance, never
+// a reason to refuse an email. Field rules live on the block schemas.
+export const checkEmailBlocks = (
   blocks: readonly EmailBlockDraft[],
-): EmailLayoutIssue[] => {
-  const issues: EmailLayoutIssue[] = []
-  const add = (blockIndex: number | null, message: string) =>
-    issues.push({ blockIndex, message, incomplete: false })
-  const missing = (message: string) =>
-    issues.push({ blockIndex: null, message, incomplete: true })
-  const preset: EmailLayoutPreset = EMAIL_LAYOUT_PRESETS[layout]
-  const last = blocks.length - 1
-
-  blocks.forEach((block, index) => {
-    if (!preset.allowedBlocks.includes(block.type)) {
-      add(index, `The ${preset.label} layout doesn’t use ${block.type} blocks`)
-    }
-  })
-
-  const atMostOne = (type: EmailBlockType, noun: string) => {
-    if (countOf(blocks, type) > 1) add(null, `Use at most one ${noun}`)
+): EmailBlocksIssue[] => {
+  const issues: EmailBlocksIssue[] = []
+  if (countOf(blocks, 'image') > 1) {
+    issues.push({ message: 'Use at most one photo', incomplete: false })
   }
-
-  if (layout === 'short_cta') {
-    const imageIndexes = blocks.flatMap((block, index) =>
-      block.type === 'image' ? [index] : [],
-    )
-    if (imageIndexes.length > 1) {
-      add(null, 'Use at most one photo')
-    } else if (imageIndexes.length === 1 && imageIndexes[0] !== 0) {
-      add(imageIndexes[0], 'The photo goes first')
-    }
-    const headingAt = imageIndexes[0] === 0 ? 1 : 0
-    const headings = countOf(blocks, 'heading')
-    const heading = blocks[headingAt]
-    if (headings === 0) {
-      missing('Add a headline')
-    } else if (headings > 1) {
-      add(null, 'Use exactly one headline')
-    } else if (heading?.type !== 'heading') {
-      add(null, 'The headline goes at the top, after the photo if there is one')
-    } else if (heading.level !== 1) {
-      add(headingAt, 'The headline is level 1')
-    }
-    const paragraphs = blocks.filter((block) => block.type === 'paragraph')
-    if (paragraphs.length === 0) missing('Add a paragraph')
-    if (paragraphs.length > 2) add(null, 'Use 1 or 2 paragraphs')
-    const paragraphLength = paragraphs.reduce(
-      (sum, block) =>
-        sum + (block.type === 'paragraph' ? block.text.length : 0),
-      0,
-    )
-    if (paragraphLength > EMAIL_SHORT_CTA_PARAGRAPH_MAX_LENGTH) {
-      add(
-        null,
-        `Keep the text to ${EMAIL_SHORT_CTA_PARAGRAPH_MAX_LENGTH} characters, or use a long update`,
-      )
-    }
-    const buttons = countOf(blocks, 'button')
-    if (buttons === 0) {
-      missing('Add a button')
-    } else if (buttons > 1) {
-      add(null, 'Use exactly one button')
-    } else if (blocks[last]?.type !== 'button') {
-      add(last, 'The button goes last')
-    }
+  if (countOf(blocks, 'button') > 1) {
+    issues.push({ message: 'Use at most one button', incomplete: false })
   }
-
-  if (layout === 'long_update') {
-    const first = blocks[0]
-    if (!blocks.some((b) => b.type === 'heading' && b.level === 1)) {
-      missing('Start with a level 1 heading')
-    } else if (first?.type !== 'heading' || first.level !== 1) {
-      add(0, 'Start with a level 1 heading')
-    }
-    const imageIndexes = blocks.flatMap((block, index) =>
-      block.type === 'image' ? [index] : [],
-    )
-    if (imageIndexes.length > 1) {
-      add(null, 'Use at most one photo')
-    } else if (imageIndexes.length === 1 && imageIndexes[0] !== 1) {
-      add(imageIndexes[0], 'The photo goes right after the headline')
-    }
-    if (countOf(blocks, 'paragraph') < 2) missing('Add at least 2 paragraphs')
-    blocks.forEach((block, index) => {
-      if (index > 0 && block.type === 'heading' && block.level !== 2) {
-        add(index, 'Only the first heading is level 1')
-      }
-    })
-    atMostOne('button', 'button')
+  if (countOf(blocks, 'paragraph') === 0) {
+    issues.push({ message: 'Add a paragraph', incomplete: true })
   }
-
-  if (layout === 'personal_letter') {
-    const imageIndexes = blocks.flatMap((block, index) =>
-      block.type === 'image' ? [index] : [],
-    )
-    if (imageIndexes.length > 1) {
-      add(null, 'Use at most one photo')
-    } else if (
-      imageIndexes.length === 1 &&
-      imageIndexes[0] !== 0 &&
-      imageIndexes[0] !== last
-    ) {
-      add(imageIndexes[0], 'Put the photo at the very top or the very end')
-    }
-    const openingAt = imageIndexes[0] === 0 ? 1 : 0
-    if (countOf(blocks, 'paragraph') === 0) {
-      missing('Add a paragraph')
-    } else if (blocks[openingAt]?.type !== 'paragraph') {
-      add(openingAt, 'Start with a paragraph')
-    }
-    atMostOne('button', 'button')
-  }
-
   return issues
 }

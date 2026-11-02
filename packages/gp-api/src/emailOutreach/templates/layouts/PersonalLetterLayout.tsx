@@ -1,7 +1,9 @@
 import type { LayoutProps } from '../emailTemplate.types'
 import {
   EmailBodyBlock,
+  EmailDivider,
   EmailFooter,
+  EmailHeading,
   EmailInsetImage,
   EmailParagraph,
   EmailTextLink,
@@ -36,8 +38,16 @@ export const PersonalLetterLayout = ({
               />
             )
           case 'heading':
+            return (
+              <EmailHeading
+                key={index}
+                colors={colors}
+                text={block.text}
+                level={block.level}
+              />
+            )
           case 'divider':
-            return null
+            return <EmailDivider key={index} colors={colors} />
         }
       })}
     </EmailBodyBlock>

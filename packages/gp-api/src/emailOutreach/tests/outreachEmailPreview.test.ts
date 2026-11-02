@@ -123,11 +123,23 @@ describe('POST /v1/outreach/email/preview', () => {
     expect(res.data.html).toContain('>Join us</h1>')
   })
 
-  it('rejects a block the layout does not allow', async () => {
+  it('renders a divider in a personal letter', async () => {
     const res = await previewWin({
       content: {
         ...EMAIL_CONTENT_EXAMPLES.personal_letter.win,
         blocks: [{ type: 'divider' }, { type: 'paragraph', text: 'Hi' }],
+      },
+    })
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(res.data.html).toContain('class="em-divider"')
+  })
+
+  it('rejects a second photo', async () => {
+    const photo = EMAIL_CONTENT_EXAMPLES.short_cta.win.blocks[0]
+    const res = await previewWin({
+      content: {
+        ...EMAIL_CONTENT_EXAMPLES.short_cta.win,
+        blocks: [photo, { type: 'paragraph', text: 'Hi' }, photo],
       },
     })
     expect(res.status).toBe(HttpStatus.BAD_REQUEST)

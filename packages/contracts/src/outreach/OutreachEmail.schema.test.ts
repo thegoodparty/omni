@@ -108,18 +108,16 @@ describe('EmailDraftSaveSchema with blocks', () => {
     )
   })
 
-  it('reports a block the layout does not allow at its path', () => {
+  it('reports a second button at the blocks path', () => {
+    const button = { type: 'button', label: 'RSVP', url: '' }
     const result = EmailDraftSaveSchema.safeParse({
       goal: 'g',
-      content: {
-        ...content,
-        blocks: [{ type: 'divider' }, ...content.blocks],
-      },
+      content: { ...content, blocks: [...content.blocks, button, button] },
     })
     expect(result.success).toBe(false)
     expect(result.error?.issues[0]).toMatchObject({
-      path: ['content', 'blocks', 0],
-      message: 'The Personal letter layout doesn’t use divider blocks',
+      path: ['content', 'blocks'],
+      message: 'Use at most one button',
     })
   })
 })

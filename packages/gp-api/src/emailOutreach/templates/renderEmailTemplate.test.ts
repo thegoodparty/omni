@@ -327,14 +327,38 @@ describe('renderEmailTemplate', () => {
     expect(html).toContain('Only this')
   })
 
-  it('rejects a block the layout does not allow', async () => {
-    await expect(
-      renderEmailTemplate(
-        letter({ blocks: [{ type: 'heading', text: 'Hi', level: 1 }] }),
+  it.each(LAYOUTS)(
+    'renders every block in %s, in order, whatever the layout usually holds',
+    async (layout) => {
+      const { html } = await renderEmailTemplate(
+        letter({
+          layout,
+          blocks: [
+            { type: 'paragraph', text: 'First words' },
+            { type: 'heading', text: 'Big news', level: 1 },
+            { type: 'paragraph', text: 'Middle words' },
+            { type: 'heading', text: 'Smaller news', level: 2 },
+            { type: 'divider' },
+            { type: 'paragraph', text: 'x'.repeat(1500) },
+            { type: 'paragraph', text: 'Last words' },
+          ],
+        }),
         WIN,
-      ),
-    ).rejects.toThrow('doesn’t use heading blocks')
-  })
+      )
+      const order = [
+        'First words',
+        'Middle words',
+        'Smaller news',
+        'class="em-divider"',
+        'Last words',
+      ].map((part) => html.indexOf(part))
+      expect(order).not.toContain(-1)
+      expect(order).toEqual([...order].sort((a, b) => a - b))
+      expect(html).toContain('Big news')
+      expect(html).toContain('x'.repeat(1500))
+      expect(html).not.toContain('class="em-accent"')
+    },
+  )
 
   it('puts the preview text in the inbox preview but not the plain text', async () => {
     const { html, text } = await renderEmailTemplate(

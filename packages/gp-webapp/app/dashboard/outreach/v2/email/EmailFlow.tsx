@@ -26,7 +26,6 @@ import {
   hasIssues,
   initialCompose,
   serverFieldError,
-  writeIssues,
   writeStepIssues,
   type ComposeFieldError,
   type EmailComposeState,
@@ -111,12 +110,7 @@ export const EmailFlow = ({
     if (!parsed) return false
     setWriteAttempted(true)
     setLookAttempted(true)
-    // What the picked layout refuses is fixed on the look step, where the
-    // layout can change.
-    const layoutMisfit =
-      finalIssues[parsed.field] !== undefined &&
-      writeStepIssues(compose, true)[parsed.field] === undefined
-    goTo(parsed.field === 'button' || layoutMisfit ? 'look' : 'write')
+    goTo(parsed.field === 'button' ? 'look' : 'write')
     setFieldError(parsed)
     return true
   }
@@ -233,7 +227,6 @@ export const EmailFlow = ({
       label: 'Next',
       onClick: () => void next(),
       loading: busy,
-      disabled: hasIssues(writeIssues(finalIssues)),
     },
     schedule: {
       label: 'Next',

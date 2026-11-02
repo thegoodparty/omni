@@ -61,7 +61,7 @@ describe('layout presets', () => {
     (key) => {
       const preset = EMAIL_LAYOUT_PRESETS[key]
       expect(EMAIL_THEMES).toHaveProperty(preset.defaultTheme)
-      for (const type of preset.allowedBlocks) {
+      for (const type of preset.usualBlocks) {
         expect(EMAIL_BLOCK_TYPES).toContain(type)
       }
     },
@@ -190,160 +190,64 @@ describe('agent drafts', () => {
   })
 })
 
-describe('layout rules', () => {
-  const rejects = (
-    layout: EmailLayoutPresetKey,
-    blocks: unknown[],
-    message: string,
-  ) => {
-    const result = EmailContentSchema.safeParse(withBlocks(layout, blocks))
-    expect(messages(result)).toContain(message)
+describe('shared rules', () => {
+  const result = (layout: EmailLayoutPresetKey, blocks: unknown[]) =>
+    messages(EmailContentSchema.safeParse(withBlocks(layout, blocks)))
+
+  const heading = (level: 1 | 2) => ({ type: 'heading', text: 'Hi', level })
+
+  // Each of these broke one layout's old structure rules.
+  const shapes: Record<string, unknown[]> = {
+    'no button': [masthead, paragraph('Short and to the point.')],
+    'a button first': [button, paragraph('Hi')],
+    'a photo in the middle': [paragraph('A'), photo, paragraph('B')],
+    'a photo last': [masthead, paragraph('A'), photo],
+    'no heading': [paragraph('A')],
+    'headings at any level, anywhere': [
+      paragraph('A'),
+      heading(2),
+      paragraph('B'),
+      heading(1),
+      heading(1),
+      paragraph('C'),
+    ],
+    dividers: [paragraph('A'), { type: 'divider' }, paragraph('B')],
+    'many long paragraphs': Array.from({ length: 5 }, () =>
+      paragraph('a'.repeat(900)),
+    ),
   }
 
-  const cta = (overrides: { before?: unknown[]; after?: unknown[] } = {}) => [
-    ...(overrides.before ?? []),
-    { type: 'heading', text: 'Join us', level: 1 },
-    paragraph('Short and to the point.'),
-    ...(overrides.after ?? []),
-  ]
-
-  it('short_cta needs exactly one button, last', () => {
-    rejects('short_cta', cta(), 'Add a button')
-    rejects(
-      'short_cta',
-      cta({ after: [button, button] }),
-      'Use exactly one button',
-    )
-    rejects(
-      'short_cta',
-      [{ type: 'heading', text: 'Join us', level: 1 }, button, paragraph('Hi')],
-      'The button goes last',
-    )
+  it.each(
+    LAYOUTS.flatMap((layout) =>
+      Object.keys(shapes).map((shape) => [layout, shape] as const),
+    ),
+  )('%s accepts %s', (layout, shape) => {
+    expect(result(layout, shapes[shape]!)).toEqual([])
   })
 
-  it('short_cta puts the photo first and allows no dividers', () => {
-    rejects(
-      'short_cta',
-      [
-        { type: 'heading', text: 'Join us', level: 1 },
-        photo,
-        paragraph('Hi'),
-        button,
-      ],
-      'The photo goes first',
-    )
-    rejects(
-      'short_cta',
-      cta({ after: [{ type: 'divider' }, button] }),
-      'The Short with a button layout doesn’t use divider blocks',
-    )
-  })
-
-  it('short_cta keeps the text short', () => {
-    rejects(
-      'short_cta',
-      [
-        { type: 'heading', text: 'Join us', level: 1 },
-        paragraph('a'.repeat(400)),
-        paragraph('b'.repeat(400)),
-        button,
-      ],
-      'Keep the text to 600 characters, or use a long update',
-    )
-  })
-
-  it('long_update needs at least 2 paragraphs', () => {
-    rejects(
-      'long_update',
-      [masthead, paragraph('Only one')],
-      'Add at least 2 paragraphs',
-    )
-  })
-
-  it('long_update starts with a masthead', () => {
-    rejects(
-      'long_update',
-      [paragraph('One'), paragraph('Two')],
-      'Start with a level 1 heading',
-    )
-    rejects(
-      'long_update',
-      [paragraph('One'), masthead, paragraph('Two')],
-      'Start with a level 1 heading',
-    )
-  })
-
-  it('long_update allows one photo, right after the masthead', () => {
-    expect(
-      messages(
-        EmailContentSchema.safeParse(
-          withBlocks('long_update', [
-            masthead,
-            photo,
-            paragraph('A'),
-            paragraph('B'),
-          ]),
-        ),
-      ),
-    ).toEqual([])
-    rejects(
-      'long_update',
-      [masthead, paragraph('A'), photo, paragraph('B')],
-      'The photo goes right after the headline',
-    )
-    rejects(
-      'long_update',
-      [masthead, photo, paragraph('A'), photo, paragraph('B')],
+  it.each(LAYOUTS)('%s takes at most one photo and one button', (layout) => {
+    expect(result(layout, [photo, paragraph('A'), photo])).toContain(
       'Use at most one photo',
     )
-  })
-
-  it('personal_letter has no headings', () => {
-    rejects(
-      'personal_letter',
-      [{ type: 'heading', text: 'Hi', level: 1 }, paragraph('Dear neighbor')],
-      'The Personal letter layout doesn’t use heading blocks',
-    )
-  })
-
-  it('personal_letter puts one photo at the very top or the very end', () => {
-    const accepts = (blocks: unknown[]) =>
-      expect(
-        messages(
-          EmailContentSchema.safeParse(withBlocks('personal_letter', blocks)),
-        ),
-      ).toEqual([])
-    accepts([photo, paragraph('Dear neighbor'), paragraph('Thanks')])
-    accepts([paragraph('Dear neighbor'), paragraph('Thanks'), photo])
-    accepts([paragraph('Dear neighbor'), button, photo])
-    rejects(
-      'personal_letter',
-      [paragraph('Dear neighbor'), photo, paragraph('Thanks')],
-      'Put the photo at the very top or the very end',
-    )
-    rejects(
-      'personal_letter',
-      [photo, paragraph('Dear neighbor'), paragraph('Thanks'), photo],
-      'Use at most one photo',
-    )
-    rejects(
-      'personal_letter',
-      [photo, button, paragraph('Dear neighbor')],
-      'Start with a paragraph',
-    )
-  })
-
-  it('personal_letter is only paragraphs and one button', () => {
-    rejects(
-      'personal_letter',
-      [paragraph('Dear neighbor'), button, paragraph('Thanks'), button],
+    expect(result(layout, [paragraph('A'), button, button])).toContain(
       'Use at most one button',
     )
-    rejects(
-      'personal_letter',
-      [paragraph('Dear neighbor'), { type: 'divider' }, paragraph('Thanks')],
-      'The Personal letter layout doesn’t use divider blocks',
-    )
+  })
+
+  it.each(LAYOUTS)('%s needs a paragraph to send', (layout) => {
+    expect(result(layout, [masthead, button])).toContain('Add a paragraph')
+  })
+
+  it('does not crash on a malformed block', () => {
+    expect(
+      EmailContentSchema.safeParse(
+        withBlocks('short_cta', [
+          masthead,
+          { type: 'button' },
+          paragraph('Hi'),
+        ]),
+      ).success,
+    ).toBe(false)
   })
 })
 
@@ -475,55 +379,6 @@ describe('field rules', () => {
   })
 })
 
-describe('more layout rules', () => {
-  const rejects = (
-    layout: EmailLayoutPresetKey,
-    blocks: unknown[],
-    message: string,
-  ) => {
-    const result = EmailContentSchema.safeParse(withBlocks(layout, blocks))
-    expect(messages(result)).toContain(message)
-  }
-
-  it('checks heading levels', () => {
-    rejects(
-      'short_cta',
-      [{ type: 'heading', text: 'Join us', level: 2 }, paragraph('Hi'), button],
-      'The headline is level 1',
-    )
-    rejects(
-      'long_update',
-      [
-        masthead,
-        paragraph('A'),
-        { type: 'heading', text: 'Also', level: 1 },
-        paragraph('B'),
-      ],
-      'Only the first heading is level 1',
-    )
-  })
-
-  it('starts a personal_letter with a paragraph', () => {
-    rejects(
-      'personal_letter',
-      [button, paragraph('Hi')],
-      'Start with a paragraph',
-    )
-  })
-
-  it('does not crash on a malformed block', () => {
-    const result = EmailContentSchema.safeParse(
-      withBlocks('short_cta', [
-        { type: 'heading', text: 'Join us', level: 1 },
-        { type: 'button' },
-        paragraph('Hi'),
-        button,
-      ]),
-    )
-    expect(result.success).toBe(false)
-  })
-})
-
 describe('draft rules', () => {
   const draft = (layout: EmailLayoutPresetKey, blocks: unknown[]) =>
     EmailContentDraftSchema.safeParse({
@@ -533,23 +388,23 @@ describe('draft rules', () => {
       blocks,
     })
 
-  it('saves a draft that is still missing a required block', () => {
+  it('saves a draft that is still missing its paragraph', () => {
     expect(messages(draft('short_cta', []))).toEqual([])
     expect(
       messages(draft('short_cta', [{ type: 'heading', text: '', level: 1 }])),
     ).toEqual([])
-    expect(messages(draft('personal_letter', []))).toEqual([])
+    expect(messages(draft('personal_letter', [masthead, button]))).toEqual([])
     expect(
       messages(draft('long_update', [masthead, subheading(''), paragraph('')])),
     ).toEqual([])
   })
 
-  it('still rejects a block the layout does not use, or the wrong order', () => {
-    expect(
-      messages(draft('personal_letter', [paragraph(''), { type: 'divider' }])),
-    ).toContain('The Personal letter layout doesn’t use divider blocks')
-    expect(
-      messages(draft('personal_letter', [button, paragraph('')])),
-    ).toContain('Start with a paragraph')
+  it('still rejects a second photo or button', () => {
+    expect(messages(draft('personal_letter', [photo, photo]))).toContain(
+      'Use at most one photo',
+    )
+    expect(messages(draft('short_cta', [button, button]))).toContain(
+      'Use at most one button',
+    )
   })
 })

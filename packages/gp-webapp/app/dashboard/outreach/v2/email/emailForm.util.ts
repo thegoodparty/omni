@@ -3,7 +3,6 @@ import {
   EMAIL_HEADING_MAX_LENGTH,
   EMAIL_LAYOUT_PRESETS,
   EMAIL_PARAGRAPH_MAX_LENGTH,
-  EMAIL_SHORT_CTA_PARAGRAPH_MAX_LENGTH,
   EmailContentDraftSchema,
   EmailContentSchema,
   type EmailAiDraftFields,
@@ -58,24 +57,11 @@ export const initialCompose = (): EmailComposeState => ({
   buttonUrl: '',
 })
 
-export const usesTitle = (layout: EmailLayoutPresetKey): boolean =>
-  layout !== 'personal_letter'
-
-export const usesSubheadings = (layout: EmailLayoutPresetKey): boolean =>
-  layout === 'long_update'
-
-export const needsButton = (layout: EmailLayoutPresetKey): boolean =>
-  layout === 'short_cta'
-
 const SUBHEADING_MARK = /^##[ \t]+/
 
-// A blank line starts a new paragraph. In a long update a line starting with
-// `## ` is a subheading; elsewhere the mark is dropped, so a message written
-// for a long update doesn't send stray `##` in another layout.
-export const messageToBlocks = (
-  message: string,
-  layout: EmailLayoutPresetKey,
-): EmailBlockDraft[] => {
+// A blank line starts a new paragraph and a line starting with `## ` is a
+// subheading.
+export const messageToBlocks = (message: string): EmailBlockDraft[] => {
   const blocks: EmailBlockDraft[] = []
   const chunks = message.replace(/\r\n?/g, '\n').split(/\n[ \t]*\n/)
   for (const chunk of chunks) {
@@ -87,7 +73,7 @@ export const messageToBlocks = (
     }
     for (const line of chunk.split('\n')) {
       const mark = SUBHEADING_MARK.exec(line)
-      if (mark && usesSubheadings(layout)) {
+      if (mark) {
         flush()
         blocks.push({
           type: 'heading',
@@ -95,7 +81,7 @@ export const messageToBlocks = (
           level: 2,
         })
       } else {
-        lines.push(mark ? line.slice(mark[0].length) : line)
+        lines.push(line)
       }
     }
     flush()
@@ -103,19 +89,19 @@ export const messageToBlocks = (
   return blocks
 }
 
-// The form as blocks, in the order the layout's rules want: photo, title,
+// The form as blocks, in the order the layout usually has them: photo, title,
 // message, button (a personal letter's photo goes first or last).
 export const toContent = (state: EmailComposeState): EmailContentDraft => {
   const { layout } = state
   const photo: EmailBlockDraft[] = state.photoUrl
     ? [{ type: 'image', url: state.photoUrl, alt: '' }]
     : []
-  const title: EmailBlockDraft[] = usesTitle(layout)
+  const title: EmailBlockDraft[] = state.title.trim()
     ? [{ type: 'heading', text: state.title, level: 1 }]
     : []
-  const body = messageToBlocks(state.message, layout)
+  const body = messageToBlocks(state.message)
   const button: EmailBlockDraft[] =
-    needsButton(layout) || state.buttonLabel.trim() || state.buttonUrl.trim()
+    state.buttonLabel.trim() || state.buttonUrl.trim()
       ? [{ type: 'button', label: state.buttonLabel, url: state.buttonUrl }]
       : []
   const blocks =
@@ -124,8 +110,8 @@ export const toContent = (state: EmailComposeState): EmailContentDraft => {
       : layout === 'long_update'
         ? [...title, ...photo, ...body, ...button]
         : state.photoPosition === 'bottom'
-          ? [...body, ...button, ...photo]
-          : [...photo, ...body, ...button]
+          ? [...title, ...body, ...button, ...photo]
+          : [...photo, ...title, ...body, ...button]
   return { layout, theme: state.theme, subject: state.subject, blocks }
 }
 
@@ -142,12 +128,10 @@ export const fromContent = (
   let button: { label: string; url: string } | null = null
   for (const [index, block] of content.blocks.entries()) {
     if (block.type === 'heading') {
-      if (block.level === 1 && title === null && usesTitle(layout)) {
+      if (block.level === 1 && title === null) {
         title = block.text
       } else if (block.text.trim()) {
-        parts.push(
-          usesSubheadings(layout) ? `## ${block.text.trim()}` : block.text,
-        )
+        parts.push(`## ${block.text.trim()}`)
       }
     } else if (block.type === 'paragraph') {
       if (block.text.trim()) parts.push(block.text.trim())
@@ -187,9 +171,8 @@ export const isUntouched = (state: EmailComposeState): boolean =>
 export const snapshot = (state: EmailComposeState): string =>
   JSON.stringify([state.subject, state.title, state.message, state.buttonLabel])
 
-// A layout pick keeps every field; the ones the new layout doesn't use are
-// hidden, not cleared. The theme follows the layout unless the user picked
-// one.
+// A layout pick keeps every field. The theme follows the layout unless the
+// user picked one.
 export const switchLayout = (
   state: EmailComposeState,
   layout: EmailLayoutPresetKey,
@@ -201,17 +184,6 @@ export const switchLayout = (
       ? EMAIL_LAYOUT_PRESETS[layout].defaultTheme
       : state.theme,
 })
-
-// The AI keeps its blank lines inside short_cta's paragraphs, which would
-// split into more than the 2 paragraphs the layout allows.
-const fitMessage = (message: string, layout: EmailLayoutPresetKey): string => {
-  if (layout !== 'short_cta') return message
-  const [first = '', ...rest] = message
-    .split(/\n[ \t]*\n/)
-    .map((chunk) => chunk.trim())
-    .filter(Boolean)
-  return rest.length > 1 ? `${first}\n\n${rest.join('\n')}` : message
-}
 
 // The AI draft fills the form, keeping the user's layout, a photo they
 // uploaded and a link they typed. A field the draft leaves out keeps its
@@ -225,7 +197,7 @@ export const fillFromAiDraft = (
     ...state,
     subject: drafted.subject,
     title: drafted.title || state.title,
-    message: fitMessage(drafted.message, state.layout),
+    message: drafted.message,
     buttonLabel: drafted.buttonLabel || state.buttonLabel,
     buttonUrl: state.buttonUrl.trim() ? state.buttonUrl : drafted.buttonUrl,
   }
@@ -235,8 +207,7 @@ export const fillFromAiDraft = (
 // What "Improve with AI" sends: the form as the draft endpoint's fields.
 export const toAiFields = (state: EmailComposeState): EmailAiDraftFields => ({
   subject: state.subject.trim(),
-  headline:
-    usesTitle(state.layout) && state.title.trim() ? state.title.trim() : null,
+  headline: state.title.trim() || null,
   body: state.message.trim(),
   buttonLabel: state.buttonLabel.trim() || null,
 })
@@ -249,11 +220,10 @@ export const applyImprovedDraft = (
 ): EmailComposeState => ({
   ...state,
   subject: draft.subject,
-  title:
-    usesTitle(state.layout) && draft.headline ? draft.headline : state.title,
-  message: fitMessage(draft.body, state.layout),
+  title: draft.headline || state.title,
+  message: draft.body,
   buttonLabel:
-    draft.buttonLabel && (state.buttonLabel.trim() || needsButton(state.layout))
+    draft.buttonLabel && state.buttonLabel.trim()
       ? draft.buttonLabel
       : state.buttonLabel,
 })
@@ -299,9 +269,7 @@ const tooLong = (block: EmailBlockDraft, key: unknown): string => {
 const missing = (block: EmailBlockDraft, key: unknown): string => {
   switch (block.type) {
     case 'heading':
-      return block.level === 1
-        ? 'Add a title.'
-        : 'Write the subheading after ##, or remove that line.'
+      return 'Write the subheading after ##, or remove that line.'
     case 'paragraph':
     case 'divider':
       return 'Write your message.'
@@ -331,9 +299,9 @@ const blockMessage = (
   return withPeriod(message)
 }
 
-// The layout's whole-email rules, said about the field that fixes them.
+// The whole-email rules, said about the field that fixes them.
 const ruleIssue = (code: string, message: string): ComposeFieldError => {
-  if (code === 'too_small') {
+  if (code === 'too_small' || message === 'Add a paragraph') {
     return { field: 'message', message: 'Write your message.' }
   }
   if (code === 'too_big') {
@@ -342,50 +310,19 @@ const ruleIssue = (code: string, message: string): ComposeFieldError => {
       message: 'Use fewer paragraphs and subheadings.',
     }
   }
-  switch (message) {
-    case 'Add a headline':
-    case 'Start with a level 1 heading':
-      return { field: 'title', message: 'Add a title.' }
-    case 'Add a paragraph':
-      return { field: 'message', message: 'Write your message.' }
-    case 'Add at least 2 paragraphs':
-      return {
-        field: 'message',
-        message: 'Write at least 2 paragraphs, with a blank line between them.',
-      }
-    case 'Use 1 or 2 paragraphs':
-      return {
-        field: 'message',
-        message:
-          'Use 1 or 2 paragraphs for this layout, or switch to Long update.',
-      }
-    case 'Add a button':
-      return { field: 'button', message: 'Add the button text and its link.' }
-  }
-  if (message.startsWith('Keep the text to')) {
-    return {
-      field: 'message',
-      message: `Keep the message under ${EMAIL_SHORT_CTA_PARAGRAPH_MAX_LENGTH} characters for this layout.`,
-    }
-  }
   return { field: 'message', message: withPeriod(message) }
 }
 
-interface FoundIssue extends ComposeFieldError {
-  // A rule of the picked layout rather than one every layout shares, so the
-  // write step leaves it to the look step, where the layout can change.
-  layoutRule: boolean
-}
-
-const WHOLE_EMAIL_LENGTH = 'Keep the whole email under'
-
-const findIssues = (state: EmailComposeState, final: boolean): FoundIssue[] => {
+const findIssues = (
+  state: EmailComposeState,
+  final: boolean,
+): ComposeFieldError[] => {
   const content = toContent(state)
   const result = (
     final ? EmailContentSchema : EmailContentDraftSchema
   ).safeParse(content)
   if (result.success) return []
-  return result.error.issues.map((issue): FoundIssue => {
+  return result.error.issues.map((issue): ComposeFieldError => {
     const [root, index, key] = issue.path
     if (root === 'subject') {
       return {
@@ -396,7 +333,6 @@ const findIssues = (state: EmailComposeState, final: boolean): FoundIssue[] => {
             : issue.code === 'too_big'
               ? 'Shorten the subject line.'
               : withPeriod(issue.message),
-        layoutRule: false,
       }
     }
     const block =
@@ -407,23 +343,13 @@ const findIssues = (state: EmailComposeState, final: boolean): FoundIssue[] => {
       return {
         field: fieldOf(block),
         message: blockMessage(block, key, issue.code, issue.message),
-        // Subheadings exist only in a long update, and only some layouts
-        // ask for a title.
-        layoutRule:
-          block.type === 'heading' &&
-          (block.level !== 1 || issue.code !== 'too_big'),
       }
     }
-    return {
-      ...ruleIssue(issue.code, issue.message),
-      layoutRule:
-        issue.code !== 'too_big' &&
-        !issue.message.startsWith(WHOLE_EMAIL_LENGTH),
-    }
+    return ruleIssue(issue.code, issue.message)
   })
 }
 
-const byField = (found: FoundIssue[]): ComposeIssues => {
+const byField = (found: ComposeFieldError[]): ComposeIssues => {
   const issues: ComposeIssues = {}
   for (const { field, message } of found) issues[field] ??= message
   return issues
@@ -439,32 +365,20 @@ export const composeIssues = (
 export const hasIssues = (issues: ComposeIssues): boolean =>
   Object.keys(issues).length > 0
 
-// The fields on the write step. The button is set on the look step, since
-// whether it is required depends on the layout picked there.
-export const WRITE_FIELDS = ['subject', 'title', 'message', 'photo'] as const
+// The fields on the write step. The button is set on the look step.
+const WRITE_FIELDS = ['subject', 'title', 'message', 'photo'] as const
 
-export const writeIssues = (issues: ComposeIssues): ComposeIssues => {
+// What the write step shows and holds Next on.
+export const writeStepIssues = (
+  state: EmailComposeState,
+  final: boolean,
+): ComposeIssues => {
+  const issues = composeIssues(state, final)
   const picked: ComposeIssues = {}
   for (const field of WRITE_FIELDS) {
     if (issues[field]) picked[field] = issues[field]
   }
   return picked
-}
-
-// What the write step shows and holds Next on: its fields' problems under
-// any layout. A message is needed in every layout; the rest of the picked
-// layout's rules are the look step's, since the layout is picked there.
-export const writeStepIssues = (
-  state: EmailComposeState,
-  final: boolean,
-): ComposeIssues => {
-  const issues = writeIssues(
-    byField(findIssues(state, final).filter((found) => !found.layoutRule)),
-  )
-  if (final && !state.message.trim()) {
-    issues.message ??= 'Write your message.'
-  }
-  return issues
 }
 
 const BLOCK_ERROR = /Block (\d+): (.+)$/
