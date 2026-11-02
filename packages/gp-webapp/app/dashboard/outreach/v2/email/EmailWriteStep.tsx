@@ -49,8 +49,6 @@ import {
   snapshot,
   toAiFields,
   toContent,
-  usesSubheadings,
-  usesTitle,
   writeStepIssues,
   type ComposeField,
   type ComposeFieldError,
@@ -363,19 +361,17 @@ export const EmailWriteStep = ({
         <FieldError message={errorFor('subject')} />
       </div>
 
-      {usesTitle(value.layout) && (
-        <div className="space-y-2">
-          <Label htmlFor="email-title">Title</Label>
-          <Input
-            id="email-title"
-            value={value.title}
-            maxLength={EMAIL_HEADING_MAX_LENGTH}
-            aria-invalid={Boolean(errorFor('title'))}
-            onChange={(e) => set('title', e.target.value)}
-          />
-          <FieldError message={errorFor('title')} />
-        </div>
-      )}
+      <div className="space-y-2">
+        <Label htmlFor="email-title">Title</Label>
+        <Input
+          id="email-title"
+          value={value.title}
+          maxLength={EMAIL_HEADING_MAX_LENGTH}
+          aria-invalid={Boolean(errorFor('title'))}
+          onChange={(e) => set('title', e.target.value)}
+        />
+        <FieldError message={errorFor('title')} />
+      </div>
 
       <div className="space-y-2">
         <span className="text-sm font-medium text-foreground">Message</span>
@@ -425,11 +421,9 @@ export const EmailWriteStep = ({
             </IconButton>
           </div>
         </Card>
-        {usesSubheadings(value.layout) && (
-          <p className="text-xs text-muted-foreground">
-            Start a line with ## to add a subheading.
-          </p>
-        )}
+        <p className="text-xs text-muted-foreground">
+          Start a line with ## to add a subheading.
+        </p>
         <FieldError message={errorFor('message')} />
         {dictation.status === 'error' && dictation.error !== null && (
           <p className="text-xs text-destructive">

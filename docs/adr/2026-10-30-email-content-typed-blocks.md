@@ -1,6 +1,6 @@
 ---
 title: Email content is typed blocks; layouts are presets
-status: active
+status: superseded
 decided_by: [stephtea]
 date: 2026-10-30
 code: ['#3470']
@@ -11,7 +11,7 @@ scope:
   - packages/contracts/src/outreach/EmailContent.examples.ts
   - packages/gp-api/src/emailOutreach/templates/**
 supersedes: []
-superseded_by:
+superseded_by: 2026-11-02-email-layouts-shape-content-but-never-refuse-it.md
 ---
 
 # Email content is typed blocks; layouts are presets

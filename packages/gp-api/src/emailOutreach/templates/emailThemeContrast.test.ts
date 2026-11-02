@@ -31,7 +31,7 @@ const DRAWN_PAIRS: Pair[] = [
   ['meta', 'card'],
   ['ctaText', 'cta'],
   ['accentText', 'accent'],
-  // long_update's subheadings and personal_letter's link.
+  // Subheadings and personal_letter's link.
   ['rule', 'card'],
   ['cta', 'card'],
 ]

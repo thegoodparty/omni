@@ -112,34 +112,21 @@ const mockAiDraft = (page: Page) =>
     route.fulfill({ json: AI_DRAFT }),
   )
 
-// Write, then look: the draft fills a personal letter, the short layout
-// picked on the look step asks for a title that step 1 hid, Back fills it in,
-// and the button's link is filled in on the look step.
+// Write, then look: the draft fills a personal letter, a title is added, the
+// short layout is picked on the look step and the button's link is filled in
+// there.
 const composeEmail = async (page: Page) => {
   await expect(page.locator('#email-subject')).toHaveValue(
     'Meet your candidate',
     { timeout: 30_000 },
   )
+  await page.locator('#email-title').fill('Fixing our roads')
   await page.getByRole('button', { name: 'Next' }).click()
 
   await expect(stepHeading(page, 'How should it look?')).toBeVisible({
     timeout: 30_000,
   })
   await page.getByRole('radio', { name: 'Short with a button' }).click()
-  await expect(page.getByTestId('email-layout-misfit')).toContainText(
-    'Title: Add a title.',
-  )
-  await expect(page.getByRole('button', { name: 'Next' })).toBeDisabled()
-  await page.getByRole('button', { name: 'Back' }).click()
-
-  await expect(stepHeading(page, 'What do you want to say?')).toBeVisible()
-  await expect(page.getByRole('textbox', { name: 'Message' })).toContainText(
-    'I am running to fix our roads.',
-  )
-  await page.locator('#email-title').fill('Fixing our roads')
-  await page.getByRole('button', { name: 'Next' }).click()
-
-  await expect(stepHeading(page, 'How should it look?')).toBeVisible()
   await page.locator('#email-button-url').fill('https://goodparty.org')
   await page.getByRole('button', { name: 'Next' }).click()
 }

@@ -108,7 +108,7 @@ describe('saving a block draft', () => {
     expect(res.data.content.blocks).toHaveLength(2)
   })
 
-  it('rejects a block the layout does not allow, and writes nothing', async () => {
+  it('saves blocks another layout usually holds', async () => {
     const res = await post(
       '/v1/outreach/email',
       {
@@ -118,17 +118,43 @@ describe('saving a block draft', () => {
           theme: 'cream_and_forest',
           subject: 'Hi',
           blocks: [
-            { type: 'heading', text: 'Not in a letter', level: 1 },
+            { type: 'heading', text: 'A headline in a letter', level: 1 },
             { type: 'paragraph', text: 'Dear {{first_name}},' },
+            { type: 'divider' },
+          ],
+        },
+      },
+      winHeaders(),
+    )
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(res.data.content.blocks).toHaveLength(3)
+  })
+
+  it('rejects a second button, and writes nothing', async () => {
+    const button = {
+      type: 'button',
+      label: 'RSVP',
+      url: 'https://example.org/rsvp',
+    }
+    const res = await post(
+      '/v1/outreach/email',
+      {
+        goal: 'g',
+        content: {
+          layout: 'personal_letter',
+          theme: 'cream_and_forest',
+          subject: 'Hi',
+          blocks: [
+            { type: 'paragraph', text: 'Dear {{first_name}},' },
+            button,
+            button,
           ],
         },
       },
       winHeaders(),
     )
     expect(res.status).toBe(HttpStatus.BAD_REQUEST)
-    expect(JSON.stringify(res.data)).toContain(
-      'The Personal letter layout doesn’t use heading blocks',
-    )
+    expect(JSON.stringify(res.data)).toContain('Use at most one button')
     expect(
       await service.prisma.outreach.count({
         where: { organizationSlug: orgs.winSlug },
@@ -258,6 +284,24 @@ describe('confirm and test send check the send schema', () => {
 
   it('confirms a finished block draft', async () => {
     const { outreachId } = await blockSend(shortCta())
+    const res = await post(
+      `/v1/outreach/email/${outreachId}/confirm`,
+      { paymentMethodId: 'pm_1' },
+      winHeaders(),
+    )
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(res.data.outcome).toBe('scheduled')
+  })
+
+  it('confirms a short email with no button, a subheading and a divider', async () => {
+    const content = shortCta()
+    content.blocks = [
+      ...content.blocks.slice(0, 3),
+      { type: 'divider' },
+      { type: 'heading', text: 'Where we meet', level: 2 },
+      { type: 'paragraph', text: 'At the library steps.' },
+    ]
+    const { outreachId } = await blockSend(content)
     const res = await post(
       `/v1/outreach/email/${outreachId}/confirm`,
       { paymentMethodId: 'pm_1' },

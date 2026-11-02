@@ -118,7 +118,7 @@ describe('EmailWriteStep AI draft', () => {
       )
       // The message editor syncs from the form a render after Subject.
       await waitFor(() => expect(message()).toHaveTextContent('I am running.'))
-      expect(screen.queryByLabelText('Title')).toBeNull()
+      expect(screen.getByLabelText('Title')).toHaveValue('')
       expect(screen.queryByLabelText('Button text')).toBeNull()
       await new Promise((resolve) => setTimeout(resolve, 50))
       expect(requests).toHaveLength(1)
@@ -181,7 +181,7 @@ describe('EmailWriteStep AI draft', () => {
 })
 
 describe('EmailWriteStep form', () => {
-  it('shows Title and the subheading hint only where the layout uses them', async () => {
+  it('shows Title and the subheading hint in every layout', async () => {
     const { unmount } = render(<Harness start={written} />)
 
     expect(screen.getByLabelText('Title')).toHaveValue('Ward 2 update')
@@ -191,14 +191,14 @@ describe('EmailWriteStep form', () => {
     unmount()
 
     render(<Harness start={switchLayout(written, 'personal_letter')} />)
-    expect(screen.queryByLabelText('Title')).toBeNull()
+    expect(screen.getByLabelText('Title')).toHaveValue('Ward 2 update')
     expect(
-      screen.queryByText('Start a line with ## to add a subheading.'),
-    ).toBeNull()
+      screen.getByText('Start a line with ## to add a subheading.'),
+    ).toBeInTheDocument()
     expect(message()).toHaveTextContent('It moved to December.')
   })
 
-  it('shows plain errors next to the field, leaving the layout’s rules and the button to the look step', async () => {
+  it('shows plain errors next to the field, leaving the button to the look step', async () => {
     render(
       <Harness
         showIssues
@@ -211,12 +211,7 @@ describe('EmailWriteStep form', () => {
     )
 
     expect(screen.getByText('Add a subject line.')).toBeInTheDocument()
-    expect(screen.queryByText('Add a title.')).toBeNull()
-    expect(
-      screen.queryByText(
-        'Keep the message under 600 characters for this layout.',
-      ),
-    ).toBeNull()
+    expect(screen.queryByText('Write your message.')).toBeNull()
     expect(screen.queryByText('Add the link this button opens.')).toBeNull()
   })
 

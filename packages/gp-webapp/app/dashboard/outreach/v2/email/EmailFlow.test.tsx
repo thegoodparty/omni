@@ -229,60 +229,24 @@ describe('EmailFlow', () => {
     expect(screen.getByLabelText('Title')).toBeInTheDocument()
   })
 
-  it('blocks the look step while the writing does not fit the layout', async () => {
+  it('saves a short email with no title, no button and a long message', async () => {
     const saves = mockApi()
-    const user = userEvent.setup()
-    render(<EmailFlow open onClose={vi.fn()} />)
-
-    await pickAudience(user)
-    await writeLetter(user)
-    await user.click(screen.getByRole('button', { name: 'Next' }))
-    await screen.findByText('How should it look?')
-    await user.click(screen.getByRole('radio', { name: 'Short with a button' }))
-
-    expect(screen.getByTestId('email-layout-misfit')).toHaveTextContent(
-      'Title: Add a title.',
-    )
-    expect(screen.getByText('Button')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Next' })).toBeDisabled()
-
-    await user.click(screen.getByRole('radio', { name: 'Personal letter' }))
-    expect(screen.queryByTestId('email-layout-misfit')).toBeNull()
-    expect(screen.getByText('Button (optional)')).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'Next' }))
-    await waitFor(() => expect(saves).toHaveLength(1))
-  })
-
-  it('passes the write step with a message too long for Short, and flags it on the look step', async () => {
-    mockApi()
     const user = userEvent.setup({ delay: null })
     render(<EmailFlow open onClose={vi.fn()} />)
 
     await pickAudience(user)
     await user.type(await screen.findByLabelText('Subject'), 'Hello')
     await user.click(screen.getByRole('textbox', { name: 'Message' }))
-    await user.keyboard(`${'a'.repeat(300)}{Enter}{Enter}${'b'.repeat(301)}`)
+    await user.keyboard(
+      `${'a'.repeat(300)}{Enter}{Enter}${'b'.repeat(301)}{Enter}{Enter}c`,
+    )
     await user.click(screen.getByRole('button', { name: 'Next' }))
     await screen.findByText('How should it look?')
     await user.click(screen.getByRole('radio', { name: 'Short with a button' }))
-    await user.click(screen.getByRole('button', { name: 'Back' }))
 
-    await user.type(await screen.findByLabelText('Title'), 'Saturday')
-    expect(
-      screen.queryByText(
-        'Keep the message under 600 characters for this layout.',
-      ),
-    ).toBeNull()
+    expect(screen.getByText('Button (optional)')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Next' }))
-
-    expect(await screen.findByText('How should it look?')).toBeInTheDocument()
-    expect(screen.getByTestId('email-layout-misfit')).toHaveTextContent(
-      'Message: Keep the message under 600 characters for this layout.',
-    )
-    expect(screen.getByRole('button', { name: 'Next' })).toBeDisabled()
-
-    await user.click(screen.getByRole('radio', { name: 'Long update' }))
-    expect(screen.queryByTestId('email-layout-misfit')).toBeNull()
+    await waitFor(() => expect(saves).toHaveLength(1))
   })
 
   it('holds the write step until the subject and message are written', async () => {

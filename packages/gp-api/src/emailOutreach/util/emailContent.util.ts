@@ -7,7 +7,6 @@ import {
   EmailLayoutKeySchema,
   EmailLayoutPresetKeySchema,
   EmailThemeKeySchema,
-  checkEmailLayout,
   type EmailBlockDraft,
   type EmailContent,
   type EmailContentDraft,
@@ -49,8 +48,8 @@ export const presetForLayout = (
 }
 
 // Headline to heading, body to paragraphs, image, button, arranged the way
-// the preset wants them. personal_letter has no headings, so its headline
-// opens the letter as a paragraph.
+// the preset usually looks. A personal letter usually has no headings, so its
+// headline opens the letter as a paragraph.
 export const fieldsToBlocks = (
   preset: EmailLayoutPresetKey,
   fields: EmailFields,
@@ -98,10 +97,10 @@ export const fieldsToBlocks = (
 }
 
 // A draft saved with the fixed fields takes its old layout's preset when its
-// blocks fit it, structure and block limits both, and otherwise
-// personal_letter, which takes any of them and turns a headline too long for
-// a heading into a paragraph. The one thing no preset holds is a paragraph
-// over the block limit; a save refuses that at compose.
+// blocks are within the block limits, and otherwise personal_letter, which
+// splits the body into paragraphs and turns a headline too long for a heading
+// into a paragraph. The one thing no preset holds is a paragraph over the
+// block limit; a save refuses that at compose.
 export const fieldsContent = (row: FieldsDraft): EmailContentView => {
   const parsedLayout = EmailLayoutKeySchema.safeParse(row.layout)
   const natural = parsedLayout.success
@@ -109,14 +108,12 @@ export const fieldsContent = (row: FieldsDraft): EmailContentView => {
     : 'personal_letter'
   const theme = EmailThemeKeySchema.parse(row.theme)
   const naturalBlocks = fieldsToBlocks(natural, row)
-  const fits =
-    checkEmailLayout(natural, naturalBlocks).length === 0 &&
-    EmailContentDraftSchema.safeParse({
-      layout: natural,
-      theme,
-      subject: row.subject,
-      blocks: naturalBlocks,
-    }).success
+  const fits = EmailContentDraftSchema.safeParse({
+    layout: natural,
+    theme,
+    subject: row.subject,
+    blocks: naturalBlocks,
+  }).success
   return {
     layout: fits ? natural : 'personal_letter',
     theme,

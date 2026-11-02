@@ -61,12 +61,12 @@ describe('fieldsContent (drafts saved with the old fields)', () => {
     expect(EmailContentSchema.safeParse(content).success).toBe(true)
   })
 
-  it('falls back to a personal letter, headline first, when the old layout does not fit', () => {
+  it('keeps the old layout for a body of any shape', () => {
     const content = fieldsContent(fields({ body: 'Join us at 7pm.' }))
     expect(content).toMatchObject({
-      layout: 'personal_letter',
+      layout: 'long_update',
       blocks: [
-        { type: 'paragraph', text: 'Come to the town hall' },
+        { type: 'heading', text: 'Come to the town hall', level: 1 },
         { type: 'paragraph', text: 'Join us at 7pm.' },
       ],
     })

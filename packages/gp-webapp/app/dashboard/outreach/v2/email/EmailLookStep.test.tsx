@@ -51,33 +51,17 @@ const letter: EmailComposeState = {
 }
 
 describe('EmailLookStep', () => {
-  it('makes the button required only in Short with a button', async () => {
+  it('keeps the button optional and the writing valid in every layout', async () => {
     const user = userEvent.setup()
-    render(<Harness start={{ ...letter, title: 'Saturday' }} />)
-
-    expect(screen.getByText('Button (optional)')).toBeInTheDocument()
-    await user.click(screen.getByRole('radio', { name: 'Short with a button' }))
-    expect(screen.getByText('Button')).toBeInTheDocument()
-    await user.click(screen.getByRole('radio', { name: 'Long update' }))
-    expect(screen.getByText('Button (optional)')).toBeInTheDocument()
-  })
-
-  it('says what was written that does not fit the layout', async () => {
-    const user = userEvent.setup()
-    render(<Harness start={{ ...letter, message: 'a'.repeat(601) }} />)
-
-    expect(screen.queryByTestId('email-layout-misfit')).toBeNull()
-    await user.click(screen.getByRole('radio', { name: 'Short with a button' }))
-    const misfit = screen.getByTestId('email-layout-misfit')
-    expect(misfit).toHaveTextContent('Title: Add a title.')
-    expect(misfit).toHaveTextContent(
-      'Message: Keep the message under 600 characters for this layout.',
+    render(
+      <Harness showIssues start={{ ...letter, message: 'a'.repeat(601) }} />,
     )
 
-    await user.click(screen.getByRole('radio', { name: 'Long update' }))
-    expect(screen.getByTestId('email-layout-misfit')).toHaveTextContent(
-      'Message: Write at least 2 paragraphs, with a blank line between them.',
-    )
+    for (const name of ['Short with a button', 'Long update']) {
+      await user.click(screen.getByRole('radio', { name }))
+      expect(screen.getByText('Button (optional)')).toBeInTheDocument()
+      expect(screen.queryByRole('alert')).toBeNull()
+    }
   })
 
   it('asks for the button’s link, and shows the button error after Next', async () => {

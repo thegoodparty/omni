@@ -1181,10 +1181,9 @@ export {
 } from './outreach/EmailBlock.schema'
 export {
   EMAIL_LAYOUT_PRESETS,
-  EMAIL_SHORT_CTA_PARAGRAPH_MAX_LENGTH,
   EmailLayoutPresetKeySchema,
-  checkEmailLayout,
-  type EmailLayoutIssue,
+  checkEmailBlocks,
+  type EmailBlocksIssue,
   type EmailLayoutPreset,
   type EmailLayoutPresetKey,
 } from './outreach/EmailLayoutPreset.const'
