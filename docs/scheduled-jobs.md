@@ -84,6 +84,13 @@ Reference implementations, all clean examples of the shape below:
   abandoned memos. No deploy allowlist: it calls Transcribe only for memos
   recorded on the deploy's own database
 
+- `electedOffice/services/winOffice.service.ts` (`winOfficeSweep`,
+  `19 6 * * *` ET): daily slot. Creates a dormant elected office for up to 200
+  won campaigns that have none (a DDHQ result the data pipeline wrote straight
+  to Postgres, or the backfill of older wins), then deletes up to 200 dormant
+  win offices whose campaign now reads lost or is running again. No deploy
+  allowlist: it writes only the deploy's own database, and the office it
+  creates is unfinished, so it dispatches no agent runs
 - `vendors/vendorDriftProbe.service.ts` (`vendorDriftProbe`, `41 4 * * *`):
   daily slot, gated on `VENDOR_MODE === 'live'` (prod in practice; read
   through the module constant, not `OTEL_SERVICE_ENVIRONMENT`). Calls eight
@@ -204,7 +211,7 @@ lock is what then stops prod's two replicas duplicating the pass.
 
 A job that starts paid work for every elected office (community issues,
 meeting briefings, ordinance sourcing) selects only offices with
-`onboardingCompletedAt` set. A candidate's win can create an office nobody
+`onboardingCompletedAt` set. Every candidate's win creates an office nobody
 has opened yet, and it must not cost agent runs. Staff and admin dispatch
 endpoints and the official's own actions are not gated.
 

@@ -65,7 +65,9 @@ whose campaign is Pro (`campaignIsPro` on `GET /v1/elected-office/mine`)
 and with no `onboardingCompletedAt`, to `/serve/onboarding`, every time,
 until the pledge (never from `/serve/*` or `/dashboard/election-result*`).
 A non-Pro winner's unfinished office leaves them on the Win dashboard:
-Serve opens to everyone else a group at a time. gp-api answers Pro because
+Serve opens to everyone else a group at a time. Every win, from any source,
+has such an office (gp-api creates it dormant: no Serve jobs until the
+pledge, which starts them), so staff let a winner in by sending them here. gp-api answers Pro because
 the active org can be the office's `eo-*` org, where `useCampaign` is null. The page
 guard prefers an unfinished win office (`campaignId` set) over a finished
 one, so someone who already serves and wins another seat lands on the new

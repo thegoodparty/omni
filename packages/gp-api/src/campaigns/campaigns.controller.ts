@@ -33,7 +33,13 @@ import {
   UseInterceptors,
   UsePipes,
 } from '@nestjs/common'
-import { Campaign, User, UserRole } from '../generated/prisma'
+import {
+  Campaign,
+  ElectedOfficeWinSource,
+  User,
+  UserRole,
+} from '../generated/prisma'
+import { WinOfficeService } from '@/electedOffice/services/winOffice.service'
 import { PinoLogger } from 'nestjs-pino'
 import { createZodDto, ZodValidationPipe } from 'nestjs-zod'
 import { z } from 'zod'
@@ -97,6 +103,7 @@ export class CampaignsController {
     private readonly analytics: AnalyticsService,
     private readonly filingInstructions: FilingInstructionsService,
     private readonly eligibility: EligibilityService,
+    private readonly winOffices: WinOfficeService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(CampaignsController.name)
@@ -384,6 +391,20 @@ export class CampaignsController {
     )
     if (!updated) throw new NotFoundException('Campaign not found after update')
 
+    // A saved result, or a new race clearing the last one, creates or
+    // removes the campaign's dormant office.
+    if (
+      body.details?.wonGeneral !== undefined ||
+      body.details?.electionDate !== undefined
+    ) {
+      await this.winOffices.reconcile(
+        updated.id,
+        isAdminSlugOverride
+          ? ElectedOfficeWinSource.staff
+          : ElectedOfficeWinSource.self_reported,
+      )
+    }
+
     // The webapp writes this response straight into its campaign cache, so it
     // carries the same SMS window fields as GET mine or the cutoff UI reopens.
     const tcrCompliance = await this.campaigns.client.tcrCompliance.findUnique({
@@ -446,7 +467,7 @@ export class CampaignsController {
 
     const { data, details, aiContent, ...scalarFields } = body
 
-    return this.campaigns.updateJsonFields(
+    const updated = await this.campaigns.updateJsonFields(
       id,
       { data, details, aiContent },
       true,
@@ -454,6 +475,15 @@ export class CampaignsController {
         ? scalarFields
         : undefined,
     )
+    if (
+      scalarFields.didWin !== undefined ||
+      details?.wonGeneral !== undefined ||
+      details?.electionDate !== undefined ||
+      data?.hubSpotUpdates !== undefined
+    ) {
+      await this.winOffices.reconcile(id, ElectedOfficeWinSource.staff)
+    }
+    return updated
   }
 
   @Post('launch')

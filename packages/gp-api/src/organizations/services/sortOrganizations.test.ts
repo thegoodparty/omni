@@ -33,6 +33,17 @@ describe('sortOrganizations', () => {
     expect(sorted.map((o) => o.slug)).toEqual(['eo-9', 'campaign-1'])
   })
 
+  it('does not lead with a dormant office nobody finished onboarding', () => {
+    // Every win creates one, and it must not open Serve by itself.
+    const dormant = { ...office('2028-01-01'), onboardingCompletedAt: null }
+    const sorted = sortOrganizations(
+      [org('campaign-1'), org('eo-9', dormant)],
+      NOW,
+    )
+
+    expect(sorted.map((o) => o.slug)).toEqual(['campaign-1', 'eo-9'])
+  })
+
   it('leaves an office whose term has ended in place', () => {
     // A former office holder running again belongs in their campaign, not in a
     // dashboard for a seat they no longer hold. Matches the "Past" the picker

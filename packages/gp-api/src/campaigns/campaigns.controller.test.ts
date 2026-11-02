@@ -1,3 +1,4 @@
+import { WinOfficeService } from '@/electedOffice/services/winOffice.service'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
 import { newFixtureUserEmail } from '@/users/util/users.util'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
@@ -217,6 +218,7 @@ describe('CampaignsController', () => {
       analyticsService,
       filingInstructionsService,
       eligibilityService,
+      { reconcile: vi.fn() } as unknown as WinOfficeService,
       createMockLogger(),
     )
   })
