@@ -160,6 +160,14 @@ Auth state is enforced globally via global guards registered in order. Most rout
   early on a `clerkId` hit and never re-reads the Clerk profile once the row
   exists. Both paths land the number before `POST /v1/users/me/crm-registration`
   fires, which is what puts it on the HubSpot contact.
+- **`/post-auth-redirect` re-asks for a missing phone.** Leaving `/sign-up/phone`
+  is not a way past it: a signed-in, non-sales user created since the phone step
+  shipped (2026-09-17) with no phone on `GET /v1/users/me` is sent back to the
+  step, before registration tracking. This also catches sales magic-link
+  accounts (`provisionMagicLinkUser` takes no phone), which never see a sign-up
+  form. Older accounts are not asked (no backfill); whether to extend it to them,
+  and whether magic-link accounts should take the HubSpot contact's phone
+  instead, are open product decisions (ENG-11538).
 - **`SessionGuard` calls Clerk only to verify the session token.** Identity
   fields (email, name, avatar) come from Postgres, which is authoritative;
   there is no per-request Clerk profile fetch. `verifyToken` and `m2m.verify`
