@@ -1,6 +1,6 @@
 ---
 title: The dashboard routes only Pro winners to Serve onboarding, and gp-api says which office is Pro
-status: active
+status: superseded
 decided_by: [bryclevgp]
 date: 2026-11-02
 code: ['#3487']
@@ -11,7 +11,7 @@ scope:
   - packages/gp-api/src/electedOffice/electedOffice.controller.ts
   - packages/contracts/src/campaigns/ElectedOffice.schema.ts
 supersedes: ['2026-10-28-win-offices-start-unfinished.md']
-superseded_by:
+superseded_by: 2026-11-02-dashboard-routes-ever-pro-winners-to-serve-onboarding.md
 ---
 
 # The dashboard routes only Pro winners to Serve onboarding, and gp-api says which office is Pro
