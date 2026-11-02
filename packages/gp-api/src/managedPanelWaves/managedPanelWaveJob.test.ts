@@ -227,7 +227,7 @@ describe('the managed panel wave job', () => {
       billableTextCount: WAVE_SIZE,
     })
     expect(wave.sentAt).toEqual(WEDNESDAY)
-    expect(wave.replyWindowEndsAt).toEqual(new Date(2026, 9, 31))
+    expect(wave.replyWindowEndsAt).toEqual(new Date(2026, 9, 28))
     expect(textSends()).toHaveLength(1)
     expect((await enrollment(id)).freeTextsUsed).toBe(WAVE_SIZE)
   })
@@ -246,7 +246,7 @@ describe('the managed panel wave job', () => {
 
     await job().runWaves(WEDNESDAY)
     await job().runWaves(WEDNESDAY)
-    expect(await job().advance(id, new Date('2026-10-29T12:19:00Z'))).toBe(
+    expect(await job().advance(id, new Date('2026-10-27T12:19:00Z'))).toBe(
       'waiting',
     )
 
@@ -351,7 +351,7 @@ describe('the managed panel wave job', () => {
   })
 
   describe('reply window', () => {
-    it('closes a wave five days after its send date and counts who joined', async () => {
+    it('closes a wave 48 hours after its send date and counts who joined', async () => {
       const { slug, id } = await enroll({ goalMembers: 10 })
       await job().advance(id, WEDNESDAY)
       const wave = await waveAt(id, 1)
@@ -362,12 +362,12 @@ describe('the managed panel wave job', () => {
       for (const { personId } of drawn) await setMember(slug, personId)
       await setMember(slug, randomUUID())
 
-      expect(await job().advance(id, new Date(2026, 9, 30, 23))).toBe('waiting')
-      expect(await job().advance(id, new Date(2026, 9, 31, 9))).toBe('sent')
+      expect(await job().advance(id, new Date(2026, 9, 27, 23))).toBe('waiting')
+      expect(await job().advance(id, new Date(2026, 9, 28, 9))).toBe('sent')
 
       const closed = await waveAt(id, 1)
       const next = await waveAt(id, 2)
-      expect(closed.closedAt).toEqual(new Date(2026, 9, 31, 9))
+      expect(closed.closedAt).toEqual(new Date(2026, 9, 28, 9))
       expect(closed.joinedMembers).toBe(2)
       expect(next.wave).toBe(2)
       expect(next.outreach?.fundedBy).toBe(OutreachFunding.goodparty_pilot)

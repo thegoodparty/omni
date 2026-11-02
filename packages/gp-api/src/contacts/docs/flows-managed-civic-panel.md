@@ -181,7 +181,7 @@ under `CronLockService`). For each `building` enrollment whose approver has
 
 - An unsent wave (`sentAt` null) is sent: its send is made if it has none,
   claimed through `claimFree`, and the wave marked sent with
-  `replyWindowEndsAt` `MANAGED_WAVE_REPLY_DAYS` (5) days after the send date.
+  `replyWindowEndsAt` `MANAGED_WAVE_REPLY_HOURS` (48) hours after the send date.
 - A sent wave inside its window waits. Past it, the wave is closed
   (`closedAt`, and `joinedMembers`: the people its list drew who are members
   now; JOIN replies make them members through the reply ingest).

@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common'
 import { Cron } from '@nestjs/schedule'
-import { addDays, differenceInCalendarDays, parseISO } from 'date-fns'
+import { addHours, differenceInCalendarDays, parseISO } from 'date-fns'
 import {
   CivicPanelStatus,
   ContactStatusField,
@@ -47,7 +47,7 @@ const WAVE_CRON = '19 8 * * *'
 
 // How long after its send date a wave waits for JOIN replies before the
 // next one is drawn.
-export const MANAGED_WAVE_REPLY_DAYS = 5
+export const MANAGED_WAVE_REPLY_HOURS = 48
 
 // Free sends cost GoodParty real texts, and every PR preview would post its
 // own recipient CSV to the fulfilment channel.
@@ -257,7 +257,10 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
       where: { id: waveId, sentAt: null },
       data: {
         sentAt: now,
-        replyWindowEndsAt: addDays(parseISO(sendDate), MANAGED_WAVE_REPLY_DAYS),
+        replyWindowEndsAt: addHours(
+          parseISO(sendDate),
+          MANAGED_WAVE_REPLY_HOURS,
+        ),
       },
     })
     if (count > 0) {
