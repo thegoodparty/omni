@@ -780,9 +780,11 @@
    "claimed_kind": "prefix",
    "confidence": "proposed",
    "dead_routes": [],
-   "dismissed_areas": [],
+   "dismissed_areas": [
+    "/dashboard/contacts"
+   ],
    "display_name": "Contacts - Segment Created",
-   "disposition": "new",
+   "disposition": "dismissed",
    "first_seen": "2026-10-02",
    "gap_files": [],
    "last_seen": "2026-10-22",
@@ -794,7 +796,7 @@
    "proposed_fires_on": "Voter Data (/dashboard/contacts/[[...attr]])",
    "proposed_surface": "voter-data",
    "proposed_url": "/dashboard/contacts/[[...attr]]",
-   "reason": "",
+   "reason": "Shared Win/Serve route; Win calls it Voter Data/Profile, Serve calls it Constituents/My Profile, so no single area name fits",
    "removal_commit": null,
    "signal": {
     "agreement": 0.985,
