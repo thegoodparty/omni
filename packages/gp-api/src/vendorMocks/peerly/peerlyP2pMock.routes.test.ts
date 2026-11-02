@@ -80,8 +80,28 @@ describe('P2P job CRUD', () => {
     await service.client.post(`${BASE}/1to1/jobs`, { name: 'list-test' })
     const res = await service.client.get(`${BASE}/1to1/jobs`)
     expect(res.status).toBe(HttpStatus.OK)
-    expect(Array.isArray(res.data.results)).toBe(true)
-    expect(res.data.results.length).toBeGreaterThan(0)
+    expect(Array.isArray(res.data)).toBe(true)
+    expect(res.data.length).toBeGreaterThan(0)
+  })
+
+  it('reads has_canvassers_scheduled false on a job recorded without it', async () => {
+    await service.prisma.vendorMockRecord.create({
+      data: {
+        vendor: VendorMockVendor.peerly,
+        kind: 'p2p_job',
+        externalId: 'legacy-job',
+        state: { id: 'legacy-job', status: 'pending' },
+      },
+    })
+    const get = await service.client.get(`${BASE}/1to1/jobs/legacy-job`)
+    expect(get.data.has_canvassers_scheduled).toBe(false)
+    const list = await service.client.get(`${BASE}/1to1/jobs`)
+    expect(list.data).toEqual([
+      expect.objectContaining({
+        id: 'legacy-job',
+        has_canvassers_scheduled: false,
+      }),
+    ])
   })
 
   it('updates the job state', async () => {
@@ -124,6 +144,14 @@ describe('P2P job CRUD', () => {
     )
     expect(res.status).toBe(HttpStatus.OK)
     expect(res.data.results).toEqual([])
+  })
+
+  it('lists no test jobs as a bare array', async () => {
+    const create = await service.client.post(`${BASE}/1to1/jobs`, {})
+    const id = create.data.id as string
+    const res = await service.client.get(`${BASE}/v2/p2p/${id}/tests`)
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(res.data).toEqual([])
   })
 })
 
