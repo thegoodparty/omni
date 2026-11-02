@@ -1,6 +1,6 @@
 ---
 title: A Pro winner's office starts unfinished, and the dashboard routes it to Serve onboarding
-status: active
+status: superseded
 decided_by: [bryclevgp]
 date: 2026-10-28
 code: ['#3322']
@@ -8,6 +8,7 @@ scope:
   - packages/gp-webapp/app/dashboard/election-result/**
   - packages/gp-webapp/app/dashboard/shared/DashboardLayout.tsx
   - packages/gp-webapp/app/serve/onboarding/**
+superseded_by: 2026-11-02-dashboard-routes-only-pro-winners-to-serve-onboarding.md
 ---
 
 # A Pro winner's office starts unfinished, and the dashboard routes it to Serve onboarding

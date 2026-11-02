@@ -303,6 +303,46 @@ describe('ElectedOfficeController', () => {
       ])
     })
 
+    it("says whether each office's linked campaign is Pro", async () => {
+      const proSlug = `campaign-pro-${Date.now()}`
+      await service.prisma.organization.create({
+        data: { slug: proSlug, ownerId: service.user.id },
+      })
+      const proCampaign = await service.prisma.campaign.create({
+        data: {
+          userId: service.user.id,
+          slug: proSlug,
+          organizationSlug: proSlug,
+          isPro: true,
+        },
+      })
+      const proWin = await createOfficeForUser(service.user.id, {
+        campaignId: proCampaign.id,
+        termStartDate: new Date('2020-01-01T00:00:00.000Z'),
+      })
+      const freeWin = await createOfficeForUser(service.user.id, {
+        campaignId: campaign.id,
+        termStartDate: new Date('2021-01-01T00:00:00.000Z'),
+      })
+      const noCampaign = await createOfficeForUser(service.user.id, {
+        termStartDate: new Date('2022-01-01T00:00:00.000Z'),
+      })
+
+      const result = await service.client.get('/v1/elected-office/mine')
+
+      expect(result.status).toBe(200)
+      expect(
+        (result.data as { id: string; campaignIsPro: boolean }[]).map((o) => [
+          o.id,
+          o.campaignIsPro,
+        ]),
+      ).toEqual([
+        [proWin.id, true],
+        [freeWin.id, false],
+        [noCampaign.id, false],
+      ])
+    })
+
     it('returns an empty array when the user holds no offices', async () => {
       const result = await service.client.get('/v1/elected-office/mine')
 

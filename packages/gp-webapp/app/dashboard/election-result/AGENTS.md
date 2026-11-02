@@ -48,7 +48,7 @@ Serve onboarding asks for the term and its pledge finishes the office. A
 winner who already holds another office still gets a new one for this seat;
 asking again returns the office linked to this campaign. See
 `app/serve/onboarding/AGENTS.md` ("Pro winners") for how the dashboard brings
-an unfinished winner back.
+an unfinished Pro winner back; a non-Pro winner is never sent there.
 
 Copy lives in `electionResultCopy.ts`. The Pro win (`PrepareToServe.tsx`)
 is two steps. First a full-screen celebration: "Congratulations, you won!",
