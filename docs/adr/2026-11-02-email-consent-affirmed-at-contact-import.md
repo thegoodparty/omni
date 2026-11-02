@@ -34,6 +34,11 @@ generic, which is why email asked again on every send. Asking twice for the
 same people added a step to every send without a different promise behind
 it.
 
+Uploads affirmed under the old wording are not filtered out, on purpose:
+contact import has not been live in prod, and no real contacts were uploaded
+in dev, so no real upload was affirmed under the wording that left out
+email.
+
 ## Alternatives rejected
 
 - **Keep a per-send box.** The user repeats the same statement on every
