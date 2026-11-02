@@ -1,13 +1,18 @@
 #!/usr/bin/env bash
-# Decide whether a failed release run lost a runner, and if so re-run its
-# failed jobs. Called by .github/workflows/release-retry.yml (ENG-11537).
+# Decide whether a failed or cancelled release run lost a runner, and if so
+# re-run its failed jobs (GitHub's re-run includes cancelled ones). Called by .github/workflows/release-retry.yml (ENG-11537).
 #
 # Retries only when ALL of these hold:
 #   - the attempt that failed is attempt 1 or 2 (at most 2 retries);
-#   - every failed job carries GitHub's lost-runner annotation, so a real
-#     failure (a red E2E, a failed deploy) is never retried;
-#   - every failed job is either on the STATELESS list below, or recorded no
-#     steps at all (its runner died before checkout, so nothing ran). A job
+#   - every failed or cancelled job lost its runner, so a real failure (a red
+#     E2E, a failed deploy) or a manual cancel is never retried. That means
+#     either GitHub's lost-runner annotation, or a hit timeout-minutes with
+#     no step past "Set up job": a dead runner cut off by the job timeout
+#     gets the timeout's annotation instead, and nothing ran. A timeout after
+#     steps ran is a slow or hung job, and is never retried. A timed-out job
+#     concludes `cancelled`, and so does its run, not `failure`;
+#   - every such job is either on the STATELESS list below, or ran no step
+#     past "Set up job" (its runner died before checkout). A job
 #     that runs a Pulumi or Terraform apply is never retried mid-run: a dead
 #     runner can leave a state lock and a half-applied stack, and
 #     docs/deployment.md rules out retrying an apply on top of that;
@@ -23,6 +28,7 @@ set -euo pipefail
 
 MAX_ATTEMPT=2
 LOST='The hosted runner lost communication with the server'
+TIMEOUT='has exceeded the maximum execution time'
 # release.yml jobs that hold no deploy state, so a re-run is always safe.
 # Not here on purpose: Dev/Promote gp-api (Pulumi), Dev/Promote gp-ai
 # (Terraform). A job added to release.yml is not retried until it is added.
@@ -41,8 +47,8 @@ write_summary() {
     echo "**Decision:** $decision"
     if [ -n "$rows" ]; then
       echo
-      echo "| Failed job | Started | Ended | Duration | Steps | Verdict |"
-      echo "|---|---|---|---|---|---|"
+      echo "| Job | Conclusion | Started | Ended | Duration | Steps run | Verdict |"
+      echo "|---|---|---|---|---|---|---|"
       printf '%b' "$rows"
     fi
   } >>"$SUMMARY"
@@ -57,19 +63,36 @@ skip() {
 
 [ "$ATTEMPT" -le "$MAX_ATTEMPT" ] || skip "already retried $((ATTEMPT - 1)) times"
 
-# id, steps recorded, started, ended, duration in seconds, name
+# id, conclusion, steps that ran (excluding GitHub's own "Set up job" and
+# "Complete job"), started, ended, duration in seconds, name
 failed=$(gh api --paginate "repos/$REPO/actions/runs/$RUN_ID/attempts/$ATTEMPT/jobs?per_page=100" \
-  --jq '.jobs[] | select(.conclusion == "failure")
-    | [.id, (.steps | length), (.started_at // "-"), (.completed_at // "-"),
+  --jq '.jobs[] | select(.conclusion == "failure" or .conclusion == "cancelled")
+    | [.id, .conclusion,
+       ([.steps[] | select(.name != "Set up job" and .name != "Complete job")] | length),
+       (.started_at // "-"), (.completed_at // "-"),
        (if .started_at and .completed_at
         then ((.completed_at | fromdate) - (.started_at | fromdate)) else -1 end),
        .name] | @tsv')
-[ -n "$failed" ] || skip "no failed jobs in this attempt"
+[ -n "$failed" ] || skip "no failed or cancelled jobs in this attempt"
 
 # Judge every failed job, not just the first, so the summary names them all.
 blocker=""
-while IFS=$'\t' read -r id steps started ended secs name; do
-  if ! gh api "repos/$REPO/check-runs/$id/annotations" --jq '.[].message' | grep -qF "$LOST"; then
+while IFS=$'\t' read -r id conclusion steps started ended secs name; do
+  # Captured first, not piped into grep -q, so an early grep exit cannot
+  # SIGPIPE the gh call under pipefail.
+  notes=$(gh api "repos/$REPO/check-runs/$id/annotations" --jq '.[].message')
+  if grep -qF "$LOST" <<<"$notes"; then
+    cause="lost runner"
+  elif [ "$steps" -eq 0 ] && grep -qF "$TIMEOUT" <<<"$notes"; then
+    cause="timed out before any step ran"
+  else
+    cause=""
+  fi
+  if [ -z "$cause" ] && grep -qF "$TIMEOUT" <<<"$notes"; then
+    verdict="timed out after steps ran, so a slow or hung job, not a dead runner"
+  elif [ -z "$cause" ] && [ "$conclusion" = cancelled ]; then
+    verdict="cancelled, not by a dead runner"
+  elif [ -z "$cause" ]; then
     verdict="failed for a reason other than a lost runner"
   elif [ "$steps" -gt 0 ] && ! grep -qE "$STATELESS_RE" <<<"$name"; then
     verdict="lost its runner mid-run and holds deploy state; check its lock and re-run by hand"
@@ -77,8 +100,8 @@ while IFS=$'\t' read -r id steps started ended secs name; do
     verdict=""
   fi
   if [ "$secs" -ge 0 ]; then dur="$((secs / 60))m $((secs % 60))s"; else dur="-"; fi
-  rows+="| $name | $started | $ended | $dur | $steps | ${verdict:-lost its runner; safe to retry} |\n"
-  echo "'$name': steps=$steps duration=$dur verdict=${verdict:-retryable}"
+  rows+="| $name | $conclusion | $started | $ended | $dur | $steps | ${verdict:-$cause; safe to retry} |\n"
+  echo "'$name': $conclusion steps_run=$steps duration=$dur verdict=${verdict:-retryable}"
   [ -n "$blocker" ] || [ -z "$verdict" ] || blocker="'$name' $verdict"
 done <<<"$failed"
 [ -z "$blocker" ] || skip "$blocker"
