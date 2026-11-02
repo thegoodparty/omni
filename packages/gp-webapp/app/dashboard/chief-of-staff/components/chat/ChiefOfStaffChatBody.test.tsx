@@ -178,6 +178,12 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
+// For tests about the starters themselves: they wait for the first-chat intro
+// to finish typing, which these tests are not about.
+const markIntroSeen = (): void => {
+  window.localStorage.setItem('cos-intro-streamed', '1')
+}
+
 describe('<ChiefOfStaffChatBody>', () => {
   describe('message action bar', () => {
     const replayOneTurn = () => {
@@ -244,6 +250,32 @@ describe('<ChiefOfStaffChatBody>', () => {
     await waitFor(() =>
       expect(screen.getByText(COS_INTRO_MESSAGES[0]!)).toBeInTheDocument(),
     )
+  })
+
+  it('shows the starters in the transcript only after the opener finishes typing', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: false })
+    const opener = ['Hello there, I am your Chief of Staff.', 'What first?']
+    render(
+      <ChiefOfStaffChatBody
+        active
+        opener={opener}
+        suggestions={[{ label: 'Tell my story', onSelect: vi.fn() }]}
+      />,
+    )
+
+    await act(() => vi.advanceTimersByTimeAsync(56))
+    expect(screen.queryByText(opener[1]!)).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Tell my story' }),
+    ).not.toBeInTheDocument()
+
+    await act(() => vi.advanceTimersByTimeAsync(5000))
+    expect(screen.getByText(opener[1]!)).toBeInTheDocument()
+    expect(
+      within(screen.getByTestId('cos-conversation')).getByRole('button', {
+        name: 'Tell my story',
+      }),
+    ).toBeInTheDocument()
   })
 
   it('does not play the intro once the user has prior conversations', async () => {
@@ -688,6 +720,7 @@ describe('<ChiefOfStaffChatBody>', () => {
   it('renders the default suggestions only on an empty transcript and sends the label text on click', async () => {
     const user = userEvent.setup()
     listConversationsMock.mockResolvedValue([])
+    markIntroSeen()
     createMock.mockResolvedValue({ conversationId: 'conv_1' })
     streamMessageMock.mockReturnValue(
       makeStream([
@@ -1153,6 +1186,7 @@ describe('<ChiefOfStaffChatBody>', () => {
   it('fires a hidden kickoff send when a suggestion with `kickoff` is clicked', async () => {
     const user = userEvent.setup()
     listConversationsMock.mockResolvedValue([])
+    markIntroSeen()
     createMock.mockResolvedValue({ conversationId: 'conv_kick' })
     streamMessageMock.mockReturnValue(
       makeStream([
@@ -1192,6 +1226,7 @@ describe('<ChiefOfStaffChatBody>', () => {
   it('calls onSelect and does not send when a suggestion has no kickoff', async () => {
     const user = userEvent.setup()
     listConversationsMock.mockResolvedValue([])
+    markIntroSeen()
     const onSelect = vi.fn()
 
     render(
@@ -1211,6 +1246,7 @@ describe('<ChiefOfStaffChatBody>', () => {
   it('sends a suggestion with `message` as the user’s own visible turn', async () => {
     const user = userEvent.setup()
     listConversationsMock.mockResolvedValue([])
+    markIntroSeen()
     createMock.mockResolvedValue({ conversationId: 'conv_msg' })
     streamMessageMock.mockReturnValue(
       makeStream([
@@ -1357,6 +1393,7 @@ describe('<ChiefOfStaffChatBody>', () => {
   it('DEFAULT: built-in chips still render label-only and visibly send on click (regression)', async () => {
     const user = userEvent.setup()
     listConversationsMock.mockResolvedValue([])
+    markIntroSeen()
     createMock.mockResolvedValue({ conversationId: 'conv_1' })
     streamMessageMock.mockReturnValue(
       makeStream([
@@ -1518,6 +1555,7 @@ describe('<ChiefOfStaffChatBody>', () => {
   it('focuses the composer when a suggestion requests it via composerRef', async () => {
     const user = userEvent.setup()
     listConversationsMock.mockResolvedValue([])
+    markIntroSeen()
     const composerRef = createRef<HTMLTextAreaElement>()
 
     render(
@@ -3324,6 +3362,7 @@ describe('the managed civic panel explainer', () => {
   it('records the next steps picked under the intro, and where the explainer came from', async () => {
     const user = userEvent.setup()
     listConversationsMock.mockResolvedValue([])
+    markIntroSeen()
     createMock.mockResolvedValue({ conversationId: 'conv_m' })
     streamExplainer()
     listMessagesMock.mockResolvedValue(explainerTurn())
