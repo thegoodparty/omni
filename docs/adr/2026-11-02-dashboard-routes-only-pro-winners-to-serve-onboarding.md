@@ -3,7 +3,7 @@ title: The dashboard routes only Pro winners to Serve onboarding, and gp-api say
 status: active
 decided_by: [agent]
 date: 2026-11-02
-code: ['#PR']
+code: ['#3487']
 scope:
   - packages/gp-webapp/app/dashboard/election-result/**
   - packages/gp-webapp/app/dashboard/shared/DashboardLayout.tsx
