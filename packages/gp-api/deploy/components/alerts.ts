@@ -663,16 +663,27 @@ export const GLOBAL_ALERTS: Alert[] = [
     slug: 'people-profile-revalidation-failing',
     name: '[People] Public profile cache revalidation failing',
     type: 'metric',
-    // person_profile.revalidation.count{result="failed"} — the outbound cache
-    // bust to gp-marketing. Sustained failures mean publish/unpublish/delete
-    // edits are live in gp-api but the public /people page stays stale until its
-    // ISR window (1h) expires.
-    expr: 'sum(rate(person_profile_revalidation_count_total{service_name="gp-api", deployment_environment_name="$ENV", result="failed"}[5m]))',
+    // person_profile.revalidation.count{result=...} — the outbound cache bust to
+    // gp-marketing. Failures mean publish/unpublish/delete edits are live in
+    // gp-api but the public /people page stays stale until its ISR window (1h)
+    // expires.
+    //
+    // This used to be `rate(failed[5m]) > 0 for 10m`, which can only fire while
+    // failures arrive continuously for ten minutes. The call happens once per
+    // profile write, ~1-2 a day, so a Vercel edge 429 on every one of them
+    // (ENG-11536: 20 of 20 since Oct 24) never held the condition for even a
+    // minute and the alert stayed silent. A sparse event needs a windowed
+    // comparison: fire when failures outnumber successes over 6h. Healthy
+    // traffic with the odd transient failure stays quiet; a stretch where
+    // nothing succeeds fires on the first failure. `or vector(0)` covers a
+    // missing series (no successes at all is the case we want to catch).
+    expr: '(sum(increase(person_profile_revalidation_count_total{service_name="gp-api", deployment_environment_name="$ENV", result="failed"}[6h])) or vector(0)) - (sum(increase(person_profile_revalidation_count_total{service_name="gp-api", deployment_environment_name="$ENV", result="success"}[6h])) or vector(0))',
     threshold: 0,
-    for: '10m',
+    for: '0m',
+    keepFiringFor: '6h',
     message: [
-      'gp-api has been failing to revalidate public /people profile pages for 10 minutes.',
-      'Owner edits (publish/unpublish/delete) are persisted but the cached marketing page will not refresh until its ISR window expires. Click *View in Grafana* (People Profiles dashboard), then check that MARKETING_REVALIDATE_SECRET matches gp-marketing and that POST $WEBAPP/api/revalidate-person is reachable and returns 200.',
+      'In the last 6 hours gp-api has had more failed than successful revalidations of public /people profile pages.',
+      'Owner edits (publish/unpublish/delete) are persisted but the cached marketing page will not refresh until its ISR window expires; a takedown can stay visible for up to an hour. Click *View in Grafana* and read the log line "Marketing revalidation request failed (non-fatal)": `status` 429 with `vercelMitigated` set means Vercel\'s edge firewall (bot protection / challenge / rate limit) is blocking gp-api, fixed with a Bypass rule for POST /api/revalidate-person in the gp-marketing Vercel project, not in code. Otherwise check that MARKETING_REVALIDATE_SECRET matches gp-marketing and that POST $WEBAPP/api/revalidate-person returns 200.',
     ].join('\n\n'),
   },
   {
