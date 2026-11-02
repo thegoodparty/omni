@@ -7,12 +7,13 @@ import { CircleAlertIcon } from '@styleguide/components/ui/icons'
 import { OutreachFlowShell, type FlowShellCta } from '../OutreachFlowShell'
 import { useOutreachAudience } from '../audience/useOutreachAudience'
 import { EmailAudienceStep } from './EmailAudienceStep'
-import { EmailComposeStep } from './EmailComposeStep'
 import { EmailGoalStep } from './EmailGoalStep'
+import { EmailLookStep } from './EmailLookStep'
 import { EmailPayStep } from './EmailPayStep'
 import { EmailReviewStep } from './EmailReviewStep'
 import { EmailScheduleStep } from './EmailScheduleStep'
 import { EmailStatus } from './EmailStatus'
+import { EmailWriteStep } from './EmailWriteStep'
 import {
   apiErrorMessage,
   emailSendQueryKey,
@@ -25,6 +26,7 @@ import {
   hasIssues,
   initialCompose,
   serverFieldError,
+  writeIssues,
   type ComposeFieldError,
   type EmailComposeState,
 } from './emailForm.util'
@@ -36,8 +38,9 @@ const EMAIL_COUNT_OVERLAY = { hasEmail: true }
 
 const STEP_ORDER = [
   'goal',
-  'compose',
   'audience',
+  'write',
+  'look',
   'schedule',
   'review',
   'pay',
@@ -70,7 +73,8 @@ export const EmailFlow = ({
     setFieldError(null)
     setComposeState(next)
   }
-  const [composeAttempted, setComposeAttempted] = useState(false)
+  const [writeAttempted, setWriteAttempted] = useState(false)
+  const [lookAttempted, setLookAttempted] = useState(false)
   const [draftId, setDraftId] = useState<number | null>(null)
   const audience = useOutreachAudience({
     open,
@@ -94,7 +98,9 @@ export const EmailFlow = ({
     goalId === surface.customGoalId
       ? customGoal.trim()
       : (surface.goals.find((g) => g.id === goalId)?.label ?? '')
-  const composeValid = !hasIssues(composeIssues(compose, true))
+  const finalIssues = composeIssues(compose, true)
+  const composeValid = !hasIssues(finalIssues)
+  const writeValid = !hasIssues(writeIssues(finalIssues))
   const index = STEP_ORDER.indexOf(step)
 
   const goTo = (next: EmailStep) => {
@@ -103,12 +109,13 @@ export const EmailFlow = ({
   }
 
   // Confirm and the test send name the block they refuse; the fix is on
-  // the form field that block came from.
+  // the form field that block came from, on the step that shows it.
   const fixBlock = (message: string): boolean => {
     const parsed = serverFieldError(compose, message)
     if (!parsed) return false
-    setComposeAttempted(true)
-    goTo('compose')
+    setWriteAttempted(true)
+    setLookAttempted(true)
+    goTo(parsed.field === 'button' ? 'look' : 'write')
     setFieldError(parsed)
     return true
   }
@@ -152,14 +159,18 @@ export const EmailFlow = ({
         })
 
   const next = async () => {
-    if (step === 'goal') return goTo('compose')
-    if (step === 'compose') {
-      setComposeAttempted(true)
-      if (!composeValid) return
-      if (await save(undefined)) goTo('audience')
+    if (step === 'goal') return goTo('audience')
+    // The draft needs its content, so the first save is on leaving the look
+    // step, with the list and consent picked before it.
+    if (step === 'audience') return goTo('write')
+    if (step === 'write') {
+      setWriteAttempted(true)
+      if (writeValid) goTo('look')
       return
     }
-    if (step === 'audience') {
+    if (step === 'look') {
+      setLookAttempted(true)
+      if (!composeValid) return
       if (await save(undefined)) goTo('schedule')
       return
     }
@@ -181,15 +192,10 @@ export const EmailFlow = ({
       goalId === surface.customGoalId
         ? {
             label: 'Next',
-            onClick: () => goTo('compose'),
+            onClick: () => goTo('audience'),
             disabled: !customGoal.trim(),
           }
         : null,
-    compose: {
-      label: 'Next',
-      onClick: () => void next(),
-      loading: busy,
-    },
     audience:
       audience.mode === 'filters'
         ? {
@@ -222,6 +228,16 @@ export const EmailFlow = ({
                 !audience.reachableCount ||
                 !consent,
             },
+    write: {
+      label: 'Next',
+      onClick: () => void next(),
+    },
+    look: {
+      label: 'Next',
+      onClick: () => void next(),
+      loading: busy,
+      disabled: !writeValid,
+    },
     schedule: {
       label: 'Next',
       onClick: () => void next(),
@@ -246,19 +262,9 @@ export const EmailFlow = ({
             customGoal={customGoal}
             onSelect={(id) => {
               setGoalId(id)
-              if (id !== surface.customGoalId) goTo('compose')
+              if (id !== surface.customGoalId) goTo('audience')
             }}
             onCustomGoalChange={setCustomGoal}
-          />
-        )}
-        {step === 'compose' && (
-          <EmailComposeStep
-            surface={surface}
-            value={compose}
-            onChange={setCompose}
-            showIssues={composeAttempted}
-            goal={goalText}
-            serverError={fieldError}
           />
         )}
         {step === 'audience' && (
@@ -269,6 +275,25 @@ export const EmailFlow = ({
             onConsentChange={(given) =>
               setConsentedListId(given ? audience.selectedListId : null)
             }
+          />
+        )}
+        {step === 'write' && (
+          <EmailWriteStep
+            surface={surface}
+            value={compose}
+            onChange={setCompose}
+            showIssues={writeAttempted}
+            goal={goalText}
+            serverError={fieldError}
+          />
+        )}
+        {step === 'look' && (
+          <EmailLookStep
+            surface={surface}
+            value={compose}
+            onChange={setCompose}
+            showIssues={lookAttempted}
+            serverError={fieldError}
           />
         )}
         {step === 'schedule' && (

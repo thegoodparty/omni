@@ -413,6 +413,18 @@ export const composeIssues = (
 export const hasIssues = (issues: ComposeIssues): boolean =>
   Object.keys(issues).length > 0
 
+// The fields on the write step. The button is set on the look step, since
+// whether it is required depends on the layout picked there.
+export const WRITE_FIELDS = ['subject', 'title', 'message', 'photo'] as const
+
+export const writeIssues = (issues: ComposeIssues): ComposeIssues => {
+  const picked: ComposeIssues = {}
+  for (const field of WRITE_FIELDS) {
+    if (issues[field]) picked[field] = issues[field]
+  }
+  return picked
+}
+
 const BLOCK_ERROR = /Block (\d+): (.+)$/
 
 // Confirm and the test send name the block they refuse, such as
