@@ -1,0 +1,51 @@
+name: Detect app changes
+description: >-
+  For a pull_request run, decide whether the PR touches app code. Outputs
+  app=false only when every changed path is on the no-app-code list in
+  classify.sh; anything it cannot vouch for is app=true. Runs the fixture
+  self-test first, so a broken classifier fails the step instead of skipping
+  CI. The caller must check out the PR merge commit with fetch-depth 2.
+
+outputs:
+  app:
+    description: '`true` unless every changed path is outside app code.'
+    value: ${{ steps.classify.outputs.app }}
+
+runs:
+  using: composite
+  steps:
+    - name: Self-test the classifier
+      shell: bash
+      run: bash "$GITHUB_ACTION_PATH/self-test.sh"
+
+    - name: Classify the pull request
+      id: classify
+      shell: bash
+      env:
+        MERGE_SHA: ${{ github.sha }}
+        HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      run: |
+        set -euo pipefail
+        list="$RUNNER_TEMP/changed-paths"
+        # A list this step cannot produce is an app change, not a red run: the
+        # PR still gets the full pipeline, just without the shortcut.
+        if ! bash "$GITHUB_ACTION_PATH/changed-paths.sh" "$MERGE_SHA" "$HEAD_SHA" >"$list"; then
+          echo "::warning::Could not list this PR's changed paths; running the full pipeline."
+          echo "app=true" >>"$GITHUB_OUTPUT"
+          exit 0
+        fi
+        echo "::group::Changed paths"
+        tr '\0' '\n' <"$list"
+        echo "::endgroup::"
+        app="$(bash "$GITHUB_ACTION_PATH/classify.sh" <"$list")"
+        case "$app" in
+          true | false) ;;
+          *)
+            echo "::error::classify.sh printed '$app'"
+            exit 1
+            ;;
+        esac
+        if [ "$app" = false ]; then
+          echo "::notice::No app code changed; app checks, previews and E2E are skipped."
+        fi
+        echo "app=$app" >>"$GITHUB_OUTPUT"
