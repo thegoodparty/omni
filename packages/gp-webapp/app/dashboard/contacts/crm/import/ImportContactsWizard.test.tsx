@@ -235,7 +235,7 @@ describe('<ImportContactsWizard>', () => {
 
     await user.click(
       screen.getByLabelText(
-        'These people agreed to hear from me. I am responsible for that.',
+        'These people agreed to hear from me, including by email. I am responsible for that.',
       ),
     )
     expect(importButton).toBeEnabled()
@@ -285,7 +285,7 @@ describe('<ImportContactsWizard>', () => {
     await user.type(screen.getByLabelText('Upload name'), 'Newsletter')
     await user.click(
       screen.getByLabelText(
-        'These people agreed to hear from me. I am responsible for that.',
+        'These people agreed to hear from me, including by email. I am responsible for that.',
       ),
     )
     await user.click(screen.getByRole('button', { name: 'Import 2 people' }))
@@ -407,7 +407,7 @@ describe('<ImportContactsWizard>', () => {
     await user.type(screen.getByLabelText('Upload name'), 'Newsletter')
     await user.click(
       screen.getByLabelText(
-        'These people agreed to hear from me. I am responsible for that.',
+        'These people agreed to hear from me, including by email. I am responsible for that.',
       ),
     )
     await user.click(screen.getByRole('button', { name: 'Import 2 people' }))

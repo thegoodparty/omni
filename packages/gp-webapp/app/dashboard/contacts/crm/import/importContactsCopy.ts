@@ -6,6 +6,9 @@ import { CONTACTS_DATA_TITLE } from '../../../shared/contactsLabels'
 
 export const UPLOAD_HISTORY_PATH = '/dashboard/contacts/uploads'
 
+// The contacts page with the import wizard open.
+export const IMPORT_CONTACTS_HREF = '/dashboard/contacts?import=1'
+
 export const uploadDetailPath = (uploadId: string): string =>
   `${UPLOAD_HISTORY_PATH}/${encodeURIComponent(uploadId)}`
 
@@ -74,7 +77,8 @@ export const SERVE_IMPORT_CONTACTS_COPY = {
       `${people(count)} are in this file. Give it a name so you can find it later.`,
     nameLabel: 'Upload name',
     namePlaceholder: 'Name this upload',
-    consent: 'These people agreed to hear from me. I am responsible for that.',
+    consent:
+      'These people agreed to hear from me, including by email. I am responsible for that.',
     continue: 'Continue',
     importPeople: (count: number) => `Import ${people(count)}`,
     sendingTitle: 'Uploading your file',

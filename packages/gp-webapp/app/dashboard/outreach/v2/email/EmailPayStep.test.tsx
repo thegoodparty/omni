@@ -35,7 +35,6 @@ const send = {
   buttonUrl: null,
   paidForBy: null,
   date: null,
-  consentConfirmedAt: null,
   voterFileFilterId: 1,
   recipientCount: 4800,
   content: {

@@ -156,7 +156,10 @@ untouched: an upload never becomes a list card.
   history. File (read in the browser by `parseCsvPreview` for headers,
   examples and the row count; CSV only, 25 MB), columns (`prefillColumnMapping`:
   the latest upload's mapping when every column it used is in the file, else
-  header names), then name and consent. Import presigns with the name,
+  header names), then name and consent (which covers email: the email
+  flow asks for none of its own). `/dashboard/contacts?import=1`
+  (`IMPORT_CONTACTS_HREF`) opens the wizard once the page can offer it, then
+  drops the param. Import presigns with the name,
   mapping and consent (`POST /v1/contact-uploads/presign`, which creates the
   upload), PUTs the file straight to S3 (the `/api` proxy on Vercel caps
   bodies at 4.5 MB), confirms it (`POST /v1/contact-uploads/:id/uploaded`;

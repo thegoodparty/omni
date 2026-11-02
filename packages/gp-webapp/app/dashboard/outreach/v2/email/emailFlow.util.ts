@@ -24,14 +24,13 @@ export const toDraftSave = (
   state: EmailComposeState,
   id: number | null,
   date: string | undefined,
-  audience: { listId: number | null; consent: boolean },
+  listId: number | null,
 ): EmailDraftSaveContent => ({
   ...(id !== null ? { id } : {}),
   goal,
   content: toContent(state),
   ...(date ? { date } : {}),
-  ...(audience.listId !== null ? { voterFileFilterId: audience.listId } : {}),
-  consentConfirmed: audience.consent,
+  ...(listId !== null ? { voterFileFilterId: listId } : {}),
 })
 
 const pad = (n: number): string => String(n).padStart(2, '0')

@@ -83,11 +83,6 @@ export const EmailFlow = ({
     reachabilityKey: 'email',
     countOverlay: EMAIL_COUNT_OVERLAY,
   })
-  // Consent is for one list: picking another one asks again.
-  const [consentedListId, setConsentedListId] = useState<number | null>(null)
-  const consent =
-    audience.selectedListId !== null &&
-    consentedListId === audience.selectedListId
   const [sendNow, setSendNow] = useState(true)
   const [day, setDay] = useState('')
   const [time, setTime] = useState('10:00')
@@ -132,10 +127,7 @@ export const EmailFlow = ({
     try {
       const draft = await saveEmailDraft(
         surface.isServe,
-        toDraftSave(goalText, compose, draftId, date, {
-          listId: audience.selectedListId,
-          consent,
-        }),
+        toDraftSave(goalText, compose, draftId, date, audience.selectedListId),
       )
       setDraftId(draft.id)
       void queryClient.invalidateQueries({
@@ -167,7 +159,7 @@ export const EmailFlow = ({
   const next = async () => {
     if (step === 'goal') return goTo('audience')
     // The draft needs its content, so the first save is on leaving the look
-    // step, with the list and consent picked before it.
+    // step, with the list picked before it.
     if (step === 'audience') return goTo('write')
     if (step === 'write') {
       setWriteAttempted(true)
@@ -231,8 +223,7 @@ export const EmailFlow = ({
               disabled:
                 audience.selectedList === null ||
                 audience.reachableLoading ||
-                !audience.reachableCount ||
-                !consent,
+                !audience.reachableCount,
             },
     write: {
       label: 'Next',
@@ -274,14 +265,7 @@ export const EmailFlow = ({
           />
         )}
         {step === 'audience' && (
-          <EmailAudienceStep
-            surface={surface}
-            audience={audience}
-            consent={consent}
-            onConsentChange={(given) =>
-              setConsentedListId(given ? audience.selectedListId : null)
-            }
-          />
+          <EmailAudienceStep surface={surface} audience={audience} />
         )}
         {step === 'write' && (
           <EmailWriteStep

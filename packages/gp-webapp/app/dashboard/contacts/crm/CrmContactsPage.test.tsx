@@ -3,6 +3,7 @@ import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { router } from 'helpers/test-utils/router-mocking'
+import { useSearchParams } from 'next/navigation'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { CrmContactsPage } from './CrmContactsPage'
 import { useContactsTable } from './ContactsTableProvider'
@@ -176,6 +177,9 @@ beforeEach(() => {
   mockServeConsumerData.on = false
   mockImportContacts.on = false
   vi.mocked(trackEvent).mockClear()
+  vi.mocked(useSearchParams).mockReturnValue(
+    new URLSearchParams() as unknown as ReturnType<typeof useSearchParams>,
+  )
 })
 
 describe('CrmContactsPage — Import contacts', () => {
@@ -228,6 +232,35 @@ describe('CrmContactsPage — Import contacts', () => {
 
     expect(
       screen.queryByRole('button', { name: 'Import contacts' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('opens the import wizard from ?import=1', () => {
+    mockImportContacts.on = true
+    vi.mocked(useSearchParams).mockReturnValue(
+      new URLSearchParams('import=1') as unknown as ReturnType<
+        typeof useSearchParams
+      >,
+    )
+    setContext({ isWinContext: true, canUseProFeatures: true })
+
+    render(<CrmContactsPage />)
+
+    expect(screen.getByTestId('import-contacts-wizard')).toBeInTheDocument()
+  })
+
+  it('ignores ?import=1 when import is not offered', () => {
+    vi.mocked(useSearchParams).mockReturnValue(
+      new URLSearchParams('import=1') as unknown as ReturnType<
+        typeof useSearchParams
+      >,
+    )
+    setContext({ isWinContext: true, canUseProFeatures: true })
+
+    render(<CrmContactsPage />)
+
+    expect(
+      screen.queryByTestId('import-contacts-wizard'),
     ).not.toBeInTheDocument()
   })
 

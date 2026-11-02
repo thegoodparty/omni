@@ -188,18 +188,23 @@ describe('POST /v1/outreach/email/:id/confirm', () => {
     expect(res.status).toBe(HttpStatus.FORBIDDEN)
   })
 
-  it('requires consent, a list, and someone in it with an email', async () => {
-    const noConsent = await winSend({ consent: false })
-    expect(
-      (
-        await post(
-          `/v1/outreach/email/${noConsent.outreachId}/confirm`,
-          { paymentMethodId: 'pm_1' },
-          winHeaders(),
-        )
-      ).status,
-    ).toBe(HttpStatus.BAD_REQUEST)
+  it('confirms with no consent given on the send itself', async () => {
+    saveCardAndPlan.mockResolvedValue({ outcome: 'scheduled' })
+    const { outreachId, outreachEmailId } = await winSend()
+    const before = await service.prisma.outreachEmail.findUniqueOrThrow({
+      where: { id: outreachEmailId },
+    })
+    expect(before.consentConfirmedAt).toBeNull()
+    const res = await post(
+      `/v1/outreach/email/${outreachId}/confirm`,
+      { paymentMethodId: 'pm_1' },
+      winHeaders(),
+    )
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(saveCardAndPlan).toHaveBeenCalledOnce()
+  })
 
+  it('requires a list and someone in it with an email', async () => {
     const empty = await winSend({ emails: [] })
     const noEmails = await post(
       `/v1/outreach/email/${empty.outreachId}/confirm`,

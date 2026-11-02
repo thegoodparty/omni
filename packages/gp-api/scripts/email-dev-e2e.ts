@@ -279,8 +279,6 @@ const createFixture = async (
           recipientCap: recipients.length,
           // Simulator addresses are written below, not read from a list.
           audienceResolvedAt: new Date(),
-          consentConfirmedAt: new Date(),
-          consentConfirmedByUserId: ownerId,
         },
       },
     },

@@ -193,7 +193,6 @@ export class OutreachEmailController {
     return this.emails.saveDraft(
       await this.scopes.forCampaign(campaign, user),
       input,
-      user.id,
     )
   }
 

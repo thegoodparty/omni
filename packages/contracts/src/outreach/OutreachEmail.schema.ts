@@ -33,8 +33,8 @@ const draftSaveCommon = {
   // The saved voter-file list the send goes to. Only its people with an
   // email address are counted and sent to.
   voterFileFilterId: z.number().int().positive().optional(),
-  // The user's statement that these people agreed to get email from them.
-  // Sent on every save, since a save is a full replace.
+  // Ignored: consent is affirmed at the contact import. Still accepted so a
+  // client from before that change can save.
   consentConfirmed: z.boolean().optional(),
 }
 
@@ -173,7 +173,6 @@ export const EmailDraftSchema = z.object({
   buttonUrl: z.string().nullable(),
   paidForBy: z.string().nullable(),
   date: z.string().nullable(),
-  consentConfirmedAt: z.string().nullable(),
   voterFileFilterId: z.number().int().positive().nullable(),
   // Recipient rows on the send. Written at prepare, so 0 until it runs.
   recipientCount: z.number().int().nonnegative(),
