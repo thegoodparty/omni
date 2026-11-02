@@ -80,8 +80,8 @@ describe('P2P job CRUD', () => {
     await service.client.post(`${BASE}/1to1/jobs`, { name: 'list-test' })
     const res = await service.client.get(`${BASE}/1to1/jobs`)
     expect(res.status).toBe(HttpStatus.OK)
-    expect(Array.isArray(res.data.results)).toBe(true)
-    expect(res.data.results.length).toBeGreaterThan(0)
+    expect(Array.isArray(res.data)).toBe(true)
+    expect(res.data.length).toBeGreaterThan(0)
   })
 
   it('updates the job state', async () => {
@@ -124,6 +124,14 @@ describe('P2P job CRUD', () => {
     )
     expect(res.status).toBe(HttpStatus.OK)
     expect(res.data.results).toEqual([])
+  })
+
+  it('lists no test jobs as a bare array', async () => {
+    const create = await service.client.post(`${BASE}/1to1/jobs`, {})
+    const id = create.data.id as string
+    const res = await service.client.get(`${BASE}/v2/p2p/${id}/tests`)
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(res.data).toEqual([])
   })
 })
 

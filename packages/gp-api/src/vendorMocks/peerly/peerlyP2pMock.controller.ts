@@ -101,10 +101,8 @@ export class PeerlyP2pMockController {
     const records = await this.vendorMockRecord.findMany({
       where: { vendor: VendorMockVendor.peerly, kind: 'p2p_job' },
     })
-    return {
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
-      results: records.map((r) => jsonObj(r.state as Prisma.JsonValue)),
-    }
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+    return records.map((r) => jsonObj(r.state as Prisma.JsonValue))
   }
 
   @Get('1to1/jobs/:id')
@@ -212,7 +210,7 @@ export class PeerlyP2pMockController {
   async listP2pTests(@Param('id') id: string) {
     this.assertMockMode()
     await this.findJobRecord(id)
-    return { results: [] }
+    return []
   }
 
   @Post('v2/p2p/:id/tests')
