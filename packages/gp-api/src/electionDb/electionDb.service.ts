@@ -5,6 +5,7 @@ import {
   OnModuleInit,
 } from '@nestjs/common'
 import { Prisma, PrismaClient } from '../generated/election-prisma'
+import { retryReadOnDeadlock } from './shared/util/retryOnDeadlock.util'
 
 // Gated on its own flag rather than on LOG_LEVEL, matching PrismaService.
 // gp-api deploys LOG_LEVEL=debug in prod, so gating on it would serialize
@@ -26,10 +27,12 @@ const PRISMA_LOG_LEVELS = [
 // connections against the cluster's 5,000 cap.
 const CONNECTION_LIMIT = process.env.IS_PREVIEW === 'true' ? '5' : '50'
 
-export type ElectionDbPrismaClient = PrismaClient<
-  Prisma.PrismaClientOptions,
-  'query'
->
+type BaseElectionDbClient = PrismaClient<Prisma.PrismaClientOptions, 'query'>
+
+const withReadRetries = (client: BaseElectionDbClient) =>
+  client.$extends(retryReadOnDeadlock)
+
+export type ElectionDbPrismaClient = ReturnType<typeof withReadRetries>
 
 @Injectable()
 export class ElectionDbService implements OnModuleInit, OnModuleDestroy {
@@ -87,7 +90,10 @@ export class ElectionDbService implements OnModuleInit, OnModuleDestroy {
     url.searchParams.set('pool_timeout', '5')
     url.searchParams.set('connect_timeout', '5')
 
-    const client = new PrismaClient<Prisma.PrismaClientOptions, 'query'>({
+    const client: BaseElectionDbClient = new PrismaClient<
+      Prisma.PrismaClientOptions,
+      'query'
+    >({
       log: PRISMA_LOG_LEVELS.map((level) => ({
         emit: 'event',
         // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
@@ -142,6 +148,6 @@ export class ElectionDbService implements OnModuleInit, OnModuleDestroy {
         'election-db connect failed; retrying lazily on first query',
       )
     }
-    return client
+    return withReadRetries(client)
   }
 }

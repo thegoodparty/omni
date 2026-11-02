@@ -1,11 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { Prisma } from '@/generated/election-prisma'
 import { ElectionDbService } from './electionDb.service'
+import { retryReadOnDeadlock } from './shared/util/retryOnDeadlock.util'
 
 // vi.hoisted, not a plain const: vi.mock is lifted above the imports, so a
 // factory closing over a normally-declared binding would read it before
 // initialization.
-const { connect, disconnect, clientOptions } = vi.hoisted(() => ({
+const { connect, disconnect, clientOptions, extend } = vi.hoisted(() => ({
+  extend: vi.fn(),
   connect: vi.fn(),
   disconnect: vi.fn(),
   clientOptions: vi.fn(),
@@ -28,6 +30,7 @@ vi.mock('@/generated/election-prisma', async () => {
       $connect = connect
       $disconnect = disconnect
       $on = vi.fn()
+      $extends = extend
     },
   }
 })
@@ -42,6 +45,8 @@ describe('ElectionDbService', () => {
     connect.mockResolvedValue(undefined)
     disconnect.mockReset()
     clientOptions.mockReset()
+    extend.mockReset()
+    extend.mockReturnValue({ $disconnect: disconnect })
     vi.stubEnv('ELECTION_DATABASE_URL', DB_URL)
     service = new ElectionDbService()
   })
@@ -53,6 +58,12 @@ describe('ElectionDbService', () => {
     }
     const url = new URL(options.datasources.db.url)
     expect(url.searchParams.get('pool_timeout')).toBe('5')
+  })
+
+  it('serves reads through the deadlock-retry extension', async () => {
+    await service.onModuleInit()
+    expect(extend).toHaveBeenCalledWith(retryReadOnDeadlock)
+    expect(service.instance).toBe(extend.mock.results[0]?.value)
   })
 
   it('throws rather than handing back an uninitialized client', () => {
