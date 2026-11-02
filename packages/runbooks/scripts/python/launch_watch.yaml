@@ -1,0 +1,65 @@
+# Launch watch checks, run daily by .github/workflows/launch-watch.yml (launch_watch.py).
+#
+# One check per launch outcome, watched for a fixed period after it ships (about 14
+# days). A check's SQL returns one row: `exposed` (users who should have triggered the
+# outcome in the window) and `fired` (users who did). It fails, and posts to #bugs once,
+# when at least `min_exposed` users were exposed and none fired.
+#
+# Fields: id, launch, what (the expected outcome, one sentence), prs (omni PR numbers),
+# active_from / active_until (the window's last day must fall between them), window_days,
+# min_exposed, sql ({window_start} / {window_end} are inclusive Eastern dates), and the
+# optional exposed_label, fired_label and notes for the Slack post.
+#
+# Read only from goodparty_data_catalog.mart_analytics: the service principal is granted
+# that schema, not dbt's staging relations.
+#
+# Retire a check by deleting it once its watch period is over; git keeps the history.
+
+checks:
+  - id: sms-cutoff-notice-fires
+    launch: SMS compliance cutoff
+    what: >-
+      candidates past their texting cutoff who visit outreach see the cutoff notice
+      (Outreach - SMS Cutoff Notice Viewed)
+    prs: [2747, 2830, 3522]
+    # #3522 made the closed text tile open the notice; before it nothing fired at all.
+    active_from: 2026-11-04
+    active_until: 2026-11-18
+    window_days: 3
+    # Exposure counts every candidate inside the 19-day window, including those who
+    # made the cutoff and never see the notice, so the floor is set well above noise.
+    min_exposed: 20
+    exposed_label: candidates inside 19 days of their election visited outreach
+    fired_label: saw the cutoff notice
+    notes: >-
+      Check that the closed SMS tile on the outreach hub still opens the notice, and that
+      gp-api still returns smsCompliance on GET /v1/campaigns/mine.
+    sql: |
+      with visits as (
+        select distinct
+          try_cast(user_id as bigint) as user_id,
+          to_date(from_utc_timestamp(event_time, 'America/New_York')) as visit_day
+        from goodparty_data_catalog.mart_analytics.amplitude_events
+        where event_type = 'Outreach - View Accessed'
+          and event_time >= date_sub(date'{window_start}', 1)
+          and to_date(from_utc_timestamp(event_time, 'America/New_York'))
+            between date'{window_start}' and date'{window_end}'
+      ),
+      exposed as (
+        select distinct v.user_id
+        from visits as v
+        inner join goodparty_data_catalog.mart_analytics.users_win_candidacy as c
+          on c.user_id = v.user_id
+        where datediff(c.election_date, v.visit_day) between 0 and 18
+      ),
+      fired as (
+        select distinct try_cast(user_id as bigint) as user_id
+        from goodparty_data_catalog.mart_analytics.amplitude_events
+        where event_type = 'Outreach - SMS Cutoff Notice Viewed'
+          and event_time >= date_sub(date'{window_start}', 1)
+          and to_date(from_utc_timestamp(event_time, 'America/New_York'))
+            between date'{window_start}' and date'{window_end}'
+      )
+      select
+        (select count(*) from exposed) as exposed,
+        (select count(*) from fired) as fired

@@ -1,0 +1,99 @@
+name: Launch watch
+
+# Daily outcome checks for recent launches (launch_watch.py, checks in
+# packages/runbooks/scripts/python/launch_watch.yaml). A check that breaks posts
+# once to #bugs, where the bug rotation picks it up. Errors already reach Sentry and
+# Grafana; this covers a launch that works without erroring and still does nothing.
+#
+# Same identities as analytics-governance.yml: Databricks through GitHub OIDC on the
+# product_analytics service principal (its federation policy trusts runs on main
+# only, so a dispatch must target main), and the analytics Slack app's bot token.
+# The bot has to be a member of the channel in vars.SLACK_BUGS_CHANNEL_ID.
+#
+# A run that fails (a check's query errored, or the post was refused) notifies the
+# event-lifecycle channel, not #bugs: a broken checker is ours to fix, not the
+# rotation's.
+
+run-name: ${{ inputs.dry_run && 'Launch watch (dry run)' || 'Launch watch' }}
+
+on:
+  schedule:
+    - cron: '0 13 * * *' # daily, 09:00 ET (08:00 in winter), after the nightly dbt build
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run: print findings in the log, post nothing'
+        type: boolean
+        default: false
+
+concurrency:
+  group: launch-watch
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
+      DATABRICKS_HTTP_PATH: ${{ vars.DATABRICKS_HTTP_PATH }}
+      DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_CLIENT_ID }}
+      DATABRICKS_AUTH_TYPE: github-oidc
+      DATABRICKS_TOKEN_AUDIENCE: https://github.com/thegoodparty
+      DRY_RUN: ${{ inputs.dry_run == true }}
+      SLACK_APP_BOT_TOKEN: ${{ secrets.SLACK_APP_BOT_TOKEN }}
+      SLACK_BUGS_CHANNEL_ID: ${{ vars.SLACK_BUGS_CHANNEL_ID }}
+      SLACK_EVENT_LIFECYCLE_CHANNEL_ID: ${{ vars.SLACK_EVENT_LIFECYCLE_CHANNEL_ID }}
+    steps:
+      - name: Preflight required config
+        run: |
+          set -euo pipefail
+          missing=""
+          [ -n "$DATABRICKS_HOST" ] || missing="$missing vars.DATABRICKS_HOST"
+          [ -n "$DATABRICKS_HTTP_PATH" ] || missing="$missing vars.DATABRICKS_HTTP_PATH"
+          [ -n "$DATABRICKS_CLIENT_ID" ] || missing="$missing secrets.DATABRICKS_CLIENT_ID"
+          if [ "$DRY_RUN" != "true" ]; then
+            [ -n "$SLACK_APP_BOT_TOKEN" ] || missing="$missing secrets.SLACK_APP_BOT_TOKEN"
+            [ -n "$SLACK_BUGS_CHANNEL_ID" ] || missing="$missing vars.SLACK_BUGS_CHANNEL_ID"
+          fi
+          if [ -n "$missing" ]; then
+            echo "::error::Missing required config:$missing"
+            exit 1
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          sparse-checkout: packages/runbooks/scripts/python
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39 # v3
+        with:
+          version: latest
+
+      - name: Install deps
+        working-directory: packages/runbooks/scripts/python
+        run: uv sync --frozen
+
+      - name: Run checks
+        working-directory: packages/runbooks/scripts/python
+        run: |
+          dry=
+          if [ "$DRY_RUN" = "true" ]; then dry=--dry-run; fi
+          uv run launch_watch.py $dry --as-of "$(TZ=America/New_York date +%F)"
+
+      - name: Notify on failure
+        if: >-
+          failure()
+          && env.SLACK_APP_BOT_TOKEN != ''
+          && env.SLACK_EVENT_LIFECYCLE_CHANNEL_ID != ''
+          && env.DRY_RUN != 'true'
+        run: |
+          curl -sf -X POST https://slack.com/api/chat.postMessage \
+            -H "Authorization: Bearer $SLACK_APP_BOT_TOKEN" \
+            -H 'Content-type: application/json; charset=utf-8' \
+            --data "{\"channel\":\"$SLACK_EVENT_LIFECYCLE_CHANNEL_ID\",\"text\":\"Launch watch run failed: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}"
