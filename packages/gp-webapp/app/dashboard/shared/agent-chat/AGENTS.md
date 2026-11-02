@@ -313,6 +313,13 @@ message, as Build my civic panel sends `START_MANAGED_CIVIC_PANEL_MESSAGE`), and
 one as a pill. Tapping a card never completes a get-started card; only that
 card's own button does.
 
+The cards are the last row of the transcript's own scroll, not a tray above
+the composer, and they slide in only once the words before them have landed:
+the typed intro or opener, a seeded greeting's playback, and a chat still
+loading all hold them back (on a first chat, so does the history query, until
+it says whether the intro will play). On a short screen the message comes
+into view first and the cards follow it.
+
 `combinable` cards are checkboxes with a Start button (the Chief of Staff's
 next steps). A combinable `writeIn` card (Something else) opens a box once
 picked, focused, and Start stays off until it has text. One step plus Start
