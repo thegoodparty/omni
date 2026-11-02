@@ -148,6 +148,12 @@ Both stages call the same composite deploy action, only with different env input
   that needs a new kind of AWS resource needs that role widened in ops first.
   The scheduled cleanup runs from `main` and keeps `vars.AWS_ROLE_ARN`.
 - `gp-api-infrastructure-diffs.yml` posts a Pulumi diff on infra-touching PRs.
+  It assumes `github-actions-gp-api-plan` (owned by `thegoodparty/ops`, ARN
+  in the workflow): read-only, gp-api's current dev and prod state, the state
+  passphrase and the two Grafana tokens, and no secret value. A program
+  change that reads a secret or another SSM parameter while previewing fails
+  that diff with AccessDenied; read it at deploy time instead, as
+  `infra-cli.ts` does for the secret keys.
 - CI must run `prisma generate` before the Docker build or the image fails at
   runtime with missing native engines.
 - Infra detail and the `npm run infra <diff|deploy> <env>` wrapper:

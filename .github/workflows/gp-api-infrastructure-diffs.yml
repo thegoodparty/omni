@@ -40,10 +40,15 @@ jobs:
           prisma-generate-script: generate:prisma:gp-api
           route-types: 'true'
 
+      # The gp-api plan role, not the admin deploy role: the workflow and the
+      # Pulumi program both come from the pull request. Read-only, and it
+      # reads gp-api's current dev and prod state, the state passphrase and
+      # the two Grafana tokens, but no secret value. Step 5b of
+      # thegoodparty/ops docs/deploy-role-trust.md.
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5
         with:
-          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          role-to-assume: arn:aws:iam::333022194791:role/github-actions-gp-api-plan
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Install Pulumi
