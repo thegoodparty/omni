@@ -57,7 +57,7 @@ export class MarketingRevalidationService {
       // Vercel's edge sets x-vercel-mitigated (challenge, deny, ...) when its
       // firewall answers instead of the app. That is the signature of an
       // infra-side block, not a bad secret or an app bug (ENG-11536).
-      const mitigated = isAxiosError(error)
+      const mitigated: unknown = isAxiosError(error)
         ? error.response?.headers?.['x-vercel-mitigated']
         : undefined
       this.logger.error(

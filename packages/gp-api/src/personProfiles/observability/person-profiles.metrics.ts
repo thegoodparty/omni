@@ -239,6 +239,18 @@ export function recordProfileMutation(action: ProfileMutation): void {
   }
 }
 
+// Seed both series at 0 so a task's first real failure moves 0 -> 1, which
+// increase() counts. A series born at 1 is invisible to the alert (ENG-11536).
+if (isOtelEnabled()) {
+  try {
+    for (const result of ['success', 'failed'] as const) {
+      revalidationCounter.add(0, { result, environment: environment() })
+    }
+  } catch (error) {
+    logger.error('Failed to seed revalidation metric', error)
+  }
+}
+
 export function recordRevalidation(result: RevalidationResult): void {
   if (!isOtelEnabled()) return
   try {
