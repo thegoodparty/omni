@@ -18,16 +18,20 @@ describe('ses reputation alerts', () => {
     expect(bySlug['ses-complaint-rate']).toBe(0.0006)
   })
 
-  it('reads the account-level metric with no dimensions', () => {
-    for (const alert of sesReputationAlerts) {
-      const model = JSON.parse(alertQueryModel(alert, 'prod'))
-      expect(model).toMatchObject({
-        queryMode: 'Metrics',
-        namespace: 'AWS/SES',
-        metricName: alert.expr,
-        dimensions: {},
-        region: 'us-west-2',
-      })
+  it("reads gp-api's reputation gauges, holding each task's last reading", () => {
+    const bySlug = Object.fromEntries(
+      sesReputationAlerts.map((alert) => [alert.slug, alert]),
+    )
+    for (const [slug, metric] of [
+      ['ses-bounce-rate', 'ses_account_bounce_rate'],
+      ['ses-complaint-rate', 'ses_account_complaint_rate'],
+    ]) {
+      const alert = bySlug[slug]
+      expect(alert.type).toBe('metric')
+      expect(JSON.parse(alertQueryModel(alert, 'prod')).expr).toBe(
+        `max(last_over_time(${metric}{service_name="gp-api", ` +
+          'deployment_environment_name="prod"}[15m]))',
+      )
     }
   })
 })

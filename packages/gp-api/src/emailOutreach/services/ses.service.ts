@@ -17,6 +17,7 @@ import {
 import {
   CloudWatchClient,
   GetMetricDataCommand,
+  ScanBy,
 } from '@aws-sdk/client-cloudwatch'
 import { ServiceException } from '@smithy/smithy-client'
 import { PinoLogger } from 'nestjs-pino'
@@ -159,6 +160,25 @@ const METRIC_QUERIES: {
   { id: 'render2', name: 'RenderingFailure', key: 'renderingFailure' },
 ]
 const METRIC_PERIOD_SECONDS = 60
+
+export type SesAccountReputation = {
+  bounceRate: number | null
+  complaintRate: number | null
+}
+
+const REPUTATION_QUERIES: {
+  id: string
+  name: string
+  key: keyof SesAccountReputation
+}[] = [
+  { id: 'bounceRate', name: 'Reputation.BounceRate', key: 'bounceRate' },
+  {
+    id: 'complaintRate',
+    name: 'Reputation.ComplaintRate',
+    key: 'complaintRate',
+  },
+]
+const REPUTATION_PERIOD_SECONDS = 300
 
 const TENANT_ARN = /:tenant\//
 
@@ -455,6 +475,41 @@ export class SesService extends AwsService {
       }
       return totals
     }, 'cloudwatchGetSendMetrics')
+  }
+
+  // The account's newest Reputation.* datapoint in the window, or null when
+  // there is none. SES publishes these only every so often, so the window
+  // is wide and only the latest point counts.
+  async getAccountReputation(
+    start: Date,
+    end: Date,
+  ): Promise<SesAccountReputation> {
+    return this.executeAwsOperation(async () => {
+      const result = await this.cloudwatch.send(
+        new GetMetricDataCommand({
+          StartTime: start,
+          EndTime: end,
+          ScanBy: ScanBy.TIMESTAMP_DESCENDING,
+          MetricDataQueries: REPUTATION_QUERIES.map(({ id, name }) => ({
+            Id: id,
+            MetricStat: {
+              Metric: { Namespace: 'AWS/SES', MetricName: name },
+              Period: REPUTATION_PERIOD_SECONDS,
+              Stat: 'Average',
+            },
+          })),
+        }),
+      )
+      const reputation: SesAccountReputation = {
+        bounceRate: null,
+        complaintRate: null,
+      }
+      for (const query of REPUTATION_QUERIES) {
+        const series = result.MetricDataResults?.find((r) => r.Id === query.id)
+        reputation[query.key] = series?.Values?.at(0) ?? null
+      }
+      return reputation
+    }, 'cloudwatchGetAccountReputation')
   }
 
   private async associate(tenantName: string, resourceArn: string) {

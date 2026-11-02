@@ -29,6 +29,7 @@ import { OutreachEmailPreviewService } from './services/outreachEmailPreview.ser
 import { OutreachEmailImageService } from './services/outreachEmailImage.service'
 import { OutreachEmailTestService } from './services/outreachEmailTest.service'
 import { SesService } from './services/ses.service'
+import { SesReputationReportService } from './services/sesReputationReport.service'
 import { OutreachEmailConfirmService } from './services/outreachEmailConfirm.service'
 import { OutreachEmailLifecycleService } from './services/outreachEmailLifecycle.service'
 import { OutreachEmailPrepareService } from './services/outreachEmailPrepare.service'
@@ -77,6 +78,7 @@ import { OutreachEmailSenderService } from './services/outreachEmailSender.servi
     OutreachEmailPreviewService,
     OutreachEmailTestService,
     SesService,
+    SesReputationReportService,
     OutreachEmailConfirmService,
     OutreachEmailPrepareService,
     OutreachEmailSendSweepService,
