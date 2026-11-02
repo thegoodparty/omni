@@ -116,7 +116,8 @@ describe('EmailWriteStep AI draft', () => {
           'Meet your neighbor',
         ),
       )
-      expect(message()).toHaveTextContent('I am running.')
+      // The message editor syncs from the form a render after Subject.
+      await waitFor(() => expect(message()).toHaveTextContent('I am running.'))
       expect(screen.queryByLabelText('Title')).toBeNull()
       expect(screen.queryByLabelText('Button text')).toBeNull()
       await new Promise((resolve) => setTimeout(resolve, 50))
