@@ -84,6 +84,11 @@ const buildStreamService = (): {
     vi.fn() as unknown as GenerateObjectFn,
     stubAnthropicFactory,
   )
+  // These suites assert the exact messages and tools handed to streamText, so
+  // they run with caching off; the cache behavior has its own suite below.
+  const stream = service.streamChatCompletion.bind(service)
+  service.streamChatCompletion = (options) =>
+    stream({ promptCache: false, ...options })
   return { service, streamTextFn }
 }
 
@@ -127,6 +132,8 @@ describe('LlmService.streamChatCompletion', () => {
       inputTokens: 5,
       outputTokens: 3,
       totalTokens: 8,
+      cachedInputTokens: 0,
+      cacheWriteTokens: 0,
     })
   })
 
@@ -611,7 +618,7 @@ describe('LlmService.streamChatCompletion', () => {
   })
 
   it('registers Anthropic native web search and sets onChunk', async () => {
-    const nativeTool = { __native: true }
+    const nativeTool = { __native: true, type: 'provider' }
     const webSearchTool = vi.fn(() => nativeTool)
     const anthropicProviderFactory: AnthropicProviderFactory = () => ({
       languageModel: ((m: string) => ({
@@ -1155,5 +1162,130 @@ describe('toModelMessages conversion', () => {
     ).rejects.toThrow(
       'Unsupported message role for AI SDK conversion: function',
     )
+  })
+})
+
+describe('LlmService.streamChatCompletion prompt caching', () => {
+  const BREAKPOINT = { anthropic: { cacheControl: { type: 'ephemeral' } } }
+
+  beforeEach(() => {
+    vi.stubEnv('ANTHROPIC_API_KEY', 'test-anthropic-key')
+    vi.stubEnv('AI_MODELS', 'claude-sonnet-4-6')
+  })
+
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  const buildCaching = () => {
+    const streamTextFn = vi.fn()
+    const service = new LlmService(
+      createMockLogger(),
+      streamTextFn as unknown as StreamTextFn,
+      vi.fn() as unknown as GenerateTextFn,
+      vi.fn() as unknown as GenerateObjectFn,
+      stubAnthropicFactory,
+    )
+    return { service, streamTextFn }
+  }
+
+  const tools = {
+    lookup: {
+      description: 'look it up',
+      inputSchema: z.object({ q: z.string() }),
+      execute: () => 'x',
+    },
+  }
+
+  it('marks the system prompt, last tool and conversation tail', async () => {
+    const { service, streamTextFn } = buildCaching()
+    streamTextFn.mockReturnValueOnce(fakeStreamResult())
+
+    await service.streamChatCompletion({
+      messages: [
+        { role: 'system', content: 'sys' },
+        USER_MSG,
+        { role: 'assistant', content: 'a' },
+        { role: 'user', content: 'again' },
+      ],
+      tools,
+      retries: 0,
+    })
+
+    const args = firstOrThrow(streamTextFn.mock.calls)[0]
+    expect(
+      args.messages.map(
+        (m: { providerOptions?: unknown }) => m.providerOptions,
+      ),
+    ).toEqual([BREAKPOINT, undefined, undefined, BREAKPOINT])
+    expect(args.tools.lookup.providerOptions).toEqual(BREAKPOINT)
+  })
+
+  it('re-marks the tail of each later tool-loop step', async () => {
+    const { service, streamTextFn } = buildCaching()
+    streamTextFn.mockReturnValueOnce(fakeStreamResult())
+
+    await service.streamChatCompletion({
+      messages: [{ role: 'system', content: 'sys' }, USER_MSG],
+      tools,
+      retries: 0,
+    })
+
+    const { prepareStep } = firstOrThrow(streamTextFn.mock.calls)[0]
+    const stepMessages = [
+      { role: 'user', content: 'u' },
+      { role: 'assistant', content: 'a' },
+    ]
+    expect(
+      prepareStep({ stepNumber: 0, messages: stepMessages }),
+    ).toBeUndefined()
+    const next = prepareStep({ stepNumber: 1, messages: stepMessages })
+    expect(next.messages[1].providerOptions).toEqual(BREAKPOINT)
+    expect(next.messages[0].providerOptions).toBeUndefined()
+  })
+
+  it('sends no breakpoints when promptCache is false', async () => {
+    const { service, streamTextFn } = buildCaching()
+    streamTextFn.mockReturnValueOnce(fakeStreamResult())
+
+    await service.streamChatCompletion({
+      messages: [{ role: 'system', content: 'sys' }, USER_MSG],
+      tools,
+      promptCache: false,
+      retries: 0,
+    })
+
+    const args = firstOrThrow(streamTextFn.mock.calls)[0]
+    expect(
+      args.messages.every(
+        (m: { providerOptions?: unknown }) => !m.providerOptions,
+      ),
+    ).toBe(true)
+    expect(args.tools.lookup.providerOptions).toBeUndefined()
+  })
+
+  it('reports cache read and write tokens in usage', async () => {
+    const { service, streamTextFn } = buildCaching()
+    const result = fakeStreamResult() as { totalUsage: Promise<unknown> }
+    result.totalUsage = Promise.resolve({
+      inputTokens: 100,
+      outputTokens: 2,
+      totalTokens: 102,
+      inputTokenDetails: { cacheReadTokens: 90, cacheWriteTokens: 4 },
+    })
+    streamTextFn.mockReturnValueOnce(result)
+
+    const out = await service.streamChatCompletion({
+      messages: [USER_MSG],
+      retries: 0,
+    })
+
+    await expect(out.usage).resolves.toEqual({
+      inputTokens: 100,
+      outputTokens: 2,
+      totalTokens: 102,
+      cachedInputTokens: 90,
+      cacheWriteTokens: 4,
+    })
   })
 })

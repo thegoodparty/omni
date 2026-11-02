@@ -25,6 +25,13 @@ import {
   type LlmToolChoice,
 } from '../types/llmMessages.types'
 import { toModelMessages } from './messageConversion'
+import {
+  readCacheUsage,
+  withSystemCache,
+  withTailCache,
+  withToolsCache,
+  type LlmCacheUsage,
+} from './promptCache'
 
 export { toModelMessages } from './messageConversion'
 
@@ -37,6 +44,14 @@ export interface LlmChatCompletionOptions {
   userId?: string
   retries?: number
   abortSignal?: AbortSignal
+  /**
+   * Anthropic prompt caching, on by default: a breakpoint on the system prompt
+   * (which also covers tool/schema definitions) so a stable prompt reused
+   * across calls is read at 10% of the input price. Pass false for a call
+   * whose system prompt differs every time, where the 25% write premium would
+   * never be earned back. See src/llm/README.md.
+   */
+  promptCache?: boolean
 }
 
 export interface LlmToolCompletionOptions extends LlmChatCompletionOptions {
@@ -61,6 +76,7 @@ export interface LlmCompletionResult {
   content: string
   tokens: number
   model: string
+  cache?: LlmCacheUsage
   toolCalls?: ToolCall[]
 }
 
@@ -242,6 +258,10 @@ export interface LlmStreamOptions {
   userId?: string
   retries?: number
   abortSignal?: AbortSignal
+  // Anthropic prompt caching (default true): breakpoints on the tools, the
+  // system prompt and the conversation tail, so the next turn and the next
+  // step of a tool loop re-read the shared prefix from cache.
+  promptCache?: boolean
   onToolCallStart?: (event: LlmToolCallStartEvent) => void
   onToolCallEnd?: (event: LlmToolCallEndEvent) => void
   // Fires when a client tool's execute throws, in place of onToolCallEnd, so
@@ -272,6 +292,9 @@ export interface LlmStreamUsage {
   inputTokens: number
   outputTokens: number
   totalTokens: number
+  // Of inputTokens: read from / written to the prompt cache.
+  cachedInputTokens?: number
+  cacheWriteTokens?: number
 }
 
 export interface LlmStreamResult {
@@ -415,6 +438,7 @@ export class LlmService {
       userId,
       retries = this.defaultRetries,
       abortSignal,
+      promptCache = true,
     } = options
 
     const models = this.prepareModelList(providedModels)
@@ -432,6 +456,7 @@ export class LlmService {
           maxTokens,
           userId,
           abortSignal,
+          promptCache,
         }),
       abortSignal,
     )
@@ -444,6 +469,7 @@ export class LlmService {
     tokens: number
     inputTokens: number
     outputTokens: number
+    cache?: LlmCacheUsage
     model: string
   }> {
     const {
@@ -456,6 +482,7 @@ export class LlmService {
       userId,
       retries = this.defaultRetries,
       abortSignal,
+      promptCache = true,
     } = options
 
     const models = this.prepareModelList(providedModels)
@@ -474,6 +501,7 @@ export class LlmService {
           maxTokens,
           userId,
           abortSignal,
+          promptCache,
         }),
       abortSignal,
     )
@@ -483,6 +511,7 @@ export class LlmService {
       tokens: result.tokens,
       inputTokens: result.inputTokens,
       outputTokens: result.outputTokens,
+      cache: result.cache,
       model,
     }
   }
@@ -501,6 +530,7 @@ export class LlmService {
       userId,
       retries = this.defaultRetries,
       abortSignal,
+      promptCache = true,
     } = options
 
     if (!tools.length) {
@@ -524,6 +554,7 @@ export class LlmService {
           maxTokens,
           userId,
           abortSignal,
+          promptCache,
         }),
       abortSignal,
     )
@@ -559,6 +590,7 @@ export class LlmService {
       onToolInputStart,
       onStreamError,
       onSource,
+      promptCache = true,
     } = options
 
     const models = this.prepareModelList(providedModels)
@@ -569,23 +601,35 @@ export class LlmService {
           onToolCallError,
         })
       : undefined
-    const toolSet = built?.toolSet
+    const toolSet =
+      built && promptCache ? withToolsCache(built.toolSet) : built?.toolSet
     const providerToolNames = built?.providerToolNames
-    const modelMessages = toModelMessages(messages)
+    const baseMessages = toModelMessages(messages)
+    // Breakpoints: tools, system, the conversation tail as sent, and (in
+    // prepareStep) the tail of each later tool-loop step. That is 4, the
+    // provider's cap.
+    const modelMessages = promptCache
+      ? withTailCache(withSystemCache(baseMessages))
+      : baseMessages
 
     const prepareStep: PrepareStepFunction = ({
       stepNumber,
       messages: stepMessages,
-    }) =>
-      stepNumber >= maxSteps
-        ? {
-            toolChoice: 'none',
-            messages: [
-              ...withToolPartsAsText(stepMessages),
-              toolBudgetExhaustedNote,
-            ],
-          }
+    }) => {
+      if (stepNumber >= maxSteps) {
+        const forced = [
+          ...withToolPartsAsText(stepMessages),
+          toolBudgetExhaustedNote,
+        ]
+        return {
+          toolChoice: 'none',
+          messages: promptCache ? withTailCache(forced) : forced,
+        }
+      }
+      return promptCache && stepNumber > 0
+        ? { messages: withTailCache(stepMessages) }
         : undefined
+    }
 
     const { model, result } = await this.withModelFallback(
       models,
@@ -698,11 +742,25 @@ export class LlmService {
     const toolCalls = Promise.resolve(result.toolCalls).then((calls) =>
       this.mapAiSdkToolCalls(calls),
     )
-    const usage = Promise.resolve(result.totalUsage).then((u) => ({
-      inputTokens: u.inputTokens ?? 0,
-      outputTokens: u.outputTokens ?? 0,
-      totalTokens: u.totalTokens ?? 0,
-    }))
+    const usage = Promise.resolve(result.totalUsage).then((u) => {
+      const cache = readCacheUsage(u)
+      this.logger.info(
+        {
+          model,
+          userId,
+          inputTokens: u.inputTokens ?? 0,
+          outputTokens: u.outputTokens ?? 0,
+          ...cache,
+        },
+        'LLM stream usage',
+      )
+      return {
+        inputTokens: u.inputTokens ?? 0,
+        outputTokens: u.outputTokens ?? 0,
+        totalTokens: u.totalTokens ?? 0,
+        ...cache,
+      }
+    })
     // A stream that ends with no output rejects all three, and callers await
     // only some of them. Node exits on an unhandled rejection, which took dev
     // gp-api down mid-release (ENG-11524). The no-op handlers mark them
@@ -883,6 +941,39 @@ export class LlmService {
     return models && models.length > 0 ? models : this.defaultModels
   }
 
+  // One-shot calls cache the system prompt (and the tool/schema block before
+  // it). The conversation tail is only marked on the streaming path, where a
+  // later turn or tool step extends the same prefix.
+  private toCachedMessages(
+    messages: LlmMessage[],
+    promptCache: boolean,
+  ): ModelMessage[] {
+    const converted = toModelMessages(messages)
+    return promptCache ? withSystemCache(converted) : converted
+  }
+
+  private logCacheUsage(
+    operation: string,
+    model: string,
+    usage: Parameters<typeof readCacheUsage>[0] & {
+      inputTokens?: number | undefined
+      outputTokens?: number | undefined
+    },
+  ): LlmCacheUsage {
+    const cache = readCacheUsage(usage)
+    this.logger.info(
+      {
+        model,
+        operation,
+        inputTokens: usage.inputTokens ?? 0,
+        outputTokens: usage.outputTokens ?? 0,
+        ...cache,
+      },
+      'LLM usage',
+    )
+    return cache
+  }
+
   private async callChatCompletion({
     model,
     messages,
@@ -891,6 +982,7 @@ export class LlmService {
     maxTokens,
     userId,
     abortSignal,
+    promptCache,
   }: {
     model: string
     messages: LlmMessage[]
@@ -899,10 +991,11 @@ export class LlmService {
     maxTokens?: number
     userId?: string
     abortSignal?: AbortSignal
+    promptCache: boolean
   }): Promise<Omit<LlmCompletionResult, 'model'>> {
     const result = await this.generateTextFn({
       model: this.resolveChatModel(model),
-      messages: toModelMessages(messages),
+      messages: this.toCachedMessages(messages, promptCache),
       temperature,
       topP,
       experimental_telemetry: llmTelemetry('llm.chat-completion'),
@@ -913,6 +1006,7 @@ export class LlmService {
     return {
       content: result.text.trim(),
       tokens: result.totalUsage.totalTokens ?? 0,
+      cache: this.logCacheUsage('chat completion', model, result.totalUsage),
     }
   }
 
@@ -925,6 +1019,7 @@ export class LlmService {
     maxTokens,
     userId,
     abortSignal,
+    promptCache,
   }: {
     model: string
     messages: LlmMessage[]
@@ -934,15 +1029,17 @@ export class LlmService {
     maxTokens?: number
     userId?: string
     abortSignal?: AbortSignal
+    promptCache: boolean
   }): Promise<{
     object: T
     tokens: number
     inputTokens: number
     outputTokens: number
+    cache: LlmCacheUsage
   }> {
     const result = await this.generateObjectFn({
       model: this.resolveChatModel(model),
-      messages: toModelMessages(messages),
+      messages: this.toCachedMessages(messages, promptCache),
       schema,
       temperature,
       topP,
@@ -956,6 +1053,7 @@ export class LlmService {
       tokens: result.usage.totalTokens ?? 0,
       inputTokens: result.usage.inputTokens ?? 0,
       outputTokens: result.usage.outputTokens ?? 0,
+      cache: this.logCacheUsage('json completion', model, result.usage),
     }
   }
 
@@ -969,6 +1067,7 @@ export class LlmService {
     maxTokens,
     userId,
     abortSignal,
+    promptCache,
   }: {
     model: string
     messages: LlmMessage[]
@@ -979,6 +1078,7 @@ export class LlmService {
     maxTokens?: number
     userId?: string
     abortSignal?: AbortSignal
+    promptCache: boolean
   }): Promise<Omit<LlmCompletionResult, 'model'>> {
     const toolSet: ToolSet = {}
     for (const t of tools) {
@@ -1002,8 +1102,8 @@ export class LlmService {
 
     const result = await this.generateTextFn({
       model: this.resolveChatModel(model),
-      messages: toModelMessages(messages),
-      tools: toolSet,
+      messages: this.toCachedMessages(messages, promptCache),
+      tools: promptCache ? withToolsCache(toolSet) : toolSet,
       ...(sdkToolChoice && { toolChoice: sdkToolChoice }),
       temperature,
       topP,
@@ -1019,6 +1119,7 @@ export class LlmService {
     return {
       content: result.text.trim(),
       tokens: result.totalUsage.totalTokens ?? 0,
+      cache: this.logCacheUsage('tool completion', model, result.totalUsage),
       ...(toolCalls.length > 0 && { toolCalls }),
     }
   }

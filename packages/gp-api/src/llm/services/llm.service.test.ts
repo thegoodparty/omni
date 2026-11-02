@@ -70,6 +70,54 @@ describe('LlmService non-streaming (Anthropic via ai SDK)', () => {
     expect(result.model).toBe('claude-sonnet-4-6')
   })
 
+  it('marks the system prompt as a cache breakpoint by default', async () => {
+    const { service, generateText } = build()
+    generateText.mockResolvedValueOnce({
+      text: 'ok',
+      toolCalls: [],
+      totalUsage: {
+        inputTokens: 100,
+        outputTokens: 1,
+        totalTokens: 101,
+        inputTokenDetails: { cacheReadTokens: 80, cacheWriteTokens: 5 },
+      },
+    })
+
+    const result = await service.chatCompletion({
+      messages: [{ role: 'system', content: 'be brief' }, USER_MSG],
+      models: ['claude-sonnet-4-6'],
+      retries: 0,
+    })
+
+    const sent = generateText.mock.calls[0]?.[0].messages
+    expect(sent[0].providerOptions).toEqual({
+      anthropic: { cacheControl: { type: 'ephemeral' } },
+    })
+    expect(sent[1].providerOptions).toBeUndefined()
+    expect(result.cache).toEqual({ cachedInputTokens: 80, cacheWriteTokens: 5 })
+  })
+
+  it('sends no cache breakpoint when promptCache is false', async () => {
+    const { service, generateObject } = build()
+    generateObject.mockResolvedValueOnce({
+      object: { answer: '42' },
+      usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+    })
+
+    await service.jsonCompletion({
+      messages: [{ role: 'system', content: 'be brief' }, USER_MSG],
+      schema: z.object({ answer: z.string() }),
+      models: ['claude-sonnet-4-6'],
+      retries: 0,
+      promptCache: false,
+    })
+
+    const sent = generateObject.mock.calls[0]?.[0].messages
+    expect(
+      sent.every((m: { providerOptions?: unknown }) => !m.providerOptions),
+    ).toBe(true)
+  })
+
   it('jsonCompletion validates the object against the schema', async () => {
     const { service, generateObject } = build()
     generateObject.mockResolvedValueOnce({
