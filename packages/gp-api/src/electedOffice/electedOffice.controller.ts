@@ -47,9 +47,12 @@ import { electedOfficeToApi } from './util/electedOffice.util'
 import { PrioritiesService } from '@/priorities/services/priorities.service'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import {
+  MyElectedOffice,
+  MyElectedOfficeSchema,
   SupportEstimate,
   SupportEstimateSchema,
 } from '@goodparty_org/contracts'
+import { z } from 'zod'
 
 @Controller('elected-office')
 @UsePipes(ZodValidationPipe)
@@ -84,7 +87,8 @@ export class ElectedOfficeController {
   // enforce the no-overlapping-term-dates invariant (the term-date selector
   // greys out ranges already covered by an existing office).
   @Get('mine')
-  async listMine(@ReqUser() user: User) {
+  @ResponseSchema(z.array(MyElectedOfficeSchema))
+  async listMine(@ReqUser() user: User): Promise<MyElectedOffice[]> {
     // The global SessionGuard admits M2M tokens without populating request.user,
     // so guard against that here — "mine" is meaningless without a user.
     if (!user) {
@@ -99,9 +103,22 @@ export class ElectedOfficeController {
     // official with issues they ran on confirms they are in office.
     const withWinIssues =
       await this.prioritiesService.officesWithWinIssues(offices)
+    const linkedCampaignIds = offices.flatMap((office) =>
+      office.campaignId === null ? [] : [office.campaignId],
+    )
+    const proCampaigns =
+      linkedCampaignIds.length === 0
+        ? []
+        : await this.electedOfficeService.client.campaign.findMany({
+            where: { id: { in: linkedCampaignIds }, isPro: true },
+            select: { id: true },
+          })
+    const proCampaignIds = new Set(proCampaigns.map((c) => c.id))
     return offices.map((office) => ({
       ...this.toApi(office),
       hasWinIssues: withWinIssues.has(office.id),
+      campaignIsPro:
+        office.campaignId !== null && proCampaignIds.has(office.campaignId),
     }))
   }
 
