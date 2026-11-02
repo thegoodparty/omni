@@ -339,6 +339,13 @@ outreach proposal can carry the same details as `event` (contracts
 
 ## Gotchas / invariants
 
+- **A p2p row's `projectId` is not fixed for life.** The CAS console can
+  replace a send's Peerly job before it goes out
+  (`OutreachSmsAdminService.replaceJob`: new job on the same list, old one
+  canceled, row back at `pending`) or link one staff made by hand in Peerly
+  (`linkReplacementJob`). The old id is kept in `previousJobId`. Anything
+  keyed on the job (the completion sweep, the inbound sweep, the console)
+  must read `projectId` when it runs, never cache it against the row.
 - **A new `PurchaseType` needs THREE registrations, and the third one is the
   easy miss.** `registerPurchaseHandler` and
   `registerCheckoutSessionPostPurchaseHandler` in `OutreachModule`'s

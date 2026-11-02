@@ -420,6 +420,41 @@ describe('PeerlyP2pJobService', () => {
     })
   })
 
+  describe('findJob', () => {
+    const vendorError = (status: number) =>
+      Object.assign(new Error(`Request failed with status code ${status}`), {
+        isAxiosError: true,
+        response: { status },
+      })
+
+    it('returns the job when Peerly has it', async () => {
+      const mockJob = {
+        id: 'job-1',
+        status: PeerlyJobStatus.ACTIVE,
+        leads_remaining: 42,
+      }
+      mockHttpService.get.mockResolvedValue({ data: mockJob })
+
+      await expect(service.findJob('job-1')).resolves.toEqual(mockJob)
+    })
+
+    // Peerly's docs list only 200 and 400 for this read; a staff-typed id
+    // that names no job is an answer, not an outage.
+    it.each([400, 404])('returns null on a %i', async (status) => {
+      mockHttpService.get.mockRejectedValue(vendorError(status))
+
+      await expect(service.findJob('nope')).resolves.toBeNull()
+    })
+
+    it('throws BadGatewayException on any other vendor failure', async () => {
+      mockHttpService.get.mockRejectedValue(vendorError(500))
+
+      await expect(service.findJob('job-1')).rejects.toThrow(
+        BadGatewayException,
+      )
+    })
+  })
+
   describe('getJob', () => {
     it('returns job from HTTP service', async () => {
       const mockJob = {

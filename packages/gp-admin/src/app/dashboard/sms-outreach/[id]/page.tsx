@@ -26,6 +26,7 @@ import { CancelAction } from '../components/CancelAction'
 import { EditDateAction } from '../components/EditDateAction'
 import { EditMessageAction } from '../components/EditMessageAction'
 import { PhoneMessagePreview } from '../components/PhoneMessagePreview'
+import { ReplaceJobAction } from '../components/ReplaceJobAction'
 import { SendTestAction } from '../components/SendTestAction'
 
 export const metadata: Metadata = {
@@ -64,6 +65,10 @@ export default async function Page({ params }: PageProps) {
     item.approvalStatus === 'peerly_approved' ||
     item.job?.hasCanvassersScheduled === true ||
     item.job?.peerlyApproved === true
+  // gp-api decides what each mode allows (a sent or sending job can only be
+  // linked, never canceled); the page only hides it where nothing is left.
+  const canReplaceJob =
+    canDecide && item.approvalStatus !== 'canceled' && item.jobId !== null
 
   return (
     <Container size="3">
@@ -232,6 +237,28 @@ export default async function Page({ params }: PageProps) {
                   </DataList.Value>
                 </DataList.Item>
               )}
+              {item.jobReplacedAt && (
+                <DataList.Item>
+                  <DataList.Label>Job replaced</DataList.Label>
+                  <DataList.Value>
+                    <Flex direction="column">
+                      <Text size="2">
+                        {formatDate(item.jobReplacedAt)} · {item.jobReplacedBy}
+                      </Text>
+                      {item.jobReplaceReason && (
+                        <Text size="1" color="gray">
+                          {item.jobReplaceReason}
+                        </Text>
+                      )}
+                      {item.previousJobId && (
+                        <Text size="1" color="gray">
+                          Old Peerly job {item.previousJobId}
+                        </Text>
+                      )}
+                    </Flex>
+                  </DataList.Value>
+                </DataList.Item>
+              )}
               {item.canceledAt && (
                 <DataList.Item>
                   <DataList.Label>Canceled</DataList.Label>
@@ -286,6 +313,20 @@ export default async function Page({ params }: PageProps) {
             </Card>
           )}
 
+          {canReplaceJob && (
+            <Box mt="4">
+              <ReplaceJobAction
+                id={item.id}
+                jobId={item.jobId ?? ''}
+                sendAt={
+                  item.sendAt ? new Date(item.sendAt).toISOString() : null
+                }
+                scheduledLocalTime={item.scheduledLocalTime}
+                alreadySent={item.approvalStatus === 'sent'}
+                canvassersBooked={canvassersBooked}
+              />
+            </Box>
+          )}
           {canDecide && item.approvalStatus === 'awaiting_review' && (
             <Box mt="4">
               <ApproveDenyActions id={item.id} />
