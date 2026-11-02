@@ -8,10 +8,7 @@ import {
   CallhubRecoverableError,
 } from './callhubErrorHandling.service'
 
-const axiosError = (
-  status: number,
-  data: Record<string, unknown>,
-): AxiosError => {
+const axiosError = (status: number, data: unknown): AxiosError => {
   const config = { url: '/x', headers: new AxiosHeaders() }
   const response = {
     data,
@@ -136,6 +133,17 @@ describe('CallhubErrorHandlingService', () => {
       }
     }
 
+    const classifyRaw = (data: unknown): unknown => {
+      try {
+        service.handleApiError({
+          error: axiosError(400, data),
+          logger: createMockLogger(),
+        })
+      } catch (e) {
+        return e
+      }
+    }
+
     it('classifies a 400 over_cps_limit throttle as transient', () => {
       const thrown = classifyBody(400, { detail: 'over_cps_limit' })
 
@@ -148,6 +156,22 @@ describe('CallhubErrorHandlingService', () => {
       expect(thrown).toBeInstanceOf(CallhubRecoverableError)
       expect((thrown as CallhubRecoverableError).callhubDetail).toBe(
         'over_cps_limit',
+      )
+    })
+
+    // 2026-11-02, outreachId 89502: a second robocall staged while another
+    // bulk import was running; CallHub answered 400 with a bare message array.
+    it('classifies a 400 "import in progress" body as transient', () => {
+      const thrown = classifyRaw([
+        'Your 2 contact list(s) import is currently in progress. Please wait for it to complete before starting a new import.',
+      ])
+      expect(thrown).toBeInstanceOf(CallhubRecoverableError)
+      expect(thrown).not.toBeInstanceOf(CallhubPermanentError)
+    })
+
+    it('still classifies other 400 array bodies as permanent', () => {
+      expect(classifyRaw(['Invalid phonebook'])).toBeInstanceOf(
+        CallhubPermanentError,
       )
     })
 

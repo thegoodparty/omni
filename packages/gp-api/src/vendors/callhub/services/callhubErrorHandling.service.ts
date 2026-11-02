@@ -117,6 +117,20 @@ export const isOverCpsLimitDetail = (detail?: string): boolean =>
 // on the permanent side, because retrying it burns the hold window to no end.
 const RECOVERABLE_4XX_DETAILS = [CALLHUB_OVER_CPS_LIMIT_DETAIL]
 
+// CallHub rejects a bulk contact import with a 400 whose body is a bare array
+// of messages (no `detail`) while an earlier import on the same account is
+// still running. The account is shared by every outreach, so two robocalls
+// staging at once collide on it, and the same call succeeds once the first
+// import finishes. Matched by phrase because the body carries no code.
+const IMPORT_IN_PROGRESS_PATTERN = /import is currently in progress/i
+
+const isImportInProgress = (data: unknown): boolean =>
+  Array.isArray(data) &&
+  data.some(
+    (message) =>
+      typeof message === 'string' && IMPORT_IN_PROGRESS_PATTERN.test(message),
+  )
+
 const isRecoverableDetail = (data?: CallhubErrorData): boolean => {
   const detail = data?.detail
   return (
@@ -124,6 +138,9 @@ const isRecoverableDetail = (data?: CallhubErrorData): boolean => {
     RECOVERABLE_4XX_DETAILS.includes(detail.trim().toLowerCase())
   )
 }
+
+const isRecoverableBody = (data?: CallhubErrorData): boolean =>
+  isRecoverableDetail(data) || isImportInProgress(data)
 
 @Injectable()
 export class CallhubErrorHandlingService {
@@ -164,7 +181,7 @@ export class CallhubErrorHandlingService {
         status >= 400 &&
         status < 500 &&
         !RECOVERABLE_4XX.includes(status) &&
-        !isRecoverableDetail(data)
+        !isRecoverableBody(data)
       if (permanent) {
         throw new CallhubPermanentError(
           customMessage ?? generic,
@@ -176,7 +193,7 @@ export class CallhubErrorHandlingService {
       // throttle like over_cps_limit on an otherwise-permanent 400), carry the
       // code so a retrying caller can back off specifically on it; a
       // status-based transient (5xx/429/401/408) has no such code to surface.
-      throw isRecoverableDetail(data)
+      throw isRecoverableBody(data)
         ? new CallhubRecoverableError(
             customMessage ?? generic,
             { cause: error },
