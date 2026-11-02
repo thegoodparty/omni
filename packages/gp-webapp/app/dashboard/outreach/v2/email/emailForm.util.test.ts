@@ -14,6 +14,7 @@ import {
   serverFieldError,
   switchLayout,
   toContent,
+  writeStepIssues,
   type EmailComposeState,
 } from './emailForm.util'
 
@@ -247,6 +248,45 @@ describe('composeIssues', () => {
       title: 'Add a title.',
       message: 'Write at least 2 paragraphs, with a blank line between them.',
     })
+  })
+})
+
+describe('writeStepIssues', () => {
+  it('leaves the picked layout’s rules to the look step', () => {
+    const state = form('short_cta', {
+      title: '',
+      message: 'a'.repeat(601),
+      buttonUrl: '',
+    })
+    expect(writeStepIssues(state, true)).toEqual({})
+    expect(composeIssues(state, true)).toMatchObject({
+      title: 'Add a title.',
+      message: 'Keep the message under 600 characters for this layout.',
+    })
+  })
+
+  it('leaves an empty subheading to the look step', () => {
+    expect(
+      writeStepIssues(form('long_update', { message: 'a\n\n##\n\nb' }), true),
+    ).toEqual({})
+  })
+
+  it('asks for the subject and message in every layout', () => {
+    expect(
+      writeStepIssues({ ...initialCompose(), layout: 'long_update' }, true),
+    ).toEqual({
+      subject: 'Add a subject line.',
+      message: 'Write your message.',
+    })
+  })
+
+  it('keeps the limits every layout shares', () => {
+    expect(
+      writeStepIssues(
+        form('personal_letter', { message: 'a'.repeat(2001) }),
+        false,
+      ).message,
+    ).toBe('Keep each paragraph under 2,000 characters.')
   })
 })
 

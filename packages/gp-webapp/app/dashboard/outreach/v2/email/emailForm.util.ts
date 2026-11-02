@@ -371,44 +371,70 @@ const ruleIssue = (code: string, message: string): ComposeFieldError => {
   return { field: 'message', message: withPeriod(message) }
 }
 
-// Plain errors keyed by the field that fixes them. `final` checks what can be
-// sent (after Next); otherwise only what's wrong even while typing.
-export const composeIssues = (
-  state: EmailComposeState,
-  final: boolean,
-): ComposeIssues => {
+interface FoundIssue extends ComposeFieldError {
+  // A rule of the picked layout rather than one every layout shares, so the
+  // write step leaves it to the look step, where the layout can change.
+  layoutRule: boolean
+}
+
+const WHOLE_EMAIL_LENGTH = 'Keep the whole email under'
+
+const findIssues = (state: EmailComposeState, final: boolean): FoundIssue[] => {
   const content = toContent(state)
   const result = (
     final ? EmailContentSchema : EmailContentDraftSchema
   ).safeParse(content)
-  if (result.success) return {}
-  const issues: ComposeIssues = {}
-  for (const issue of result.error.issues) {
+  if (result.success) return []
+  return result.error.issues.map((issue): FoundIssue => {
     const [root, index, key] = issue.path
     if (root === 'subject') {
-      issues.subject ??=
-        issue.message === EMPTY_MESSAGE
-          ? 'Add a subject line.'
-          : issue.code === 'too_big'
-            ? 'Shorten the subject line.'
-            : withPeriod(issue.message)
-      continue
+      return {
+        field: 'subject',
+        message:
+          issue.message === EMPTY_MESSAGE
+            ? 'Add a subject line.'
+            : issue.code === 'too_big'
+              ? 'Shorten the subject line.'
+              : withPeriod(issue.message),
+        layoutRule: false,
+      }
     }
     const block =
       root === 'blocks' && typeof index === 'number'
         ? content.blocks[index]
         : undefined
-    const found =
-      block && key !== undefined
-        ? {
-            field: fieldOf(block),
-            message: blockMessage(block, key, issue.code, issue.message),
-          }
-        : ruleIssue(issue.code, issue.message)
-    issues[found.field] ??= found.message
-  }
+    if (block && key !== undefined) {
+      return {
+        field: fieldOf(block),
+        message: blockMessage(block, key, issue.code, issue.message),
+        // Subheadings exist only in a long update, and only some layouts
+        // ask for a title.
+        layoutRule:
+          block.type === 'heading' &&
+          (block.level !== 1 || issue.code !== 'too_big'),
+      }
+    }
+    return {
+      ...ruleIssue(issue.code, issue.message),
+      layoutRule:
+        issue.code !== 'too_big' &&
+        !issue.message.startsWith(WHOLE_EMAIL_LENGTH),
+    }
+  })
+}
+
+const byField = (found: FoundIssue[]): ComposeIssues => {
+  const issues: ComposeIssues = {}
+  for (const { field, message } of found) issues[field] ??= message
   return issues
 }
+
+// Plain errors keyed by the field that fixes them. `final` checks what can be
+// sent (after Next); otherwise only what's wrong even while typing.
+export const composeIssues = (
+  state: EmailComposeState,
+  final: boolean,
+): ComposeIssues => byField(findIssues(state, final))
 
 export const hasIssues = (issues: ComposeIssues): boolean =>
   Object.keys(issues).length > 0
@@ -423,6 +449,22 @@ export const writeIssues = (issues: ComposeIssues): ComposeIssues => {
     if (issues[field]) picked[field] = issues[field]
   }
   return picked
+}
+
+// What the write step shows and holds Next on: its fields' problems under
+// any layout. A message is needed in every layout; the rest of the picked
+// layout's rules are the look step's, since the layout is picked there.
+export const writeStepIssues = (
+  state: EmailComposeState,
+  final: boolean,
+): ComposeIssues => {
+  const issues = writeIssues(
+    byField(findIssues(state, final).filter((found) => !found.layoutRule)),
+  )
+  if (final && !state.message.trim()) {
+    issues.message ??= 'Write your message.'
+  }
+  return issues
 }
 
 const BLOCK_ERROR = /Block (\d+): (.+)$/
