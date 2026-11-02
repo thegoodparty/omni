@@ -181,6 +181,19 @@ job **skips** the E2E shards, so the run's red gate job is named `E2E` even when
 nothing e2e-related ran. Cancelled runs are the train coalescing a merge burst,
 not failures.
 
+A run that fails only because GitHub lost a hosted runner ("The hosted runner
+lost communication with the server"), or because a job hit its `timeout-minutes`
+before running a step (a dead runner cut off by the timeout), is re-run
+automatically by `release-retry.yml`, at most twice (ENG-11537). A timed-out
+job, and its run, conclude `cancelled`, so the retry also looks at cancelled
+runs; a manual or superseding cancel is never retried. It never retries a real
+failure, never once a newer release run exists (that run ships the same
+changes, and re-running the old one could promote an older SHA over it), and
+never a Pulumi or Terraform job that lost its runner mid-run, because that can
+leave a state lock and a half-applied stack. Those still need a person: check
+the lock, then "Re-run failed jobs". The rules are in
+`.github/scripts/release-retry.sh`.
+
 The stages:
 
 1. **`await-checks`.** Waits for this commit's per-service check workflows

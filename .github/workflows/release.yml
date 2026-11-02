@@ -1047,6 +1047,9 @@ jobs:
       && needs.await-checks.outputs.frozen != 'true'
       && (needs.await-checks.outputs.force == 'true' || needs.e2e.result == 'success')
     runs-on: ubuntu-latest
+    # About 1 min normally. Bounds a hung job (ENG-11537); a lost runner is
+    # retried by release-retry.yml.
+    timeout-minutes: 15
     permissions:
       id-token: write
       contents: read
