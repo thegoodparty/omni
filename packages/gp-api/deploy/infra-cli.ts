@@ -46,8 +46,8 @@ const checkSecretKeys = async (env: 'dev' | 'prod') => {
   }).getSecretValue({ SecretId: secretId })
 
   // JSON.parse returns any — AWS secret is always a string-keyed object
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
   const actual = Object.keys(
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
     JSON.parse(SecretString || '{}') as Record<string, string>,
   )
   const declared = GP_API_SECRET_KEYS[env]
