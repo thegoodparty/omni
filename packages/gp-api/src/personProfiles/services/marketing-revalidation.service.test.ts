@@ -1,5 +1,6 @@
 import { HttpService } from '@nestjs/axios'
-import { of } from 'rxjs'
+import { AxiosError, AxiosHeaders } from 'axios'
+import { of, throwError } from 'rxjs'
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { WEBAPP_ROOT } from '@/shared/util/appEnvironment.util'
@@ -87,5 +88,43 @@ describe('MarketingRevalidationService', () => {
     await service.revalidatePerson(personId)
 
     expect(post).not.toHaveBeenCalled()
+  })
+
+  it('logs the status and Vercel mitigation header of an edge 429 without throwing', async () => {
+    const logger = createMockLogger()
+    const response = {
+      status: 429,
+      statusText: 'Too Many Requests',
+      data: '',
+      config: { headers: new AxiosHeaders() },
+      headers: { 'x-vercel-mitigated': 'challenge' },
+    }
+    post.mockReturnValue(
+      throwError(
+        () =>
+          new AxiosError(
+            'Request failed with status code 429',
+            'ERR_BAD_REQUEST',
+            undefined,
+            undefined,
+            response,
+          ),
+      ),
+    )
+    service = new MarketingRevalidationService(
+      { post } as unknown as HttpService,
+      logger,
+    )
+
+    await expect(service.revalidatePerson(personId)).resolves.toBeUndefined()
+
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.objectContaining({
+        personId,
+        status: 429,
+        vercelMitigated: 'challenge',
+      }),
+      'Marketing revalidation request failed (non-fatal)',
+    )
   })
 })
