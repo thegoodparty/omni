@@ -6,6 +6,7 @@ import {
   CallhubErrorHandlingService,
   CallhubPermanentError,
   CallhubRecoverableError,
+  CALLHUB_IMPORT_IN_PROGRESS_DETAIL,
 } from './callhubErrorHandling.service'
 
 const axiosError = (status: number, data: unknown): AxiosError => {
@@ -167,6 +168,9 @@ describe('CallhubErrorHandlingService', () => {
       ])
       expect(thrown).toBeInstanceOf(CallhubRecoverableError)
       expect(thrown).not.toBeInstanceOf(CallhubPermanentError)
+      expect((thrown as CallhubRecoverableError).callhubDetail).toBe(
+        CALLHUB_IMPORT_IN_PROGRESS_DETAIL,
+      )
     })
 
     it('still classifies other 400 array bodies as permanent', () => {

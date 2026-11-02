@@ -16,7 +16,11 @@ import {
   CallhubCampaignService,
   CreateVbCampaignResult,
 } from '@/vendors/callhub/services/callhubCampaign.service'
-import { CallhubPermanentError } from '@/vendors/callhub/services/callhubErrorHandling.service'
+import {
+  CallhubPermanentError,
+  CallhubRecoverableError,
+  isImportInProgressDetail,
+} from '@/vendors/callhub/services/callhubErrorHandling.service'
 import { OutreachType, RobocallSettleState } from '../../generated/prisma'
 import { RobocallPhonebookService } from './robocallPhonebook.service'
 import { RobocallOrphanedCampaignService } from './robocallOrphanedCampaign.service'
@@ -336,6 +340,20 @@ export class OutreachRobocallStagingService extends createPrismaBase(
       if (err instanceof CallhubPermanentError || err instanceof ZodError) {
         await this.failStagingPermanent(outreachId)
         return
+      }
+      // CallHub runs one bulk contact import at a time per account, so two
+      // replicas staging different drafts at once collide (ENG-11535). It is
+      // retried like any transient failure; this line is what counts how
+      // often it happens, to decide whether imports need serializing.
+      if (
+        err instanceof CallhubRecoverableError &&
+        isImportInProgressDetail(err.callhubDetail)
+      ) {
+        this.logger.warn(
+          { outreachId, callhubDetail: err.callhubDetail },
+          'robocall staging hit a CallHub import already in progress; ' +
+            'reverted to retry next sweep',
+        )
       }
       await this.revertClaim(outreachId)
       throw err

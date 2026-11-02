@@ -131,6 +131,15 @@ const isImportInProgress = (data: unknown): boolean =>
       typeof message === 'string' && IMPORT_IN_PROGRESS_PATTERN.test(message),
   )
 
+// Our own code for that collision, carried as `callhubDetail` on the
+// CallhubRecoverableError. CallHub sends no code for it, so this one is
+// synthetic; it lets a caller tell the collision apart from other transient
+// failures (staging logs a countable warn line on it).
+export const CALLHUB_IMPORT_IN_PROGRESS_DETAIL = 'import_in_progress'
+
+export const isImportInProgressDetail = (detail?: string): boolean =>
+  detail === CALLHUB_IMPORT_IN_PROGRESS_DETAIL
+
 const isRecoverableDetail = (data?: CallhubErrorData): boolean => {
   const detail = data?.detail
   return (
@@ -197,7 +206,11 @@ export class CallhubErrorHandlingService {
         ? new CallhubRecoverableError(
             customMessage ?? generic,
             { cause: error },
-            typeof data?.detail === 'string' ? data.detail : undefined,
+            isImportInProgress(data)
+              ? CALLHUB_IMPORT_IN_PROGRESS_DETAIL
+              : typeof data?.detail === 'string'
+                ? data.detail
+                : undefined,
           )
         : new BadGatewayException(customMessage ?? generic, { cause: error })
     }
