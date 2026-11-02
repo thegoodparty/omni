@@ -319,7 +319,11 @@ describe('MeetingBriefingsService.onExperimentRunCompleted', () => {
     const orgSlug = `eo-chain-imminent-${Date.now()}`
     await seedOrgAndCampaign(orgSlug, { positionId: 'br-pos-chain-imminent' })
     const eo = await service.prisma.electedOffice.create({
-      data: { organizationSlug: orgSlug, userId: service.user.id },
+      data: {
+        onboardingCompletedAt: new Date(),
+        organizationSlug: orgSlug,
+        userId: service.user.id,
+      },
     })
     mockResolveServeContext({
       state: 'MN',
@@ -358,6 +362,39 @@ describe('MeetingBriefingsService.onExperimentRunCompleted', () => {
     )
   })
 
+  it('does not chain a briefing for an office still in Serve onboarding', async () => {
+    const orgSlug = `eo-chain-unfinished-${Date.now()}`
+    await seedOrgAndCampaign(orgSlug, { positionId: 'br-pos-chain-unfinished' })
+    const eo = await service.prisma.electedOffice.create({
+      data: { organizationSlug: orgSlug, userId: service.user.id },
+    })
+    mockResolveServeContext({
+      state: 'MN',
+      positionName: 'City Council',
+      isServeIcp: true,
+    })
+    const artifactKey = await seedScheduleForOrg(orgSlug)
+    const scheduleRun = await service.prisma.experimentRun.create({
+      data: {
+        organizationSlug: orgSlug,
+        experimentType: 'meeting_schedule',
+        status: ExperimentRunStatus.COMPLETED,
+        artifactBucket: 'schedule-bucket',
+        artifactKey,
+        params: { elected_office_id: eo.id },
+      },
+    })
+    const dispatchSpy = vi
+      .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
+      .mockResolvedValue(undefined)
+
+    await service.app
+      .get(MeetingBriefingsService)
+      .onExperimentRunCompleted(scheduleRun)
+
+    expect(dispatchSpy).not.toHaveBeenCalled()
+  })
+
   it('chains a briefing even when the office user has never visited (activity gate skipped)', async () => {
     // This hook exists to guarantee a newly onboarded office gets its first
     // briefing. A sales-provisioned office's user may have no lastVisited at
@@ -370,7 +407,11 @@ describe('MeetingBriefingsService.onExperimentRunCompleted', () => {
       positionId: 'br-pos-chain-never-visited',
     })
     const eo = await service.prisma.electedOffice.create({
-      data: { organizationSlug: orgSlug, userId: service.user.id },
+      data: {
+        onboardingCompletedAt: new Date(),
+        organizationSlug: orgSlug,
+        userId: service.user.id,
+      },
     })
     await service.prisma.user.update({
       where: { id: service.user.id },
@@ -417,7 +458,11 @@ describe('MeetingBriefingsService.onExperimentRunCompleted', () => {
       const orgSlug = `eo-chain-far-${Date.now()}`
       await seedOrgAndCampaign(orgSlug, { positionId: 'br-pos-chain-far' })
       const eo = await service.prisma.electedOffice.create({
-        data: { organizationSlug: orgSlug, userId: service.user.id },
+        data: {
+          onboardingCompletedAt: new Date(),
+          organizationSlug: orgSlug,
+          userId: service.user.id,
+        },
       })
       mockResolveServeContext({
         state: 'MN',
@@ -455,7 +500,11 @@ describe('MeetingBriefingsService.onExperimentRunCompleted', () => {
     const orgSlug = `eo-chain-not-found-${Date.now()}`
     await seedOrgAndCampaign(orgSlug, { positionId: 'br-pos-chain-not-found' })
     const eo = await service.prisma.electedOffice.create({
-      data: { organizationSlug: orgSlug, userId: service.user.id },
+      data: {
+        onboardingCompletedAt: new Date(),
+        organizationSlug: orgSlug,
+        userId: service.user.id,
+      },
     })
     mockResolveServeContext({
       state: 'MN',
@@ -492,7 +541,11 @@ describe('MeetingBriefingsService.onExperimentRunCompleted', () => {
       data: { slug: orgSlug, ownerId: service.user.id },
     })
     const eo = await service.prisma.electedOffice.create({
-      data: { organizationSlug: orgSlug, userId: service.user.id },
+      data: {
+        onboardingCompletedAt: new Date(),
+        organizationSlug: orgSlug,
+        userId: service.user.id,
+      },
     })
     const briefingRun = await service.prisma.experimentRun.create({
       data: {
@@ -543,7 +596,11 @@ describe('MeetingBriefingsService.onExperimentRunCompleted', () => {
       data: { slug: orgSlug, ownerId: service.user.id },
     })
     const eo = await service.prisma.electedOffice.create({
-      data: { organizationSlug: orgSlug, userId: service.user.id },
+      data: {
+        onboardingCompletedAt: new Date(),
+        organizationSlug: orgSlug,
+        userId: service.user.id,
+      },
     })
     const briefingRun = await service.prisma.experimentRun.create({
       data: {
@@ -585,7 +642,11 @@ describe('MeetingBriefingsService.onExperimentRunCompleted', () => {
       data: { slug: orgSlug, ownerId: service.user.id },
     })
     const eo = await service.prisma.electedOffice.create({
-      data: { organizationSlug: orgSlug, userId: service.user.id },
+      data: {
+        onboardingCompletedAt: new Date(),
+        organizationSlug: orgSlug,
+        userId: service.user.id,
+      },
     })
     const briefingRun = await service.prisma.experimentRun.create({
       data: {
@@ -626,7 +687,11 @@ describe('MeetingBriefingsService.onExperimentRunCompleted', () => {
       data: { slug: orgSlug, ownerId: service.user.id },
     })
     const eo = await service.prisma.electedOffice.create({
-      data: { organizationSlug: orgSlug, userId: service.user.id },
+      data: {
+        onboardingCompletedAt: new Date(),
+        organizationSlug: orgSlug,
+        userId: service.user.id,
+      },
     })
     const briefingRun = await service.prisma.experimentRun.create({
       data: {
@@ -683,7 +748,11 @@ describe('MeetingBriefingsService.onExperimentRunCompleted', () => {
       data: { slug: orgSlug, ownerId: service.user.id },
     })
     const eo = await service.prisma.electedOffice.create({
-      data: { organizationSlug: orgSlug, userId: service.user.id },
+      data: {
+        onboardingCompletedAt: new Date(),
+        organizationSlug: orgSlug,
+        userId: service.user.id,
+      },
     })
     await service.prisma.experimentRun.create({
       data: {
@@ -744,7 +813,11 @@ describe('MeetingBriefingsService.onExperimentRunCompleted', () => {
         data: { slug: orgSlug, ownerId: service.user.id },
       })
       const eo = await service.prisma.electedOffice.create({
-        data: { organizationSlug: orgSlug, userId: service.user.id },
+        data: {
+          onboardingCompletedAt: new Date(),
+          organizationSlug: orgSlug,
+          userId: service.user.id,
+        },
       })
       const briefingRun = await service.prisma.experimentRun.create({
         data: {
@@ -793,7 +866,11 @@ describe('MeetingBriefingsService.onExperimentRunCompleted', () => {
       data: { slug: orgSlug, ownerId: service.user.id },
     })
     const eo = await service.prisma.electedOffice.create({
-      data: { organizationSlug: orgSlug, userId: service.user.id },
+      data: {
+        onboardingCompletedAt: new Date(),
+        organizationSlug: orgSlug,
+        userId: service.user.id,
+      },
     })
     const briefingRun = await service.prisma.experimentRun.create({
       data: {
@@ -835,7 +912,11 @@ describe('MeetingBriefingsService.onExperimentRunCompleted', () => {
       data: { slug: orgSlug, ownerId: service.user.id },
     })
     const eo = await service.prisma.electedOffice.create({
-      data: { organizationSlug: orgSlug, userId: service.user.id },
+      data: {
+        onboardingCompletedAt: new Date(),
+        organizationSlug: orgSlug,
+        userId: service.user.id,
+      },
     })
     await service.prisma.experimentRun.create({
       data: {
@@ -891,7 +972,11 @@ describe('MeetingBriefingsService.onExperimentRunCompleted', () => {
       data: { slug: orgSlug, ownerId: service.user.id },
     })
     const eo = await service.prisma.electedOffice.create({
-      data: { organizationSlug: orgSlug, userId: service.user.id },
+      data: {
+        onboardingCompletedAt: new Date(),
+        organizationSlug: orgSlug,
+        userId: service.user.id,
+      },
     })
     await service.prisma.experimentRun.create({
       data: {
@@ -976,7 +1061,11 @@ describe('MeetingBriefingsService Agenda Created HubSpot single-send (ENG-11035)
       data: { slug: orgSlug, ownerId: service.user.id },
     })
     const eo = await service.prisma.electedOffice.create({
-      data: { organizationSlug: orgSlug, userId: service.user.id },
+      data: {
+        onboardingCompletedAt: new Date(),
+        organizationSlug: orgSlug,
+        userId: service.user.id,
+      },
     })
     const briefingRun = await service.prisma.experimentRun.create({
       data: {
@@ -1121,6 +1210,7 @@ describe('MeetingBriefingsService.dispatchDailyBriefings', () => {
     })
     const eoA = await service.prisma.electedOffice.create({
       data: {
+        onboardingCompletedAt: new Date(),
         organizationSlug: orgSlugA,
         userId: service.user.id,
         campaignId: campaignA?.id,
@@ -1154,6 +1244,7 @@ describe('MeetingBriefingsService.dispatchDailyBriefings', () => {
     })
     await service.prisma.electedOffice.create({
       data: {
+        onboardingCompletedAt: new Date(),
         organizationSlug: orgSlugB,
         userId: otherUser.id,
         campaignId: campaignB.id,
@@ -1219,6 +1310,7 @@ describe('MeetingBriefingsService.dispatchDailyBriefings', () => {
     })
     await service.prisma.electedOffice.create({
       data: {
+        onboardingCompletedAt: new Date(),
         organizationSlug: orgSlug,
         userId: service.user.id,
         campaignId: campaign?.id,
@@ -1252,6 +1344,7 @@ describe('MeetingBriefingsService.dispatchDailyBriefings', () => {
       })
       await service.prisma.electedOffice.create({
         data: {
+          onboardingCompletedAt: new Date(),
           organizationSlug: orgSlug,
           userId: service.user.id,
           campaignId: campaign?.id,
@@ -1285,6 +1378,7 @@ describe('MeetingBriefingsService.dispatchDailyBriefings', () => {
     })
     await service.prisma.electedOffice.create({
       data: {
+        onboardingCompletedAt: new Date(),
         organizationSlug: orgSlug,
         userId: service.user.id,
         campaignId: campaign?.id,
@@ -1319,6 +1413,7 @@ describe('MeetingBriefingsService.dispatchDailyBriefings', () => {
     })
     await service.prisma.electedOffice.create({
       data: {
+        onboardingCompletedAt: new Date(),
         organizationSlug: orgSlug,
         userId: service.user.id,
         campaignId: campaign?.id,
@@ -1347,6 +1442,28 @@ describe('MeetingBriefingsService.dispatchDailyBriefings', () => {
     )
   })
 
+  it('skips an EO that has not finished Serve onboarding', async () => {
+    const orgSlug = `eo-cron-unfinished-${Date.now()}`
+    await seedOrgAndCampaign(orgSlug, { positionId: 'br-pos-cron-unfinished' })
+    await service.prisma.electedOffice.create({
+      data: { organizationSlug: orgSlug, userId: service.user.id },
+    })
+    mockResolveServeContext({
+      state: 'MN',
+      positionName: 'City Council',
+      isServeIcp: true,
+    })
+    await seedScheduleForOrg(orgSlug)
+
+    const dispatchSpy = vi
+      .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
+      .mockResolvedValue(undefined)
+
+    await service.app.get(MeetingBriefingsService).dispatchDailyBriefings()
+
+    expect(dispatchSpy).not.toHaveBeenCalled()
+  })
+
   it('dispatches for an EO whose position is not serve-ICP', async () => {
     const orgSlug = `eo-cron-non-icp-${Date.now()}`
     await seedOrgAndCampaign(orgSlug, { positionId: 'br-pos-cron-non-icp' })
@@ -1355,6 +1472,7 @@ describe('MeetingBriefingsService.dispatchDailyBriefings', () => {
     })
     await service.prisma.electedOffice.create({
       data: {
+        onboardingCompletedAt: new Date(),
         organizationSlug: orgSlug,
         userId: service.user.id,
         campaignId: campaign?.id,
@@ -1390,6 +1508,7 @@ describe('MeetingBriefingsService.dispatchDailyBriefings', () => {
     })
     await service.prisma.electedOffice.create({
       data: {
+        onboardingCompletedAt: new Date(),
         organizationSlug: orgSlug,
         userId: service.user.id,
         campaignId: campaign?.id,
@@ -1430,25 +1549,41 @@ describe('MeetingBriefingsService.dispatchDailyBriefings', () => {
     const orgA = `eo-mix-a-${suffix}`
     await seedOrgAndCampaign(orgA, { positionId: `br-pos-${orgA}` })
     const eoA = await service.prisma.electedOffice.create({
-      data: { organizationSlug: orgA, userId: service.user.id },
+      data: {
+        onboardingCompletedAt: new Date(),
+        organizationSlug: orgA,
+        userId: service.user.id,
+      },
     })
 
     const orgB = `eo-mix-b-${suffix}`
     await seedOrgAndCampaign(orgB, { positionId: `br-pos-${orgB}` })
     const eoB = await service.prisma.electedOffice.create({
-      data: { organizationSlug: orgB, userId: service.user.id },
+      data: {
+        onboardingCompletedAt: new Date(),
+        organizationSlug: orgB,
+        userId: service.user.id,
+      },
     })
 
     const orgC = `eo-mix-c-${suffix}`
     await seedOrgAndCampaign(orgC, { positionId: `br-pos-${orgC}` })
     const eoC = await service.prisma.electedOffice.create({
-      data: { organizationSlug: orgC, userId: service.user.id },
+      data: {
+        onboardingCompletedAt: new Date(),
+        organizationSlug: orgC,
+        userId: service.user.id,
+      },
     })
 
     const orgD = `eo-mix-d-${suffix}`
     await seedOrgAndCampaign(orgD, { positionId: `br-pos-${orgD}` })
     const eoD = await service.prisma.electedOffice.create({
-      data: { organizationSlug: orgD, userId: service.user.id },
+      data: {
+        onboardingCompletedAt: new Date(),
+        organizationSlug: orgD,
+        userId: service.user.id,
+      },
     })
 
     mockResolveServeContext({
@@ -1602,6 +1737,7 @@ describe('MeetingBriefingsService — activity-gated dispatch', () => {
     })
     const eo = await service.prisma.electedOffice.create({
       data: {
+        onboardingCompletedAt: new Date(),
         organizationSlug: orgSlug,
         userId: service.user.id,
         campaignId: campaign?.id,

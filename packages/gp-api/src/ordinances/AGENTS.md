@@ -32,7 +32,7 @@ state bill back into ordinance style.
 | `services/ordinanceQualityLoop.types.ts` | Start input/result, trigger, Segment event props |
 | `services/ordinanceQualityReport.service.ts` | Six-check QC judge; returns `{ report, degradedCheckIds }`; exports `qualityReportInputHash` |
 | `services/ordinanceDraftRevision.service.ts` | Reviser (editor-not-author): fixes only flagged checks, strict output schema, ≥50%-length guard → `OrdinanceRevisionGuardError`, resolves `sourceIdsToAdd` against on-record sources only |
-| `services/ordinanceDispatch.service.ts` | Cron dispatching `find_existing_ordinances` agent experiments (sourcing) |
+| `services/ordinanceDispatch.service.ts` | Cron dispatching `find_existing_ordinances` agent experiments (sourcing), for offices that finished Serve onboarding |
 | `services/ordinanceCodePersist.service.ts` / `ordinanceCodeRead.service.ts` | Persist/read municipal-code records from experiment artifacts |
 | `services/ordinanceExport.service.ts` | PDF/DOCX draft export |
 
