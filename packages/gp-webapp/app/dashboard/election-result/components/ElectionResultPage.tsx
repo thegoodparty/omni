@@ -24,14 +24,7 @@ import {
   AlertAction,
 } from '@styleguide/components/ui/alert'
 import { Button } from '@styleguide/components/ui/button'
-import { IconButton } from '@styleguide/components/ui/icon-button'
-import { GoodPartyOrgLogoWordmark } from '@styleguide/components/ui/good-party-org-logo-wordmark'
-import {
-  ClockIcon,
-  HeartIcon,
-  InfoIcon,
-  XMarkIcon,
-} from '@styleguide/components/ui/icons'
+import { ClockIcon, HeartIcon, InfoIcon } from '@styleguide/components/ui/icons'
 import { SERVE_ONBOARDING_PATH } from 'helpers/resolvePostAuthRedirectPath.util'
 import {
   dismissElectionResult,
@@ -43,6 +36,7 @@ import { electionDateOf } from '../electionResultQuestion'
 import { ActiveProSubscriptionAlert } from './ActiveProSubscriptionAlert'
 import { CongratulationsStep } from './CongratulationsStep'
 import { PrepareToServe } from './PrepareToServe'
+import { ElectionResultHeader } from './ElectionResultHeader'
 import { servePartyFromCampaign } from 'app/serve/onboarding/winParty'
 import { MY_ELECTED_OFFICES_QUERY_KEY } from 'app/dashboard/shared/myElectedOfficesQuery'
 
@@ -263,18 +257,7 @@ export default function ElectionResultPage({
 
   return (
     <div className="flex flex-col">
-      <header className="flex items-center justify-between border-b border-base-border bg-background px-4 py-3 md:px-6">
-        <GoodPartyOrgLogoWordmark size="small" textVariant="dark" />
-        <IconButton
-          type="button"
-          variant="ghost"
-          size="medium"
-          aria-label="Close"
-          onClick={() => router.push('/dashboard')}
-        >
-          <XMarkIcon className="size-5" aria-hidden />
-        </IconButton>
-      </header>
+      <ElectionResultHeader onClose={() => router.push('/dashboard')} />
       <main className="flex-1 pb-24 md:pb-0">
         <section className="max-w-screen-md mx-auto p-4 sm:p-8 lg:p-16 bg-white md:border md:border-slate-200 md:rounded-xl md:mt-12">
           {isImpersonating && (

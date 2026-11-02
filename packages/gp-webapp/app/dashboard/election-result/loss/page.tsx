@@ -5,6 +5,7 @@ import { useUser } from '@shared/hooks/useUser'
 import { useServePlace } from 'app/dashboard/contacts/citizens-panel/managedPanelCopy'
 import { ActiveProSubscriptionAlert } from '../components/ActiveProSubscriptionAlert'
 import { CommunityCard } from '../components/CommunityCard'
+import { ElectionResultHeader } from '../components/ElectionResultHeader'
 import { BACK_TO_DASHBOARD, LOST_COPY } from '../electionResultCopy'
 
 export default function LossPage(): React.JSX.Element {
@@ -14,6 +15,7 @@ export default function LossPage(): React.JSX.Element {
 
   return (
     <div className="flex flex-col">
+      <ElectionResultHeader />
       <main className="flex-1 pb-24 md:pb-0">
         <section className="max-w-screen-md mx-auto p-4 sm:p-8 lg:p-12 bg-white md:border md:border-slate-200 md:rounded-xl md:mt-12">
           <ActiveProSubscriptionAlert className="mb-7" />
