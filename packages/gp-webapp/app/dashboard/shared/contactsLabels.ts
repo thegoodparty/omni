@@ -11,7 +11,7 @@ export const CONTACTS_DATA_TITLE = {
 // single constituents row), so they live outside the mode-keyed shape below.
 export const WIN_UNIVERSE_STAT_LABELS = {
   projectedTurnout: 'Projected turnout',
-  votersNeededToWin: 'Voters needed to win',
+  votesNeededToWin: 'Votes needed to win',
 } as const
 
 // Win only: imported people we couldn't match to a voter, counted next to

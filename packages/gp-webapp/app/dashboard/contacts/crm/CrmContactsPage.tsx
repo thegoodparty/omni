@@ -137,7 +137,7 @@ export const CrmContactsPage = () => {
             value: raceTargetMetrics.projectedTurnout,
           },
           {
-            label: WIN_UNIVERSE_STAT_LABELS.votersNeededToWin,
+            label: WIN_UNIVERSE_STAT_LABELS.votesNeededToWin,
             value: raceTargetMetrics.winNumber,
           },
         ].filter((row) => row.value > 0)

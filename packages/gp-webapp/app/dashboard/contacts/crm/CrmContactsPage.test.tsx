@@ -396,7 +396,7 @@ describe('CrmContactsPage — universe stat card rows (ENG-10746)', () => {
 
     expect(screen.getByText('Voters in your district')).toBeInTheDocument()
     expect(screen.getByText('Projected turnout: 42318')).toBeInTheDocument()
-    expect(screen.getByText('Voters needed to win: 21160')).toBeInTheDocument()
+    expect(screen.getByText('Votes needed to win: 21160')).toBeInTheDocument()
   })
 
   it('Win without raceTargetMetrics (no P2V yet) renders only the voters row', () => {
@@ -407,7 +407,7 @@ describe('CrmContactsPage — universe stat card rows (ENG-10746)', () => {
 
     expect(screen.getByText('Voters in your district')).toBeInTheDocument()
     expect(screen.queryByText(/Projected turnout/)).not.toBeInTheDocument()
-    expect(screen.queryByText(/Voters needed to win/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Votes needed to win/)).not.toBeInTheDocument()
   })
 
   it('drops a zero-valued metric row instead of rendering "0"', () => {
@@ -419,7 +419,7 @@ describe('CrmContactsPage — universe stat card rows (ENG-10746)', () => {
     render(<CrmContactsPage />)
 
     expect(screen.queryByText(/Projected turnout/)).not.toBeInTheDocument()
-    expect(screen.getByText('Voters needed to win: 21160')).toBeInTheDocument()
+    expect(screen.getByText('Votes needed to win: 21160')).toBeInTheDocument()
   })
 
   it('Serve renders the records-available row and the census row (no raceTargetMetrics rows)', () => {
@@ -435,7 +435,7 @@ describe('CrmContactsPage — universe stat card rows (ENG-10746)', () => {
       screen.getByText('Total constituents in your district'),
     ).toBeInTheDocument()
     expect(screen.queryByText(/Projected turnout/)).not.toBeInTheDocument()
-    expect(screen.queryByText(/Voters needed to win/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Votes needed to win/)).not.toBeInTheDocument()
   })
 
   it('Serve with serve-consumer-data on shows only the records row, no census row', () => {
