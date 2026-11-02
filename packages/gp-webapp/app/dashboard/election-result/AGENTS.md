@@ -2,8 +2,17 @@
 
 `/dashboard/election-result`: what a candidate sees once their election date
 has passed and `details.wonGeneral` is not saved. `DashboardLayout` sends them
-here from every dashboard route except the campaign manager home
-(`/dashboard`), where the manager's chat asks instead.
+here from any dashboard route except the campaign manager home
+(`/dashboard`), where the manager's chat asks instead, at most once per
+browser session: the redirect, and the page opening, mark the campaign shown
+(`markElectionResultShown` in `dismissal.ts`, sessionStorage key
+`gp:electionResultShownThisSession` holding the campaign id), and no route
+sends them back until the browser closes. Test mode's Apply clears it.
+
+The ask screen has a header bar: the `GoodPartyOrgLogoWordmark` over a rule,
+no menu, and a ghost `IconButton` X (`aria-label="Close"`) on its right. The X
+goes to Home, where the card and the chat keep asking; it saves and snoozes
+nothing. The Pro win's `PrepareToServe` draws its own screen without it.
 
 ## Two places ask, the first answer wins
 

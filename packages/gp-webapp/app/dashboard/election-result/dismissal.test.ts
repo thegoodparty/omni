@@ -1,9 +1,12 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
   ELECTION_RESULT_SNOOZE_MS,
+  clearElectionResultShown,
   clearElectionResultSnooze,
   isElectionResultSnoozed,
+  markElectionResultShown,
   snoozeElectionResult,
+  wasElectionResultShown,
 } from './dismissal'
 
 describe('election result snooze', () => {
@@ -33,5 +36,27 @@ describe('election result snooze', () => {
     clearElectionResultSnooze()
 
     expect(isElectionResultSnoozed(9)).toBe(false)
+  })
+})
+
+describe('election result shown this session', () => {
+  beforeEach(() => {
+    window.sessionStorage.clear()
+  })
+
+  it('remembers the campaign it was shown to', () => {
+    expect(wasElectionResultShown(9)).toBe(false)
+    markElectionResultShown(9)
+
+    expect(wasElectionResultShown(9)).toBe(true)
+    expect(wasElectionResultShown(10)).toBe(false)
+    expect(wasElectionResultShown(undefined)).toBe(false)
+  })
+
+  it('shows it again once cleared', () => {
+    markElectionResultShown(9)
+    clearElectionResultShown()
+
+    expect(wasElectionResultShown(9)).toBe(false)
   })
 })

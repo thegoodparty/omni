@@ -26,6 +26,8 @@ import { useIsImpersonating } from '@shared/hooks/useIsImpersonating'
 import {
   isElectionResultDismissed,
   isElectionResultSnoozed,
+  markElectionResultShown,
+  wasElectionResultShown,
 } from '../election-result/dismissal'
 import { isElectionResultPending } from '../election-result/electionResultQuestion'
 import { CONTACTS_DATA_TITLE } from './contactsLabels'
@@ -125,7 +127,9 @@ const DashboardLayout = ({
       return
     }
     if (isElectionResultSnoozed(campaignId)) return
+    if (campaignId === undefined || wasElectionResultShown(campaignId)) return
 
+    markElectionResultShown(campaignId)
     router.push('/dashboard/election-result')
   }, [
     currentPath,
