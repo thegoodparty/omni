@@ -573,7 +573,7 @@ export const SERVE_PLEDGE_COMMITMENTS: ServePledgeCommitment[] = [
     icon: User,
     title: 'Independent',
     detail:
-      'I will run and serve as a non-partisan, independent or third party candidate, not as a Democrat or Republican. I will not accept endorsements from either the Republican or Democratic party.',
+      'I will run and serve as a non-partisan, independent or third party candidate or elected official, not as a Democrat or Republican. I will not accept endorsements from either the Republican or Democratic party.',
   },
   {
     icon: Users,
