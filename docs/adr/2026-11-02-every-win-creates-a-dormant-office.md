@@ -3,7 +3,7 @@ title: A win, from any source, creates a dormant office; only finished offices g
 status: active
 decided_by: [bryclevgp]
 date: 2026-11-02
-code: ['#TBD']
+code: ['#3494']
 scope:
   - packages/gp-api/src/electedOffice/**
   - packages/gp-api/src/campaigns/campaigns.controller.ts

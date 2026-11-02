@@ -73,7 +73,7 @@ export class WinOfficeService extends createPrismaBase(MODELS.ElectedOffice) {
   /**
    * Brings a campaign's office in line with its result after a write that
    * could change it. Best effort: the result is already saved, and the sweep
-   * repairs a miss within the hour.
+   * repairs a miss on its next daily run.
    */
   async reconcile(
     campaignId: number,
