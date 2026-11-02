@@ -65,7 +65,7 @@ describe('DistrictStatCard', () => {
           { label: 'Projected turnout', value: 42318 },
           // winNumber can be fractional (floor(turnout/2) + 1 vs BR data);
           // display must round to the prototype's whole-number formatting.
-          { label: 'Voters needed to win', value: 21159.5 },
+          { label: 'Votes needed to win', value: 21159.5 },
         ]}
       />,
     )
@@ -73,7 +73,7 @@ describe('DistrictStatCard', () => {
     expect(await screen.findByText('30,000')).toBeInTheDocument()
     expect(screen.getByText('Projected turnout')).toBeInTheDocument()
     expect(screen.getByText('42,318')).toBeInTheDocument()
-    expect(screen.getByText('Voters needed to win')).toBeInTheDocument()
+    expect(screen.getByText('Votes needed to win')).toBeInTheDocument()
     expect(screen.getByText('21,160')).toBeInTheDocument()
   })
 
@@ -124,7 +124,7 @@ describe('DistrictStatCard', () => {
 
     expect(await screen.findByText('30,000')).toBeInTheDocument()
     expect(
-      screen.queryByText(/Projected turnout|Voters needed to win/),
+      screen.queryByText(/Projected turnout|Votes needed to win/),
     ).not.toBeInTheDocument()
   })
 
