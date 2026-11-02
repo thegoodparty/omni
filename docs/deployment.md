@@ -54,9 +54,16 @@ Vercel CLI (no git integration), driven by GitHub Actions and the shared
 - The dev deploy (the train's dev stage on push to `main`) hits Vercel's
   **preview** target with environment-scoped env vars, then aliases the result to
   `dev.goodparty.org`.
-- PR previews get a **deterministic alias** (e.g. `gp-ui-pr-123-...vercel.app`) so
-  the URL is predictable per PR. These run in the per-service workflow on
-  `pull_request`, not in the train.
+- PR previews run in the per-service workflow on `pull_request`, not in the
+  train, and deploy with `VERCEL_PREVIEW_TOKEN`. That token belongs to
+  `vercel-preview-user@goodparty.org`, a Vercel account with the **Developer**
+  role, which can deploy previews but not production, so a pull request cannot
+  reach production. Developer also cannot assign aliases, so a PR preview has
+  only its generated URL (new on every push), which its deploy job writes into
+  the PR's preview comment. Never raise that account's role or add a PR alias
+  back: either one gives every pull request a token that can deploy
+  production. The production token (`VERCEL_TOKEN`) lives only in the
+  `production` environment, which only `main` can use.
 - The prod deploy runs the same way but targets the production target; it is the
   train's prod stage for the same commit (see below), not a push to a prod branch.
 - The build step runs with `NODE_OPTIONS: --max-old-space-size=6144`: `next
@@ -76,9 +83,10 @@ build` peaks near Node's default ~4GB heap and started OOMing intermittently
   install, `vercel pull`, `vercel deploy` of the prebuilt output, and
   `vercel alias set`. Each is safe to repeat. `vercel build` is not retried:
   it runs locally and fails for code, token or heap reasons.
-- A single workflow (`pr-preview-comment.yml`) upserts **one** unified preview
-  comment on the PR listing every app; every app's deploy job runs on every PR,
-  so all the URLs resolve.
+- Each PR has **one** preview comment listing every app.
+  `pr-preview-comment.yml` creates it and writes the gp-api row
+  (`pr-<N>.preview.goodparty.org`); each Vercel app's deploy job fills in its
+  own row with its latest URL and commit (`preview-name` on `vercel-deploy`).
 
 ### Full-stack PR previews (gp-webapp <-> gp-api)
 
