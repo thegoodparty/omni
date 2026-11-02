@@ -442,6 +442,29 @@ jobs:
       - name: Build serve-analyze lambda trigger
         run: bash packages/gp-ai/infrastructure/modules/serve-analyze-fargate/lambda-trigger/build.sh
 
+      # TEMPORARY memory probe (ENG-11530/ENG-11537 investigation). Do not merge.
+      # Samples memory while the parallel plans run, and stops once every root
+      # has written its .code file (or after 20 min).
+      - name: memprobe sampler
+        background: true
+        run: |
+          set -u
+          expected=$(find packages/gp-ai/infrastructure/environments/dev -mindepth 1 -maxdepth 1 -type d | wc -l)
+          out=/tmp/memprobe.tsv
+          echo "nproc=$(nproc) $(grep MemTotal /proc/meminfo) $(grep SwapTotal /proc/meminfo)" > /tmp/memprobe.hdr
+          echo -e "t\tused_mb\tavail_mb\tswap_used_mb\ttf_procs\ttf_rss_mb\tpsi_mem_full_avg10\tload1" > "$out"
+          for i in $(seq 1200); do
+            read -r total avail st sf < <(awk '/MemTotal/{t=$2}/MemAvailable/{a=$2}/SwapTotal/{st=$2}/SwapFree/{sf=$2}END{print t,a,st,sf}' /proc/meminfo)
+            procs=$(pgrep -c -f 'terraform|terraform-provider' || true)
+            rss=$(ps -eo rss,comm | awk '/terraform/{s+=$1}END{print int(s/1024)}')
+            psi=$(awk '/^full/{split($2,a,"=");print a[2]}' /proc/pressure/memory 2>/dev/null || echo na)
+            echo -e "$i\t$(((total-avail)/1024))\t$((avail/1024))\t$(((st-sf)/1024))\t$procs\t$rss\t$psi\t$(cut -d' ' -f1 /proc/loadavg)" >> "$out"
+            done_n=$(ls "$PLAN_DIR"/*.code 2>/dev/null | wc -l)
+            [ "$done_n" -ge "$expected" ] && break
+            sleep 1
+          done
+          exit 0
+
       # Each of these records its result to files and always exits 0. `wait-all`
       # short-circuits everything after it if any background step fails, and we
       # want the comment posted even when a root errors — so the assemble step
@@ -484,6 +507,15 @@ jobs:
         run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/universal-judge-sweep-policy
 
       - wait-all:
+
+      - name: memprobe report
+        if: always()
+        run: |
+          cat /tmp/memprobe.hdr || true
+          awk -F'\t' 'NR>1{if($2>mu){mu=$2;t=$1} if($3<ma||ma=="")ma=$3; if($4>ms)ms=$4; if($6>mr)mr=$6; if($5>mp)mp=$5; if($7+0>psi)psi=$7+0; if($8+0>ld)ld=$8+0}END{printf "MEMPROBE peak_used_mb=%d at_t=%ds min_avail_mb=%d peak_swap_mb=%d peak_tf_rss_mb=%d peak_tf_procs=%d peak_psi_full_avg10=%s peak_load1=%s samples=%d\n",mu,t,ma,ms,mr,mp,psi,ld,NR-1}' /tmp/memprobe.tsv || true
+          sudo dmesg 2>/dev/null | grep -i -E 'oom|killed process' || echo "MEMPROBE no OOM in dmesg"
+          echo '--- every 10th sample ---'
+          awk 'NR==1||NR%10==0' /tmp/memprobe.tsv || true
 
       - name: Post consolidated plan comment
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
