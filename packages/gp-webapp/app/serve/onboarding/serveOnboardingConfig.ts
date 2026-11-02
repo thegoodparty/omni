@@ -396,7 +396,7 @@ export const SERVE_PRIORITIES_LIST_COPY = {
 export interface ServeStoryTitle {
   lead: string
   accent: string
-  tail: string
+  tail?: string
 }
 
 export const SERVE_STORY_COPY = {
@@ -416,9 +416,8 @@ export const SERVE_STORY_COPY = {
   },
   loudest: {
     title: {
-      lead: "Until now, you've heard from the",
+      lead: 'Most officials only hear from the',
       accent: 'loudest voices',
-      tail: 'only',
     } satisfies ServeStoryTitle,
     description:
       "That's the people who come to meetings or send you emails, and most residents never get the chance.",
