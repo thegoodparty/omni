@@ -356,6 +356,11 @@ what CI runs. Pin a new one the same way: resolve the tag with
 `github-actions` PR moves the SHA and the comment together. Local `./` actions
 are not pinned.
 
+Docker and GitHub Actions version updates have a 7-day `cooldown`: Dependabot
+only proposes a release once it has been public for a week, so a compromised
+release is usually caught and pulled before auto-merge can adopt it. Security
+updates ignore the cooldown.
+
 Dependabot PRs merge themselves, whatever the ecosystem: the
 `dependabot-merge.yml` workflow sweeps every 30 minutes and squash-merges any
 Dependabot PR that is approved (delegate reviews every PR), has all checks
