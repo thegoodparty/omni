@@ -17,12 +17,14 @@ const {
   mockIsImpersonating,
   mockDismissElectionResult,
   mockSnoozeElectionResult,
+  mockMarkElectionResultShown,
   mockCampaign,
 } = vi.hoisted(() => ({
   mockErrorSnackbar: vi.fn(),
   mockIsImpersonating: vi.fn(() => false),
   mockDismissElectionResult: vi.fn(),
   mockSnoozeElectionResult: vi.fn(),
+  mockMarkElectionResultShown: vi.fn(),
   mockCampaign: {
     current: { id: 1, details: { electionDate: '2025-05-20' } } as {
       id: number
@@ -51,6 +53,7 @@ vi.mock('@shared/hooks/useIsImpersonating', () => ({
 vi.mock('../dismissal', () => ({
   dismissElectionResult: mockDismissElectionResult,
   snoozeElectionResult: mockSnoozeElectionResult,
+  markElectionResultShown: mockMarkElectionResultShown,
 }))
 
 vi.mock('@shared/hooks/CampaignProvider', () => ({
@@ -169,6 +172,22 @@ describe('ElectionResultPage', () => {
     expect(mockSnoozeElectionResult).toHaveBeenCalledWith(1)
     expect(router.replace).toHaveBeenCalledWith('/dashboard')
     expect(mockUpdateCampaign).not.toHaveBeenCalled()
+  })
+
+  it('closes to Home without saving or snoozing an answer', () => {
+    render(<ElectionResultPage />)
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+
+    expect(router.push).toHaveBeenCalledWith('/dashboard')
+    expect(mockUpdateCampaign).not.toHaveBeenCalled()
+    expect(mockSnoozeElectionResult).not.toHaveBeenCalled()
+    expect(mockDismissElectionResult).not.toHaveBeenCalled()
+  })
+
+  it('counts as shown for the session when it opens', () => {
+    render(<ElectionResultPage />)
+
+    expect(mockMarkElectionResultShown).toHaveBeenCalledWith(1)
   })
 
   it('opens on the congratulations when the chat answered "I won"', async () => {
