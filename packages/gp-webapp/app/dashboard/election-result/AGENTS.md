@@ -59,6 +59,12 @@ asking again returns the office linked to this campaign. See
 `app/serve/onboarding/AGENTS.md` ("Pro winners") for how the dashboard brings
 an unfinished Pro winner back; a non-Pro winner is never sent there.
 
+Saving `wonGeneral` also reaches gp-api's `WinOfficeService`
+(`gp-api/src/electedOffice/AGENTS.md`): a win without Pro gets the same
+office, created dormant on the server, and a later loss deletes it while it
+is unfinished. Dormant means no Serve jobs and no redirect; staff let people
+in a few at a time.
+
 Copy lives in `electionResultCopy.ts`. The Pro win (`PrepareToServe.tsx`)
 is two steps. First a full-screen celebration: "Congratulations, you won!",
 the office name, confetti, a progress bar and Continue; it moves on by itself

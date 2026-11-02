@@ -12,6 +12,9 @@ import { ForbiddenException, UnauthorizedException } from '@nestjs/common'
 import { ElectedOfficeController } from './electedOffice.controller'
 import { CrmOfficeHolderService } from './services/crmOfficeHolder.service'
 import { WinTermService } from './services/winTerm.service'
+import { MeetingBriefingsService } from '@/meetings/services/meetingBriefings.service'
+import { CommunityIssueDispatchService } from '@/communityIssues/services/communityIssueDispatch.service'
+import { OrdinanceDispatchService } from '@/ordinances/services/ordinanceDispatch.service'
 
 const service = useTestService()
 
@@ -1077,6 +1080,54 @@ describe('ElectedOfficeController', () => {
 
       expect(result.status).toBe(200)
       expect(result.data.onboardingCompletedAt).toBe('2026-02-01T00:00:00.000Z')
+    })
+
+    it('dispatches the Serve work a dormant win office skipped at the pledge, once', async () => {
+      const hooks = [
+        vi.spyOn(
+          service.app.get(MeetingBriefingsService),
+          'onElectedOfficeCreated',
+        ),
+        vi.spyOn(
+          service.app.get(CommunityIssueDispatchService),
+          'onElectedOfficeCreated',
+        ),
+        vi.spyOn(
+          service.app.get(OrdinanceDispatchService),
+          'onElectedOfficeCreated',
+        ),
+      ]
+      hooks.forEach((hook) => hook.mockResolvedValue(undefined))
+
+      const created = await createElectedOffice({
+        onboardingStep: 'confirm',
+        termStartDate: '2025-01-01',
+        termEndDate: '2029-01-01',
+      })
+      expect(created.status).toBe(200)
+      const stored = await service.prisma.electedOffice.findUniqueOrThrow({
+        where: { id: created.data.id },
+      })
+      expect(stored.winSource).toBe('self_reported')
+      hooks.forEach((hook) => expect(hook).not.toHaveBeenCalled())
+
+      for (const at of [
+        '2026-02-01T00:00:00.000Z',
+        '2026-02-02T00:00:00.000Z',
+      ]) {
+        const pledged = await service.client.put(
+          `/v1/elected-office/${created.data.id}`,
+          { onboardingCompletedAt: at },
+        )
+        expect(pledged.status).toBe(200)
+      }
+
+      hooks.forEach((hook) => {
+        expect(hook).toHaveBeenCalledTimes(1)
+        expect(hook).toHaveBeenCalledWith(
+          expect.objectContaining({ id: created.data.id }),
+        )
+      })
     })
 
     it('sends the seat snapshot to HubSpot on the completing PUT', async () => {

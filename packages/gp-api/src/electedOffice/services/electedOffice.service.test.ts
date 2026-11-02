@@ -1,6 +1,7 @@
 import { useTestService } from '@/test-service'
 import { MeetingBriefingsService } from '@/meetings/services/meetingBriefings.service'
 import { OrdinanceDispatchService } from '@/ordinances/services/ordinanceDispatch.service'
+import { CommunityIssueDispatchService } from '@/communityIssues/services/communityIssueDispatch.service'
 import { PrioritiesService } from '@/priorities/services/priorities.service'
 import { ConflictException } from '@nestjs/common'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -139,12 +140,14 @@ describe('ElectedOfficeService.create', () => {
       userId: service.user.id,
       termStartDate: new Date('2025-01-01T00:00:00.000Z'),
       termEndDate: new Date('2029-01-01T00:00:00.000Z'),
+      onboardingCompletedAt: new Date(),
     })
 
     const retry = await electedOffices.create({
       userId: service.user.id,
       termStartDate: new Date('2025-01-01T00:00:00.000Z'),
       termEndDate: new Date('2029-01-01T00:00:00.000Z'),
+      onboardingCompletedAt: new Date(),
     })
 
     expect(retry.id).toBe(first.id)
@@ -162,6 +165,10 @@ describe('ElectedOfficeService.create', () => {
       'onElectedOfficeCreated',
     )
     const first = await electedOffices.create({ userId: service.user.id })
+    await service.prisma.electedOffice.update({
+      where: { id: first.id },
+      data: { onboardingCompletedAt: new Date() },
+    })
     const again = await electedOffices.create({ userId: service.user.id })
 
     expect(again.id).toBe(first.id)
@@ -274,20 +281,25 @@ describe('ElectedOfficeService.create', () => {
     expect(sync).toHaveBeenCalledWith(first.id, { sendSeatFields: false })
   })
 
-  it('dispatches the schedule after creating an office', async () => {
+  it('dispatches the schedule after creating a finished office', async () => {
     const dispatch = vi.spyOn(
       service.app.get(MeetingBriefingsService),
       'onElectedOfficeCreated',
     )
 
-    const office = await electedOffices.create({ userId: service.user.id })
+    const office = await electedOffices.create({
+      userId: service.user.id,
+      termStartDate: new Date('2025-01-01T00:00:00.000Z'),
+      termEndDate: new Date('2029-01-01T00:00:00.000Z'),
+      onboardingCompletedAt: new Date(),
+    })
 
     expect(dispatch).toHaveBeenCalledWith(
       expect.objectContaining({ id: office.id }),
     )
   })
 
-  it('dispatches ordinance sourcing after creating an office', async () => {
+  it('dispatches ordinance sourcing after creating a finished office', async () => {
     const dispatch = vi
       .spyOn(
         service.app.get(OrdinanceDispatchService),
@@ -295,11 +307,44 @@ describe('ElectedOfficeService.create', () => {
       )
       .mockResolvedValue(undefined)
 
-    const office = await electedOffices.create({ userId: service.user.id })
+    const office = await electedOffices.create({
+      userId: service.user.id,
+      termStartDate: new Date('2025-01-01T00:00:00.000Z'),
+      termEndDate: new Date('2029-01-01T00:00:00.000Z'),
+      onboardingCompletedAt: new Date(),
+    })
 
     expect(dispatch).toHaveBeenCalledWith(
       expect.objectContaining({ id: office.id }),
     )
+  })
+
+  it('dispatches nothing for an unfinished office', async () => {
+    const schedule = vi.spyOn(
+      service.app.get(MeetingBriefingsService),
+      'onElectedOfficeCreated',
+    )
+    const issues = vi
+      .spyOn(
+        service.app.get(CommunityIssueDispatchService),
+        'onElectedOfficeCreated',
+      )
+      .mockResolvedValue(undefined)
+    const ordinances = vi
+      .spyOn(
+        service.app.get(OrdinanceDispatchService),
+        'onElectedOfficeCreated',
+      )
+      .mockResolvedValue(undefined)
+
+    await electedOffices.create({
+      userId: service.user.id,
+      onboardingStep: 'confirm',
+    })
+
+    expect(schedule).not.toHaveBeenCalled()
+    expect(issues).not.toHaveBeenCalled()
+    expect(ordinances).not.toHaveBeenCalled()
   })
 
   it('still creates the office when the ordinance dispatch rejects', async () => {

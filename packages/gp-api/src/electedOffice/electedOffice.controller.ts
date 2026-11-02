@@ -22,7 +22,13 @@ import {
   UseGuards,
   UsePipes,
 } from '@nestjs/common'
-import { ElectedOffice, Organization, Prisma, User } from '../generated/prisma'
+import {
+  ElectedOffice,
+  ElectedOfficeWinSource,
+  Organization,
+  Prisma,
+  User,
+} from '../generated/prisma'
 import { ZodValidationPipe } from 'nestjs-zod'
 import { ReqUser } from 'src/authentication/decorators/ReqUser.decorator'
 import { ReqOrganization } from 'src/organizations/decorators/ReqOrganization.decorator'
@@ -220,10 +226,13 @@ export class ElectedOfficeController {
         ? await this.winTerm.forWinner(orgData.positionId, user)
         : null
 
+    // A campaign org's create is the Pro winner's own "I won".
     const createArgs = {
       ...eoFields,
       userId: user.id,
       campaignId,
+      winSource:
+        campaignId != null ? ElectedOfficeWinSource.self_reported : undefined,
       orgData,
     }
     if (winTerm) {

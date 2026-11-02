@@ -135,6 +135,14 @@ describe('POST /v1/elected-office dispatches schedule only (briefing chains via 
     vi.unstubAllEnvs()
   })
 
+  // The create-time dispatch runs only for an office created onboarded; an
+  // unfinished one gets it at the pledge (electedOffice.controller.test.ts).
+  const FINISHED_OFFICE = {
+    termStartDate: '2025-01-01',
+    termEndDate: '2029-01-01',
+    onboardingCompletedAt: '2026-02-01T00:00:00.000Z',
+  }
+
   it('skips dispatch when MEETINGS_AUTOMATION_ENABLED is unset', async () => {
     vi.stubEnv('MEETINGS_AUTOMATION_ENABLED', '')
     const orgSlug = `eo-gate-${Date.now()}`
@@ -146,7 +154,7 @@ describe('POST /v1/elected-office dispatches schedule only (briefing chains via 
 
     const res = await service.client.post(
       '/v1/elected-office',
-      {},
+      FINISHED_OFFICE,
       { headers: { 'x-organization-slug': orgSlug } },
     )
 
@@ -169,7 +177,7 @@ describe('POST /v1/elected-office dispatches schedule only (briefing chains via 
 
     const res = await service.client.post(
       '/v1/elected-office',
-      {},
+      FINISHED_OFFICE,
       { headers: { 'x-organization-slug': orgSlug } },
     )
 
@@ -201,7 +209,7 @@ describe('POST /v1/elected-office dispatches schedule only (briefing chains via 
 
     const res = await service.client.post(
       '/v1/elected-office',
-      {},
+      FINISHED_OFFICE,
       { headers: { 'x-organization-slug': orgSlug } },
     )
 

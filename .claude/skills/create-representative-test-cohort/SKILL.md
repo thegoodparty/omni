@@ -179,9 +179,10 @@ To validate the skill without any agent spend:
 
 - **Cleanup window.** Created users are `@test.goodparty.org` and are swept by
   gp-api's `deleteTestUsers` (~24h). Dispatch promptly after creating.
-- **Auto-dispatch on create.** Creating a **bound** elected office fires
-  `onElectedOfficeCreated` → community-issue dispatch **iff
-  `MEETINGS_AUTOMATION_ENABLED=true`**. That signup path is NOT ICP-gated, but it
+- **Auto-dispatch on create.** Creating a **bound** elected office with
+  `onboardingCompletedAt` set fires `onElectedOfficeCreated` → community-issue
+  dispatch **iff `MEETINGS_AUTOMATION_ENABLED=true`**. An office created
+  unfinished dispatches nothing until its onboarding pledge. That signup path is NOT ICP-gated, but it
   still requires a resolvable position (`resolveServeContext` non-null) — so an
   unbound office never dispatches (see Testing above), only a real bound one does.
   If you want a clean single dispatch window for bound creation, expect it may have

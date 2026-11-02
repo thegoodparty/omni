@@ -5,7 +5,11 @@ import {
   Injectable,
   forwardRef,
 } from '@nestjs/common'
-import { ElectedOffice, Prisma } from '../../generated/prisma'
+import {
+  ElectedOffice,
+  ElectedOfficeWinSource,
+  Prisma,
+} from '../../generated/prisma'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import {
   DEFAULT_PAGINATION_LIMIT,
@@ -39,6 +43,7 @@ export type CreateElectedOfficeArgs = {
   onboardingStep?: string | null
   userId: number
   campaignId?: number
+  winSource?: ElectedOfficeWinSource
   orgData?: {
     positionId: string | null
     customPositionName: string | null
@@ -304,6 +309,7 @@ export class ElectedOfficeService extends createPrismaBase(
           onboardingStep: args.onboardingStep ?? null,
           userId: args.userId,
           campaignId: args.campaignId,
+          winSource: args.winSource,
           organizationSlug: OrganizationsService.electedOfficeOrgSlug(id),
         },
       })
@@ -336,8 +342,11 @@ export class ElectedOfficeService extends createPrismaBase(
     // have committed the row but crashed before dispatching the schedule, and
     // the dispatch is the only recovery path. onElectedOfficeCreated tolerates
     // re-dispatch. Kept outside the transaction so the lock isn't held across
-    // the queue round-trip.
-    await this.dispatchScheduleAfterCreate(office)
+    // the queue round-trip. An unfinished office is dormant and costs no agent
+    // runs: the pledge that finishes it dispatches instead (see update()).
+    if (office.onboardingCompletedAt) {
+      await this.dispatchScheduleAfterCreate(office)
+    }
 
     await this.crmOfficeHolder.syncElectedOffice(office.id, {
       sendSeatFields: freshlyCreated || args.onboardingCompletedAt != null,
@@ -382,9 +391,21 @@ export class ElectedOfficeService extends createPrismaBase(
   }
 
   async update(args: Prisma.ElectedOfficeUpdateArgs) {
+    const completes = args.data.onboardingCompletedAt instanceof Date
+    const before = completes
+      ? await this.model.findUnique({
+          where: args.where,
+          select: { onboardingCompletedAt: true },
+        })
+      : null
     const updated = await this.model.update(args)
+    // The pledge is where a dormant office goes live, so it gets the
+    // create-time dispatches an unfinished create skipped.
+    if (completes && before && !before.onboardingCompletedAt) {
+      await this.dispatchScheduleAfterCreate(updated)
+    }
     await this.crmOfficeHolder.syncElectedOffice(updated.id, {
-      sendSeatFields: args.data.onboardingCompletedAt instanceof Date,
+      sendSeatFields: completes,
     })
     return updated
   }

@@ -101,9 +101,10 @@ once-per-org email on agent output and keeps task cards off the first list.
 ## Onboarding gate
 
 The crons (`dispatchSlice`) select only offices with `onboardingCompletedAt`
-set, so an office nobody finished setting up costs no agent runs. Every
-other dispatch path (signup hook, `POST /onboarding`, landing, staff and
-admin) ignores it.
+set, so an office nobody finished setting up costs no agent runs. The
+signup hook (`onElectedOfficeCreated`) also waits for it: `ElectedOfficeService`
+calls it on an onboarded create or at the pledge. Every other dispatch path
+(`POST /onboarding`, landing, staff and admin) ignores it.
 
 ## Activity gate
 

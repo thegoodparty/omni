@@ -1,7 +1,7 @@
 ---
 title: The dashboard routes only Pro winners to Serve onboarding, and gp-api says which office is Pro
 status: active
-decided_by: [agent]
+decided_by: [bryclevgp]
 date: 2026-11-02
 code: ['#3487']
 scope:

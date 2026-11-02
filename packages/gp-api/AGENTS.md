@@ -208,6 +208,7 @@ Per-area `AGENTS.md` files cover purpose, key files, patterns, and gotchas for t
 | -------------------------------------------------------- | ---------------------------------------------------- |
 | Campaigns / plans / tasks                                | `src/campaigns/AGENTS.md`                            |
 | Organizations, roles/guards, team accounts               | `src/organizations/AGENTS.md`                        |
+| Elected offices, dormant win offices, the pledge         | `src/electedOffice/AGENTS.md`                        |
 | The CRM (contacts, saved filters, write-back, assistant) | `src/contacts/AGENTS.md` (system-level doc)          |
 | Contact interactions (per-channel models)                | `src/contactInteraction/contactInteraction.types.ts` |
 | Door knocking (turfs, routes, the served walk)           | `docs/door-knocking.md`                              |
