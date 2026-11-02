@@ -78,3 +78,33 @@ export const resolvePostAuthRedirectPath = (
   }
   return '/dashboard/profile'
 }
+
+/** Google sign-up phone step (omni #1888). */
+export const SIGN_UP_PHONE_PATH = '/sign-up/phone'
+
+// When the phone step landed (omni #1888, merged 2026-09-17T15:49:15Z). Every
+// account created after this is expected to have a phone; older ones are not
+// asked, because the ticket (ENG-11538) rules out a backfill. Whether older
+// accounts should also be sent to the phone page is an open product decision.
+const PHONE_STEP_LIVE_AT_MS = Date.parse('2026-09-17T15:49:15Z')
+
+/**
+ * True when a signed-in user created since the phone step shipped has no phone
+ * on record, so post-auth routing must send them to /sign-up/phone first.
+ * Covers Google sign-ups that left that page and sales magic-link accounts,
+ * which never see a sign-up form. Staff (sales) are exempt. Fails open: an
+ * unknown user or createdAt never blocks sign-in.
+ */
+export const needsPhoneStep = (
+  user: {
+    roles?: string[]
+    phone?: string | null
+    createdAt?: string | Date
+  } | null,
+): boolean => {
+  if (!user || user.createdAt === undefined) return false
+  if (user.roles?.includes('sales')) return false
+  if ((user.phone ?? '').trim()) return false
+  const createdAtMs = new Date(user.createdAt).getTime()
+  return Number.isFinite(createdAtMs) && createdAtMs >= PHONE_STEP_LIVE_AT_MS
+}
