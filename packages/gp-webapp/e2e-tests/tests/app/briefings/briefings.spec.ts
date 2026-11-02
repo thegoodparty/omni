@@ -185,7 +185,7 @@ test.describe('Briefings', () => {
     // gp-api, so every share link and QR scan 404'd. Assert the host is not
     // the marketing one — deliberately NOT equality with the page's own
     // origin, because APP_SHARE_BASE resolves to the Vercel branch alias while
-    // the suite may be driving the deterministic PR alias or dev.goodparty.org.
+    // the suite may be driving the PR's deployment URL or dev.goodparty.org.
     const shareHost = new URL(shareUrl).host
     expect(shareHost).not.toBe('goodparty.org')
     expect(shareHost).not.toBe('www.goodparty.org')
