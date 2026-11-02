@@ -122,3 +122,79 @@ def test_validate_rejects_a_missing_field():
     broken = {k: v for k, v in CHECK.items() if k != "min_exposed"}
     with pytest.raises(ValueError, match="min_exposed"):
         lw.validate(broken)
+
+
+# The scheduled run enters through main(), so these drive it the same way.
+@pytest.fixture
+def entry(monkeypatch):
+    posts = []
+    monkeypatch.setattr(lw, "load_checks", lambda: [dict(CHECK)])
+    monkeypatch.setattr(
+        lw, "post_to_slack", lambda text, **kw: posts.append((text, kw))
+    )
+    monkeypatch.setenv("SLACK_APP_BOT_TOKEN", "xoxb-test")
+    monkeypatch.setenv("SLACK_BUGS_CHANNEL_ID", "C123")
+
+    def use(rows):
+        monkeypatch.setattr(lw, "_databricks_query", _runner(rows))
+
+    return posts, use
+
+
+FIRST_FAIL = {
+    "2026-11-08": {"exposed": 100, "fired": 3},
+    "2026-11-09": {"exposed": 100, "fired": 0},
+}
+
+
+def test_main_posts_a_first_failing_day_once(entry):
+    posts, use = entry
+    use(FIRST_FAIL)
+    assert lw.main(["--as-of", "2026-11-10"]) == 0
+    assert len(posts) == 1
+    assert posts[0][1] == {"token": "xoxb-test", "channel": "C123"}
+
+
+def test_main_dry_run_posts_nothing(entry, capsys):
+    posts, use = entry
+    use(FIRST_FAIL)
+    assert lw.main(["--as-of", "2026-11-10", "--dry-run"]) == 0
+    assert posts == []
+    assert "Launch watch: SMS compliance cutoff" in capsys.readouterr().out
+
+
+def test_main_counts_a_query_error(entry, monkeypatch):
+    posts, _ = entry
+
+    def boom(sql):
+        raise RuntimeError("warehouse down")
+
+    monkeypatch.setattr(lw, "_databricks_query", boom)
+    assert lw.main(["--as-of", "2026-11-10"]) == 1
+    assert posts == []
+
+
+def test_main_ignore_watch_period_runs_outside_it(entry):
+    posts, use = entry
+    use(
+        {
+            "2026-10-15": {"exposed": 100, "fired": 2},
+            "2026-10-16": {"exposed": 117, "fired": 0},
+        }
+    )
+    assert lw.main(["--as-of", "2026-10-17"]) == 0
+    assert posts == []
+    assert lw.main(["--as-of", "2026-10-17", "--ignore-watch-period"]) == 0
+    assert len(posts) == 1
+
+
+def test_main_needs_slack_config_unless_dry_run(entry, monkeypatch):
+    _, use = entry
+    use(FIRST_FAIL)
+    monkeypatch.delenv("SLACK_BUGS_CHANNEL_ID")
+    assert lw.main(["--as-of", "2026-11-10"]) == 2
+    assert lw.main(["--as-of", "2026-11-10", "--dry-run"]) == 0
+
+
+def test_main_rejects_an_unknown_check(entry):
+    assert lw.main(["--check", "nope", "--dry-run"]) == 2
