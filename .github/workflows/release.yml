@@ -248,6 +248,7 @@ jobs:
       always() && needs.await-checks.result == 'success'
       && needs.await-checks.outputs.force != 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     concurrency:
       group: gp-api-deploy-dev
       cancel-in-progress: false
@@ -360,6 +361,7 @@ jobs:
       always() && needs.await-checks.result == 'success'
       && needs.await-checks.outputs.force != 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     # The production environment, on a dev deploy too, because VERCEL_TOKEN is
     # one token for every Vercel target: whatever holds it can deploy prod.
     # deployment: false keeps these jobs out of the production deployment
@@ -395,6 +397,7 @@ jobs:
       always() && needs.await-checks.result == 'success'
       && needs.await-checks.outputs.force != 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     environment:
       name: production
       deployment: false
@@ -605,6 +608,7 @@ jobs:
       && needs.dev-gp-api.result == 'success'
       && needs.dev-gp-webapp.result == 'success'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Confirm gp-api-dev is serving the SHA
         env:
@@ -922,6 +926,7 @@ jobs:
       && needs.await-checks.outputs.frozen != 'true'
       && (needs.await-checks.outputs.force == 'true' || needs.e2e.result == 'success')
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: read
       id-token: write
@@ -964,6 +969,7 @@ jobs:
       && needs.await-checks.outputs.frozen != 'true'
       && (needs.await-checks.outputs.force == 'true' || needs.e2e.result == 'success')
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     environment:
       name: production
       deployment: false
@@ -992,6 +998,7 @@ jobs:
       && needs.await-checks.outputs.frozen != 'true'
       && (needs.await-checks.outputs.force == 'true' || needs.e2e.result == 'success')
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     environment:
       name: production
       deployment: false
@@ -1020,6 +1027,7 @@ jobs:
       && needs.await-checks.outputs.frozen != 'true'
       && (needs.await-checks.outputs.force == 'true' || needs.e2e.result == 'success')
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     environment:
       name: production
       deployment: false
@@ -1047,6 +1055,9 @@ jobs:
       && needs.await-checks.outputs.frozen != 'true'
       && (needs.await-checks.outputs.force == 'true' || needs.e2e.result == 'success')
     runs-on: ubuntu-latest
+    # ~3 min normally. A lost runner (ENG-11537, ENG-11530) otherwise holds the
+    # job ~45 min until GitHub fails it; every release job is now bounded.
+    timeout-minutes: 15
     permissions:
       id-token: write
       contents: read
@@ -1078,6 +1089,7 @@ jobs:
       && needs.await-checks.outputs.frozen != 'true'
       && (needs.await-checks.outputs.force == 'true' || needs.e2e.result == 'success')
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: read
       id-token: write
@@ -1314,6 +1326,7 @@ jobs:
       (needs.prod-gp-ai-images.result == 'success' || needs.prod-gp-ai-images.result == 'skipped') &&
       (needs.prod-gp-ai.result == 'success' || needs.prod-gp-ai.result == 'skipped')
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: read
       deployments: write
