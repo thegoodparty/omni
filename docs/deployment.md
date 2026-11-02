@@ -282,8 +282,9 @@ subject (the judge sweep role and the Databricks federation policy in
 `analytics-governance.yml` are pinned to the ref and do not). And a secret the
 job reads must not also be read on a pull request, or moving it breaks that run.
 
-PR preview deploys read `VERCEL_PREVIEW_TOKEN`, falling back to `VERCEL_TOKEN`
-while the preview token is unset.
+PR preview deploys read only `VERCEL_PREVIEW_TOKEN`, with no fallback: it
+cannot deploy production, and `VERCEL_TOKEN` lives only in the `production`
+environment.
 
 ### Base images
 
