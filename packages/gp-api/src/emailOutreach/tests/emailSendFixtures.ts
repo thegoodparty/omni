@@ -84,7 +84,6 @@ export const createSend = async (
     date = null,
     recipientCap = null,
     prepared = false,
-    consent = true,
     audienceResolved = true,
     content,
   }: {
@@ -96,7 +95,6 @@ export const createSend = async (
     date?: Date | null
     recipientCap?: number | null
     prepared?: boolean
-    consent?: boolean
     audienceResolved?: boolean
     content?: EmailContentDraft
   },
@@ -123,7 +121,6 @@ export const createSend = async (
           body: 'Join us at 7pm.',
           ...(content ? { content } : {}),
           recipientCap,
-          consentConfirmedAt: consent ? new Date() : null,
           // The fixture writes the recipients itself, standing in for the
           // resolve prepare runs.
           audienceResolvedAt: audienceResolved ? new Date() : null,

@@ -97,7 +97,6 @@ describe('POST /v1/outreach/email (Win draft)', () => {
       layout: 'newsletter',
       subject: 'Town hall on Thursday',
       recipientCount: 0,
-      consentConfirmedAt: null,
     })
 
     const updated = await saveWin(
@@ -422,13 +421,10 @@ describe('the audience', () => {
       .mockResolvedValue(countPage(4800))
     const list = await listFor(winSlug)
 
-    const res = await saveWin(
-      draftBody({ voterFileFilterId: list.id, consentConfirmed: true }),
-    )
+    const res = await saveWin(draftBody({ voterFileFilterId: list.id }))
 
     expect(res.status).toBe(HttpStatus.CREATED)
     expect(res.data.voterFileFilterId).toBe(list.id)
-    expect(res.data.consentConfirmedAt).not.toBeNull()
     expect(count).not.toHaveBeenCalled()
     expect(await estimateOf('email', res.data.id, winSlug)).toEqual({
       audienceCount: 4800,
@@ -466,9 +462,7 @@ describe('the audience', () => {
       .mockResolvedValue(countPage(12))
     const list = await listFor(officeSlug)
 
-    const res = await saveServe(
-      draftBody({ voterFileFilterId: list.id, consentConfirmed: true }),
-    )
+    const res = await saveServe(draftBody({ voterFileFilterId: list.id }))
 
     expect(res.status).toBe(HttpStatus.CREATED)
     expect(
@@ -505,30 +499,12 @@ describe('the audience', () => {
     expect(count).not.toHaveBeenCalled()
   })
 
-  it('keeps consent for the same list and asks again for a new one', async () => {
-    vi.spyOn(
-      service.app.get(ContactsService),
-      'findContactsForFilter',
-    ).mockResolvedValue(countPage(3))
-    const first = await listFor(winSlug)
-    const second = await listFor(winSlug)
-    const created = await saveWin(
-      draftBody({ voterFileFilterId: first.id, consentConfirmed: true }),
+  it('still saves a draft that carries the old consent field', async () => {
+    const list = await listFor(winSlug)
+    const res = await saveWin(
+      draftBody({ voterFileFilterId: list.id, consentConfirmed: true }),
     )
-    const given = created.data.consentConfirmedAt
-
-    const resaved = await saveWin(
-      draftBody({
-        id: created.data.id,
-        voterFileFilterId: first.id,
-        consentConfirmed: true,
-      }),
-    )
-    expect(resaved.data.consentConfirmedAt).toBe(given)
-
-    const switched = await saveWin(
-      draftBody({ id: created.data.id, voterFileFilterId: second.id }),
-    )
-    expect(switched.data.consentConfirmedAt).toBeNull()
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(res.data.voterFileFilterId).toBe(list.id)
   })
 })

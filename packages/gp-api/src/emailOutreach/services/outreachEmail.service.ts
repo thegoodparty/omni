@@ -158,7 +158,6 @@ export class OutreachEmailService extends createPrismaBase(
   async saveDraft(
     scope: EmailSendScope,
     input: EmailDraftSave,
-    userId: number,
   ): Promise<EmailDraft> {
     const voterFileFilterId = input.voterFileFilterId ?? null
     if (voterFileFilterId !== null) {
@@ -167,9 +166,6 @@ export class OutreachEmailService extends createPrismaBase(
         voterFileFilterId,
       )
     }
-    const consent = input.consentConfirmed
-      ? { consentConfirmedAt: new Date(), consentConfirmedByUserId: userId }
-      : { consentConfirmedAt: null, consentConfirmedByUserId: null }
     const content = this.contentColumns(scope, input)
     const subject = 'content' in input ? input.content.subject : input.subject
 
@@ -186,7 +182,7 @@ export class OutreachEmailService extends createPrismaBase(
           date,
           voterFileFilterId,
           email: {
-            create: { ...content, ...consent, senderId: sender.id },
+            create: { ...content, senderId: sender.id },
           },
         },
       })
@@ -203,14 +199,6 @@ export class OutreachEmailService extends createPrismaBase(
     const date = unchangedDate
       ? existing.outreach.date
       : this.parseSendDate(input.date)
-    // Consent given for this list stays dated from when it was given; a new
-    // list needs it again.
-    const keptConsent =
-      input.consentConfirmed === true &&
-      existing.consentConfirmedAt !== null &&
-      existing.outreach.voterFileFilterId === voterFileFilterId
-        ? {}
-        : consent
     await this.client.$transaction(async (tx) => {
       const claim = await tx.outreach.updateMany({
         where: { id: input.id, status: OutreachStatus.draft },
@@ -221,7 +209,7 @@ export class OutreachEmailService extends createPrismaBase(
       }
       await tx.outreachEmail.update({
         where: { outreachId: input.id },
-        data: { ...content, ...keptConsent },
+        data: content,
       })
     })
     return this.draftView(scope, input.id)
@@ -314,7 +302,6 @@ export class OutreachEmailService extends createPrismaBase(
       buttonUrl: row.buttonUrl,
       paidForBy: row.paidForBy,
       date: row.outreach.date?.toISOString() ?? null,
-      consentConfirmedAt: row.consentConfirmedAt?.toISOString() ?? null,
       voterFileFilterId: row.outreach.voterFileFilterId,
       recipientCount: row._count.recipients,
       recipientCap: row.recipientCap,

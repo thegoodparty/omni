@@ -1,4 +1,5 @@
 import type { OutreachAudienceCopy } from '../audience/OutreachAudienceStep'
+import { IMPORT_CONTACTS_HREF } from 'app/dashboard/contacts/crm/import/importContactsCopy'
 import { SMS_PURPOSES } from '../sms/smsCompose.util'
 import { SERVE_SMS_PURPOSES } from '../serveSmsPurposes'
 
@@ -14,7 +15,6 @@ export interface EmailSurface {
   look: { title: string; caption: string }
   audience: {
     picker: OutreachAudienceCopy
-    consentLabel: string
     noEmails: string
   }
   schedule: { title: string; caption: string }
@@ -44,16 +44,18 @@ export const WIN_EMAIL_SURFACE: EmailSurface = {
     picker: {
       pickerTitle: 'Who do you want to reach?',
       pickerBody:
-        'Select a list or create a new one. Only voters with an email address are included.',
+        'Only people you imported with an email address can get email.',
+      pickerBodyLink: { label: 'Import contacts', href: IMPORT_CONTACTS_HREF },
       filtersTitle: 'Build a voter list',
       filtersBody: 'Pick filters to define who this campaign reaches.',
       nameTitle: 'Name your list',
       nameBody: 'You can rename it any time.',
       reachVerb: 'Email',
       reachNoun: 'voters with an email address',
+      reachLine: (count: number) =>
+        `${count.toLocaleString()} ${count === 1 ? 'person' : 'people'} with an email address`,
       unitCostLabel: 'Each email costs',
     },
-    consentLabel: 'These people agreed to get email from my campaign.',
     noEmails:
       'No one in this list has an email address yet. Pick another list to keep going.',
   },
@@ -99,13 +101,10 @@ export const SERVE_EMAIL_SURFACE: EmailSurface = {
   audience: {
     picker: {
       ...WIN_EMAIL_SURFACE.audience.picker,
-      pickerBody:
-        'Select a list or create a new one. Only constituents with an email address are included.',
       filtersTitle: 'Build a constituent list',
       filtersBody: 'Pick filters to define who this list reaches.',
       reachNoun: 'constituents with an email address',
     },
-    consentLabel: 'These people agreed to get email from my office.',
     noEmails: WIN_EMAIL_SURFACE.audience.noEmails,
   },
   schedule: {

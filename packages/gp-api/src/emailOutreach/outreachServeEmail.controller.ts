@@ -188,7 +188,6 @@ export class OutreachServeEmailController {
     return this.emails.saveDraft(
       await this.scopes.forOffice(electedOffice, user),
       input,
-      user.id,
     )
   }
 

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
+import Link from 'next/link'
 import {
   Card,
   cn,
@@ -51,6 +52,8 @@ export interface OutreachAudienceCopy {
   // The subtitle under the picker title, e.g. "We recommend reaching all your
   // supporters to increase awareness."
   pickerBody: string
+  // A link after the picker body, e.g. email's "Import contacts".
+  pickerBodyLink?: { label: string; href: string }
   filtersTitle: string
   filtersBody: string
   // Optional clarifying copy rendered above the filter groups, for a channel
@@ -66,6 +69,9 @@ export interface OutreachAudienceCopy {
   // "Reach"/"supporters with landlines", SMS "Message"/"supporters".
   reachVerb: string
   reachNoun: string
+  // Replaces the verb + noun line with one plain count, for a channel whose
+  // reach does not split voters from new contacts (email).
+  reachLine?: (count: number) => string
   // Optional reachable-of-total delta under the reach line, rendered only
   // when the list holds MORE people than this channel can reach — the list
   // size a candidate knows (and sees in the CRM) includes contacts with no
@@ -302,14 +308,29 @@ export const OutreachAudienceStep = ({
   const emptyPickerLabel = isElectedOfficial
     ? 'Choose a constituent list'
     : 'Choose a voter list'
+  const pickerBody = copy.pickerBodyLink ? (
+    <>
+      {copy.pickerBody}{' '}
+      <Link
+        href={copy.pickerBodyLink.href}
+        className="font-medium text-primary underline underline-offset-4"
+      >
+        {copy.pickerBodyLink.label}
+      </Link>
+    </>
+  ) : (
+    copy.pickerBody
+  )
   // Totals keep the new contacts in, so the price stays the total's; only the
   // words split them out.
   const reachLine = (count: number, newContactsCount: number): string =>
-    isElectedOfficial || newContactsCount <= 0
-      ? `${copy.reachVerb} ${count.toLocaleString()} ${copy.reachNoun}`
-      : count <= newContactsCount
-        ? `${copy.reachVerb} ${WIN_NEW_CONTACTS_LABELS.newContacts(newContactsCount)}`
-        : `${copy.reachVerb} ${(count - newContactsCount).toLocaleString()} ${copy.reachNoun} and ${WIN_NEW_CONTACTS_LABELS.newContacts(newContactsCount)}`
+    copy.reachLine
+      ? copy.reachLine(count)
+      : isElectedOfficial || newContactsCount <= 0
+        ? `${copy.reachVerb} ${count.toLocaleString()} ${copy.reachNoun}`
+        : count <= newContactsCount
+          ? `${copy.reachVerb} ${WIN_NEW_CONTACTS_LABELS.newContacts(newContactsCount)}`
+          : `${copy.reachVerb} ${(count - newContactsCount).toLocaleString()} ${copy.reachNoun} and ${WIN_NEW_CONTACTS_LABELS.newContacts(newContactsCount)}`
 
   // The carried-in recommendation, applied once the picker can act on it:
   // its saved list selected when the picker has that row, the card itself
@@ -439,11 +460,7 @@ export const OutreachAudienceStep = ({
   if (initialLoading) {
     return (
       <div className="space-y-6">
-        <Intro
-          channel={channel}
-          title={copy.pickerTitle}
-          body={copy.pickerBody}
-        />
+        <Intro channel={channel} title={copy.pickerTitle} body={pickerBody} />
         <div
           data-testid="outreach-audience-loading"
           aria-busy="true"
@@ -465,11 +482,7 @@ export const OutreachAudienceStep = ({
 
   return (
     <div ref={pickerRootRef} className="space-y-6">
-      <Intro
-        channel={channel}
-        title={copy.pickerTitle}
-        body={copy.pickerBody}
-      />
+      <Intro channel={channel} title={copy.pickerTitle} body={pickerBody} />
 
       {leadCard}
 

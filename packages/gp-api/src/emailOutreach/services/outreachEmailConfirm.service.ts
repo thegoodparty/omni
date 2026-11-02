@@ -74,11 +74,6 @@ export class OutreachEmailConfirmService extends createPrismaBase(
         throw new ForbiddenException('Email sends require Pro.')
       }
       sendableContentOf(row)
-      if (!row.consentConfirmedAt) {
-        throw new BadRequestException(
-          'Confirm these contacts agreed to get email from you',
-        )
-      }
       const { voterFileFilterId } = row.outreach
       if (voterFileFilterId === null) {
         throw new BadRequestException('Pick who this email goes to')

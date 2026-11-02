@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
+import { useSearchParams } from 'next/navigation'
 import { Button, HistoryIcon, PlusIcon, UploadIcon } from '@styleguide'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import DashboardLayout from '../../shared/DashboardLayout'
@@ -62,6 +63,22 @@ export const CrmContactsPage = () => {
   const showImportContacts =
     isWinContextReady && canUseProFeatures && importContactsOn
   const importCopy = getImportContactsCopy(isWinContext)
+
+  // `?import=1` (IMPORT_CONTACTS_HREF) opens the wizard once it can show.
+  const searchParams = useSearchParams()
+  const importRequested = searchParams?.get('import') === '1'
+  useEffect(() => {
+    if (!importRequested || !showImportContacts) return
+    setImportOpen(true)
+    const params = new URLSearchParams(searchParams?.toString() || '')
+    params.delete('import')
+    const query = params.toString()
+    window.history.replaceState(
+      null,
+      '',
+      `${window.location.pathname}${query ? `?${query}` : ''}`,
+    )
+  }, [importRequested, showImportContacts, searchParams])
 
   // ENG-10767 parity: this page's users had vanished from the Contacts
   // Viewed chart, so it fires the same event tagged surface: 'crm' — rows

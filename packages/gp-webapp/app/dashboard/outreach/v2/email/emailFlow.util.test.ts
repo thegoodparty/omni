@@ -25,12 +25,7 @@ describe('toDraftSave', () => {
   }
 
   it('sends the form as block content', () => {
-    expect(
-      toDraftSave('Intro', state, null, undefined, {
-        listId: null,
-        consent: false,
-      }),
-    ).toEqual({
+    expect(toDraftSave('Intro', state, null, undefined, null)).toEqual({
       goal: 'Intro',
       content: {
         layout: 'personal_letter',
@@ -38,20 +33,15 @@ describe('toDraftSave', () => {
         subject: 'S',
         blocks: [{ type: 'paragraph', text: 'B' }],
       },
-      consentConfirmed: false,
     })
   })
 
   it('carries the draft id, the list and the date', () => {
     expect(
-      toDraftSave('Intro', state, 7, '2026-11-01T10:00:00.000Z', {
-        listId: 42,
-        consent: true,
-      }),
+      toDraftSave('Intro', state, 7, '2026-11-01T10:00:00.000Z', 42),
     ).toMatchObject({
       id: 7,
       voterFileFilterId: 42,
-      consentConfirmed: true,
       date: '2026-11-01T10:00:00.000Z',
     })
   })

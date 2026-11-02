@@ -540,9 +540,7 @@ export type APIEndpoints = {
   }
 
   // Win email. The draft save is a full replace: omitted optional fields are
-  // cleared. The recipient upload is multipart (`file` + `consentConfirmed`):
-  // pass `{}` as the typed payload and the FormData as `{ body }` in the
-  // overrides argument of clientRequest.
+  // cleared.
   'GET /v1/outreach/email/sender': {
     Request: {}
     Response: EmailSender

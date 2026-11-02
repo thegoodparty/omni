@@ -38,7 +38,6 @@ const send = (over: Partial<EmailSend> = {}): EmailSend => ({
   buttonUrl: null,
   paidForBy: null,
   date: '2026-11-03T18:00:00.000Z',
-  consentConfirmedAt: null,
   voterFileFilterId: 1,
   recipientCount: 4800,
   recipientCap: 1000,

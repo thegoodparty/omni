@@ -46,7 +46,6 @@ const draft = {
   buttonUrl: null,
   paidForBy: null,
   date: null,
-  consentConfirmedAt: null,
   voterFileFilterId: null,
   recipientCount: 0,
   content: {
@@ -68,7 +67,7 @@ const sendShape = {
 
 // The people with an email address in a saved list come off the list
 // detail's email count, as robocall's landlines do.
-const mockLists = (email: number) => {
+const mockLists = (email: number, newContactsWithEmail = 0) => {
   api.mock('GET /v1/voters/voter-file/filters', {
     status: 200,
     data: [{ id: 1, name: 'Renters in 98103' }],
@@ -84,6 +83,14 @@ const mockLists = (email: number) => {
         doorKnocking: 700,
         email,
         polls: 500,
+      },
+      newContactsReachable: {
+        sms: 0,
+        robocall: 0,
+        phoneBanking: 0,
+        doorKnocking: 0,
+        email: newContactsWithEmail,
+        polls: 0,
       },
       outreachHistory: [],
     },
@@ -136,17 +143,14 @@ const writeLetter = async (user: ReturnType<typeof userEvent.setup>) => {
   await user.keyboard('Hi there')
 }
 
-const WIN_CONSENT = 'These people agreed to get email from my campaign.'
-
-// Goal, then a list with consent, landing on the write step.
+// Goal, then a list, landing on the write step.
 const pickAudience = async (
   user: ReturnType<typeof userEvent.setup>,
   goal = 'Introduce myself to voters',
-  consent = WIN_CONSENT,
 ) => {
   await user.click(screen.getByText(goal))
   await pickList(user)
-  await user.click(await screen.findByLabelText(consent))
+  await screen.findByText(/people with an email address/)
   await user.click(screen.getByRole('button', { name: 'Next' }))
   await screen.findByText('What do you want to say?')
 }
@@ -410,7 +414,7 @@ describe('EmailFlow', () => {
     })
   })
 
-  it('picks a list, says only people with email count, and saves it with consent', async () => {
+  it('picks a list, says only imported people with email count, and saves it', async () => {
     const saves = mockApi()
     const user = userEvent.setup()
     render(<EmailFlow open onClose={vi.fn()} />)
@@ -418,20 +422,22 @@ describe('EmailFlow', () => {
     await user.click(screen.getByText('Introduce myself to voters'))
     expect(
       await screen.findByText(
-        'Select a list or create a new one. Only voters with an email address are included.',
+        /Only people you imported with an email address can get email\./,
       ),
     ).toBeInTheDocument()
+    expect(
+      screen.getByRole('link', { name: 'Import contacts' }),
+    ).toHaveAttribute('href', '/dashboard/contacts?import=1')
     await pickList(user)
     expect(
-      await screen.findByText(/Email 4,800 voters with an email address/),
+      await screen.findByText('4,800 people with an email address'),
     ).toBeInTheDocument()
     expect(
       screen.getByText(/This send can reach up to 1,000 people/),
     ).toBeInTheDocument()
     expect(screen.getByText('1,000 of 4,800')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Next' })).toBeDisabled()
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument()
 
-    await user.click(screen.getByLabelText(WIN_CONSENT))
     await user.click(screen.getByRole('button', { name: 'Next' }))
     await screen.findByText('What do you want to say?')
     expect(saves).toHaveLength(0)
@@ -447,7 +453,6 @@ describe('EmailFlow', () => {
         blocks: [{ type: 'paragraph', text: 'Hi there' }],
       },
       voterFileFilterId: 1,
-      consentConfirmed: true,
     })
     expect(
       await screen.findByText('When should it go out?'),
@@ -468,8 +473,22 @@ describe('EmailFlow', () => {
         'No one in this list has an email address yet. Pick another list to keep going.',
       ),
     ).toBeInTheDocument()
-    expect(screen.queryByLabelText(WIN_CONSENT)).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Next' })).toBeDisabled()
+  })
+
+  it('counts imported new contacts in one plain email count', async () => {
+    mockApi()
+    mockLists(10, 10)
+    const user = userEvent.setup()
+    render(<EmailFlow open onClose={vi.fn()} />)
+
+    await user.click(screen.getByText('Introduce myself to voters'))
+    await pickList(user)
+
+    expect(
+      await screen.findByText('10 people with an email address'),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/new contacts/)).not.toBeInTheDocument()
   })
 
   it('reaches review with the reply-to line and the price', async () => {
@@ -556,22 +575,17 @@ describe('EmailFlow', () => {
 
     expect(
       await screen.findByText(
-        'Select a list or create a new one. Only constituents with an email address are included.',
+        /Only people you imported with an email address can get email\./,
       ),
     ).toBeInTheDocument()
     await pickList(user)
     expect(
-      await screen.findByText(/Email 40 constituents with an email address/),
+      await screen.findByText('40 people with an email address'),
     ).toBeInTheDocument()
-    await user.click(
-      screen.getByLabelText('These people agreed to get email from my office.'),
-    )
     await user.click(screen.getByRole('button', { name: 'Next' }))
     await writeAndLook(user)
     await waitFor(() => expect(saves).toHaveLength(1))
-    expect(saves[0]).toMatchObject({
-      voterFileFilterId: 1,
-      consentConfirmed: true,
-    })
+    expect(saves[0]).toMatchObject({ voterFileFilterId: 1 })
+    expect(saves[0]).not.toHaveProperty('consentConfirmed')
   })
 })

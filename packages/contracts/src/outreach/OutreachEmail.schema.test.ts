@@ -71,7 +71,7 @@ describe('EmailDraftSaveSchema', () => {
 })
 
 describe('EmailDraftSaveSchema audience', () => {
-  it('takes a voter-file list and the consent statement', () => {
+  it('takes a voter-file list, and still accepts the old consent field', () => {
     expect(
       EmailDraftSaveSchema.parse({
         ...base,

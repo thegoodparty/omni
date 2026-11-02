@@ -612,4 +612,45 @@ describe('OutreachAudienceStep — new contacts on Win', () => {
       ),
     ).toBeVisible()
   })
+
+  it('reads one plain count when the channel gives its own reach line', async () => {
+    render(
+      <OutreachAudienceStep
+        {...baseProps()}
+        channel="email"
+        copy={{
+          ...COPY,
+          reachLine: (count) => `${count} people with an email address`,
+        }}
+        universeCount={10}
+        universeNewContactsCount={10}
+      />,
+    )
+    await userEvent.click(
+      await screen.findByRole('button', { name: /Choose a voter list/i }),
+    )
+
+    expect(
+      await screen.findByText('10 people with an email address'),
+    ).toBeVisible()
+    expect(screen.queryByText(/new contacts added/)).not.toBeInTheDocument()
+  })
+})
+
+describe('OutreachAudienceStep — picker body link', () => {
+  it('links after the body when the copy has one', () => {
+    render(
+      <OutreachAudienceStep
+        {...baseProps()}
+        copy={{
+          ...COPY,
+          pickerBodyLink: { label: 'Import contacts', href: '/import' },
+        }}
+      />,
+    )
+
+    expect(
+      screen.getByRole('link', { name: 'Import contacts' }),
+    ).toHaveAttribute('href', '/import')
+  })
 })

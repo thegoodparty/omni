@@ -200,10 +200,9 @@ test.describe('Email send — mock pipeline', () => {
     await page.getByRole('button', { name: /All voters/ }).click()
     await expect(
       page
-        .getByText(`Email ${addresses.length} voters with an email address`)
+        .getByText(`${addresses.length} people with an email address`)
         .first(),
     ).toBeVisible({ timeout: 60_000 })
-    await page.locator('#email-consent').click()
     await page.getByRole('button', { name: 'Next' }).click()
 
     // ── Write, then look ─────────────────────────────────────────────────
@@ -344,7 +343,6 @@ test.describe('Email send — mock pipeline', () => {
       'No one in this list has an email address yet.',
       { timeout: 60_000 },
     )
-    await expect(page.locator('#email-consent')).toHaveCount(0)
     await expect(page.getByRole('button', { name: 'Next' })).toBeDisabled()
   })
 })
