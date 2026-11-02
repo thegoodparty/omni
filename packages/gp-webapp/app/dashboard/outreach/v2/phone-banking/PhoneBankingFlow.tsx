@@ -544,9 +544,7 @@ export const PhoneBankingFlow = ({
             ? { outreachCampaignId: response.outreachId }
             : {}),
           listId: response.id,
-          audienceSource: audience.selectedRecommendation
-            ? 'recommended'
-            : 'savedList',
+          audienceSource: audience.audienceSource,
           ...(tracker ? { tracker } : {}),
           ...(purpose ? { purpose } : {}),
           ...(proposalLink?.priorityId

@@ -1114,6 +1114,9 @@ describe('CreateListWizard — ENG-10709 List Created / Activity List Created an
       expect(eventCalls(EVENTS.VoterData.ListCreated)).toHaveLength(1),
     )
     expect(trackEvent).toHaveBeenCalledWith(EVENTS.VoterData.ListCreated, {
+      source: 'crmWizard',
+      branch: 'voterFile',
+      listId: 101,
       variableCount: 3,
       hasParty: true,
     })
@@ -1150,7 +1153,12 @@ describe('CreateListWizard — ENG-10709 List Created / Activity List Created an
     )
     expect(trackEvent).toHaveBeenCalledWith(
       EVENTS.ConstituentData.ListCreated,
-      { variableCount: 1 },
+      {
+        source: 'crmWizard',
+        branch: 'voterFile',
+        listId: 102,
+        variableCount: 1,
+      },
     )
     const [, properties] = eventCalls(EVENTS.ConstituentData.ListCreated)[0]!
     expect(properties).not.toHaveProperty('hasParty')
@@ -1399,6 +1407,12 @@ describe('CreateListWizard — ENG-10709 List Created / Activity List Created an
       EVENTS.VoterData.ActivityListCreated,
       { sourceCampaign: 'GOTV blast', actionFilter: ['no_response'] },
     )
+    // An activity list is a saved list too, so it counts in List Created.
+    expect(trackEvent).toHaveBeenCalledWith(EVENTS.VoterData.ListCreated, {
+      source: 'crmWizard',
+      branch: 'activity',
+      listId: 202,
+    })
   })
 
   it('joins sourceCampaign and dedupes actionFilter across two stacked conditions', async () => {
@@ -1692,6 +1706,9 @@ describe('CreateListWizard — dismissed mid-mutation (vaul swipe-close path)', 
       expect(eventCalls(EVENTS.VoterData.ListCreated)).toHaveLength(1),
     )
     expect(trackEvent).toHaveBeenCalledWith(EVENTS.VoterData.ListCreated, {
+      source: 'crmWizard',
+      branch: 'voterFile',
+      listId: 555,
       variableCount: 1,
       hasParty: false,
     })

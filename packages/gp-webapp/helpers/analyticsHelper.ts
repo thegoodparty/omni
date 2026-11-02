@@ -496,6 +496,10 @@ export const EVENTS = {
     Viewed: 'Contacts - Contacts Viewed',
     Download: 'Contacts - Download',
     SegmentCreated: 'Contacts - Segment Created',
+    // DATA-2307: the channel picked in the "Choose a channel" sheet that
+    // Voter Data - Send Outreach Clicked opens. { medium, target, listId? on
+    // a saved list, variant? on an unsaved recommendation }.
+    OutreachChannelSelected: 'Contacts - Outreach Channel Selected',
     SegmentDeleted: 'Contacts - Segment Deleted',
     SegmentUpdated: 'Contacts - Segment Updated',
     SegmentViewed: 'Contacts - Segment Viewed',
@@ -576,10 +580,12 @@ export const EVENTS = {
     ContactViewed: 'Constituent Data - Contact Viewed',
     // ENG-10709: crm/wizard's two create branches + the list-detail download
     // seam. Same product-specific naming exception as the events above.
-    // ListCreated fires once per successful voter-file-branch create with
-    // { variableCount } (Win variant also carries hasParty — Serve is
-    // nonpartisan and must never see it). ListExported fires once per
-    // confirmed-successful download with { listSize }.
+    // ListCreated fires once per saved voter list from every path that saves
+    // one (DATA-2307), through crm/shared/trackListCreated.util.ts, with
+    // { source, listId, medium? }. The wizard adds { branch, variableCount }
+    // (Win variant also carries hasParty — Serve is nonpartisan and must
+    // never see it). ListExported fires once per confirmed-successful
+    // download with { listSize }.
     ListCreated: 'Constituent Data - List Created',
     ListExported: 'Constituent Data - List Exported',
     // The boundary saved onto an existing list from the map on its detail

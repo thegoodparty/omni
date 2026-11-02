@@ -4,11 +4,16 @@ import userEvent from '@testing-library/user-event'
 import type { RecommendedList } from '@goodparty_org/contracts'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useContactsTable } from '../../ContactsTableProvider'
 import ChannelPickerSheet from './ChannelPickerSheet'
 
 vi.mock('../../ContactsTableProvider', () => ({
   useContactsTable: vi.fn(),
+}))
+vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('helpers/analyticsHelper')>()),
+  trackEvent: vi.fn(),
 }))
 vi.mock('@shared/organization-picker', () => ({
   useOrganization: () => ({ slug: 'test-org' }),
@@ -70,6 +75,49 @@ beforeEach(() => {
 })
 
 describe('ChannelPickerSheet', () => {
+  // Opening the picker fires Send Outreach Clicked; which channel the
+  // candidate then took was recorded nowhere (DATA-2307).
+  it('records the channel picked for a saved list', async () => {
+    const user = userEvent.setup()
+    api.mock('GET /v1/contacts/list-detail', { status: 200, data: DETAIL })
+    render(
+      <ChannelPickerSheet
+        target={{ kind: 'list', segment: { id: 42, name: 'GOTV text list' } }}
+        onClose={vi.fn()}
+      />,
+    )
+
+    await user.click(await screen.findByRole('link', { name: /^SMS/ }))
+
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.Contacts.OutreachChannelSelected,
+      { medium: 'text', target: 'list', context: 'win', listId: 42 },
+    )
+  })
+
+  it('records the variant for an unsaved recommendation', async () => {
+    const user = userEvent.setup()
+    api.mock('POST /v1/contacts/list-detail', { status: 200, data: DETAIL })
+    render(
+      <ChannelPickerSheet
+        target={{ kind: 'recommended', recommendation: RECOMMENDATION }}
+        onClose={vi.fn()}
+      />,
+    )
+
+    await user.click(await screen.findByRole('link', { name: /^Robocall/ }))
+
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.Contacts.OutreachChannelSelected,
+      {
+        medium: 'robocall',
+        target: 'recommended',
+        context: 'win',
+        variant: 'introNeverIded',
+      },
+    )
+  })
+
   it('renders nothing when closed', () => {
     render(<ChannelPickerSheet target={null} onClose={vi.fn()} />)
 

@@ -12,6 +12,8 @@ import {
 } from '@styleguide'
 import { clientRequest } from 'gpApi/typed-request'
 import { useOrganization } from '@shared/organization-picker'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { outreachChannel } from 'app/dashboard/outreach/util/outreachAnalytics'
 import {
   OUTREACH_OPTIONS,
   OUTREACH_TYPES,
@@ -74,6 +76,30 @@ const pricePerContact = (channel: ChannelPickerChannel): number =>
 
 const costLabel = (reach: number, price: number): string =>
   formatOutreachCost(outreachCostCents(reach, price))
+
+// A recommendation that already matches a saved list travels as that list,
+// the same way channelPickerHref links it.
+const trackChannelSelected = (
+  channel: ChannelPickerChannel,
+  target: ChannelPickerTarget,
+  isWinContext: boolean,
+): void => {
+  const listId =
+    target.kind === 'list'
+      ? target.segment.id
+      : target.kind === 'recommended'
+        ? target.recommendation.existingFilterId
+        : null
+  trackEvent(EVENTS.Contacts.OutreachChannelSelected, {
+    medium: outreachChannel(channel),
+    target: target.kind,
+    context: isWinContext ? 'win' : 'serve',
+    ...(listId !== null ? { listId } : {}),
+    ...(target.kind === 'recommended'
+      ? { variant: target.recommendation.variant }
+      : {}),
+  })
+}
 
 // The prototype's "Choose a channel" drawer: the list name and size in the
 // header, one row per channel with how many of the list it can reach and
@@ -239,6 +265,9 @@ export default function ChannelPickerSheet({
               <Link
                 key={channel}
                 href={channelPickerHref(channel, target)}
+                onClick={() =>
+                  trackChannelSelected(channel, target, isWinContext)
+                }
                 className="flex items-center gap-3 rounded-2xl border border-border bg-card px-4 py-3 no-underline shadow-xs transition-colors hover:border-primary/50"
               >
                 <span

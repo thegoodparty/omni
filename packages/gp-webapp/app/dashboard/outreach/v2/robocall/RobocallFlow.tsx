@@ -246,9 +246,7 @@ export const RobocallFlow = ({
           ...(audience.selectedListId !== null
             ? { listId: audience.selectedListId }
             : {}),
-          audienceSource: audience.selectedRecommendation
-            ? 'recommended'
-            : 'savedList',
+          audienceSource: audience.audienceSource,
           ...(tracker ? { tracker } : {}),
           ...(purpose ? { purpose } : {}),
         }),
@@ -485,9 +483,7 @@ export const RobocallFlow = ({
         ...(audience.selectedListId !== null
           ? { listId: audience.selectedListId }
           : {}),
-        audienceSource: audience.selectedRecommendation
-          ? 'recommended'
-          : 'savedList',
+        audienceSource: audience.audienceSource,
         ...(tracker ? { tracker } : {}),
         ...(trackedPurpose ? { purpose: trackedPurpose } : {}),
       }),
@@ -519,9 +515,7 @@ export const RobocallFlow = ({
           ...(audience.selectedListId !== null
             ? { listId: audience.selectedListId }
             : {}),
-          audienceSource: audience.selectedRecommendation
-            ? 'recommended'
-            : 'savedList',
+          audienceSource: audience.audienceSource,
           ...(tracker ? { tracker } : {}),
           ...(trackedPurpose ? { purpose: trackedPurpose } : {}),
         }),
