@@ -3,7 +3,7 @@ title: Consent to email is affirmed at the contact import, not on each send
 status: active
 decided_by: [stephtea]
 date: 2026-11-02
-code: ['#TBD']
+code: ['#3510']
 scope:
   - packages/gp-api/src/emailOutreach/services/outreachEmailConfirm.service.ts
   - packages/gp-api/src/emailOutreach/services/outreachEmail.service.ts
