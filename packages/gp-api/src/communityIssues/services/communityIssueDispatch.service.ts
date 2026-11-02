@@ -430,6 +430,7 @@ export class CommunityIssueDispatchService extends createPrismaBase(
     now: Date,
   ): Promise<void> {
     const offices = await this.client.electedOffice.findMany({
+      where: { onboardingCompletedAt: { not: null } },
       select: { organizationSlug: true },
       orderBy: { organizationSlug: 'asc' },
     })

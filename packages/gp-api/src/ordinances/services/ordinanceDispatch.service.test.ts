@@ -15,14 +15,21 @@ import { OrdinanceDispatchService } from './ordinanceDispatch.service'
 
 const service = useTestService()
 
-const seedOrgWithOffice = async (slug: string) => {
+const seedOrgWithOffice = async (
+  slug: string,
+  onboardingCompletedAt: Date | null = new Date(),
+) => {
   await service.prisma.organization.upsert({
     where: { slug },
     create: { slug, ownerId: service.user.id },
     update: {},
   })
   return service.prisma.electedOffice.create({
-    data: { userId: service.user.id, organizationSlug: slug },
+    data: {
+      userId: service.user.id,
+      organizationSlug: slug,
+      onboardingCompletedAt,
+    },
   })
 }
 
@@ -396,6 +403,22 @@ describe('OrdinanceDispatchService.dispatchDailyRefresh', () => {
       },
     })
     expect(completeSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('skips an office that has not finished Serve onboarding', async () => {
+    const unfinished = `ord-cron-unfinished-${Date.now()}`
+    const finished = `ord-cron-finished-${Date.now()}`
+    await seedOrgWithOffice(unfinished, null)
+    await seedOrgWithOffice(finished)
+    const dispatchSpy = mockDispatchRun()
+    mockCronLock(true)
+
+    await service.app.get(OrdinanceDispatchService).dispatchDailyRefresh()
+
+    expect(dispatchSpy).toHaveBeenCalledTimes(1)
+    expect(dispatchSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ organizationSlug: finished }),
+    )
   })
 
   it('re-checks a low-confidence not-found record after 14 days', async () => {

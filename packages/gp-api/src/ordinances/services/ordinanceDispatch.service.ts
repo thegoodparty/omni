@@ -176,8 +176,8 @@ export class OrdinanceDispatchService extends createPrismaBase(
    * Daily refresh: re-dispatches find_existing_ordinances for orgs whose
    * record has gone stale (60 days), re-checks low-confidence not-found
    * records on a 14-day leash, and backfills office orgs that never got a
-   * run. Org selection is broad (any org with an elected office); the
-   * per-org staleness and in-flight checks do the filtering. 10:00 UTC —
+   * run. Org selection covers every office that finished Serve onboarding;
+   * the per-org staleness and in-flight checks do the filtering. 10:00 UTC —
    * offset from the sibling crons at 7/8/9 to spread SQS load.
    */
   @Cron('0 10 * * *')
@@ -273,6 +273,7 @@ export class OrdinanceDispatchService extends createPrismaBase(
 
     const [offices, records, runs] = await Promise.all([
       this.client.electedOffice.findMany({
+        where: { onboardingCompletedAt: { not: null } },
         select: { organizationSlug: true },
         orderBy: { organizationSlug: 'asc' },
       }),

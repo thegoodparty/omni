@@ -65,9 +65,9 @@ MeetingBriefingsService.onExperimentRunCompleted(run)
          MeetingBriefing row visible at GET /v1/meetings/:date/briefing
 ```
 
-Schedule and briefing are decoupled. `onExperimentRunCompleted` does nothing on `meeting_schedule` completion — the schedule artifact is read on demand by the list endpoint via `loadLatestScheduleForOrg()` to project upcoming meeting dates from the RRULE. A briefing row is self-sufficient: its `meetingTime` and `meetingTimezone` come from the briefing artifact, not from the schedule.
+On `meeting_schedule` completion, `onExperimentRunCompleted` chains a briefing through the same eligibility gate as the cron, but only for an office that finished Serve onboarding (`onboardingCompletedAt` set); an unfinished office gets its first briefing from the landing catch-up or the cron once onboarding is done. The schedule artifact is read on demand by the list endpoint via `loadLatestScheduleForOrg()` to project upcoming meeting dates from the RRULE. A briefing row is self-sufficient: its `meetingTime` and `meetingTimezone` come from the briefing artifact, not from the schedule.
 
-The daily cron (`dispatchDailyBriefings`, `0 7 * * *` UTC) sweeps every `ElectedOffice`, and dispatches a `meeting_briefing` run for any office whose next future `MeetingBriefing` row is missing — but only when the schedule projects a meeting within the 3-day imminence window (`IMMINENCE_WINDOW_DAYS`). Manual dispatches without the gate use a 60-day window instead. `dispatchManual` called with `useImminenceGate: true` means "match the cron exactly"; the ungated brief-now path skips the imminence and coverage checks.
+The daily cron (`dispatchDailyBriefings`, `0 7 * * *` UTC) sweeps every `ElectedOffice` that finished Serve onboarding (`onboardingCompletedAt` set), and dispatches a `meeting_briefing` run for any office whose next future `MeetingBriefing` row is missing — but only when the schedule projects a meeting within the 3-day imminence window (`IMMINENCE_WINDOW_DAYS`). Manual dispatches without the gate use a 60-day window instead. `dispatchManual` called with `useImminenceGate: true` means "match the cron exactly"; the ungated brief-now path skips the imminence and coverage checks.
 
 **Activity gate.** After the imminence + coverage + in-flight-run gates pass, the shared `dispatchBriefingIfNeeded` also checks `metaData.lastVisited` on the office's user via `isInactiveUser` (`src/shared/util/userActivity.util.ts`, shared with `communityIssueDispatch.service.ts`): if it's absent or more than `INACTIVITY_THRESHOLD_DAYS` (30) old, the cron skips the dispatch and fires `Briefing Assistant - Dispatch Skipped` (feeds a HubSpot re-engagement email) instead of spending generation budget on an inactive user. The self-serve `dispatchBriefingIfDue` (backing `POST /meetings/dispatch-if-needed`) calls the exact same function with `skipActivityGate: true` — landing on the dashboard already proves activity — so it catches the dispatch up the moment the user returns.
 
@@ -192,7 +192,7 @@ The `meetings` feature is a transport-layer caller of the `agentExperiments` mod
 
 There is no time-based stale-run sweeper: a `RUNNING` experiment_run whose Fargate task dies is reconciled to `FAILED` by the gp-ai ECS task-reaper (a `failed` callback keyed on `startedBy=run_id`), not by a gp-api cron.
 
-In dev/QA, `dispatchDailyBriefings` will fan out one SQS message per `ElectedOffice` if `MEETINGS_AUTOMATION_ENABLED=true`. This is loud — leave the env var unset (or `false`) on non-production environments unless you are deliberately testing the cron.
+In dev/QA, `dispatchDailyBriefings` will fan out one SQS message per onboarded `ElectedOffice` if `MEETINGS_AUTOMATION_ENABLED=true`. This is loud — leave the env var unset (or `false`) on non-production environments unless you are deliberately testing the cron.
 
 ## Gotchas
 
