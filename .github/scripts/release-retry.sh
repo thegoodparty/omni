@@ -11,6 +11,9 @@
 #     gets the timeout's annotation instead, and nothing ran. A timeout after
 #     steps ran is a slow or hung job, and is never retried. A timed-out job
 #     concludes `cancelled`, and so does its run, not `failure`;
+#   - the `E2E` gate job, which an always() step turns red whenever a shard
+#     is, does not block on its own: it is judged by the shards, which are
+#     in the same list (ENG-11537 review);
 #   - every such job is either on the STATELESS list below, or ran no step
 #     past "Set up job" (its runner died before checkout). A job
 #     that runs a Pulumi or Terraform apply is never retried mid-run: a dead
@@ -77,12 +80,24 @@ failed=$(gh api --paginate "repos/$REPO/actions/runs/$RUN_ID/attempts/$ATTEMPT/j
 
 # Judge every failed job, not just the first, so the summary names them all.
 blocker=""
+saw_gate=0
+saw_shard=0
 while IFS=$'\t' read -r id conclusion steps started ended secs name; do
   # Captured first, not piped into grep -q, so an early grep exit cannot
   # SIGPIPE the gh call under pipefail.
   notes=$(gh api "repos/$REPO/check-runs/$id/annotations" --jq '.[].message')
+  # Failure-level annotations other than the E2E gate's own two lines.
+  other=$(gh api "repos/$REPO/check-runs/$id/annotations" \
+    --jq '.[] | select(.annotation_level == "failure") | .message' |
+    grep -vE '^(E2E shards result: .*|Process completed with exit code 1\.)$' || true)
+  case "$name" in "E2E Shard "*) saw_shard=1 ;; esac
   if grep -qF "$LOST" <<<"$notes"; then
     cause="lost runner"
+  elif [ "$name" = E2E ] && [ -z "$other" ]; then
+    # The always() gate goes red whenever a shard does. It is judged by its
+    # shards: they are in this same list, and any real shard failure blocks.
+    cause="E2E gate, red only because a shard was; judged by the shards"
+    saw_gate=1
   elif [ "$steps" -eq 0 ] && grep -qF "$TIMEOUT" <<<"$notes"; then
     cause="timed out before any step ran"
   else
@@ -100,10 +115,16 @@ while IFS=$'\t' read -r id conclusion steps started ended secs name; do
     verdict=""
   fi
   if [ "$secs" -ge 0 ]; then dur="$((secs / 60))m $((secs % 60))s"; else dur="-"; fi
-  rows+="| $name | $conclusion | $started | $ended | $dur | $steps | ${verdict:-$cause; safe to retry} |\n"
+  if [ -n "$verdict" ]; then shown="$verdict"
+  elif [ "$name" = E2E ] && [ "$saw_gate" = 1 ]; then shown="$cause"
+  else shown="$cause; safe to retry"; fi
+  rows+="| $name | $conclusion | $started | $ended | $dur | $steps | $shown |\n"
   echo "'$name': $conclusion steps_run=$steps duration=$dur verdict=${verdict:-retryable}"
   [ -n "$blocker" ] || [ -z "$verdict" ] || blocker="'$name' $verdict"
 done <<<"$failed"
+if [ -z "$blocker" ] && [ "$saw_gate" = 1 ] && [ "$saw_shard" = 0 ]; then
+  blocker="'E2E' gate is red but no shard failed in this attempt"
+fi
 [ -z "$blocker" ] || skip "$blocker"
 
 run_number=$(gh api "repos/$REPO/actions/runs/$RUN_ID" --jq .run_number)
