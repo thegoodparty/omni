@@ -67,14 +67,16 @@ This app uses [Clerk](https://clerk.com/) for authentication with **Organization
 
 #### gp-api authentication
 
-The server talks to gp-api with a Bearer token chosen by `GP_API_AUTH_MODE`:
+The server calls gp-api with the deployment's Vercel OIDC token as the Bearer token. Deployments get it from Vercel on every request. Locally, link the folder to the `gp-admin-web` Vercel project and pull its Development environment:
 
-| Value             | Token sent                                                                                    |
-| ----------------- | --------------------------------------------------------------------------------------------- |
-| `clerk` (default) | Clerk M2M token from `GP_DEV_MACHINE_SECRET` / `GP_PROD_MACHINE_SECRET`                       |
-| `oidc`            | The deployment's Vercel OIDC token; the Clerk M2M token only if no OIDC token can be obtained |
+```bash
+vercel link
+vercel env pull
+```
 
-Prod gp-api accepts only the `production` deployment's OIDC token. In `oidc` mode a preview or local build can use the Development org, and the Production org shows a "gp-api rejected this admin deployment" notice.
+`vercel env pull` writes `.env.local`, including `VERCEL_OIDC_TOKEN`. Without that token every gp-api call fails. Dev gp-api accepts the `development` token. A local gp-api accepts it once its `.env` lists `prj_ZT7POAebSPy3jFf2u0xKIUZTQpcT:development` in `VERCEL_OIDC_ADMIN_PROJECTS`.
+
+Prod gp-api accepts only the `production` deployment's token. A preview or local build can use the Development org, and the Production org shows a "gp-api rejected this admin deployment" notice.
 
 ### Testing
 
