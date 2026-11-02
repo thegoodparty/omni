@@ -3,7 +3,7 @@ title: SES reputation alerts read a gauge gp-api exports, not CloudWatch through
 status: proposed # alternative to the grafana-cloudwatch-read role in thegoodparty/ops; only one lands
 decided_by: [agent]
 date: 2026-11-02
-code: ['#PR']
+code: ['#3496']
 scope:
   - packages/gp-api/src/emailOutreach/services/sesReputationReport.service.ts
   - packages/gp-api/src/emailOutreach/util/sesReputation.metrics.ts
