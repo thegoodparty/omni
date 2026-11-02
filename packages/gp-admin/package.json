@@ -58,7 +58,7 @@
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",
-    "@types/node": "^22.10.5",
+    "@types/node": "^24.10.0",
     "@types/react": "^19.0.6",
     "@types/react-dom": "^19.0.4",
     "@vitejs/plugin-react": "^5.1.2",
@@ -79,6 +79,6 @@
   },
   "packageManager": "npm@10.9.2",
   "engines": {
-    "node": "22.x"
+    "node": "24.x"
   }
 }
