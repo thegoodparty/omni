@@ -239,8 +239,7 @@ export function recordProfileMutation(action: ProfileMutation): void {
   }
 }
 
-// Seed both series at 0 so a task's first real failure moves 0 -> 1, which
-// increase() counts. A series born at 1 is invisible to the alert (ENG-11536).
+// Start both series at 0; increase() misses a series whose first sample is 1.
 if (isOtelEnabled()) {
   try {
     for (const result of ['success', 'failed'] as const) {

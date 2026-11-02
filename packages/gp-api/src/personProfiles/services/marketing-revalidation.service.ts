@@ -54,9 +54,7 @@ export class MarketingRevalidationService {
       recordRevalidation('success')
     } catch (error) {
       const status = isAxiosError(error) ? error.response?.status : undefined
-      // Vercel's edge sets x-vercel-mitigated (challenge, deny, ...) when its
-      // firewall answers instead of the app. That is the signature of an
-      // infra-side block, not a bad secret or an app bug (ENG-11536).
+      // Set when Vercel's firewall, not the app, answered.
       const mitigated: unknown = isAxiosError(error)
         ? error.response?.headers?.['x-vercel-mitigated']
         : undefined
