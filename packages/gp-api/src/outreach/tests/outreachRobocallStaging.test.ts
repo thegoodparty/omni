@@ -24,7 +24,11 @@ import { AudioTranscodeService } from '@/shared/services/audioTranscode.service'
 import { CallhubMediaService } from '@/vendors/callhub/services/callhubMedia.service'
 import { CallhubCampaignService } from '@/vendors/callhub/services/callhubCampaign.service'
 import { ZodError } from 'zod'
-import { CallhubPermanentError } from '@/vendors/callhub/services/callhubErrorHandling.service'
+import {
+  CALLHUB_IMPORT_IN_PROGRESS_DETAIL,
+  CallhubPermanentError,
+  CallhubRecoverableError,
+} from '@/vendors/callhub/services/callhubErrorHandling.service'
 import { OutreachRobocallHoldService } from '@/outreach/services/outreachRobocallHold.service'
 import { OutreachRobocallStrandedService } from '@/outreach/services/outreachRobocallStranded.service'
 import { S3Service } from '@/vendors/aws/services/s3.service'
@@ -389,6 +393,53 @@ describe('OutreachRobocallStagingService.stageCampaign', () => {
     expect(failSpy).not.toHaveBeenCalled()
     expect((await readSatellite(outreachId)).settleState).toBe(
       RobocallSettleState.authorized,
+    )
+  })
+
+  it('logs a countable warn and reverts when a CallHub import is already in progress', async () => {
+    const outreachId = await createDraft()
+    const failSpy = vi
+      .spyOn(service.app.get(OutreachRobocallHoldService), 'failSend')
+      .mockResolvedValue()
+    const warnSpy = vi.spyOn(
+      (staging as unknown as { logger: PinoLogger }).logger,
+      'warn',
+    )
+    loadAudienceSpy.mockRejectedValueOnce(
+      new CallhubRecoverableError(
+        'CallHub bulk contact import failed',
+        undefined,
+        CALLHUB_IMPORT_IN_PROGRESS_DETAIL,
+      ),
+    )
+
+    await expect(staging.stageCampaign(outreachId)).rejects.toBeInstanceOf(
+      CallhubRecoverableError,
+    )
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      { outreachId, callhubDetail: CALLHUB_IMPORT_IN_PROGRESS_DETAIL },
+      expect.stringContaining('CallHub import already in progress'),
+    )
+    expect(failSpy).not.toHaveBeenCalled()
+    expect((await readSatellite(outreachId)).settleState).toBe(
+      RobocallSettleState.authorized,
+    )
+  })
+
+  it('does not log the import-collision warn for other transient failures', async () => {
+    const outreachId = await createDraft()
+    const warnSpy = vi.spyOn(
+      (staging as unknown as { logger: PinoLogger }).logger,
+      'warn',
+    )
+    createVbSpy.mockRejectedValueOnce(new BadGatewayException('callhub 502'))
+
+    await expect(staging.stageCampaign(outreachId)).rejects.toThrow()
+
+    expect(warnSpy).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.stringContaining('CallHub import already in progress'),
     )
   })
 
