@@ -72,7 +72,7 @@ interface OutreachFlowShellProps {
   // so per-channel drop-off is a filter rather than one event family per
   // channel. Omitting it fires nothing, so adopting stage tracking stays
   // opt-in per flow.
-  channel?: 'sms' | 'robocall' | 'social' | 'phone-bank' | 'door'
+  channel?: 'sms' | 'robocall' | 'social' | 'phone-bank' | 'door' | 'poll'
   // Where the flow was opened from, carried on every stage event.
   source?: OutreachFlowSource
   // Whether this attempt started behind the Pro wall (`useLockedAtOpen`).

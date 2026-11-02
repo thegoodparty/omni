@@ -18,10 +18,12 @@ export const MockActionSchema = z.object({
   action: z.enum([
     'geoapify.route.fail',
     'callhub.campaign.complete',
+    'callhub.campaign.fail',
     'peerly.balance.empty',
     'peerly.cv.approve',
     'peerly.cv.reject',
     'peerly.cv.setPin',
+    'peerly.phonelist.fail',
     'peerly.usecase.activate',
     'vercel.order.fail',
   ]),
@@ -34,9 +36,20 @@ export const MockActionResponseSchema = z.object({
 })
 export type MockActionResponse = z.infer<typeof MockActionResponseSchema>
 
-export const MockRecordsQuerySchema = z.object({
-  campaignId: z.coerce.number().int().positive(),
-})
+// Win records are keyed by campaign. Serve has no campaign, so the Geoapify
+// mock stamps the caller's organization slug on the record's state and Serve
+// specs look records up by that slug. Exactly one of the two.
+export const MockRecordsQuerySchema = z
+  .object({
+    campaignId: z.coerce.number().int().positive().optional(),
+    organizationSlug: z.string().min(1).optional(),
+  })
+  .refine(
+    (q) => (q.campaignId === undefined) !== (q.organizationSlug === undefined),
+    {
+      message: 'Provide exactly one of campaignId or organizationSlug',
+    },
+  )
 export type MockRecordsQuery = z.infer<typeof MockRecordsQuerySchema>
 
 export const MockRecordsResponseSchema = z.object({
@@ -57,6 +70,9 @@ export const TimeTravelSchema = z.object({
     'robocall.send_due_now',
     'robocall.dialed_48h_ago',
     'sms.start_date_today',
+    'sms.start_date_passed',
+    'email.send_due_now',
+    'email.sent_6m_ago',
   ]),
 })
 export type TimeTravel = z.infer<typeof TimeTravelSchema>
@@ -100,4 +116,47 @@ export const AdminOutreachActionResponseSchema = z.object({
 })
 export type AdminOutreachActionResponse = z.infer<
   typeof AdminOutreachActionResponseSchema
+>
+
+// A test organization's email audience, served in place of the people DB
+// where a preview can't reach imported contacts. Only SES mailbox simulator
+// addresses, so a fixture can never email a person.
+export const EMAIL_AUDIENCE_FIXTURE_DOMAIN = 'simulator.amazonses.com'
+
+export const EmailAudienceFixtureRequestSchema = z
+  .object({
+    campaignId: z.number().int().positive(),
+    people: z
+      .array(
+        z
+          .object({
+            email: z
+              .string()
+              .email()
+              .refine(
+                (email) =>
+                  email
+                    .toLowerCase()
+                    .endsWith(`@${EMAIL_AUDIENCE_FIXTURE_DOMAIN}`),
+                'Only SES mailbox simulator addresses',
+              ),
+            firstName: z.string().max(100).optional(),
+            lastName: z.string().max(100).optional(),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(50),
+  })
+  .strict()
+export type EmailAudienceFixtureRequest = z.infer<
+  typeof EmailAudienceFixtureRequestSchema
+>
+
+export const EmailAudienceFixtureResponseSchema = z.object({
+  organizationSlug: z.string(),
+  count: z.number().int().nonnegative(),
+})
+export type EmailAudienceFixtureResponse = z.infer<
+  typeof EmailAudienceFixtureResponseSchema
 >

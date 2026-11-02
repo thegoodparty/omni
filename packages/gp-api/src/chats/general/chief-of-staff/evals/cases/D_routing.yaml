@@ -278,6 +278,34 @@
   runs: 1
   severity_if_failed: medium
 
+- id: D4-04
+  title: Uploaded-list question in plain words
+  prompt: How many of the people on my uploaded lists have an email address?
+  expected_route: query_constituent_data
+  gold_sql: >
+    SELECT COUNT(*) AS n,
+      SUM(CASE WHEN has_email THEN 1 ELSE 0 END) AS with_email
+    FROM serve_agent_constituents
+    WHERE {{DISTRICT_FILTER}} AND on_uploaded_list = true
+  required_behavior:
+    - calls query_constituent_data filtering or counting on on_uploaded_list
+      and has_email, without being told the tool or column names
+    - a count that comes back null or suppressed is reported as fewer than
+      100, never as an exact number
+  forbidden_behavior:
+    - saying the data does not exist after checking only the CRM catalog
+    - answering with saved-list counts instead
+    - saying people an upload added do not show up in lists
+    - an exact count under 100
+  notes: >
+    Needs an org with serve-import-contacts on and at least one completed
+    upload. In the Import contacts dev test the agent found this only when
+    the tools were named, and once answered exactly 29 and 13. Without the
+    flag the tools carry no overlay and the right answer is explain_gap.
+  oracle: trace
+  runs: 5
+  severity_if_failed: high
+
 # --- D5: write-action smoke set ---
 
 - id: D5-01

@@ -27,6 +27,31 @@ that throws — S3, Slack, the database — because the send is idempotent under
 retry. A payload the schema cannot read also throws, so a producer bug on a
 paid send ages to the DLQ instead of being ack-dropped.
 
+**The funding gate.** A send is handed off only if it was paid at checkout
+(`Outreach.stripeCheckoutSessionId`, or the expansion's own for `sendSeq`
+above 1) or is a free managed civic panel wave: `fundedBy:
+goodparty_pilot`, a Serve `text` linked to a wave of its own org's
+enrollment, the enrollment not `stopped`, and `serve-citizen-panels` still
+on for the official who approved it. `OutreachTextSendFundingService.check` is asked twice: by the consumer
+before it builds an audience, and by `requestSend` before its claim, whose
+`pending -> in_progress` filter repeats the database half of the rule
+(`fundedTextSendWhere`) so a stop landing between the two still matches
+nothing. A refusal acks with
+`terminalReason: 'unfunded'`, writes no CSV, posts nothing to fulfilment,
+leaves the row where it was, and raises the alarm: the
+`managed_panel.funding_alarm.count{kind="send_refused"}` metric behind the
+`serve-managed-panel-unfunded-send-refused` Grafana rule, a CRITICAL log
+line, and a notice in #bot-tevyn-api. A row that is not `pending` is not a
+funding question and raises nothing. Every legitimate send passes because
+the SERVE_TEXT purchase claim stamps the session on texts, polls, round 2
+follow-ups and expansions, and a Serve text never prices at zero, so the
+free-purchase path never reaches one. `ManagedPanelFundingReconcileService`
+(06:47 Eastern, dev and prod) re-checks every Serve send that moved past
+`pending_payment` and was created in the last week (so one left alone keeps
+paging daily), and every pilot wave still `pending` four hours after its
+claim, and raises `serve-managed-panel-funding-mismatch` on any it cannot
+account for.
+
 **Claim before handoff, not a check after it.** `requestSend` CASes the spine
 `pending → in_progress` FIRST. A read would not close the window: a user can
 cancel between the check and the handoff, and by then a human has the CSV.
@@ -83,30 +108,35 @@ org has exactly one owner, so the lookup is identical for a Serve org and a
 Win campaign org and the layer does not have to know which product it is
 carrying.
 
-**The civic panel ask rides the same ingest.** A Serve text that carries
-contracts' `CIVIC_PANEL_JOIN_LINE` is created with `asksToJoinCivicPanel`
-(read off the message, never a request flag). On ingest, a JOIN reply
-(`util/civicPanelJoin.util.ts`) to such a send sets the person's
+**The civic panel ask rides the same ingest.** Only the managed civic
+panel's invite asks people to join: its waves write their rows with
+`asksToJoinCivicPanel` set, without the create route, and `createDraft` 400s
+any message carrying a JOIN line (`findCivicPanelJoinLine`, every wording in
+contracts' `CIVIC_PANEL_JOIN_LINES`), a priority's text included. On ingest, a
+JOIN reply (`util/civicPanelJoin.util.ts`) to such a send sets the person's
 `civic_panel` status to `member`, and a STOP to any Serve send sets it to
 `left`, both through `ContactStatusService` keyed on the reply's message id so
 a re-upload is a no-op. A LEAVE reply (`util/civicPanelLeave.util.ts`) to any
-Serve send sets a member to `left` the same way without opting them out. A
-text to a panel-only list (contracts' `isCivicPanelOnlyList`) carries
-`CIVIC_PANEL_LEAVE_LINE` instead of the JOIN line and is created with
-`offersCivicPanelLeave`; the create 400s both lines together, and the LEAVE
-line on any other list. Win sends never write it. Detail in
+Serve send sets a member to `left` the same way without opting them out.
+The webapp no longer writes `CIVIC_PANEL_LEAVE_LINE`, since STOP already takes
+a member off. A draft written before that still carries it is created with
+`offersCivicPanelLeave` (read off the message), and the create 400s the line
+on a list that is not panel-only (contracts' `isCivicPanelOnlyList`). Win
+sends never write it. Detail in
 `src/contacts/AGENTS.md`, "Serve's civic panel".
 
 **Serve SMS has one purpose the other channels do not.** The draft schema
 takes contracts' `SERVE_SMS_PURPOSE_VALUES`: the shared Serve list plus
 `build_citizens_panel`, the text that introduces the official and their
 civic panel. Its `SERVE_SMS_VOICE` structure writes the body only and
-never the JOIN ask, because the webapp appends the locked
-`CIVIC_PANEL_JOIN_LINE` and the reply reader honors only those words. The
+never the JOIN ask or the words civic panel, because the managed invite
+appends the locked `CIVIC_PANEL_JOIN_LINE` ("Reply JOIN to share your
+perspectives.", the opt-out directly under it) and the reply reader honors
+only those words. Any other Serve text carrying a JOIN line is refused with
+contracts' `CIVIC_PANEL_JOIN_REFUSED_MESSAGE`, which the composer shows
+before the create. The
 draft route 404s that purpose while `serve-citizen-panels` is off, on top of
-the `serve-sms-outreach` gate, and the create route 400s any message carrying
-a join line (`findCivicPanelJoinLine`) while it is off, since that line is
-what marks a send as asking.
+the `serve-sms-outreach` gate.
 
 **A report back is a text, not an ask.** `report_back` (contracts'
 `REPORT_BACK_PURPOSE`) tells everyone who answered a priority, on texts,

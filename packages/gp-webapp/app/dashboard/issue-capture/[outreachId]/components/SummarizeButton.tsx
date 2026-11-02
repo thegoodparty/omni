@@ -108,7 +108,7 @@ const SummarizeButton = ({
     <Button
       disabled={reason !== null || start.isPending}
       onClick={() => start.mutate()}
-      // Tooltip.stories' Disabled: a disabled button takes no pointer events,
+      // A disabled button takes no pointer events,
       // so the focusable span around it is what the tooltip hangs off.
       className={reason !== null ? 'pointer-events-none' : undefined}
     >

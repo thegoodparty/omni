@@ -32,6 +32,7 @@ const DETAIL = {
     robocall: 3634,
     phoneBanking: 17406,
     doorKnocking: 20081,
+    email: 0,
     polls: 16449,
   },
   outreachHistory: [],
@@ -288,5 +289,60 @@ describe('ChannelPickerSheet', () => {
 
     await userEvent.click(await screen.findByRole('button', { name: /close/i }))
     expect(onClose).toHaveBeenCalled()
+  })
+})
+
+describe('ChannelPickerSheet — new contacts on Win', () => {
+  const DETAIL_WITH_NEW_CONTACTS = {
+    ...DETAIL,
+    demographics: { ...DETAIL.demographics, newContactsCount: 214 },
+    newContactsReachable: {
+      sms: 198,
+      robocall: 0,
+      phoneBanking: 198,
+      doorKnocking: 120,
+      email: 214,
+      polls: 198,
+    },
+  }
+
+  it('names voters and new contacts apart, and the rows reach both', async () => {
+    api.mock('GET /v1/contacts/list-detail', {
+      status: 200,
+      data: DETAIL_WITH_NEW_CONTACTS,
+    })
+
+    render(
+      <ChannelPickerSheet target={{ kind: 'universe' }} onClose={vi.fn()} />,
+    )
+
+    expect(
+      await screen.findByText(
+        'All voters and contacts · 19,867 voters, 214 new contacts added',
+      ),
+    ).toBeInTheDocument()
+    expect(rowNamed(/^SMS/)).toHaveTextContent('16,449 reachable · $575.72')
+  })
+
+  it('keeps the total on Serve', async () => {
+    vi.mocked(useContactsTable).mockReturnValue({
+      canUseProFeatures: true,
+      isWinContext: false,
+      isWinContextReady: true,
+      voterDataUnavailable: false,
+    } as unknown as ReturnType<typeof useContactsTable>)
+    api.mock('GET /v1/contacts/list-detail', {
+      status: 200,
+      data: DETAIL_WITH_NEW_CONTACTS,
+    })
+
+    render(
+      <ChannelPickerSheet target={{ kind: 'universe' }} onClose={vi.fn()} />,
+    )
+
+    expect(
+      await screen.findByText(/^All constituents · 20,081/),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/new contacts/)).toBeNull()
   })
 })

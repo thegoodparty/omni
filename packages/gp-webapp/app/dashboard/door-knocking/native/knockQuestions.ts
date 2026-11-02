@@ -47,10 +47,13 @@ export const SUPPORT_OPTIONS: Array<[SupportAnswer, string]> = [
   ['unsure', 'Unsure'],
 ]
 
+// Asked before support on Win, so a voter who has already cast a ballot is
+// recorded as such before anything else.
 export const WILL_VOTE_OPTIONS: Array<[WillVoteAnswer, string]> = [
   ['yes', 'Yes'],
   ['no', 'No'],
   ['unsure', 'Unsure'],
+  ['already_voted', 'Already voted'],
 ]
 
 // The Serve door's last question, and the whole of its engaged branch — where

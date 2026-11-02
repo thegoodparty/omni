@@ -35,6 +35,13 @@ npx vitest run --testNamePattern "name"                 # by test name
 
 CI runs each package's validate job (lint, typecheck, test) on PRs that touch it.
 
+gp-api caches transformed modules on disk between runs
+(`packages/gp-api/.vitest-fs-module-cache/`), so its first run after a
+lockfile, Node or `vitest.config.ts` change is slower than the ones after it.
+If a run ever behaves as if it is running code that is no longer in the
+source, clear the cache from `packages/gp-api` with `npx vitest --clearCache`
+(or delete the directory) and run again.
+
 ## Docker for testcontainers (OrbStack, macOS)
 
 `useTestService()` suites need Docker. Under OrbStack two exports are required, and
@@ -61,10 +68,30 @@ say so; exporting `DOCKER_HOST` fixes it immediately.
 
 Where testcontainers cannot run at all — an ECS Fargate task, for example —
 point `OMNI_TEST_POSTGRES_URL` at a Postgres started alongside the tests and
-gp-api's and election-api's harnesses will use it instead of starting their
+gp-api's harness will use it instead of starting its
 own. It has to be loopback and its maintenance database has to be named
 `postgres`; anything else throws instead of silently falling back. Details and
 the flags that server needs: `packages/gp-api/AGENTS.md` § Verify.
+
+### In gp-pi
+
+gp-pi's sandbox has no Docker socket either. From the host, give the instance a
+test database once:
+
+```bash
+scripts/gp-pi-testdb.sh [gp-pi instance]
+```
+
+It starts the harness's Postgres as a `gp-pi sidecar` on the sandbox's own
+loopback, and gp-pi re-creates it after the instance restarts. Then, inside the
+sandbox:
+
+```bash
+export OMNI_TEST_POSTGRES_URL=postgresql://test_user:test_password@127.0.0.1:55432/postgres
+```
+
+If the harness says that address is unreachable, the engineer re-runs the
+script on the host; an agent inside cannot.
 
 `ECONNREFUSED 127.0.0.1:5432` is a different failure — that suite wants a _local_
 Postgres, not a testcontainer.

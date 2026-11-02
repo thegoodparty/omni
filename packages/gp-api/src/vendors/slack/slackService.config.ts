@@ -44,4 +44,9 @@ export const SLACK_CHANNEL_IDS = {
     // a member of the channel for chat.postMessage to land.
     apiChannelId: process.env.SLACK_SHARED_PEERLY_10DLC_CHANNEL_ID,
   },
+  // Customer-facing staff channel for paused email sends. The channel isn't
+  // picked yet; with the variable unset the notifier posts nothing.
+  [SlackChannel.emailOutreachPauses]: {
+    apiChannelId: process.env.SLACK_EMAIL_OUTREACH_PAUSES_CHANNEL_ID,
+  },
 }

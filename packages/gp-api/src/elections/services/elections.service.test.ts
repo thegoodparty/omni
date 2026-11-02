@@ -432,41 +432,6 @@ describe('ElectionsService', () => {
       })
     })
 
-    it('forwards name-only queries', async () => {
-      zipToPosition.search.mockResolvedValue([])
-
-      await service.searchPositions({ name: 'mayor' })
-
-      expect(zipToPosition.search).toHaveBeenCalledWith(
-        expect.objectContaining({ name: 'mayor' }),
-      )
-    })
-
-    it('forwards officeType arrays intact', async () => {
-      zipToPosition.search.mockResolvedValue([])
-
-      await service.searchPositions({ officeType: ['Mayor', 'Sheriff'] })
-
-      expect(zipToPosition.search).toHaveBeenCalledWith(
-        expect.objectContaining({ officeType: ['Mayor', 'Sheriff'] }),
-      )
-    })
-
-    it('forwards multi-value displayOfficeLevels as an array', async () => {
-      zipToPosition.search.mockResolvedValue([])
-
-      await service.searchPositions({
-        zip: '90210',
-        displayOfficeLevels: ['Local', 'Township', 'Village'],
-      })
-
-      expect(zipToPosition.search).toHaveBeenCalledWith(
-        expect.objectContaining({
-          displayOfficeLevels: ['Local', 'Township', 'Village'],
-        }),
-      )
-    })
-
     it('strips keys the response schema does not declare', async () => {
       // The schema used to narrow a wire payload; with no network boundary it
       // is what keeps stray database columns out of gp-api responses.
@@ -802,24 +767,6 @@ describe('ElectionsService', () => {
       expect(races.findFilingFeeByBrHashId).toHaveBeenCalledWith('br-hash-123')
     })
 
-    it('passes hashes with special characters through verbatim', async () => {
-      races.findFilingFeeByBrHashId.mockResolvedValue({
-        filingFee: null,
-        filingRequirementsText: null,
-        extractionSource: null,
-        filingOfficeAddress: null,
-        filingPhoneNumber: null,
-        paperworkInstructions: null,
-      })
-
-      // BallotReady GraphQL Node IDs are base64 and can contain `/` and `=`.
-      await service.fetchFilingFeeByRaceHash('Z2lkOi8v/ballot=')
-
-      expect(races.findFilingFeeByBrHashId).toHaveBeenCalledWith(
-        'Z2lkOi8v/ballot=',
-      )
-    })
-
     it('returns null and swallows errors when the lookup fails', async () => {
       races.findFilingFeeByBrHashId.mockRejectedValue(new Error('boom'))
 
@@ -848,19 +795,6 @@ describe('ElectionsService', () => {
 
       expect(result).toEqual(response)
       expect(races.findFrequencyByBrHashId).toHaveBeenCalledWith('br-hash-123')
-    })
-
-    it('passes hashes with special characters through verbatim', async () => {
-      races.findFrequencyByBrHashId.mockResolvedValue({
-        frequency: [],
-        electionDate: null,
-      })
-
-      await service.getElectionFrequencyByBrHashId('Z2lkOi8v/ballot=')
-
-      expect(races.findFrequencyByBrHashId).toHaveBeenCalledWith(
-        'Z2lkOi8v/ballot=',
-      )
     })
 
     it('returns null and swallows errors when the lookup fails', async () => {

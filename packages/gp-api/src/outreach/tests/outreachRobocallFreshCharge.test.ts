@@ -11,6 +11,7 @@ import {
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { Campaign, RobocallSettleState } from '../../generated/prisma'
 import { calcRobocallTotalInCents } from '@/shared/util/robocallPricing.util'
+import { disableVendorCrons } from '@/shared/test-utils/appEnvOverrides'
 
 const service = useTestService()
 
@@ -388,8 +389,8 @@ describe('OutreachRobocallFreshChargeService.sweepFreshCharges', () => {
     )
   })
 
-  it('no-ops off prod', async () => {
-    process.env.OTEL_SERVICE_ENVIRONMENT = 'dev'
+  it('no-ops on a non-prod deploy in live mode', async () => {
+    disableVendorCrons()
     await createDraft()
 
     await freshCharge.sweepFreshCharges()

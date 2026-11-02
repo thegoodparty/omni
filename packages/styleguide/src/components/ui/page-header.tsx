@@ -41,6 +41,14 @@ export interface PageHeaderProps extends React.HTMLAttributes<HTMLElement> {
   contentClassName?: string
 }
 
+/**
+ * Dashboard nav pages don't use it: they set DashboardLayout's navHeader so the
+ * title matches the sidebar tab. A page the user steps into drops the sidebar
+ * and opens on a back arrow and its title (learned rule 27).
+ *
+ * @summary Use for a sticky bar with the page title, plus an optional sub-bar
+ * for a back arrow and actions. For a trail of parent pages, use BreadcrumbNav.
+ */
 function PageHeader({
   heading,
   leading,

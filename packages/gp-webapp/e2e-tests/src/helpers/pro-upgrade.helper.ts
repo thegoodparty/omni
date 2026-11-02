@@ -1,3 +1,4 @@
+import { randomInt } from 'node:crypto'
 import { expect, type Page } from '@playwright/test'
 import type { AxiosInstance } from 'axios'
 import { addYears, format } from 'date-fns'
@@ -11,10 +12,13 @@ import { eventually } from 'tests/utils/eventually'
 // Live in src/helpers/ (not app/) per e2e-tests/CLAUDE.md: this dir is a
 // separate workspace with no Next runtime, so it must not import app code.
 
-// A shape-valid, sanity-passing EIN (prefix 47 is an IRS-issued prefix; not a
-// placeholder / all-same-digit value), so `checkEinSanity` treats it as a real
-// EIN and the derivation counts the EIN step as complete.
-export const SEED_VALID_EIN = '47-1234567'
+// A fresh shape-valid, sanity-passing EIN per call (prefix 47 is an
+// IRS-issued prefix), so `checkEinSanity` treats it as a real EIN. Never a
+// shared literal: dev's long-lived database and the Peerly mock link a
+// registration to its identity through the EIN, and a shared one let parallel
+// and earlier registrations claim each other's records (#3117).
+export const uniqueEin = (): string =>
+  `47-${String(randomInt(0, 10_000_000)).padStart(7, '0')}`
 
 // Seed the EIN step's persisted output plus the filing-status answer.
 //
@@ -26,14 +30,19 @@ export const SEED_VALID_EIN = '47-1234567'
 // not a data step. So an honest "EIN-only" resume seed must also set
 // hasFiledForRace=true — that answer is a real upstream prerequisite of the EIN
 // step, not a shortcut.
-export const seedEinAndFiled = async (client: AxiosInstance): Promise<void> => {
+// Returns the EIN it saved, for a caller that also seeds the filing.
+export const seedEinAndFiled = async (
+  client: AxiosInstance,
+  ein: string = uniqueEin(),
+): Promise<string> => {
   await client.put('/v1/campaigns/mine', {
     details: {
-      einNumber: SEED_VALID_EIN,
+      einNumber: ein,
       validatedEin: true,
       hasFiledForRace: true,
     },
   })
+  return ein
 }
 
 // Seed the filing-details step's persisted output by submitting the TCR
@@ -47,9 +56,10 @@ export const seedEinAndFiled = async (client: AxiosInstance): Promise<void> => {
 export const seedFilingComplete = async (
   client: AxiosInstance,
   email: string,
+  ein: string = uniqueEin(),
 ): Promise<void> => {
   await client.post('/v1/campaigns/tcr-compliance/agentic', {
-    ein: SEED_VALID_EIN,
+    ein,
     placeId: 'ChIJ-seed-place-id',
     formattedAddress: '123 Capitol Ave, Cheyenne, WY 82001, USA',
     committeeName: 'Jane for Council',

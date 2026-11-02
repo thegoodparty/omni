@@ -11,6 +11,7 @@ import { PriorityOnboardingService } from './services/priorityOnboarding.service
 import { PriorityResultsService } from './services/priorityResults.service'
 import { PriorityRoundTwoDrawService } from './services/priorityRoundTwoDraw.service'
 import { PriorityStatusService } from './services/priorityStatus.service'
+import { PriorityThemeCommentsService } from './services/priorityThemeComments.service'
 
 @Module({
   imports: [
@@ -30,6 +31,7 @@ import { PriorityStatusService } from './services/priorityStatus.service'
     PriorityResultsService,
     PriorityAnswerCodingService,
     PriorityRoundTwoDrawService,
+    PriorityThemeCommentsService,
   ],
   exports: [PrioritiesService, PriorityStatusService, PriorityResultsService],
 })

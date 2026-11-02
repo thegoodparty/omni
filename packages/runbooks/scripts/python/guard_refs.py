@@ -1,9 +1,9 @@
 """What a source file references, for the pre-merge governance guard (DATA-2432).
 
 Counts the two ways omni fires an event: the quoted name and the EVENTS key path. Built
-from the 2026-10-01 backtest's strict counter. event_anchors.find_call_sites reads line by
-line and misses a key path Prettier wraps across lines (8 false blocks at main), and
-count_call_sites skips quoted names, so neither is used.
+from the 2026-10-01 backtest's strict counter. A line-by-line reader misses a key path
+Prettier wraps across lines (8 false blocks at main), and count_call_sites skips quoted
+names, so neither is used.
 """
 
 from __future__ import annotations

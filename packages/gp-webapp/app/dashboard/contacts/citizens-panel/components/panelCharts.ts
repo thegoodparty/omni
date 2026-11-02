@@ -1,5 +1,9 @@
 import {
+  allocateSeats,
+  civicPanelShortGroups,
   PANEL_MIN_MEMBERS_FOR_BALANCE,
+  type CivicPanelShortGroup,
+  type CivicPanelJoinedBy,
   type CivicPanelCompositionGroup,
   type CivicPanelCompositionPlace,
   type UnderrepresentedGroup,
@@ -24,41 +28,26 @@ export const LABEL_ALL_UP_TO = 12
 // Near its goal the chart turns from who is behind to where seats are empty.
 export const NEAR_FULL_AT = 0.8
 
-// Largest remainder, ties to the bigger weight, so the parts always sum to
-// the total. A part never passes its cap.
-export const allocate = (
-  weights: number[],
-  total: number,
-  caps?: number[],
-): number[] => {
-  const sum = weights.reduce((a, b) => a + b, 0)
-  if (sum <= 0 || total <= 0) return weights.map(() => 0)
-  const capOf = (i: number) => caps?.[i] ?? Infinity
-  const raw = weights.map((w) => (w * total) / sum)
-  const out = raw.map((r, i) => Math.min(Math.floor(r), capOf(i)))
-  let left = total - out.reduce((a, b) => a + b, 0)
-  const order = raw
-    .map((_, i) => i)
-    .sort(
-      (a, b) =>
-        (raw[b] ?? 0) - (out[b] ?? 0) - ((raw[a] ?? 0) - (out[a] ?? 0)) ||
-        (weights[b] ?? 0) - (weights[a] ?? 0),
-    )
-  // Caps can leave seats over after one pass; keep going while any part
-  // still has room.
-  while (left > 0) {
-    let placed = false
-    for (const i of order) {
-      if (left <= 0) break
-      if ((out[i] ?? 0) >= capOf(i) || (weights[i] ?? 0) <= 0) continue
-      out[i] = (out[i] ?? 0) + 1
-      left -= 1
-      placed = true
-    }
-    if (!placed) break
-  }
-  return out
-}
+// The seat split the civic panel page and the Chief of Staff share
+// (contracts' CivicPanelShortGroups).
+export const allocate = allocateSeats
+
+// Server and client can differ in a coordinate's last float digit, which
+// React reports as a hydration mismatch, so every drawn coordinate is
+// rounded to hundredths.
+export const roundCoord = (value: number): number =>
+  Math.round(value * 100) / 100
+
+// A point `r` out from (cx, cy) at angle `a`, y pointing down.
+export const polar = (
+  cx: number,
+  cy: number,
+  r: number,
+  a: number,
+): { x: number; y: number } => ({
+  x: roundCoord(cx + r * Math.cos(a)),
+  y: roundCoord(cy + r * Math.sin(a)),
+})
 
 export interface Spot {
   x: number
@@ -87,8 +76,8 @@ export const seatSpots = (cx: number, cy: number): Spot[] => {
       spots.push({
         r,
         angle,
-        x: cx + r * Math.cos(angle),
-        y: cy - r * Math.sin(angle),
+        x: roundCoord(cx + r * Math.cos(angle)),
+        y: roundCoord(cy - r * Math.sin(angle)),
       })
     }
   })
@@ -113,23 +102,38 @@ export const spreadLabels = (ys: number[]): number[] => {
   const order = ys.map((_, i) => i).sort((a, b) => (ys[b] ?? 0) - (ys[a] ?? 0))
   let floor = Infinity
   for (const i of order) {
-    const y = Math.min(out[i] ?? 0, floor - LABEL_SPACING)
+    const y = roundCoord(Math.min(out[i] ?? 0, floor - LABEL_SPACING))
     out[i] = y
     floor = y
   }
   return out
 }
 
+// Filled seats in the brand's red, blue and lavender, so the panel reads as
+// many voices. Each place takes one family, cycled in arc order so
+// neighbors never share one, and its seats cycle three tints of it, darkest
+// first. Fixed by position, never random, so server and client agree.
+export const SEAT_HUES = ['red', 'blue', 'lavender'] as const
+export type SeatHue = (typeof SEAT_HUES)[number]
+export type SeatTint = 0 | 1 | 2
+
+export const seatHue = (placeIndex: number): SeatHue =>
+  SEAT_HUES[placeIndex % SEAT_HUES.length] ?? 'red'
+
+export const seatTint = (seatIndex: number): SeatTint =>
+  (seatIndex % 3) as SeatTint
+
 export interface SeatPlace {
   key: string
   name: string
+  // A tract's human name, once it has one.
+  label?: string
   count: number
   filled: number
   empty: number
   progress: number
   behind: boolean
-  // Alternate places take alternate shades so neighbors read apart.
-  shade: 0 | 1
+  hue: SeatHue
   // Middle of the place's seats, for its label.
   angle: number
 }
@@ -139,6 +143,7 @@ export interface Seat {
   y: number
   place: number
   filled: boolean
+  tint: SeatTint
 }
 
 export type SeatsStage = 'tooEarly' | 'building' | 'nearFull' | 'full'
@@ -207,19 +212,26 @@ export const buildSeats = ({
     cursor += count
     const index = rows.length
     mine.forEach((spot, k) =>
-      seats.push({ x: spot.x, y: spot.y, place: index, filled: k < filled }),
+      seats.push({
+        x: spot.x,
+        y: spot.y,
+        place: index,
+        filled: k < filled,
+        tint: seatTint(k),
+      }),
     )
     const first = mine[0]?.angle ?? 0
     const last = mine[mine.length - 1]?.angle ?? first
     rows.push({
       key: p.key,
       name: p.name,
+      label: p.label,
       count,
       filled,
       empty: count - filled,
       progress,
       behind: canTell && progress < overall * BEHIND_AT,
-      shade: index % 2 === 0 ? 0 : 1,
+      hue: seatHue(index),
       angle: (first + last) / 2,
     })
   })
@@ -314,8 +326,10 @@ export const buildBloom = (groups: CivicPanelCompositionGroup[]): Bloom => {
   }
 }
 
-const point = (cx: number, cy: number, r: number, a: number) =>
-  `${(cx + r * Math.cos(a)).toFixed(2)} ${(cy + r * Math.sin(a)).toFixed(2)}`
+const point = (cx: number, cy: number, r: number, a: number) => {
+  const { x, y } = polar(cx, cy, r, a)
+  return `${x} ${y}`
+}
 
 // A ring sector from r0 to r1 between two angles, clockwise.
 export const sectorPath = (
@@ -327,14 +341,106 @@ export const sectorPath = (
   a1: number,
 ): string => {
   const large = a1 - a0 > Math.PI ? 1 : 0
+  const outer = roundCoord(r1)
+  const inner = roundCoord(r0)
   return [
     `M ${point(cx, cy, r0, a0)}`,
     `L ${point(cx, cy, r1, a0)}`,
-    `A ${r1} ${r1} 0 ${large} 1 ${point(cx, cy, r1, a1)}`,
+    `A ${outer} ${outer} 0 ${large} 1 ${point(cx, cy, r1, a1)}`,
     `L ${point(cx, cy, r0, a1)}`,
-    `A ${r0} ${r0} 0 ${large} 0 ${point(cx, cy, r0, a0)}`,
+    `A ${inner} ${inner} 0 ${large} 0 ${point(cx, cy, r0, a0)}`,
     'Z',
   ].join(' ')
+}
+
+export type ShortGroup = CivicPanelShortGroup
+
+// Every group with fewer seats than its share of the district, furthest
+// behind first, in the hero's seats. The Chief of Staff offers the same
+// groups (contracts' civicPanelShortGroups).
+export const shortGroups = civicPanelShortGroups
+
+// The arc with no places to split it by: the seats filled in order, in
+// bands of the brand's three families so neighbors differ.
+const PLAIN_BAND = 9
+export const plainSeats = (members: number, goal: number): SeatChart => {
+  const filled = Math.min(
+    SEAT_COUNT,
+    Math.round((members / Math.max(1, goal)) * SEAT_COUNT),
+  )
+  const places: SeatPlace[] = SEAT_HUES.map((hue) => ({
+    key: hue,
+    name: hue,
+    count: 0,
+    filled: 0,
+    empty: 0,
+    progress: 0,
+    behind: false,
+    hue,
+    angle: 0,
+  }))
+  const seats = seatSpots(0, 0).map((spot, i) => ({
+    x: spot.x,
+    y: spot.y,
+    place: Math.floor(i / PLAIN_BAND) % SEAT_HUES.length,
+    filled: i < filled,
+    tint: seatTint(i),
+  }))
+  return {
+    seats,
+    places,
+    filled,
+    stage: filled >= SEAT_COUNT ? 'full' : 'building',
+    behind: [],
+    mostEmpty: [],
+  }
+}
+
+// The three ways the page shows members joining. Members the office added
+// by hand count with the door.
+export const JOIN_SOURCES = ['text', 'door', 'phone'] as const
+export type JoinSource = (typeof JOIN_SOURCES)[number]
+
+export const joinedBySources = (
+  joinedBy: CivicPanelJoinedBy,
+): Record<JoinSource, number> => ({
+  text: joinedBy.text,
+  door: joinedBy.door + joinedBy.hand,
+  phone: joinedBy.phone,
+})
+
+export interface SourceSeat {
+  x: number
+  y: number
+  // Null for an empty seat.
+  source: JoinSource | null
+}
+
+// The plain seats filled as plainSeats fills them, split by how the members
+// joined: text first, then the door, then the phone, so each source sits
+// together. With no join sources to split by, every filled seat is text.
+export const sourceSeats = (
+  members: number,
+  goal: number,
+  joinedBy: CivicPanelJoinedBy,
+): { seats: SourceSeat[]; filled: number } => {
+  const { filled } = plainSeats(members, goal)
+  const bySource = joinedBySources(joinedBy)
+  const weights = JOIN_SOURCES.map((source) => bySource[source])
+  const counts = weights.some((w) => w > 0)
+    ? allocate(weights, filled)
+    : [filled, 0, 0]
+  const order = JOIN_SOURCES.flatMap((source, i) =>
+    Array.from({ length: counts[i] ?? 0 }, () => source),
+  )
+  return {
+    filled,
+    seats: seatSpots(0, 0).map((spot, i) => ({
+      x: spot.x,
+      y: spot.y,
+      source: order[i] ?? null,
+    })),
+  }
 }
 
 export type MilestoneState = 'done' | 'next' | 'upcoming'

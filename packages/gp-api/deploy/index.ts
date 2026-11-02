@@ -2,7 +2,9 @@ import * as aws from '@pulumi/aws'
 import * as pulumi from '@pulumi/pulumi'
 import { createAnnotationAttachmentsBucket } from './components/annotation-attachments-bucket'
 import { createChatAttachmentsBucket } from './components/chat-attachments-bucket'
+import { createContactUploadsBucket } from './components/contact-uploads-bucket'
 import { createCampaignPlanSharesBucket } from './components/campaign-plan-shares-bucket'
+import { createDatabricksFederation } from './components/databricks-federation'
 import { createAssetsBucket } from './components/assets-bucket'
 import { createAssetsRouter } from './components/assets-router'
 import { createGrafanaResources } from './components/grafana'
@@ -12,6 +14,13 @@ import {
   PREVIEW_SHARED_ALB_NAME,
 } from './components/preview-shared-alb'
 import { createPreviewSharedCluster } from './components/preview-shared-cluster'
+import {
+  createEmailInbound,
+  emailInboundBucketName,
+  emailInboundTopicArn,
+} from './components/email-inbound'
+import { createEmailOutreach } from './components/email-outreach'
+import { createElectionDb } from './components/election-db'
 import { createRobocallAudioBucket } from './components/robocall-audio-bucket'
 import { createService } from './components/service'
 import { createSitemapsBucket } from './components/sitemaps-bucket'
@@ -39,6 +48,12 @@ export = async () => {
     'arn:aws:acm:us-west-2:333022194791:certificate/b009d1a6-68ff-4d24-84f7-93683ca3f786'
 
   const imageUri = config.require('imageUri')
+
+  // Prod-only value: the probe itself runs wherever VENDOR_MODE is live.
+  const driftProbePeerlyIdentityId =
+    environment === 'prod'
+      ? config.get('driftProbePeerlyIdentityId')
+      : undefined
 
   const prNumber =
     environment === 'preview' ? config.require('prNumber') : undefined
@@ -155,6 +170,14 @@ export = async () => {
       ? 'goodparty-chat-attachments-dev'
       : createChatAttachmentsBucket({ environment }).bucket.bucket
 
+  // Private bucket for Import contacts' original CSVs. The browser PUTs them
+  // via presigned URL; gp-api reads them back. Each environment's stack owns
+  // its own. Preview environments share the dev bucket.
+  const contactUploadsBucketName =
+    environment === 'preview'
+      ? 'gp-api-contact-uploads-dev'
+      : createContactUploadsBucket({ environment }).bucket.bucket
+
   // Private bucket for shared campaign-plan PDFs. Preview shares the dev
   // bucket — no per-PR buckets.
   const campaignPlanSharesBucketName =
@@ -214,6 +237,24 @@ export = async () => {
 
   const skipPerPrRds = environment === 'preview'
 
+  // Databricks Lakehouse Federation's path into Aurora, see
+  // components/databricks-federation.ts. Previews get none.
+  const databricksFederationName = select({
+    preview: undefined,
+    dev: 'gp-api-db-dev-federation',
+    prod: 'gp-api-db-prod-federation',
+  })
+
+  // Created ahead of the RDS security group, whose inline ingress names it.
+  const databricksFederationProxySecurityGroup = databricksFederationName
+    ? new aws.ec2.SecurityGroup('databricksFederationProxySecurityGroup', {
+        name: `${databricksFederationName}-proxy`,
+        description:
+          'Databricks federation RDS Proxy in front of gp-api Aurora',
+        vpcId,
+      })
+    : undefined
+
   // With the shared preview DB the per-PR cluster is skipped, so its security
   // group and subnet group would be orphaned — skip them too.
   const rdsSecurityGroup = skipPerPrRds
@@ -256,6 +297,17 @@ export = async () => {
             description: 'databricks via vpc peering',
             cidrBlocks: ['172.16.0.0/16'],
           },
+          ...(databricksFederationProxySecurityGroup
+            ? [
+                {
+                  protocol: 'tcp',
+                  fromPort: 5432,
+                  toPort: 5432,
+                  description: 'databricks serverless via federation rds proxy',
+                  securityGroups: [databricksFederationProxySecurityGroup.id],
+                },
+              ]
+            : []),
           ...select({
             preview: [],
             // TODOSWAIN: investigate whether these are truly needed in dev
@@ -344,6 +396,27 @@ export = async () => {
         engineVersion: rdsCluster!.engineVersion,
       })
 
+  const databricksFederation =
+    databricksFederationName &&
+    databricksFederationProxySecurityGroup &&
+    rdsSecurityGroup &&
+    rdsCluster
+      ? createDatabricksFederation({
+          name: databricksFederationName,
+          vpcId,
+          publicSubnetIds: vpcSubnetIds.public,
+          privateSubnetIds: vpcSubnetIds.private,
+          proxySecurityGroup: databricksFederationProxySecurityGroup,
+          rdsSecurityGroupId: rdsSecurityGroup.id,
+          clusterIdentifier: rdsCluster.clusterIdentifier,
+        })
+      : undefined
+
+  // Previews read the shared dev election cluster and must not own it.
+  if (environment !== 'preview') {
+    createElectionDb(environment)
+  }
+
   // The dev stack owns the always-on shared preview Aurora cluster. Every PR
   // preview clones its own gpdb_pr_<n> database onto this one cluster (see
   // docker-entrypoint.sh) instead of provisioning a cluster per PR.
@@ -401,6 +474,17 @@ export = async () => {
   const region = 'us-west-2'
   const accountId = '333022194791'
 
+  // Previews send through the vendor mock and get no SES resources.
+  const emailOutreach =
+    environment !== 'preview'
+      ? createEmailOutreach({
+          environment,
+          hostedZoneId,
+          region,
+          accountId,
+        })
+      : undefined
+
   const serveAnalysisBucketName = `serve-analyze-data-${
     environment === 'preview' ? 'dev' : environment
   }`
@@ -420,6 +504,7 @@ export = async () => {
     zipToAreaCodeBucket.bucket,
     annotationAttachmentsBucketName,
     chatAttachmentsBucketName,
+    contactUploadsBucketName,
     campaignPlanSharesBucketName,
     robocallAudioBucketName,
     agentRunInputsBucketName,
@@ -451,6 +536,7 @@ export = async () => {
   // already whole-bucket, so no judge prefix needs widening on this side.
   const taskRoleReadOnlyBucketNames: pulumi.Input<string>[] = [
     agentArtifactsBucketName,
+    ...(environment !== 'preview' ? [emailInboundBucketName(environment)] : []),
   ]
   const taskRoleReadOnlyObjectArns = taskRoleReadOnlyBucketNames.map(
     (name) => pulumi.interpolate`arn:aws:s3:::${name}/*`,
@@ -550,6 +636,11 @@ export = async () => {
       }),
       CORS_ORIGIN: productDomain,
       AWS_REGION: 'us-west-2',
+      PYROSCOPE_ENABLED: select({
+        preview: 'false',
+        dev: 'true',
+        prod: 'true',
+      }),
       // Clerk instance public key, so tokens verify without fetching Clerk's
       // JWKS on the request path. Public, so it lives here and not in the
       // secret. Previews use the dev Clerk instance.
@@ -581,6 +672,40 @@ WedQREHPKVj/GBX8+0NOxdKibVUlppnVyXbDLG31UNXi5iFQVJ52r6B/+7KuZQya
 4RFIVMAkgqfj2C8dnFR2sQS2NkR9DqQabf6aY4Yme2/RRT5489atX1kUFh1Tt167
 jwIDAQAB
 -----END PUBLIC KEY-----`,
+      }),
+      // Vercel deployments whose OIDC token makes them a service reader, as
+      // project_id:environment (gp-marketing, candidate-sites). Not secret:
+      // the signed token is the credential. Preview and develop deployments
+      // of both projects read dev gp-api; production reads prod. Dev and
+      // preview also take gp-marketing's development token, the one
+      // `vercel env pull` hands a local `next dev`.
+      VERCEL_OIDC_ALLOWED_PROJECTS: select({
+        preview:
+          'prj_xUbQGrErwISW8pqTZtKzk9wN5gFc:preview,prj_xUbQGrErwISW8pqTZtKzk9wN5gFc:development,prj_PFN2Upwy18Fg5jjF0BTD3vcEq5eO:preview',
+        dev: 'prj_xUbQGrErwISW8pqTZtKzk9wN5gFc:preview,prj_xUbQGrErwISW8pqTZtKzk9wN5gFc:development,prj_PFN2Upwy18Fg5jjF0BTD3vcEq5eO:preview',
+        prod: 'prj_xUbQGrErwISW8pqTZtKzk9wN5gFc:production,prj_PFN2Upwy18Fg5jjF0BTD3vcEq5eO:production',
+      }),
+      // Vercel deployments whose OIDC token makes them a full M2M caller, the
+      // same as an mt_ token, as project_id:environment (gp-admin). Kept apart
+      // from the reader list so a reader entry can never grant admin. The one
+      // gp-admin production deployment calls both dev and prod; prod accepts
+      // nothing else, so a preview or `vercel env pull` holds no prod admin.
+      VERCEL_OIDC_ADMIN_PROJECTS: select({
+        preview:
+          'prj_ZT7POAebSPy3jFf2u0xKIUZTQpcT:production,prj_ZT7POAebSPy3jFf2u0xKIUZTQpcT:preview,prj_ZT7POAebSPy3jFf2u0xKIUZTQpcT:development',
+        dev: 'prj_ZT7POAebSPy3jFf2u0xKIUZTQpcT:production,prj_ZT7POAebSPy3jFf2u0xKIUZTQpcT:preview,prj_ZT7POAebSPy3jFf2u0xKIUZTQpcT:development',
+        prod: 'prj_ZT7POAebSPy3jFf2u0xKIUZTQpcT:production',
+      }),
+      // GitHub Actions workflows whose OIDC token (audience gp-api) makes them a
+      // service reader, as <owner>/<repo>/<path>@<ref>; <ref> may be *. Not
+      // secret: the signed token is the credential. Prod takes only the
+      // scheduled run on gp-marketing's default branch; dev and preview take
+      // any branch so a PR's workflow can be tried against dev.
+      GITHUB_OIDC_ALLOWED_WORKFLOWS: select({
+        preview:
+          'thegoodparty/gp-marketing/.github/workflows/generate-people-sitemaps.yml@*',
+        dev: 'thegoodparty/gp-marketing/.github/workflows/generate-people-sitemaps.yml@*',
+        prod: 'thegoodparty/gp-marketing/.github/workflows/generate-people-sitemaps.yml@refs/heads/develop',
       }),
       ASSET_DOMAIN: select({
         preview: 'assets-dev.goodparty.org',
@@ -634,6 +759,19 @@ jwIDAQAB
         dev: '',
         prod: 'true',
       }),
+      // The free election-eve robocall offer's $400 Stripe coupon, created
+      // with the same id in test and live mode. Empty hides the offer. The
+      // live coupon must be:
+      // id robocall-free-offer-2026-11, amount_off 40000 in usd, duration
+      // once, redeem_by after Nov 3 2026, and applies_to limited to a product
+      // never sold through Stripe Checkout, so a GPOFFER code cannot be
+      // redeemed on a text purchase or the Pro subscription. gp-api refuses
+      // the code unless the coupon is exactly $400 off in usd.
+      ROBOCALL_FREE_OFFER_COUPON_ID: select({
+        preview: 'robocall-free-offer-2026-11',
+        dev: 'robocall-free-offer-2026-11',
+        prod: 'robocall-free-offer-2026-11',
+      }),
       // Dev and previews write to prod's HubSpot portal, so the Office Holder
       // sync and its ids are prod only.
       HUBSPOT_OFFICE_HOLDER_SYNC_ENABLED: select({
@@ -656,12 +794,30 @@ jwIDAQAB
         dev: '',
         prod: '73',
       }),
+      // Dev and previews read the overlay views over the dev federated
+      // catalog; prod reads the prod one.
+      PEOPLE_DBX_CONTACT_OVERLAY_VIEW: select({
+        preview: 'gp_api_contact_overlay_dev',
+        dev: 'gp_api_contact_overlay_dev',
+        prod: 'gp_api_contact_overlay',
+      }),
+      SERVE_AGENT_CONTACT_OVERLAY_VIEW: select({
+        preview: 'serve_agent_contact_overlay_dev',
+        dev: 'serve_agent_contact_overlay_dev',
+        prod: 'serve_agent_contact_overlay',
+      }),
+      WIN_AGENT_CONTACT_OVERLAY_VIEW: select({
+        preview: 'win_agent_contact_overlay_dev',
+        dev: 'win_agent_contact_overlay_dev',
+        prod: 'win_agent_contact_overlay',
+      }),
       SERVE_ANALYSIS_BUCKET_NAME: `serve-analyze-data-${environment === 'preview' ? 'dev' : environment}`,
       MEETING_PIPELINE_BUCKET: meetingPipelineBucketName,
       TEVYN_POLL_CSVS_BUCKET: tevynPollCsvsBucket.bucket,
       ZIP_TO_AREA_CODE_BUCKET: zipToAreaCodeBucket.bucket,
       ANNOTATION_ATTACHMENTS_BUCKET: annotationAttachmentsBucketName,
       CHAT_ATTACHMENTS_BUCKET: chatAttachmentsBucketName,
+      CONTACT_UPLOADS_BUCKET: contactUploadsBucketName,
       CAMPAIGN_PLAN_SHARES_BUCKET: campaignPlanSharesBucketName,
       ROBOCALL_AUDIO_BUCKET: robocallAudioBucketName,
       API_PUBLIC_ROOT_URL: `https://${domain}`,
@@ -680,7 +836,26 @@ jwIDAQAB
         ? `gpdb_pr_${prNumber}`
         : rdsCluster!.databaseName,
       SECRETS_MANAGER_KEYS: Object.keys(containerSecrets).join(','),
+      // Names, not credentials. The webhook accepts only this topic, and the
+      // reply handler reads only this bucket.
+      ...(environment !== 'preview'
+        ? {
+            EMAIL_INBOUND_TOPIC_ARN: emailInboundTopicArn(
+              environment,
+              region,
+              accountId,
+            ),
+            EMAIL_INBOUND_BUCKET: emailInboundBucketName(environment),
+          }
+        : {}),
       ...(environment === 'preview' ? { IS_PREVIEW: 'true' } : {}),
+      // One known approved Peerly identity for the nightly vendor drift probe.
+      // An id, not a credential, so a plain env var rather than the secret.
+      // Set per stack (`pulumi config set driftProbePeerlyIdentityId <id>`);
+      // unset leaves the var off and the probe skips that one call.
+      ...(driftProbePeerlyIdentityId
+        ? { DRIFT_PROBE_PEERLY_IDENTITY_ID: driftProbePeerlyIdentityId }
+        : {}),
     },
     permissions: [
       {
@@ -707,6 +882,23 @@ jwIDAQAB
         Effect: 'Allow',
         Action: ['s3:ListBucket', 's3:GetBucketLocation'],
         Resource: taskRoleBucketArns,
+      },
+      // The contact uploads bucket is versioned and nothing in it expires, so
+      // deleting an org or an abandoned upload has to list and delete every
+      // version of its files.
+      {
+        Effect: 'Allow',
+        Action: ['s3:ListBucketVersions'],
+        Resource: [
+          pulumi.interpolate`arn:aws:s3:::${contactUploadsBucketName}`,
+        ],
+      },
+      {
+        Effect: 'Allow',
+        Action: ['s3:DeleteObjectVersion'],
+        Resource: [
+          pulumi.interpolate`arn:aws:s3:::${contactUploadsBucketName}/*`,
+        ],
       },
       {
         Effect: 'Allow',
@@ -773,6 +965,7 @@ jwIDAQAB
         Action: ['textract:DetectDocumentText', 'textract:AnalyzeDocument'],
         Resource: ['*'],
       },
+      ...(emailOutreach?.taskRolePermissions ?? []),
       ...(localDevEnvSecretArns.length > 0
         ? [
             {
@@ -803,10 +996,19 @@ jwIDAQAB
   })
 
   if (environment !== 'preview') {
+    createEmailInbound({
+      environment,
+      hostedZoneId,
+      region,
+      accountId,
+      webhookUrl: `https://${domain}/v1/email/webhooks/sns`,
+      service: service.ecsService,
+    })
     await createGrafanaResources({ environment, domain })
   }
 
   return {
     serviceUrl: service.url,
+    databricksFederationHost: databricksFederation?.nlb.dnsName,
   }
 }

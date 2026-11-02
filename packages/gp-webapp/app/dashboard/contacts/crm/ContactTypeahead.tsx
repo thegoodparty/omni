@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import {
+  Badge,
   Command,
   CommandEmpty,
   CommandInput,
@@ -11,7 +12,10 @@ import {
 } from '@styleguide'
 import { useShowContactProModal } from './ContactProModal'
 import { useContactsTable } from './ContactsTableProvider'
-import { getContactsLabels } from '../../shared/contactsLabels'
+import {
+  getContactsLabels,
+  WIN_NEW_CONTACTS_LABELS,
+} from '../../shared/contactsLabels'
 import { formatPersonName } from './person/PersonOverlay'
 import type { Person } from './shared/contacts-types'
 import {
@@ -105,15 +109,28 @@ export const ContactTypeahead = () => {
               >
                 <div className="flex min-w-0 flex-col">
                   <span className="truncate">{formatPersonName(person)}</span>
+                  {query.includes('@') &&
+                    person.email?.toLowerCase() ===
+                      query.trim().toLowerCase() && (
+                      <span className="text-muted-foreground truncate text-xs">
+                        {person.email}
+                      </span>
+                    )}
                   <span className="text-muted-foreground truncate text-xs">
                     {[person.address.line1, person.address.city]
                       .filter(Boolean)
                       .join(', ')}
                   </span>
                 </div>
-                <span className="text-muted-foreground ml-auto shrink-0 text-xs">
-                  {personMeta(person, isWinContext)}
-                </span>
+                {isWinContext && person.isNewContact ? (
+                  <Badge variant="outline" className="ml-auto">
+                    {WIN_NEW_CONTACTS_LABELS.notInVoterFile}
+                  </Badge>
+                ) : (
+                  <span className="text-muted-foreground ml-auto shrink-0 text-xs">
+                    {personMeta(person, isWinContext)}
+                  </span>
+                )}
               </CommandItem>
             ))
           )}

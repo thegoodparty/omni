@@ -16,6 +16,7 @@ import {
   SlackChannel,
   SlackMessageType,
 } from 'src/vendors/slack/slackService.types'
+import { trackForOffice } from '@/priorities/util/priorityAnalytics.util'
 import { EVENTS } from 'src/vendors/segment/segment.types'
 
 /**
@@ -307,11 +308,37 @@ export class OutreachServeSmsPurchaseHandlerService
       { outreachId, organizationSlug, sessionId },
       'Serve SMS send claimed and enqueued after payment',
     )
+    if (row.reportBackForOutreachId) {
+      void this.trackReportBackSent(
+        organizationSlug,
+        row.reportBackForOutreachId,
+      )
+    }
 
     // Paid and scheduled is when a text counts as out. Outside the revert
     // above: the send stands even if this write fails, and the throw makes
     // Stripe redeliver, which lands in the lost-claim branch and records it.
     await this.priorityStatus.recordOutreachSent(outreachId)
+  }
+
+  // Only the claim that won reaches this, so a redelivered webhook never
+  // counts a report back twice. Telemetry: it never fails the purchase.
+  private async trackReportBackSent(
+    organizationSlug: string,
+    reportBackForOutreachId: number,
+  ): Promise<void> {
+    try {
+      const facts = await this.reportBack.reportBackFacts(
+        organizationSlug,
+        reportBackForOutreachId,
+      )
+      if (!facts) return
+      await trackForOffice(this.client, this.analytics, { organizationSlug }, [
+        [EVENTS.Priorities.ReportBackSent, { ...facts, channel: 'text' }],
+      ])
+    } catch (err) {
+      this.logger.warn({ err, organizationSlug }, 'Report back event failed')
+    }
   }
 
   // A paid expansion stops at `pending` like the poll it belongs to, and the

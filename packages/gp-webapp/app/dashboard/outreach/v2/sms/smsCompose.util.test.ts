@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
+  checkSmsStandards,
   CIVIC_PANEL_JOIN_LINE,
   CIVIC_PANEL_JOIN_LINES,
   CIVIC_PANEL_LEAVE_LINE,
@@ -27,10 +28,52 @@ import {
   unfilledBrackets,
   upgradeScriptFooter,
   withCivicPanelJoin,
-  withCivicPanelLeave,
-  withCivicPanelLines,
+  withOptOutUnderLastLine,
   composeServeScript,
+  composeManagedInvite,
+  MANAGED_INVITE_LOCKED_LINES,
+  managedInviteBody,
+  managedInviteDraft,
 } from './smsCompose.util'
+
+describe('the managed civic panel invite', () => {
+  const body = managedInviteDraft({
+    name: 'Jordan Rivera',
+    office: 'Asheville City Council Member',
+    place: 'Asheville',
+  })
+
+  it('invites in the official name, office and place', () => {
+    expect(composeManagedInvite(body)).toBe(
+      "Hi {{first_name}}, this is Jordan Rivera, your Asheville City Council Member. I want to hear from people across Asheville, not just those who come to meetings, so I'm inviting a group of residents to share their views. I'll text you about once a month to ask what you think.\n\nReply JOIN to share your perspectives.\nReply STOP to opt out.",
+    )
+  })
+
+  it('never names the civic panel to residents', () => {
+    expect(composeManagedInvite(body)).not.toMatch(/panel/i)
+  })
+
+  it('falls back when the place or name is not known', () => {
+    expect(managedInviteDraft({ name: '', office: 'Mayor', place: null })).toBe(
+      "Hi {{first_name}}, this is your elected official, your Mayor. I want to hear from people across our community, not just those who come to meetings, so I'm inviting a group of residents to share their views. I'll text you about once a month to ask what you think.",
+    )
+  })
+
+  it('previews exactly the locked tail the composed invite sends', () => {
+    const sent = composeManagedInvite(body)
+    expect(sent.endsWith(`\n\n${MANAGED_INVITE_LOCKED_LINES}`)).toBe(true)
+    expect(sent.slice(0, -MANAGED_INVITE_LOCKED_LINES.length).trim()).toBe(body)
+    expect(MANAGED_INVITE_LOCKED_LINES).toBe(
+      `${CIVIC_PANEL_JOIN_LINE}\n${OPT_OUT_FOOTER}`,
+    )
+  })
+
+  it('keeps a body that echoes the locked lines from sending them twice', () => {
+    const echoed = `${body} ${CIVIC_PANEL_JOIN_LINE} ${OPT_OUT_FOOTER}`
+    expect(composeManagedInvite(echoed)).toBe(composeManagedInvite(body))
+    expect(managedInviteBody(composeManagedInvite(body))).toBe(body)
+  })
+})
 
 // The identification sentence is the one piece of Serve copy that could not
 // be a reworded Win string: Win says the sender is running for an office,
@@ -450,9 +493,8 @@ describe('withCivicPanelJoin', () => {
     )
   })
 
-  it('explains what joining means', () => {
-    expect(CIVIC_PANEL_JOIN_LINE).toMatch(/about once a month/)
-    expect(CIVIC_PANEL_JOIN_LINE).toMatch(/what you think/)
+  it('never names the civic panel', () => {
+    expect(CIVIC_PANEL_JOIN_LINE).not.toMatch(/panel/i)
   })
 
   // A draft saved before the line was rewritten carries an earlier wording.
@@ -495,128 +537,28 @@ describe('withCivicPanelJoin', () => {
   })
 })
 
-describe('withCivicPanelLeave', () => {
-  const base = composeServeScript('What do you think about the park?')
-
-  it('puts the LEAVE line in its own paragraph, above the opt-out', () => {
-    expect(withCivicPanelLeave(base, true)).toBe(
-      `Hello {{first_name}}, What do you think about the park?\n\n${CIVIC_PANEL_LEAVE_LINE}\n\n${OPT_OUT_FOOTER}`,
-    )
-  })
-
-  it('takes it back out and leaves the message as it was', () => {
-    expect(withCivicPanelLeave(withCivicPanelLeave(base, true), false)).toBe(
-      base,
-    )
-    const offered = withCivicPanelLeave(base, true)
-    expect(withCivicPanelLeave(offered, true)).toBe(offered)
-  })
-
-  it('never leaves both lines in a message', () => {
-    const asked = withCivicPanelJoin(base, true)
-    const offered = withCivicPanelLeave(asked, true)
-    expect(offered).not.toContain(CIVIC_PANEL_JOIN_LINE)
-    expect(offered).toContain(CIVIC_PANEL_LEAVE_LINE)
-    const backToJoin = withCivicPanelLines(offered, {
-      join: true,
-      leave: false,
-    })
-    expect(backToJoin).toBe(asked)
-    expect(withCivicPanelLines(offered, { join: true, leave: true })).toBe(
-      offered,
-    )
-  })
-
-  it('locks the line and counts it in the length', () => {
-    const offered = withCivicPanelLeave(base, true)
-    expect(
-      deriveSmsProtectedParts(offered, { channel: 'serve' }).find(
-        (candidate) => candidate.rule === 'civic_panel_leave',
-      ),
-    ).toMatchObject({
-      text: CIVIC_PANEL_LEAVE_LINE,
-      start: offered.indexOf(CIVIC_PANEL_LEAVE_LINE),
-    })
-    expect(offered.length).toBe(base.length + CIVIC_PANEL_LEAVE_LINE.length + 2)
-  })
-})
-
-// Every path that rewrites a panel text ends in withCivicPanelLines, so its
-// output must hold exactly one panel line, above one opt-out, whatever the
-// model or an earlier bug left in the message.
-describe('the civic panel line after a rewrite', () => {
+// No text the flow composes carries a civic panel line except the managed
+// invite, so every rewrite drops what the model or a stored message left in.
+describe('the civic panel lines after a rewrite', () => {
   const body = 'Hello {{first_name}}, tell me what you think.'
-  const asked = `${body}\n\n${CIVIC_PANEL_JOIN_LINE}\n\n${OPT_OUT_FOOTER}`
-  const join = { join: true, leave: false }
-  const leave = { join: false, leave: true }
+  const plain = `${body}\n\n${OPT_OUT_FOOTER}`
 
-  it('collapses a JOIN line sent twice into one, above the opt-out', () => {
+  it('composes a fresh body that echoed the JOIN, LEAVE and STOP lines without them', () => {
     expect(
-      withCivicPanelLines(
-        `${body}\n\n${CIVIC_PANEL_JOIN_LINE}\n\n${CIVIC_PANEL_JOIN_LINE}\n\n${OPT_OUT_FOOTER}`,
-        join,
+      composeServeScript(
+        `tell me what you think.\n\n${CIVIC_PANEL_JOIN_LINE}\n\n${CIVIC_PANEL_LEAVE_LINE}\n\n${OPT_OUT_FOOTER}`,
       ),
-    ).toBe(asked)
-  })
-
-  it('moves a JOIN line the model left in the body down above the opt-out', () => {
-    expect(
-      withCivicPanelLines(
-        `Hello {{first_name}}, tell me what you think. ${CIVIC_PANEL_JOIN_LINE}\n\n${OPT_OUT_FOOTER}`,
-        join,
-      ),
-    ).toBe(asked)
-  })
-
-  it('drops a partial echo of the ask', () => {
-    expect(
-      withCivicPanelLines(
-        `${body} Reply JOIN to join my civic panel!\n\n${CIVIC_PANEL_JOIN_LINE}\n\n${OPT_OUT_FOOTER}`,
-        join,
-      ),
-    ).toBe(asked)
+    ).toBe(plain)
   })
 
   it.each(CIVIC_PANEL_JOIN_LINES.slice(1))(
-    'replaces an earlier wording sitting beside the current one: %s',
+    'drops an earlier wording of the JOIN line: %s',
     (legacy) => {
-      expect(
-        withCivicPanelLines(
-          `${body}\n\n${legacy}\n\n${CIVIC_PANEL_JOIN_LINE}\n\n${OPT_OUT_FOOTER}`,
-          join,
-        ),
-      ).toBe(asked)
+      expect(composeServeScript(`tell me what you think. ${legacy}`)).toBe(
+        plain,
+      )
     },
   )
-
-  it('swaps every JOIN copy for one LEAVE line on a panel-only list', () => {
-    expect(
-      withCivicPanelLines(
-        `${body} ${CIVIC_PANEL_JOIN_LINE}\n\n${CIVIC_PANEL_JOIN_LINE}\n\n${OPT_OUT_FOOTER}`,
-        leave,
-      ),
-    ).toBe(`${body}\n\n${CIVIC_PANEL_LEAVE_LINE}\n\n${OPT_OUT_FOOTER}`)
-  })
-
-  it('collapses a LEAVE line sent twice', () => {
-    expect(
-      withCivicPanelLines(
-        `${body}\n\n${CIVIC_PANEL_LEAVE_LINE}\n\n${CIVIC_PANEL_LEAVE_LINE}\n\n${OPT_OUT_FOOTER}`,
-        leave,
-      ),
-    ).toBe(`${body}\n\n${CIVIC_PANEL_LEAVE_LINE}\n\n${OPT_OUT_FOOTER}`)
-  })
-
-  it('composes a fresh body that echoed the JOIN and STOP lines once each', () => {
-    expect(
-      withCivicPanelLines(
-        composeServeScript(
-          `tell me what you think.\n\n${CIVIC_PANEL_JOIN_LINE}\n\n${OPT_OUT_FOOTER}`,
-        ),
-        join,
-      ),
-    ).toBe(asked)
-  })
 
   it('composes a Win body that echoed its footer with one footer', () => {
     const footer = 'Paid for by Friends of Sarah Chen. Reply STOP to opt out.'
@@ -625,32 +567,55 @@ describe('the civic panel line after a rewrite', () => {
     ).toBe(`Hello {first_name}, Vote Tuesday.\n\n${footer}`)
   })
 
-  // The reported bug: an Improve reply comes back whole, JOIN line included.
-  // Restored against the footer alone and then given its panel line, it
-  // keeps one ask and its opt-out.
-  it('restores a whole polish of a panel text with one ask and its opt-out', () => {
-    const reply = `Hello {{first_name}}, I want to hear from you.\n\n${CIVIC_PANEL_JOIN_LINE}\n\n${OPT_OUT_FOOTER}`
-    const restored = restoreSmsSystemRegions(reply, {
-      greeting: 'Hello {{first_name}},',
-      footer: OPT_OUT_FOOTER,
-      token: '{{first_name}}',
-    })
-    expect(restored).not.toContain(CIVIC_PANEL_JOIN_LINE)
-    expect(withCivicPanelLines(restored, join)).toBe(reply)
+  // An Improve reply comes back whole: a panel line in it goes, and the
+  // opt-out stays the closing line once.
+  it.each([CIVIC_PANEL_JOIN_LINE, CIVIC_PANEL_LEAVE_LINE])(
+    'restores a whole polish without its panel line: %s',
+    (line) => {
+      expect(
+        restoreSmsSystemRegions(`${body}\n\n${line}\n\n${OPT_OUT_FOOTER}`, {
+          greeting: 'Hello {{first_name}},',
+          footer: OPT_OUT_FOOTER,
+          token: '{{first_name}}',
+        }),
+      ).toBe(plain)
+    },
+  )
+})
+
+// A priority's text ends on the residents' calls to action together.
+describe('withOptOutUnderLastLine', () => {
+  it('puts the opt-out directly under the reply line', () => {
+    expect(
+      withOptOutUnderLastLine(
+        composeServeScript('Is the park safe at night? Reply YES or NO.'),
+      ),
+    ).toBe(
+      `Hello {{first_name}}, Is the park safe at night? Reply YES or NO.\n${OPT_OUT_FOOTER}`,
+    )
   })
 
-  it('restores a polish that dropped the opt-out but kept the ask', () => {
-    const restored = restoreSmsSystemRegions(
-      `Hello {{first_name}}, I want to hear from you.\n\n${CIVIC_PANEL_JOIN_LINE}`,
-      {
-        greeting: 'Hello {{first_name}},',
-        footer: OPT_OUT_FOOTER,
-        token: '{{first_name}}',
-      },
+  it('puts a reply line of its own paragraph right above the opt-out', () => {
+    expect(
+      withOptOutUnderLastLine(
+        `Hello {{first_name}}, Is the park safe?\n\nReply YES or NO.\n\n${OPT_OUT_FOOTER}`,
+      ),
+    ).toBe(
+      `Hello {{first_name}}, Is the park safe?\n\nReply YES or NO.\n${OPT_OUT_FOOTER}`,
     )
-    expect(withCivicPanelLines(restored, join)).toBe(
-      `Hello {{first_name}}, I want to hear from you.\n\n${CIVIC_PANEL_JOIN_LINE}\n\n${OPT_OUT_FOOTER}`,
-    )
+  })
+
+  it('leaves a message that does not close on the opt-out alone', () => {
+    const moved = `Hello {{first_name}}, ${OPT_OUT_FOOTER}\n\nReply YES or NO.`
+    expect(withOptOutUnderLastLine(moved)).toBe(moved)
+  })
+
+  it('keeps the opt-out readable by the standards check', () => {
+    expect(
+      checkSmsStandards(
+        withOptOutUnderLastLine(composeServeScript('Reply YES or NO.')),
+      ).failures,
+    ).not.toContain('opt_out_line')
   })
 })
 
@@ -659,12 +624,9 @@ describe('a retyped opt-out with STOP in quotes', () => {
   const body = 'Hello {{first_name}}, tell me what you think.'
 
   it('takes the panel line above it, not below', () => {
-    expect(
-      withCivicPanelLines(`${body}\n\n${quoted}`, {
-        join: true,
-        leave: false,
-      }),
-    ).toBe(`${body}\n\n${CIVIC_PANEL_JOIN_LINE}\n\n${quoted}`)
+    expect(withCivicPanelJoin(`${body}\n\n${quoted}`, true)).toBe(
+      `${body}\n\n${CIVIC_PANEL_JOIN_LINE}\n\n${quoted}`,
+    )
   })
 
   it('is read as the footer of a polish, so no second opt-out is added', () => {

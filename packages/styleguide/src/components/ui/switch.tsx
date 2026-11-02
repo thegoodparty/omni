@@ -10,6 +10,13 @@ type SwitchSide = 'left' | 'right'
 
 type SwitchProps = React.ComponentProps<typeof SwitchPrimitive.Root>
 
+/**
+ * Use SwitchLabel for a switch with its label and help text, or SwitchBox for
+ * the same inside a bordered box.
+ *
+ * @summary Use for an on or off setting that takes effect right away. For a
+ * choice saved with a form submit, use Checkbox.
+ */
 function Switch({ className, ...props }: SwitchProps) {
   return (
     <SwitchPrimitive.Root

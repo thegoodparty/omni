@@ -93,6 +93,5 @@ npm run build -w packages/nest-common
 
 echo "==> Regenerating Prisma clients"
 npm run generate -w packages/gp-api
-npm run generate -w packages/election-api
 
 echo "==> Worktree ready: $WT"

@@ -5,6 +5,12 @@ import * as ScrollAreaPrimitive from '@radix-ui/react-scroll-area'
 
 import { cn } from '@styleguide/lib/utils'
 
+/**
+ * Give it a height (or max height) through className, or it never scrolls.
+ *
+ * @summary Use for a fixed-height box whose content scrolls on its own, like a
+ * long list in a panel. Pages and DrawerBody already scroll; don't wrap them.
+ */
 function ScrollArea({
   className,
   children,

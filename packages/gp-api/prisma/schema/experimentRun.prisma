@@ -8,7 +8,10 @@ enum ExperimentRunStatus {
 }
 
 model ExperimentRun {
-  runId String @unique @default(uuid(7)) @map("run_id")
+  // Primary key, not just @unique: a table without one has no replica identity,
+  // so Postgres refuses every DELETE once a logical-replication publication
+  // covers it (ENG-11483).
+  runId String @id @default(uuid(7)) @map("run_id")
 
   organizationSlug String       @map("organization_slug")
   organization     Organization @relation(fields: [organizationSlug], references: [slug], onDelete: Cascade)

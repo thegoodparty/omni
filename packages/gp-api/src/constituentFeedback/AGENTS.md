@@ -164,6 +164,24 @@ has not been rolled out to does not advertise itself. One flag,
 inert read here — the reads are the feature. `@UseOrganization()` and its role
 guard are the access check; the flag gates rollout, not access.
 
+That 404 carries `errorCode: ISSUE_CAPTURE_OFF` (`ISSUE_CAPTURE_OFF_ERROR_CODE`
+in contracts), and no other 404 here does. It is how a phone replaying memos
+it held with no signal tells "not now" from a refusal: it keeps a memo the
+flag turned away and drops one refused for a reason of its own. The flag
+checks fail closed, so an Amplitude that does not answer reads as off and
+gets the same code; neither a kill switch nor an outage deletes what a
+canvasser recorded.
+
+**The flag is the org's.** Every route asks it of the org's owner
+(`organization.ownerId`), whoever is asking, and so does the variants
+endpoint the webapp's knock and call forms read (`ORGANIZATION_FLAGS`,
+`src/features/README.md`). On Win, volunteers do most of the door knocking,
+and Amplitude buckets by user id: asked per person, a percentage rollout
+would leave a flagged campaign's volunteers mostly without capture and give
+it to some volunteers of an unflagged one. A volunteer of an org whose owner
+is off gets the same `ISSUE_CAPTURE_OFF` 404 as anyone else, so their phone
+keeps what it holds.
+
 ## Confirmation
 
 `confirmedAt` set means the memo is confirmed and counts: its words go to
@@ -185,7 +203,7 @@ issue rows, or for an offline memo the extraction itself. None when nothing
 was proposed or extraction failed. It exists only to
 measure extraction; nothing reads it but tests. It is kept apart from
 `issues` on purpose: the report (`summarize`, the memo list), the CSV export,
-the person record (`GET /?personId=`) and the Chief of Staff's
+the person record (`GET /?personId=`) and the assistants'
 `capturedNotes` (`priorityFlowOutreach.service.ts`) all read a memo's
 issues, and an empty list there means none of them can count or show a
 guess nobody checked.
@@ -209,7 +227,7 @@ again on the next pass.
   no name for it); **`captureMethod`** is `typed`.
 - **`outreachId` is null on purpose.** The send's report already counts its
   replies as replies (`textRepliesWhere`), and every effort read (the report,
-  the export, synthesis, the Chief of Staff's notes) keys on that column, so
+  the export, synthesis, the assistants' notes) keys on that column, so
   a set one would count the same words twice.
 - **Never confirmed.** Its issues are a model's reading nobody checked, so
   `confirmedAt` stays null and nothing that counts confirmed memos sees it.
@@ -226,6 +244,14 @@ skip does but as `automatic`, each conditional on `confirmedAt` still null
 and `updatedAt` unchanged since the pass read it, so a confirm that lands
 first keeps what its confirmer gave. Its read, oldest `updatedAt` first, runs
 on the `(confirmedAt, updatedAt)` index, so a pass never scans the table.
+
+Every automatic confirmation, the sweep's and an offline memo's, fires
+`Issue Capture - Memo Auto Confirmed` (`reason: abandoned` or
+`offline_transcribed`, `channel`, `product`), since the webapp's Confirmed
+and Skipped never see these memos. It is attributed to whoever recorded the
+memo and sent after the write, never awaited (`trackMemo` in
+`constituentFeedback.service.ts`), so a Segment failure cannot fail a pass.
+A conditional write that lost its race sends nothing.
 
 ## Synthesis
 
@@ -460,7 +486,11 @@ signal returns it sends the knock or call, then the memo. The webapp side is
    minutes rather than all failing inside it. An empty transcript is
    silence, which another job would hear the same way, so it fails at once.
    A `failed` memo with no transcript is unreadable: it stays unconfirmed,
-   and the report lists it with `extractionStatus: failed`. Every write is
+   and the report lists it with `extractionStatus: failed`, and fires
+   `Issue Capture - Memo Transcription Failed` with `reason`
+   `start_failed`, `empty_transcript`, `timeout` or `job_failed`. A failed
+   job's own reason is Transcribe's free text, so it is sent as
+   `job_failed`, never verbatim. Every write is
    scoped by the job name, so a memo re-recorded meanwhile is left to its
    own job, and to `confirmedAt` null, so one confirmed meanwhile keeps the
    issues its confirmer gave. No deploy allowlist: it calls Transcribe only

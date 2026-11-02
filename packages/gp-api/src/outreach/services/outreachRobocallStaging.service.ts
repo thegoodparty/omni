@@ -4,6 +4,8 @@ import { addHours, addMinutes, isBefore, max, subMinutes } from 'date-fns'
 import { ZodError } from 'zod'
 import { MimeTypes } from 'http-constants-ts'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
+import { ROBOCALL_FREE_OFFER_CODE_PREFIX } from '@/robocallFreeOffer/robocallFreeOffer.consts'
+import { RobocallFreeOfferService } from '@/robocallFreeOffer/services/robocallFreeOffer.service'
 import { AudioTranscodeService } from '@/shared/services/audioTranscode.service'
 import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
 import { ROBOCALL_STAGING_GRACE_MINUTES } from '@/shared/util/robocallHold.util'
@@ -14,11 +16,16 @@ import {
   CallhubCampaignService,
   CreateVbCampaignResult,
 } from '@/vendors/callhub/services/callhubCampaign.service'
-import { CallhubPermanentError } from '@/vendors/callhub/services/callhubErrorHandling.service'
+import {
+  CallhubPermanentError,
+  CallhubRecoverableError,
+  isImportInProgressDetail,
+} from '@/vendors/callhub/services/callhubErrorHandling.service'
 import { OutreachType, RobocallSettleState } from '../../generated/prisma'
 import { RobocallPhonebookService } from './robocallPhonebook.service'
 import { RobocallOrphanedCampaignService } from './robocallOrphanedCampaign.service'
 import { OutreachRobocallHoldService } from './outreachRobocallHold.service'
+import { VENDOR_CRONS_ENABLED } from 'src/shared/util/appEnvironment.util'
 
 // How far ahead of the scheduled send a draft becomes eligible to stage. The
 // rented CallHub caller-ID number gets spam-flagged / auto-un-rented if it sits
@@ -82,6 +89,7 @@ export class OutreachRobocallStagingService extends createPrismaBase(
     private readonly transcode: AudioTranscodeService,
     private readonly orphanedCampaigns: RobocallOrphanedCampaignService,
     private readonly hold: OutreachRobocallHoldService,
+    private readonly freeOffer: RobocallFreeOfferService,
   ) {
     super()
     const bucket = process.env.ROBOCALL_AUDIO_BUCKET
@@ -100,10 +108,9 @@ export class OutreachRobocallStagingService extends createPrismaBase(
   // deliberately omitted. @Cron (not @Interval) so the schedule survives deploys
   // and every replica fires on the same instant.
   //
-  // Prod-only (docs/scheduled-jobs.md § Prod-only guard): the sweep creates real
-  // external CallHub state against a rate-limited vendor, so it must not fire on
-  // dev/preview where the flow is stubbed and every call still counts against
-  // the budget. The Pro/paywall gate is inherited, not re-checked here: a draft
+  // VENDOR_CRONS_ENABLED (docs/scheduled-jobs.md § Vendor-cron gate): the sweep
+  // creates real external CallHub state against a rate-limited vendor, so it
+  // must not fire off prod unless vendors are mocked. The Pro/paywall gate is inherited, not re-checked here: a draft
   // only reaches `authorized` by passing the Pro-gated authorize endpoint that
   // reserved the hold, so the eligibility filter below is itself the gate,
   // matching how the sibling robocall endpoints gate.
@@ -117,7 +124,7 @@ export class OutreachRobocallStagingService extends createPrismaBase(
     timeZone: EASTERN_TIMEZONE,
   })
   async sweepRobocallStaging(): Promise<void> {
-    if (process.env.OTEL_SERVICE_ENVIRONMENT !== 'prod') return
+    if (!VENDOR_CRONS_ENABLED) return
     return this.runStaging()
   }
 
@@ -301,9 +308,13 @@ export class OutreachRobocallStagingService extends createPrismaBase(
         mimeType: upload.contentType,
         name: campaignName,
       })
+      const ownerPhoneOnly =
+        draft.promoCode?.startsWith(ROBOCALL_FREE_OFFER_CODE_PREFIX) === true &&
+        (await this.freeOffer.dialsOwnerOnly(campaign))
       const phonebook = await this.phonebook.loadAudienceToPhonebook(
         campaign,
         voterFileFilterId,
+        ownerPhoneOnly,
       )
       created = await this.campaigns.createVoiceBroadcast({
         scheduledStart,
@@ -329,6 +340,20 @@ export class OutreachRobocallStagingService extends createPrismaBase(
       if (err instanceof CallhubPermanentError || err instanceof ZodError) {
         await this.failStagingPermanent(outreachId)
         return
+      }
+      // CallHub runs one bulk contact import at a time per account, so two
+      // replicas staging different drafts at once collide (ENG-11535). It is
+      // retried like any transient failure; this line is what counts how
+      // often it happens, to decide whether imports need serializing.
+      if (
+        err instanceof CallhubRecoverableError &&
+        isImportInProgressDetail(err.callhubDetail)
+      ) {
+        this.logger.warn(
+          { outreachId, callhubDetail: err.callhubDetail },
+          'robocall staging hit a CallHub import already in progress; ' +
+            'reverted to retry next sweep',
+        )
       }
       await this.revertClaim(outreachId)
       throw err

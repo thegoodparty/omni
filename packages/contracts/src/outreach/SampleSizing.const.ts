@@ -24,6 +24,12 @@ export const PRICE_PER_TEXT_TENTH_CENTS = 35
 /** In dollars. */
 export const PRICE_PER_TEXT = PRICE_PER_TEXT_TENTH_CENTS / 1000
 
+/** Email is billed in the same tenth-cent unit as texts. */
+export const PRICE_PER_EMAIL_TENTH_CENTS = 10
+
+/** Every email send is charged at least this, however few it reached. */
+export const EMAIL_MIN_CHARGE_CENTS = 50
+
 /**
  * The people to text for `SAMPLE_TARGET_REPLIES` replies, less any already
  * in hand. Never more than the audience holds or one draw can take.

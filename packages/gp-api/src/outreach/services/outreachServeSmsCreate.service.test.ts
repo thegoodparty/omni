@@ -20,10 +20,11 @@ import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { firstOrThrow } from 'src/shared/test-utils/arrays.util'
 import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
 import { OutreachStatus, OutreachType } from 'src/generated/prisma'
+import { assertServeSmsLockedLines } from '../util/serveSmsLockedLines.util'
 import {
-  assertServeSmsLockedLines,
   assertServeSmsSendDateAllowed,
   MIN_SERVE_SMS_RECIPIENTS,
+  nextManagedSendDate,
   OutreachServeSmsCreateService,
 } from './outreachServeSmsCreate.service'
 
@@ -92,7 +93,7 @@ describe('OutreachServeSmsCreateService', () => {
     }
     contacts = {
       findContactsForFilter: vi.fn().mockResolvedValue(page(people(120))),
-      resolvePeopleDataset: vi.fn().mockResolvedValue('constituents'),
+      resolvePeopleDataset: vi.fn().mockResolvedValue({ base: 'constituents' }),
     }
     organizations = {
       findFirst: vi.fn().mockResolvedValue({ id: 1, slug: ORG }),
@@ -134,48 +135,66 @@ describe('OutreachServeSmsCreateService', () => {
         }
       ).data
 
-    it('marks a send as asking when the message carries the JOIN line', async () => {
-      await service.createDraft(
-        ORG,
-        ServeSmsCreateRequestSchema.parse(
-          request({
-            message: `The budget hearing is Thursday. ${CIVIC_PANEL_JOIN_LINE} Reply STOP to opt out.`,
-          }),
-        ),
-      )
-
-      expect(createdData().asksToJoinCivicPanel).toBe(true)
-    })
-
-    // Sends composed before the line was rewritten still carry an old one.
-    it.each(CIVIC_PANEL_JOIN_LINES.slice(1))(
-      'still marks a send carrying an earlier wording of the line: %s',
-      async (legacy) => {
-        await service.createDraft(
-          ORG,
-          ServeSmsCreateRequestSchema.parse(
-            request({
-              message: `The budget hearing is Thursday.\n\n${legacy}\n\nReply STOP to opt out.`,
-            }),
+    // Only the managed civic panel's invite asks people to join, and it
+    // never comes through here: a typed or pasted JOIN line, in any wording
+    // and on any text, a priority's included, is refused.
+    it.each(CIVIC_PANEL_JOIN_LINES)(
+      'refuses the JOIN line on every text: %s',
+      async (line) => {
+        await expect(
+          service.createDraft(
+            ORG,
+            ServeSmsCreateRequestSchema.parse(
+              request({
+                message: `The budget hearing is Thursday.\n\n${line}\n\nReply STOP to opt out.`,
+              }),
+            ),
+            { priorityId: 'priority-1' },
           ),
+        ).rejects.toThrow(
+          'Only the invite we send to build your civic panel can ask people to join it',
         )
-
-        expect(createdData().asksToJoinCivicPanel).toBe(true)
+        expect(prisma.outreach.create).not.toHaveBeenCalled()
       },
     )
 
-    it('leaves a send without the line unmarked', async () => {
+    it('leaves a send without a civic panel line unmarked', async () => {
       await service.createDraft(
         ORG,
         ServeSmsCreateRequestSchema.parse(request()),
       )
 
-      expect(createdData().asksToJoinCivicPanel).toBe(false)
       expect(createdData().offersCivicPanelLeave).toBe(false)
     })
 
     const leaveMessage = `What do you think about the park?\n\n${CIVIC_PANEL_LEAVE_LINE}\n\nReply STOP to opt out.`
 
+    // The composer no longer writes LEAVE, so a send to members alone needs
+    // only the opt-out.
+    it('takes a send to the panel alone with no LEAVE line', async () => {
+      filters.findByIdAndOrganizationSlug.mockResolvedValue({
+        id: FILTER_ID,
+        organizationSlug: ORG,
+        civicPanelMember: true,
+        notContactedRecently: true,
+      })
+
+      await service.createDraft(
+        ORG,
+        ServeSmsCreateRequestSchema.parse(
+          request({
+            message:
+              'What do you think about the park? Reply YES or NO.\nReply STOP to opt out.',
+          }),
+        ),
+        { priorityId: 'priority-1' },
+      )
+
+      expect(createdData().offersCivicPanelLeave).toBe(false)
+      expect(createdData()).not.toHaveProperty('asksToJoinCivicPanel')
+    })
+
+    // A draft written before still carries the line.
     it('marks a send to the panel alone as offering LEAVE', async () => {
       filters.findByIdAndOrganizationSlug.mockResolvedValue({
         id: FILTER_ID,
@@ -190,7 +209,6 @@ describe('OutreachServeSmsCreateService', () => {
       )
 
       expect(createdData().offersCivicPanelLeave).toBe(true)
-      expect(createdData().asksToJoinCivicPanel).toBe(false)
     })
 
     it('refuses the LEAVE line on a list that reaches beyond the panel', async () => {
@@ -226,7 +244,7 @@ describe('OutreachServeSmsCreateService', () => {
             }),
           ),
         ),
-      ).rejects.toThrow('join your civic panel and offer a way to leave')
+      ).rejects.toThrow('Only the invite we send to build your civic panel')
       expect(prisma.outreach.create).not.toHaveBeenCalled()
     })
   })
@@ -596,5 +614,35 @@ describe('OutreachServeSmsCreateService', () => {
       // The count never reaches pricing: no row, so nothing to check out.
       expect(prisma.outreach.create).not.toHaveBeenCalled()
     })
+  })
+})
+
+describe('nextManagedSendDate', () => {
+  // Noon Pacific on each day of the week of 2026-09-21 (a Monday).
+  const noonPacific = (day: string) => new Date(`${day}T19:00:00Z`)
+
+  it.each([
+    ['Monday', '2026-09-21', '2026-09-24', '2026-09-23'],
+    ['Wednesday', '2026-09-23', '2026-09-28', '2026-09-25'],
+    ['Thursday', '2026-09-24', '2026-09-29', '2026-09-28'],
+    ['Friday', '2026-09-25', '2026-09-30', '2026-09-29'],
+    ['Saturday', '2026-09-26', '2026-09-30', '2026-09-29'],
+    ['Sunday', '2026-09-27', '2026-09-30', '2026-09-29'],
+  ])(
+    'on a %s is the third business day, the earliest a Serve text accepts',
+    (_, today, expected, dayBefore) => {
+      const now = noonPacific(today)
+
+      expect(nextManagedSendDate(now)).toBe(expected)
+      expect(() => assertServeSmsSendDateAllowed(expected, now)).not.toThrow()
+      expect(() => assertServeSmsSendDateAllowed(dayBefore, now)).toThrow()
+    },
+  )
+
+  it('reads today in the US when UTC has already rolled over', () => {
+    // 19:00 Friday in Los Angeles, already Saturday in UTC.
+    const now = new Date('2026-09-26T02:00:00Z')
+
+    expect(nextManagedSendDate(now)).toBe('2026-09-30')
   })
 })

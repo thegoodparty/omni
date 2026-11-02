@@ -118,4 +118,22 @@ export class CallhubHttpService extends CallhubBaseConfig {
     )
     return res.data
   }
+
+  async patch<T>(
+    path: string,
+    body?: unknown,
+    config?: AxiosRequestConfig,
+  ): Promise<T> {
+    // Retry only the throttle (429), not 5xx — same rule as put: a PATCH that
+    // sets a field is idempotent on its own, but we don't assume every callsite
+    // is side-effect free, so a 5xx that may have applied is not re-sent.
+    const res = await this.withRetry<T>(
+      () =>
+        firstValueFrom(
+          this.httpService.patch<T>(path, body, this.baseConfig(config)),
+        ),
+      { retryServerErrors: false, allowRetry: true },
+    )
+    return res.data
+  }
 }

@@ -21,7 +21,7 @@ const PERSON_ID = '11111111-2222-3333-4444-555555555555'
 
 const args = {
   districtId: '99999999-8888-7777-6666-555555555555',
-  dataset: 'voters' as const,
+  dataset: { base: 'voters' as const },
   bbox: BBOX,
   filters: {},
 }
@@ -63,8 +63,8 @@ describe('DoorKnockingPeopleApiService dataset', () => {
   it('reads the people table the caller resolved for the org', async () => {
     const { service, lastDataset } = setup()
 
-    await service.evaluate({ ...args, dataset: 'constituents' })
+    await service.evaluate({ ...args, dataset: { base: 'constituents' } })
 
-    expect(lastDataset()).toBe('constituents')
+    expect(lastDataset()).toEqual({ base: 'constituents' })
   })
 })

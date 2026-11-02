@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   HOUSEHOLD_KEY_RESIDENCE_COLUMNS,
   PeopleFiltersSchema,
@@ -22,6 +22,7 @@ import {
   buildDoorKnockingEvaluateSql,
   buildDoorKnockingResidentsSql,
   buildPackSql,
+  contactOverlayTable,
   createBag,
   MAX_PRECINCT_OPTIONS,
   peopleTable,
@@ -40,7 +41,7 @@ const CONGRESSIONAL: DbxDistrict = {
   districtType: 'US_Congressional_District',
   districtName: '29',
   useVoterOnlyPath: false,
-  dataset: 'voters',
+  dataset: { base: 'voters' },
   table: VOTERS_TABLE,
 }
 
@@ -50,14 +51,14 @@ const STATEWIDE: DbxDistrict = {
   districtType: 'State',
   districtName: 'CA',
   useVoterOnlyPath: true,
-  dataset: 'voters',
+  dataset: { base: 'voters' },
   table: VOTERS_TABLE,
 }
 
 const noFilters = (): FilterData => filtersSchema.parse({})
 
 const parseFilters = (
-  filters: Record<string, boolean | Record<string, unknown>>,
+  filters: Record<string, boolean | string[] | Record<string, unknown>>,
 ): FilterData => filtersSchema.parse(filters)
 
 describe('buildScopeSql', () => {
@@ -142,7 +143,7 @@ describe('buildSearchSql', () => {
   it('matches a 10-digit phone against both formatted columns', () => {
     const bag = createBag()
 
-    expect(buildSearchSql(bag, '4155551234')).toBe(
+    expect(buildSearchSql(bag, '4155551234', CONGRESSIONAL)).toBe(
       '(v.`VoterTelephones_CellPhoneFormatted` = :p0' +
         ' OR v.`VoterTelephones_LandlineFormatted` = :p0)',
     )
@@ -153,14 +154,14 @@ describe('buildSearchSql', () => {
 
   it('strips a leading 1 from an 11-digit phone', () => {
     const bag = createBag()
-    buildSearchSql(bag, '14155551234')
+    buildSearchSql(bag, '14155551234', CONGRESSIONAL)
 
     expect(bag.params.map(({ value }) => value)).toEqual(['(415) 555-1234'])
   })
 
   it('treats a 9-digit number as a name token, not a phone', () => {
     const bag = createBag()
-    const sql = buildSearchSql(bag, '415555123')
+    const sql = buildSearchSql(bag, '415555123', CONGRESSIONAL)
 
     expect(sql).toContain('lower(v.`FirstName`) LIKE :p0')
     expect(bag.params.map(({ value }) => value)).toEqual(['%415555123%'])
@@ -169,7 +170,7 @@ describe('buildSearchSql', () => {
   it('uses an infix pattern for tokens of three or more chars', () => {
     const bag = createBag()
 
-    expect(buildSearchSql(bag, 'smith')).toBe(
+    expect(buildSearchSql(bag, 'smith', CONGRESSIONAL)).toBe(
       "(lower(v.`FirstName`) LIKE :p0 ESCAPE '\\\\'" +
         " OR lower(v.`LastName`) LIKE :p0 ESCAPE '\\\\')",
     )
@@ -180,7 +181,7 @@ describe('buildSearchSql', () => {
 
   it('anchors tokens of one or two chars to a prefix', () => {
     const bag = createBag()
-    const sql = buildSearchSql(bag, 'li')
+    const sql = buildSearchSql(bag, 'li', CONGRESSIONAL)
 
     expect(sql).toContain('LIKE :p0')
     expect(bag.params.map(({ value }) => value)).toEqual(['li%'])
@@ -188,7 +189,7 @@ describe('buildSearchSql', () => {
 
   it('AND-joins multiple tokens, each matching either name column', () => {
     const bag = createBag()
-    const sql = buildSearchSql(bag, 'jane doe') ?? ''
+    const sql = buildSearchSql(bag, 'jane doe', CONGRESSIONAL) ?? ''
 
     expect(bag.params.map(({ value }) => value)).toEqual(['%jane%', '%doe%'])
     expect(sql).toContain(':p0')
@@ -198,9 +199,9 @@ describe('buildSearchSql', () => {
 
   it('escapes LIKE metacharacters so they cannot widen the match', () => {
     const underscore = createBag()
-    buildSearchSql(underscore, 'a_b')
+    buildSearchSql(underscore, 'a_b', CONGRESSIONAL)
     const percent = createBag()
-    buildSearchSql(percent, 'a%b')
+    buildSearchSql(percent, 'a%b', CONGRESSIONAL)
 
     expect(underscore.params.map(({ value }) => value)).toEqual(['%a\\_b%'])
     expect(percent.params.map(({ value }) => value)).toEqual(['%a\\%b%'])
@@ -208,7 +209,7 @@ describe('buildSearchSql', () => {
 
   it('escapes a backslash in the token', () => {
     const bag = createBag()
-    buildSearchSql(bag, 'a\\b')
+    buildSearchSql(bag, 'a\\b', CONGRESSIONAL)
 
     expect(bag.params.map(({ value }) => value)).toEqual(['%a\\\\b%'])
   })
@@ -216,7 +217,7 @@ describe('buildSearchSql', () => {
   it('returns null for blank input', () => {
     const bag = createBag()
 
-    expect(buildSearchSql(bag, '   ')).toBeNull()
+    expect(buildSearchSql(bag, '   ', CONGRESSIONAL)).toBeNull()
     expect(bag.params).toEqual([])
   })
 })
@@ -227,7 +228,7 @@ describe('buildSearchSql', () => {
 describe('caller values are bound, never spliced into the SQL', () => {
   it('binds a quoted search term instead of escaping it', () => {
     const bag = createBag()
-    const sql = buildSearchSql(bag, "O'Brien") ?? ''
+    const sql = buildSearchSql(bag, "O'Brien", CONGRESSIONAL) ?? ''
 
     expect(sql).toContain('lower(v.`FirstName`) LIKE :p0')
     expect(sql).not.toContain("O'Brien")
@@ -239,7 +240,7 @@ describe('caller values are bound, never spliced into the SQL', () => {
 
   it('binds a backslash search term instead of escaping it', () => {
     const bag = createBag()
-    const sql = buildSearchSql(bag, 'a\\b\\c') ?? ''
+    const sql = buildSearchSql(bag, 'a\\b\\c', CONGRESSIONAL) ?? ''
 
     expect(sql).toContain('lower(v.`FirstName`) LIKE :p0')
     expect(sql).not.toContain('a\\')
@@ -273,35 +274,44 @@ describe('buildVoterFiltersSql', () => {
   // would silently drop the filter and widen the audience, which is the one
   // failure mode this path can have that nobody sees.
   it('emits a clause for every PeopleFilters key', () => {
-    const sample: Record<string, boolean | Record<string, unknown>> = {
-      hasCellPhone: true,
-      hasLandline: true,
-      hasAnyPhone: true,
-      hasAddress: true,
-      id: { in: ['11111111-1111-1111-1111-111111111111'] },
-      maritalStatus: { in: ['Married'] },
-      veteranStatus: { in: ['Yes'] },
-      educationLevel: { in: ['College Degree'] },
-      ethnicity: { in: ['European'] },
-      businessOwner: { in: ['Yes'] },
-      presenceOfChildren: { in: ['Yes'] },
-      homeowner: { in: ['Yes'] },
-      gender: { in: ['F'] },
-      voterStatus: { in: ['Super'] },
-      earlyVoteStatus: { in: ['Likely'] },
-      politicalParty: { in: ['Democratic'] },
-      language: { in: ['English'] },
-      estimatedIncomeAmountInt: { gte: 50000 },
-      ageInt: { gte: 30 },
-      precinct: { in: ['ORANGE|711'] },
-      ideology: { in: ['Conservative'] },
-      independentAffinity: { in: ['Yes'] },
-    }
+    const sample: Record<string, boolean | string[] | Record<string, unknown>> =
+      {
+        hasCellPhone: true,
+        hasLandline: true,
+        hasAnyPhone: true,
+        hasAddress: true,
+        hasEmail: true,
+        id: { in: ['11111111-1111-1111-1111-111111111111'] },
+        maritalStatus: { in: ['Married'] },
+        veteranStatus: { in: ['Yes'] },
+        educationLevel: { in: ['College Degree'] },
+        ethnicity: { in: ['European'] },
+        businessOwner: { in: ['Yes'] },
+        presenceOfChildren: { in: ['Yes'] },
+        homeowner: { in: ['Yes'] },
+        gender: { in: ['F'] },
+        voterStatus: { in: ['Super'] },
+        earlyVoteStatus: { in: ['Likely'] },
+        politicalParty: { in: ['Democratic'] },
+        language: { in: ['English'] },
+        estimatedIncomeAmountInt: { gte: 50000 },
+        ageInt: { gte: 30 },
+        precinct: { in: ['ORANGE|711'] },
+        ideology: { in: ['Conservative'] },
+        independentAffinity: { in: ['Yes'] },
+        votedInElection: { in: ['No'] },
+        votedInElectionReportedIds: {
+          in: ['0b3f1c1e-8f7a-4c1b-9d2e-3a4b5c6d7e8f'],
+        },
+        source: ['imported'],
+      }
 
     expect(Object.keys(sample).sort()).toEqual(
       Object.keys(PeopleFiltersSchema.shape).sort(),
     )
     for (const [key, value] of Object.entries(sample)) {
+      // Applied inside votedInElection; alone it constrains nothing.
+      if (key === 'votedInElectionReportedIds') continue
       expect(
         buildVoterFiltersSql(createBag(), parseFilters({ [key]: value })),
       ).not.toBeNull()
@@ -431,12 +441,14 @@ describe('buildVoterFiltersSql', () => {
         filters,
         affinityColumn: 'Indep_Openness_Haystaq',
       })
-    expect(scope('voters')).toContain('v.`Indep_Openness_Haystaq` = TRUE')
+    expect(scope({ base: 'voters' })).toContain(
+      'v.`Indep_Openness_Haystaq` = TRUE',
+    )
     // The experiment columns exist only on the voter table.
-    expect(scope('constituents')).toContain(
+    expect(scope({ base: 'constituents' })).toContain(
       'v.`Voter_Independent_Affinity` = TRUE',
     )
-    expect(scope('constituents')).not.toContain('Indep_Openness')
+    expect(scope({ base: 'constituents' })).not.toContain('Indep_Openness')
   })
 
   it('refuses an affinity column outside the allowlist', () => {
@@ -459,6 +471,89 @@ describe('buildVoterFiltersSql', () => {
         parseFilters({ independentAffinity: { in: ['Yes', 'No'] } }),
       ),
     ).toBeNull()
+  })
+
+  describe('votedInElection', () => {
+    const REPORTED = '0b3f1c1e-8f7a-4c1b-9d2e-3a4b5c6d7e8f'
+
+    it('Yes is membership in the L2 table when the campaign recorded nobody', () => {
+      const bag = createBag()
+      expect(
+        buildVoterFiltersSql(
+          bag,
+          parseFilters({ votedInElection: { eq: 'Yes' } }),
+        ),
+      ).toBe(
+        'v.`id` IN (SELECT /*+ MERGE(eav) */ eav.id FROM goodparty_data_catalog.mart_gp_api.gp_api_voter_eav_general_2026 eav)',
+      )
+      expect(bag.params).toEqual([])
+    })
+
+    it('Yes ORs the campaign-recorded voters into the L2 table', () => {
+      expect(
+        buildVoterFiltersSql(
+          createBag(),
+          parseFilters({
+            votedInElection: { eq: 'Yes' },
+            votedInElectionReportedIds: { in: [REPORTED] },
+          }),
+        ),
+      ).toBe(
+        "(v.`id` IN (SELECT /*+ MERGE(eav) */ eav.id FROM goodparty_data_catalog.mart_gp_api.gp_api_voter_eav_general_2026 eav) OR v.`id` IN ('" +
+          REPORTED +
+          "'))",
+      )
+    })
+
+    // NOT EXISTS, not NOT IN: a null-aware anti join can only broadcast, which
+    // is what ran an executor out of memory (ENG-11522).
+    it('No excludes L2 voters with a merge-joined NOT EXISTS', () => {
+      expect(
+        buildVoterFiltersSql(
+          createBag(),
+          parseFilters({ votedInElection: { eq: 'No' } }),
+        ),
+      ).toBe(
+        'NOT EXISTS (SELECT /*+ MERGE(eav) */ 1 FROM goodparty_data_catalog.mart_gp_api.gp_api_voter_eav_general_2026 eav WHERE eav.id = v.`id`)',
+      )
+    })
+
+    it('No also excludes the campaign-recorded voters', () => {
+      expect(
+        buildVoterFiltersSql(
+          createBag(),
+          parseFilters({
+            votedInElection: { eq: 'No' },
+            votedInElectionReportedIds: { in: [REPORTED] },
+          }),
+        ),
+      ).toBe(
+        "(NOT EXISTS (SELECT /*+ MERGE(eav) */ 1 FROM goodparty_data_catalog.mart_gp_api.gp_api_voter_eav_general_2026 eav WHERE eav.id = v.`id`) AND v.`id` NOT IN ('" +
+          REPORTED +
+          "'))",
+      )
+    })
+
+    it('emits no clause when both values are selected', () => {
+      expect(
+        buildVoterFiltersSql(
+          createBag(),
+          parseFilters({
+            votedInElection: { in: ['Yes', 'No'] },
+            votedInElectionReportedIds: { in: [REPORTED] },
+          }),
+        ),
+      ).toBeNull()
+    })
+
+    it('ignores a reported id set without votedInElection', () => {
+      expect(
+        buildVoterFiltersSql(
+          createBag(),
+          parseFilters({ votedInElectionReportedIds: { in: [REPORTED] } }),
+        ),
+      ).toBeNull()
+    })
   })
 
   it('builds the political-party Other predicate with an explicit null', () => {
@@ -768,7 +863,8 @@ describe('aggregate and page queries', () => {
         ' AS phoneBanking,' +
         ' COUNT_IF((v.`Residence_Addresses_AddressLine` IS NOT NULL' +
         " AND v.`Residence_Addresses_AddressLine` != ''))" +
-        ' AS doorKnocking' +
+        ' AS doorKnocking,' +
+        ' COUNT_IF(FALSE) AS email' +
         ` FROM ${VOTERS_TABLE} v` +
         ' WHERE v.`State` = :p0 AND v.`US_Congressional_District` = :p1',
     )
@@ -828,6 +924,28 @@ describe('aggregate and page queries', () => {
       { name: 'p2', value: '50', type: 'INT' },
       { name: 'p3', value: '100', type: 'INT' },
     ])
+  })
+
+  it('pages by keyset after an id, with no OFFSET', () => {
+    const { sql, params } = buildPageSql({
+      district: CONGRESSIONAL,
+      filters: noFilters(),
+      columns: ['id'],
+      take: 10_000,
+      skip: 0,
+      afterId: 'p0009999',
+    })
+
+    expect(sql).toContain(
+      'WHERE v.`State` = :p0 AND v.`US_Congressional_District` = :p1' +
+        ' AND v.`id` > :p2 ORDER BY v.`id` LIMIT :p3',
+    )
+    expect(sql).not.toContain('OFFSET')
+    expect(params).toContainEqual({
+      name: 'p2',
+      value: 'p0009999',
+      type: 'STRING',
+    })
   })
 
   it('cuts the sample to a hash slice and binds size, seed and divisor', () => {
@@ -1100,6 +1218,14 @@ describe('buildPersonSql', () => {
     expect(params.map(({ value }) => value)).toEqual(['CA', '29', ID])
   })
 
+  it('trails the named columns with the L2 early/absentee flag', () => {
+    const { sql } = buildPersonSql({ ...scope, columns: ['id'], id: ID })
+
+    expect(sql).toContain(
+      'SELECT v.`id` AS `id`, (v.`id` IN (SELECT /*+ MERGE(eav) */ eav.id FROM goodparty_data_catalog.mart_gp_api.gp_api_voter_eav_general_2026 eav)) AS `early_absentee_voted` FROM',
+    )
+  })
+
   // Postgres cast to `uuid` and folded case; this column is a STRING that does
   // not, and z.guid() hands the id through in whatever case it arrived.
   it('folds a mixed-case guid to match the stored value', () => {
@@ -1238,8 +1364,8 @@ describe('buildPrecinctsSql', () => {
 
 describe('people table selection', () => {
   it('maps each dataset to its mart table', () => {
-    expect(peopleTable('voters')).toBe(VOTERS_TABLE)
-    expect(peopleTable('constituents')).toBe(CONSTITUENTS_TABLE)
+    expect(peopleTable({ base: 'voters' })).toBe(VOTERS_TABLE)
+    expect(peopleTable({ base: 'constituents' })).toBe(CONSTITUENTS_TABLE)
   })
 
   const statementsFor = (district: DbxDistrict) => {
@@ -1295,8 +1421,8 @@ describe('people table selection', () => {
     (dataset, table, otherTable) => {
       const district: DbxDistrict = {
         ...CONGRESSIONAL,
-        dataset,
-        table: peopleTable(dataset),
+        dataset: { base: dataset },
+        table: peopleTable({ base: dataset }),
       }
       for (const { sql } of statementsFor(district)) {
         expect(sql).toContain(`FROM ${table} v`)
@@ -1304,4 +1430,469 @@ describe('people table selection', () => {
       }
     },
   )
+})
+
+describe('contactOverlayTable', () => {
+  const ID = '001252fe-fada-36f5-8fac-1044a4341bd5'
+  const ORG = 'eo-123'
+  const OVERLAY_VIEW =
+    'goodparty_data_catalog.mart_gp_api.gp_api_contact_overlay_dev'
+  const overlaid = (
+    district: DbxDistrict,
+    overlayDistrictId: string,
+  ): DbxDistrict => {
+    const dataset = {
+      base: district.dataset.base,
+      overlayOrgSlug: ORG,
+      overlayDistrictId,
+    }
+    const identity = { ...district, dataset }
+    return { ...identity, table: contactOverlayTable(identity) }
+  }
+  const UPLOAD_FIRST =
+    ' coalesce(o.`cell_phone`, b.`VoterTelephones_CellPhoneFormatted`)' +
+    ' AS `VoterTelephones_CellPhoneFormatted`,' +
+    ' coalesce(o.`landline`, b.`VoterTelephones_LandlineFormatted`)' +
+    ' AS `VoterTelephones_LandlineFormatted`,' +
+    ' coalesce(o.`address_line`, b.`Residence_Addresses_AddressLine`)' +
+    ' AS `Residence_Addresses_AddressLine`,' +
+    ' coalesce(o.`city`, b.`Residence_Addresses_City`)' +
+    ' AS `Residence_Addresses_City`,' +
+    ' coalesce(o.`zip`, b.`Residence_Addresses_Zip`)' +
+    ' AS `Residence_Addresses_Zip`,'
+  const REPLACED_TAIL =
+    ' `id`, `FirstName`, `LastName`, `VoterTelephones_CellPhoneFormatted`,' +
+    ' `VoterTelephones_LandlineFormatted`, `Residence_Addresses_AddressLine`,' +
+    ' `Residence_Addresses_City`, `Residence_Addresses_Zip`,' +
+    ' `Residence_Addresses_State`)'
+  const MERGED =
+    ' coalesce(b.`id`, o.`id`) AS `id`,' +
+    ' coalesce(b.`FirstName`, o.`first_name`) AS `FirstName`,' +
+    ' coalesce(b.`LastName`, o.`last_name`) AS `LastName`,' +
+    UPLOAD_FIRST +
+    " coalesce(b.`Residence_Addresses_State`, 'CA')" +
+    ' AS `Residence_Addresses_State`,' +
+    ' o.`email` AS `Email`,' +
+    ' coalesce(o.`is_new`, false) AS `ContactIsNew`'
+
+  beforeEach(() => {
+    vi.stubEnv('PEOPLE_DBX_CONTACT_OVERLAY_VIEW', 'gp_api_contact_overlay_dev')
+  })
+
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  it('reads the plain table when the dataset has no overlay', () => {
+    expect(contactOverlayTable(CONGRESSIONAL)).toBe(VOTERS_TABLE)
+  })
+
+  it('joins the org overlay with new people in the org own district', () => {
+    const district = overlaid(CONGRESSIONAL, CONGRESSIONAL.districtId)
+
+    expect(district.table).toBe(
+      '(SELECT b.* EXCEPT (`State`, `US_Congressional_District`,' +
+        REPLACED_TAIL +
+        ", 'CA' AS `State`, '29' AS `US_Congressional_District`," +
+        MERGED +
+        ` FROM (SELECT * FROM ${VOTERS_TABLE}` +
+        " WHERE `State` = 'CA' AND `US_Congressional_District` = '29') b" +
+        ` FULL OUTER JOIN (SELECT * FROM ${OVERLAY_VIEW}` +
+        " WHERE organization_slug = 'eo-123') o ON o.`id` = b.`id`)",
+    )
+  })
+
+  it('drops new people and keeps L2 scope columns in another district', () => {
+    const district = overlaid(
+      CONGRESSIONAL,
+      'ffffffff-0000-0000-0000-000000000000',
+    )
+
+    expect(district.table).toBe(
+      '(SELECT b.* EXCEPT (' +
+        REPLACED_TAIL.trimStart() +
+        ',' +
+        MERGED +
+        ` FROM (SELECT * FROM ${VOTERS_TABLE}` +
+        " WHERE `State` = 'CA' AND `US_Congressional_District` = '29') b" +
+        ` FULL OUTER JOIN (SELECT * FROM ${OVERLAY_VIEW}` +
+        " WHERE organization_slug = 'eo-123' AND NOT is_new) o" +
+        ' ON o.`id` = b.`id`)',
+    )
+  })
+
+  it('writes only State onto a statewide district', () => {
+    const district = overlaid(STATEWIDE, STATEWIDE.districtId)
+
+    expect(district.table).toContain('(SELECT b.* EXCEPT (`State`, `id`,')
+    expect(district.table).toContain(", 'CA' AS `State`, coalesce(b.`id`")
+    expect(district.table).toContain(
+      ` FROM (SELECT * FROM ${VOTERS_TABLE} WHERE \`State\` = 'CA') b`,
+    )
+    expect(district.table).not.toContain('AND NOT is_new')
+  })
+
+  it('escapes a quote in the district name', () => {
+    const district = overlaid(
+      { ...CONGRESSIONAL, districtType: 'City', districtName: "O'FALLON" },
+      CONGRESSIONAL.districtId,
+    )
+
+    expect(district.table).toContain("'O\\'FALLON' AS `City`")
+    expect(district.table).toContain("`City` = 'O\\'FALLON'")
+  })
+
+  it('every builder reads the joined table', () => {
+    const district = overlaid(CONGRESSIONAL, CONGRESSIONAL.districtId)
+    const scope = { district, filters: noFilters() }
+
+    for (const { sql } of [
+      buildCountSql(scope),
+      buildPageSql({ ...scope, columns: ['id'], take: 1, skip: 0 }),
+      buildCsvSql(scope),
+    ]) {
+      expect(sql).toContain(`FROM ${district.table} v`)
+    }
+  })
+
+  it('projects Email and ContactIsNew from the join', () => {
+    const district = overlaid(CONGRESSIONAL, CONGRESSIONAL.districtId)
+    const scope = { district, filters: noFilters() }
+    const columns = ['id', 'Email', 'ContactIsNew']
+
+    for (const { sql } of [
+      buildPersonSql({ ...scope, columns, id: ID }),
+      buildPageSql({ ...scope, columns, take: 1, skip: 0 }),
+      buildSampleSql({ ...scope, columns, size: 1, seed: 1, hashDivisor: 1 }),
+    ]) {
+      expect(sql).toContain(
+        'v.`Email` AS `Email`, v.`ContactIsNew` AS `ContactIsNew`',
+      )
+    }
+    const { sql: csv } = buildCsvSql(scope)
+    expect(csv).toContain("nvl(CAST(v.`Email` AS STRING), '') AS `Email`")
+    expect(csv).toContain(
+      "nvl(CAST(v.`ContactIsNew` AS STRING), '') AS `New Contact`",
+    )
+  })
+
+  it('filters on the overlay email, and counts it per list', () => {
+    const district = overlaid(CONGRESSIONAL, CONGRESSIONAL.districtId)
+    const has = buildScopeSql(createBag(), {
+      district,
+      filters: parseFilters({ hasEmail: true }),
+    })
+    const lacks = buildScopeSql(createBag(), {
+      district,
+      filters: parseFilters({ hasEmail: false }),
+    })
+
+    expect(has).toContain('AND v.`Email` IS NOT NULL')
+    expect(lacks).toContain('AND v.`Email` IS NULL')
+    expect(
+      buildListDetailAggregatesSql({ district, filters: noFilters() }).sql,
+    ).toContain('COUNT_IF(v.`Email` IS NOT NULL) AS email')
+  })
+
+  it('finds no one with an email without the overlay, and reads no Email', () => {
+    const has = buildScopeSql(createBag(), {
+      district: CONGRESSIONAL,
+      filters: parseFilters({ hasEmail: true }),
+    })
+    const lacks = buildScopeSql(createBag(), {
+      district: CONGRESSIONAL,
+      filters: parseFilters({ hasEmail: false }),
+    })
+
+    expect(has).toContain('AND FALSE')
+    expect(lacks).toContain('AND TRUE')
+    expect(has).not.toContain('Email')
+  })
+
+  it('projects NULL and false without the overlay', () => {
+    const scope = { district: CONGRESSIONAL, filters: noFilters() }
+    const columns = ['id', 'Email', 'ContactIsNew']
+
+    for (const { sql } of [
+      buildPersonSql({ ...scope, columns, id: ID }),
+      buildPageSql({ ...scope, columns, take: 1, skip: 0 }),
+      buildSampleSql({ ...scope, columns, size: 1, seed: 1, hashDivisor: 1 }),
+    ]) {
+      expect(sql).toContain(
+        'CAST(NULL AS STRING) AS `Email`, false AS `ContactIsNew`',
+      )
+      expect(sql).not.toContain('v.`Email`')
+    }
+    const { sql: csv } = buildCsvSql(scope)
+    expect(csv).not.toContain('`Email`')
+    expect(csv).not.toContain('`New Contact`')
+  })
+
+  it('searches the email when the input has an @ and the read has the overlay', () => {
+    const district = overlaid(CONGRESSIONAL, CONGRESSIONAL.districtId)
+    const bag = createBag()
+
+    expect(buildSearchSql(bag, ' Jane@Example.com ', district)).toBe(
+      'lower(v.`Email`) = lower(:p0)',
+    )
+    expect(bag.params).toEqual([
+      { name: 'p0', value: 'Jane@Example.com', type: 'STRING' },
+    ])
+  })
+
+  it('leaves people only an import added out of the Other party', () => {
+    const district = overlaid(CONGRESSIONAL, CONGRESSIONAL.districtId)
+    const filters = parseFilters({ politicalParty: { in: ['Other'] } })
+    const other =
+      '((v.`Parties_Description` IS NULL OR v.`Parties_Description`' +
+      ' NOT IN (:p2, :p3, :p4, :p5, :p6, :p7)) AND NOT v.`ContactIsNew`)'
+
+    for (const { sql } of [
+      buildCountSql({ district, filters }),
+      buildListDetailAggregatesSql({ district, filters }),
+      buildRankPrecinctsSql({ district, filters }),
+    ]) {
+      expect(sql).toContain(other)
+    }
+    const { sql: overlap } = buildOverlapCountSql({
+      district,
+      filters: noFilters(),
+      savedFilterSets: [filters],
+    })
+    expect(overlap).toContain('AND NOT v.`ContactIsNew`)')
+  })
+
+  it('keeps the named parties and the Other party as they were', () => {
+    const district = overlaid(CONGRESSIONAL, CONGRESSIONAL.districtId)
+
+    const { sql } = buildCountSql({
+      district,
+      filters: parseFilters({ politicalParty: { in: ['Democratic'] } }),
+    })
+    expect(sql).toMatch(/ AND \(v\.`Parties_Description` IN \(:p2\)\)$/)
+
+    const { sql: plain } = buildCountSql({
+      district: CONGRESSIONAL,
+      filters: parseFilters({ politicalParty: { in: ['Other'] } }),
+    })
+    expect(plain).toContain('v.`Parties_Description` IS NULL OR')
+    expect(plain).not.toContain('ContactIsNew')
+  })
+
+  describe('source filter', () => {
+    const district = overlaid(CONGRESSIONAL, CONGRESSIONAL.districtId)
+    const scopeWith = (target: DbxDistrict, source: string[]) =>
+      buildScopeSql(createBag(), {
+        district: target,
+        filters: parseFilters({ source }),
+      })
+
+    it('reads voterFile as people the voter file holds', () => {
+      expect(scopeWith(district, ['voterFile'])).toMatch(
+        / AND NOT coalesce\(v\.`ContactIsNew`, false\)$/,
+      )
+    })
+
+    it('reads imported as people only an import added', () => {
+      expect(scopeWith(district, ['imported'])).toMatch(
+        / AND coalesce\(v\.`ContactIsNew`, false\)$/,
+      )
+    })
+
+    it('constrains nothing for both or neither', () => {
+      const unfiltered = scopeWith(district, [])
+      expect(scopeWith(district, ['voterFile', 'imported'])).toBe(unfiltered)
+      expect(unfiltered).not.toContain('ContactIsNew')
+    })
+
+    it('without the overlay, matches no one for imported alone and everyone for voterFile', () => {
+      expect(scopeWith(CONGRESSIONAL, ['imported'])).toMatch(/ AND FALSE$/)
+      expect(scopeWith(CONGRESSIONAL, ['voterFile'])).toBe(
+        scopeWith(CONGRESSIONAL, []),
+      )
+      expect(scopeWith(CONGRESSIONAL, ['imported'])).not.toContain(
+        'ContactIsNew',
+      )
+    })
+  })
+
+  it('counts everyone and, of them, the new contacts in the list detail', () => {
+    const district = overlaid(CONGRESSIONAL, CONGRESSIONAL.districtId)
+    const { sql } = buildListDetailAggregatesSql({
+      district,
+      filters: noFilters(),
+      countNewContacts: true,
+    })
+    const isNew = 'coalesce(v.`ContactIsNew`, false)'
+
+    expect(sql).toMatch(/^SELECT COUNT\(\*\) AS count,/)
+    expect(sql).toContain(
+      'COUNT_IF(v.`VoterTelephones_CellPhoneFormatted` IS NOT NULL) AS sms,',
+    )
+    expect(sql).toContain('COUNT_IF(v.`Email` IS NOT NULL) AS email,')
+    expect(sql).toContain(` COUNT_IF(${isNew}) AS new_count,`)
+    expect(sql).toContain(
+      `COUNT_IF(v.\`VoterTelephones_CellPhoneFormatted\` IS NOT NULL AND ${isNew}) AS new_sms,`,
+    )
+    expect(sql).toContain(
+      `COUNT_IF(v.\`Email\` IS NOT NULL AND ${isNew}) AS new_email FROM `,
+    )
+    const columns = sql.slice(0, sql.indexOf(' FROM '))
+    expect(columns.match(/ AS (\w+)/g)).toEqual([
+      ' AS count',
+      ' AS avgAge',
+      ' AS avgIncome',
+      ' AS sms',
+      ' AS robocall',
+      ' AS phoneBanking',
+      ' AS doorKnocking',
+      ' AS email',
+      ' AS new_count',
+      ' AS new_sms',
+      ' AS new_robocall',
+      ' AS new_phoneBanking',
+      ' AS new_doorKnocking',
+      ' AS new_email',
+    ])
+  })
+
+  it('counts the new contacts beside the count, never by household', () => {
+    const district = overlaid(CONGRESSIONAL, CONGRESSIONAL.districtId)
+    const isNew = 'coalesce(v.`ContactIsNew`, false)'
+
+    expect(
+      buildCountSql({ district, filters: noFilters(), countNewContacts: true })
+        .sql,
+    ).toMatch(
+      new RegExp(
+        `^SELECT COUNT\\(\\*\\) AS voter_count, COUNT_IF\\(${isNew.replace(/[()`.]/g, '\\$&')}\\) AS new_count FROM `,
+      ),
+    )
+    expect(
+      buildCountSql({
+        district,
+        filters: noFilters(),
+        countNewContacts: true,
+        groupByHousehold: true,
+      }).sql,
+    ).not.toContain('new_count')
+    expect(
+      buildCountSql({
+        district: CONGRESSIONAL,
+        filters: noFilters(),
+        countNewContacts: true,
+      }).sql,
+    ).not.toContain('new_count')
+  })
+
+  it('counts no new contacts without the overlay, or when not asked', () => {
+    const overlay = overlaid(CONGRESSIONAL, CONGRESSIONAL.districtId)
+    const plain = buildListDetailAggregatesSql({
+      district: CONGRESSIONAL,
+      filters: noFilters(),
+      countNewContacts: true,
+    }).sql
+    const unasked = buildListDetailAggregatesSql({
+      district: overlay,
+      filters: noFilters(),
+    }).sql
+
+    expect(plain).not.toContain('ContactIsNew')
+    expect(plain).toMatch(/^SELECT COUNT\(\*\) AS count,/)
+    expect(unasked).not.toContain('new_count')
+    expect(unasked).toMatch(/^SELECT COUNT\(\*\) AS count,/)
+  })
+
+  it('keeps name search for an @ without the overlay', () => {
+    const bag = createBag()
+
+    expect(buildSearchSql(bag, 'jane@example.com', CONGRESSIONAL)).toContain(
+      'lower(v.`FirstName`) LIKE :p0',
+    )
+  })
+
+  it('filters a person read by id inside both sides of the join', () => {
+    const district = overlaid(CONGRESSIONAL, CONGRESSIONAL.districtId)
+
+    const { sql, params } = buildPersonSql({
+      district,
+      filters: noFilters(),
+      columns: ['id'],
+      id: ID.toUpperCase(),
+    })
+
+    expect(sql).toContain(
+      ` FROM (SELECT * FROM ${VOTERS_TABLE}` +
+        " WHERE `State` = 'CA' AND `US_Congressional_District` = '29'" +
+        ' AND `id` = :p2) b' +
+        ` FULL OUTER JOIN (SELECT * FROM ${OVERLAY_VIEW}` +
+        " WHERE organization_slug = 'eo-123' AND `id` = :p2) o",
+    )
+    expect(sql).toMatch(/ AND v\.`id` = :p2 LIMIT 1$/)
+    expect(sql).not.toContain(district.table)
+    expect(params.map(({ value }) => value)).toEqual(['CA', '29', ID])
+  })
+
+  it('filters by id after dropping new people in another district', () => {
+    const district = overlaid(
+      CONGRESSIONAL,
+      'ffffffff-0000-0000-0000-000000000000',
+    )
+
+    const { sql } = buildPersonSql({
+      district,
+      filters: noFilters(),
+      columns: ['id'],
+      id: ID,
+    })
+
+    expect(sql).toContain(
+      " WHERE organization_slug = 'eo-123' AND NOT is_new AND `id` = :p2) o",
+    )
+  })
+
+  it('reads the plain table for a person without the overlay', () => {
+    const { sql } = buildPersonSql({
+      district: CONGRESSIONAL,
+      filters: noFilters(),
+      columns: ['id'],
+      id: ID,
+    })
+
+    expect(sql).toContain(`FROM ${VOTERS_TABLE} v WHERE`)
+    expect(sql).not.toContain('FULL OUTER JOIN')
+  })
+
+  it('projects Registered_Voter by dataset', () => {
+    const columns = ['Registered_Voter']
+    const project = (district: DbxDistrict) =>
+      buildPageSql({
+        district,
+        filters: noFilters(),
+        columns,
+        take: 1,
+        skip: 0,
+      }).sql
+
+    expect(project(CONGRESSIONAL)).toContain(
+      'SELECT true AS `Registered_Voter`',
+    )
+    expect(
+      project(overlaid(CONGRESSIONAL, CONGRESSIONAL.districtId)),
+    ).toContain(
+      'SELECT if(v.`ContactIsNew`, CAST(NULL AS BOOLEAN), true)' +
+        ' AS `Registered_Voter`',
+    )
+    const constituents: DbxDistrict = {
+      ...CONGRESSIONAL,
+      dataset: { base: 'constituents' },
+      table: CONSTITUENTS_TABLE,
+    }
+    expect(project(constituents)).toContain(
+      'SELECT v.`Registered_Voter` AS `Registered_Voter`',
+    )
+    expect(project(overlaid(constituents, CONGRESSIONAL.districtId))).toContain(
+      'SELECT v.`Registered_Voter` AS `Registered_Voter`',
+    )
+  })
 })

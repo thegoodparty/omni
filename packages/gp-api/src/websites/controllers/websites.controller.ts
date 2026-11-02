@@ -27,6 +27,7 @@ import { UseCampaign } from 'src/campaigns/decorators/UseCampaign.decorator'
 import { CampaignWith } from 'src/campaigns/campaigns.types'
 import { ReqUser } from 'src/authentication/decorators/ReqUser.decorator'
 import { PublicAccess } from 'src/authentication/decorators/PublicAccess.decorator'
+import { ServiceReadGuard } from '@/authentication/guards/ServiceRead.guard'
 import { ContactFormSchema } from '../schemas/ContactForm.schema'
 import { ZodValidationPipe } from 'nestjs-zod'
 import { FilesInterceptor } from 'src/files/interceptors/files.interceptor'
@@ -511,6 +512,7 @@ export class WebsitesController {
   // without silently changing those other handlers' responses.
   @Get(':vanityPath/view')
   @PublicAccess()
+  @UseGuards(ServiceReadGuard)
   @UseInterceptors(ZodResponseInterceptor)
   @ResponseSchema(PublicWebsiteResponseSchema)
   async viewWebsite(@Param('vanityPath') vanityPath: string) {
@@ -565,6 +567,7 @@ export class WebsitesController {
   // this is used from candidates.goodparty.org
   @Get('by-domain/:domain')
   @PublicAccess()
+  @UseGuards(ServiceReadGuard)
   @UseInterceptors(ZodResponseInterceptor)
   @ResponseSchema(PublicWebsiteResponseSchema)
   async getWebsiteByDomain(@Param('domain') domain: string) {

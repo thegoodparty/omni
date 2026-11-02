@@ -8,6 +8,7 @@ import {
   CivicPanelStatus,
   ContactStatusField,
   ContactStatusSource,
+  ManagedCivicPanelStatus,
 } from '@/generated/prisma'
 import { ContactStatusService } from '@/contactInteraction/services/contactStatus.service'
 import { ContactsMadeResolutionService } from '@/contactInteraction/services/contactsMadeResolution.service'
@@ -63,6 +64,24 @@ const get = <T>(path: string, slug: string) =>
 const summary = (slug: string) =>
   get<CivicPanelSummary>('/v1/contacts/civic-panel', slug)
 
+const seedManaged = (
+  organizationSlug: string,
+  goalMembers: number,
+  status: ManagedCivicPanelStatus,
+) =>
+  service.prisma.managedCivicPanel.create({
+    data: {
+      organizationSlug,
+      status,
+      inviteMessage:
+        'Reply JOIN to join my civic panel. Reply STOP to opt out.',
+      consentVersion: 'test',
+      approvedAt: new Date(),
+      approvedByUserId: service.user.id,
+      goalMembers,
+    },
+  })
+
 const flagOff = () => {
   const flag = vi
     .spyOn(service.app.get(FeaturesService), 'isFeatureEnabled')
@@ -77,12 +96,16 @@ describe('GET /v1/contacts/civic-panel', () => {
     const res = await summary(slug)
 
     expect(res.status).toBe(HttpStatus.OK)
-    expect(res.data).toEqual({
+    expect(res.data).toMatchObject({
       members: 0,
       reachedRecently: 0,
       askableNow: 0,
       lastOutreachAt: null,
+      progress: { members: 0, expectedAnswers: 0, groupsCovered: 0 },
+      balance: { status: 'tooFewMembers', inviteMore: null },
+      composition: null,
     })
+    expect(res.data.progress.goal).toBeGreaterThan(0)
   })
 
   it('counts a member reached 10 days ago as reached and 40 days ago as askable', async () => {
@@ -104,12 +127,53 @@ describe('GET /v1/contacts/civic-panel', () => {
     const res = await summary(slug)
 
     expect(res.status).toBe(HttpStatus.OK)
-    expect(res.data).toEqual({
+    expect(res.data).toMatchObject({
       members: 3,
       reachedRecently: 1,
       askableNow: 2,
       lastOutreachAt: null,
     })
+  })
+
+  it('splits the members by how each last joined', async () => {
+    const slug = await seedOrg('eo')
+    const join = (personId: string, source: ContactStatusSource) =>
+      service.app.get(ContactStatusService).changeStatus({
+        organizationSlug: slug,
+        personId,
+        field: ContactStatusField.civic_panel,
+        toValue: CivicPanelStatus.member,
+        source,
+        actorUserId: null,
+        fallbackFromValue: CivicPanelStatus.left,
+      })
+    await join(randomUUID(), ContactStatusSource.sms)
+    await join(randomUUID(), ContactStatusSource.sms)
+    await join(randomUUID(), ContactStatusSource.phone_banking)
+    await join(randomUUID(), ContactStatusSource.manual)
+    // Texted in, left, and back at the door: the door counts.
+    const rejoined = randomUUID()
+    await join(rejoined, ContactStatusSource.sms)
+    await setPanel(slug, rejoined, CivicPanelStatus.left)
+    await join(rejoined, ContactStatusSource.door_knock)
+    // Joined by text and left: not a member.
+    const gone = randomUUID()
+    await join(gone, ContactStatusSource.sms)
+    await setPanel(slug, gone, CivicPanelStatus.left)
+
+    const res = await summary(slug)
+
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(res.data.members).toBe(5)
+    expect(res.data.joinedBy).toEqual({ text: 2, door: 1, phone: 1, hand: 1 })
+  })
+
+  it('reads no joins on an empty panel', async () => {
+    const slug = await seedOrg('eo')
+
+    const res = await summary(slug)
+
+    expect(res.data.joinedBy).toEqual({ text: 0, door: 0, phone: 0, hand: 0 })
   })
 
   it("does not count another office's outreach as reaching a member", async () => {
@@ -121,7 +185,7 @@ describe('GET /v1/contacts/civic-panel', () => {
 
     const res = await summary(slug)
 
-    expect(res.data).toEqual({
+    expect(res.data).toMatchObject({
       members: 1,
       reachedRecently: 0,
       askableNow: 1,
@@ -149,7 +213,7 @@ describe('GET /v1/contacts/civic-panel', () => {
     const res = await summary(slug)
 
     expect(res.status).toBe(HttpStatus.OK)
-    expect(res.data).toEqual({
+    expect(res.data).toMatchObject({
       members: 2,
       reachedRecently: 1,
       askableNow: 1,
@@ -181,5 +245,34 @@ describe('GET /v1/contacts/civic-panel', () => {
     const res = await summary(slug)
 
     expect(res.status).toBe(HttpStatus.NOT_FOUND)
+  })
+  it("counts toward a managed civic panel's stored goal while it runs", async () => {
+    const districtGoal = (await summary(await seedOrg('eo'))).data.progress.goal
+    const slug = await seedOrg('eo')
+    await seedManaged(slug, districtGoal - 3, ManagedCivicPanelStatus.building)
+
+    const res = await summary(slug)
+
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(res.data.progress.goal).toBe(districtGoal - 3)
+  })
+
+  it('keeps the managed goal once the managed civic panel is ready', async () => {
+    const slug = await seedOrg('eo')
+    await seedManaged(slug, 2, ManagedCivicPanelStatus.ready)
+
+    const res = await summary(slug)
+
+    expect(res.data.progress.goal).toBe(2)
+  })
+
+  it("goes back to the district's goal once the managed civic panel is stopped", async () => {
+    const districtGoal = (await summary(await seedOrg('eo'))).data.progress.goal
+    const slug = await seedOrg('eo')
+    await seedManaged(slug, districtGoal - 3, ManagedCivicPanelStatus.stopped)
+
+    const res = await summary(slug)
+
+    expect(res.data.progress.goal).toBe(districtGoal)
   })
 })

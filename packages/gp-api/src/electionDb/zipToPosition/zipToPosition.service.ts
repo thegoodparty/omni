@@ -18,7 +18,7 @@ const PCT_DISTRICTZIP_TO_ZIP_THRESHOLD =
 // widened ingest can't silently start offering races too far out to act on.
 // Beware if that day comes: long-cycle seats (6-year Senate, 4-year mayor)
 // would be the first thing this hides.
-const FUTURE_SEARCH_HORIZON_YEARS = 2
+const FUTURE_SEARCH_HORIZON_YEARS = 3
 
 type SearchParams = {
   zip?: string

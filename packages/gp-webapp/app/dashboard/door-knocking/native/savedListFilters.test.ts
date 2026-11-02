@@ -3,6 +3,7 @@ import type { SegmentResponse } from 'app/dashboard/contacts/crm/shared/contacts
 import {
   savedListFilterKeys,
   savedListUnshadeableCriteria,
+  savedListVotedStatus,
   withoutUnshadeableCriteria,
 } from './savedListFilters'
 
@@ -140,6 +141,27 @@ describe('savedListUnshadeableCriteria', () => {
       {},
     )
     expect(savedListUnshadeableCriteria(undefined)).toEqual({})
+  })
+})
+
+describe('Voted in election on a saved list', () => {
+  const voted = list({ votedStatus: ['unknown'] })
+
+  it('marks it for Win and not for Serve, where the group is never shown', () => {
+    expect(savedListFilterKeys(voted)).toEqual({ votedStatus: true })
+    expect(savedListFilterKeys(voted, true)).toEqual({})
+  })
+
+  it('sends it to the address preview', () => {
+    expect(savedListUnshadeableCriteria(voted)).toEqual({
+      votedStatus: ['unknown'],
+    })
+  })
+
+  it('reads the selection back for the pills, Win only', () => {
+    expect(savedListVotedStatus(voted)).toEqual(['unknown'])
+    expect(savedListVotedStatus(voted, true)).toEqual([])
+    expect(savedListVotedStatus(undefined)).toEqual([])
   })
 })
 

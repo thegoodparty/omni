@@ -14,7 +14,16 @@ import {
 import { Injectable } from '@nestjs/common'
 import { DatabricksVoterService } from '../databricks/databricksVoter.service'
 import { VoterReadLogService } from '../databricks/voterReadLog.service'
-import type { DistrictCell } from '../databricks/districtCensusSql.util'
+import type {
+  DistrictCell,
+  ReachChannelCell,
+  ReachGroupCell,
+  ReachHomes,
+} from '../databricks/districtCensusSql.util'
+import type {
+  ContactUploadMatchCandidateRow,
+  ContactUploadMatchInputRow,
+} from '../databricks/contactUploadMatchSql.util'
 import type { PeopleDataset } from './peopleDataset.service'
 
 @Injectable()
@@ -66,6 +75,37 @@ export class VoterQueryService {
     })
   }
 
+  async findReachPeople(
+    districtId: string,
+    dataset: PeopleDataset,
+    args: {
+      group: ReachGroupCell
+      channel: ReachChannelCell
+      excludeIds: readonly string[]
+      limit: number
+    },
+  ): Promise<string[]> {
+    return this.readLog.measure({
+      op: 'reach-people',
+      districtId,
+      dataset,
+      read: () => this.databricks.findReachPeople(districtId, dataset, args),
+    })
+  }
+
+  async findReachHomes(
+    districtId: string,
+    dataset: PeopleDataset,
+    args: { group: ReachGroupCell; excludeIds: readonly string[] },
+  ): Promise<ReachHomes> {
+    return this.readLog.measure({
+      op: 'reach-homes',
+      districtId,
+      dataset,
+      read: () => this.databricks.findReachHomes(districtId, dataset, args),
+    })
+  }
+
   async findPeople(dto: ListPeopleDTO, dataset: PeopleDataset) {
     return this.readLog.measure({
       op: 'list',
@@ -110,12 +150,14 @@ export class VoterQueryService {
   async getListDetailAggregates(
     dto: AggregatesDTO,
     dataset: PeopleDataset,
+    options: { countNewContacts?: boolean } = {},
   ): Promise<PeopleListDetailAggregatesResponse> {
     return this.readLog.measure({
       op: 'list-detail-aggregates',
       districtId: dto.districtId,
       dataset,
-      read: () => this.databricks.getListDetailAggregates(dto, dataset),
+      read: () =>
+        this.databricks.getListDetailAggregates(dto, dataset, options),
     })
   }
 
@@ -139,6 +181,21 @@ export class VoterQueryService {
       districtId: dto.districtId,
       dataset,
       read: () => this.databricks.samplePeople(dto, dataset),
+    })
+  }
+
+  // Import contacts matching: one statement per chunk of upload rows.
+  async matchContactUploadRows(
+    districtId: string,
+    dataset: PeopleDataset,
+    rows: ContactUploadMatchInputRow[],
+  ): Promise<ContactUploadMatchCandidateRow[]> {
+    return this.readLog.measure({
+      op: 'contact-upload-match',
+      districtId,
+      dataset,
+      read: () =>
+        this.databricks.matchContactUploadRows(districtId, dataset, rows),
     })
   }
 }

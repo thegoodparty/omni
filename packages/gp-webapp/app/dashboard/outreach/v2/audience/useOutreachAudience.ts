@@ -9,6 +9,7 @@ import type {
   RecommendedListIntent,
   RecommendedListVariant,
 } from '@goodparty_org/contracts'
+import { ROBOCALL_FREE_OFFER_VARIANT } from '@goodparty_org/contracts'
 import { clientRequest } from 'gpApi/typed-request'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { outreachChannel } from 'app/dashboard/outreach/util/outreachAnalytics'
@@ -17,6 +18,10 @@ import { useOrganization } from '@shared/organization-picker'
 import { fetchListDetailThrottled } from 'app/dashboard/contacts/crm/lists/useListRowDetail'
 import { getContactsLabels } from 'app/dashboard/shared/contactsLabels'
 import { isUniverseList } from './universeList.util'
+import {
+  useCivicPanelAudience,
+  type CivicPanelAudience,
+} from './useCivicPanelAudience'
 import { AUTO_VOTER_FILTER_NAME_PATTERN } from 'app/dashboard/outreach/util/autoVoterFilterName.util'
 import type {
   SegmentResponse,
@@ -84,6 +89,10 @@ interface UseOutreachAudienceParams {
   // card would. Whether that has happened lives here rather than in the
   // step, which unmounts between steps.
   preselectedRecommendedVariant?: RecommendedListVariant
+  // Robocall only, and only when gp-api says the campaign gets the free
+  // election-eve robocall: its list, fetched by variant for the step's
+  // "Free offer" section, apart from the purpose's own recommendations.
+  freeOfferEnabled?: boolean
   // An audience counted but not saved yet (a chat card's proposal). Opens the
   // builder already filled in, so the list is saved where it always is: when
   // the official confirms the audience and names it.
@@ -101,9 +110,6 @@ export type ProposedAudience = {
   // Kept to the parts of the district this priority's answers have barely
   // reached. gp-api draws the area when the list is saved.
   unreachedAreaOfPriorityId?: string
-  // A civic panel invite's audience: saved for the outreach and left out of
-  // the lists index, where the built-in Civic panel row is the panel's list.
-  civicPanelInvite?: true
 }
 
 export interface OutreachAudience {
@@ -121,6 +127,9 @@ export interface OutreachAudience {
   listsFetching: boolean
   selectedList: SegmentResponse | null
   reachableCount: number | null
+  // Of reachableCount, the new contacts an import added (Win names them next
+  // to the voters). 0 when there are none or the count is not in hand.
+  reachableNewContactsCount: number
   // The selected list's TOTAL people count (list-detail demographics), so a
   // channel can render the reachable-of-total delta (ENG-10957). Null on the
   // same terms as reachableCount.
@@ -165,6 +174,8 @@ export interface OutreachAudience {
   // exactly what the CRM's universe row reads, so the number on the row is
   // the same number the contacts tab shows.
   universeCount: number | null
+  // Of universeCount, the new contacts an import added.
+  universeNewContactsCount: number
   universeLoading: boolean
   // Resolves the row to a REAL criteria-free saved list — reused when the org
   // already has one, created when it does not — and RETURNS its id without
@@ -210,7 +221,7 @@ export interface OutreachAudience {
   recommendationsError: boolean
   // The channel the recommendations were requested for — a recommendation
   // carries no channel of its own (it's the query param, one per request).
-  recommendedListsChannel: RecommendedListChannel
+  recommendedListsChannel: RecommendedListChannel | null
   // Seeds the builder from a recommendation and creates the saved list in
   // one call, using the caller's chosen name (the picker's naming drawer
   // pre-fills it from the recommendation's copy.title and lets the
@@ -240,8 +251,14 @@ export interface OutreachAudience {
   // The carried-in recommendation, once fetched for this channel, and
   // whether the audience step has applied it yet.
   preselectedRecommendation: RecommendedList | null
+  // The free robocall offer's list, when freeOfferEnabled and gp-api still
+  // serves it.
+  freeOfferRecommendation: RecommendedList | null
   preselectedRecommendationApplied: boolean
   markPreselectedRecommendationApplied: () => void
+  // Serve's civic panel, offered first in the picker when the office has a
+  // member and the flag is on.
+  civicPanel: CivicPanelAudience
 }
 
 export const useOutreachAudience = ({
@@ -252,8 +269,12 @@ export const useOutreachAudience = ({
   recommendedListIntent = null,
   preselectedListId,
   preselectedRecommendedVariant,
+  freeOfferEnabled = false,
   proposedAudience,
 }: UseOutreachAudienceParams): OutreachAudience => {
+  // Email has no recommended lists, so its picker shows saved lists only.
+  const recommendedChannel: RecommendedListChannel | null =
+    reachabilityKey === 'email' ? null : reachabilityKey
   const [mode, setMode] = useState<OutreachAudienceMode>('picker')
   const [selectedListId, setSelectedListId] = useState<number | null>(null)
   const [selectedRecommendation, setSelectedRecommendation] =
@@ -281,9 +302,6 @@ export const useOutreachAudience = ({
   const [builderSample, setBuilderSample] = useState<ListSample | undefined>()
   const [builderUnreachedArea, setBuilderUnreachedArea] = useState<
     string | undefined
-  >()
-  const [builderCivicPanelInvite, setBuilderCivicPanelInvite] = useState<
-    true | undefined
   >()
   // Which carried-in variant the audience step has already applied. Held
   // here and not in the step because the step unmounts between steps, and
@@ -330,10 +348,11 @@ export const useOutreachAudience = ({
       recommendedListIntent,
     ],
     queryFn: async () => {
+      if (recommendedChannel === null) throw new Error('No list channel')
       const { data } = await clientRequest(
         'GET /v1/campaigns/mine/recommended-lists',
         {
-          channel: reachabilityKey,
+          channel: recommendedChannel,
           // Guarded by `enabled` below.
           intent: recommendedListIntent ?? undefined,
         },
@@ -346,7 +365,11 @@ export const useOutreachAudience = ({
     // warehouse-backed call on window-focus for schedule/compose/review —
     // steps that don't show it.
     enabled:
-      open && active && mode === 'picker' && recommendedListIntent !== null,
+      open &&
+      active &&
+      mode === 'picker' &&
+      recommendedListIntent !== null &&
+      recommendedChannel !== null,
     staleTime: 0,
   })
 
@@ -361,21 +384,51 @@ export const useOutreachAudience = ({
       preselectedRecommendedVariant,
     ],
     queryFn: async () => {
+      if (recommendedChannel === null) throw new Error('No list channel')
       const { data } = await clientRequest(
         'GET /v1/campaigns/mine/recommended-lists',
         {
-          channel: reachabilityKey,
+          channel: recommendedChannel,
           // Guarded by `enabled` below.
           variant: preselectedRecommendedVariant,
         },
       )
       return data[0] ?? null
     },
-    enabled: open && preselectedRecommendedVariant !== undefined,
+    enabled:
+      open &&
+      preselectedRecommendedVariant !== undefined &&
+      recommendedChannel !== null,
     refetchOnWindowFocus: false,
     // Always refetch on open: whether the list exists yet can change
     // between opens, and recommendationsLoading holds the step until the
     // fresh copy lands (see below).
+    staleTime: 0,
+  })
+
+  // The free offer's list, cut for this channel. Same refetch-on-open rule as
+  // the carried-in copy: whether the list is saved yet decides what a tap on
+  // its card does.
+  const freeOfferQuery = useQuery({
+    queryKey: [
+      'outreach-audience-free-offer',
+      orgSlug,
+      reachabilityKey,
+      ROBOCALL_FREE_OFFER_VARIANT,
+    ],
+    queryFn: async () => {
+      if (recommendedChannel === null) throw new Error('No list channel')
+      const { data } = await clientRequest(
+        'GET /v1/campaigns/mine/recommended-lists',
+        {
+          channel: recommendedChannel,
+          variant: ROBOCALL_FREE_OFFER_VARIANT,
+        },
+      )
+      return data[0] ?? null
+    },
+    enabled: open && freeOfferEnabled && reachabilityKey === 'robocall',
+    refetchOnWindowFocus: false,
     staleTime: 0,
   })
 
@@ -427,6 +480,13 @@ export const useOutreachAudience = ({
   // its copy, so the count below can wait for it.
   const [pickerOpen, setPickerOpen] = useState(false)
 
+  const civicPanel = useCivicPanelAudience({
+    isElectedOfficial,
+    orgSlug,
+    lists,
+    listsQueryKey: outreachAudienceListsKey(orgSlug),
+  })
+
   const universeQuery = useQuery({
     queryKey: ['outreach-audience-universe', orgSlug, reachabilityKey],
     queryFn: async ({ signal }) => {
@@ -435,7 +495,10 @@ export const useOutreachAudience = ({
         {},
         { signal },
       )
-      return data.reachability[reachabilityKey]
+      return {
+        reachable: data.reachability[reachabilityKey],
+        newContactsReachable: data.newContactsReachable?.[reachabilityKey] ?? 0,
+      }
     },
     // Not merely `open`: see `onPickerOpenChange`. The flow being open is not
     // a reason to read the whole district.
@@ -512,6 +575,8 @@ export const useOutreachAudience = ({
       return {
         reachable: detail.reachability[reachabilityKey],
         total: detail.demographics.people,
+        newContactsReachable:
+          detail.newContactsReachable?.[reachabilityKey] ?? 0,
       }
     },
     // A list built in the flow is selected as we leave the audience step
@@ -549,6 +614,13 @@ export const useOutreachAudience = ({
         ? recommendationSnapshot.count
         : null))
   const selectedListTotal = reachabilityQuery.data?.total ?? null
+  // Only alongside the list-detail count it is part of: a recommendation's
+  // count carries no split.
+  const reachableNewContactsCount =
+    !selectedRecommendation &&
+    typeof reachabilityQuery.data?.reachable === 'number'
+      ? reachabilityQuery.data.newContactsReachable
+      : 0
 
   // Filters the user built, translated for the backend. The saved list is
   // created from THIS (overlay-free); the count adds the overlay on top.
@@ -559,8 +631,13 @@ export const useOutreachAudience = ({
         ? { supportStatus: builderSupportStatus }
         : {}),
       ...(builderPrecincts.length ? { precincts: builderPrecincts } : {}),
+      // Not a builder pill: a recommendation's "not yet voted" screen rides
+      // with the recommendation it came from, and goes when that does.
+      ...(recommendedMeta?.filter.votedStatus?.length
+        ? { votedStatus: recommendedMeta.filter.votedStatus }
+        : {}),
     }),
-    [builderFilters, builderSupportStatus, builderPrecincts],
+    [builderFilters, builderSupportStatus, builderPrecincts, recommendedMeta],
   )
   // Key the memo on the overlay's VALUE, not its identity, so a caller passing
   // an inline `{ hasLandline: true }` each render can't churn the payload and
@@ -603,7 +680,6 @@ export const useOutreachAudience = ({
           ...(builderSample
             ? { ...(countOverlay ?? {}), sample: builderSample }
             : {}),
-          ...(builderCivicPanelInvite && { civicPanelInvite: true }),
           ...(builderUnreachedArea && {
             unreachedAreaOfPriorityId: builderUnreachedArea,
           }),
@@ -647,7 +723,6 @@ export const useOutreachAudience = ({
     setBuilderName(proposed?.name ?? '')
     setBuilderSample(proposed?.sample)
     setBuilderUnreachedArea(proposed?.unreachedAreaOfPriorityId)
-    setBuilderCivicPanelInvite(proposed?.civicPanelInvite)
     setRecommendedMeta(null)
     resetCreateMutation()
   }, [resetCreateMutation])
@@ -660,7 +735,6 @@ export const useOutreachAudience = ({
     setBuilderName(proposed.name)
     setBuilderSample(proposed.sample)
     setBuilderUnreachedArea(proposed.unreachedAreaOfPriorityId)
-    setBuilderCivicPanelInvite(proposed.civicPanelInvite)
   }, [])
 
   const reset = useCallback(() => {
@@ -691,7 +765,6 @@ export const useOutreachAudience = ({
     setBuilderName('')
     setBuilderSample(undefined)
     setBuilderUnreachedArea(undefined)
-    setBuilderCivicPanelInvite(undefined)
     setRecommendedMeta(null)
     resetCreateMutation()
     // Seeded here rather than beside the flow's own open effect, which calls
@@ -731,13 +804,14 @@ export const useOutreachAudience = ({
   // rather than staging the seed for a separate submit.
   const seedFromRecommendation = useCallback(
     (recommendation: RecommendedList, name: string) => {
+      if (recommendedChannel === null) return
       setBuilderFilters(builderFiltersFromRecommendation(recommendation.filter))
       setBuilderSupportStatus(recommendation.filter.supportStatus ?? [])
       setBuilderPrecincts(recommendation.filter.precincts ?? [])
       setBuilderName(name)
       setRecommendedMeta({
         variant: recommendation.variant,
-        channel: reachabilityKey,
+        channel: recommendedChannel,
         // The variant's own intent, not this flow's purpose: a recommendation
         // carried in from the voter data page belongs to whichever intent
         // the registry says, whatever purpose the candidate picked here.
@@ -747,7 +821,7 @@ export const useOutreachAudience = ({
         voteGoalShare: recommendation.voteGoalShare,
       })
     },
-    [reachabilityKey],
+    [recommendedChannel],
   )
 
   // The other half of the conversion measurement. A recommendation the
@@ -789,6 +863,9 @@ export const useOutreachAudience = ({
     queryClient.invalidateQueries({
       queryKey: ['outreach-audience-preselected-recommendation', orgSlug],
     })
+    queryClient.invalidateQueries({
+      queryKey: ['outreach-audience-free-offer', orgSlug],
+    })
   }, [queryClient, orgSlug])
 
   // Seeds the builder from a recommendation, then POSTs the create with an
@@ -807,6 +884,7 @@ export const useOutreachAudience = ({
       const trimmed = name.trim()
       const filters = builderFiltersFromRecommendation(recommendation.filter)
       const supportStatus = recommendation.filter.supportStatus ?? []
+      const votedStatus = recommendation.filter.votedStatus ?? []
       const precincts = recommendation.filter.precincts ?? []
       setCreateRecommendedListPending(true)
       setCreateRecommendedListError(null)
@@ -818,6 +896,7 @@ export const useOutreachAudience = ({
             name: trimmed,
             ...transformVoterFileFiltersForBackend(filters),
             ...(supportStatus.length ? { supportStatus } : {}),
+            ...(votedStatus.length ? { votedStatus } : {}),
             ...(precincts.length ? { precincts } : {}),
             recommendedVariant: recommendation.variant,
             recommendedChannel: reachabilityKey,
@@ -953,6 +1032,7 @@ export const useOutreachAudience = ({
     listsFetching: listsQuery.isFetching,
     selectedList,
     reachableCount,
+    reachableNewContactsCount,
     selectedListTotal,
     // isFetching (not isLoading) so a re-selected, already-cached list still
     // shows the spinner during its background refetch — isLoading is true only
@@ -982,7 +1062,8 @@ export const useOutreachAudience = ({
     onSelect: selectList,
     universeName,
     universeListId: universeList?.id ?? null,
-    universeCount: universeQuery.data ?? null,
+    universeCount: universeQuery.data?.reachable ?? null,
+    universeNewContactsCount: universeQuery.data?.newContactsReachable ?? 0,
     universeLoading: universeQuery.isFetching,
     selectUniverse: async () => {
       try {
@@ -1021,16 +1102,19 @@ export const useOutreachAudience = ({
     // applied during the refetch, it saved the same list a second time.
     recommendationsLoading:
       recommendationsQuery.isLoading ||
-      preselectedRecommendationQuery.isFetching,
+      preselectedRecommendationQuery.isFetching ||
+      freeOfferQuery.isFetching,
     recommendationsError: recommendationsQuery.isError,
-    recommendedListsChannel: reachabilityKey,
+    recommendedListsChannel: recommendedChannel,
     createRecommendedList,
     trackRecommendationReused,
     preselectedRecommendation: preselectedRecommendationQuery.data ?? null,
+    freeOfferRecommendation: freeOfferQuery.data ?? null,
     preselectedRecommendationApplied:
       preselectedRecommendedVariant !== undefined &&
       appliedPreselectedVariant === preselectedRecommendedVariant,
     markPreselectedRecommendationApplied: () =>
       setAppliedPreselectedVariant(preselectedRecommendedVariant ?? null),
+    civicPanel,
   }
 }

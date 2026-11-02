@@ -28,6 +28,7 @@ import { OutreachP2pSmsCaptureService } from '@/outreach/services/outreachP2pSms
 import { PeerlyPhoneListCaptureService } from './services/peerlyPhoneListCapture.service'
 import { PeerlyPhoneListService } from './services/peerlyPhoneList.service'
 import { PhoneListState } from './peerly.types'
+import { peerlyScrubCounts } from './utils/peerlyScrubCounts.util'
 import {
   CheckPhoneListStatusAcceptedResponseDto,
   CheckPhoneListStatusResponseDto,
@@ -244,6 +245,10 @@ export class P2pController {
             'Phone list is still loading leads. Please try again in a few moments.',
         }
       }
+      this.logger.info(
+        { buildId: row.id, listId, ...peerlyScrubCounts(detailsResponse) },
+        'Peerly phone list ready',
+      )
     }
 
     // First-seen-ready stamp: guarded on peerlyListId IS NULL inside the

@@ -1,21 +1,13 @@
 import { useTestService } from '@/test-service'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 import { VendorMockVendor } from '@/generated/prisma'
 import { VendorMockRecordService } from './vendorMockRecord.service'
+import { useAppEnvOverrides } from '@/shared/test-utils/appEnvOverrides'
 
 // IS_NON_PROD_DEPLOY is a module-level constant computed at import time.
-// Mock it as a getter so the non-prod gate passes in the test environment
-// (where OTEL_SERVICE_ENVIRONMENT is unset) without mutating process.env.
-vi.mock('@/shared/util/appEnvironment.util', async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import('@/shared/util/appEnvironment.util')>()
-  return {
-    ...actual,
-    get IS_NON_PROD_DEPLOY() {
-      return true
-    },
-  }
-})
+// Override it so the non-prod gate passes in the test environment (where
+// OTEL_SERVICE_ENVIRONMENT is unset) without mutating process.env.
+useAppEnvOverrides({ IS_NON_PROD_DEPLOY: true })
 
 const service = useTestService()
 
@@ -89,6 +81,74 @@ describe('VendorMockRecordService', () => {
         'camp-a-1',
         'camp-a-2',
       ])
+    })
+  })
+
+  describe('findCallhubForCampaign', () => {
+    const seedRobocall = async (pk: string | null) => {
+      const slug = `campaign-${service.user.id}-${Math.random()}`
+      await service.prisma.organization.create({
+        data: { slug, ownerId: service.user.id, positionId: 'pos-1' },
+      })
+      const campaign = await service.prisma.campaign.create({
+        data: {
+          organizationSlug: slug,
+          userId: service.user.id,
+          slug,
+          isPro: true,
+          details: {},
+          data: {},
+          aiContent: {},
+        },
+      })
+      const outreach = await service.prisma.outreach.create({
+        data: {
+          campaignId: campaign.id,
+          organizationSlug: slug,
+          outreachType: 'robocall',
+          status: 'pending',
+          date: new Date(),
+        },
+      })
+      await service.prisma.outreachRobocall.create({
+        data: {
+          outreachId: outreach.id,
+          audioKey: `robocall/${slug}.mp3`,
+          callbackNumber: '+15125550123',
+          billableCount: 3,
+          amountInCents: 100,
+          settleState: 'staging',
+          callhubCampaignPkStr: pk,
+        },
+      })
+      return campaign.id
+    }
+
+    it('returns the vb_campaign together with the phonebook it was created against', async () => {
+      const callhub = VendorMockVendor.callhub
+      await svc.upsert(callhub, 'phonebook', 'pb-1', { count: 3 })
+      await svc.upsert(callhub, 'phonebook', 'pb-other', { count: 9 })
+      await svc.upsert(callhub, 'vb_campaign', 'vb-1', {
+        status: 2,
+        phonebooks: ['pb-1'],
+      })
+      const campaignId = await seedRobocall('vb-1')
+
+      const records = await svc.findCallhubForCampaign(campaignId)
+      expect(records.map((r) => `${r.kind}:${r.externalId}`).sort()).toEqual([
+        'phonebook:pb-1',
+        'vb_campaign:vb-1',
+      ])
+    })
+
+    it('returns only the vb_campaign when it recorded no phonebooks', async () => {
+      await svc.upsert(VendorMockVendor.callhub, 'vb_campaign', 'vb-2', {
+        status: 2,
+      })
+      const campaignId = await seedRobocall('vb-2')
+
+      const records = await svc.findCallhubForCampaign(campaignId)
+      expect(records.map((r) => r.externalId)).toEqual(['vb-2'])
     })
   })
 

@@ -251,6 +251,22 @@ describe('getHistoryStatusLabel — robocall', () => {
       'Canceled',
     )
   })
+
+  it('labels a hold_failed robocall Payment failed, not Pending payment', () => {
+    expect(
+      getHistoryStatusLabel(
+        robocallRow({
+          status: 'pending_payment',
+          robocall: {
+            audioKey: 'audio/1.mp3',
+            callbackNumber: '+15125550199',
+            billableCount: 100,
+            settleState: 'hold_failed',
+          },
+        }),
+      ),
+    ).toBe('Payment failed')
+  })
 })
 
 describe('getHistoryStatusLabel — Serve SMS', () => {

@@ -66,7 +66,7 @@ resource "aws_iam_role_policy" "task_execution_secrets_access" {
         Action = [
           "secretsmanager:GetSecretValue"
         ]
-        Resource = "arn:aws:secretsmanager:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:secret:AI_SECRETS_${upper(var.environment)}-*"
+        Resource = "arn:aws:secretsmanager:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:secret:AI_SECRETS_${upper(var.environment)}-*"
       }
     ]
   })
@@ -170,15 +170,15 @@ locals {
   agent_secrets = [
     {
       name      = "ANTHROPIC_API_KEY"
-      valueFrom = "arn:aws:secretsmanager:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:secret:AI_SECRETS_${upper(var.environment)}:ANTHROPIC_API_KEY::"
+      valueFrom = "arn:aws:secretsmanager:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:secret:AI_SECRETS_${upper(var.environment)}:ANTHROPIC_API_KEY::"
     },
     {
       name      = "CLICKUP_API_KEY"
-      valueFrom = "arn:aws:secretsmanager:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:secret:AI_SECRETS_${upper(var.environment)}:CLICKUP_API_KEY::"
+      valueFrom = "arn:aws:secretsmanager:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:secret:AI_SECRETS_${upper(var.environment)}:CLICKUP_API_KEY::"
     },
     {
       name      = "GITHUB_APP_PRIVATE_KEY"
-      valueFrom = "arn:aws:secretsmanager:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:secret:AI_SECRETS_${upper(var.environment)}:GITHUB_APP_PRIVATE_KEY::"
+      valueFrom = "arn:aws:secretsmanager:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:secret:AI_SECRETS_${upper(var.environment)}:GITHUB_APP_PRIVATE_KEY::"
     },
     {
       # Autopilot's OWN Slack app ("GP Autopilot"), not the shared gp_ai_bot
@@ -190,11 +190,11 @@ locals {
       # AUTOPILOT_SLACK_BOT_TOKEN key must exist in AI_SECRETS_<ENV> before
       # this revision deploys.
       name      = "SLACK_BOT_TOKEN"
-      valueFrom = "arn:aws:secretsmanager:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:secret:AI_SECRETS_${upper(var.environment)}:AUTOPILOT_SLACK_BOT_TOKEN::"
+      valueFrom = "arn:aws:secretsmanager:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:secret:AI_SECRETS_${upper(var.environment)}:AUTOPILOT_SLACK_BOT_TOKEN::"
     },
     {
       name      = "AMPLITUDE_MANAGEMENT_API_KEY"
-      valueFrom = "arn:aws:secretsmanager:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:secret:AI_SECRETS_${upper(var.environment)}:AMPLITUDE_MANAGEMENT_API_KEY::"
+      valueFrom = "arn:aws:secretsmanager:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:secret:AI_SECRETS_${upper(var.environment)}:AMPLITUDE_MANAGEMENT_API_KEY::"
     },
     {
       # Clerk machine secret (ak_...) for the "autopilot-qa" machine in the
@@ -207,7 +207,7 @@ locals {
       # dev deploy (test-fixtures 404s outside dev/preview), so prod rollout
       # changes nothing here.
       name      = "AUTOPILOT_MACHINE_SECRET"
-      valueFrom = "arn:aws:secretsmanager:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:secret:AI_SECRETS_${upper(var.environment)}:AUTOPILOT_MACHINE_SECRET::"
+      valueFrom = "arn:aws:secretsmanager:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:secret:AI_SECRETS_${upper(var.environment)}:AUTOPILOT_MACHINE_SECRET::"
     }
   ]
 
@@ -295,7 +295,7 @@ resource "aws_ecs_task_definition" "agent" {
         logDriver = "awslogs"
         options = {
           "awslogs-group"         = aws_cloudwatch_log_group.agent.name
-          "awslogs-region"        = data.aws_region.current.name
+          "awslogs-region"        = data.aws_region.current.region
           "awslogs-stream-prefix" = "ecs"
         }
       }
@@ -342,7 +342,7 @@ resource "aws_ecs_task_definition" "agent_playwright" {
         logDriver = "awslogs"
         options = {
           "awslogs-group"         = aws_cloudwatch_log_group.agent.name
-          "awslogs-region"        = data.aws_region.current.name
+          "awslogs-region"        = data.aws_region.current.region
           "awslogs-stream-prefix" = "ecs"
         }
       }
@@ -421,7 +421,7 @@ resource "aws_cloudwatch_event_target" "send_to_sns" {
   "stoppedReason": <stoppedReason>,
   "exitCode": <exitCode>,
   "time": <time>,
-  "logs": "https://console.aws.amazon.com/cloudwatch/home?region=${data.aws_region.current.name}#logsV2:log-groups/log-group/$252Fecs$252Fautopilot-agent-${var.environment}"
+  "logs": "https://console.aws.amazon.com/cloudwatch/home?region=${data.aws_region.current.region}#logsV2:log-groups/log-group/$252Fecs$252Fautopilot-agent-${var.environment}"
 }
 EOF
   }

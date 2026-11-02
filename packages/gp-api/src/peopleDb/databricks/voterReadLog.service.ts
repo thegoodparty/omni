@@ -9,7 +9,8 @@ import type { PeopleDataset } from '../services/peopleDataset.service'
 type VoterReadLog = {
   op: string
   districtId: string
-  dataset: PeopleDataset
+  dataset: PeopleDataset['base']
+  contactOverlay: boolean
   dbxMs: number
   statementIds: string[]
 }
@@ -61,7 +62,8 @@ export class VoterReadLogService {
     const entry: VoterReadLog = {
       op: args.op,
       districtId: args.districtId,
-      dataset: args.dataset,
+      dataset: args.dataset.base,
+      contactOverlay: args.dataset.overlayOrgSlug !== undefined,
       dbxMs: Math.round(performance.now() - startedAt),
       statementIds,
     }

@@ -4,7 +4,8 @@ import {
   Injectable,
   Optional,
 } from '@nestjs/common'
-import { formatISO } from 'date-fns'
+import { PinoLogger } from 'nestjs-pino'
+import { format, formatISO } from 'date-fns'
 import {
   checkSmsStandards,
   OrdinanceAuthorityFindingSchema,
@@ -13,7 +14,6 @@ import {
   type PriorityCheckSide,
   type PriorityStepId,
   type ProposalChannel,
-  type WalkableAreaBox,
 } from '@goodparty_org/contracts'
 import { ChatScope } from '../../../generated/prisma'
 import type { LlmStreamTool, LlmTool } from '@/llm/services/llm.service'
@@ -25,6 +25,7 @@ import {
 import { PriorityStatusService } from '@/priorities/services/priorityStatus.service'
 import { PriorityResultsService } from '@/priorities/services/priorityResults.service'
 import { ContactsService } from '@/contacts/services/contacts.service'
+import { ManagedCivicPanelService } from '@/contacts/services/managedCivicPanel.service'
 import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
 import { PeopleDatasetService } from '@/peopleDb/services/peopleDataset.service'
 import { FeaturesService } from '@/features/services/features.service'
@@ -50,6 +51,7 @@ import {
   CommunityIssueReadPort,
 } from '../chief-of-staff/services/communityIssueRead.port'
 import { buildReadCommunityIssuesTool } from '../chief-of-staff/services/communityIssueRead.tool'
+import { managedPanelTimeline } from '../chief-of-staff/services/managedCivicPanel.tools'
 import {
   buildDescribeFilterDimensionsTool,
   registeredFilterConsumers,
@@ -68,10 +70,7 @@ import {
 } from '../chat-tools/presentOutreachProposal.tool'
 import { buildPresentPastOutreachTool } from '../chat-tools/presentPastOutreach.tool'
 import { buildSizeOutreachSampleTool } from '../chat-tools/sizeOutreachSample.tool'
-import {
-  buildSizeRoundOneTool,
-  sameWalkableArea,
-} from '../chat-tools/sizeRoundOne.tool'
+import { buildSizeRoundOneTool } from '../chat-tools/sizeRoundOne.tool'
 import { buildReadPastOutreachTool } from '../chat-tools/readPastOutreach.tool'
 import { buildReadOutreachFeedbackTool } from '../chat-tools/readOutreachFeedback.tool'
 import {
@@ -82,8 +81,10 @@ import { OutreachReportBackService } from '@/outreach/services/outreachReportBac
 import {
   PriorityFlowContext,
   PriorityFlowContextService,
+  type PriorityManagedCivicPanel,
 } from './services/priorityFlowContext.service'
 import { PriorityFlowOutreachService } from './services/priorityFlowOutreach.service'
+import { resolveSendWindowTimeZone } from '@/vendors/peerly/utils/sendWindowTimeZone.util'
 import { buildPriorityFlowSystemPrompt } from './priorityFlow.prompt'
 import { voterFilterBaseSchema } from '@/shared/schemas/voterFilterBase.schema'
 
@@ -127,32 +128,7 @@ const unsignedDraftReason = (
         `they are calling for: "${officialName}, your" and their office.`
 }
 
-// A door card's walkable area is gp-api's pick, never the model's: it has
-// to be one size_round_one returned this turn, on a door card, kept to it
-// whole rather than sampled.
-const walkableAreaRefusal = (
-  input: {
-    channel: ProposalChannel
-    walkableArea: WalkableAreaBox
-    sampleSize?: number
-    areaTarget?: 'unreached'
-  },
-  sizedAreas: WalkableAreaBox[],
-): string | null => {
-  if (input.channel !== 'doorKnocking') {
-    return 'walkableArea is for door knocking only. Leave it out and present again.'
-  }
-  if (input.sampleSize !== undefined || input.areaTarget !== undefined) {
-    return (
-      'A door card in a walkable area knocks every door in it. Leave out ' +
-      'sampleSize and areaTarget and present again.'
-    )
-  }
-  return sizedAreas.some((area) => sameWalkableArea(area, input.walkableArea))
-    ? null
-    : 'That walkableArea is not one size_round_one returned in this turn. ' +
-        'Call size_round_one and present the door card exactly as it returns it.'
-}
+const MANAGED_PANEL_CACHE_SIZE = 1000
 
 @Injectable()
 export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext> {
@@ -164,6 +140,14 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
   // read_past_outreach, web_search and then a present_* card, and a turn that
   // exhausts its budget mid-research never presents anything.
   readonly maxSteps = 30
+
+  // The managed civic panel moves at most once a day, so it is read when
+  // the page opens the conversation and reused for the turns after. In
+  // memory: a task that has not seen the conversation reads it again.
+  private readonly managedPanelByConversation = new Map<
+    string,
+    PriorityManagedCivicPanel | null
+  >()
 
   constructor(
     private readonly store: GeneralChatStoreService,
@@ -192,7 +176,64 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
     private readonly reportBack?: OutreachReportBackService,
     @Optional()
     private readonly priorityResults?: PriorityResultsService,
+    @Optional()
+    private readonly managedPanels?: ManagedCivicPanelService,
+    @Optional()
+    private readonly logger?: PinoLogger,
   ) {}
+
+  private async sessionManagedCivicPanel(
+    conversationId: string,
+    organization: PriorityFlowContext['organization'],
+  ): Promise<PriorityManagedCivicPanel | null | undefined> {
+    if (this.managedPanelByConversation.has(conversationId)) {
+      return this.managedPanelByConversation.get(conversationId)
+    }
+    const panel = await this.readManagedCivicPanel(organization)
+    if (panel === undefined) return undefined
+    if (this.managedPanelByConversation.size >= MANAGED_PANEL_CACHE_SIZE) {
+      const [oldest] = this.managedPanelByConversation.keys()
+      if (oldest !== undefined) this.managedPanelByConversation.delete(oldest)
+    }
+    this.managedPanelByConversation.set(conversationId, panel)
+    return panel
+  }
+
+  // Null when nothing is being built. A failed read is undefined, as if it
+  // were not wired in, so the agent never tells an official they have none.
+  private async readManagedCivicPanel(
+    organization: PriorityFlowContext['organization'],
+  ): Promise<PriorityManagedCivicPanel | null | undefined> {
+    if (!this.managedPanels) return undefined
+    try {
+      const { panel } = await this.managedPanels.read(organization)
+      if (!panel || panel.status === 'stopped') return null
+      const { firstSendDate, readyWeekOf } = managedPanelTimeline(
+        panel.approvedAt,
+      )
+      const { members, goalMembers, wavesSent, nextWaveAt } = panel.progress
+      return {
+        status: panel.status,
+        members,
+        goalMembers,
+        nextSendDate:
+          panel.status !== 'building'
+            ? null
+            : wavesSent === 0
+              ? firstSendDate
+              : nextWaveAt
+                ? format(nextWaveAt, 'EEEE, MMMM d')
+                : null,
+        readyWeekOf,
+      }
+    } catch (err) {
+      this.logger?.warn(
+        { err, organizationSlug: organization.slug },
+        'managed civic panel read failed',
+      )
+      return undefined
+    }
+  }
 
   // ONE conversation per priority, for the life of the priority. The ordinance
   // flow keys a thread to an (ordinance, step) because each of its steps is a
@@ -219,6 +260,7 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
     })
     const [existing] = candidates
     if (existing) {
+      this.managedPanelByConversation.delete(existing.id)
       return { conversationId: existing.id, created: false }
     }
 
@@ -253,7 +295,7 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
     // without a district and describe the same dataset.
     const peopleDataset = this.peopleDatasets
       ? await this.peopleDatasets.resolve(ctx.organization)
-      : 'voters'
+      : { base: 'voters' as const }
     const outreachFeedbackEnabled = this.features
       ? await this.features.isFeatureEnabled({
           user: userId,
@@ -263,8 +305,8 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
     const civicPanelMembers = outreachFeedbackEnabled
       ? await this.contextService.countCivicPanelMembers(ctx.organizationSlug)
       : undefined
-    const panelHoursPerWeek = outreachFeedbackEnabled
-      ? await this.contextService.panelHoursPerWeek(ctx.electedOfficeId)
+    const managedCivicPanel = outreachFeedbackEnabled
+      ? await this.sessionManagedCivicPanel(conversationId, ctx.organization)
       : undefined
     const reportBacks =
       outreachFeedbackEnabled && this.reportBack
@@ -282,24 +324,35 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
             ])
           ).get(ctx.priorityId)
         : undefined
+    // Read in the office's own zone, so the thread never calls a send out
+    // that the prompt's date line has not reached yet.
+    const anchorSummaries = await this.outreach.summarizeAnchors(
+      ctx.priorityId,
+      resolveSendWindowTimeZone(resolved?.state),
+    )
     if (!resolved) {
       return {
         ...ctx,
+        anchorSummaries,
         peopleDataset,
         outreachFeedbackEnabled,
         civicPanelMembers,
-        panelHoursPerWeek,
+        managedCivicPanel,
         reportBacks,
         readStatus,
       }
     }
     return {
       ...ctx,
+      anchorSummaries,
       outreachFeedbackEnabled,
       civicPanelMembers,
-      panelHoursPerWeek,
+      managedCivicPanel,
       reportBacks,
       readStatus,
+      // A bound position clears customPositionName, so for most offices the
+      // title only comes from the position the resolver just read.
+      officeTitle: ctx.officeTitle || resolved.positionName || null,
       jurisdiction: `${resolved.l2DistrictName}, ${resolved.state}`,
       state: resolved.state,
       districtFilters: this.districtResolver
@@ -307,7 +360,7 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
         : null,
       constituentToolEnabled:
         !!this.constituentProvider &&
-        this.constituentTables[peopleDataset].length > 0,
+        this.constituentTables[peopleDataset.base].length > 0,
       peopleDataset,
     }
   }
@@ -438,9 +491,6 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
     // reach the official in this turn". The status tool refuses to record a
     // check as asked until one has, which is what makes `asked` mean shown.
     let offeredThisTurn = false
-    // The walkable areas size_round_one picked this turn: the only areas a
-    // door card may carry.
-    const sizedAreas: WalkableAreaBox[] = []
     const ask = buildAskClarifyQuestionTool()
     const propose = buildPriorityOutreachProposalTool({
       citizenPanels: ctx.outreachFeedbackEnabled === true,
@@ -488,23 +538,6 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
           if (panelPart !== null) return { error: panelPart }
           const followUpPart = checkFollowUpPart(input, ctx.readStatus)
           if (followUpPart !== null) return { error: followUpPart }
-          if (input.walkableArea !== undefined) {
-            const area = walkableAreaRefusal(
-              { ...input, walkableArea: input.walkableArea },
-              sizedAreas,
-            )
-            if (area !== null) return { error: area }
-          } else if (
-            input.channel === 'doorKnocking' &&
-            sizedAreas.length > 0
-          ) {
-            // Without its area the list would be saved district-wide.
-            return {
-              error:
-                'This door card has no walkableArea. Present it with the ' +
-                'walkableArea size_round_one returned, exactly as given.',
-            }
-          }
           if (input.areaTarget === 'unreached') {
             const area = await this.unreachedAreaRefusal(ctx, input)
             if (area !== null) return { error: area }
@@ -554,6 +587,7 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
         outreach: this.outreach,
         priorityId: ctx.priorityId,
         organizationSlug: ctx.organizationSlug,
+        timeZone: resolveSendWindowTimeZone(ctx.state),
       }),
     }
 
@@ -563,15 +597,13 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
           contacts: this.contacts,
           priorityResults: this.priorityResults,
           organization: ctx.organization,
-          priorityId: ctx.priorityId,
-          planHoursPerWeek: ctx.panelHoursPerWeek ?? null,
-          onArea: (area) => sizedAreas.push(area),
         })
       }
       tools.read_outreach_feedback = buildReadOutreachFeedbackTool({
         outreach: this.outreach,
         priorityId: ctx.priorityId,
         organizationSlug: ctx.organizationSlug,
+        timeZone: resolveSendWindowTimeZone(ctx.state),
         goodRead: ctx.readStatus?.good,
       })
       if (this.reportBack) {
@@ -598,7 +630,7 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
     ) {
       const scope = buildConstituentDataScope(
         ctx.districtFilters,
-        this.constituentTables[ctx.peopleDataset],
+        this.constituentTables[ctx.peopleDataset.base],
         ctx.peopleDataset,
       )
       if (scope.allowedTables.size > 0) {

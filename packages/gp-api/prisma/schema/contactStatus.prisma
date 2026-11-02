@@ -96,6 +96,7 @@ enum ContactStatusSource {
   // A text reply: JOIN to a send that asked someone onto the civic panel, or
   // STOP, which takes them off it.
   sms
+  share_page
 }
 
 // Append-only change log. `fromValue` snapshots the *effective* value at

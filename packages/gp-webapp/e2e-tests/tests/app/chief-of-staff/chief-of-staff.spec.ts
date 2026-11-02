@@ -74,6 +74,7 @@ test.describe('Chief of Staff', () => {
     // reports itself on.
     const skippedPill = page.locator('[data-value="skipped"]')
     await expect(async () => {
+      if ((await skippedPill.getAttribute('data-state')) === 'on') return
       await skippedPill.click()
       await expect(skippedPill).toHaveAttribute('data-state', 'on', {
         timeout: 2_000,
@@ -93,12 +94,18 @@ test.describe('Chief of Staff', () => {
     })
     await NavigationHelper.dismissOverlays(page)
 
-    await page
-      .getByRole('button', { name: 'Open Chief of Staff chat' })
-      .click({ timeout: 15_000 })
-
+    // The page is loaded on domcontentloaded, so the click can land before
+    // React hydrates and be dropped, leaving the chat closed. Retry until the
+    // composer shows.
+    const openChat = page.getByRole('button', {
+      name: 'Open Chief of Staff chat',
+    })
     const composer = page.getByRole('textbox', { name: 'Ask a question' })
-    await expect(composer).toBeVisible({ timeout: 10_000 })
+    await expect(async () => {
+      if (!(await composer.isVisible()))
+        await openChat.click({ timeout: 2_000 })
+      await expect(composer).toBeVisible({ timeout: 3_000 })
+    }).toPass({ timeout: 25_000 })
 
     const prompt = 'What is most urgent this week?'
     await composer.fill(prompt)
@@ -211,6 +218,7 @@ test.describe('Chief of Staff', () => {
       // is a no-op, and nothing about the DOM says whether it has.
       const composer = page.getByRole('textbox', { name: 'Ask a question' })
       await expect(async () => {
+        if (await composer.isVisible()) return
         await page
           .getByRole('button', { name: 'Open Chief of Staff chat' })
           .click({ timeout: 5_000 })

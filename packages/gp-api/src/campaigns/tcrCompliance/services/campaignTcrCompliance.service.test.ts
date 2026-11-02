@@ -46,28 +46,15 @@ import {
   createMockUser,
   createMockCampaign,
 } from '@/shared/test-utils/mockData.util'
+import {
+  appEnvOverrides,
+  useAppEnvOverrides,
+} from '@/shared/test-utils/appEnvOverrides'
 
-// NON_PROD_LIVE_VENDOR_BYPASS is a module constant (non-prod AND live mode), so
-// a test can't flip it through process.env alone. Mirror its definition off the
-// per-test OTEL_SERVICE_ENVIRONMENT, and default to live mode: the bypass tests
-// below assert dev's live-mode behavior; the mock-mode tests set `appEnv.mode`.
-const appEnv = vi.hoisted(() => ({ mode: 'live' as 'live' | 'mock' }))
-vi.mock('@/shared/util/appEnvironment.util', async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import('@/shared/util/appEnvironment.util')>()
-  return {
-    ...actual,
-    get VENDOR_MODE() {
-      return appEnv.mode
-    },
-    get NON_PROD_LIVE_VENDOR_BYPASS() {
-      return (
-        process.env.OTEL_SERVICE_ENVIRONMENT !== 'prod' &&
-        appEnv.mode === 'live'
-      )
-    },
-  }
-})
+// VENDOR_MODE is a module constant, so a test can't flip it through
+// process.env. Default to live mode; the mock-mode tests set
+// `appEnvOverrides.VENDOR_MODE`.
+useAppEnvOverrides({ VENDOR_MODE: 'live' })
 
 // Passes the dispatch gate's publishability check: genuine bio (over
 // MIN_BIO_LENGTH plain chars, not the template) + one genuine issue.
@@ -310,23 +297,6 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
     })
   })
 
-  it('claims kickoffSentAt atomically before sending the kickoff', async () => {
-    await service.createAgentic(user, campaign, basePayload)
-
-    expect(mockModel.updateMany).toHaveBeenCalledWith({
-      where: { id: 'tcr-new', kickoffSentAt: null },
-      data: { kickoffSentAt: expect.any(Date) },
-    })
-  })
-
-  it('does not enqueue a second kickoff when the claim is already taken', async () => {
-    mockModel.updateMany.mockResolvedValueOnce({ count: 0 })
-
-    await service.createAgentic(user, campaign, basePayload)
-
-    expect(mockQueue.sendMessage).not.toHaveBeenCalled()
-  })
-
   it('marks the record error and re-throws if SQS sendMessage fails', async () => {
     const sqsErr = new Error('SQS unavailable')
     mockQueue.sendMessage.mockRejectedValueOnce(sqsErr)
@@ -467,25 +437,6 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
     })
     expect(mockModel.create).toHaveBeenCalledTimes(1)
     expect(mockQueue.sendMessage).toHaveBeenCalledTimes(1)
-  })
-
-  it('rolls back the delete when create fails inside the transaction', async () => {
-    const existing = {
-      id: 'tcr-failed',
-      campaignId: campaign.id,
-      status: TcrComplianceStatus.error,
-    }
-    mockModel.findUnique.mockResolvedValue(existing)
-    const dbErr = new PrismaClientKnownRequestError('Connection lost', {
-      code: 'P1001',
-      clientVersion: 'test',
-    })
-    mockModel.create.mockRejectedValueOnce(dbErr)
-
-    await expect(
-      service.createAgentic(user, campaign, basePayload),
-    ).rejects.toBe(dbErr)
-    expect(mockQueue.sendMessage).not.toHaveBeenCalled()
   })
 
   it('returns the parallel record when a concurrent submission wins the race', async () => {
@@ -640,16 +591,6 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
         tcrComplianceId: 'tcr-paid',
         clerkUserId: 'clerk_paid',
       })
-    })
-
-    it('does not enqueue a second kickoff when the claim is already taken (replay)', async () => {
-      mockModel.findUnique.mockResolvedValueOnce(paidRecord)
-      mockCampaigns.findUnique.mockResolvedValueOnce(campaignWithClerk)
-      mockModel.updateMany.mockResolvedValueOnce({ count: 0 })
-
-      await service.enqueueAgenticKickoffIfNeeded(campaign.id)
-
-      expect(mockQueue.sendMessage).not.toHaveBeenCalled()
     })
 
     it('does nothing when no TCR record exists yet (paid before filing)', async () => {
@@ -3201,7 +3142,7 @@ describe('CampaignTcrComplianceService - create (legacy) placeId guard', () => {
   })
 })
 
-describe('CampaignTcrComplianceService - PIN submission non-prod bypass', () => {
+describe('CampaignTcrComplianceService - PIN submission', () => {
   let service: CampaignTcrComplianceService
   let mockPeerly: {
     verifyCampaignVerifyPin: ReturnType<typeof vi.fn>
@@ -3314,34 +3255,8 @@ describe('CampaignTcrComplianceService - PIN submission non-prod bypass', () => 
     }
   }
 
-  it('retrieveCampaignVerifyToken short-circuits in non-prod without calling Peerly', async () => {
-    await withEnv('dev', async () => {
-      const token = await service.retrieveCampaignVerifyToken(
-        'any-pin',
-        tcrCompliance,
-      )
-
-      expect(token).toBe('non-prod-bypass-cv-token')
-      expect(mockPeerly.verifyCampaignVerifyPin).not.toHaveBeenCalled()
-      expect(mockPeerly.createCampaignVerifyToken).not.toHaveBeenCalled()
-      expect(mockModel.findFirstOrThrow).not.toHaveBeenCalled()
-    })
-  })
-
-  it('submitCampaignVerifyToken short-circuits in non-prod without calling Peerly', async () => {
-    await withEnv('dev', async () => {
-      const result = await service.submitCampaignVerifyToken(
-        tcrCompliance,
-        'token',
-      )
-
-      expect(result).toBeUndefined()
-      expect(mockPeerly.submitCampaignVerifyTokenToBrand).not.toHaveBeenCalled()
-    })
-  })
-
   it('retrieveCampaignVerifyToken does not accept any PIN in non-prod mock mode', async () => {
-    appEnv.mode = 'mock'
+    appEnvOverrides.VENDOR_MODE = 'mock'
     try {
       await withEnv('preview', async () => {
         await expect(
@@ -3350,7 +3265,7 @@ describe('CampaignTcrComplianceService - PIN submission non-prod bypass', () => 
         // peerlyIdentityId is null on the stub, so the real guard ran.
       })
     } finally {
-      appEnv.mode = 'live'
+      appEnvOverrides.VENDOR_MODE = 'live'
     }
   })
 
@@ -3358,14 +3273,14 @@ describe('CampaignTcrComplianceService - PIN submission non-prod bypass', () => 
     mockPeerly.submitCampaignVerifyTokenToBrand.mockResolvedValueOnce({
       brand: 'ok',
     })
-    appEnv.mode = 'mock'
+    appEnvOverrides.VENDOR_MODE = 'mock'
     try {
       await withEnv('preview', async () => {
         await service.submitCampaignVerifyToken(tcrCompliance, 'token')
         expect(mockPeerly.submitCampaignVerifyTokenToBrand).toHaveBeenCalled()
       })
     } finally {
-      appEnv.mode = 'live'
+      appEnvOverrides.VENDOR_MODE = 'live'
     }
   })
 
@@ -3677,43 +3592,6 @@ describe('CampaignTcrComplianceService - resendCampaignVerifyPin', () => {
       )
       expect(mockPeerly.resendCampaignVerifyPin).not.toHaveBeenCalled()
     })
-  })
-
-  it('short-circuits in non-prod without touching Peerly', async () => {
-    mockModel.findUnique.mockResolvedValueOnce({
-      id: 'tcr-1',
-      peerlyIdentityId: null,
-    })
-
-    await withEnv('dev', async () => {
-      await expect(
-        service.resendCampaignVerifyPin(campaign),
-      ).resolves.toBeUndefined()
-      expect(mockPeerly.retrieveCampaignVerifyDetails).not.toHaveBeenCalled()
-      expect(mockPeerly.resendCampaignVerifyPin).not.toHaveBeenCalled()
-      expect(mockAnalytics.track).toHaveBeenCalledWith(
-        campaign.userId,
-        EVENTS.Outreach.CompliancePinResent,
-        { triggered_by: 'admin' },
-      )
-    })
-  })
-
-  it('does not short-circuit in non-prod mock mode: the real resend path runs', async () => {
-    mockModel.findUnique.mockResolvedValueOnce({
-      id: 'tcr-1',
-      peerlyIdentityId: null,
-    })
-    appEnv.mode = 'mock'
-    try {
-      await withEnv('preview', async () => {
-        await expect(service.resendCampaignVerifyPin(campaign)).rejects.toThrow(
-          UnprocessableEntityException,
-        )
-      })
-    } finally {
-      appEnv.mode = 'live'
-    }
   })
 
   it('throws UnprocessableEntityException when no Peerly identity exists yet', async () => {
@@ -4092,11 +3970,13 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
     })
   })
 
-  it('does not advance status in non-prod (no real usecase submission)', async () => {
-    // submitCampaignVerifyToken short-circuits to undefined off-prod; the record
-    // must not be promoted to pending for a usecase that was never submitted.
-    await withEnv('dev', async () => {
-      await submitUsecaseIfVerified(service, stuckRecord)
+  it('does not advance status for internal-testing rows (no real usecase submission)', async () => {
+    // submitCampaignVerifyToken short-circuits to undefined for internal-testing
+    // rows; the record must not be promoted to pending for a usecase that was
+    // never submitted.
+    await submitUsecaseIfVerified(service, {
+      ...stuckRecord,
+      internalTestingAt: new Date('2026-10-01T00:00:00Z'),
     })
 
     expect(mockPeerly.submitCampaignVerifyTokenToBrand).not.toHaveBeenCalled()

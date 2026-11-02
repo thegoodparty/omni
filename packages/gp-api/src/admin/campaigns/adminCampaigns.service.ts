@@ -1,8 +1,8 @@
 import { Injectable } from '@nestjs/common'
 import { AdminUpdateCampaignSchema } from './schemas/adminUpdateCampaign.schema'
-import { Prisma } from '../../generated/prisma'
+import { ElectedOfficeWinSource, Prisma } from '../../generated/prisma'
+import { WinOfficeService } from '@/electedOffice/services/winOffice.service'
 import { CampaignsService } from 'src/campaigns/services/campaigns.service'
-import { CrmCampaignsService } from '../../campaigns/services/crmCampaigns.service'
 import { VoterFileDownloadAccessService } from '../../shared/services/voterFileDownloadAccess.service'
 import { EVENTS } from 'src/vendors/segment/segment.types'
 import { AnalyticsService } from 'src/analytics/analytics.service'
@@ -10,15 +10,17 @@ import { PinoLogger } from 'nestjs-pino'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
 import { StripeService } from 'src/vendors/stripe/services/stripe.service'
 
+const DELETE_CAMPAIGN_TX_TIMEOUT_MS = 60_000
+
 @Injectable()
 export class AdminCampaignsService {
   constructor(
     private readonly campaigns: CampaignsService,
     private readonly voterFileDownloadAccess: VoterFileDownloadAccessService,
-    private readonly crm: CrmCampaignsService,
     private readonly analytics: AnalyticsService,
     private readonly organizations: OrganizationsService,
     private readonly stripe: StripeService,
+    private readonly winOffices: WinOfficeService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(AdminCampaignsService.name)
@@ -31,20 +33,6 @@ export class AdminCampaignsService {
     if (typeof isVerified !== 'undefined') {
       attributes.isVerified = isVerified
       attributes.dateVerified = isVerified === null ? null : new Date()
-    }
-    if (typeof isPro !== 'undefined') {
-      attributes.isPro = isPro
-    }
-    // ENG-11344: an admin comp to Pro must grant the 5,000 free-texts offer the
-    // same way a paid upgrade does (CampaignsService.setIsPro). Writing isPro
-    // directly skipped the grant, so the campaign's first 5K text was full price.
-    if (isPro === true) {
-      const existing = await this.campaigns.findUniqueOrThrow({
-        where: { id },
-      })
-      if (!existing.isPro && !existing.freeTextsOfferRedeemedAt) {
-        attributes.hasFreeTextsOffer = true
-      }
     }
     if (typeof didWin !== 'undefined') {
       attributes.didWin = didWin
@@ -70,10 +58,23 @@ export class AdminCampaignsService {
       }
     }
 
-    const updatedCampaign = await this.campaigns.update({
-      where: { id },
-      data: attributes,
-    })
+    // A comped Pro upgrade has to be the same transition as a paid one.
+    // Writing `isPro` straight to the row skipped `setIsPro`, so it never
+    // stamped `details.isProUpdatedAt` (HubSpot's `pro_upgrade_date`), never
+    // granted the free-texts offer (ENG-11344) and never announced in Slack;
+    // the CRM sync then published the campaign as Pro with no upgrade date,
+    // permanently. The other attributes ride the same commit, so there is no
+    // window where the flip has landed and isVerified/didWin/tier have not.
+    // Either branch identifies and syncs the CRM itself.
+    const updatedCampaign =
+      typeof isPro === 'undefined'
+        ? await this.campaigns.update({ where: { id }, data: attributes })
+        : (await this.campaigns.setIsPro(id, isPro, true, attributes)).campaign
+
+    if (typeof didWin !== 'undefined') {
+      await this.winOffices.reconcile(id, ElectedOfficeWinSource.staff)
+    }
+
     if (isPro === true) {
       try {
         await this.analytics.track(
@@ -92,9 +93,25 @@ export class AdminCampaignsService {
         // Don't throw - we don't want to fail the admin operation for analytics issues
       }
     }
-    await this.crm.trackCampaign(updatedCampaign.id)
-
     return updatedCampaign
+  }
+
+  // details.subscriptionId is the only link from a live Pro subscription back
+  // to an account, and it is deleted with the row. Deleting without a cancel
+  // left Stripe billing a campaign nobody could see or cancel (ENG-11454).
+  // Same ordering as UsersService.deleteUser: the delete goes first so a
+  // cascade the DB refuses never reaches Stripe, and the cancel runs before
+  // the commit so a Stripe failure rolls the delete back.
+  async delete(id: number) {
+    await this.campaigns.client.$transaction(
+      async (tx) => {
+        const { details } = await tx.campaign.delete({ where: { id } })
+        if (details?.subscriptionId) {
+          await this.stripe.cancelSubscription(details.subscriptionId)
+        }
+      },
+      { timeout: DELETE_CAMPAIGN_TX_TIMEOUT_MS },
+    )
   }
 
   async proNoVoterFile() {

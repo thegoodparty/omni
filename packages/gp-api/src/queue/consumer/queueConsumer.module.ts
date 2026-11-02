@@ -26,6 +26,9 @@ import { ChatsModule } from 'src/chats/chats.module'
 import { OutreachModule } from 'src/outreach/outreach.module'
 import { PeerlyModule } from 'src/vendors/peerly/peerly.module'
 import { ConstituentFeedbackModule } from 'src/constituentFeedback/constituentFeedback.module'
+import { EmailOutreachModule } from '@/emailOutreach/emailOutreach.module'
+import { ContactUploadsModule } from '@/contactUploads/contactUploads.module'
+import { MessageSystemAttributeName } from '@aws-sdk/client-sqs'
 
 @Module({
   imports: [
@@ -34,6 +37,11 @@ import { ConstituentFeedbackModule } from 'src/constituentFeedback/constituentFe
         {
           ...queueConfig,
           pollingWaitTimeMs: 1000,
+          // Read by handlers that act on their last delivery before the
+          // DLQ (contactUploadProcess).
+          messageSystemAttributeNames: [
+            MessageSystemAttributeName.ApproximateReceiveCount,
+          ],
         },
       ],
     }),
@@ -68,6 +76,10 @@ import { ConstituentFeedbackModule } from 'src/constituentFeedback/constituentFe
     // For FeedbackSynthesisIngestService, the `feedbackSynthesisComplete`
     // handler.
     ConstituentFeedbackModule,
+    // For EmailOutreachQueueService, the email handlers.
+    EmailOutreachModule,
+    // For ContactUploadProcessJobService, the `contactUploadProcess` handler.
+    ContactUploadsModule,
   ],
   providers: [QueueConsumerService],
 })

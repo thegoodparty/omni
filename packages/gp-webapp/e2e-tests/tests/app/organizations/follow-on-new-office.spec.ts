@@ -10,6 +10,7 @@ import {
   NavigationHelper,
 } from 'src/helpers/navigation.helper'
 import { eventually } from 'tests/utils/eventually'
+import { applyElectionPreset } from 'tests/utils/headless-user'
 
 // E2E coverage for the "Run for a new office" branch of the follow-on flow
 // (ENG-10389 task 11; ENG-10539 dropped the intent screen). Unlike same-office,
@@ -24,6 +25,12 @@ test.beforeEach(async ({ page }) => {
 })
 
 const RACE = { zip: '82001', office: 'Cheyenne City Council - Ward 1' }
+
+// The new seat comes from the Win picker, which lists general races only.
+// Charlotte's city general (Nov 2027) is the `28202-city-council` reference in
+// real-world-references.json. Another zip than the held office's, so any seat
+// it lists is a different one.
+const NEW_SEAT = { zip: '28202', office: /Charlotte City Council/i }
 
 const continueButton = (page: Page) =>
   page.getByRole('button', { name: /continue/i }).first()
@@ -63,13 +70,14 @@ test('new-office follow-on: office picker shown, new active org', async ({
 
   // "I won my race" launches the campaign with a still-future electionDate, so
   // it reads "active" and canStartCampaign stays false (the actions are hidden).
-  // Backdate it (the production state once the election has happened) so
-  // eligibility opens up. PUT /v1/campaigns/mine merges details and resolves the
-  // campaign from x-organization-slug, so point the header at the won campaign.
+  // Declare the won race as passed (the production state once the election has
+  // happened) so eligibility opens up.
   client.defaults.headers['x-organization-slug'] = wonCampaignOrg.slug
-  await client.put('/v1/campaigns/mine', {
-    details: { electionDate: '2020-11-03' },
-  })
+  await applyElectionPreset(
+    client,
+    Number(wonCampaignOrg.slug.replace('campaign-', '')),
+    'passed_won',
+  )
 
   // 1–2: reload so the picker's eligibility query refetches, then open the
   // switcher and start the new-office flow.
@@ -117,28 +125,16 @@ test('new-office follow-on: office picker shown, new active org', async ({
       name: /what office are you running/i,
     }),
   ).toBeVisible({ timeout: 15_000 })
-  await page.getByLabel(/zip code/i).fill(RACE.zip)
+  await page.getByLabel(/zip code/i).fill(NEW_SEAT.zip)
   await page.getByRole('button', { name: /search/i }).click()
 
   const officeGroup = page.getByRole('radiogroup', {
     name: /available offices/i,
   })
-  await officeGroup
-    .getByRole('radio')
+  const differentOffice = officeGroup
+    .getByRole('radio', { name: NEW_SEAT.office })
     .first()
-    .waitFor({ state: 'visible', timeout: 30_000 })
-  // Need ≥2 results to pick a seat other than the held one; assert it so a
-  // single-office API response fails immediately and clearly instead of the
-  // hasNotText filter matching nothing and timing out with no signal.
-  const allOffices = officeGroup.getByRole('radio')
-  const officeCount = await allOffices.count()
-  if (officeCount < 2) {
-    throw new Error(
-      `zip ${RACE.zip} returned only ${officeCount} office(s) from the election API — need at least 2 to pick a different seat`,
-    )
-  }
-  const differentOffice = allOffices.filter({ hasNotText: RACE.office }).first()
-  await expect(differentOffice).toBeVisible()
+  await differentOffice.waitFor({ state: 'visible', timeout: 30_000 })
   await differentOffice.click()
   // Selecting an office hydrates its race via race-by-position; FollowOnFlow
   // keeps Continue disabled (canContinue → !isHydratingOffice) until that lands,

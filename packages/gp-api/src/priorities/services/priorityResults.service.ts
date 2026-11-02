@@ -8,7 +8,6 @@ import { ModuleRef } from '@nestjs/core'
 import { addMinutes, getTime, isAfter, max } from 'date-fns'
 import {
   answersNeeded,
-  PANEL_MIN_MEMBERS_FOR_BALANCE,
   type GeoJsonShape,
   type PriorityReadStatus,
   type PriorityResults,
@@ -30,11 +29,8 @@ import {
   SynthesisScope,
 } from '../../generated/prisma'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
-import {
-  ContactsService,
-  type ContactsFilterResolutionInput,
-} from '@/contacts/services/contacts.service'
-import { doorTractFor } from '@/contacts/utils/civicPanelSteering.util'
+import { ContactsService } from '@/contacts/services/contacts.service'
+import { frameAnswersNeeded } from '@/contacts/utils/civicPanelAllocation.util'
 import { MIN_CONFIRMED_FOR_SYNTHESIS } from '@/constituentFeedback/services/feedbackReport.service'
 import type { PersonAnswer } from '@/peopleDb/databricks/districtCensusSql.util'
 import {
@@ -47,6 +43,7 @@ import {
   answerGroups,
   holdingBackTracts,
   mrpReadStatus,
+  themeVoices,
   type MrpRead,
 } from '../util/mrpReadStatus.util'
 import type { WeightingCensus } from '../util/censusWeighting.util'
@@ -92,6 +89,8 @@ interface CodedAnswers {
 }
 
 const NO_CODED_ANSWERS: CodedAnswers = { answers: [], key: 'none' }
+
+type ThemePeople = PriorityTheme & { personIds: string[] }
 
 @Injectable()
 export class PriorityResultsService extends createPrismaBase(MODELS.Priority) {
@@ -177,7 +176,7 @@ export class PriorityResultsService extends createPrismaBase(MODELS.Priority) {
       },
       sends: perSend.map(({ send }) => send),
       respondents: { total: ids.length, byChannel, joinedCivicPanel },
-      themes,
+      themes: await this.withVoices(organization, read, themes),
       summarizing,
       points: points.map(({ lat, lng }) => ({
         lat: roundCoordinate(lat),
@@ -387,55 +386,6 @@ export class PriorityResultsService extends createPrismaBase(MODELS.Priority) {
     }
   }
 
-  // The one walkable area of `households` doors a priority's first round
-  // knocks, picked as the civic panel plan picks its door step's: in the
-  // tract the priority's answers trail most once there are enough of them
-  // to say, else, or when that tract holds too few doors, across the
-  // district.
-  async roundOneDoorArea(
-    organization: Organization,
-    priorityId: string,
-    criteria: ContactsFilterResolutionInput,
-    households: number,
-  ): Promise<{ lat: number; lng: number; personIds: string[] }[]> {
-    const contacts = this.resolveContacts()
-    const tract = await this.trailingTract(organization, priorityId)
-    if (tract !== null) {
-      const inTract = await contacts.walkableAreaWithin(
-        organization,
-        criteria,
-        [],
-        households,
-        tract,
-      )
-      if (inTract.length >= households) return inTract
-    }
-    return contacts.walkableAreaWithin(organization, criteria, [], households)
-  }
-
-  private async trailingTract(
-    organization: Organization,
-    priorityId: string,
-  ): Promise<string | null> {
-    const people = [
-      ...new Set(
-        (
-          (await this.sendsFor(organization.slug, [priorityId])).get(
-            priorityId,
-          ) ?? []
-        ).flatMap((send) => send.respondentIds),
-      ),
-    ]
-    if (people.length < PANEL_MIN_MEMBERS_FOR_BALANCE) return null
-    const district =
-      await this.resolveContacts().resolveEligibleDistrict(organization)
-    const mix = await this.census.weightingInputs({
-      ...district,
-      personIds: people,
-    })
-    return mix ? doorTractFor(mix) : null
-  }
-
   // The neighborhoods the model has too few answers from, or is unsure of,
   // for a list saved to hear from them: the same tracts the status names.
   // 404 on a priority another org holds.
@@ -548,6 +498,7 @@ export class PriorityResultsService extends createPrismaBase(MODELS.Priority) {
     const read: MrpRead = {
       result: estimateMrp(inputs.answers, inputs.frame, {}),
       raceNameable: inputs.raceNameable,
+      answersNeeded: frameAnswersNeeded(inputs.frame),
     }
     for (const [stale, entry] of this.reads) {
       if (!isAfter(entry.expiresAt, now)) this.reads.delete(stale)
@@ -567,7 +518,7 @@ export class PriorityResultsService extends createPrismaBase(MODELS.Priority) {
     organizationSlug: string,
     priorityId: string,
     answered: number,
-  ): Promise<{ themes: PriorityTheme[]; summarizing: boolean }> {
+  ): Promise<{ themes: ThemePeople[]; summarizing: boolean }> {
     const scope = {
       organizationSlug,
       priorityId,
@@ -615,26 +566,69 @@ export class PriorityResultsService extends createPrismaBase(MODELS.Priority) {
       // Same rule as the agent's read (themesWithPeople in
       // priorityFlowOutreach.service.ts): confirmed notes and replies,
       // distinct people, empty themes left out.
-      themes: (latest?.themes ?? []).flatMap((theme) => {
-        const people = new Set(
-          theme.members.flatMap((member) => {
-            const personId =
-              member.feedback?.personId ?? member.textReply?.personId
-            return personId === undefined ? [] : [personId]
-          }),
-        ).size
-        return people === 0
-          ? []
-          : [
-              {
-                id: theme.id,
-                title: theme.title,
-                summary: theme.summary,
-                people,
-              },
-            ]
-      }),
+      // Ranked by the people counted here, the run's own rank breaking ties:
+      // the run ranks by notes, before unconfirmed ones are left out.
+      themes: (latest?.themes ?? [])
+        .flatMap((theme) => {
+          const personIds = [
+            ...new Set(
+              theme.members.flatMap((member) => {
+                const personId =
+                  member.feedback?.personId ?? member.textReply?.personId
+                return personId === undefined ? [] : [personId]
+              }),
+            ),
+          ]
+          return personIds.length === 0
+            ? []
+            : [
+                {
+                  id: theme.id,
+                  title: theme.title,
+                  summary: theme.summary,
+                  people: personIds.length,
+                  personIds,
+                },
+              ]
+        })
+        .sort((a, b) => b.people - a.people),
     }
+  }
+
+  // Each theme with how many of the read's groups have enough of its
+  // people behind it. No read, or a warehouse read that fails, leaves the
+  // themes without one.
+  private async withVoices(
+    organization: Organization,
+    read: MrpRead | null,
+    themes: ThemePeople[],
+  ): Promise<PriorityTheme[]> {
+    const bare = themes.map(({ id, title, summary, people }) => ({
+      id,
+      title,
+      summary,
+      people,
+    }))
+    if (read === null || themes.length === 0) return bare
+    const district = await this.resolveContacts()
+      .resolveEligibleDistrict(organization)
+      .catch(() => null)
+    if (!district) return bare
+    const cells = await this.census.themeCells({
+      ...district,
+      themes: themes.map(({ personIds }) => personIds),
+    })
+    if (cells === null) return bare
+    return bare.map((theme, index) => {
+      const voices = themeVoices(
+        read,
+        cells.map(({ values, themes: people }) => ({
+          values,
+          people: people[index] ?? 0,
+        })),
+      )
+      return voices ? { ...theme, voices } : theme
+    })
   }
 
   // Resolved lazily: importing ContactsModule here closes the module cycle

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render } from 'helpers/test-utils/render'
 import { screen } from '@testing-library/react'
 import type { ChatStreamEvent } from '../../shared/agent-chat/chatClient'
@@ -94,6 +94,11 @@ beforeEach(() => {
     yield { type: 'tool_call', toolName: 'present_draft', args: draft }
     yield { type: 'done', assistantMessageId: draftTurn.id }
   })
+  vi.useFakeTimers({ shouldAdvanceTime: true })
+})
+
+afterEach(() => {
+  vi.useRealTimers()
 })
 
 describe('OrdinanceFlowChat — draft turn commit', () => {
@@ -109,16 +114,14 @@ describe('OrdinanceFlowChat — draft turn commit', () => {
     render(<OrdinanceFlowChat slug="public-safety-cameras" step="draft" />)
 
     // The draft card appears during the live turn.
-    expect(
-      await screen.findByText(draft.title, undefined, { timeout: 8000 }),
-    ).toBeVisible()
+    expect(await screen.findByText(draft.title)).toBeVisible()
 
     // It must still be there after the live turn commits to persisted history —
     // the swap must not blank the turn just because the first refetch missed it.
-    await new Promise((resolve) => setTimeout(resolve, 2500))
+    await vi.advanceTimersByTimeAsync(2500)
     expect(screen.getByText(draft.title)).toBeVisible()
     expect(screen.getByText('Draft for attorney')).toBeVisible()
-  }, 15000)
+  })
 
   it('keeps the finished turn on screen if persistence never lands within the poll window', async () => {
     // Pathological: the refetch never returns the turn (server persistence
@@ -130,15 +133,11 @@ describe('OrdinanceFlowChat — draft turn commit', () => {
     render(<OrdinanceFlowChat slug="public-safety-cameras" step="draft" />)
 
     // The lead-in text shows live…
-    expect(
-      await screen.findByText('Here is your first draft.', undefined, {
-        timeout: 8000,
-      }),
-    ).toBeVisible()
+    expect(await screen.findByText('Here is your first draft.')).toBeVisible()
 
     // …and survives the commit even though the poll never found the turn
     // (the whole ~8s poll window elapses, then the turn is settled locally).
-    await new Promise((resolve) => setTimeout(resolve, 11000))
+    await vi.advanceTimersByTimeAsync(11000)
     expect(screen.getByText('Here is your first draft.')).toBeVisible()
-  }, 20000)
+  })
 })

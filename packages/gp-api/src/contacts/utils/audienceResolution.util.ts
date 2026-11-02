@@ -74,7 +74,7 @@ import {
 // Mirrors outreachMaterialization.service.ts's paging shape (its
 // SEGMENT_PAGE_SIZE is the sibling constant).
 export const AUDIENCE_PAGE_SIZE = 1000
-export const MAX_AUDIENCE_RECIPIENTS = 100_000
+export const MAX_AUDIENCE_RECIPIENTS = 200_000
 
 // How many rows the loop may read, as a multiple of the rows reaching
 // maxRecipients would take if nothing were ever skipped. It has to be more

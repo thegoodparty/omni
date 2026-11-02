@@ -9,6 +9,8 @@ const READ: PriorityReadStatus = {
   needed: 40,
   groupsHeard: 9,
   groupsTotal: 12,
+  representativeAnswers: 10,
+  representativeNeeded: 40,
   good: false,
   status: 'notYetRepresentative',
   underrepresented: ['age65plus'],
@@ -54,6 +56,59 @@ describe('ReadStatusRailBlock', () => {
   })
 })
 
+describe('the rail seats', () => {
+  it('draws the answers that count as seats, with a key and no groups named', () => {
+    renderBlock({ ...READ, groupsNext: 1 })
+    const arc = screen.getByRole('img', {
+      name: '10 of the 40 answers we need',
+    })
+    expect(arc.querySelectorAll('circle')).toHaveLength(100)
+    expect(arc.querySelectorAll('[data-state="heard"]')).toHaveLength(25)
+    expect(arc.querySelectorAll('[data-state="needed"]')).toHaveLength(75)
+    expect(screen.getByText('10 of the 40 answers we need')).toBeInTheDocument()
+    expect(screen.queryByText(/groups heard/)).not.toBeInTheDocument()
+    expect(screen.getByText('Heard')).toBeInTheDocument()
+    expect(screen.getByText('Still needed')).toBeInTheDocument()
+    // Which groups are short is the results page's to say.
+    expect(
+      screen.queryByText('Need a few more answers from people 65 and over'),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.getByRole('progressbar', { name: '10 of the 40 answers we need' }),
+    ).toHaveClass('[&>[data-slot=progress-indicator]]:bg-destructive')
+  })
+
+  // jsdom applies no CSS, so this pins the classes that pick one by width.
+  it('shows the seats from lg up and the bar below it', () => {
+    renderBlock(READ)
+    const arc = screen.getByRole('img', {
+      name: '10 of the 40 answers we need',
+    })
+    expect(arc).toHaveClass('hidden', 'lg:block')
+    expect(screen.getByText('Heard').closest('ul')).toHaveClass(
+      'hidden',
+      'lg:flex',
+    )
+    const bar = screen.getByRole('progressbar', {
+      name: '10 of the 40 answers we need',
+    })
+    expect(bar).toHaveClass('lg:hidden')
+    expect(bar).not.toHaveClass('hidden')
+  })
+
+  it('keeps a good read as it is, with no seats', () => {
+    renderBlock({
+      ...READ,
+      good: true,
+      status: 'representative',
+      groupsHeard: 12,
+      underrepresented: [],
+    })
+    expect(screen.getByText('Every group heard')).toBeInTheDocument()
+    expect(screen.queryByRole('img')).not.toBeInTheDocument()
+  })
+})
+
 describe('Get answers', () => {
   const rail = (readStatus: PriorityReadStatus) => renderBlock(readStatus)
   const button = () => screen.queryByRole('button', { name: 'Get answers' })
@@ -67,7 +122,7 @@ describe('Get answers', () => {
     rail({ ...READ, checkOut: undefined, groupsHeard: 0 })
     expect(screen.getByText('No one asked yet')).toBeInTheDocument()
     expect(button()).not.toBeInTheDocument()
-    expect(screen.queryByText(/groups heard/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/answers we need/)).not.toBeInTheDocument()
   })
 
   it('gives way to the follow-up text while it is scheduled', () => {
@@ -118,6 +173,64 @@ describe('ReadStatusStrip', () => {
     )
     expect(
       screen.getByText(/^Follow-up text to 300 people/),
+    ).toBeInTheDocument()
+  })
+})
+
+// At 375px a line naming two groups is wider than the row, so it wraps to
+// two lines instead of cutting off the groups, and Get answers moves to the
+// row below. jsdom has no layout, so this pins the classes that do it.
+describe('ReadStatusStrip on a phone', () => {
+  const strip = (readStatus: PriorityReadStatus) =>
+    render(
+      <ReadStatusStrip
+        priorityId="pri-1"
+        readStatus={readStatus}
+        onGetAnswers={vi.fn()}
+      />,
+    )
+
+  // The red bar is the signal the read isn't done; which groups are short
+  // is the results page's to say.
+  it('shows a short read as the count and a red bar, with Get answers below it', () => {
+    strip({
+      ...READ,
+      status: 'gettingClose',
+      underrepresented: ['age65plus', 'age55to64'],
+    })
+    const line = screen.getByTestId('read-status-line')
+    expect(line).toHaveTextContent('10 of the 40 answers we need')
+    expect(line).toHaveClass('line-clamp-2')
+    expect(screen.queryByText(/people 65 and over/)).not.toBeInTheDocument()
+    const link = screen.getByRole('link', {
+      name: '10 of the 40 answers we need',
+    })
+    const button = screen.getByRole('button', { name: 'Get answers' })
+    expect(link).not.toContainElement(button)
+    expect(button).toBeEnabled()
+    const bar = screen.getByRole('progressbar', {
+      name: '10 of the 40 answers we need',
+    })
+    expect(bar).toHaveClass(
+      'bg-destructive/20',
+      '[&>[data-slot=progress-indicator]]:bg-destructive',
+    )
+    expect(bar).not.toHaveClass('[&>[data-slot=progress-indicator]]:bg-warning')
+  })
+
+  it('wraps a good read too, beside See what we heard', () => {
+    strip({
+      ...READ,
+      good: true,
+      status: 'representative',
+      underrepresented: [],
+    })
+    const line = screen.getByTestId('read-status-line')
+    expect(line).toHaveTextContent("You've heard from every group")
+    expect(line).toHaveClass('line-clamp-2')
+    expect(line).not.toHaveClass('truncate')
+    expect(
+      screen.getByRole('link', { name: 'See what we heard' }),
     ).toBeInTheDocument()
   })
 })

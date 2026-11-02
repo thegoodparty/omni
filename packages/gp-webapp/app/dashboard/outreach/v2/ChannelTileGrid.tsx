@@ -5,7 +5,10 @@ import { useRouter } from 'next/navigation'
 import { useQueryClient } from '@tanstack/react-query'
 import { MessageSquareOff } from 'lucide-react'
 import {
+  CalendarIcon,
   ChannelCard,
+  GiftIcon,
+  LockIcon,
   Tooltip,
   TooltipContent,
   TooltipTrigger,
@@ -30,6 +33,9 @@ import {
   formatSmsCutoffDate,
 } from 'app/dashboard/campaign-verification/verificationCopy'
 import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
+import { FREE_OFFER_BADGE } from 'app/dashboard/shared/robocallFreeOffer/freeOfferCopy'
+import { useRobocallFreeOffer } from 'app/dashboard/shared/robocallFreeOffer/useRobocallFreeOffer'
+import { MailIcon } from '@styleguide/components/ui/icons'
 import { CHANNEL_META } from './channelMeta'
 import type { AudiencePreselect } from './audiencePreselect'
 
@@ -44,6 +50,9 @@ interface ChannelTileGridProps {
   onCreateSms: (preselect?: AudiencePreselect) => void
   onCreateRobocall: (preselect?: AudiencePreselect) => void
   onCreatePhoneBanking: (preselect?: AudiencePreselect) => void
+  // Undefined while `win-email-outreach` is off or resolving, which keeps
+  // the tile out of the grid.
+  onCreateEmail?: () => void
 }
 
 const toPreselect = (
@@ -64,6 +73,7 @@ const preselectKey = (
 ): string => `${listId ?? ''}|${recommendedVariant ?? ''}`
 
 const SMS_TILE_CLOSED_COPY = 'Not available for this race'
+const PRO_TAG_COPY = 'Pro'
 
 // Hub tile order: social first (unlocked for everyone), then the Pro-locked
 // channels. Pricing sub-copy comes from OUTREACH_OPTIONS until phase 2 moves
@@ -84,6 +94,7 @@ export const ChannelTileGrid = ({
   onCreateSms,
   onCreateRobocall,
   onCreatePhoneBanking,
+  onCreateEmail,
 }: ChannelTileGridProps) => {
   const router = useRouter()
   const queryClient = useQueryClient()
@@ -96,6 +107,7 @@ export const ChannelTileGrid = ({
   // and opens neither the flow, the Pro wizard nor the compliance modal.
   const { smsCompliance, smsCutoffDate } = useSmsCompliance()
   const smsClosed = smsCompliance === 'closed'
+  const { offer: freeOffer } = useRobocallFreeOffer()
   // Milestone 2 moves the Pro/compliance gate INSIDE the text, robocall and
   // phone-banking flows: the tile stops refusing the click and opens the
   // flow, which pauses itself once there is something to save. Read without
@@ -268,7 +280,12 @@ export const ChannelTileGrid = ({
           Pick a channel to draft and send a new campaign.
         </p>
       </div>
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+      <div
+        className={cn(
+          'grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5',
+          onCreateEmail && 'xl:grid-cols-6',
+        )}
+      >
         {TILE_ORDER.map((type) => {
           const option = OUTREACH_OPTIONS.find((o) => o.type === type)
           const meta = CHANNEL_META[type]
@@ -282,36 +299,52 @@ export const ChannelTileGrid = ({
               type === OUTREACH_TYPES.doorKnocking)
           const isText = type === OUTREACH_TYPES.text
           const textClosed = isText && smsClosed
+          const locked =
+            !textClosed &&
+            !gatedInFlow &&
+            Boolean(
+              option?.requiresPro &&
+              (type === OUTREACH_TYPES.phoneBanking
+                ? !canUseProFeatures && !electedOfficePending
+                : !isPro),
+            )
+          const smsCountdown =
+            isText && smsCompliance === 'closing' && smsCutoffDate
+              ? SMS_CUTOFF_COPY.countdownTag(formatSmsCutoffDate(smsCutoffDate))
+              : null
+          const hasFreeOffer = type === OUTREACH_TYPES.robocall && !!freeOffer
+          // One tag per tile. The deadline and the offer outrank the lock: the
+          // two only meet when the gating flag falls back to off.
+          const tag = smsCountdown ? (
+            <>
+              <CalendarIcon />
+              {smsCountdown}
+            </>
+          ) : hasFreeOffer ? (
+            <>
+              <GiftIcon />
+              {FREE_OFFER_BADGE}
+            </>
+          ) : locked ? (
+            <>
+              <LockIcon />
+              {PRO_TAG_COPY}
+            </>
+          ) : undefined
           const card = (
             <ChannelCard
               key={type}
               icon={textClosed ? <MessageSquareOff /> : meta.icon}
               iconClassName={textClosed ? 'bg-grayscale-200' : meta.iconTint}
               label={meta.label}
-              subCopy={
-                textClosed
-                  ? SMS_TILE_CLOSED_COPY
-                  : isText && smsCompliance === 'closing' && smsCutoffDate
-                    ? SMS_CUTOFF_COPY.countdownChip(
-                        formatSmsCutoffDate(smsCutoffDate),
-                      )
-                    : undefined
-              }
+              tag={tag}
+              tagTone={hasFreeOffer && !smsCountdown ? 'info' : 'muted'}
+              subCopy={textClosed ? SMS_TILE_CLOSED_COPY : undefined}
               aria-disabled={textClosed || undefined}
               className={cn(
                 textClosed &&
                   'cursor-default bg-muted opacity-70 hover:border-border',
               )}
-              locked={
-                !textClosed &&
-                !gatedInFlow &&
-                Boolean(
-                  option?.requiresPro &&
-                  (type === OUTREACH_TYPES.phoneBanking
-                    ? !canUseProFeatures && !electedOfficePending
-                    : !isPro),
-                )
-              }
               onClick={() => handleTileClick(type, option?.requiresPro)}
             />
           )
@@ -328,6 +361,17 @@ export const ChannelTileGrid = ({
             card
           )
         })}
+        {onCreateEmail && (
+          <ChannelCard
+            icon={<MailIcon />}
+            iconClassName="bg-brand-lavender-200"
+            label="Email"
+            onClick={() => {
+              trackEvent(EVENTS.Outreach.ClickCreate, { type: 'email' })
+              onCreateEmail()
+            }}
+          />
+        )}
       </div>
       <ProUpgradeModal
         {...{

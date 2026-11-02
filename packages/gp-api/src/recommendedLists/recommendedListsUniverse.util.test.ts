@@ -160,6 +160,7 @@ describe('buildVariantFilter', () => {
       ElectionCode.General,
     )
     expect(filter).toEqual({
+      votedStatus: ['unknown'],
       voterStatus: ['Super', 'Likely'],
       supportStatus: ['undecided'],
       hasCellPhone: true,
@@ -195,6 +196,7 @@ describe('buildVariantFilter', () => {
       ElectionCode.General,
     )
     expect(filter).toEqual({
+      votedStatus: ['unknown'],
       supportStatus: ['supporter'],
       hasCellPhone: true,
     })
@@ -208,6 +210,7 @@ describe('buildVariantFilter', () => {
       ElectionCode.General,
     )
     expect(filter).toEqual({
+      votedStatus: ['unknown'],
       independentAffinity: true,
       hasCellPhone: true,
       earlyVoteVeryLikely: true,
@@ -234,6 +237,7 @@ describe('buildVariantFilter', () => {
       ElectionCode.General,
     )
     expect(filter).toEqual({
+      votedStatus: ['unknown'],
       ideologyConservative: true,
       hasCellPhone: true,
       earlyVoteVeryLikely: true,
@@ -260,6 +264,7 @@ describe('buildVariantFilter', () => {
       ElectionCode.General,
     )
     expect(filter).toEqual({
+      votedStatus: ['unknown'],
       voterStatus: ['Likely', 'Unreliable'],
       ideologyModerate: true,
       hasCellPhone: true,

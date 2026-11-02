@@ -24,6 +24,8 @@ const baseProps = {
   onFiltersChange: vi.fn(),
   precincts: [],
   onPrecinctsChange: vi.fn(),
+  votedStatus: [],
+  onVotedStatusChange: vi.fn(),
   precinctOptions: {
     options: [],
     truncated: false,
@@ -56,6 +58,22 @@ describe('WhoStep — recommended lists', () => {
         recommendations={[RECOMMENDATION]}
         hasPickedAudience
         activeRecommendationVariant={RECOMMENDATION.variant}
+      />,
+    )
+
+    expect(screen.getByTestId('recommended-list-card')).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+  })
+
+  it('paints a recommendation pressed when its saved list is the one picked', () => {
+    render(
+      <WhoStep
+        {...baseProps}
+        recommendations={[{ ...RECOMMENDATION, existingFilterId: 42 }]}
+        selectedListId={42}
+        hasPickedAudience
       />,
     )
 

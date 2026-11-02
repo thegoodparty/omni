@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import type { ClerkClient } from '@clerk/backend'
 import { BadGatewayException, BadRequestException } from '@nestjs/common'
 import {
   addHours,
@@ -23,11 +24,17 @@ import { AudioTranscodeService } from '@/shared/services/audioTranscode.service'
 import { CallhubMediaService } from '@/vendors/callhub/services/callhubMedia.service'
 import { CallhubCampaignService } from '@/vendors/callhub/services/callhubCampaign.service'
 import { ZodError } from 'zod'
-import { CallhubPermanentError } from '@/vendors/callhub/services/callhubErrorHandling.service'
+import {
+  CALLHUB_IMPORT_IN_PROGRESS_DETAIL,
+  CallhubPermanentError,
+  CallhubRecoverableError,
+} from '@/vendors/callhub/services/callhubErrorHandling.service'
 import { OutreachRobocallHoldService } from '@/outreach/services/outreachRobocallHold.service'
 import { OutreachRobocallStrandedService } from '@/outreach/services/outreachRobocallStranded.service'
 import { S3Service } from '@/vendors/aws/services/s3.service'
+import { CLERK_CLIENT_PROVIDER_TOKEN } from '@/vendors/clerk/providers/clerk-client.provider'
 import { Campaign, RobocallSettleState } from '../../generated/prisma'
+import { disableVendorCrons } from '@/shared/test-utils/appEnvOverrides'
 
 const service = useTestService()
 
@@ -389,6 +396,53 @@ describe('OutreachRobocallStagingService.stageCampaign', () => {
     )
   })
 
+  it('logs a countable warn and reverts when a CallHub import is already in progress', async () => {
+    const outreachId = await createDraft()
+    const failSpy = vi
+      .spyOn(service.app.get(OutreachRobocallHoldService), 'failSend')
+      .mockResolvedValue()
+    const warnSpy = vi.spyOn(
+      (staging as unknown as { logger: PinoLogger }).logger,
+      'warn',
+    )
+    loadAudienceSpy.mockRejectedValueOnce(
+      new CallhubRecoverableError(
+        'CallHub bulk contact import failed',
+        undefined,
+        CALLHUB_IMPORT_IN_PROGRESS_DETAIL,
+      ),
+    )
+
+    await expect(staging.stageCampaign(outreachId)).rejects.toBeInstanceOf(
+      CallhubRecoverableError,
+    )
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      { outreachId, callhubDetail: CALLHUB_IMPORT_IN_PROGRESS_DETAIL },
+      expect.stringContaining('CallHub import already in progress'),
+    )
+    expect(failSpy).not.toHaveBeenCalled()
+    expect((await readSatellite(outreachId)).settleState).toBe(
+      RobocallSettleState.authorized,
+    )
+  })
+
+  it('does not log the import-collision warn for other transient failures', async () => {
+    const outreachId = await createDraft()
+    const warnSpy = vi.spyOn(
+      (staging as unknown as { logger: PinoLogger }).logger,
+      'warn',
+    )
+    createVbSpy.mockRejectedValueOnce(new BadGatewayException('callhub 502'))
+
+    await expect(staging.stageCampaign(outreachId)).rejects.toThrow()
+
+    expect(warnSpy).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.stringContaining('CallHub import already in progress'),
+    )
+  })
+
   it('refuses to dial when the audio ETag no longer matches the approved bytes', async () => {
     const outreachId = await createDraft()
     // The bytes at the key were swapped after the compliance pass — their ETag
@@ -669,6 +723,88 @@ describe('OutreachRobocallStagingService.stageCampaign', () => {
   })
 })
 
+// The free robocall offer: a run paid by its code on a staff, demo or
+// test-mode campaign sits in a real district and costs nothing, so it may
+// only ever call the owner.
+describe('OutreachRobocallStagingService.stageCampaign for a free offer run', () => {
+  const createOfferRun = async () => {
+    const outreachId = await createDraft()
+    await service.prisma.outreachRobocall.update({
+      where: { outreachId },
+      data: { promoCode: 'GPOFFER-TESTCODE', promoCoversTotal: true },
+    })
+    return outreachId
+  }
+
+  const asCandidate = async () => {
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { email: 'candidate@example.com' },
+    })
+    const clerk = service.app.get<ClerkClient>(CLERK_CLIENT_PROVIDER_TOKEN)
+    vi.spyOn(clerk.users, 'getUser').mockResolvedValue({
+      primaryEmailAddress: {
+        emailAddress: 'candidate@example.com',
+        verification: { status: 'verified' },
+      },
+    } as unknown as Awaited<ReturnType<ClerkClient['users']['getUser']>>)
+  }
+
+  it('loads only the owner phone for a goodparty.org owner', async () => {
+    const outreachId = await createOfferRun()
+
+    await staging.stageCampaign(outreachId)
+
+    expect(loadAudienceSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ id: campaign.id }),
+      filterId,
+      true,
+    )
+  })
+
+  it('loads only the owner phone on a demo campaign', async () => {
+    await asCandidate()
+    await service.prisma.campaign.update({
+      where: { id: campaign.id },
+      data: { isDemo: true },
+    })
+    const outreachId = await createOfferRun()
+
+    await staging.stageCampaign(outreachId)
+
+    expect(loadAudienceSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ id: campaign.id }),
+      filterId,
+      true,
+    )
+  })
+
+  it('loads the voter list for a candidate', async () => {
+    await asCandidate()
+    const outreachId = await createOfferRun()
+
+    await staging.stageCampaign(outreachId)
+
+    expect(loadAudienceSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ id: campaign.id }),
+      filterId,
+      false,
+    )
+  })
+
+  it('loads the voter list for a paid run on a goodparty.org campaign', async () => {
+    const outreachId = await createDraft()
+
+    await staging.stageCampaign(outreachId)
+
+    expect(loadAudienceSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ id: campaign.id }),
+      filterId,
+      false,
+    )
+  })
+})
+
 describe('OutreachRobocallStagingService.sweepRobocallStaging (prod)', () => {
   const originalEnv = process.env.OTEL_SERVICE_ENVIRONMENT
 
@@ -799,16 +935,28 @@ describe('OutreachRobocallStagingService.sweepRobocallStaging (prod)', () => {
 })
 
 describe('OutreachRobocallStagingService.sweepRobocallStaging guard', () => {
-  it('no-ops off prod', async () => {
+  it('no-ops on a non-prod deploy in live mode', async () => {
+    disableVendorCrons()
+    const outreachId = await createDraft({ sendInHours: 1 })
+
+    await staging.sweepRobocallStaging()
+
+    expect(createVbSpy).not.toHaveBeenCalled()
+    expect((await readSatellite(outreachId)).callhubCampaignPkStr).toBeNull()
+  })
+
+  it('stages on a non-prod deploy in mock mode (preview)', async () => {
     const original = process.env.OTEL_SERVICE_ENVIRONMENT
-    process.env.OTEL_SERVICE_ENVIRONMENT = 'dev'
+    process.env.OTEL_SERVICE_ENVIRONMENT = 'preview'
     try {
       const outreachId = await createDraft({ sendInHours: 1 })
 
       await staging.sweepRobocallStaging()
 
-      expect(createVbSpy).not.toHaveBeenCalled()
-      expect((await readSatellite(outreachId)).callhubCampaignPkStr).toBeNull()
+      expect(createVbSpy).toHaveBeenCalled()
+      expect(
+        (await readSatellite(outreachId)).callhubCampaignPkStr,
+      ).not.toBeNull()
     } finally {
       if (original === undefined) {
         delete process.env.OTEL_SERVICE_ENVIRONMENT

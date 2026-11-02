@@ -67,15 +67,41 @@ describe('ServiceReadConcurrencyInterceptor', () => {
   it('refuses a machine read that waits past the cap', async () => {
     vi.useFakeTimers()
     const interceptor = new ServiceReadConcurrencyInterceptor()
-    const { handler } = deferredHandler()
-    for (let i = 0; i < SERVICE_READ_MAX_IN_FLIGHT; i++) {
-      void lastValueFrom(interceptor.intercept(contextFor(machine), handler))
-    }
+    const { handler, finish } = deferredHandler()
+    const held = Array.from({ length: SERVICE_READ_MAX_IN_FLIGHT }, () =>
+      lastValueFrom(interceptor.intercept(contextFor(machine), handler)),
+    )
     const waiting = lastValueFrom(
       interceptor.intercept(contextFor(machine), handler),
     )
     const assertion = expect(waiting).rejects.toThrow('Election data is busy')
     await vi.advanceTimersByTimeAsync(SERVICE_READ_MAX_WAIT_MS)
     await assertion
+    finish()
+    await Promise.all(held)
+  })
+
+  it('shares one budget across interceptor instances', async () => {
+    const { handler, finish, started } = deferredHandler()
+    const held = Array.from({ length: SERVICE_READ_MAX_IN_FLIGHT }, () =>
+      lastValueFrom(
+        new ServiceReadConcurrencyInterceptor().intercept(
+          contextFor(machine),
+          handler,
+        ),
+      ),
+    )
+    const extra = lastValueFrom(
+      new ServiceReadConcurrencyInterceptor().intercept(
+        contextFor(machine),
+        handler,
+      ),
+    )
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(started).toHaveBeenCalledTimes(SERVICE_READ_MAX_IN_FLIGHT)
+    finish()
+    await Promise.all([...held, extra])
+    expect(started).toHaveBeenCalledTimes(SERVICE_READ_MAX_IN_FLIGHT + 1)
   })
 })

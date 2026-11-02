@@ -15,6 +15,10 @@ import { setupProCampaignUser } from 'src/helpers/organizations'
 // keyed on. Only the leading run is spelled out here — the count is what
 // catches a dropped, duplicated, or silently reordered column.
 const EXPECTED_COLUMN_COUNT = 77
+// A campaign whose owner has serve-import-contacts (100% in dev) reads its
+// imported contacts too, and the export appends exactly these two after the
+// curated set (CONTACT_OVERLAY_DOWNLOAD_COLUMNS).
+const CONTACT_OVERLAY_HEADERS = ['Email', 'New Contact']
 const LEADING_HEADERS = [
   'Voter ID',
   'First Name',
@@ -48,7 +52,10 @@ const csvHead = (csv: string): { columns: string[]; firstRow: string } => {
 const assertCuratedCsv = (csv: string): void => {
   const { columns, firstRow } = csvHead(csv)
   expect(columns.slice(0, LEADING_HEADERS.length)).toEqual(LEADING_HEADERS)
-  expect(columns).toHaveLength(EXPECTED_COLUMN_COUNT)
+  expect([[], CONTACT_OVERLAY_HEADERS]).toContainEqual(
+    columns.slice(EXPECTED_COLUMN_COUNT),
+  )
+  expect(columns.length).toBeGreaterThanOrEqual(EXPECTED_COLUMN_COUNT)
   // A 77-field CSV row carries at least 76 separators (more when a field quotes
   // its own comma), so this asserts a real, fully-projected data row rather
   // than a header-only file.

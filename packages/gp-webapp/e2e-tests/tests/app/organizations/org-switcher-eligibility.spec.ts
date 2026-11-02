@@ -10,6 +10,7 @@ import {
   NavigationHelper,
 } from 'src/helpers/navigation.helper'
 import { eventually } from 'tests/utils/eventually'
+import { applyElectionPreset } from 'tests/utils/headless-user'
 
 // Locks down the org switcher's eligibility-gated states (ENG-10389 task 10):
 // the "run for" actions are gated on eligibility.canStartCampaign, "Run for
@@ -92,13 +93,14 @@ test('held-office user sees Past label and both run-for actions', async ({
 
   // "I won my race" launches the won campaign with a still-future electionDate,
   // so it reads "active" and canStartCampaign stays false (actions hidden).
-  // Backdate it (the production state once the election has happened) so the won
-  // campaign reads "Past" and eligibility opens. PUT /v1/campaigns/mine merges
-  // details and resolves the campaign from x-organization-slug.
+  // Declare the won race as passed (the production state once the election has
+  // happened) so the won campaign reads "Past" and eligibility opens.
   client.defaults.headers['x-organization-slug'] = wonCampaignOrg.slug
-  await client.put('/v1/campaigns/mine', {
-    details: { electionDate: '2020-11-03' },
-  })
+  await applyElectionPreset(
+    client,
+    Number(wonCampaignOrg.slug.replace('campaign-', '')),
+    'passed_won',
+  )
 
   // produced state: the won campaign reads "past", the held office reads
   // "active". eventually() because the backdate write settles asynchronously.

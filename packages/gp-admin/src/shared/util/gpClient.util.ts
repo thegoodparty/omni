@@ -1,11 +1,12 @@
 import { auth } from '@clerk/nextjs/server'
-import { GoodPartyClient } from '@/shared/gpApi'
+import { GoodPartyClient, SdkError } from '@/shared/gpApi'
 import type { PaginatedList } from '@/shared/gpApi'
 import {
   type GpEnvironment,
   getEnvironmentConfig,
   resolveEnvironment,
 } from '@/shared/util/gpEnvironment'
+import { GP_API_ACCESS_DENIED_DIGEST } from '@/shared/util/actionFailure.util'
 
 const EMPTY_META = { total: 0, offset: 0, limit: 0 } as const
 
@@ -51,5 +52,18 @@ export async function gpAction<T>(
 
   const environment = resolveEnvironment(orgId)
   const client = await getOrCreateGpClient(environment)
-  return fn(client)
+  try {
+    return await fn(client)
+  } catch (error) {
+    // Next.js keeps an error's own digest when it redacts the message on the
+    // way to the browser, so the digest is what lets the dashboard error
+    // boundary and describeActionFailure explain a rejected deployment.
+    if (
+      error instanceof SdkError &&
+      (error.status === 401 || error.status === 403)
+    ) {
+      Object.assign(error, { digest: GP_API_ACCESS_DENIED_DIGEST })
+    }
+    throw error
+  }
 }

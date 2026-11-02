@@ -39,9 +39,9 @@ export type DoorKnockingResidentsRequest = z.infer<
 export const DoorKnockingDemographicsShape = {
   // `StateVoterID IS NOT NULL`, the same derivation the exploration-map pack
   // calls `registered` (`voterPack.service.ts`). Deliberately NOT
-  // `PersonSchema.shape.registeredVoter`, which is hardcoded `'Yes'` and reads
-  // no column at all. A boolean rather than that schema's Yes/No enum so the
-  // two can't be mistaken for each other.
+  // `PersonSchema.shape.registeredVoter`, which is `'Yes'` for every
+  // gp_api_voters row and reads no column there. A boolean rather than that
+  // schema's Yes/No enum so the two can't be mistaken for each other.
   //
   // Nullable only because a route payload target who may have moved has no
   // live row to read it off. The residents response always has a row, so it

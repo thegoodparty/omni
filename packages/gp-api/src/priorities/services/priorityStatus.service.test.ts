@@ -13,7 +13,10 @@ import {
   type PriorityStepId,
 } from '@goodparty_org/contracts'
 import { PrioritySource } from '../../generated/prisma'
-import { PriorityStatusService } from './priorityStatus.service'
+import {
+  nextActionProblem,
+  PriorityStatusService,
+} from './priorityStatus.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { UpdatePriorityStatusInputSchema } from '../schemas/priorityStatus.schema'
 
@@ -98,6 +101,45 @@ describe('PriorityStatusService.applyUpdate', () => {
     const row = await readRow(id)
     expect(row.currentStep).toBe('evidence')
     expect(row.nextAction).toBe('Pull the rent-burden numbers')
+  })
+
+  it.each([
+    ['names the official', 'Ask Johnny to put the core problem in words'],
+    ['names them by last name', 'Have Goodparty call the director'],
+    ['names a step', 'Put the problem in words so define can be settled'],
+    ['uses an underscored step id', 'Finish listen_problem this week'],
+  ])('drops a nextAction that %s', async (_case, nextAction) => {
+    const id = await createPriority()
+
+    const result = await statusService.applyUpdate(id, {
+      steps: [{ id: 'define', state: 'active' }],
+      nextAction,
+    })
+
+    expect(result.nextAction).toBeNull()
+    expect((await readRow(id)).nextAction).toBeNull()
+  })
+
+  it.each([
+    ['Will the council approve the budget?', null],
+    ['Mark the vote on your calendar', null],
+    ['Ask Will to send the backlog numbers', 'name'],
+    ['Will, call the director today', 'name'],
+  ])('reads %s for an official named Will Mark', (nextAction, problem) => {
+    expect(nextActionProblem(nextAction, ['Will', 'Mark'])).toBe(problem)
+  })
+
+  it('keeps a nextAction that uses a step word as an ordinary word', async () => {
+    const id = await createPriority()
+
+    const result = await statusService.applyUpdate(id, {
+      steps: [{ id: 'define', state: 'active' }],
+      nextAction: 'Define what a fixed pothole means and plan your options',
+    })
+
+    expect(result.nextAction).toBe(
+      'Define what a fixed pothole means and plan your options',
+    )
   })
 
   it('an active step wins over earlier open and stale steps', async () => {
@@ -672,6 +714,49 @@ describe('update_priority_status holds the check to being offered', () => {
     expect(result).toHaveProperty('error')
     expect(JSON.stringify(result)).toContain('cannot be done until')
     expect(stepOf(await statusService.read(id), 'options').state).toBe('active')
+  })
+
+  // The dev plan turn: options out with residents, and the agent tried to
+  // close everything up to the plan in one call.
+  it('refuses the whole move, names what did not move, and stores nothing', async () => {
+    const id = await createPriority()
+    await statusService.applyUpdate(id, {
+      steps: [
+        { ...settleDefine, check: { state: 'declined' } },
+        { id: 'evidence', state: 'settled', summary: 'Rents up' },
+        { id: 'listen_problem', state: 'settled', summary: 'Heard' },
+        {
+          id: 'options',
+          state: 'active',
+          check: { state: 'out', who: 'Renters', question: 'Which one?' },
+        },
+      ],
+      nextAction: 'Wait for the texts',
+    })
+    const before = await readRow(id)
+
+    const result = await toolFor(id, () => false).execute({
+      steps: [
+        { id: 'listen_problem', state: 'stale', caveat: 'More to hear' },
+        { id: 'options', state: 'settled', summary: 'Two options' },
+        { id: 'listen_options', state: 'settled', summary: 'Backed one' },
+        { id: 'method', state: 'settled', summary: 'Budget line' },
+        { id: 'plan', state: 'active' },
+      ],
+      nextAction: 'Draft the plan',
+    })
+
+    expect(result).toEqual({ error: expect.any(String) })
+    const error = (result as { error: string }).error
+    expect(error).toContain(
+      'Nothing was recorded. These did not move: Who to hear from, Your ' +
+        'options, What people back, The path, The plan.',
+    )
+    expect(error).toContain(
+      'What people back waits on what constituents say about Your options',
+    )
+    expect(error).toContain('never how the app or a system works')
+    expect(await readRow(id)).toEqual(before)
   })
 
   it('keeps the listening step open while the check is out', async () => {

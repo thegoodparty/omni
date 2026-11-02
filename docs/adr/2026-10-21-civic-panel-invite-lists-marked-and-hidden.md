@@ -1,6 +1,6 @@
 ---
 title: Civic panel invite audiences are saved lists marked civicPanelInvite and hidden from the lists index, not deleted
-status: active
+status: superseded
 decided_by: [agent]
 date: 2026-10-21
 code: ['#3080']
@@ -9,7 +9,7 @@ scope:
   - packages/gp-api/src/contacts/services/civicPanelBuildPlan.service.ts
   - packages/gp-webapp/app/dashboard/contacts/crm/lists/ListsIndex.tsx
 supersedes: []
-superseded_by:
+superseded_by: 2026-10-23-managed-panel-invite-lists-marked-and-hidden.md
 ---
 
 # Civic panel invite audiences are saved lists marked civicPanelInvite and hidden from the lists index, not deleted

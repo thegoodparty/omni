@@ -9,26 +9,21 @@ import type { ElectedOffice } from 'gpApi/api-endpoints'
 import { buildDisabledRanges } from 'app/serve/onboarding/termDates.shared'
 import { ElectedOfficeTermDatesModal } from './ElectedOfficeTermDatesModal'
 
-// Prompt "settled" dashboard offices missing a term bound — those that either
-// completed serve onboarding (legacy/prefill EOs we lack dates for) OR reached
-// office by winning a campaign (the "I won" flow, marked by a `campaignId`).
-// Both already onboarded and land on the dashboard, so the modal is their only
-// gap-filler for term dates. A genuine serve LEAD still mid-onboarding
-// (onboardingCompletedAt == null AND no campaign) is deliberately excluded: it
-// supplies both dates via the onboarding term-dates step, and it never reaches
-// the dashboard shell where this modal mounts — prompting it would double-prompt
-// or block the flow.
+// Prompt offices that finished serve onboarding but lack a term bound (legacy
+// and prefill offices we have no dates for). An office still mid-onboarding,
+// a Pro winner's included, gets both dates from onboarding's term step, and
+// the dashboard sends it back there, so prompting it here would double-prompt.
 const isMissingTermDates = (office: ElectedOffice): boolean =>
-  (office.onboardingCompletedAt != null || office.campaignId != null) &&
+  office.onboardingCompletedAt != null &&
   (!office.termStartDate || !office.termEndDate)
 
 /**
  * Prompts a signed-in elected official to supply term dates when the office
- * backing their currently selected organization (onboarding complete OR
- * win-origin) is missing a start or end date — regardless of which dashboard
- * page they're on. Scoped to the selected org: a campaign org selected (no
- * `electedOfficeId`), non-EO users, genuine serve leads still mid-onboarding,
- * and EOs with complete dates see nothing. Mounted in the shared dashboard shell.
+ * backing their currently selected organization (onboarding complete) is
+ * missing a start or end date — regardless of which dashboard page they're on.
+ * Scoped to the selected org: a campaign org selected (no `electedOfficeId`),
+ * non-EO users, offices still mid-onboarding, and EOs with complete dates see
+ * nothing. Mounted in the shared dashboard shell.
  */
 export function ElectedOfficeTermDatesModalController(): React.JSX.Element | null {
   const [user, , isUserLoading] = useUser()

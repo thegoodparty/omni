@@ -648,25 +648,26 @@ export default function RecordKnockFormLegacy({
       )}
 
       {/* The engaged branch is the one place the two surfaces ask different
-          things, and they ask a different NUMBER of things: Win asks support
-          and then turnout, Serve asks whether anything is owed afterwards.
-          Everything above and below this is shared, because how a door
-          answered and what the canvasser wrote down are the same questions
-          whoever is knocking. */}
+          things, and they ask a different NUMBER of things: Win asks turnout
+          and then support, Serve asks whether anything is owed afterwards.
+          Turnout comes first so that "Already voted" is the first thing a
+          canvasser can record. Everything above and below this is shared,
+          because how a door answered and what the canvasser wrote down are
+          the same questions whoever is knocking. */}
       {engaged && !serveMode && (
         <ChoiceRow
-          label={SUPPORT_QUESTION}
-          options={SUPPORT_OPTIONS}
-          value={supportAnswer}
+          label={WILL_VOTE_QUESTION}
+          options={WILL_VOTE_OPTIONS}
+          value={willVote}
           onChange={(value) => {
-            setSupportAnswer(value)
-            // Clearing support collapses the will-vote row, and its answer has
-            // to go with it: otherwise answering support again reopens the row
+            setWillVote(value)
+            // Clearing will-vote collapses the support row, and its answer has
+            // to go with it: otherwise answering will-vote again reopens the row
             // already filled in with a response the canvasser never gave on
-            // this pass, and Save lights up on that ghost. A support answer
+            // this pass, and Save lights up on that ghost. A will-vote answer
             // that is only *changed* keeps it, because the row never leaves
-            // the screen and turnout doesn't depend on who they support.
-            if (!value) setWillVote(undefined)
+            // the screen and who they support doesn't depend on turnout.
+            if (!value) setSupportAnswer(undefined)
           }}
         />
       )}
@@ -694,19 +695,19 @@ export default function RecordKnockFormLegacy({
         />
       )}
 
-      {engaged && supportAnswer && (
+      {engaged && !serveMode && willVote && (
         <ChoiceRow
-          label={WILL_VOTE_QUESTION}
-          options={WILL_VOTE_OPTIONS}
-          value={willVote}
-          onChange={setWillVote}
+          label={SUPPORT_QUESTION}
+          options={SUPPORT_OPTIONS}
+          value={supportAnswer}
+          onChange={setSupportAnswer}
         />
       )}
 
       {/* Last on every branch, and it arrives with Save: `complete` is exactly
           "this branch has nothing left to ask", so the note is always the final
           thing offered and never a thing standing between two questions. On the
-          engaged branch that keeps it after will-vote, where it already sat; on
+          engaged branch that keeps it after support, the last question; on
           a one-question door it puts it one tap in, which is the point — "dog in
           the yard, come back Saturday" belongs on a not-home door, and the
           prototype having no field there is the one part of its layout we

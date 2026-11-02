@@ -71,6 +71,16 @@ export class CampaignTrackerController {
           'scheduled outreach task sync failed, serving tasks as-is',
         ),
       )
+    // A scheduled free robocall offer run completes its own task and the
+    // reminder robocall. Best-effort for the same reason.
+    await this.trackerTasksService
+      .completeTasksForFreeOfferRun(campaign)
+      .catch((err: unknown) =>
+        this.logger.error(
+          { err, campaignId: campaign.id },
+          'free robocall offer task sync failed, serving tasks as-is',
+        ),
+      )
     // Rows dated before the plan became a timeline (or before the race
     // changed) move onto it. Best-effort for the same reason.
     await this.trackerTasksService

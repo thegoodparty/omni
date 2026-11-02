@@ -1,0 +1,11 @@
+// One row per forward-to confirmation email sent, so PATCH /sender can cap
+// them per rolling 24 hours.
+model OutreachEmailForwardConfirmation {
+  id        Int                 @id @default(autoincrement())
+  createdAt DateTime            @default(now()) @map("created_at")
+  senderId  Int                 @map("sender_id")
+  sender    OutreachEmailSender @relation(fields: [senderId], references: [id], onDelete: Cascade)
+
+  @@index([senderId, createdAt])
+  @@map("outreach_email_forward_confirmation")
+}

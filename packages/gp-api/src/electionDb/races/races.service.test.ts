@@ -283,6 +283,11 @@ describe('RacesService.findRaces — candidacy PII', () => {
       value: {
         instance: {
           race: { findMany: raceFindMany, groupBy: raceGroupBy },
+          $queryRaw: vi
+            .fn()
+            .mockResolvedValue([
+              { id: 'race-1', placeId: null, positionNames: [] },
+            ]),
         },
       },
     })
@@ -314,11 +319,15 @@ describe('RacesService.findRaces — pagination', () => {
   let raceFindMany: ReturnType<typeof vi.fn>
   let raceGroupBy: ReturnType<typeof vi.fn>
   let placeFindUnique: ReturnType<typeof vi.fn>
+  let queryRaw: ReturnType<typeof vi.fn>
 
   beforeEach(() => {
-    raceFindMany = vi
+    raceFindMany = vi.fn().mockResolvedValue([{ id: 'race-1', slug: 'tx/a' }])
+    queryRaw = vi
       .fn()
-      .mockResolvedValue([{ id: 'race-1', slug: 'tx/a', positionNames: ['X'] }])
+      .mockResolvedValue([
+        { id: 'race-1', placeId: null, positionNames: ['X'] },
+      ])
     raceGroupBy = vi.fn().mockResolvedValue([{ slug: 'tx/a' }])
     placeFindUnique = vi.fn().mockResolvedValue({ id: 'place-123' })
     service = new RacesService()
@@ -327,6 +336,7 @@ describe('RacesService.findRaces — pagination', () => {
         instance: {
           race: { findMany: raceFindMany, groupBy: raceGroupBy },
           place: { findUnique: placeFindUnique },
+          $queryRaw: queryRaw,
         },
       },
     })
@@ -349,20 +359,30 @@ describe('RacesService.findRaces — pagination', () => {
     expect(groupArgs.where).toEqual({ state: 'TX' })
   })
 
-  it('fetches the complete row set for exactly the page slugs', async () => {
+  it('merges the rows of exactly the page slugs in the database', async () => {
     raceGroupBy.mockResolvedValue([{ slug: 'tx/a' }, { slug: 'tx/b' }])
 
-    await service.findRaces({ state: 'TX' } as RaceFilterDto)
+    const result = await service.findRaces({ state: 'TX' } as RaceFilterDto)
 
+    // The merge query is bound to the page's slugs and the caller's filters.
+    const [, ...values] = queryRaw.mock.calls[0] as [
+      TemplateStringsArray,
+      ...unknown[],
+    ]
+    const bound = JSON.stringify(values)
+    expect(bound).toContain('["tx/a","tx/b"]')
+    expect(bound).toContain('"TX"')
+
+    // Only the head row of each slug is read, with the merged names set on it.
     const findArgs = raceFindMany.mock.calls[0]?.[0]
-    // No row-level skip/take — grouping already bounded the page.
     expect(findArgs.skip).toBeUndefined()
     expect(findArgs.take).toBeUndefined()
-    expect(findArgs.where).toEqual({
-      state: 'TX',
-      slug: { in: ['tx/a', 'tx/b'] },
-    })
+    expect(findArgs.where).toEqual({ id: { in: ['race-1'] } })
+    expect(findArgs.omit).toEqual({ positionNames: true })
     expect(findArgs.orderBy).toEqual([{ slug: 'asc' }, { id: 'asc' }])
+    expect(result).toEqual([
+      { id: 'race-1', slug: 'tx/a', positionNames: ['X'] },
+    ])
   })
 
   it('computes the grouped skip from page and pageSize', async () => {
@@ -384,8 +404,11 @@ describe('RacesService.findRaces — pagination', () => {
     })
     const groupArgs = raceGroupBy.mock.calls[0]?.[0]
     expect(groupArgs.where).toEqual({ placeId: 'place-123' })
-    const findArgs = raceFindMany.mock.calls[0]?.[0]
-    expect(findArgs.where.placeId).toBe('place-123')
+    const [, ...values] = queryRaw.mock.calls[0] as [
+      TemplateStringsArray,
+      ...unknown[],
+    ]
+    expect(JSON.stringify(values)).toContain('"place-123"')
   })
 
   it('404s when placeSlug matches no place', async () => {

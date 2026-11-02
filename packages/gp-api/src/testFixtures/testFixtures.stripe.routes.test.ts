@@ -3,6 +3,10 @@ import { StripeService } from '@/vendors/stripe/services/stripe.service'
 import { useTestService } from '@/test-service'
 import Stripe from 'stripe'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import {
+  appEnvOverrides,
+  useAppEnvOverrides,
+} from '@/shared/test-utils/appEnvOverrides'
 
 // Route-level coverage for POST /v1/test-fixtures/vendor-mocks/stripe/events.
 // The fixture endpoint retrieves a checkout session from Stripe, wraps it in a
@@ -14,17 +18,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 // correct response shape — rather than re-testing payment-handler business
 // logic, which paymentEvents.cancellation.routes.test.ts already covers.
 
-const { envNonProd } = vi.hoisted(() => ({ envNonProd: { value: true } }))
-vi.mock('@/shared/util/appEnvironment.util', async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import('@/shared/util/appEnvironment.util')>()
-  return {
-    ...actual,
-    get IS_NON_PROD_DEPLOY() {
-      return envNonProd.value
-    },
-  }
-})
+useAppEnvOverrides({ IS_NON_PROD_DEPLOY: true })
 
 const service = useTestService()
 
@@ -50,7 +44,7 @@ describe('POST /v1/test-fixtures/vendor-mocks/stripe/events', () => {
   let handleEvent: ReturnType<typeof vi.spyOn>
 
   beforeEach(async () => {
-    envNonProd.value = true
+    appEnvOverrides.IS_NON_PROD_DEPLOY = true
 
     await service.prisma.user.update({
       where: { id: service.user.id },
@@ -112,7 +106,7 @@ describe('POST /v1/test-fixtures/vendor-mocks/stripe/events', () => {
   })
 
   it('returns 404 outside non-prod deploys', async () => {
-    envNonProd.value = false
+    appEnvOverrides.IS_NON_PROD_DEPLOY = false
     const res = await service.client.post(
       FIXTURE_ROUTE,
       { type: 'checkout.session.completed', sessionId: FAKE_SESSION_ID },

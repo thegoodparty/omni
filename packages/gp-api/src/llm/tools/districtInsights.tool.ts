@@ -1,358 +1,16 @@
 import { z } from 'zod'
 import type { LlmStreamTool } from '@/llm/services/llm.service'
 import type { DatabricksProvider } from './queryDatabricks.tool'
-import { isRecord } from './util/isRecord.util'
 import { hsScoreSemantics } from './hsScoreSemantics'
 import type { PeopleDataset } from '@/peopleDb/services/peopleDataset.service'
-import { parseSingleSelect } from './util/sqlAst.util'
-
-export class SqlRejected extends Error {
-  constructor(reason: string) {
-    super(`SQL rejected: ${reason}`)
-    this.name = 'SqlRejected'
-  }
-}
-
-const WRITE_AST_TYPES = new Set([
-  'insert',
-  'update',
-  'delete',
-  'replace',
-  'truncate',
-  'create',
-  'alter',
-  'drop',
-  'rename',
-  'grant',
-  'revoke',
-  'copy',
-  'call',
-  'use',
-  'set',
-  'lock',
-  'unlock',
-  'execute',
-  'merge',
-])
-
-const INVISIBLE_CHARS = new RegExp(
-  '[' + '\\uFEFF' + '\\u200B' + '\\u200C' + '\\u200D' + '\\u2060' + ']',
-)
-
-const containsWriteNode = (node: unknown): boolean => {
-  if (node === null || node === undefined) return false
-  if (Array.isArray(node)) {
-    return node.some(containsWriteNode)
-  }
-  if (!isRecord(node)) return false
-  const t = node.type
-  if (typeof t === 'string' && WRITE_AST_TYPES.has(t.toLowerCase())) {
-    return true
-  }
-  for (const key of Object.keys(node)) {
-    if (containsWriteNode(node[key])) return true
-  }
-  return false
-}
-
-export interface MandatoryFilter {
-  column: string
-  value: string
-}
-
-export interface ValidateInsightsSqlOptions {
-  allowedTables: Set<string>
-  // Every filter listed here MUST be guaranteed across every result row.
-  // I.e., each filter's column must equal its value via a mandatory AND-chain
-  // predicate. OR-branches that don't preserve the equality break the
-  // guarantee and the query is rejected. Typical use: lock the L2 district
-  // type column to the user's district AND lock state_postal_code to the
-  // user's state.
-  mandatoryFilters: MandatoryFilter[]
-  // Skip the base SELECT-list shape check. Callers that run their own, richer
-  // select-list validation (e.g. the constituent-data tool, which recognizes
-  // APPROX_COUNT_DISTINCT — parsed as `function`, not `aggr_func`) set this so a
-  // valid no-GROUP-BY aggregate isn't rejected by the coarser base check here.
-  skipSelectShapeCheck?: boolean
-}
-
-const stripQuotes = (s: string): string =>
-  s.replace(/^[`"']/, '').replace(/[`"']$/, '')
-
-const collectTableRefs = (node: unknown, acc: Set<string>): void => {
-  if (!node) return
-  if (Array.isArray(node)) {
-    for (const item of node) collectTableRefs(item, acc)
-    return
-  }
-  if (!isRecord(node)) return
-
-  // Common shape: { table: 'x' } from FROM/JOIN entries. node-sql-parser puts
-  // any schema/catalog qualifier in node.db. The allowlist holds BARE table
-  // names (resolved via the session's pinned catalog/schema), so record the
-  // qualifier too — a schema-qualified reference like
-  // other_schema.serve_agent_voters then fails the allowlist instead of
-  // matching the bare name and reading a same-named table in another schema
-  // (CWE-863).
-  const table = node.table
-  if (typeof table === 'string' && table.length > 0) {
-    const db = node.db
-    const qualifier =
-      typeof db === 'string' && db.length > 0 ? `${stripQuotes(db)}.` : ''
-    acc.add(`${qualifier}${stripQuotes(table)}`)
-  }
-
-  for (const key of Object.keys(node)) {
-    // table + db are folded into the qualified name above; don't recurse into
-    // them (a future AST that nests an object in db must not leak a bare name).
-    if (key === 'table' || key === 'db') continue
-    collectTableRefs(node[key], acc)
-  }
-}
-
-const selectListIsAllAggregateOrLiteral = (columns: unknown): boolean => {
-  if (!Array.isArray(columns)) return false
-  return columns.every((col) => {
-    if (!isRecord(col)) return false
-    const expr = col.expr
-    if (!isRecord(expr)) return false
-    if (expr.type === 'aggr_func') return true
-    if (expr.type === 'number' || expr.type === 'string') return true
-    return false
-  })
-}
-
-const extractStringLiteral = (node: unknown): string | null => {
-  if (!isRecord(node)) return null
-  if (node.type === 'string' && typeof node.value === 'string')
-    return node.value
-  if (node.type === 'single_quote_string' && typeof node.value === 'string')
-    return node.value
-  return null
-}
-
-const extractColumnRef = (node: unknown): string | null => {
-  if (!isRecord(node)) return null
-  if (node.type !== 'column_ref') return null
-  const col = node.column
-  if (typeof col === 'string') return col
-  if (isRecord(col) && isRecord(col.expr)) {
-    const ex = col.expr
-    if (typeof ex.value === 'string') return ex.value
-  }
-  return null
-}
-
-/**
- * Walks a WHERE-expression AST and returns the set of values that are
- * guaranteed to equal `column` on EVERY satisfying row (i.e. mandatory
- * AND-chain equality predicates against `column`).
- *
- * - AND node: union of both sides' mandatory sets.
- * - OR node: intersection — only values guaranteed by BOTH branches are
- *   mandatory. This rejects "col = X OR col = Y" (mandatory set is empty
- *   because neither value alone is guaranteed) and "col = X OR 1=1"
- *   (right side has nothing, so intersection is empty).
- * - `col = literal` matching the target column: returns { literal }.
- * - Anything else (functions, type coercions, comparisons against other
- *   columns): empty set.
- */
-const mandatoryValuesForColumn = (
-  where: unknown,
-  column: string,
-): Set<string> => {
-  if (!isRecord(where)) return new Set()
-  const type = where.type
-
-  if (type === 'binary_expr') {
-    const op =
-      typeof where.operator === 'string' ? where.operator.toUpperCase() : ''
-    const left = where.left
-    const right = where.right
-
-    if (op === 'AND') {
-      const a = mandatoryValuesForColumn(left, column)
-      const b = mandatoryValuesForColumn(right, column)
-      return new Set([...a, ...b])
-    }
-    if (op === 'OR') {
-      const a = mandatoryValuesForColumn(left, column)
-      const b = mandatoryValuesForColumn(right, column)
-      const intersect = new Set<string>()
-      for (const v of a) if (b.has(v)) intersect.add(v)
-      return intersect
-    }
-    if (op === '=') {
-      const colName = extractColumnRef(left) ?? extractColumnRef(right)
-      if (colName !== column) return new Set()
-      const value = extractStringLiteral(right) ?? extractStringLiteral(left)
-      if (value === null) return new Set()
-      return new Set([value])
-    }
-    return new Set()
-  }
-
-  return new Set()
-}
-
-export const validateInsightsSql = (
-  sql: string,
-  opts: ValidateInsightsSqlOptions,
-): string => {
-  if (INVISIBLE_CHARS.test(sql)) {
-    throw new SqlRejected('invisible / zero-width characters are not allowed')
-  }
-  const parsed = parseSingleSelect(sql)
-  if (!parsed) {
-    throw new SqlRejected(
-      'only a single SELECT statement is allowed (unparseable, multi-statement, or non-SELECT)',
-    )
-  }
-  const stmt = parsed.stmt
-
-  if (containsWriteNode(stmt)) {
-    throw new SqlRejected(
-      'write operations (INSERT/UPDATE/DELETE/DDL) are not allowed, even nested in CTEs or subqueries',
-    )
-  }
-
-  // Table allowlist — every table referenced anywhere in the AST must be in
-  // the allowlist. We walk recursively so JOINs, CTEs, and subqueries are
-  // covered too.
-  const referenced = new Set<string>()
-  collectTableRefs(stmt, referenced)
-  if (referenced.size === 0) {
-    throw new SqlRejected('no table referenced')
-  }
-  for (const table of referenced) {
-    if (!opts.allowedTables.has(table)) {
-      throw new SqlRejected(`table not in allowlist: ${table}`)
-    }
-  }
-
-  // Aggregate-only shape: must have GROUP BY OR every selected expression
-  // must be an aggregate function (or literal).
-  const hasGroupBy = stmt.groupby !== null && stmt.groupby !== undefined
-  if (!hasGroupBy && !opts.skipSelectShapeCheck) {
-    if (!selectListIsAllAggregateOrLiteral(stmt.columns)) {
-      throw new SqlRejected(
-        'query must use GROUP BY or be a pure aggregate (e.g. COUNT(*))',
-      )
-    }
-  }
-
-  // Every mandatory filter must be guaranteed across every result row.
-  // The mandatory-set walker handles AND/OR correctly: an OR that doesn't
-  // preserve the equality on both sides breaks the guarantee.
-  for (const filter of opts.mandatoryFilters) {
-    const got = mandatoryValuesForColumn(stmt.where, filter.column)
-    if (!got.has(filter.value)) {
-      throw new SqlRejected(
-        `query must guarantee ${filter.column} = '${filter.value}' (no OR / no leak)`,
-      )
-    }
-  }
-
-  // Return the original SQL string. node-sql-parser's sqlify() re-emits in
-  // PostgreSQL dialect (double-quoted identifiers), but Databricks runs Spark
-  // SQL where double-quoted identifiers are a parse error. Since we've
-  // validated the AST is safe, the original SQL is fine to pass through.
-  return sql
-}
-
-export interface ScrubOptions {
-  minCellSize: number
-  countColumnAliases?: string[]
-}
-
-export interface ScrubResult {
-  kept: Array<Record<string, unknown>>
-  suppressed: number
-  reason: 'cell_size' | 'no_count_column' | null
-}
-
-// 'unknown_count' is the alias the score-semantics guidance recommends for
-// null-segment counts — it must be suppressible like any other count.
-const DEFAULT_COUNT_ALIASES = [
-  'count',
-  'n',
-  'voters',
-  'total',
-  'count_voters',
-  'unknown_count',
-]
-
-const findCountKey = (
-  row: Record<string, unknown>,
-  aliases: string[],
-): string | null => {
-  const keys = Object.keys(row)
-  const lowerToActual = new Map<string, string>()
-  for (const k of keys) lowerToActual.set(k.toLowerCase(), k)
-  for (const alias of aliases) {
-    const actual = lowerToActual.get(alias.toLowerCase())
-    if (actual !== undefined) return actual
-  }
-  return null
-}
-
-// BigInt -> Number loses precision for values > 2^53; cell-size thresholds are
-// small enough that this is safe in practice.
-const coerceToNumber = (v: unknown): number => {
-  if (v === null || v === undefined) return 0
-  if (typeof v === 'number') return Number.isFinite(v) ? v : 0
-  if (typeof v === 'bigint') return Number(v)
-  if (typeof v === 'string') {
-    const n = Number(v)
-    return Number.isNaN(n) ? 0 : n
-  }
-  return 0
-}
-
-export const scrubResults = (
-  rows: Array<Record<string, unknown>>,
-  opts: ScrubOptions,
-): ScrubResult => {
-  const [firstRow] = rows
-  if (!firstRow) {
-    return { kept: [], suppressed: 0, reason: null }
-  }
-
-  const aliases = [...(opts.countColumnAliases ?? []), ...DEFAULT_COUNT_ALIASES]
-  const countKey = findCountKey(firstRow, aliases)
-
-  if (countKey === null) {
-    return { kept: rows, suppressed: 0, reason: 'no_count_column' }
-  }
-
-  const kept: Array<Record<string, unknown>> = []
-  let suppressed = 0
-  const aliasSet = new Set(aliases.map((a) => a.toLowerCase()))
-  for (const row of rows) {
-    const value = coerceToNumber(row[countKey])
-    if (value >= opts.minCellSize) {
-      // Row-level suppression keys on one count column, but a query can carry
-      // more than one count-like value (e.g. a small unknown_count selected
-      // alongside a large group count). Mask any secondary count-alias cell
-      // below the threshold so no sub-threshold exact count reaches the model.
-      const masked: Record<string, unknown> = { ...row }
-      for (const key of Object.keys(masked)) {
-        if (key === countKey) continue
-        if (!aliasSet.has(key.toLowerCase())) continue
-        if (coerceToNumber(masked[key]) < opts.minCellSize) masked[key] = null
-      }
-      kept.push(masked)
-    } else {
-      suppressed += 1
-    }
-  }
-
-  return {
-    kept,
-    suppressed,
-    reason: suppressed > 0 ? 'cell_size' : null,
-  }
-}
+import {
+  type ConstituentSqlScope,
+  findPeopleCountColumns,
+  findRowCountColumn,
+  type MandatoryFilter,
+  scrubResults,
+  validateConstituentSql,
+} from './constituentSql.validator'
 
 export interface DistrictInsightsInput {
   sql: string
@@ -366,10 +24,8 @@ export interface DistrictInsightsOutput {
   rowsSuppressed: number
 }
 
-export interface BuildDistrictInsightsToolDeps {
+export interface BuildDistrictInsightsToolDeps extends ConstituentSqlScope {
   provider: DatabricksProvider
-  allowedTables: Set<string>
-  mandatoryFilters: MandatoryFilter[]
   peopleDataset: PeopleDataset
   minCellSize?: number
 }
@@ -386,11 +42,11 @@ const buildDescription = (
     .map((f) => `${f.column} = '${f.value}'`)
     .join(' AND ')
   const rows =
-    peopleDataset === 'constituents'
+    peopleDataset.base === 'constituents'
       ? 'one row per adult resident, registered to vote or not, joined with modeled scores; 200+ hs_* scored columns'
       : 'one row per constituent on the registration file, joined with modeled scores; 200+ hs_* scored columns'
   const totalsRule =
-    peopleDataset === 'constituents'
+    peopleDataset.base === 'constituents'
       ? '\n  - Totals include adult residents whether or not they are registered to vote. Modeled scores (hs_*), registration status and turnout cover only residents registered to vote. When you quote a total, say which of the two it counts.'
       : ''
 
@@ -407,9 +63,14 @@ CALL list_district_topics FIRST to discover the relevant hs_* columns for the us
 
 REQUIREMENTS:
   - Single SELECT statement only.
-  - Must include GROUP BY (or be a pure aggregate like COUNT(*) / AVG(...)).
   - Must include the WHERE clause above verbatim — AND-combined with any extra filters.
-  - Rows with COUNT(*) < ${DEFAULT_MIN_CELL_SIZE} are suppressed automatically.
+  - ALWAYS include COUNT(*) (e.g. COUNT(*) AS count); any alias is fine. Queries without COUNT(*) are rejected.
+  - Every select item must be an aggregate (COUNT, SUM, AVG, MIN, MAX, APPROX_COUNT_DISTINCT) or a column that appears in GROUP BY. Any other function (SIZE, COLLECT_SET and the like) is rejected.
+  - GROUP BY is optional; omit it for a single district-wide figure. Group only by a column BY NAME, never by an expression such as a CASE. Only the hs_* and demographic columns the catalog names can be used; identifiers such as voter_key are rejected anywhere in the query.
+  - To bucket a numeric column (e.g. age ranges), count in the SELECT instead of grouping by a CASE, e.g. SUM(CASE WHEN Voters_Age < 35 THEN 1 ELSE 0 END) AS age_under_35.
+  - Each COUNT or SUM must be its own select item (no arithmetic around it, none in HAVING), and SUM may only count: SUM(CASE WHEN <condition> THEN 1 ELSE 0 END).
+  - No SELECT *, no DISTINCT, no window functions, no subqueries, no UNION.
+  - Rows with COUNT(*) < ${DEFAULT_MIN_CELL_SIZE} are suppressed automatically, and any other COUNT or SUM below ${DEFAULT_MIN_CELL_SIZE} comes back null. A null count means fewer than ${DEFAULT_MIN_CELL_SIZE} people: say so, and never work the number out from a share, a total or another count.
   - For a share/percentage on an hs_* column, compute it over SCORED rows only, e.g. AVG(CASE WHEN <col> >= 50 THEN 1.0 WHEN <col> IS NOT NULL THEN 0.0 END) AS aligned_share (the missing ELSE keeps nulls out of the average). Do not put ELSE 0.0 in a share or divide one by COUNT(*): a null score is unknown, not zero. Report the scored count beside the share.${totalsRule}
 
 INPUT:
@@ -434,14 +95,13 @@ export const buildDistrictInsightsTool = (
   ),
   inputSchema: districtInsightsInputSchema,
   execute: async ({ sql }) => {
-    const validatedSql = validateInsightsSql(sql, {
-      allowedTables: deps.allowedTables,
-      mandatoryFilters: deps.mandatoryFilters,
-    })
+    const validatedSql = validateConstituentSql(sql, deps)
 
     const result = await deps.provider.query(validatedSql)
     const scrubbed = scrubResults(result.rows, {
       minCellSize: deps.minCellSize ?? DEFAULT_MIN_CELL_SIZE,
+      rowCountColumn: findRowCountColumn(validatedSql, result.columns),
+      peopleCountColumns: findPeopleCountColumns(validatedSql, result.columns),
     })
 
     return {

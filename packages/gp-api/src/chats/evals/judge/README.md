@@ -1018,7 +1018,10 @@ A case list carries a token and the sweep carries the value:
 `{judgeOrgSlug}`, `{judgeRaceId}`, `{judgeUserEmail}`. One step in the sweep
 job, before either arm, runs `judgeIdentifiers.ts` to make them: a `judge-`
 slug from the sweep id, the BallotReady race id of `JUDGE_FIXTURE_RACE` from
-gp-api's public races route, and the reserved `judge-sweep@example.com`.
+gp-api's public races route, and the reserved `judge-sweep@example.com`. The
+race resolves the way the test fixtures resolve their office
+(`src/testFixtures/util/fixtureRace.util.ts`): the next upcoming race, else the
+most recent past one, so the office's election passing never drops the id.
 `caseParams.ts` substitutes them at dispatch time, recursively, because
 `user_email` also has to land inside `campaign_strategy_context.candidates[]`
 for `is_user` to match. No credential is involved. A resolution that fails

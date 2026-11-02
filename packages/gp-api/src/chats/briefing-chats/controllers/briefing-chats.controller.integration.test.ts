@@ -218,6 +218,10 @@ describe('BriefingChatsController (integration)', () => {
       })
 
       expect(second.data.annotationId).not.toBe(first.data.annotationId)
+      const anchored = await service.prisma.annotation.findUnique({
+        where: { id: first.data.annotationId },
+      })
+      expect(anchored).toMatchObject({ jsonPath: '$.a', start: 1, end: 5 })
 
       // New rows carry what the registry routes check ownership by.
       const conversation = await service.prisma.chatConversation.findUnique({

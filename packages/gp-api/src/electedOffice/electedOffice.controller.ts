@@ -22,7 +22,13 @@ import {
   UseGuards,
   UsePipes,
 } from '@nestjs/common'
-import { ElectedOffice, Organization, Prisma, User } from '../generated/prisma'
+import {
+  ElectedOffice,
+  ElectedOfficeWinSource,
+  Organization,
+  Prisma,
+  User,
+} from '../generated/prisma'
 import { ZodValidationPipe } from 'nestjs-zod'
 import { ReqUser } from 'src/authentication/decorators/ReqUser.decorator'
 import { ReqOrganization } from 'src/organizations/decorators/ReqOrganization.decorator'
@@ -41,14 +47,18 @@ import {
   ElectedOfficeService,
 } from './services/electedOffice.service'
 import { SupportEstimateService } from './services/supportEstimate.service'
+import { WinTermService } from './services/winTerm.service'
 import { CrmOfficeHolderService } from './services/crmOfficeHolder.service'
 import { electedOfficeToApi } from './util/electedOffice.util'
 import { PrioritiesService } from '@/priorities/services/priorities.service'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import {
+  MyElectedOffice,
+  MyElectedOfficeSchema,
   SupportEstimate,
   SupportEstimateSchema,
 } from '@goodparty_org/contracts'
+import { z } from 'zod'
 
 @Controller('elected-office')
 @UsePipes(ZodValidationPipe)
@@ -60,6 +70,7 @@ export class ElectedOfficeController {
     private readonly crmOfficeHolder: CrmOfficeHolderService,
     @Inject(forwardRef(() => PrioritiesService))
     private readonly prioritiesService: PrioritiesService,
+    private readonly winTerm: WinTermService,
   ) {}
 
   private toApi(record: Prisma.ElectedOfficeGetPayload<object>) {
@@ -82,7 +93,8 @@ export class ElectedOfficeController {
   // enforce the no-overlapping-term-dates invariant (the term-date selector
   // greys out ranges already covered by an existing office).
   @Get('mine')
-  async listMine(@ReqUser() user: User) {
+  @ResponseSchema(z.array(MyElectedOfficeSchema))
+  async listMine(@ReqUser() user: User): Promise<MyElectedOffice[]> {
     // The global SessionGuard admits M2M tokens without populating request.user,
     // so guard against that here — "mine" is meaningless without a user.
     if (!user) {
@@ -97,9 +109,22 @@ export class ElectedOfficeController {
     // official with issues they ran on confirms they are in office.
     const withWinIssues =
       await this.prioritiesService.officesWithWinIssues(offices)
+    const linkedCampaignIds = offices.flatMap((office) =>
+      office.campaignId === null ? [] : [office.campaignId],
+    )
+    const proCampaigns =
+      linkedCampaignIds.length === 0
+        ? []
+        : await this.electedOfficeService.client.campaign.findMany({
+            where: { id: { in: linkedCampaignIds }, isPro: true },
+            select: { id: true },
+          })
+    const proCampaignIds = new Set(proCampaigns.map((c) => c.id))
     return offices.map((office) => ({
       ...this.toApi(office),
       hasWinIssues: withWinIssues.has(office.id),
+      campaignIsPro:
+        office.campaignId !== null && proCampaignIds.has(office.campaignId),
     }))
   }
 
@@ -191,12 +216,40 @@ export class ElectedOfficeController {
       )
     }
 
-    const created = await this.electedOfficeService.create({
+    // A win sends no term: fill it from the winner's own BallotReady record
+    // when there is one, so Serve onboarding's term step comes prefilled.
+    const winTerm =
+      campaignId != null &&
+      !eoFields.termStartDate &&
+      !eoFields.termEndDate &&
+      eoFields.onboardingCompletedAt == null
+        ? await this.winTerm.forWinner(orgData.positionId, user)
+        : null
+
+    // A campaign org's create is the Pro winner's own "I won".
+    const createArgs = {
       ...eoFields,
       userId: user.id,
       campaignId,
+      winSource:
+        campaignId != null ? ElectedOfficeWinSource.self_reported : undefined,
       orgData,
-    })
+    }
+    if (winTerm) {
+      try {
+        return this.toApi(
+          await this.electedOfficeService.create({
+            ...createArgs,
+            ...winTerm,
+          }),
+        )
+      } catch (err) {
+        // A looked-up term that collides with an office they already hold
+        // must not cost them the win: create it term-less and let them say.
+        if (!(err instanceof ConflictException)) throw err
+      }
+    }
+    const created = await this.electedOfficeService.create(createArgs)
     return this.toApi(created)
   }
 

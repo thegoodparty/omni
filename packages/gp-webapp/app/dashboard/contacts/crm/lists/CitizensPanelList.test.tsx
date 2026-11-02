@@ -37,6 +37,20 @@ vi.mock('../map/ContactListMap', () => ({
   ),
 }))
 
+// Where the panel stands, which this card does not draw.
+const PANEL_READ = {
+  progress: {
+    members: 0,
+    goal: 240,
+    answersNeeded: 96,
+    expectedAnswers: 0,
+    groupsCovered: 0,
+    groupsTotal: 0,
+  },
+  balance: null,
+  composition: null,
+}
+
 const selectList = vi.fn()
 const selectPerson = vi.fn()
 
@@ -65,9 +79,11 @@ const mockSummary = (members: number, lastOutreachAt: string | null = null) =>
     status: 200,
     data: {
       members,
+      joinedBy: { text: 0, door: 0, phone: 0, hand: 0 },
       reachedRecently: 0,
       askableNow: members,
       lastOutreachAt: lastOutreachAt as unknown as Date | null,
+      ...PANEL_READ,
     },
   })
 
@@ -120,9 +136,11 @@ describe('CitizensPanelListCard', () => {
         status: 200,
         data: {
           members: 0,
+          joinedBy: { text: 0, door: 0, phone: 0, hand: 0 },
           reachedRecently: 0,
           askableNow: 0,
           lastOutreachAt: null,
+          ...PANEL_READ,
         },
       }
     })
@@ -141,9 +159,11 @@ describe('CitizensPanelListCard', () => {
         status: 200,
         data: {
           members: 2,
+          joinedBy: { text: 0, door: 0, phone: 0, hand: 0 },
           reachedRecently: 0,
           askableNow: 2,
           lastOutreachAt: null,
+          ...PANEL_READ,
         },
       }
     })
@@ -177,6 +197,7 @@ describe('ListDetailSheet — the built-in civic panel list', () => {
             robocall: 0,
             phoneBanking: 2,
             doorKnocking: 2,
+            email: 0,
             polls: 2,
           },
           outreachHistory,
@@ -249,6 +270,23 @@ describe('ListDetailSheet — the built-in civic panel list', () => {
     ).not.toBeInTheDocument()
   })
 
+  it('lists the members, each opening their record, with no second read', async () => {
+    api.mock('GET /v1/voters/voter-file/filters', { status: 200, data: [] })
+    const { segments } = mockPanel()
+    render(<ListDetailSheet listId="civicPanel" onClose={vi.fn()} />)
+
+    const members = await screen.findByTestId('civic-panel-members')
+    expect(within(members).getByText('Members')).toBeInTheDocument()
+    await userEvent.click(
+      await within(members).findByRole('button', { name: /Ada Lovelace/ }),
+    )
+    expect(selectPerson).toHaveBeenCalledWith('p-1')
+    expect(
+      within(members).getByRole('button', { name: /Grace Hopper/ }),
+    ).toBeInTheDocument()
+    expect(segments).toEqual(['civicPanel'])
+  })
+
   it('shows the sends that reached the panel as its history', async () => {
     api.mock('GET /v1/voters/voter-file/filters', { status: 200, data: [] })
     mockPanel([
@@ -286,17 +324,13 @@ describe('ListDetailSheet — the built-in civic panel list', () => {
     ).toHaveTextContent('Phone banking')
   })
 
-  it('lists no member names and offers no shape drawing or list actions', async () => {
+  it('offers no shape drawing or list actions', async () => {
     api.mock('GET /v1/voters/voter-file/filters', { status: 200, data: [] })
     mockPanel()
     render(<ListDetailSheet listId="civicPanel" onClose={vi.fn()} />)
 
     const dialog = await screen.findByRole('dialog')
     await within(dialog).findByTestId('contact-map-stub')
-    expect(within(dialog).queryByText('Members')).not.toBeInTheDocument()
-    expect(
-      within(dialog).queryByText(/Lovelace|Hopper/),
-    ).not.toBeInTheDocument()
     expect(
       within(dialog).queryByRole('button', { name: /shapes/ }),
     ).not.toBeInTheDocument()

@@ -17,6 +17,10 @@ const sizeClasses = {
   large: 'w-[44px] h-[20px]',
 } as const
 
+/**
+ * @summary Use to mark a feature or action as part of the paid Pro plan. For any
+ * other tag or count, use Badge.
+ */
 export const ProBadge = ({ className, size = 'default' }: ProBadgeProps) => (
   <svg
     data-slot="pro-badge"

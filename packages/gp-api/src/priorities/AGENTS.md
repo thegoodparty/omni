@@ -5,6 +5,34 @@ An elected official's priorities: the record, the agent's seven-step status
 the results page's read of who answered the outreach sent on one
 (`services/priorityResults.service.ts`).
 
+`nextAction` is shown to the official (the priority rail's "Next" line, the
+home Next steps cards), so it is one sentence to them as "you".
+`PriorityStatusService.applyUpdate` drops it to null and logs a warning when it
+names the official (first or last name) or uses a step id as a name ("so
+define can be settled", `listen_problem`). Reads apply the same guard
+(`shownNextAction`): every priorities route that returns a priority (list,
+get, create, update and `/status`) and the home Next steps cards show a value stored before the write
+guard existed as no Next line.
+
+**Report Back Sent** (`EVENTS.Priorities.ReportBackSent`) fires from the Serve
+SMS post-purchase step once a report back text is claimed and queued, only
+from the claim that won: `answeredCount` (everyone who answered the
+priority), `themesShared` (its top themes, at most `MAX_THEMES`) and
+`channel` (`text`).
+
+## A check's first round
+
+Behind `serve-citizen-panels`, the priority chat
+(`chats/general/priority-flow/priorityFlow.prompt.ts`) picks how a check
+starts. With the office's managed civic panel ready, asking it is the
+default: the agent asks the official which way, with ask your civic panel
+listed first, then the round one text to residents across the district, then
+another kind of outreach. Otherwise round one is the text, sized by
+`size_round_one`. No priority text asks anyone to join a civic panel (only
+the managed civic panel's invite waves do), and every one ends with the
+question, then how to reply, with the opt-out added under it
+(`docs/adr/2026-10-29-ready-civic-panel-is-a-prioritys-default-first-round.md`).
+
 ## Answer coding
 
 `services/priorityAnswerCoding.service.ts`. Replies stay free text; an AI
@@ -66,14 +94,60 @@ reweighted to census sex by age and adults per tract, `util/censusFrame.util.ts`
 a margin the census cannot give keeps the voter file's, logged; bound in
 `CensusCompositionModule`; route tests stub it). `codedAnswers` reads
 `PriorityAnswer` over the same sends the page counts, one value per person.
+`MrpRead.answersNeeded` is the district's floor, `frameAnswersNeeded` of the
+same frame (`contacts/utils/civicPanelAllocation.util.ts`), the one function
+`districtAnswersNeeded` sizes round 1 and the panel from, so the read never
+calls a priority done before the target the official was given: under it the
+read is `notYetRepresentative` and `needed` is at least the floor
+(`docs/adr/2026-10-22-priority-read-total-answer-floor.md`).
 `answerGroups` gives the results page each major group but tracts, its
 share of the district against its share of the coded answers, unweighted.
 `mrpReadStatus` also returns `unheard`, the named groups with no coded answer
 at all (a tract with none makes `unreachedAreas` unheard), and `groupsHeard` of `groupsTotal` (major groups with
 at least three coded answers), which the webapp shows instead of an answer
-count. `unreachedAreaFor` takes its tracts from the same model
+count, and `groupsNext`, the major groups short of three that belong to a
+group named in `underrepresented`. `representativeAnswers` of
+`representativeNeeded` is what the webapp's seats and bar show, in people:
+the floor, and the answers within their major group's share of it on
+every dimension (the one furthest behind sets it; small groups and `other`
+hold no seats), so a group heard from plenty never fills more than its
+share, and a good read fills them all (`representativeOf`). `unreachedAreaFor` takes its tracts from the same model
 (`holdingBackTracts`: major tracts short of three answers or too unsure), so
 the area a list is saved to can never disagree with the status.
+
+## Theme ranks and signal
+
+The results response's themes come sorted by `people` (distinct people with
+a confirmed note or a reply in the theme), most first, the run's `rank`
+breaking ties. Each carries `voices` (`ThemeVoicesSchema` in contracts):
+`CensusCompositionSource.themeCells` counts every theme's people in the
+model's cells in one warehouse read (`buildThemeCellsSql`, counts only),
+and `themeVoices` (`util/mrpReadStatus.util.ts`) checks each group
+`answerGroups` shows (major, nameable, no tracts) for
+`THEME_VOICES_PER_GROUP` of them: all is `strong`, at least half `fair`,
+fewer `thin`, which the page shows as Strong signal, Some signal and Low
+signal. No read, no district, or a failed theme read leaves `voices` off.
+Only the results route computes it.
+
+## Theme responses and download
+
+`services/priorityThemeComments.service.ts` serves what people said behind
+a theme, words only, behind the same office check and `serve-citizen-panels`
+404 as the results route:
+
+- `GET :id/results/themes/:themeId/comments` (`PriorityThemeCommentsSchema`):
+  the theme's confirmed notes and text replies, oldest first, each as
+  `text` and `kind` (`reply` or `note`, a canvasser's summary). The theme
+  must come from a pooled run of this org on this priority, else 404.
+- `GET :id/results/comments/download[?themeId=]`: a CSV of `Comment` and
+  `Theme` only, every comment of the latest completed run once with its
+  themes joined, or one theme's. Cells go through `csvCell`
+  (`feedbackNotesExport.service.ts`), quoted and formula-guarded.
+
+Neither ever reads a name, number, address, person id or contact record:
+the member select is the words and their time, and the response schema
+strips anything else. A reply that only opted out is left out, as the polls
+download does.
 
 ## Round 2 draw
 

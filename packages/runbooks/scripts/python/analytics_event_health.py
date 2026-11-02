@@ -9,8 +9,8 @@ severity-ranked digest section prepended (newest first, below the header) to
 ``instrumentation_data/analytics-event-health-log.md``.
 
 Hybrid scope: every catalog event gets an SOP status; a curated watchlist
-(``monitored_events.yaml``) drives severity elevation and the self-healing proposal queue
-(new events in watched families that are not yet on the list). The deeper per-flag code
+(``monitored_events.yaml``) drives severity elevation, an additions queue (OKR legs in
+watched families not yet on the list) and a removals queue (watched events retired in code). The deeper per-flag code
 investigation (reading the diffs) is the runbook agent's job — see books/monitor-analytics-event-health.md.
 
 It READS from Databricks (the ``mart_analytics`` exposures ``amplitude_event_catalog`` and the
@@ -109,7 +109,8 @@ GPMETA = re.compile(r"<!--\s*gp-meta\s*-->(.*?)<!--\s*/gp-meta\s*-->", re.DOTALL
 
 CATALOG_SQL = f"""
 select event_type, family, is_win, first_seen_date, last_seen_date,
-       event_count, event_count_30d, govern_description, in_govern_taxonomy
+       event_count, event_count_30d, govern_description, in_govern_taxonomy,
+       govern_product, product_label_conflict
 from {CATALOG_TABLE}
 """
 
@@ -613,7 +614,7 @@ def propose_watchlist_additions(
     window_days: int = PROPOSAL_WINDOW_DAYS,
     dismissed_events: Iterable[str] = (),
 ) -> list[dict]:
-    """Self-healing watchlist: events worth adding to the curated list.
+    """Watchlist additions eligible on liveness alone; ``reconcile`` keeps only OKR legs.
 
     A proposal is a catalog event that is in a watched family, first seen within the
     window, not already on the list, not system/auto-tracked, and **currently live** —
@@ -652,6 +653,74 @@ def propose_watchlist_additions(
     return sorted(out, key=lambda r: (r["first_seen_date"], r["event_type"]), reverse=True)
 
 
+def label_findings(
+    catalog: Sequence[Mapping[str, Any]],
+    today: date,
+    dismissed_events: Iterable[str] = (),
+    window_days: int = PROPOSAL_WINDOW_DAYS,
+) -> list[dict]:
+    """Events whose Govern product label is missing or contradicts another signal.
+
+    ``no_product_label``: an unplaced (``other``) event with no ``govern_product`` that is
+    firing and new, so old tail events do not bury the ones an engineer just shipped.
+    ``product_label_conflict``: the catalog flag, at any age, since a contradiction stays
+    wrong however old the event is. Dismissed events are skipped for both kinds.
+
+    Returns ``[{event_type, kind, family, first_seen_date}]``, conflicts first, then newest.
+    """
+    dismissed_events = set(dismissed_events)
+    cutoff = today - timedelta(days=window_days)
+    out: list[dict] = []
+    for row in catalog:
+        event_type = row["event_type"]
+        family = row["family"]
+        if event_type in dismissed_events:
+            continue
+        first_seen = to_date(row.get("first_seen_date"))
+        if row.get("product_label_conflict"):
+            kind = "product_label_conflict"
+        elif (
+            family == "other"
+            and not row.get("govern_product")
+            and not is_system(family, event_type)
+            and int(row.get("event_count_30d") or 0) > 0
+            and first_seen is not None
+            and first_seen >= cutoff
+        ):
+            kind = "no_product_label"
+        else:
+            continue
+        out.append({"event_type": event_type, "kind": kind, "family": family, "first_seen_date": first_seen})
+    return sorted(
+        out,
+        key=lambda r: (r["kind"] != "product_label_conflict", -(r["first_seen_date"] or date.min).toordinal(), r["event_type"]),
+    )
+
+
+def propose_watchlist_removals(
+    watched_rows: Iterable[str],
+    code: Mapping[str, Mapping[str, Any]],
+    okr_events: Iterable[str],
+    kept: Iterable[str],
+) -> list[dict]:
+    """Watched ``events:`` rows whose event is retired in code (DATA-2676).
+
+    A retired row reads ``deprecating`` for 30 days and then goes silent, so without this
+    it is carried forever. Dormant rows are not proposed: their silence is a health finding
+    a human rules on first. OKR legs never are, since the semantic layer owns them.
+    """
+    okr_events, kept = set(okr_events), set(kept)
+    out: list[dict] = []
+    for event_type in watched_rows:
+        if event_type in okr_events or event_type in kept:
+            continue
+        retired = to_date((code.get(event_type) or {}).get(RETIRED_COL))
+        if retired is None:
+            continue
+        out.append({"event_type": event_type, "reason": "retired", "retired_date": retired})
+    return sorted(out, key=lambda r: (r["retired_date"], r["event_type"]))
+
+
 def reconcile(
     catalog: Sequence[Mapping[str, Any]],
     weekly_rows: Iterable[Mapping[str, Any]],
@@ -661,14 +730,22 @@ def reconcile(
     watched_families: Iterable[str] = (),
     dismissed_events: Iterable[str] = (),
     okr_by_event: Mapping[str, str] | None = None,
+    watched_rows: Iterable[str] = (),
+    kept_events: Iterable[str] = (),
+    okr_events: Iterable[str] | None = None,
 ) -> dict:
     """Reconcile the three axes into per-event records, status counts, a ranked flag list,
-    and the self-healing watchlist proposal queue."""
+    and the watchlist proposal and removal queues."""
     current_monday = today - timedelta(days=today.weekday())
     series = weekly_series(weekly_rows, current_monday)
     watchlist_events = set(watchlist_events)
     dismissed_events = set(dismissed_events)
     okr_by_event = dict(okr_by_event or {})
+    # The base event of every watched leg. okr_by_event is keyed by leg key, and a leg with
+    # an exclusion keys as "Event[excluding ...]", so a bare-name match misses most legs.
+    okr_events = (
+        {key.split("[", 1)[0] for key in okr_by_event} if okr_events is None else set(okr_events)
+    )
     seen_in_catalog = {row["event_type"] for row in catalog}
     records: list[dict] = []
 
@@ -704,6 +781,7 @@ def reconcile(
                 "elevated": is_elevated(family, event_type, description, on_watchlist=on_watchlist),
                 "on_watchlist": on_watchlist,
                 "okr": okr_by_event.get(event_type),
+                "okr_base": event_type in okr_events,
                 "event_count_30d": cnt30,
                 "last_seen_date": last_seen,
                 "anomaly": anomaly,
@@ -730,6 +808,7 @@ def reconcile(
                     "elevated": elevated,
                     "on_watchlist": on_watchlist,
                     "okr": okr_by_event.get(event_type),
+                    "okr_base": event_type in okr_events,
                     "event_count_30d": 0,
                     "last_seen_date": None,
                     "anomaly": None,
@@ -774,18 +853,26 @@ def reconcile(
         "other_missing_count": sum(1 for r in scored if not r["has_description"] and not r["elevated"]),
     }
 
-    proposals = propose_watchlist_additions(
+    eligible = propose_watchlist_additions(
         catalog, code, watched_families, watchlist_events, today,
         dismissed_events=dismissed_events,
     )
+    # DATA-2676: watches come from questions and OKR legs. A behavior's instrument already
+    # enrolls itself, so only an unwatched OKR leg is worth a row; the rest is counted.
+    proposals = [p for p in eligible if p["event_type"] in okr_events]
 
     # Stamp each record with the watchlist axis's verdict (DATA-2152): tracked (already
-    # curated) beats dismissed (human rejected) beats proposed (self-healing candidate);
+    # curated) beats dismissed (human rejected) beats proposed (an unwatched OKR leg);
     # everything else is untouched by the watchlist.
+    removals = propose_watchlist_removals(watched_rows, code, okr_events, kept_events)
+
     proposed_types = {p["event_type"] for p in proposals}
+    removal_types = {r["event_type"] for r in removals}
     for record in records:
         et = record["event_type"]
-        if record["on_watchlist"]:
+        if et in removal_types:
+            record["watchlist_status"] = "remove_proposed"
+        elif record["on_watchlist"]:
             record["watchlist_status"] = "tracked"
         elif et in dismissed_events:
             record["watchlist_status"] = "dismissed"
@@ -801,6 +888,9 @@ def reconcile(
         "status_counts": dict(status_counts),
         "metadata_coverage": metadata_coverage,
         "proposals": proposals,
+        "label_findings": label_findings(catalog, today, dismissed_events),
+        "unneeded_proposal_count": len(eligible) - len(proposals),
+        "removal_proposals": removals,
         "flagged": flagged,
         "records": records,
         # Counted, not flagged: a jump here is a batch that shipped and may never fire.
@@ -891,7 +981,7 @@ PRIORITY_RANK_MAX = 7
 # Cap how many event names a single changes-line spells out before summarizing (the
 # first run flags everything, which would otherwise dump the whole list).
 CHANGES_NAME_CAP = 15
-# Cap how many self-healing proposals to spell out as ready-to-paste rows.
+# Cap how many watchlist proposals or removals to spell out as rows.
 PROPOSAL_CAP = 15
 
 
@@ -1072,12 +1162,11 @@ def render_digest_section(result: Mapping[str, Any], changes: Mapping[str, list[
         shown = proposals[:PROPOSAL_CAP]
         lines += [
             "",
-            "### Watchlist proposals (self-healing)",
+            "### Watchlist proposals (OKR legs)",
             "",
-            f"{len(proposals)} event(s) in a watched family, first seen in the last "
-            f"{PROPOSAL_WINDOW_DAYS}d, not yet on the watchlist. Triage in the runbook "
-            "(add real funnel/activation milestones; skip UI micro-interactions), confirm "
-            "in code, then paste the agreed rows into `monitored_events.yaml`:",
+            f"{len(proposals)} OKR leg(s) in a watched family, first seen in the last "
+            f"{PROPOSAL_WINDOW_DAYS}d, not yet on the watchlist. Triage in the runbook, "
+            "confirm in code, then paste the agreed rows into `monitored_events.yaml`:",
             "",
             "```yaml",
             *[_proposal_yaml_row(p) for p in shown],
@@ -1085,6 +1174,50 @@ def render_digest_section(result: Mapping[str, Any], changes: Mapping[str, list[
         ]
         if len(proposals) > PROPOSAL_CAP:
             lines.append(f"({len(proposals) - PROPOSAL_CAP} more — see the JSON report.)")
+    unneeded = result.get("unneeded_proposal_count") or 0
+    if unneeded:
+        if not proposals:
+            lines += ["", "### Watchlist proposals (OKR legs)", "", "No OKR leg to add."]
+        lines += [
+            "",
+            f"{unneeded} new event(s) in watched families with no question; see the JSON report.",
+        ]
+
+    labels = result.get("label_findings") or []
+    if labels:
+        lines += [
+            "",
+            "### Labels",
+            "",
+            f"{len(labels)} event(s) with a missing or conflicting product label. Label each "
+            "in Amplitude with the `event-metadata` skill, or add it to `dismissed:` in "
+            "`monitored_events.yaml`:",
+            "",
+            "| event | finding | family | first seen |",
+            "|---|---|---|---|",
+            *[
+                f"| {r['event_type']} | {r['kind']} | {r['family'] or ''} | {r['first_seen_date'] or ''} |"
+                for r in labels[:PROPOSAL_CAP]
+            ],
+        ]
+        if len(labels) > PROPOSAL_CAP:
+            lines.append(f"({len(labels) - PROPOSAL_CAP} more; see the JSON report.)")
+
+    removals = result.get("removal_proposals") or []
+    if removals:
+        lines += [
+            "",
+            "### Watchlist removals",
+            "",
+            f"{len(removals)} watched event(s) retired in code. Remove each `events:` row in "
+            "triage, or record a `kept:` row to keep watching it:",
+            "",
+            "| event | retired |",
+            "|---|---|",
+            *[f"| {r['event_type']} | {r['retired_date']} |" for r in removals[:PROPOSAL_CAP]],
+        ]
+        if len(removals) > PROPOSAL_CAP:
+            lines.append(f"({len(removals) - PROPOSAL_CAP} more — see the JSON report.)")
     lines.append("")
     return "\n".join(lines)
 
@@ -1180,6 +1313,14 @@ def load_cause_dismissals(path: Path = WATCHLIST) -> tuple[dict[str, str], list[
     return dismissals, problems
 
 
+def load_watchlist_kept(path: Path = WATCHLIST) -> set[str]:
+    """Events a human ruled should stay watched despite a removal proposal (``kept:``)."""
+    if not path.exists():
+        return set()
+    doc = yaml.safe_load(path.read_text()) or {}
+    return {row["event"] for row in (doc.get("kept", []) or []) if row.get("event")}
+
+
 def load_code_axis(csv_path: Path = CODE_CSV) -> dict[str, dict]:
     """Read the committed provenance CSV into ``{event_type: row}`` (the code axis)."""
     with open(csv_path, newline="") as fh:
@@ -1217,6 +1358,18 @@ def load_prior_state(path: Path | None) -> dict[str, str] | None:
         return None
     flagged = data.get("flagged")
     return flagged if isinstance(flagged, dict) else None
+
+
+def load_prior_removals(path: Path | None) -> set[str] | None:
+    """The previous run's removal proposals; None when the file or key is absent."""
+    if path is None or not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return None
+    removals = data.get("removal_proposals") if isinstance(data, dict) else None
+    return set(removals) if isinstance(removals, list) else None
 
 
 def load_prior_latches(path: Path | None) -> dict[str, dict]:
@@ -1274,6 +1427,7 @@ def _latched_leg_record(
         "elevated": True,
         "on_watchlist": False,
         "okr": latch["metric"],
+        "okr_base": True,
         # The catalog counts whole events, so the leg's own weekly rows are the only
         # honest source for the digest's count column.
         "event_count_30d": sum(n for week_start, n in weeks if week_start >= cutoff),
@@ -1359,6 +1513,11 @@ def run_monitor(
     result = reconcile(
         catalog, weekly, code, today, watchlist_events, watched_families,
         dismissed_events=dismissed_events, okr_by_event=watched_by_key,
+        # The literal rows, not the behavior-widened set: a behavior's instrument is the
+        # question's to drop, so only an events: row can be proposed for removal.
+        watched_rows=load_watchlist(watchlist_path)[1],
+        kept_events=load_watchlist_kept(watchlist_path),
+        okr_events={leg.event for leg in watched_legs},
     )
     # A read problem leaves the metrics it covers unmarked, and a partial read leaves
     # only the failed file's. Say so on any of them, or a red OKR item quietly reads
@@ -1468,6 +1627,14 @@ def run_monitor(
             record["dismissed_cause"] = reason
     result["dismissed_causes"] = dismissed_causes
     result["dismissal_problems"] = dismissal_problems
+
+    # The Slack gate posts on a removal once, the run it first appears, not every run it
+    # stands: re-listing the same rows weekly is the noise DATA-2676 exists to cut.
+    prior_removals = load_prior_removals(state_path)
+    result["new_removal_proposals"] = [
+        r["event_type"] for r in result["removal_proposals"]
+        if prior_removals is None or r["event_type"] not in prior_removals
+    ]
 
     changes = diff_flagged(result["flagged"], load_prior_state(state_path))
     return result, changes
@@ -1710,6 +1877,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             # while an instrument is broken. `test_latch_record_keeps_its_cross_repo_keys`
             # pins them; change the contract on both sides or not at all.
             "latches": result.get("latches") or {},
+            "removal_proposals": sorted(
+                r["event_type"] for r in result.get("removal_proposals") or []),
         }
         # default=_json_default like the --json write: the latch records are authored by
         # okr_latch, and this file is the only place the sticky reference survives, so a

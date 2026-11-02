@@ -1,7 +1,7 @@
 """Subject-agnostic plumbing for a forced-tool-call LLM judge.
 
-Extracted from instrumentation_gaps.py when event_anchors.py became a second caller
-(DATA-2426 slice 3). Everything here is about *running* a judge safely — the budget, the
+Kept apart from instrumentation_gaps.py so a judge's caller owns only its prompt.
+Everything here is about *running* a judge safely — the budget, the
 truncation trap, and the graceful boundary. What is being judged, and the prompt that
 judges it, belongs to the caller.
 """

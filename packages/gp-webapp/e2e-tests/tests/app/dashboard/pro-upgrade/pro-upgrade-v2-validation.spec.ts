@@ -5,9 +5,9 @@ import {
   NavigationHelper,
 } from 'src/helpers/navigation.helper'
 import {
-  SEED_VALID_EIN,
   seedCandidateProfileComplete,
   seedEinAndFiled,
+  uniqueEin,
 } from 'src/helpers/pro-upgrade.helper'
 import { setFlagOverrides } from 'src/helpers/campaignStory.helper'
 
@@ -62,7 +62,7 @@ test.describe('Pro upgrade v2 validation gates', () => {
     const { data } = await client.get<CampaignEinState>('/v1/campaigns/mine')
     expect(data.details?.einNumber ?? null).toBeNull()
 
-    await einField.fill(SEED_VALID_EIN)
+    await einField.fill(uniqueEin())
     await page.getByRole('button', { name: 'Continue' }).click()
     await page.waitForURL(`**${PRO_UPGRADE_PATH}/filing-details`, {
       timeout: 30_000,

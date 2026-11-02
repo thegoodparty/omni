@@ -1,5 +1,14 @@
 import { BadRequestException } from '@nestjs/common'
-import { afterEach, describe, expect, it, MockInstance, vi } from 'vitest'
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  MockInstance,
+  vi,
+} from 'vitest'
+import { CrmCampaignsService } from '@/campaigns/services/crmCampaigns.service'
 import { CampaignStrategyService } from '@/campaignStrategy/services/campaignStrategy.service'
 import { useTestService } from '@/test-service'
 
@@ -45,6 +54,15 @@ describe('POST /v1/campaigns/launch', () => {
     )
     return generate
   }
+
+  // The harness user is not a test-domain user, so launch's HubSpot sync
+  // would otherwise wait on the real API.
+  beforeEach(() => {
+    vi.spyOn(
+      service.app.get(CrmCampaignsService),
+      'trackCampaign',
+    ).mockResolvedValue(undefined)
+  })
 
   afterEach(() => {
     generate.mockRestore()

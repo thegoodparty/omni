@@ -37,6 +37,7 @@ import {
   ChartColumnIcon,
   CheckCircleIcon,
   ClockIcon,
+  CreditCardIcon,
   DollarSignIcon,
   DoorOpenIcon,
   FileTextIcon,
@@ -240,6 +241,12 @@ export const OutreachDetailsDrawer = ({
   // A robocall the send chain could not deliver — the spine reads `failed`.
   const isFailedRobocall =
     row?.outreachType === OUTREACH_TYPES.robocall && row?.status === 'failed'
+  // A robocall whose pay-time hold was declined: the spine sits at
+  // pending_payment and the satellite at hold_failed. The candidate updates
+  // their card and resends, reusing the recording, script and audience.
+  const isHoldFailedRobocall =
+    row?.outreachType === OUTREACH_TYPES.robocall &&
+    row?.robocall?.settleState === 'hold_failed'
   const detailQuery = useOutreachDetail(
     row?.id ?? null,
     row !== null && !isPoll,
@@ -755,7 +762,27 @@ export const OutreachDetailsDrawer = ({
       </div>
     ) : null
 
-  const smsFooter = isCancelable ? (
+  const smsFooter = isHoldFailedRobocall ? (
+    // The payment-failed robocall's one way forward: back into the flow it
+    // was built in, to re-pick a date and pay with a new card (the resume
+    // reuses its recording, script and audience). The same resume path a
+    // saved draft's footer takes.
+    <div className="shrink-0 border-t border-border bg-background px-4 py-4 lg:px-6">
+      <div className="mx-auto flex w-full max-w-[608px]">
+        <Button
+          size="large"
+          className="flex-1"
+          onClick={() => {
+            onOpenChange(false)
+            if (row) onResumeDraft?.(row)
+          }}
+        >
+          <CreditCardIcon className="size-4" />
+          Update card and resend
+        </Button>
+      </div>
+    </div>
+  ) : isCancelable ? (
     <div className="shrink-0 border-t border-border bg-background px-4 py-4 lg:px-6">
       <div className="mx-auto flex w-full max-w-[608px] gap-3">
         {/* Candidate editing is gone (the campaign success team fixes
@@ -1064,6 +1091,13 @@ export const OutreachDetailsDrawer = ({
             {isFailedRobocall && (
               <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-foreground">
                 This send couldn&apos;t be delivered. You weren&apos;t charged.
+              </div>
+            )}
+
+            {isHoldFailedRobocall && (
+              <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-foreground">
+                Your payment didn&apos;t go through, so this call hasn&apos;t
+                gone out. Update your card to resend it.
               </div>
             )}
 

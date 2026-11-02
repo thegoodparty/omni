@@ -6,11 +6,17 @@ import { OrganizationsService } from '@/organizations/services/organizations.ser
 import { CallhubBulkImportService } from '@/vendors/callhub/services/callhubBulkImport.service'
 import { CallhubPhonebookService } from '@/vendors/callhub/services/callhubPhonebook.service'
 import { S3Service } from '@/vendors/aws/services/s3.service'
+import { UsersService } from '@/users/services/users.service'
 import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
 import { Campaign } from '@/generated/prisma'
 import { RobocallPhonebookService } from './robocallPhonebook.service'
 
-const campaign = { id: 7, slug: 'jane-for-mayor', organizationSlug: 'org-1' }
+const campaign = {
+  id: 7,
+  slug: 'jane-for-mayor',
+  organizationSlug: 'org-1',
+  userId: 3,
+}
 
 const peoplePage = (landlines: (string | null)[], hasNextPage = false) => ({
   people: landlines.map((landline, i) => ({ id: `p_${i}`, landline })),
@@ -35,14 +41,15 @@ describe('RobocallPhonebookService', () => {
     uploadFile: ReturnType<typeof vi.fn>
     getSignedUrlForViewing: ReturnType<typeof vi.fn>
   }
+  let users: { findUnique: ReturnType<typeof vi.fn> }
   let service: RobocallPhonebookService
 
   beforeEach(() => {
-    process.env.ROBOCALL_AUDIO_BUCKET = 'robocall-audio-test'
-    delete process.env.ROBOCALL_TEST_OVERRIDE_NUMBER
+    vi.stubEnv('ROBOCALL_AUDIO_BUCKET', 'robocall-audio-test')
+    vi.stubEnv('ROBOCALL_TEST_OVERRIDE_NUMBER', undefined)
     contacts = {
       findContactsForFilter: vi.fn(),
-      resolvePeopleDataset: vi.fn().mockResolvedValue('voters'),
+      resolvePeopleDataset: vi.fn().mockResolvedValue({ base: 'voters' }),
     }
     organizations = { findFirst: vi.fn().mockResolvedValue({ id: 1 }) }
     voterFileFilterService = {
@@ -61,6 +68,9 @@ describe('RobocallPhonebookService', () => {
         .fn()
         .mockResolvedValue('https://s3.example/audience.csv?sig=abc'),
     }
+    users = {
+      findUnique: vi.fn().mockResolvedValue({ id: 3, phone: '5125550199' }),
+    }
 
     service = new RobocallPhonebookService(
       contacts as unknown as ContactsService,
@@ -69,6 +79,7 @@ describe('RobocallPhonebookService', () => {
       phonebooks as unknown as CallhubPhonebookService,
       bulkImport as unknown as CallhubBulkImportService,
       s3 as unknown as S3Service,
+      users as unknown as UsersService,
       createMockLogger(),
     )
   })
@@ -79,7 +90,11 @@ describe('RobocallPhonebookService', () => {
 
   const run = async () => {
     vi.useFakeTimers()
-    const promise = service.loadAudienceToPhonebook(campaign as Campaign, 99)
+    const promise = service.loadAudienceToPhonebook(
+      campaign as Campaign,
+      99,
+      false,
+    )
     await vi.runAllTimersAsync()
     return promise
   }
@@ -105,7 +120,7 @@ describe('RobocallPhonebookService', () => {
       { resultsPerPage: 1000, page: 1 },
       { id: 1 },
       undefined,
-      'voters',
+      { base: 'voters' },
     )
 
     // CSV holds the extracted numbers behind a header row, deduped,
@@ -180,7 +195,11 @@ describe('RobocallPhonebookService', () => {
     phonebooks.getContactCount.mockRejectedValue(new BadRequestException('bad'))
 
     vi.useFakeTimers()
-    const promise = service.loadAudienceToPhonebook(campaign as Campaign, 99)
+    const promise = service.loadAudienceToPhonebook(
+      campaign as Campaign,
+      99,
+      false,
+    )
     const assertion =
       expect(promise).rejects.toBeInstanceOf(BadRequestException)
     await vi.runAllTimersAsync()
@@ -195,7 +214,11 @@ describe('RobocallPhonebookService', () => {
     phonebooks.getContactCount.mockResolvedValue(1)
 
     vi.useFakeTimers()
-    const promise = service.loadAudienceToPhonebook(campaign as Campaign, 99)
+    const promise = service.loadAudienceToPhonebook(
+      campaign as Campaign,
+      99,
+      false,
+    )
     const assertion =
       expect(promise).rejects.toBeInstanceOf(BadGatewayException)
     await vi.runAllTimersAsync()
@@ -206,7 +229,7 @@ describe('RobocallPhonebookService', () => {
     contacts.findContactsForFilter.mockResolvedValue(peoplePage([null, '']))
 
     await expect(
-      service.loadAudienceToPhonebook(campaign as Campaign, 99),
+      service.loadAudienceToPhonebook(campaign as Campaign, 99, false),
     ).rejects.toBeInstanceOf(BadRequestException)
     expect(phonebooks.createPhonebook).not.toHaveBeenCalled()
   })
@@ -215,7 +238,7 @@ describe('RobocallPhonebookService', () => {
     organizations.findFirst.mockResolvedValue(null)
 
     await expect(
-      service.loadAudienceToPhonebook(campaign as Campaign, 99),
+      service.loadAudienceToPhonebook(campaign as Campaign, 99, false),
     ).rejects.toBeInstanceOf(BadRequestException)
   })
 
@@ -223,7 +246,7 @@ describe('RobocallPhonebookService', () => {
     voterFileFilterService.findByIdAndOrganizationSlug.mockResolvedValue(null)
 
     await expect(
-      service.loadAudienceToPhonebook(campaign as Campaign, 99),
+      service.loadAudienceToPhonebook(campaign as Campaign, 99, false),
     ).rejects.toBeInstanceOf(BadRequestException)
   })
 
@@ -234,13 +257,49 @@ describe('RobocallPhonebookService', () => {
     )
 
     await expect(
-      service.loadAudienceToPhonebook(campaign as Campaign, 99),
+      service.loadAudienceToPhonebook(campaign as Campaign, 99, false),
     ).rejects.toBeInstanceOf(BadGatewayException)
+  })
+
+  describe('owner phone only', () => {
+    it('loads ONLY the owner phone and never resolves the voter list', async () => {
+      users.findUnique.mockResolvedValue({ id: 3, phone: '+1 (512) 555-0199' })
+      phonebooks.getContactCount.mockResolvedValue(1)
+
+      vi.useFakeTimers()
+      const promise = service.loadAudienceToPhonebook(
+        campaign as Campaign,
+        99,
+        true,
+      )
+      await vi.runAllTimersAsync()
+      const result = await promise
+
+      expect(users.findUnique).toHaveBeenCalledWith({ where: { id: 3 } })
+      expect(contacts.findContactsForFilter).not.toHaveBeenCalled()
+      expect(s3.uploadFile).toHaveBeenCalledWith(
+        'robocall-audio-test',
+        'phone\n5125550199\n',
+        expect.any(String),
+        { contentType: 'text/csv' },
+      )
+      expect(result).toEqual({ phonebookPkStr: 'pb-1', importedCount: 1 })
+    })
+
+    it('loads nothing when the owner has no valid phone', async () => {
+      users.findUnique.mockResolvedValue({ id: 3, phone: null })
+
+      await expect(
+        service.loadAudienceToPhonebook(campaign as Campaign, 99, true),
+      ).rejects.toBeInstanceOf(BadRequestException)
+      expect(contacts.findContactsForFilter).not.toHaveBeenCalled()
+      expect(phonebooks.createPhonebook).not.toHaveBeenCalled()
+    })
   })
 
   describe('ROBOCALL_TEST_OVERRIDE_NUMBER (live-test harness)', () => {
     it('loads ONLY the override number and never resolves the real audience', async () => {
-      process.env.ROBOCALL_TEST_OVERRIDE_NUMBER = '804-222-1111'
+      vi.stubEnv('ROBOCALL_TEST_OVERRIDE_NUMBER', '804-222-1111')
       phonebooks.getContactCount.mockResolvedValue(1)
 
       const result = await run()
@@ -258,7 +317,7 @@ describe('RobocallPhonebookService', () => {
     })
 
     it('normalizes a leading US country code and formatting', async () => {
-      process.env.ROBOCALL_TEST_OVERRIDE_NUMBER = '+1 (804) 222-1111'
+      vi.stubEnv('ROBOCALL_TEST_OVERRIDE_NUMBER', '+1 (804) 222-1111')
       phonebooks.getContactCount.mockResolvedValue(1)
 
       await run()
@@ -272,10 +331,10 @@ describe('RobocallPhonebookService', () => {
     })
 
     it('fails closed on a malformed override, never touching the real audience', async () => {
-      process.env.ROBOCALL_TEST_OVERRIDE_NUMBER = '555-1234' // 7 digits
+      vi.stubEnv('ROBOCALL_TEST_OVERRIDE_NUMBER', '555-1234') // 7 digits
 
       await expect(
-        service.loadAudienceToPhonebook(campaign as Campaign, 99),
+        service.loadAudienceToPhonebook(campaign as Campaign, 99, false),
       ).rejects.toBeInstanceOf(BadRequestException)
       expect(contacts.findContactsForFilter).not.toHaveBeenCalled()
       expect(phonebooks.createPhonebook).not.toHaveBeenCalled()

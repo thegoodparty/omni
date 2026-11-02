@@ -77,7 +77,7 @@ class TestPerStageCeilingDefaults:
         "stage,expected_budget,expected_deadline",
         [
             ("epic-create", 10.0, 30 * 60),
-            ("story", 15.0, 45 * 60),
+            ("story", 15.0, 90 * 60),
             ("qa", 8.0, 45 * 60),
         ],
     )

@@ -8,6 +8,7 @@ import {
   AnnotationKind,
   AnnotationResourceType,
   MeetingBriefing,
+  Organization,
 } from '../../../generated/prisma'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { BriefingArtifactCacheService } from './briefingArtifactCache.service'
@@ -35,7 +36,10 @@ export interface BriefingContextResult {
   organizationSlug: string
   // The org owner decides which people table the district data reads
   // (PeopleDatasetService keys the consumer-data flag on the owner).
-  organizationOwnerId: number
+  organization: Pick<
+    Organization,
+    'ownerId' | 'overrideDistrictId' | 'positionId'
+  >
 }
 
 @Injectable()
@@ -116,7 +120,7 @@ export class BriefingContextService extends createPrismaBase(
       user,
       office,
       organizationSlug: briefing.electedOffice.organizationSlug,
-      organizationOwnerId: briefing.electedOffice.organization.ownerId,
+      organization: briefing.electedOffice.organization,
     }
   }
 

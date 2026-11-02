@@ -285,6 +285,9 @@ export class Nightly10DlcReportService extends createPrismaBase(
     timeZone: EASTERN_TIMEZONE,
   })
   async triggerNightlyReport() {
+    // Deliberately prod-only, NOT VENDOR_CRONS_ENABLED: this posts to
+    // bot-10dlc-compliance, and from a mock env would ping Peerly's staff about
+    // mock identities.
     if (process.env.OTEL_SERVICE_ENVIRONMENT !== 'prod') {
       return
     }
@@ -321,6 +324,8 @@ export class Nightly10DlcReportService extends createPrismaBase(
     timeZone: EASTERN_TIMEZONE,
   })
   async triggerVendorEscalations() {
+    // Deliberately prod-only, NOT VENDOR_CRONS_ENABLED: it @here-pings Peerly's
+    // shared Slack Connect channel, which a mock env must never do.
     if (process.env.OTEL_SERVICE_ENVIRONMENT !== 'prod') {
       return
     }

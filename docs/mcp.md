@@ -28,6 +28,9 @@ writes a Viewer-role token to the gitignored `.env.mcp.local` at the repo root
 - `.mcp.json` starts `grafana` through `scripts/mcp/grafana.sh`. A token exported in
   your shell wins; otherwise it reads `.env.mcp.local` from the current checkout,
   then from the main checkout, so worktrees need no copy.
+- Keep the token out of the `env` block in `.mcp.json`. The server inherits it from
+  your shell, and pi does not expand `${VAR:-}`, so a placeholder there reaches
+  Grafana as a literal string and every call fails with `Invalid API key`.
 - `grafana` needs `uvx` (from `uv`) on your PATH; its URL is hardcoded to
   `https://goodparty.grafana.net` in `.mcp.json`.
 - `playwright` runs via `npx` and needs no env vars. It is configured `--headless

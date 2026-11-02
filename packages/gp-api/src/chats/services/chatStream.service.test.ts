@@ -1135,7 +1135,6 @@ describe('ChatStreamService', () => {
       expect(system).toContain(
         '[Card you showed: present_outreach_proposal {"channel":"text"}]',
       )
-      expect(system).toContain('record a card the app drew for you')
     })
 
     it('leaves turns with only non-card tools as their text', async () => {

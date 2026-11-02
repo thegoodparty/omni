@@ -5,6 +5,7 @@ import {
   HiLightningBolt,
   HiClipboardList,
   HiChatAlt2,
+  HiMail,
   HiEyeOff,
   HiKey,
   HiStatusOnline,
@@ -43,6 +44,12 @@ export const navItems: NavItem[] = [
     title: 'SMS Outreach',
     href: '/dashboard/sms-outreach',
     icon: HiChatAlt2,
+    permission: PERMISSIONS.READ_CAMPAIGNS,
+  },
+  {
+    title: 'Email sends',
+    href: '/dashboard/email-sends',
+    icon: HiMail,
     permission: PERMISSIONS.READ_CAMPAIGNS,
   },
   {

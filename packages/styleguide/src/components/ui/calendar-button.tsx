@@ -41,6 +41,10 @@ export interface CalendarButtonProps
   asChild?: boolean
 }
 
+/**
+ * @summary Use only for the day and arrow buttons inside Calendar; the package
+ * does not export it. For buttons in app code, use Button or IconButton.
+ */
 const CalendarButton = React.forwardRef<HTMLButtonElement, CalendarButtonProps>(
   ({ className, variant, size, asChild = false, ...props }, ref) => {
     const Comp = asChild ? Slot : 'button'

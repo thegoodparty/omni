@@ -1,3 +1,10 @@
+/**
+ * Add it with the `Foo as FooIcon` alias pattern; see the Icons section of
+ * packages/gp-webapp/AGENTS.md. For the AI sparkle mark, use AiIcon.
+ *
+ * @summary Use for every icon: this is the approved set. Import icons from here,
+ * never straight from lucide-react, and add a missing icon here first.
+ */
 export {
   Swords as SwordsIcon,
   ChartColumn as ChartColumnIcon,
@@ -152,4 +159,6 @@ export {
   LocateOff as LocateOffIcon,
   Activity as ActivityIcon,
   FlaskConical as FlaskConicalIcon,
+  PenLine as PenLineIcon,
+  ChartColumnIncreasing as ChartColumnIncreasingIcon,
 } from 'lucide-react'

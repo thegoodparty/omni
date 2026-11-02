@@ -5,6 +5,10 @@ import { CampaignUpdateHistoryProvider } from '@shared/hooks/CampaignUpdateHisto
 import CampaignManagerTasks from '../CampaignManagerTasks'
 import ProgressSection from '../../components/campaignManager/ProgressSection'
 import { useCampaignManagerChat } from '../CampaignManagerChatProvider'
+import RobocallFreeOfferCard from '../../shared/robocallFreeOffer/RobocallFreeOfferCard'
+import { isFreeOfferTaskHref } from '../../shared/robocallFreeOffer/isFreeOfferTask'
+import { useTrackerTasks } from '../../campaign-plan/components/campaignStrategy/useTrackerTasks'
+import { selectTopDynamicTasks } from '../selectTopDynamicTasks'
 
 /**
  * The Campaign Manager dashboard home for the campaign-story cohort: the
@@ -20,6 +24,12 @@ import { useCampaignManagerChat } from '../CampaignManagerChatProvider'
  */
 export default function CampaignManagerHome(): React.JSX.Element {
   const chat = useCampaignManagerChat()
+  // The priorities below already list the offer's task, so its card would
+  // show the offer twice.
+  const { tasks } = useTrackerTasks()
+  const offerTaskListed = selectTopDynamicTasks(tasks).some((task) =>
+    isFreeOfferTaskHref(task.link),
+  )
 
   return (
     <div className="flex min-h-screen flex-col bg-muted">
@@ -29,6 +39,7 @@ export default function CampaignManagerHome(): React.JSX.Element {
             <ProgressSection />
           </CampaignUpdateHistoryProvider>
         </VoterContactsProvider>
+        {!offerTaskListed && <RobocallFreeOfferCard />}
       </div>
       {/* onMeetManager is a general open, so it dismisses the meet card.
           onPersonalize launches the story-intake chat flow without dismissing

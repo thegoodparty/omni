@@ -7,6 +7,12 @@ import { CheckIcon } from './icons'
 import { cn } from '@styleguide/lib/utils'
 import { Label } from './label'
 
+/**
+ * Use CheckboxLabel for a checkbox with its label and help text.
+ *
+ * @summary Use for a yes or no choice saved when the form is submitted, or for
+ * picking several items. For a setting that applies right away, use Switch.
+ */
 function Checkbox({
   className,
   ...props

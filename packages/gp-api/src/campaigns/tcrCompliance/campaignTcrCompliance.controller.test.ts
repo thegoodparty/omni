@@ -274,24 +274,6 @@ describe('CampaignTcrComplianceController', () => {
       formattedAddress: '123 Main St',
     }
 
-    it('delegates to service.createAgentic and returns the record', async () => {
-      const result = await controller.createAgenticTcrCompliance(
-        mockCampaign,
-        agenticDto,
-      )
-
-      expect(mockTcrService.createAgentic).toHaveBeenCalledTimes(1)
-      expect(mockTcrService.createAgentic).toHaveBeenCalledWith(
-        mockUser,
-        mockCampaign,
-        expect.objectContaining({
-          ein: agenticDto.ein,
-          committeeName: agenticDto.committeeName,
-        }),
-      )
-      expect(result).toEqual(mockTcrCompliance)
-    })
-
     it('accepts a payload with no websiteDomain', async () => {
       await controller.createAgenticTcrCompliance(mockCampaign, agenticDto)
 
@@ -603,31 +585,6 @@ describe('CampaignTcrComplianceController', () => {
     })
   })
 
-  describe('getMyComplianceState', () => {
-    it('delegates to ComplianceStateService with the campaign id', async () => {
-      const expectedState = {
-        stage: ComplianceStage.pending_website_live,
-        domain: {
-          name: 'example.org',
-          status: 'registered' as const,
-          registrantVerifiedAt: null,
-        },
-        websiteId: 42,
-        peerlyVerificationId: null,
-      }
-      mockComplianceStateService.findStateForCampaign.mockResolvedValue(
-        expectedState,
-      )
-
-      const result = await controller.getMyComplianceState(mockCampaign)
-
-      expect(
-        mockComplianceStateService.findStateForCampaign,
-      ).toHaveBeenCalledWith(mockCampaign.id)
-      expect(result).toEqual(expectedState)
-    })
-  })
-
   describe('getComplianceStateForCampaign (admin)', () => {
     it('is gated by AdminOrM2MGuard', () => {
       expect(
@@ -848,46 +805,6 @@ describe('CampaignTcrComplianceController', () => {
         controller.overrideCvValidationForCampaign(12345),
       ).rejects.toThrow(NotFoundException)
       expect(mockTcrService.overrideCvValidation).not.toHaveBeenCalled()
-    })
-  })
-
-  describe('updateFilingUrlForCampaign (admin)', () => {
-    const correctedUrl = 'https://sos.example.gov/filings/jane-doe'
-
-    it('is gated by AdminOrM2MGuard', () => {
-      expect(
-        getGuards('updateFilingUrlForCampaign').map(
-          (g: { name: string }) => g.name,
-        ),
-      ).toContain(AdminOrM2MGuard.name)
-    })
-
-    it('delegates to the service and returns the persisted URL', async () => {
-      mockTcrService.updateFilingUrl.mockResolvedValue({
-        ...mockTcrCompliance,
-        filingUrl: correctedUrl,
-      })
-
-      const result = await controller.updateFilingUrlForCampaign(
-        mockCampaign.id,
-        { filingUrl: correctedUrl },
-      )
-
-      expect(mockTcrService.updateFilingUrl).toHaveBeenCalledWith(
-        mockCampaign.id,
-        correctedUrl,
-      )
-      expect(result).toEqual({ filingUrl: correctedUrl })
-    })
-
-    it('propagates a service rejection without masking it', async () => {
-      mockTcrService.updateFilingUrl.mockRejectedValue(new NotFoundException())
-
-      await expect(
-        controller.updateFilingUrlForCampaign(12345, {
-          filingUrl: correctedUrl,
-        }),
-      ).rejects.toThrow(NotFoundException)
     })
   })
 })

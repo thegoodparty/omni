@@ -32,9 +32,7 @@ fetches the bundle again and lays it over your files, keeping every value
 the bundle doesn't carry. The same fetch writes the Grafana MCP token to
 `.env.mcp.local` at the repo root, so your agent can read logs
 (`docs/mcp.md`); restart Claude Code after it lands.
-election-api and
-gp-admin aren't part of it; gp-webapp already defaults to the deployed dev
-election-api, and gp-admin isn't part of the stack `scripts/dev.sh` boots.
+gp-admin isn't part of it: it isn't part of the stack `scripts/dev.sh` boots.
 
 gp-api reads election data (races, positions, districts, office holders) from
 a second database. Locally that is `electiondb` in the same Postgres
@@ -89,7 +87,7 @@ A Serve (`eo-`) org also gets the whole civic panel loop:
 
 - **Civic panel** (`/dashboard/contacts/citizens-panel`): 60 to 100
   members, from door and call yeses plus JOIN replies to a panel invite
-  text, and a build plan at 2 hours a week whose first text step reads done.
+  text.
 - **Priority** (`/dashboard/priorities`): "Safer streets near schools", with
   a text ask to panel members, other residents and a few doors' worth of
   residents from each of the district's major census tracts. Every resident
@@ -125,11 +123,22 @@ that initializes the `ai-rules` git submodule — if `ls ai-rules/` is empty, ru
 `git submodule update --init --recursive ai-rules`), then copy each app's
 `.env.example` / `.env.local` template before starting it.
 
-**Fast tier — UI-only work.** If the change doesn't touch gp-api or real data,
-skip this whole stack: `npm run dev -w packages/prototypes` boots
-`packages/prototypes` on `:4002` with zero env by design (no backend, no DB,
-no secrets). Use it for UI/UX iteration and hand off to the full stack only
-once the change needs real data or an endpoint.
+## Patched dependencies
+
+`patches/` holds `patch-package` patches that the root `postinstall` applies to
+`node_modules` on every install, including the gp-api image build.
+`patch-package` is a gp-api runtime dependency because the image installs with
+`--omit=dev` and still runs the root `postinstall`. The install fails if
+`patches/` is missing or a patch does not apply. The patch file name pins the
+package version, and the install also fails if the installed version differs.
+To upgrade a patched package, edit its files in `node_modules`, run
+`npx patch-package <package>`, and delete the old patch file. If the upgrade
+already contains the fix, delete the patch instead; when that empties
+`patches/`, also remove `patch-package`, the `postinstall` step, the
+Dockerfile `COPY patches`, and `patches/**` from the CI cache keys.
+`npm ci --ignore-scripts` skips the patches; run
+`npx patch-package --error-on-fail --error-on-warn` after it. Why each patch
+exists and when it goes: `docs/adr/`.
 
 ## Run the core loop
 
@@ -146,7 +155,6 @@ apps start the same way via their workspace name.
 ```bash
 npm run start:dev -w gp-api          # gp-api on :3000
 npm run dev       -w packages/gp-webapp # gp-webapp on :4000
-npm run start:dev -w election-api    # :3001
 npm run dev       -w gp-admin        # :3500
 npm run dev       -w candidate-sites # :4001
 ```
@@ -163,7 +171,7 @@ door-knocking read fails. See `packages/gp-api/src/peopleDb/AGENTS.md`.
 Generate clients for both Prisma-managed backends from the root:
 
 ```bash
-npm run generate:prisma            # gp-api + election-api
+npm run generate:prisma            # gp-api (main + election clients)
 npm run generate:prisma:gp-api     # one service
 ```
 

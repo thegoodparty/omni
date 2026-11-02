@@ -45,6 +45,7 @@ const UnderFloorList = ({
           <DownloadNotesLink
             outreachId={outreachId}
             hasNotes={memos.length > 0}
+            channel={channel}
             isServe={isServe}
           />
         )}

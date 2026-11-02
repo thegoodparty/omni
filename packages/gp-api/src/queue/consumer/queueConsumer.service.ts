@@ -1,5 +1,5 @@
 import { APIPollStatus, derivePollStatus } from '@/polls/polls.types'
-import { Message } from '@aws-sdk/client-sqs'
+import { Message, MessageSystemAttributeName } from '@aws-sdk/client-sqs'
 import { isHighConfidence } from '@goodparty_org/contracts'
 import { Injectable, InternalServerErrorException } from '@nestjs/common'
 import {
@@ -66,6 +66,9 @@ import {
   OrdinanceQualityLoopMessageSchema,
   OutreachTextSendEventSchema,
   P2pPhoneListBuildMessageSchema,
+  ContactUploadProcessMessageSchema,
+  EmailSendPrepareMessageSchema,
+  EmailInboundMessageSchema,
   PollAnalysisCompleteEvent,
   PollAnalysisCompleteEventSchema,
   PollCreationEvent,
@@ -96,6 +99,7 @@ import {
   OutreachTextDeliveryService,
   TextDeliveryAudience,
 } from '@/outreach/services/outreachTextDelivery.service'
+import { OutreachTextSendFundingService } from '@/outreach/services/outreachTextSendFunding.service'
 import { P2pPhoneListUploadService } from '@/vendors/peerly/services/p2pPhoneListUpload.service'
 import { FeedbackSynthesisIngestService } from '@/constituentFeedback/services/feedbackSynthesisIngest.service'
 import { FeedbackSynthesisCompleteEventSchema } from '@goodparty_org/contracts'
@@ -105,6 +109,8 @@ import type { AgentExperimentResultData } from '../queue.types'
 import { ExperimentRunStatus } from '../../generated/prisma'
 import { isJsonObject } from '@/shared/util/objects.util'
 import { isUndrawnSample } from '@/priorities/util/roundTwo.util'
+import { EmailOutreachQueueService } from '@/emailOutreach/services/emailOutreachQueue.service'
+import { ContactUploadProcessJobService } from '@/contactUploads/services/contactUploadProcessJob.service'
 
 const INITIAL_POLL_SEND_SEQ = 1
 
@@ -113,7 +119,7 @@ type PollAnalysisIssue = PollAnalysisCompleteEvent['data']['issues'][number]
 // One poll can have hundreds of unmapped response phones, each resolved via an
 // HTTP POST to People-API. Firing them all at once (Promise.all) overruns
 // People-API's request/socket budget and cascades into timeouts and failures.
-// A benchmark (pollAnalysisFanout.benchmark.test.ts) modelling that downstream
+// A benchmark modelling that downstream
 // showed a cap of 20 eliminates the errors while being at least as fast as the
 // unbounded burst at typical poll sizes (the burst pays a degradation penalty),
 // so we bound the fan-out here.
@@ -198,6 +204,9 @@ export class QueueConsumerService {
     private readonly p2pPhoneListUpload: P2pPhoneListUploadService,
     private readonly logger: PinoLogger,
     private readonly feedbackSynthesisIngest: FeedbackSynthesisIngestService,
+    private readonly textSendFunding: OutreachTextSendFundingService,
+    private readonly emailOutreachQueue: EmailOutreachQueueService,
+    private readonly contactUploadProcessJob: ContactUploadProcessJobService,
   ) {
     this.logger.setContext(QueueConsumerService.name)
   }
@@ -562,6 +571,31 @@ export class QueueConsumerService {
         )
         return await this.p2pPhoneListUpload.handleQueuedBuild(buildId)
       }
+      // Email payloads are parsed so a malformed one throws and ages to the
+      // DLQ rather than being acked.
+      case QueueType.EMAIL_SEND_PREPARE:
+        return await this.emailOutreachQueue.handleSendPrepare(
+          EmailSendPrepareMessageSchema.parse(queueMessage.data),
+        )
+      case QueueType.EMAIL_INBOUND:
+        return await this.emailOutreachQueue.handleInbound(
+          EmailInboundMessageSchema.parse(queueMessage.data),
+        )
+      case QueueType.CONTACT_UPLOAD_PROCESS: {
+        this.logger.info('received contactUploadProcess message')
+        // Malformed means our own producer's bug: throw and age to the DLQ.
+        const { uploadId } = ContactUploadProcessMessageSchema.parse(
+          queueMessage.data,
+        )
+        return await this.contactUploadProcessJob.handleQueuedProcess(
+          uploadId,
+          Number(
+            message.Attributes?.[
+              MessageSystemAttributeName.ApproximateReceiveCount
+            ] ?? 1,
+          ),
+        )
+      }
 
       default:
         this.logger.warn(
@@ -652,6 +686,19 @@ export class QueueConsumerService {
       return true
     }
 
+    // Paid at checkout, or a live managed civic panel wave; anything else is
+    // refused before an audience is resolved. `requestSend` repeats this in
+    // its own claim.
+    const funding = await this.textSendFunding.check(outreachId, sendSeq)
+    if (!funding.funded && funding.reason !== 'not_sendable') {
+      await this.textSendFunding.reportRefusal(
+        outreachId,
+        sendSeq,
+        funding.reason,
+      )
+      return true
+    }
+
     const {
       message,
       imageUrl,
@@ -723,7 +770,10 @@ export class QueueConsumerService {
         result.terminalReason === 'send_failed'
           ? 'outreachTextSend: nothing was sent — the send cannot be made ' +
               'at all; the row is now failed'
-          : 'outreachTextSend: nothing was sent — the outreach was not ' +
+          : result.terminalReason === 'unfunded'
+            ? 'outreachTextSend: nothing was sent — the send was neither ' +
+              'paid nor a live managed panel wave'
+            : 'outreachTextSend: nothing was sent — the outreach was not ' +
               'pending, or a previous attempt already handed off this send',
       )
       return true

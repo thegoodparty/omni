@@ -3,12 +3,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import {
-  BUILD_CITIZENS_PANEL_PURPOSE,
   ComposeHandoffPayloadSchema,
-  PANEL_SEED_SAMPLE_SIZE,
   type OutreachDetail,
 } from '@goodparty_org/contracts'
-import type { ProposedAudience } from 'app/dashboard/outreach/v2/audience/useOutreachAudience'
 import DashboardLayout from '../shared/DashboardLayout'
 import { NAV_LABELS } from '../shared/navLabels'
 import ServeChannelCards from './ServeChannelCards'
@@ -39,22 +36,11 @@ import {
 import type { HistoryRow } from 'app/dashboard/outreach/v2/historyStatus.util'
 import { useServeSmsFlag } from '@shared/experiments/serveSmsFlag'
 import { useServeSelfServePollsFlag } from '@shared/experiments/serveSelfServePollsFlag'
+import { useServeEmailOutreachFlag } from '@shared/experiments/serveEmailOutreachFlag'
+import { EmailFlow } from 'app/dashboard/outreach/v2/email/EmailFlow'
+import { SERVE_EMAIL_SURFACE } from 'app/dashboard/outreach/v2/email/emailSurface'
 import { PollFlow } from 'app/dashboard/outreach/v2/poll/PollFlow'
-import { useServeCitizenPanelsFlag } from '@shared/experiments/serveCitizenPanelsFlag'
 import { clientRequest } from 'gpApi/typed-request'
-
-// The first civic panel text goes to a random draw of the whole district,
-// so the panel looks like the district rather than like any one list. The
-// one filter is the cell-phone reach a text needs, which is also what lets
-// the builder continue: it holds Continue until something is selected.
-const SERVE_PANEL_SEED_AUDIENCE: ProposedAudience = {
-  filters: { hasCellPhone: true },
-  supportStatus: [],
-  precincts: [],
-  name: 'Civic panel invite',
-  sample: { size: PANEL_SEED_SAMPLE_SIZE },
-  civicPanelInvite: true,
-}
 
 interface ConstituentOutreachPageProps {
   pathname?: string
@@ -131,6 +117,10 @@ const ConstituentOutreachContent = () => {
   // Until it resolves this surface is the pre-SMS one, unchanged.
   const { ready: smsFlagReady, enabled: smsFlagEnabled } = useServeSmsFlag()
   const smsMounted = smsFlagReady && smsFlagEnabled
+  const [emailFlowOpen, setEmailFlowOpen] = useState(false)
+  const { ready: emailFlagReady, enabled: emailFlagEnabled } =
+    useServeEmailOutreachFlag()
+  const emailMounted = emailFlagReady && emailFlagEnabled
   const [pollFlowOpen, setPollFlowOpen] = useState(false)
   // Same shape as SMS: the tile is the treatment surface, and the flow is
   // mounted only on `ready && enabled`.
@@ -150,36 +140,17 @@ const ConstituentOutreachContent = () => {
     router.replace('/dashboard/constituent-outreach', { scroll: false })
     if (pollsMounted) setPollFlowOpen(true)
   }, [composeParam, pollsFlagReady, pollsMounted, router])
-  const { ready: panelsFlagReady, enabled: panelsFlagEnabled } =
-    useServeCitizenPanelsFlag(false)
-  // The Chief of Staff's "Build your civic panel" card links here as
-  // `?compose=text&purpose=build_citizens_panel`, which opens the text flow
-  // on that purpose with the seed draw already picked.
-  const [smsSeedsPanel, setSmsSeedsPanel] = useState(false)
   const smsDeepLinkRef = useRef(false)
-  const purposeParam = searchParams?.get('purpose')
   useEffect(() => {
     if (composeParam !== 'text') {
       smsDeepLinkRef.current = false
       return
     }
-    if (smsDeepLinkRef.current || !smsFlagReady || !panelsFlagReady) return
+    if (smsDeepLinkRef.current || !smsFlagReady) return
     smsDeepLinkRef.current = true
     router.replace('/dashboard/constituent-outreach', { scroll: false })
-    if (!smsMounted) return
-    setSmsSeedsPanel(
-      panelsFlagEnabled && purposeParam === BUILD_CITIZENS_PANEL_PURPOSE,
-    )
-    setSmsFlowOpen(true)
-  }, [
-    composeParam,
-    purposeParam,
-    smsFlagReady,
-    smsMounted,
-    panelsFlagReady,
-    panelsFlagEnabled,
-    router,
-  ])
+    if (smsMounted) setSmsFlowOpen(true)
+  }, [composeParam, smsFlagReady, smsMounted, router])
   // The follow-up list the results drawer just saved, handed to the flow as
   // its audience so "Call them back" lands on the who step already answered.
   const [followUpListId, setFollowUpListId] = useState<number | undefined>()
@@ -307,6 +278,7 @@ const ConstituentOutreachContent = () => {
         // keeps the card out of the grid entirely.
         onSmsClick={smsMounted ? () => setSmsFlowOpen(true) : undefined}
         onPollClick={pollsMounted ? () => setPollFlowOpen(true) : undefined}
+        onEmailClick={emailMounted ? () => setEmailFlowOpen(true) : undefined}
         // A navigation, not a flow: door knocking's create wizard is drawn
         // over its own map, which is a route rather than a drawer, and the map
         // is most of what the flow is for. `?create=1` so the card still opens
@@ -349,19 +321,17 @@ const ConstituentOutreachContent = () => {
       {smsMounted && (
         <SmsFlow
           open={smsFlowOpen}
-          onClose={() => {
-            setSmsFlowOpen(false)
-            // Spent on close, like the follow-up list below: the tile opens
-            // a plain flow afterwards.
-            setSmsSeedsPanel(false)
-          }}
+          onClose={() => setSmsFlowOpen(false)}
           onScheduled={refetchOutreaches}
           surface={SERVE_SMS_SURFACE}
-          {...(smsSeedsPanel && {
-            initialPurpose: BUILD_CITIZENS_PANEL_PURPOSE,
-            proposedAudience: SERVE_PANEL_SEED_AUDIENCE,
-          })}
-          source={smsSeedsPanel ? 'deep_link' : 'outreach_page'}
+          source="outreach_page"
+        />
+      )}
+      {emailMounted && (
+        <EmailFlow
+          open={emailFlowOpen}
+          onClose={() => setEmailFlowOpen(false)}
+          surface={SERVE_EMAIL_SURFACE}
         />
       )}
       {pollsMounted && (

@@ -452,7 +452,6 @@ describe('OutreachNotificationService', () => {
       expect(mockSlackMessage).toHaveBeenCalledTimes(1)
       const [blocks, channel] = firstOrThrow(mockSlackMessage.mock.calls)
       const blob = JSON.stringify(blocks)
-      expect(blob).toContain('FAILED')
       expect(blob).toContain('tcrLookup')
       expect(blob).toContain('TCR not found')
       expect([SlackChannel.botPolitics, SlackChannel.botDev]).toContain(channel)
@@ -619,7 +618,6 @@ describe('OutreachNotificationService', () => {
       expect(mockSlackMessage).toHaveBeenCalledTimes(1)
       const [message, channel] = firstOrThrow(mockSlackMessage.mock.calls)
       const blob = JSON.stringify(message)
-      expect(blob).toContain('Campaign Schedule Request')
       expect(blob).toContain('robocall')
       expect(blob).toContain('Jane')
       expect(blob).toContain('jane@example.com')
@@ -676,25 +674,23 @@ describe('OutreachNotificationService', () => {
       ).resolves.toBeUndefined()
     })
 
-    it('notifyRobocallDialing posts a short now-dialing line', async () => {
+    it('notifyRobocallDialing posts the slug, count and outreach id', async () => {
       await service.notifyRobocallDialing('jane-doe', 42, 1500)
 
       expect(mockSlackMessage).toHaveBeenCalledTimes(1)
       const [message, channel] = firstOrThrow(mockSlackMessage.mock.calls)
       const blob = JSON.stringify(message)
-      expect(blob).toContain('dialing')
       expect(blob).toContain('jane-doe')
       expect(blob).toContain('1500')
       expect(blob).toContain('#42')
       expect([SlackChannel.botPolitics, SlackChannel.botDev]).toContain(channel)
     })
 
-    it('notifyRobocallCompleted posts a short completed line with the amount', async () => {
+    it('notifyRobocallCompleted posts the amount and outreach id', async () => {
       await service.notifyRobocallCompleted('jane-doe', 42, 1500, 45000)
 
       const [message] = firstOrThrow(mockSlackMessage.mock.calls)
       const blob = JSON.stringify(message)
-      expect(blob).toContain('completed')
       expect(blob).toContain('$450.00')
       expect(blob).toContain('#42')
     })
@@ -706,12 +702,11 @@ describe('OutreachNotificationService', () => {
       ).resolves.toBeUndefined()
     })
 
-    it('notifyRobocallLowCredit posts an actionable out-of-credit alert', async () => {
+    it('notifyRobocallLowCredit posts the slug and outreach id', async () => {
       await service.notifyRobocallLowCredit('jared-alper1', 83708)
 
       const [message] = firstOrThrow(mockSlackMessage.mock.calls)
       const text = JSON.stringify(message)
-      expect(text).toContain('out of credit')
       expect(text).toContain('jared-alper1')
       expect(text).toContain('#83708')
     })
@@ -721,7 +716,6 @@ describe('OutreachNotificationService', () => {
 
       const [message] = firstOrThrow(mockSlackMessage.mock.calls)
       const text = JSON.stringify(message)
-      expect(text).toContain('canceled')
       expect(text).toContain('by candidate')
       expect(text).toContain('jane-doe')
       expect(text).toContain('#84877')

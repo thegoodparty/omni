@@ -50,7 +50,7 @@ resource "aws_iam_role_policy" "slack_notifier_secrets_access" {
         Action = [
           "secretsmanager:GetSecretValue"
         ]
-        Resource = "arn:aws:secretsmanager:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:secret:AI_SECRETS_${upper(var.environment)}-*"
+        Resource = "arn:aws:secretsmanager:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:secret:AI_SECRETS_${upper(var.environment)}-*"
       }
     ]
   })
@@ -69,7 +69,7 @@ resource "aws_lambda_function" "slack_notifier" {
   environment {
     variables = {
       SECRET_NAME   = "AI_SECRETS_${upper(var.environment)}"
-      SECRET_REGION = data.aws_region.current.name
+      SECRET_REGION = data.aws_region.current.region
     }
   }
 
@@ -97,7 +97,7 @@ resource "aws_lambda_permission" "allow_sns" {
   function_name = aws_lambda_function.slack_notifier.function_name
   principal     = "sns.amazonaws.com"
   # Allow any SNS topic in this account to invoke
-  source_arn = "arn:aws:sns:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:*"
+  source_arn = "arn:aws:sns:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:*"
 }
 
 # Outputs

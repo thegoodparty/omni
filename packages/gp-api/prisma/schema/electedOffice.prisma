@@ -1,5 +1,14 @@
+// Where the win that created this office was reported. Null for an office
+// that did not come from a win (a lead, net-new onboarding, a fixture), or a
+// lead's office that a win later linked. The first source to create it stays.
+enum ElectedOfficeWinSource {
+  self_reported
+  staff
+  ddhq
+}
+
 model ElectedOffice {
-  id               String        @id @default(uuid(7))
+  id             String        @id @default(uuid(7))
   organizationSlug String        @unique @map("organization_slug")
   organization     Organization  @relation(fields: [organizationSlug], references: [slug], onDelete: Cascade)
 
@@ -40,6 +49,8 @@ model ElectedOffice {
   campaign   Campaign? @relation(fields: [campaignId], references: [id], onDelete: NoAction)
   campaignId Int?      @map("campaign_id")
 
+  winSource ElectedOfficeWinSource? @map("win_source")
+
   polls                    Poll[]
   pollIndividualMessages   PollIndividualMessage[]
   meetingBriefings         MeetingBriefing[]
@@ -50,7 +61,6 @@ model ElectedOffice {
   onboardingCardDismissals OnboardingCardDismissal[]
   onboardingCardCompletions OnboardingCardCompletion[]
   ordinances               Ordinance[]
-  civicPanelBuildPlans     CivicPanelBuildPlan[]
 
   @@index([userId])
   @@index([campaignId])

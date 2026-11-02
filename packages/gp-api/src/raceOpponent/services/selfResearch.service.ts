@@ -22,7 +22,7 @@ import {
 import { CampaignWith } from '@/campaigns/campaigns.types'
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
 import { AgentJobContracts } from '@/generated/agent-job-contracts'
-import { ElectionApiService } from '@/campaignStrategy/services/electionApi.service'
+import { RaceContextService } from '@/campaignStrategy/services/raceContext.service'
 import { getUserFullName } from '@/users/util/users.util'
 import {
   MAX_SELF_RESEARCH_ATTEMPTS,
@@ -51,7 +51,7 @@ export class SelfResearchService extends createPrismaBase(
 ) {
   constructor(
     private readonly experimentRuns: ExperimentRunsService,
-    private readonly electionApi: ElectionApiService,
+    private readonly raceContextService: RaceContextService,
   ) {
     super()
   }
@@ -295,7 +295,7 @@ export class SelfResearchService extends createPrismaBase(
 
   private async tryRaceContext(campaignId: number, raceId: string) {
     try {
-      return await this.electionApi.getRaceContext(raceId)
+      return await this.raceContextService.getRaceContext(raceId)
     } catch {
       this.logger.warn(
         { campaignId, raceId },

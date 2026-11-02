@@ -3,11 +3,10 @@
 import { useCallback, useEffect, useRef } from 'react'
 import type { ReactNode } from 'react'
 import {
-  CIVIC_PANEL_JOIN_LINE,
-  CIVIC_PANEL_LEAVE_LINE,
   MERGE_TAGS,
   type MergeTagChannel,
   mergeTagToken,
+  SMS_RESTRICTED_WORDS,
   type SmsStandardsRule,
   SOCIAL_TONE_VALUES,
   type SocialTone,
@@ -16,12 +15,10 @@ import { SMS_COMPOSED_MAX_LENGTH } from '@goodparty_org/contracts'
 import {
   Button,
   Card,
-  Checkbox,
   cn,
   FilterPill,
   FilterPillGroup,
   IconButton,
-  Label,
   seamlessFieldHost,
   TokenField,
   type TokenFieldRef,
@@ -31,6 +28,7 @@ import {
   ClockIcon,
   ImageIcon,
   Loader2Icon,
+  LockIcon,
   MicIcon,
   RefreshIcon,
   SmileIcon,
@@ -99,7 +97,12 @@ interface SmsComposeStepProps {
   tone: SocialTone
   onToneChange: (tone: SocialTone) => void
   standardsFailures: SmsRequiredPart[]
+  // The restricted words the message actually contains, so the error names
+  // only those.
+  restrictedWords?: string[]
   unfilledBrackets: string[]
+  // Set when the message carries a civic panel JOIN line it may not send.
+  joinLineError?: string
   identificationExample: string
   // The exact "Paid for by" line the message should carry, or null on a
   // surface or a campaign with no committee to name.
@@ -128,25 +131,24 @@ interface SmsComposeStepProps {
   // Presses of Continue while something was missing. Nothing shows as missing
   // before the first, and each one moves to the first field still missing.
   continueAttempts: number
-  // Serve only: the "Reply JOIN" ask for the official's civic panel. Locked
-  // on a text whose purpose is the ask, so the box cannot be unchecked.
-  civicPanelAsk?: {
-    checked: boolean
-    locked?: boolean
-    onChange: (checked: boolean) => void
+  // Serve's civic panel invite that GoodParty sends in the official's name:
+  // its own title, no tone, image or panel ask, the JOIN line and opt-out
+  // locked under the editable body. What approving means sits in the shell
+  // footer above the button (SmsFlow's banner), not here.
+  // A dictated passage landed in the message.
+  onDictated?: () => void
+  managedInvite?: {
+    title: string
+    caption: string
+    lockedLines: string
   }
 }
 
-// What a send needs beyond the standards rules: the civic panel line the
-// reply reader or the create looks for.
-export type SmsRequiredPart =
-  | SmsStandardsRule
-  | 'civic_panel_join'
-  | 'civic_panel_leave'
+export type SmsRequiredPart = SmsStandardsRule
 
 // What is wrong and how to fix it, per missing required part: rule 8 of
-// docs/product-copy.md. The greeting, name, disclaimer, opt-out and panel
-// line are written by the flow and editable like any other text, so these
+// docs/product-copy.md. The greeting, name, disclaimer and opt-out are
+// written by the flow and editable like any other text, so these
 // fire when an edit deletes one, and each shows the exact line to restore
 // plus a one-click way to restore it.
 interface StandardsFailureCopy {
@@ -166,7 +168,12 @@ export const standardsFailureCopy = (
   {
     identificationExample,
     paidForByText,
-  }: { identificationExample: string; paidForByText: string | null },
+    restrictedWords = [],
+  }: {
+    identificationExample: string
+    paidForByText: string | null
+    restrictedWords?: readonly string[]
+  },
 ): StandardsFailureCopy => {
   if (rule === 'candidate_name') {
     return {
@@ -202,26 +209,18 @@ export const standardsFailureCopy = (
       }),
     }
   }
-  if (rule === 'civic_panel_join') {
-    return {
-      problem: 'Your text needs its civic panel ask.',
-      fix: 'Add it back before the opt-out line:',
-      line: CIVIC_PANEL_JOIN_LINE,
-      addBackLabel: 'Add the civic panel ask back',
-    }
-  }
-  if (rule === 'civic_panel_leave') {
-    return {
-      problem: 'Your text needs the line for leaving your civic panel.',
-      fix: 'Add it back before the opt-out line:',
-      line: CIVIC_PANEL_LEAVE_LINE,
-      addBackLabel: 'Add the civic panel line back',
-    }
-  }
   if (rule === 'link_shortener') {
     return {
       problem: 'Your text has a shortened link, like bit.ly.',
       fix: 'Paste the full web address instead.',
+    }
+  }
+  if (rule === 'restricted_word') {
+    const words =
+      restrictedWords.length > 0 ? restrictedWords : SMS_RESTRICTED_WORDS
+    return {
+      problem: 'Your text has a word our texting provider won\u2019t send.',
+      fix: `Reword it without ${words.map((word) => `\u201c${word}\u201d`).join(' or ')}.`,
     }
   }
   return {
@@ -235,7 +234,9 @@ export const SmsComposeStep = ({
   tone,
   onToneChange,
   standardsFailures,
+  restrictedWords,
   unfilledBrackets,
+  joinLineError,
   identificationExample,
   paidForByText,
   onAddRequiredBack,
@@ -255,20 +256,23 @@ export const SmsComposeStep = ({
   imageError,
   onImageError,
   continueAttempts,
-  civicPanelAsk,
+  onDictated,
+  managedInvite,
 }: SmsComposeStepProps) => {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const dropzoneRef = useRef<HTMLButtonElement>(null)
   const fieldRef = useRef<TokenFieldRef>(null)
   const attempted = continueAttempts > 0
-  const imageMissing = attempted && !imagePreviewUrl
+  const imageMissing = attempted && !imagePreviewUrl && !managedInvite
   const messageMissing = attempted && !hasWrittenBody
   // Dictation lands at the cursor, not at the end: the end of the message is
   // the opt-out line, and nothing may follow it.
   const dictation = useDictation({
     analyticsLabel: 'outreach-sms-compose',
     onFinalTranscript: (text) => {
-      if (text) fieldRef.current?.insertText(` ${text}`)
+      if (!text) return
+      fieldRef.current?.insertText(` ${text}`)
+      onDictated?.()
     },
   })
   const isRecording = dictation.status === 'recording'
@@ -294,7 +298,7 @@ export const SmsComposeStep = ({
   // the message. Keyed on the press count alone so typing never steals focus.
   useEffect(() => {
     if (continueAttempts === 0) return
-    if (!imagePreviewUrl) {
+    if (!imagePreviewUrl && !managedInvite) {
       dropzoneRef.current?.scrollIntoView?.({
         behavior: 'smooth',
         block: 'center',
@@ -333,22 +337,27 @@ export const SmsComposeStep = ({
     <div className="space-y-6">
       <Intro
         channel="text"
-        title="What do you want to say?"
-        body="Start from a draft, dictate your own, or improve with AI."
+        title={managedInvite?.title ?? 'What do you want to say?'}
+        body={
+          managedInvite?.caption ??
+          'Start from a draft, dictate your own, or improve with AI.'
+        }
       />
 
-      <FilterPillGroup
-        type="single"
-        value={tone}
-        onValueChange={(value) => value && onToneChange(value as SocialTone)}
-      >
-        {SOCIAL_TONE_VALUES.map((t) => (
-          <FilterPill key={t} value={t} className="gap-1.5">
-            {TONE_ICONS[t]}
-            {TONE_LABELS[t]}
-          </FilterPill>
-        ))}
-      </FilterPillGroup>
+      {managedInvite ? null : (
+        <FilterPillGroup
+          type="single"
+          value={tone}
+          onValueChange={(value) => value && onToneChange(value as SocialTone)}
+        >
+          {SOCIAL_TONE_VALUES.map((t) => (
+            <FilterPill key={t} value={t} className="gap-1.5">
+              {TONE_ICONS[t]}
+              {TONE_LABELS[t]}
+            </FilterPill>
+          ))}
+        </FilterPillGroup>
+      )}
 
       <div className="space-y-3">
         {isDraftError && (
@@ -364,7 +373,7 @@ export const SmsComposeStep = ({
         )}
 
         <Card className={cn('gap-0 p-4', seamlessFieldHost)}>
-          {imagePreviewUrl ? (
+          {managedInvite ? null : imagePreviewUrl ? (
             <div className="relative mb-4">
               {/* eslint-disable-next-line @next/next/no-img-element -- local
                     object URL preview of an unuploaded file */}
@@ -441,7 +450,11 @@ export const SmsComposeStep = ({
                 overLimit && 'text-destructive',
               )}
             >
-              {composedLength} chars · {segments} SMS
+              {/* The managed invite goes out as MMS (a required header
+                  image), so SMS segments would be wrong for it. */}
+              {managedInvite
+                ? `${composedLength} chars`
+                : `${composedLength} chars · ${segments} SMS`}
             </span>
           </div>
           <TokenField
@@ -465,6 +478,17 @@ export const SmsComposeStep = ({
           {messageMissing && (
             <p className="text-xs text-destructive">{MESSAGE_REQUIRED_ERROR}</p>
           )}
+          {managedInvite ? (
+            <div
+              className="mt-2 flex items-start gap-2 rounded-lg bg-muted px-3 py-2 text-sm text-muted-foreground"
+              data-testid="managed-invite-locked-lines"
+            >
+              <LockIcon className="mt-0.5 size-4 shrink-0" aria-hidden />
+              <span className="whitespace-pre-line">
+                {managedInvite.lockedLines}
+              </span>
+            </div>
+          ) : null}
 
           <div className="-mx-4 -mb-4 mt-4 flex items-center justify-end gap-1 border-t border-border p-2">
             {canUndo && (
@@ -520,28 +544,6 @@ export const SmsComposeStep = ({
             </IconButton>
           </div>
         </Card>
-        {civicPanelAsk && (
-          <div className="flex items-start gap-3">
-            <Checkbox
-              id="civic-panel-ask"
-              checked={civicPanelAsk.checked}
-              disabled={civicPanelAsk.locked}
-              onCheckedChange={(value) =>
-                civicPanelAsk.onChange(value === true)
-              }
-              className="mt-0.5"
-            />
-            <Label htmlFor="civic-panel-ask" className="block">
-              <span className="block text-sm font-medium">
-                Ask them to join your civic panel
-              </span>
-              <span className="mt-0.5 block text-xs font-normal text-muted-foreground">
-                People who reply JOIN are added to your panel for future
-                questions.
-              </span>
-            </Label>
-          </div>
-        )}
         {dictation.status === 'error' && dictation.error !== null && (
           <p className="text-xs text-destructive">
             Dictation didn&apos;t start: {dictation.error}. Check your
@@ -556,6 +558,7 @@ export const SmsComposeStep = ({
               const copy = standardsFailureCopy(rule, {
                 identificationExample,
                 paidForByText,
+                restrictedWords,
               })
               return (
                 <div
@@ -588,6 +591,9 @@ export const SmsComposeStep = ({
                 </div>
               )
             })}
+        {joinLineError && (
+          <p className="text-xs text-destructive">{joinLineError}</p>
+        )}
         {unfilledBrackets.length > 0 && (
           <p className="text-xs text-destructive">
             Your message still has {unfilledBrackets.join(', ')}. Replace{' '}

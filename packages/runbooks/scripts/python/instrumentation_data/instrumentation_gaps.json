@@ -60,12 +60,16 @@
     "surface_type": "form_submit"
   },
   "packages/gp-webapp/app/dashboard/briefings/components/annotations/ReportErrorSheet.tsx#form_submit#ReportErrorSheet": {
-    "dashboard_question": "How many bug reports are submitted on briefings, and how often does submission fail?",
+    "answers_question": "",
+    "dashboard_question": "How many briefing error reports get submitted or deleted, and how often does submission fail?",
     "disposition": "new",
+    "extend_event": "",
+    "extend_property": "",
     "first_seen": "2026-10-01",
+    "fix": "new_event",
     "id": "packages/gp-webapp/app/dashboard/briefings/components/annotations/ReportErrorSheet.tsx#form_submit#ReportErrorSheet",
-    "judge_reason": "Bug-report creation/deletion outcome and its error path (couldn't submit) have no tracking",
-    "last_seen": "2026-10-19",
+    "judge_reason": "handleSubmit/handleDelete are real form submit actions with error handling, but no nearby bug-report submit/error events exist for this surface (only AttachmentClicked is nearby).",
+    "last_seen": "2026-10-22",
     "location": "packages/gp-webapp/app/dashboard/briefings/components/annotations/ReportErrorSheet.tsx",
     "prior_ruling": {
       "disposition": "accepted",
@@ -73,10 +77,11 @@
       "reason": "Bug-report submit success and failure is worth tracking as briefing-quality feedback.",
       "ruled_on": "2026-08-06"
     },
-    "rank": 2,
+    "rank": 3,
     "reason": "",
-    "rubric_rule": "blocker-or-outcome",
-    "surface_type": "form_submit"
+    "rubric_rule": "form_submit / outcome-blocker",
+    "surface_type": "form_submit",
+    "value": "low"
   },
   "packages/gp-webapp/app/dashboard/briefings/components/notes-intake/AddNotesDialog.tsx#form_submit": {
     "dashboard_question": "How many notes are submitted via the notes intake dialog, and how often does submission fail?",
@@ -94,12 +99,16 @@
     "surface_type": "form_submit"
   },
   "packages/gp-webapp/app/dashboard/briefings/components/notes-intake/AddNotesDialog.tsx#form_submit#AddNotesDialog": {
-    "dashboard_question": "How many users successfully submit notes via the Add Notes dialog, and how often does it fail?",
+    "answers_question": "",
+    "dashboard_question": "How many candidates successfully submit intake notes (typed or file) for a briefing, and how often does it fail?",
     "disposition": "new",
+    "extend_event": "",
+    "extend_property": "",
     "first_seen": "2026-10-01",
+    "fix": "new_event",
     "id": "packages/gp-webapp/app/dashboard/briefings/components/notes-intake/AddNotesDialog.tsx#form_submit#AddNotesDialog",
-    "judge_reason": "handleSubmit is the dialog's primary action producing an outcome (notes saved) with no success/error tracking",
-    "last_seen": "2026-10-19",
+    "judge_reason": "handleSubmit is a primary CTA that persists staged notes/files with explicit success/error paths and no nearby_events exist for this surface at all.",
+    "last_seen": "2026-10-22",
     "location": "packages/gp-webapp/app/dashboard/briefings/components/notes-intake/AddNotesDialog.tsx",
     "prior_ruling": {
       "disposition": "accepted",
@@ -107,10 +116,11 @@
       "reason": "Notes intake is the primary briefing input; worth splitting by intake mode (Type / Camera / Upload) since the three cards have different failure modes.",
       "ruled_on": "2026-08-06"
     },
-    "rank": 2,
+    "rank": 3,
     "reason": "",
-    "rubric_rule": "primary-cta-outcome",
-    "surface_type": "form_submit"
+    "rubric_rule": "form_submit / outcome",
+    "surface_type": "form_submit",
+    "value": "low"
   },
   "packages/gp-webapp/app/dashboard/campaign-details/components/RunningAgainstForm.tsx#form_submit": {
     "dashboard_question": "How many candidates fill out the 'running against' opponent details form?",
@@ -235,30 +245,40 @@
     "surface_type": "form_submit"
   },
   "packages/gp-webapp/app/dashboard/contacts/citizens-panel/components/CivicPanelPlanStart.tsx#form_submit": {
-    "dashboard_question": "How many users start a civic panel plan, and how often is it blocked by a conflicting plan or failure?",
+    "answers_question": "serve_constituent_outreach",
+    "dashboard_question": "How many candidates create a civic panel outreach plan, and how often is it blocked or fails?",
     "disposition": "new",
+    "extend_event": "",
+    "extend_property": "",
     "first_seen": "2026-10-16",
+    "fix": "new_event",
     "id": "packages/gp-webapp/app/dashboard/contacts/citizens-panel/components/CivicPanelPlanStart.tsx#form_submit",
-    "judge_reason": "Creates a civic panel plan (an outcome) and has distinct blocked/failed error paths with no tracking",
-    "last_seen": "2026-10-19",
+    "judge_reason": "This is the primary CTA that creates the civic panel plan (an outcome), with distinct blocked/failed states, but nearby_events only cover PanelViewed/StepOpened, not plan creation/outcome/blocker.",
+    "last_seen": "2026-10-22",
     "location": "packages/gp-webapp/app/dashboard/contacts/citizens-panel/components/CivicPanelPlanStart.tsx",
-    "rank": 1,
-    "reason": "",
-    "rubric_rule": "outcome-and-blocker",
-    "surface_type": "form_submit"
-  },
-  "packages/gp-webapp/app/dashboard/contacts/citizens-panel/components/CivicPanelRail.tsx#form_submit": {
-    "dashboard_question": "How many users successfully update their civic panel plan hours, and how often does it fail?",
-    "disposition": "new",
-    "first_seen": "2026-10-16",
-    "id": "packages/gp-webapp/app/dashboard/contacts/citizens-panel/components/CivicPanelRail.tsx#form_submit",
-    "judge_reason": "Patches the civic panel plan (outcome update) with a failure path and no tracking",
-    "last_seen": "2026-10-19",
-    "location": "packages/gp-webapp/app/dashboard/contacts/citizens-panel/components/CivicPanelRail.tsx",
     "rank": 2,
     "reason": "",
-    "rubric_rule": "outcome-and-blocker",
-    "surface_type": "form_submit"
+    "rubric_rule": "primary CTA / outcome",
+    "surface_type": "form_submit",
+    "value": "needed"
+  },
+  "packages/gp-webapp/app/dashboard/contacts/citizens-panel/components/CivicPanelRail.tsx#form_submit": {
+    "answers_question": "",
+    "dashboard_question": "How many candidates update their civic panel hours-per-week plan, and how often does it fail?",
+    "disposition": "new",
+    "extend_event": "",
+    "extend_property": "",
+    "first_seen": "2026-10-16",
+    "fix": "new_event",
+    "id": "packages/gp-webapp/app/dashboard/contacts/citizens-panel/components/CivicPanelRail.tsx#form_submit",
+    "judge_reason": "This save action updates the active plan with explicit failure handling, but nearby_events only cover PanelViewed/StepOpened, no update/edit event exists.",
+    "last_seen": "2026-10-22",
+    "location": "packages/gp-webapp/app/dashboard/contacts/citizens-panel/components/CivicPanelRail.tsx",
+    "rank": 3,
+    "reason": "",
+    "rubric_rule": "primary CTA / outcome",
+    "surface_type": "form_submit",
+    "value": "low"
   },
   "packages/gp-webapp/app/dashboard/contacts/crm/assistant/AssistantBar.tsx#form_submit": {
     "dashboard_question": "How many messages are sent to the CRM assistant from the persistent bar?",
@@ -551,17 +571,22 @@
     "ticket_url": "https://app.clickup.com/t/17tnw2b0w9u"
   },
   "packages/gp-webapp/app/dashboard/outreach/v2/poll/gather/GatherMoreFlow.tsx#wizard_stage": {
-    "dashboard_question": "Where do users drop off in the Gather More poll expansion flow (size vs when steps)?",
+    "answers_question": "outreach_flow_completion",
+    "dashboard_question": "Of candidates who start the gather-more-contacts flow, what share complete each stage and where do they drop off?",
     "disposition": "new",
+    "extend_event": "",
+    "extend_property": "",
     "first_seen": "2026-10-19",
+    "fix": "new_event",
     "id": "packages/gp-webapp/app/dashboard/outreach/v2/poll/gather/GatherMoreFlow.tsx#wizard_stage",
-    "judge_reason": "Multi-stage wizard with no visible tracking and tracked_in_hook false; OutreachFlowShell usage here doesn't show trackedStep prop in snippet, so stages may be uninstrumented.",
-    "last_seen": "2026-10-19",
+    "judge_reason": "Uses OutreachFlowShell like PollFlow but tracked_in_hook is false and no nearby_events shown, suggesting stages (size/when/paid) are not instrumented.",
+    "last_seen": "2026-10-22",
     "location": "packages/gp-webapp/app/dashboard/outreach/v2/poll/gather/GatherMoreFlow.tsx",
     "rank": 1,
     "reason": "",
-    "rubric_rule": "multi-step flow stage",
-    "surface_type": "wizard_stage"
+    "rubric_rule": "multi-step flow stages need Viewed/Completed",
+    "surface_type": "wizard_stage",
+    "value": "needed"
   },
   "packages/gp-webapp/app/dashboard/outreach/v2/robocall/RobocallFlow.tsx#wizard_stage": {
     "actioned_at": "2026-09-25",

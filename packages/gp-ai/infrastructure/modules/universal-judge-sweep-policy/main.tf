@@ -4,7 +4,7 @@ terraform {
   required_providers {
     aws = {
       source  = "hashicorp/aws"
-      version = "~> 5.0"
+      version = "~> 6.0"
     }
   }
 }
@@ -179,7 +179,7 @@ resource "aws_iam_policy" "judge_sweep" {
         Effect = "Allow"
         Action = ["sqs:SendMessage", "sqs:GetQueueUrl"]
         Resource = [
-          "arn:aws:sqs:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:${local.dispatch_queue}"
+          "arn:aws:sqs:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:${local.dispatch_queue}"
         ]
       }
     ]

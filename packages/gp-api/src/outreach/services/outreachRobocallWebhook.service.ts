@@ -190,8 +190,8 @@ export class OutreachRobocallWebhookService extends createPrismaBase(
   // attached card. The filter is bounded to `now < date <= now + window` so
   // authorizeHold always takes the placement path (its hold_failed +
   // authorizationIntentId-null retry CAS re-picks the row), NEVER the defer
-  // branch — whose persist CAS is pending_payment-only and would silently drop
-  // the new card on a hold_failed row rescheduled out of the window. The lower
+  // branch: an out-of-window row needs no hold yet, and an off-session defer
+  // would schedule a send the candidate has not re-confirmed. The lower
   // bound (`> now`) honors "updating the card after send time does not revive
   // it"; authorizeHold's own capture-window fit enforces the hard deadline.
   // authorizeHold owns the single-owner claim, the Stripe hold, and the

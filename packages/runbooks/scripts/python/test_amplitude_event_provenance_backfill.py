@@ -1847,6 +1847,61 @@ def test_upsert_add_writes_provisional_row(tmp_path):
     assert row["updated_at"] == "2026-06-25T10:00:00"
 
 
+def test_upsert_writes_product(tmp_path):
+    csv = str(tmp_path / "p.csv")
+    bf.upsert_provenance_row("Polls - Poll Viewed", "add", "1234", "2026-06-25", "2026-06-25T10:00:00",
+                             csv_path=csv, product="serve")
+    assert bf.read_provenance_rows(csv)["Polls - Poll Viewed"]["product"] == "serve"
+
+
+def test_upsert_without_product_keeps_a_recorded_one(tmp_path):
+    csv = str(tmp_path / "p.csv")
+    bf.upsert_provenance_row("Polls - Poll Viewed", "add", "1", "2026-06-25", "t", csv_path=csv, product="win")
+    bf.upsert_provenance_row("Polls - Poll Viewed", "add", "1", "2026-06-26", "t", csv_path=csv)
+    assert bf.read_provenance_rows(csv)["Polls - Poll Viewed"]["product"] == "win"
+
+
+def test_upsert_rejects_an_unknown_product(tmp_path):
+    with pytest.raises(ValueError):
+        bf.upsert_provenance_row("E", "add", None, "2026-06-25", "t", csv_path=str(tmp_path / "p.csv"),
+                                 product="both")
+
+
+def test_product_alone_is_not_code_evidence():
+    assert "product" not in bf.CODE_EVIDENCE_COLUMNS
+
+
+def test_walk_preserves_product(monkeypatch, tmp_path):
+    csv_path = tmp_path / "prov.csv"
+    bf.write_provenance(
+        [_row("Event A", instrumented_commit="aaaa", instrumented_date="2025-02-01",
+              last_code_change_date="2025-02-01", product="serve")],
+        str(csv_path),
+    )
+    state_path = tmp_path / "state.json"
+    bf.write_watermark(str(state_path), "oldsha", "origin/develop", 10, "2025-04-01T00:00:00")
+    stream = [
+        _header("z9", "z9", "2026-06-18", "feat: remove A (#9)"),
+        '-  X: "Event A",',
+    ]
+    monkeypatch.setattr(bf, "run_git_log", lambda *a, **k: iter(stream))
+    monkeypatch.setattr(bf, "git_grep_present_text", lambda *a, **k: "")
+    monkeypatch.setattr(bf, "git_head_sha", lambda *a, **k: "newsha")
+    monkeypatch.setattr(bf, "git_head_ref", lambda *a, **k: "origin/develop")
+    monkeypatch.setattr(bf, "git_commit_count", lambda *a, **k: 11)
+    monkeypatch.setattr(bf, "augment_call_site_columns", lambda *a, **k: None)
+
+    rows = bf.run_refresh(FakeCursor(["Event A"]), "/root", None, DT,
+                          csv_path=str(csv_path), state_path=str(state_path))
+    assert {r["event_type"]: r for r in rows}["Event A"]["product"] == "serve"  # the window rebuilt this row
+    assert bf.read_provenance_rows(str(csv_path))["Event A"]["product"] == "serve"
+
+    # A full backfill rebuilds every row from git too.
+    rows = bf.run_backfill(FakeCursor(["Event A"]), "/root", None, DT,
+                           csv_path=str(csv_path), state_path=str(tmp_path / "s2.json"))
+    assert {r["event_type"]: r for r in rows}["Event A"]["product"] == "serve"
+
+
 def test_upsert_retire_sets_retired_fields(tmp_path):
     csv = str(tmp_path / "p.csv")
     bf.upsert_provenance_row("Polls - Poll Viewed", "add", "1234", "2026-06-20", "2026-06-20T10:00:00", csv_path=csv)

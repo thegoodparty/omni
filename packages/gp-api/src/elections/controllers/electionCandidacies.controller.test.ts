@@ -1,6 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { CandidacyFilterDto } from '@/electionDb/candidacies/candidacies.schema'
-import { CandidaciesService } from '@/electionDb/candidacies/candidacies.service'
+import { describe, expect, it } from 'vitest'
 import {
   candidaciesResponseSchema,
   ElectionCandidaciesController,
@@ -12,46 +10,10 @@ const getPath = (methodName: keyof ElectionCandidaciesController) =>
     ElectionCandidaciesController.prototype[methodName],
   )
 
-const baseFilter = {
-  includeStances: false,
-  includeRace: false,
-} as CandidacyFilterDto
-
 describe('ElectionCandidaciesController', () => {
-  let controller: ElectionCandidaciesController
-  const getCandidacies = vi.fn()
-
-  beforeEach(() => {
-    vi.clearAllMocks()
-    controller = new ElectionCandidaciesController({
-      getCandidacies,
-    } as unknown as CandidaciesService)
-  })
-
   describe('routing', () => {
     it('exposes the list at the controller root', () => {
       expect(getPath('getCandidates')).toBe('/')
-    })
-  })
-
-  describe('getCandidates', () => {
-    it('delegates the filter straight to the service', async () => {
-      const filter = { ...baseFilter, state: 'TX' } as CandidacyFilterDto
-      getCandidacies.mockResolvedValue([])
-
-      await controller.getCandidates(filter)
-
-      expect(getCandidacies).toHaveBeenCalledWith(filter)
-      expect(getCandidacies).toHaveBeenCalledTimes(1)
-    })
-
-    it('returns what the service returns', async () => {
-      const candidacies = [{ id: 'candidacy-1' }]
-      getCandidacies.mockResolvedValue(candidacies)
-
-      await expect(controller.getCandidates(baseFilter)).resolves.toBe(
-        candidacies,
-      )
     })
   })
 

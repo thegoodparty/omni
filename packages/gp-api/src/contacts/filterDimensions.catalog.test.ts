@@ -37,6 +37,9 @@ const EXCLUDED_SCHEMA_FIELDS = new Set([
   // the Homeowner/Renter/Unknown collapse (ENG-10947), but no longer
   // offered as its own catalog option.
   'homeownerLikely',
+  // The managed civic panel's wave draw criteria: set by gp-api, never
+  // offered for an official or the assistant to pick.
+  'civicPanelNeverInvited',
 ])
 
 const valueKeysOf = (key: string): string[] => {
@@ -221,12 +224,14 @@ describe('ContactsService.getFilterDimensions', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
+      {} as never,
       createMockLogger() as unknown as PinoLogger,
     )
 
   const organization = (slug: string): Organization =>
     ({ slug }) as Organization
-  const PANELS_ON = { citizenPanels: true }
+  const PANELS_ON = { citizenPanels: true, contactOverlay: true }
 
   it('leaves the civic panel dimensions out while the flag is off', () => {
     const off = buildService()
@@ -247,6 +252,20 @@ describe('ContactsService.getFilterDimensions', () => {
       'contactHistory',
       'lastAsked',
     ])
+  })
+
+  it('offers source only to a Win campaign with imported contacts', () => {
+    const keysFor = (slug: string, contactOverlay: boolean) =>
+      buildService()
+        .getFilterDimensions(organization(slug), {
+          citizenPanels: true,
+          contactOverlay,
+        })
+        .map((d) => d.key)
+
+    expect(keysFor('win-campaign', true)).toContain('source')
+    expect(keysFor('win-campaign', false)).not.toContain('source')
+    expect(keysFor('eo-city-council', true)).not.toContain('source')
   })
 
   it('includes party for a Win organization', () => {
@@ -292,6 +311,17 @@ describe('ContactsService.getFilterDimensions', () => {
       .map((d) => d.key)
     expect(winKeys).toContain('earlyVote')
     expect(serveKeys).not.toContain('earlyVote')
+  })
+
+  it('labels Voted in election Yes and No/Unknown', () => {
+    const voted = buildService()
+      .getFilterDimensions(organization('win-campaign'), PANELS_ON)
+      .find((d) => d.key === 'votedStatus')
+    expect(voted?.kind).toBe('multi-value')
+    expect(
+      voted?.kind === 'multi-value' && voted.values.map((v) => v.label),
+    ).toEqual(['Yes', 'No/Unknown'])
+    expect(voted?.provenance).toBe('observed')
   })
 
   // Each mode sees the shared dimensions plus only its own. Stated
@@ -363,6 +393,8 @@ describe('ContactsService.getFilterDimensions', () => {
 describe('ContactsService.getFilterDimensions: party by state', () => {
   const buildService = () =>
     new ContactsService(
+      {} as never,
+      {} as never,
       {} as never,
       {} as never,
       {} as never,

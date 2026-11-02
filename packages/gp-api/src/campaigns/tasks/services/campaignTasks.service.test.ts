@@ -12,10 +12,7 @@ import { parseIsoDateString } from '@/shared/util/date.util'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 
 import { SlackService } from 'src/vendors/slack/services/slack.service'
-
-vi.mock('src/shared/util/sleep.util', () => ({
-  sleep: vi.fn().mockResolvedValue(undefined),
-}))
+import * as sleepUtil from 'src/shared/util/sleep.util'
 
 const mockTxModel = {
   deleteMany: vi.fn(),
@@ -122,6 +119,7 @@ describe('CampaignTasksService', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.spyOn(sleepUtil, 'sleep').mockResolvedValue(undefined)
     service = new CampaignTasksService(
       mockSlackService as SlackService,
       mockCampaignsService as never,

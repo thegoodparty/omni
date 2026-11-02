@@ -8,6 +8,7 @@ import { ContactsMadeResolutionService } from './services/contactsMadeResolution
 import { CivicPanelHistoryService } from './services/civicPanelHistory.service'
 import { ContactStatusService } from './services/contactStatus.service'
 import { SupportStatusService } from './services/supportStatus.service'
+import { VotedStatusService } from './services/votedStatus.service'
 
 @Module({
   providers: [
@@ -16,6 +17,7 @@ import { SupportStatusService } from './services/supportStatus.service'
     ContactInteractionRobocallService,
     ContactInteractionPhoneBankingService,
     SupportStatusService,
+    VotedStatusService,
     ActivityConditionResolutionService,
     ContactStatusService,
     ContactsMadeResolutionService,
@@ -27,6 +29,7 @@ import { SupportStatusService } from './services/supportStatus.service'
     ContactInteractionRobocallService,
     ContactInteractionPhoneBankingService,
     SupportStatusService,
+    VotedStatusService,
     ActivityConditionResolutionService,
     ContactStatusService,
     ContactsMadeResolutionService,

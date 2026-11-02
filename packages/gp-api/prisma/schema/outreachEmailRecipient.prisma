@@ -1,0 +1,30 @@
+model OutreachEmailRecipient {
+  id              Int                          @id @default(autoincrement())
+  outreachEmailId Int                          @map("outreach_email_id")
+  outreachEmail   OutreachEmail                @relation(fields: [outreachEmailId], references: [id], onDelete: Cascade)
+  // Denormalized from the send for the least-recently-emailed ordering.
+  senderId        Int                          @map("sender_id")
+  sender          OutreachEmailSender          @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  email           String
+  firstName       String?                      @map("first_name")
+  lastName        String?                      @map("last_name")
+  status          OutreachEmailRecipientStatus @default(queued)
+  claimedAt       DateTime?                    @map("claimed_at")
+  sesMessageId    String?                      @unique @map("ses_message_id")
+  sentAt          DateTime?                    @map("sent_at")
+
+  @@unique([outreachEmailId, email])
+  @@index([outreachEmailId, status])
+  @@index([status, claimedAt])
+  @@index([senderId, email, sentAt])
+  @@map("outreach_email_recipient")
+}
+
+enum OutreachEmailRecipientStatus {
+  queued
+  sending
+  sent
+  bounced
+  complained
+  failed
+}

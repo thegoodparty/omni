@@ -8,6 +8,9 @@ import { authenticateTestUser } from 'tests/utils/api-registration'
 import { eventually } from 'tests/utils/eventually'
 import { waitForDashboardReady } from 'src/helpers/dashboard'
 import { setFlagOverrides } from 'src/helpers/campaignStory.helper'
+import { uniqueEin } from 'src/helpers/pro-upgrade.helper'
+import { deliverStripeEvent } from 'src/helpers/vendor-mocks.helper'
+import { withGatewayRetry } from 'tests/utils/headless-user'
 
 // Purchase-only (outreach-pro-gating-v2) happy path: a filed candidate walks
 // guidance → status → EIN → the filing-details form (campaign verification's
@@ -17,10 +20,9 @@ import { setFlagOverrides } from 'src/helpers/campaignStory.helper'
 // the mechanism that replaced the post-payment campaign-verification handoff
 // candidates never came back for.
 //
-// @dev-only: the `isPro` flip and the deferred compliance-agent kickoff are
-// driven by the live Stripe `checkout.session.completed` webhook in
-// `paymentEventsService` — an inbound delivery an ephemeral per-PR preview
-// can't receive. Same justification and side effects as
+// The `checkout.session.completed` event is delivered in-process via
+// deliverStripeEvent (the real paymentEventsService handler), so no inbound
+// webhook from Stripe is needed. Side effects match
 // pro-upgrade-happy-path.spec.ts (test-mode subscription left in place; the
 // @test.goodparty.org user is swept by gp-api's deleteTestUsers).
 
@@ -37,11 +39,12 @@ test.beforeEach(async ({ page }) => {
   await blockSlowScripts(page)
 })
 
-test('filed candidate submits filing details before payment and lands on the submitted confirmation @dev-only', async ({
+test('filed candidate submits filing details before payment and lands on the submitted confirmation', async ({
   page,
 }) => {
-  // The isPro poll below can sleep up to ~240s on the Stripe webhook.
-  test.setTimeout(15 * 60 * 1000)
+  // deliverStripeEvent delivers the webhook in-process, so the isPro flip is
+  // near-instant.
+  test.setTimeout(8 * 60 * 1000)
 
   // Isolated: mutates account-level state (campaign → Pro).
   const { user, client } = await authenticateTestUser(page, { isolated: true })
@@ -80,7 +83,8 @@ test('filed candidate submits filing details before payment and lands on the sub
 
   // 3. EIN — shape-valid, sanity-passing (47 is an IRS-issued prefix).
   await page.waitForURL(/\/dashboard\/pro-upgrade\/ein/)
-  await page.getByPlaceholder('12-3456789').fill('47-1234567')
+  const ein = uniqueEin()
+  await page.getByPlaceholder('12-3456789').fill(ein)
   await page.getByRole('button', { name: 'Continue' }).click()
 
   // 4. Filing details — campaign verification's form, before payment. The
@@ -135,7 +139,7 @@ test('filed candidate submits filing details before payment and lands on the sub
   const einInput = page.getByLabel('EIN', { exact: true })
   if (await einInput.count()) {
     // The EIN field rendered, so fill it inline.
-    await einInput.fill('47-1234567')
+    await einInput.fill(ein)
   }
 
   await page.getByPlaceholder('Jane Smith').fill('Jane Smith')
@@ -150,6 +154,23 @@ test('filed candidate submits filing details before payment and lands on the sub
   await page.getByRole('combobox').filter({ hasText: 'State' }).click()
   await page.getByRole('option', { name: 'WY' }).click()
   await page.getByPlaceholder('98103').fill('82001')
+
+  // Capture the checkout session id from the response the payment step makes
+  // on mount; armed before Continue navigates there. gp-api returns only
+  // `clientSecret` (`cs_test_<id>_secret_<random>`), so the id is the part
+  // before `_secret_`.
+  let sessionId: string | null = null
+  await page.route(
+    /\/api\/v1\/payments\/purchase\/checkout-session$/,
+    async (route) => {
+      const response = await route.fetch()
+      if (response.ok()) {
+        const body = (await response.json()) as { clientSecret?: string }
+        sessionId = body.clientSecret?.split('_secret_')[0] ?? null
+      }
+      await route.fulfill({ response })
+    },
+  )
 
   // The wizard labels this submit Continue (payment completes the submission
   // for the candidate), and it only advances once createAgentic lands.
@@ -189,17 +210,36 @@ test('filed candidate submits filing details before payment and lands on the sub
   await page.waitForTimeout(500)
   await stripeFrame.locator('#payment-postalCodeInput').fill('82001')
   await page.waitForTimeout(500)
-  const saveCheckbox = stripeFrame.getByLabel(
-    'Save my information for faster checkout',
-  )
-  if (await saveCheckbox.isChecked().catch(() => false)) {
-    await saveCheckbox.uncheck()
+  // Stripe Link's save-my-info box demands a phone number and keeps the
+  // submit disabled while checked. It is absent on some runner geolocations,
+  // where the longer form also pushes the submit below the fold.
+  const linkOptIn = stripeFrame.locator('#payment-linkOptInInput')
+  if (await linkOptIn.count()) {
+    await expect(async () => {
+      if (await linkOptIn.isChecked()) {
+        await linkOptIn.click({ timeout: 5_000 })
+      }
+      await expect(linkOptIn).not.toBeChecked({ timeout: 2_000 })
+    }).toPass({ timeout: 15_000 })
   }
   await page.waitForTimeout(1_000)
 
   const completeButton = page.getByRole('button', { name: 'Complete upgrade' })
   await expect(completeButton).toBeEnabled({ timeout: 30_000 })
+  await completeButton.scrollIntoViewIfNeeded()
   await completeButton.click()
+
+  // Deliver checkout.session.completed in-process: the real handler flips
+  // isPro and runs the deferred compliance kickoff, no Stripe inbound needed.
+  // On dev Stripe's own webhook can land at the same moment, and the handler
+  // is idempotent, so a transient write conflict (503) is safe to retry.
+  await page.waitForURL(/\/dashboard\/pro-upgrade\/success/, {
+    timeout: 60_000,
+  })
+  expect(sessionId).toBeTruthy()
+  await withGatewayRetry('POST stripe/events', () =>
+    deliverStripeEvent(client, sessionId!),
+  )
 
   // 6. Success — the submitted confirmation, never the Start-verification
   // handoff: the filing is already on record.
@@ -219,10 +259,10 @@ test('filed candidate submits filing details before payment and lands on the sub
   // and carries the deferred compliance kickoff with it.
   await eventually(
     {
-      that: 'the campaign isPro flips server-side via the Stripe webhook',
-      minTimeout: 1_000,
-      maxTimeout: 15_000,
-      retries: 20,
+      that: 'the campaign isPro flips server-side via deliverStripeEvent',
+      minTimeout: 500,
+      maxTimeout: 2_000,
+      retries: 5,
     },
     async () => {
       const res = await client.get<CampaignProState>('/v1/campaigns/mine')

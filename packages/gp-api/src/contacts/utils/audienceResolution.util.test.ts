@@ -142,7 +142,7 @@ describe('resolveFilterAudience', () => {
         {
           filterInput: { hasCellPhone: false, search: 'jane' },
           organization: ORGANIZATION,
-          dataset: 'constituents',
+          dataset: { base: 'constituents' },
           excludePersonIds: new Set(['excluded']),
           pageSize: 2,
         },
@@ -158,7 +158,7 @@ describe('resolveFilterAudience', () => {
       { resultsPerPage: 2, page: 1, skipCount: false },
       ORGANIZATION,
       new Set(['excluded']),
-      'constituents',
+      { base: 'constituents' },
     )
     expect(findContactsForFilter).toHaveBeenNthCalledWith(
       2,
@@ -166,7 +166,7 @@ describe('resolveFilterAudience', () => {
       { resultsPerPage: 2, page: 2, skipCount: true },
       ORGANIZATION,
       new Set(['excluded']),
-      'constituents',
+      { base: 'constituents' },
     )
   })
 
@@ -185,7 +185,7 @@ describe('resolveFilterAudience', () => {
         {
           filterInput: {},
           organization: ORGANIZATION,
-          dataset: 'constituents',
+          dataset: { base: 'constituents' },
           excludePersonIds: new Set(),
           pageSize: 2,
         },
@@ -210,7 +210,7 @@ describe('resolveFilterAudience', () => {
         {
           filterInput: {},
           organization: ORGANIZATION,
-          dataset: 'constituents',
+          dataset: { base: 'constituents' },
           excludePersonIds: new Set(),
           pageSize: 10,
         },
@@ -235,7 +235,7 @@ describe('resolveFilterAudience', () => {
         {
           filterInput: {},
           organization: ORGANIZATION,
-          dataset: 'constituents',
+          dataset: { base: 'constituents' },
           excludePersonIds: new Set(),
           pageSize: 10,
           isEligible: (p) => Boolean(p.firstName),
@@ -259,7 +259,7 @@ describe('resolveFilterAudience', () => {
           person({ id: 'b', cellPhone: '2' }),
         ],
       ],
-      150_000,
+      250_000,
     )
 
     const emitted: PhoneAudiencePerson[] = []
@@ -268,7 +268,7 @@ describe('resolveFilterAudience', () => {
       {
         filterInput: {},
         organization: ORGANIZATION,
-        dataset: 'constituents',
+        dataset: { base: 'constituents' },
         excludePersonIds: new Set(),
         limitExceededMessage: 'narrow it',
       },
@@ -291,7 +291,7 @@ describe('resolveFilterAudience', () => {
       expect.objectContaining({ page: 1, skipCount: false }),
       ORGANIZATION,
       new Set(),
-      'constituents',
+      { base: 'constituents' },
     )
   })
 
@@ -319,7 +319,7 @@ describe('resolveFilterAudience', () => {
       {
         filterInput: {},
         organization: ORGANIZATION,
-        dataset: 'constituents',
+        dataset: { base: 'constituents' },
         excludePersonIds: new Set(),
         pageSize: 2,
         maxRecipients: 2,
@@ -343,9 +343,9 @@ describe('resolveFilterAudience', () => {
   })
 
   it('refuses a dedup-heavy list whose matched count is over the cap', async () => {
-    // Production sizes and the defaults: 1000 per page, 100k recipients.
+    // Production sizes and the defaults: 1000 per page, 200k recipients.
     // 10% of each page repeats a number from that same page, so this list
-    // resolves 99,500 recipients — UNDER the cap — out of 110,500 matched
+    // resolves 198,500 recipients — UNDER the cap — out of 220,500 matched
     // rows, and the scan ceiling was widened (SCAN_ALLOWANCE) specifically so
     // that a list would not 400 for the sin of having duplicate phone
     // numbers in it.
@@ -353,8 +353,8 @@ describe('resolveFilterAudience', () => {
     // THE PRE-FLIGHT NARROWS THAT, KNOWINGLY. It reads the matched count, not
     // the resolved one, so it cannot tell this list from one that really is
     // over the cap. What makes the trade acceptable is that this list cannot
-    // be served today either: 111 pages at the ~2.17s/page measured in prod
-    // is ~241s against a ~120s gateway timeout, so before this guard the
+    // be served today either: 221 pages at the ~2.17s/page measured in prod
+    // is ~480s against a ~120s gateway timeout, so before this guard the
     // caller got a two-minute hang and a `statusCode: null`. A fast, slightly
     // over-eager refusal is the better failure, and the honest fix for the
     // band between "resolves under the cap" and "cannot resolve in 120s" is
@@ -363,11 +363,11 @@ describe('resolveFilterAudience', () => {
     const findContactsForFilter = asFinder(
       vi.fn(async () => {
         pageNumber += 1
-        if (pageNumber > 110) {
+        if (pageNumber > 220) {
           const tailIds = Array.from({ length: 500 }, (_, i) => `tail-${i}`)
           return {
             people: peopleWithPhones(tailIds),
-            pagination: { totalResults: 110_500 },
+            pagination: { totalResults: 220_500 },
           }
         }
         const fresh = Array.from(
@@ -383,7 +383,7 @@ describe('resolveFilterAudience', () => {
               repeats,
             ),
           ],
-          pagination: { totalResults: 110_500 },
+          pagination: { totalResults: 220_500 },
         }
       }),
     )
@@ -395,13 +395,13 @@ describe('resolveFilterAudience', () => {
           {
             filterInput: {},
             organization: ORGANIZATION,
-            dataset: 'constituents',
+            dataset: { base: 'constituents' },
             excludePersonIds: new Set(),
           },
         ),
       ),
-    ).rejects.toThrow(/matches over the 100000 recipient limit/)
-    // One fetch, not 111: the refusal costs a single page.
+    ).rejects.toThrow(/matches over the 200000 recipient limit/)
+    // One fetch, not 221: the refusal costs a single page.
     expect(findContactsForFilter).toHaveBeenCalledTimes(1)
   })
 
@@ -445,7 +445,7 @@ describe('resolveFilterAudience', () => {
         {
           filterInput: {},
           organization: ORGANIZATION,
-          dataset: 'constituents',
+          dataset: { base: 'constituents' },
           excludePersonIds: new Set(),
         },
       ),
@@ -483,7 +483,7 @@ describe('resolveFilterAudience', () => {
         {
           filterInput: {},
           organization: ORGANIZATION,
-          dataset: 'constituents',
+          dataset: { base: 'constituents' },
           excludePersonIds: new Set(),
           skipPreflightCap: true,
         },
@@ -498,7 +498,7 @@ describe('resolveFilterAudience', () => {
       expect.objectContaining({ page: 1, skipCount: true }),
       ORGANIZATION,
       new Set(),
-      'constituents',
+      { base: 'constituents' },
     )
   })
 
@@ -527,7 +527,7 @@ describe('resolveFilterAudience', () => {
           {
             filterInput: {},
             organization: ORGANIZATION,
-            dataset: 'constituents',
+            dataset: { base: 'constituents' },
             excludePersonIds: new Set(),
             pageSize: 2,
             maxRecipients: 2,
@@ -563,7 +563,7 @@ describe('resolveFilterAudience', () => {
           {
             filterInput: {},
             organization: ORGANIZATION,
-            dataset: 'constituents',
+            dataset: { base: 'constituents' },
             excludePersonIds: new Set(),
             timeBudgetMs: 90_000,
             budgetExceededMessage: ({ matchedCount, affordableCount }) =>
@@ -595,7 +595,7 @@ describe('resolveFilterAudience', () => {
         {
           filterInput: {},
           organization: ORGANIZATION,
-          dataset: 'constituents',
+          dataset: { base: 'constituents' },
           excludePersonIds: new Set(),
           timeBudgetMs: 90_000,
         },
@@ -624,7 +624,7 @@ describe('resolveFilterAudience', () => {
         {
           filterInput: {},
           organization: ORGANIZATION,
-          dataset: 'constituents',
+          dataset: { base: 'constituents' },
           excludePersonIds: new Set(),
           timeBudgetMs: 90_000,
         },
@@ -659,7 +659,7 @@ describe('resolveFilterAudience', () => {
           {
             filterInput: {},
             organization: ORGANIZATION,
-            dataset: 'constituents',
+            dataset: { base: 'constituents' },
             excludePersonIds: new Set(),
             skipPreflightCap: true,
             timeBudgetMs: 90_000,
@@ -689,7 +689,7 @@ describe('resolveFilterAudience', () => {
         {
           filterInput: {},
           organization: ORGANIZATION,
-          dataset: 'constituents',
+          dataset: { base: 'constituents' },
           excludePersonIds: new Set(),
           skipPreflightCap: true,
         },
@@ -726,7 +726,7 @@ describe('resolveFilterAudience', () => {
         {
           filterInput: {},
           organization: ORGANIZATION,
-          dataset: 'constituents',
+          dataset: { base: 'constituents' },
           excludePersonIds: new Set(),
           isEligible: (p) => Boolean(p.firstName),
         },
@@ -758,7 +758,7 @@ describe('resolveFilterAudience', () => {
           {
             filterInput: {},
             organization: ORGANIZATION,
-            dataset: 'constituents',
+            dataset: { base: 'constituents' },
             excludePersonIds: new Set(),
           },
         ),
@@ -800,7 +800,7 @@ describe('resolveFilterAudience', () => {
           {
             filterInput: {},
             organization: ORGANIZATION,
-            dataset: 'constituents',
+            dataset: { base: 'constituents' },
             excludePersonIds: new Set(),
             maxRecipients: 10_000,
             isEligible: () => false,

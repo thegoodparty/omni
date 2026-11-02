@@ -2,11 +2,23 @@ import {
   joinGroupNames,
   READ_REPRESENTATIVENESS_LABELS,
   underrepresentedGroupName,
+  type ManagedCivicPanelStatus,
   type PriorityReadStatus,
   type UnderrepresentedGroup,
 } from '@goodparty_org/contracts'
+import { SERVE_CITIZENS_PANEL_COPY } from '../../contacts/citizens-panel/citizensPanelCopy'
 
 const NO_ONE_ASKED = 'No one asked yet'
+const FEW_MORE_OVERALL = 'Need a few more answers overall'
+
+// Every group has its answers, but not yet the district's total: one
+// answer counts in every group, so the groups fill before the total does.
+// A group still too unsure may be named too, but the total is what holds
+// the read back.
+const onlyTotalShort = (read: PriorityReadStatus): boolean =>
+  read.status === 'notYetRepresentative' &&
+  read.groupsTotal > 0 &&
+  read.groupsHeard === read.groupsTotal
 
 const groupList = (
   read: PriorityReadStatus,
@@ -34,6 +46,19 @@ const shortLine = (read: PriorityReadStatus): string => {
     : `${still}, and a few more answers from ${groupList(read, few)}`
 }
 
+// The people toward a balanced read and the people it needs, for the seats
+// and the bar. A read served before the API counted them falls back to
+// everyone who answered, up to the total needed.
+export const representativeCount = (
+  read: PriorityReadStatus,
+): { have: number; need: number } => {
+  const need = read.representativeNeeded ?? read.needed
+  return {
+    have: Math.min(read.representativeAnswers ?? read.answers, need),
+    need,
+  }
+}
+
 // Shared by the priority page and its results page, so a read reads the
 // same everywhere it shows.
 export const READ_STATUS_COPY = {
@@ -54,17 +79,31 @@ export const READ_STATUS_COPY = {
     !read.followUpSent,
   seeWhatWeHeard: 'See what we heard',
   whatWeHeard: 'What we heard',
-  progress: (read: PriorityReadStatus): string =>
-    `${read.groupsHeard} of ${read.groupsTotal} groups heard`,
-  label: (read: PriorityReadStatus): string =>
-    read.good || read.checkOut
-      ? READ_REPRESENTATIVENESS_LABELS[read.status]
-      : NO_ONE_ASKED,
+  progress: (read: PriorityReadStatus): string => {
+    const { have, need } = representativeCount(read)
+    return `${have.toLocaleString()} of the ${need.toLocaleString()} answers we need`
+  },
+  legendHeard: 'Heard',
+  legendNeeded: 'Still needed',
+  // The groups holding the read back, for the results page's held card.
+  stillNeed: (read: PriorityReadStatus): string =>
+    `Still need: ${groupList(read, read.underrepresented)}.`,
+  label: (read: PriorityReadStatus): string => {
+    if (!read.good && !read.checkOut) return NO_ONE_ASKED
+    return onlyTotalShort(read)
+      ? FEW_MORE_OVERALL
+      : READ_REPRESENTATIVENESS_LABELS[read.status]
+  },
+  // Whether the status line names groups, so a heading that already says
+  // the total is short is not repeated under it.
+  namesGroups: (read: PriorityReadStatus): boolean =>
+    read.underrepresented.length > 0 && !onlyTotalShort(read),
   // The status, then the groups it is about, for the phone's one row and
   // the desktop rail alike.
   statusLine: (read: PriorityReadStatus): string => {
     if (read.good) return READ_STATUS_COPY.goodLine(read)
     if (!read.checkOut) return READ_STATUS_COPY.noOneAsked
+    if (onlyTotalShort(read)) return FEW_MORE_OVERALL
     if (read.underrepresented.length === 0) {
       return READ_REPRESENTATIVENESS_LABELS[read.status]
     }
@@ -73,16 +112,19 @@ export const READ_STATUS_COPY = {
     }
     return shortLine(read)
   },
-  missingGroups:
-    "Some groups haven't answered yet. We'll show what we heard once every group has.",
-  unsureGroups:
-    "We'll show what we heard once we're sure what every group thinks.",
+  // The results page's held card, under the status line: why what was
+  // heard is not shown yet, without claiming nobody answered.
+  heldBack: (read: PriorityReadStatus): string => {
+    if (read.groupsTotal === 0 || onlyTotalShort(read)) {
+      return "We'll show what we heard once enough people have answered."
+    }
+    return read.status === 'gettingClose'
+      ? "We'll show what we heard once we're sure what every group thinks."
+      : "We'll show what people said once every group has enough answers, so a few loud voices can't tip the read."
+  },
   // A follow-up text paid for with the first: when it goes and to whom.
   followUp: (texts: number, date: string): string =>
     `Follow-up text to ${texts.toLocaleString()} people on ${date}`,
-  hearFromMoreHeading: 'Hear from more',
-  groupName: (group: UnderrepresentedGroup, read: PriorityReadStatus): string =>
-    underrepresentedGroupName(group, read.status),
 } as const
 
 export const resultsHref = (priorityId: string): string =>
@@ -95,13 +137,13 @@ export const GET_ANSWERS_PARAM = 'getAnswers'
 export const getAnswersHref = (priorityId: string): string =>
   `/dashboard/priorities/${encodeURIComponent(priorityId)}?${GET_ANSWERS_PARAM}=1`
 
-export const readPercent = (read: PriorityReadStatus): number =>
-  read.groupsTotal === 0
-    ? 0
-    : Math.min(100, Math.round((read.groupsHeard / read.groupsTotal) * 100))
+export const readPercent = (read: PriorityReadStatus): number => {
+  const { have, need } = representativeCount(read)
+  return Math.min(100, Math.round((have / need) * 100))
+}
 
-// The groups bar takes its status's tone, so a full bar before a good read
-// (every group heard, the model not sure yet) is never the success colour.
+// The bar takes its status's tone, so a full bar before a good read (every
+// answer in, the model not sure yet) is never the success colour.
 export const READ_PROGRESS_TONE: Record<PriorityReadStatus['status'], string> =
   {
     tooEarly:
@@ -120,4 +162,29 @@ export const READ_STATUS_DOT: Record<PriorityReadStatus['status'], string> = {
   gettingClose: 'bg-warning',
   representative: 'bg-primary',
   enoughAnswers: 'bg-primary',
+}
+
+// The civic panel GoodParty builds, under the read: the titles the civic
+// panel page leads with, and how many residents have joined.
+export const civicPanelStanding = (
+  status: Exclude<ManagedCivicPanelStatus, 'stopped'>,
+  members: number,
+  goal: number,
+  place: string | null,
+): { title: string; line: string } => {
+  const hero = SERVE_CITIZENS_PANEL_COPY.hero
+  const joined = SERVE_CITIZENS_PANEL_COPY.joinedOfGoal(members, goal)
+  switch (status) {
+    case 'building':
+      return { title: hero.building.title, line: joined }
+    case 'paused':
+      return { title: hero.paused.title, line: joined }
+    case 'exhausted':
+      return { title: hero.exhausted.title, line: joined }
+    case 'ready':
+      return {
+        title: hero.ready.title,
+        line: hero.ready.line(members, goal, place),
+      }
+  }
 }

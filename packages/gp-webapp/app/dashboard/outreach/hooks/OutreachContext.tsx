@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, ReactNode } from 'react'
+import type { OutreachRobocallDetail } from '@goodparty_org/contracts'
 
 type OutreachType =
   | 'text'
@@ -69,6 +70,11 @@ export interface Outreach {
   // other channel is `1` (a campaign of one). Read by the history table's
   // "N turfs" badge and by the drawer's siblings section.
   turfCount?: number
+  // Present on a robocall row: the recording, caller-ID number and landline
+  // count the send was priced with, plus the satellite's settleState. A
+  // `hold_failed` settleState flags a payment that didn't go through, which
+  // the candidate updates their card and resends from (reusing these fields).
+  robocall?: OutreachRobocallDetail
 }
 
 type OutreachContextValue = [Outreach[], (outreaches: Outreach[]) => void]

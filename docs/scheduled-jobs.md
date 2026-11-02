@@ -1,8 +1,8 @@
 # Scheduled jobs
 
-How to add a recurring job in gp-api without it running twice. Prod runs **two
-gp-api replicas** (`desiredCount: isProd ? 2 : 1`,
-`packages/gp-api/deploy/components/service.ts`), and `@nestjs/schedule` is
+How to add a recurring job in gp-api without it running twice. Dev and prod
+both run **more than one gp-api replica** (dev a fixed 2, prod autoscaled from
+4; `packages/gp-api/deploy/components/service.ts`), and `@nestjs/schedule` is
 in-process: every replica has its own scheduler. Nothing dedupes for you, so the
 job has to dedupe itself.
 
@@ -84,6 +84,22 @@ Reference implementations, all clean examples of the shape below:
   abandoned memos. No deploy allowlist: it calls Transcribe only for memos
   recorded on the deploy's own database
 
+- `electedOffice/services/winOffice.service.ts` (`winOfficeSweep`,
+  `19 6 * * *` ET): daily slot. Creates a dormant elected office for up to 200
+  won campaigns that have none (a DDHQ result the data pipeline wrote straight
+  to Postgres, or the backfill of older wins), then deletes up to 200 dormant
+  win offices whose campaign now reads lost or is running again. No deploy
+  allowlist: it writes only the deploy's own database, and the office it
+  creates is unfinished, so it dispatches no agent runs
+- `vendors/vendorDriftProbe.service.ts` (`vendorDriftProbe`, `41 4 * * *`):
+  daily slot, gated on `VENDOR_MODE === 'live'` (prod in practice; read
+  through the module constant, not `OTEL_SERVICE_ENVIRONMENT`). Calls eight
+  read-only endpoints across Peerly, CallHub, Geoapify, Vercel and Route53
+  with live credentials, parses each in `enforce` mode, and posts to
+  `#bot-10dlc-compliance` only when one fails. One billed Geoapify routing
+  call a day, the rest are free reads. Never logs or posts a response body.
+  Needs `DRIFT_PROBE_PEERLY_IDENTITY_ID` for the Peerly use-case probe
+
 A few older jobs predate this service and dedupe another way; treat those as
 history, not as a template.
 
@@ -104,22 +120,60 @@ Choose the stale window to comfortably exceed the longest _legitimate_ run. The
 6h daily window is sized for the meeting-briefings loop (batched with 20-minute
 sleeps). Don't reuse a long window for a short slot: 6h spans six hourly slots.
 
-## Prod-only guard
+## Lease a row for runs longer than a minute
 
-Jobs that spend money or hit a vendor rate limit return early off prod:
+A minute `CronLockService` claim goes stale after 30 seconds, which is shorter
+than a job that runs for most of its minute. For a per-minute job that must have
+exactly one runner across replicas and keeps working for up to 50 seconds, take
+a lease on a single row instead. The email send sweep does this with
+`email_sweep_lease` (`src/emailOutreach/services/outreachEmailSendSweep.service.ts`):
+
+- **Take** with one `UPDATE ... WHERE expires_at < now() OR holder = $me`. Zero
+  rows updated means another replica holds it, so return.
+- **Renew** on every batch, and **release** in a `finally` by setting
+  `expires_at = now()`.
+- **Check for work first,** before taking the lease, so an idle minute costs one
+  query.
+
+The test database reset deletes every row, including the seeded lease row, so
+tests that touch the sweep insert it themselves.
+
+## Vendor-cron gate
+
+Jobs that spend money or hit a vendor rate limit gate on `VENDOR_CRONS_ENABLED`
+(`shared/util/appEnvironment.util.ts`):
 
 ```ts
-if (process.env.OTEL_SERVICE_ENVIRONMENT !== 'prod') {
+if (!VENDOR_CRONS_ENABLED) {
   return
 }
 ```
 
-See `cvStatusPoll.triggerScan`. The reason is that dev/qa would make real vendor
-calls, and every call counts against the budget the job exists to respect — while
-non-prod vendor flows are stubbed anyway, so there is nothing meaningful to do.
-Some jobs use a feature-flag gate instead (`isAutomationEnabled()` in
-`meetingBriefings` / `ordinanceDispatch`); use whichever the surrounding feature
-already uses.
+`VENDOR_CRONS_ENABLED = IS_PROD_DEPLOY || VENDOR_MODE === 'mock'`. It is true on
+prod (real vendors), true wherever the vendors are mocked (previews, local, and
+dev by default, so a human can drive robocall, P2P and 10DLC flows end to end),
+and false on a non-prod deploy that has been put back in live mode with
+`VENDOR_MODE=live` (the rollback lever), where a real call would spend real
+budget. See `cvStatusPoll.triggerScan`. Some jobs use a feature-flag gate
+instead (`isAutomationEnabled()` in `meetingBriefings` / `ordinanceDispatch`);
+use whichever the surrounding feature already uses.
+
+Tests read the constant at import time, so a test cannot flip it with
+`vi.stubEnv`. Call `disableVendorCrons()`
+(`shared/test-utils/appEnvOverrides.ts`) for the rest of the test.
+
+### Alerting and Slack-posting crons stay prod-only
+
+Not every job in a vendor flow is a vendor cron. These keep the old
+`OTEL_SERVICE_ENVIRONMENT !== 'prod'` return on purpose, each with a WHY comment
+at its gate, because mocking the vendor does not make them safe to run elsewhere:
+
+- `outreachRobocallBacklogAlert`, `outreachRobocallOverdueAlert`: alerting
+  crons; they would page from dev or a preview.
+- `nightly10DlcReport` (`triggerNightlyReport`, `triggerVendorEscalations`):
+  they post to `bot-10dlc-compliance` and `@here` Peerly's shared Slack Connect
+  channel, which would ping their staff about mock identities.
+- `outreachNotification`, `outreachRobocallWebhook`: not vendor crons.
 
 ### Not prod-only? Then allowlist — never `!== 'preview'`
 
@@ -128,8 +182,9 @@ A job whose whole point is a non-prod environment still must not run on every
 once, they all hold the `GP_API_DEV` secret, and there are commonly ~25 open at
 a time — so an ungated vendor job fires ~25 identical passes on the same
 instant against one shared budget. `UsersService.sweepTestUsers` is the case:
-it exists to clean the **dev** Clerk instance, so the prod-only guard above
-would have switched it off entirely.
+it exists to clean the **dev** Clerk instance, which is a real vendor even
+though the deploy is non-prod, so `VENDOR_CRONS_ENABLED` (on for every mocked
+preview) is the wrong gate for it.
 
 Allowlist the deploys that should run it, rather than excluding preview:
 
@@ -151,6 +206,14 @@ than importing the module constant, so a test can `vi.stubEnv` the gate.
 own database, and every preview stack has its own — so it dedupes replicas
 within one deploy, never across deploys. The environment gate is the fix; the
 lock is what then stops prod's two replicas duplicating the pass.
+
+## Serve jobs that fan out per office skip unfinished onboarding
+
+A job that starts paid work for every elected office (community issues,
+meeting briefings, ordinance sourcing) selects only offices with
+`onboardingCompletedAt` set. Every candidate's win creates an office nobody
+has opened yet, and it must not cost agent runs. Staff and admin dispatch
+endpoints and the official's own actions are not gated.
 
 ## Worked example
 
@@ -197,9 +260,14 @@ public so run-job can call them synchronously, scoped to the caller's campaign.
 - [ ] `CronLockService` at the slot width that matches the schedule.
 - [ ] Completion marked in a `finally`.
 - [ ] Per-record `try`/`catch` inside the loop.
-- [ ] Prod-only guard, a deploy allowlist, or the feature's automation flag if
+- [ ] `VENDOR_CRONS_ENABLED`, a prod-only guard, a deploy allowlist, or the feature's automation flag if
       it spends money or hits a vendor. Never leave it running on previews.
+- [ ] A Serve job that fans out per office selects only offices that
+      finished onboarding.
 - [ ] A test that two invocations in the same slot produce **one** execution.
       `communityIssues/services/communityIssueDispatch.service.test.ts` shows how
       callers fake the lock; `cron/services/cronLock.service.test.ts` covers the
       real Postgres race.
+- [ ] Tests call the job's method directly. `useTestService()` registers no
+      schedules, so the decorator never fires in a suite unless it opts in with
+      `useTestService({ scheduler: true })` (`packages/gp-api/docs/writing-tests.md`).

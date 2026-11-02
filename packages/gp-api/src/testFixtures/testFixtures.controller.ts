@@ -1,3 +1,4 @@
+import { NonProdDeployOnly } from './guards/NonProdDeploy.guard'
 import { AdminOrM2MGuard } from '@/authentication/guards/AdminOrM2M.guard'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import { IS_NON_PROD_DEPLOY } from '@/shared/util/appEnvironment.util'
@@ -40,6 +41,7 @@ import { TestFixturesService } from './services/testFixtures.service'
 // credentials, and cleans them up on demand (the deleteTestUsers cron is the
 // safety net). Responses carry credentials by contract — never log them.
 @Controller('test-fixtures')
+@NonProdDeployOnly()
 @UseGuards(AdminOrM2MGuard)
 export class TestFixturesController {
   constructor(

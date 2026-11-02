@@ -4,7 +4,8 @@ import { useFlagOn } from './FeatureFlagsProvider'
 // canvasser records a short spoken summary of what the person said, and the
 // API extracts the issues, their position on each, and the outcome they want.
 // gp-api gates its capture routes on the same key, so the surface and the API
-// roll out together.
+// roll out together. Both read the org owner's value, so a volunteer gets
+// their campaign's (docs/feature-flags.md, Org-scoped flags).
 //
 // The flag gates rollout, not access. @UseOrganization() at gp-api and its
 // role guard remain the real checks.

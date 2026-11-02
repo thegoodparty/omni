@@ -28,6 +28,7 @@ import {
   OrganizationRole,
   Prisma,
 } from '@/generated/prisma'
+import { AnalyticsService } from '@/analytics/analytics.service'
 import { assertVolunteerAssignedToOutreach } from '@/doorKnocking/utils/doorKnockingAccess.util'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { PriorityAnswerCodingService } from '@/priorities/services/priorityAnswerCoding.service'
@@ -35,6 +36,7 @@ import { APP_ROOT, WEBAPP_API_PATH } from '@/shared/util/appEnvironment.util'
 import { TranscribeFileService } from '@/speech/services/transcribeFile.service'
 import { SPEECH_BUCKET } from '@/speech/speechBucket'
 import { S3Service } from '@/vendors/aws/services/s3.service'
+import { EVENTS } from '@/vendors/segment/segment.types'
 import { isDevOnlyRouteEnabled } from '../util/devOnlyRoute.util'
 import {
   ConstituentFeedbackExtractionService,
@@ -247,6 +249,26 @@ export const textReplyClientKey = (
   personId: string,
 ): string => `priority-text:${outreachId}:${personId}`
 
+// The webapp's capture events report these channels as doorKnocking and
+// phoneBanking, and a text send as sms, so one channel is one value across
+// every Issue Capture event, browser or server.
+const ANALYTICS_CHANNEL: Record<ConstituentFeedbackChannel, string> = {
+  door_knock: 'doorKnocking',
+  phone_bank: 'phoneBanking',
+  text: 'sms',
+}
+
+// Transcribe's own failure reason is free text, so the event carries one of
+// four values a chart can group by, never the vendor's message.
+const TRANSCRIPTION_FAILURE_REASONS = [
+  'start_failed',
+  'empty_transcript',
+  'timeout',
+] as const
+const transcriptionFailureReason = (reason: string): string =>
+  TRANSCRIPTION_FAILURE_REASONS.find((known) => known === reason) ??
+  'job_failed'
+
 export type PriorityTextReply = {
   personId: string
   text: string
@@ -262,6 +284,7 @@ export class ConstituentFeedbackService extends createPrismaBase(
     private readonly moduleRef: ModuleRef,
     private readonly transcribeFile: TranscribeFileService,
     private readonly s3: S3Service,
+    private readonly analytics: AnalyticsService,
   ) {
     super()
   }
@@ -610,7 +633,7 @@ export class ConstituentFeedbackService extends createPrismaBase(
       effortQuestion: row.effortQuestion,
       userId: row.actorUserId,
     })
-    await this.client.$transaction(async (tx) => {
+    const confirmed = await this.client.$transaction(async (tx) => {
       const { count } = await tx.constituentFeedback.updateMany({
         where,
         data: {
@@ -620,9 +643,15 @@ export class ConstituentFeedbackService extends createPrismaBase(
           confirmation: ConstituentFeedbackConfirmation.automatic,
         },
       })
-      if (count === 0) return
+      if (count === 0) return false
       await replaceUnreviewedProposal(tx, input.id, proposedIssues(extracted))
+      return true
     })
+    if (confirmed) {
+      this.trackMemo(input.id, EVENTS.IssueCapture.MemoAutoConfirmed, {
+        reason: 'offline_transcribed',
+      })
+    }
   }
 
   // No words, and no more tries: the memo stays unconfirmed with no
@@ -654,6 +683,9 @@ export class ConstituentFeedbackService extends createPrismaBase(
       { id: input.id, jobName: input.jobName, reason: input.reason },
       'Memo transcription failed',
     )
+    this.trackMemo(input.id, EVENTS.IssueCapture.MemoTranscriptionFailed, {
+      reason: transcriptionFailureReason(input.reason),
+    })
   }
 
   // A live memo whose confirm step never finished: the app closed on the
@@ -664,7 +696,7 @@ export class ConstituentFeedbackService extends createPrismaBase(
     id: string
     updatedAt: Date
   }): Promise<void> {
-    await this.client.$transaction(async (tx) => {
+    const confirmed = await this.client.$transaction(async (tx) => {
       const { count } = await tx.constituentFeedback.updateMany({
         where: {
           id: input.id,
@@ -676,9 +708,40 @@ export class ConstituentFeedbackService extends createPrismaBase(
           confirmation: ConstituentFeedbackConfirmation.automatic,
         },
       })
-      if (count === 0) return
+      if (count === 0) return false
       await setAsideProposal(tx, input.id)
+      return true
     })
+    if (confirmed) {
+      this.trackMemo(input.id, EVENTS.IssueCapture.MemoAutoConfirmed, {
+        reason: 'abandoned',
+      })
+    }
+  }
+
+  // Attributed to whoever recorded the memo. Runs after the write and is
+  // never awaited, so a Segment or lookup failure cannot fail a cron pass
+  // that already confirmed or failed the memo. Enums only, never what
+  // anyone said.
+  private trackMemo(
+    id: string,
+    event: string,
+    properties: Record<string, string>,
+  ): void {
+    const send = async () => {
+      const memo = await this.model.findUniqueOrThrow({
+        where: { id },
+        select: { actorUserId: true, channel: true, organizationSlug: true },
+      })
+      await this.analytics.track(memo.actorUserId, event, {
+        ...properties,
+        channel: ANALYTICS_CHANNEL[memo.channel],
+        product: memo.organizationSlug.startsWith('eo-') ? 'serve' : 'win',
+      })
+    }
+    void send().catch((err: Error) =>
+      this.logger.warn({ err, id, event }, 'Issue capture event not sent'),
+    )
   }
 
   // The confirmed issues replace whatever the model proposed, in the order

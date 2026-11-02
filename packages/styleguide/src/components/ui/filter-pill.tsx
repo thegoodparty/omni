@@ -29,6 +29,15 @@ type FilterPillGroupProps =
   | (Omit<SingleToggleGroupProps, 'type'> & { type?: 'single' })
   | (Omit<MultipleToggleGroupProps, 'type'> & { type: 'multiple' })
 
+/**
+ * Single select by default; pass type="multiple" for many. Always pass a defined
+ * value; "" means nothing selected. Give a FilterPill onRemove to show a remove
+ * ×.
+ *
+ * @summary Use for a row of rounded pills that filter a list or pick one short
+ * answer. For a segmented control, use ToggleGroup; for card options, use
+ * RadioCardItem.
+ */
 function FilterPillGroup({
   className,
   children,

@@ -1,4 +1,5 @@
 import { ContactInteractionModule } from '@/contactInteraction/contactInteraction.module'
+import { ContactUploadsModule } from '@/contactUploads/contactUploads.module'
 import { ElectedOfficeModule } from '@/electedOffice/electedOffice.module'
 import { OrganizationsModule } from '@/organizations/organizations.module'
 import { PollsModule } from '@/polls/polls.module'
@@ -16,6 +17,7 @@ import { UseEngagementContextGuard } from './guards/UseEngagementContext.guard'
     PollsModule,
     VoterOutreachActivityModule,
     ContactInteractionModule,
+    ContactUploadsModule,
   ],
   controllers: [ContactEngagementController],
   providers: [

@@ -10,7 +10,9 @@ import type { Person } from '@goodparty_org/contracts'
 // spelling-sensitive match against those values so the SQL filter uses `=`/`IN`
 // on the `Parties_Description` btree index instead of a non-sargable
 // `ILIKE '%x%'` substring scan. Everything not in a set below — null/blank and
-// the long tail of minor parties (Libertarian, Green, …) — is 'Other'.
+// the long tail of minor parties (Libertarian, Green, …) — is 'Other'. A
+// person only an import added is the exception: no voter file holds them, so
+// display and filter both read their party as unknown.
 
 export type CanonicalParty = NonNullable<Person['politicalParty']>
 

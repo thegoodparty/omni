@@ -63,13 +63,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     xz-utils \
     procps \
+    jq \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Node.js via official binary (avoids python3 dependency issues)
 RUN ARCH=$(uname -m) && \
     if [ "$ARCH" = "x86_64" ]; then NODE_ARCH="x64"; \
     elif [ "$ARCH" = "aarch64" ]; then NODE_ARCH="arm64"; fi && \
-    curl -fsSL "https://nodejs.org/dist/v22.16.0/node-v22.16.0-linux-${NODE_ARCH}.tar.xz" -o node.tar.xz && \
+    curl -fsSL "https://nodejs.org/dist/v22.23.4/node-v22.23.4-linux-${NODE_ARCH}.tar.xz" -o node.tar.xz && \
     tar -xJf node.tar.xz -C /usr/local --strip-components=1 && \
     rm node.tar.xz
 
@@ -166,9 +167,18 @@ RUN /opt/runbooks/install.sh copy user && \
 # since this build that a real `npm ci` is required.
 ENV BAKED_OMNI_DIR="/opt/omni-bake"
 COPY --from=omni-checkout . "$BAKED_OMNI_DIR/omni"
+#
+# The bake is best-effort (ENG-11442): it is only a speed-up. If `npm ci` hits
+# a registry network error (ECONNRESET) the build still succeeds, with no
+# lockfile hash written, and workspace.py's npm_ci_needed treats a missing hash
+# as a mismatch and runs a real `npm ci` at container start. The hash is
+# written only after a successful install so it can never vouch for a partial
+# node_modules.
 RUN cd "$BAKED_OMNI_DIR/omni" && \
-    sha256sum package-lock.json | awk '{print $1}' > "$BAKED_OMNI_DIR/lockfile.sha256" && \
-    npm ci --ignore-scripts && \
+    { npm ci --ignore-scripts --fetch-retries=5 --fetch-retry-mintimeout=20000 \
+        && sha256sum package-lock.json | awk '{print $1}' > "$BAKED_OMNI_DIR/lockfile.sha256" \
+      || { echo "WARN: baked npm ci failed; skipping bake, runtime will npm ci" >&2; \
+           rm -rf node_modules "$BAKED_OMNI_DIR/lockfile.sha256"; }; } && \
     chown -R agent:agent "$BAKED_OMNI_DIR"
 
 # ARG, not ENV: only needs to affect this build's layers, never the running

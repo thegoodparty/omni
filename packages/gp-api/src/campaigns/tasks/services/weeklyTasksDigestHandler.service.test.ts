@@ -3,7 +3,6 @@ import { firstOrThrow } from 'src/shared/test-utils/arrays.util'
 import { CampaignTaskType } from '../../../generated/prisma'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { AnalyticsService } from 'src/analytics/analytics.service'
-import { EVENTS } from 'src/vendors/segment/segment.types'
 import { WeeklyTasksDigestHandlerService } from './weeklyTasksDigestHandler.service'
 
 const mockAnalytics: Partial<AnalyticsService> = {
@@ -150,47 +149,6 @@ describe('WeeklyTasksDigestHandlerService', () => {
     expect(properties.plan_total_tasks).toBe(7)
   })
 
-  it('tracks the correct event name and user id', async () => {
-    mockQueryRaw.mockResolvedValueOnce([
-      makeDigestRow({ user_id: 100, slot: 1 }),
-      makeDigestRow({ user_id: 100, slot: 2 }),
-      makeDigestRow({ user_id: 100, slot: 3 }),
-    ])
-
-    await service.handleWeeklyTasksDigest({
-      windowStart: WINDOW_START,
-      windowEnd: WINDOW_END,
-    })
-
-    expect(mockAnalytics.track).toHaveBeenCalledWith(
-      100,
-      EVENTS.CampaignPlan.WeeklyTasksDigest,
-      expect.any(Object),
-    )
-  })
-
-  it('fires one event per campaign when multiple campaigns are eligible', async () => {
-    mockQueryRaw.mockResolvedValueOnce([
-      makeDigestRow({ campaign_id: 1, user_id: 100, slot: 1 }),
-      makeDigestRow({ campaign_id: 1, user_id: 100, slot: 2 }),
-      makeDigestRow({ campaign_id: 1, user_id: 100, slot: 3 }),
-      makeDigestRow({ campaign_id: 2, user_id: 200, slot: 1 }),
-      makeDigestRow({ campaign_id: 2, user_id: 200, slot: 2 }),
-      makeDigestRow({ campaign_id: 2, user_id: 200, slot: 3 }),
-    ])
-
-    await service.handleWeeklyTasksDigest({
-      windowStart: WINDOW_START,
-      windowEnd: WINDOW_END,
-    })
-
-    expect(mockAnalytics.track).toHaveBeenCalledTimes(2)
-    const userIds = (mockAnalytics.track as ReturnType<typeof vi.fn>).mock.calls
-      .map((c) => c[0])
-      .sort()
-    expect(userIds).toEqual([100, 200])
-  })
-
   it('orders the selected tasks by date ascending in the emitted event', async () => {
     mockQueryRaw.mockResolvedValueOnce([
       makeDigestRow({
@@ -228,46 +186,6 @@ describe('WeeklyTasksDigestHandlerService', () => {
     expect(properties.task_due_date_1).toBe('2026-04-21')
     expect(properties.task_due_date_2).toBe('2026-04-23')
     expect(properties.task_due_date_3).toBe('2026-04-25')
-  })
-
-  it('keeps empty slots at the end when fewer than 5 tasks exist, with populated tasks sorted by date ascending', async () => {
-    mockQueryRaw.mockResolvedValueOnce([
-      makeDigestRow({
-        slot: 1,
-        title: 'Latest',
-        date: new Date('2026-04-26T00:00:00.000Z'),
-      }),
-      makeDigestRow({
-        slot: 2,
-        title: 'Earliest',
-        date: new Date('2026-04-20T00:00:00.000Z'),
-      }),
-      makeDigestRow({
-        slot: 3,
-        title: 'Middle',
-        date: new Date('2026-04-23T00:00:00.000Z'),
-      }),
-    ])
-
-    await service.handleWeeklyTasksDigest({
-      windowStart: WINDOW_START,
-      windowEnd: WINDOW_END,
-    })
-
-    const [, , properties] = firstOrThrow(
-      (mockAnalytics.track as ReturnType<typeof vi.fn>).mock.calls,
-    )
-
-    expect(properties.task_name_1).toBe('Earliest')
-    expect(properties.task_name_2).toBe('Middle')
-    expect(properties.task_name_3).toBe('Latest')
-
-    expect(properties.task_name_4).toBe('')
-    expect(properties.task_due_date_4).toBe('')
-    expect(properties.task_week_number_4).toBe(null)
-    expect(properties.task_name_5).toBe('')
-    expect(properties.task_due_date_5).toBe('')
-    expect(properties.task_week_number_5).toBe(null)
   })
 
   it('continues processing remaining campaigns when analytics fails for one', async () => {

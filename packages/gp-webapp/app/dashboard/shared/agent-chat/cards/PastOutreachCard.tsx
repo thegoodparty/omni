@@ -1,5 +1,10 @@
 import { useQueries } from '@tanstack/react-query'
-import type { ChatCard, OutreachDetail } from '@goodparty_org/contracts'
+import { format } from 'date-fns'
+import {
+  outreachHasGoneOut,
+  type ChatCard,
+  type OutreachDetail,
+} from '@goodparty_org/contracts'
 import { getChannelLabel } from 'app/dashboard/outreach/v2/channelMeta'
 import { shortOutreachDate } from 'app/dashboard/outreach/v2/outreachDate.util'
 import { useSmsResults } from 'app/dashboard/outreach/v2/useOutreachResults'
@@ -16,6 +21,7 @@ import { useProposalFlows } from './proposalFlows'
 export const SERVE_PAST_OUTREACH_COPY = {
   untitled: 'Untitled send',
   responses: (n: number) => `${n.toLocaleString()} responses`,
+  scheduledFor: (day: string) => `Scheduled for ${day}`,
 }
 
 // One chip per send, opening that send in the outreach history's own
@@ -35,7 +41,17 @@ const PastOutreachChip = ({
     isText && row.status === 'completed',
     mode,
   )
-  const when = row.date ?? row.createdAt
+  // A Serve text carries its day only in scheduledLocalDate, and is paid
+  // for, and listed, days before that day comes.
+  const scheduledFor = row.scheduledLocalDate ?? null
+  const when = scheduledFor ?? row.date ?? row.createdAt
+  const notOutYet =
+    mode === 'serve' &&
+    scheduledFor !== null &&
+    !outreachHasGoneOut(
+      { status: row.status, scheduledFor },
+      format(new Date(), 'yyyy-MM-dd'),
+    )
   const count = row.textCount ?? row.billableTextCount
   return (
     <CompactCardLink
@@ -44,7 +60,11 @@ const PastOutreachChip = ({
         getChannelLabel(row.outreachType),
         typeof count === 'number' ? peopleCount(count, mode) : '',
         results ? SERVE_PAST_OUTREACH_COPY.responses(results.responded) : '',
-        when ? shortOutreachDate(when) : '',
+        notOutYet
+          ? SERVE_PAST_OUTREACH_COPY.scheduledFor(shortOutreachDate(when))
+          : when
+            ? shortOutreachDate(when)
+            : '',
       ]
         .filter(Boolean)
         .join(' · ')}

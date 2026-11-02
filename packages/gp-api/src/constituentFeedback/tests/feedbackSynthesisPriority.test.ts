@@ -386,7 +386,7 @@ describe('feedback synthesis across a priority', () => {
     const agent = service.app.get(PriorityFlowOutreachService)
     const page = (await results()).data.themes
     const pooledRead = await agent.pooledThemes(slug, priorityId)
-    const perSend = await agent.feedbackFor(slug, { priorityId })
+    const perSend = await agent.feedbackFor(slug, { priorityId }, 'US/Eastern')
     const peopleOn = (outreachId: number) =>
       perSend
         .find((send) => send.outreachId === outreachId)!

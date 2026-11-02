@@ -702,6 +702,72 @@ describe('OutreachDetailsDrawer — draft rows', () => {
   })
 })
 
+// A robocall whose pay-time hold was declined: pending_payment on the spine,
+// hold_failed on the satellite. The drawer surfaces the failed payment and the
+// one way forward — update the card and resend through the same resume path a
+// draft takes.
+describe('OutreachDetailsDrawer — payment-failed robocall', () => {
+  const holdFailedRow: HistoryRow = {
+    id: 55,
+    createdAt: '2026-09-05T00:00:00Z',
+    outreachType: 'robocall',
+    name: 'Declined call',
+    status: 'pending_payment',
+    robocall: {
+      audioKey: 'audio/55.mp3',
+      callbackNumber: '+15125550155',
+      billableCount: 120,
+      settleState: 'hold_failed',
+    },
+  }
+  beforeEach(() => {
+    api.mock('GET /v1/outreach/:id', {
+      status: 200,
+      data: {
+        ...baseDetail,
+        id: 55,
+        outreachType: 'robocall',
+        name: 'Declined call',
+        status: 'pending_payment',
+        robocall: holdFailedRow.robocall,
+      },
+    })
+  })
+
+  it('shows the payment failed state and resends through the CTA', async () => {
+    const onOpenChange = vi.fn()
+    const onResumeDraft = vi.fn()
+    render(
+      <OutreachDetailsDrawer
+        row={holdFailedRow}
+        onOpenChange={onOpenChange}
+        onResumeDraft={onResumeDraft}
+      />,
+    )
+
+    expect(
+      (await screen.findAllByText('Payment failed')).length,
+    ).toBeGreaterThan(0)
+    expect(screen.getByText(/payment didn.t go through/i)).toBeInTheDocument()
+
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Update card and resend' }),
+    )
+
+    expect(onResumeDraft).toHaveBeenCalledWith(holdFailedRow)
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+
+  it('offers no cancel on a payment-failed robocall', async () => {
+    render(<OutreachDetailsDrawer row={holdFailedRow} onOpenChange={vi.fn()} />)
+
+    await screen.findByRole('button', { name: 'Update card and resend' })
+    expect(
+      screen.queryByRole('button', { name: 'Cancel campaign' }),
+    ).not.toBeInTheDocument()
+  })
+})
+
 // ENG-11056: the manager assign/remove/invite surface for a self-run list.
 // Full interaction coverage (search, role filter, assign/unassign toggling,
 // invite entry point, retry) lives in OutreachAssigneesSection.test.tsx,

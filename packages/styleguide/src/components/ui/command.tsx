@@ -7,6 +7,10 @@ import { cn } from '@styleguide/lib/utils'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from './dialog'
 import { SearchIcon } from './icons'
 
+/**
+ * @summary Use for an inline search box with a keyboard-navigable list of
+ * results, like contact search. To pick one value in a form, use Combobox.
+ */
 function Command({
   className,
   ...props

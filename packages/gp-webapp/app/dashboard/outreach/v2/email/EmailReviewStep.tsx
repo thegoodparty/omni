@@ -1,0 +1,219 @@
+import { useState } from 'react'
+import { Button, Input, Label } from '@styleguide'
+import { Intro } from '../social/Intro'
+import { EmailPreview } from './EmailPreview'
+import {
+  apiErrorMessage,
+  sendEmailTest,
+  useChangeForwardTo,
+  useEmailSend,
+  useEmailSender,
+} from './emailApi'
+import { formatCount, formatDollars, nextWarmingCap } from './emailFlow.util'
+import {
+  isBlockError,
+  toContent,
+  type EmailComposeState,
+} from './emailForm.util'
+import type { EmailSurface } from './emailSurface'
+
+interface EmailReviewStepProps {
+  surface: EmailSurface
+  compose: EmailComposeState
+  draftId: number | null
+  sendLabel: string
+  // Opens compose on the field a refused test send names.
+  onFixBlock: (message: string) => void
+}
+
+export const EmailReviewStep = ({
+  surface,
+  compose,
+  draftId,
+  sendLabel,
+  onFixBlock,
+}: EmailReviewStepProps) => {
+  const { data: sender } = useEmailSender(surface.isServe)
+  const { data: send } = useEmailSend(surface.isServe, draftId)
+  const changeForwardTo = useChangeForwardTo(surface.isServe)
+  const [editing, setEditing] = useState(false)
+  const [address, setAddress] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const [testing, setTesting] = useState(false)
+  const [testResult, setTestResult] = useState<string | null>(null)
+  const [testError, setTestError] = useState<string | null>(null)
+
+  const sendTest = async () => {
+    if (draftId === null) return
+    setTesting(true)
+    setTestError(null)
+    setTestResult(null)
+    try {
+      const { sentTo } = await sendEmailTest(surface.isServe, draftId)
+      setTestResult(`Test sent to ${sentTo}.`)
+    } catch (e) {
+      setTestError(apiErrorMessage(e))
+    } finally {
+      setTesting(false)
+    }
+  }
+
+  const estimate = send?.estimate ?? null
+  const capped =
+    estimate !== null && estimate.audienceCount > estimate.recipientCap
+
+  const saveAddress = async () => {
+    setSaving(true)
+    setError(null)
+    try {
+      await changeForwardTo(address.trim())
+      setEditing(false)
+      setAddress('')
+    } catch (e) {
+      setError(apiErrorMessage(e))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="space-y-6">
+      <Intro title={surface.review.title} body={surface.review.caption} />
+
+      <EmailPreview serve={surface.isServe} content={toContent(compose)} />
+
+      <dl className="space-y-3 text-sm">
+        <div>
+          <dt className="text-muted-foreground">Subject</dt>
+          <dd className="font-medium text-foreground">{compose.subject}</dd>
+        </div>
+        {estimate && (
+          <div data-testid="email-reach">
+            <dt className="text-muted-foreground">Reaches</dt>
+            <dd className="font-medium text-foreground">
+              {capped
+                ? `${formatCount(estimate.recipientCap)} of ${formatCount(estimate.audienceCount)}`
+                : `${formatCount(estimate.recipientCap)} ${surface.recipientsNoun}`}
+            </dd>
+            {capped && sender && (
+              <dd className="text-muted-foreground">
+                This send can reach up to {formatCount(estimate.recipientCap)}{' '}
+                {surface.recipientsNoun}.
+                {nextWarmingCap(sender.warmingStep) !== null
+                  ? ' You can reach more on your next send.'
+                  : ''}
+              </dd>
+            )}
+          </div>
+        )}
+        {estimate && (
+          <div data-testid="email-price">
+            <dt className="text-muted-foreground">Price</dt>
+            <dd className="font-medium text-foreground">
+              Up to {formatDollars(estimate.priceCents)}
+            </dd>
+            <dd className="text-muted-foreground">
+              You are charged only for emails that go out.
+            </dd>
+          </div>
+        )}
+        <div>
+          <dt className="text-muted-foreground">When</dt>
+          <dd className="font-medium text-foreground">{sendLabel}</dd>
+        </div>
+        {sender && (
+          <div>
+            <dt className="text-muted-foreground">Replies</dt>
+            <dd className="font-medium text-foreground">
+              Replies go to {sender.forwardToEmail}{' '}
+              {!editing && (
+                <Button
+                  type="button"
+                  variant="link"
+                  size="small"
+                  className="h-auto px-1"
+                  onClick={() => setEditing(true)}
+                >
+                  Change
+                </Button>
+              )}
+            </dd>
+            {sender.pendingForwardToEmail && (
+              <dd className="text-muted-foreground">
+                Check {sender.pendingForwardToEmail} for a link to confirm the
+                change.
+              </dd>
+            )}
+          </div>
+        )}
+      </dl>
+
+      {editing && (
+        <div className="space-y-2">
+          <Label htmlFor="email-forward-to">Send replies to</Label>
+          <Input
+            id="email-forward-to"
+            type="email"
+            value={address}
+            onChange={(e) => setAddress(e.target.value)}
+          />
+          {error && <p className="text-xs text-destructive">{error}</p>}
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              size="small"
+              disabled={!address.trim()}
+              loading={saving}
+              onClick={() => {
+                void saveAddress()
+              }}
+            >
+              Save address
+            </Button>
+            <Button
+              type="button"
+              size="small"
+              variant="ghost"
+              onClick={() => setEditing(false)}
+            >
+              Cancel
+            </Button>
+          </div>
+        </div>
+      )}
+
+      <div className="space-y-3">
+        <div className="space-y-2" data-testid="email-test-send">
+          <Button
+            type="button"
+            size="small"
+            variant="outline"
+            loading={testing}
+            disabled={draftId === null}
+            onClick={() => {
+              void sendTest()
+            }}
+          >
+            Send me a test
+          </Button>
+          {testResult && (
+            <p className="text-xs text-muted-foreground">{testResult}</p>
+          )}
+          {testError && <p className="text-xs text-destructive">{testError}</p>}
+          {testError && isBlockError(testError) && (
+            <Button
+              type="button"
+              size="small"
+              variant="outline"
+              onClick={() => onFixBlock(testError)}
+            >
+              Fix the email
+            </Button>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}

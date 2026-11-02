@@ -54,6 +54,14 @@ const CONTACT_NAME_TOKEN: Record<'win' | 'serve', TokenSpec> = {
   },
 }
 
+// An elected official makes the calls themselves, so Serve's body names no
+// volunteers.
+const DEFAULT_INTRO_BODY = {
+  win: 'This is the script your volunteers will read on the phone. Edit it to sound like you.',
+  serve:
+    "This is the script you'll read on the phone. Edit it to sound like you.",
+}
+
 const TONE_LABELS: Record<SocialTone, string> = {
   warm: 'Warm',
   direct: 'Direct',
@@ -69,6 +77,8 @@ const TONE_ICONS: Record<SocialTone, ReactNode> = {
 }
 
 interface ScriptStepProps {
+  // A script handed over whole asks for a review instead of a draft.
+  intro?: { title: string; body: string }
   isServe: boolean
   name: string
   onNameChange: (name: string) => void
@@ -90,6 +100,7 @@ interface ScriptStepProps {
 }
 
 export const ScriptStep = ({
+  intro: introOverride,
   isServe,
   name,
   onNameChange,
@@ -108,6 +119,10 @@ export const ScriptStep = ({
   isDraftError,
   isCustomPurpose,
 }: ScriptStepProps) => {
+  const intro = introOverride ?? {
+    title: 'Write your call script',
+    body: isServe ? DEFAULT_INTRO_BODY.serve : DEFAULT_INTRO_BODY.win,
+  }
   const dictation = useDictationAppend({
     analyticsLabel: 'outreach-phone-banking-script',
     value: script,
@@ -120,11 +135,7 @@ export const ScriptStep = ({
 
   return (
     <div className="space-y-6">
-      <Intro
-        channel="phoneBanking"
-        title="Write your call script"
-        body="This is the script your volunteers will read on the phone. Edit it to sound like you."
-      />
+      <Intro channel="phoneBanking" title={intro.title} body={intro.body} />
 
       <div className="space-y-2">
         <Label htmlFor="phone-banking-campaign-name">Campaign name</Label>

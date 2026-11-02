@@ -21,6 +21,7 @@ import { firstOrThrow } from 'src/shared/test-utils/arrays.util'
 import { DomainsService } from './domains.service'
 import { RegisterDomainSchema } from '../schemas/RegisterDomain.schema'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
+import { appEnvOverrides } from '@/shared/test-utils/appEnvOverrides'
 import { MessageGroup, QueueType } from 'src/queue/queue.types'
 import {
   createMockCampaign,
@@ -40,6 +41,9 @@ import { DomainCannotBeTransferedOutUntil } from '@vercel/sdk/models/domaincanno
 import { GetOrderStatus } from '@vercel/sdk/models/getorderop'
 import { VercelError } from '@vercel/sdk/models/vercelerror'
 import { AuthCodeRequester } from '../domains.types'
+import { useTestService } from '@/test-service'
+
+const testService = useTestService()
 
 const mockUser = createMockUser()
 
@@ -1176,48 +1180,6 @@ describe('DomainsService', () => {
       },
     )
 
-    it('takes the per-campaign advisory lock during the reservation transaction', async () => {
-      mockPrisma.website.findUnique.mockResolvedValue(baseWebsite)
-      mockPrisma.website.findUniqueOrThrow.mockResolvedValue({
-        content: { contact: {} },
-      })
-      mockRoute53.checkDomainAvailability.mockResolvedValue({
-        Availability: DomainAvailability.AVAILABLE,
-      })
-      mockVercel.checkDomainPrice.mockResolvedValue({ price: 12 })
-      mockPrisma.domain.create.mockResolvedValue({
-        ...mockDomain,
-        name: domainName,
-        paymentId: null,
-        price: new Decimal(12),
-      })
-      mockPrisma.domain.findUniqueOrThrow.mockResolvedValue({
-        ...mockDomain,
-        name: domainName,
-        paymentId: null,
-        price: new Decimal(12),
-        status: DomainStatus.submitted,
-      })
-      vi.spyOn(service, 'completeDomainRegistration').mockResolvedValue({
-        vercelResult: null,
-        projectResult: null,
-        message: 'Disabled',
-      })
-
-      await service.purchaseDomainForCampaign(
-        campaignWithUser,
-        domainName,
-        maxPrice,
-        DomainSource.manual,
-      )
-
-      expect(mockPrisma.$transaction).toHaveBeenCalledTimes(1)
-      expect(mockPrisma.$executeRaw).toHaveBeenCalledTimes(1)
-      const lockArgs = firstOrThrow(mockPrisma.$executeRaw.mock.calls)
-      expect(lockArgs[0].join('?')).toContain('pg_advisory_xact_lock')
-      expect(lockArgs).toContain(campaign.id)
-    })
-
     it('does NOT hold the advisory lock during external HTTP calls', async () => {
       mockPrisma.website.findUnique.mockResolvedValue(baseWebsite)
       mockPrisma.website.findUniqueOrThrow.mockResolvedValue({
@@ -2331,5 +2293,155 @@ describe('DomainsService', () => {
         MessageGroup.domainEmailRedirect,
       )
     })
+  })
+
+  describe('shouldEnableDomainPurchase', () => {
+    afterEach(() => {
+      vi.unstubAllEnvs()
+    })
+
+    it('is true in mock mode without ENABLE_DOMAIN_PURCHASE', () => {
+      appEnvOverrides.VENDOR_MODE = 'mock'
+      vi.stubEnv('ENABLE_DOMAIN_PURCHASE', '')
+      expect(service.shouldEnableDomainPurchase()).toBe(true)
+    })
+
+    it('is false in live mode with the env var unset', () => {
+      appEnvOverrides.VENDOR_MODE = 'live'
+      vi.stubEnv('ENABLE_DOMAIN_PURCHASE', '')
+      expect(service.shouldEnableDomainPurchase()).toBe(false)
+    })
+
+    it('is true in live mode when the env var is true', () => {
+      appEnvOverrides.VENDOR_MODE = 'live'
+      vi.stubEnv('ENABLE_DOMAIN_PURCHASE', 'true')
+      expect(service.shouldEnableDomainPurchase()).toBe(true)
+    })
+  })
+})
+
+describe('DomainsService.purchaseDomainForCampaign against Postgres', () => {
+  const seedProCampaignWithWebsite = async () => {
+    const org = await testService.prisma.organization.create({
+      data: { slug: 'domain-race-org', ownerId: testService.user.id },
+    })
+    const campaign = await testService.prisma.campaign.create({
+      data: {
+        userId: testService.user.id,
+        slug: 'domain-race',
+        isPro: true,
+        organizationSlug: org.slug,
+      },
+    })
+    await testService.prisma.website.create({
+      data: { campaignId: campaign.id, vanityPath: 'domain-race' },
+    })
+    return { ...campaign, user: testService.user }
+  }
+
+  // Both purchases clear the preflight read before either reserves, and the
+  // trigger holds the first reservation open after its insert, so only the
+  // reservation transaction's advisory lock keeps the second from reading an
+  // empty website and inserting a Domain row of its own.
+  const racePurchases = async () => {
+    await testService.prisma.$executeRawUnsafe(`
+      CREATE OR REPLACE FUNCTION test_slow_domain_insert() RETURNS trigger AS $$
+      BEGIN PERFORM pg_sleep(0.3); RETURN NEW; END;
+      $$ LANGUAGE plpgsql
+    `)
+    await testService.prisma.$executeRawUnsafe(`
+      CREATE TRIGGER test_slow_domain_insert
+      BEFORE INSERT ON domain
+      FOR EACH ROW EXECUTE FUNCTION test_slow_domain_insert()
+    `)
+    const domains = testService.app.get(DomainsService)
+    let arrived = 0
+    let releaseBoth: () => void = () => undefined
+    const bothArrived = new Promise<void>((resolve) => {
+      releaseBoth = resolve
+    })
+    vi.spyOn(
+      testService.app.get(AwsRoute53Service),
+      'checkDomainAvailability',
+    ).mockImplementation(async () => {
+      arrived += 1
+      if (arrived === 2) releaseBoth()
+      await bothArrived
+      return {
+        Availability: DomainAvailability.AVAILABLE,
+        $metadata: {},
+      }
+    })
+    vi.spyOn(
+      testService.app.get(VercelService),
+      'checkDomainPrice',
+    ).mockResolvedValue({ price: 12 })
+    vi.spyOn(domains, 'completeDomainRegistration').mockResolvedValue({
+      vercelResult: null,
+      projectResult: null,
+      message: 'Disabled',
+    })
+    return domains
+  }
+
+  // DDL outlives the row cleanup between tests.
+  afterEach(async () => {
+    await testService.prisma.$executeRawUnsafe(
+      'DROP TRIGGER IF EXISTS test_slow_domain_insert ON domain',
+    )
+  })
+
+  it('serializes two concurrent purchases of different names: one reserves, the other conflicts', async () => {
+    const campaign = await seedProCampaignWithWebsite()
+    const domains = await racePurchases()
+
+    const results = await Promise.allSettled([
+      domains.purchaseDomainForCampaign(
+        campaign,
+        'first-choice.com',
+        50,
+        DomainSource.manual,
+      ),
+      domains.purchaseDomainForCampaign(
+        campaign,
+        'second-choice.com',
+        50,
+        DomainSource.manual,
+      ),
+    ])
+
+    const fulfilled = results.filter((r) => r.status === 'fulfilled')
+    const rejected = results.filter((r) => r.status === 'rejected')
+    expect(fulfilled).toHaveLength(1)
+    expect(rejected).toHaveLength(1)
+    const winner = firstOrThrow(fulfilled).value
+    expect(winner.alreadyExisted).toBe(false)
+    expect(firstOrThrow(rejected).reason).toBeInstanceOf(ConflictException)
+    const rows = await testService.prisma.domain.findMany()
+    expect(rows.map((row) => row.name)).toEqual([winner.domain.name])
+  })
+
+  it('serializes two concurrent purchases of the same name: the second gets the first reservation', async () => {
+    const campaign = await seedProCampaignWithWebsite()
+    const domains = await racePurchases()
+
+    const results = await Promise.all([
+      domains.purchaseDomainForCampaign(
+        campaign,
+        'vote-oneill.run',
+        50,
+        DomainSource.manual,
+      ),
+      domains.purchaseDomainForCampaign(
+        campaign,
+        'vote-oneill.run',
+        50,
+        DomainSource.manual,
+      ),
+    ])
+
+    expect(results.map((r) => r.alreadyExisted).sort()).toEqual([false, true])
+    expect(results[0].domain.id).toBe(results[1].domain.id)
+    expect(await testService.prisma.domain.count()).toBe(1)
   })
 })

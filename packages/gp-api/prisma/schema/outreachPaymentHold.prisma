@@ -1,0 +1,46 @@
+// Shared outreach payment holds. Design: "Outreach payment holds (shared)"
+// (ClickUp page 2ky4jq2q-157473) and src/paymentHolds/AGENTS.md. Email is
+// the first channel; robocall is intended to move here later.
+model OutreachPaymentHold {
+  id               Int               @id @default(autoincrement())
+  createdAt        DateTime          @default(now()) @map("created_at")
+  updatedAt        DateTime          @updatedAt @map("updated_at")
+  outreachId       Int               @unique @map("outreach_id")
+  outreach         Outreach          @relation(fields: [outreachId], references: [id], onDelete: Cascade)
+  channel          OutreachType
+  state            OutreachHoldState @default(scheduled)
+  stripeCustomerId String            @map("stripe_customer_id")
+  paymentMethodId  String            @map("payment_method_id")
+  paymentIntentId  String?           @unique @map("payment_intent_id")
+  // Part of the Stripe idempotency key. Bumps only after a decline or a
+  // void, never after a timeout, so a retry replays the hold that may
+  // already exist instead of stacking a second one.
+  holdAttempt      Int               @default(0) @map("hold_attempt")
+  estimateCents    Int               @map("estimate_cents")
+  authorizedCents  Int?              @map("authorized_cents")
+  capturedCents    Int?              @map("captured_cents")
+  captureBefore    DateTime?         @map("capture_before")
+  // When the row entered its current claim state (placing, capturing,
+  // releasing); the recovery sweep acts on stale claims.
+  claimedAt        DateTime?         @map("claimed_at")
+  // A release that arrived while a placement was in flight; the placer
+  // voids instead of storing held.
+  releaseRequested Boolean           @default(false) @map("release_requested")
+  declineCode      String?           @map("decline_code")
+
+  @@index([state, claimedAt])
+  @@map("outreach_payment_hold")
+}
+
+enum OutreachHoldState {
+  scheduled
+  placing
+  held
+  hold_failed
+  capturing
+  captured
+  releasing
+  released
+  uncollectable
+  disputed
+}

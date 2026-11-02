@@ -141,6 +141,7 @@ describe('RecommendedListCard', () => {
     const card = screen.getByTestId('recommended-list-card')
     expect(card).toHaveAttribute('aria-pressed', 'true')
     expect(card).toHaveClass('border-primary')
+    expect(card).not.toHaveClass('hover:border-primary/50')
   })
 
   it('is not pressed by default', () => {

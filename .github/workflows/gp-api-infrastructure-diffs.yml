@@ -28,7 +28,7 @@ jobs:
     name: Infrastructure diff
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           persist-credentials: false
 
@@ -41,13 +41,13 @@ jobs:
           route-types: 'true'
 
       - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v5
+        uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5
         with:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Install Pulumi
-        uses: pulumi/actions@v6
+        uses: pulumi/actions@8582a9e8cc630786854029b4e09281acd6794b58 # v6
         with:
           pulumi-version: '^3'
 
@@ -109,7 +109,7 @@ jobs:
           echo "has_errors=$HAS_ERRORS" >> $GITHUB_OUTPUT
 
       - name: Find existing diff comment
-        uses: peter-evans/find-comment@v3
+        uses: peter-evans/find-comment@3eae4d37986fb5a8592848f6a574fdf654e61f9e # v3
         id: find-comment
         with:
           issue-number: ${{ github.event.number }}
@@ -118,7 +118,7 @@ jobs:
 
       - name: Post or update PR comment
         if: steps.preview.outputs.has_changes == 'true'
-        uses: peter-evans/create-or-update-comment@v4
+        uses: peter-evans/create-or-update-comment@71345be0265236311c031f5c7866368bd1eff043 # v4
         with:
           issue-number: ${{ github.event.number }}
           comment-id: ${{ steps.find-comment.outputs.comment-id }}
@@ -127,7 +127,7 @@ jobs:
 
       - name: Delete existing comment if no changes
         if: steps.preview.outputs.has_changes == 'false' && steps.find-comment.outputs.comment-id != ''
-        uses: actions/github-script@v8
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         with:
           script: |
             await github.rest.issues.deleteComment({

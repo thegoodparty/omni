@@ -50,6 +50,33 @@ vi.mock('./NotesSection', () => ({
   ),
 }))
 
+// ImportedContactInformation.test.tsx covers the Import contacts card (Email,
+// Came from, Change match); here it reads organization context PersonOverlay
+// does not provide, so it is stubbed.
+vi.mock('./ImportedContactInformation', () => ({
+  ImportedContactInformation: ({
+    person,
+    isWin,
+  }: {
+    person: { id: string }
+    isWin: boolean
+  }) => (
+    <div
+      data-testid="imported-contact-information-stub"
+      data-is-win={String(isWin)}
+    >
+      {person.id}
+    </div>
+  ),
+}))
+
+const mockCampaign = vi.hoisted(() => ({
+  current: null as { isPro: boolean } | null,
+}))
+vi.mock('@shared/hooks/useCampaign', () => ({
+  useCampaign: () => [mockCampaign.current],
+}))
+
 // StatusRow has its own suite (StatusRow.test.tsx) covering its self-gating,
 // the two dropdowns, the opt-in pill, mutations, and analytics. Here it would
 // otherwise call the real useOrganization() hook — this file only asserts
@@ -176,6 +203,7 @@ function setContext({
 
 describe('<PersonOverlay>', () => {
   beforeEach(() => {
+    mockCampaign.current = null
     mockedUseContactsTable.mockReset()
     mockedUseFlagOn.mockReset()
     mockedUseFlagOn.mockReturnValue({ ready: true, on: false })
@@ -632,6 +660,228 @@ describe('<PersonOverlay>', () => {
       // ENG-10836: the StatusRow carries support on Win, not this card.
       expect(screen.queryByText('Support Status')).not.toBeInTheDocument()
     })
+
+    it('marks both turnout rows when the voter has already voted', () => {
+      setContext({
+        isElectedOfficial: false,
+        selectedPerson: {
+          person: makePerson({
+            voterStatus: 'Unreliable',
+            earlyVoteStatus: null,
+            voted: true,
+          }),
+        },
+      })
+
+      render(<PersonOverlay />)
+
+      expect(screen.getByText('Unreliable (Already voted)')).toBeInTheDocument()
+      // No score to qualify still says so, rather than dropping the row.
+      expect(screen.getByText('Unknown (Already voted)')).toBeInTheDocument()
+    })
+
+    it('leaves the turnout rows alone when the voter has not voted', () => {
+      setContext({
+        isElectedOfficial: false,
+        selectedPerson: {
+          person: makePerson({
+            voterStatus: 'Unreliable',
+            earlyVoteStatus: 'Likely',
+            voted: false,
+          }),
+        },
+      })
+
+      render(<PersonOverlay />)
+
+      expect(screen.getByText('Unreliable')).toBeInTheDocument()
+      expect(screen.getByText('Likely')).toBeInTheDocument()
+      expect(screen.queryByText(/Already voted/)).not.toBeInTheDocument()
+    })
+
+    it('labels a new contact Not in your voter file, on the record and its Registered Voter row', () => {
+      setContext({
+        isElectedOfficial: false,
+        selectedPerson: {
+          person: makePerson({ isNewContact: true, registeredVoter: null }),
+        },
+      })
+
+      render(<PersonOverlay />)
+
+      expect(screen.getAllByText('Not in your voter file')).toHaveLength(2)
+      expect(
+        within(screen.getByText('Registered Voter').parentElement!).getByText(
+          'Not in your voter file',
+        ),
+      ).toBeInTheDocument()
+    })
+
+    it('reads a voter as before', () => {
+      setContext({
+        isElectedOfficial: false,
+        selectedPerson: { person: makePerson({ registeredVoter: 'Yes' }) },
+      })
+
+      render(<PersonOverlay />)
+
+      expect(
+        screen.queryByText('Not in your voter file'),
+      ).not.toBeInTheDocument()
+    })
+
+    it('never labels a new contact on Serve', () => {
+      setContext({
+        isElectedOfficial: true,
+        selectedPerson: { person: makePerson({ isNewContact: true }) },
+      })
+
+      render(<PersonOverlay />)
+
+      expect(
+        screen.queryByText('Not in your voter file'),
+      ).not.toBeInTheDocument()
+    })
+  })
+
+  describe('Import contacts', () => {
+    const flagOn = (key: string) => ({
+      ready: true,
+      on: key === 'serve-import-contacts',
+    })
+
+    it('swaps in the imported Contact Information card on Serve with the flag on', () => {
+      mockedUseFlagOn.mockImplementation(flagOn)
+      setContext({ isElectedOfficial: true })
+
+      render(<PersonOverlay />)
+
+      expect(
+        screen.getByTestId('imported-contact-information-stub'),
+      ).toHaveTextContent('p_1')
+    })
+
+    it('swaps in the imported card on a Pro Win campaign, keeping the voter-file card', () => {
+      mockedUseFlagOn.mockImplementation(flagOn)
+      mockCampaign.current = { isPro: true }
+      setContext({ isElectedOfficial: false, isWinContext: true })
+
+      render(<PersonOverlay />)
+
+      expect(
+        screen.getByTestId('imported-contact-information-stub'),
+      ).toHaveAttribute('data-is-win', 'true')
+      expect(screen.getByText('Voter Demographics')).toBeInTheDocument()
+      expect(screen.getByTestId('status-row-stub')).toBeInTheDocument()
+    })
+
+    it("keeps today's card on a Win campaign without Pro", () => {
+      mockedUseFlagOn.mockImplementation(flagOn)
+      setContext({ isElectedOfficial: false, isWinContext: true })
+
+      render(<PersonOverlay />)
+
+      expect(
+        screen.queryByTestId('imported-contact-information-stub'),
+      ).not.toBeInTheDocument()
+      expect(screen.getByText('Cell Phone Number')).toBeInTheDocument()
+    })
+
+    it("keeps today's card on Win with the flag off", () => {
+      mockCampaign.current = { isPro: true }
+      setContext({ isElectedOfficial: false, isWinContext: true })
+
+      render(<PersonOverlay />)
+
+      expect(
+        screen.queryByTestId('imported-contact-information-stub'),
+      ).not.toBeInTheDocument()
+    })
+
+    it("keeps today's card on Serve with the flag off", () => {
+      setContext({ isElectedOfficial: true })
+
+      render(<PersonOverlay />)
+
+      expect(
+        screen.queryByTestId('imported-contact-information-stub'),
+      ).not.toBeInTheDocument()
+    })
+
+    it('renders an import entry in the activity feed, linked to its upload', () => {
+      mockedUseFlagOn.mockReturnValue({ ready: true, on: true })
+      setContext({
+        isElectedOfficial: true,
+        selectedPerson: {
+          activities: [
+            {
+              type: 'CONTACT_IMPORT',
+              date: '2026-10-29T15:41:00.000Z',
+              data: {
+                activityId: 'row-1',
+                uploadId: 'upload-1',
+                uploadName: 'Newsletter, Oct 2026',
+                isNewPerson: false,
+                isFirstImport: true,
+                suppliedFields: ['email', 'landline'],
+                changedFields: [],
+                manual: false,
+                actorName: null,
+                actorUserId: null,
+              },
+            },
+          ],
+        },
+      })
+
+      render(<PersonOverlay />)
+
+      expect(screen.getByText('Email and landline added')).toBeInTheDocument()
+      expect(
+        screen.getByRole('link', {
+          name: 'Imported from Newsletter, Oct 2026.',
+        }),
+      ).toHaveAttribute('href', '/dashboard/contacts/uploads/upload-1')
+    })
+
+    it("renders an import entry in a Win campaign's activity feed", () => {
+      mockedUseFlagOn.mockImplementation(flagOn)
+      mockCampaign.current = { isPro: true }
+      mockedUseWinVoterContext.mockReturnValue({ isWin: true, isReady: true })
+      setContext({
+        isElectedOfficial: false,
+        isWinContext: true,
+        selectedPerson: {
+          activities: [
+            {
+              type: 'CONTACT_IMPORT',
+              date: '2026-10-29T15:41:00.000Z',
+              data: {
+                activityId: 'row-1',
+                uploadId: 'upload-1',
+                uploadName: 'Newsletter, Oct 2026',
+                isNewPerson: true,
+                isFirstImport: true,
+                suppliedFields: ['email'],
+                changedFields: [],
+                manual: false,
+                actorName: null,
+                actorUserId: null,
+              },
+            },
+          ],
+        },
+      })
+
+      render(<PersonOverlay />)
+
+      expect(screen.getByText('Email added')).toBeInTheDocument()
+      expect(
+        screen.getByRole('link', {
+          name: 'Added as a new person from Newsletter, Oct 2026.',
+        }),
+      ).toHaveAttribute('href', '/dashboard/contacts/uploads/upload-1')
+    })
   })
 
   describe('ENG-10836 status row', () => {
@@ -689,6 +939,7 @@ describe('<PersonOverlay>', () => {
 
       expect(trackEvent).toHaveBeenCalledWith(
         EVENTS.ConstituentData.ContactViewed,
+        { onCivicPanel: false },
       )
     })
 

@@ -30,8 +30,8 @@ describe('CampaignPlanSharesService', () => {
   } as unknown as FileUpload
 
   beforeEach(() => {
-    process.env.CAMPAIGN_PLAN_SHARES_BUCKET = TEST_BUCKET
-    process.env.API_PUBLIC_ROOT_URL = 'https://api.test'
+    vi.stubEnv('CAMPAIGN_PLAN_SHARES_BUCKET', TEST_BUCKET)
+    vi.stubEnv('API_PUBLIC_ROOT_URL', 'https://api.test')
     s3 = {
       listKeys: vi.fn().mockResolvedValue([]),
       uploadFile: vi.fn().mockResolvedValue('https://unused'),
@@ -46,7 +46,7 @@ describe('CampaignPlanSharesService', () => {
 
   describe('createShare', () => {
     it('throws 503 when the bucket env var is unset', async () => {
-      delete process.env.CAMPAIGN_PLAN_SHARES_BUCKET
+      vi.stubEnv('CAMPAIGN_PLAN_SHARES_BUCKET', undefined)
       await expect(service.createShare(7, file)).rejects.toThrow(
         ServiceUnavailableException,
       )
@@ -54,7 +54,7 @@ describe('CampaignPlanSharesService', () => {
     })
 
     it('throws 503 when the root url var is unset', async () => {
-      delete process.env.API_PUBLIC_ROOT_URL
+      vi.stubEnv('API_PUBLIC_ROOT_URL', undefined)
       await expect(service.createShare(7, file)).rejects.toThrow(
         ServiceUnavailableException,
       )
@@ -62,7 +62,7 @@ describe('CampaignPlanSharesService', () => {
     })
 
     it('normalizes a trailing slash in the root url', async () => {
-      process.env.API_PUBLIC_ROOT_URL = 'https://api.test/'
+      vi.stubEnv('API_PUBLIC_ROOT_URL', 'https://api.test/')
       const { url } = await service.createShare(7, file)
       expect(url).toMatch(/^https:\/\/api\.test\/v1\/campaign-plan-shares\//)
     })
@@ -119,14 +119,14 @@ describe('CampaignPlanSharesService', () => {
     })
 
     it('throws 503 when the bucket is unconfigured', async () => {
-      delete process.env.CAMPAIGN_PLAN_SHARES_BUCKET
+      vi.stubEnv('CAMPAIGN_PLAN_SHARES_BUCKET', undefined)
       await expect(service.getSharePdf('7', 'abc.pdf')).rejects.toThrow(
         ServiceUnavailableException,
       )
     })
 
     it('keeps serving issued links when only the root url var is missing', async () => {
-      delete process.env.API_PUBLIC_ROOT_URL
+      vi.stubEnv('API_PUBLIC_ROOT_URL', undefined)
       const pdf = Buffer.from('%PDF-1.7 stored')
       s3.getFileBytes.mockResolvedValue(pdf)
       expect(await service.getSharePdf('7', 'abc.pdf')).toBe(pdf)

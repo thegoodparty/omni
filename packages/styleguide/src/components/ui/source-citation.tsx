@@ -305,6 +305,14 @@ function MobileSourceCitation(props: SourceCitationProps): React.JSX.Element {
   )
 }
 
+/**
+ * Pass url for a public source; without it the chip reads as internal data. It
+ * opens a popover on desktop and a bottom drawer on mobile, so don't wrap it in
+ * either.
+ *
+ * @summary Use to cite the source behind a factual claim, as a small chip beside
+ * it that opens the source details. Every factual claim needs one.
+ */
 function SourceCitation(props: SourceCitationProps): React.JSX.Element {
   const isMobile = useIsMobile()
   return isMobile ? (

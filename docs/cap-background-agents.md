@@ -111,7 +111,7 @@ ticket, so the broker serves exactly the bytes dispatch vetted.
 The run id is the other half of the contract, and it is what gates the run — not the
 presence of `_judge_override`, because a sweep's base arm carries a judge run id and no
 override. `_judge-` marks a run as having no gp-api `experiment_run` row: the mint sets
-`is_eval` (so the broker suppresses the results callback *and* leaves the org's
+`is_eval` (so the broker suppresses the results callback _and_ leaves the org's
 `latest.json` pointer alone), the scheduler drops its `started`/`failed` callbacks, the
 task reaper skips the reconciling callback for a dead task, and `send_error_callback` suppresses every
 dispatch-side rejection callback, sending the message to the DLQ instead. Any run id
@@ -216,9 +216,12 @@ The sweeps that do exist:
 ### Products built on this
 
 Automated dispatch is wired off `ElectedOfficeService.dispatchScheduleAfterCreate`,
-which calls `meetingBriefings.onElectedOfficeCreated` and
-`communityIssueDispatch.onElectedOfficeCreated` (both `.catch`-wrapped, outside the
-create transaction).
+which calls `meetingBriefings.onElectedOfficeCreated`,
+`communityIssueDispatch.onElectedOfficeCreated` and
+`ordinanceDispatch.onElectedOfficeCreated` (all `.catch`-wrapped, outside the
+create transaction). It fires when an office is created already onboarded, or
+at the pledge that stamps `onboardingCompletedAt`; an unfinished office is
+dormant and dispatches nothing.
 
 - **Meeting briefings** (`src/meetings/services/meetingBriefings.service.ts`) — two
   experiments, `meeting_schedule` then `meeting_briefing`. Signup dispatches the
@@ -284,7 +287,7 @@ CloudWatch metric namespace is literally `PMFEngine`.
   left alone — the runner reported its own result. For a run id prefixed `_judge-`
   the **callback** is skipped (no gp-api row to reconcile) but the diagnosis is not:
   the stop is logged with its exit code and stopCode like any other. The reaper
-  cannot stop a *live* task for anyone — it fires on `lastStatus=STOPPED` and holds
+  cannot stop a _live_ task for anyone — it fires on `lastStatus=STOPPED` and holds
   `sqs:SendMessage` and nothing else. A runaway task is bounded by the runner's own
   `timeout_seconds`, which is the same for judge and product runs.
 

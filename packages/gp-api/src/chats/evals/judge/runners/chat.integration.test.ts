@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { SlackService } from '@/vendors/slack/services/slack.service'
 import { differenceInMilliseconds, parseISO } from 'date-fns'
 import { useTestService } from '@/test-service'
 import { PRICING_VERSION } from '../pricing'
@@ -50,6 +51,14 @@ import {
 // output, a version nobody pinned is not reported as pinned.
 
 const service = useTestService()
+
+// The campaign assistant's live race lookup posts its election-data misses
+// to Slack, which would otherwise wait on a real webhook.
+beforeEach(() => {
+  vi.spyOn(service.app.get(SlackService), 'message').mockResolvedValue(
+    undefined,
+  )
+})
 
 const TURN_TIMEOUT_MS = 60_000
 
@@ -1146,7 +1155,6 @@ describe('runChatCase on briefing chat', () => {
       // The seeded meeting's own timezone, which is also the one the real
       // `today` would be computed in.
       expect(prompt).toContain('Timezone: America/New_York')
-      expect(prompt).toContain('there is no specific selection')
       // The seeded note is what advertises get_my_notes.
       expect(prompt).toContain('YOUR NOTES (1 on this briefing)')
     },

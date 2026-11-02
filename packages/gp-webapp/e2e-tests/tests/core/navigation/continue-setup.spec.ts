@@ -33,7 +33,10 @@ test.describe('Onboarding redirect persistence', () => {
   }) => {
     const onboardingUrl = await signUpTestUser(page)
 
-    await page.goto('https://goodparty.org/blog')
+    // Leaving the app is the point, not where to. goodparty.org challenges
+    // headless browsers from CI (Vercel Bot Protection), so leave to a blank
+    // page instead of the live marketing site.
+    await page.goto('about:blank')
 
     await page.goto('/login')
     await page.waitForURL((url) => url.toString().includes('/onboarding/'), {
@@ -41,7 +44,7 @@ test.describe('Onboarding redirect persistence', () => {
     })
     expect(page.url()).toBe(onboardingUrl)
 
-    await page.goto('https://goodparty.org/blog')
+    await page.goto('about:blank')
 
     await page.goto('/')
     await page.waitForURL((url) => url.toString().includes('/onboarding/'), {

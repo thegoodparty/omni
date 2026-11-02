@@ -28,8 +28,9 @@ Worth writing down, because each of these looks like the answer for about an hou
   itself needs; not the answer for app secrets.
 - **Terraform-managed secret versions.** Terraform can own the container but not
   the value: `aws_secretsmanager_secret_version` with a real value puts the
-  plaintext in state. The existing `broker` module has this right already — empty
-  `jsonencode({})` plus `ignore_changes = [secret_string]`.
+  plaintext in state, and even a placeholder version is refreshed on every plan,
+  which needs `GetSecretValue`. The existing `broker` module has this right
+  already: it creates the container and manages no version at all.
 
 ## Design
 
@@ -136,7 +137,7 @@ unconditional first step of each stage rather than a path-filtered one.
 | 1 | KMS key + committed public key + `scripts/secret-encrypt.sh` + PR-time structural validation + plaintext guard. Nothing consumes the files yet. | 1d | Engineers can produce ciphertext and get it reviewed |
 | 2 | `github-actions-secrets-sync` role + `ci-sync-secrets.sh` + wire into the train's **dev** stage. Migrate 2–3 real dev keys end to end. | 1–2d | Self-service dev secrets |
 | 3 | Enable the prod stage. Migrate the existing prod blobs' keys into declared files. Settle the deletion mechanism. | 1d | Self-service prod secrets — the actual goal |
-| 4 | Close the state leak: drop the `AI_SECRETS_PROD` data source from `prod/shared-infra`, **rotate every key it exposed**, and revoke `GetSecretValue` from the deploy role where it's now unused. | 1d | The policy stops being undermined by its own tooling |
+| 4 | Close the state leak: `prod/shared-infra` no longer reads the `AI_SECRETS_PROD` data source, but its historical state versions still hold the blob, so **rotate every key it exposed**, and revoke `GetSecretValue` from the deploy role where it's now unused. | 1d | The policy stops being undermined by its own tooling |
 | 5 | Replace `docs/secrets.md` §"Adding or rotating a secret" with the new flow; delete this file. | 0.5d | — |
 
 Roughly a week of focused work, and Phase 0 alone removes most of the day-to-day

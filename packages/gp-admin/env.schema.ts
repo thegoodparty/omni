@@ -39,7 +39,6 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
   // that actually serves both environments; local dev never needs it.
   GP_API_PROTOCOL: { tier: 'required' },
   GP_DEV_API_DOMAIN: { tier: 'required' },
-  GP_DEV_MACHINE_SECRET: { tier: 'required' },
   GP_ORG_ID_DEV: { tier: 'required' },
 
   // --- Optional: everything else ---------------------------------------
@@ -51,8 +50,16 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
   GP_API_PORT: { tier: 'optional' },
   GP_API_ROOT_PATH: { tier: 'optional' },
   GP_PROD_API_DOMAIN: { tier: 'optional' },
-  GP_PROD_MACHINE_SECRET: { tier: 'optional' },
   GP_ORG_ID_PROD: { tier: 'optional' },
+
+  // How gp-admin authenticates to gp-api: `clerk` sends a Clerk M2M token
+  // minted from the machine secrets below; `oidc` sends the deployment's
+  // Vercel OIDC token and uses the machine secret only when that token
+  // can't be obtained. Any other value fails every gp-api call.
+  GP_API_AUTH_MODE: { tier: 'optional', default: 'clerk' },
+  // Required in `clerk` mode, the fallback in `oidc` mode.
+  GP_DEV_MACHINE_SECRET: { tier: 'optional' },
+  GP_PROD_MACHINE_SECRET: { tier: 'optional' },
 
   // Impersonation-redirect targets, one per GP environment
   // (src/app/dashboard/users/actions.ts, .../briefings/actions.ts).

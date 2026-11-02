@@ -21,6 +21,9 @@ export default function RouteTracker(): null {
   }, [])
 
   useEffect(() => {
+    // The public email pages carry a signed token in the URL, and the
+    // unsubscribe token holds the recipient's email address.
+    if (pathname?.startsWith('/email/')) return
     const clids = getPersistedClids()
     const filteredClids = Object.fromEntries(
       Object.entries(clids).filter(([, value]) => value !== null),

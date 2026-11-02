@@ -21,12 +21,34 @@ export const RESULTS_COPY = {
       .filter(Boolean)
       .join(' · ') || null,
   themesTitle: 'Top themes',
-  themesCaption: 'Across every text, call and door on this priority.',
+  themesCaption: 'Across every answer on this priority.',
   themesEmpty: 'Themes show up once at least 5 people have answered.',
   themesUpdating: 'Updating with the latest answers.',
   themesProcessing: "We're reading what people said. Themes show up here soon.",
   people: (count: number) =>
     count === 1 ? '1 person' : `${count.toLocaleString()} people`,
+  themeRank: (rank: number) => `Rank ${rank}`,
+  viewResponses: (theme: string) => `View responses for ${theme}`,
+  // A door or phone note is the canvasser's summary, never the resident's
+  // own words, so it says so. A text reply carries no label.
+  noteLabel: 'Notes from a conversation',
+  commentsEmpty: 'No responses to show for this theme.',
+  downloadTheme: 'Download responses',
+  downloadAll: 'Download all responses',
+  signal: {
+    strong: 'Strong signal',
+    fair: 'Some signal',
+    thin: 'Low signal',
+  },
+  signalInfo: (label: string) => `What does ${label.toLowerCase()} mean?`,
+  signalMeaning: (place: string | null) => {
+    const where = place ?? 'your district'
+    return {
+      strong: `Every group in ${where} had enough people weigh in on this.`,
+      fair: `At least half the groups in ${where} had enough people weigh in on this.`,
+      thin: `Fewer than half the groups in ${where} had enough people weigh in on this.`,
+    }
+  },
   mapTitle: 'Where answers came from',
   mapCaption: 'Darker squares mean more people answered from that area.',
   mapEmpty: 'Answers show up on the map as people reply.',

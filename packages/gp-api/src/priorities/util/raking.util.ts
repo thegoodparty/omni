@@ -8,15 +8,6 @@ export interface RakingCell {
 // Census share of each value, per dimension. Shares in a dimension sum to 1.
 export type RakingTargets = Record<string, Record<string, number>>
 
-export interface RakingGap {
-  dimension: string
-  value: string
-  share: number
-  // Before weighting: who actually answered.
-  unweightedShare: number
-  censusShare: number
-}
-
 // Values with fewer than `minCount` respondents pool into one `pooledValue`,
 // in both the cells and the census targets, so no small group gets a weight
 // it cannot carry. The weight cap handles a lone small value.

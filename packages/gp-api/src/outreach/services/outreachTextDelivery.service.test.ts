@@ -1,7 +1,6 @@
 import type { PeopleListResponse, Person } from '@goodparty_org/contracts'
 import { PinoLogger } from 'nestjs-pino'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { MAX_RESOLVED_ID_SET_SIZE } from '@/contactInteraction/services/activityConditionResolution.service'
 import { ContactInteractionTextService } from '@/contactInteraction/services/contactInteractionText.service'
 import { ContactsService } from '@/contacts/services/contacts.service'
 import {
@@ -11,12 +10,14 @@ import {
 } from '@/generated/prisma'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
+import { appEnvOverrides } from '@/shared/test-utils/appEnvOverrides'
 import { useTestService } from '@/test-service'
 import {
   TextDeliveryHandoff,
   TextDeliveryHandoffPort,
 } from '../interfaces/textDeliveryHandoff.interface'
 import { OutreachTextDeliveryService } from './outreachTextDelivery.service'
+import { OutreachTextSendFundingService } from './outreachTextSendFunding.service'
 
 const service = useTestService()
 
@@ -82,6 +83,8 @@ describe('OutreachTextDeliveryService', () => {
         organizationSlug: slug,
         voterFileFilterId: filter.id,
         status: opts.status ?? OutreachStatus.pending,
+        // Every legitimate send reaches delivery paid at checkout.
+        stripeCheckoutSessionId: `cs_test_${slug}`,
       },
     })
     return { slug, filter, outreach }
@@ -137,7 +140,7 @@ describe('OutreachTextDeliveryService', () => {
     ).status
 
   beforeEach(() => {
-    process.env.OUTREACH_TEXT_CSVS_BUCKET = BUCKET
+    vi.stubEnv('OUTREACH_TEXT_CSVS_BUCKET', BUCKET)
     contacts = service.app.get(ContactsService)
     s3 = makeS3Stub()
     handoffs = []
@@ -163,6 +166,7 @@ describe('OutreachTextDeliveryService', () => {
       service.app.get(ContactInteractionTextService),
       s3 as unknown as S3Service,
       handoffPort,
+      service.app.get(OutreachTextSendFundingService),
     )
     Reflect.set(delivery, '_prisma', service.prisma)
     Reflect.set(delivery, 'logger', logger)
@@ -275,6 +279,7 @@ describe('OutreachTextDeliveryService', () => {
         textCount: 1,
         status: OutreachStatus.pending,
         approvedAt: new Date(),
+        stripeCheckoutSessionId: 'cs_test_expansion',
       },
     })
     const second = await delivery.requestSend(
@@ -774,13 +779,11 @@ describe('OutreachTextDeliveryService', () => {
   })
 
   it('still scrubs, loudly, when the opt-out set hits the query limit', async () => {
+    appEnvOverrides.MAX_RESOLVED_ID_SET_SIZE = 2
     const { outreach, filter } = await seedSend()
     // Seeding 100k rows is not a test; the limit check is what is under
     // test, so stub the producer at the size that trips it.
-    const overCap = Array.from(
-      { length: MAX_RESOLVED_ID_SET_SIZE + 1 },
-      (_unused, i) => `opted-out-${i}`,
-    )
+    const overCap = ['opted-out-1', 'opted-out-2', 'opted-out-3']
     vi.spyOn(
       service.app.get(ContactInteractionTextService),
       'findOptedOutPersonIds',

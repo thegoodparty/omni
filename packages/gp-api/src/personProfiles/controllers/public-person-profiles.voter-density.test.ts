@@ -1,6 +1,13 @@
 import { NotFoundException } from '@nestjs/common'
+import axios from 'axios'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
+import { signTestVercelOidcToken, useTestVercelOidc } from '@/test-vercel-oidc'
+import {
+  AUTH_PROVIDER_TOKEN,
+  AuthProvider,
+} from '@/authentication/interfaces/auth-provider.interface'
+import { Prisma } from '@/generated/election-prisma'
 import { PersonsService } from '@/electionDb/persons/persons.service'
 import { VoterDensityProxyService } from '../services/voter-density-proxy.service'
 
@@ -9,6 +16,7 @@ import { VoterDensityProxyService } from '../services/voter-density-proxy.servic
 // both halves of the question — the person's district and that district's
 // precomputed cells — in one call.
 const service = useTestService()
+useTestVercelOidc()
 
 const PERSON_ID = '33333333-3333-4333-8333-333333333333'
 const DISTRICT_ID = '44444444-4444-4444-8444-444444444444'
@@ -33,10 +41,13 @@ const mockRead = (impl: () => unknown) =>
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     .mockImplementation(() => impl() as any)
 
-const get = (personId: string = PERSON_ID, ip?: string) =>
+const get = (
+  personId: string = PERSON_ID,
+  token: string = signTestVercelOidcToken(),
+) =>
   service.client.get('/v1/public-person-profiles/voter-density', {
     params: { personId },
-    ...(ip ? { headers: { 'X-Forwarded-For': ip } } : {}),
+    headers: { Authorization: `Bearer ${token}` },
   })
 
 /** The proxy answers an identical lookup from memory for 60s. */
@@ -125,12 +136,52 @@ describe('GET /v1/public-person-profiles/voter-density', () => {
     spy.mockRestore()
   })
 
-  it('502s (not swallowed) when the read hard-fails', async () => {
+  it('renders no map (404, not 502) when the read hard-fails', async () => {
     const spy = mockRead(() => Promise.reject(new Error('connection refused')))
 
     const res = await get()
-    expect(res.status).toBe(502)
+    expect(res.status).toBe(404)
     spy.mockRestore()
+  })
+
+  it('retries once when election-db is unreachable', async () => {
+    const unreachable = new Prisma.PrismaClientKnownRequestError(
+      "Can't reach database server",
+      { code: 'P1001', clientVersion: 'test' },
+    )
+    let calls = 0
+    const spy = mockRead(() =>
+      ++calls === 1
+        ? Promise.reject(unreachable)
+        : Promise.resolve(density({ coverage: 0.7, cells: [] })),
+    )
+
+    const res = await get()
+
+    expect(res.status).toBe(200)
+    expect(res.data.coverage).toBe(0.7)
+    expect(spy).toHaveBeenCalledTimes(2)
+    spy.mockRestore()
+  })
+
+  it('serves the last answer when a refresh fails after the cache expired', async () => {
+    const warm = mockRead(() =>
+      Promise.resolve(density({ coverage: 0.5, cells: [] })),
+    )
+    expect((await get()).status).toBe(200)
+    warm.mockRestore()
+
+    const entry = densityCache().get(PERSON_ID) as { expiresAtMs: number }
+    entry.expiresAtMs = Date.now() - 1
+    const failing = mockRead(() =>
+      Promise.reject(new Error('connection refused')),
+    )
+
+    const res = await get()
+
+    expect(res.status).toBe(200)
+    expect(res.data.coverage).toBe(0.5)
+    failing.mockRestore()
   })
 
   it('400s on a non-uuid personId', async () => {
@@ -157,7 +208,7 @@ describe('GET /v1/public-person-profiles/voter-density', () => {
     const failing = mockRead(() =>
       Promise.reject(new Error('connection refused')),
     )
-    expect((await get()).status).toBe(502)
+    expect((await get()).status).toBe(404)
     failing.mockRestore()
 
     const recovered = mockRead(() =>
@@ -170,19 +221,47 @@ describe('GET /v1/public-person-profiles/voter-density', () => {
     recovered.mockRestore()
   })
 
-  it('refuses the 31st read from one address', async () => {
+  it('403s a request with no token', async () => {
     const spy = mockRead(() =>
       Promise.resolve(density({ coverage: 0.1, cells: [] })),
     )
 
-    for (let i = 0; i < 30; i++) {
-      const allowed = await get(PERSON_ID, '10.3.0.1')
-      expect(allowed.status).toBe(200)
-    }
+    const res = await axios.get('/v1/public-person-profiles/voter-density', {
+      baseURL: service.client.defaults.baseURL,
+      params: { personId: PERSON_ID },
+      validateStatus: () => true,
+    })
 
-    const refused = await get(PERSON_ID, '10.3.0.1')
-
-    expect(refused.status).toBe(429)
+    expect(res.status).toBe(403)
+    expect(spy).not.toHaveBeenCalled()
     spy.mockRestore()
+  })
+
+  it('403s a logged-in user who is not an admin', async () => {
+    const res = await service.client.get(
+      '/v1/public-person-profiles/voter-density',
+      { params: { personId: PERSON_ID } },
+    )
+
+    expect(res.status).toBe(403)
+  })
+
+  it('serves an opaque mt_ M2M token', async () => {
+    const verify = vi
+      .spyOn(
+        service.app.get<AuthProvider>(AUTH_PROVIDER_TOKEN),
+        'verifyM2MToken',
+      )
+      .mockResolvedValue({ id: 'mt_test', subject: 'test-machine' })
+    const spy = mockRead(() =>
+      Promise.resolve(density({ coverage: 0.3, cells: [] })),
+    )
+
+    const res = await get(PERSON_ID, 'mt_test')
+
+    expect(res.status).toBe(200)
+    expect(res.data.coverage).toBe(0.3)
+    spy.mockRestore()
+    verify.mockRestore()
   })
 })

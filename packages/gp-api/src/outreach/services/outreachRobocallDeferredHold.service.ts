@@ -12,6 +12,7 @@ import {
   RobocallSettleState,
 } from '../../generated/prisma'
 import { OutreachRobocallHoldService } from './outreachRobocallHold.service'
+import { VENDOR_CRONS_ENABLED } from 'src/shared/util/appEnvironment.util'
 
 // Daily, a non-:00 minute distinct from the other robocall crons (staging runs
 // on the 7,17,27,37,47,57 * * * * slot). A daily cadence is plenty: the 3-day
@@ -42,7 +43,7 @@ const ROBOCALL_DEFERRED_CANCEL_SWEEP_JOB = 'robocallDeferredCancelSweep'
 // here is the cancel-at-deadline cleanup: a deferred draft whose send passes
 // before a hold is ever placed (repeated transient placement failures, or a
 // send that fell past its date between daily passes) is transitioned
-// pending_payment → cancelled + emits Canceled — prod-only, moving no money.
+// pending_payment → cancelled + emits Canceled — vendor-cron gated, moving no money.
 @Injectable()
 export class OutreachRobocallDeferredHoldService extends createPrismaBase(
   MODELS.OutreachRobocall,
@@ -61,14 +62,15 @@ export class OutreachRobocallDeferredHoldService extends createPrismaBase(
   // `authorized` is a no-op on the next pass. @Cron (not @Interval) so the
   // schedule survives deploys and every replica fires on the same instant.
   //
-  // Prod-only (docs/scheduled-jobs.md § Prod-only guard): it reserves real money
-  // off-session, so it must not fire on dev/preview where Stripe is stubbed.
+  // VENDOR_CRONS_ENABLED (docs/scheduled-jobs.md § Vendor-cron gate): it reserves
+  // real money off-session, so it must not fire where Stripe is live and the
+  // deploy is not prod.
   @Cron(ROBOCALL_DEFERRED_HOLD_SWEEP_CRON, {
     name: ROBOCALL_DEFERRED_HOLD_SWEEP_JOB,
     timeZone: EASTERN_TIMEZONE,
   })
   async sweepDeferredHolds(): Promise<void> {
-    if (process.env.OTEL_SERVICE_ENVIRONMENT !== 'prod') return
+    if (!VENDOR_CRONS_ENABLED) return
 
     const now = new Date()
     // Entered the window, still future: a card was chosen at schedule time (both
@@ -142,13 +144,13 @@ export class OutreachRobocallDeferredHoldService extends createPrismaBase(
   // once the send date passes — a draft whose window was missed by repeated
   // transient placement failures, or one whose send fell past its date between
   // daily passes — no other sweep can touch it, and it would strand in
-  // pending_payment forever. Cancel + notify move no money. Prod-only.
+  // pending_payment forever. Cancel + notify move no money. Same gate.
   @Cron(ROBOCALL_DEFERRED_CANCEL_SWEEP_CRON, {
     name: ROBOCALL_DEFERRED_CANCEL_SWEEP_JOB,
     timeZone: EASTERN_TIMEZONE,
   })
   async sweepExpiredDeferred(): Promise<void> {
-    if (process.env.OTEL_SERVICE_ENVIRONMENT !== 'prod') return
+    if (!VENDOR_CRONS_ENABLED) return
 
     const now = new Date()
     const candidates = await this.model.findMany({

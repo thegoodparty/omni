@@ -4,7 +4,7 @@ A pointer-heavy doc. Detailed conventions live in `CLAUDE.md` and feature-level 
 
 ## Stack
 
-- **Next.js 16** App Router on Vercel (React 19.2), Turbopack builds, Serwist service worker
+- **Next.js 16** App Router on Vercel (React 19.2), Turbopack builds, Serwist service worker (`app/shared/AppServiceWorker.tsx`, which never reloads the page when signal returns: a door-knocking walk lives in page state)
 - **TanStack React Query 5** (5-minute stale time) for server-state caching
 - **Tailwind CSS v4** + custom design tokens (`styleguide/design-tokens.css`, `styleguide/tailwind-theme.css`)
 - **Clerk** for auth widgets (e2e setup), session JWT issued by gp-api
@@ -52,7 +52,6 @@ JWT in HTTP-only cookie issued by gp-api. Frontend attaches it via `credentials:
 | Direction | Service                              | Protocol                                   | Auth                    |
 | --------- | ------------------------------------ | ------------------------------------------ | ----------------------- |
 | outbound  | gp-api (NestJS, ECS)                 | HTTP via `clientRequest` / `serverRequest` | Cookie or Bearer        |
-| outbound  | election-api                         | HTTP                                       | Configured baseURL      |
 | outbound  | Stripe (Checkout Sessions, redirect) | HTTP via gp-api                            | gp-api owns Stripe keys |
 | outbound  | Amplitude                            | JS SDK                                     | Public key              |
 | outbound  | Sentry                               | JS SDK                                     | Public DSN              |

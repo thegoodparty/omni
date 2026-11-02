@@ -13,12 +13,8 @@ import { OutreachNotificationService } from '@/outreach/services/outreachNotific
 import { Campaign, RobocallSettleState } from '../../generated/prisma'
 
 // The CAS schedule notice is fire-and-forget, so poll for the background call.
-const waitForCalls = async (
-  spy: { mock: { calls: unknown[] } },
-  count: number,
-  tries = 200,
-): Promise<void> => {
-  for (let i = 0; i < tries && spy.mock.calls.length < count; i += 1) {
+const waitUntil = async (done: () => boolean, tries = 200): Promise<void> => {
+  for (let i = 0; i < tries && !done(); i += 1) {
     await new Promise((resolve) => setTimeout(resolve, 10))
   }
 }
@@ -260,8 +256,16 @@ describe('POST /v1/outreach/robocall/:outreachId/authorize', () => {
 
     // Fire-and-forget notice: wait for the background call to land, then confirm
     // the pending_payment -> pending transition fired it exactly once.
-    await waitForCalls(notifySpy, 1)
-    expect(notifySpy).toHaveBeenCalledTimes(1)
+    // Counted for this outreach only: an earlier test's notice can land after
+    // this test's mocks were cleared.
+    const forThisOutreach = () =>
+      (
+        notifySpy.mock.calls as Parameters<
+          OutreachNotificationService['notifyRobocallScheduled']
+        >[]
+      ).filter(([, , outreach]) => outreach.id === outreachId)
+    await waitUntil(() => forThisOutreach().length >= 1)
+    expect(forThisOutreach()).toHaveLength(1)
   })
 
   it('failSend voids the hold, sets send_failed + failed spine, emails once', async () => {
@@ -596,6 +600,33 @@ describe('POST /v1/outreach/robocall/:outreachId/authorize', () => {
         (call) => call[1] === EVENTS.Outreach.CampaignScheduled,
       ),
     ).toHaveLength(0)
+  })
+
+  // A payment-failed resend rescheduled beyond the window: the new card is
+  // saved and the row leaves hold_failed for the deferred sweep, rather than
+  // the card being dropped and the candidate told it failed again.
+  it('defers a hold_failed resend beyond the hold window, saving the new card', async () => {
+    const outreachId = await createDraft({
+      sendInDays: 10,
+      settleState: RobocallSettleState.hold_failed,
+      payAttempt: 1,
+    })
+    paymentMethodsRetrieve.mockResolvedValue({
+      id: 'pm_1',
+      customer: 'cus_test',
+      type: 'card',
+    })
+
+    const res = await postAuthorize(outreachId)
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(res.data.status).toBe('deferred')
+    expect(paymentIntentsCreate).not.toHaveBeenCalled()
+    const satellite = await readSatellite(outreachId)
+    expect(satellite.settleState).toBe(RobocallSettleState.pending_payment)
+    expect(satellite.paymentMethodId).toBe('pm_1')
+    const spine = await readSpine(outreachId)
+    expect(spine.status).toBe('pending')
   })
 
   it('rejects an estimate over the per-run ceiling and reverts to pending_payment', async () => {

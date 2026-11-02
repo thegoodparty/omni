@@ -917,8 +917,8 @@ describe('RecordKnockForm issue capture on a Win door', () => {
   const walkWinAndSave = () => {
     answer('Did they answer?', 'Answered')
     answer('Did they engage?', 'Engaged')
-    answer('Do they support you?', 'Yes')
     answer('Will they vote this election?', 'Yes')
+    answer('Do they support you?', 'Yes')
     dictate(MEMO)
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
   }
@@ -966,8 +966,8 @@ describe('RecordKnockForm issue capture on a Win door', () => {
     renderForm(vi.fn(), false)
     answer('Did they answer?', 'Answered')
     answer('Did they engage?', 'Engaged')
-    answer('Do they support you?', 'Yes')
     answer('Will they vote this election?', 'Yes')
+    answer('Do they support you?', 'Yes')
 
     expect(screen.getByPlaceholderText('What did they tell you?')).toBeVisible()
     expect(document.body.textContent ?? '').not.toMatch(/constituent/i)

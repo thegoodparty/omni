@@ -19,9 +19,11 @@ import {
 import type {
   RecommendedList,
   RecommendedListVariant,
+  VotedStatus,
 } from '@goodparty_org/contracts'
 import filterSections from 'app/dashboard/contacts/shared/filters.config'
 import { PILL_TOGGLE_ITEM_CLASSNAME } from 'app/dashboard/contacts/crm/shared/constants'
+import { VOTED_STATUS_OPTIONS } from 'app/dashboard/contacts/crm/shared/activityConditionOptions'
 import PrecinctFilter from 'app/dashboard/contacts/crm/wizard/PrecinctFilter'
 import type { PrecinctOptionsResult } from 'app/dashboard/contacts/crm/wizard/usePrecinctOptions'
 import type { VoterFileFilters } from 'app/dashboard/contacts/crm/shared/voterFileFilterTransform.util'
@@ -51,6 +53,10 @@ interface WhoStepProps {
   // and every other channel's audience step already carry it.
   precincts: string[]
   onPrecinctsChange: (value: string[]) => void
+  // "Voted in election", Win only. An array beside the pill draft for the
+  // same reason as precincts: the draft is booleans and this is not.
+  votedStatus: VotedStatus[]
+  onVotedStatusChange: (value: VotedStatus[]) => void
   // Fetched by the orchestrator, which owns the district: this step stays
   // presentational for the same reason `isServeOrg` and `orgSlug` are props.
   precinctOptions: PrecinctOptionsResult
@@ -135,6 +141,8 @@ export const WhoStep = ({
   onFiltersChange,
   precincts,
   onPrecinctsChange,
+  votedStatus,
+  onVotedStatusChange,
   precinctOptions,
   savedLists,
   allContactsHouseholds,
@@ -213,6 +221,35 @@ export const WhoStep = ({
           onRetry={precinctOptions.refetch}
           labelClassName={GROUP_LABEL_CLASSNAME}
         />
+
+        {!isServeOrg && (
+          <div className="flex flex-col gap-2">
+            <span className={GROUP_LABEL_CLASSNAME}>Voted in election</span>
+            <ToggleGroup
+              type="multiple"
+              value={votedStatus}
+              onValueChange={(values) =>
+                onVotedStatusChange(
+                  VOTED_STATUS_OPTIONS.map((option) => option.value).filter(
+                    (value) => values.includes(value),
+                  ),
+                )
+              }
+              aria-label="Voted in election"
+              className="flex flex-wrap justify-start gap-2"
+            >
+              {VOTED_STATUS_OPTIONS.map((option) => (
+                <ToggleGroupItem
+                  key={option.value}
+                  value={option.value}
+                  className={PILL_TOGGLE_ITEM_CLASSNAME}
+                >
+                  {option.label}
+                </ToggleGroupItem>
+              ))}
+            </ToggleGroup>
+          </div>
+        )}
 
         {/* Every group, in the config's own order, with no "Add condition"
             button in front of them: the pills ARE the conditions, and a button
@@ -321,7 +358,10 @@ export const WhoStep = ({
                   recommendation={recommendation}
                   channel="doorKnocking"
                   selected={
-                    activeRecommendationVariant === recommendation.variant
+                    activeRecommendationVariant === recommendation.variant ||
+                    (hasPickedAudience &&
+                      recommendation.existingFilterId !== null &&
+                      recommendation.existingFilterId === selectedListId)
                   }
                   onSelect={() => onSelectRecommendation(recommendation)}
                 />

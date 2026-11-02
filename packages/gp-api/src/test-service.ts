@@ -21,18 +21,10 @@ import {
   withDatabase,
 } from './test-postgres'
 import { ElectionsService } from './elections/services/elections.service'
+import { PositionsService } from './electionDb/positions/positions.service'
 import { District } from './elections/types/elections.types'
 
 export const TEST_CLERK_ID = 'user_test_123'
-export const TEST_M2M_JWT_SUBJECT = 'mch_test_machine'
-
-// Stands in for a Clerk JWT-format M2M token. The harness verifies it with
-// AUTH_SECRET instead of the Clerk JWKS; see the verifyM2MJwt stub below.
-export const signTestM2MJwt = (): string =>
-  jwt.sign({ sub: TEST_M2M_JWT_SUBJECT }, process.env.AUTH_SECRET!, {
-    expiresIn: '1h',
-    jwtid: 'm2m_test_jwt',
-  })
 
 // The reset below is a few tens of milliseconds of work. This ceiling is here
 // only to survive real pathology (a starved runner, a lock held by work that
@@ -52,34 +44,23 @@ const HOOK_TIMEOUT_MS = 60_000
 /**
  * Empty every table, then seed the one user the suite authenticates as.
  *
- * Truncating all 88 tables unconditionally costs a flat ~350ms, because the
- * commit syncs a new relation file for each one; asking all 88 whether they
- * hold a row costs ~15ms in a single round trip, and a test typically dirties
- * a handful. So probe first and truncate only what the last test actually
- * wrote. CASCADE may pull in an empty child table, which is harmless — the
- * post-condition is only that every table is empty.
+ * DELETE, not TRUNCATE. A test leaves a handful of rows, and TRUNCATE swaps
+ * in a new relation file for every table it touches, which invalidates each
+ * pooled connection's cached view of those tables and costs ~55ms a reset
+ * plus slower queries after it. DELETE on 88 near-empty tables is ~5ms in one
+ * round trip. Replica mode skips the foreign key checks, so order does not
+ * matter; every table is emptied, so nothing is left dangling.
  */
 const resetDatabase = async (
   prisma: PrismaService,
   tables: string[],
 ): Promise<User> => {
-  const dirty = tables.length
-    ? await prisma.$queryRawUnsafe<Array<{ tablename: string }>>(
-        tables
-          .map(
-            (table) =>
-              `SELECT '${table}' AS tablename ` +
-              `WHERE EXISTS (SELECT 1 FROM "public"."${table}")`,
-          )
-          .join(' UNION ALL '),
-      )
-    : []
-
-  if (dirty.length > 0) {
-    const tableList = dirty
-      .map(({ tablename }) => `"public"."${tablename}"`)
-      .join(', ')
-    await prisma.$executeRawUnsafe(`TRUNCATE TABLE ${tableList} CASCADE;`)
+  if (tables.length > 0) {
+    await prisma.$executeRawUnsafe(
+      `DO $$ BEGIN SET LOCAL session_replication_role = replica; ` +
+        tables.map((table) => `DELETE FROM "public"."${table}";`).join(' ') +
+        ` END $$`,
+    )
   }
 
   return prisma.user.create({
@@ -125,7 +106,18 @@ export type TestServiceContext = {
  * })
  * ```
  */
-export const useTestService = (): TestServiceContext => {
+export type TestServiceOptions = {
+  /**
+   * Register the app's `@Cron`, `@Interval` and `@Timeout` jobs and let them
+   * fire on real timers. Off by default, so no job writes rows mid-suite; a
+   * test runs a job by calling its method on the service instead.
+   */
+  scheduler?: boolean
+}
+
+export const useTestService = ({
+  scheduler = false,
+}: TestServiceOptions = {}): TestServiceContext => {
   let baseConnectionUri: string
   let app: NestFastifyApplication
   let client: AxiosInstance
@@ -136,7 +128,7 @@ export const useTestService = (): TestServiceContext => {
   // When a hook exceeds its timeout vitest rejects the hook's promise but
   // cannot cancel the queries already in flight, so an abandoned reset runs to
   // completion regardless. Unordered, its user insert lands after the NEXT
-  // test's truncate and every later test in the file dies on a duplicate id —
+  // test's delete and every later test in the file dies on a duplicate id —
   // which is how one slow reset used to fail a whole file. Chaining keeps an
   // abandoned reset strictly ahead of its successor, so it costs one test.
   let pendingReset: Promise<unknown> = Promise.resolve()
@@ -179,8 +171,19 @@ export const useTestService = (): TestServiceContext => {
     // Set DATABASE_URL for Prisma with the unique database
     process.env.DATABASE_URL = databaseUrl
 
+    // Read by AppModule's ScheduleModule factory during bootstrap.
+    process.env.TEST_SCHEDULER = scheduler ? 'on' : 'off'
+
+    // Constructing PrismaClient loads packages/gp-api/.env again, which CI
+    // does not have. Drop what it adds, as test-file-cleanup.ts does on import.
+    const envBeforeBoot = new Set(Object.keys(process.env))
+
     // Create NestJS application using the same bootstrap function as production
     app = await bootstrap({ loggingEnabled: false })
+
+    for (const key of Object.keys(process.env)) {
+      if (!envBeforeBoot.has(key)) delete process.env[key]
+    }
 
     const authProvider = app.get<AuthProvider>(AUTH_PROVIDER_TOKEN)
     // .bind() returns any — TypeScript cannot infer the bound method signature
@@ -205,16 +208,6 @@ export const useTestService = (): TestServiceContext => {
           throw new UnauthorizedException('Invalid test token')
         }
         return { externalUserId: sub }
-      },
-    )
-
-    vi.spyOn(authProvider, 'verifyM2MJwt').mockImplementation(
-      async (token: string) => {
-        const decoded = jwt.verify(token, process.env.AUTH_SECRET!)
-        if (typeof decoded !== 'object' || !decoded.sub?.startsWith('mch_')) {
-          throw new UnauthorizedException('Invalid test M2M JWT')
-        }
-        return { id: decoded.jti ?? '', subject: decoded.sub }
       },
     )
 
@@ -247,6 +240,22 @@ export const useTestService = (): TestServiceContext => {
     // ballotLevel) accordingly. Manufacturing one here would silently take that
     // fallback away. Suites that need a real position stub it themselves.
     vi.spyOn(electionsService, 'getPositionById').mockResolvedValue(null)
+    // PeopleDatasetService reads the position straight from PositionsService
+    // for every org with serve-import-contacts on, which is every org here:
+    // the placeholder Amplitude key turns flags on. A position with no
+    // district, so the overlay gets the same no-district answer the stub
+    // above gives ContactsService.
+    vi.spyOn(app.get(PositionsService), 'getPositionById').mockImplementation(
+      async ({ id }) => ({
+        id,
+        brPositionId: id,
+        brDatabaseId: id,
+        state: 'IL',
+        level: null,
+        isWinIcp: null,
+        isServeIcp: null,
+      }),
+    )
 
     // Start the application on a random available port
     await app.listen({ port: 0, host: '127.0.0.1' })

@@ -7,13 +7,6 @@
       "runtimeArgs": ["run", "dev-dev", "-w", "packages/gp-webapp"],
       "port": 4000,
       "autoPort": false
-    },
-    {
-      "name": "storybook",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "storybook", "-w", "packages/gp-webapp"],
-      "port": 6006,
-      "autoPort": false
     }
   ]
 }

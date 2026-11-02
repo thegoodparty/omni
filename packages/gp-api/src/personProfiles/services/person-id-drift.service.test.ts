@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { NotFoundException } from '@nestjs/common'
 import { useTestService } from '@/test-service'
 import { ElectionsService } from '@/elections/services/elections.service'
+import { PersonMergesService } from '@/electionDb/personMerges/person-merges.service'
 import { PersonIdBackfillService } from './person-id-backfill.service'
 import { MarketingRevalidationService } from './marketing-revalidation.service'
 
@@ -18,6 +20,22 @@ const spyElections = (result: string | null) =>
   vi
     .spyOn(service.app.get(ElectionsService), 'getPersonIdByGpApiUserId')
     .mockResolvedValue(result)
+
+// Every resync whose user lookup comes back empty asks the merge table next, so
+// the election db is stubbed here rather than left to whatever the harness has.
+const spyMerge = (survivingId: string | null) => {
+  const spy = vi.spyOn(service.app.get(PersonMergesService), 'getPersonMerge')
+  if (survivingId) {
+    return spy.mockImplementation(async (retiredId) => ({
+      retiredId,
+      survivingId,
+      retiredSlug: null,
+      retiredAt: new Date(),
+      createdAt: new Date(),
+    }))
+  }
+  return spy.mockRejectedValue(new NotFoundException())
+}
 
 const spyRevalidate = () =>
   vi
@@ -132,12 +150,60 @@ describe('PersonIdBackfillService.resyncLinkedUser', () => {
   it('leaves the link alone when the spine returns nothing', async () => {
     await seedProfile(OLD)
     spyElections(null)
+    spyMerge(null)
     const revalidate = spyRevalidate()
 
     expect(await resync()).toBe('unresolved')
 
     expect((await getUser(service.user.id)).personId).toBe(OLD)
     expect(await profilePersonId(service.user.id)).toBe(OLD)
+    expect(revalidate).not.toHaveBeenCalled()
+  })
+
+  // The data platform drops the user link for a person group that holds two
+  // gp-api accounts, so the user lookup is empty for both. The merge record
+  // still says where this user's retired id went.
+  it('follows a retired id to its survivor when the user lookup is empty', async () => {
+    await seedProfile(OLD)
+    await seedClaimRequest(OLD)
+    spyElections(null)
+    const merge = spyMerge(NEW)
+    const revalidate = spyRevalidate()
+
+    expect(await resync()).toBe('repointed')
+
+    expect(merge).toHaveBeenCalledWith(OLD)
+    expect((await getUser(service.user.id)).personId).toBe(NEW)
+    expect(await profilePersonId(service.user.id)).toBe(NEW)
+    expect(await claimRequestPersonIds()).toEqual([NEW])
+    expect(revalidate).toHaveBeenCalledWith(OLD)
+    expect(revalidate).toHaveBeenCalledWith(NEW)
+  })
+
+  it('prefers the user lookup over the merge record', async () => {
+    await seedProfile(OLD)
+    spyElections(NEW)
+    const merge = spyMerge(OLD)
+    spyRevalidate()
+
+    expect(await resync()).toBe('repointed')
+
+    expect(merge).not.toHaveBeenCalled()
+    expect((await getUser(service.user.id)).personId).toBe(NEW)
+  })
+
+  it('stays unresolved when the merge lookup itself fails', async () => {
+    await seedProfile(OLD)
+    spyElections(null)
+    vi.spyOn(
+      service.app.get(PersonMergesService),
+      'getPersonMerge',
+    ).mockRejectedValue(new Error('election db unavailable'))
+    const revalidate = spyRevalidate()
+
+    expect(await resync()).toBe('unresolved')
+
+    expect((await getUser(service.user.id)).personId).toBe(OLD)
     expect(revalidate).not.toHaveBeenCalled()
   })
 
@@ -162,6 +228,22 @@ describe('PersonIdBackfillService.resyncLinkedUser collisions', () => {
       data: { email: `rival-${Date.now()}@test.goodparty.org`, personId: NEW },
     })
     spyElections(NEW)
+
+    expect(await resync()).toBe('collision')
+
+    expect((await getUser(service.user.id)).personId).toBe(OLD)
+    expect(await profilePersonId(service.user.id)).toBe(OLD)
+  })
+
+  // The other account in a duplicate-signup group is the likeliest holder of
+  // the survivor, and the merge fallback must not take it from them.
+  it('refuses a merge-forwarded move onto an id another user holds', async () => {
+    await seedProfile(OLD)
+    await service.prisma.user.create({
+      data: { email: `dupe-${Date.now()}@test.goodparty.org`, personId: NEW },
+    })
+    spyElections(null)
+    spyMerge(NEW)
 
     expect(await resync()).toBe('collision')
 

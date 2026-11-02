@@ -138,6 +138,50 @@ describe('ListsIndex — the "All voters" universe row', () => {
   })
 })
 
+describe('ListsIndex — new contacts on the universe row', () => {
+  const mockStatsWithNewContacts = () =>
+    api.mock('GET /v1/contacts/stats', {
+      status: 200,
+      data: {
+        districtId: 'district-1',
+        computedAt: '2026-07-17T00:00:00.000Z',
+        totalConstituents: 12694,
+        totalConstituentsWithCellPhone: 9000,
+        districtPopulation: null,
+        newContactsCount: 214,
+        buckets: {
+          age: [],
+          homeowner: [],
+          education: [],
+          presenceOfChildren: [],
+          estimatedIncomeRange: [],
+        },
+      },
+    })
+
+  it('names voters and new contacts apart on Win', async () => {
+    mockStatsWithNewContacts()
+    setContext({ customSegments: [] })
+
+    render(<ListsIndex />)
+
+    expect(
+      await screen.findByText('12,480 voters, 214 new contacts added'),
+    ).toBeInTheDocument()
+    expect(screen.getByText('All voters and contacts')).toBeInTheDocument()
+  })
+
+  it('keeps the total and title on Serve', async () => {
+    mockStatsWithNewContacts()
+    setContext({ isWinContext: false })
+
+    render(<ListsIndex />)
+
+    expect(await screen.findByText('12,694')).toBeInTheDocument()
+    expect(screen.getByText('All constituents')).toBeInTheDocument()
+  })
+})
+
 // ENG-10778: the universe row's Details CTA.
 describe('ListsIndex — universe row Details', () => {
   it('selects the universe sentinel (shallow sheet navigation) when Details is clicked', async () => {
@@ -470,12 +514,14 @@ describe('ListsIndex — civic panel invite audiences', () => {
         { id: 1, name: 'Civic panel invite', civicPanelInvite: true },
         { id: 2, name: 'Civic panel calls, batch 2', civicPanelInvite: true },
         { id: 3, name: 'Seniors downtown', civicPanelInvite: false },
+        { id: 4, name: 'Your civic panel', civicPanelMember: true },
       ],
     })
 
     render(<ListsIndex />)
 
     expect(screen.getByText('Seniors downtown')).toBeInTheDocument()
+    expect(screen.queryByText('Your civic panel')).not.toBeInTheDocument()
     expect(screen.queryByText('Civic panel invite')).not.toBeInTheDocument()
     expect(
       screen.queryByText('Civic panel calls, batch 2'),

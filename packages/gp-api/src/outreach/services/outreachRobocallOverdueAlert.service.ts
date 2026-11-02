@@ -61,7 +61,8 @@ export class OutreachRobocallOverdueAlertService extends createPrismaBase(
     super()
   }
 
-  // Prod-only: the alert is for the real send pipeline (and the per-record CAS
+  // Deliberately prod-only, NOT VENDOR_CRONS_ENABLED: an alerting cron would page
+  // from mock environments. The alert is for the real send pipeline (and the per-record CAS
   // stamps a prod column), so it must not fire on dev/preview. No
   // CronLockService: the single-owner `overdueAlertedAt IS NULL` CAS elects one
   // alerter per run, so two replicas racing both SELECT the same candidates but

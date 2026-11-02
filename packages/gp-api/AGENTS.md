@@ -47,8 +47,7 @@ In CI (`.github/workflows/gp-api.yml`) the same work is split for speed: a
 `Checks` job runs lint, typecheck, and `prisma migrate diff ... --exit-code`
 against a shadow DB; a `Test` job fans the vitest suite across 4 shards
 (`--shard=N/4`, no coverage), one runner each, because each runner's 4 cores
-are saturated by its own workers plus Postgres. More shards finish faster but
-each one holds a runner, and the org is capped at 60 concurrent jobs. And an empty `Validate` gate
+are saturated by its own workers plus Postgres; and an empty `Validate` gate
 `needs` both so the branch-protection-required `Validate` check is green only
 when all of them pass.
 The local `npm run verify` is unchanged — it runs the whole suite in one pass.
@@ -64,8 +63,43 @@ once, which builds the full schema into a template database; each
 Postgres copy) instead of re-running all 258 migrations. `src/test-postgres.ts`
 owns the container config that both paths share — keep it identical in both or
 testcontainers' reuse hash stops matching and suites get a fresh, template-less
-container. Suites still run with `isolate: true`; sharding is what keeps wall
-clock down, since the per-file cost is re-importing the Nest app graph.
+container.
+
+Most of a test file's cost is importing the app graph (~1,200 modules for
+anything that boots `AppModule`), so `vitest.config.ts` runs two projects. The
+`shared-modules` project runs with `isolate: false`, so each worker imports the
+graph once and reuses it across files. Any file that calls `vi.mock`,
+`vi.doMock`, `vi.unmock` or `vi.resetModules` is detected by a scan of the test
+files at config load and goes to `fresh-modules`, which keeps `isolate: true`,
+because a module mock in a shared graph either misses a copy an earlier file
+cached or leaks into the next file. A `fresh-modules` file costs ~5s of
+imports, so prefer `vi.spyOn` on an `app.get()` instance or a module namespace.
+To vary `IS_NON_PROD_DEPLOY`, `VENDOR_MODE`, `VENDOR_CRONS_ENABLED`, `APP_ROOT`
+or `WEBAPP_ROOT`, don't `vi.mock` `appEnvironment.util`:
+`src/test-app-env-mock.ts` already mocks it for every `shared-modules` file
+with getters, so set
+`appEnvOverrides` in a test, or call `useAppEnvOverrides({...})` at the top of
+the file for a file-wide default (`src/shared/test-utils/appEnvOverrides.ts`).
+Overrides reset after every test and file. They only reach code that reads the
+constant when it runs, not a value captured at import (`vercel.service.ts` and
+`peerlyBaseConfig.ts` resolve `vendorBaseUrl` at import), which still needs a
+`vi.mock`. Between files vitest restores mocks, and
+`src/test-file-cleanup.ts` also restores real timers, undoes
+`vi.stubEnv`/`vi.stubGlobal`, and resets `process.env` to the worker's
+starting env. A file that left fake timers on used to hang the next file's
+`app.close()` until its hook timed out. Anything else a test leaves behind (a
+mutated singleton) still reaches the next file in its worker, so clean it up in
+`afterEach`/`afterAll`.
+
+Vitest's `experimental.fsModuleCache` keeps each module's swc output in
+`.vitest-fs-module-cache/` (gitignored) and reuses it on later runs, which
+roughly halves a single-file run once warm. The first run after a lockfile,
+Node or `vitest.config.ts` change is cold. Vitest's own key misses tsconfig and
+`.swcrc` edits and an unchanged import that now resolves to another file, so
+the `fs-module-cache-key` plugin in `vitest.config.ts` adds both; keep it.
+CI restores the cache per shard in `gp-api.yml`. If a run ever executes code
+that is no longer in the source, run `npx vitest --clearCache` and say so in
+the PR.
 
 One container serves every checkout on the machine, and three things are what
 make that safe. The template is named for a digest of the migrations it holds
@@ -91,14 +125,21 @@ to a container. Start that server with the same flags `test-postgres.ts` sets
 and the sweep's `pg_stat_file()` needs superuser, so it has to be a server we
 own rather than a managed cluster. Unset, nothing changes.
 
+In gp-pi, that server is a sidecar started from the host with
+`scripts/gp-pi-testdb.sh`; set `OMNI_TEST_POSTGRES_URL` to
+`postgresql://test_user:test_password@127.0.0.1:55432/postgres`. See
+`docs/testing.md` § In gp-pi.
+
 Two things about that container and the per-test reset are load-bearing, not
 incidental. It runs with `fsync`/`synchronous_commit`/`full_page_writes` off,
-because TRUNCATE's commit syncs a new relation file per table and the defaults
-put the reset near vitest's hook timeout on a contended runner. And the reset
-truncates only the tables that actually hold a row (one `EXISTS` probe across
-all of them costs far less than truncating all 88), then each suite drops its
-own clone in `afterAll` so a reused container doesn't accumulate one database
-per suite forever. Post-condition is unchanged: every table is empty and user
+because every test commits many small writes and the container is thrown away,
+so durability only costs time. And the reset is a `DELETE` from every table in
+one `DO` block under `session_replication_role = replica`, not a `TRUNCATE`:
+TRUNCATE swaps in a new relation file per table, which invalidates every pooled
+connection's cached view of it and cost ~55ms a test, against ~5ms for deleting
+a handful of rows. Replica mode skips foreign key checks, so table order does
+not matter. Each suite then drops its own clone in `afterAll` so a reused
+container doesn't accumulate one database per suite forever. Post-condition is unchanged: every table is empty and user
 `123` exists.
 
 If you touched `prisma/`, make sure there are no undeclared schema changes (the
@@ -106,17 +147,17 @@ migration-diff step in `Checks` will fail otherwise — see `npm run migrate:dev
 
 ## Pointer table — when in doubt
 
-| Doing                                        | Read                                                             |
-| -------------------------------------------- | ---------------------------------------------------------------- |
-| **Writing or editing code**                  | **`.cursor/rules/*.mdc` — read first, every time**               |
-| Adding an endpoint                           | `docs/architecture.md` § Module shape                            |
-| Adding or changing analytics instrumentation | `.claude/skills/instrument-analytics-event/SKILL.md` (repo root) |
-| Touching contracts                           | `docs/contracts.md`                                              |
-| Writing or fixing a test                     | `docs/writing-tests.md`                                          |
-| Adding/debugging an alert                    | `docs/observability.md`                                          |
-| Reproducing a reported bug                   | `docs/debugging.md`                                              |
+| Doing                                        | Read                                                                                      |
+| -------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| **Writing or editing code**                  | **`.cursor/rules/*.mdc` — read first, every time**                                        |
+| Adding an endpoint                           | `docs/architecture.md` § Module shape                                                     |
+| Adding or changing analytics instrumentation | `.claude/skills/instrument-analytics-event/SKILL.md` (repo root)                          |
+| Touching contracts                           | `docs/contracts.md`                                                                       |
+| Writing or fixing a test                     | `docs/writing-tests.md`                                                                   |
+| Adding/debugging an alert                    | `docs/observability.md`                                                                   |
+| Reproducing a reported bug                   | `docs/debugging.md`                                                                       |
 | First-time setup                             | root `docs/development.md` (the one path); `docs/getting-started.md` for gp-api specifics |
-| AI rule-by-rule code review                  | `ai-rules/` (git submodule)                                      |
+| AI rule-by-rule code review                  | `ai-rules/` (git submodule)                                                               |
 
 ## Cursor rules (`alwaysApply: true`) — read before writing code
 
@@ -167,6 +208,7 @@ Per-area `AGENTS.md` files cover purpose, key files, patterns, and gotchas for t
 | -------------------------------------------------------- | ---------------------------------------------------- |
 | Campaigns / plans / tasks                                | `src/campaigns/AGENTS.md`                            |
 | Organizations, roles/guards, team accounts               | `src/organizations/AGENTS.md`                        |
+| Elected offices, dormant win offices, the pledge         | `src/electedOffice/AGENTS.md`                        |
 | The CRM (contacts, saved filters, write-back, assistant) | `src/contacts/AGENTS.md` (system-level doc)          |
 | Contact interactions (per-channel models)                | `src/contactInteraction/contactInteraction.types.ts` |
 | Door knocking (turfs, routes, the served walk)           | `docs/door-knocking.md`                              |
@@ -188,6 +230,7 @@ Per-area `AGENTS.md` files cover purpose, key files, patterns, and gotchas for t
 | Schema / migrations                                      | `prisma/AGENTS.md`                                   |
 | `@goodparty_org/contracts`                               | `contracts/AGENTS.md` + `docs/contracts.md`          |
 | Pulumi / Docker / Grafana                                | `deploy/AGENTS.md`                                   |
+| Databricks reading gp-api Postgres (federation)          | `deploy/databricks/federation/README.md`             |
 | One-off / build scripts                                  | `scripts/AGENTS.md`                                  |
 | Seed data / factories / scenarios                        | `seed/AGENTS.md`                                     |
 | QA test-user fixtures (dev/preview only)                 | `src/testFixtures/AGENTS.md`                         |
@@ -234,10 +277,11 @@ Provides `this.model`, `this.client`, `this.logger`, bound passthroughs (`findMa
 
 ## Auth
 
-Two global guards run in order:
+Three global guards run in order:
 
-1. `SessionGuard` — accepts user JWTs from cookies, and verifies Clerk M2M (`mt_*`) tokens
-2. `RolesGuard` — enforces `@Roles(...)`
+1. `NonProdDeployGuard` (`app.module.ts`) — 404s `@NonProdDeployOnly()` test-fixture routes on prod, before any auth
+2. `SessionGuard` — accepts user JWTs from cookies, and verifies Clerk M2M (`mt_*`) tokens
+3. `RolesGuard` — enforces `@Roles(...)`
 
 Decorators: `@PublicAccess()`, `@Roles(UserRole.X)`, `@ReqUser()`. Route-level guards: `AdminOrM2MGuard`, `M2MOnly`.
 

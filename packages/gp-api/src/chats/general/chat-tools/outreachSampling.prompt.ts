@@ -35,5 +35,5 @@ export const buildSampleSizingRules = (args: {
         '- On the card, count stays the whole audience. For a text to a sample, set sampleSize, targetResponses and assumedReplyRate to the sampleSize, targetReplies and replyRate that size_outreach_sample returned. For a text to everyone, leave all three out. For a phone bank or door knocking, set sampleSize to what you chose.',
       ]
     : []),
-  `- Explain the number once, in one line, in your message: "I'd text ${people(EXAMPLE_SAMPLE)} of the ${people(EXAMPLE_AUDIENCE)}, picked at random. About ${SAMPLE_TARGET_REPLIES} replies is enough to tell ${args.replyGoal}." Never call it statistically proven or representative. It is directional, because the 3 in 100 who reply choose themselves.`,
+  `- Explain the number once, in one line, in your message: "I'd text ${people(EXAMPLE_SAMPLE)} of the ${people(EXAMPLE_AUDIENCE)}. About ${SAMPLE_TARGET_REPLIES} replies is enough to tell ${args.replyGoal}." Never call it statistically proven or representative. It is directional, because the 3 in 100 who reply choose themselves.`,
 ]

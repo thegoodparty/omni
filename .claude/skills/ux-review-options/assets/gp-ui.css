@@ -1,0 +1,91 @@
+/*
+ * Plain-HTML versions of common @goodparty_org/styleguide components, for
+ * static wireframe pages. Built on design-tokens.css (inlined ahead of this file
+ * by scripts/build.py). Match the .tsx source in packages/styleguide/src/components/ui/.
+ */
+
+.gp, .gp * { box-sizing: border-box; }
+.gp {
+  font-family: 'Open Sans', system-ui, sans-serif;
+  font-size: 16px;
+  line-height: 1.5;
+  color: var(--brand-text-primary);
+  --gp-primary: var(--goodparty-blue-500);
+  --gp-primary-fg: #fff;
+  --gp-ring: color-mix(in srgb, var(--goodparty-blue-500) 30%, transparent);
+  --gp-border: var(--brand-border-primary);
+  --gp-input-border: var(--tw-neutral-300);
+  --gp-muted: var(--brand-text-secondary);
+  --gp-panel: var(--brand-surface-secondary);
+  --gp-sunken: var(--brand-surface-tertiary);
+  --gp-dark: var(--tw-slate-900);
+}
+.gp h1, .gp h2, .gp h3, .gp p { margin: 0; }
+.gp :focus-visible { outline: none; box-shadow: 0 0 0 3px var(--gp-ring); border-color: var(--gp-primary); }
+@media (prefers-reduced-motion: reduce) { .gp * { transition: none !important; animation: none !important; } }
+
+/* Button */
+.gp-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  height: 40px; padding: 10px 20px; border-radius: 999px; border: 1px solid var(--gp-primary);
+  background: var(--gp-primary); color: var(--gp-primary-fg);
+  font: 500 16px/1.2 'Open Sans', system-ui, sans-serif; letter-spacing: .025em;
+  white-space: nowrap; cursor: pointer; text-decoration: none; min-width: 44px; min-height: 44px;
+}
+.gp-btn:hover { background: color-mix(in srgb, var(--gp-primary) 90%, transparent); }
+.gp-btn:disabled { opacity: .5; pointer-events: none; }
+.gp-btn--sm { height: 32px; padding: 8px 16px; font-size: 14px; }
+.gp-btn--lg { height: 48px; padding: 12px 24px; }
+.gp-btn--secondary { background: var(--theme-secondary); border-color: var(--theme-secondary); color: #fff; }
+.gp-btn--outline { background: transparent; border-color: var(--gp-dark); color: var(--gp-dark); }
+.gp-btn--outline:hover { background: color-mix(in srgb, var(--gp-dark) 5%, transparent); }
+.gp-btn--ghost { background: transparent; border-color: transparent; color: var(--gp-dark); }
+.gp-btn--ghost:hover { background: color-mix(in srgb, var(--gp-dark) 5%, transparent); }
+.gp-btn--link { background: transparent; border-color: transparent; color: var(--gp-primary); text-decoration: underline; text-underline-offset: 4px; }
+.gp-btn--neutral { background: var(--tw-slate-200); border-color: transparent; color: var(--gp-dark); }
+
+/* Form */
+.gp-field { display: flex; flex-direction: column; gap: 8px; }
+.gp-label { font-size: 14px; font-weight: 500; line-height: 1; color: var(--brand-text-primary); }
+.gp-input, .gp-select, .gp-textarea {
+  width: 100%; height: 40px; padding: 8px 12px; border-radius: 6px;
+  border: 1px solid var(--gp-input-border); background: #fff; color: var(--brand-text-primary);
+  font: 400 16px/1.4 'Open Sans', system-ui, sans-serif; min-height: 44px;
+}
+.gp-textarea { height: auto; min-height: 96px; resize: vertical; }
+.gp-input::placeholder, .gp-textarea::placeholder { color: var(--gp-muted); }
+.gp-input[aria-invalid='true'], .gp-select[aria-invalid='true'], .gp-textarea[aria-invalid='true'] { border-color: var(--theme-destructive); }
+.gp-choice {
+  display: flex; align-items: center; gap: 12px; min-height: 48px; padding: 12px 16px;
+  border: 1px solid var(--gp-border); border-radius: 12px; background: #fff; cursor: pointer;
+}
+.gp-choice input { accent-color: var(--gp-primary); width: 18px; height: 18px; margin: 0; }
+.gp-choice:has(input:checked) { border: 2px solid var(--gp-primary); padding: 11px 15px; }
+
+/* Card */
+.gp-card {
+  display: flex; flex-direction: column; gap: 24px; padding: 24px 0;
+  background: #fff; border: 1px solid var(--gp-border); border-radius: 12px;
+}
+.gp-card > * { padding: 0 24px; }
+.gp-card__title { font-weight: 600; }
+.gp-card__desc { font-size: 14px; color: var(--gp-muted); }
+
+/* Badge */
+.gp-badge {
+  display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border-radius: 999px;
+  border: 1px solid transparent; background: var(--gp-primary); color: #fff; font-size: 12px; font-weight: 500; white-space: nowrap;
+}
+.gp-badge--soft { background: var(--color-grayscale-200); color: var(--brand-text-primary); }
+.gp-badge--outline { background: transparent; border-color: var(--gp-border); color: var(--brand-text-primary); }
+.gp-badge--destructive { background: var(--theme-destructive); color: #fff; }
+
+/* Progress, separator, placeholder box */
+.gp-bar { height: 8px; border-radius: 999px; background: var(--color-grayscale-200); overflow: hidden; }
+.gp-bar > span { display: block; height: 100%; background: var(--gp-primary); }
+.gp-sep { height: 1px; border: 0; background: var(--gp-border); margin: 0; }
+.gp-box {
+  display: flex; align-items: center; justify-content: center; text-align: center; padding: 16px;
+  background: var(--gp-sunken); border: 1px dashed var(--brand-border-strong); border-radius: 8px;
+  color: var(--gp-muted); font-size: 14px;
+}

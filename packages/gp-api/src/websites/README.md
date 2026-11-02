@@ -126,7 +126,7 @@ Used for very basic tracking of visitor views. Frontend generates a UUID in loca
 
 **GET** `/websites/:vanityPath/view`
 
-- Public endpoint to view published websites
+- Requires a service read token (`ServiceReadGuard`); candidate-sites calls it server-side, as it does `GET /websites/by-domain/:domain`
 - Returns website content and campaign information
 - Only accessible for websites with 'published' status
 

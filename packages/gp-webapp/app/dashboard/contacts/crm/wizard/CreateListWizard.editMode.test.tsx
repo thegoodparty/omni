@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { screen } from '@testing-library/react'
+import { screen, waitFor } from '@testing-library/react'
 import { QueryClient } from '@tanstack/react-query'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
@@ -61,7 +61,7 @@ const clickSaveChanges = async (
   user: ReturnType<typeof userEvent.setup>,
 ): Promise<void> => {
   const save = await screen.findByRole('button', { name: /save changes/i })
-  await vi.waitFor(() => expect(save).toBeEnabled(), { timeout: 10_000 })
+  await waitFor(() => expect(save).toBeEnabled(), { timeout: 10_000 })
   await user.click(save)
 }
 
@@ -88,10 +88,17 @@ const voterFileSegment: SegmentResponse = {
 }
 
 afterEach(() => {
+  vi.unstubAllGlobals()
+  vi.useRealTimers()
   vi.clearAllTimers()
 })
 
 beforeEach(() => {
+  vi.useFakeTimers({ shouldAdvanceTime: true })
+  // Testing Library only advances a fake clock inside findBy/waitFor when it
+  // sees a `jest` global. Without it every findBy waits out the 600ms count
+  // debounce in real time.
+  vi.stubGlobal('jest', { advanceTimersByTime: vi.advanceTimersByTime })
   api.reset()
   vi.clearAllMocks()
   invalidatedKeys.length = 0
@@ -136,7 +143,7 @@ describe('CreateListWizard — edit mode counts the saved boundary', () => {
       savedBodies.push(body as Record<string, unknown>)
       return { status: 200, data: { id: 42, name: 'West Asheville - 18-24' } }
     })
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
 
     render(
       <CreateListWizard
@@ -160,7 +167,7 @@ describe('CreateListWizard — edit mode counts the saved boundary', () => {
     // count needs must not ride along into the PUT and become a filter
     // field on the saved row.
     await user.click(save)
-    await vi.waitFor(() => expect(savedBodies).toHaveLength(1))
+    await waitFor(() => expect(savedBodies).toHaveLength(1))
     expect(savedBodies[0]).not.toHaveProperty('boundaryFromSegmentId')
   })
 })
@@ -329,7 +336,7 @@ describe('CreateListWizard — edit mode chrome', () => {
       />,
     )
 
-    await vi.waitFor(() =>
+    await waitFor(() =>
       expect(screen.getByLabelText('List name')).toHaveValue('Republicans'),
     )
     expect(pillForOption('Republican')).toHaveAttribute('data-state', 'on')
@@ -362,7 +369,7 @@ describe('CreateListWizard — edit mode chrome', () => {
 
 describe('CreateListWizard — edit mode save', () => {
   it('PUTs the edited criteria and lands back on the list detail sheet', async () => {
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     let sentBody: Record<string, unknown> | null = null
     api.mock('PUT /v1/voters/voter-file/filter/:id', ({ body }) => {
       sentBody = body as Record<string, unknown>
@@ -382,7 +389,7 @@ describe('CreateListWizard — edit mode save', () => {
     await user.click(pillForOption('Republican'))
     await clickSaveChanges(user)
 
-    await vi.waitFor(() => expect(sentBody).not.toBeNull())
+    await waitFor(() => expect(sentBody).not.toBeNull())
     expect(sentBody).toMatchObject({
       name: 'Likely Dem women',
       partyDemocrat: true,
@@ -393,11 +400,11 @@ describe('CreateListWizard — edit mode save', () => {
       supportStatus: ['supporter'],
     })
 
-    await vi.waitFor(() =>
+    await waitFor(() =>
       expect(successSnackbar).toHaveBeenCalledWith('List updated'),
     )
-    await vi.waitFor(() => expect(refreshCustomSegments).toHaveBeenCalled())
-    await vi.waitFor(() => expect(selectList).toHaveBeenCalledWith(42))
+    await waitFor(() => expect(refreshCustomSegments).toHaveBeenCalled())
+    await waitFor(() => expect(selectList).toHaveBeenCalledWith(42))
     expect(onOpenChange).toHaveBeenCalledWith(false)
     // Re-cutting a list changes WHO is in it, so the map's members have to
     // be dropped alongside its summary. Keyed to this list, not the family.
@@ -407,7 +414,7 @@ describe('CreateListWizard — edit mode save', () => {
   // The persisted shape carries an explicit boolean per key — sending only the
   // selected ones would make a filter impossible to remove.
   it('clears a deselected filter by sending it as false', async () => {
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     let sentBody: Record<string, unknown> | null = null
     api.mock('PUT /v1/voters/voter-file/filter/:id', ({ body }) => {
       sentBody = body as Record<string, unknown>
@@ -426,12 +433,12 @@ describe('CreateListWizard — edit mode save', () => {
     await user.click(pillForOption('Democrat'))
     await clickSaveChanges(user)
 
-    await vi.waitFor(() => expect(sentBody).not.toBeNull())
+    await waitFor(() => expect(sentBody).not.toBeNull())
     expect(sentBody).toMatchObject({ partyDemocrat: false })
   })
 
   it('round-trips a precinct filter through the edit', async () => {
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     let sentBody: Record<string, unknown> | null = null
     api.mock('PUT /v1/voters/voter-file/filter/:id', ({ body }) => {
       sentBody = body as Record<string, unknown>
@@ -453,7 +460,7 @@ describe('CreateListWizard — edit mode save', () => {
     await screen.findByRole('heading', { name: 'Filters' })
     await clickSaveChanges(user)
 
-    await vi.waitFor(() => expect(sentBody).not.toBeNull())
+    await waitFor(() => expect(sentBody).not.toBeNull())
     expect(sentBody).toMatchObject({ precincts: ['TRAVIS|0031'] })
   })
 
@@ -461,7 +468,7 @@ describe('CreateListWizard — edit mode save', () => {
   // holds — and the count is keyed on the payload, so an omitted key filters
   // the saved list without appearing in the number on the Save button.
   it('clears support status when every status pill is deselected', async () => {
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     let sentBody: Record<string, unknown> | null = null
     api.mock('PUT /v1/voters/voter-file/filter/:id', ({ body }) => {
       sentBody = body as Record<string, unknown>
@@ -480,7 +487,7 @@ describe('CreateListWizard — edit mode save', () => {
     await user.click(pillForOption('Supporter'))
     await clickSaveChanges(user)
 
-    await vi.waitFor(() => expect(sentBody).not.toBeNull())
+    await waitFor(() => expect(sentBody).not.toBeNull())
     expect(sentBody).toMatchObject({ supportStatus: [] })
   })
 
@@ -488,7 +495,7 @@ describe('CreateListWizard — edit mode save', () => {
   // assistant's crud_saved_filters tool takes the whole filter schema flat),
   // and this branch renders none of them.
   it('clears the voter-file columns a mixed activity list carries', async () => {
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     let sentBody: Record<string, unknown> | null = null
     api.mock('PUT /v1/voters/voter-file/filter/:id', ({ body }) => {
       sentBody = body as Record<string, unknown>
@@ -516,7 +523,7 @@ describe('CreateListWizard — edit mode save', () => {
     await screen.findByText('Previous activity')
     await clickSaveChanges(user)
 
-    await vi.waitFor(() => expect(sentBody).not.toBeNull())
+    await waitFor(() => expect(sentBody).not.toBeNull())
     expect(sentBody).toMatchObject({
       partyDemocrat: false,
       age18_25: false,
@@ -532,7 +539,7 @@ describe('CreateListWizard — edit mode save', () => {
   // that left them set would save a list narrower than the count on its own
   // Save button.
   it('drops the retired age columns a legacy list still carries', async () => {
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     let sentBody: Record<string, unknown> | null = null
     api.mock('PUT /v1/voters/voter-file/filter/:id', ({ body }) => {
       sentBody = body as Record<string, unknown>
@@ -556,7 +563,7 @@ describe('CreateListWizard — edit mode save', () => {
     await screen.findByRole('heading', { name: 'Filters' })
     await clickSaveChanges(user)
 
-    await vi.waitFor(() => expect(sentBody).not.toBeNull())
+    await waitFor(() => expect(sentBody).not.toBeNull())
     expect(sentBody).toMatchObject({
       age18_25: false,
       age50Plus: false,
@@ -567,7 +574,7 @@ describe('CreateListWizard — edit mode save', () => {
   // A list saved from a search keeps filtering on that term server-side, so
   // omitting it would preview a wider audience than the list actually holds.
   it("carries a saved list's search term into the count and the save", async () => {
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     let countBody: Record<string, unknown> | null = null
     let sentBody: Record<string, unknown> | null = null
     api.mock('POST /v1/contacts/count', ({ body }) => {
@@ -595,13 +602,13 @@ describe('CreateListWizard — edit mode save', () => {
     await screen.findByRole('heading', { name: 'Filters' })
     await clickSaveChanges(user)
 
-    await vi.waitFor(() => expect(sentBody).not.toBeNull())
+    await waitFor(() => expect(sentBody).not.toBeNull())
     expect(countBody).toMatchObject({ search: 'martinez' })
     expect(sentBody).toMatchObject({ search: 'martinez' })
   })
 
   it('renames without touching the filters', async () => {
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     let sentBody: Record<string, unknown> | null = null
     api.mock('PUT /v1/voters/voter-file/filter/:id', ({ body }) => {
       sentBody = body as Record<string, unknown>
@@ -621,7 +628,7 @@ describe('CreateListWizard — edit mode save', () => {
     await user.type(nameInput, 'Renamed')
     await clickSaveChanges(user)
 
-    await vi.waitFor(() => expect(sentBody).not.toBeNull())
+    await waitFor(() => expect(sentBody).not.toBeNull())
     expect(sentBody).toMatchObject({
       name: 'Renamed',
       partyDemocrat: true,
@@ -630,7 +637,7 @@ describe('CreateListWizard — edit mode save', () => {
   })
 
   it('blocks the save when the name is cleared', async () => {
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
 
     render(
       <CreateListWizard
@@ -641,14 +648,14 @@ describe('CreateListWizard — edit mode save', () => {
     )
 
     const save = await screen.findByRole('button', { name: /save changes/i })
-    await vi.waitFor(() => expect(save).toBeEnabled(), { timeout: 10_000 })
+    await waitFor(() => expect(save).toBeEnabled(), { timeout: 10_000 })
 
     await user.clear(await screen.findByLabelText('List name'))
     expect(save).toBeDisabled()
   })
 
   it('blocks the save once every filter is deselected', async () => {
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
 
     render(
       <CreateListWizard
@@ -660,16 +667,16 @@ describe('CreateListWizard — edit mode save', () => {
 
     await screen.findByRole('heading', { name: 'Filters' })
     const save = await screen.findByRole('button', { name: /save changes/i })
-    await vi.waitFor(() => expect(save).toBeEnabled(), { timeout: 10_000 })
+    await waitFor(() => expect(save).toBeEnabled(), { timeout: 10_000 })
 
     await user.click(pillForOption('Democrat'))
-    await vi.waitFor(() => expect(save).toBeDisabled())
+    await waitFor(() => expect(save).toBeDisabled())
   })
 
   // refreshCustomSegments refetches rather than invalidating, so a failed
   // refetch would otherwise leave the index showing the pre-edit list.
   it('marks the segments cache stale when the post-save refresh fails', async () => {
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     refreshCustomSegments.mockRejectedValueOnce(new Error('network'))
     api.mock('PUT /v1/voters/voter-file/filter/:id', {
       status: 200,
@@ -687,14 +694,14 @@ describe('CreateListWizard — edit mode save', () => {
     await screen.findByRole('heading', { name: 'Filters' })
     await clickSaveChanges(user)
 
-    await vi.waitFor(() =>
+    await waitFor(() =>
       expect(successSnackbar).toHaveBeenCalledWith('List updated'),
     )
     expect(invalidatedKeys).toContainEqual(['custom-segments', 'test-org'])
   })
 
   it('fires Segment Updated with action filters on a successful save only', async () => {
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     api.mock('PUT /v1/voters/voter-file/filter/:id', {
       status: 500,
       data: { message: 'server exploded' },
@@ -710,7 +717,7 @@ describe('CreateListWizard — edit mode save', () => {
 
     await screen.findByRole('heading', { name: 'Filters' })
     await clickSaveChanges(user)
-    await vi.waitFor(() =>
+    await waitFor(() =>
       expect(errorSnackbar).toHaveBeenCalledWith('Failed to update list'),
     )
     expect(eventCalls(EVENTS.Contacts.SegmentUpdated)).toHaveLength(0)
@@ -721,7 +728,7 @@ describe('CreateListWizard — edit mode save', () => {
     })
     await clickSaveChanges(user)
 
-    await vi.waitFor(() =>
+    await waitFor(() =>
       expect(eventCalls(EVENTS.Contacts.SegmentUpdated)).toHaveLength(1),
     )
     expect(trackEvent).toHaveBeenCalledWith(EVENTS.Contacts.SegmentUpdated, {
@@ -733,7 +740,7 @@ describe('CreateListWizard — edit mode save', () => {
   // ENG-10703 stamps firstUsedForOutreachAt atomically, so a list can lock
   // while this sheet is open.
   it('raced 409: locked message, sheet closes, no generic failure toast', async () => {
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     // api.mock's typed status union doesn't include 409, so this drops to the
     // raw mswServer rather than widening that union.
     mswServer.use(
@@ -757,12 +764,12 @@ describe('CreateListWizard — edit mode save', () => {
     await screen.findByRole('heading', { name: 'Filters' })
     await clickSaveChanges(user)
 
-    await vi.waitFor(() =>
+    await waitFor(() =>
       expect(errorSnackbar).toHaveBeenCalledWith(LOCKED_LIST_MESSAGE, {
         autoHideDuration: 6000,
       }),
     )
-    await vi.waitFor(() => expect(refreshCustomSegments).toHaveBeenCalled())
+    await waitFor(() => expect(refreshCustomSegments).toHaveBeenCalled())
     expect(onOpenChange).toHaveBeenCalledWith(false)
     expect(errorSnackbar).not.toHaveBeenCalledWith('Failed to update list')
   })

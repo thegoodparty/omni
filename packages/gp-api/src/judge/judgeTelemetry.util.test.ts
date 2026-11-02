@@ -1,27 +1,11 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 import { JUDGE_ORG_SLUG_PREFIX as RUNNER_PREFIX } from '@/chats/evals/judge/runners/background'
 import { JUDGE_FIXTURE } from '@/chats/evals/judge/judgeFixtureIdentity'
 import { JUDGE_CLERK_EMAIL } from '@/chats/evals/judge/judgeClerkSession'
 import { chatOrgSlug } from '@/testFixtures/judgeChatFixture/seed'
 import type { TurnToolEvent } from '@/chats/services/chatStream.service'
-
-// The real derivation, driven by a stubbed OTEL_SERVICE_ENVIRONMENT, so these
-// assertions are about the fail-closed allowlist and not about a boolean the
-// test set itself.
-const { otel } = vi.hoisted(() => ({
-  otel: { value: undefined as string | undefined },
-}))
-vi.mock('@/shared/util/appEnvironment.util', async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import('@/shared/util/appEnvironment.util')>()
-  return {
-    ...actual,
-    get IS_NON_PROD_DEPLOY() {
-      return actual.isNonProdDeploy(otel.value)
-    },
-  }
-})
-
+import { appEnvOverrides } from '@/shared/test-utils/appEnvOverrides'
+import { isNonProdDeploy } from '@/shared/util/appEnvironment.util'
 import {
   hashPrompt,
   judgeSweepIdFromOrgSlug,
@@ -33,8 +17,11 @@ import {
   PROMPT_HASH_VERSION,
 } from './judgeTelemetry.util'
 
+// The real derivation, driven by a stubbed OTEL_SERVICE_ENVIRONMENT, so these
+// assertions are about the fail-closed allowlist and not about a boolean the
+// test set itself.
 beforeEach(() => {
-  otel.value = 'dev'
+  appEnvOverrides.IS_NON_PROD_DEPLOY = isNonProdDeploy('dev')
 })
 
 describe('JUDGE_ORG_SLUG_PREFIX', () => {
@@ -119,13 +106,13 @@ describe('judgeSweepIdFromOrgSlug', () => {
     ['a typo', 'develop'],
     ['production, which is not in the allowlist', 'production'],
   ])('is null on %s, so prod never records', (_label, value) => {
-    otel.value = value
+    appEnvOverrides.IS_NON_PROD_DEPLOY = isNonProdDeploy(value)
 
     expect(judgeSweepIdFromOrgSlug('judge-anything')).toBeNull()
   })
 
   it('records on preview as well as dev', () => {
-    otel.value = 'preview'
+    appEnvOverrides.IS_NON_PROD_DEPLOY = isNonProdDeploy('preview')
 
     expect(judgeSweepIdFromOrgSlug('judge-anything')).toBe('anything')
   })

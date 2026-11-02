@@ -1,4 +1,8 @@
 import { AnnotationResourceType, type PrismaClient } from '@/generated/prisma'
+import {
+  CONTACT_UPLOAD_FILE_SELECT,
+  type ContactUploadFilesService,
+} from '@/contactUploads/services/contactUploadFiles.service'
 import { JUDGE_ORG_SLUG_PREFIX } from './seed'
 
 // A remote preview database is several round trips away and this is a dozen
@@ -19,6 +23,7 @@ const TEARDOWN_TRANSACTION_OPTIONS = { timeout: 30_000, maxWait: 10_000 }
 // says nothing went wrong.
 export const removeChatOrgFixture = (
   prisma: PrismaClient,
+  contactUploadFiles: ContactUploadFilesService,
   userId: number,
   organizationSlug: string,
 ): Promise<boolean> =>
@@ -81,6 +86,11 @@ export const removeChatOrgFixture = (
     // Everything left goes with the organization: the campaign, the elected
     // office and through it the ordinance, the priority and nothing else, the
     // ordinance code record, and the experiment run.
+    const uploadFiles = await tx.contactUpload.findMany({
+      where: { organizationSlug },
+      select: CONTACT_UPLOAD_FILE_SELECT,
+    })
     await tx.organization.delete({ where: { slug: organizationSlug } })
+    await contactUploadFiles.deleteFiles(uploadFiles)
     return true
   }, TEARDOWN_TRANSACTION_OPTIONS)

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
@@ -18,6 +18,15 @@ const { mockSmsCompliance } = vi.hoisted(() => ({
 vi.mock('app/dashboard/shared/smsCutoff/useSmsCompliance', () => ({
   useSmsCompliance: () => mockSmsCompliance.current,
 }))
+
+let mockFreeOffer: { offer: { eligible: true } | null } = { offer: null }
+vi.mock('app/dashboard/shared/robocallFreeOffer/useRobocallFreeOffer', () => ({
+  useRobocallFreeOffer: () => mockFreeOffer,
+}))
+
+afterEach(() => {
+  mockFreeOffer = { offer: null }
+})
 
 describe('formatTaskDate', () => {
   // The catalog fallback passes date-only strings; the tracker passes the API's
@@ -172,5 +181,64 @@ describe('a text task once texting is closed', () => {
       textTask.date,
       textTask.id,
     )
+  })
+})
+
+describe('the free robocall offer task', () => {
+  const offerTask = {
+    id: 't7',
+    title:
+      'Send a free promotional robocall to landline voters in selected precincts',
+    description: 'Reach voters the day before Election Day.',
+    channel: 'robocall',
+    date: '2026-11-02T00:00:00.000Z',
+    param: null,
+    href: '/dashboard/outreach?compose=robocall&source=campaign_tracker&recommended=freeOfferElectionEveRobocall',
+    hrefLabel: 'Open',
+    priorityTier: 'P2',
+    proRequired: true,
+    status: 'live',
+    unlocksAfter: null,
+    isNext: false,
+    completed: false,
+  } as const
+
+  const renderRow = (overrides: { completed?: boolean } = {}) =>
+    render(
+      <ul>
+        <CampaignStrategyTaskRow
+          task={{ ...offerTask, ...overrides }}
+          index={1}
+          onStartOutreach={vi.fn()}
+        />
+      </ul>,
+    )
+
+  it('reads as the offer while gp-api says it is live', () => {
+    mockFreeOffer = { offer: { eligible: true } }
+    renderRow()
+
+    expect(screen.getByText('Free offer')).toBeInTheDocument()
+    expect(
+      screen.getByRole('link', { name: 'Set up your free robocall' }),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Pro')).not.toBeInTheDocument()
+  })
+
+  it('is a plain task once the offer has ended', () => {
+    renderRow()
+
+    expect(screen.queryByText('Free offer')).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('link', { name: 'Set up your free robocall' }),
+    ).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Open' })).toBeInTheDocument()
+  })
+
+  it('drops the badge once the task is done, even while the offer is live', () => {
+    mockFreeOffer = { offer: { eligible: true } }
+    renderRow({ completed: true })
+
+    expect(screen.queryByText('Free offer')).not.toBeInTheDocument()
   })
 })

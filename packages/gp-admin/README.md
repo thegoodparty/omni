@@ -65,6 +65,17 @@ This app uses [Clerk](https://clerk.com/) for authentication with **Organization
 | `manage_settings` | ✓     |       |           |
 | `manage_invites`  | ✓     |       |           |
 
+#### gp-api authentication
+
+The server talks to gp-api with a Bearer token chosen by `GP_API_AUTH_MODE`:
+
+| Value             | Token sent                                                                                    |
+| ----------------- | --------------------------------------------------------------------------------------------- |
+| `clerk` (default) | Clerk M2M token from `GP_DEV_MACHINE_SECRET` / `GP_PROD_MACHINE_SECRET`                       |
+| `oidc`            | The deployment's Vercel OIDC token; the Clerk M2M token only if no OIDC token can be obtained |
+
+Prod gp-api accepts only the `production` deployment's OIDC token. In `oidc` mode a preview or local build can use the Development org, and the Production org shows a "gp-api rejected this admin deployment" notice.
+
 ### Testing
 
 #### Unit Tests (Vitest)

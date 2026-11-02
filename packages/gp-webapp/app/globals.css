@@ -12,7 +12,7 @@
  * as long as @theme comes AFTER @import "tailwindcss".
  *
  * NOTE: All @import statements must come before @plugin/@source/@custom-variant
- * to satisfy PostCSS parsing rules (required by Storybook's Vite pipeline).
+ * to satisfy PostCSS parsing rules.
  */
 
 /* 1. Raw CSS variables that @theme will reference via var() */
@@ -24,7 +24,7 @@
 /* 3. Theme tokens - @theme MUST come AFTER @import "tailwindcss" */
 @import '../../styleguide/src/tailwind-theme.css';
 
-/* 4. Additional CSS imports (all @import must precede @plugin/@source/@custom-variant for PostCSS/Storybook) */
+/* 4. Additional CSS imports (all @import must precede @plugin/@source/@custom-variant for PostCSS) */
 @import '../../styleguide/src/typography.css';
 @import '../../styleguide/src/styleguide-scope.css';
 @import 'tw-animate-css';
