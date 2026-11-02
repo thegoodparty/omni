@@ -4,7 +4,7 @@ import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { api } from 'helpers/test-utils/api-mocking'
 import { render } from 'helpers/test-utils/render'
-import { EmailComposeStep } from './EmailComposeStep'
+import { EmailWriteStep } from './EmailWriteStep'
 import {
   initialCompose,
   switchLayout,
@@ -43,7 +43,7 @@ const Harness = ({
 }) => {
   const [value, setValue] = useState(start)
   return (
-    <EmailComposeStep
+    <EmailWriteStep
       surface={surface}
       value={value}
       onChange={setValue}
@@ -100,12 +100,12 @@ const written: EmailComposeState = {
   message: 'Dear neighbor,\n\n## The vote\nIt moved to December.',
 }
 
-describe('EmailComposeStep AI draft', () => {
+describe('EmailWriteStep AI draft', () => {
   it.each<[string, typeof WIN_EMAIL_SURFACE, DraftRoute]>([
     ['Win', WIN_EMAIL_SURFACE, 'POST /v1/outreach/email/draft'],
     ['Serve', SERVE_EMAIL_SURFACE, 'POST /v1/outreach/serve/email/draft'],
   ])(
-    'fills the form once on entering compose (%s)',
+    'fills the form once on entering the step (%s)',
     async (_name, surface, route) => {
       const requests: unknown[] = []
       mockDraft(route, requests)
@@ -118,8 +118,7 @@ describe('EmailComposeStep AI draft', () => {
       )
       expect(message()).toHaveTextContent('I am running.')
       expect(screen.queryByLabelText('Title')).toBeNull()
-      expect(screen.getByLabelText('Button text')).toHaveValue('Say hello')
-      expect(screen.getByTestId('email-link-prompt')).toBeInTheDocument()
+      expect(screen.queryByLabelText('Button text')).toBeNull()
       await new Promise((resolve) => setTimeout(resolve, 50))
       expect(requests).toHaveLength(1)
       expect(requests[0]).toMatchObject({ layout: 'personal_letter' })
@@ -180,29 +179,25 @@ describe('EmailComposeStep AI draft', () => {
   })
 })
 
-describe('EmailComposeStep form', () => {
+describe('EmailWriteStep form', () => {
   it('shows Title and the subheading hint only where the layout uses them', async () => {
-    const user = userEvent.setup()
-    render(<Harness start={written} />)
+    const { unmount } = render(<Harness start={written} />)
 
     expect(screen.getByLabelText('Title')).toHaveValue('Ward 2 update')
     expect(
       screen.getByText('Start a line with ## to add a subheading.'),
     ).toBeInTheDocument()
+    unmount()
 
-    await user.click(screen.getByRole('radio', { name: 'Personal letter' }))
+    render(<Harness start={switchLayout(written, 'personal_letter')} />)
     expect(screen.queryByLabelText('Title')).toBeNull()
     expect(
       screen.queryByText('Start a line with ## to add a subheading.'),
     ).toBeNull()
-
-    await user.click(screen.getByRole('radio', { name: 'Short with a button' }))
-    expect(screen.getByLabelText('Title')).toHaveValue('Ward 2 update')
     expect(message()).toHaveTextContent('It moved to December.')
-    expect(screen.getByLabelText('Subject')).toHaveValue('October')
   })
 
-  it('shows plain errors next to the field', async () => {
+  it('shows plain errors next to the field, leaving the button to the look step', async () => {
     render(
       <Harness
         showIssues
@@ -221,53 +216,28 @@ describe('EmailComposeStep form', () => {
         'Keep the message under 600 characters for this layout.',
       ),
     ).toBeInTheDocument()
-    expect(
-      screen.getByText('Add the link this button opens.'),
-    ).toBeInTheDocument()
+    expect(screen.queryByText('Add the link this button opens.')).toBeNull()
   })
 
   it('puts a refused send’s error on its field', async () => {
     render(
       <Harness
-        start={{ ...written, buttonLabel: 'Read', buttonUrl: 'https://x.co' }}
-        serverError={{ field: 'button', message: 'Keep this to one line.' }}
+        start={written}
+        serverError={{ field: 'message', message: 'Keep this to one line.' }}
       />,
     )
 
     expect(screen.getByText('Keep this to one line.')).toBeInTheDocument()
+    expect(message()).toHaveAttribute('aria-invalid', 'true')
   })
 
-  it('offers Top or Bottom for a personal letter’s photo', async () => {
+  it('opens the preview of the form as blocks from Preview', async () => {
     const user = userEvent.setup()
-    render(
-      <Harness
-        start={{
-          ...initialCompose(),
-          subject: 'Hi',
-          message: 'Hello',
-          photoUrl: 'https://assets.example.com/a.png',
-        }}
-      />,
-    )
-
-    await user.click(screen.getByRole('radio', { name: 'Bottom' }))
-    await waitFor(
-      () =>
-        expect(previews.at(-1)).toMatchObject({
-          content: {
-            blocks: [
-              { type: 'paragraph', text: 'Hello' },
-              { type: 'image', url: 'https://assets.example.com/a.png' },
-            ],
-          },
-        }),
-      { timeout: 2000 },
-    )
-  })
-
-  it('previews the form as blocks', async () => {
     render(<Harness start={written} />)
 
+    expect(screen.queryByTestId('email-preview')).toBeNull()
+    await user.click(screen.getByRole('button', { name: 'Preview' }))
+    expect(screen.getByTestId('email-preview')).toBeInTheDocument()
     await waitFor(() => expect(previews.length).toBeGreaterThan(0), {
       timeout: 2000,
     })
@@ -287,7 +257,7 @@ describe('EmailComposeStep form', () => {
   })
 })
 
-describe('EmailComposeStep preview', () => {
+describe('EmailWriteStep preview', () => {
   const start: EmailComposeState = {
     ...switchLayout(initialCompose(), 'short_cta'),
     subject: 'October',
@@ -298,20 +268,11 @@ describe('EmailComposeStep preview', () => {
     buttonUrl: 'https://example.org/rsvp',
   }
 
-  const settled = async () => {
+  const openPreview = async (user: ReturnType<typeof userEvent.setup>) => {
+    render(<Harness start={start} />)
+    await user.click(screen.getByRole('button', { name: 'Preview' }))
     await waitFor(() => expect(previews.length).toBeGreaterThan(0))
     await new Promise((resolve) => setTimeout(resolve, 100))
-  }
-
-  const refreshesOn = async (
-    edit: (user: ReturnType<typeof userEvent.setup>) => Promise<void>,
-  ) => {
-    const user = userEvent.setup()
-    render(<Harness start={start} />)
-    await settled()
-    const before = previews.length
-    await edit(user)
-    await waitFor(() => expect(previews.length).toBeGreaterThan(before))
   }
 
   it.each<
@@ -324,32 +285,24 @@ describe('EmailComposeStep preview', () => {
       'photo',
       (u) => u.click(screen.getByRole('button', { name: 'Remove photo' })),
     ],
-    ['button text', (u) => u.type(screen.getByLabelText('Button text'), '!')],
-    ['button link', (u) => u.type(screen.getByLabelText('Button link'), 'x')],
-    [
-      'layout',
-      (u) => u.click(screen.getByRole('radio', { name: 'Personal letter' })),
-    ],
-    [
-      'theme',
-      (u) => u.click(screen.getAllByRole('button', { pressed: false })[0]!),
-    ],
   ])('refreshes after a change to the %s', async (_name, edit) => {
-    await refreshesOn(edit)
+    const user = userEvent.setup()
+    await openPreview(user)
+    const before = previews.length
+    await edit(user)
+    await waitFor(() => expect(previews.length).toBeGreaterThan(before))
   })
 
   it('ends on the last of several quick edits', async () => {
     const user = userEvent.setup()
-    render(<Harness start={start} />)
-    await settled()
+    await openPreview(user)
     await user.type(screen.getByLabelText('Subject'), ' one')
     await user.type(screen.getByLabelText('Title'), ' two')
-    await user.type(screen.getByLabelText('Button text'), ' three')
+    await user.type(screen.getByLabelText('Subject'), ' three')
     await waitFor(() => {
       const last = JSON.stringify(previews[previews.length - 1])
-      expect(last).toContain('October one')
+      expect(last).toContain('October one three')
       expect(last).toContain('Ward 2 update two')
-      expect(last).toContain('RSVP three')
     })
   })
 })

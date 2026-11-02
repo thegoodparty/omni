@@ -1,23 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
-  EMAIL_BLOCK_BUTTON_LABEL_MAX_LENGTH,
   EMAIL_BODY_MAX_LENGTH,
   EMAIL_CONTENT_TEXT_MAX_LENGTH,
   EMAIL_HEADING_MAX_LENGTH,
   EMAIL_IMAGE_ALLOWED_MIME_TYPES,
   EMAIL_IMAGE_MAX_BYTES,
-  EMAIL_LAYOUT_PRESETS,
   EMAIL_MERGE_TAGS,
   EMAIL_SUBJECT_MAX_LENGTH,
-  EMAIL_THEMES,
-  EMAIL_URL_MAX_LENGTH,
-  EmailLayoutPresetKeySchema,
-  EmailThemeKeySchema,
   MERGE_TAGS,
   mergeTagToken,
   SOCIAL_TONE_VALUES,
-  type EmailLayoutPresetKey,
-  type EmailThemeKey,
   type SocialTone,
 } from '@goodparty_org/contracts'
 import {
@@ -55,9 +47,7 @@ import {
   fillFromAiDraft,
   hasNoWriting,
   isUntouched,
-  needsButton,
   snapshot,
-  switchLayout,
   toAiFields,
   toContent,
   usesSubheadings,
@@ -65,7 +55,6 @@ import {
   type ComposeField,
   type ComposeFieldError,
   type EmailComposeState,
-  type PhotoPosition,
 } from './emailForm.util'
 import type { EmailSurface } from './emailSurface'
 
@@ -87,11 +76,6 @@ const TONE_LABELS: Record<SocialTone, string> = {
   friendly: 'Friendly',
 }
 
-const PHOTO_POSITIONS: { value: PhotoPosition; label: string }[] = [
-  { value: 'top', label: 'Top' },
-  { value: 'bottom', label: 'Bottom' },
-]
-
 type ImageType = (typeof EMAIL_IMAGE_ALLOWED_MIME_TYPES)[number]
 
 const imageType = (file: File): ImageType | undefined =>
@@ -111,7 +95,7 @@ interface Notice {
 const FieldError = ({ message }: { message: string | undefined }) =>
   message ? <p className="text-xs text-destructive">{message}</p> : null
 
-interface EmailComposeStepProps {
+interface EmailWriteStepProps {
   surface: EmailSurface
   value: EmailComposeState
   onChange: (
@@ -124,14 +108,14 @@ interface EmailComposeStepProps {
   serverError?: ComposeFieldError | null
 }
 
-export const EmailComposeStep = ({
+export const EmailWriteStep = ({
   surface,
   value,
   onChange,
   showIssues,
   goal,
   serverError = null,
-}: EmailComposeStepProps) => {
+}: EmailWriteStepProps) => {
   const [tone, setTone] = useState<SocialTone>('warm')
   const [aiBusy, setAiBusy] = useState(false)
   const [aiError, setAiError] = useState<string | null>(null)
@@ -139,10 +123,11 @@ export const EmailComposeStep = ({
   const [notice, setNotice] = useState<Notice | null>(null)
   const [imageBusy, setImageBusy] = useState(false)
   const [imageError, setImageError] = useState<string | null>(null)
+  const [previewOpen, setPreviewOpen] = useState(false)
   const latest = useRef(value)
   latest.current = value
-  // A draft that lands after the user left compose (Back to the goal) was
-  // for the old goal, so it is dropped.
+  // A draft that lands after the user left this step (Back to the audience)
+  // was asked for in a state that may be gone, so it is dropped.
   const mounted = useRef(true)
   useEffect(() => {
     mounted.current = true
@@ -251,7 +236,7 @@ export const EmailComposeStep = ({
     setImageError(null)
     try {
       const photoUrl = await uploadEmailImage(surface.isServe, file, type)
-      // An upload that lands after compose closed would reach the send with
+      // An upload that lands after this step closed would reach the send with
       // no description, so it is dropped.
       if (!mounted.current) return
       setNotice(null)
@@ -261,12 +246,6 @@ export const EmailComposeStep = ({
     } finally {
       setImageBusy(false)
     }
-  }
-
-  const pickLayout = (layout: EmailLayoutPresetKey) => {
-    if (layout === value.layout) return
-    setNotice(null)
-    onChange(switchLayout(value, layout))
   }
 
   const issues = composeIssues(value, showIssues)
@@ -280,7 +259,6 @@ export const EmailComposeStep = ({
     aiFields.subject !== '' &&
     aiFields.body !== '' &&
     aiFields.body.length <= EMAIL_BODY_MAX_LENGTH
-  const buttonRequired = needsButton(value.layout)
 
   return (
     <div className="space-y-6">
@@ -477,132 +455,37 @@ export const EmailComposeStep = ({
         />
         {imageError && <p className="text-xs text-destructive">{imageError}</p>}
         {value.photoUrl && (
-          <div className="space-y-3">
-            <div className="flex items-center gap-2">
-              <p className="text-xs text-muted-foreground">Photo added.</p>
-              <Button
-                type="button"
-                size="small"
-                variant="ghost"
-                onClick={() => set('photoUrl', '')}
-              >
-                Remove photo
-              </Button>
-            </div>
-            {value.layout === 'personal_letter' && (
-              <FilterPillGroup
-                type="single"
-                value={value.photoPosition}
-                aria-label="Photo position"
-                onValueChange={(next) => {
-                  const position = PHOTO_POSITIONS.find((p) => p.value === next)
-                  if (position) set('photoPosition', position.value)
-                }}
-              >
-                {PHOTO_POSITIONS.map((position) => (
-                  <FilterPill key={position.value} value={position.value}>
-                    {position.label}
-                  </FilterPill>
-                ))}
-              </FilterPillGroup>
-            )}
+          <div className="flex items-center gap-2">
+            <p className="text-xs text-muted-foreground">Photo added.</p>
+            <Button
+              type="button"
+              size="small"
+              variant="ghost"
+              onClick={() => set('photoUrl', '')}
+            >
+              Remove photo
+            </Button>
           </div>
         )}
         <FieldError message={errorFor('photo')} />
       </div>
 
-      <div className="space-y-2" data-testid="email-button">
-        <span className="block text-sm font-medium text-foreground">
-          {buttonRequired ? 'Button' : 'Button (optional)'}
-        </span>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <div className="space-y-2">
-            <Label htmlFor="email-button-label">Button text</Label>
-            <Input
-              id="email-button-label"
-              value={value.buttonLabel}
-              maxLength={EMAIL_BLOCK_BUTTON_LABEL_MAX_LENGTH}
-              onChange={(e) => set('buttonLabel', e.target.value)}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="email-button-url">Button link</Label>
-            <Input
-              id="email-button-url"
-              type="url"
-              placeholder="https://"
-              value={value.buttonUrl}
-              maxLength={EMAIL_URL_MAX_LENGTH}
-              onChange={(e) => set('buttonUrl', e.target.value)}
-            />
-            {!value.buttonUrl.trim() && !errorFor('button') && (
-              <p className="text-xs text-muted-foreground">
-                {surface.compose.buttonLinkHint}
-              </p>
-            )}
-          </div>
-        </div>
-        {value.buttonLabel.trim() && !value.buttonUrl.trim() && !showIssues && (
-          <p
-            className="text-sm text-foreground"
-            data-testid="email-link-prompt"
-          >
-            Add a link to your button before you continue.
-          </p>
-        )}
-        <FieldError message={errorFor('button')} />
-      </div>
-
       <div className="space-y-2">
-        <span className="block text-sm font-medium text-foreground">
-          Layout
-        </span>
-        <FilterPillGroup
-          type="single"
-          value={value.layout}
-          aria-label="Layout"
-          onValueChange={(next) => {
-            const parsed = EmailLayoutPresetKeySchema.safeParse(next)
-            if (parsed.success) pickLayout(parsed.data)
-          }}
+        <Button
+          type="button"
+          size="small"
+          variant="outline"
+          aria-expanded={previewOpen}
+          aria-controls="email-write-preview"
+          onClick={() => setPreviewOpen((open) => !open)}
         >
-          {EmailLayoutPresetKeySchema.options.map((key) => (
-            <FilterPill key={key} value={key}>
-              {EMAIL_LAYOUT_PRESETS[key].label}
-            </FilterPill>
-          ))}
-        </FilterPillGroup>
-        <p className="text-sm text-muted-foreground">
-          {EMAIL_LAYOUT_PRESETS[value.layout].description}
-        </p>
-      </div>
-
-      <div className="space-y-3">
-        <span className="block text-sm font-medium text-foreground">
-          Colors
-        </span>
-        <div className="flex flex-wrap gap-3">
-          {EmailThemeKeySchema.options.map((key: EmailThemeKey) => (
-            <button
-              key={key}
-              type="button"
-              aria-label={EMAIL_THEMES[key].label}
-              aria-pressed={value.theme === key}
-              title={EMAIL_THEMES[key].label}
-              onClick={() => set('theme', key)}
-              className={cn(
-                'size-9 rounded-full border-2',
-                value.theme === key ? 'border-primary' : 'border-border',
-              )}
-              style={{ backgroundColor: EMAIL_THEMES[key].colors.header }}
-            />
-          ))}
-        </div>
-      </div>
-
-      <div className="space-y-2">
-        <span className="text-sm font-medium text-foreground">Preview</span>
-        <EmailPreview serve={surface.isServe} content={toContent(value)} />
+          Preview
+        </Button>
+        {previewOpen && (
+          <div id="email-write-preview">
+            <EmailPreview serve={surface.isServe} content={toContent(value)} />
+          </div>
+        )}
       </div>
     </div>
   )
