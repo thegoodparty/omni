@@ -349,7 +349,7 @@ describe('ChannelPickerSheet — new contacts on Win', () => {
   })
 
   it('holds the header in its loading state until the counts land', async () => {
-    let respond: () => void = () => {}
+    let respond: (() => void) | undefined
     const responded = new Promise<void>((resolve) => {
       respond = resolve
     })
@@ -366,7 +366,7 @@ describe('ChannelPickerSheet — new contacts on Win', () => {
     expect(document.querySelector('[data-slot="skeleton"]')).toBeInTheDocument()
     expect(screen.queryByText(/^All voters/)).toBeNull()
 
-    respond()
+    respond?.()
 
     expect(
       await screen.findByText(
