@@ -3237,13 +3237,19 @@ export type ElectedOffice = {
   // winning a GoodParty.org campaign (the "I won" flow). Null for a net-new serve
   // lead (sales/magic-link/BallotReady) who was never a candidate. Sign-in
   // routing never sends a win-origin office into serve onboarding; the
-  // dashboard does, while its onboardingCompletedAt is still null.
+  // dashboard does for a Pro campaign, while its onboardingCompletedAt is
+  // still null.
   campaignId: number | null
 }
 
 // `GET /v1/elected-office/mine` adds whether the office's linked Win campaign
-// gave it issues they ran on, which the Serve onboarding priorities step shows.
-export type MyElectedOffice = ElectedOffice & { hasWinIssues: boolean }
+// gave it issues they ran on, which the Serve onboarding priorities step shows,
+// and whether that campaign is Pro, which DashboardLayout needs to send an
+// unfinished winner back to Serve onboarding.
+export type MyElectedOffice = ElectedOffice & {
+  hasWinIssues: boolean
+  campaignIsPro: boolean
+}
 
 export type ElectedOfficeInput = {
   swornInDate?: string | null

@@ -87,6 +87,7 @@ describe('EmailPayStep', () => {
         surface={WIN_EMAIL_SURFACE}
         draftId={11}
         onPaid={onPaid}
+        onFixBlock={vi.fn()}
         onConfirmAttempted={onConfirmAttempted}
       />,
     )
@@ -137,6 +138,7 @@ describe('EmailPayStep', () => {
         surface={WIN_EMAIL_SURFACE}
         draftId={11}
         onPaid={onPaid}
+        onFixBlock={vi.fn()}
         onConfirmAttempted={onConfirmAttempted}
       />,
     )

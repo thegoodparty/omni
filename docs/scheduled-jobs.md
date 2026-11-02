@@ -200,6 +200,14 @@ own database, and every preview stack has its own — so it dedupes replicas
 within one deploy, never across deploys. The environment gate is the fix; the
 lock is what then stops prod's two replicas duplicating the pass.
 
+## Serve jobs that fan out per office skip unfinished onboarding
+
+A job that starts paid work for every elected office (community issues,
+meeting briefings, ordinance sourcing) selects only offices with
+`onboardingCompletedAt` set. A candidate's win can create an office nobody
+has opened yet, and it must not cost agent runs. Staff and admin dispatch
+endpoints and the official's own actions are not gated.
+
 ## Worked example
 
 ```ts
@@ -247,6 +255,8 @@ public so run-job can call them synchronously, scoped to the caller's campaign.
 - [ ] Per-record `try`/`catch` inside the loop.
 - [ ] `VENDOR_CRONS_ENABLED`, a prod-only guard, a deploy allowlist, or the feature's automation flag if
       it spends money or hits a vendor. Never leave it running on previews.
+- [ ] A Serve job that fans out per office selects only offices that
+      finished onboarding.
 - [ ] A test that two invocations in the same slot produce **one** execution.
       `communityIssues/services/communityIssueDispatch.service.test.ts` shows how
       callers fake the lock; `cron/services/cronLock.service.test.ts` covers the

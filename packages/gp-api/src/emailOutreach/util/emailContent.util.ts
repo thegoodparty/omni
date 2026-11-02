@@ -39,9 +39,6 @@ const PRESET_FOR_LAYOUT: Record<EmailLayoutKey, EmailLayoutPresetKey> = {
   call_to_action: 'short_cta',
 }
 
-// The fixed fields never had alt text, and a sendable image needs some.
-const FIELDS_IMAGE_ALT = 'Photo'
-
 export const presetForLayout = (
   layout: EmailLayoutKey | EmailLayoutPresetKey,
 ): EmailLayoutPresetKey => {
@@ -66,7 +63,7 @@ export const fieldsToBlocks = (
     .filter(Boolean)
     .map((text) => ({ type: 'paragraph', text }))
   const image: EmailBlockDraft[] = fields.imageUrl
-    ? [{ type: 'image', url: fields.imageUrl, alt: FIELDS_IMAGE_ALT }]
+    ? [{ type: 'image', url: fields.imageUrl, alt: '' }]
     : []
   const button: EmailBlockDraft[] = fields.buttonLabel
     ? [

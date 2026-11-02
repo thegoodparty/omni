@@ -10,7 +10,7 @@ we are not there yet.
 
 Paths are relative to `packages/gp-webapp/app/` unless they start with
 `packages/`. Counts are from the dashboard (logged-in product) as of
-2026-10-22.
+2026-10-22; G-41 onward as of 2026-11-02.
 
 ## The big picture
 
@@ -20,8 +20,9 @@ back.
 
 1. **No shared pattern, so each feature invents one.** Pro gating, payment
    errors, loading and prerequisites are each done four to six ways (G-08,
-   G-20, G-21, G-22). Cure: a rule plus one component per pattern
-   (C-01 to C-04).
+   G-20, G-21, G-22), and so are confirming, saving, copying, paging,
+   status and bottom bars (G-41 to G-47, G-56, G-59). Cure: a rule plus one
+   component per pattern (C-01 to C-04, C-11 to C-17).
 2. **The DS lacks variants, so screens restyle it locally.** Visual
    `className` overrides and div panels fill the gap (G-12, G-33, G-40).
    Cure: a missing look becomes a styleguide variant, never a local override.
@@ -29,8 +30,9 @@ back.
    different depending on a flag (G-20, G-21). Cure: every UI flag gets a
    removal date, and the old path is deleted when it ships.
 4. **Legacy layers are never removed.** Old headers, `H1`, `Paper`, three
-   modal wrappers, two icon sets and leftovers sit next to their
-   replacements (G-04, G-13, G-14). Cure: migrate on touch, and delete
+   modal wrappers, two icon sets, the old typography set, the old step
+   indicator and leftovers sit next to their replacements (G-04, G-13,
+   G-14, G-57, G-61). Cure: migrate on touch, and delete
    the old layer once nothing uses it.
 5. **No shared helpers for data.** Dates and money are formatted locally
    (G-24, G-25). Cure: one helper each.
@@ -41,11 +43,14 @@ back.
 
 1. **Moments that cost money or reach voters:** G-08, G-09, G-25, G-31.
    Mistakes here cost trust and money.
-2. **Pro and prerequisites:** G-05, G-20, G-21, G-39. Users hit a wall with
-   no explanation, at the moment we most want them to upgrade.
-3. **Orientation:** G-14 to G-18. Every page, every session.
-4. **States and accessibility:** G-22, G-23, G-27, G-28.
-5. **Cleanup:** G-13, G-33, G-40, as screens are touched.
+2. **Losing work or data:** G-41, G-42, G-46. One tap removes a teammate
+   for good; leaving an editor drops the edits.
+3. **Pro and prerequisites:** G-05, G-20, G-21, G-39, G-54. Users hit a wall
+   with no explanation, at the moment we most want them to upgrade.
+4. **Naming and orientation:** G-14 to G-18, G-48, G-49, G-50. Every page,
+   every session; one name meaning three things.
+5. **Field use, states and accessibility:** G-62, G-22, G-23, G-27, G-28.
+6. **Cleanup:** G-13, G-33, G-40, G-55 to G-61, as screens are touched.
 
 ## How to use this file
 
@@ -219,6 +224,128 @@ record.
 - **Proposal:** show the failure where the action happened, with retry.
 - **Status:** open · ClickUp: —
 
+### G-41 Destructive actions are confirmed at random
+
+- **Rule:** §5 "Confirm only actions that can't be undone" (proposed)
+- **What the user sees:** deleting a note, a list, a turf or a chat asks
+  first. Removing a team member, revoking an invite, deleting a website issue
+  and archiving a priority happen on one tap, with no confirmation and no
+  undo. The same object is handled both ways: a policy priority is confirmed
+  in texting compliance but not in the website editor. Unpublishing the
+  website is confirmed; unpublishing the public profile is a bare switch.
+- **Where:** confirmed in `dashboard/contacts/crm/lists/DeleteListDialog.tsx`,
+  `dashboard/door-knocking/native/DoorNotesCard.tsx`,
+  `dashboard/profile/texting-compliance/candidate-profile/components/PolicyPriorities.tsx`,
+  `dashboard/website/editor/components/EditSettingsMenu.tsx`; not confirmed
+  in `dashboard/team/components/TeamPage.tsx` (remove member, revoke invite),
+  `dashboard/website/editor/components/IssuesForm.tsx`,
+  `dashboard/priorities/components/PrioritiesHub.tsx` (archive, and no
+  restore exists), `dashboard/public-profile/components/PublicProfileEditor.tsx`.
+- **Proposal:** confirm every action that can't be undone, with C-14; give
+  archive a restore or an undo toast; treat both publish switches the same.
+- **Status:** open · ClickUp: —
+
+### G-42 Page editors lose unsaved changes without warning
+
+- **Rule:** none yet
+- **What the user sees:** the outreach flows, turf drawing and boundary
+  drawing ask "Discard changes?" before closing. The website editor, the
+  public profile and the opponents section let you leave and lose your edits.
+- **Where:** warn in `dashboard/outreach/v2/OutreachFlowShell.tsx`,
+  `dashboard/door-knocking/native/createFlow/TurfPanel.tsx`,
+  `dashboard/contacts/crm/map/BoundaryDrawOverlay.tsx`; don't warn in
+  `dashboard/website/editor/components/WebsiteEditFlow.tsx`,
+  `dashboard/public-profile/components/PublicProfileEditor.tsx`,
+  `dashboard/campaign-details/components/RunningAgainstSection.tsx`. The only
+  `beforeunload` hook (`shared/hooks/usePageExit.ts`) runs a callback and
+  never warns.
+- **Proposal:** every editor with an explicit Save warns before leaving with
+  unsaved changes. C-17.
+- **Status:** open · ClickUp: —
+
+### G-43 Saving gives four kinds of feedback
+
+- **Rule:** §5 "Every action gets feedback where it happened" (proposed)
+- **What the user sees:** the ordinance draft shows an inline "Saving… /
+  Saved"; the public profile shows a toast, even for "No changes to save";
+  the opponents section reloads the whole page; archiving an outreach closes
+  the drawer with no message, and archiving a priority just drops the row.
+- **Where:** `dashboard/ordinances/components/DraftDetail.tsx`,
+  `dashboard/public-profile/components/PublicProfileEditor.tsx`,
+  `dashboard/campaign-details/components/RunningAgainstSection.tsx`,
+  `dashboard/outreach/v2/OutreachDetailsDrawer.tsx`,
+  `dashboard/priorities/components/PrioritiesHub.tsx`.
+- **Proposal:** an inline saved state next to the Save action; never reload
+  the page; removals confirmed with a toast that can undo.
+- **Status:** open · ClickUp: —
+
+### G-44 Busy buttons look four ways
+
+- **Rule:** §5 (the styleguide `Button` has a `loading` prop)
+- **What the user sees:** while something runs, a button shows a spinner, or
+  its label changes to "Saving…", or a hand-placed spinner appears, or it just
+  goes grey with no sign anything is happening.
+- **Where:** `loading` prop in
+  `dashboard/public-profile/components/PublicProfileEditor.tsx` and
+  `dashboard/race-opponent/components/ContrastCard.tsx`; label swap in
+  `dashboard/door-knocking/native/DoorNotesCard.tsx` and
+  `dashboard/door-knocking/native/RecordKnockStepForm.tsx`; manual spinner in
+  `dashboard/shared/ConfirmDeleteDialog.tsx`; grey only in
+  `dashboard/contacts/crm/lists/DeleteListDialog.tsx` and
+  `dashboard/team/components/TeamPage.tsx`. "Retry Registration" in
+  `dashboard/website/domain/components/DeleteDomain.tsx` has no guard against
+  a second press.
+- **Proposal:** always `Button loading`, including inside confirm dialogs.
+- **Status:** open · ClickUp: —
+
+### G-45 Confirm dialogs built five ways
+
+- **Rule:** §5 "naming the thing and what's lost, with a confirm button that
+  names the action" (proposed)
+- **What the user sees:** a centered 3xl title with a "Proceed" button; a
+  "Delete" that isn't red; "Are you sure you want to delete X?"; "Delete
+  {name}?" with what you lose and "Keep turf". Titles, buttons and colors
+  differ for the same kind of moment.
+- **Where:** `shared/utils/AlertDialog.tsx` (legacy, defaults to "Proceed"),
+  `dashboard/components/DeleteAction.tsx` (`redButton={false}`),
+  `dashboard/contacts/crm/lists/DeleteListDialog.tsx`,
+  `dashboard/door-knocking/native/createFlow/removeTurfDialog.tsx` (the good
+  one), `dashboard/shared/ConfirmDeleteDialog.tsx`.
+- **Proposal:** one confirm dialog, C-14; retire `shared/utils/AlertDialog.tsx`.
+- **Status:** open · ClickUp: —
+
+### G-46 Copy to clipboard: toast, checkmark, both, or a false success
+
+- **Rule:** none yet
+- **What the user sees:** "Copied to clipboard" even when copying failed;
+  a toast and a checkmark at once; only a checkmark in chat; a check that
+  never resets; briefing and plan sharing that fail silently.
+- **Where:** `shared/utils/CopyToClipboard.tsx` (ignores the result),
+  `shared/utils/CopyToClipboardButton.tsx`,
+  `dashboard/shared/agent-chat/MessageActionBar.tsx`,
+  `dashboard/shared/agent-chat/cards/OutsideContactCard.tsx`,
+  `onboarding/success/components/SharePlanModal.tsx`. Only
+  `dashboard/outreach/v2/copyText.util.ts` has a fallback.
+- **Proposal:** one copy control: an inline check for about two seconds, the
+  `copyText` fallback, and a visible message when it fails. C-16.
+- **Status:** open · ClickUp: —
+
+### G-47 Long lists page four ways
+
+- **Rule:** none yet
+- **What the user sees:** numbered pages that reset on Back, hand-built
+  Previous/Next with "Page X of Y", pages kept in the URL, or "Load more".
+- **Where:** `dashboard/outreach/v2/OutreachHistoryTable.tsx` (DS
+  pagination, page in component state),
+  `dashboard/website/components/WebsiteInbox.tsx` with
+  `dashboard/website/components/PaginationButtons.tsx`,
+  `dashboard/contacts/crm/ContactsTableProvider.tsx` (page in the URL),
+  `dashboard/outreach/v2/poll/results/PollCommentList.tsx` and
+  `dashboard/outreach/v2/ServeSmsRepliesSection.tsx` ("Load more").
+- **Proposal:** tables use DS `Pagination` with the page in the URL (A-05);
+  feeds inside a detail view use "Load more".
+- **Status:** open · ClickUp: —
+
 # Part 2: Gaps with no rule yet
 
 ## Components and styling
@@ -279,6 +406,102 @@ record.
   are a separate DS component.
 - **Status:** open · ClickUp: —
 
+### G-56 The same status looks four ways
+
+- **Rule:** none yet (`design-memory/learned.md` #30 limits badges per card
+  but doesn't pick a status style)
+- **What the user sees:** poll status is plain colored text in outreach
+  history and a solid box on the Polls page; website, briefing and door
+  knocking statuses each use their own pill. None uses `Badge`.
+- **Where:** `dashboard/outreach/v2/channelMeta.tsx` (`StatusText`),
+  `dashboard/polls/components/StatusBadge.tsx`,
+  `dashboard/website/components/StatusChip.tsx`,
+  `dashboard/briefings/components/AgendaStatusPill.tsx`,
+  `dashboard/door-knocking/native/WalkView.tsx`.
+- **Proposal:** one status component with a fixed set of tones. C-11.
+- **Status:** open · ClickUp: —
+
+### G-57 The old typography set still renders
+
+- **Rule:** `design-memory/learned.md` #20 (title hierarchy), #22 (16px body)
+- **What the user sees:** page titles from 16px to 36px; in the Pro upgrade
+  wizard the title size jumps between steps and with a feature flag.
+- **Where:** `@shared/typography` (H1 to H6, Body1/2, Subtitle) is imported in
+  about 95 files (`shared/typography/H1.tsx`, `shared/typography/Body2.tsx`);
+  `dashboard/pro-upgrade/components/PaymentStep.tsx` vs
+  `dashboard/pro-upgrade/components/CandidateProfileStep.tsx`, both arms of
+  `dashboard/pro-upgrade/components/GuidanceStep.tsx`;
+  `dashboard/community-issues/all/page.tsx` (16px h1). This is the type
+  scale; the header component is G-14.
+- **Proposal:** a type scale in the styleguide (C-15); retire
+  `@shared/typography` as screens are touched.
+- **Status:** open · ClickUp: —
+
+### G-58 Overlines are still in use
+
+- **Rule:** `design-memory/learned.md` #19 (no overlines)
+- **What the user sees:** small uppercase labels above sections and cards on
+  new surfaces.
+- **Where:** `dashboard/door-knocking/native/createFlow/WhoStep.tsx`,
+  `dashboard/chief-of-staff/components/TaskCard.tsx`,
+  `dashboard/outreach/v2/OutreachAssigneesSection.tsx`,
+  `dashboard/components/UpdateHistorySection.tsx`.
+- **Proposal:** section titles instead; then remove or deprecate the
+  styleguide `overline.tsx`.
+- **Status:** open · ClickUp: —
+
+### G-60 The user's avatar looks different in every nav
+
+- **Rule:** `design-memory/learned.md` #15 (one product shell)
+- **What the user sees:** a rounded square in the dashboard sidebar, a circle
+  in the volunteer sidebar, gray initials with no circle in the top-nav
+  dropdown.
+- **Where:** `dashboard/shared/DashboardMenu.tsx`,
+  `volunteer/VolunteerSidebar.tsx`, `shared/layouts/navigation/ProfileDropdown.tsx`
+  with `shared/user/UserAvatar.tsx`. Initials are built by hand in
+  `dashboard/outreach/v2/OutreachAssignModal.tsx`,
+  `dashboard/race-opponent/components/RaceOpponentList.tsx` and
+  `dashboard/shared/agent-chat/cards/cardShell.tsx`.
+- **Proposal:** C-13.
+- **Status:** open · ClickUp: —
+
+### G-61 Polls use an old step indicator
+
+- **Rule:** none yet
+- **What the user sees:** poll creation and poll onboarding show a row of
+  bars with clickable segments; every other flow shows the DS `Stepper`.
+- **Where:** `shared/stepper/StepIndicator.tsx`, used by
+  `dashboard/polls/create/CreatePoll.tsx` and
+  `polls/onboarding/components/OnboardingPage.tsx`. Compare
+  `dashboard/pro-upgrade/components/ProUpgradeWizard.tsx` and
+  `dashboard/outreach/v2/OutreachFlowShell.tsx`.
+- **Proposal:** move polls onto `Stepper` (A-04) and delete `shared/stepper`.
+- **Status:** open · ClickUp: —
+
+### G-63 Inline notices built by hand
+
+- **Rule:** none yet
+- **What the user sees:** info and warning notices that look different from
+  the DS `Alert` used elsewhere.
+- **Where:** `dashboard/race-opponent/components/AddOpponentsForm.tsx`,
+  `dashboard/door-knocking/native/DoNotKnockControl.tsx`,
+  `dashboard/shared/ai-chat/AiChatBody.tsx`,
+  `dashboard/ordinances/components/QualityReport.tsx`,
+  `polls/onboarding/components/ErrorMessage.tsx`.
+- **Proposal:** DS `Alert` (A-06).
+- **Status:** open · ClickUp: —
+
+### G-64 The same field is explained two ways
+
+- **Rule:** none yet
+- **What the user sees:** the election filing link field in texting
+  compliance has an info icon that opens an old modal in one variant, and
+  inline helper text in the other.
+- **Where:** `dashboard/profile/texting-compliance/register/components/FilingLinkInfoIcon.tsx`,
+  `dashboard/profile/texting-compliance/register/components/TextingComplianceRegistrationForm.tsx`.
+- **Proposal:** inline helper text; delete the icon and its modal.
+- **Status:** open · ClickUp: —
+
 ## Copy on screen
 
 ### G-36 Error copy breaks the copy rules
@@ -295,9 +518,142 @@ record.
 
 - **Rule:** `product-copy.md` (sentence case)
 - **What the user sees:** "Cell Phone Number", "Political Party" on a
-  person's details.
-- **Where:** `dashboard/contacts/crm/person/PersonOverlay.tsx`.
-- **Proposal:** sentence case labels.
+  person's details. Title case also runs through the main nav ("Campaign
+  Plan", "Know Your Opponent", "Voter Outreach"), the account menu ("Account
+  Settings", "Community Forum"), headings and buttons ("Delete Account", "New
+  Note", "Add Note", "Yes, Checkout").
+- **Where:** `dashboard/contacts/crm/person/PersonOverlay.tsx`,
+  `dashboard/shared/navLabels.ts` (fixes every tab at once),
+  `dashboard/shared/DashboardMenu.tsx`,
+  `dashboard/account/components/DeleteAccountPage.tsx`,
+  `dashboard/briefings/components/annotations/AddNoteSheet.tsx`,
+  `dashboard/polls/create/CreatePoll.tsx`.
+- **Proposal:** sentence case labels, nav items, headings and buttons.
+- **Status:** open · ClickUp: —
+
+### G-48 "Campaign Manager" names three things
+
+- **Rule:** `product-copy.md` rule 7 (reuse the phrase); `product-vocabulary.md`
+  reserves the name for the AI assistant
+- **What the user sees:** the AI assistant, the Home nav link and a human
+  team role you can invite and assign outreach to are all "Campaign
+  Manager". The contacts assistant spells it "Campaign manager".
+- **Where:** `dashboard/campaign-manager/CampaignManagerTasks.tsx`,
+  `dashboard/team/team.util.ts` (`campaignAdmin`),
+  `dashboard/team/components/InviteMemberDrawer.tsx`,
+  `dashboard/outreach/v2/OutreachAssignModal.tsx` (role filter),
+  `dashboard/contacts/crm/assistant/assistantChat.ts`.
+- **Proposal:** rename the human role; one spelling for the assistant.
+- **Status:** open · ClickUp: —
+
+### G-49 Turfs become "lists" once created
+
+- **Rule:** `product-copy.md` rules 6 and 7
+- **What the user sees:** creating and finishing work says "turf"; editing
+  and deleting say "Edit list" and "List deleted", the word the same flow
+  uses for voter lists.
+- **Where:** `dashboard/door-knocking/native/createFlow/DrawStep.tsx`,
+  `dashboard/door-knocking/native/MarkDoneDialog.tsx` vs
+  `dashboard/door-knocking/native/EditTurfDialog.tsx`,
+  `dashboard/door-knocking/native/DeleteTurfControl.tsx`; voter lists in
+  `dashboard/door-knocking/native/createFlow/CreateListFlow.tsx`.
+- **Proposal:** "turf" everywhere a turf is meant.
+- **Status:** open · ClickUp: —
+
+### G-50 The same step reads differently in each channel
+
+- **Rule:** `product-copy.md` rule 7 ("the same question should read the same
+  way in every channel") and rule 1
+- **What the user sees:** the schedule step is "When do you want to send?",
+  "When should it go out?", "When do you want to send it?" (robocall's header
+  and body disagree) or "When should we send them?". The last step is "Review
+  & pay", "Review your campaign" or "Review and verify". The advance button
+  is "Continue" in most flows and "Next" in polls, the website editor and
+  `ModalFooter`.
+- **Where:** `dashboard/outreach/v2/sms/SmsFlow.tsx`,
+  `dashboard/outreach/v2/robocall/RobocallFlow.tsx`,
+  `dashboard/outreach/v2/robocall/RobocallScheduleStep.tsx`,
+  `dashboard/outreach/v2/poll/gather/gatherCopy.ts`,
+  `dashboard/polls/create/CreatePoll.tsx`,
+  `dashboard/website/editor/components/WebsiteEditorPageStepper.tsx`,
+  `shared/ModalFooter.tsx`.
+- **Proposal:** one title per step id, defined once; "and", not "&";
+  "Continue" to advance.
+- **Status:** open · ClickUp: —
+
+### G-51 Success messages differ in wording, case and punctuation
+
+- **Rule:** `product-copy.md` mechanics (no exclamation points, no em dashes,
+  sentence case)
+- **What the user sees:** "Payment successful!", "Payment Successful!",
+  "Purchase Successful!", "You're all set", "Scheduled!"; toasts that say
+  "successfully", end with a period or carry an em dash.
+- **Where:** `dashboard/outreach/v2/sms/SmsFlow.tsx`,
+  `dashboard/outreach/v2/robocall/RobocallPayStep.tsx`,
+  `dashboard/polls/shared/components/PollPaymentSuccess.tsx`,
+  `dashboard/purchase/complete/page.tsx`,
+  `dashboard/purchase/components/PurchaseSuccess.tsx`,
+  `dashboard/contacts/crm/wizard/CreateListWizard.tsx`,
+  `dashboard/profile/texting-compliance/shared/useSubmitCvPin.ts`,
+  `dashboard/ordinances/components/DraftDetail.tsx`.
+- **Proposal:** one pattern: "[Thing] [past-tense verb]", no "successfully",
+  no "!", no period.
+- **Status:** open · ClickUp: —
+
+### G-52 "Can't be undone" has five wordings
+
+- **Rule:** `product-copy.md` rules 5 (contractions) and 7
+- **What the user sees:** "This can not be undone.", "This cannot be
+  undone.", "This action is not reversible.", "This action cannot be
+  undone.", "You can't undo this.", "This can't be undone.", some under an
+  "Are you sure?" title.
+- **Where:** `dashboard/contacts/crm/lists/DeleteListDialog.tsx`,
+  `dashboard/door-knocking/native/DoorNotesCard.tsx`,
+  `dashboard/account/components/DeleteAccountPage.tsx`,
+  `dashboard/shared/ai-chat/AiChatHistoryPopover.tsx`,
+  `dashboard/briefings/components/annotations/NotesSurface.tsx`,
+  `dashboard/ordinances/components/DraftDetail.tsx`.
+- **Proposal:** "This can't be undone.", with a title that names the item.
+  Part of C-14.
+- **Status:** open · ClickUp: —
+
+### G-53 Sign in, sign out and setup are named differently by surface
+
+- **Rule:** `product-copy.md` rules 6 and 7
+- **What the user sees:** "Log In" and "Sign in"; "Logout" and "Log out";
+  "Continue Setup", "Continue" and "Continue Onboarding".
+- **Where:** `shared/layouts/navigation/RightSide.tsx`,
+  `sign-in-link/SignInLinkContent.tsx`, `team-invite/page.tsx`,
+  `dashboard/shared/DashboardMenu.tsx`,
+  `shared/layouts/navigation/ProfileDropdown.tsx`, `logout/page.tsx`,
+  `shared/layouts/navigation/DashboardOrContinue.tsx`,
+  `shared/layouts/navigation/RightSideMobile.tsx`.
+- **Proposal:** "Sign in", "Sign up", "Sign out" and one name for resuming
+  setup, everywhere.
+- **Status:** open · ClickUp: —
+
+### G-54 Pro upsell copy breaks the copy rules
+
+- **Rule:** `product-copy.md` ("Words we do not use", mechanics, rule 9)
+- **What the user sees:** "Start today for just $10/month.", "powerful
+  canvassing tools", "Win with GoodParty.org Pro!", "…first campaign!".
+- **Where:** `dashboard/shared/ProUpgradeModal.tsx`,
+  `dashboard/shared/P2PUpgradeModal.tsx`,
+  `dashboard/pro-upgrade/components/ValuePropStep.tsx`,
+  `onboarding/components/OnboardingFlow.tsx`.
+- **Proposal:** drop "just", "powerful" and "!"; reuse the price line from
+  `dashboard/shared/membership/membershipCopy.ts`.
+- **Status:** open · ClickUp: —
+
+### G-65 Account deletion says "campaign" to elected officials
+
+- **Rule:** `product-vocabulary.md`
+- **What the user sees:** an elected official deleting their account reads
+  "All your campaign data will be permanently deleted".
+- **Where:** `dashboard/account/components/DeleteAccountPage.tsx`, rendered for Serve
+  from `dashboard/account/components/AccountProfilePage.tsx`. `campaign` isn't on the
+  `check:serve-vocabulary` list, so the check misses it.
+- **Proposal:** a mode-keyed copy object for this screen.
 - **Status:** open · ClickUp: —
 
 ## Navigation and page headers
@@ -381,6 +737,54 @@ record.
   `profile/texting-compliance/*` (chevron),
   `ordinances/solve/[slug]/[step]` (none outside the error state).
 - **Proposal:** one back pattern, owned by the page header (A-01).
+- **Status:** open · ClickUp: —
+
+## Layout and mobile
+
+### G-55 Sibling pages get different gutters and widths
+
+- **Rule:** `design-memory/learned.md` #15 (one product shell), #26 (bottom
+  padding)
+- **What the user sees:** content starts at a different distance from the
+  edge on pages next to each other in the nav; Win outreach and its Serve
+  twin have different gutters; the contacts page has 8px on a phone.
+- **Where:** `dashboard/shared/DashboardLayout.tsx` pads `p-2 md:p-4`; about
+  15 pages turn that off with `!p-0` and pad themselves, the rest add theirs
+  on top. `dashboard/outreach/v2/OutreachHubPage.tsx` vs
+  `dashboard/constituent-outreach/ConstituentOutreachPage.tsx`;
+  `dashboard/contacts/crm/CrmContactsPage.tsx`;
+  `dashboard/community-issues/all/page.tsx` vs `dashboard/priorities/page.tsx`.
+  Content widths include 560, 640, 672, 720 and 1280px; bottom padding varies.
+- **Proposal:** the layout owns the gutter, width (reading or wide) and
+  bottom padding; pages stop overriding it.
+- **Status:** open · ClickUp: —
+
+### G-59 Every page builds its own fixed bottom bar
+
+- **Rule:** none yet (see G-17 for which actions belong there)
+- **What the user sees:** bottom bars that sit at different offsets from the
+  sidebar and layer differently; the domain checkout bar can run under the
+  sidebar; the toast lifts itself over a hand-kept list of routes.
+- **Where:** `dashboard/contacts/crm/assistant/AssistantBar.tsx`,
+  `dashboard/shared/ai-chat/AiChatBar.tsx`,
+  `dashboard/campaign-plan/components/CampaignPlanView.tsx`,
+  `dashboard/website/domain/components/DomainSearch.tsx`,
+  `shared/utils/Snackbar.tsx` (route list),
+  `polls/onboarding/components/OnboardingPage.tsx` (footer rendered twice).
+- **Proposal:** C-12.
+- **Status:** open · ClickUp: —
+
+### G-62 Door knocking actions are under 44px
+
+- **Rule:** none yet
+- **What the user sees:** at the door, on a phone, "Save note", "Add a note"
+  and "Close route" are 32px tall and door navigation is 40px.
+- **Where:** `dashboard/door-knocking/native/DoorNotesCard.tsx`,
+  `dashboard/door-knocking/native/WalkSurface.tsx`,
+  `dashboard/door-knocking/native/PersonSheet.tsx`; `small` is `h-8` in
+  `packages/styleguide/src/components/ui/button.tsx`.
+- **Proposal:** large buttons in the walk view; add a 44px minimum touch
+  target to the rulebook.
 - **Status:** open · ClickUp: —
 
 ## Hide, lock, explain or disable
@@ -589,10 +993,10 @@ record.
   confirmation?
 - **Destructive actions.** §5 covers confirming them, not how they look or
   where they sit. Proposal: destructive variant, never in the spot where the
-  primary "continue" usually is.
+  primary "continue" usually is. Today's state: G-41, G-45.
 - **Pressing twice.** §4 only protects form submits. Anything that charges
   money or reaches voters should be safe to press twice, not just disabled
-  while it runs.
+  while it runs. Today's state: G-44.
 - **Accent color.** The DS has no non-status accent token, so Serve uses
   `warning` orange as decoration. Should there be one?
 
@@ -620,8 +1024,8 @@ record.
 - **Replaces today:** the redirect, `ProUpgradeModal`, the outreach gate
   screens, `OpponentProLockedView`, the door knocking page gate and the
   contacts locked panel.
-- **Exists in DS?** Partly: `ProBadge` and `ChannelCard` `locked` exist; the
-  behavior doesn't.
+- **Exists in DS?** Partly: `ProBadge` and `ChannelCard`'s Pro `tag` exist;
+  the behavior doesn't.
 - **Priority:** high · **Status:** proposed · ClickUp: —
 
 ### C-03 RequirementNotice
@@ -700,6 +1104,76 @@ record.
 - **Exists in DS?** No.
 - **Priority:** low · **Status:** proposed · ClickUp: —
 
+### C-11 StatusBadge
+
+- **Solves:** G-56
+- **Job:** shows a status in words with one of a fixed set of tones
+  (neutral, active, done, warning, failed).
+- **Replaces today:** `StatusText`, polls `StatusBadge`, website
+  `StatusChip`, `AgendaStatusPill`, the door knocking pill.
+- **Exists in DS?** Partly: `Badge` exists, without status tones.
+- **Priority:** medium · **Status:** proposed · ClickUp: —
+
+### C-12 BottomBar
+
+- **Solves:** G-59
+- **Job:** a fixed bottom bar that clears the sidebar and the phone's safe
+  area and tells the toast to sit above it.
+- **Replaces today:** the per-page bars and the route list in
+  `shared/utils/Snackbar.tsx`.
+- **Exists in DS?** No (`StepFooter` covers flows only).
+- **Priority:** medium · **Status:** proposed · ClickUp: —
+
+### C-13 UserAvatar
+
+- **Solves:** G-60
+- **Job:** a person's picture, or their initials, or an icon, in one shape
+  and set of sizes.
+- **Replaces today:** `shared/user/UserAvatar.tsx`, the sidebar avatars and
+  three copies of initials code.
+- **Exists in DS?** Partly: check `avatar.tsx` in the styleguide first.
+- **Priority:** low · **Status:** proposed · ClickUp: —
+
+### C-14 ConfirmDialog
+
+- **Solves:** G-41, G-45, G-52
+- **Job:** confirms an action that can't be undone: a title that names the
+  item, what's lost, "This can't be undone.", a destructive button that
+  names the action, and a loading state.
+- **Replaces today:** `shared/utils/AlertDialog.tsx`, `DeleteAction`,
+  `DeleteListDialog`, `ConfirmDeleteDialog`. The turf removal dialog is the
+  model.
+- **Exists in DS?** Partly: `AlertDialog` exists; the content rules don't.
+- **Priority:** high · **Status:** proposed · ClickUp: —
+
+### C-15 Type scale (Heading, Text)
+
+- **Solves:** G-57, part of G-14
+- **Job:** the product's title and body sizes as tokens or components.
+- **Replaces today:** `@shared/typography` and hand-picked `text-*` sizes on
+  titles.
+- **Exists in DS?** No.
+- **Priority:** medium · **Status:** proposed · ClickUp: —
+
+### C-16 CopyButton
+
+- **Solves:** G-46
+- **Job:** copies text, shows an inline check for about two seconds, falls
+  back when the clipboard API fails, and says so when copying fails.
+- **Replaces today:** `CopyToClipboard`, `CopyToClipboardButton` and
+  per-surface copy code.
+- **Exists in DS?** No.
+- **Priority:** low · **Status:** proposed · ClickUp: —
+
+### C-17 Leave guard
+
+- **Solves:** G-42
+- **Job:** warns before leaving an editor with unsaved changes, on in-app
+  navigation and on closing the tab.
+- **Replaces today:** per-flow "Discard changes?" dialogs.
+- **Exists in DS?** No (a hook plus `ConfirmDialog`).
+- **Priority:** medium · **Status:** proposed · ClickUp: —
+
 ## Existing DS components to adopt
 
 These exist in the styleguide but aren't used where they should be. Adopt
@@ -722,6 +1196,22 @@ them; don't build new ones.
 
 - **Solves:** the PIN entry in G-07
 - **Where it lives:** `packages/styleguide/src/components/ui/input-otp.tsx`.
+
+### A-04 Stepper
+
+- **Solves:** G-61
+- **Where it lives:** `packages/styleguide/src/components/ui/stepper.tsx`.
+
+### A-05 Pagination
+
+- **Solves:** G-47
+- **Where it lives:** `packages/styleguide/src/components/ui/pagination.tsx`.
+- **Note:** keep the page in the URL so Back returns to it.
+
+### A-06 Alert
+
+- **Solves:** G-63
+- **Where it lives:** `packages/styleguide/src/components/ui/alert.tsx`.
 
 # Part 5: Ideas for the design agent
 

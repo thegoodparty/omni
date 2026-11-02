@@ -130,12 +130,41 @@ const mockApi = () => {
   return saves
 }
 
-const fillCompose = async (user: ReturnType<typeof userEvent.setup>) => {
-  await user.click(screen.getByText('Introduce myself to voters'))
+const writeLetter = async (user: ReturnType<typeof userEvent.setup>) => {
   await user.type(await screen.findByLabelText('Subject'), 'Hello')
-  const field = screen.getByLabelText('Message body')
-  await user.click(field)
+  await user.click(screen.getByRole('textbox', { name: 'Message' }))
   await user.keyboard('Hi there')
+}
+
+const WIN_CONSENT = 'These people agreed to get email from my campaign.'
+
+// Goal, then a list with consent, landing on the write step.
+const pickAudience = async (
+  user: ReturnType<typeof userEvent.setup>,
+  goal = 'Introduce myself to voters',
+  consent = WIN_CONSENT,
+) => {
+  await user.click(screen.getByText(goal))
+  await pickList(user)
+  await user.click(await screen.findByLabelText(consent))
+  await user.click(screen.getByRole('button', { name: 'Next' }))
+  await screen.findByText('What do you want to say?')
+}
+
+// Write the letter, then Next through the look step, which saves.
+const writeAndLook = async (user: ReturnType<typeof userEvent.setup>) => {
+  await writeLetter(user)
+  await user.click(screen.getByRole('button', { name: 'Next' }))
+  await screen.findByText('How should it look?')
+  await user.click(screen.getByRole('button', { name: 'Next' }))
+}
+
+const toReview = async (user: ReturnType<typeof userEvent.setup>) => {
+  await pickAudience(user)
+  await writeAndLook(user)
+  await screen.findByText('When should it go out?')
+  await user.click(screen.getByRole('button', { name: 'Next' }))
+  await screen.findByText('Ready to send?')
 }
 
 // Typing into the message field scrolls to the cursor, which jsdom cannot
@@ -154,19 +183,82 @@ beforeAll(() => {
 describe('EmailFlow', () => {
   afterEach(() => vi.restoreAllMocks())
 
-  it('holds the goal step until a goal is picked and shows the compose controls', async () => {
-    mockApi()
+  it('goes goal, audience, write, then look, with the button on the look step', async () => {
+    const saves = mockApi()
+    const user = userEvent.setup()
     render(<EmailFlow open onClose={vi.fn()} />)
 
     expect(screen.getByText('What do you want to do?')).toBeInTheDocument()
-
-    await userEvent
-      .setup()
-      .click(screen.getByText('Introduce myself to voters'))
+    await pickAudience(user)
+    expect(saves).toHaveLength(0)
 
     expect(await screen.findByLabelText('Subject')).toBeInTheDocument()
     expect(screen.getByTestId('email-ai-draft')).toBeInTheDocument()
-    expect(screen.getByTestId('email-image')).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: 'Message' })).toBeInTheDocument()
+    expect(screen.getByTestId('email-photo')).toBeInTheDocument()
+    expect(screen.queryByTestId('email-button')).toBeNull()
+
+    await writeLetter(user)
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    expect(await screen.findByText('How should it look?')).toBeInTheDocument()
+    expect(screen.getByTestId('email-button')).toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: 'Personal letter' })).toBeChecked()
+    expect(screen.queryByLabelText('Subject')).toBeNull()
+  })
+
+  it('keeps the email across Back and Next between write and look', async () => {
+    mockApi()
+    const user = userEvent.setup()
+    render(<EmailFlow open onClose={vi.fn()} />)
+
+    await pickAudience(user)
+    await writeLetter(user)
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await screen.findByText('How should it look?')
+    await user.click(screen.getByRole('radio', { name: 'Long update' }))
+    await user.click(screen.getByRole('button', { name: 'Back' }))
+
+    expect(await screen.findByLabelText('Subject')).toHaveValue('Hello')
+    expect(screen.getByRole('textbox', { name: 'Message' })).toHaveTextContent(
+      'Hi there',
+    )
+    expect(screen.getByLabelText('Title')).toBeInTheDocument()
+  })
+
+  it('blocks the look step while the writing does not fit the layout', async () => {
+    const saves = mockApi()
+    const user = userEvent.setup()
+    render(<EmailFlow open onClose={vi.fn()} />)
+
+    await pickAudience(user)
+    await writeLetter(user)
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await screen.findByText('How should it look?')
+    await user.click(screen.getByRole('radio', { name: 'Short with a button' }))
+
+    expect(screen.getByTestId('email-layout-misfit')).toHaveTextContent(
+      'Title: Add a title.',
+    )
+    expect(screen.getByText('Button')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Next' })).toBeDisabled()
+
+    await user.click(screen.getByRole('radio', { name: 'Personal letter' }))
+    expect(screen.queryByTestId('email-layout-misfit')).toBeNull()
+    expect(screen.getByText('Button (optional)')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await waitFor(() => expect(saves).toHaveLength(1))
+  })
+
+  it('holds the write step until the subject and message are written', async () => {
+    mockApi()
+    const user = userEvent.setup()
+    render(<EmailFlow open onClose={vi.fn()} />)
+
+    await pickAudience(user)
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+
+    expect(await screen.findByText('Add a subject line.')).toBeInTheDocument()
+    expect(screen.queryByText('How should it look?')).toBeNull()
   })
 
   it('drafts with AI, sending the goal and tone, and fills the fields', async () => {
@@ -178,17 +270,24 @@ describe('EmailFlow', () => {
         status: 200,
         data: {
           subject: 'Meet your neighbor',
-          headline: 'Hello',
+          headline: null,
           body: 'Hi {{first_name}}, I am running.',
           buttonLabel: null,
-          content: draft.content,
+          content: {
+            layout: 'personal_letter',
+            theme: 'cream_and_forest',
+            subject: 'Meet your neighbor',
+            blocks: [
+              { type: 'paragraph', text: 'Hi {{first_name}}, I am running.' },
+            ],
+          },
         },
       }
     })
     const user = userEvent.setup()
     render(<EmailFlow open onClose={vi.fn()} />)
 
-    await user.click(screen.getByText('Introduce myself to voters'))
+    await pickAudience(user)
     await waitFor(() =>
       expect(screen.getByLabelText('Subject')).toHaveValue(
         'Meet your neighbor',
@@ -201,13 +300,18 @@ describe('EmailFlow', () => {
     expect(requests[1]).toEqual({
       goal: 'Introduce myself to voters',
       tone: 'urgent',
-      layout: 'newsletter',
+      layout: 'personal_letter',
+      theme: 'cream_and_forest',
     })
 
     await user.click(screen.getByRole('button', { name: 'Improve with AI' }))
     await waitFor(() => expect(requests).toHaveLength(3))
     expect(requests[2]).toMatchObject({
-      currentDraft: { subject: 'Meet your neighbor', headline: 'Hello' },
+      currentDraft: {
+        subject: 'Meet your neighbor',
+        headline: null,
+        body: 'Hi {{first_name}}, I am running.',
+      },
     })
   })
 
@@ -220,7 +324,7 @@ describe('EmailFlow', () => {
     const user = userEvent.setup()
     render(<EmailFlow open onClose={vi.fn()} />)
 
-    await user.click(screen.getByText('Introduce myself to voters'))
+    await pickAudience(user)
 
     expect(
       await screen.findByText('We could not draft that. Try again.'),
@@ -254,17 +358,24 @@ describe('EmailFlow', () => {
     const user = userEvent.setup()
     render(<EmailFlow open onClose={vi.fn()} />)
 
-    await fillCompose(user)
+    await pickAudience(user)
     await user.upload(
-      screen.getByLabelText('Image (optional)'),
+      screen.getByLabelText('Photo (optional)'),
       new File(['x'], 'logo.png', { type: 'image/png' }),
     )
-    await screen.findByRole('button', { name: 'Remove image' })
+    await screen.findByText('Photo added.')
     expect([...posted[0]!.keys()]).toEqual(['key', 'Content-Type', 'file'])
 
-    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await writeAndLook(user)
     await waitFor(() => expect(saves).toHaveLength(1))
-    expect(saves[0]).toMatchObject({ imageUrl: publicUrl })
+    expect(saves[0]).toMatchObject({
+      content: {
+        blocks: [
+          { type: 'image', url: publicUrl, alt: '' },
+          { type: 'paragraph', text: 'Hi there' },
+        ],
+      },
+    })
   })
 
   it('picks a list, says only people with email count, and saves it with consent', async () => {
@@ -272,16 +383,7 @@ describe('EmailFlow', () => {
     const user = userEvent.setup()
     render(<EmailFlow open onClose={vi.fn()} />)
 
-    await fillCompose(user)
-    await user.click(screen.getByRole('button', { name: 'Next' }))
-    await waitFor(() => expect(saves).toHaveLength(1))
-    expect(saves[0]).toMatchObject({
-      goal: 'Introduce myself to voters',
-      subject: 'Hello',
-      layout: 'newsletter',
-      consentConfirmed: false,
-    })
-
+    await user.click(screen.getByText('Introduce myself to voters'))
     expect(
       await screen.findByText(
         'Select a list or create a new one. Only voters with an email address are included.',
@@ -297,14 +399,21 @@ describe('EmailFlow', () => {
     expect(screen.getByText('1,000 of 4,800')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Next' })).toBeDisabled()
 
-    await user.click(
-      screen.getByLabelText(
-        'These people agreed to get email from my campaign.',
-      ),
-    )
+    await user.click(screen.getByLabelText(WIN_CONSENT))
     await user.click(screen.getByRole('button', { name: 'Next' }))
-    await waitFor(() => expect(saves).toHaveLength(2))
-    expect(saves[1]).toMatchObject({
+    await screen.findByText('What do you want to say?')
+    expect(saves).toHaveLength(0)
+
+    await writeAndLook(user)
+    await waitFor(() => expect(saves).toHaveLength(1))
+    expect(saves[0]).toEqual({
+      goal: 'Introduce myself to voters',
+      content: {
+        layout: 'personal_letter',
+        theme: 'cream_and_forest',
+        subject: 'Hello',
+        blocks: [{ type: 'paragraph', text: 'Hi there' }],
+      },
       voterFileFilterId: 1,
       consentConfirmed: true,
     })
@@ -319,8 +428,7 @@ describe('EmailFlow', () => {
     const user = userEvent.setup()
     render(<EmailFlow open onClose={vi.fn()} />)
 
-    await fillCompose(user)
-    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await user.click(screen.getByText('Introduce myself to voters'))
     await pickList(user)
 
     expect(
@@ -328,11 +436,7 @@ describe('EmailFlow', () => {
         'No one in this list has an email address yet. Pick another list to keep going.',
       ),
     ).toBeInTheDocument()
-    expect(
-      screen.queryByLabelText(
-        'These people agreed to get email from my campaign.',
-      ),
-    ).not.toBeInTheDocument()
+    expect(screen.queryByLabelText(WIN_CONSENT)).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Next' })).toBeDisabled()
   })
 
@@ -341,20 +445,7 @@ describe('EmailFlow', () => {
     const user = userEvent.setup()
     render(<EmailFlow open onClose={vi.fn()} />)
 
-    await fillCompose(user)
-    await user.click(screen.getByRole('button', { name: 'Next' }))
-    await pickList(user)
-    await user.click(
-      await screen.findByLabelText(
-        'These people agreed to get email from my campaign.',
-      ),
-    )
-    await user.click(screen.getByRole('button', { name: 'Next' }))
-
-    await screen.findByText('When should it go out?')
-    await user.click(screen.getByRole('button', { name: 'Next' }))
-
-    await screen.findByText('Ready to send?')
+    await toReview(user)
     expect(
       await screen.findByText(/Replies go to renee@example.com/),
     ).toBeInTheDocument()
@@ -380,23 +471,39 @@ describe('EmailFlow', () => {
     const user = userEvent.setup()
     render(<EmailFlow open onClose={vi.fn()} />)
 
-    await fillCompose(user)
-    await user.click(screen.getByRole('button', { name: 'Next' }))
-    await pickList(user)
-    await user.click(
-      await screen.findByLabelText(
-        'These people agreed to get email from my campaign.',
-      ),
-    )
-    await user.click(screen.getByRole('button', { name: 'Next' }))
-    await screen.findByText('When should it go out?')
-    await user.click(screen.getByRole('button', { name: 'Next' }))
-    await screen.findByText('Ready to send?')
+    await toReview(user)
 
     await user.click(screen.getByRole('button', { name: 'Send me a test' }))
     expect(
       await screen.findByText('Test sent to renee@example.com.'),
     ).toBeInTheDocument()
+  })
+
+  it('takes a refused test send back to the field it names', async () => {
+    mockApi()
+    api.mock('POST /v1/outreach/email/:id/test', {
+      status: 400,
+      data: {
+        message:
+          'Finish the email before sending it. Block 1: Keep this to one line',
+      },
+    })
+    const user = userEvent.setup()
+    render(<EmailFlow open onClose={vi.fn()} />)
+
+    await toReview(user)
+    await user.click(screen.getByRole('button', { name: 'Send me a test' }))
+    await user.click(
+      await screen.findByRole('button', { name: 'Fix the email' }),
+    )
+
+    expect(
+      await screen.findByText('Keep this to one line.'),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: 'Message' })).toHaveAttribute(
+      'aria-invalid',
+      'true',
+    )
   })
 
   it('sends the Serve surface through the office-scoped routes with constituent copy', async () => {
@@ -414,10 +521,6 @@ describe('EmailFlow', () => {
     render(<EmailFlow open onClose={vi.fn()} surface={SERVE_EMAIL_SURFACE} />)
 
     await user.click(screen.getByText('Introduce myself to constituents'))
-    await user.type(await screen.findByLabelText('Subject'), 'Hello')
-    await user.click(screen.getByLabelText('Message body'))
-    await user.keyboard('Hi there')
-    await user.click(screen.getByRole('button', { name: 'Next' }))
 
     expect(
       await screen.findByText(
@@ -432,8 +535,9 @@ describe('EmailFlow', () => {
       screen.getByLabelText('These people agreed to get email from my office.'),
     )
     await user.click(screen.getByRole('button', { name: 'Next' }))
-    await waitFor(() => expect(saves).toHaveLength(2))
-    expect(saves[1]).toMatchObject({
+    await writeAndLook(user)
+    await waitFor(() => expect(saves).toHaveLength(1))
+    expect(saves[0]).toMatchObject({
       voterFileFilterId: 1,
       consentConfirmed: true,
     })

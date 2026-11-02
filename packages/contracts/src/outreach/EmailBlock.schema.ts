@@ -40,7 +40,12 @@ const HTML_TAG_PATTERN = /<\/?[a-z][a-z0-9-]*(\s[^<>]*)?\/?>|<!--/i
 // malformed. Final mode is what can be sent, and what an agent must return.
 type Mode = 'final' | 'draft'
 
-const text = (mode: Mode, max: number, multiline: boolean) => {
+const text = (
+  mode: Mode,
+  max: number,
+  multiline: boolean,
+  allowEmpty = false,
+) => {
   const base = z
     .string()
     .trim()
@@ -54,7 +59,9 @@ const text = (mode: Mode, max: number, multiline: boolean) => {
       (value) => multiline || !/[\r\n\u2028\u2029]/.test(value),
       'Keep this to one line',
     )
-  return mode === 'final' ? base.min(1, 'This can’t be empty') : base
+  return mode === 'final' && !allowEmpty
+    ? base.min(1, 'This can’t be empty')
+    : base
 }
 
 const isHttpsUrl = (value: string): boolean => {
@@ -109,9 +116,11 @@ const blockSchemas = (mode: Mode) => {
       url: url(mode).describe(
         'An https link to an image the sender uploaded. Never invent or guess an image URL; leave the image out if none was provided.',
       ),
-      alt: text(mode, EMAIL_IMAGE_ALT_MAX_LENGTH, false).describe(
-        'What the image shows, for people who can’t see it. One short sentence, like "Volunteers cleaning up Riverside Park".',
-      ),
+      alt: text(mode, EMAIL_IMAGE_ALT_MAX_LENGTH, false, true)
+        .default('')
+        .describe(
+          'Optional. Leave it out unless the sender gave a description. Never invent one.',
+        ),
     })
     .strict()
     .describe('A full-width photo.')

@@ -345,11 +345,13 @@ test.describe('poll onboarding @dev-only', () => {
     // Move through onboarding flow.
     await page.getByRole('button', { name: 'Next', exact: true }).click()
 
-    // Set sworn in date to yesterday
+    // Set sworn in date to yesterday. Type it rather than click the grid: the
+    // calendar opens on the current month and hides outside days, so on the
+    // 1st "yesterday" is not a rendered cell.
     const yesterday = subDays(new Date(), 1)
     await page
-      .locator(`[data-day="${format(yesterday, 'yyyy-MM-dd')}"]`)
-      .click()
+      .getByPlaceholder('mm/dd/yyyy')
+      .fill(format(yesterday, 'MM/dd/yyyy'))
     await page.getByRole('button', { name: 'Next', exact: true }).click()
     await page.getByRole('button', { name: 'Create poll' }).click()
     await page.getByRole('button', { name: 'Pick Send Date' }).click()

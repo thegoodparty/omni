@@ -1,75 +1,81 @@
 import { useEffect, useRef, useState } from 'react'
-import type { EmailLayoutKey, EmailThemeKey } from '@goodparty_org/contracts'
+import {
+  EmailContentDraftSchema,
+  type EmailContentDraft,
+} from '@goodparty_org/contracts'
 import { apiErrorMessage, previewEmail } from './emailApi'
 
 export const EMAIL_PREVIEW_DEBOUNCE_MS = 400
 
+const isHttpsUrl = (value: string): boolean => {
+  try {
+    return new URL(value.trim()).protocol === 'https:'
+  } catch {
+    return false
+  }
+}
+
+// A link still being typed ("http") breaks the draft rules, which would hold
+// the preview back until it is finished.
+const withoutPartialLinks = (
+  content: EmailContentDraft,
+): EmailContentDraft => ({
+  ...content,
+  blocks: content.blocks.map((block) =>
+    block.type === 'button' && !isHttpsUrl(block.url)
+      ? { ...block, url: '' }
+      : block,
+  ),
+})
+
 interface EmailPreviewProps {
   serve: boolean
-  layout: EmailLayoutKey
-  theme: EmailThemeKey
-  subject: string
-  headline: string
-  body: string
-  buttonLabel: string
-  buttonUrl: string
-  imageUrl?: string
+  content: EmailContentDraft
 }
 
 // The sent email, rendered by gp-api's template. The last good render stays
-// up while the next one loads.
-export const EmailPreview = ({
-  serve,
-  layout,
-  theme,
-  subject,
-  headline,
-  body,
-  buttonLabel,
-  buttonUrl,
-  imageUrl,
-}: EmailPreviewProps) => {
+// up while the next one loads, and while the blocks break a rule the editor
+// already shows next to them.
+export const EmailPreview = ({ serve, content }: EmailPreviewProps) => {
   const [html, setHtml] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [height, setHeight] = useState(480)
   const frame = useRef<HTMLIFrameElement>(null)
+  const key = JSON.stringify(content)
+  const requested = useRef(0)
+  const shown = useRef(0)
+  const mounted = useRef(true)
 
   useEffect(() => {
-    let current = true
+    mounted.current = true
+    return () => {
+      mounted.current = false
+    }
+  }, [])
+
+  useEffect(() => {
+    const parsed = EmailContentDraftSchema.safeParse(
+      withoutPartialLinks(JSON.parse(key)),
+    )
+    if (!parsed.success) return
     const timer = setTimeout(async () => {
+      const id = ++requested.current
       try {
-        const next = await previewEmail(serve, {
-          layout,
-          theme,
-          subject,
-          body,
-          ...(headline.trim() && { headline }),
-          ...(imageUrl && { imageUrl }),
-          ...(buttonLabel.trim() &&
-            buttonUrl.trim() && { buttonLabel, buttonUrl }),
-        })
-        if (!current) return
+        const next = await previewEmail(serve, { content: parsed.data })
+        // A slow answer to an older edit still shows, but never replaces the
+        // answer to a newer one.
+        if (!mounted.current || id < shown.current) return
+        shown.current = id
         setHtml(next)
-        setError(null)
+        if (id === requested.current) setError(null)
       } catch (err) {
-        if (current) setError(apiErrorMessage(err))
+        if (mounted.current && id === requested.current) {
+          setError(apiErrorMessage(err))
+        }
       }
     }, EMAIL_PREVIEW_DEBOUNCE_MS)
-    return () => {
-      current = false
-      clearTimeout(timer)
-    }
-  }, [
-    serve,
-    layout,
-    theme,
-    subject,
-    headline,
-    body,
-    buttonLabel,
-    buttonUrl,
-    imageUrl,
-  ])
+    return () => clearTimeout(timer)
+  }, [serve, key])
 
   const fit = () => {
     const doc = frame.current?.contentDocument
@@ -79,8 +85,8 @@ export const EmailPreview = ({
   return (
     <div
       data-testid="email-preview"
-      data-layout={layout}
-      data-theme={theme}
+      data-layout={content.layout}
+      data-theme={content.theme}
       className="space-y-2"
     >
       {error && (

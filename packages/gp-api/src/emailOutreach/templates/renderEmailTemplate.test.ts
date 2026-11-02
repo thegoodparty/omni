@@ -13,7 +13,7 @@ import { renderEmailTemplate } from './renderEmailTemplate'
 const WIN: EmailTemplateContext = {
   senderName: 'Renee Wells',
   paidForBy: 'Wells for Mayor',
-  sendDate: new Date(2026, 10, 3, 9, 0),
+  sendDate: new Date('2026-11-03T17:00:00Z'),
 }
 const SERVE: EmailTemplateContext = { ...WIN, paidForBy: null }
 
@@ -100,6 +100,15 @@ describe('renderEmailTemplate', () => {
       expect(text).toContain('Renee Wells · November 3, 2026')
     })
 
+    it('dates the masthead by the Pacific day, not the UTC one', async () => {
+      // 8:30pm on November 3 in Los Angeles is already November 4 in UTC.
+      const { text } = await renderEmailTemplate(example, {
+        ...SERVE,
+        sendDate: new Date('2026-11-04T04:30:00Z'),
+      })
+      expect(text).toContain('Renee Wells · November 3, 2026')
+    })
+
     it('renders subheadings in the theme color, dividers and a smaller left button', async () => {
       const { html, text } = await renderEmailTemplate(example, SERVE)
       expect(html).toMatch(
@@ -173,6 +182,19 @@ describe('renderEmailTemplate', () => {
       expect(html.indexOf('Renee<')).toBeLessThan(html.indexOf('<img'))
       expect(html).toContain('alt="Renee at the park"')
     })
+  })
+
+  it('renders an empty alt when a photo has no description', async () => {
+    const { html } = await renderEmailTemplate(
+      letter({
+        blocks: [
+          { type: 'paragraph', text: 'Thank you' },
+          { type: 'image', url: 'https://cdn.example.com/a.jpg', alt: '' },
+        ],
+      }),
+      WIN,
+    )
+    expect(html).toContain('alt=""')
   })
 
   it('shows Paid for by on Win and leaves it off on Serve', async () => {

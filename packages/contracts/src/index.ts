@@ -598,6 +598,8 @@ export { cityFromDistrictName, cityNameCase } from './campaigns/DistrictCity'
 export {
   ElectedOfficeSchema,
   type ElectedOffice,
+  MyElectedOfficeSchema,
+  type MyElectedOffice,
 } from './campaigns/ElectedOffice.schema'
 
 export {

@@ -133,7 +133,7 @@ const mockLoad = (
   api.mock('GET /v1/elected-office/current', { status: 200, data: eo })
   api.mock('GET /v1/elected-office/mine', {
     status: 200,
-    data: [{ ...eo, hasWinIssues }],
+    data: [{ ...eo, hasWinIssues, campaignIsPro: false }],
   })
   api.mock('GET /v1/organizations/:slug', { status: 200, data: org })
 }

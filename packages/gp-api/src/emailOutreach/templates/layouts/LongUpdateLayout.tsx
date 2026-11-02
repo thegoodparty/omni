@@ -1,5 +1,6 @@
 import { Heading, Text } from '@react-email/components'
-import { format } from 'date-fns'
+import { formatInTimeZone } from 'date-fns-tz'
+import { EMAIL_MASTHEAD_TIME_ZONE } from '../emailTemplate.const'
 import type { LayoutProps } from '../emailTemplate.types'
 import {
   Block,
@@ -51,7 +52,11 @@ export const LongUpdateLayout = ({ colors, blocks, context }: LayoutProps) => {
             lineHeight: '20px',
           }}
         >
-          {`${context.senderName} · ${format(context.sendDate, 'MMMM d, yyyy')}`}
+          {`${context.senderName} · ${formatInTimeZone(
+            context.sendDate,
+            EMAIL_MASTHEAD_TIME_ZONE,
+            'MMMM d, yyyy',
+          )}`}
         </Text>
       </Block>
       <EmailRule colors={colors} height={3} />

@@ -7,6 +7,10 @@ import type { MyElectedOffice } from 'gpApi/api-endpoints'
 import { router } from 'helpers/test-utils/router-mocking'
 import DashboardLayout from './DashboardLayout'
 import DashboardNavHeaderAction from './DashboardNavHeaderAction'
+import {
+  markElectionResultShown,
+  wasElectionResultShown,
+} from '../election-result/dismissal'
 
 const {
   mockUseCampaign,
@@ -33,7 +37,8 @@ vi.mock('@shared/hooks/useIsImpersonating', () => ({
   useIsImpersonating: () => mockIsImpersonating(),
 }))
 const mockIsSnoozed = vi.hoisted(() => vi.fn(() => false))
-vi.mock('../election-result/dismissal', () => ({
+vi.mock('../election-result/dismissal', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../election-result/dismissal')>()),
   isElectionResultDismissed: () => mockIsDismissed(),
   isElectionResultSnoozed: () => mockIsSnoozed(),
 }))
@@ -108,8 +113,9 @@ describe('DashboardLayout election-result redirect', () => {
     // Active campaign whose general election has passed (weeks < 0) with no
     // recorded result — the condition that forces the election-result gate.
     mockUseCampaign.mockReturnValue([
-      { details: { electionDate: '2020-01-01' } },
+      { id: 1, details: { electionDate: '2020-01-01' } },
     ])
+    window.sessionStorage.clear()
     mockIsImpersonating.mockReturnValue(false)
     mockIsDismissed.mockReturnValue(false)
     mockWeeksTill.mockReturnValue({ weeks: -1 })
@@ -190,6 +196,45 @@ describe('DashboardLayout election-result redirect', () => {
     )
     vi.mocked(usePathname).mockReturnValue('/')
   })
+
+  it('redirects once per browser session, then leaves every route alone', async () => {
+    const first = renderLayout()
+    await waitFor(() =>
+      expect(router.push).toHaveBeenCalledWith('/dashboard/election-result'),
+    )
+    first.unmount()
+    vi.clearAllMocks()
+
+    vi.mocked(usePathname).mockReturnValue('/dashboard/outreach')
+    renderLayout()
+    await screen.findByText('dashboard content')
+    expect(router.push).not.toHaveBeenCalled()
+    vi.mocked(usePathname).mockReturnValue('/')
+  })
+
+  it('does not redirect once the page has been shown this session', async () => {
+    markElectionResultShown(1)
+    renderLayout()
+    await screen.findByText('dashboard content')
+    expect(router.push).not.toHaveBeenCalled()
+  })
+
+  it('still redirects another campaign shown in the same session', async () => {
+    markElectionResultShown(2)
+    renderLayout()
+    await waitFor(() =>
+      expect(router.push).toHaveBeenCalledWith('/dashboard/election-result'),
+    )
+  })
+
+  it('does not use up the session while snoozed', async () => {
+    mockIsSnoozed.mockReturnValue(true)
+    renderLayout()
+    await screen.findByText('dashboard content')
+    expect(router.push).not.toHaveBeenCalled()
+    expect(wasElectionResultShown(1)).toBe(false)
+    mockIsSnoozed.mockReturnValue(false)
+  })
 })
 
 describe('DashboardLayout unfinished winner redirect', () => {
@@ -210,6 +255,7 @@ describe('DashboardLayout unfinished winner redirect', () => {
     onboardingStep: 'confirm',
     campaignId: 7,
     hasWinIssues: false,
+    campaignIsPro: true,
     ...overrides,
   })
 
@@ -229,7 +275,18 @@ describe('DashboardLayout unfinished winner redirect', () => {
     vi.mocked(usePathname).mockReturnValue('/')
   })
 
-  it('sends a winner whose office is not finished back to Serve onboarding', async () => {
+  it('leaves a non-Pro winner with an unfinished office on the Win dashboard', async () => {
+    api.mock('GET /v1/elected-office/mine', {
+      status: 200,
+      data: [winOffice({ campaignIsPro: false })],
+    })
+    renderLayout()
+    await screen.findByText('dashboard content')
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(router.push).not.toHaveBeenCalled()
+  })
+
+  it('sends a Pro winner whose office is not finished back to Serve onboarding', async () => {
     api.mock('GET /v1/elected-office/mine', {
       status: 200,
       data: [winOffice()],

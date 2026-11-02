@@ -435,6 +435,7 @@ describe(
           data: {
             userId: service.user.id,
             organizationSlug: CRON_BUCKET0_SLUG,
+            onboardingCompletedAt: new Date(),
           },
         })
         await service.prisma.experimentRun.create({
@@ -470,6 +471,68 @@ describe(
   },
 )
 
+describe('CommunityIssueDispatchService crons — Serve onboarding gate', () => {
+  beforeEach(() => {
+    vi.stubEnv('MEETINGS_AUTOMATION_ENABLED', 'true')
+    vi.useFakeTimers({ now: SUNDAY_UTC })
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.unstubAllEnvs()
+    vi.restoreAllMocks()
+  })
+
+  const seedOffice = async (
+    slug: string,
+    onboardingCompletedAt: Date | null,
+  ) => {
+    await seedOrg(slug)
+    await service.prisma.electedOffice.create({
+      data: {
+        userId: service.user.id,
+        organizationSlug: slug,
+        onboardingCompletedAt,
+      },
+    })
+  }
+
+  const runCron = async (
+    cron: 'dispatchWeeklyTrendingIssues' | 'dispatchMonthlyTopIssues',
+  ) => {
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { metaData: { lastVisited: Date.now() } },
+    })
+    mockResolveServeContext({ state: 'MN', positionName: 'City Council' })
+    const dispatchSpy = mockDispatchRun().mockClear()
+    const cronLock = service.app.get(CronLockService)
+    vi.spyOn(cronLock, 'tryClaimDailyRun').mockResolvedValue(true)
+    vi.spyOn(cronLock, 'markCompleted').mockResolvedValue(undefined)
+    await service.app.get(CommunityIssueDispatchService)[cron]()
+    return dispatchSpy.mock.calls.map((c) => c[0].organizationSlug)
+  }
+
+  it('skips an office that has not finished Serve onboarding', async () => {
+    await seedOffice(CRON_BUCKET0_SLUG, null)
+    await seedOffice(CRON_TOP_BUCKET_SLUG, null)
+
+    expect(await runCron('dispatchWeeklyTrendingIssues')).toEqual([])
+    expect(await runCron('dispatchMonthlyTopIssues')).toEqual([])
+  })
+
+  it('dispatches for an office that finished Serve onboarding', async () => {
+    await seedOffice(CRON_BUCKET0_SLUG, new Date())
+    await seedOffice(CRON_TOP_BUCKET_SLUG, new Date())
+
+    expect(await runCron('dispatchWeeklyTrendingIssues')).toEqual([
+      CRON_BUCKET0_SLUG,
+    ])
+    expect(await runCron('dispatchMonthlyTopIssues')).toEqual([
+      CRON_TOP_BUCKET_SLUG,
+    ])
+  })
+})
+
 describe('CommunityIssueDispatchService — activity-gated dispatch', () => {
   describe('cron path (dispatchWeeklyTrendingIssues)', () => {
     beforeEach(() => {
@@ -489,7 +552,11 @@ describe('CommunityIssueDispatchService — activity-gated dispatch', () => {
         update: {},
       })
       await service.prisma.electedOffice.create({
-        data: { userId: service.user.id, organizationSlug: CRON_BUCKET0_SLUG },
+        data: {
+          userId: service.user.id,
+          organizationSlug: CRON_BUCKET0_SLUG,
+          onboardingCompletedAt: new Date(),
+        },
       })
       await service.prisma.user.update({
         where: { id: service.user.id },
@@ -521,7 +588,11 @@ describe('CommunityIssueDispatchService — activity-gated dispatch', () => {
         update: {},
       })
       await service.prisma.electedOffice.create({
-        data: { userId: service.user.id, organizationSlug: CRON_BUCKET0_SLUG },
+        data: {
+          userId: service.user.id,
+          organizationSlug: CRON_BUCKET0_SLUG,
+          onboardingCompletedAt: new Date(),
+        },
       })
       const staleLastVisited = subDays(new Date(), 91).getTime()
       await service.prisma.user.update({
@@ -580,6 +651,7 @@ describe('CommunityIssueDispatchService — activity-gated dispatch', () => {
         data: {
           userId: service.user.id,
           organizationSlug: CRON_TOP_BUCKET_SLUG,
+          onboardingCompletedAt: new Date(),
         },
       })
       await service.prisma.user.update({
@@ -615,6 +687,7 @@ describe('CommunityIssueDispatchService — activity-gated dispatch', () => {
         data: {
           userId: service.user.id,
           organizationSlug: CRON_TOP_BUCKET_SLUG,
+          onboardingCompletedAt: new Date(),
         },
       })
       const staleLastVisited = subDays(new Date(), 91).getTime()

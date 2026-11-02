@@ -1,0 +1,193 @@
+import { useState } from 'react'
+import { beforeEach, describe, expect, it } from 'vitest'
+import { screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { api } from 'helpers/test-utils/api-mocking'
+import { render } from 'helpers/test-utils/render'
+import { EmailLookStep } from './EmailLookStep'
+import {
+  initialCompose,
+  switchLayout,
+  type ComposeFieldError,
+  type EmailComposeState,
+} from './emailForm.util'
+import { WIN_EMAIL_SURFACE } from './emailSurface'
+
+const Harness = ({
+  start,
+  showIssues = false,
+  serverError = null,
+}: {
+  start: EmailComposeState
+  showIssues?: boolean
+  serverError?: ComposeFieldError | null
+}) => {
+  const [value, setValue] = useState(start)
+  return (
+    <EmailLookStep
+      surface={WIN_EMAIL_SURFACE}
+      value={value}
+      onChange={setValue}
+      showIssues={showIssues}
+      serverError={serverError}
+    />
+  )
+}
+
+const previews: unknown[] = []
+
+beforeEach(() => {
+  previews.length = 0
+  api.mock('POST /v1/outreach/email/preview', ({ body }) => {
+    previews.push(body)
+    return { status: 200, data: { html: '<p>ok</p>' } }
+  })
+})
+
+const letter: EmailComposeState = {
+  ...initialCompose(),
+  subject: 'Hi',
+  message: 'Hello',
+}
+
+describe('EmailLookStep', () => {
+  it('makes the button required only in Short with a button', async () => {
+    const user = userEvent.setup()
+    render(<Harness start={{ ...letter, title: 'Saturday' }} />)
+
+    expect(screen.getByText('Button (optional)')).toBeInTheDocument()
+    await user.click(screen.getByRole('radio', { name: 'Short with a button' }))
+    expect(screen.getByText('Button')).toBeInTheDocument()
+    await user.click(screen.getByRole('radio', { name: 'Long update' }))
+    expect(screen.getByText('Button (optional)')).toBeInTheDocument()
+  })
+
+  it('says what was written that does not fit the layout', async () => {
+    const user = userEvent.setup()
+    render(<Harness start={{ ...letter, message: 'a'.repeat(601) }} />)
+
+    expect(screen.queryByTestId('email-layout-misfit')).toBeNull()
+    await user.click(screen.getByRole('radio', { name: 'Short with a button' }))
+    const misfit = screen.getByTestId('email-layout-misfit')
+    expect(misfit).toHaveTextContent('Title: Add a title.')
+    expect(misfit).toHaveTextContent(
+      'Message: Keep the message under 600 characters for this layout.',
+    )
+
+    await user.click(screen.getByRole('radio', { name: 'Long update' }))
+    expect(screen.getByTestId('email-layout-misfit')).toHaveTextContent(
+      'Message: Write at least 2 paragraphs, with a blank line between them.',
+    )
+  })
+
+  it('asks for the button’s link, and shows the button error after Next', async () => {
+    const { unmount } = render(
+      <Harness start={{ ...letter, buttonLabel: 'Say hello' }} />,
+    )
+    expect(screen.getByTestId('email-link-prompt')).toBeInTheDocument()
+    unmount()
+
+    render(
+      <Harness
+        showIssues
+        start={{
+          ...switchLayout(letter, 'short_cta'),
+          title: 'Saturday',
+          buttonLabel: 'Sign up',
+        }}
+      />,
+    )
+    expect(
+      screen.getByText('Add the link this button opens.'),
+    ).toBeInTheDocument()
+  })
+
+  it('puts a refused send’s button error on the button', async () => {
+    render(
+      <Harness
+        start={{ ...letter, buttonLabel: 'Read', buttonUrl: 'https://x.co' }}
+        serverError={{ field: 'button', message: 'Keep this to one line.' }}
+      />,
+    )
+
+    expect(screen.getByText('Keep this to one line.')).toBeInTheDocument()
+  })
+
+  it('offers Top or Bottom for a personal letter’s photo', async () => {
+    const user = userEvent.setup()
+    render(
+      <Harness
+        start={{ ...letter, photoUrl: 'https://assets.example.com/a.png' }}
+      />,
+    )
+
+    await user.click(screen.getByRole('radio', { name: 'Bottom' }))
+    await waitFor(
+      () =>
+        expect(previews.at(-1)).toMatchObject({
+          content: {
+            blocks: [
+              { type: 'paragraph', text: 'Hello' },
+              { type: 'image', url: 'https://assets.example.com/a.png' },
+            ],
+          },
+        }),
+      { timeout: 2000 },
+    )
+
+    await user.click(screen.getByRole('radio', { name: 'Long update' }))
+    expect(screen.queryByRole('radio', { name: 'Bottom' })).toBeNull()
+  })
+})
+
+describe('EmailLookStep preview', () => {
+  const start: EmailComposeState = {
+    ...switchLayout(initialCompose(), 'short_cta'),
+    subject: 'October',
+    title: 'Ward 2 update',
+    message: 'Dear neighbor',
+    photoUrl: 'https://assets.example.com/a.png',
+    buttonLabel: 'RSVP',
+    buttonUrl: 'https://example.org/rsvp',
+  }
+
+  const settled = async () => {
+    await waitFor(() => expect(previews.length).toBeGreaterThan(0))
+    await new Promise((resolve) => setTimeout(resolve, 100))
+  }
+
+  it.each<
+    [string, (user: ReturnType<typeof userEvent.setup>) => Promise<void>]
+  >([
+    ['button text', (u) => u.type(screen.getByLabelText('Button text'), '!')],
+    ['button link', (u) => u.type(screen.getByLabelText('Button link'), 'x')],
+    [
+      'layout',
+      (u) => u.click(screen.getByRole('radio', { name: 'Personal letter' })),
+    ],
+    [
+      'theme',
+      (u) => u.click(screen.getAllByRole('button', { pressed: false })[0]!),
+    ],
+  ])('refreshes after a change to the %s', async (_name, edit) => {
+    const user = userEvent.setup()
+    render(<Harness start={start} />)
+    await settled()
+    const before = previews.length
+    await edit(user)
+    await waitFor(() => expect(previews.length).toBeGreaterThan(before))
+  })
+
+  it('ends on the last of several quick edits', async () => {
+    const user = userEvent.setup()
+    render(<Harness start={start} />)
+    await settled()
+    await user.type(screen.getByLabelText('Button text'), ' one')
+    await user.click(screen.getAllByRole('button', { pressed: false })[0]!)
+    await user.type(screen.getByLabelText('Button text'), ' two')
+    await waitFor(() => {
+      const last = JSON.stringify(previews[previews.length - 1])
+      expect(last).toContain('RSVP one two')
+    })
+  })
+})

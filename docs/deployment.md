@@ -262,8 +262,8 @@ A job that runs only from `main` (push, schedule or dispatch) and holds a
 credential that can change production declares the `production` GitHub
 environment, with `deployment: false` so it stays out of the deployment history
 `finalize` writes. Today that is the train's six Vercel deploy jobs (dev and
-prod alike, since `VERCEL_TOKEN` can deploy every target), `dependabot-merge.yml`
-and `sync.yml`. A secret that only those jobs read can live in the environment
+prod alike, since `VERCEL_TOKEN` can deploy every target) and
+`dependabot-merge.yml`. A secret that only those jobs read can live in the environment
 rather than at repo scope, where (once the environment is limited to `main`)
 a pull request run cannot read it.
 

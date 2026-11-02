@@ -16,11 +16,12 @@ import {
 import { eventually } from 'tests/utils/eventually'
 import { withGatewayRetry } from 'tests/utils/headless-user'
 
-// The email send, end to end against the vendor-mock stack: compose, pick a
-// voter-file list with the email filter forced on, confirm with a card Stripe
-// declines at the hold, confirm again with Stripe's 4242 card (a real
-// test-mode hold), then run the real due, prepare, send and settle steps and
-// wait for Sent.
+// The email send, end to end against the vendor-mock stack: pick a
+// voter-file list with the email filter forced on, write the email, pick its
+// look, confirm
+// with a card Stripe declines at the hold, confirm again with Stripe's 4242
+// card (a real test-mode hold), then run the real due, prepare, send and
+// settle steps and wait for Sent.
 //
 // Emails reach the people DB only through imported contacts, read from dev's
 // database, which a preview's own database never feeds. So the campaign's
@@ -87,6 +88,62 @@ const fillStripeCard = async (
   await page.waitForTimeout(500)
 }
 
+// The AI draft is answered here so the form it fills is known: a model's
+// draft varies run to run, and this spec is about the send.
+const AI_DRAFT = {
+  subject: 'Meet your candidate',
+  headline: null,
+  body: 'Hi {{first_name}},\n\nI am running to fix our roads.',
+  buttonLabel: 'Say hello',
+  content: {
+    layout: 'personal_letter',
+    theme: 'cream_and_forest',
+    subject: 'Meet your candidate',
+    blocks: [
+      { type: 'paragraph', text: 'Hi {{first_name}},' },
+      { type: 'paragraph', text: 'I am running to fix our roads.' },
+      { type: 'button', label: 'Say hello', url: '' },
+    ],
+  },
+}
+
+const mockAiDraft = (page: Page) =>
+  page.route('**/v1/outreach/email/draft', (route) =>
+    route.fulfill({ json: AI_DRAFT }),
+  )
+
+// Write, then look: the draft fills a personal letter, the short layout
+// picked on the look step asks for a title that step 1 hid, Back fills it in,
+// and the button's link is filled in on the look step.
+const composeEmail = async (page: Page) => {
+  await expect(page.locator('#email-subject')).toHaveValue(
+    'Meet your candidate',
+    { timeout: 30_000 },
+  )
+  await page.getByRole('button', { name: 'Next' }).click()
+
+  await expect(stepHeading(page, 'How should it look?')).toBeVisible({
+    timeout: 30_000,
+  })
+  await page.getByRole('radio', { name: 'Short with a button' }).click()
+  await expect(page.getByTestId('email-layout-misfit')).toContainText(
+    'Title: Add a title.',
+  )
+  await expect(page.getByRole('button', { name: 'Next' })).toBeDisabled()
+  await page.getByRole('button', { name: 'Back' }).click()
+
+  await expect(stepHeading(page, 'What do you want to say?')).toBeVisible()
+  await expect(page.getByRole('textbox', { name: 'Message' })).toContainText(
+    'I am running to fix our roads.',
+  )
+  await page.locator('#email-title').fill('Fixing our roads')
+  await page.getByRole('button', { name: 'Next' }).click()
+
+  await expect(stepHeading(page, 'How should it look?')).toBeVisible()
+  await page.locator('#email-button-url').fill('https://goodparty.org')
+  await page.getByRole('button', { name: 'Next' }).click()
+}
+
 test.describe('Email send — mock pipeline', () => {
   test.use({ serviceWorkers: 'block' })
 
@@ -94,12 +151,13 @@ test.describe('Email send — mock pipeline', () => {
     await blockSlowScripts(page)
   })
 
-  test('pick a list, compose, a declined card, pay with 4242, and the send goes out', async ({
+  test('pick a list, write, look, a declined card, pay with 4242, and the send goes out', async ({
     page,
   }) => {
     test.setTimeout(6 * 60 * 1000)
 
     await setFlagOverrides(page, { 'win-email-outreach': 'on' })
+    await mockAiDraft(page)
     const { client } = await setupProCampaignUser(page)
     const { data: mine } = await client.get<{ id: number }>(
       '/v1/campaigns/mine',
@@ -134,16 +192,6 @@ test.describe('Email send — mock pipeline', () => {
       .getByRole('button', { name: 'Introduce myself to voters' })
       .click()
 
-    // ── Compose ──────────────────────────────────────────────────────────
-    await expect(stepHeading(page, 'What do you want to say?')).toBeVisible({
-      timeout: 30_000,
-    })
-    await page.locator('#email-subject').fill('Meet your candidate')
-    const body = page.locator('[aria-label="Message body"]').first()
-    await body.click()
-    await page.keyboard.type('I am running to fix our roads. Say hello.')
-    await page.getByRole('button', { name: 'Next' }).click()
-
     // ── Audience: a voter-file list, email forced on ────────────────────
     await expect(stepHeading(page, 'Who do you want to reach?')).toBeVisible({
       timeout: 30_000,
@@ -157,6 +205,12 @@ test.describe('Email send — mock pipeline', () => {
     ).toBeVisible({ timeout: 60_000 })
     await page.locator('#email-consent').click()
     await page.getByRole('button', { name: 'Next' }).click()
+
+    // ── Write, then look ─────────────────────────────────────────────────
+    await expect(stepHeading(page, 'What do you want to say?')).toBeVisible({
+      timeout: 30_000,
+    })
+    await composeEmail(page)
 
     // ── Schedule: send as soon as it is paid (the default) ──────────────
     await expect(stepHeading(page, 'When should it go out?')).toBeVisible({
@@ -280,14 +334,6 @@ test.describe('Email send — mock pipeline', () => {
     await page
       .getByRole('button', { name: 'Introduce myself to voters' })
       .click()
-    await expect(stepHeading(page, 'What do you want to say?')).toBeVisible({
-      timeout: 30_000,
-    })
-    await page.locator('#email-subject').fill('Meet your candidate')
-    const body = page.locator('[aria-label="Message body"]').first()
-    await body.click()
-    await page.keyboard.type('I am running to fix our roads. Say hello.')
-    await page.getByRole('button', { name: 'Next' }).click()
 
     await expect(stepHeading(page, 'Who do you want to reach?')).toBeVisible({
       timeout: 30_000,

@@ -18,7 +18,7 @@
 The layouts differ by treatment, not by fields. Every theme works with every layout.
 
 - **`short_cta`**: bold and centered. A theme-color strip, the photo edge to edge, a 36px centered headline, centered paragraphs, and the button in the theme's accent on a band of the theme color (`rule`). The footer is centered.
-- **`long_update`**: a theme-color masthead (`header`) with the level 1 heading, then `<sender> · <Month d, yyyy>`. The sender and date come from `context`, never the author; the date is the send's date (or now for send-now, test and preview). Then the optional photo full width, left-aligned 17/28 reading text, level 2 subheadings in the theme color (`rule`), dividers and a smaller `cta` button.
+- **`long_update`**: a theme-color masthead (`header`) with the level 1 heading, then `<sender> · <Month d, yyyy>`. The sender and date come from `context`, never the author; the date is the send's date (or now for send-now, test and preview), as the calendar day in `EMAIL_MASTHEAD_TIME_ZONE` (Pacific), since no campaign or office stores a time zone and a UTC day would date an evening Pacific send tomorrow. Then the optional photo full width, left-aligned 17/28 reading text, level 2 subheadings in the theme color (`rule`), dividers and a smaller `cta` button.
 - **`personal_letter`**: a plain email on a white page (`card`, not the theme tint), no header or banner. Paragraphs, the button as an underlined `cta` link, and the photo padded and centered at 78% of the column, first or last.
 
 ## Rules
