@@ -305,9 +305,11 @@ export const OutreachAudienceStep = ({
   // Totals keep the new contacts in, so the price stays the total's; only the
   // words split them out.
   const reachLine = (count: number, newContactsCount: number): string =>
-    !isElectedOfficial && newContactsCount > 0
-      ? `${copy.reachVerb} ${(count - newContactsCount).toLocaleString()} ${copy.reachNoun} and ${WIN_NEW_CONTACTS_LABELS.newContacts(newContactsCount)}`
-      : `${copy.reachVerb} ${count.toLocaleString()} ${copy.reachNoun}`
+    isElectedOfficial || newContactsCount <= 0
+      ? `${copy.reachVerb} ${count.toLocaleString()} ${copy.reachNoun}`
+      : count <= newContactsCount
+        ? `${copy.reachVerb} ${WIN_NEW_CONTACTS_LABELS.newContacts(newContactsCount)}`
+        : `${copy.reachVerb} ${(count - newContactsCount).toLocaleString()} ${copy.reachNoun} and ${WIN_NEW_CONTACTS_LABELS.newContacts(newContactsCount)}`
 
   // The carried-in recommendation, applied once the picker can act on it:
   // its saved list selected when the picker has that row, the card itself

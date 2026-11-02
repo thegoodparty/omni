@@ -557,6 +557,20 @@ describe('OutreachAudienceStep — new contacts on Win', () => {
     ).toBeInTheDocument()
   })
 
+  it('drops the voters half when the list holds only new contacts', () => {
+    render(
+      <OutreachAudienceStep
+        {...selectedListProps()}
+        reachableCount={30}
+        reachableNewContactsCount={30}
+      />,
+    )
+
+    expect(
+      screen.getByText('Message 30 new contacts added for $1.05'),
+    ).toBeInTheDocument()
+  })
+
   it('reads as before without new contacts', () => {
     render(<OutreachAudienceStep {...selectedListProps()} />)
 

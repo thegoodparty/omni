@@ -30,7 +30,9 @@ export const WIN_NEW_CONTACTS_LABELS = {
   notInVoterFile: 'Not in your voter file',
   newContacts,
   votersAndNewContacts: (voterCount: number, newContactCount: number) =>
-    `${voters(voterCount)}, ${newContacts(newContactCount)}`,
+    voterCount > 0
+      ? `${voters(voterCount)}, ${newContacts(newContactCount)}`
+      : newContacts(newContactCount),
 } as const
 
 export interface ContactsLabels {

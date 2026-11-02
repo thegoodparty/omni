@@ -139,16 +139,19 @@ describe('ListsIndex — the "All voters" universe row', () => {
 })
 
 describe('ListsIndex — new contacts on the universe row', () => {
-  const mockStatsWithNewContacts = () =>
+  const mockStatsWithNewContacts = (
+    totalConstituents = 12694,
+    newContactsCount = 214,
+  ) =>
     api.mock('GET /v1/contacts/stats', {
       status: 200,
       data: {
         districtId: 'district-1',
         computedAt: '2026-07-17T00:00:00.000Z',
-        totalConstituents: 12694,
+        totalConstituents,
         totalConstituentsWithCellPhone: 9000,
         districtPopulation: null,
-        newContactsCount: 214,
+        newContactsCount,
         buckets: {
           age: [],
           homeowner: [],
@@ -169,6 +172,16 @@ describe('ListsIndex — new contacts on the universe row', () => {
       await screen.findByText('12,480 voters, 214 new contacts added'),
     ).toBeInTheDocument()
     expect(screen.getByText('All voters and contacts')).toBeInTheDocument()
+  })
+
+  it('drops the voters half when every contact is new', async () => {
+    mockStatsWithNewContacts(30, 30)
+    setContext({ customSegments: [] })
+
+    render(<ListsIndex />)
+
+    expect(await screen.findByText('30 new contacts added')).toBeInTheDocument()
+    expect(screen.queryByText(/0 voters/)).toBeNull()
   })
 
   it('keeps the total and title on Serve', async () => {
