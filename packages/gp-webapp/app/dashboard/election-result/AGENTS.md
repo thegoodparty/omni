@@ -9,10 +9,12 @@ browser session: the redirect, and the page opening, mark the campaign shown
 `gp:electionResultShownThisSession` holding the campaign id), and no route
 sends them back until the browser closes. Test mode's Apply clears it.
 
-The ask screen has a header bar: the `GoodPartyOrgLogoWordmark` over a rule,
-no menu, and a ghost `IconButton` X (`aria-label="Close"`) on its right. The X
-goes to Home, where the card and the chat keep asking; it saves and snoozes
-nothing. The Pro win's `PrepareToServe` draws its own screen without it.
+Every screen here has the same header bar, `components/ElectionResultHeader.tsx`:
+the `GoodPartyOrgLogoWordmark` over a rule, no menu or navigation. The ask
+screen and the congratulations without Pro add a ghost `IconButton` X
+(`aria-label="Close"`) on its right, which goes to Home, where the card and
+the chat keep asking; it saves and snoozes nothing. The Pro win's two steps
+and `loss/` show the logo alone.
 
 ## Two places ask, the first answer wins
 

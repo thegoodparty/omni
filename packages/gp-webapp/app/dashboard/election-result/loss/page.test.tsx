@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { fireEvent, screen } from '@testing-library/react'
+import { fireEvent, screen, within } from '@testing-library/react'
 import { router } from 'helpers/test-utils/router-mocking'
 import { render } from 'helpers/test-utils/render'
 import LossPage from './page'
@@ -73,6 +73,18 @@ describe('LossPage', () => {
       screen.getByRole('heading', { name: 'Thank you for running, Sarah' }),
     ).toBeInTheDocument()
     expect(screen.queryByText(/Pro subscription is still active/i)).toBeNull()
+  })
+
+  it('has the GoodParty logo header with no close button', () => {
+    mockCampaign.current = { id: 1, isPro: false, details: {} }
+
+    render(<LossPage />)
+
+    const header = screen.getByRole('banner')
+    expect(
+      header.querySelector('[data-slot="good-party-org-logo-wordmark"]'),
+    ).not.toBeNull()
+    expect(within(header).queryByRole('button')).toBeNull()
   })
 
   it('points to the community and back to the dashboard', () => {

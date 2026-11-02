@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { act, screen, fireEvent, waitFor } from '@testing-library/react'
+import { act, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { router } from 'helpers/test-utils/router-mocking'
@@ -122,6 +122,14 @@ const startServing = async (): Promise<void> => {
   )
 }
 
+const logoHeader = (): HTMLElement => {
+  const header = screen.getByRole('banner')
+  expect(
+    header.querySelector('[data-slot="good-party-org-logo-wordmark"]'),
+  ).not.toBeNull()
+  return header
+}
+
 const proCampaign = (party?: string): MockCampaign => ({
   id: 1,
   isPro: true,
@@ -176,7 +184,7 @@ describe('ElectionResultPage', () => {
 
   it('closes to Home without saving or snoozing an answer', () => {
     render(<ElectionResultPage />)
-    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+    fireEvent.click(within(logoHeader()).getByRole('button', { name: 'Close' }))
 
     expect(router.push).toHaveBeenCalledWith('/dashboard')
     expect(mockUpdateCampaign).not.toHaveBeenCalled()
@@ -319,6 +327,9 @@ describe('ElectionResultPage', () => {
       screen.queryByRole('button', { name: 'Start preparing to serve' }),
     ).toBeNull()
     expect(document.querySelector('video')).toBeNull()
+    expect(
+      within(logoHeader()).getByRole('button', { name: 'Close' }),
+    ).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Back to dashboard' }))
     expect(router.replace).toHaveBeenCalledWith('/dashboard')
@@ -349,6 +360,9 @@ describe('ElectionResultPage', () => {
     expect(screen.getByText('Mayor')).toBeInTheDocument()
     expect(document.querySelector('video')).toBeNull()
     expect(
+      within(logoHeader()).queryByRole('button', { name: 'Close' }),
+    ).toBeNull()
+    expect(
       screen.queryByRole('button', { name: 'Start preparing to serve' }),
     ).toBeNull()
 
@@ -359,6 +373,9 @@ describe('ElectionResultPage', () => {
       name: 'Get ready to serve your district',
     })
     await waitFor(() => expect(heading).toHaveFocus())
+    expect(
+      within(logoHeader()).queryByRole('button', { name: 'Close' }),
+    ).toBeNull()
     expect(
       screen.getByText(
         'Serving starts with staying connected to your district.',
