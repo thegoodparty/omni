@@ -34,7 +34,7 @@ export type ElectedOffice = z.infer<typeof ElectedOfficeSchema>
 // org, where the client has no campaign to read, so the server answers.
 export const MyElectedOfficeSchema = ElectedOfficeSchema.extend({
   hasWinIssues: z.boolean(),
-  campaignIsPro: z.boolean(),
+  campaignWasEverPro: z.boolean(),
 })
 
 export type MyElectedOffice = z.infer<typeof MyElectedOfficeSchema>

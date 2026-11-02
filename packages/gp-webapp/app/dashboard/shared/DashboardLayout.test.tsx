@@ -255,7 +255,7 @@ describe('DashboardLayout unfinished winner redirect', () => {
     onboardingStep: 'confirm',
     campaignId: 7,
     hasWinIssues: false,
-    campaignIsPro: true,
+    campaignWasEverPro: true,
     ...overrides,
   })
 
@@ -275,10 +275,10 @@ describe('DashboardLayout unfinished winner redirect', () => {
     vi.mocked(usePathname).mockReturnValue('/')
   })
 
-  it('leaves a non-Pro winner with an unfinished office on the Win dashboard', async () => {
+  it('leaves a never-Pro winner with an unfinished office on the Win dashboard', async () => {
     api.mock('GET /v1/elected-office/mine', {
       status: 200,
-      data: [winOffice({ campaignIsPro: false })],
+      data: [winOffice({ campaignWasEverPro: false })],
     })
     renderLayout()
     await screen.findByText('dashboard content')
@@ -286,7 +286,7 @@ describe('DashboardLayout unfinished winner redirect', () => {
     expect(router.push).not.toHaveBeenCalled()
   })
 
-  it('sends a Pro winner whose office is not finished back to Serve onboarding', async () => {
+  it('sends a winner whose campaign was ever Pro and whose office is not finished back to Serve onboarding', async () => {
     api.mock('GET /v1/elected-office/mine', {
       status: 200,
       data: [winOffice()],

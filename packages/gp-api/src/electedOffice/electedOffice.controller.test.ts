@@ -306,42 +306,60 @@ describe('ElectedOfficeController', () => {
       ])
     })
 
-    it("says whether each office's linked campaign is Pro", async () => {
-      const proSlug = `campaign-pro-${Date.now()}`
-      await service.prisma.organization.create({
-        data: { slug: proSlug, ownerId: service.user.id },
+    it("says whether each office's linked campaign was ever Pro", async () => {
+      const makeCampaign = async (
+        label: string,
+        data: { isPro?: boolean; details?: PrismaJson.CampaignDetails },
+      ) => {
+        const slug = `campaign-${label}-${Date.now()}`
+        await service.prisma.organization.create({
+          data: { slug, ownerId: service.user.id },
+        })
+        return service.prisma.campaign.create({
+          data: {
+            userId: service.user.id,
+            slug,
+            organizationSlug: slug,
+            ...data,
+          },
+        })
+      }
+      const pro = await makeCampaign('pro', { isPro: true })
+      const lapsed = await makeCampaign('lapsed', {
+        details: { isProUpdatedAt: '2026-09-01T00:00:00.000Z' },
       })
-      const proCampaign = await service.prisma.campaign.create({
-        data: {
-          userId: service.user.id,
-          slug: proSlug,
-          organizationSlug: proSlug,
-          isPro: true,
-        },
+      const legacyLapsed = await makeCampaign('legacy-lapsed', {
+        details: { isProUpdatedAt: 1725148800000 },
       })
-      const proWin = await createOfficeForUser(service.user.id, {
-        campaignId: proCampaign.id,
-        termStartDate: new Date('2020-01-01T00:00:00.000Z'),
+      const cancelled = await makeCampaign('cancelled', {
+        details: { subscriptionId: null, subscriptionCanceledAt: Date.now() },
       })
-      const freeWin = await createOfficeForUser(service.user.id, {
-        campaignId: campaign.id,
-        termStartDate: new Date('2021-01-01T00:00:00.000Z'),
+      const neverPro = await makeCampaign('never-pro', {
+        details: { subscriptionId: null },
       })
+      const linked = [pro, lapsed, legacyLapsed, cancelled, neverPro, campaign]
+      const winOffices = []
+      for (const [i, c] of linked.entries()) {
+        winOffices.push(
+          await createOfficeForUser(service.user.id, {
+            campaignId: c.id,
+            termStartDate: new Date(`20${10 + i}-01-01T00:00:00.000Z`),
+          }),
+        )
+      }
       const noCampaign = await createOfficeForUser(service.user.id, {
-        termStartDate: new Date('2022-01-01T00:00:00.000Z'),
+        termStartDate: new Date('2030-01-01T00:00:00.000Z'),
       })
 
       const result = await service.client.get('/v1/elected-office/mine')
 
       expect(result.status).toBe(200)
       expect(
-        (result.data as { id: string; campaignIsPro: boolean }[]).map((o) => [
-          o.id,
-          o.campaignIsPro,
-        ]),
+        (result.data as { id: string; campaignWasEverPro: boolean }[]).map(
+          (o) => [o.id, o.campaignWasEverPro],
+        ),
       ).toEqual([
-        [proWin.id, true],
-        [freeWin.id, false],
+        ...winOffices.map((office, i) => [office.id, i < 4]),
         [noCampaign.id, false],
       ])
     })

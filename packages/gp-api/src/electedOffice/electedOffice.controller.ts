@@ -112,19 +112,32 @@ export class ElectedOfficeController {
     const linkedCampaignIds = offices.flatMap((office) =>
       office.campaignId === null ? [] : [office.campaignId],
     )
-    const proCampaigns =
+    const linkedCampaigns =
       linkedCampaignIds.length === 0
         ? []
         : await this.electedOfficeService.client.campaign.findMany({
-            where: { id: { in: linkedCampaignIds }, isPro: true },
-            select: { id: true },
+            where: { id: { in: linkedCampaignIds } },
+            select: { id: true, isPro: true, details: true },
           })
-    const proCampaignIds = new Set(proCampaigns.map((c) => c.id))
+    // Many winners cancel Pro after election day, and a downgrade leaves
+    // isProUpdatedAt and subscriptionCanceledAt behind, so either one marks a
+    // campaign that was Pro once. A cancelled subscriptionId is JSON null.
+    const everProCampaignIds = new Set(
+      linkedCampaigns
+        .filter(
+          ({ isPro, details }) =>
+            isPro ||
+            details?.isProUpdatedAt != null ||
+            details?.subscriptionId != null ||
+            details?.subscriptionCanceledAt != null,
+        )
+        .map((c) => c.id),
+    )
     return offices.map((office) => ({
       ...this.toApi(office),
       hasWinIssues: withWinIssues.has(office.id),
-      campaignIsPro:
-        office.campaignId !== null && proCampaignIds.has(office.campaignId),
+      campaignWasEverPro:
+        office.campaignId !== null && everProCampaignIds.has(office.campaignId),
     }))
   }
 
