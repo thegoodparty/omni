@@ -14,7 +14,6 @@ import {
   Button,
   Checkbox,
   CircleAlertIcon,
-  DrawerTitle,
   Input,
   Label,
   Select,
@@ -23,7 +22,6 @@ import {
   SelectTrigger,
   SelectValue,
   Spinner,
-  Stepper,
   Table,
   TableBody,
   TableCell,
@@ -34,7 +32,7 @@ import {
 } from '@styleguide'
 import { useOrganization } from '@shared/organization-picker'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
-import CrmSheet from '../shared/CrmSheet'
+import { OutreachFlowShell } from 'app/dashboard/outreach/v2/OutreachFlowShell'
 import {
   UPLOAD_HISTORY_PATH,
   getImportContactsCopy,
@@ -67,7 +65,7 @@ interface ImportContactsWizardProps {
   isWin: boolean
 }
 
-// The Create new list sheet's shell and stepper, for a CSV of people: the
+// The outreach flows' full-screen shell and stepper, for a CSV of people: the
 // file, which column holds each detail, then a name and the consent box.
 export default function ImportContactsWizard({
   open,
@@ -79,7 +77,6 @@ export default function ImportContactsWizard({
   const pathname = usePathname()
   const queryClient = useQueryClient()
   const orgSlug = useOrganization()?.slug
-  const bodyRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const uploadsQuery = useContactUploads(open)
 
@@ -128,10 +125,6 @@ export default function ImportContactsWizard({
     setConsent(false)
   }, [open, resetUpload])
 
-  useEffect(() => {
-    if (bodyRef.current) bodyRef.current.scrollTop = 0
-  }, [step])
-
   const latestMapping: ContactUploadColumnMapping | null =
     [...(uploadsQuery.data?.uploads ?? [])].sort((a, b) =>
       b.createdAt.localeCompare(a.createdAt),
@@ -179,16 +172,16 @@ export default function ImportContactsWizard({
     })
   }
 
-  const handleOpenChange = (next: boolean) => {
-    if (!next && upload.isPending) return
-    if (!next && !upload.isSuccess) {
+  const handleClose = () => {
+    if (upload.isPending) return
+    if (!upload.isSuccess) {
       trackEvent(EVENTS.Contacts.ImportAbandoned, {
         lastStep: step,
         rowCount: preview?.rowCount ?? null,
         product: isWin ? 'win' : 'serve',
       })
     }
-    onOpenChange(next)
+    onOpenChange(false)
   }
 
   const firstName = mapping.firstName
@@ -215,62 +208,40 @@ export default function ImportContactsWizard({
   const rowCount = preview?.rowCount ?? 0
 
   return (
-    <CrmSheet
+    <OutreachFlowShell
       open={open}
-      onOpenChange={handleOpenChange}
+      onClose={handleClose}
+      title={COPY.wizard.title}
+      headerBadge={COPY.wizard.title}
+      currentStep={isSending ? 0 : stepIndex + 1}
+      totalSteps={isSending ? 0 : STEPS.length}
       onBack={
         stepIndex > 0 && !isSending
           ? () => setStep(STEPS[stepIndex - 1] ?? 'file')
           : undefined
       }
-      bodyRef={bodyRef}
-      header={
-        <>
-          <DrawerTitle className="sr-only">{COPY.wizard.title}</DrawerTitle>
-          <Stepper
-            variant="bar"
-            currentStep={stepIndex + 1}
-            totalSteps={STEPS.length}
-            overline={COPY.wizard.title}
-          />
-        </>
+      cta={
+        isSending
+          ? null
+          : step === 'file'
+            ? {
+                label: COPY.wizard.continue,
+                onClick: () => setStep('columns'),
+                disabled: preview === null,
+              }
+            : step === 'columns'
+              ? {
+                  label: COPY.wizard.continue,
+                  onClick: () => setStep('name'),
+                  disabled: !canContinueColumns,
+                }
+              : {
+                  label: COPY.wizard.importPeople(rowCount),
+                  onClick: handleImport,
+                  disabled: !canImport,
+                }
       }
-      footer={
-        isSending ? undefined : (
-          <>
-            {step === 'file' && (
-              <Button
-                type="button"
-                className="w-full text-sm"
-                onClick={() => setStep('columns')}
-                disabled={preview === null}
-              >
-                {COPY.wizard.continue}
-              </Button>
-            )}
-            {step === 'columns' && (
-              <Button
-                type="button"
-                className="w-full text-sm"
-                onClick={() => setStep('name')}
-                disabled={!canContinueColumns}
-              >
-                {COPY.wizard.continue}
-              </Button>
-            )}
-            {step === 'name' && (
-              <Button
-                type="button"
-                className="w-full text-sm"
-                onClick={handleImport}
-                disabled={!canImport}
-              >
-                {COPY.wizard.importPeople(rowCount)}
-              </Button>
-            )}
-          </>
-        )
-      }
+      dirty={file !== null && !isSending}
     >
       {isSending ? (
         <div
@@ -469,6 +440,6 @@ export default function ImportContactsWizard({
           )}
         </>
       )}
-    </CrmSheet>
+    </OutreachFlowShell>
   )
 }

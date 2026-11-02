@@ -429,6 +429,8 @@ describe('<ImportContactsWizard>', () => {
     await screen.findByText(/2 people found/)
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await user.keyboard('{Escape}')
+    expect(onOpenChange).not.toHaveBeenCalled()
+    await user.click(await screen.findByRole('button', { name: 'Discard' }))
 
     expect(onOpenChange).toHaveBeenCalledWith(false)
     expect(trackEvent).toHaveBeenCalledWith(EVENTS.Contacts.ImportAbandoned, {
