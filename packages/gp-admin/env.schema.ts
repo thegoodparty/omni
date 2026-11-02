@@ -52,14 +52,11 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
   GP_PROD_API_DOMAIN: { tier: 'optional' },
   GP_ORG_ID_PROD: { tier: 'optional' },
 
-  // How gp-admin authenticates to gp-api: `clerk` sends a Clerk M2M token
-  // minted from the machine secrets below; `oidc` sends the deployment's
-  // Vercel OIDC token and uses the machine secret only when that token
-  // can't be obtained. Any other value fails every gp-api call.
-  GP_API_AUTH_MODE: { tier: 'optional', default: 'clerk' },
-  // Required in `clerk` mode, the fallback in `oidc` mode.
-  GP_DEV_MACHINE_SECRET: { tier: 'optional' },
-  GP_PROD_MACHINE_SECRET: { tier: 'optional' },
+  // The token gp-admin sends to gp-api, read by @vercel/oidc rather than a
+  // literal `process.env.X`. Deployments get it per request from Vercel;
+  // locally `vercel env pull` writes it, and every gp-api call fails without
+  // it.
+  VERCEL_OIDC_TOKEN: { tier: 'optional' },
 
   // Impersonation-redirect targets, one per GP environment
   // (src/app/dashboard/users/actions.ts, .../briefings/actions.ts).
