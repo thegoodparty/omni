@@ -714,6 +714,37 @@ export class PeerlyP2pJobService extends PeerlyBaseConfig {
     }
   }
 
+  // getJob for a job id staff typed or may have deleted in Peerly's own
+  // console: a job Peerly does not have is null, not a 502. Peerly's docs
+  // list only 200 and 400 for this read, so both 400 and 404 mean "no such
+  // job"; anything else is still a vendor failure.
+  async findJob(jobId: string): Promise<PeerlyJob | null> {
+    try {
+      const response = await this.peerlyHttpService.get<PeerlyJob>(
+        `/1to1/jobs/${encodeURIComponent(jobId)}`,
+        {
+          timeout: P2P_JOB_READ_TIMEOUT_MS,
+          signal: AbortSignal.timeout(P2P_JOB_READ_TIMEOUT_MS),
+        },
+      )
+      const validated = this.peerlyHttpService.validateResponse(
+        response.data,
+        GetJobResponseDto,
+        'get job',
+      )
+      return { ...response.data, ...validated }
+    } catch (error) {
+      if (
+        isAxiosError(error) &&
+        (error.response?.status === 404 || error.response?.status === 400)
+      ) {
+        return null
+      }
+      this.logger.error({ error }, P2P_ERROR_MESSAGES.RETRIEVE_JOB_FAILED)
+      throw new BadGatewayException(P2P_ERROR_MESSAGES.RETRIEVE_JOB_FAILED)
+    }
+  }
+
   private async createJob({
     name,
     templates,

@@ -463,6 +463,15 @@ export const SmsApprovalQueueItemSchema = z.object({
   canceledAt: zCoerceDate().nullable(),
   canceledBy: z.string().nullable(),
   canceledByAdmin: z.boolean(),
+  // Set when staff moved the send to a replacement vendor job (one the
+  // console made, or one made by hand at the vendor and linked); the old
+  // job's id is kept for lookups in the vendor's own console.
+  jobReplacedAt: zCoerceDate().nullable(),
+  jobReplacedBy: z.string().nullable(),
+  previousJobId: z.string().nullable(),
+  // The Peerly job the send follows now.
+  jobId: z.string().nullable(),
+  jobReplaceReason: z.string().nullable(),
   standards: SmsStandardsVerdictSchema.nullable(),
   // Live Peerly job readiness; null when the live read failed (the queue
   // must not 502 because one identity's vendor read did).
@@ -582,6 +591,78 @@ export const EditSmsOutreachDateRequestSchema = z.object({
 })
 export type EditSmsOutreachDateRequest = z.infer<
   typeof EditSmsOutreachDateRequestSchema
+>
+
+// Why staff replaced a send's vendor job. The console offers these as
+// fixed choices; "other" carries the staff member's own words. The stored
+// reason is the label, or that text for "other".
+export const SMS_JOB_REPLACE_REASON_LABELS = {
+  bad_sending_number: 'Peerly flagged the sending number',
+  delivery_failure: 'Peerly delivery failure',
+  message_or_schedule_change: 'Message or schedule change',
+  other: 'Other',
+} as const
+export const SmsJobReplaceReasonSchema = z.enum(
+  Object.keys(SMS_JOB_REPLACE_REASON_LABELS) as [
+    keyof typeof SMS_JOB_REPLACE_REASON_LABELS,
+    ...(keyof typeof SMS_JOB_REPLACE_REASON_LABELS)[],
+  ],
+)
+export type SmsJobReplaceReason = z.infer<typeof SmsJobReplaceReasonSchema>
+
+const requireOtherReason = (
+  value: { reason: SmsJobReplaceReason; otherReason?: string },
+  ctx: z.RefinementCtx,
+) => {
+  if (value.reason === 'other' && !value.otherReason) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['otherReason'],
+      message: 'Say why the job is being replaced',
+    })
+  }
+}
+
+// Staff replace a send's vendor job before it sends (e.g. the vendor flags
+// the sending number): the current job is canceled and a new one made from
+// the row's stored script, image, identity and list, on the day picked.
+// Same picker pair as the date edit.
+export const ReplaceSmsOutreachJobRequestSchema = z
+  .object({
+    sendAt: zCoerceDate(),
+    scheduledLocalDate: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/, 'Use yyyy-MM-dd')
+      .refine(
+        (value) => !Number.isNaN(Date.parse(value)),
+        'Not a real calendar day',
+      ),
+    // The job the admin saw when they chose to replace it. A retry after
+    // the replacement landed names a job the send no longer has, and is
+    // refused instead of replacing the new job too.
+    currentJobId: z.string().min(1),
+    reason: SmsJobReplaceReasonSchema,
+    otherReason: z.string().trim().min(1).max(500).optional(),
+    replacedBy: z.string().min(1).max(255),
+  })
+  .superRefine(requireOtherReason)
+export type ReplaceSmsOutreachJobRequest = z.infer<
+  typeof ReplaceSmsOutreachJobRequestSchema
+>
+
+// Staff already made the replacement job by hand at the vendor: point the
+// send at that job instead of making another.
+export const LinkSmsOutreachJobRequestSchema = z
+  .object({
+    jobId: z.string().trim().min(1).max(64),
+    currentJobId: z.string().min(1),
+    reason: SmsJobReplaceReasonSchema,
+    otherReason: z.string().trim().min(1).max(500).optional(),
+    linkedBy: z.string().min(1).max(255),
+  })
+  .superRefine(requireOtherReason)
+export type LinkSmsOutreachJobRequest = z.infer<
+  typeof LinkSmsOutreachJobRequestSchema
 >
 
 export const SmsTestMessageRequestSchema = z.object({

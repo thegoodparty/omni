@@ -74,6 +74,11 @@ const item = (
   canceledAt: null,
   canceledBy: null,
   canceledByAdmin: false,
+  jobReplacedAt: null,
+  jobReplacedBy: null,
+  previousJobId: null,
+  jobId: 'peerly-job-1',
+  jobReplaceReason: null,
   assignedPa: null,
   standards: { passed: true, failures: [] },
   job: {

@@ -171,6 +171,17 @@ model Outreach {
   canceledAt                        DateTime?                          @map("canceled_at")
   canceledBy                        String?                            @map("canceled_by")
   canceledByAdmin                   Boolean                            @default(false) @map("canceled_by_admin")
+  // CAS's replacement of a send's Peerly job (a bad sending number, say):
+  // the row is pointed at a new job, made by the console or by hand in
+  // Peerly, so projectId changes and these record the swap. The old job id
+  // stays because Peerly is where CAS looks for it.
+  jobReplacedAt                     DateTime?                          @map("job_replaced_at")
+  jobReplacedBy                     String?                            @map("job_replaced_by")
+  previousJobId                     String?                            @map("previous_job_id")
+  jobReplaceReason                  String?                            @map("job_replace_reason")
+  // Set for the seconds a replacement is making the new job, so a double
+  // click or a retry cannot make a second one. Cleared when it lands.
+  jobReplaceClaimedAt               DateTime?                          @map("job_replace_claimed_at")
   // Nullable by design: legacy rows resolve their org via the campaignId join;
   // no backfill. Invariant (DB-enforced by a CHECK, see migration
   // add_outreach_org_scope): every row needs exactly one scoping path —
