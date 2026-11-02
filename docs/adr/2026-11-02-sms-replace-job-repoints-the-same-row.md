@@ -3,7 +3,7 @@ title: A Win SMS send moves to a replacement Peerly job by repointing the same O
 status: active
 decided_by: [agent]
 date: 2026-11-02
-code: ['#PR_NUMBER']
+code: ['#3497']
 scope:
   - packages/gp-api/src/outreach/services/outreachSmsAdmin.service.ts
   - packages/gp-api/src/outreach/outreachSmsAdmin.controller.ts
