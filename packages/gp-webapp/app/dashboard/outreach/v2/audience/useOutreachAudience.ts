@@ -13,6 +13,7 @@ import { ROBOCALL_FREE_OFFER_VARIANT } from '@goodparty_org/contracts'
 import { clientRequest } from 'gpApi/typed-request'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { outreachChannel } from 'app/dashboard/outreach/util/outreachAnalytics'
+import { trackListCreated } from 'app/dashboard/contacts/crm/shared/trackListCreated.util'
 import { useElectedOffice } from '@shared/hooks/useElectedOffice'
 import { useOrganization } from '@shared/organization-picker'
 import { fetchListDetailThrottled } from 'app/dashboard/contacts/crm/lists/useListRowDetail'
@@ -242,6 +243,9 @@ export interface OutreachAudience {
   // picking a saved list or opening the builder drops it, and Continue
   // saves it (under its own title) before advancing.
   selectedRecommendation: RecommendedList | null
+  // What the flows' Created/Completed events report. A saved recommendation
+  // is selected as a plain list, so `selectedRecommendation` alone cannot say.
+  audienceSource: 'recommended' | 'savedList'
   selectRecommendation: (recommendation: RecommendedList) => void
   // The conversion event for a recommendation that resolved to a list the
   // candidate already has. `applyRecommendation` deliberately does not
@@ -288,6 +292,12 @@ export const useOutreachAudience = ({
     listId: number
     count: number
   } | null>(null)
+  // The saved list a recommendation became, by any of the three accept
+  // paths. Compared with selectedListId rather than cleared on every pick,
+  // so choosing another list reads savedList with nothing to unwind.
+  const [recommendedListId, setRecommendedListId] = useState<number | null>(
+    null,
+  )
   const [createRecommendedListPending, setCreateRecommendedListPending] =
     useState(false)
   const [createRecommendedListError, setCreateRecommendedListError] = useState<
@@ -528,6 +538,12 @@ export const useOutreachAudience = ({
         'POST /v1/voters/voter-file/filter',
         { name: universeName },
       )
+      trackListCreated({
+        isServe: isElectedOfficial,
+        source: 'outreachAllVoters',
+        listId: data.id,
+        channel: reachabilityKey,
+      })
       await queryClient.invalidateQueries({
         queryKey: outreachAudienceListsKey(orgSlug),
       })
@@ -614,6 +630,11 @@ export const useOutreachAudience = ({
         ? recommendationSnapshot.count
         : null))
   const selectedListTotal = reachabilityQuery.data?.total ?? null
+  const audienceSource: 'recommended' | 'savedList' =
+    selectedRecommendation !== null ||
+    (selectedListId !== null && selectedListId === recommendedListId)
+      ? 'recommended'
+      : 'savedList'
   // Only alongside the list-detail count it is part of: a recommendation's
   // count carries no split.
   const reachableNewContactsCount =
@@ -756,6 +777,7 @@ export const useOutreachAudience = ({
     setSelectedListId(preselectReady ? preselect : null)
     setSelectedRecommendation(null)
     setRecommendationSnapshot(null)
+    setRecommendedListId(null)
     setCreateRecommendedListError(null)
     appliedPreselectRef.current = preselectReady ? preselect : undefined
     setAppliedPreselectedVariant(null)
@@ -838,6 +860,7 @@ export const useOutreachAudience = ({
           listId: recommendation.existingFilterId,
           count: recommendation.count,
         })
+        setRecommendedListId(recommendation.existingFilterId)
       }
       trackEvent(EVENTS.Outreach.RecommendedList.Accepted, {
         variant: recommendation.variant,
@@ -932,6 +955,13 @@ export const useOutreachAudience = ({
         modified: data.recommendedModified ?? false,
         reusedExistingList: false,
       })
+      trackListCreated({
+        isServe: isElectedOfficial,
+        source: 'recommendedList',
+        listId: data.id,
+        channel: reachabilityKey,
+      })
+      setRecommendedListId(data.id)
       await queryClient.invalidateQueries({
         queryKey: outreachAudienceListsKey(orgSlug),
       })
@@ -954,6 +984,7 @@ export const useOutreachAudience = ({
     [
       seedFromRecommendation,
       reachabilityKey,
+      isElectedOfficial,
       queryClient,
       resetBuilder,
       orgSlug,
@@ -999,7 +1030,14 @@ export const useOutreachAudience = ({
         modified: created.recommendedModified ?? false,
         reusedExistingList: false,
       })
+      setRecommendedListId(created.id)
     }
+    trackListCreated({
+      isServe: isElectedOfficial,
+      source: recommendedMeta ? 'recommendedList' : 'outreachBuilder',
+      listId: created.id,
+      channel: reachabilityKey,
+    })
     await queryClient.invalidateQueries({
       queryKey: outreachAudienceListsKey(orgSlug),
     })
@@ -1017,6 +1055,8 @@ export const useOutreachAudience = ({
   }, [
     runCreateList,
     recommendedMeta,
+    isElectedOfficial,
+    reachabilityKey,
     queryClient,
     resetBuilder,
     orgSlug,
@@ -1085,6 +1125,7 @@ export const useOutreachAudience = ({
     },
     startBuilder,
     selectedRecommendation,
+    audienceSource,
     selectRecommendation,
     createRecommendedListPending,
     createRecommendedListError,

@@ -205,7 +205,7 @@ The campaign reached voters. One event, every channel.
 | `listId`               | number                                                                        | the parent list — the turf, the call list, or the audience list                     |
 | `trackerTaskId`        | string (cuid)                                                                 | when launched from a tracker task                                                   |
 | `phase`                | `preLaunch \| launch \| active \| gotv`                                       | with `trackerTaskId`, never alone                                                   |
-| `audienceSource`       | `'recommended' \| 'savedList' \| 'sample'`                                    | when the audience step ran; `sample` is a poll's random sample                      |
+| `audienceSource`       | `'recommended' \| 'savedList' \| 'sample'`                                    | when the audience step ran; `sample` is a poll's random sample. See below           |
 | `campaignName`         | string                                                                        | the name the candidate gave it; **omitted** where nothing is named                  |
 | `method`               | `'manual' \| 'turf' \| 'campaign'`                                            | on the paths that need disambiguating                                               |
 | `purpose`              | purpose slug (`introduce_myself`, `build_citizens_panel`, `report_back`, ...) | every channel's Created and Completed, when the picker set one                      |
@@ -213,6 +213,14 @@ The campaign reached voters. One event, every channel.
 | `asksToJoinCivicPanel` | boolean                                                                       | Serve texts only                                                                    |
 | `launchSource`         | agent surface slug, below                                                     | when an agent surface launched it; never on robocall                                |
 | `outreachType`         | `'poll'`                                                                      | Serve polls only; omitted on every other send                                       |
+
+`audienceSource` comes from `useOutreachAudience`, which remembers the list a
+recommendation became. Before DATA-2307 (2026-11) text, robocall, phone banking
+and polls read `savedList` for nearly every recommended list, because a saved
+recommendation is selected as a plain list; only door knocking reported
+`recommended`. For earlier rows, join `listId` to `voter_file_filter.recommended_variant`.
+A list built inside the flow still reads `savedList`; its `List Created` event
+(`source: outreachBuilder`, same `listId`) says it was made there.
 
 A poll's Completed also carries what the official picked while setting it up.
 These are poll-only and sit beside the shared properties, not in

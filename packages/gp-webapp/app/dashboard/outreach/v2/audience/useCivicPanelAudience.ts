@@ -4,6 +4,7 @@ import { useServeCitizenPanelsFlag } from '@shared/experiments/serveCitizenPanel
 import { civicPanelSummaryQueryOptions } from 'app/dashboard/contacts/citizens-panel/civicPanelSummary.query'
 import type { SegmentResponse } from 'app/dashboard/contacts/crm/shared/contacts-types'
 import { CIVIC_PANEL_FILTER_KEY } from 'app/dashboard/contacts/crm/shared/recommendedListFilters.config'
+import { trackListCreated } from 'app/dashboard/contacts/crm/shared/trackListCreated.util'
 import {
   CIVIC_PANEL_AUDIENCE_NAME,
   isCivicPanelAudienceList,
@@ -56,6 +57,7 @@ export const useCivicPanelAudience = ({
           [CIVIC_PANEL_FILTER_KEY]: true,
         },
       )
+      trackListCreated({ isServe: true, source: 'civicPanel', listId: data.id })
       await queryClient.invalidateQueries({ queryKey: listsQueryKey })
       queryClient.invalidateQueries({ queryKey: ['custom-segments', orgSlug] })
       return data as SegmentResponse

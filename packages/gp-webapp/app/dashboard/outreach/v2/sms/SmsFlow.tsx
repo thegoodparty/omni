@@ -730,9 +730,7 @@ export const SmsFlow = ({
           ...(audience.selectedListId !== null
             ? { listId: audience.selectedListId }
             : {}),
-          audienceSource: audience.selectedRecommendation
-            ? 'recommended'
-            : 'savedList',
+          audienceSource: audience.audienceSource,
           ...(tracker ? { tracker } : {}),
           ...(launchSource ? { launchSource } : {}),
           ...(purpose ? { purpose } : {}),
@@ -1818,9 +1816,7 @@ export const SmsFlow = ({
                 ...(audience.selectedListId !== null
                   ? { listId: audience.selectedListId }
                   : {}),
-                audienceSource: audience.selectedRecommendation
-                  ? 'recommended'
-                  : 'savedList',
+                audienceSource: audience.audienceSource,
                 ...(tracker ? { tracker } : {}),
                 ...(launchSource ? { launchSource } : {}),
                 ...(purpose ? { purpose } : {}),
@@ -1889,9 +1885,7 @@ export const SmsFlow = ({
         ...(audience.selectedListId !== null
           ? { listId: audience.selectedListId }
           : {}),
-        audienceSource: audience.selectedRecommendation
-          ? 'recommended'
-          : 'savedList',
+        audienceSource: audience.audienceSource,
         ...(tracker ? { tracker } : {}),
         ...(launchSource ? { launchSource } : {}),
         ...(purpose ? { purpose } : {}),

@@ -4,6 +4,7 @@ import { useOrganization } from '@shared/organization-picker'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useSnackbar } from 'helpers/useSnackbar'
 import { trimCustomSegmentName } from '../shared/segments.util'
+import { trackListCreated } from '../shared/trackListCreated.util'
 import type { SegmentResponse } from '../shared/contacts-types'
 import { useContactsTable } from '../ContactsTableProvider'
 import { outreachAudienceListsKey } from 'app/dashboard/outreach/v2/audience/useOutreachAudience'
@@ -72,14 +73,18 @@ export const useDuplicateList = () => {
       )
     },
     onSuccess: (response) => {
-      // ENG-10767: a duplicate creates a segment, so it rides the existing
-      // Segment Created event with source: 'duplicate' (the wizard's
-      // product-specific List Created events stay a pure wizard-outcome
-      // metric). Ready-gated like the surface's other events.
+      // ENG-10767: a duplicate rides Segment Created with source:
+      // 'duplicate'. It is a saved list too, so it also counts in List
+      // Created (DATA-2307). Ready-gated like the surface's other events.
       if (isWinContextReady) {
         trackEvent(EVENTS.Contacts.SegmentCreated, {
           source: 'duplicate',
           context: isWinContext ? 'win' : 'serve',
+        })
+        trackListCreated({
+          isServe: !isWinContext,
+          source: 'duplicate',
+          listId: response.id,
         })
       }
       successSnackbar('List duplicated')

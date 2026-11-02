@@ -506,11 +506,7 @@ export const PollFlow = ({
             ? { listId: audience.selectedListId }
             : {}),
           audienceSource:
-            effectiveKind === 'sample'
-              ? 'sample'
-              : audience.selectedRecommendation
-                ? 'recommended'
-                : 'savedList',
+            effectiveKind === 'sample' ? 'sample' : audience.audienceSource,
         }),
         pollTopic: topic,
         ...(drafted ? { pollTone: tone } : {}),

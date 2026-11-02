@@ -48,6 +48,7 @@ import { useListWizardCount } from './useListWizardCount'
 import { useListWizardOverlapCount } from './useListWizardOverlapCount'
 import { useListWizardPolygonCount } from './useListWizardPolygonCount'
 import OverlapBar from './OverlapBar'
+import { trackListCreated } from '../shared/trackListCreated.util'
 import { useServeCitizenPanelsFlag } from 'app/shared/experiments/serveCitizenPanelsFlag'
 import { useServeImportContactsFlag } from 'app/shared/experiments/serveImportContactsFlag'
 
@@ -484,17 +485,18 @@ export default function CreateListWizard({
             (supportStatus.length > 0 ? 1 : 0) +
             (votedStatus.length > 0 ? 1 : 0) +
             (source.length > 0 ? 1 : 0)
-          trackEvent(
-            isWinContext
-              ? EVENTS.VoterData.ListCreated
-              : EVENTS.ConstituentData.ListCreated,
-            {
+          trackListCreated({
+            isServe: !isWinContext,
+            source: 'crmWizard',
+            listId: response.id,
+            properties: {
+              branch: 'voterFile',
               variableCount,
               ...(isWinContext
                 ? { hasParty: hasPartyFilterSelection(demographicFilters) }
                 : {}),
             },
-          )
+          })
         } else if (activeBranch === 'activity') {
           // Filtered defensively (isConditionsStepValid already guarantees
           // every row has a channel by submit time) so a stray blank row
@@ -518,6 +520,13 @@ export default function CreateListWizard({
           trackEvent(EVENTS.VoterData.ActivityListCreated, {
             sourceCampaign,
             actionFilter,
+          })
+          // An activity list is a saved list too, so it counts here as well.
+          trackListCreated({
+            isServe: false,
+            source: 'crmWizard',
+            listId: response.id,
+            properties: { branch: 'activity' },
           })
         }
       }

@@ -36,6 +36,7 @@ import {
   getTcrCompliance,
 } from 'app/dashboard/profile/texting-compliance/util/tcrCompliance.util'
 import { transformVoterFileFiltersForBackend } from 'app/dashboard/contacts/crm/shared/voterFileFilterTransform.util'
+import { trackListCreated } from 'app/dashboard/contacts/crm/shared/trackListCreated.util'
 import {
   PhoneBankingFlow,
   SERVE_PHONE_BANKING_SURFACE,
@@ -317,6 +318,12 @@ export const ProposalFlowsProvider = ({
                 }),
               },
             )
+            trackListCreated({
+              isServe: mode === 'serve',
+              source: 'aiProposal',
+              listId: data.id,
+              channel: 'doorKnocking',
+            })
             return data.id
           } catch {
             // The card's button stays live, so pressing it again retries.
@@ -349,7 +356,7 @@ export const ProposalFlowsProvider = ({
       })
       router.push(`/dashboard/door-knocking?${params.toString()}`)
     },
-    [router, errorSnackbar],
+    [router, errorSnackbar, mode],
   )
 
   // Saves the card's audience as a list once, the way the builder would have
@@ -393,6 +400,12 @@ export const ProposalFlowsProvider = ({
             }),
           },
         )
+        trackListCreated({
+          isServe: mode === 'serve',
+          source: 'aiProposal',
+          listId: data.id,
+          channel: proposal.channel,
+        })
         savedLists.current.set(key, data.id)
         storeList(key, data.id)
         return data.id
@@ -402,7 +415,7 @@ export const ProposalFlowsProvider = ({
       void run.then(settle, settle)
       return run
     },
-    [],
+    [mode],
   )
 
   const open = useCallback(
