@@ -72,31 +72,41 @@ export const createPreviewSharedCluster = ({
     },
   })
 
-  const cluster = new aws.rds.Cluster('previewSharedCluster', {
-    clusterIdentifier: 'gp-api-preview-shared-db',
-    engine: aws.rds.EngineType.AuroraPostgresql,
-    engineMode: aws.rds.EngineMode.Provisioned,
-    engineVersion: '16.8',
-    // No databaseName: the preview entrypoint creates per-PR databases
-    // (gpdb_pr_<n>) against the default postgres maintenance DB, so no
-    // single initial database is provisioned here.
-    masterUsername: 'gpuser',
-    dbSubnetGroupName: subnetGroup.name,
-    vpcSecurityGroupIds: [securityGroup.id],
-    storageEncrypted: true,
-    serverlessv2ScalingConfiguration: {
-      minCapacity: 0.5,
-      maxCapacity: 64,
+  const cluster = new aws.rds.Cluster(
+    'previewSharedCluster',
+    {
+      clusterIdentifier: 'gp-api-preview-shared-db',
+      engine: aws.rds.EngineType.AuroraPostgresql,
+      engineMode: aws.rds.EngineMode.Provisioned,
+      engineVersion: '16.8',
+      // No databaseName: the preview entrypoint creates per-PR databases
+      // (gpdb_pr_<n>) against the default postgres maintenance DB, so no
+      // single initial database is provisioned here.
+      masterUsername: 'gpuser',
+      dbSubnetGroupName: subnetGroup.name,
+      vpcSecurityGroupIds: [securityGroup.id],
+      storageEncrypted: true,
+      serverlessv2ScalingConfiguration: {
+        minCapacity: 0.5,
+        maxCapacity: 64,
+      },
+      backupRetentionPeriod: 1,
+      deletionProtection: true,
+      skipFinalSnapshot: true,
     },
-    backupRetentionPeriod: 1,
-    deletionProtection: true,
-    skipFinalSnapshot: true,
-  })
+    // Same as gp-api's own clusters in index.ts: AWS applies minor engine
+    // upgrades on its own, and Pulumi must not try to roll them back.
+    { ignoreChanges: ['engineVersion'] },
+  )
 
-  new aws.rds.ClusterInstance('previewSharedInstance', {
-    clusterIdentifier: cluster.id,
-    instanceClass: 'db.serverless',
-    engine: aws.rds.EngineType.AuroraPostgresql,
-    engineVersion: cluster.engineVersion,
-  })
+  new aws.rds.ClusterInstance(
+    'previewSharedInstance',
+    {
+      clusterIdentifier: cluster.id,
+      instanceClass: 'db.serverless',
+      engine: aws.rds.EngineType.AuroraPostgresql,
+      engineVersion: cluster.engineVersion,
+    },
+    { ignoreChanges: ['engineVersion'] },
+  )
 }
