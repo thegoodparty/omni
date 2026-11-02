@@ -197,25 +197,25 @@ describe('EmailWriteStep form', () => {
     expect(message()).toHaveTextContent('It moved to December.')
   })
 
-  it('shows plain errors next to the field, leaving the button to the look step', async () => {
+  it('shows plain errors next to the field, leaving the layout’s rules and the button to the look step', async () => {
     render(
       <Harness
         showIssues
         start={{
           ...switchLayout(initialCompose(), 'short_cta'),
-          subject: 'Saturday',
           message: 'a'.repeat(601),
           buttonLabel: 'Sign up',
         }}
       />,
     )
 
-    expect(screen.getByText('Add a title.')).toBeInTheDocument()
+    expect(screen.getByText('Add a subject line.')).toBeInTheDocument()
+    expect(screen.queryByText('Add a title.')).toBeNull()
     expect(
-      screen.getByText(
+      screen.queryByText(
         'Keep the message under 600 characters for this layout.',
       ),
-    ).toBeInTheDocument()
+    ).toBeNull()
     expect(screen.queryByText('Add the link this button opens.')).toBeNull()
   })
 

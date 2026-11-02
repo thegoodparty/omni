@@ -27,6 +27,7 @@ import {
   initialCompose,
   serverFieldError,
   writeIssues,
+  writeStepIssues,
   type ComposeFieldError,
   type EmailComposeState,
 } from './emailForm.util'
@@ -100,7 +101,7 @@ export const EmailFlow = ({
       : (surface.goals.find((g) => g.id === goalId)?.label ?? '')
   const finalIssues = composeIssues(compose, true)
   const composeValid = !hasIssues(finalIssues)
-  const writeValid = !hasIssues(writeIssues(finalIssues))
+  const writeValid = !hasIssues(writeStepIssues(compose, true))
   const index = STEP_ORDER.indexOf(step)
 
   const goTo = (next: EmailStep) => {
@@ -115,7 +116,12 @@ export const EmailFlow = ({
     if (!parsed) return false
     setWriteAttempted(true)
     setLookAttempted(true)
-    goTo(parsed.field === 'button' ? 'look' : 'write')
+    // What the picked layout refuses is fixed on the look step, where the
+    // layout can change.
+    const layoutMisfit =
+      finalIssues[parsed.field] !== undefined &&
+      writeStepIssues(compose, true)[parsed.field] === undefined
+    goTo(parsed.field === 'button' || layoutMisfit ? 'look' : 'write')
     setFieldError(parsed)
     return true
   }
@@ -236,7 +242,7 @@ export const EmailFlow = ({
       label: 'Next',
       onClick: () => void next(),
       loading: busy,
-      disabled: !writeValid,
+      disabled: hasIssues(writeIssues(finalIssues)),
     },
     schedule: {
       label: 'Next',

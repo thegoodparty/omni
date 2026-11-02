@@ -43,7 +43,6 @@ import { EmailPreview } from './EmailPreview'
 import { apiErrorMessage, draftEmailWithAi, uploadEmailImage } from './emailApi'
 import {
   applyImprovedDraft,
-  composeIssues,
   fillFromAiDraft,
   hasNoWriting,
   isUntouched,
@@ -52,6 +51,7 @@ import {
   toContent,
   usesSubheadings,
   usesTitle,
+  writeStepIssues,
   type ComposeField,
   type ComposeFieldError,
   type EmailComposeState,
@@ -248,7 +248,7 @@ export const EmailWriteStep = ({
     }
   }
 
-  const issues = composeIssues(value, showIssues)
+  const issues = writeStepIssues(value, showIssues)
   const errorFor = (field: ComposeField): string | undefined =>
     serverError?.field === field ? serverError.message : issues[field]
   const hasText = !hasNoWriting(value)
