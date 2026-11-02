@@ -39,6 +39,7 @@ import {
   type LiveRace,
 } from './campaignManagerPrompt'
 import { localDay } from '../services/todayLine'
+import { resolveSendWindowTimeZone } from '@/vendors/peerly/utils/sendWindowTimeZone.util'
 import { selectTopDynamicTasks } from './selectTopDynamicTasks'
 import { CampaignStoryIntakeService } from './campaignStoryIntake.service'
 import type {
@@ -74,6 +75,13 @@ import {
   type PublicProfileGate,
 } from '@/personProfiles/services/public-profile-address.service'
 import { buildCampaignManagerReadPastOutreachTool } from '../chat-tools/readPastOutreach.tool'
+import { buildCampaignManagerReadOutreachFeedbackTool } from '../chat-tools/readOutreachFeedback.tool'
+import { FeaturesService } from '@/features/services/features.service'
+import {
+  type PeopleDataset,
+  PeopleDatasetService,
+} from '@/peopleDb/services/peopleDataset.service'
+import { ISSUE_CAPTURE_FLAG } from '@/constituentFeedback/util/issueCaptureFlag.util'
 import { buildCampaignManagerPresentPastOutreachTool } from '../chat-tools/presentPastOutreach.tool'
 import { buildAskClarifyQuestionTool } from '../chat-tools/askClarifyQuestion.tool'
 
@@ -288,6 +296,10 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
     private readonly logger?: PinoLogger,
     @Optional()
     private readonly publicProfiles?: PublicProfileAddressService,
+    @Optional()
+    private readonly features?: FeaturesService,
+    @Optional()
+    private readonly peopleDatasets?: PeopleDatasetService,
   ) {
     this.logger?.setContext(CampaignManagerHandler.name)
   }
@@ -411,20 +423,35 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
       this.constituentTables.length > 0 &&
       districtFilters !== null
 
-    // The org row the CRM contact tools bind counts to. Folding the service
-    // presence into crmToolsEnabled keeps prompt advertising and tool
-    // registration on one signal; only look up the org when the tools could
-    // otherwise register.
-    const organization = this.contacts
-      ? await this.campaigns.client.organization.findFirst({
-          where: { slug: organizationSlug },
-        })
-      : null
+    // The org row the CRM contact tools bind counts to and the people
+    // dataset resolves from. Folding the service presence into
+    // crmToolsEnabled keeps prompt advertising and tool registration on one
+    // signal; only look up the org when something reads it.
+    const organization =
+      this.contacts || this.peopleDatasets
+        ? await this.campaigns.client.organization.findFirst({
+            where: { slug: organizationSlug },
+          })
+        : null
     const crmToolsEnabled = !!this.contacts && !!organization
+    // Once per turn, so every people-data tool in it describes and reads the
+    // same people: voters, joined to the campaign's imported contacts when
+    // the dataset carries the overlay.
+    const peopleDataset =
+      this.peopleDatasets && organization
+        ? await this.peopleDatasets.resolve(organization)
+        : undefined
     // The saved-filter write tool additionally needs VoterFileFilterService;
     // folding its presence in keeps prompt advertising and tool registration
     // on one signal, same as crmToolsEnabled itself.
     const savedFilterToolsEnabled = crmToolsEnabled && !!this.voterFileFilters
+
+    const outreachFeedbackEnabled = this.features
+      ? await this.features.isFeatureEnabled({
+          user: userId,
+          feature: ISSUE_CAPTURE_FLAG,
+        })
+      : false
 
     const day = localDay(details.state ?? null)
     // Independent lookups on independent timers, so a slow day costs one
@@ -467,6 +494,7 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
       })),
       districtFilters,
       constituentToolEnabled,
+      peopleDataset,
       organization,
       crmToolsEnabled,
       savedFilterToolsEnabled,
@@ -477,6 +505,7 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
       raceId: details.raceId ?? null,
       webSearchEnabled: webSearchAvailable(),
       helpCenterToolEnabled: !!this.helpCenter,
+      outreachFeedbackEnabled,
       story,
       plan,
       publicProfile,
@@ -621,6 +650,7 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
         ctx.districtFilters,
         this.constituentTables,
         ctx.districtState,
+        ctx.peopleDataset,
       )
       if (scope.allowedTables.size > 0) {
         tools.query_constituent_data = buildQueryConstituentDataTool({
@@ -654,7 +684,16 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
       tools.read_past_outreach = buildCampaignManagerReadPastOutreachTool({
         outreach: this.pastOutreach,
         campaignId: ctx.campaignId,
+        timeZone: resolveSendWindowTimeZone(ctx.state),
       })
+      if (ctx.outreachFeedbackEnabled) {
+        tools.read_outreach_feedback =
+          buildCampaignManagerReadOutreachFeedbackTool({
+            outreach: this.pastOutreach,
+            campaignId: ctx.campaignId,
+            timeZone: resolveSendWindowTimeZone(ctx.state),
+          })
+      }
       tools.present_past_outreach =
         buildCampaignManagerPresentPastOutreachTool()
     }
@@ -682,11 +721,13 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
     if (this.contacts && ctx.crmToolsEnabled && ctx.organization) {
       const isPro = ctx.isPro !== false
       const filterTools: Record<string, LlmTool> = {}
-      // A Win org always reads the voters dataset (PeopleDatasetService).
+      const peopleDataset: PeopleDataset = ctx.peopleDataset ?? {
+        base: 'voters',
+      }
       filterTools.count_contacts = buildCountContactsTool({
         contacts: this.contacts,
         organization: ctx.organization,
-        peopleDataset: 'voters',
+        peopleDataset,
       })
       // Beside describe_filter_dimensions rather than with the saved-list
       // tools: it IS the vocabulary read for the one dimension the catalog
@@ -706,7 +747,7 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
           voterFileFilters: this.voterFileFilters,
           contacts: this.contacts,
           organization: ctx.organization,
-          peopleDataset: 'voters',
+          peopleDataset,
         })
         // With the saved-list tool, as on the Chief of Staff: the only id
         // it can be given is one crud_saved_filters returned.
@@ -726,7 +767,7 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
         contacts: this.contacts,
         organization: ctx.organization,
         filterConsumers: registeredFilterConsumers(filterTools),
-        peopleDataset: 'voters',
+        peopleDataset,
         citizenPanels: false,
         state: ctx.districtState,
       })

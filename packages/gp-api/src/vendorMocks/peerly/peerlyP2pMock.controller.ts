@@ -10,6 +10,7 @@ import {
   Delete,
   Get,
   HttpCode,
+  HttpException,
   HttpStatus,
   NotFoundException,
   Param,
@@ -43,7 +44,13 @@ export class PeerlyP2pMockController {
     const exp = getUnixTime(addSeconds(new Date(), 3600))
     return {
       token: signHs256Jwt({ exp, accountNumber: 'mock-peerly' }),
-      user: { username: 'mock-peerly', user_id: 1 },
+      // request_canvassers derives the requester's initials from these.
+      user: {
+        username: 'mock-peerly',
+        user_id: 1,
+        first_name: 'Mock',
+        last_name: 'Peerly',
+      },
     }
   }
 
@@ -65,7 +72,9 @@ export class PeerlyP2pMockController {
       leads_remaining: 0,
       start_date: today,
       end_date: today,
-      templates: [],
+      // Kept as sent so a test can read back the composed message. The create
+      // response below still answers with no templates, as before.
+      templates: Array.isArray(body['templates']) ? body['templates'] : [],
       deleted: false,
       can_use_mms: true,
     }
@@ -258,6 +267,22 @@ export class PeerlyP2pMockController {
     @Body() body: Record<string, string>,
   ) {
     this.assertMockMode()
+    const campaignId = await this.vendorMockRecord.resolvePeerlyCampaignId({
+      identityId: body['identity_id'],
+    })
+    if (
+      campaignId !== undefined &&
+      (await this.vendorMockRecord.consumePhoneListFail(campaignId))
+    ) {
+      // Peerly's error envelope, as the real client's error handling reads it.
+      throw new HttpException(
+        {
+          Error: 'Unable to process phone list upload',
+          status_code: HttpStatus.INTERNAL_SERVER_ERROR,
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      )
+    }
     const token = randomUUID()
     const listId = Math.floor(Math.random() * 900_000) + 100_000
     const listName = body['list_name'] ?? 'mock-list'

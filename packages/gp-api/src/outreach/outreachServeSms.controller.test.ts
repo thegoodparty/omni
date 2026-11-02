@@ -1,8 +1,5 @@
 import { HttpStatus } from '@nestjs/common'
-import {
-  CIVIC_PANEL_JOIN_LINES,
-  CIVIC_PANEL_LEAVE_LINE,
-} from '@goodparty_org/contracts'
+import { CIVIC_PANEL_LEAVE_LINE } from '@goodparty_org/contracts'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { FeaturesService } from '@/features/services/features.service'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
@@ -312,24 +309,6 @@ describe('Serve SMS feature gate', () => {
     expect(generateDraftWithVoice).not.toHaveBeenCalled()
   })
 
-  it.each(CIVIC_PANEL_JOIN_LINES)(
-    'refuses a create carrying a join line while serve-citizen-panels is off: %s',
-    async (line) => {
-      isFeatureEnabled.mockImplementation(
-        async ({ feature }: { feature: string }) =>
-          feature !== 'serve-citizen-panels',
-      )
-
-      const res = await postCreate({
-        ...createInput,
-        message: `${createInput.message}\n\n${line}\n\nReply STOP to opt out.`,
-      })
-
-      expect(res.status).toBe(HttpStatus.BAD_REQUEST)
-      expect(createDraft).not.toHaveBeenCalled()
-    },
-  )
-
   it('refuses a create carrying the LEAVE line while serve-citizen-panels is off', async () => {
     isFeatureEnabled.mockImplementation(
       async ({ feature }: { feature: string }) =>
@@ -345,17 +324,7 @@ describe('Serve SMS feature gate', () => {
     expect(createDraft).not.toHaveBeenCalled()
   })
 
-  it('creates a send carrying a join line with serve-citizen-panels on', async () => {
-    const res = await postCreate({
-      ...createInput,
-      message: `${createInput.message}\n\n${CIVIC_PANEL_JOIN_LINES[0]}\n\nReply STOP to opt out.`,
-    })
-
-    expect(res.status).toBe(HttpStatus.CREATED)
-    expect(createDraft).toHaveBeenCalledOnce()
-  })
-
-  it('leaves a create without a join line alone while serve-citizen-panels is off', async () => {
+  it('leaves a create without a civic panel line alone while serve-citizen-panels is off', async () => {
     isFeatureEnabled.mockImplementation(
       async ({ feature }: { feature: string }) =>
         feature !== 'serve-citizen-panels',

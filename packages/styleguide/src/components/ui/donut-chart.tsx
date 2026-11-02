@@ -54,6 +54,12 @@ const Legend = ({
   </div>
 )
 
+/**
+ * Keep it to a handful of slices; colors repeat once the chart palette runs out.
+ *
+ * @summary Use for how one whole splits into a few parts, with a legend of
+ * values. PieChart is the same without the hole. For ranked items, use BarList.
+ */
 const DonutChart = ({
   data = [],
   percentage = false,

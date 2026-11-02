@@ -1,4 +1,5 @@
-import { signTestM2MJwt, useTestService } from '@/test-service'
+import { useTestService } from '@/test-service'
+import { signTestVercelOidcToken, useTestVercelOidc } from '@/test-vercel-oidc'
 import {
   PersonProfileIssueStatus,
   PrioritySource,
@@ -9,6 +10,7 @@ import { subMinutes } from 'date-fns'
 import { describe, expect, it } from 'vitest'
 
 const service = useTestService()
+useTestVercelOidc()
 
 const PERSON_ID = '11111111-1111-1111-1111-111111111111'
 const SECOND_PERSON_ID = '22222222-2222-2222-2222-222222222222'
@@ -48,9 +50,9 @@ const seedPriority = async (title: string) => {
 }
 
 // The reads are ServiceReadGuard-gated; gp-marketing calls them with a
-// JWT-format M2M token, so the tests do too.
+// Vercel OIDC token, so the tests do too.
 const asServiceReader = () => ({
-  headers: { Authorization: `Bearer ${signTestM2MJwt()}` },
+  headers: { Authorization: `Bearer ${signTestVercelOidcToken()}` },
 })
 
 const get = (personId: string = PERSON_ID) =>

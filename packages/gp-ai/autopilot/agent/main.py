@@ -14,6 +14,7 @@ instruction uses it) work normally.
 """
 
 import asyncio
+import dataclasses
 import os
 import sys
 import time
@@ -36,7 +37,7 @@ from shared.clickup_client import ClickUpClient
 from shared.logger import get_logger
 
 from .config import CAPABILITIES, AgentConfig, UnknownStageError
-from .feedback import apply_park_outcome, park_if_stranded
+from .feedback import apply_park_outcome, park_if_stranded, read_park_sentinel, stranded_card_status
 from .github_auth import setup_github_auth
 from .metrics import format_metric_line, format_run_summary_comment, run_summary
 from .workspace import WorkspaceCloneError, point_playwright_mcp_at_chromium, prepare_omni_workspace
@@ -85,7 +86,26 @@ YOUR TURN — do not keep working. A human answering, or moving the card back,
 dispatches a fresh `resume` run that rebuilds context from the card and
 continues your stage's work. Parking is a normal, successful way for a run to
 end, not a failure.
+
+## NEVER END A TURN WITH BACKGROUND WORK PENDING
+
+A turn with no tool call ends the whole run, and background Bash tasks (verify
+runs, PR watchers) die with the container. If you have a background task
+pending, wait on it with a blocking call (or poll it with a tool call) until it
+finishes, then continue. Never write "now let me wait" as a final message.
 """
+
+# The one continuation turn sent to a run that ended "successfully" without
+# finishing its handoff (ENG-11168).
+HANDOFF_NUDGE_PROMPT = (
+    "Your last turn ended, but the card is still in '{status}' and you have not parked. "
+    "Ending a turn with background tasks pending ends the whole run and kills them. "
+    "Wait on any pending background work with a blocking call, then finish your stage's "
+    "handoff: push your branch, open or update the PR, and park or move the card as your "
+    "instructions say. If a PR for this story already exists, update it instead of opening another."
+)
+# Skip the nudge when this little budget remains; a turn can't do useful work.
+MIN_NUDGE_BUDGET_USD = 0.5
 
 
 def load_stage_instruction(stage: str) -> str:
@@ -190,6 +210,45 @@ async def _consume_agent_stream(config: AgentConfig, prompt: str, options: Claud
         return {"status": "error", "task_id": config.task_id, "error": str(e), "session_id": session_id}
 
 
+def _stranded_status_for_nudge(config: AgentConfig) -> str | None:
+    """The card status a just-finished success run is stranded in, or None
+    (parked, handed off, or the check itself failed — never nudge on doubt)."""
+    try:
+        if read_park_sentinel(os.environ.get("WORKSPACE_DIR", "/workspace")):
+            return None
+        stage = config.resume_stage if config.stage == "resume" and config.resume_stage else config.stage
+        return stranded_card_status(stage, config.task_id)
+    except Exception as e:
+        logger.error(f"Handoff check failed for {config.task_id}: {type(e).__name__}: {e}")
+        return None
+
+
+async def _run_session(config: AgentConfig, prompt: str, options: ClaudeAgentOptions) -> dict:
+    """The stream plus at most ONE handoff nudge. The SDK treats a text-only
+    turn as completion, so a model that ends "waiting on background tasks"
+    returns success with the card still stranded; resume the same session once
+    and tell it to finish. Runs inside run_agent's wait_for, so the deadline
+    still bounds it, and the continuation's budget is only what is left."""
+    result = await _consume_agent_stream(config, prompt, options)
+    if result.get("status") != "success" or not result.get("session_id"):
+        return result
+    # Off the event loop: the ClickUp client is synchronous, and a slow call here would hold off the deadline.
+    status = await asyncio.to_thread(_stranded_status_for_nudge, config)
+    if status is None:
+        return result
+    remaining = config.max_budget_usd - (result.get("cost_usd") or 0.0)
+    if remaining < MIN_NUDGE_BUDGET_USD:
+        logger.error(f"Run for {config.task_id} ended stranded in '{status}' with no budget left to nudge")
+        return result
+    logger.error(f"Run for {config.task_id} ended with the card still in '{status}'; sending one handoff nudge")
+    nudge_options = dataclasses.replace(options, resume=result["session_id"], max_budget_usd=remaining)
+    nudged = await _consume_agent_stream(config, HANDOFF_NUDGE_PROMPT.format(status=status), nudge_options)
+    nudged["cost_usd"] = (nudged.get("cost_usd") or 0.0) + (result.get("cost_usd") or 0.0)
+    nudged["num_turns"] = (nudged.get("num_turns") or 0) + (result.get("num_turns") or 0)
+    nudged["handoff_nudged"] = True
+    return nudged
+
+
 async def run_agent(config: AgentConfig) -> dict:
     logger.info(
         f"Starting {config.stage} stage for task: {config.task_id} (model: {config.model}, "
@@ -231,7 +290,7 @@ async def run_agent(config: AgentConfig) -> dict:
     # the backstop for wall-clock, the budget for money; neither subsumes the
     # other.
     try:
-        return await asyncio.wait_for(_consume_agent_stream(config, prompt, options), timeout=config.deadline_seconds)
+        return await asyncio.wait_for(_run_session(config, prompt, options), timeout=config.deadline_seconds)
     except TimeoutError:
         # Whatever the stage was doing is abandoned mid-flight. That can leave
         # a pushed branch with no PR, which is recoverable and visible; a
@@ -324,6 +383,7 @@ async def main():
         config.resume_stage if config.stage == "resume" else config.stage,
         config.task_id,
         workspace_dir=os.environ.get("WORKSPACE_DIR", "/workspace"),
+        repo_dir=config.workspace_dir,
     )
 
     # Built once and handed to both sinks — see metrics.run_summary — so the

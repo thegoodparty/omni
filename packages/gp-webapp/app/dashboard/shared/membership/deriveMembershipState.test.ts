@@ -170,7 +170,6 @@ describe('tenDlc preset → texting state mapping', () => {
   it('awaiting_pin: submitted + sentinel peerlyIdentityId + APPROVED → awaiting_pin', () => {
     // The API writes peerlyIdentityId=sentinel and peerlyCvStatus=APPROVED.
     // isPinIssued(APPROVED) is true, so the state resolves to awaiting_pin.
-    const { PeerlyCvVerificationStatus } = require('@goodparty_org/contracts')
     expect(
       deriveMembershipState({
         ...pro,

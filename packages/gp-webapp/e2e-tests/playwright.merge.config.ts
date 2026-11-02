@@ -1,4 +1,4 @@
-import { defineConfig } from '@playwright/test'
+import type { PlaywrightTestConfig } from '@playwright/test'
 
 // Consumed only by `playwright merge-reports` in the E2E summary CI job, which
 // combines the per-shard blob reports into the same outputs a single run
@@ -7,9 +7,15 @@ import { defineConfig } from '@playwright/test'
 // playwright.config.ts on purpose — that config throws when BASE_URL is unset
 // and runs globalSetup (clerkSetup), neither of which is wanted in a merge job
 // that never launches a browser.
-export default defineConfig({
+//
+// Type-only import, no defineConfig: the merge job runs Playwright through
+// `npx` without restoring the workspace node_modules, so nothing here may
+// resolve a package at runtime.
+const config: PlaywrightTestConfig = {
   reporter: [
     ['html', { outputFolder: 'playwright-report' }],
     ['json', { outputFile: 'test-results/results.json' }],
   ],
-})
+}
+
+export default config

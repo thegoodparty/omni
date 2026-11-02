@@ -65,14 +65,14 @@ none of them personalize from ongoing per-campaign content, so none of them
 have the merge-clobber problem the lifecycle section below has — they just
 send to the wrong address post-merge, which is exactly what single-send fixes.
 
-| Event                                                | Fired from                                                                                 | HubSpot asset today                                                 | Single-send asset to create                          | Recipient                    |
-| ----------------------------------------------------- | -------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- | -------------------------------------------------------- | ----------------------------- |
-| `Voter Outreach - 10DLC Compliance PIN Sent`         | `campaignTcrCompliance.service.ts:594` (`CampaignTcrComplianceService`, PIN-delivery sweep) | "check your texts/email" nudge — **Ops to confirm** asset name       | "Win - Transactional Email - PIN Delivered"           | `userId` passed to the sweep  |
-| `Voter Outreach - 10DLC Compliance PIN Resent`       | `campaignTcrCompliance.service.ts:2294` (`trackCompliancePinResent`, admin-triggered resend)  | Same nudge, resend variant — **Ops to confirm**                       | "Win - Transactional Email - PIN Resent"              | `campaign.userId`             |
-| `Voter Outreach - 10DLC Compliance Form Submitted`   | `campaignTcrCompliance.controller.ts:226` (agentic flow) and `:289` (manual flow)             | "Registration Submitted #1 - 10 DLC" (TDD-confirmed name)              | "Win - Transactional Email - Registration Submitted"  | `user.id`                     |
-| `Voter Outreach - 10DLC Compliance PIN Submitted`    | `campaignTcrCompliance.controller.ts:364`                                                     | "PIN Submitted - 10 DLC" (TDD-confirmed name)                          | "Win - Transactional Email - PIN Submitted"           | `user.id`                     |
-| `Voter Outreach - 10DLC Compliance Completed`        | `queueConsumer.service.ts:528` (`handleTcrComplianceCheckMessage`)                            | Likely "Texting compliance confirmation" (TDD asset list) — **Ops to confirm the exact match**; no separate event exists for that asset name, and this is the only event marking texting as unlocked, so it's the best-fit candidate | "Win - Transactional Email - Texting Compliance Confirmed" | `userId`                |
-| `Voter Outreach - 10DLC Compliance Rejected`         | `campaignTcrCompliance.service.ts:480` (`cv_status_check` source) and `:1514` (`cv_submit` source) | Fix-your-filing CS outreach trigger — **Ops to confirm** asset name   | "Win - Transactional Email - Compliance Rejected"     | `user.id`                     |
+| Event                                              | Fired from                                                                                         | HubSpot asset today                                                                                                                                                                                                                  | Single-send asset to create                                | Recipient                    |
+| -------------------------------------------------- | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------- | ---------------------------- |
+| `Voter Outreach - 10DLC Compliance PIN Sent`       | `campaignTcrCompliance.service.ts:594` (`CampaignTcrComplianceService`, PIN-delivery sweep)        | "check your texts/email" nudge — **Ops to confirm** asset name                                                                                                                                                                       | "Win - Transactional Email - PIN Delivered"                | `userId` passed to the sweep |
+| `Voter Outreach - 10DLC Compliance PIN Resent`     | `campaignTcrCompliance.service.ts:2294` (`trackCompliancePinResent`, admin-triggered resend)       | Same nudge, resend variant — **Ops to confirm**                                                                                                                                                                                      | "Win - Transactional Email - PIN Resent"                   | `campaign.userId`            |
+| `Voter Outreach - 10DLC Compliance Form Submitted` | `campaignTcrCompliance.controller.ts:226` (agentic flow) and `:289` (manual flow)                  | "Registration Submitted #1 - 10 DLC" (TDD-confirmed name)                                                                                                                                                                            | "Win - Transactional Email - Registration Submitted"       | `user.id`                    |
+| `Voter Outreach - 10DLC Compliance PIN Submitted`  | `campaignTcrCompliance.controller.ts:364`                                                          | "PIN Submitted - 10 DLC" (TDD-confirmed name)                                                                                                                                                                                        | "Win - Transactional Email - PIN Submitted"                | `user.id`                    |
+| `Voter Outreach - 10DLC Compliance Completed`      | `queueConsumer.service.ts:528` (`handleTcrComplianceCheckMessage`)                                 | Likely "Texting compliance confirmation" (TDD asset list) — **Ops to confirm the exact match**; no separate event exists for that asset name, and this is the only event marking texting as unlocked, so it's the best-fit candidate | "Win - Transactional Email - Texting Compliance Confirmed" | `userId`                     |
+| `Voter Outreach - 10DLC Compliance Rejected`       | `campaignTcrCompliance.service.ts:480` (`cv_status_check` source) and `:1514` (`cv_submit` source) | Fix-your-filing CS outreach trigger — **Ops to confirm** asset name                                                                                                                                                                  | "Win - Transactional Email - Compliance Rejected"          | `user.id`                    |
 
 The "Texting compliance confirmation" line item from the ticket's seed list
 and `ComplianceCompleted` are the same email: no other event in
@@ -81,9 +81,9 @@ existing 10DLC flow doc above calls this transition "Compliant."
 
 ### Poll results — MOVE
 
-| Event                             | Fired from                     | HubSpot asset (TDD-named)                          | Single-send asset to create                        | Recipient          |
-| ---------------------------------- | --------------------------------- | ------------------------------------------------------ | -------------------------------------------------------- | -------------------- |
-| `Poll - Results Synthesis Complete` | `queueConsumer.service.ts:845`  | "Serve - Transactional Email - Results Ready"          | Reuse the existing asset as-is via single-send            | `office.userId`      |
+| Event                               | Fired from                     | HubSpot asset (TDD-named)                     | Single-send asset to create                    | Recipient       |
+| ----------------------------------- | ------------------------------ | --------------------------------------------- | ---------------------------------------------- | --------------- |
+| `Poll - Results Synthesis Complete` | `queueConsumer.service.ts:845` | "Serve - Transactional Email - Results Ready" | Reuse the existing asset as-is via single-send | `office.userId` |
 
 Reason: one-time notice that a specific poll's results are ready, addressed by
 a link (`path`) into that poll — no ongoing personalization, no merge-clobber
@@ -97,9 +97,9 @@ firing unchanged.
 
 ### Meeting briefing ready — MOVE
 
-| Event                              | Fired from                              | HubSpot asset       | Single-send asset to create                       | Recipient |
-| ------------------------------------ | ------------------------------------------ | ---------------------- | ------------------------------------------------------- | ----------- |
-| `Briefing Assistant - Agenda Created` | `meetingBriefings.service.ts:1332` (string literal, `trackAgendaPickedUp`) | **Ops to confirm** | "Serve - Transactional Email - Briefing Ready"         | `userId`  |
+| Event                                 | Fired from                                                                 | HubSpot asset      | Single-send asset to create                    | Recipient |
+| ------------------------------------- | -------------------------------------------------------------------------- | ------------------ | ---------------------------------------------- | --------- |
+| `Briefing Assistant - Agenda Created` | `meetingBriefings.service.ts:1332` (string literal, `trackAgendaPickedUp`) | **Ops to confirm** | "Serve - Transactional Email - Briefing Ready" | `userId`  |
 
 Reason: same shape as poll results — one meeting's agenda is ready, addressed
 by that meeting's id.
@@ -128,24 +128,24 @@ on the workflow path; no code change needed either way.
 
 ### Lifecycle digests and nudges — STAY
 
-| Event                                        | Fired from                                                        | Reason to stay                                                                                                        |
-| ----------------------------------------------- | ---------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `Campaign Plan - Weekly Tasks Digest`          | `weeklyTasksDigestHandler.service.ts:214` (weekly cron via SQS)        | Recurring, personalizes from `win_campaign_plan` contact fields the cron overwrites every week — see the gap below.        |
-| `Person Profile - Completion Requested`        | `crm-person-profiles.service.ts:266` (`emitCompletionRequested`)       | Not account-scoped to the firer at all — resolves the **subject's** email, a different contact than any campaign account. |
-| `Community Issues - Initial Issues Generated`  | `communityIssue.service.ts:224`                                        | Personalizes from per-campaign issue content on the contact record — see the gap below.                                    |
-| `Community Issues - Top Issues Refreshed`      | `communityIssue.service.ts:245`                                        | Same as above; refreshed content overwrites the prior snapshot on the same contact fields.                                 |
-| `Community Issues - Trending Issues Refreshed` | `communityIssue.service.ts:253`                                        | Same as above.                                                                                                              |
+| Event                                          | Fired from                                                       | Reason to stay                                                                                                            |
+| ---------------------------------------------- | ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `Campaign Plan - Weekly Tasks Digest`          | `weeklyTasksDigestHandler.service.ts:214` (weekly cron via SQS)  | Recurring, personalizes from `win_campaign_plan` contact fields the cron overwrites every week — see the gap below.       |
+| `Person Profile - Completion Requested`        | `crm-person-profiles.service.ts:266` (`emitCompletionRequested`) | Not account-scoped to the firer at all — resolves the **subject's** email, a different contact than any campaign account. |
+| `Community Issues - Initial Issues Generated`  | `communityIssue.service.ts:224`                                  | Personalizes from per-campaign issue content on the contact record — see the gap below.                                   |
+| `Community Issues - Top Issues Refreshed`      | `communityIssue.service.ts:245`                                  | Same as above; refreshed content overwrites the prior snapshot on the same contact fields.                                |
+| `Community Issues - Trending Issues Refreshed` | `communityIssue.service.ts:253`                                  | Same as above.                                                                                                            |
 
 ### Re-engagement nudges — STAY (found via sweep, not in the seed list)
 
 Both carry an explicit "feeds a HubSpot re-engagement email" comment in
 `segment.types.ts` — the seed list didn't include them.
 
-| Event                                            | Fired from                                                     | Reason to stay                                                                          |
-| --------------------------------------------------- | ------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| `Briefing Assistant - Dispatch Skipped`            | `meetingBriefings.service.ts:1031`                                   | Recurring inactivity-gated nudge, not a one-time transactional confirmation.             |
-| `Community Issues - Top Issues Dispatch Skipped`   | `communityIssueDispatch.service.ts:354` (`trackDispatchSkippedInactive`) | Same shape — cron-driven re-engagement, fires repeatedly for an inactive account.        |
-| `Community Issues - Trending Issues Dispatch Skipped` | `communityIssueDispatch.service.ts:354`                           | Same as above (same call site, event chosen by `experimentType`).                        |
+| Event                                                 | Fired from                                                               | Reason to stay                                                                    |
+| ----------------------------------------------------- | ------------------------------------------------------------------------ | --------------------------------------------------------------------------------- |
+| `Briefing Assistant - Dispatch Skipped`               | `meetingBriefings.service.ts:1031`                                       | Recurring inactivity-gated nudge, not a one-time transactional confirmation.      |
+| `Community Issues - Top Issues Dispatch Skipped`      | `communityIssueDispatch.service.ts:354` (`trackDispatchSkippedInactive`) | Same shape — cron-driven re-engagement, fires repeatedly for an inactive account. |
+| `Community Issues - Trending Issues Dispatch Skipped` | `communityIssueDispatch.service.ts:354`                                  | Same as above (same call site, event chosen by `experimentType`).                 |
 
 ### Swept, not yet classified — Ops to confirm before scoping
 
@@ -195,7 +195,7 @@ too.
 
 That's fine for one account per email address. It breaks once two live
 product accounts sharing an address get merged: both accounts' weekly-digest
-or issue-refresh jobs keep writing to the *same* contact's fields, so
+or issue-refresh jobs keep writing to the _same_ contact's fields, so
 whichever job ran most recently wins, and the merged contact can receive an
 email addressed correctly but built entirely from the other campaign's
 content — a candidate getting their opponent's task list, or an elected
@@ -317,22 +317,22 @@ CS needs one workflow keyed on the exact event name that copies each property
 below onto the contact and then onto the associated company. Everything the
 event carries, in the camelCase the payload uses:
 
-| Property                | Type               | Means                                                                                             |
-| ----------------------- | ------------------ | ------------------------------------------------------------------------------------------------- |
-| `uniqueDoorsKnocked`    | number             | Distinct doors a knock was recorded at, whatever was learned there                                |
-| `doorAttempts`          | number             | Every knock recorded, repeat visits included. Always ≥ `uniqueDoorsKnocked`                       |
-| `uniqueContactsMade`    | number             | People who came to the door, counted once each                                                    |
-| `totalContactsMade`     | number             | Conversations at the door, counted every time                                                     |
-| `committedVoters`       | number             | Latest door-knock answers are `supporter` **and** will-vote `yes`                                 |
-| `votersPersuaded`       | number             | Answered `non_supporter` at one door and `supporter` at a later one                               |
-| `uniqueTurfsCreated`    | number             | Lists drawn and still held                                                                        |
-| `uniqueTurfsCompleted`  | number             | The subset marked done                                                                            |
-| `lastCanvassActivityAt` | epoch millis       | The newest knock's timestamp. **Absent from the payload when the org has never knocked**          |
-| `organizationSlug`      | string             | Attribution                                                                                       |
-| `campaignId`            | number \| null     | Attribution; null for a Serve (`eo-`) org                                                         |
-| `email`                 | string \| null     | The acting user's, also present as a context trait                                                |
-| `hubspotContactId`      | string \| null     | The acting user's, also present as a context trait                                                |
-| `hubspotCompanyId`      | string \| null     | `campaign.data.hubspotId`; null until the first CRM sync back-fills it, and always null for Serve |
+| Property                | Type           | Means                                                                                             |
+| ----------------------- | -------------- | ------------------------------------------------------------------------------------------------- |
+| `uniqueDoorsKnocked`    | number         | Distinct doors a knock was recorded at, whatever was learned there                                |
+| `doorAttempts`          | number         | Every knock recorded, repeat visits included. Always ≥ `uniqueDoorsKnocked`                       |
+| `uniqueContactsMade`    | number         | People who came to the door, counted once each                                                    |
+| `totalContactsMade`     | number         | Conversations at the door, counted every time                                                     |
+| `committedVoters`       | number         | Latest door-knock answers are `supporter` **and** will-vote `yes`                                 |
+| `votersPersuaded`       | number         | Answered `non_supporter` at one door and `supporter` at a later one                               |
+| `uniqueTurfsCreated`    | number         | Lists drawn and still held                                                                        |
+| `uniqueTurfsCompleted`  | number         | The subset marked done                                                                            |
+| `lastCanvassActivityAt` | epoch millis   | The newest knock's timestamp. **Absent from the payload when the org has never knocked**          |
+| `organizationSlug`      | string         | Attribution                                                                                       |
+| `campaignId`            | number \| null | Attribution; null for a Serve (`eo-`) org                                                         |
+| `email`                 | string \| null | The acting user's, also present as a context trait                                                |
+| `hubspotContactId`      | string \| null | The acting user's, also present as a context trait                                                |
+| `hubspotCompanyId`      | string \| null | `campaign.data.hubspotId`; null until the first CRM sync back-fills it, and always null for Serve |
 
 Notes:
 

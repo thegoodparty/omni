@@ -9,6 +9,7 @@ import { P2P_SMS_REFUNDING_STALE_MINUTES } from '@/shared/util/winSmsHold.util'
 import { OutreachStatus, P2pSmsSettleState } from '../../generated/prisma'
 import { OutreachP2pSmsCancelService } from './outreachP2pSmsCancel.service'
 import { OutreachP2pSmsFreeTextsService } from './outreachP2pSmsFreeTexts.service'
+import { VENDOR_CRONS_ENABLED } from 'src/shared/util/appEnvironment.util'
 
 // Three Stripe-only slots that co-run with at most one light robocall job each
 // (robocall holds :03/:13.., stranded 6,21,36,51, capture :02.., send :04..,
@@ -47,7 +48,7 @@ const isRefundCommitted = (status: Stripe.Refund['status'] | null): boolean =>
 //      (projectId null) and so can never send or capture, yet still reserves the
 //      candidate's card on a live hold.
 //
-// Every sweep is prod-gated (real Stripe calls, stubbed off prod) AND
+// Every sweep is gated on VENDOR_CRONS_ENABLED (real Stripe calls on prod, mocked off prod) AND
 // SATELLITE-gated (each query below only ever selects rows that already carry
 // an OutreachP2pSms satellite in a specific settleState — never the flag,
 // which cron context has no per-user caller to evaluate anyway), runs
@@ -77,14 +78,14 @@ export class OutreachP2pSmsReconcileService extends createPrismaBase(
   }
 
   // Sweep 1: resolve rows stranded in `refunding`. Money is owed back but the
-  // owner never recorded a refund. Prod-only; the settleState filter below is
+  // owner never recorded a refund. Vendor-cron gated; the settleState filter below is
   // the satellite gate; per-record CAS elects one owner, so no CronLockService.
   @Cron(P2P_SMS_REFUNDING_RECONCILE_CRON, {
     name: 'p2pSmsRefundingReconcileSweep',
     timeZone: EASTERN_TIMEZONE,
   })
   async sweepStrandedRefunding(): Promise<void> {
-    if (process.env.OTEL_SERVICE_ENVIRONMENT !== 'prod') return
+    if (!VENDOR_CRONS_ENABLED) return
 
     const cutoff = subMinutes(new Date(), P2P_SMS_REFUNDING_STALE_MINUTES)
     const candidates = await this.model.findMany({
@@ -211,7 +212,7 @@ export class OutreachP2pSmsReconcileService extends createPrismaBase(
     timeZone: EASTERN_TIMEZONE,
   })
   async sweepDeniedUnreleased(): Promise<void> {
-    if (process.env.OTEL_SERVICE_ENVIRONMENT !== 'prod') return
+    if (!VENDOR_CRONS_ENABLED) return
 
     const cutoff = subMinutes(new Date(), P2P_SMS_REFUNDING_STALE_MINUTES)
     const candidates = await this.model.findMany({
@@ -256,7 +257,7 @@ export class OutreachP2pSmsReconcileService extends createPrismaBase(
     timeZone: EASTERN_TIMEZONE,
   })
   async sweepStrandedAuthorized(): Promise<void> {
-    if (process.env.OTEL_SERVICE_ENVIRONMENT !== 'prod') return
+    if (!VENDOR_CRONS_ENABLED) return
 
     const now = new Date()
     // `date` is schema-optional (every draft starts with none — see

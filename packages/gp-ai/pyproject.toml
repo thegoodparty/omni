@@ -42,7 +42,7 @@ dependencies = [
     "spacy>=3.8.7",
     "pillow>=10.0.0",
     "braintrust>=0.12.1",
-    "claude-agent-sdk==0.2.87",
+    "claude-agent-sdk==0.2.121",
     "slack-sdk>=3.39.0",
     "sqlglot>=30.4.3",
     "jsonschema>=4.26.0",

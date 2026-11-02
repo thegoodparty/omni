@@ -2,7 +2,6 @@ import { Injectable, NotFoundException } from '@nestjs/common'
 import { Cron } from '@nestjs/schedule'
 import { subHours } from 'date-fns'
 import { formatInTimeZone } from 'date-fns-tz'
-import { setTimeout as sleep } from 'timers/promises'
 import {
   Campaign,
   Prisma,
@@ -26,6 +25,8 @@ import {
 } from '../../../vendors/peerly/services/peerly.const'
 import { PeerlyIdentityService } from '../../../vendors/peerly/services/peerlyIdentity.service'
 import { CampaignTcrComplianceService } from './campaignTcrCompliance.service'
+import { VENDOR_CRONS_ENABLED } from 'src/shared/util/appEnvironment.util'
+import { sleep } from 'src/shared/util/sleep.util'
 
 // The scan owns every scheduled Peerly retrieve_cv read. Cadence, set size,
 // and pacing were agreed with Peerly (James/Patrick, 2026-08-17): poll only
@@ -108,11 +109,11 @@ export class CvStatusPollService extends createPrismaBase(
     timeZone: EASTERN_TIMEZONE,
   })
   async triggerScan() {
-    // Prod-only (mirrors triggerNightlyReport): dev/qa would run real
-    // retrieve_cv calls against their own SQS queue, and every call counts
-    // against the vendor budget this scan exists to respect. Non-prod Peerly
-    // flows are stubbed anyway, so there is nothing meaningful to poll.
-    if (process.env.OTEL_SERVICE_ENVIRONMENT !== 'prod') {
+    // VENDOR_CRONS_ENABLED: a non-prod deploy in live mode would run real
+    // retrieve_cv calls against its own SQS queue, and every call counts
+    // against the vendor budget this scan exists to respect. Where Peerly is
+    // mocked the scan is safe to run, so it does.
+    if (!VENDOR_CRONS_ENABLED) {
       return
     }
     const scanKey = formatInTimeZone(
@@ -145,7 +146,7 @@ export class CvStatusPollService extends createPrismaBase(
     timeZone: EASTERN_TIMEZONE,
   })
   async triggerFreshScan() {
-    if (process.env.OTEL_SERVICE_ENVIRONMENT !== 'prod') {
+    if (!VENDOR_CRONS_ENABLED) {
       return
     }
     const scanKey = formatInTimeZone(

@@ -363,3 +363,18 @@ describe('tcrComplianceSuperRefine — non-federal FEC filing URL', () => {
     expect(result.success).toBe(true)
   })
 })
+
+describe('tcrComplianceBaseShape.phone', () => {
+  it('accepts a candidate phone', () => {
+    expect(tcrComplianceBaseShape.phone.safeParse('+14155550132').success).toBe(
+      true,
+    )
+  })
+
+  it.each(['+1.3126851162', '+13126851162', '(312) 685-1162', '3126851162'])(
+    'rejects the GoodParty registrant number as %s',
+    (value) => {
+      expect(tcrComplianceBaseShape.phone.safeParse(value).success).toBe(false)
+    },
+  )
+})

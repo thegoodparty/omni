@@ -7,7 +7,7 @@ import {
   Prisma,
 } from '@/generated/prisma'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
-import { MAX_RESOLVED_ID_SET_SIZE } from './activityConditionResolution.service'
+import { MAX_RESOLVED_ID_SET_SIZE } from '../resolvedIdSetCap.const'
 
 // An inclusive span of calendar days, YYYY-MM-DD in UTC. Either end open.
 export interface DayRange {
@@ -79,6 +79,34 @@ export class CivicPanelHistoryService extends createPrismaBase(
     `)
     this.assertUnderCap(organizationSlug, rows.length)
     return rows.map((row) => row.personId)
+  }
+
+  // How many current members last joined from each source, by the same
+  // latest join memberIdsByLatestJoin judges. Sources with no member are
+  // left out.
+  async memberCountsByLatestJoinSource(
+    organizationSlug: string,
+  ): Promise<Map<ContactStatusSource, number>> {
+    const rows = await this.client.$queryRaw<
+      { source: ContactStatusSource; members: bigint }[]
+    >(Prisma.sql`
+      SELECT latest.source::text AS source, count(*) AS members
+      FROM (
+        SELECT DISTINCT ON (person_id) person_id, source
+        FROM contact_status_event
+        WHERE organization_slug = ${organizationSlug}
+          AND field::text = ${ContactStatusField.civic_panel}
+          AND to_value = ${CivicPanelStatus.member}
+        ORDER BY person_id, created_at DESC
+      ) latest
+      JOIN contact_current_status current
+        ON current.organization_slug = ${organizationSlug}
+        AND current.person_id = latest.person_id
+        AND current.field::text = ${ContactStatusField.civic_panel}
+        AND current.value = ${CivicPanelStatus.member}
+      GROUP BY latest.source
+    `)
+    return new Map(rows.map((row) => [row.source, Number(row.members)]))
   }
 
   // Everyone the office has ever invited onto the panel, or who is on it or

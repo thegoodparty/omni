@@ -483,9 +483,34 @@ function LoadedEditor({
           Save changes
         </Button>
       </DashboardNavHeaderAction>
-      <p className="text-sm text-gray-500">
-        Everything here is visible on your goodparty.org/people page.
-      </p>
+      {isPublished ? (
+        <p className="text-sm text-gray-500">
+          Everything here is visible on your goodparty.org/people page.
+        </p>
+      ) : profile.deletedAt ? null : (
+        // Saving never publishes, and a draft is invisible on the public page.
+        // Without this the editor reads as if saved answers and photos are live.
+        // A deleted profile is skipped: publish does not clear deletedAt, so
+        // the button could never make it live.
+        <div
+          role="status"
+          data-testid="draft-notice"
+          className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-info bg-info-background p-4 text-sm"
+        >
+          <p>
+            Saved changes won&apos;t show on your goodparty.org/people page
+            until you publish.
+          </p>
+          <Button
+            size="small"
+            onClick={() => handleTogglePublish(true)}
+            loading={togglingPublish}
+            loadingText="Publishing…"
+          >
+            Publish profile
+          </Button>
+        </div>
+      )}
 
       {/* Identity */}
       <Card className="flex flex-col gap-4 p-5 sm:p-6">

@@ -35,6 +35,14 @@ interface TextareaProps extends React.ComponentProps<'textarea'> {
   variant?: 'default' | 'seamless'
 }
 
+/**
+ * Inside a card, use variant="seamless" and put seamlessFieldHost on the card so
+ * focus still shows. The outreach compose card is the reference. Pass autoGrow
+ * to grow with the text.
+ *
+ * @summary Use for free text that can run several lines, like a note or a reply.
+ * For a message with merge tags or locked lines, use TokenField.
+ */
 function Textarea({
   className,
   autoGrow,

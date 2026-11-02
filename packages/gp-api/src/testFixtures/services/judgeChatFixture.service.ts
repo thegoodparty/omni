@@ -3,6 +3,7 @@ import {
   DistrictResolverService,
   type DistrictResolution,
 } from '@/chats/briefing-chats/services/districtResolver.service'
+import { ContactUploadFilesService } from '@/contactUploads/services/contactUploadFiles.service'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import {
   chatOrgSlug,
@@ -21,7 +22,10 @@ import type { SetUpJudgeChatCaseInput } from '../schemas/judgeChatFixture.schema
 export class JudgeChatFixtureService extends createPrismaBase(
   MODELS.Organization,
 ) {
-  constructor(private readonly districtResolver: DistrictResolverService) {
+  constructor(
+    private readonly districtResolver: DistrictResolverService,
+    private readonly contactUploadFiles: ContactUploadFilesService,
+  ) {
     super()
   }
 
@@ -40,6 +44,7 @@ export class JudgeChatFixtureService extends createPrismaBase(
     const options = seedOptionsFor(agentId, accountState)
     await removeChatOrgFixture(
       this.client,
+      this.contactUploadFiles,
       userId,
       chatOrgSlug(sweepId, agentId, slugKey),
     )
@@ -62,7 +67,12 @@ export class JudgeChatFixtureService extends createPrismaBase(
       seeded.organizationSlug,
     )
     if (!district) {
-      await removeChatOrgFixture(this.client, userId, seeded.organizationSlug)
+      await removeChatOrgFixture(
+        this.client,
+        this.contactUploadFiles,
+        userId,
+        seeded.organizationSlug,
+      )
       throw new ServiceUnavailableException(
         'the judge fixture position did not resolve to a district on this ' +
           'deployment, so the constituent tools would not register',
@@ -72,6 +82,11 @@ export class JudgeChatFixtureService extends createPrismaBase(
   }
 
   tearDown(userId: number, organizationSlug: string): Promise<boolean> {
-    return removeChatOrgFixture(this.client, userId, organizationSlug)
+    return removeChatOrgFixture(
+      this.client,
+      this.contactUploadFiles,
+      userId,
+      organizationSlug,
+    )
   }
 }

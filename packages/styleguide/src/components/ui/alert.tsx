@@ -49,6 +49,14 @@ interface AlertProps
   icon?: React.ReactNode
 }
 
+/**
+ * Pick the tone with variant: info, success or destructive. Put any button in
+ * AlertAction.
+ *
+ * @summary Use for a message that stays on the page, like a failed load or an
+ * account notice. Field errors go by the field; passing confirmations use
+ * Toaster.
+ */
 function Alert({
   className,
   variant,

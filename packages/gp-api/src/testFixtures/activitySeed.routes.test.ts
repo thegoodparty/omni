@@ -7,8 +7,6 @@ import {
   type Person,
 } from '@goodparty_org/contracts'
 import {
-  CivicPanelBuildChannel,
-  CivicPanelBuildPlanStatus,
   CivicPanelStatus,
   ConstituentFeedbackChannel,
   ContactStatusField,
@@ -29,18 +27,12 @@ import { LlmService } from '@/llm/services/llm.service'
 import { StatsService } from '@/peopleDb/services/stats.service'
 import { PriorityResultsService } from '@/priorities/services/priorityResults.service'
 import { useTestService } from '@/test-service'
+import {
+  appEnvOverrides,
+  useAppEnvOverrides,
+} from '@/shared/test-utils/appEnvOverrides'
 
-const { envNonProd } = vi.hoisted(() => ({ envNonProd: { value: true } }))
-vi.mock('@/shared/util/appEnvironment.util', async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import('@/shared/util/appEnvironment.util')>()
-  return {
-    ...actual,
-    get IS_NON_PROD_DEPLOY() {
-      return envNonProd.value
-    },
-  }
-})
+useAppEnvOverrides({ IS_NON_PROD_DEPLOY: true })
 
 const service = useTestService()
 
@@ -82,7 +74,7 @@ describe('POST /v1/test-fixtures/organizations/:slug/activity', () => {
   let scheduled: Array<Parameters<MockSynthesisEngine['scheduleCompletion']>>
 
   beforeEach(async () => {
-    envNonProd.value = true
+    appEnvOverrides.IS_NON_PROD_DEPLOY = true
     await makeAdmin()
     scheduled = []
     const engine = vi
@@ -98,8 +90,6 @@ describe('POST /v1/test-fixtures/organizations/:slug/activity', () => {
     const llm = vi
       .spyOn(service.app.get(LlmService), 'jsonCompletion')
       .mockRejectedValue(new Error('No model in this suite'))
-    // What the panel plan sizes its first wave from.
-    const pools = vi.spyOn(contacts, 'countWithin').mockResolvedValue(5_000)
     const stats = service.app.get(StatsService)
     const weighting = vi
       .spyOn(stats, 'findWeightingInputs')
@@ -108,7 +98,6 @@ describe('POST /v1/test-fixtures/organizations/:slug/activity', () => {
       engine.mockRestore()
       sample.mockRestore()
       llm.mockRestore()
-      pools.mockRestore()
       weighting.mockRestore()
     })
   })
@@ -268,20 +257,13 @@ describe('POST /v1/test-fixtures/organizations/:slug/activity', () => {
       status: OutreachStatus.completed,
     })
     expect(inviteSend.message?.endsWith(CIVIC_PANEL_JOIN_LINE)).toBe(true)
-
-    const plan = await service.prisma.civicPanelBuildPlan.findFirstOrThrow({
-      where: { organizationSlug: slug },
-      include: { steps: true },
-    })
-    expect(plan).toMatchObject({
-      status: CivicPanelBuildPlanStatus.active,
-      hoursPerWeek: 2,
-    })
-    const textStep = plan.steps.find(
-      (step) => step.channel === CivicPanelBuildChannel.text,
-    )
-    expect(textStep).toMatchObject({ wave: 1, outreachId: invite.outreachId })
-    expect(textStep?.completedAt).not.toBeNull()
+    // Saved the way the app saves an invite's draw, so Constituent lists
+    // hides it like every other system invite list.
+    expect(
+      await service.prisma.voterFileFilter.findUniqueOrThrow({
+        where: { id: inviteSend.voterFileFilterId ?? -1 },
+      }),
+    ).toMatchObject({ civicPanelInvite: true, sampleSize: 121 })
 
     const askSend = await service.prisma.outreach.findUniqueOrThrow({
       where: { id: ask.outreachId },
@@ -376,7 +358,7 @@ describe('POST /v1/test-fixtures/organizations/:slug/activity', () => {
   })
 
   it('404s outside a non-prod deploy', async () => {
-    envNonProd.value = false
+    appEnvOverrides.IS_NON_PROD_DEPLOY = false
     const slug = await createServeOrg(service)
 
     const res = await seed(slug)

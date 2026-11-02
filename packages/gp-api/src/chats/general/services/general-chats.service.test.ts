@@ -2,8 +2,8 @@ import { NotFoundException } from '@nestjs/common'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ChatMessageRole, ChatScope } from '../../../generated/prisma'
 import {
-  BUILD_CITIZENS_PANEL_MESSAGE,
-  EXPLAIN_CIVIC_PANEL_MESSAGE,
+  MANAGED_CIVIC_PANEL_EXHAUSTED_MESSAGE,
+  START_MANAGED_CIVIC_PANEL_MESSAGE,
 } from '@goodparty_org/contracts'
 import type {
   ChatStreamChunk,
@@ -313,10 +313,10 @@ describe('GeneralChatsService', () => {
   )
 
   it.each([
-    [BUILD_CITIZENS_PANEL_MESSAGE, 'Build your civic panel'],
-    [EXPLAIN_CIVIC_PANEL_MESSAGE, "What's a civic panel?"],
+    [START_MANAGED_CIVIC_PANEL_MESSAGE, 'Build my civic panel'],
+    [MANAGED_CIVIC_PANEL_EXHAUSTED_MESSAGE, 'Fill the rest of my civic panel'],
   ])(
-    "titles the build card's hidden turn %s by what it does",
+    "titles the managed panel's hidden turn %s by what it does",
     async (userMessage, title) => {
       store = buildStore({
         findOwnedConversation: vi.fn(() =>

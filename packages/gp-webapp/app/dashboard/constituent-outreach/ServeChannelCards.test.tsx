@@ -28,6 +28,24 @@ const renderCards = ({ withSms = false }: { withSms?: boolean } = {}) => {
   }
 }
 
+describe('ServeChannelCards email card', () => {
+  it('shows Email only when an email handler is given, and opens it', async () => {
+    const onEmailClick = vi.fn()
+    const base = {
+      onSocialClick: vi.fn(),
+      onPhoneBankingClick: vi.fn(),
+      onDoorKnockingClick: vi.fn(),
+    }
+    const { unmount } = render(<ServeChannelCards {...base} />)
+    expect(screen.queryByText('Email')).not.toBeInTheDocument()
+    unmount()
+
+    render(<ServeChannelCards {...base} onEmailClick={onEmailClick} />)
+    await userEvent.click(screen.getByText('Email'))
+    expect(onEmailClick).toHaveBeenCalledTimes(1)
+  })
+})
+
 describe('ServeChannelCards poll card', () => {
   it('shows Poll / Survey only when a poll handler is given, and opens it', async () => {
     const onPollClick = vi.fn()

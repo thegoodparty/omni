@@ -3,8 +3,9 @@ import { describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
 import { FeaturesService } from '@/features/services/features.service'
 import { PeopleDbxStatementClient } from '@/peopleDb/databricks/peopleDbxStatement.client'
-import { ElectionApiDistrictService } from '@/peopleDb/services/electionApiDistrict.service'
+import { ElectionDistrictService } from '@/peopleDb/services/electionDistrict.service'
 import { SERVE_CONSUMER_DATA_FLAG } from '@/peopleDb/services/peopleDataset.service'
+import { SERVE_IMPORT_CONTACTS_FLAG } from '@goodparty_org/contracts'
 
 const service = useTestService()
 
@@ -18,13 +19,13 @@ const CONSTITUENTS_TABLE =
 // request from the org and threaded down, and the statement is the only place
 // a wrong choice would be visible.
 describe('POST /v1/contacts/count — people table', () => {
-  const createWinProOrg = async () => {
+  const createWinProOrg = async (overrideDistrictId: string = randomUUID()) => {
     const slug = `campaign-dataset-${randomUUID()}`
     await service.prisma.organization.create({
       data: {
         slug,
         ownerId: service.user.id,
-        overrideDistrictId: randomUUID(),
+        overrideDistrictId,
       },
     })
     await service.prisma.campaign.create({
@@ -38,24 +39,32 @@ describe('POST /v1/contacts/count — people table', () => {
     return slug
   }
 
-  const createServeOrg = async () => {
+  const createServeOrg = async (overrideDistrictId: string = randomUUID()) => {
     const slug = `eo-dataset-${randomUUID()}`
     await service.prisma.organization.create({
       data: {
         slug,
         ownerId: service.user.id,
-        overrideDistrictId: randomUUID(),
+        overrideDistrictId,
       },
     })
     return slug
   }
 
-  const countSqlFor = async (slug: string, flagOn: boolean) => {
+  const countSqlFor = async (
+    slug: string,
+    flagOn: boolean,
+    importContacts = false,
+  ) => {
     const isFeatureEnabled = vi
       .spyOn(service.app.get(FeaturesService), 'isFeatureEnabled')
-      .mockResolvedValue(flagOn)
+      .mockImplementation(async ({ feature }) =>
+        feature === SERVE_CONSUMER_DATA_FLAG
+          ? flagOn
+          : feature === SERVE_IMPORT_CONTACTS_FLAG && importContacts,
+      )
     vi.spyOn(
-      service.app.get(ElectionApiDistrictService),
+      service.app.get(ElectionDistrictService),
       'findDistrictById',
     ).mockImplementation(async (id: string) => ({
       id,
@@ -78,7 +87,7 @@ describe('POST /v1/contacts/count — people table', () => {
     )
 
     expect(response.status).toBe(201)
-    expect(response.data).toEqual({ count: 7 })
+    expect(response.data.count).toBe(7)
     return {
       sql: query.mock.calls.map(([statement]) => statement.sql),
       isFeatureEnabled,
@@ -125,6 +134,40 @@ describe('POST /v1/contacts/count — people table', () => {
     for (const statement of sql) {
       expect(statement).toContain(`FROM ${VOTERS_TABLE} v`)
       expect(statement).not.toContain(CONSTITUENTS_TABLE)
+    }
+  })
+
+  it('joins a Win org imported contacts over gp_api_voters when serve-import-contacts is on', async () => {
+    const slug = await createWinProOrg()
+
+    const { sql } = await countSqlFor(slug, true, true)
+
+    expect(sql.length).toBeGreaterThan(0)
+    for (const statement of sql) {
+      expect(statement).toContain(
+        `FROM (SELECT * FROM ${VOTERS_TABLE}` +
+          " WHERE `State` = 'MI' AND `City` = 'Lansing') b FULL OUTER JOIN",
+      )
+      expect(statement).toContain(`WHERE organization_slug = '${slug}') o`)
+      expect(statement).not.toContain('AND NOT is_new')
+      expect(statement).not.toContain(CONSTITUENTS_TABLE)
+    }
+  })
+
+  it('joins the org imported contacts when serve-import-contacts is on', async () => {
+    const districtId = randomUUID()
+    const slug = await createServeOrg(districtId)
+
+    const { sql } = await countSqlFor(slug, true, true)
+
+    expect(sql.length).toBeGreaterThan(0)
+    for (const statement of sql) {
+      expect(statement).toContain(
+        `FROM (SELECT * FROM ${CONSTITUENTS_TABLE}` +
+          " WHERE `State` = 'MI' AND `City` = 'Lansing') b FULL OUTER JOIN",
+      )
+      expect(statement).toContain(`WHERE organization_slug = '${slug}') o`)
+      expect(statement).not.toContain('AND NOT is_new')
     }
   })
 })

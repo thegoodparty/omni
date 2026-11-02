@@ -4,7 +4,11 @@ import {
   StartTranscriptionJobCommand,
   TranscribeClient,
 } from '@aws-sdk/client-transcribe'
-import { BadGatewayException, Injectable } from '@nestjs/common'
+import {
+  BadGatewayException,
+  BadRequestException,
+  Injectable,
+} from '@nestjs/common'
 import { ROBOCALL_AUDIO_ALLOWED_MIME_TYPES } from '@goodparty_org/contracts'
 import { PinoLogger } from 'nestjs-pino'
 import { z } from 'zod'
@@ -23,6 +27,10 @@ const TranscriptFileSchema = z.object({
 // what you couldn't upload), so bind to the one contract constant rather than
 // repeating it — a second copy would silently drift.
 const SUPPORTED_MIME_TYPES = new Set<string>(ROBOCALL_AUDIO_ALLOWED_MIME_TYPES)
+
+// Transcribe reports an undecodable upload as a FAILED job ("The data in your
+// input media file isn't valid"); that is the caller's bad file, not an outage.
+const INVALID_MEDIA_PATTERN = /input media file|media file.*(not|n't) valid/i
 
 const POLL_INTERVAL_MS = 3000
 const MAX_POLLS = 40 // ~2 min ceiling for a ≤60s clip
@@ -86,15 +94,24 @@ export class RobocallTranscriptionService {
           return this.readTranscript(params.bucket, outputKey)
         }
         if (status === 'FAILED') {
-          throw new BadGatewayException(
-            `Transcription failed: ${TranscriptionJob?.FailureReason ?? 'unknown'}`,
-          )
+          const reason = TranscriptionJob?.FailureReason ?? 'unknown'
+          if (INVALID_MEDIA_PATTERN.test(reason)) {
+            throw new BadRequestException(
+              'The audio recording could not be processed. Please re-record or upload a different file.',
+            )
+          }
+          throw new BadGatewayException(`Transcription failed: ${reason}`)
         }
         await sleep(POLL_INTERVAL_MS)
       }
       throw new BadGatewayException('Transcription timed out')
     } catch (error) {
-      if (error instanceof BadGatewayException) throw error
+      if (
+        error instanceof BadGatewayException ||
+        error instanceof BadRequestException
+      ) {
+        throw error
+      }
       this.logger.error({ err: error }, 'Robocall transcription failed')
       throw new BadGatewayException('Robocall transcription failed')
     }

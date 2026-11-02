@@ -37,6 +37,7 @@ export const STANDARDS_RULE_LABELS: Record<SmsStandardsRule, string> = {
   length: 'Message exceeds the vendor length cap',
   link_shortener:
     'Contains a shortened link (e.g. bit.ly), which the vendor rejects',
+  restricted_word: 'Contains a word the vendor rejects (e.g. "sexual")',
 }
 
 export type QueueTab = 'awaiting' | 'booked' | 'sent' | 'denied' | 'canceled'

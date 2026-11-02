@@ -42,7 +42,6 @@ model PhoneBankingList {
   entries                         PhoneBankingListEntry[]
   outreach                        Outreach?
   contactInteractionPhoneBankings ContactInteractionPhoneBanking[]
-  civicPanelBuildSteps            CivicPanelBuildStep[]
 
   @@index([organizationSlug])
   @@map("phone_banking_list")

@@ -136,6 +136,13 @@ export const buildCrudSavedFiltersTool = (deps: {
     'duplicated to change it. Returns ids, names, and counts only, never ' +
     'individual records, and returns a structured error when the ' +
     'organization cannot manage lists (e.g. a Win campaign without Pro).' +
+    (deps.organization.slug.startsWith('eo-')
+      ? ' The civic panel already has its own built-in list, Civic panel, ' +
+        'that is never saved: never name a saved list after the civic panel ' +
+        '(no "civic panel", "panel invite" or the like), and when they ask ' +
+        'for their panel members, point them to that built-in list instead ' +
+        'of saving one.'
+      : '') +
     '\n\n' +
     dataSourceRoutingRules(deps.peopleDataset),
   inputSchema: crudSavedFiltersInputSchema,
@@ -151,12 +158,16 @@ export const buildCrudSavedFiltersTool = (deps: {
       // Deliberately no counts here. One count per saved list is the per-row
       // N+1 that 504'd the lists index in prod; `get` answers for the one
       // list the model actually needs.
+      // A civic panel invite's audience belongs to its outreach, not to the
+      // office's lists, so the assistant never offers one as a list.
       return {
-        filters: filters.map(({ id, name, geoPoly }) => ({
-          id,
-          name,
-          hasBoundary: Boolean(geoPoly),
-        })),
+        filters: filters
+          .filter(({ civicPanelInvite }) => !civicPanelInvite)
+          .map(({ id, name, geoPoly }) => ({
+            id,
+            name,
+            hasBoundary: Boolean(geoPoly),
+          })),
       }
     }
     if (action === 'get') {

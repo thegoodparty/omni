@@ -4,6 +4,14 @@ import { XMarkIcon } from './icons'
 
 import { cn } from '@styleguide/lib/utils'
 
+/**
+ * Use side="right". A side sheet should be full screen on mobile, but the
+ * default is 75% width, so widen it. Don't build a bottom drawer from
+ * side="bottom"; it can't swipe to close. Use Drawer.
+ *
+ * @summary Use for a quick look at one item, like a contact, while the list
+ * behind it stays in view. For short input from the bottom, use Drawer.
+ */
 function Sheet({ ...props }: React.ComponentProps<typeof SheetPrimitive.Root>) {
   return <SheetPrimitive.Root data-slot="sheet" {...props} />
 }

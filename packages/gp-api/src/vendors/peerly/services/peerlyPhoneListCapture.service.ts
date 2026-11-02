@@ -130,12 +130,12 @@ export class PeerlyPhoneListCaptureService extends createPrismaBase(
           })),
         })
       },
-      // Recipients are capped at 100k rows and a large saved list's
+      // Recipients are capped at 200k rows and a large saved list's
       // createMany overruns Prisma's default 5s interactive-transaction
       // timeout (prod P2028s, 2026-09), failing the upload AFTER Peerly
       // already accepted the list — so the candidate's retry uploads a
       // duplicate. Sized for the cap, not the common case.
-      { timeout: 60_000 },
+      { timeout: 120_000 },
     )
   }
 
@@ -287,6 +287,16 @@ export class PeerlyPhoneListCaptureService extends createPrismaBase(
       data: { lastSeenLeadsLoaded: leadsLoaded },
     })
     return false
+  }
+
+  // The build's heartbeat: keeps a long-running healthy build out of the
+  // stale-building reaper below, which would otherwise re-queue it while it
+  // is still running and let a second build upload the same list to Peerly.
+  async touchBuilding(buildId: string): Promise<void> {
+    await this.model.updateMany({
+      where: { id: buildId, buildStatus: PhoneListBuildStatus.building },
+      data: { updatedAt: new Date() },
+    })
   }
 
   // Candidates for the stale-building reaper: a row claimed (queued ->

@@ -1,4 +1,4 @@
-FROM public.ecr.aws/docker/library/node:22.23.0-alpine3.23
+FROM public.ecr.aws/docker/library/node:22.23.4-alpine3.23
 
 RUN apk add --no-cache \
   libc6-compat \
@@ -27,6 +27,8 @@ COPY package.json package-lock.json /app/
 COPY packages/gp-api/package.json /app/packages/gp-api/package.json
 COPY packages/contracts/package.json /app/packages/contracts/package.json
 COPY packages/nest-common/package.json /app/packages/nest-common/package.json
+# The root postinstall applies these with patch-package during npm ci.
+COPY patches /app/patches
 RUN cd /app && npm ci --omit=dev --legacy-peer-deps --workspace gp-api
 
 # Everything below is a --link copy or metadata, never a RUN. That lets BuildKit

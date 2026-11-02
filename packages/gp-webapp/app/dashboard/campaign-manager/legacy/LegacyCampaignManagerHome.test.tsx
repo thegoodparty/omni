@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render } from 'helpers/test-utils/render'
 import { act, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -6,6 +6,7 @@ import {
   CAMPAIGN_MANAGER_PRODUCT_OVERVIEW_SENTINEL,
   CAMPAIGN_MANAGER_START_STORY_SENTINEL,
 } from '@goodparty_org/contracts'
+import type { CampaignTrackerTask } from 'gpApi/api-endpoints'
 import type { TrackerTasksResult } from '../../campaign-plan/components/campaignStrategy/useTrackerTasks'
 import type { ChatStreamEvent } from '../../chief-of-staff/data/contracts'
 import type ChiefOfStaffChatSurfaceComponent from '../../chief-of-staff/components/chat/ChiefOfStaffChatSurface'
@@ -25,7 +26,7 @@ type SurfaceProps = React.ComponentProps<
 const renderHome = () =>
   render(
     <CampaignManagerChatProvider>
-      <CampaignManagerHome tcrCompliance={null} />
+      <CampaignManagerHome />
     </CampaignManagerChatProvider>,
   )
 
@@ -92,6 +93,19 @@ const latestSurfaceProps = (): SurfaceProps => {
   return call[0]
 }
 
+let mockTasks: CampaignTrackerTask[] = []
+
+// The free robocall offer, as gp-api answers it. Not offered by default.
+let mockFreeOffer: { offer: { eligible: true } | null } = { offer: null }
+vi.mock('app/dashboard/shared/robocallFreeOffer/useRobocallFreeOffer', () => ({
+  useRobocallFreeOffer: () => mockFreeOffer,
+}))
+
+afterEach(() => {
+  mockTasks = []
+  mockFreeOffer = { offer: null }
+})
+
 vi.mock(
   '../../campaign-plan/components/campaignStrategy/useTrackerTasks',
   async (importOriginal) => ({
@@ -99,7 +113,7 @@ vi.mock(
       typeof import('../../campaign-plan/components/campaignStrategy/useTrackerTasks')
     >()),
     useTrackerTasks: (): TrackerTasksResult => ({
-      tasks: [],
+      tasks: mockTasks,
       isPending: false,
       isError: false,
       isGeneratingDynamic: false,
@@ -108,32 +122,9 @@ vi.mock(
   }),
 )
 
-// The Pro banner + progress section are the legacy dashboard widgets (their own
-// campaign/voter-contact providers); this smoke test only covers the home's
-// composition, so stub them out.
-vi.mock('../../components/campaignManager/ProUpgradeBanner', () => ({
-  default: () => null,
-}))
-// Echo the prop so the composition test can assert the home passes the
-// server-fetched record through (the banner's own gating has its own tests).
-vi.mock('../../components/campaignManager/TextingSetupBanner', () => ({
-  default: ({
-    tcrCompliance,
-  }: {
-    tcrCompliance: { status: string } | null
-  }) => (
-    <div
-      data-testid="texting-setup-banner"
-      data-tcr-status={tcrCompliance?.status ?? 'none'}
-    />
-  ),
-}))
-// Rendered rather than nulled out: the composition test below is the guard
-// against this card going missing again, and its own Pro gating / status
-// branching is covered in ProUpgrade3ComplianceCard.test.tsx.
-vi.mock('../../components/campaignManager/ProUpgrade3ComplianceCard', () => ({
-  default: () => <div data-testid="pro-upgrade-3-compliance-card" />,
-}))
+// The progress section is a legacy dashboard widget (its own campaign/
+// voter-contact providers); this smoke test only covers the home's
+// composition, so stub it out.
 vi.mock('../../components/campaignManager/ProgressSection', () => ({
   default: () => null,
 }))
@@ -152,6 +143,17 @@ vi.mock(
 
 // The story card transitively renders here too; default to an incomplete
 // story so both first-run cards are present for this smoke test.
+// The election-result question only asks once an election has passed.
+vi.mock('app/dashboard/campaign-manager/useElectionResultChat', () => ({
+  useElectionResultChat: () => ({
+    asking: false,
+    pending: false,
+    opener: [],
+    openerKey: 'election-result-ask',
+    suggestions: [],
+    reset: () => undefined,
+  }),
+}))
 vi.mock('app/dashboard/campaign-story/useCampaignStoryComplete', () => ({
   useCampaignStoryComplete: vi.fn(() => ({
     isComplete: false,
@@ -477,34 +479,11 @@ describe('CampaignManagerHome story auto-launch', () => {
     // A later re-render (e.g. a sibling state update) must not refire it.
     rerender(
       <CampaignManagerChatProvider>
-        <CampaignManagerHome tcrCompliance={null} />
+        <CampaignManagerHome />
       </CampaignManagerChatProvider>,
     )
     expect(createMock).toHaveBeenCalledTimes(1)
     expect(streamMessageMock).toHaveBeenCalledTimes(1)
-  })
-
-  it('renders the texting-setup banner with the server-fetched record (ENG-10858)', () => {
-    renderHome()
-
-    // The story-cohort home must include the banner (the legacy CampaignManager
-    // home renders it too); tcrCompliance={null} flows through untouched.
-    expect(screen.getByTestId('texting-setup-banner')).toHaveAttribute(
-      'data-tcr-status',
-      'none',
-    )
-  })
-
-  it('renders the post-start compliance card alongside the banner (ENG-10866)', () => {
-    renderHome()
-
-    // The banner only covers "never started" — every post-start state (PIN
-    // entry, in review, approved, denied) lives in this card. Shipping the
-    // home without it left candidates awaiting a PIN with no compliance
-    // surface here at all, so PIN entry existed only in account settings.
-    expect(
-      screen.getByTestId('pro-upgrade-3-compliance-card'),
-    ).toBeInTheDocument()
   })
 
   it('does not auto-launch the story flow without the personalize deep link', () => {
@@ -587,5 +566,45 @@ describe('CampaignManagerHome meet-card dismissal', () => {
     unmount()
     renderHome()
     expect(meetHeading()).not.toBeInTheDocument()
+  })
+})
+
+describe('CampaignManagerHome free robocall offer card', () => {
+  const offerTask: CampaignTrackerTask = {
+    id: 'offer',
+    title:
+      'Send a free promotional robocall to landline voters in selected precincts',
+    description: 'Reach voters the day before Election Day.',
+    cta: null,
+    link: '/dashboard/outreach?compose=robocall&source=campaign_tracker&recommended=freeOfferElectionEveRobocall',
+    flowType: 'robocall',
+    week: 1,
+    date: '2026-11-02T00:00:00.000Z',
+    completed: false,
+    phase: 'active',
+    proRequired: true,
+    isDefaultTask: false,
+  }
+
+  it('shows the offer while it is live and not among the priorities', () => {
+    mockFreeOffer = { offer: { eligible: true } }
+    renderHome()
+
+    expect(screen.getByTestId('robocall-free-offer-card')).toBeInTheDocument()
+  })
+
+  it('shows the offer once when the priorities already list its task', () => {
+    mockFreeOffer = { offer: { eligible: true } }
+    mockTasks = [offerTask]
+    renderHome()
+
+    expect(screen.getByText(offerTask.title)).toBeInTheDocument()
+    expect(screen.queryByTestId('robocall-free-offer-card')).toBeNull()
+  })
+
+  it('shows no offer card once the offer has ended', () => {
+    renderHome()
+
+    expect(screen.queryByTestId('robocall-free-offer-card')).toBeNull()
   })
 })

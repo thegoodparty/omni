@@ -122,6 +122,7 @@ export const useCampaignLifecycle = (
               listId: turf.id,
               launchSource: recalledLaunchSource('doorKnocking', turf.id),
               priorityId: turf.priorityId ?? undefined,
+              purpose: turf.purpose ?? undefined,
             }),
             method: 'campaign',
           })

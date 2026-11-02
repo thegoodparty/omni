@@ -2,9 +2,14 @@
 // banking are the first two, not the definition — a poll response and an
 // inbound constituent form are the same object with a different provenance —
 // so this grows rather than the table forking.
+//
+// `text` is a Serve resident's own text reply to a priority's check, read
+// for issues by the priority answer coding pass. Its words are the
+// resident's, not a canvasser's, and no interaction row backs it.
 enum ConstituentFeedbackChannel {
   door_knock
   phone_bank
+  text
 }
 
 // Where the constituent stands on the issue they named. Deliberately NOT

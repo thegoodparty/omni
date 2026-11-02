@@ -7,6 +7,7 @@ import { PurchaseService } from 'src/payments/services/purchase.service'
 import { QueueProducerModule } from 'src/queue/producer/queueProducer.module'
 import { UsersModule } from 'src/users/users.module'
 import { AwsModule } from 'src/vendors/aws/aws.module'
+import { StripeModule } from 'src/vendors/stripe/stripe.module'
 import { PollsController } from './polls.controller'
 import { PollBiasAnalysisService } from './services/pollBiasAnalysis.service'
 import { PollIssuesService } from './services/pollIssues.service'
@@ -24,6 +25,7 @@ import { OrganizationsModule } from '@/organizations/organizations.module'
     QueueProducerModule,
     UsersModule,
     AwsModule,
+    StripeModule,
     LlmModule,
     ContactsModule,
     OrganizationsModule,

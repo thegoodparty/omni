@@ -115,7 +115,7 @@ a page:
   closing will do.
 
 **The warning sign:** when an overlay starts collecting tabs, steps, tables or
-dialogs of its own, it has become a place. Make it a page.
+jobs of its own, it has become a place. Make it a page.
 
 **These are places, so each one is a page:**
 
@@ -151,9 +151,13 @@ Then pick the lightest option that fits:
 | **Popover**    | A small menu or hint tied to one element. Never a form          | Bottom drawer                                    | Popover                  |
 | **Inline**     | Optional detail or a simple edit, shown in place                | Inline                                           | Inline                   |
 
-- **At most one layer on top,** and only for a confirmation or a quick pick,
-  never a second form. Otherwise, replace the drawer's content or close it
-  first.
+- **At most two layers.** A drawer or sheet can open one more drawer for a
+  single focused task that belongs to the same job, like recording the
+  outcome of a call. A confirmation can sit on top of either. Never a third
+  layer, and never a second drawer that starts a different job: close the
+  first one, or move the job to a page. Closing the top layer returns the
+  user to the one below exactly as they left it. On desktop the same limit
+  applies to sheets and dialogs.
 - **Every drawer and sheet has a visible close button,** not just a drag handle.
   The phone's Back gesture closes it, not the whole page.
 - **Closing with unsaved typed input asks first.**

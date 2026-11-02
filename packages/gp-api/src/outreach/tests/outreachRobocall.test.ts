@@ -99,12 +99,6 @@ const userContent = () => {
     ?.content as string
 }
 
-const systemContent = () => {
-  const call = jsonCompletion.mock.calls[0]?.[0]
-  return call.messages.find((m: { role: string }) => m.role === 'system')
-    ?.content as string
-}
-
 describe('POST /v1/outreach/robocall/draft', () => {
   it('returns the generated script grounded in office and place', async () => {
     mockDraft('Hi, this is Jane Doe, and I am running for City Council.')
@@ -120,7 +114,6 @@ describe('POST /v1/outreach/robocall/draft', () => {
     const call = jsonCompletion.mock.calls[0]?.[0]
     expect(call.temperature).toBe(0.8)
     const userPrompt = userContent()
-    expect(userPrompt).toContain('introduce the candidate to voters')
     expect(userPrompt).toContain('Warm:')
     expect(userPrompt).toContain('City Council')
     expect(userPrompt).toContain(
@@ -159,30 +152,14 @@ describe('POST /v1/outreach/robocall/draft', () => {
     expect(userPrompt).toContain('Housing: Build more affordable units')
   })
 
-  it('requires the candidate self-ID opener and bans compliance lines', async () => {
-    mockDraft('A script.')
-
-    const res = await postDraft({ purpose: 'introduce_myself', tone: 'warm' })
-    expect(res.status).toBe(HttpStatus.CREATED)
-
-    const systemPrompt = systemContent()
-    expect(systemPrompt).toContain('"This is"')
-    expect(systemPrompt).toContain('"candidate for"')
-    expect(systemPrompt).toContain('"Paid for by"')
-    expect(systemPrompt).toContain('callback phone number')
-    expect(systemPrompt).toContain('"Reply STOP"')
-  })
-
   // The app writes "Paid for by" and the callback number and locks them in
-  // the script, so the current webapp's draft request carries no number and
-  // the model is told never to write either.
+  // the script, so the current webapp's draft request carries no number.
   it('never asks the model for the disclosure on a current request', async () => {
     mockDraft('A script.')
 
     const res = await postDraft({ purpose: 'introduce_myself', tone: 'warm' })
     expect(res.status).toBe(HttpStatus.CREATED)
 
-    expect(systemContent()).toContain('Do NOT include a "Paid for by" line')
     expect(userContent()).not.toContain('Callback number')
   })
 
@@ -209,7 +186,6 @@ describe('POST /v1/outreach/robocall/draft', () => {
 
     expect(userContent()).not.toContain('Paid for by')
     expect(userContent()).not.toContain('202-555-0147')
-    expect(systemContent()).toContain('Keep every marker exactly once')
     expect(res.data).toEqual({ draft: script })
   })
 
@@ -249,18 +225,6 @@ describe('POST /v1/outreach/robocall/draft', () => {
     expect(jsonCompletion).toHaveBeenCalledTimes(2)
   })
 
-  it.each(['early_voting', 'election_day_turnout'])(
-    'includes voting logistics placeholders for %s',
-    async (purpose) => {
-      mockDraft('A script.')
-
-      const res = await postDraft({ purpose, tone: 'urgent' })
-      expect(res.status).toBe(HttpStatus.CREATED)
-
-      expect(userContent()).toContain('voting logistics as bracketed')
-    },
-  )
-
   it('polishes the given text when currentDraft is present', async () => {
     mockDraft('A clearer version of my own words.')
 
@@ -273,10 +237,6 @@ describe('POST /v1/outreach/robocall/draft', () => {
     expect(res.status).toBe(HttpStatus.CREATED)
     expect(res.data).toEqual({ draft: 'A clearer version of my own words.' })
 
-    expect(systemContent()).toContain('polish')
-    expect(systemContent()).toContain(
-      'Every concrete detail in the original MUST appear in your output',
-    )
     const userPrompt = userContent()
     expect(userPrompt).toContain('Hi, this is Jane, running for council.')
     expect(userPrompt).toContain('Polish the script.')
@@ -325,6 +285,91 @@ describe('POST /v1/outreach/robocall/draft', () => {
     const res = await postDraft({ purpose: 'persuade_voters', tone: 'urgent' })
 
     expect(res.status).toBe(HttpStatus.BAD_GATEWAY)
+  })
+
+  describe('election-day reminder timing', () => {
+    beforeEach(async () => {
+      await service.prisma.campaign.update({
+        where: { id: campaign.id },
+        data: { details: { ...campaign.details, electionDate: '2026-11-03' } },
+      })
+      mockDraft('A script.')
+    })
+
+    const expectDateNeutral = (userPrompt: string) => {
+      expect(userPrompt).toContain('a reminder to vote on Election Day')
+      expect(userPrompt).toContain('"[election date]"')
+      expect(userPrompt).not.toContain('today is Election Day')
+      expect(userPrompt).not.toContain('tomorrow is Election Day')
+      expect(userPrompt).not.toContain('vote today')
+    }
+
+    it('says today is Election Day when the call goes out on election day', async () => {
+      const res = await postDraft({
+        purpose: 'election_day_turnout',
+        tone: 'warm',
+        scheduledLocalDate: '2026-11-03',
+      })
+
+      expect(res.status).toBe(HttpStatus.CREATED)
+      expect(userContent()).toContain('a reminder that today is Election Day')
+      expect(userContent()).not.toContain('tomorrow is Election Day')
+    })
+
+    it('says tomorrow is Election Day when the call goes out the day before', async () => {
+      const res = await postDraft({
+        purpose: 'election_day_turnout',
+        tone: 'warm',
+        scheduledLocalDate: '2026-11-02',
+      })
+
+      expect(res.status).toBe(HttpStatus.CREATED)
+      expect(userContent()).toContain(
+        'a reminder that tomorrow is Election Day',
+      )
+      expect(userContent()).not.toContain('today is Election Day')
+    })
+
+    it.each([
+      ['an earlier send day', { scheduledLocalDate: '2026-10-30' }],
+      ['no send day', {}],
+    ])('keeps the wording date-neutral with %s', async (_label, extra) => {
+      const res = await postDraft({
+        purpose: 'election_day_turnout',
+        tone: 'warm',
+        ...extra,
+      })
+
+      expect(res.status).toBe(HttpStatus.CREATED)
+      expectDateNeutral(userContent())
+    })
+
+    it('keeps the wording date-neutral when the campaign has no election date', async () => {
+      await service.prisma.campaign.update({
+        where: { id: campaign.id },
+        data: { details: campaign.details },
+      })
+
+      const res = await postDraft({
+        purpose: 'election_day_turnout',
+        tone: 'warm',
+        scheduledLocalDate: '2026-11-03',
+      })
+
+      expect(res.status).toBe(HttpStatus.CREATED)
+      expectDateNeutral(userContent())
+    })
+
+    it('rejects a malformed send day without calling the LLM', async () => {
+      const res = await postDraft({
+        purpose: 'election_day_turnout',
+        tone: 'warm',
+        scheduledLocalDate: '2026-11-03T09:00:00Z',
+      })
+
+      expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+      expect(jsonCompletion).not.toHaveBeenCalled()
+    })
   })
 
   // Not Pro-gated (outreach-pro-gating-v2): the free build path drafts a

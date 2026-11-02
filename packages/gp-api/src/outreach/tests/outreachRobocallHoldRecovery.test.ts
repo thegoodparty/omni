@@ -5,6 +5,7 @@ import { useTestService } from '@/test-service'
 import { OutreachRobocallHoldRecoveryService } from '@/outreach/services/outreachRobocallHoldRecovery.service'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
 import { Campaign, RobocallSettleState } from '../../generated/prisma'
+import { disableVendorCrons } from '@/shared/test-utils/appEnvOverrides'
 
 const service = useTestService()
 
@@ -237,8 +238,8 @@ describe('OutreachRobocallHoldRecoveryService.sweepStaleHoldPending', () => {
     )
   })
 
-  it('no-ops off prod', async () => {
-    process.env.OTEL_SERVICE_ENVIRONMENT = 'dev'
+  it('no-ops on a non-prod deploy in live mode', async () => {
+    disableVendorCrons()
     const outreachId = await createDraft()
     await strand(outreachId, 30)
 

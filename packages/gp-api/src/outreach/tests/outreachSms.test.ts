@@ -2,6 +2,7 @@ import { HttpStatus } from '@nestjs/common'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
 import { LlmService } from '@/llm/services/llm.service'
+import { WIN_SMS_VOICE } from '../services/outreachSmsGeneration.service'
 
 const service = useTestService()
 
@@ -62,17 +63,13 @@ describe('POST /v1/outreach/sms/draft', () => {
     expect(jsonCompletion).toHaveBeenCalledTimes(1)
     const call = jsonCompletion.mock.calls[0]?.[0]
     expect(call.temperature).toBe(0.8)
-    const systemPrompt = call.messages.find(
-      (m: { role: string }) => m.role === 'system',
-    )?.content
-    expect(systemPrompt).toContain('SMS')
-    expect(systemPrompt).toContain('Do NOT introduce the candidate')
     const userPrompt = call.messages.find(
       (m: { role: string }) => m.role === 'user',
     )?.content
-    expect(userPrompt).toContain('introduce the candidate to voters')
-    expect(userPrompt).toContain('My priorities:')
-    expect(userPrompt).toContain('concrete HOW')
+    expect(userPrompt).toContain(WIN_SMS_VOICE.purposeGoals.introduce_myself)
+    expect(userPrompt).toContain(
+      WIN_SMS_VOICE.purposeStructures.introduce_myself,
+    )
     expect(userPrompt).toContain('Warm:')
     expect(userPrompt).toContain('City Council')
   })
@@ -164,12 +161,6 @@ describe('POST /v1/outreach/sms/draft', () => {
     expect(res.data).toEqual({ draft: 'A tighter version.' })
 
     const call = jsonCompletion.mock.calls[0]?.[0]
-    const systemPrompt = call.messages.find(
-      (m: { role: string }) => m.role === 'system',
-    )?.content
-    expect(systemPrompt).toContain(
-      'Every concrete detail in the original MUST appear in your output',
-    )
     const userPrompt = call.messages.find(
       (m: { role: string }) => m.role === 'user',
     )?.content
@@ -192,8 +183,9 @@ describe('POST /v1/outreach/sms/draft', () => {
     const userPrompt = call.messages.find(
       (m: { role: string }) => m.role === 'user',
     )?.content
-    expect(userPrompt).not.toContain('My priorities:')
-    expect(userPrompt).not.toContain('three short bullet points')
+    expect(userPrompt).not.toContain(
+      WIN_SMS_VOICE.purposeStructures.introduce_myself,
+    )
   })
 
   // Nine 502s in the two weeks to 2026-09-22 were polishes the model
@@ -214,9 +206,9 @@ describe('POST /v1/outreach/sms/draft', () => {
     expect(jsonCompletion).toHaveBeenCalledTimes(2)
     for (const call of jsonCompletion.mock.calls) {
       const schema = call[0].schema
-      expect(schema.safeParse({ draft: 'x'.repeat(900) }).success).toBe(true)
-      expect(schema.safeParse({ draft: 'x'.repeat(1000) }).success).toBe(true)
-      expect(schema.safeParse({ draft: 'x'.repeat(1001) }).success).toBe(false)
+      expect(schema.safeParse({ draft: 'x'.repeat(1900) }).success).toBe(true)
+      expect(schema.safeParse({ draft: 'x'.repeat(2000) }).success).toBe(true)
+      expect(schema.safeParse({ draft: 'x'.repeat(2001) }).success).toBe(false)
     }
   })
 
@@ -263,7 +255,7 @@ describe('POST /v1/outreach/sms/draft', () => {
     const oversized = await postDraft({
       purpose: 'introduce_myself',
       tone: 'warm',
-      currentDraft: 'x'.repeat(1001),
+      currentDraft: 'x'.repeat(2001),
     })
     expect(oversized.status).toBe(HttpStatus.BAD_REQUEST)
 
@@ -304,7 +296,6 @@ describe('POST /v1/outreach/sms/draft', () => {
       .map((m: { content: string }) => m.content)
       .join('\n')
     expect(prompts).toContain('No event date, time or place was given.')
-    expect(prompts).toContain('leave the line out entirely')
     expect(prompts).not.toMatch(/\[(date|time|location|hours)\]/i)
   })
 

@@ -20,11 +20,9 @@ import { cn } from '@/styleguide/lib/utils'
 
 **`design-tokens.css` is the canonical source of truth for design tokens.** Figma is a mirror.
 
-This matches the modern CSS-first convention used by Tailwind v4, shadcn/ui, Radix, and geist: tokens live in CSS, are consumed via `var(--…)`, and are read live by tooling (Storybook stories, computed styles, devtools). Nothing in the codebase depends on a JSON export of Figma tokens.
+This matches the modern CSS-first convention used by Tailwind v4, shadcn/ui, Radix, and geist: tokens live in CSS, are consumed via `var(--…)`, and are read live by tooling (computed styles, devtools). Nothing in the codebase depends on a JSON export of Figma tokens.
 
 When Figma and `design-tokens.css` disagree, treat the CSS file as correct and update Figma to match. Conversely, when a designer changes a token in Figma, the change is not "in the system" until it lands in `design-tokens.css`.
-
-The Storybook Colors stories illustrate this: each swatch and its `↳ --token → --base-token` chain label are read live from `document.styleSheets`, so the panel always reflects what consumers actually render.
 
 ---
 
@@ -33,7 +31,6 @@ The Storybook Colors stories illustrate this: each swatch and its `↳ --token �
 ```
 styleguide/
 ├── components/ui/         # React components (Button, Card, Input, etc.)
-├── stories/               # Storybook stories
 ├── lib/utils.ts           # cn() utility
 ├── design-tokens.css      # Raw Figma token values (CSS variables)
 ├── tailwind-theme.css     # Single @theme block for Tailwind v4
@@ -267,23 +264,11 @@ Base URL: `https://www.figma.com/design/dmMrTWyBirANhArKs5mTmr/GoodParty-Design-
 
 ---
 
-## Storybook
-
-```bash
-npm run storybook        # Start dev server
-npm run build-storybook  # Build static site
-```
-
-Stories are wrapped in a `data-slot` container so styleguide colors apply correctly.
-
----
-
 ## Adding Components
 
 1. Create component in `components/ui/newcomponent.tsx`
 2. Add `data-slot="component-name"` to root element
 3. Export from `components/ui/index.ts`
-4. Create story in `stories/NewComponent.stories.tsx`
 
 ### Custom Components That Need Styleguide Colors
 
@@ -320,7 +305,6 @@ export function MyPage() {
 **Migration tips:**
 
 - Start with isolated components (buttons, inputs, badges)
-- Test visually in Storybook
 - Check responsive behavior - styleguide may use different breakpoints
 - Preserve functionality first, then adopt styleguide interactions
 
@@ -408,7 +392,6 @@ import { Button } from '@/styleguide'
 | `@tailwindcss/postcss` | PostCSS plugin for Tailwind v4 processing                             |
 | shadcn/ui              | Component primitives with `data-slot`                                 |
 | Radix UI               | Accessible headless primitives                                        |
-| Storybook 10           | Component documentation                                               |
 
 ---
 

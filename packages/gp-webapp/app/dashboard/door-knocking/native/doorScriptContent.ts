@@ -80,7 +80,7 @@ export const buildScriptIssues = (
 // returns the campaign row (plus positionName and live metrics) and there are
 // no name columns on it, so reading `campaign.firstName` here always resolved
 // to undefined and the door intro dropped the candidate's name entirely.
-const speakerName = (user: User | null): string =>
+export const speakerName = (user: User | null): string =>
   clean([user?.firstName, user?.lastName].filter(Boolean).join(' ')) ||
   clean(user?.name)
 
@@ -144,9 +144,12 @@ export const buildTeamMemberIntro = (
 // Introduction section's `[Affiliation]` slot): "I'm a volunteer with Victoria
 // Masika's campaign for Town Board of Commissioners."
 //
-// `subject` is the candidate or official, never the person at the door and
-// never the volunteer — it comes off the route payload's `representing`, which
-// is the only campaign context a volunteer's session can read.
+// `subject` is the candidate, never the person at the door and never the
+// volunteer — it comes off the route payload's `representing`, which is the
+// only campaign context a volunteer's session can read.
+//
+// Win-only. Serve has no volunteers: the official is the only one who speaks
+// at a Serve door, so that rail always opens with `buildServeIntro`.
 //
 // Same clause-dropping rule as the two builders around it: a missing office
 // shortens the sentence rather than printing a hole. A missing subject is the
@@ -155,30 +158,18 @@ export const buildTeamMemberIntro = (
 export const buildVolunteerIntro = (
   user: User | null,
   subject: { name: string; office: string } | null,
-  isServe: boolean,
 ): string => {
   const speaker = speakerName(user)
   const subjectName = clean(subject?.name)
-  // "running for City Council" on Win; "your City Council Member" on Serve —
-  // the same distinction `buildServeIntro` exists to make, and for the same
-  // reason: "campaign for" is a claim about a ballot an elected official is
-  // not on.
-  const office = isServe
-    ? grammarizeOfficeName(clean(subject?.office))
-    : clean(subject?.office)
+  const office = clean(subject?.office)
 
   if (!subjectName) return speaker ? `Hi, I'm ${speaker}.` : ''
 
-  // No pronoun anywhere in either branch: nothing in the payload says which
-  // one an official uses, and guessing at a door is worse than a longer noun
-  // phrase.
-  const affiliation = isServe
-    ? office
-      ? `a volunteer for ${subjectName}, your ${office}`
-      : `a volunteer for ${subjectName}`
-    : office
-      ? `a volunteer with ${subjectName}'s campaign for ${office}`
-      : `a volunteer with ${subjectName}'s campaign`
+  // No pronoun: nothing in the payload says which one a candidate uses, and
+  // guessing at a door is worse than a longer noun phrase.
+  const affiliation = office
+    ? `a volunteer with ${subjectName}'s campaign for ${office}`
+    : `a volunteer with ${subjectName}'s campaign`
 
   return speaker
     ? `Hi, I'm ${speaker}, and I'm ${affiliation}.`
@@ -202,11 +193,15 @@ export const buildVolunteerIntro = (
 // "Mayor" alone. It is the same helper the polls intro uses, so an official
 // who has seen their title written by this product sees it written the same
 // way here.
+//
+// It takes the official's name, not the signed-in user: the official is the
+// only speaker on Serve, so a route payload naming them reads the same as
+// their own session.
 export const buildServeIntro = (
-  user: User | null,
+  officialName: string | null | undefined,
   officeName: string | null | undefined,
 ): string => {
-  const name = speakerName(user)
+  const name = clean(officialName)
   const office = grammarizeOfficeName(clean(officeName))
 
   if (name && office) return `Hi, I'm ${name}, your ${office}.`

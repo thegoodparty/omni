@@ -50,11 +50,8 @@ source "$ROOT/scripts/setup-config.sh"
 # The packages this script provisions locally: gp-api and gp-webapp, spelled
 # out per-package below rather than looped over an associative array — macOS
 # ships bash 3.2 (no `declare -A`), and every engineer's Mac is exactly the
-# machine this script has to run on. election-api is deliberately excluded —
-# gp-webapp talks to the deployed dev election-api URL it already defaults to
-# (see packages/election-api/src/shared/env/env.schema.ts), and nothing here
-# runs it. gp-admin is out of scope for the same reason: it is not part of
-# the stack scripts/dev.sh boots.
+# machine this script has to run on. gp-admin is out of scope: it is not part
+# of the stack scripts/dev.sh boots.
 #
 # Next.js only reads .env.local (gitignored) locally, never .env — see
 # docs/development.md and gp-webapp/package.json's `dev` script.
@@ -204,7 +201,7 @@ plan_action() {
   if [ -f "$path" ] && npx tsx "$ROOT/scripts/setup/lib/cli.ts" check "$pkg" "$path" >/dev/null 2>&1; then
     PLAN_ACTION="skip"
     [ "$REFRESH" = true ] && PLAN_ACTION="write"
-    return
+    return 0
   fi
   if [ -f "$path" ] && [ "$FORCE" != true ]; then
     echo "ERROR: $path exists but fails schema validation:" >&2

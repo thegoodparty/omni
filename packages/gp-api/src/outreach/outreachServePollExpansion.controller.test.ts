@@ -393,7 +393,7 @@ describe('delivering an approved expansion', () => {
   let objects: Map<string, string>
 
   beforeEach(() => {
-    process.env.OUTREACH_TEXT_CSVS_BUCKET = 'expansion-csvs'
+    vi.stubEnv('OUTREACH_TEXT_CSVS_BUCKET', 'expansion-csvs')
     handoffs = []
     objects = new Map()
     const port: TextDeliveryHandoffPort = service.app.get(
@@ -418,10 +418,15 @@ describe('delivering an approved expansion', () => {
   const approvedExpansion = async (textCount: number) => {
     const { expansionId } = (await postExpansion(pollId, { size: textCount }))
       .data
+    // Paid through the real checkout claim, which is what the delivery
+    // layer's funding gate reads.
+    await stub(OutreachServeSmsPurchaseHandlerService).executePostPurchase(
+      `cs_test_${expansionId}`,
+      { outreachId: pollId, organizationSlug: orgSlug, expansionId },
+    )
     await service.prisma.outreachPollExpansion.update({
       where: { id: expansionId },
       data: {
-        status: OutreachStatus.pending,
         approvedAt: new Date(),
         approvedBy: 'staffer@goodparty.org',
       },

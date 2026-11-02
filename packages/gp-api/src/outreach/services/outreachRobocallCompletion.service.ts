@@ -9,6 +9,7 @@ import {
 } from '@/shared/util/robocallHold.util'
 import { CallhubCampaignService } from '@/vendors/callhub/services/callhubCampaign.service'
 import { Prisma, RobocallSettleState } from '../../generated/prisma'
+import { VENDOR_CRONS_ENABLED } from 'src/shared/util/appEnvironment.util'
 
 // Every 10 minutes, offset :09 so the sweep neither joins the top-of-hour herd
 // nor collides with the sibling robocall crons (send :04,…, staging :07,…) or
@@ -40,7 +41,7 @@ export class OutreachRobocallCompletionService extends createPrismaBase(
   // money — its only write is an idempotent per-record CAS advancing a
   // run-window-elapsed run to `settling`, elected single-owner behind that CAS,
   // so two replicas racing settle each row once. It naturally no-ops when nothing
-  // is `dialed`. The prod-only guard is the sole gate it needs — the best-effort
+  // is `dialed`. The VENDOR_CRONS_ENABLED guard is the sole gate it needs — the best-effort
   // CallHub stop hits a rate-limited vendor that must not be called on
   // dev/preview. @Cron (not @Interval) so the schedule survives deploys and every
   // replica fires on the same instant.
@@ -49,7 +50,7 @@ export class OutreachRobocallCompletionService extends createPrismaBase(
     timeZone: EASTERN_TIMEZONE,
   })
   async sweepRobocallCompletion(): Promise<void> {
-    if (process.env.OTEL_SERVICE_ENVIRONMENT !== 'prod') return
+    if (!VENDOR_CRONS_ENABLED) return
     return this.runCompletion()
   }
 

@@ -12,6 +12,13 @@ export const DEPLOY_SKEW_MESSAGE =
   'The admin console was updated since this page loaded — refresh the page ' +
   'and try again.'
 
+export const GP_API_ACCESS_DENIED_DIGEST = 'GP_API_ACCESS_DENIED'
+
+export const GP_API_ACCESS_DENIED_MESSAGE =
+  'gp-api rejected this admin deployment. Preview and local builds can only ' +
+  'reach Development, so switch to the Development organization or use the ' +
+  'production admin.'
+
 export const describeActionFailure = (
   error: unknown,
   fallback: string
@@ -22,6 +29,9 @@ export const describeActionFailure = (
   }
   const digest =
     'digest' in error && typeof error.digest === 'string' ? error.digest : null
+  if (digest === GP_API_ACCESS_DENIED_DIGEST) {
+    return GP_API_ACCESS_DENIED_MESSAGE
+  }
   if (digest && error.message.includes('Server Action')) {
     return `${fallback} (server error, digest ${digest})`
   }

@@ -10,10 +10,9 @@ import { z } from 'zod'
 //
 // Tiers describe what SHOULD gate boot. `./env.ts`'s `resolveEnvVar` is the
 // resolution helper degradable vendor sites consume (ENG-11195) — see e.g.
-// vendors/vercel/services/vercel.service.ts or
-// voters/services/voters.service.ts for the pattern. A few `requireEnv()`
-// import-time throws on `optional`/`degradable` vars remain outside that
-// inventory (e.g. vendors/stripe/services/stripe.service.ts's own
+// vendors/vercel/services/vercel.service.ts for the pattern. A few
+// `requireEnv()` import-time throws on `optional`/`degradable` vars remain
+// outside that inventory (e.g. vendors/stripe/services/stripe.service.ts's own
 // STRIPE_SECRET_KEY / STRIPE_WEBSOCKET_SECRET / WEBAPP_ROOT_URL checks) —
 // migrating those is still a separate piece of work.
 //
@@ -57,6 +56,25 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
   FORWARDEMAIL_BASE_URL: {
     tier: 'degradable',
     feature: 'campaign-email-forwarding',
+  },
+  // Signs the unsubscribe links in outreach email. Without it the send
+  // sweep sends nothing.
+  EMAIL_UNSUBSCRIBE_SIGNING_KEY: {
+    tier: 'degradable',
+    feature: 'email-outreach-sending',
+  },
+
+  // The SNS topic that delivers replies to outreach email. The webhook
+  // accepts messages from this topic only.
+  EMAIL_INBOUND_TOPIC_ARN: {
+    tier: 'degradable',
+    feature: 'email-outreach-replies',
+  },
+
+  // The only bucket the reply handler reads inbound mail from.
+  EMAIL_INBOUND_BUCKET: {
+    tier: 'degradable',
+    feature: 'email-outreach-replies',
   },
 
   PEERLY_MD5_EMAIL: { tier: 'degradable', feature: 'peerly-texting' },
@@ -180,8 +198,6 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
     placeholder: 'key',
   },
 
-  L2_DATA_KEY: { tier: 'degradable', feature: 'voter-file-l2' },
-
   // Secrets Manager id of the curated local-dev bundle POST /v1/dev-env/
   // bundle vends. Set on the dev deploy only; unset everywhere else, which
   // is what keeps vending dark rather than failing boot before the secret
@@ -227,6 +243,7 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
 
   // --- Optional: everything else ---------------------------------------
   CLERK_JWT_KEY: { tier: 'optional' },
+  PYROSCOPE_ENABLED: { tier: 'optional', default: 'false' },
   NODE_ENV: { tier: 'optional' },
   LOG_LEVEL: { tier: 'optional', default: 'debug' },
   ENABLE_QUERY_LOGGING: { tier: 'optional', default: 'false' },
@@ -247,6 +264,9 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
 
   CLERK_AUTHORIZED_PARTIES: { tier: 'optional' },
   CLERK_API_TIMEOUT_MS: { tier: 'optional' },
+  VERCEL_OIDC_ALLOWED_PROJECTS: { tier: 'optional' },
+  VERCEL_OIDC_ADMIN_PROJECTS: { tier: 'optional' },
+  GITHUB_OIDC_ALLOWED_WORKFLOWS: { tier: 'optional' },
 
   AWS_REGION: { tier: 'optional', default: 'us-west-2' },
   // Not read via `process.env.X` in our own code — the AWS SDK's default
@@ -330,6 +350,9 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
 
   ROBOCALL_AUDIO_BUCKET: { tier: 'optional' },
   ROBOCALL_TEST_OVERRIDE_NUMBER: { tier: 'optional' },
+  // The free election-eve robocall offer's Stripe coupon. Unset hides the
+  // offer, which is how prod stays dark until the live coupon exists.
+  ROBOCALL_FREE_OFFER_COUPON_ID: { tier: 'optional' },
   SERVE_ANALYSIS_BUCKET_NAME: { tier: 'optional' },
   // Issue capture synthesis (constituentFeedback/). Unset means the
   // deployed pipeline; `mock` keeps everything in-process.
@@ -346,6 +369,24 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
   MEETING_PIPELINE_BUCKET: { tier: 'optional' },
   ANNOTATION_ATTACHMENTS_BUCKET: { tier: 'optional' },
   CHAT_ATTACHMENTS_BUCKET: { tier: 'optional' },
+  // Original CSVs from Import contacts (src/contactUploads/AGENTS.md).
+  CONTACT_UPLOADS_BUCKET: { tier: 'optional' },
+  // The dbt view the people reads join for orgs with serve-import-contacts
+  // on; dev reads the view over the dev federated catalog.
+  PEOPLE_DBX_CONTACT_OVERLAY_VIEW: {
+    tier: 'optional',
+    default: 'gp_api_contact_overlay',
+  },
+  // The same overlay for the Serve agents' mart, keyed by voter_key.
+  SERVE_AGENT_CONTACT_OVERLAY_VIEW: {
+    tier: 'optional',
+    default: 'serve_agent_contact_overlay',
+  },
+  // The same overlay for the Win Campaign Manager's mart.
+  WIN_AGENT_CONTACT_OVERLAY_VIEW: {
+    tier: 'optional',
+    default: 'win_agent_contact_overlay',
+  },
 
   CAMPAIGN_TRACKER_AUTOMATION_ENABLED: { tier: 'optional' },
   MEETINGS_AUTOMATION_ENABLED: { tier: 'optional' },
@@ -369,6 +410,10 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
   // mock; 'prod' → always live (never overridable). VENDOR_MODE=live on
   // dev is the rollback lever (see docs/vendor-mock-dev.md).
   VENDOR_MODE: { tier: 'optional' },
+  // One known approved Peerly identity id for the nightly vendor drift probe's
+  // get_usecases call (vendors/vendorDriftProbe.service.ts). An id, not a
+  // credential. Unset skips that one probe with a note.
+  DRIFT_PROBE_PEERLY_IDENTITY_ID: { tier: 'optional' },
 
   // Set per-deploy by deploy/index.ts to 'preview' | 'dev' | 'prod'. Also
   // drives IS_PROD_DEPLOY / IS_NON_PROD_DEPLOY in appEnvironment.util.ts —

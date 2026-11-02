@@ -1,0 +1,39 @@
+{
+  "defaultOffice": {
+    "zip": "82001",
+    "office": "Cheyenne City Council - Ward 1"
+  },
+  "references": [
+    {
+      "id": "default-office",
+      "zip": "82001",
+      "office": "Cheyenne City Council - Ward 1",
+      "needs": "exists",
+      "usedBy": "authenticateTestUser and the serve/org helpers (DEFAULT_TEST_RACE), gp-api test fixtures and Test mode (DEFAULT_RACE), the judge sweep (JUDGE_FIXTURE_RACE). Resolved whatever the date, so it only has to exist."
+    },
+    {
+      "id": "82001-serve-office-picker",
+      "zip": "82001",
+      "needs": "upcoming",
+      "includePrimaries": true,
+      "minOffices": 1,
+      "usedBy": "serve-onboarding picks the first office the Serve picker lists at this zip. The Serve picker lists primaries, so they count here."
+    },
+    {
+      "id": "28202-charlotte-mayor",
+      "zip": "28202",
+      "office": "Charlotte City Mayor",
+      "needs": "upcoming",
+      "minRaces": 2,
+      "usedBy": "office-picker-28202 selects one of two duplicate Charlotte City Mayor rows."
+    },
+    {
+      "id": "28202-city-council",
+      "zip": "28202",
+      "officeContains": "City Council",
+      "needs": "upcoming",
+      "minOffices": 1,
+      "usedBy": "office-picker-28202 filters by the City Council role pill. onboarding, campaign-story-flow (onboarding.helper), test-mode and follow-on-new-office pick a Charlotte City Council seat from the Win picker or the Test mode dropdown. follow-on-new-office's held office is the default office in Cheyenne, so any seat here is a second seat."
+    }
+  ]
+}

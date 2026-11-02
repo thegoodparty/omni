@@ -6,17 +6,14 @@ import CampaignManagerHome from '../campaign-manager/CampaignManagerHome'
 import LegacyCampaignManagerHome from '../campaign-manager/legacy/LegacyCampaignManagerHome'
 import { useNextTaskExperienceFlag } from '@shared/experiments/nextTaskExperienceFlag'
 import { WebsiteSunsetModalController } from '../shared/WebsiteSunsetModalController'
-import type { TcrCompliance } from 'helpers/types'
 
 interface DashboardContentProps {
   pathname: string
-  tcrCompliance: TcrCompliance | null
   sunsetEligible: boolean
 }
 
 export default function DashboardContent({
   pathname,
-  tcrCompliance,
   sunsetEligible,
 }: DashboardContentProps): React.JSX.Element {
   // Home is one arm of `next-task-experience`; off keeps the Campaign
@@ -36,9 +33,9 @@ export default function DashboardContent({
     >
       <WebsiteSunsetModalController eligible={sunsetEligible} />
       {!ready ? null : enabled ? (
-        <CampaignManagerHome tcrCompliance={tcrCompliance} />
+        <CampaignManagerHome />
       ) : (
-        <LegacyCampaignManagerHome tcrCompliance={tcrCompliance} />
+        <LegacyCampaignManagerHome />
       )}
     </DashboardLayout>
   )

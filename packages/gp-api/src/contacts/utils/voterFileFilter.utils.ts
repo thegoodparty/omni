@@ -27,6 +27,8 @@ type RangeCondition = {
 
 type FilterValue =
   | boolean
+  // `source`, the one PeopleFilters key that is a plain array.
+  | string[]
   | {
       in?: string[] | number[]
       // Only the activity-condition/support-status resolution engine's `id`
@@ -172,6 +174,9 @@ export const convertVoterFileFilterToFilters = (
     // a meaningless FilterObject entry.
     'activityConditions',
     'supportStatus',
+    // Same reason: ContactsService.resolveBaseFilters turns it into
+    // votedInElection, since its campaign half is a person-id set.
+    'votedStatus',
     // Provenance metadata (Task 7, recommended lists), not filter criteria.
     // recommendedModified is a plain boolean and would otherwise fall into
     // the generic boolean branch below and pollute the query payload for
@@ -288,6 +293,10 @@ export const convertVoterFileFilterToFilters = (
         // PeopleFiltersSchema strips, silently widening the audience to the
         // whole district.
         filters['precinct'] = { in: value.map(String) }
+      } else if (key === 'source') {
+        // PeopleFilters takes source as a plain array, not an operator, so
+        // the generic `{ eq }`/`{ in }` branch below would be stripped.
+        filters['source'] = value.map(String)
       } else if (key === 'incomeRanges') {
         // Income ranges are handled separately after the loop
         // to allow combining with incomeUnknown using _includeNull
@@ -505,9 +514,10 @@ export const WIN_ONLY_RECOMMENDED_FILTER_KEYS = [
 ] as const
 
 // A saved filter an elected-office org cannot resolve: the list/detail/count
-// paths 400 on these Win-only dimensions (party, ethnicity, recommended
-// affinity/ideology, contacts-made — see ContactsService.resolveBaseFilters),
-// so a Serve surface must not offer such a saved list back to the holder.
+// paths 400 on these Win-only dimensions (party, ethnicity, source,
+// recommended affinity/ideology, contacts-made — see
+// ContactsService.resolveBaseFilters), so a Serve surface must not offer
+// such a saved list back to the holder.
 export const savedFilterBlockedForElectedOffice = (
   filterInput: Partial<VoterFileFilter>,
 ): boolean => {
@@ -515,6 +525,7 @@ export const savedFilterBlockedForElectedOffice = (
   return (
     'politicalParty' in filters ||
     'ethnicity' in filters ||
+    'source' in filters ||
     WIN_ONLY_RECOMMENDED_FILTER_KEYS.some((key) => key in filters) ||
     CONTACTS_MADE_BUCKET_FIELDS.some(({ field }) => filterInput[field])
   )

@@ -3,7 +3,7 @@ import { clerk, setupClerkTestingToken } from '@clerk/testing/playwright'
 import { setFlagOverrides } from 'src/helpers/campaignStory.helper'
 import { blockSlowScripts } from 'src/helpers/navigation.helper'
 import { clerkThrottle } from 'tests/utils/throttle-requests-with-retry'
-import { createHeadlessTestUser } from 'tests/utils/headless-user'
+import { clerkBackend, createHeadlessTestUser } from 'tests/utils/headless-user'
 
 // win-team-accounts (ENG-10816/ENG-11044 Phase 1.5). This covers the
 // /volunteer shell (app/volunteer/VolunteerSidebar.tsx, AssignmentsPage.tsx,
@@ -37,14 +37,21 @@ const COOKIE_DOMAIN =
 // rewriting its two existing specs and this file may only add new specs.
 const signInAsExistingUser = async (
   page: Page,
-  email: string,
+  clerkUserId: string,
 ): Promise<void> => {
   await setupClerkTestingToken({ page })
   await page.goto('/')
   await page.waitForFunction(() => window.Clerk?.loaded, null, {
     timeout: 15_000,
   })
-  await clerkThrottle(() => clerk.signIn({ page, emailAddress: email }), 5)
+  const { token: ticket } = await clerkThrottle(() =>
+    clerkBackend.signInTokens.createSignInToken({
+      userId: clerkUserId,
+      expiresInSeconds: 300,
+    }),
+  )
+  await clerk.signIn({ page, signInParams: { strategy: 'ticket', ticket } })
+  await page.waitForFunction(() => window.Clerk?.user !== null)
 }
 
 type HeadlessOwner = Awaited<ReturnType<typeof createHeadlessTestUser>>
@@ -91,7 +98,7 @@ test.describe('Volunteer post-auth routing', () => {
     const { volunteer } = await seedVolunteer()
 
     await setFlagOverrides(page, { 'win-team-accounts': 'on' })
-    await signInAsExistingUser(page, volunteer.user.email)
+    await signInAsExistingUser(page, volunteer.clerkUserId)
 
     // /post-auth-redirect is exactly where <SignIn fallbackRedirectUrl>
     // sends a real login (app/login/page.tsx) — driving it directly
@@ -120,7 +127,7 @@ test.describe('Volunteer shell', () => {
     const { volunteer } = await seedVolunteer()
 
     await setFlagOverrides(page, { 'win-team-accounts': 'on' })
-    await signInAsExistingUser(page, volunteer.user.email)
+    await signInAsExistingUser(page, volunteer.clerkUserId)
     await stubEmptyAssignments(page)
 
     await page.goto('/volunteer', { waitUntil: 'domcontentloaded' })
@@ -158,7 +165,7 @@ test.describe('Volunteer shell', () => {
     const { volunteer } = await seedVolunteer()
 
     await setFlagOverrides(page, { 'win-team-accounts': 'on' })
-    await signInAsExistingUser(page, volunteer.user.email)
+    await signInAsExistingUser(page, volunteer.clerkUserId)
 
     await page.route(
       /\/api\/v1\/outreach\/assignments\/mine(\?|$)/,
@@ -255,7 +262,7 @@ test.describe('Volunteer campaign switcher', () => {
     })
 
     await setFlagOverrides(page, { 'win-team-accounts': 'on' })
-    await signInAsExistingUser(page, volunteer.user.email)
+    await signInAsExistingUser(page, volunteer.clerkUserId)
 
     // Pin the active org to A before the first render, so clicking B in the
     // switcher below is a real onValueChange, not a reselect of whatever

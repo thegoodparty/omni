@@ -671,6 +671,27 @@ export default function VoterMapCanvas({
       attributionControl: false,
     })
     mapRef.current = map
+    // The camera, written onto the container for end-to-end specs. A spec
+    // that draws a boundary has to turn a longitude and latitude into a pixel,
+    // and the map is the only thing that knows where it is looking; reading it
+    // back from the DOM keeps the spec off maplibre's internals. Attributes
+    // rather than state so a camera move costs no render.
+    const host = containerRef.current
+    const publishCamera = () => {
+      // The middle of the container, not `getCenter()`: a camera padding
+      // moves the one without moving the other, and a spec measuring pixels
+      // from the container's box needs the point that box is centred on.
+      const center = map.unproject([
+        host.clientWidth / 2,
+        host.clientHeight / 2,
+      ])
+      // Ready is the camera being framed, not the style having loaded: the
+      // basemap's `load` waits on tiles, and a spec running where the tile CDN
+      // is unreachable would never see it though the map takes clicks fine.
+      host.dataset.mapReady = 'true'
+      host.dataset.mapCenter = `${center.lng},${center.lat}`
+      host.dataset.mapZoom = String(map.getZoom())
+    }
     // No `NavigationControl`. The cluster is a three-button stack whose
     // third button is a location toggle maplibre's own has no equivalent of,
     // so it is rendered below in React and maplibre's would only be a
@@ -690,7 +711,9 @@ export default function VoterMapCanvas({
         .getContainer()
         .querySelector('.maplibregl-ctrl-attrib')
         ?.classList.remove('maplibregl-compact-show')
+      publishCamera()
     })
+    map.on('moveend', publishCamera)
 
     // osm-liberty ships transit overlays and 3D building extrusions we
     // don't want on a canvassing map. Transit hides entirely; buildings
@@ -941,6 +964,7 @@ export default function VoterMapCanvas({
       endDragRef.current = null
       overlayRef.current = null
       mapRef.current = null
+      delete host.dataset.mapReady
       map.remove()
     }
     // The map lives as long as its container — everything dynamic, the pack
@@ -1530,7 +1554,11 @@ export default function VoterMapCanvas({
 
   return (
     <div className="relative h-full w-full">
-      <div ref={containerRef} className="h-full w-full" />
+      <div
+        ref={containerRef}
+        data-testid="voter-map"
+        className="h-full w-full"
+      />
       {/* The cluster: bottom right, vertical, 8px apart, each an outline
           icon button on a card background so it reads against both the pale
           street fill and the dark park fill it can sit over. Rendered here

@@ -23,7 +23,8 @@ with `draft: true` BEFORE payment → row stored `pending_payment` (hidden from
 `outreachId`. On payment completion the Stripe webhook path calls
 `finalizeOutreachPurchase`: atomic claim
 `pending_payment → pending`, then `submitDraftToPeerly` (re-reads the image
-from S3); a Peerly failure reverts the status and rethrows so Stripe retries
+from S3); a Peerly failure, or a failed read of the claimed draft, reverts the
+status and rethrows so Stripe retries
 (except a content rejection, which propagates as a 400 carrying Peerly's own
 message — the webhook handler acks it rather than retrying a permanent error).
 `schemas/createOutreachSchema.ts`: only p2p may be a draft, EVERY p2p create
@@ -61,8 +62,13 @@ draft whose satellite is already linked (`peerlyPhoneListId`, stamped by
 recordHold on the paid path) — only such a draft is recoverable by the
 build-ready edge; the hold-less free ($0) path has no link and is never deferred,
 so it can't silently strand. The build-before-pay flow always carries
-`phoneListId` on the draft and never defers. It returns a boolean (false when
-deferred) so the webhook handler logs a deferral rather than a false "finalized". After the projectId is stamped this is
+`phoneListId` on the draft and never defers. It returns an outcome
+(`finalized | deferred | duplicate_refused`) so the webhook handler logs a
+deferral rather than a false "finalized". After the claim, a duplicate guard
+refuses a draft that matches a live submitted p2p send (same campaign, list,
+script, message, date): it cancels the draft, releasing the payment, without
+restoring the free-texts offer (it never applied it), and returns
+`duplicate_refused`; a redelivery sees the `canceled` draft as terminal and returns `duplicate_refused` again. After the projectId is stamped this is
 also where the SMS channel's send terminal fires —
 `EVENTS.Outreach.CampaignScheduled` (`channel: 'sms'`, DATA-2526) — exactly once
 by construction, since every replay returns at the claim above. It is keyed on
@@ -103,15 +109,32 @@ Resume converts that row IN PLACE, never inserting a second one: `POST
 stands) and `POST /outreach/robocall` with `draftOutreachId` re-run the
 fresh-create gates (Peerly identity + script compliance; the compliance/ETag
 bind, schedule guards and server-derived billing, shared via
-`resolveScheduleGates`) and move the same row `draft → pending_payment` — 404
-for another campaign's row, 409 once it is no longer a draft. That transition
-is a CAS on `status: draft` (the spine `updateMany` inside the robocall
-transaction, so a zero count aborts before the satellite is repriced), so two
-concurrent resume submits convert once and the loser 409s instead of silently
-overwriting the winner. A bare robocall
+`resolveScheduleGates`) and move the same row to `pending_payment` — 404 for
+another campaign's row, 409 once it is no longer re-enterable. A robocall
+resume accepts TWO entry states: a saved `draft` (spine `draft`), and a
+`hold_failed` row (spine `pending_payment`, satellite `hold_failed`) — the
+self-serve recovery after a declined pay-time hold, where the candidate
+re-picks a future date and a new card and pays through the SAME convert →
+authorize path, so there is one money path for a draft and a hold-failed
+resend alike (billing always re-derived server-side from the audience, never
+trusted from the client). A `hold_failed` resume keeps the satellite at
+`hold_failed` until a hold lands, so an abandoned resend stays in history as
+"payment failed" and can be resent again. The convert's claim is a CAS on the
+satellite's settle-state as read (the `outreachRobocall.updateMany` inside the
+transaction, so a zero count aborts before the spine is repriced): two
+concurrent resumes of a `draft` convert once and the loser 409s; two of a
+`hold_failed` row both write, and authorize still places one hold. It is not
+pinned to `updatedAt`, because the daily reminder stamps the row and must not
+409 a resend. The cancel-at-deadline sweep's `hold_failed → cancelled` CAS IS
+pinned to its own read `updatedAt`, so a cancel that read the old past date
+cannot take a row a resend has just moved forward. A bare robocall
 create that reuses a draft's `audioKey` 409s with that draft's `existingId`
 (`findExistingDraft` scopes `draft` + `pending_payment`) instead of tripping
-the unique index: scheduling a saved draft has to be explicit.
+the unique index: scheduling a saved draft has to be explicit. `findByScope`
+hides every `pending_payment` row EXCEPT a `hold_failed` robocall, which it
+surfaces (with the satellite's `settleState`, `audioKey`, `callbackNumber` and
+`billableCount` on the list row, mirroring `OutreachRobocallDetailSchema`) so
+history can show "payment failed" and re-enter the flow.
 A bank-debit (ACH) checkout completes with `payment_status: unpaid`, so the
 completion defers and the draft stays `pending_payment` until Stripe's
 `async_payment_succeeded` runs the same finalize days later. If the debit
@@ -126,7 +149,7 @@ the row surfaces in history as "Couldn't send".
 
 `POST /outreach/serve/sms` writes the row BEFORE checkout, for the same
 reason the p2p flow does and one more: the composed message can reach
-`SMS_COMPOSED_MAX_LENGTH` (1000) and a Stripe metadata VALUE caps at 500, so
+`SMS_COMPOSED_MAX_LENGTH` (2000) and a Stripe metadata VALUE caps at 500, so
 checkout cannot carry the content. It carries two ids instead.
 
 What the row is: `{ campaignId: null, organizationSlug }`, `outreachType:
@@ -219,7 +242,7 @@ campaign OR an organization, which is how an elected official pays.
 
 Checkout metadata carries two ids and nothing else (`outreachId`,
 `organizationSlug`) — the composed message can reach
-`SMS_COMPOSED_MAX_LENGTH` (1000) and a Stripe metadata VALUE caps at 500, so
+`SMS_COMPOSED_MAX_LENGTH` (2000) and a Stripe metadata VALUE caps at 500, so
 the poll pattern of carrying content through checkout cannot work here.
 `organizationSlug` is server-resolved on both call paths (merged from
 `@UseOrganization()` at session creation, read back off the session on the
@@ -280,6 +303,13 @@ and a deterministic deduplication id `outreachTextSend-<id>-<seq>` so the
 webhook/redirect race collapses to one message while a later Stripe redelivery
 is still allowed through to recover a genuinely lost one.
 
+A managed civic panel wave is the one Serve text that reaches `pending`
+without this handler: `ManagedWaveFundingService.claimFree` makes the same
+claim with `fundedBy: goodparty_pilot` and no session, and nothing else may
+(contacts AGENTS.md, "Managed civic panel"). No request schema takes
+`fundedBy` or `managedPanelWaveId`, and checkout metadata cannot carry them
+through.
+
 ## Text delivery layer (shared: Serve SMS now, polls later)
 
 Moved to [`docs/text-delivery.md`](docs/text-delivery.md) (~9 KB). Grep it for the file, class, or route you are working on; do not read it whole.
@@ -333,12 +363,19 @@ outreach proposal can carry the same details as `event` (contracts
   marker comes back exactly once and in order, puts the text back, and refuses
   a reply that fails a `checkSmsStandards` rule the original passed, or that
   carries more civic panel lines (`countCivicPanelLines`) or opt-out lines than
-  the original did (a model that wrote its own beside the marker). Two
-  tries, then 502, which the webapp shows as its "try again". Every SMS
+  the original did (a model that wrote its own beside the marker), or, where
+  paid-for-by is enforced (Win), more paid-for-by lines. The footer (the closing run of markers: paid-for-by,
+  opt-out, a civic panel line) is never sent: the model polishes the rest and
+  the footer is appended back verbatim, since a reply that dropped one of its
+  markers failed the whole request (ENG-11297). Two tries, and a second try
+  after a dropped marker is told which markers to keep rather than re-asked
+  the same prompt; then 502, which the webapp shows as its "try again". Every SMS
   prompt, Win and Serve, draft and improve, carries
   `SMS_LOCKED_LINES_AND_STYLE_RULE`: never write a JOIN, LEAVE or STOP line,
   no em or en dashes, never "just". The Serve create refuses (400) a message
-  with no opt-out or a second civic panel line (`assertServeSmsLockedLines`).
+  with no opt-out or a second civic panel line (`assertServeSmsLockedLines`,
+  `util/serveSmsLockedLines.util.ts`, which the managed civic panel's
+  approval also runs).
   The controllers
   pass the names and committee scheduling checks against (Win: the campaign
   owner plus `tcr_compliance`, as `requireCompliantScript` reads them; Serve:

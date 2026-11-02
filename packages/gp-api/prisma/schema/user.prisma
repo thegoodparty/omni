@@ -46,6 +46,8 @@ model User {
   contactStatusEvents         ContactStatusEvent[]
   phoneBankingCalls           ContactInteractionPhoneBanking[]
   contactNotes                ContactNote[]
+  contactUploads              ContactUpload[]             @relation("ContactUploadUser")
+  contactUploadMatchesResolved ContactUploadMatch[]       @relation("ContactUploadMatchResolvedBy")
   organizationMemberships     OrganizationMembership[]
   invitedMemberships          OrganizationMembership[]         @relation("OrganizationMembershipInvitedBy")
   doorKnockInteractions       ContactInteractionDoorKnock[]
@@ -53,6 +55,7 @@ model User {
   outreachAssignments         OutreachAssignment[]
   assignedOutreachAssignments OutreachAssignment[]             @relation("OutreachAssignmentAssignedBy")
   feedbackSynthesisRunsRequested FeedbackSynthesisRun[]
+  managedCivicPanelApprovals     ManagedCivicPanel[]
 
   @@index([firstName])
   @@index([lastName])

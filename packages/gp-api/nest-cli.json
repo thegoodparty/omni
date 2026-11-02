@@ -5,7 +5,10 @@
   "compilerOptions": {
     "builder": {
       "type": "swc",
-      "options": { "swcrcPath": ".swcrc.build.json" }
+      "options": {
+        "swcrcPath": ".swcrc.build.json",
+        "extensions": [".js", ".ts", ".tsx"]
+      }
     },
     "typeCheck": false,
     "deleteOutDir": true,

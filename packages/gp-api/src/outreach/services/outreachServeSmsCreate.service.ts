@@ -1,7 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common'
 import {
-  checkSmsStandards,
-  countCivicPanelLines,
+  CIVIC_PANEL_JOIN_REFUSED_MESSAGE,
   findCivicPanelJoinLine,
   findCivicPanelLeaveLine,
   FOLLOW_UP_BUSINESS_DAYS,
@@ -13,7 +12,7 @@ import {
 } from '@goodparty_org/contracts'
 import { addBusinessDays, addDays, format, isWeekend, parseISO } from 'date-fns'
 import { toZonedTime } from 'date-fns-tz'
-import { MAX_RESOLVED_ID_SET_SIZE } from '@/contactInteraction/services/activityConditionResolution.service'
+import { MAX_RESOLVED_ID_SET_SIZE } from '@/contactInteraction/resolvedIdSetCap.const'
 import { ContactInteractionTextService } from '@/contactInteraction/services/contactInteractionText.service'
 import {
   ContactsFilterResolutionInput,
@@ -35,6 +34,7 @@ import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import type { ProposalLink } from '@goodparty_org/contracts'
 import { roundTwoExclusions } from '@/priorities/util/roundTwoExclusions.util'
 import { createUnderProposalKey } from '../util/createUnderProposalKey.util'
+import { assertServeSmsLockedLines } from '../util/serveSmsLockedLines.util'
 import {
   ElectedOffice,
   Organization,
@@ -54,7 +54,7 @@ import { OutreachReportBackService } from './outreachReportBack.service'
  * step.
  *
  * Draft-first is required, not preferred: a Stripe metadata VALUE caps at 500
- * characters and `SMS_COMPOSED_MAX_LENGTH` is 1000, so the poll pattern of
+ * characters and `SMS_COMPOSED_MAX_LENGTH` is 2000, so the poll pattern of
  * carrying the composed message through checkout metadata cannot work. The
  * row has to exist before checkout, and checkout then carries two ids.
  *
@@ -190,25 +190,14 @@ export const roundTwoDrawCutoff = (now: Date): string =>
     'yyyy-MM-dd',
   )
 
-// The lines the composer locks, checked again on the way in, so a composer
-// bug can never reach a send: honoring STOP follows the message, and a
-// second JOIN or LEAVE line texts people the same ask twice.
-export const assertServeSmsLockedLines = (message: string): void => {
-  if (checkSmsStandards(message).failures.includes('opt_out_line')) {
-    throw new BadRequestException(
-      'Your text is missing its opt-out line. Add "Reply STOP to opt out." as the last line and try again.',
-    )
-  }
-  // A JOIN beside a LEAVE is its own refusal, further down.
-  const both =
-    findCivicPanelJoinLine(message) !== null &&
-    findCivicPanelLeaveLine(message) !== null
-  if (countCivicPanelLines(message) > (both ? 2 : 1)) {
-    throw new BadRequestException(
-      'Your text has its civic panel line more than once. Keep one and try again.',
-    )
-  }
-}
+// The earliest send date assertServeSmsSendDateAllowed accepts: the third
+// business day, so staff get their full lead to set the text up. A managed
+// civic panel wave goes out on it.
+export const nextManagedSendDate = (now: Date): string =>
+  format(
+    addBusinessDays(referenceToday(now), MIN_SERVE_SMS_LEAD_BUSINESS_DAYS + 1),
+    'yyyy-MM-dd',
+  )
 
 @Injectable()
 export class OutreachServeSmsCreateService extends createPrismaBase(
@@ -324,17 +313,17 @@ export class OutreachServeSmsCreateService extends createPrismaBase(
     }
     const filterInput: ContactsFilterResolutionInput = { ...filter }
 
-    // The LEAVE line belongs to a send that reaches panel members alone, and
-    // a send never carries both civic panel lines: one asks people on, the
-    // other offers members a way off.
-    const asksToJoinCivicPanel = findCivicPanelJoinLine(input.message) !== null
+    // Only the managed civic panel's invite asks people to join, and its
+    // waves write their rows without this route, so a JOIN line typed or
+    // pasted into any text created here is refused.
+    if (findCivicPanelJoinLine(input.message) !== null) {
+      throw new BadRequestException(CIVIC_PANEL_JOIN_REFUSED_MESSAGE)
+    }
+    // The composer no longer writes the LEAVE line (STOP already takes a
+    // member off the panel), but a draft written before still carries it,
+    // and it only belongs on a send that reaches panel members alone.
     const offersCivicPanelLeave =
       findCivicPanelLeaveLine(input.message) !== null
-    if (asksToJoinCivicPanel && offersCivicPanelLeave) {
-      throw new BadRequestException(
-        "A text can't ask people to join your civic panel and offer a way to leave it. Remove one of those lines and try again.",
-      )
-    }
     if (offersCivicPanelLeave && !isCivicPanelOnlyList(filter)) {
       throw new BadRequestException(
         'Only a text to your civic panel can offer a way to leave it. Remove that line and try again.',
@@ -371,9 +360,8 @@ export class OutreachServeSmsCreateService extends createPrismaBase(
       status: OutreachStatus.pending_payment,
       name: input.name,
       message: input.message,
-      // Read off the message, never a request flag, so the stored text and
-      // whether the ingest honors JOIN cannot disagree.
-      asksToJoinCivicPanel,
+      // Read off the message, never a request flag. asksToJoinCivicPanel
+      // keeps its default: a send created here never asks.
       offersCivicPanelLeave,
       imageUrl: input.imageUrl,
       // Date only. `date` (a UTC instant) and `scheduledLocalTime` stay

@@ -6,6 +6,7 @@ import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
 import { ROBOCALL_HOLD_PENDING_STALE_MINUTES } from '@/shared/util/robocallHold.util'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
 import { RobocallSettleState } from '../../generated/prisma'
+import { VENDOR_CRONS_ENABLED } from 'src/shared/util/appEnvironment.util'
 
 // A free slot in the 6-per-hour robocall family (send :04, staging :07,
 // completion :09, capture :02) — :08 is a Stripe-search-only sweep, no CallHub
@@ -27,7 +28,7 @@ const ROBOCALL_HOLD_RECOVERY_SWEEP_JOB = 'robocallHoldRecoverySweep'
 // re-authorize (or the deferred sweep) re-places cleanly under a fresh
 // idempotency key rather than replaying the just-cancelled PI. It never places
 // or captures — only cancels and reverts, both safe — so it needs no gate
-// beyond prod-only: a hold_pending strand can happen whenever a placement dies
+// beyond VENDOR_CRONS_ENABLED: a hold_pending strand can happen whenever a placement dies
 // mid-commit, and leaving reserved money stranded is the harm it exists to
 // rescue.
 @Injectable()
@@ -42,13 +43,13 @@ export class OutreachRobocallHoldRecoveryService extends createPrismaBase(
   // guarded self-transition claim, so two replicas racing both SELECT the same
   // stranded rows but only ONE wins each row's reclaim. @Cron (not @Interval) so
   // the schedule survives deploys and every replica fires on the same instant.
-  // Prod-only (it voids real holds via Stripe, stubbed on dev/preview).
+  // VENDOR_CRONS_ENABLED (it voids real holds via Stripe on prod, test mode elsewhere).
   @Cron(ROBOCALL_HOLD_RECOVERY_SWEEP_CRON, {
     name: ROBOCALL_HOLD_RECOVERY_SWEEP_JOB,
     timeZone: EASTERN_TIMEZONE,
   })
   async sweepStaleHoldPending(): Promise<void> {
-    if (process.env.OTEL_SERVICE_ENVIRONMENT !== 'prod') return
+    if (!VENDOR_CRONS_ENABLED) return
 
     const staleCutoff = subMinutes(
       new Date(),

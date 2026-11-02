@@ -18,6 +18,9 @@ export type ContactsStats = {
   totalConstituents: number
   totalConstituentsWithCellPhone: number
   districtPopulation: number | null
+  // Of totalConstituents, the new contacts only an import added (Win shows
+  // them beside its voters). Absent without one.
+  newContactsCount?: number
   buckets: {
     age: ContactStatsCategory
     homeowner: ContactStatsCategory

@@ -23,8 +23,8 @@ model PersonProfileRemoval {
 
   // Who in ops applied/reverted the takedown. gp-admin authenticates to gp-api
   // with a shared M2M token, so the operator is invisible to the request —
-  // there is no req.user to read and AdminAuditInterceptor logs nothing for M2M
-  // callers. The caller therefore has to name itself, and it is required so an
+  // there is no req.user to read, and AdminAuditInterceptor can name only the
+  // machine. The caller therefore has to name itself, and it is required so an
   // unattributed takedown is impossible to record.
   appliedBy      String    @map("applied_by")
   clearedAt      DateTime? @map("cleared_at")

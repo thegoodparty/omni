@@ -45,22 +45,24 @@ export const formatDisplay = (date: Date | undefined): string =>
  * dateRangesOverlap; the inclusive calendar matcher decrements it by a day.
  *
  * Mirrors the server's dateRangesOverlap null-handling so the UI never blocks
- * dates the API would accept: an office with a null START (all-null placeholder
- * OR a partial BallotReady prefill with only an end) is non-comparable and is
- * skipped; a non-null start with a null end is an indefinite term that blocks
- * from its start onward (FAR_FUTURE).
+ * dates the API would accept: an office with no START (all-null placeholder,
+ * a partial BallotReady prefill with only an end, or a start that does not
+ * read as a date) is non-comparable and is skipped, so it never becomes a
+ * FAR_PAST range that blocks every date; a start with no end is an indefinite
+ * term that blocks from its start onward (FAR_FUTURE).
  */
 export const buildDisabledRanges = (
-  offices: ElectedOffice[],
+  offices: Pick<ElectedOffice, 'id' | 'termStartDate' | 'termEndDate'>[],
   excludeId: string | undefined,
 ): DisabledRange[] =>
   offices
     .filter((office) => office.id !== excludeId)
-    .filter((office) => !!office.termStartDate)
-    .map((office) => ({
-      from: toDate(office.termStartDate) ?? FAR_PAST,
-      to: toDate(office.termEndDate) ?? FAR_FUTURE,
-    }))
+    .flatMap((office) => {
+      const from = toDate(office.termStartDate)
+      return from
+        ? [{ from, to: toDate(office.termEndDate) ?? FAR_FUTURE }]
+        : []
+    })
 
 // range.to is the exclusive term end; the day-picker's disabled matcher is
 // inclusive, so decrement by a day to leave the boundary day selectable for a
@@ -153,6 +155,7 @@ const TermDateField = ({
   disabled,
   calendarStart,
   calendarEnd,
+  openOn,
 }: {
   id: string
   label: string
@@ -161,9 +164,16 @@ const TermDateField = ({
   disabled: Matcher[]
   calendarStart: Date
   calendarEnd: Date
+  // The month an empty field opens on, instead of today.
+  openOn?: Date
 }): React.JSX.Element => {
   const [open, setOpen] = useState(false)
-  const [month, setMonth] = useState<Date>(value ?? new Date())
+  const [month, setMonth] = useState<Date>(value ?? openOn ?? new Date())
+
+  const handleOpenChange = (next: boolean): void => {
+    if (next) setMonth(value ?? openOn ?? new Date())
+    setOpen(next)
+  }
 
   const handleSelect = (date: Date | undefined): void => {
     onChange(date)
@@ -176,7 +186,7 @@ const TermDateField = ({
   return (
     <div className="flex flex-col gap-2">
       <Label htmlFor={id}>{label}</Label>
-      <Popover open={open} onOpenChange={setOpen}>
+      <Popover open={open} onOpenChange={handleOpenChange}>
         <PopoverTrigger asChild>
           <Button
             id={id}
@@ -256,6 +266,7 @@ export const TermDatesFields = ({
           disabled={endDisabled}
           calendarStart={calendarStart}
           calendarEnd={calendarEnd}
+          openOn={termStartDate}
         />
       </div>
       {error && (

@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest'
-import { ChatScope } from '../../../generated/prisma'
 import { COS_GUARDRAIL_DECLINE } from '@/chats/general/chief-of-staff/services/chiefOfStaffPrompt'
 import lines from './guardrailLines.json'
 import {
@@ -7,7 +6,6 @@ import {
   GUARDRAIL_IDS,
   GuardrailChat,
   GuardrailId,
-  guardrailChatForScope,
   guardrailLine,
   tryGuardrailLine,
 } from './guardrailLines'
@@ -82,18 +80,6 @@ describe('tryGuardrailLine', () => {
     expect(tryGuardrailLine('handoff_draft', 'chief_of_staff')).toBe(
       lines.handoff_draft.chief_of_staff,
     )
-  })
-})
-
-describe('guardrailChatForScope', () => {
-  it('maps the four chat scopes to their bench names and the rest to null', () => {
-    expect(guardrailChatForScope(ChatScope.campaign_assistant)).toBe(
-      'campaign_assistant',
-    )
-    expect(guardrailChatForScope(ChatScope.briefing_annotation)).toBe(
-      'briefing_chat',
-    )
-    expect(guardrailChatForScope(ChatScope.priority_flow)).toBeNull()
   })
 })
 

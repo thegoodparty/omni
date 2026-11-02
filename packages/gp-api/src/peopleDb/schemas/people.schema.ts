@@ -59,6 +59,12 @@ export const listPeopleSchema = withDistrictInput({
   // reads totalResults, so skip the per-page COUNT — otherwise a large send
   // runs one full-scan count per page. Only honored on the ungrouped path.
   skipCount: z.coerce.boolean().optional().default(false),
+  // Also count, of totalResults, the people only an import added (a Win
+  // campaign with imported contacts). Ungrouped reads with the overlay only.
+  countNewContacts: z.boolean().optional(),
+  // Keyset paging for a reader draining a whole audience: rows after this
+  // id, page ignored. Only honored on the ungrouped path.
+  afterId: z.string().min(1).optional(),
 })
   // Cap the effective SQL OFFSET ((page - 1) * resultsPerPage): the per-field
   // caps alone still permit a multi-hundred-million-row OFFSET.

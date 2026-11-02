@@ -37,11 +37,6 @@ test.describe('Pro upgrade dashboard entry (non-Pro)', () => {
     await NavigationHelper.dismissOverlays(page)
     await waitForDashboardReady(page)
 
-    // Banner is the non-Pro dashboard entry point into the wizard.
-    await expect(
-      page.getByText('76% of candidates who use Pro win'),
-    ).toBeVisible()
-
     // Voter Data routing: a non-Pro Win campaign's "Voter Data" sidebar link
     // targets the Contacts page — the district-aggregate upsell surface
     // (ENG-10495) — not the wizard index. Assert the href (stable route)
@@ -50,9 +45,10 @@ test.describe('Pro upgrade dashboard entry (non-Pro)', () => {
       page.getByRole('link', { name: 'Voter Data' }),
     ).toHaveAttribute('href', '/dashboard/contacts')
 
-    // Get Pro opens the wizard, which re-derives the resume step and lands a
-    // zero-progress non-Pro candidate on the value-prop intro.
-    await page.getByRole('button', { name: 'Get Pro' }).click()
+    // With the flag off the dashboard has no Pro entry (the sidebar banner is
+    // flag-gated), so open the wizard index directly. It re-derives the resume
+    // step and lands a zero-progress non-Pro candidate on the value-prop intro.
+    await page.goto('/dashboard/pro-upgrade')
     await page.waitForURL(/\/dashboard\/pro-upgrade\/value-prop/)
     await expect(page).toHaveURL(/\/dashboard\/pro-upgrade\/value-prop$/)
   })

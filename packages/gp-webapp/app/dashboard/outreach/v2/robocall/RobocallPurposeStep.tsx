@@ -2,6 +2,7 @@
 
 import { Card, cn } from '@styleguide'
 import { ChevronRightIcon } from '@styleguide/components/ui/icons'
+import { FreeOfferLabel } from 'app/dashboard/shared/robocallFreeOffer/FreeOfferLabel'
 import { ROBOCALL_PURPOSES, type RobocallPurpose } from '../robocallPurposes'
 // Intro is a channel-generic v2 component that currently lives under social/;
 // reused here read-only (a later refactor can relocate it to v2/).
@@ -10,11 +11,15 @@ import { Intro } from '../social/Intro'
 interface RobocallPurposeStepProps {
   selected: RobocallPurpose | null
   onSelect: (purpose: RobocallPurpose) => void
+  // The purpose the free election-eve robocall offer belongs to, badged when
+  // the campaign has the offer.
+  freeOfferPurpose?: RobocallPurpose | null
 }
 
 export const RobocallPurposeStep = ({
   selected,
   onSelect,
+  freeOfferPurpose = null,
 }: RobocallPurposeStepProps) => (
   <div className="space-y-6">
     <Intro
@@ -42,7 +47,10 @@ export const RobocallPurposeStep = ({
               : 'hover:border-primary/50',
           )}
         >
-          <span className="font-medium text-foreground">{purpose.label}</span>
+          <span className="flex flex-col items-start gap-1 font-medium text-foreground">
+            {purpose.id === freeOfferPurpose && <FreeOfferLabel />}
+            {purpose.label}
+          </span>
           <ChevronRightIcon className="size-5 shrink-0 text-muted-foreground" />
         </Card>
       ))}

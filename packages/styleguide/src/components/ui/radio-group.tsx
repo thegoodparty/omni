@@ -7,6 +7,14 @@ import { cn } from '@styleguide/lib/utils'
 import { CheckIcon } from './icons'
 import { Label } from './label'
 
+/**
+ * Always pass a defined value; "" means nothing selected. Use
+ * RadioGroupItemLabel for each labeled option. Pre-select a default when most
+ * people pick the same one.
+ *
+ * @summary Use for picking one of up to about five visible options. For more
+ * options, use Combobox; never a Select for two or three.
+ */
 function RadioGroup({
   className,
   ...props
@@ -94,6 +102,17 @@ interface RadioCardItemProps {
   disabled?: boolean
 }
 
+// The whole card is the radio, so a press anywhere on it selects. A <label>
+// card around a small radio depends on the browser forwarding the click,
+// which can stop at moving focus and take a second press.
+/**
+ * The whole card is the radio, so don't wrap it in a label or add a click
+ * handler.
+ *
+ * @summary Use for picking one of a few options shown as cards with a title and
+ * short description. Place inside a RadioGroup; for plain options, use
+ * RadioGroupItemLabel.
+ */
 function RadioCardItem({
   value,
   id,
@@ -105,33 +124,41 @@ function RadioCardItem({
   disabled,
 }: RadioCardItemProps) {
   return (
-    <Label
-      htmlFor={id}
+    <RadioGroupPrimitive.Item
+      data-slot="radio-card-item"
+      value={value}
+      id={id}
+      disabled={disabled}
+      aria-labelledby={
+        description ? `${id}-title ${id}-description` : `${id}-title`
+      }
       className={cn(
-        'flex cursor-pointer items-start gap-2 rounded-lg border border-border bg-card p-3 transition-colors',
-        'has-[[data-state=checked]]:border-primary has-[[data-state=checked]]:bg-card has-[[data-state=checked]]:ring-1 has-[[data-state=checked]]:ring-primary',
-        'has-[[data-disabled]]:cursor-not-allowed has-[[data-disabled]]:opacity-50',
+        'group/radio-card flex w-full cursor-pointer items-start gap-2 rounded-lg border border-border bg-card p-3 text-left transition-colors outline-none',
+        'focus-visible:ring-[3px] focus-visible:ring-components-input-focus',
+        'data-[state=checked]:border-primary data-[state=checked]:ring-1 data-[state=checked]:ring-primary',
+        'disabled:cursor-not-allowed disabled:opacity-50',
         className,
       )}
     >
-      <RadioGroupItem
-        value={value}
-        id={id}
-        disabled={disabled}
+      <span
+        aria-hidden
         className={cn(
-          'shrink-0 disabled:opacity-100',
+          'flex aspect-square size-5 shrink-0 items-center justify-center rounded-full border border-components-input-border bg-components-input-base',
+          'transition-[border-color,border-width,background-color]',
+          'group-data-[state=checked]/radio-card:border-primary',
+          indicator === 'radio' &&
+            'group-data-[state=checked]/radio-card:border-[6px]',
           indicator === 'check' &&
-            'border-2 text-primary-foreground data-[state=checked]:border-2 data-[state=checked]:bg-primary',
+            'border-2 text-primary-foreground group-data-[state=checked]/radio-card:bg-primary',
         )}
       >
         {indicator === 'check' && (
-          <RadioGroupPrimitive.Indicator className="flex items-center justify-center">
-            <CheckIcon className="size-3" />
-          </RadioGroupPrimitive.Indicator>
+          <CheckIcon className="hidden size-3 group-data-[state=checked]/radio-card:block" />
         )}
-      </RadioGroupItem>
-      <div className="flex flex-col gap-px">
+      </span>
+      <span className="flex flex-col gap-px">
         <span
+          id={`${id}-title`}
           className={cn(
             'text-sm font-normal leading-5 text-foreground',
             titleClassName,
@@ -140,10 +167,15 @@ function RadioCardItem({
           {title}
         </span>
         {description && (
-          <span className="text-xs text-muted-foreground">{description}</span>
+          <span
+            id={`${id}-description`}
+            className="text-xs text-muted-foreground"
+          >
+            {description}
+          </span>
         )}
-      </div>
-    </Label>
+      </span>
+    </RadioGroupPrimitive.Item>
   )
 }
 

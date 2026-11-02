@@ -676,17 +676,21 @@ export const budgetOutputLines = (
 // files from the two checkouts, so a failure means the judge code is broken
 // and the arms would fail anyway — and it runs before either arm, so
 // failing here costs nothing.
-if (require.main === module) {
-  const outPath = process.argv[2]
-  const baseDir = process.env.BASE_DIR
+export const runArmBudgetEntry = (
+  args: readonly string[],
+  env: NodeJS.ProcessEnv,
+  writeStderr: (text: string) => void,
+): number => {
+  const outPath = args[0]
+  const baseDir = env.BASE_DIR
   if (outPath === undefined || outPath === '' || !baseDir) {
-    process.stderr.write(
+    writeStderr(
       'usage: BASE_DIR=<base worktree> JUDGE_AGENTS=<ids> armBudget.ts ' +
         '<path to append outputs to>\n',
     )
-    process.exit(2)
+    return 2
   }
-  const agentIds = parseAgentIds(process.env.JUDGE_AGENTS ?? '')
+  const agentIds = parseAgentIds(env.JUDGE_AGENTS ?? '')
   const background = resolveAdmission(agentIds, baseDir)
   const admitted = background.admitted
   // One map for both shapes, which the arms already carry: a background
@@ -694,10 +698,17 @@ if (require.main === module) {
   // here.
   const refused = [
     ...background.refused,
-    ...resolveChatRefusals(agentIds, baseDir),
+    ...resolveChatRefusals(
+      agentIds,
+      baseDir,
+      DEFAULT_JUDGE_CONFIG,
+      AGENTS,
+      CHAT_COSTS,
+      (line) => writeStderr(`${line}\n`),
+    ),
   ]
   if (!baseBoundsChat(baseDir)) {
-    process.stderr.write(
+    writeStderr(
       "the base ref's arm does not refuse chat agents, so none are refused " +
         'and the chat half of each arm is unbounded\n',
     )
@@ -714,7 +725,7 @@ if (require.main === module) {
     ),
   )
   const budget = DEFAULT_JUDGE_CONFIG.background
-  process.stderr.write(
+  writeStderr(
     `both arms will walk background agents at ${budget.attemptsPerCase} ` +
       `attempt(s) over ${budget.maxCases ?? 'every'} case(s), ` +
       (baseWalksConcurrently(baseDir)
@@ -723,30 +734,38 @@ if (require.main === module) {
       `; admitted: ${admitted.join(', ') || 'none'}\n`,
   )
   for (const [agentId, ids] of background.extraCases) {
-    process.stderr.write(
+    writeStderr(
       `${agentId} also walks its control case(s) past the cap: ` +
         `${ids.join(', ')}\n`,
     )
   }
   for (const [agentId, attempts] of background.agentAttempts) {
-    process.stderr.write(
+    writeStderr(
       `${agentId} is walked at ${attempts} attempt(s) a case, as its list ` +
         'asks\n',
     )
   }
   if (!baseReadsAgentAttempts(baseDir)) {
-    process.stderr.write(
+    writeStderr(
       "the base ref's arm does not read a list's own attempts, so every " +
         'background agent is walked at the sweep default\n',
     )
   }
   if (!baseWalksExtraCases(baseDir)) {
-    process.stderr.write(
+    writeStderr(
       "the base ref's arm does not walk extra control cases, so only the " +
         'first cases of each list are walked\n',
     )
   }
   for (const one of refused) {
-    process.stderr.write(`refused ${one.agentId}: ${one.reason}\n`)
+    writeStderr(`refused ${one.agentId}: ${one.reason}\n`)
   }
+  return 0
+}
+
+if (require.main === module) {
+  const code = runArmBudgetEntry(process.argv.slice(2), process.env, (text) =>
+    process.stderr.write(text),
+  )
+  if (code !== 0) process.exit(code)
 }

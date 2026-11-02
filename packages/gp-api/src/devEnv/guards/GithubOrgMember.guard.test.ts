@@ -9,20 +9,14 @@ import { PinoLogger } from 'nestjs-pino'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DevEnvRequest } from '../devEnv.types'
 import { GithubOrgMemberGuard } from './GithubOrgMember.guard'
+import {
+  appEnvOverrides,
+  useAppEnvOverrides,
+} from '@/shared/test-utils/appEnvOverrides'
 
 // IS_NON_PROD_DEPLOY is a module-level constant; the unit-test env has no
 // OTEL_SERVICE_ENVIRONMENT so the real value is false. Toggle it per-test.
-const { envNonProd } = vi.hoisted(() => ({ envNonProd: { value: true } }))
-vi.mock('@/shared/util/appEnvironment.util', async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import('@/shared/util/appEnvironment.util')>()
-  return {
-    ...actual,
-    get IS_NON_PROD_DEPLOY() {
-      return envNonProd.value
-    },
-  }
-})
+useAppEnvOverrides({ IS_NON_PROD_DEPLOY: true })
 
 // Real-shaped GET /user/memberships/orgs/{org} payload.
 const membershipBody = (state: string) => ({
@@ -50,7 +44,7 @@ describe('GithubOrgMemberGuard', () => {
     }) as unknown as ExecutionContext
 
   beforeEach(() => {
-    envNonProd.value = true
+    appEnvOverrides.IS_NON_PROD_DEPLOY = true
     fetchMock = vi.fn()
     vi.stubGlobal('fetch', fetchMock)
     const logger = {
@@ -169,7 +163,7 @@ describe('GithubOrgMemberGuard', () => {
   })
 
   it('404s outside a non-prod deploy before touching GitHub', async () => {
-    envNonProd.value = false
+    appEnvOverrides.IS_NON_PROD_DEPLOY = false
 
     await expect(guard.canActivate(contextFor(req))).rejects.toThrow(
       NotFoundException,

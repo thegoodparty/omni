@@ -450,10 +450,6 @@ export const apiRoutes = {
       path: '/websites/:vanityPath/preview',
       method: 'GET',
     },
-    view: {
-      path: '/websites/:vanityPath/view',
-      method: 'GET',
-    },
     getContacts: {
       path: '/websites/mine/contacts',
       method: 'GET',

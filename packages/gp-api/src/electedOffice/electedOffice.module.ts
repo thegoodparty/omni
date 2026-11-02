@@ -14,6 +14,10 @@ import { UserOrM2MGuard } from './guards/UserOrM2M.guard'
 import { CrmOfficeHolderService } from './services/crmOfficeHolder.service'
 import { ElectedOfficeService } from './services/electedOffice.service'
 import { SupportEstimateService } from './services/supportEstimate.service'
+import { WinTermService } from './services/winTerm.service'
+import { WinOfficeService } from './services/winOffice.service'
+import { CronModule } from '@/cron/cron.module'
+import { OfficeHoldersModule } from '@/electionDb/officeHolders/officeHolders.module'
 
 @Module({
   imports: [
@@ -24,17 +28,21 @@ import { SupportEstimateService } from './services/supportEstimate.service'
     forwardRef(() => PrioritiesModule),
     ElectionsModule,
     ElectedOfficeSupportModule,
+    OfficeHoldersModule,
     CrmModule,
     SlackModule,
+    CronModule,
   ],
   controllers: [ElectedOfficeController],
   providers: [
     ElectedOfficeService,
     CrmOfficeHolderService,
     SupportEstimateService,
+    WinTermService,
+    WinOfficeService,
     UseElectedOfficeGuard,
     UserOrM2MGuard,
   ],
-  exports: [ElectedOfficeService, UseElectedOfficeGuard],
+  exports: [ElectedOfficeService, WinOfficeService, UseElectedOfficeGuard],
 })
 export class ElectedOfficeModule {}

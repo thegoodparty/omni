@@ -1,0 +1,11 @@
+// A single row (id 1, seeded by the migration). Holding it is what makes the
+// send sweep one runner across replicas, and so the global SES rate limit.
+// A minute CronLockService claim can't do this: its 30s stale window is
+// shorter than a sweep tick.
+model EmailSweepLease {
+  id        Int       @id
+  holder    String?
+  expiresAt DateTime? @map("expires_at")
+
+  @@map("email_sweep_lease")
+}

@@ -23,6 +23,13 @@ const sizeClasses = {
   xl: 'w-[500px] h-[67px]',
 } as const
 
+/**
+ * The text is white by default; pass textVariant="dark" on a light background.
+ *
+ * @summary Use for the full GoodParty.org name beside the heart, as the brand
+ * header on pages like sign-in and welcome. For the heart alone, use
+ * GoodPartyOrgLogo.
+ */
 export const GoodPartyOrgLogoWordmark = ({
   className = '',
   size = 'default',

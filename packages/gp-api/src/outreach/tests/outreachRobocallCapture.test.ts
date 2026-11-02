@@ -14,6 +14,7 @@ import {
   RobocallSettleState,
 } from '../../generated/prisma'
 import { calcRobocallTotalInCents } from '@/shared/util/robocallPricing.util'
+import { disableVendorCrons } from '@/shared/test-utils/appEnvOverrides'
 
 const service = useTestService()
 
@@ -298,9 +299,13 @@ describe('OutreachRobocallCaptureService.captureDraft', () => {
     expect(trackSpy).toHaveBeenCalledTimes(1)
   })
 
-  it('parks uncollectable + CRITICAL when the hold lapsed before capture', async () => {
+  it('parks uncollectable with a warn (no CRITICAL) when the hold lapsed before capture', async () => {
     const outreachId = await createDraft({ completedCallCount: 100 })
     retrieveSpy.mockResolvedValue(piWith('canceled'))
+    const warnSpy = vi.spyOn(
+      (capture as unknown as { logger: PinoLogger }).logger,
+      'warn',
+    )
     const errorSpy = vi.spyOn(
       (capture as unknown as { logger: PinoLogger }).logger,
       'error',
@@ -308,13 +313,18 @@ describe('OutreachRobocallCaptureService.captureDraft', () => {
 
     await capture.captureDraft(outreachId)
 
-    // Delivered run we could not capture: never blind-charge, surface CRITICAL.
+    // Delivered run we could not capture: never blind-charge. Fresh-charge
+    // recovery collects it and alerts CRITICAL itself if that fails.
     expect(captureSpy).not.toHaveBeenCalled()
     expect((await readSatellite(outreachId)).settleState).toBe(
       RobocallSettleState.uncollectable,
     )
-    expect(errorSpy).toHaveBeenCalledWith(
+    expect(warnSpy).toHaveBeenCalledWith(
       expect.objectContaining({ outreachId }),
+      expect.stringContaining('fresh-charge recovery'),
+    )
+    expect(errorSpy).not.toHaveBeenCalledWith(
+      expect.anything(),
       expect.stringContaining('CRITICAL'),
     )
   })
@@ -497,8 +507,8 @@ describe('OutreachRobocallCaptureService.sweepCaptures', () => {
     )
   })
 
-  it('no-ops off prod', async () => {
-    process.env.OTEL_SERVICE_ENVIRONMENT = 'dev'
+  it('no-ops on a non-prod deploy in live mode', async () => {
+    disableVendorCrons()
     const outreachId = await createDraft({ completedCallCount: 100 })
 
     await capture.sweepCaptures()

@@ -6,9 +6,9 @@ import {
   NavigationHelper,
 } from 'src/helpers/navigation.helper'
 import {
-  SEED_VALID_EIN,
   seedEinAndFiled,
   seedFilingComplete,
+  uniqueEin,
 } from 'src/helpers/pro-upgrade.helper'
 import { setFlagOverrides } from 'src/helpers/campaignStory.helper'
 
@@ -58,8 +58,9 @@ test.describe('Pro upgrade v2 resume', () => {
   }) => {
     const { client } = await authenticateTestUser(page, { isolated: true })
 
+    const ein = uniqueEin()
     await walkToEin(page)
-    await page.getByPlaceholder('12-3456789').fill(SEED_VALID_EIN)
+    await page.getByPlaceholder('12-3456789').fill(ein)
     await page.getByRole('button', { name: 'Continue' }).click()
     await page.waitForURL(`**${PRO_UPGRADE_PATH}/filing-details`)
 
@@ -68,13 +69,11 @@ test.describe('Pro upgrade v2 resume', () => {
 
     const { data } = await client.get<CampaignWizardState>('/v1/campaigns/mine')
     expect(data.details?.hasFiledForRace).toBe(true)
-    expect(data.details?.einNumber).toBe(SEED_VALID_EIN)
+    expect(data.details?.einNumber).toBe(ein)
 
     // Re-entry opens on the overview, never mid-flow.
     await walkToEin(page)
-    await expect(page.getByPlaceholder('12-3456789')).toHaveValue(
-      SEED_VALID_EIN,
-    )
+    await expect(page.getByPlaceholder('12-3456789')).toHaveValue(ein)
     await page.getByRole('button', { name: 'Continue' }).click()
     await page.waitForURL(`**${PRO_UPGRADE_PATH}/filing-details`)
   })
@@ -92,8 +91,8 @@ test.describe('Pro upgrade v2 resume', () => {
     })
     // The filing a free candidate submitted on an earlier visit, through the
     // endpoint the form posts to, before leaving at payment.
-    await seedEinAndFiled(client)
-    await seedFilingComplete(client, user.email)
+    const ein = await seedEinAndFiled(client)
+    await seedFilingComplete(client, user.email, ein)
 
     await walkToEin(page)
     await page.getByRole('button', { name: 'Continue' }).click()

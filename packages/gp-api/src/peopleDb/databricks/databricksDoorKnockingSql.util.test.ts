@@ -22,7 +22,7 @@ const CITY: DbxDistrict = {
   districtType: 'City',
   districtName: 'SPRINGFIELD',
   useVoterOnlyPath: false,
-  dataset: 'voters',
+  dataset: { base: 'voters' },
   table: VOTERS_TABLE,
 }
 
@@ -32,7 +32,7 @@ const STATEWIDE: DbxDistrict = {
   districtType: 'State',
   districtName: 'IL',
   useVoterOnlyPath: true,
-  dataset: 'voters',
+  dataset: { base: 'voters' },
   table: VOTERS_TABLE,
 }
 

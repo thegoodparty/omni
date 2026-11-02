@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { screen } from '@testing-library/react'
+import { fireEvent, screen } from '@testing-library/react'
+import { router } from 'helpers/test-utils/router-mocking'
 import { render } from 'helpers/test-utils/render'
 import LossPage from './page'
 
@@ -15,6 +16,14 @@ const { mockCampaign } = vi.hoisted(() => ({
 
 vi.mock('@shared/hooks/useCampaign', () => ({
   useCampaign: () => [mockCampaign.current],
+}))
+
+vi.mock('@shared/hooks/useUser', () => ({
+  useUser: () => [{ firstName: 'Sarah' }],
+}))
+
+vi.mock('app/dashboard/contacts/citizens-panel/managedPanelCopy', () => ({
+  useServePlace: () => 'Maplewood',
 }))
 
 vi.mock('gpApi/clientFetch', () => ({
@@ -60,7 +69,26 @@ describe('LossPage', () => {
 
     render(<LossPage />)
 
-    expect(screen.getByText(/Not every campaign wins/i)).toBeInTheDocument()
+    expect(
+      screen.getByRole('heading', { name: 'Thank you for running, Sarah' }),
+    ).toBeInTheDocument()
     expect(screen.queryByText(/Pro subscription is still active/i)).toBeNull()
+  })
+
+  it('points to the community and back to the dashboard', () => {
+    mockCampaign.current = { id: 1, isPro: false, details: {} }
+
+    render(<LossPage />)
+
+    expect(
+      screen.getByText(
+        'Learn how to run again, or how to support the officials serving Maplewood.',
+      ),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('link', { name: /Join the community/ }),
+    ).toHaveAttribute('href', 'https://community.goodparty.org')
+    fireEvent.click(screen.getByRole('button', { name: 'Back to dashboard' }))
+    expect(router.replace).toHaveBeenCalledWith('/dashboard')
   })
 })

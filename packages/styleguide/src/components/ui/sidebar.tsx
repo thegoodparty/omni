@@ -51,6 +51,14 @@ const useSidebar = () => {
   return context
 }
 
+/**
+ * Wrap Sidebar and SidebarInset in it; they throw outside it. A page the user
+ * steps into and backs out of drops the sidebar (learned rule 27);
+ * DashboardLayout's hideMenu does this.
+ *
+ * @summary Use to build an app shell with a collapsible side nav beside the page
+ * content. Inside the dashboard, use DashboardLayout instead.
+ */
 const SidebarProvider = ({
   defaultOpen = true,
   open: openProp,

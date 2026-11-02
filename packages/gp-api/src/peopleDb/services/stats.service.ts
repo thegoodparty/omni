@@ -4,9 +4,10 @@ import { DatabricksVoterService } from '../databricks/databricksVoter.service'
 import { type ComputedDistrictStats } from '../databricks/databricksDistrictStatsSql.util'
 import {
   type AnswerCell,
-  type CensusCompositionRows,
   type DistrictCells,
   type PersonAnswer,
+  type ThemeCell,
+  type TractPlace,
   type WeightingInputs,
 } from '../databricks/districtCensusSql.util'
 import { VoterReadLogService } from '../databricks/voterReadLog.service'
@@ -22,26 +23,13 @@ export class StatsService {
   async findStats(
     dto: StatsDTO,
     dataset: PeopleDataset,
+    options: { countNewContacts?: boolean } = {},
   ): Promise<ComputedDistrictStats | null> {
     return this.readLog.measure({
       op: 'stats',
       districtId: dto.districtId,
       dataset,
-      read: () => this.databricks.findStats(dto.districtId, dataset),
-    })
-  }
-
-  async findCensusComposition(
-    districtId: string,
-    dataset: PeopleDataset,
-    personIds: string[],
-  ): Promise<CensusCompositionRows> {
-    return this.readLog.measure({
-      op: 'census-composition',
-      districtId,
-      dataset,
-      read: () =>
-        this.databricks.findCensusComposition(districtId, dataset, personIds),
+      read: () => this.databricks.findStats(dto.districtId, dataset, options),
     })
   }
 
@@ -84,6 +72,19 @@ export class StatsService {
     })
   }
 
+  async findThemeCells(
+    districtId: string,
+    dataset: PeopleDataset,
+    themes: string[][],
+  ): Promise<ThemeCell[]> {
+    return this.readLog.measure({
+      op: 'theme-cells',
+      districtId,
+      dataset,
+      read: () => this.databricks.findThemeCells(districtId, dataset, themes),
+    })
+  }
+
   async findTractGridCells(
     districtId: string,
     dataset: PeopleDataset,
@@ -101,6 +102,19 @@ export class StatsService {
           tracts,
           cellDegrees,
         ),
+    })
+  }
+
+  async findTractPlaces(
+    districtId: string,
+    dataset: PeopleDataset,
+    tracts: string[],
+  ): Promise<TractPlace[]> {
+    return this.readLog.measure({
+      op: 'tract-places',
+      districtId,
+      dataset,
+      read: () => this.databricks.findTractPlaces(districtId, dataset, tracts),
     })
   }
 }

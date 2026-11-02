@@ -63,6 +63,11 @@ export const BALLOT_ACCESS_TASK_TITLES = CAMPAIGN_TASK_CATALOG.filter(
   (task) => task.category === BALLOT_ACCESS_CATEGORY,
 ).map((task) => task.title)
 
+// The election-eve reminder robocall, by title for the same reason.
+export const REMINDER_ROBOCALL_TASK_TITLES = CAMPAIGN_TASK_CATALOG.filter(
+  (task) => task.id === 'election-day-reminder-robocall',
+).map((task) => task.title)
+
 // Build the campaign's static (global) tracker rows from the catalog — the
 // Pre-launch/Launch/GOTV-ops tasks that exist as soon as the tracker starts.
 export const buildStaticTrackerTaskRows = (

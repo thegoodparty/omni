@@ -11,6 +11,7 @@ import {
 } from '@/vendors/stripe/services/stripe.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import { Prisma, RobocallSettleState } from '../../generated/prisma'
+import { VENDOR_CRONS_ENABLED } from 'src/shared/util/appEnvironment.util'
 
 // One slot after capture (:02), on a minute free of the other robocall crons.
 const ROBOCALL_FRESH_CHARGE_SWEEP_CRON = '5,15,25,35,45,55 * * * *'
@@ -55,14 +56,14 @@ export class OutreachRobocallFreshChargeService extends createPrismaBase(
 
   // No CronLockService: idempotent per record behind the `uncollectable →
   // charging` claim, so two replicas both SELECT the same candidates but only
-  // ONE wins each row's claim. Prod-only (a real charge; Stripe is stubbed on
-  // dev/preview).
+  // ONE wins each row's claim. VENDOR_CRONS_ENABLED (a real charge on prod,
+  // a Stripe test-mode charge where vendors are mocked).
   @Cron(ROBOCALL_FRESH_CHARGE_SWEEP_CRON, {
     name: ROBOCALL_FRESH_CHARGE_SWEEP_JOB,
     timeZone: EASTERN_TIMEZONE,
   })
   async sweepFreshCharges(): Promise<void> {
-    if (process.env.OTEL_SERVICE_ENVIRONMENT !== 'prod') return
+    if (!VENDOR_CRONS_ENABLED) return
 
     // Chargeable = a delivered, lapsed-hold run with the data to bill exactly
     // and a saved card, that has NOT yet been charge-attempted (chargeIntentId

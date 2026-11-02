@@ -89,12 +89,8 @@ describe('POST /v1/outreach/phone-banking/draft', () => {
       (m: { role: string }) => m.role === 'user',
     )?.content
     expect(userPrompt).toContain(
-      'introducing the candidate to a voter for the first time',
+      WIN_PHONE_BANKING_VOICE.purposePrompts.introduce_myself,
     )
-    expect(userPrompt).toContain(
-      'This is an identification call, not a persuasion call',
-    )
-    expect(userPrompt).toContain('Format as alternating You:/Voter: lines')
     expect(userPrompt).toContain('Warm:')
     expect(userPrompt).toContain('City Council')
     expect(userPrompt).toContain(
@@ -171,29 +167,15 @@ describe('POST /v1/outreach/phone-banking/draft', () => {
     expect(userPrompt).not.toContain('Transit')
   })
 
-  it('includes the volunteer opener and compliance ban in the system prompt', async () => {
+  it.each([
+    'persuade_voters',
+    'event_invite',
+    'early_voting',
+    'election_day_turnout',
+  ] as const)('carries the %s purpose prompt', async (purpose) => {
     mockDraft('A script.')
 
-    const res = await postDraft({ purpose: 'introduce_myself', tone: 'warm' })
-    expect(res.status).toBe(HttpStatus.CREATED)
-
-    const call = jsonCompletion.mock.calls[0]?.[0]
-    const systemPrompt = call.messages.find(
-      (m: { role: string }) => m.role === 'system',
-    )?.content
-    expect(systemPrompt).toContain(
-      'Hi, is this [voter name]? My name is [your name], and I am a ' +
-        'volunteer for',
-    )
-    expect(systemPrompt).toContain('no "Reply STOP"')
-    expect(systemPrompt).toContain('no "Paid for by"')
-    expect(systemPrompt).toContain('no callback phone number')
-  })
-
-  it('includes an open-ended issue question for the persuade purpose', async () => {
-    mockDraft('A script.')
-
-    const res = await postDraft({ purpose: 'persuade_voters', tone: 'direct' })
+    const res = await postDraft({ purpose, tone: 'warm' })
     expect(res.status).toBe(HttpStatus.CREATED)
 
     const call = jsonCompletion.mock.calls[0]?.[0]
@@ -201,68 +183,9 @@ describe('POST /v1/outreach/phone-banking/draft', () => {
       (m: { role: string }) => m.role === 'user',
     )?.content
     expect(userPrompt).toContain(
-      'what matters most to the voter in this election (not a yes/no ' +
-        'question)',
+      WIN_PHONE_BANKING_VOICE.purposePrompts[purpose],
     )
-    expect(userPrompt).toContain('favor listening over talking')
   })
-
-  // ENG-10990: each purpose's prompt carries the product CSV copy
-  // verbatim (see WIN_PURPOSE_PROMPTS) — one representative sentence per
-  // purpose, not a full-string pin, so the assertion survives an
-  // unrelated word-level product tweak elsewhere in the block without
-  // going stale.
-  it.each([
-    ['event_invite', "briefly explain why it's worth attending"],
-    [
-      'early_voting',
-      "walk through a plan with them: ask when they're thinking of going",
-    ],
-    [
-      'election_day_turnout',
-      'Format as alternating You:/Voter: lines, no more than three ' +
-        'exchanges.',
-    ],
-  ])(
-    'carries the CSV copy verbatim for the %s purpose',
-    async (purpose, snippet) => {
-      mockDraft('A script.')
-
-      const res = await postDraft({ purpose, tone: 'warm' })
-      expect(res.status).toBe(HttpStatus.CREATED)
-
-      const call = jsonCompletion.mock.calls[0]?.[0]
-      const userPrompt = call.messages.find(
-        (m: { role: string }) => m.role === 'user',
-      )?.content
-      expect(userPrompt).toContain(snippet)
-    },
-  )
-
-  it.each(['early_voting', 'election_day_turnout'])(
-    'never instructs bracketed voting-logistics placeholders for %s',
-    async (purpose) => {
-      mockDraft('A script.')
-
-      const res = await postDraft({ purpose, tone: 'urgent' })
-      expect(res.status).toBe(HttpStatus.CREATED)
-
-      const call = jsonCompletion.mock.calls[0]?.[0]
-      const userPrompt = call.messages.find(
-        (m: { role: string }) => m.role === 'user',
-      )?.content
-      const systemPrompt = call.messages.find(
-        (m: { role: string }) => m.role === 'system',
-      )?.content
-      expect(userPrompt).not.toContain('bracketed')
-      expect(userPrompt).not.toContain('[early voting')
-      expect(userPrompt).not.toContain('[polling')
-      expect(systemPrompt).toContain(
-        'Never emit a bracketed placeholder anywhere in the script other ' +
-          'than "[your name]" and "[voter name]" in the volunteer opener.',
-      )
-    },
-  )
 
   it('writes an event invite from the details the flow sent', async () => {
     mockDraft('A script.')
@@ -403,45 +326,12 @@ describe('POST /v1/outreach/phone-banking/draft', () => {
     expect(res.data).toEqual({ draft: 'A clearer version of my own words.' })
 
     const call = jsonCompletion.mock.calls[0]?.[0]
-    const systemPrompt = call.messages.find(
-      (m: { role: string }) => m.role === 'system',
-    )?.content
-    expect(systemPrompt).toContain('polish')
-    expect(systemPrompt).toContain(
-      'Every concrete detail in the original MUST appear in your output',
-    )
     const userPrompt = call.messages.find(
       (m: { role: string }) => m.role === 'user',
     )?.content
     expect(userPrompt).toContain('Hi, my name is Alex, a volunteer for Jane.')
     expect(userPrompt).toContain('Polish the script.')
     expect(userPrompt).not.toContain('Write the call script.')
-  })
-
-  it('instructs stripping voting-logistics brackets while preserving [your name] and [voter name]', async () => {
-    mockDraft('A clearer version of my own words.')
-
-    const res = await postDraft({
-      purpose: 'early_voting',
-      tone: 'direct',
-      currentDraft:
-        'Hi, is this [voter name]? My name is [your name]. Early voting ' +
-        'runs [early voting dates] at [early voting location].',
-    })
-
-    expect(res.status).toBe(HttpStatus.CREATED)
-
-    const call = jsonCompletion.mock.calls[0]?.[0]
-    const systemPrompt = call.messages.find(
-      (m: { role: string }) => m.role === 'system',
-    )?.content
-    expect(systemPrompt).toContain(
-      'The literal "[your name]" and "[voter name]" placeholders in',
-    )
-    expect(systemPrompt).toContain('Strip any other bracketed placeholder')
-    expect(systemPrompt).not.toContain(
-      'and any bracketed placeholder. Dropping one',
-    )
   })
 
   it('includes the candidate instructions in the prompt on a fresh generation, and never on an omitted request', async () => {
@@ -515,7 +405,6 @@ describe('POST /v1/outreach/phone-banking/draft', () => {
       'Hi, this is the script the candidate rejected.',
     )
     expect(userPrompt).toContain('The candidate rejected this draft')
-    expect(userPrompt).toContain('noticeably different')
   })
 
   it('near-cap improve returns 200 instead of 502 when the LLM result lands just over the cap', async () => {
@@ -552,21 +441,11 @@ describe('POST /v1/outreach/phone-banking/draft', () => {
     const userPrompt = call.messages.find(
       (m: { role: string }) => m.role === 'user',
     )?.content
-    expect(userPrompt).toContain(
-      'Preserve the substance and wording of the original message as ' +
-        'closely as possible',
-    )
-    expect(userPrompt).toContain(
-      'Flag rather than silently alter or remove anything in the ' +
-        'original message',
-    )
     // The user-message framing must also drop the polish framing — it
     // would otherwise recreate the same light-edit contradiction the
     // system-prompt swap fixes.
     expect(userPrompt).toContain('The message to adapt, as written:')
-    expect(userPrompt).toContain('Adapt the message into a call script.')
     expect(userPrompt).not.toContain('The existing call script to polish:')
-    expect(userPrompt).not.toContain('Polish the script.')
 
     // ENG-10990 blocker fix: custom's adapt-into-dialogue copy contradicts
     // improveSystemPrompt's light-edit/same-length/format-already-there
@@ -575,10 +454,6 @@ describe('POST /v1/outreach/phone-banking/draft', () => {
       (m: { role: string }) => m.role === 'system',
     )?.content
     expect(systemPrompt).toBe(WIN_PHONE_BANKING_VOICE.draftSystemPrompt)
-    expect(systemPrompt).not.toContain('light edit')
-    expect(systemPrompt).not.toContain(
-      'Preserve the You:/Voter: alternating dialogue format.',
-    )
   })
 
   it('keeps the light-edit system prompt for a non-custom improve', async () => {
@@ -596,7 +471,6 @@ describe('POST /v1/outreach/phone-banking/draft', () => {
       (m: { role: string }) => m.role === 'system',
     )?.content
     expect(systemPrompt).toBe(WIN_PHONE_BANKING_VOICE.improveSystemPrompt)
-    expect(systemPrompt).toContain('light edit')
   })
 
   it('rejects fresh generation for the custom purpose without calling the LLM', async () => {
@@ -751,7 +625,6 @@ describe('POST /v1/outreach/phone-banking/draft', () => {
       expect(user).toContain(
         WIN_PHONE_BANKING_VOICE.purposePrompts.community_input,
       )
-      expect(`${system}${user}`).toContain('You:/Voter:')
       expect(`${system}${user}`).not.toMatch(/constituent/i)
     })
 

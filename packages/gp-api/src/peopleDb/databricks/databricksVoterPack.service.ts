@@ -36,6 +36,22 @@ const UNAVAILABLE_MESSAGE =
   'Voter data is temporarily unavailable, so the voter map could not be ' +
   'built. This is a connection problem, not an empty district.'
 
+// The encoder holds ~65 bytes of heap per person (measured: 125 MB at 2M
+// rows, 324 MB at 5M), and the pack it returns is another ~27 bytes per
+// person. A statewide district on the constituents table is 21.5M rows: it
+// pinned dev gp-api's event loop for minutes and then killed the task with a
+// heap OOM, twice on 2026-10-21, taking every other request down with it.
+// The largest export prod built in the 14 days before that was 1.14M rows, so
+// this refuses nothing anyone has used, and it keeps a build to ~190 MB of
+// heap, which fits beside a busy dev task's 1.1 GB limit.
+export const MAX_PACK_ROWS = 3_000_000
+
+export class VoterPackTooLargeError extends Error {
+  constructor(readonly rows: number) {
+    super(`district has ${rows} people, over the ${MAX_PACK_ROWS} pack limit`)
+  }
+}
+
 const NUMERIC_COLUMNS = new Set<string>([
   'Age_Int',
   'Estimated_Income_Amount_Int',
@@ -104,9 +120,15 @@ export class DatabricksVoterPackService {
     )
 
     try {
-      const { firstChunk } = await this.client.startCsvExport(
+      const { firstChunk, totalRows } = await this.client.startCsvExport(
         buildPackSql({ district }),
       )
+      // Checked before the first chunk is read: the size is known as soon as
+      // the statement settles, and every chunk drained past this point is heap
+      // the build can never give back.
+      if (totalRows > MAX_PACK_ROWS) {
+        throw new VoterPackTooLargeError(totalRows)
+      }
       // The next chunk's link and download are started BEFORE the current one
       // is parsed, so the network and the CSV parse overlap instead of taking
       // turns. Drained strictly in series, a 698,649-row district measured

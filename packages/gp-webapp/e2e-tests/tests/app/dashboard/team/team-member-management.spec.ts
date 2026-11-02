@@ -4,6 +4,7 @@ import {
   blockSlowScripts,
   NavigationHelper,
 } from 'src/helpers/navigation.helper'
+import { uniquePhone } from 'src/helpers/testIdentifiers.helper'
 import { authenticateTestUser } from 'tests/utils/api-registration'
 
 // win-team-accounts (ENG-10816/ENG-11058/ENG-11067): team-page.spec.ts only
@@ -79,6 +80,7 @@ test.describe('Invite drawer', () => {
     })
     await stubTeamStats(page, [owner.id])
 
+    const phone = uniquePhone()
     let invitePayload: unknown
     await page.route('**/api/v1/organizations/team/invites', (route) => {
       if (route.request().method() !== 'POST') {
@@ -116,7 +118,7 @@ test.describe('Invite drawer', () => {
     ).toBeVisible({ timeout: 30_000 })
 
     await page.getByLabel('Name').fill('New Volunteer')
-    await page.getByLabel('Phone number').fill('5555550123')
+    await page.getByLabel('Phone number').fill(phone)
     await page.getByLabel('Email').fill('new-volunteer@test.goodparty.org')
     await page.getByRole('button', { name: 'Continue' }).click()
 
@@ -139,7 +141,7 @@ test.describe('Invite drawer', () => {
       name: 'New Volunteer',
       email: 'new-volunteer@test.goodparty.org',
       role: 'volunteer',
-      phone: '5555550123',
+      phone,
     })
   })
 })

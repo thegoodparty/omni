@@ -62,6 +62,7 @@ describe('globalVariantOrder', () => {
       'electionDaySupporters',
       'electionDayAffinity',
       'electionDayIdeology',
+      'freeOfferElectionEveRobocall',
     ])
   })
 })

@@ -61,7 +61,6 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
   // that don't (Amplitude, Segment) are still boot-independent settings, not
   // a gated feature surface, so they stay optional rather than degradable.
   NEXT_PUBLIC_API_BASE: { tier: 'optional' },
-  NEXT_PUBLIC_ELECTION_API_BASE: { tier: 'optional' },
   NEXT_PUBLIC_AMPLITUDE_API_KEY: { tier: 'optional' },
   NEXT_PUBLIC_SEGMENT_WRITE_KEY: { tier: 'optional' },
   NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: { tier: 'optional' },

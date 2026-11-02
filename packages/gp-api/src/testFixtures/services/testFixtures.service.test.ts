@@ -11,7 +11,7 @@ import {
   ForbiddenException,
 } from '@nestjs/common'
 import { randomUUID } from 'crypto'
-import { format } from 'date-fns'
+import { addDays, format, startOfDay } from 'date-fns'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { CreateTestFixtureUserSchema } from '../schemas/testFixtures.schema'
 import { ActivitySeedService } from './activitySeed.service'
@@ -83,6 +83,38 @@ beforeEach(() => {
 })
 
 describe('createFixtureUser', () => {
+  // What the dev election-api answers once the default office's election has
+  // passed: nothing upcoming. The fixture still resolves the office and still
+  // reads as upcoming. No fake clock here: clerkThrottle keeps module-level
+  // timestamps, and a clock moved forward stalls every later test in the file.
+  it('free-win: dates the campaign from the preset, not the race', async () => {
+    vi.spyOn(service.app.get(RacesService), 'getRacesByZip').mockImplementation(
+      ({ timeframe }) =>
+        Promise.resolve(
+          timeframe === 'past'
+            ? [
+                {
+                  ...RACE,
+                  id: 'race_2026',
+                  election: { electionDay: '2026-11-03' },
+                },
+              ]
+            : [],
+        ),
+    )
+
+    const result = await fixtures().createFixtureUser({ state: 'free-win' })
+
+    const campaign = await service.prisma.campaign.findUniqueOrThrow({
+      where: { id: result.campaignId },
+    })
+    expect(campaign.details.raceId).toBe('race_2026')
+    expect(campaign.details.electionDate).toBe(
+      format(addDays(startOfDay(new Date()), 56), 'yyyy-MM-dd'),
+    )
+    expect(campaign.isActive).toBe(true)
+  })
+
   it('free-win: creates a launched campaign with no CRM tracking', async () => {
     const result = await fixtures().createFixtureUser({ state: 'free-win' })
 

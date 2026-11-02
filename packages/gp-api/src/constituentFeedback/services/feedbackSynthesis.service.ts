@@ -415,8 +415,9 @@ export class FeedbackSynthesisService extends createPrismaBase(
     })
   }
 
-  // The routes are flag-gated per request; this path has no request, so it
-  // asks for the org's owner, the same subject the completion event uses.
+  // The routes are flag-gated per request, on the org's owner; this path has
+  // no request, so it looks the owner up itself, the same subject the
+  // completion event uses.
   // Turning the flag off has to stop the automatic runs too. Most
   // completed efforts have no memos at all, so the floor is checked first
   // and keeps a flag lookup off nearly every turf's Done.

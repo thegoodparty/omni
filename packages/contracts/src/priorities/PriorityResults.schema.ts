@@ -2,8 +2,8 @@ import { z } from 'zod'
 
 // What a priority's outreach brought back, pooled across every send linked to
 // it (GET /v1/priorities/:id/results): the reach, the themes across every
-// channel, where respondents live, and how those places compare with the
-// district.
+// channel, where respondents live, and how the groups who answered compare
+// with the district.
 
 export const PRIORITY_RESULTS_CHANNELS = [
   'text',
@@ -35,50 +35,49 @@ export const PriorityResultsPointSchema = z.object({
   lng: z.number(),
 })
 
-export const REPRESENTATION_DIMENSIONS = [
-  'age',
-  'race',
-  'education',
-  'income',
-  'housing',
-  'poverty',
-] as const
-export const RepresentationDimensionSchema = z.enum(REPRESENTATION_DIMENSIONS)
-export type RepresentationDimension = z.infer<
-  typeof RepresentationDimensionSchema
->
+// Whether enough voices stand behind a theme: strong when every group the
+// read counts (the results page's "who you're hearing from") has at least
+// THEME_VOICES_PER_GROUP of the theme's people, fair when at least half the
+// groups do, thin when fewer.
+export const ThemeVoicesSchema = z.enum(['strong', 'fair', 'thin'])
+export type ThemeVoices = z.infer<typeof ThemeVoicesSchema>
+export const THEME_VOICES_PER_GROUP = 3
 
-export const RepresentationGroupSchema = z.object({
-  dimension: RepresentationDimensionSchema,
-  key: z.string(),
-  label: z.string(),
-  // Shares are fractions, 0.25 is 25%. The respondent side is each
-  // respondent's census block group composition, averaged, so both sides
-  // read the same census source.
-  respondentShare: z.number(),
-  districtShare: z.number(),
-})
-export type RepresentationGroup = z.infer<typeof RepresentationGroupSchema>
-
-export const PriorityRepresentationSchema = z.object({
-  respondentCount: z.number().int(),
-  // Empty when the district's census figures are unavailable.
-  groups: z.array(RepresentationGroupSchema),
-})
-export type PriorityRepresentation = z.infer<
-  typeof PriorityRepresentationSchema
->
-
-// One theme from the priority's latest pooled synthesis run. `people` is
-// distinct people counted now: confirmed notes and replies, so someone who
-// texted twice counts once.
+// One theme from the priority's latest pooled synthesis run, most people
+// first. `people` is distinct people counted now: confirmed notes and
+// replies, so someone who texted twice counts once. `voices` is absent when
+// the district could not be read.
 export const PriorityThemeSchema = z.object({
   id: z.string(),
   title: z.string(),
   summary: z.string(),
   people: z.number().int(),
+  voices: ThemeVoicesSchema.optional(),
 })
 export type PriorityTheme = z.infer<typeof PriorityThemeSchema>
+
+// What people said behind one theme, for the results page's theme view
+// (GET /v1/priorities/:id/results/themes/:themeId/comments). The words only:
+// nothing about who said them, so no name, number, address or person id
+// ever rides along. A `reply` is a resident's own text; a `note` is a
+// canvasser's summary of a door or phone conversation, never quoted as the
+// resident's words. Oldest first.
+export const PriorityThemeCommentKindSchema = z.enum(['reply', 'note'])
+export type PriorityThemeCommentKind = z.infer<
+  typeof PriorityThemeCommentKindSchema
+>
+
+export const PriorityThemeCommentSchema = z.object({
+  text: z.string(),
+  kind: PriorityThemeCommentKindSchema,
+})
+export type PriorityThemeComment = z.infer<typeof PriorityThemeCommentSchema>
+
+export const PriorityThemeCommentsSchema = z.object({
+  themeId: z.string(),
+  comments: z.array(PriorityThemeCommentSchema),
+})
+export type PriorityThemeComments = z.infer<typeof PriorityThemeCommentsSchema>
 
 // How far a priority's answers have got toward a read of every major group
 // in the district: no voices from some, too few from some, or the model
@@ -94,6 +93,12 @@ export const ReadRepresentativenessSchema = z.enum([
 export type ReadRepresentativeness = z.infer<
   typeof ReadRepresentativenessSchema
 >
+
+// The statuses gp-api's mrpReadStatus calls `good`.
+export const GOOD_READ_STATUSES: readonly ReadRepresentativeness[] = [
+  'representative',
+  'enoughAnswers',
+]
 
 export const UnderrepresentedGroupSchema = z.enum([
   'age18to24',
@@ -113,7 +118,8 @@ export const UnderrepresentedGroupSchema = z.enum([
 export type UnderrepresentedGroup = z.infer<typeof UnderrepresentedGroupSchema>
 
 // How a group is named in a sentence, in the app and by the agents alike:
-// "Hear from more people 65 and over".
+// "Need a few more answers from people 65 and over". Each name reads whole
+// in a list joined with "and", so none ends on a clause of its own.
 export const UNDERREPRESENTED_GROUP_NAMES: Record<
   UnderrepresentedGroup,
   string
@@ -124,7 +130,7 @@ export const UNDERREPRESENTED_GROUP_NAMES: Record<
   age45to54: 'people 45 to 54',
   age55to64: 'people 55 to 64',
   age65plus: 'people 65 and over',
-  unreachedAreas: "people in parts of your district we haven't heard from",
+  unreachedAreas: 'people in some parts of your district',
   men: 'men',
   women: 'women',
   white: 'white residents',
@@ -145,12 +151,19 @@ export const underrepresentedGroupName = (
     ? UNSURE_AREAS_NAME
     : UNDERREPRESENTED_GROUP_NAMES[group]
 
+// Groups named together in one sentence: "men", "men and women", or
+// "people 65 and over, men and women".
+export const joinGroupNames = (names: readonly string[]): string =>
+  names.length <= 2
+    ? names.join(' and ')
+    : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`
+
 // The status's name wherever it shows, in the app and from the agents.
 export const READ_REPRESENTATIVENESS_LABELS: Record<
   ReadRepresentativeness,
   string
 > = {
-  tooEarly: 'Waiting to hear from some groups',
+  tooEarly: 'Waiting to hear back',
   notYetRepresentative: 'A few groups need more answers',
   gettingClose: 'Still unsure what some groups think',
   representative: 'Every group heard',
@@ -166,10 +179,11 @@ export const DISTRICT_GRID_CELL_DEGREES = 0.004
 // answers pooled across texts, calls and doors, at least three from each
 // major group (3% or more of the district by age, neighborhood, race when it
 // can be named, and gender), and a model of the coded answers sure enough of
-// each. gp-api's mrpReadStatus decides `good`: representative, or
-// answersNeeded() met when the district could not be read.
-// `needed` is the answers so far plus those still missing for every major
-// group to have three: a floor, not a promise. `groupsHeard` of
+// each, and the district's answersNeeded heard in all. gp-api's
+// mrpReadStatus decides `good`: representative, or answersNeeded() met when
+// the district could not be read. `needed` is the larger of the district's
+// answersNeeded and the answers so far plus those still missing for every
+// major group to have three: a floor, not a promise. `groupsHeard` of
 // `groupsTotal` major groups have their three; both are 0 when the district
 // could not be read.
 export const PriorityReadStatusSchema = z.object({
@@ -177,11 +191,26 @@ export const PriorityReadStatusSchema = z.object({
   needed: z.number().int().positive(),
   groupsHeard: z.number().int().nonnegative().default(0),
   groupsTotal: z.number().int().nonnegative().default(0),
+  // Of the groups not yet heard, how many belong to the groups named in
+  // `underrepresented`: the ones the read needs answers from next. Absent
+  // from reads served before it existed.
+  groupsNext: z.number().int().nonnegative().optional(),
+  // People toward a balanced read: `representativeAnswers` counts each
+  // answer only while its group is within its share of
+  // `representativeNeeded`, the district's floor, so the extra answers of a
+  // group heard plenty never fill a seat. The seats and bar show these.
+  // Absent from reads served before they existed.
+  representativeAnswers: z.number().int().nonnegative().optional(),
+  representativeNeeded: z.number().int().positive().optional(),
   good: z.boolean(),
   status: ReadRepresentativenessSchema,
   // The one or two groups holding the read back, the one to hear from
   // first leading. Empty once representative.
   underrepresented: z.array(UnderrepresentedGroupSchema).max(2),
+  // The groups in `underrepresented` nobody in has answered yet, so the
+  // line says "Still need to hear from" them rather than asking for more
+  // answers. Absent from reads served before it existed.
+  unheard: z.array(UnderrepresentedGroupSchema).max(2).optional(),
   // A follow-up text paid for and not sent yet: when it goes out and how
   // many it texts. Absent when there is none.
   followUp: z
@@ -199,6 +228,15 @@ export const PriorityReadStatusSchema = z.object({
   followUpSent: z.boolean().optional(),
 })
 export type PriorityReadStatus = z.infer<typeof PriorityReadStatusSchema>
+
+// Shares are fractions, 0.25 is 25%. The page draws from them and never
+// prints a share.
+export const PriorityResultsGroupSchema = z.object({
+  group: UnderrepresentedGroupSchema,
+  districtShare: z.number(),
+  answerShare: z.number(),
+})
+export type PriorityResultsGroup = z.infer<typeof PriorityResultsGroupSchema>
 
 export const PriorityResultsSchema = z.object({
   priorityId: z.string(),
@@ -219,10 +257,9 @@ export const PriorityResultsSchema = z.object({
   // A pooled run is in flight: the themes shown are the previous run's.
   summarizing: z.boolean(),
   points: z.array(PriorityResultsPointSchema),
-  // Null below the minimum number of respondents, where a comparison would
-  // say more about chance than about who was heard.
-  representation: PriorityRepresentationSchema.nullable(),
+  // Each major group the read counts (age band, gender, and race when it may
+  // be named): its share of the district and of the coded answers. Empty
+  // when the district could not be read.
+  groups: z.array(PriorityResultsGroupSchema),
 })
 export type PriorityResults = z.infer<typeof PriorityResultsSchema>
-
-export const MIN_RESPONDENTS_FOR_REPRESENTATION = 10

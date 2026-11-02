@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
-import type { ChatCard } from '@goodparty_org/contracts'
+import { format } from 'date-fns'
+import { outreachHasGoneOut, type ChatCard } from '@goodparty_org/contracts'
 import { Button } from '@styleguide'
 import { getChannelLabel } from 'app/dashboard/outreach/v2/channelMeta'
 import type { OutreachLaunchSource } from 'app/dashboard/outreach/util/outreachAnalytics'
@@ -23,6 +24,7 @@ import {
 
 export const SERVE_OUTREACH_PROPOSAL_COPY = {
   sentTo: 'Sent to',
+  textingOn: (people: string, day: string) => `Texting ${people} on ${day}`,
   textUnavailable: 'Texting is not available for your office yet',
 }
 
@@ -72,14 +74,33 @@ const ProposalChip = ({
   if (isError) return <CompactCardUnavailable />
 
   if (sent) {
-    const when = sent.date ?? sent.createdAt
+    // A Serve text carries its day only in scheduledLocalDate, and is paid
+    // for, and found under its key, days before that day comes.
+    const scheduledFor = sent.scheduledLocalDate ?? null
+    const people = peopleCount(
+      sent.textCount ?? sent.billableTextCount ?? proposal.count,
+      mode,
+    )
+    const when = scheduledFor ?? sent.date ?? sent.createdAt
+    const notOutYet =
+      mode === 'serve' &&
+      proposal.channel === 'text' &&
+      scheduledFor !== null &&
+      !outreachHasGoneOut(
+        { status: sent.status, scheduledFor },
+        format(new Date(), 'yyyy-MM-dd'),
+      )
     return (
       <CompactCardLink
         title={proposal.audience}
-        subtitle={`${SENT_TO[mode]} ${peopleCount(
-          sent.textCount ?? sent.billableTextCount ?? proposal.count,
-          mode,
-        )}${when ? ` · ${shortOutreachDate(when)}` : ''}`}
+        subtitle={
+          notOutYet
+            ? SERVE_OUTREACH_PROPOSAL_COPY.textingOn(
+                people,
+                shortOutreachDate(scheduledFor),
+              )
+            : `${SENT_TO[mode]} ${people}${when ? ` · ${shortOutreachDate(when)}` : ''}`
+        }
         href={outreachDetailHref(sent.id, mode)}
       />
     )

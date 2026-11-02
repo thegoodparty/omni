@@ -28,6 +28,7 @@ import {
   OrganizationRole,
   Prisma,
 } from '@/generated/prisma'
+import { AnalyticsService } from '@/analytics/analytics.service'
 import { assertVolunteerAssignedToOutreach } from '@/doorKnocking/utils/doorKnockingAccess.util'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { PriorityAnswerCodingService } from '@/priorities/services/priorityAnswerCoding.service'
@@ -35,6 +36,7 @@ import { APP_ROOT, WEBAPP_API_PATH } from '@/shared/util/appEnvironment.util'
 import { TranscribeFileService } from '@/speech/services/transcribeFile.service'
 import { SPEECH_BUCKET } from '@/speech/speechBucket'
 import { S3Service } from '@/vendors/aws/services/s3.service'
+import { EVENTS } from '@/vendors/segment/segment.types'
 import { isDevOnlyRouteEnabled } from '../util/devOnlyRoute.util'
 import {
   ConstituentFeedbackExtractionService,
@@ -237,6 +239,40 @@ const audioKeyFor = (organizationSlug: string, clientKey: string): string =>
 const NOT_ASSIGNED_MESSAGE: Record<ConstituentFeedbackChannel, string> = {
   door_knock: 'Stop target not found',
   phone_bank: 'Phone banking list not found',
+  text: 'Not found',
+}
+
+// One row per resident per priority text send, so reading the same replies
+// again lands on the row it wrote the first time.
+export const textReplyClientKey = (
+  outreachId: number,
+  personId: string,
+): string => `priority-text:${outreachId}:${personId}`
+
+// The webapp's capture events report these channels as doorKnocking and
+// phoneBanking, and a text send as sms, so one channel is one value across
+// every Issue Capture event, browser or server.
+const ANALYTICS_CHANNEL: Record<ConstituentFeedbackChannel, string> = {
+  door_knock: 'doorKnocking',
+  phone_bank: 'phoneBanking',
+  text: 'sms',
+}
+
+// Transcribe's own failure reason is free text, so the event carries one of
+// four values a chart can group by, never the vendor's message.
+const TRANSCRIPTION_FAILURE_REASONS = [
+  'start_failed',
+  'empty_transcript',
+  'timeout',
+] as const
+const transcriptionFailureReason = (reason: string): string =>
+  TRANSCRIPTION_FAILURE_REASONS.find((known) => known === reason) ??
+  'job_failed'
+
+export type PriorityTextReply = {
+  personId: string
+  text: string
+  repliedAt: Date
 }
 
 @Injectable()
@@ -248,6 +284,7 @@ export class ConstituentFeedbackService extends createPrismaBase(
     private readonly moduleRef: ModuleRef,
     private readonly transcribeFile: TranscribeFileService,
     private readonly s3: S3Service,
+    private readonly analytics: AnalyticsService,
   ) {
     super()
   }
@@ -596,7 +633,7 @@ export class ConstituentFeedbackService extends createPrismaBase(
       effortQuestion: row.effortQuestion,
       userId: row.actorUserId,
     })
-    await this.client.$transaction(async (tx) => {
+    const confirmed = await this.client.$transaction(async (tx) => {
       const { count } = await tx.constituentFeedback.updateMany({
         where,
         data: {
@@ -606,9 +643,15 @@ export class ConstituentFeedbackService extends createPrismaBase(
           confirmation: ConstituentFeedbackConfirmation.automatic,
         },
       })
-      if (count === 0) return
+      if (count === 0) return false
       await replaceUnreviewedProposal(tx, input.id, proposedIssues(extracted))
+      return true
     })
+    if (confirmed) {
+      this.trackMemo(input.id, EVENTS.IssueCapture.MemoAutoConfirmed, {
+        reason: 'offline_transcribed',
+      })
+    }
   }
 
   // No words, and no more tries: the memo stays unconfirmed with no
@@ -640,6 +683,9 @@ export class ConstituentFeedbackService extends createPrismaBase(
       { id: input.id, jobName: input.jobName, reason: input.reason },
       'Memo transcription failed',
     )
+    this.trackMemo(input.id, EVENTS.IssueCapture.MemoTranscriptionFailed, {
+      reason: transcriptionFailureReason(input.reason),
+    })
   }
 
   // A live memo whose confirm step never finished: the app closed on the
@@ -650,7 +696,7 @@ export class ConstituentFeedbackService extends createPrismaBase(
     id: string
     updatedAt: Date
   }): Promise<void> {
-    await this.client.$transaction(async (tx) => {
+    const confirmed = await this.client.$transaction(async (tx) => {
       const { count } = await tx.constituentFeedback.updateMany({
         where: {
           id: input.id,
@@ -662,9 +708,40 @@ export class ConstituentFeedbackService extends createPrismaBase(
           confirmation: ConstituentFeedbackConfirmation.automatic,
         },
       })
-      if (count === 0) return
+      if (count === 0) return false
       await setAsideProposal(tx, input.id)
+      return true
     })
+    if (confirmed) {
+      this.trackMemo(input.id, EVENTS.IssueCapture.MemoAutoConfirmed, {
+        reason: 'abandoned',
+      })
+    }
+  }
+
+  // Attributed to whoever recorded the memo. Runs after the write and is
+  // never awaited, so a Segment or lookup failure cannot fail a cron pass
+  // that already confirmed or failed the memo. Enums only, never what
+  // anyone said.
+  private trackMemo(
+    id: string,
+    event: string,
+    properties: Record<string, string>,
+  ): void {
+    const send = async () => {
+      const memo = await this.model.findUniqueOrThrow({
+        where: { id },
+        select: { actorUserId: true, channel: true, organizationSlug: true },
+      })
+      await this.analytics.track(memo.actorUserId, event, {
+        ...properties,
+        channel: ANALYTICS_CHANNEL[memo.channel],
+        product: memo.organizationSlug.startsWith('eo-') ? 'serve' : 'win',
+      })
+    }
+    void send().catch((err: Error) =>
+      this.logger.warn({ err, id, event }, 'Issue capture event not sent'),
+    )
   }
 
   // The confirmed issues replace whatever the model proposed, in the order
@@ -782,6 +859,104 @@ export class ConstituentFeedbackService extends createPrismaBase(
     this.codePriorityAnswers(row.outreachId)
 
     return this.toRecord(row)
+  }
+
+  // A resident's text replies to a priority's check, read for issues the
+  // way a door or call memo is, so they show on the person's record beside
+  // those. The coded yes or no stays PriorityAnswer's; this is the issue,
+  // where they stand and what they want.
+  //
+  // The row has no outreachId on purpose. A text send's report already
+  // counts its replies as replies (`textRepliesWhere`), and every effort
+  // read keys on that column, so leaving it null keeps the same words from
+  // counting twice. Nor is it confirmed: its issues are a model's reading
+  // nobody checked, and the abandoned-confirm sweep passes text rows by.
+  //
+  // Idempotent: a resident whose words have not changed since their row was
+  // read costs no model call and writes nothing. Returns how many it wrote.
+  async recordPriorityTextReplies(input: {
+    organizationSlug: string
+    outreachId: number
+    question: string | null
+    replies: PriorityTextReply[]
+  }): Promise<number> {
+    if (input.replies.length === 0) return 0
+    const existing = await this.findMany({
+      where: {
+        organizationSlug: input.organizationSlug,
+        clientKey: {
+          in: input.replies.map((reply) =>
+            textReplyClientKey(input.outreachId, reply.personId),
+          ),
+        },
+      },
+      select: { clientKey: true, transcript: true, extractionStatus: true },
+    })
+    const held = new Map(existing.map((row) => [row.clientKey, row]))
+    const due = input.replies.flatMap((reply) => {
+      const transcript = clamp(
+        reply.text.trim(),
+        CONSTITUENT_FEEDBACK_TRANSCRIPT_MAX_LENGTH,
+      )
+      if (transcript === '') return []
+      const clientKey = textReplyClientKey(input.outreachId, reply.personId)
+      const row = held.get(clientKey)
+      const unchanged =
+        row !== undefined &&
+        row.transcript === transcript &&
+        row.extractionStatus !== ConstituentFeedbackExtractionStatus.failed
+      return unchanged ? [] : [{ ...reply, transcript, clientKey }]
+    })
+    if (due.length === 0) return 0
+
+    // The record needs an author and a reply has none on the office's side,
+    // so it is the owner's, as a triggered synthesis run is.
+    const { ownerId } = await this.client.organization.findUniqueOrThrow({
+      where: { slug: input.organizationSlug },
+      select: { ownerId: true },
+    })
+
+    let written = 0
+    for (const reply of due) {
+      const extracted = await this.extraction.extract({
+        transcript: reply.transcript,
+        effortQuestion: input.question,
+        userId: ownerId,
+        voice: 'own_reply',
+      })
+      const fields = {
+        transcript: reply.transcript,
+        occurredAt: reply.repliedAt,
+        effortQuestion: input.question,
+        confirmedAt: null,
+        confirmation: null,
+        ...this.extractionFields(extracted),
+      }
+      await this.client.$transaction(async (tx) => {
+        const saved = await tx.constituentFeedback.upsert({
+          where: {
+            organizationSlug_clientKey: {
+              organizationSlug: input.organizationSlug,
+              clientKey: reply.clientKey,
+            },
+          },
+          create: {
+            organizationSlug: input.organizationSlug,
+            clientKey: reply.clientKey,
+            personId: reply.personId,
+            actorUserId: ownerId,
+            channel: ConstituentFeedbackChannel.text,
+            captureMethod: ConstituentFeedbackCaptureMethod.typed,
+            outreachId: null,
+            ...fields,
+          },
+          update: fields,
+        })
+        await replaceIssues(tx, saved.id, proposedIssues(extracted))
+      })
+      written += 1
+    }
+    return written
   }
 
   async listForPerson(input: {

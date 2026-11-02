@@ -12,6 +12,7 @@ import { ProposalLinkSchema } from '@goodparty_org/contracts'
 import { parseTrackerOrigin } from 'app/dashboard/outreach/util/composeOutreachHref.util'
 import { parseWalkableAreaParam } from './native/walkableAreaParam'
 import { SERVE_DOOR_KNOCKING_PURPOSE_VALUES } from './native/createFlow/serveDoorKnockingPurposes'
+import { COMMUNITY_INPUT_QUESTION_MAX_LENGTH } from '@goodparty_org/contracts'
 
 // The surfaces that link here with `?create=1` and say where they are.
 // Allowlisted so the query string cannot put an arbitrary value into
@@ -28,7 +29,6 @@ const CREATE_SOURCES: OutreachFlowSource[] = [
 const LAUNCH_SOURCES: OutreachLaunchSource[] = [
   'expand_panel',
   'priorities',
-  'civic_panel',
   'chief_of_staff',
   'campaign_manager',
 ]
@@ -58,6 +58,7 @@ interface PageParams {
     trackerTaskId?: string
     phase?: string
     purpose?: string
+    question?: string
     area?: string
     launchSource?: string
   }>
@@ -84,6 +85,7 @@ export default async function Page({
       trackerTaskId,
       phase,
       purpose,
+      question,
       area,
       launchSource,
     },
@@ -142,13 +144,18 @@ export default async function Page({
     // The campaign-plan task whose button opened the flow, so the task is
     // marked done once the walk is created. Dropped unless both halves parse.
     trackerTaskId: parseTrackerOrigin(trackerTaskId, phase)?.trackerTaskId,
-    // A civic panel plan's door step: the purpose it already answered, and
-    // the walkable area it drew, which becomes the turf's boundary. A Serve
+    // A link's purpose and walkable area, which becomes the turf's
+    // boundary. A Serve
     // purpose the flow does not know, or an area that is not a box, is
     // dropped, and the flow asks as usual.
     initialPurpose: SERVE_DOOR_KNOCKING_PURPOSE_VALUES.find(
       (value) => value === purpose,
     ),
+    // A priority card's question, for the community input purpose it
+    // carries. Blank is no question, and the flow asks for one.
+    initialQuestion:
+      question?.trim().slice(0, COMMUNITY_INPUT_QUESTION_MAX_LENGTH) ||
+      undefined,
     prefillArea: parseWalkableAreaParam(area),
     // The agent surface that sent the official here, for the Outreach events.
     launchSource: LAUNCH_SOURCES.find((value) => value === launchSource),

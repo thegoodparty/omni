@@ -33,10 +33,17 @@ const envInt = (value: string | undefined, fallback: number): number => {
   const parsed = Number(value)
   return Number.isFinite(parsed) && parsed >= 0 ? Math.trunc(parsed) : fallback
 }
+// Float-preserving sibling for the fractional safety divisor; see the send
+// service for why truncation would silently drop the haircut.
+const envNumber = (value: string | undefined, fallback: number): number => {
+  if (value === undefined || value === '') return fallback
+  const parsed = Number(value)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
+}
 const robocallDialEstimateBufferMinutes = () =>
-  envInt(process.env.ROBOCALL_DIAL_ESTIMATE_BUFFER_MINUTES, 30)
+  envInt(process.env.ROBOCALL_DIAL_ESTIMATE_BUFFER_MINUTES, 10)
 const robocallDialSafetyRateDivisor = () =>
-  Math.max(1, envInt(process.env.ROBOCALL_DIAL_SAFETY_RATE_DIVISOR, 2))
+  Math.max(1, envNumber(process.env.ROBOCALL_DIAL_SAFETY_RATE_DIVISOR, 1.1))
 
 // Proactively pages CAS when the strictly-serial send queue's backlog is
 // projected to push a robocall past its scheduled DAY — BEFORE it is late.
@@ -57,7 +64,8 @@ export class OutreachRobocallBacklogAlertService extends createPrismaBase(
     super()
   }
 
-  // Prod-only: it reads the real send pipeline's queue and stamps a prod dedupe
+  // Deliberately prod-only, NOT VENDOR_CRONS_ENABLED: an alerting cron would page
+  // from mock environments. It reads the real send pipeline's queue and stamps a prod dedupe
   // column, so it must not fire on dev/preview. No CronLockService: the
   // single-owner `backlogAlertedAt IS NULL` CAS elects one alerter per run, so
   // two replicas racing both project the same queue but only ONE stamps and

@@ -14,6 +14,7 @@ import { OfficeHolderFilterDto } from '@/electionDb/officeHolders/officeHolders.
 import { OfficeHoldersService } from '@/electionDb/officeHolders/officeHolders.service'
 import { PositionLevel } from '@/generated/election-prisma'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
+import { ServiceReadConcurrencyInterceptor } from '@/elections/interceptors/serviceReadConcurrency.interceptor'
 import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interceptor'
 
 // Every field is optional because `?columns=` returns a partial row, and the
@@ -78,7 +79,7 @@ export const officeHolderListResponseSchema = z.array(
 
 @Controller('elections/officeholders')
 @UsePipes(ZodValidationPipe)
-@UseInterceptors(ZodResponseInterceptor)
+@UseInterceptors(ServiceReadConcurrencyInterceptor, ZodResponseInterceptor)
 export class ElectionOfficeHoldersController {
   constructor(private readonly officeHoldersService: OfficeHoldersService) {}
 

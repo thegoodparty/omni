@@ -4,6 +4,8 @@ import { DatabricksVoterPackService } from '../databricks/databricksVoterPack.se
 import { VoterReadLogService } from '../databricks/voterReadLog.service'
 import type { PeopleDataset } from './peopleDataset.service'
 
+export { VoterPackTooLargeError } from '../databricks/databricksVoterPack.service'
+
 @Injectable()
 export class VoterPackService {
   constructor(

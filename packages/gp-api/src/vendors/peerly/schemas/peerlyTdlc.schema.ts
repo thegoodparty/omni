@@ -7,37 +7,39 @@ import { z } from 'zod'
 // inferred types. Status fields that are plain strings in the TS types stay
 // z.string(): Peerly echoes vendor strings, and a new value is not drift.
 
-// POST /v2/tdlc/:id/submit
+// POST /v2/tdlc/:id/submit. Peerly documents the body as the brand info, and
+// prod has never sent submission_key; the client stores it only if present.
 export const peerly10DLCBrandSubmitResponseBodySchema = z.object({
-  submission_key: z.string(),
+  submission_key: z.string().nullish(),
 })
 
-// POST /v2/tdlc/:id/approve
+// POST /v2/tdlc/:id/approve. The documented body is the brand info, which
+// nothing reads: the caller only checks that approve returned at all. So
+// every field is nullish, and the ones gp-api sends but Peerly does not echo
+// back (entity_type, usecases) are left off.
 export const approve10DLCBrandResponseBodySchema = z.object({
-  street: z.string(),
-  usecases: z.array(z.string()),
-  phone: z.string(),
-  legal_entity_type: z.string(),
-  account_id: z.string(),
-  companyName: z.string(),
-  country: z.string(),
-  postalCode: z.string(),
-  entityType: z.string(),
-  base_account_id: z.string(),
-  email: z.string(),
-  state: z.string(),
-  vertical: z.string(),
-  is_political: z.boolean(),
-  website: z.string(),
-  ein: z.string(),
-  sample1: z.string(),
-  displayName: z.string(),
-  status: z.string(),
-  entity_type: z.string(),
-  city: z.string(),
-  usecase: z.string(),
-  sample2: z.string(),
-  campaign_verify_token: z.string(),
+  street: z.string().nullish(),
+  phone: z.string().nullish(),
+  legal_entity_type: z.string().nullish(),
+  account_id: z.string().nullish(),
+  companyName: z.string().nullish(),
+  country: z.string().nullish(),
+  postalCode: z.string().nullish(),
+  entityType: z.string().nullish(),
+  base_account_id: z.string().nullish(),
+  email: z.string().nullish(),
+  state: z.string().nullish(),
+  vertical: z.string().nullish(),
+  is_political: z.boolean().nullish(),
+  website: z.string().nullish(),
+  ein: z.string().nullish(),
+  sample1: z.string().nullish(),
+  displayName: z.string().nullish(),
+  status: z.string().nullish(),
+  city: z.string().nullish(),
+  usecase: z.string().nullish(),
+  sample2: z.string().nullish(),
+  campaign_verify_token: z.string().nullish(),
 })
 
 // GET /v2/tdlc/:id/retrieve_cv, read as a bare status string

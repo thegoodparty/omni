@@ -14,6 +14,15 @@ const ToggleGroupContext = React.createContext<
   variant: 'default',
 })
 
+/**
+ * Always pass a defined value: "" (single) or [] (multiple) means nothing
+ * selected. In single mode, tapping the active item emits ""; ignore it when one
+ * must stay selected.
+ *
+ * @summary Use for a segmented control or a row of toggle buttons, one or many
+ * selected. For pill-shaped filters, use FilterPillGroup. Never Button with
+ * aria-pressed.
+ */
 function ToggleGroup({
   className,
   variant,

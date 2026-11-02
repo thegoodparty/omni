@@ -39,6 +39,14 @@ const renderAction = (
   )
 }
 
+/**
+ * Leave the overline prop empty: learned.md rule 19 bans labels above card
+ * titles. primaryAction sits on the right; secondaryAction renders as a neutral
+ * button beside it.
+ *
+ * @summary Use for a card with a title, short description, optional content and
+ * up to two buttons. For a free-form layout, use Card.
+ */
 function ContentCard({
   title,
   description,

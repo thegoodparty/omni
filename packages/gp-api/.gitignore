@@ -25,6 +25,7 @@ lerna-debug.log*
 
 # Tests
 /coverage
+/.vitest-fs-module-cache
 /.nyc_output
 /test-scripts
 /postman

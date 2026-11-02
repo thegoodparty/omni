@@ -938,15 +938,17 @@ export const cannedJudge = (config: JudgeConfig): JsonJudgeModel => ({
   }),
 })
 
-export const main = async (): Promise<number> => {
-  const env = parseSweepEnv()
+export const main = async (
+  source: NodeJS.ProcessEnv = process.env,
+): Promise<number> => {
+  const env = parseSweepEnv(source)
   const config = DEFAULT_JUDGE_CONFIG
   const result = await judgeSweep(
     {
       store: storeFromEnv(env),
       llm: env.spends ? anthropicJudge(config) : cannedJudge(config),
       config,
-      estimateUsd: parseEstimateUsd(process.env.JUDGE_ESTIMATE_USD),
+      estimateUsd: parseEstimateUsd(source.JUDGE_ESTIMATE_USD),
     },
     env,
   )
@@ -957,25 +959,31 @@ export const main = async (): Promise<number> => {
   return result.exitCode
 }
 
+export const runSweepEntry = async (
+  source: NodeJS.ProcessEnv = process.env,
+): Promise<number> => {
+  try {
+    return await main(source)
+  } catch (err) {
+    // A SweepEnvError or a RecordStoreError IS its message — printing the
+    // stack of one would bury the sentence it exists to deliver. Anything
+    // else is unexpected on a job that has already spent real money, so it
+    // gets the whole error.
+    if (err instanceof SweepEnvError || err instanceof RecordStoreError) {
+      console.error(err.message)
+    } else {
+      console.error(err)
+    }
+    return 1
+  }
+}
+
 // Entry point, and it has to be here: a module that exports `main` and never
 // calls it prints nothing and exits 0, which is exactly how a workflow step
 // goes green having judged nothing. gp-api is CommonJS, so `require.main` is
 // the house pattern rather than import.meta.
 if (require.main === module) {
-  main()
-    .then((code) => {
-      process.exitCode = code
-    })
-    .catch((err: Error) => {
-      // A SweepEnvError or a RecordStoreError IS its message — printing the
-      // stack of one would bury the sentence it exists to deliver. Anything
-      // else is unexpected on a job that has already spent real money, so it
-      // gets the whole error.
-      if (err instanceof SweepEnvError || err instanceof RecordStoreError) {
-        console.error(err.message)
-      } else {
-        console.error(err)
-      }
-      process.exitCode = 1
-    })
+  void runSweepEntry().then((code) => {
+    process.exitCode = code
+  })
 }

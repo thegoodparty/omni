@@ -162,10 +162,17 @@ export function transformToPersonOutput(
     nameSuffix: person.NameSuffix ?? null,
     gender: mapGender(person.Gender),
     age: mapAge(person),
-    politicalParty: mapPoliticalParty(person.Parties_Description),
+    politicalParty: person.ContactIsNew
+      ? null
+      : mapPoliticalParty(person.Parties_Description),
     voterStatus: mapVoterStatus(person.Voter_Status),
     earlyVoteStatus: earlyVoteStatusFromMart(person.Early_Vote_Status),
-    registeredVoter: 'Yes',
+    registeredVoter:
+      person.Registered_Voter === null
+        ? null
+        : person.Registered_Voter
+          ? 'Yes'
+          : 'No',
     state: person.State,
     address: {
       line1: person.Residence_Addresses_AddressLine,
@@ -179,6 +186,8 @@ export function transformToPersonOutput(
     },
     cellPhone: person.VoterTelephones_CellPhoneFormatted ?? null,
     landline: person.VoterTelephones_LandlineFormatted ?? null,
+    email: person.Email ?? null,
+    isNewContact: person.ContactIsNew,
     maritalStatus: mapMaritalStatus(person.Marital_Status),
     hasChildrenUnder18: mapPresenceOfChildren(person.Presence_Of_Children),
     veteranStatus: mapVeteranStatus(person.Veteran_Status),

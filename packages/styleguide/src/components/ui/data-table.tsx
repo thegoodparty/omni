@@ -112,6 +112,13 @@ function getPaginationRange(
   return pages
 }
 
+/**
+ * It holds every row in memory; pagination={false} only hides the controls.
+ * Server-paged data belongs in Table plus Pagination.
+ *
+ * @summary Use for a table the user can sort, filter, hide columns in and page
+ * through in the browser. For a simple or server-paged table, use Table.
+ */
 function DataTable<TData, TValue>({
   columns,
   data,

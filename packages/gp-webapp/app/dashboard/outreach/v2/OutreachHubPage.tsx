@@ -26,6 +26,7 @@ import type { OutreachType } from 'gpApi/types/outreach.types'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useSingleEffect } from '@shared/hooks/useSingleEffect'
 import { useMembershipState } from 'app/dashboard/shared/membership/useMembershipState'
+import { useWinEmailOutreachFlag } from 'app/shared/experiments/winEmailOutreachFlag'
 import { useOutreachProGatingV2Flag } from 'app/shared/experiments/outreachProGatingV2Flag'
 import type { Campaign, TcrCompliance } from 'helpers/types'
 import type {
@@ -100,6 +101,9 @@ const OutreachHubContent = ({
   // would take to label one stays idle (`enabled`) rather than paying for a
   // TCR read no UI here will use.
   const { enabled: draftsEnabled } = useOutreachProGatingV2Flag(false)
+  // The tile is the treatment surface, so exposure is tracked. Until the flag
+  // resolves the grid is the five-tile one.
+  const { ready: emailReady, enabled: emailEnabled } = useWinEmailOutreachFlag()
   const { state: membership } = useMembershipState({ enabled: draftsEnabled })
   const historyRows = useMemo(
     () =>
@@ -151,6 +155,8 @@ const OutreachHubContent = ({
     (
       channel: DraftChannel,
       source: ResumeSource,
+      // Only a saved draft: a payment-failed robocall resumes from its own
+      // drawer, so the tile and deep links stay free to start a new call.
       row: HistoryRow | undefined = historyRows.find(
         (o) =>
           o.status === 'draft' &&
@@ -381,6 +387,11 @@ const OutreachHubContent = ({
           setTilePreselect(preselect ?? null)
           setPhoneBankingFlowOpen(true)
         }}
+        onCreateEmail={
+          emailReady && emailEnabled
+            ? () => router.push('/dashboard/outreach/email')
+            : undefined
+        }
       />
       <SocialFlow
         open={socialFlowOpen}

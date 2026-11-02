@@ -508,13 +508,13 @@ resource "aws_iam_role_policy" "scheduler_lambda_permissions" {
       {
         Effect    = "Allow"
         Action    = "ecs:RunTask"
-        Resource  = "arn:aws:ecs:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:task-definition/${var.ecs_task_definition_family}:*"
+        Resource  = "arn:aws:ecs:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:task-definition/${var.ecs_task_definition_family}:*"
         Condition = { ArnEquals = { "ecs:cluster" = var.ecs_cluster_arn } }
       },
       {
         Effect   = "Allow"
         Action   = "ecs:TagResource"
-        Resource = "arn:aws:ecs:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:task/${element(split("/", var.ecs_cluster_arn), 1)}/*"
+        Resource = "arn:aws:ecs:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:task/${element(split("/", var.ecs_cluster_arn), 1)}/*"
       },
       {
         Effect   = "Allow"
@@ -544,7 +544,7 @@ resource "aws_iam_role_policy" "scheduler_lambda_permissions" {
         # falls back to the MAX_CONCURRENT_AGENTS env var if it's absent.
         Effect   = "Allow"
         Action   = "ssm:GetParameter"
-        Resource = "arn:aws:ssm:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:parameter/pmf-engine/${var.environment}/max-concurrent-agents"
+        Resource = "arn:aws:ssm:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:parameter/pmf-engine/${var.environment}/max-concurrent-agents"
       },
     ]
   })

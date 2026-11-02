@@ -23,8 +23,8 @@
 //     the SAME PR with a one-line note saying who asked for it and what it
 //     does that a static icon cannot.
 //
-// Before adding one, the escalation is: a motion token from
-// `Foundations/Motion` in Storybook, then a styleguide component, then a
+// Before adding one, the escalation is: a motion token (`--animate-*` in
+// packages/styleguide/src/tailwind-theme.css), then a styleguide component, then a
 // static icon from the approved set, and only then an animation.
 //
 // Scope note: this counts Lottie JSON only. Static illustrations (SVG, PNG)
@@ -115,7 +115,8 @@ if (count > BASELINE) {
   console.error(`\nERROR: ${count} animations exceeds baseline ${BASELINE}.`)
   console.error(
     'An animation is a design decision, not a default. Try a motion token ' +
-      '(Foundations/Motion in Storybook), a styleguide component, or a static ' +
+      '(--animate-* in packages/styleguide/src/tailwind-theme.css), a ' +
+      'styleguide component, or a static ' +
       'icon from the approved set first.',
   )
   console.error(

@@ -13,6 +13,7 @@ import { ServiceReadGuard } from '@/authentication/guards/ServiceRead.guard'
 import { GetPersonMergeParamsDTO } from '@/electionDb/personMerges/person-merges.schema'
 import { PersonMergesService } from '@/electionDb/personMerges/person-merges.service'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
+import { ServiceReadConcurrencyInterceptor } from '@/elections/interceptors/serviceReadConcurrency.interceptor'
 import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interceptor'
 
 // gp-marketing's /people/<name>-<full-uuid> pages follow this to the person a
@@ -27,7 +28,7 @@ export const personMergeResponseSchema = z.object({
 
 @Controller('elections/person-merges')
 @UsePipes(ZodValidationPipe)
-@UseInterceptors(ZodResponseInterceptor)
+@UseInterceptors(ServiceReadConcurrencyInterceptor, ZodResponseInterceptor)
 export class ElectionPersonMergesController {
   constructor(private readonly personMerges: PersonMergesService) {}
 

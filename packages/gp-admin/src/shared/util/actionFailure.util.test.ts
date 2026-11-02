@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import {
   DEPLOY_SKEW_MESSAGE,
+  GP_API_ACCESS_DENIED_DIGEST,
+  GP_API_ACCESS_DENIED_MESSAGE,
   describeActionFailure,
 } from './actionFailure.util'
 
@@ -23,6 +25,19 @@ describe('describeActionFailure', () => {
     )
     expect(describeActionFailure(error, 'Failed to resend CV PIN')).toBe(
       'Failed to resend CV PIN (server error, digest 1234567890)'
+    )
+  })
+
+  it('explains a gp-api 401/403 that reached the client redacted', () => {
+    const error = Object.assign(
+      new Error(
+        'An error occurred in the Server Action. Please check the server ' +
+          'logs for more information.'
+      ),
+      { digest: GP_API_ACCESS_DENIED_DIGEST }
+    )
+    expect(describeActionFailure(error, 'Failed')).toBe(
+      GP_API_ACCESS_DENIED_MESSAGE
     )
   })
 

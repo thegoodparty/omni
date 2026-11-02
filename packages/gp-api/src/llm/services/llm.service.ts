@@ -694,19 +694,24 @@ export class LlmService {
         ),
     )
 
-    return {
-      textStream: result.textStream,
-      finalText: Promise.resolve(result.text),
-      toolCalls: Promise.resolve(result.toolCalls).then((calls) =>
-        this.mapAiSdkToolCalls(calls),
-      ),
-      usage: Promise.resolve(result.totalUsage).then((u) => ({
-        inputTokens: u.inputTokens ?? 0,
-        outputTokens: u.outputTokens ?? 0,
-        totalTokens: u.totalTokens ?? 0,
-      })),
-      model,
+    const finalText = Promise.resolve(result.text)
+    const toolCalls = Promise.resolve(result.toolCalls).then((calls) =>
+      this.mapAiSdkToolCalls(calls),
+    )
+    const usage = Promise.resolve(result.totalUsage).then((u) => ({
+      inputTokens: u.inputTokens ?? 0,
+      outputTokens: u.outputTokens ?? 0,
+      totalTokens: u.totalTokens ?? 0,
+    }))
+    // A stream that ends with no output rejects all three, and callers await
+    // only some of them. Node exits on an unhandled rejection, which took dev
+    // gp-api down mid-release (ENG-11524). The no-op handlers mark them
+    // handled; a caller that awaits one still gets the rejection.
+    for (const pending of [finalText, toolCalls, usage]) {
+      pending.catch(() => undefined)
     }
+
+    return { textStream: result.textStream, finalText, toolCalls, usage, model }
   }
 
   // Builds the AI SDK tool set. Client tools wrap their `execute` (and fire the

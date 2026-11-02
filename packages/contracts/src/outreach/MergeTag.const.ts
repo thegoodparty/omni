@@ -7,7 +7,9 @@
 // Only `first_name` is listed because it is the only tag any surface emits.
 // Peerly's CSV also carries last_name, city, state and zip, so adding those
 // is a row here, not vendor work.
-export type MergeTagChannel = 'peerly' | 'serve'
+// Email goes out through SES templates, whose Handlebars engine also merges
+// double braces.
+export type MergeTagChannel = 'peerly' | 'serve' | 'email'
 
 export const MERGE_TAGS = [
   {
@@ -15,7 +17,11 @@ export const MERGE_TAGS = [
     label: 'First name',
     // Shown wherever a message is previewed as the recipient reads it.
     sample: 'Sam',
-    token: { peerly: '{first_name}', serve: '{{first_name}}' },
+    token: {
+      peerly: '{first_name}',
+      serve: '{{first_name}}',
+      email: '{{first_name}}',
+    },
   },
 ] as const
 

@@ -152,9 +152,16 @@ export type Alert = {
    *   so that a rule watching our Loki spend, or watching whether alerting
    *   works at all, does not depend on the thing it is watching.
    *
+   * - `cloudwatch`: One metric read through the production CloudWatch data
+   *   source. `expr` is the metric name and `cloudwatchNamespace` its
+   *   namespace; the statistic is Average over five minutes and the metric
+   *   carries no dimensions. Prod only, like every rule here.
+   *
    * All use `$ENV` as a placeholder for the environment name (e.g. "prod").
    */
-  type: 'log' | 'metric' | 'usage'
+  type: 'log' | 'metric' | 'usage' | 'cloudwatch'
+  /** The CloudWatch namespace, for a `cloudwatch` rule. */
+  cloudwatchNamespace?: string
   /**
    * The query expression. Use `$ENV` for the environment name.
    *

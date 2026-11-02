@@ -34,6 +34,7 @@ import { UndiciInstrumentation } from '@opentelemetry/instrumentation-undici'
 // any path-alias resolver is registered.
 import { isDbxStatementPoll } from './observability/otel/dbxStatementPoll'
 import { otelResourceAttributes } from './observability/otel/resource'
+import { startPyroscope } from './observability/pyroscope'
 
 /**
  * Why we want this:
@@ -285,6 +286,7 @@ if (!headers) {
   })
 
   sdk.start()
+  startPyroscope(parsedHeaders.Authorization)
 
   const prismaConnectionDuration = metrics
     .getMeter('gp-api')

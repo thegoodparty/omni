@@ -252,6 +252,13 @@ export const getHistoryStatusLabel = (
   // and social share that map but have no in_progress lifecycle, so the map is
   // left untouched and only robocall is relabeled here.
   if (row.outreachType === 'robocall') {
+    // A pay-time hold that was declined: the spine sits at pending_payment
+    // and the satellite at hold_failed. It is not an abandoned draft — the
+    // candidate updates their card and resends from here — so it reads as a
+    // failed payment rather than the map's neutral "Pending payment".
+    if (row.robocall?.settleState === 'hold_failed') {
+      return 'Payment failed'
+    }
     if (status === 'pending') {
       return 'Scheduled'
     }

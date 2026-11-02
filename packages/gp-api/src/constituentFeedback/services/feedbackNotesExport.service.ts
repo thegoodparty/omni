@@ -11,6 +11,7 @@ import { FeedbackReportService } from './feedbackReport.service'
 const CHANNEL_LABELS: Record<ConstituentFeedbackChannel, string> = {
   [ConstituentFeedbackChannel.door_knock]: 'At the door',
   [ConstituentFeedbackChannel.phone_bank]: 'On the phone',
+  [ConstituentFeedbackChannel.text]: 'By text',
 }
 
 // The report card's own words for a stance (feedbackReport.service.ts's
@@ -41,7 +42,7 @@ const CSV_HEADER = [
 // @ is also prefixed with a quote to stop it executing as a formula — a
 // memo's transcript or an issue's wording is free text a canvasser typed or
 // dictated, the same risk `pollResponsesDownload.service.ts` guards against.
-const csvCell = (value: string): string => {
+export const csvCell = (value: string): string => {
   const guarded = /^[=+\-@]/.test(value) ? `'${value}` : value
   return `"${guarded.replace(/"/g, '""')}"`
 }

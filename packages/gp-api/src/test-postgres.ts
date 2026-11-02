@@ -16,12 +16,12 @@ export const TEMPLATE_PREFIX = 'gp_api_tmpl_'
 // clone takes it in shared mode.
 export const TEMPLATE_LOCK_KEY = 847_213_559
 
-// Durability buys nothing here and costs a lot: the per-test reset TRUNCATEs,
-// and TRUNCATE's commit has to sync a freshly created relation file per table.
-// That measured at ~350-400ms per reset on the defaults versus ~10ms with
-// these off — the margin that decides whether a reset survives a contended CI
-// runner or trips its hook timeout. The container is thrown away after the
-// run, so all that is given up is crash recovery.
+// Durability buys nothing here and costs a lot: every test commits many small
+// writes, and the per-test reset commits a DELETE across every table. Each of
+// those commits otherwise waits on a sync, which on a contended CI runner is
+// the margin between a reset finishing and tripping its hook timeout. The
+// container is thrown away after the run, so all that is given up is crash
+// recovery.
 const NO_DURABILITY = [
   '-c',
   'fsync=off',
@@ -45,8 +45,15 @@ export const TEST_POOL_LIMIT = 5
 // exact same config: testcontainers keys reuse on a hash of that config, so any
 // difference would hand a suite a fresh container without the template that
 // globalSetup built, and its CREATE DATABASE ... TEMPLATE would fail.
+//
+// The image comes from ECR Public, not Docker Hub, like every Dockerfile base
+// image (docs/deployment.md, "Base images"): anonymous Docker Hub pulls from
+// shared CI runners fail intermittently, and CI logs in to ECR Public.
+export const TEST_POSTGRES_IMAGE =
+  'public.ecr.aws/docker/library/postgres:16-alpine'
+
 export const startTestPostgres = (): Promise<StartedPostgreSqlContainer> =>
-  new PostgreSqlContainer('postgres:16-alpine')
+  new PostgreSqlContainer(TEST_POSTGRES_IMAGE)
     .withDatabase('postgres')
     .withUsername('test_user')
     .withPassword('test_password')
@@ -97,10 +104,6 @@ export const withDatabase = (baseUri: string, database: string): string => {
   return `${baseUri.slice(0, -MAINTENANCE_PATH.length)}/${database}`
 }
 
-// Declared in both packages' harnesses rather than shared: gp-api and
-// election-api are independently deployable and neither imports the other's
-// source. The other copy is packages/election-api/src/test-postgres.ts — keep
-// the name identical there.
 export const TEST_POSTGRES_URL_VAR = 'OMNI_TEST_POSTGRES_URL'
 
 // DB SAFETY: a testcontainer always binds a random loopback port, so the

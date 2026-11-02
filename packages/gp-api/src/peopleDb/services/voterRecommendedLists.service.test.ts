@@ -11,7 +11,7 @@ const district: DbxDistrict = {
   districtType: 'Congressional_District',
   districtName: '12',
   useVoterOnlyPath: false,
-  dataset: 'constituents',
+  dataset: { base: 'constituents' },
   table: 'goodparty_data_catalog.mart_gp_api.gp_api_constituents',
 }
 
@@ -62,7 +62,7 @@ describe('VoterRecommendedListsService', () => {
       expect.objectContaining({
         op: 'rec-count',
         districtId: DISTRICT_ID,
-        dataset: 'constituents',
+        dataset: { base: 'constituents' },
       }),
     )
     expect(countForFilter).toHaveBeenCalledWith(
@@ -85,7 +85,7 @@ describe('VoterRecommendedListsService', () => {
       expect.objectContaining({
         op: 'rec-rank-precincts',
         districtId: DISTRICT_ID,
-        dataset: 'constituents',
+        dataset: { base: 'constituents' },
       }),
     )
     expect(rankPrecincts).toHaveBeenCalledWith(
@@ -102,10 +102,12 @@ describe('VoterRecommendedListsService', () => {
   // warehouse and skewing the latency attribution.
   it('does not log a read for district resolution', async () => {
     await expect(
-      service.resolveDistrict(DISTRICT_ID, 'constituents'),
+      service.resolveDistrict(DISTRICT_ID, { base: 'constituents' }),
     ).resolves.toBe(district)
 
-    expect(resolveDistrict).toHaveBeenCalledWith(DISTRICT_ID, 'constituents')
+    expect(resolveDistrict).toHaveBeenCalledWith(DISTRICT_ID, {
+      base: 'constituents',
+    })
     expect(measure).not.toHaveBeenCalled()
   })
 })

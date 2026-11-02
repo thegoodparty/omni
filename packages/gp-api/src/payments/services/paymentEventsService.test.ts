@@ -6,10 +6,11 @@ import {
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { Campaign, User } from '../../generated/prisma'
 import Stripe from 'stripe'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { firstOrThrow } from 'src/shared/test-utils/arrays.util'
 import { EVENTS } from 'src/vendors/segment/segment.types'
 import { CheckoutSessionMode, WebhookEventType } from '../payments.types'
+import { PaymentHoldsService } from '../../paymentHolds/services/paymentHolds.service'
 import { OutreachRobocallWebhookService } from '../../outreach/services/outreachRobocallWebhook.service'
 import { PaymentEventsService } from './paymentEventsService'
 
@@ -55,6 +56,11 @@ describe('PaymentEventsService', () => {
     cancelNotYetDialedForDetachedPaymentMethod: vi.fn(),
     markDisputedByIntent: vi.fn(),
     retryHoldFailedForAttachedCard: vi.fn(),
+  }
+  const paymentHoldsService = {
+    flagScheduledHoldsForDetachedCard: vi.fn(),
+    retryHoldFailedForAttachedCard: vi.fn(),
+    markDisputedByIntent: vi.fn(),
   }
   const moduleRef = { get: vi.fn() }
 
@@ -146,11 +152,20 @@ describe('PaymentEventsService', () => {
     robocallWebhookService.retryHoldFailedForAttachedCard.mockResolvedValue(
       undefined,
     )
-    moduleRef.get.mockImplementation((token) =>
-      token === OutreachRobocallWebhookService
-        ? robocallWebhookService
-        : raceOpponentService,
+    paymentHoldsService.flagScheduledHoldsForDetachedCard.mockResolvedValue(
+      undefined,
     )
+    paymentHoldsService.retryHoldFailedForAttachedCard.mockResolvedValue(
+      undefined,
+    )
+    paymentHoldsService.markDisputedByIntent.mockResolvedValue(undefined)
+    moduleRef.get.mockImplementation((token) => {
+      if (token === OutreachRobocallWebhookService) {
+        return robocallWebhookService
+      }
+      if (token === PaymentHoldsService) return paymentHoldsService
+      return raceOpponentService
+    })
     analytics.trackProPayment.mockResolvedValue(undefined)
     analytics.track.mockResolvedValue(undefined)
     slackService.message.mockResolvedValue(undefined)
@@ -889,6 +904,23 @@ describe('PaymentEventsService', () => {
       expect(slackService.message).toHaveBeenCalledOnce()
     })
 
+    it('acknowledges a cancellation whose campaign user was already deleted instead of returning a 500', async () => {
+      usersService.findUser.mockResolvedValue(null)
+
+      await expect(
+        service.customerSubscriptionDeletedHandler(deletedEvent()),
+      ).resolves.toBeUndefined()
+
+      expect(
+        campaignsService.persistCampaignProCancellation,
+      ).not.toHaveBeenCalled()
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.objectContaining({ subscriptionId: 'sub_test_unmatched' }),
+        expect.stringContaining('no longer exists'),
+      )
+      expect(logger.error).not.toHaveBeenCalled()
+    })
+
     it('tracks the Pro cancellation with the reason Stripe gave', async () => {
       await service.customerSubscriptionDeletedHandler(deletedEvent())
 
@@ -1111,6 +1143,9 @@ describe('PaymentEventsService', () => {
       expect(
         robocallWebhookService.cancelNotYetDialedForDetachedPaymentMethod,
       ).toHaveBeenCalledExactlyOnceWith('pm_gone')
+      expect(
+        paymentHoldsService.flagScheduledHoldsForDetachedCard,
+      ).toHaveBeenCalledExactlyOnceWith('pm_gone')
     })
   })
 
@@ -1130,6 +1165,9 @@ describe('PaymentEventsService', () => {
       expect(
         robocallWebhookService.retryHoldFailedForAttachedCard,
       ).toHaveBeenCalledExactlyOnceWith('cus_1', 'pm_new')
+      expect(
+        paymentHoldsService.retryHoldFailedForAttachedCard,
+      ).toHaveBeenCalledExactlyOnceWith('cus_1', 'pm_new')
     })
 
     it('unwraps an expanded customer object to its id', async () => {
@@ -1145,6 +1183,9 @@ describe('PaymentEventsService', () => {
 
       expect(
         robocallWebhookService.retryHoldFailedForAttachedCard,
+      ).not.toHaveBeenCalled()
+      expect(
+        paymentHoldsService.retryHoldFailedForAttachedCard,
       ).not.toHaveBeenCalled()
     })
 
@@ -1172,6 +1213,9 @@ describe('PaymentEventsService', () => {
       expect(
         robocallWebhookService.markDisputedByIntent,
       ).toHaveBeenCalledExactlyOnceWith('pi_hold_1')
+      expect(
+        paymentHoldsService.markDisputedByIntent,
+      ).toHaveBeenCalledExactlyOnceWith('pi_hold_1')
     })
 
     it('skips and warns when the dispute carries no payment intent', async () => {
@@ -1180,62 +1224,11 @@ describe('PaymentEventsService', () => {
       ).resolves.not.toThrow()
 
       expect(robocallWebhookService.markDisputedByIntent).not.toHaveBeenCalled()
+      expect(paymentHoldsService.markDisputedByIntent).not.toHaveBeenCalled()
       expect(logger.warn).toHaveBeenCalledWith(
         expect.objectContaining({ disputeId: 'dp_1' }),
         expect.stringContaining('no payment_intent'),
       )
     })
-  })
-})
-
-describe('PaymentEventsService when Stripe webhooks are not configured', () => {
-  afterEach(() => {
-    vi.resetModules()
-    vi.doUnmock('../../shared/env/env')
-  })
-
-  it('logs once on construction and handleEvent throws instead of processing', async () => {
-    // Mock the resolution helper rather than unsetting the real env var:
-    // stripe.service.ts's own (out-of-scope) module-level requireEnv() call
-    // on the same var would otherwise crash this fresh import.
-    vi.doMock('../../shared/env/env', async (importOriginal) => {
-      const actual =
-        await importOriginal<typeof import('../../shared/env/env')>()
-      return {
-        ...actual,
-        resolveEnvVar: (name: string) =>
-          name === 'STRIPE_WEBSOCKET_SECRET'
-            ? { configured: false }
-            : actual.resolveEnvVar(name),
-      }
-    })
-    vi.resetModules()
-    const { PaymentEventsService: PES } =
-      await import('./paymentEventsService.js')
-    const disabledLogger = createMockLogger()
-    const service = new PES(
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      disabledLogger,
-    )
-
-    expect(disabledLogger.warn).toHaveBeenCalledWith(
-      expect.stringContaining('Stripe webhooks are disabled'),
-    )
-    await expect(
-      service.handleEvent({
-        type: WebhookEventType.CheckoutSessionCompleted,
-      } as Stripe.Event),
-    ).rejects.toBeInstanceOf(BadRequestException)
   })
 })

@@ -1,8 +1,13 @@
 import { z } from 'zod'
+import { ComplianceStageSchema } from '../campaigns/enums'
+import { TestModeElectionPresetSchema } from '../testMode/testMode.schema'
 
 export const TEST_FIXTURE_STATE_VALUES = [
   'free-win',
   'pro-win',
+  // A Pro Win candidate whose real 10DLC registration has run to `tcr_approved`
+  // against the vendor mocks (VENDOR_MODE=mock only).
+  'pro-win-10dlc-mock',
   'serve',
   'serve-won-race',
 ] as const
@@ -52,6 +57,20 @@ export const TestFixtureSessionResponseSchema = z.object({
 })
 export type TestFixtureSessionResponse = z.infer<
   typeof TestFixtureSessionResponseSchema
+>
+
+// Result of applying a fixture state to an existing user
+// (`POST /test-fixtures/users/:id/states/:state`). Only the 10DLC state is
+// applicable that way today, so the shape is that state's outcome.
+export const TestFixtureStateResponseSchema = z.object({
+  state: TestFixtureStateSchema,
+  userId: z.number(),
+  campaignId: z.number(),
+  stage: ComplianceStageSchema,
+  peerlyIdentityId: z.string(),
+})
+export type TestFixtureStateResponse = z.infer<
+  typeof TestFixtureStateResponseSchema
 >
 
 export const DeleteTestFixtureUsersResponseSchema = z.object({
@@ -109,4 +128,30 @@ export const SeedTestFixtureActivityResponseSchema = z.object({
 })
 export type SeedTestFixtureActivityResponse = z.infer<
   typeof SeedTestFixtureActivityResponseSchema
+>
+
+// The office a fixture pins. Its race resolves whatever today's date is: the
+// next upcoming one, else the most recent past one.
+export const TestFixtureRaceQuerySchema = z
+  .object({
+    zip: z.string().regex(/^\d{5}$/),
+    office: z.string().trim().min(1),
+  })
+  .strict()
+export type TestFixtureRaceQuery = z.infer<typeof TestFixtureRaceQuerySchema>
+
+export const ApplyTestFixtureElectionRequestSchema = z
+  .object({ preset: TestModeElectionPresetSchema })
+  .strict()
+export type ApplyTestFixtureElectionRequest = z.infer<
+  typeof ApplyTestFixtureElectionRequestSchema
+>
+
+export const ApplyTestFixtureElectionResponseSchema = z.object({
+  campaignId: z.number(),
+  preset: TestModeElectionPresetSchema,
+  electionDate: z.string(),
+})
+export type ApplyTestFixtureElectionResponse = z.infer<
+  typeof ApplyTestFixtureElectionResponseSchema
 >

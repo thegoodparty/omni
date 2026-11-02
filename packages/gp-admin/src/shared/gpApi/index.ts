@@ -1,5 +1,5 @@
-export { GoodPartyClient } from './GoodPartyClient'
-export type { GoodPartyClientConfig } from './GoodPartyClient'
+export { GoodPartyClient, GP_API_AUTH_MODE } from './GoodPartyClient'
+export type { GoodPartyClientConfig, GpApiAuthMode } from './GoodPartyClient'
 
 export { SdkError } from './types/result'
 
@@ -56,6 +56,8 @@ export type {
   TenDlcStatusSnapshot,
   UpdateCommitteeNameInput,
   UpdateCommitteeNameOutput,
+  LinkPersonProfileOwnerInput,
+  PersonProfileLink,
 } from '@goodparty_org/contracts'
 
 export {

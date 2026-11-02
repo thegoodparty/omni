@@ -39,10 +39,11 @@ describe('CallhubHttpService', () => {
     get: ReturnType<typeof vi.fn>
     post: ReturnType<typeof vi.fn>
     put: ReturnType<typeof vi.fn>
+    patch: ReturnType<typeof vi.fn>
   }
 
   beforeEach(() => {
-    http = { get: vi.fn(), post: vi.fn(), put: vi.fn() }
+    http = { get: vi.fn(), post: vi.fn(), put: vi.fn(), patch: vi.fn() }
     service = new CallhubHttpService(
       createMockLogger(),
       http as unknown as HttpService,
@@ -118,6 +119,39 @@ describe('CallhubHttpService', () => {
       service.put('/v1/voice_broadcasts/vb_1/', { status: 1 }),
     ).resolves.toEqual({ pk_str: 'vb_1', status: 1 })
     expect(http.put).toHaveBeenCalledTimes(1)
+  })
+
+  it('returns the parsed body on a PATCH 200', async () => {
+    http.patch.mockReturnValue(of(ok({ frequency: 120, status: 2 })))
+
+    await expect(
+      service.patch('/v1/voice_broadcasts/vb_1/', { frequency: 120 }),
+    ).resolves.toEqual({ frequency: 120, status: 2 })
+    expect(http.patch).toHaveBeenCalledTimes(1)
+  })
+
+  it('retries a PATCH on a 429 throttle, then succeeds', async () => {
+    vi.useFakeTimers()
+    http.patch
+      .mockReturnValueOnce(throwError(() => axiosError(429)))
+      .mockReturnValueOnce(of(ok({ frequency: 120 })))
+
+    const result = service.patch('/v1/voice_broadcasts/vb_1/', {
+      frequency: 120,
+    })
+    await vi.runAllTimersAsync()
+
+    await expect(result).resolves.toEqual({ frequency: 120 })
+    expect(http.patch).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not retry a PATCH on a 5xx', async () => {
+    http.patch.mockReturnValue(throwError(() => axiosError(500)))
+
+    await expect(
+      service.patch('/v1/voice_broadcasts/vb_1/', { frequency: 120 }),
+    ).rejects.toBeInstanceOf(AxiosError)
+    expect(http.patch).toHaveBeenCalledTimes(1)
   })
 
   it('retries a PUT on a 429 throttle, then succeeds', async () => {

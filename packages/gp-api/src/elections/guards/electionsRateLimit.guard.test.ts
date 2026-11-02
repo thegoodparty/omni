@@ -27,7 +27,12 @@ describe('ElectionsRateLimitGuard', () => {
       switchToHttp: () => ({
         getRequest: () => ({
           ip: '9.9.9.9',
-          serviceReader: { id: 'm2m_x', subject: 'mch_marketing' },
+          serviceReader: {
+            source: 'vercel-oidc',
+            projectId: 'prj_marketing',
+            project: 'gp-marketing',
+            environment: 'production',
+          },
         }),
       }),
     } as unknown as ExecutionContext

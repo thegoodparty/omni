@@ -1,6 +1,6 @@
 ---
 title: A civic panel's active members are read live from the answer rows, never stored
-status: active
+status: superseded
 decided_by: [bryclevgp]
 date: 2026-10-20
 code: ['#3035']
@@ -8,7 +8,7 @@ scope:
   - packages/gp-api/src/contacts/services/civicPanelBuildPlan.service.ts
   - packages/gp-api/src/priorities/util/priorityRespondents.util.ts
 supersedes: []
-superseded_by:
+superseded_by: 2026-10-23-civic-panel-standing-on-the-summary-read.md
 ---
 
 # A civic panel's active members are read live from the answer rows, never stored

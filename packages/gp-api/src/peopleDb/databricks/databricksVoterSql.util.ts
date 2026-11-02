@@ -26,20 +26,24 @@ import {
   RULED_POLITICAL_PARTIES,
   type RuledParty,
 } from '../utils/politicalParty.rules'
-import { DOWNLOAD_COLUMNS, type ExcludableVoterColumn } from '../voter.select'
+import {
+  CONTACT_OVERLAY_DOWNLOAD_COLUMNS,
+  DOWNLOAD_COLUMNS,
+  type ExcludableVoterColumn,
+} from '../voter.select'
 import type { PeopleDataset } from '../services/peopleDataset.service'
 import { PEOPLE_DBX_CATALOG, PEOPLE_DBX_SCHEMA } from './peopleDbx.config'
 
 const TABLE = (name: string): string =>
   `${PEOPLE_DBX_CATALOG}.${PEOPLE_DBX_SCHEMA}.${name}`
 
-const PEOPLE_TABLE_NAMES: Record<PeopleDataset, string> = {
+const PEOPLE_TABLE_NAMES: Record<PeopleDataset['base'], string> = {
   voters: 'gp_api_voters',
   constituents: 'gp_api_constituents',
 }
 
 export const peopleTable = (dataset: PeopleDataset): string =>
-  TABLE(PEOPLE_TABLE_NAMES[dataset])
+  TABLE(PEOPLE_TABLE_NAMES[dataset.base])
 
 const MIN_SUBSTRING_TOKEN_LENGTH = 3
 
@@ -134,6 +138,118 @@ export type DbxDistrict = {
   useVoterOnlyPath: boolean
 }
 
+// A string literal inlined into the statement, for the few values a table
+// expression has to carry and so cannot bind. Backslash is Spark's escape
+// character while spark.sql.parser.escapedStringLiterals is false (the
+// default); a doubled quote would concatenate two literals instead.
+const stringLiteral = (value: string): string =>
+  `'${value.replace(/[\\']/g, '\\$&')}'`
+
+const OVERLAY_VIEW_RE = /^[A-Za-z0-9_]+$/
+
+// Contact values an upload supplies win over L2's; names stay L2's for a
+// matched person, who matched on name.
+const UPLOAD_FIRST_COLUMNS = [
+  ['VoterTelephones_CellPhoneFormatted', 'cell_phone'],
+  ['VoterTelephones_LandlineFormatted', 'landline'],
+  ['Residence_Addresses_AddressLine', 'address_line'],
+  ['Residence_Addresses_City', 'city'],
+  ['Residence_Addresses_Zip', 'zip'],
+] as const
+
+// The district's people FULL OUTER JOIN the org's imported contacts, as the
+// table every builder reads. One join over the district-filtered base, never
+// a UNION: a union over the mart's ~1,000 columns doubled compile time. The
+// district's State and district column are written onto every row only for
+// the org's own district, which is where its new people belong; any other
+// district drops new people and reads those columns from L2, so an imported
+// person with no L2 row there falls out of the scope filter.
+export const contactOverlayTable = (
+  district: Omit<DbxDistrict, 'table'>,
+  personIdMarker?: string,
+): string => {
+  const { dataset } = district
+  const orgSlug = dataset.overlayOrgSlug
+  if (orgSlug === undefined) return peopleTable(dataset)
+  const view =
+    process.env.PEOPLE_DBX_CONTACT_OVERLAY_VIEW || 'gp_api_contact_overlay'
+  if (!OVERLAY_VIEW_RE.test(view)) {
+    throw new Error(`Refusing to read a contact overlay view named ${view}`)
+  }
+  const ownDistrict = district.districtId === dataset.overlayDistrictId
+  const state = stringLiteral(district.state)
+  const scope: Array<[string, string]> = district.useVoterOnlyPath
+    ? [['State', state]]
+    : [
+        ['State', state],
+        [district.districtType, stringLiteral(district.districtName)],
+      ]
+  const replaced = new Map<string, string>(ownDistrict ? scope : [])
+  const replace = (column: string, expression: string) => {
+    if (!replaced.has(column)) replaced.set(column, expression)
+  }
+  replace('id', 'coalesce(b.`id`, o.`id`)')
+  replace('FirstName', 'coalesce(b.`FirstName`, o.`first_name`)')
+  replace('LastName', 'coalesce(b.`LastName`, o.`last_name`)')
+  for (const [column, upload] of UPLOAD_FIRST_COLUMNS) {
+    replace(column, `coalesce(o.${ident(upload)}, b.${ident(column)})`)
+  }
+  replace(
+    'Residence_Addresses_State',
+    `coalesce(b.\`Residence_Addresses_State\`, ${state})`,
+  )
+  const projection = [
+    `b.* EXCEPT (${[...replaced.keys()].map(ident).join(', ')})`,
+    ...[...replaced].map(
+      ([column, expression]) => `${expression} AS ${ident(column)}`,
+    ),
+    'o.`email` AS `Email`',
+    'coalesce(o.`is_new`, false) AS `ContactIsNew`',
+  ].join(', ')
+  const onePerson =
+    personIdMarker === undefined ? '' : ` AND \`id\` = ${personIdMarker}`
+  const base =
+    `SELECT * FROM ${peopleTable(dataset)}` +
+    ` WHERE ${scope.map(([column, value]) => `${ident(column)} = ${value}`).join(' AND ')}` +
+    onePerson
+  const overlay =
+    `SELECT * FROM ${TABLE(view)}` +
+    ` WHERE organization_slug = ${stringLiteral(orgSlug)}` +
+    (ownDistrict ? '' : ' AND NOT is_new') +
+    onePerson
+  return (
+    `(SELECT ${projection} FROM (${base}) b` +
+    ` FULL OUTER JOIN (${overlay}) o ON o.\`id\` = b.\`id\`)`
+  )
+}
+
+// Neither column exists without the overlay, so a read without it projects
+// what a person with no imported contact would carry.
+const NO_OVERLAY_COLUMNS = new Map<string, string>([
+  ['Email', 'CAST(NULL AS STRING)'],
+  ['ContactIsNew', 'false'],
+])
+
+// gp_api_voters has no Registered_Voter column: everyone in it is
+// registered, except a person only an import added, whom no file holds.
+const registeredVoterSql = (district: DbxDistrict): string => {
+  if (district.dataset.base === 'constituents') return col('Registered_Voter')
+  return district.dataset.overlayOrgSlug === undefined
+    ? 'true'
+    : `if(${col('ContactIsNew')}, CAST(NULL AS BOOLEAN), true)`
+}
+
+const projectColumn = (district: DbxDistrict, column: string): string => {
+  if (column === 'Registered_Voter') {
+    return `${registeredVoterSql(district)} AS ${ident(column)}`
+  }
+  const absent =
+    district.dataset.overlayOrgSlug === undefined
+      ? NO_OVERLAY_COLUMNS.get(column)
+      : undefined
+  return `${absent ?? col(column)} AS ${ident(column)}`
+}
+
 export type DbxScopeArgs = {
   district: DbxDistrict
   filters: FilterData
@@ -155,6 +271,41 @@ const hasIdOverrides = (
 // reachability tile and a list built from the same filter key compile to the
 // identical predicate and cannot drift apart.
 const isPresentSql = (field: string): string => `${col(field)} IS NOT NULL`
+
+// Email exists only on the imported-contact overlay. A read without it has
+// no column to test, and no one in it has an email.
+const emailPresentSql = (hasContactOverlay: boolean): string =>
+  hasContactOverlay ? isPresentSql('Email') : 'FALSE'
+
+const buildHasEmailFilter = (
+  hasContactOverlay: boolean,
+  op?: FilterOperator,
+): string | null => {
+  if (!op || op.operator !== 'is') return null
+  if (op.value === 'not_null') return emailPresentSql(hasContactOverlay)
+  if (op.value === 'null') {
+    return hasContactOverlay ? `${col('Email')} IS NULL` : 'TRUE'
+  }
+  return null
+}
+
+const newContactSql = (): string => `coalesce(${col('ContactIsNew')}, false)`
+
+// voterFile is a person the voter file holds, imported a person only an
+// import added. Without the overlay everyone is in the voter file, so
+// imported alone matches no one rather than erroring.
+const buildSourceFilter = (
+  hasContactOverlay: boolean,
+  op?: FilterOperator,
+): string | null => {
+  if (!op || op.operator !== 'in') return null
+  const values = (op.values ?? []).map(String)
+  const voterFile = values.includes('voterFile')
+  const imported = values.includes('imported')
+  if (voterFile === imported) return null
+  if (!hasContactOverlay) return imported ? 'FALSE' : null
+  return imported ? newContactSql() : `NOT ${newContactSql()}`
+}
 
 const anyPhonePresentSql = (): string =>
   `(${isPresentSql('VoterTelephones_CellPhoneFormatted')}` +
@@ -315,7 +466,9 @@ const buildBusinessOwnerFilter = (op?: FilterOperator): string | null => {
 const affinityColumnForDataset = (
   args: Pick<DbxScopeArgs, 'district' | 'affinityColumn'>,
 ): AffinityColumn | undefined =>
-  args.district.dataset === 'constituents' ? undefined : args.affinityColumn
+  args.district.dataset.base === 'constituents'
+    ? undefined
+    : args.affinityColumn
 
 // Every affinity column is a BOOLEAN set on every voter, so this compares
 // against a boolean literal instead of taking the presence-check path every
@@ -349,6 +502,52 @@ const buildIndependentAffinityFilter = (
   }
   if (op.operator === 'is' && op.value === 'null') return `${target} IS NULL`
   return null
+}
+
+// L2's early and absentee voters for the current general, rebuilt daily
+// from an upload, apart from the monthly voter table so the filter tracks
+// returns as they come in. Same ids as both people tables; a consumer-only
+// constituent is never in it.
+const EARLY_ABSENTEE_VOTED_TABLE = TABLE('gp_api_voter_eav_general_2026')
+
+// The membership test against that table, joined by sort-merge. Left to its
+// own estimate Spark broadcasts the table, and once it holds enough ids the
+// broadcast no longer fits an executor (EXECUTOR_BROADCAST_JOIN_OOM, 1.5 GiB
+// relation, ENG-11522). A merge join has no such ceiling.
+const EARLY_ABSENTEE_VOTED_IDS_SQL = `SELECT /*+ MERGE(eav) */ eav.id FROM ${EARLY_ABSENTEE_VOTED_TABLE} eav`
+
+// "Voted in election": L2's early and absentee voters OR the people the
+// campaign recorded as already voted. The campaign half is resolved in
+// Postgres and arrives as a sibling id set, which is why this one clause
+// reads two filter keys: an OR across the two sources cannot be split into
+// independently AND-ed filters.
+const buildVotedInElectionFilter = (
+  op: FilterOperator | undefined,
+  reportedIdsOp: FilterOperator | undefined,
+): string | null => {
+  if (!op) return null
+  const selected =
+    op.operator === 'in' && op.values
+      ? op.values.map(String)
+      : op.operator === 'eq' && op.value !== undefined
+        ? [String(op.value)]
+        : []
+  const hasYes = selected.includes('Yes')
+  const hasNo = selected.includes('No')
+  if (hasYes === hasNo) return null
+  const reported =
+    reportedIdsOp?.operator === 'in' && reportedIdsOp.values?.length
+      ? idList(reportedIdsOp.values)
+      : null
+  if (hasYes) {
+    const l2 = `${col('id')} IN (${EARLY_ABSENTEE_VOTED_IDS_SQL})`
+    return reported ? `(${l2} OR ${col('id')} IN (${reported}))` : l2
+  }
+  // NOT EXISTS rather than NOT IN: NOT IN becomes a null-aware anti join, which
+  // Spark can only run as a broadcast, so the merge hint would be ignored.
+  // voter ids are never null, so the two exclude the same people.
+  const l2 = `NOT EXISTS (SELECT /*+ MERGE(eav) */ 1 FROM ${EARLY_ABSENTEE_VOTED_TABLE} eav WHERE eav.id = ${col('id')})`
+  return reported ? `(${l2} AND ${col('id')} NOT IN (${reported}))` : l2
 }
 
 const buildLanguageFilter = (bag: Bag, op?: FilterOperator): string | null => {
@@ -395,11 +594,18 @@ const buildLanguageFilter = (bag: Bag, op?: FilterOperator): string | null => {
   return `(${conditions.join(' OR ')})`
 }
 
-const buildPartyValuePredicate = (bag: Bag, value: string): string | null => {
+const buildPartyValuePredicate = (
+  bag: Bag,
+  value: string,
+  contactOverlay: boolean,
+): string | null => {
   const target = col('Parties_Description')
   if (value === POLITICAL_PARTY_OTHER) {
     const known = ALL_KNOWN_PARTY_VALUES.map((party) => bag.bind(party))
-    return `(${target} IS NULL OR ${target} NOT IN (${known.join(', ')}))`
+    const other = `(${target} IS NULL OR ${target} NOT IN (${known.join(', ')}))`
+    // A voter-file person with no party is Other; a person only an import
+    // added has no voter-file party at all, so is unknown.
+    return contactOverlay ? `(${other} AND NOT ${col('ContactIsNew')})` : other
   }
   if ((RULED_POLITICAL_PARTIES as readonly string[]).includes(value)) {
     // The includes() check above confirms membership at runtime; TS cannot
@@ -414,6 +620,7 @@ const buildPartyValuePredicate = (bag: Bag, value: string): string | null => {
 
 const buildPoliticalPartyFilter = (
   bag: Bag,
+  contactOverlay: boolean,
   op?: FilterOperator,
 ): string | null => {
   if (!op) return null
@@ -430,7 +637,7 @@ const buildPoliticalPartyFilter = (
         ? [String(op.value)]
         : []
   const predicates = selected
-    .map((value) => buildPartyValuePredicate(bag, value))
+    .map((value) => buildPartyValuePredicate(bag, value, contactOverlay))
     .filter((predicate): predicate is string => predicate !== null)
   if (predicates.length === 0) return null
   return `(${predicates.join(' OR ')})`
@@ -499,7 +706,7 @@ const buildNumericFilter = (
 }
 
 // The whole id set is inlined rather than bound: the Statement Execution API
-// has no array parameter type. MAX_ID_FILTER_VALUES (100k per set, and
+// has no array parameter type. MAX_ID_FILTER_VALUES (200k per set, and
 // IdOverridesSchema allows that per side) is what bounds the size, and the
 // statement client enforces the API's 16 MiB ceiling on the result.
 //
@@ -544,6 +751,7 @@ export const buildVoterFiltersSql = (
   idOverrides?: IdOverrides,
   contactsMadeIdOverrides?: IdOverrides,
   affinityColumn?: AffinityColumn,
+  contactOverlay = false,
 ): string | null => {
   const { filters, filterOperators } = filterData
   const andClauses: string[] = []
@@ -567,6 +775,9 @@ export const buildVoterFiltersSql = (
         break
       case 'hasAddress':
         sql = buildHasAddressFilter(op)
+        break
+      case 'hasEmail':
+        sql = buildHasEmailFilter(contactOverlay, op)
         break
       case 'id':
         sql = buildIdFilter(op)
@@ -636,6 +847,15 @@ export const buildVoterFiltersSql = (
       case 'independentAffinity':
         sql = buildIndependentAffinityFilter(op, affinityColumn)
         break
+      case 'votedInElection':
+        sql = buildVotedInElectionFilter(
+          op,
+          filterOperators.votedInElectionReportedIds,
+        )
+        break
+      case 'votedInElectionReportedIds':
+        // Applied inside votedInElection; alone it constrains nothing.
+        break
       case 'estimatedIncomeAmountInt':
         sql = buildNumericFilter(bag, 'Estimated_Income_Amount_Int', op)
         break
@@ -686,7 +906,7 @@ export const buildVoterFiltersSql = (
         break
       }
       case 'politicalParty':
-        sql = buildPoliticalPartyFilter(bag, op)
+        sql = buildPoliticalPartyFilter(bag, contactOverlay, op)
         break
       case 'gender':
         sql = buildMappedFieldFilter(bag, 'Gender', op, VALUE_MAPPERS.gender)
@@ -696,6 +916,9 @@ export const buildVoterFiltersSql = (
         break
       case 'precinct':
         sql = buildPrecinctFilter(bag, op)
+        break
+      case 'source':
+        sql = buildSourceFilter(contactOverlay, op)
         break
     }
     if (sql) andClauses.push(sql)
@@ -720,9 +943,17 @@ export const getNormalizedPhoneNumber = (phone: string): string | null => {
 // The doubled backslash in `ESCAPE '\\'` is deliberate — it renders as a
 // one-character escape only while spark.sql.parser.escapedStringLiterals is
 // false, which is the default. Do not "simplify" it to a single backslash.
-export const buildSearchSql = (bag: Bag, search: string): string | null => {
+export const buildSearchSql = (
+  bag: Bag,
+  search: string,
+  district: DbxDistrict,
+): string | null => {
   const trimmed = search.trim()
   if (!trimmed) return null
+
+  if (trimmed.includes('@') && district.dataset.overlayOrgSlug !== undefined) {
+    return `lower(${col('Email')}) = lower(${bag.bind(trimmed)})`
+  }
 
   const phone = getNormalizedPhoneNumber(trimmed)
   if (phone) {
@@ -769,7 +1000,7 @@ export const buildScopeSql = (bag: Bag, args: DbxScopeArgs): string => {
   }
 
   if (search) {
-    const searchSql = buildSearchSql(bag, search)
+    const searchSql = buildSearchSql(bag, search, district)
     if (searchSql) parts.push(searchSql)
   }
 
@@ -779,6 +1010,7 @@ export const buildScopeSql = (bag: Bag, args: DbxScopeArgs): string => {
     idOverrides,
     args.contactsMadeIdOverrides,
     affinityColumnForDataset(args),
+    district.dataset.overlayOrgSlug !== undefined,
   )
   if (filterSql) parts.push(filterSql)
 
@@ -806,26 +1038,52 @@ export const buildAggregatesSql = (args: DbxScopeArgs): DbxStatement => {
 // No household de-duplication here, because the aggregates path has never
 // had any: COUNT(*) counts voters, and the conditional counts have to count
 // the same population the base count does.
+//
+// With `countNewContacts` (a Win campaign with imported contacts) the trailing
+// new_* columns count, of the same people, those only an import added.
 export const buildListDetailAggregatesSql = (
-  args: DbxScopeArgs,
+  args: DbxScopeArgs & { countNewContacts?: boolean },
 ): DbxStatement => {
   const bag = createBag()
-  const cell = isPresentSql('VoterTelephones_CellPhoneFormatted')
-  const landline = isPresentSql('VoterTelephones_LandlineFormatted')
+  const hasOverlay = args.district.dataset.overlayOrgSlug !== undefined
+  const channels: Array<[string, string]> = [
+    ['sms', isPresentSql('VoterTelephones_CellPhoneFormatted')],
+    ['robocall', isPresentSql('VoterTelephones_LandlineFormatted')],
+    ['phoneBanking', anyPhonePresentSql()],
+    ['doorKnocking', addressPresentSql()],
+    ['email', emailPresentSql(hasOverlay)],
+  ]
+  const newContactCounts =
+    hasOverlay && args.countNewContacts === true
+      ? [
+          `COUNT_IF(${newContactSql()}) AS new_count`,
+          ...channels.map(
+            ([name, predicate]) =>
+              `COUNT_IF(${predicate} AND ${newContactSql()}) AS new_${name}`,
+          ),
+        ]
+      : []
   const sql =
     `SELECT COUNT(*) AS count,` +
     ` AVG(${col('Age_Int')}) AS avgAge,` +
     ` AVG(${col('Estimated_Income_Amount_Int')}) AS avgIncome,` +
-    ` COUNT_IF(${cell}) AS sms,` +
-    ` COUNT_IF(${landline}) AS robocall,` +
-    ` COUNT_IF(${anyPhonePresentSql()}) AS phoneBanking,` +
-    ` COUNT_IF(${addressPresentSql()}) AS doorKnocking` +
+    ` ${[
+      ...channels.map(
+        ([name, predicate]) => `COUNT_IF(${predicate}) AS ${name}`,
+      ),
+      ...newContactCounts,
+    ].join(', ')}` +
     ` FROM ${args.district.table} v ${buildScopeSql(bag, args)}`
   return { sql, params: bag.params }
 }
 
+// With `countNewContacts` (ungrouped, over the overlay) a second column
+// counts, of the same people, those only an import added.
 export const buildCountSql = (
-  args: DbxScopeArgs & { groupByHousehold?: boolean },
+  args: DbxScopeArgs & {
+    groupByHousehold?: boolean
+    countNewContacts?: boolean
+  },
 ): DbxStatement => {
   const bag = createBag()
   // COUNT(DISTINCT key) so totalResults counts households rather than voters,
@@ -833,8 +1091,14 @@ export const buildCountSql = (
   const countExpr = args.groupByHousehold
     ? `COUNT(DISTINCT ${householdKey()})`
     : 'COUNT(*)'
+  const newCount =
+    args.countNewContacts === true &&
+    !args.groupByHousehold &&
+    args.district.dataset.overlayOrgSlug !== undefined
+      ? `, COUNT_IF(${newContactSql()}) AS new_count`
+      : ''
   const sql =
-    `SELECT ${countExpr} AS voter_count FROM ${args.district.table} v` +
+    `SELECT ${countExpr} AS voter_count${newCount} FROM ${args.district.table} v` +
     ` ${buildScopeSql(bag, args)}`
   return { sql, params: bag.params }
 }
@@ -855,6 +1119,7 @@ export const buildOverlapCountSql = (
         undefined,
         undefined,
         affinityColumnForDataset(args),
+        args.district.dataset.overlayOrgSlug !== undefined,
       ) ?? 'TRUE',
   )
   const savedSetsClause =
@@ -868,21 +1133,35 @@ export const buildOverlapCountSql = (
 // One voter by id, still scoped to the district. The scope is not redundant:
 // an id from one district must not resolve through another office's drawer, so
 // the same predicate the list uses also gates the detail read.
+export const PERSON_EARLY_ABSENTEE_VOTED_COLUMN = 'early_absentee_voted'
+
 export const buildPersonSql = (
   args: DbxScopeArgs & { columns: readonly string[]; id: string },
 ): DbxStatement => {
   const bag = createBag()
-  const projection = args.columns
-    .map((column) => `${col(column)} AS ${ident(column)}`)
-    .join(', ')
+  // Trailing the column list so the row's named columns keep their
+  // positions: whether L2 reports this person voting early or absentee, for
+  // the detail's "Already voted". Folded in here rather than asked
+  // separately, which would add a warehouse round trip to every open.
+  const projection = [
+    ...args.columns.map((column) => projectColumn(args.district, column)),
+    `(${col('id')} IN (${EARLY_ABSENTEE_VOTED_IDS_SQL})) AS ${ident(PERSON_EARLY_ABSENTEE_VOTED_COLUMN)}`,
+  ].join(', ')
   const scope = buildScopeSql(bag, args)
+  // Lowercased for the same reason idList is: this column is a STRING and
+  // compares byte-exact, where the Postgres path cast to `uuid` and folded
+  // case. z.guid() accepts a mixed-case guid and passes it through, so
+  // without this a bookmarked upper-case URL 404s a person who exists.
+  const idMarker = bag.bind(args.id.toLowerCase())
+  // With the overlay, the id goes inside both sides of the join too, so the
+  // warehouse joins one person instead of the whole district.
+  const table =
+    args.district.dataset.overlayOrgSlug === undefined
+      ? args.district.table
+      : contactOverlayTable(args.district, idMarker)
   const sql =
-    `SELECT ${projection} FROM ${args.district.table} v ${scope}` +
-    // Lowercased for the same reason idList is: this column is a STRING and
-    // compares byte-exact, where the Postgres path cast to `uuid` and folded
-    // case. z.guid() accepts a mixed-case guid and passes it through, so
-    // without this a bookmarked upper-case URL 404s a person who exists.
-    ` AND ${col('id')} = ${bag.bind(args.id.toLowerCase())}` +
+    `SELECT ${projection} FROM ${table} v ${scope}` +
+    ` AND ${col('id')} = ${idMarker}` +
     ` LIMIT 1`
   return { sql, params: bag.params }
 }
@@ -918,6 +1197,29 @@ export const buildPrecinctsSql = (args: {
   return { sql, params: bag.params }
 }
 
+// Every (County, Precinct) in the district with its landline voters, for the
+// free robocall offer's precinct assignment. The landline test is the one
+// the robocall audience counts by. Same cap as buildPrecinctsSql, so a
+// clipped list is detectable the same way.
+export const buildPrecinctLandlinesSql = (args: {
+  district: DbxDistrict
+}): DbxStatement => {
+  const bag = createBag()
+  const scope = buildScopeSql(bag, {
+    district: args.district,
+    filters: { filters: [], filterValues: {}, filterOperators: {} },
+  })
+  const landline = isPresentSql('VoterTelephones_LandlineFormatted')
+  const sql =
+    `SELECT ${col('County')} AS county, ${col('Precinct')} AS precinct,` +
+    ` COUNT_IF(${landline}) AS landlines` +
+    ` FROM ${args.district.table} v ${scope}` +
+    ` GROUP BY ${col('County')}, ${col('Precinct')}` +
+    ` ORDER BY county ASC, precinct ASC` +
+    ` LIMIT ${bag.bind(MAX_PRECINCT_OPTIONS + 1, 'INT')}`
+  return { sql, params: bag.params }
+}
+
 // How many of the given people are filed in each (County, Precinct): counts
 // per precinct, never a person. The civic panel's seats read it where the
 // district has no tract data.
@@ -946,19 +1248,30 @@ export const buildPageSql = (
     take: number
     skip: number
     groupByHousehold?: boolean
+    // Keyset paging: rows after this id, in id order. A reader draining a
+    // whole audience pages this way so no page sorts and skips everything
+    // before it, the way a deep OFFSET does.
+    afterId?: string
   },
 ): DbxStatement => {
   const bag = createBag()
   const projection = args.columns
-    .map((column) => `${col(column)} AS ${ident(column)}`)
+    .map((column) => projectColumn(args.district, column))
     .join(', ')
   const scope = buildScopeSql(bag, args)
   if (!args.groupByHousehold) {
+    const after =
+      args.afterId === undefined
+        ? ''
+        : ` AND ${col('id')} > ${bag.bind(args.afterId)}`
+    const limit = ` LIMIT ${bag.bind(num(args.take), 'INT')}`
+    const offset =
+      args.afterId === undefined
+        ? ` OFFSET ${bag.bind(num(args.skip), 'INT')}`
+        : ''
     const sql =
-      `SELECT ${projection} FROM ${args.district.table} v ${scope}` +
-      ` ORDER BY ${col('id')}` +
-      ` LIMIT ${bag.bind(num(args.take), 'INT')}` +
-      ` OFFSET ${bag.bind(num(args.skip), 'INT')}`
+      `SELECT ${projection} FROM ${args.district.table} v ${scope}${after}` +
+      ` ORDER BY ${col('id')}${limit}${offset}`
     return { sql, params: bag.params }
   }
   // Spark has no DISTINCT ON, so one representative per household comes from
@@ -1012,7 +1325,7 @@ export const buildSampleSql = (
 ): DbxStatement => {
   const bag = createBag()
   const projection = args.columns
-    .map((column) => `${col(column)} AS ${ident(column)}`)
+    .map((column) => projectColumn(args.district, column))
     .join(', ')
   const parts = [buildScopeSql(bag, args)]
 
@@ -1052,9 +1365,12 @@ export const buildCsvSql = (
 ): DbxStatement => {
   const bag = createBag()
   const excluded = new Set<string>(args.excludeColumns ?? [])
-  const projection = DOWNLOAD_COLUMNS.filter(
-    ({ column }) => !excluded.has(column),
-  )
+  const overlayColumns =
+    args.district.dataset.overlayOrgSlug === undefined
+      ? []
+      : CONTACT_OVERLAY_DOWNLOAD_COLUMNS
+  const projection = [...DOWNLOAD_COLUMNS, ...overlayColumns]
+    .filter(({ column }) => !excluded.has(column))
     .map(
       ({ column, header }) =>
         `nvl(CAST(${col(column)} AS STRING), '') AS ${ident(header)}`,
@@ -1073,7 +1389,8 @@ const unitKey = (columns: readonly string[]): string =>
     .map((name) => `upper(trim(coalesce(cast(${col(name)} AS STRING), '')))`)
     .join(', ')})`
 
-const currentUnitKey = (): string => unitKey(DOOR_KNOCKING_UNIT_KEY_COLUMNS)
+export const currentUnitKey = (): string =>
+  unitKey(DOOR_KNOCKING_UNIT_KEY_COLUMNS)
 const legacyUnitKey = (): string =>
   unitKey(DOOR_KNOCKING_LEGACY_UNIT_KEY_COLUMNS)
 

@@ -78,6 +78,11 @@ describe('pickHeadline', () => {
     expect(pickHeadline('text')).not.toBe(shown.at(-1))
   })
 
+  it('repeats a kind’s only line rather than going blank', () => {
+    expect(pickHeadline('electionResult')).toBe('You ran a real race')
+    expect(pickHeadline('electionResult')).toBe('You ran a real race')
+  })
+
   it('keeps each kind’s session separate', () => {
     HOME_HEADLINES.story.forEach(() => pickHeadline('story'))
 

@@ -1,6 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { RaceFilterDto } from '@/electionDb/races/races.schema'
-import { RacesService } from '@/electionDb/races/races.service'
+import { describe, expect, it } from 'vitest'
 import {
   ElectionRacesController,
   racesResponseSchema,
@@ -9,46 +7,10 @@ import {
 const getPath = (methodName: keyof ElectionRacesController) =>
   Reflect.getMetadata('path', ElectionRacesController.prototype[methodName])
 
-const baseFilter = {
-  includePlace: false,
-  includeCandidacies: false,
-  page: 1,
-  pageSize: 1000,
-} as RaceFilterDto
-
 describe('ElectionRacesController', () => {
-  let controller: ElectionRacesController
-  const findRaces = vi.fn()
-
-  beforeEach(() => {
-    vi.clearAllMocks()
-    controller = new ElectionRacesController({
-      findRaces,
-    } as unknown as RacesService)
-  })
-
   describe('routing', () => {
     it('exposes the list at the controller root', () => {
       expect(getPath('getRaces')).toBe('/')
-    })
-  })
-
-  describe('getRaces', () => {
-    it('delegates the filter straight to the service', async () => {
-      const filter = { ...baseFilter, state: 'TX' } as RaceFilterDto
-      findRaces.mockResolvedValue([])
-
-      await controller.getRaces(filter)
-
-      expect(findRaces).toHaveBeenCalledWith(filter)
-      expect(findRaces).toHaveBeenCalledTimes(1)
-    })
-
-    it('returns what the service returns', async () => {
-      const races = [{ id: 'race-1' }]
-      findRaces.mockResolvedValue(races)
-
-      await expect(controller.getRaces(baseFilter)).resolves.toBe(races)
     })
   })
 

@@ -873,9 +873,16 @@ export class MeetingBriefingsService extends createPrismaBase(
 
     const eo = await this.client.electedOffice.findUnique({
       where: { id: electedOfficeId },
-      select: { id: true, organizationSlug: true, userId: true },
+      select: {
+        id: true,
+        organizationSlug: true,
+        userId: true,
+        onboardingCompletedAt: true,
+      },
     })
-    if (!eo) return
+    // An office still in Serve onboarding gets its first briefing from the
+    // dashboard landing catch-up or the daily cron once onboarding finishes.
+    if (!eo?.onboardingCompletedAt) return
 
     await this.dispatchBriefingIfNeeded(eo, new Date(), {
       skipActivityGate: true,
@@ -912,8 +919,10 @@ export class MeetingBriefingsService extends createPrismaBase(
 
     // DB-side pre-filter: skip offices that provably can never dispatch, so
     // the loop below only touches candidates instead of every elected office.
-    // Both predicates are strictly necessary conditions for dispatch, so this
-    // never drops an office that dispatchBriefingIfNeeded would have briefed:
+    // Offices that haven't finished Serve onboarding are skipped by policy:
+    // nobody has opened them, and a briefing is a paid agent run. The other
+    // two predicates are strictly necessary conditions for dispatch, so they
+    // never drop an office that dispatchBriefingIfNeeded would have briefed:
     //   1. The imminence gate calls resolveTargetMeeting -> loadLatestScheduleForOrg,
     //      which requires a COMPLETED meeting_schedule run with artifact
     //      pointers. No such run => resolveTargetMeeting returns null => skip.
@@ -924,6 +933,7 @@ export class MeetingBriefingsService extends createPrismaBase(
     // expressed here, so they stay in the per-office guard below.
     const offices = await this.client.electedOffice.findMany({
       where: {
+        onboardingCompletedAt: { not: null },
         organization: {
           experimentRuns: {
             some: {

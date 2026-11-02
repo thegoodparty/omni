@@ -77,7 +77,7 @@ describe('ServeSmsScheduleStep', () => {
   it('states the fixed send time instead of offering a time picker', () => {
     render(
       <ServeSmsScheduleStep
-        name="Northside residents — SMS"
+        name="Northside residents"
         onNameChange={vi.fn()}
         date={undefined}
         onDateChange={vi.fn()}
@@ -95,7 +95,7 @@ describe('ServeSmsScheduleStep', () => {
   it('shows the estimated completion once a date is picked', () => {
     render(
       <ServeSmsScheduleStep
-        name="Northside residents — SMS"
+        name="Northside residents"
         onNameChange={vi.fn()}
         date={new Date(2026, 8, 4, 11, 0, 0, 0)}
         onDateChange={vi.fn()}

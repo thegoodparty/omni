@@ -166,6 +166,7 @@ test.describe('Custom office flow', () => {
     expect(campaign).toMatchObject({
       id: expect.any(Number),
       details: {
+        // eslint-disable-next-line no-restricted-syntax -- the date the spec typed into the custom-office form above, read back; no real race is involved
         electionDate: '2030-02-01',
         city: 'Hendersonville',
         district: '3',

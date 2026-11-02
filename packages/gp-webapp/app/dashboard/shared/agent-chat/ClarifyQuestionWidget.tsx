@@ -63,16 +63,20 @@ export const parseClarifyChoices = (
 
 const OptionDetail = ({
   option,
+  plainRationale,
 }: {
   option: ChatClarifyOption
+  plainRationale: boolean
 }): React.JSX.Element | null =>
   option.rationale || option.source ? (
     <div className="mt-3 flex flex-col gap-2 border-t border-border/70 pl-8 pt-3">
       {option.rationale ? (
         <p className="text-sm leading-6 text-muted-foreground">
-          <span className="font-semibold text-foreground/80">
-            Why this option:{' '}
-          </span>
+          {plainRationale ? null : (
+            <span className="font-semibold text-foreground/80">
+              Why this option:{' '}
+            </span>
+          )}
           {option.rationale}
         </p>
       ) : null}
@@ -100,6 +104,7 @@ export default function ClarifyQuestionWidget({
   answer,
   onAnswer,
   showWrittenAnswer = true,
+  plainRationale = false,
 }: {
   question: ChatClarifyQuestion
   disabled: boolean
@@ -112,6 +117,9 @@ export default function ClarifyQuestionWidget({
   // surface already shows that answer as the user's own message, so it is
   // never on screen twice.
   showWrittenAnswer?: boolean
+  // Each option's line is a fact about it, not a reason to pick it, so it
+  // goes without "Why this option:".
+  plainRationale?: boolean
 }): React.JSX.Element {
   const [writingOwn, setWritingOwn] = useState(false)
   const [ownText, setOwnText] = useState('')
@@ -207,7 +215,10 @@ export default function ClarifyQuestionWidget({
                       {option.label}
                     </span>
                   </Label>
-                  <OptionDetail option={option} />
+                  <OptionDetail
+                    option={option}
+                    plainRationale={plainRationale}
+                  />
                 </div>
               )
             })}
@@ -265,7 +276,7 @@ export default function ClarifyQuestionWidget({
                     {option.label}
                   </span>
                 </Label>
-                <OptionDetail option={option} />
+                <OptionDetail option={option} plainRationale={plainRationale} />
               </div>
             )
           })}

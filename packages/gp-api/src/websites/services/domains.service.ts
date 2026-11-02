@@ -130,8 +130,6 @@ const REGISTRAR_ORDER_REQUEST_TIMEOUT_MS = 10_000
 
 const GP_CAMPAIGN_DOMAIN_FORWARD_ADDRESS = 'candidate-domains@goodparty.org'
 
-const { ENABLE_DOMAIN_PURCHASE } = process.env
-
 @Injectable()
 export class DomainsService
   extends createPrismaBase(MODELS.Domain)
@@ -182,7 +180,9 @@ export class DomainsService
   }
 
   shouldEnableDomainPurchase(): boolean {
-    return VENDOR_MODE === 'mock' || ENABLE_DOMAIN_PURCHASE === 'true'
+    return (
+      VENDOR_MODE === 'mock' || process.env.ENABLE_DOMAIN_PURCHASE === 'true'
+    )
   }
 
   private validateDomainSearchResult(searchResult: DomainSearchResult) {

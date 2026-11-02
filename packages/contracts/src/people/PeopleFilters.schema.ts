@@ -31,15 +31,22 @@ import { z } from 'zod'
  * }
  *
  * Filter Types:
- * - Boolean filters: hasCellPhone, hasLandline, hasAnyPhone, hasAddress (true = IS NOT NULL, false = IS NULL)
- * - Id filter: id — Operators: { in: string[] }, { notIn: string[] } (exactly one, each 1-100000 uuids)
+ * - Boolean filters: hasCellPhone, hasLandline, hasAnyPhone, hasAddress, hasEmail (true = IS NOT NULL, false = IS NULL)
+ *   hasEmail reads the imported-contact overlay's Email; a read without the overlay has no emails
+ * - Id filter: id — Operators: { in: string[] }, { notIn: string[] } (exactly one, each 1-200000 uuids)
  * - Enum filters: voterStatus, earlyVoteStatus, politicalParty, maritalStatus, veteranStatus, educationLevel,
  *   ethnicity, businessOwner, presenceOfChildren, homeowner, gender, language, ideology,
- *   independentAffinity
+ *   independentAffinity, votedInElection
  *   Operators: { in: string[] }, { eq: string }, { is: "not_null" | "null" }
  * - Numeric filters: ageInt, estimatedIncomeAmountInt
  *   Operators: { in: number[] }, { eq: number }, { gte: number }, { lte: number }, { is: "not_null" | "null" }
  *   Options: { _or: [{ gte, lte }] } for OR'd ranges, { _includeNull: boolean } to include null values in results
+ * - votedInElectionReportedIds: { in: string[] } (1-200000 uuids). Not a filter
+ *   on its own: the people the campaign recorded as already voted, OR-ed into
+ *   votedInElection's Yes and excluded by its No.
+ * - source: ('voterFile' | 'imported')[] — a plain array, no operator. voterFile
+ *   is a person the voter file holds, imported a person only an import added
+ *   (the overlay's ContactIsNew). Both or neither is no constraint.
  */
 export type IncomeRange = { min: number; max: number | null }
 
@@ -118,7 +125,18 @@ export const PEOPLE_FILTER_VALUE_ENUMS = {
   // request. It is NULL only on consumer-only rows of the constituents table,
   // which never see this Win-only filter.
   independentAffinity: ['Yes', 'No'] as const,
+  // "Voted in election": Yes is anyone L2 reports as voting early or absentee
+  // in the current general, or the campaign recorded as already voted
+  // (votedInElectionReportedIds). No is neither, so it includes people whose
+  // state does not report.
+  votedInElection: ['Yes', 'No'] as const,
 } as const
+
+// Where a person comes from on Win: the voter file, or an import that
+// could not be matched to anyone in it (a "new contact").
+export const PEOPLE_FILTER_SOURCES = ['voterFile', 'imported'] as const
+export const PeopleFilterSourceSchema = z.enum(PEOPLE_FILTER_SOURCES)
+export type PeopleFilterSource = z.infer<typeof PeopleFilterSourceSchema>
 
 export const createEnumFilterSchema = <T extends readonly string[]>(
   allowedValues: T,
@@ -149,11 +167,11 @@ const rangeConditionSchema = z
   )
 
 // The id filter takes an id set (in/notIn), not eq/is, and caps the array —
-// id sets can arrive from arbitrarily large upstream resolutions. 100k is
+// id sets can arrive from arbitrarily large upstream resolutions. 200k is
 // safe only because people-api's buildIdFilter binds the set as a single
 // array parameter; per-value binding would hit PostgreSQL's 65,535
 // bind-parameter limit.
-const MAX_ID_FILTER_VALUES = 100_000
+const MAX_ID_FILTER_VALUES = 200_000
 
 export const createIdFilterSchema = () => {
   return z
@@ -173,7 +191,7 @@ export const createIdFilterSchema = () => {
 // sets from ContactStatusService overrides; people-api composes them as an OR
 // scoped to ONLY the voterStatus clause — never the whole filter conjunction,
 // so an override-included person still respects every other selected filter.
-// Reuses the id-filter's 100k cap and single-array-param bind rationale.
+// Reuses the id-filter's 200k cap and single-array-param bind rationale.
 export const IdOverridesSchema = z.object({
   include: z.array(z.guid()).min(1).max(MAX_ID_FILTER_VALUES).optional(),
   exclude: z.array(z.guid()).min(1).max(MAX_ID_FILTER_VALUES).optional(),
@@ -263,6 +281,7 @@ export const PeopleFiltersSchema = z.object({
   hasLandline: z.boolean().optional(),
   hasAnyPhone: z.boolean().optional(),
   hasAddress: z.boolean().optional(),
+  hasEmail: z.boolean().optional(),
   id: createIdFilterSchema().optional(),
   maritalStatus: createEnumFilterSchema(
     PEOPLE_FILTER_VALUE_ENUMS.maritalStatus,
@@ -304,9 +323,18 @@ export const PeopleFiltersSchema = z.object({
   independentAffinity: createEnumFilterSchema(
     PEOPLE_FILTER_VALUE_ENUMS.independentAffinity,
   ).optional(),
+  votedInElection: createEnumFilterSchema(
+    PEOPLE_FILTER_VALUE_ENUMS.votedInElection,
+  ).optional(),
+  votedInElectionReportedIds: z
+    .object({
+      in: z.array(z.guid()).min(1).max(MAX_ID_FILTER_VALUES),
+    })
+    .optional(),
   estimatedIncomeAmountInt: createNumericFilterSchema().optional(),
   ageInt: createNumericFilterSchema().optional(),
   precinct: createPrecinctFilterSchema().optional(),
+  source: z.array(PeopleFilterSourceSchema).optional(),
 })
 
 export type PeopleFilters = z.infer<typeof PeopleFiltersSchema>

@@ -43,7 +43,7 @@ context. Everything else goes through `proUpgradeStepOrder(purchaseOnly)` and
 `deriveProUpgradeStep(inputs, { purchaseOnly })` instead of re-reading the flag.
 Exposure belongs to `app/dashboard/shared/membership/` — both `MembershipBanner`
 and `MembershipChip` fire it, and only once the surface is actually visible (a
-Serve org or a cleared Pro campaign renders neither, so neither is exposed). Every
+Serve org or a closed Pro campaign renders neither, so neither is exposed). Every
 caller, the banner and chip included, reads the flag with `useOutreachProGatingV2Flag(false)`, and
 `/dashboard/campaign-verification` passes `trackExposure={false}` to its
 `FeatureFlagGuard` for the same reason.
@@ -238,21 +238,16 @@ campaign is already Pro). Before ENG-10856 that dispatch burned a
 `profile_incomplete` run whenever the profile was missing; the flow now
 closes that at three layers:
 
-- **Entry points.** `TextingSetupBanner`
-  (`app/dashboard/components/campaignManager/`, ENG-10858) prompts Pro
-  candidates with no TCR record (or a retryable `error` record) and links to
-  election-filing; post-start statuses keep their dedicated
-  `ProUpgrade3Compliance` surfaces. `/dashboard` is `CampaignManagerHome`
-  (`DashboardContent` renders it unconditionally), and both the banner (reads
-  the server-fetched `tcrCompliance` that `DashboardContent` passes down) and
-  `ProUpgrade3ComplianceCard` (every post-start state, including PIN entry)
-  must render there. This is not theoretical: `CampaignManagerHome` once
-  shipped without the card, and the banner — which hides itself as soon as a
-  TCR record exists — left every candidate awaiting a PIN with no dashboard
-  10DLC surface at all (PR #1273). `ProUpgrade3Compliance`'s "Set up texting
-  compliance" fallthrough card and the outreach ComplianceModal also land on
-  election-filing (the double surface with the banner is a deliberate
-  product decision).
+- **Entry points.** On the dashboard, every 10DLC state is the sidebar's
+  `MembershipBanner` (and the mobile `MembershipChip`,
+  `app/dashboard/shared/membership/`): no record, an `error` or a `rejected`
+  record → "Start verification", PIN issued → the PIN dialog, approved →
+  "Schedule your text". The dashboard home renders no compliance card. Keep
+  every state on that unit: before it covered PIN entry, a home that dropped
+  its compliance card left candidates awaiting a PIN with no dashboard 10DLC
+  surface at all (PR #1273). `ProUpgrade3Compliance`'s "Set up texting
+  compliance" fallthrough card on the profile page and the outreach
+  ComplianceModal land on election-filing.
 - **Inline profile collection (ENG-10857).** When
   `isCandidateProfileComplete(website)` is false, `ElectionFiling` renders
   the shared `CandidateProfileFields` **inside** the registration form via
@@ -294,11 +289,9 @@ gp-api (ENG-10323). Don't add a client-side "kick off the agent" call.
 
 After payment, `isPro` flips and the **post-payment compliance states** (PIN entry / in
 review / approved / denied) render in `ProUpgrade3Compliance` on the **profile page**
-(`app/dashboard/profile/texting-compliance/`), not in this dir. The same states also
-render on both dashboard homes via `ProUpgrade3ComplianceCard`
-(`app/dashboard/components/campaignManager/`, a Pro-gated wrapper around
-`ProUpgrade3Compliance`). The wizard's `success`
-step just lands the candidate and routes them to `/dashboard`.
+(`app/dashboard/profile/texting-compliance/`), not in this dir. On the dashboard the
+same states are the sidebar's `MembershipBanner` (see Entry points above). The
+wizard's `success` step just lands the candidate and routes them to `/dashboard`.
 
 ### Never render a PIN box off the local status alone (ENG-10866)
 
@@ -320,9 +313,10 @@ lives in shared components (`CvVerificationInProgressNotice`,
 
 ## Phase 4 entry points live elsewhere too
 
-The dashboard **entry banner** ("76% … win", `ProUpgradeBanner`) and the **locked-item
-rerouting** are in `app/dashboard/components/campaignManager/` and the shared
-`TasksList`, not here. They route into this wizard at `/dashboard/pro-upgrade`.
+The dashboard's Pro entry is the sidebar's `MembershipBanner` pitch
+(`app/dashboard/shared/membership/`), which opens `ProPitchDialog`. The
+**locked-item rerouting** is in the shared `TasksList`. Both route into this wizard
+at `/dashboard/pro-upgrade`.
 
 ## Entry attribution (Flow Started)
 

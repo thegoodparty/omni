@@ -19,12 +19,8 @@ import {
 import { PeerlyIdentityService } from '../../../vendors/peerly/services/peerlyIdentity.service'
 import { CampaignTcrComplianceService } from './campaignTcrCompliance.service'
 import { CvStatusPollService } from './cvStatusPoll.service'
-
-// The scan sleeps RETRIEVE_CV_SPACING_MS (1 minute in prod) between records;
-// real timers would hang every multi-record test.
-vi.mock('timers/promises', () => ({
-  setTimeout: () => Promise.resolve(),
-}))
+import { disableVendorCrons } from '@/shared/test-utils/appEnvOverrides'
+import * as sleepUtil from '@/shared/util/sleep.util'
 
 const scanRecord = (
   id: string,
@@ -68,6 +64,9 @@ describe('CvStatusPollService', () => {
   let mockTcr: { applyCvDetection: ReturnType<typeof vi.fn> }
 
   beforeEach(async () => {
+    // The scan sleeps RETRIEVE_CV_SPACING_MS (1 minute in prod) between records;
+    // real timers would hang every multi-record test.
+    vi.spyOn(sleepUtil, 'sleep').mockResolvedValue(undefined)
     mockQueue = { sendMessage: vi.fn().mockResolvedValue(undefined) }
     mockModel = {
       findMany: vi.fn().mockResolvedValue([]),
@@ -100,12 +99,20 @@ describe('CvStatusPollService', () => {
   })
 
   describe('triggerScan', () => {
-    it('does nothing outside prod so dev/qa never call Peerly', async () => {
-      vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'dev')
+    it('does nothing on a non-prod deploy in live mode so it never calls Peerly', async () => {
+      disableVendorCrons()
 
       await service.triggerScan()
 
       expect(mockQueue.sendMessage).not.toHaveBeenCalled()
+    })
+
+    it('enqueues on a non-prod deploy in mock mode (preview)', async () => {
+      vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'preview')
+
+      await service.triggerScan()
+
+      expect(mockQueue.sendMessage).toHaveBeenCalledTimes(1)
     })
 
     it('enqueues once with a slot-keyed FIFO deduplicationId in prod', async () => {
@@ -140,12 +147,20 @@ describe('CvStatusPollService', () => {
   })
 
   describe('triggerFreshScan', () => {
-    it('does nothing outside prod so dev/qa never call Peerly', async () => {
-      vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'dev')
+    it('does nothing on a non-prod deploy in live mode so it never calls Peerly', async () => {
+      disableVendorCrons()
 
       await service.triggerFreshScan()
 
       expect(mockQueue.sendMessage).not.toHaveBeenCalled()
+    })
+
+    it('enqueues on a non-prod deploy in mock mode (preview)', async () => {
+      vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'preview')
+
+      await service.triggerFreshScan()
+
+      expect(mockQueue.sendMessage).toHaveBeenCalledTimes(1)
     })
 
     it('enqueues once with a minute-keyed FIFO deduplicationId in prod', async () => {

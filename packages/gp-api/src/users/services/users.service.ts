@@ -49,10 +49,15 @@ import {
 import { APP_ROOT } from 'src/shared/util/appEnvironment.util'
 import { CrmUsersService } from './crmUsers.service'
 import { UserAvatarService } from './userAvatar.service'
+import { recordClerkUserCounts } from '../util/clerkUsers.metrics'
 import { clerkThrottle } from '@/vendors/clerk/util/clerkThrottle.util'
 import { clerkCall } from '@/vendors/clerk/util/clerkCall.util'
 import { CronLockService } from '@/cron/services/cronLock.service'
 import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
+import {
+  CONTACT_UPLOAD_FILE_SELECT,
+  ContactUploadFilesService,
+} from '@/contactUploads/services/contactUploadFiles.service'
 
 /** Result of resolving a gp-api Clerk user by email for impersonation actor.sub. */
 export type ResolvedActorIdentity =
@@ -100,6 +105,7 @@ export class UsersService extends createPrismaBase(MODELS.User) {
     private readonly userAvatar: UserAvatarService,
     private readonly marketingRevalidation: MarketingRevalidationService,
     private readonly cronLock: CronLockService,
+    private readonly contactUploadFiles: ContactUploadFilesService,
   ) {
     super()
   }
@@ -561,6 +567,46 @@ export class UsersService extends createPrismaBase(MODELS.User) {
     return updated
   }
 
+  // The only way a user changes their own User.email: they verify the new
+  // address in Clerk, and the webapp asks us to copy Clerk's verified primary
+  // across. Nothing from the request body is trusted.
+  async syncEmailFromClerk(user: User): Promise<User> {
+    if (!user.clerkId) return user
+    const { clerkId } = user
+    const clerkUser = await clerkCall(
+      'users.getUser',
+      { 'clerk.user_id': clerkId },
+      () => this.clerkClient.users.getUser(clerkId),
+    ).catch((err: unknown) => {
+      this.logger.error({ err, userId: user.id }, 'Failed to read Clerk user')
+      throw new BadGatewayException('Failed to read Clerk user')
+    })
+    // Verified primary only. The dev Clerk instance skips verification at
+    // sign-up, so there an unverified primary is normal and must not count.
+    const primary = clerkUser.primaryEmailAddress
+    if (primary?.verification?.status !== 'verified') return user
+    const email = toLowerAndTrim(primary.emailAddress)
+    if (email === user.email) return user
+
+    const holder = await this.findUserByEmail(email)
+    if (holder && holder.id !== user.id) {
+      throw new ConflictException('Email belongs to another account')
+    }
+    try {
+      const updated = await this.model.update({
+        where: { id: user.id },
+        data: { email },
+      })
+      this.logger.info({ userId: user.id }, 'Copied verified email from Clerk')
+      return updated
+    } catch (err) {
+      if (isPrismaError(err, 'P2002')) {
+        throw new ConflictException('Email belongs to another account')
+      }
+      throw err
+    }
+  }
+
   // Atomic compare-and-swap on the single tracked checkout session id: the
   // write only lands when the stored id still matches what the caller read,
   // so concurrent checkout creations and expiry webhooks can't clobber each
@@ -658,6 +704,10 @@ export class UsersService extends createPrismaBase(MODELS.User) {
         // UserAgendaUpload has one) is rejected before Clerk or Stripe is
         // touched at all, leaving a user who cannot be deleted with both an
         // identity and a subscription rather than neither.
+        const uploadFiles = await tx.contactUpload.findMany({
+          where: { organization: { ownerId: id } },
+          select: CONTACT_UPLOAD_FILE_SELECT,
+        })
         await tx.user.delete({ where: { id } })
         this.logger.info({ userId: id }, 'User deleted from database')
 
@@ -688,6 +738,11 @@ export class UsersService extends createPrismaBase(MODELS.User) {
             throw err
           }
         }
+
+        // The uploads bucket is versioned and nothing in it expires, so the
+        // owned orgs' files go here or never: after the commit no row is left
+        // to name them. A failure rolls the delete back for a retry.
+        await this.contactUploadFiles.deleteFiles(uploadFiles)
 
         // Clerk goes last because it is the one step nothing can undo, and a
         // rolled-back deletion restores the user row with its old clerkId:
@@ -1136,9 +1191,31 @@ export class UsersService extends createPrismaBase(MODELS.User) {
     }
 
     try {
+      await this.reportClerkUserCounts()
       await this.deleteTestUsers()
     } finally {
       await this.cronLock.markHourlyCompleted(TEST_USER_SWEEP_JOB, now)
+    }
+  }
+
+  /**
+   * Records how full the deploy's Clerk instance is, for the
+   * `clerk-dev-user-cap-headroom` Grafana alert. Counted before the sweep
+   * deletes anything, so the reading is the hour's high-water mark rather
+   * than what the sweep leaves behind. Two `/users/count` calls an hour,
+   * through the same throttle as the sweep, so it barely touches the shared
+   * Backend API budget.
+   */
+  async reportClerkUserCounts() {
+    try {
+      const total = await clerkThrottle(() => this.clerkClient.users.getCount())
+      const testDomain = await clerkThrottle(() =>
+        this.clerkClient.users.getCount({ query: TEST_USER_DOMAIN }),
+      )
+      recordClerkUserCounts({ total, testDomain })
+      this.logger.info({ total, testDomain }, 'Clerk instance user count')
+    } catch (err) {
+      this.logger.error({ err }, 'Failed to count Clerk users')
     }
   }
 
@@ -1182,6 +1259,12 @@ export class UsersService extends createPrismaBase(MODELS.User) {
       let dbDeleted = 0
       for (const dbUser of dbUsers) {
         try {
+          await this.contactUploadFiles.deleteFiles(
+            await this.client.contactUpload.findMany({
+              where: { organization: { ownerId: dbUser.id } },
+              select: CONTACT_UPLOAD_FILE_SELECT,
+            }),
+          )
           await this.model.delete({ where: { id: dbUser.id } })
           dbDeleted++
           this.logger.info({ userId: dbUser.id }, 'Deleted DB test user')

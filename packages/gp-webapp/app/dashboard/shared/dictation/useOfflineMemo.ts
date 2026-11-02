@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useQueryClient, type QueryClient } from '@tanstack/react-query'
 import { FetchError } from 'ofetch'
-import type {
-  RecordDoorKnockInteraction,
-  RecordPhoneBankingCall,
+import {
+  ISSUE_CAPTURE_OFF_ERROR_CODE,
+  type RecordDoorKnockInteraction,
+  type RecordPhoneBankingCall,
 } from '@goodparty_org/contracts'
 import { clientRequest } from 'gpApi/typed-request'
+import { extractApiErrorInfo } from 'helpers/extractApiErrorInfo'
 import { getCookie } from 'helpers/cookieHelper'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { ORG_SLUG_COOKIE } from '@shared/organizations/constants'
@@ -49,7 +51,9 @@ const FALLBACK_AUDIO_TYPE = 'audio/webm'
 // time and would otherwise block every memo behind it. A 401 is not: right
 // after the phone reconnects, the webapp proxy can forward a request before
 // the session token has refreshed, and dropping the queue on that would lose
-// every door it holds.
+// every door it holds. Nor is the 404 the issue-capture flag gives while it
+// is off, which is also what an Amplitude outage looks like: the memo waits
+// for the flag to come back.
 const REFUSAL_STATUSES = new Set([400, 403, 404, 409, 422])
 
 type LocalStatus = Extract<
@@ -78,7 +82,8 @@ export const isRefusal = (err: unknown): boolean =>
   err.status !== undefined &&
   REFUSAL_STATUSES.has(err.status) &&
   typeof err.data === 'object' &&
-  err.data !== null
+  err.data !== null &&
+  extractApiErrorInfo(err.data).errorCode !== ISSUE_CAPTURE_OFF_ERROR_CODE
 
 // A request that never got an answer: no signal, or not enough of it.
 export const isNetworkError = (err: unknown): boolean =>

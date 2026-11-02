@@ -37,11 +37,12 @@ GitHub Actions ───┘   (also: sweep.py) ──────┴─→ super
   - `supervisor.py` — the epic conductor: reads an epic's stories from
     ClickUp and dispatches every currently-unblocked one, up to
     `AUTOPILOT_MAX_CONCURRENT_STORIES` in flight at once per epic (default
-    **2**, env-configurable, read fresh each tick — see the module
+    **4**, env-configurable, read fresh each tick — see the module
     docstring). Each dispatched story holds its own `story#{story_task_id}`
     DynamoDB claim, so N stories under the same epic can each be safely
     in flight; a story with any unmet ClickUp dependency link never
-    launches, whatever cap headroom exists. Closes the epic out once every
+    launches, whatever cap headroom exists (a dependency is met once its
+    story has merged: `qa` or `done`). Closes the epic out once every
     story is done, and alerts (once per story) on Slack when a story stalls
     past its per-status TTL. Never auto-retries a stall. Per-epic BUDGET (a
     cost ceiling across the whole run, distinct from this concurrency cap)
@@ -61,6 +62,11 @@ GitHub Actions ───┘   (also: sweep.py) ──────┴─→ super
     auto-merge armed" instead of waiting out the merge and the release train
     in a paid Fargate run.
 - `agent/` — the stage runner that acts on routed events (Claude Agent SDK).
+  A run that ends "successfully" with its card still stranded (a text-only
+  turn while background tasks were pending) gets ONE continuation turn
+  (`main._run_session`) before the stranded-run guard parks it; the guard
+  pushes any unpushed commits and names the branch and open PR in the park, and
+  story/resume adopt an existing open PR instead of opening a duplicate.
 
 Deliberately isolated from `clickup_bot/`: the webhook and sweep mechanics
 were copied, not imported, so the two Lambdas can deploy independently. In
@@ -98,9 +104,17 @@ truth — a board relabel without a matching code change breaks routing):
 | `approved tdd` | intake: TDD approved, awaiting kickoff | queued (fresh stories land here) |
 | `in progress` | epic-create is planning | story stage is implementing |
 | `feedback needed` | breakdown posted for review, or a parked question | parked question / QA findings |
+| `awaiting merge` | (never used) | PR approved, auto-merge armed, waiting on CI and the merge queue; no Slack ping |
 | `executing` | breakdown approved; stories are being dispatched | (never used) |
 | `qa` | (never used) | merged, QA verifying |
 | `done` | every story done | shipped and verified |
+
+**Manual board step:** `awaiting merge` is not created by code. A ClickUp admin
+must add it to the autopilot list (901329066225), between `in progress` and
+`qa`, with exactly that label, BEFORE deploying: until it exists, a story's
+`feedback await-merge` status write fails and the run errors. Moving an
+`awaiting merge` card back to `in progress` (or a human comment on it)
+resumes the story, like `feedback needed`.
 
 `executing` must stay distinct from `in progress` on the feature card: the
 sweep unconditionally drives every epic sitting in `executing`, and folding
@@ -108,7 +122,8 @@ it into `in progress` would let a sweep tick dispatch stories while
 epic-create is still mid-breakdown, before the human approved it.
 
 Every card arriving in `feedback needed` pings the Slack channel, park and
-finished breakdown alike — a park does it as part of the park primitive, and
+finished breakdown alike (a merge-pending story lands in `awaiting merge`
+instead, silently) — a park does it as part of the park primitive, and
 epic-create's handoff does it with `feedback notify` (the ping without the
 card writes). Nobody is expected to watch the board.
 
@@ -280,7 +295,7 @@ Beyond the routing/dispatch set (`AUTOPILOT_LIST_IDS`,
 | `AUTOPILOT_SLACK_SIGNING_SECRET` *(secret)* | Verifies `POST /autopilot/slack` requests really came from Slack (v0 HMAC over the raw body). Missing/empty fails closed (every request 401s). |
 | `SWEEP_LOOKBACK_MINUTES` | How far back the sweep scans for missed transitions (default 45). |
 | `SWEEP_MAX_TRIGGERS` | Cap on real dispatches per sweep pass, logged loudly when hit (default 10). Does not bound the unconditional per-executing-card supervisor tick, which is bounded by `AUTOPILOT_MAX_CONCURRENT_STORIES` instead — nor the merge-pending resolution pass, bounded the same way. |
-| `AUTOPILOT_MAX_CONCURRENT_STORIES` | How many stories the supervisor will run in flight at once per epic (default **2**). Read fresh at tick time, not at Lambda cold start, so raising or lowering it takes effect on the very next tick with no redeploy. A story with an unmet ClickUp dependency link never launches regardless of this cap. |
+| `AUTOPILOT_MAX_CONCURRENT_STORIES` | How many stories the supervisor will run in flight at once per epic (default **4**). Read fresh at tick time, not at Lambda cold start, so raising or lowering it takes effect on the very next tick with no redeploy. A story with an unmet ClickUp dependency link (one not yet merged, i.e. not `qa` or `done`) never launches regardless of this cap. |
 | `GITHUB_APP_PRIVATE_KEY` *(secret)* | Same Delegate App key `agent/github_auth.py` uses. `lambda/github_auth.py` mints its own short-lived installation token from it (stdlib-only RS256 signing — no pyjwt/cryptography in this Lambda's zip) to read a story's PR state for merge-pending resolution. |
 | `AMPLITUDE_MANAGEMENT_API_KEY` *(secret)* | Same key `agent/amplitude_flags.py` uses. The sweep's flag-cleanup ramp pass (`lambda/sweep.py`'s own stdlib `_read_prod_flag_rollout` — not a shared import) uses it as a Bearer header to read a flag's prod rollout. |
 | `AMPLITUDE_PROD_PROJECT_ID` | Which Amplitude project the ramp pass reads from — always prod, since only a prod rollout drives the promote decision. Plain value (not a secret), hardcoded the same way `autopilot-agent-fargate`'s `agent_environment` carries it. |
@@ -294,7 +309,10 @@ has actually ramped the flag. That ticket's own description carries a
 machine-readable `flag-key: <key>` line, parsed at filing time from the
 epic's breakdown summary comment (`epic-create.md` step 5 now requires that
 exact line) — unparseable, the ticket is still filed, just without the line,
-and this pass silently skips it forever rather than guessing a key.
+and this pass silently skips it forever rather than guessing a key. An epic
+with no flag (test infra, its own runtime switch, docs; `epic-create.md`
+step 2's exception) records `flag-key: none` instead: close-out files no
+cleanup ticket for it, and this pass never treats `none` as a key.
 
 Every sweep tick, `sweep.check_flag_cleanup_ramps` finds every closed feature
 card whose flag-cleanup subtask is still sitting in `done` with a parseable
@@ -375,7 +393,7 @@ hits them, and where it ends if nothing does:
 3. **Stall alerts are the backstop for what the sweep can't re-drive** — never
    an auto-retry, always exactly one Slack post. `supervisor.STATUS_TTL_SECONDS`
    sets the ceiling per status a story can sit in before it counts as stalled:
-   `STATUS_IN_PROGRESS` 2h, `STATUS_QA` 1h, `STATUS_EXECUTING` 30min (a manual
+   `STATUS_IN_PROGRESS` 3h, `STATUS_QA` 1h, `STATUS_EXECUTING` 30min (a manual
    drag only — stories don't reach it in the normal pipeline). `feedback
    needed` carries no TTL: waiting on a human isn't a stall. Claimed once via
    `supervisor.try_claim_stall_alert` (an epic-scoped claim) for stories inside
@@ -383,26 +401,52 @@ hits them, and where it ends if nothing does:
    `alert_stalled_in_progress_feature_cards`.
 
 4. **Merge-pending resolution** (`sweep.resolve_merge_pending_parks`) is a
-   free retry, not a paid one: a story parked on "Merge pending: PR #n" gets
+   free retry, not a paid one: a story parked on "Merge pending: PR #n" (in
+   `awaiting merge`, or `feedback needed` for cards parked before that status
+   existed) gets
    one GitHub read (`sweep.fetch_pull_request`) per tick, uncapped by
    `SWEEP_MAX_TRIGGERS`. Merged moves it straight to `qa` and launches QA
    (`sweep._dispatch_qa_after_merge`, claimed on the PR number so two ticks
    discovering the same merge only launch once); closed-unmerged posts one
    Slack alert (`sweep._alert_closed_unmerged_pr`, claimed the same way,
-   `CLOSED_PR_ALERT_TTL_SECONDS` = 30 days); still open leaves the park
-   untouched. Runs BEFORE auto-resume in the same tick, and every merge-pending
+   `CLOSED_PR_ALERT_TTL_SECONDS` = 30 days); still open gets a health check
+   (`sweep.pr_red_reason`): a failed, timed-out or cancelled check run on the
+   head SHA, `mergeable_state` `dirty` (conflict), or the latest
+   delegate-reviewer review on the head being `CHANGES_REQUESTED` means the PR
+   can't merge on its own, so `sweep._resume_red_pr` dispatches one resume of
+   the parked stage (`resume.md` fixes the PR and re-parks) and comments why
+   on the card. Claimed on `red-pr-<n>-<head sha>`: one resume per red head, one
+   more if a new push goes red again. Pending checks, `blocked`/`unknown`
+   mergeability and a read failure leave the park alone; `dead-letter` stories
+   are skipped. Unlike merge and alert actions, red-PR resumes count against
+   `SWEEP_MAX_TRIGGERS` (the lookback pass gets first claim, auto-resume gets
+   what is left). Runs BEFORE auto-resume in the same tick, and every merge-pending
    park it finds is excluded from auto-resume regardless of outcome — a paid
    resume must never race this free check for the same park.
 
 5. **Auto-resume** (`sweep.auto_resume_actionable_parks`) retries a parked
-   story whose park is a status note or a stranded run, not a question — see
-   its own docstring for the exact skip list (QA-failed parks, any park with a
-   reply already posted, merge-pending parks). Deduped per park instance on
-   the park comment's own id, so a fresh re-park always earns exactly one more
-   try. Bounded by `AUTO_RESUME_MAX_PARKS` (10) — a count of park markers on
-   the thread, not a relapse streak, because a healthy story legitimately
-   accrues several along the way (merge-pending, deploy-pending, a stranded
-   run).
+   story only when the park is a mechanical status note, never a real
+   question. An allowlist (`router.is_auto_resumable_park`) of question
+   prefixes decides: `Deploy pending:` (qa.md) and the two stranded-run texts
+   `feedback.park_if_stranded` writes. Anything else (a free-form agent
+   question, `QA failed:`, `Merge pending:`) is skipped and waits for a human
+   reply, which resumes through the normal comment route. The stranded-run
+   prefix is kept in sync with `agent/feedback.py` by a test. Also skipped: any
+   park with a reply already posted, and merge-pending parks (resolved by the
+   sweep itself). Deduped per park instance on the park comment's own id, so a
+   fresh re-park always earns exactly one more try. Bounded by
+   `AUTO_RESUME_MAX_PARKS` (10), a count of park markers on the thread, not a
+   relapse streak, because a healthy story legitimately accrues several along
+   the way (merge-pending, deploy-pending, a stranded run).
+
+   Before dispatching, the sweep also checks the thread's last two run
+   summaries (`router.repeated_failure`): if both ended in the same failure outcome (`deadline_exceeded`, `budget_exhausted` or
+   `error`), the cause is likely environmental, so it escalates through the
+   dead-letter path below ("two consecutive <stage> runs ended <outcome>")
+   instead of a third lap. A park, a success, or two different failures
+   between them reset the streak, and the newest failing run must have reported
+   after the current park (so a human re-parking after removing the tag is not
+   re-escalated by stale history). Human-initiated resumes are unaffected.
 
 6. **Dead-letter tag: what happens when the retry budget runs out.**
    Hitting `AUTO_RESUME_MAX_PARKS` on a story does not retry again — it ends

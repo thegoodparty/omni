@@ -867,6 +867,94 @@ describe('evaluation error handling', () => {
       (a) => a.execErrState && a.execErrState !== 'Alerting',
     ).map((a) => a.slug)
 
-    expect(relaxed).toEqual(['health-check-probe-failure'])
+    expect(relaxed).toEqual([
+      'health-check-probe-failure',
+      'ses-bounce-rate',
+      'ses-complaint-rate',
+    ])
+  })
+})
+
+describe('vendor drift alerts', () => {
+  const mismatch = GLOBAL_ALERTS.find(
+    (a) => a.slug === 'vendor-schema-mismatch',
+  )
+  const mockRows = GLOBAL_ALERTS.find(
+    (a) => a.slug === 'vendor-mock-record-rows-in-prod',
+  )
+
+  it('registers both rules as metric alerts', () => {
+    expect(mismatch?.type).toBe('metric')
+    expect(mockRows?.type).toBe('metric')
+  })
+
+  // The exported Prometheus name is the OTel counter name plus `_total`; a
+  // rename of either side silently turns the rule into one that never fires.
+  it('reads the metric names gp-api exports', () => {
+    expect(mismatch!.expr).toContain('vendor_schema_mismatch_total{')
+    expect(mockRows!.expr).toContain('vendor_mock_record_rows{')
+  })
+
+  it('fires on any increase in the last hour, per vendor and endpoint', () => {
+    expect(mismatch!.threshold).toBe(0)
+    expect(mismatch!.expr).toContain(
+      'sum by (vendor, endpoint) (increase(vendor_schema_mismatch_total{',
+    )
+    expect(mismatch!.expr).toContain('[1h]))')
+    expect(widestRangeSeconds(mismatch!.expr)).toBe(mismatch!.timeRangeSeconds)
+    expect(promisedSeconds(mismatch!.message)).toBe(3600)
+    expect(mismatch!.summaryDetail).toContain('$labels.vendor')
+    expect(mismatch!.summaryDetail).toContain('$labels.endpoint')
+  })
+
+  // increase() reads 0 for a series whose first sample is its only value, which
+  // is exactly the first mismatch ever seen for a vendor and endpoint.
+  it('also catches a vendor and endpoint that did not exist an hour ago', () => {
+    expect(mismatch!.expr).toMatch(
+      /unless sum by \(vendor, endpoint\) \(.*offset 1h\)/,
+    )
+  })
+
+  it('fires when prod holds any mock row', () => {
+    expect(mockRows!.threshold).toBe(0)
+    expect(mockRows!.expr).toMatch(/^max\(vendor_mock_record_rows\{/)
+  })
+
+  it('selects its own environment, so non-prod rows never page prod', () => {
+    for (const alert of [mismatch!, mockRows!]) {
+      expect(alert.expr).toContain('deployment_environment_name="$ENV"')
+    }
+  })
+
+  // No-data handling is the global `noDataState: OK`; an execution error must
+  // still page, so neither rule relaxes it.
+  it('keeps the default evaluation error handling', () => {
+    expect(mismatch!.execErrState).toBeUndefined()
+    expect(mockRows!.execErrState).toBeUndefined()
+  })
+})
+
+describe('Clerk dev instance headroom alert', () => {
+  const headroom = GLOBAL_ALERTS.find(
+    (a) => a.slug === 'clerk-dev-user-cap-headroom',
+  )
+
+  // Only the prod stack provisions alerting, so a `$ENV` selector would watch
+  // the prod Clerk instance, which has no such cap.
+  it('watches the dev instance from the prod-provisioned rule', () => {
+    expect(headroom?.type).toBe('metric')
+    expect(headroom!.expr).toContain('deployment_environment_name="dev"')
+    expect(headroom!.expr).not.toContain('$ENV')
+  })
+
+  // The gauge and its attribute come from src/users/util/clerkUsers.metrics.ts;
+  // a rename on either side turns this into a rule that never fires.
+  it('reads the total the test-user sweep records', () => {
+    expect(headroom!.expr).toMatch(/^max\(clerk_users\{/)
+    expect(headroom!.expr).toContain('population="all"')
+  })
+
+  it('fires at 80% of the 50,000-user cap', () => {
+    expect(headroom!.threshold).toBe(40_000)
   })
 })

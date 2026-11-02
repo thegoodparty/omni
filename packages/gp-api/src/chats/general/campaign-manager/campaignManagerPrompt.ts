@@ -5,7 +5,8 @@ import {
   SOCIAL_PURPOSE_VALUES,
 } from '@goodparty_org/contracts'
 import type { Organization } from '../../../generated/prisma'
-import type { MandatoryFilter } from '@/llm/tools/districtInsights.tool'
+import type { MandatoryFilter } from '@/llm/tools/constituentSql.validator'
+import type { PeopleDataset } from '@/peopleDb/services/peopleDataset.service'
 import type { StrategicLandscapeResult } from '@/campaignStrategy/schemas/strategicLandscape.schema'
 import type { PublicProfileAddress } from '@/personProfiles/services/public-profile-address.service'
 import { buildCalendarBlock, hasCalendarDate } from './campaignCalendar'
@@ -131,6 +132,10 @@ export interface CampaignManagerContext {
   // in along with the provider + table allowlist being configured.
   districtFilters: MandatoryFilter[] | null
   constituentToolEnabled: boolean
+  // The org's people dataset (PeopleDatasetService): always voters for a
+  // campaign, with the imported-contact overlay when serve-import-contacts is
+  // on. Undefined when it was not resolved, which reads as plain voters.
+  peopleDataset?: PeopleDataset
   // The full org row for the CRM contact tools (null when no organization
   // resolved). Bound into the tools so counts run in the campaign's context.
   organization: Organization | null
@@ -149,6 +154,9 @@ export interface CampaignManagerContext {
   // help-center block reads this so the prompt can never advertise it when it
   // did not register.
   helpCenterToolEnabled: boolean
+  // Whether read_outreach_feedback registers: the issue-capture flag for the
+  // chatting user, resolved per turn by the handler.
+  outreachFeedbackEnabled?: boolean
   // Whether the native web-search tool is actually registered (it needs the
   // Anthropic key). The ballot guidance below reads this so it never tells the
   // manager to search when it has no search tool.
@@ -746,6 +754,18 @@ const dataBlock = (ctx: CampaignManagerContext): string | null =>
       '" Never guess at the groups left out.'
     : null
 
+// Only for a campaign whose people reads join its imported contacts. The
+// people-data tools' routing rules say how to count them apart; this keeps
+// the words right in every answer, tool or not.
+const newContactsBlock = (ctx: CampaignManagerContext): string | null =>
+  ctx.peopleDataset?.overlayOrgSlug === undefined
+    ? null
+    : 'This campaign imported contacts. People an import added who are not ' +
+      'in the voter file are "new contacts added", never voters: do not ' +
+      'call them voters or count them as voters in the district. When a ' +
+      'number can include them, give voters and new contacts added as two ' +
+      'separate numbers.'
+
 // Advertised only when the CRM contact tools are actually registered
 // (crmToolsEnabled folds in flag + service + org), so the prompt never
 // promises a tool the model can't call.
@@ -861,7 +881,7 @@ const outreachSamplingBlock = (
         'SAMPLING RULES (apply whenever the candidate wants to text voters):',
         '- Texting every voter a filter matches costs real money, and most texts do not need everyone. Before you present a text, count the voters with a cell phone with count_contacts, then size a random sample with size_outreach_sample and offer it.',
         '- When the text asks voters something (a question, a survey, what they think of a position), recommend the sample. When it tells them something they all need to know, recommend everyone and mention the sample in one line as the cheaper option.',
-        `- Say what each would cost, in one line, with the costs it returned: "Texting all ${people(EXAMPLE_AUDIENCE)} is about ${dollars(EXAMPLE_AUDIENCE)}. ${people(EXAMPLE_SAMPLE)} picked at random is about ${dollars(EXAMPLE_SAMPLE)} and should bring back about ${SAMPLE_TARGET_REPLIES} replies." If they want everyone instead, present it again with sampleSize left out.`,
+        `- Say what each would cost, in one line, with the costs it returned: "Texting all ${people(EXAMPLE_AUDIENCE)} is about ${dollars(EXAMPLE_AUDIENCE)}. Texting ${people(EXAMPLE_SAMPLE)} of them is about ${dollars(EXAMPLE_SAMPLE)} and should bring back about ${SAMPLE_TARGET_REPLIES} replies." If they want everyone instead, present it again with sampleSize left out.`,
         ...buildSampleSizingRules({
           has: (name) => toolNames.includes(name),
           sender: 'the candidate',
@@ -1061,6 +1081,11 @@ const pastOutreachBlock = (toolNames: readonly string[]): string | null =>
               '- When what came back last time is the point you are making, show those sends with present_past_outreach, with one line on why they matter. The card opens each send in Voter Outreach, so do not restate its numbers.',
             ]
           : []),
+        ...(toolNames.includes('read_outreach_feedback')
+          ? [
+              '- When the candidate asks what voters said at the doors or on calls, call read_outreach_feedback and never ask the candidate what voters said. Lead with the themes and how many voters each covers, then quote two or three notes that make the point.',
+            ]
+          : []),
       ].join('\n')
     : null
 
@@ -1142,6 +1167,7 @@ export const buildCampaignManagerSystemPrompt = (
     tasksBlock(ctx),
     dataBlock(ctx),
     crmToolsBlock(ctx),
+    newContactsBlock(ctx),
     listMapBlock(toolNames),
     textingClosedBlock(ctx),
     outreachSamplingBlock(ctx, toolNames),

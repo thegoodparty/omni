@@ -1924,6 +1924,7 @@ describe('CAS SMS console (gp-api admin surface)', () => {
     // test uses its OWN projectId for the isolation reason noted above.
     afterEach(() => {
       vi.unstubAllEnvs()
+      vi.useRealTimers()
     })
 
     const statsPayload = (overrides: Partial<{ delivered: number }> = {}) => ({
@@ -2006,6 +2007,9 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       // (findFirst + registrations + owners) — a too-tight margin here
       // races against that latency, not against the cool-off logic itself.
       vi.stubEnv('DETAIL_FAILED_RETRY_COOLDOWN_MS', '300')
+      // Only the clock the cool-off reads is faked, so it is stepped past
+      // rather than waited out while the database keeps real timers.
+      vi.useFakeTimers({ toFake: ['Date'] })
       const row = await seedOutreach({ projectId: 'peerly-job-sf-cooloff' })
       getJobDetailedStats
         .mockReset()
@@ -2024,7 +2028,7 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       expect(getJobDetailedStats).toHaveBeenCalledTimes(1)
 
       // Past the cool-off — a fresh vendor call is allowed.
-      await new Promise<void>((resolve) => setTimeout(resolve, 600))
+      vi.setSystemTime(Date.now() + 600)
       const afterCooldown = await smsAdmin.getDetail(row.id)
       expect(afterCooldown.stats).toMatchObject({ delivered: 4 })
       expect(getJobDetailedStats).toHaveBeenCalledTimes(2)
@@ -2032,6 +2036,7 @@ describe('CAS SMS console (gp-api admin surface)', () => {
 
     it('does not let a late-resolving abandoned read clobber a newer attempt after the outstanding cool-off sweeps it', async () => {
       vi.stubEnv('DETAIL_OUTSTANDING_RETRY_COOLDOWN_MS', '300')
+      vi.useFakeTimers({ toFake: ['Date'] })
       const row = await seedOutreach({
         projectId: 'peerly-job-sf-anticlobber',
       })
@@ -2067,7 +2072,7 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       // STILL unresolved — a genuinely abandoned request, per Peerly's
       // own "no response" guidance. The next call's sweep forgets it and
       // fires a fresh one instead of continuing to share it.
-      await new Promise<void>((resolve) => setTimeout(resolve, 600))
+      vi.setSystemTime(Date.now() + 600)
       const secondCall = smsAdmin.getDetail(row.id)
       await vi.waitFor(() =>
         expect(getJobDetailedStats).toHaveBeenCalledTimes(2),

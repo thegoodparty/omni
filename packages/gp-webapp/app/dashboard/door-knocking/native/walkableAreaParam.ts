@@ -2,9 +2,8 @@ import type { GeoJsonPolygon } from '@goodparty_org/contracts'
 import type { PolygonRing } from './VoterMapCanvas'
 
 // A walkable area handed to the create flow on `?area=`, as its bounding box
-// `west,south,east,north`. The civic panel plan's door step draws its
-// households and a padded box around them; the box becomes the turf's
-// boundary on the draw step, so the official does not draw it by hand.
+// `west,south,east,north`. The box becomes the turf's boundary on the draw
+// step, so the official does not draw it by hand.
 
 const round = (value: number) => Number(value.toFixed(6))
 

@@ -8,7 +8,8 @@ import {
   VoterOutreachAttributionSource,
   WillVoteAnswer,
 } from '../../generated/prisma'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { ContactEngagementService } from '../contactEngagement.service'
 import { ConstituentActivityType } from '../contactEngagement.types'
 
 const service = useTestService()
@@ -1116,12 +1117,26 @@ describe('ContactEngagement routes', () => {
         },
       })
 
+      const getConstituentIssues = vi.spyOn(
+        service.app.get(ContactEngagementService),
+        'getConstituentIssues',
+      )
+
       const result = await service.client.get(
         '/v1/contact-engagement/person-456/issues',
-        { headers: { 'x-organization-slug': eoOrgSlug } },
+        {
+          headers: { 'x-organization-slug': eoOrgSlug },
+          params: { take: 3, after: '0' },
+        },
       )
 
       expect(result.status).toBe(200)
+      expect(getConstituentIssues).toHaveBeenCalledExactlyOnceWith(
+        'person-456',
+        electedOffice.id,
+        3,
+        '0',
+      )
       expect(result.data.results).toHaveLength(1)
       expect(result.data.results[0]).toMatchObject({
         issueTitle: 'Housing',

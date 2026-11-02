@@ -91,7 +91,6 @@ describe('POST /v1/outreach/serve/phone-banking/draft', () => {
       expect(userPrompt).not.toContain('Primary election day:')
       expect(userPrompt).not.toContain('Early voting')
 
-      expect(systemPrompt).toContain('elected official')
       expect(systemPrompt).not.toMatch(/candidate/i)
       expect(systemPrompt).not.toMatch(/\bvoters?\b/i)
       expect(userPrompt).not.toMatch(/candidate/i)
@@ -108,9 +107,6 @@ describe('POST /v1/outreach/serve/phone-banking/draft', () => {
     const { systemPrompt } = promptsFor(jsonCompletion.mock.calls[0]?.[0])
     expect(systemPrompt).toContain(SERVE_PHONE_BANKING_VOICE.openerRule)
     expect(systemPrompt).toContain('[your name]')
-    expect(systemPrompt).toContain(
-      "official's full name given below, never the first name alone",
-    )
     expect(systemPrompt).toContain(CONSTITUENT_NAME_TOKEN)
     expect(systemPrompt).not.toContain(VOTER_NAME_TOKEN)
   })
@@ -133,9 +129,6 @@ describe('POST /v1/outreach/serve/phone-banking/draft', () => {
     // Fenced, so a typed question reads as quoted material and not as
     // further instructions to the prompt.
     expect(userPrompt).toContain(`"""\n${question}\n"""`)
-    // The purpose copy bans a yes/no question and a real one often is partly
-    // yes/no, so the rule resolves that rather than leaving them to conflict.
-    expect(userPrompt).toContain('inviting them to say more')
   })
 
   // Same leak the door had: the field was accepted on every purpose, so an
@@ -216,29 +209,21 @@ describe('POST /v1/outreach/serve/phone-banking/draft', () => {
     expect(userPrompt).toContain(
       SERVE_PHONE_BANKING_VOICE.purposePrompts.custom,
     )
-    expect(userPrompt).toContain('Flag rather than silently alter')
     expect(userPrompt).toContain(
       'My own message about the new sidewalk funding.',
     )
-    expect(systemPrompt).toContain('elected official')
     expect(systemPrompt).not.toMatch(/candidate/i)
     // The user-message framing must also drop the polish framing — it
     // would otherwise recreate the same light-edit contradiction the
     // system-prompt swap fixes. Surface-neutral wording, never "official"/
     // "candidate", since this framing is built in the shared generateDraft.
     expect(userPrompt).toContain('The message to adapt, as written:')
-    expect(userPrompt).toContain('Adapt the message into a call script.')
     expect(userPrompt).not.toContain('The existing call script to polish:')
-    expect(userPrompt).not.toContain('Polish the script.')
 
     // ENG-10990 blocker fix: custom's adapt-into-dialogue copy contradicts
     // improveSystemPrompt's light-edit/same-length/format-already-there
     // constraints, so custom improve borrows draftSystemPrompt instead.
     expect(systemPrompt).toBe(SERVE_PHONE_BANKING_VOICE.draftSystemPrompt)
-    expect(systemPrompt).not.toContain('light edit')
-    expect(systemPrompt).not.toContain(
-      'Preserve the You:/Voter: alternating dialogue format.',
-    )
   })
 
   it('improves every serve purpose (polish mode) via currentDraft', async () => {
@@ -344,8 +329,9 @@ describe('Public Profile grounding (ENG-10982)', () => {
     expect(res.status).toBe(HttpStatus.CREATED)
 
     const { userPrompt } = promptsFor(jsonCompletion.mock.calls[0]?.[0])
-    expect(userPrompt).toContain('whether they want to join the civic panel')
-    expect(userPrompt).toContain('Never call the panel representative')
+    expect(userPrompt).toContain(
+      SERVE_PHONE_BANKING_VOICE.purposePrompts.build_citizens_panel,
+    )
   })
 
   it('hides the civic panel invite with the panel flag off', async () => {

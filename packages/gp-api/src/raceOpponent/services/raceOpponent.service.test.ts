@@ -179,25 +179,6 @@ describe('RaceOpponentService.get collectionStatus (collection → summary)', ()
     expect(collectionStatus).toBe('running')
   })
 
-  it("reports 'completed' once the summary run has completed", async () => {
-    const service = setup({
-      collectionRun: {
-        runId: COLLECTION_RUN_ID,
-        status: ExperimentRunStatus.COMPLETED,
-        createdAt: COLLECTED_AT,
-      },
-      summaryRun: {
-        status: ExperimentRunStatus.COMPLETED,
-        createdAt: SUMMARY_AFTER,
-      },
-      rows: [collectedRow],
-    })
-
-    const { collectionStatus } = await service.get(campaign)
-
-    expect(collectionStatus).toBe('completed')
-  })
-
   it("degrades to 'completed' when the summary run failed (shows raw rows)", async () => {
     const service = setup({
       collectionRun: {
@@ -401,36 +382,6 @@ describe('RaceOpponentService.get roster inclusion (ENG-10893)', () => {
     vi.clearAllMocks()
   })
 
-  it('surfaces a rostered opponent with zero collected rows', async () => {
-    const service = setup({
-      rows: [collectedRow],
-      rosterOpponents: [
-        {
-          fullName: 'Jane Doe',
-          partyAffiliation: 'Democratic',
-          incumbent: false,
-        },
-        {
-          fullName: 'Michael Foster',
-          partyAffiliation: 'Republican',
-          incumbent: true,
-          websiteUrl: 'michaelforcity.com',
-        },
-      ],
-    })
-
-    const { opponents } = await service.get(campaign)
-
-    const names = opponents.map((o) => o.opponentName)
-    expect(names).toContain('Michael Foster')
-    const foster = opponents.find((o) => o.opponentName === 'Michael Foster')
-    expect(foster?.items).toEqual([])
-    expect(foster?.summary).toBeNull()
-    expect(foster?.party).toBe('Republican')
-    expect(foster?.isIncumbent).toBe(true)
-    expect(foster?.websiteUrl).toBe('michaelforcity.com')
-  })
-
   it('does not duplicate an opponent that has both roster and collected rows', async () => {
     const service = setup({
       rows: [collectedRow],
@@ -529,8 +480,6 @@ describe('RaceOpponentService.get roster inclusion (ENG-10893)', () => {
 // forever (ENG-10614).
 describe('RaceOpponentService.rechainSummaryForNewerCollection', () => {
   const SUMMARY_RUN_AT = new Date('2026-06-30T10:00:00.000Z')
-  const COLLECTION_NEWER = new Date('2026-06-30T10:03:00.000Z')
-  const COLLECTION_OLDER = new Date('2026-06-30T09:57:00.000Z')
 
   const campaign = {
     id: 42,
@@ -568,22 +517,6 @@ describe('RaceOpponentService.rechainSummaryForNewerCollection', () => {
     vi.clearAllMocks()
   })
 
-  it('re-dispatches a summary when a completed collection is newer than the summary run', async () => {
-    const service = setup({ createdAt: COLLECTION_NEWER })
-
-    await service.rechainSummaryForNewerCollection(campaign, SUMMARY_RUN_AT)
-
-    expect(service.dispatchSummary).toHaveBeenCalledExactlyOnceWith(campaign)
-  })
-
-  it('does not re-dispatch on the normal cycle (the completed collection pre-dates its own summary run)', async () => {
-    const service = setup({ createdAt: COLLECTION_OLDER })
-
-    await service.rechainSummaryForNewerCollection(campaign, SUMMARY_RUN_AT)
-
-    expect(service.dispatchSummary).not.toHaveBeenCalled()
-  })
-
   it('does not re-dispatch when no completed collection run exists', async () => {
     const service = setup(null)
 
@@ -598,8 +531,6 @@ describe('RaceOpponentService.rechainSummaryForNewerCollection', () => {
 // (dispatchActions' in-flight dedup skipped that summary's chained dispatch).
 describe('RaceOpponentService.rechainActionsForNewerSummary', () => {
   const ACTIONS_RUN_AT = new Date('2026-07-01T10:00:00.000Z')
-  const SUMMARY_NEWER = new Date('2026-07-01T10:03:00.000Z')
-  const SUMMARY_OLDER = new Date('2026-07-01T09:57:00.000Z')
 
   const campaign = {
     id: 42,
@@ -635,22 +566,6 @@ describe('RaceOpponentService.rechainActionsForNewerSummary', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
-  })
-
-  it('re-dispatches actions when a completed summary is newer than the actions run', async () => {
-    const service = setup({ createdAt: SUMMARY_NEWER })
-
-    await service.rechainActionsForNewerSummary(campaign, ACTIONS_RUN_AT)
-
-    expect(service.dispatchActions).toHaveBeenCalledExactlyOnceWith(campaign)
-  })
-
-  it('does not re-dispatch on the normal cycle (the completed summary pre-dates its own actions run)', async () => {
-    const service = setup({ createdAt: SUMMARY_OLDER })
-
-    await service.rechainActionsForNewerSummary(campaign, ACTIONS_RUN_AT)
-
-    expect(service.dispatchActions).not.toHaveBeenCalled()
   })
 
   it('does not re-dispatch when no completed summary run exists', async () => {

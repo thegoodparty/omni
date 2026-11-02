@@ -263,6 +263,10 @@ cd infrastructure/environments/dev/shared-infra
 # automatically. Do not hand-write terraform.tfvars here.
 
 AWS_PROFILE=work terraform init
+# The listener rules need SERVE_API_KEY, which the root takes as a variable
+# rather than reading AI_SECRETS_DEV itself. CI sets it in ci-apply-root.sh.
+export TF_VAR_serve_api_key=$(AWS_PROFILE=work aws secretsmanager get-secret-value \
+  --secret-id AI_SECRETS_DEV --query SecretString --output text | jq -r .SERVE_API_KEY)
 AWS_PROFILE=work terraform apply
 ```
 
@@ -400,7 +404,7 @@ AWS_PROFILE=work terraform apply  # Updates Lambda function
 ### Infrastructure Updates (Occasional ~5-10 minutes)
 ```bash
 cd infrastructure/environments/dev/shared-infra
-AWS_PROFILE=work terraform apply  # ALB/Route53/listener rules
+AWS_PROFILE=work terraform apply  # ALB/Route53/listener rules; needs TF_VAR_serve_api_key (Step 4)
 
 cd infrastructure/environments/dev/serve-analyze-fargate
 AWS_PROFILE=work terraform apply  # ECS cluster/S3/SNS/EventBridge

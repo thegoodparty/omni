@@ -9,7 +9,7 @@ import { Module } from '@nestjs/common'
 import { ClerkModule } from '@/vendors/clerk/clerk.module'
 import { AgentExperimentsModule } from '@/agentExperiments/agentExperiments.module'
 import { AwsModule } from '@/vendors/aws/aws.module'
-import { ElectionApiService } from '@/campaignStrategy/services/electionApi.service'
+import { RaceContextService } from '@/campaignStrategy/services/raceContext.service'
 import { CampaignStrategyContextModule } from '@/electionDb/campaignStrategyContext/campaign-strategy-context.module'
 import { CampaignStrategyModule } from '@/campaignStrategy/campaignStrategy.module'
 import { DistrictResolverService } from '@/chats/briefing-chats/services/districtResolver.service'
@@ -51,7 +51,7 @@ import { ContrastEditService } from './services/contrastEdit.service'
     OpponentResearchService,
     RaceOpponentActivityService,
     OpponentResearchScheduleService,
-    ElectionApiService,
+    RaceContextService,
     DistrictResolverService,
     ContrastToneService,
     ContrastEngineService,

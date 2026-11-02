@@ -18,15 +18,16 @@ there before anything here can read it.
 
 There are two people tables in `mart_gp_api`, same columns, same ids:
 `gp_api_voters` (the L2 voter file) and `gp_api_constituents` (a superset that
-adds consumer-only people, today Michigan only). `PeopleDataset` names the
-choice (`'voters' | 'constituents'`) and `peopleTable(dataset)` in
+adds consumer-only people, today Michigan only). `PeopleDataset.base` names
+the choice (`'voters' | 'constituents'`) and `peopleTable(dataset)` in
 `databricksVoterSql.util.ts` maps it to the table.
 
 `services/peopleDataset.service.ts` decides it per organization: a Serve
 (`eo-`) org whose owner has the `serve-consumer-data` flag reads
 `constituents`; every other org, and every Win org without exception, reads
-`voters`. It is an Amplitude call, so the caller resolves it once per
-request, job or chat turn and passes it down. `ContactsService` does that in
+`voters`. It is an Amplitude call (two for Serve, one for Win, which asks
+only about imported contacts), so the caller resolves it once per request,
+job or chat turn and passes it down. `ContactsService` does that in
 `withOrgDistrictResolution`, beside the district, and hands it to modules
 that call this one directly through `resolveEligibleDistrict`.
 
@@ -40,6 +41,94 @@ the same district. The census marts (`gp_api_district_census_stats`,
 `gp_api_district_census_demographics`, `gp_api_block_group_census_demographics`)
 are the same for both.
 
+## Imported contacts join the read
+
+Any org, Serve or Win, whose owner has `serve-import-contacts` gets
+`overlayOrgSlug` and `overlayDistrictId` (its own district, from its override
+district or position, as `ContactsService` resolves it) on the dataset. A Win
+campaign keeps `voters` as the base, so its imported people read NULL, so
+unknown, in party, voter status, turnout and the other voter-only columns, and
+`Registered_Voter` reads NULL for them (`registeredVoterSql`). `resolveDistrict` then
+sets `district.table` to `contactOverlayTable(...)`: the district-filtered
+people table FULL OUTER JOIN the org's rows of
+`mart_gp_api.<PEOPLE_DBX_CONTACT_OVERLAY_VIEW>`, a dbt view over gp-api's
+`contact_upload_match` table through Lakehouse Federation
+(`docs/adr/2026-10-29-people-reads-join-the-contact-overlay-at-read-time.md`).
+
+- Uploaded cell, landline, address line, city and ZIP win over L2; names,
+  district columns, location and demographics stay L2.
+- New people (`is_new`, gp-api-minted uuid ids) get the district's State and
+  district column written in, and appear only when the read's district is
+  the org's own. Any other district filters them out and keeps L2's scope
+  columns, so an imported person with no L2 row there drops out of scope.
+- The join adds `Email` and `ContactIsNew`. Reads without the overlay project
+  `NULL` and `false` (`projectColumn`), so `Person.email` and
+  `Person.isNewContact` are always present. The CSV export appends `Email`
+  and `New Contact` only with the overlay. Search with an `@` matches
+  `lower(Email)` when the overlay is on.
+- The `hasEmail` filter is `Email IS NOT NULL` with the overlay and `FALSE`
+  without it (no column to test, and no one there has an email). The list
+  detail's `email` count compiles to the same predicate. Email outreach forces
+  it on every count and resolve (`src/emailOutreach/`).
+- Where vendors are mocked (never prod), a test organization can have a
+  stand-in email audience instead: `services/peopleEmailFixture.service.ts`
+  reads it from a `people_db` vendor mock record, and the list detail's
+  `email` count and email outreach's count and resolve use it in place of the
+  warehouse for that organization. It exists because a preview's database
+  never feeds the overlay, so the email E2E has no other way to reach anyone.
+  It holds SES simulator addresses only, checked again on read. The list
+  builder's live count (`POST /v1/contacts/count`) still reads the warehouse,
+  so a builder-made list shows 0 there for such an organization.
+- Org slug, state and district name are inlined as escaped literals
+  (`stringLiteral`), because a table expression cannot carry bound
+  parameters. One join, never a UNION (a union over the mart's columns
+  doubled compile time).
+- A person read (`buildPersonSql`) rebuilds the join with its bound id
+  inside both sides, so the warehouse joins one person instead of the
+  district. Reads without the overlay are unchanged.
+- `Person.registeredVoter` reads `Registered_Voter`, a column only
+  `gp_api_constituents` has (false for consumer-only people). Voter reads
+  project `true`, and a new person reads NULL (`registeredVoterSql`).
+- A new person's party is unknown, not Other: `Person.politicalParty` is
+  null for `ContactIsNew` rows (`transformToPersonOutput`), and with the
+  overlay the Other party filter adds `AND NOT ContactIsNew`
+  (`buildPartyValuePredicate`). A voter-file person with no party is still
+  Other, and the pack never holds a new person (no rooftop point).
+- A Win campaign is told how many of its people are new
+  (`docs/adr/2026-10-30-win-new-contacts-counted-next-to-voters.md`).
+  `countNewContacts` on `buildDistrictStatsSql`,
+  `buildListDetailAggregatesSql` and `buildCountSql` (ungrouped only; set
+  by `ContactsService` for a non-`eo-` org with the overlay, through
+  `ListPeopleDTO.countNewContacts` for a count) leaves every count as it was and adds, of each, the
+  people with `ContactIsNew` as trailing `new_*` columns of the same
+  statement (`newContactsCount` on `ComputedDistrictStats`, `newContacts`
+  on `PeopleListDetailAggregatesResponse`). Without the overlay the option
+  is a no-op, so the statement is unchanged.
+- The `source` filter (`PeopleFilters.source`, a plain array, the one key
+  `transformFilters` reads without an operator): `voterFile` is
+  `NOT coalesce(ContactIsNew, false)`, `imported` is
+  `coalesce(ContactIsNew, false)`, both or neither emit nothing. Without the
+  overlay `imported` alone is `FALSE` (nobody, not an error) and
+  `voterFile` alone emits nothing.
+- The Serve agents' `query_constituent_data` gets the same join over
+  `mart_serve_agents.<SERVE_AGENT_CONTACT_OVERLAY_VIEW>`, built in
+  `constituentDataScope.ts` and swapped in only after the SQL validator
+  accepts the model's query; it adds the `on_uploaded_list` and `has_email`
+  dimensions. The Win Campaign Manager does the same over
+  `mart_win_agents.<WIN_AGENT_CONTACT_OVERLAY_VIEW>` joined to
+  `win_agent_voters` (`buildWinConstituentDataScope`), on its own
+  `sp_win_agent` credential, whenever its org's dataset carries the overlay.
+  Both build the join with `buildContactOverlayTable`; Win's also projects
+  `new_contact` (the view's `is_new`). With the overlay,
+  `dataSourceRoutingRules`
+  (`llm/tools/dataSourceRouting.ts`) sends Serve's uploaded-list,
+  imported-contact and email questions there, since the CRM catalog has no
+  such dimension; for Win it says new contacts added are never voters and
+  points at the CRM `source` dimension and the mart's `new_contact`.
+- Turning the flag off returns the org to the plain table at once. That is
+  the kill switch for a federation outage, since every read for a flagged org
+  depends on it.
+
 A priority's read models its coded answers against the district
 (`districtCensusSql.util.ts`, read through `StatsService`):
 `buildDistrictCellsSql` (op `district-cells`) counts the district's people
@@ -51,6 +140,9 @@ empty map and the frame keeps the voter file's tracts), and
 `buildAnswerCellsSql` (op `answer-cells`) sums the given people's answers in
 the same cells. Each person's yes share rides in on an inlined id list
 shared with others of the same value, so only sums come back.
+`buildThemeCellsSql` (op `theme-cells`) counts each of a priority's themes'
+people in the same cells, one column per theme, for the results page's
+signal label (Strong, Some or Low signal).
 `buildRespondentCellsSql` counts people the same way plus L2 tenure,
 `buildDistrictTractAdultsSql` sums adults per tract,
 `buildPoolCellsSql` counts everyone a filter matches in the district's
@@ -64,7 +156,36 @@ AGENTS.md, "Steering by census"); its door draws keep to one tract through
 the walkable-area read's `tract` (`tractSql`). The grid stands in
 for tract outlines until the warehouse publishes them
 (https://app.clickup.com/t/17tnw2b6k0u); `DistrictCensusComposition.shapeOfTracts`
-is the one place to swap.
+is the one place to swap. `buildTractPlacesSql` (op `tract-places`, read
+through `StatsService.findTractPlaces`) is what a tract's human name is
+worked out from: per tract, the mean of its residents' points rounded to
+three decimals, and the street most of them live on, by `COUNT(*)` over
+the parsed `Residence_Addresses_StreetName` and
+`Residence_Addresses_Designator`. Aggregates only; the civic panel stores
+the name (see the contacts AGENTS.md, "Tract names").
+
+## Early and absentee voters are a separate table, not a column
+
+The `votedInElection` filter ("Voted in election") reads
+`gp_api_voter_eav_general_2026`: the ids L2 reports as having already
+voted early or absentee in the 2026 General, rebuilt twice daily from a
+manual upload (gp-data-platform#1266). Its sibling key
+`votedInElectionReportedIds` carries the people the campaign recorded as
+already voted, and the one clause ORs them in for Yes,
+`(id IN (SELECT id ...) OR id IN (...))`, and excludes both for No as a
+`NOT EXISTS`. Both subqueries carry a `MERGE` join hint: left alone Spark
+broadcast the table and ran an executor out of memory (ENG-11522), and a
+`NOT IN` is a null-aware anti join that can only broadcast, hence
+`NOT EXISTS`. Alone, the
+sibling key emits nothing. It works the same on both people tables; a
+consumer-only constituent is never in the L2 table. It is apart from
+`gp_api_voters` because that table rebuilds monthly
+(`docs/adr/2026-10-26-voted-in-election-includes-l2-early-absentee.md`).
+Not every state reports, so No does not mean the voter has yet to vote.
+`buildPersonSql` reads the same table as a trailing
+`early_absentee_voted` column, so a person's detail can show "Already
+voted" without a second warehouse round trip; `findPerson` sets
+`voted: true` from it and ContactsService ORs in the campaign's answer.
 
 Consumer-only rows are NULL in every voter-only column (party,
 `Voter_Status`, `StateVoterID`, vote history, `Voter_Independent_Affinity`,
@@ -79,13 +200,14 @@ call, collects the statement ids it issued, and emits one flat
 a window of them. Flat rather than nested because LogQL cannot unwrap nested
 json without a parser expression per field.
 
-| field          |                                                    |
-| -------------- | -------------------------------------------------- |
-| `op`           | which read (table below)                           |
-| `districtId`   | the district the read was scoped to                |
-| `dataset`      | `voters` or `constituents`, the table it read      |
-| `dbxMs`        | wall-clock ms for the whole operation              |
-| `statementIds` | every Databricks statement id the operation issued |
+| field            |                                                     |
+| ---------------- | --------------------------------------------------- |
+| `op`             | which read (table below)                            |
+| `districtId`     | the district the read was scoped to                 |
+| `dataset`        | `voters` or `constituents`, the table it read       |
+| `contactOverlay` | whether the read joined the org's imported contacts |
+| `dbxMs`          | wall-clock ms for the whole operation               |
+| `statementIds`   | every Databricks statement id the operation issued  |
 
 `statementIds` is an array, not a scalar, and is collected **per operation**:
 `list` issues a count and a page, `stats` issues a voter scan and a census
@@ -173,40 +295,30 @@ own `warn`, naming the census lookup so the line is attributable to one of
 the two statements. The voter scan keeps `run()` and stays exactly as loud as
 every other voter read.
 
-## Census composition: the district's ACS row and the people's block groups
+## Census composition: the district's ACS row
 
-`findCensusComposition` (`StatsService`, op `census-composition`) feeds
-the priority results and civic panel comparisons
-(`src/priorities/services/censusComposition.ts`). It issues two statements
-from `districtCensusSql.util.ts`, against marts gp-data-platform#1203
-published:
+`buildDistrictCompositionSql` (`districtCensusSql.util.ts`) reads one row
+from `gp_api_district_census_demographics`, a mart gp-data-platform#1203
+published, keyed exactly like `buildDistrictCensusSql` (state, district
+type, district name; a State district reads the statewide row). ACS 2024
+5-year counts allocated from block groups by 2020 population share, so
+values are fractional and run about 2.4% under, like `district_population`.
+No MOEs, no medians. Adults by census sex and age band
+(`population_{male,female}_*`) are there for weighting;
+`priorities/util/censusSexAge.util.ts` turns them into shares, and
+`buildRespondentCellsSql` puts `Age_Int` in the same bands
+(`ADULT_AGE_BANDS`). Census sex is male/female, matching `Gender`'s
+`M`/`F`; a blank `Gender` (about 1% of voters) sits the dimension out.
+The weighting and district-cell reads (`findWeightingInputs`,
+`findDistrictCells`) select it beside their own statements.
 
-- `buildDistrictCompositionSql`: one row from
-  `gp_api_district_census_demographics`, keyed exactly like
-  `buildDistrictCensusSql` (state, district type, district name; a State
-  district reads the statewide row). ACS 2024 5-year counts allocated from
-  block groups by 2020 population share, so values are fractional and run
-  about 2.4% under, like `district_population`. No MOEs, no medians.
-  Adults by census sex and age band (`population_{male,female}_*`) are
-  there for weighting; `priorities/util/censusSexAge.util.ts` turns them
-  into shares, and `buildRespondentCellsSql` puts `Age_Int` in the same
-  bands (`ADULT_AGE_BANDS`). Census
-  sex is male/female, matching `Gender`'s `M`/`F`; a blank `Gender`
-  (about 1% of voters) sits the dimension out.
-- `buildRespondentBlockGroupsSql`: the given ids scoped to the district,
-  grouped by `Census_Block_Group_Geoid` and joined to
-  `gp_api_block_group_census_demographics`. It returns block group figures
-  and a head count per block group, never a person. A person with a null
-  geoid (about 4% of voters) or no block group row drops out.
+`ACS_COUNT_COLUMNS` is the hand-kept column list it selects. A suppressed
+figure maps to `null`, never `0`.
 
-`ACS_COUNT_COLUMNS` is the hand-kept column list both statements select.
-A suppressed figure maps to `null`, never `0`, and
-`representation.util.ts` drops a dimension with any `null` in it.
-
-Like the census lookup in `findStats`, both statements call the client
+Like the census lookup in `findStats`, these reads call the client
 directly rather than `run()`: the caller folds any failure, and a missing
-district row, into "comparison unavailable" on a 200, so an error-level
-line would be an alerting hazard.
+district row, into "unknown" on a 200, so an error-level line would be an
+alerting hazard.
 
 `Census_Block_Group_Geoid` is on `gp_api_voters` (and so
 `gp_api_constituents` and `gp_api_consumer_only_people`), keyed like the
@@ -262,7 +374,9 @@ Anything needing a street line reads `Residence_Addresses_AddressLine`, which
 holds the whole CASS-standardized line, directions included — the stop's
 frozen `displayAddress` and the door-knocking unit key both do. Do not compose
 a line from the parsed components (house number, the two direction columns,
-street name, designator).
+street name, designator). Naming a census tract is not a street line:
+`buildTractPlacesSql` counts residents per street name and designator to
+name the tract after its busiest street ("around Haywood Rd").
 
 The unit key used to compose the line from components, and wherever the
 directionals came back empty `1234 S Main St` and `1234 N Main St` in one ZIP keyed
@@ -301,6 +415,13 @@ which for a whole district is an unbounded materialization, so
 `DatabricksVoterPackService` reads CSV through external links and parses one
 chunk at a time into the encoder.
 
+The encoder still keeps every person (~65 bytes of heap each), so a pack is
+refused with `VoterPackTooLargeError` when the export reports more than
+`MAX_PACK_ROWS` (3M) rows, before any chunk is read. A statewide district on
+`constituents` is ~21.5M rows, and building one exhausted the heap of the
+gp-api task serving it. The door-knocking stream logs that refusal at `warn`,
+outside the paging build-failure event.
+
 ### The resident projection is wide, and that is deliberate
 
 `residents()` returns eleven demographic columns (`Voter_Status`,
@@ -332,6 +453,18 @@ returns null for an absent value now, alongside the language filter's split of
 'Other' from 'Unknown', and the guard is gone. A present but unrecognized value
 is still `'Other'`.
 
+## Draining a whole audience: keyset pages, not OFFSET
+
+A page is `ORDER BY id LIMIT n OFFSET m`, so a reader walking a whole list
+re-sorts and skips everything before each page. `ListPeopleDTO.afterId`
+(`findContactsForFilter`'s `afterId`) pages by keyset instead:
+`AND id > :afterId ORDER BY id LIMIT n`, no OFFSET, ungrouped reads only.
+Each page is still one statement over the district (with the overlay join
+where there is one), but a top-n after a cursor rather than a deep sort and
+skip. Email outreach's prepare reads its audience this way, with `skipCount`.
+It relies on one row per `id`: the contact overlay view folds a person's
+upload rows into one, which is also why it ANDs `is_new` across them.
+
 ## Reject rather than truncate — do not "fix" this into pagination
 
 Both `evaluate()` and `residents()` deliberately fail the whole request rather
@@ -340,8 +473,9 @@ when the extra row comes back. A truncated roster sends a canvasser to the wrong
 doors, which is worse than an error. Any change that silently caps, paginates or
 drops residents here is a correctness regression, not a performance win.
 
-The civic panel's door step does not go through either. `walkableArea()`
-(`buildWalkableAreaSql`) picks its doors in the warehouse over every
+The walkable-area pick (the test seed's tract draws, through
+`ContactsService.walkableAreaWithin`) does not go through either.
+`walkableArea()` (`buildWalkableAreaSql`) picks its doors in the warehouse over every
 eligible rooftop household in scope (or one tract): households into 200m
 cells, the densest 3x3 block of cells as the seed, the `households` nearest
 that block's center. Only the picked doors come back, as a position and
@@ -388,7 +522,7 @@ signatures rather than callers reaching into `databricks/` directly.
 | `services/stats.service.ts`                     | District aggregate stats from the voter rows; census composition                                           |
 | `databricks/districtCensusSql.util.ts`          | Census mart SQL: population, ACS composition, people's block groups, model cells                           |
 | `services/peopleDataset.service.ts`             | Which people table an organization reads (`PeopleDataset`)                                                 |
-| `services/electionApiDistrict.service.ts`       | District resolution/scoping, from `src/electionDb/`                                                        |
+| `services/electionDistrict.service.ts`          | District resolution/scoping, from `src/electionDb/`                                                        |
 | `services/voterDoorKnocking.service.ts`         | Door-knocking cap guards + roster shaping                                                                  |
 | `services/voterPack.service.ts`                 | Encoded voter-pack build/read                                                                              |
 | `services/voterRecommendedLists.service.ts`     | Recommended-list counts + door precinct ranking                                                            |

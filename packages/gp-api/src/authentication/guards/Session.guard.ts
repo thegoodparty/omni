@@ -22,6 +22,14 @@ import { TRANSCRIBE_STREAM_PATH } from '@/speech/ws/speechToText.gateway'
 import { VENDOR_MOCKS_PREFIX } from '@/vendorMocks/vendorMockUrl.util'
 import { UsersService } from '@/users/services/users.service'
 import { SessionsService } from '@/users/services/sessions.service'
+import {
+  isVercelOidcToken,
+  VercelOidcService,
+} from '@/authentication/vercelOidc.service'
+import {
+  GithubOidcService,
+  isGithubOidcToken,
+} from '@/authentication/githubOidc.service'
 
 @Injectable()
 export class SessionGuard implements CanActivate {
@@ -33,6 +41,8 @@ export class SessionGuard implements CanActivate {
     private readonly logger: PinoLogger,
     private readonly reflector: Reflector,
     private readonly agentMcpMarker: AgentMcpMarker,
+    private readonly vercelOidc: VercelOidcService,
+    private readonly githubOidc: GithubOidcService,
   ) {
     this.logger.setContext(SessionGuard.name)
   }
@@ -63,27 +73,37 @@ export class SessionGuard implements CanActivate {
       return this.allowPublicOrThrow(context)
     }
 
+    // Checked before the Clerk paths so a Vercel deployment's or GitHub
+    // workflow's OIDC token is never sent to Clerk. A Vercel project on the
+    // admin allowlist is a full M2M caller, like an mt_ token; any other
+    // verified OIDC token is only a service reader, never m2mToken.
+    if (isVercelOidcToken(token)) {
+      const caller = await this.vercelOidc.verify(token)
+      if (caller?.tier === 'admin') {
+        request.m2mToken = caller.m2mToken
+        return true
+      }
+      request.serviceReader = caller?.serviceReader
+      return this.allowPublicOrThrow(context)
+    }
+
+    if (isGithubOidcToken(token)) {
+      request.serviceReader = await this.githubOidc.verify(token)
+      return this.allowPublicOrThrow(context)
+    }
+
     if (this.authProvider.isM2MToken(token)) {
       try {
-        request.m2mToken = await this.authProvider.verifyM2MToken(token)
+        request.m2mToken = {
+          source: 'clerk',
+          ...(await this.authProvider.verifyM2MToken(token)),
+        }
         return true
       } catch {
         // Reason is already logged at the ClerkAuthService boundary; here we
         // just fall back to public-or-throw for a non-verifiable M2M token.
         return this.allowPublicOrThrow(context)
       }
-    }
-
-    // Clerk verifies a JWT-format M2M token against the instance JWKS only,
-    // never its scopes or our machine secret, so any machine in the Clerk
-    // instance can mint one that verifies. It must never set m2mToken, which
-    // the M2M route guards treat as fully privileged, and it only gets past
-    // this guard on @PublicAccess routes, where ServiceReadGuard reads it.
-    if (this.authProvider.isM2MJwt(token)) {
-      request.serviceReader = await this.authProvider
-        .verifyM2MJwt(token)
-        .catch(() => undefined)
-      return this.allowPublicOrThrow(context)
     }
 
     try {

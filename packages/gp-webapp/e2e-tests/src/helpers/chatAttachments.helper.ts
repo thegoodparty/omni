@@ -139,6 +139,7 @@ export const openFooterChat = async (
 ): Promise<void> => {
   const composer = page.getByRole('textbox', { name: 'Ask a question' })
   await expect(async () => {
+    if (await composer.isVisible()) return
     await page
       .getByRole('button', { name: openLabel })
       .click({ timeout: 5_000 })

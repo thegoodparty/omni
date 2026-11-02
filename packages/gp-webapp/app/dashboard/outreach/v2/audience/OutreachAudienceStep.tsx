@@ -17,9 +17,10 @@ import {
   PlusIcon,
 } from '@styleguide/components/ui/icons'
 import type { OutreachType } from 'gpApi/types/outreach.types'
-import type {
-  RecommendedList,
-  RecommendedListChannel,
+import {
+  ROBOCALL_FREE_OFFER_VARIANT,
+  type RecommendedList,
+  type RecommendedListChannel,
 } from '@goodparty_org/contracts'
 import type {
   SegmentResponse,
@@ -30,9 +31,15 @@ import type { PrecinctOptionsResult } from 'app/dashboard/contacts/crm/wizard/us
 import VoterFileStep from 'app/dashboard/contacts/crm/wizard/VoterFileStep'
 import NameStep from 'app/dashboard/contacts/crm/wizard/NameStep'
 import { Intro } from '../social/Intro'
+import { savedRecommendedListName } from 'app/dashboard/shared/robocallFreeOffer/freeOfferCopy'
+import { FreeOfferLabel } from 'app/dashboard/shared/robocallFreeOffer/FreeOfferLabel'
+import { FREE_OFFER_CARD_CLASS } from 'app/dashboard/shared/robocallFreeOffer/freeOfferStyles'
 import { RecommendedListNameDrawer } from './RecommendedListNameDrawer'
 import { RecommendedListCard } from './RecommendedListCard'
+import { WIN_NEW_CONTACTS_LABELS } from 'app/dashboard/shared/contactsLabels'
 import { useServeCitizenPanelsFlag } from 'app/shared/experiments/serveCitizenPanelsFlag'
+import type { CivicPanelAudience } from './useCivicPanelAudience'
+import { CIVIC_PANEL_AUDIENCE_NAME } from './civicPanelAudienceList.util'
 
 export type OutreachAudienceMode = 'picker' | 'filters' | 'name'
 
@@ -70,7 +77,7 @@ export interface OutreachAudienceCopy {
 }
 
 interface OutreachAudienceStepProps {
-  channel: OutreachType
+  channel: OutreachType | 'email'
   copy: OutreachAudienceCopy
   // A card the flow owns, rendered above the recommendations in picker mode.
   // Polls put their random-sample option here: it is an audience that is not a
@@ -95,6 +102,9 @@ interface OutreachAudienceStepProps {
   // narrower audience than it promises.
   universeListId: number | null
   universeCount: number | null
+  // Of universeCount, the new contacts an import added. Win names them next
+  // to the voters; Serve never does.
+  universeNewContactsCount?: number
   universeLoading: boolean
   // Resolves the row to a real saved list and returns its id; this step then
   // selects it through `onSelect`, so the universe goes down the exact path
@@ -111,7 +121,8 @@ interface OutreachAudienceStepProps {
   recommendations: RecommendedList[]
   recommendationsLoading: boolean
   recommendationsError: boolean
-  recommendedListsChannel: RecommendedListChannel
+  // Null for a channel with no recommended lists (email).
+  recommendedListsChannel: RecommendedListChannel | null
   // A recommendation with no existingFilterId opens the naming drawer;
   // this fires when the candidate submits the drawer's name input. Seeds
   // the builder and creates the saved filter atomically, then the caller
@@ -145,10 +156,25 @@ interface OutreachAudienceStepProps {
   preselectedRecommendation?: RecommendedList | null
   preselectedRecommendationApplied?: boolean
   onPreselectedRecommendationApplied?: () => void
+  // Serve's civic panel as an audience, from useOutreachAudience: the first
+  // card, members only. Null (or `show` false) leaves the step as it was.
+  civicPanel?: CivicPanelAudience | null
+  // Robocall's free election-eve offer: its list, shown in a "Free offer"
+  // section of its own between the recommendations and the saved lists, and
+  // never under "Recommended for you" (even when carried in). `note` is the
+  // line under the heading; `onPicked` fires when its card is tapped.
+  freeOffer?: {
+    recommendation: RecommendedList
+    note: string
+    onPicked: () => void
+  } | null
   // The saved list's reachable count for THIS channel (reachability[key] from
   // the list detail): null while loading or when the aggregate failed
   // server-side, in which case we show "couldn't count" rather than zero.
   reachableCount: number | null
+  // Of reachableCount, the new contacts an import added, named like
+  // universeNewContactsCount.
+  reachableNewContactsCount?: number
   reachableLoading: boolean
   // The saved list's total people count, for copy.reachableOfTotalLine.
   // Optional so channels without the delta line pass nothing.
@@ -193,6 +219,7 @@ export const OutreachAudienceStep = ({
   universeName,
   universeListId,
   universeCount,
+  universeNewContactsCount = 0,
   universeLoading,
   onSelectUniverse,
   universePending,
@@ -211,7 +238,10 @@ export const OutreachAudienceStep = ({
   preselectedRecommendation = null,
   preselectedRecommendationApplied = false,
   onPreselectedRecommendationApplied,
+  freeOffer = null,
+  civicPanel = null,
   reachableCount,
+  reachableNewContactsCount = 0,
   reachableLoading,
   selectedListTotal = null,
   pricePerContact,
@@ -245,6 +275,11 @@ export const OutreachAudienceStep = ({
   // into an element inside the drawer's scope instead — this ref, placed on
   // the picker's own root div — and scroll works.
   const pickerRootRef = useRef<HTMLDivElement | null>(null)
+  const civicPanelSelected =
+    civicPanel !== null &&
+    civicPanel.listId !== null &&
+    civicPanel.listId === selectedId
+  const showCivicPanel = civicPanel?.show === true
   const active = lists.find((l) => l.id === selectedId) ?? null
   // Both derived from the hook's resolved id, so this step cannot disagree
   // with the hook about which row is the universe.
@@ -254,7 +289,11 @@ export const OutreachAudienceStep = ({
   // two cannot disagree: the universe has its own row at the top, so an org
   // whose only saved list IS the universe list has no ordinary rows to show
   // and does still owe the empty-state line.
-  const otherLists = lists.filter((list) => list.id !== universeListId)
+  const otherLists = lists.filter(
+    (list) =>
+      list.id !== universeListId &&
+      !(showCivicPanel && list.id === civicPanel?.listId),
+  )
   // The three nouns this step states itself, rather than reading from `copy`:
   // a surface's OutreachAudienceCopy covers the titles and bodies, but these
   // sit inside shared controls. Serve never says "voter", so they key off the
@@ -263,6 +302,12 @@ export const OutreachAudienceStep = ({
   const emptyPickerLabel = isElectedOfficial
     ? 'Choose a constituent list'
     : 'Choose a voter list'
+  // Totals keep the new contacts in, so the price stays the total's; only the
+  // words split them out.
+  const reachLine = (count: number, newContactsCount: number): string =>
+    !isElectedOfficial && newContactsCount > 0
+      ? `${copy.reachVerb} ${(count - newContactsCount).toLocaleString()} ${copy.reachNoun} and ${WIN_NEW_CONTACTS_LABELS.newContacts(newContactsCount)}`
+      : `${copy.reachVerb} ${count.toLocaleString()} ${copy.reachNoun}`
 
   // The carried-in recommendation, applied once the picker can act on it:
   // its saved list selected when the picker has that row, the card itself
@@ -308,7 +353,7 @@ export const OutreachAudienceStep = ({
     onPreselectedRecommendationApplied,
   ])
 
-  const cards =
+  const purposeCards =
     preselectedRecommendation &&
     !recommendations.some(
       (recommendation) =>
@@ -316,6 +361,21 @@ export const OutreachAudienceStep = ({
     )
       ? [preselectedRecommendation, ...recommendations]
       : recommendations
+  // The offer has its own section, so a carried-in offer card lands there.
+  const cards = purposeCards.filter(
+    (recommendation) => recommendation.variant !== ROBOCALL_FREE_OFFER_VARIANT,
+  )
+
+  // A tap on a recommendation: a list not saved yet opens the naming drawer,
+  // one already saved is selected as it is.
+  const pickRecommendation = (recommendation: RecommendedList) => {
+    if (recommendation.existingFilterId === null) {
+      setPendingRecommendation(recommendation)
+      return
+    }
+    onRecommendationReused(recommendation)
+    onSelect(recommendation.existingFilterId)
+  }
 
   if (mode === 'name') {
     return (
@@ -411,7 +471,32 @@ export const OutreachAudienceStep = ({
 
       {leadCard}
 
-      {(recommendationsLoading || recommendationsError || cards.length > 0) && (
+      {freeOffer && recommendedListsChannel && (
+        <div className="space-y-2" data-testid="free-offer-section">
+          <RecommendedListCard
+            recommendation={freeOffer.recommendation}
+            channel={recommendedListsChannel}
+            className={FREE_OFFER_CARD_CLASS}
+            overline={<FreeOfferLabel className="mb-1" />}
+            selected={
+              selectedRecommendation?.variant ===
+                freeOffer.recommendation.variant ||
+              (freeOffer.recommendation.existingFilterId !== null &&
+                freeOffer.recommendation.existingFilterId === selectedId)
+            }
+            onSelect={() => {
+              freeOffer.onPicked()
+              pickRecommendation(freeOffer.recommendation)
+            }}
+          />
+          <p className="text-sm text-muted-foreground">{freeOffer.note}</p>
+        </div>
+      )}
+
+      {(showCivicPanel ||
+        recommendationsLoading ||
+        recommendationsError ||
+        cards.length > 0) && (
         <div className="space-y-2">
           <p className="text-xs font-bold uppercase text-primary">
             Recommended for you
@@ -426,6 +511,63 @@ export const OutreachAudienceStep = ({
             </div>
           ) : (
             <div className="space-y-2">
+              {/* First: the official's own civic panel, members only. */}
+              {civicPanel && showCivicPanel && (
+                <Card
+                  role="button"
+                  tabIndex={0}
+                  aria-pressed={civicPanelSelected}
+                  aria-busy={civicPanel.pending}
+                  data-testid="civic-panel-audience-card"
+                  onClick={() => {
+                    if (civicPanel.pending) return
+                    if (civicPanel.listId !== null) {
+                      onSelect(civicPanel.listId)
+                      return
+                    }
+                    void civicPanel.resolve().then((id) => {
+                      if (id !== null) onSelect(id)
+                    })
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key !== 'Enter' && event.key !== ' ') return
+                    event.preventDefault()
+                    event.currentTarget.click()
+                  }}
+                  className={cn(
+                    'cursor-pointer flex-row items-center justify-between gap-3 p-4 text-left transition-colors outline-none focus-visible:ring-[3px] focus-visible:ring-primary-focus',
+                    !civicPanelSelected && 'hover:border-primary/50',
+                    civicPanelSelected && 'border-primary bg-primary/5',
+                  )}
+                >
+                  <span className="min-w-0 space-y-1">
+                    <span className="block font-medium text-foreground">
+                      {CIVIC_PANEL_AUDIENCE_NAME}
+                    </span>
+                    <span className="block text-sm text-muted-foreground">
+                      Only the constituents on your civic panel.
+                    </span>
+                    <span className="block text-sm text-muted-foreground">
+                      {civicPanel.members.toLocaleString()} people
+                    </span>
+                  </span>
+                  {civicPanel.pending ? (
+                    <Loader2Icon className="size-5 shrink-0 animate-spin text-primary" />
+                  ) : (
+                    civicPanelSelected && (
+                      <CheckIcon className="size-5 shrink-0 text-primary" />
+                    )
+                  )}
+                </Card>
+              )}
+              {civicPanel?.error && !civicPanel.pending && (
+                <p
+                  data-testid="civic-panel-audience-error"
+                  className="text-sm text-destructive"
+                >
+                  Couldn&apos;t build that list. Try again.
+                </p>
+              )}
               {/* The purpose's own cards failed to load; a carried-in card
                   came from its own query and is still worth showing. */}
               {recommendationsError && (
@@ -436,24 +578,21 @@ export const OutreachAudienceStep = ({
                   We couldn&apos;t load recommendations right now.
                 </p>
               )}
-              {cards.map((recommendation) => (
-                <RecommendedListCard
-                  key={recommendation.variant}
-                  recommendation={recommendation}
-                  channel={recommendedListsChannel}
-                  selected={
-                    selectedRecommendation?.variant === recommendation.variant
-                  }
-                  onSelect={() => {
-                    if (recommendation.existingFilterId === null) {
-                      setPendingRecommendation(recommendation)
-                      return
+              {recommendedListsChannel &&
+                cards.map((recommendation) => (
+                  <RecommendedListCard
+                    key={recommendation.variant}
+                    recommendation={recommendation}
+                    channel={recommendedListsChannel}
+                    selected={
+                      selectedRecommendation?.variant ===
+                        recommendation.variant ||
+                      (recommendation.existingFilterId !== null &&
+                        recommendation.existingFilterId === selectedId)
                     }
-                    onRecommendationReused(recommendation)
-                    onSelect(recommendation.existingFilterId)
-                  }}
-                />
-              ))}
+                    onSelect={() => pickRecommendation(recommendation)}
+                  />
+                ))}
               {createRecommendedListError && pendingRecommendation === null && (
                 <p
                   data-testid="recommended-list-create-error"
@@ -494,7 +633,7 @@ export const OutreachAudienceStep = ({
                       // instructing the candidate to ignore what they
                       // were just offered. Same conditional door
                       // knocking's WhoStep already applies.
-                      (cards.length > 0
+                      (cards.length > 0 || showCivicPanel
                         ? 'View your lists here'
                         : emptyPickerLabel))}
                 </p>
@@ -507,8 +646,7 @@ export const OutreachAudienceStep = ({
                       </span>
                     ) : reachableCount !== null ? (
                       <>
-                        {copy.reachVerb} {reachableCount.toLocaleString()}{' '}
-                        {copy.reachNoun}
+                        {reachLine(reachableCount, reachableNewContactsCount)}
                         {pricePerContact > 0 &&
                           ` for $${money(reachableCount * pricePerContact)}`}
                       </>
@@ -590,7 +728,7 @@ export const OutreachAudienceStep = ({
                     <span className="block text-sm text-muted-foreground">
                       {universeLoading || universeCount === null
                         ? 'Counting…'
-                        : `${copy.reachVerb} ${universeCount.toLocaleString()} ${copy.reachNoun}`}
+                        : reachLine(universeCount, universeNewContactsCount)}
                     </span>
                   </span>
                   {universePending ? (
@@ -673,7 +811,11 @@ export const OutreachAudienceStep = ({
         onOpenChange={(next) => {
           if (!next) setPendingRecommendation(null)
         }}
-        defaultName={pendingRecommendation?.copy.title ?? ''}
+        defaultName={
+          pendingRecommendation
+            ? savedRecommendedListName(pendingRecommendation)
+            : ''
+        }
         onSubmit={async (name) => {
           if (!pendingRecommendation) return
           await onCreateRecommendedList(pendingRecommendation, name)

@@ -23,7 +23,7 @@ describe('VoterReadLogService', () => {
     service.measure({
       op: 'list',
       districtId: DISTRICT_ID,
-      dataset: 'constituents',
+      dataset: { base: 'constituents' },
       read,
     })
 
@@ -41,6 +41,7 @@ describe('VoterReadLogService', () => {
       op: 'list',
       districtId: DISTRICT_ID,
       dataset: 'constituents',
+      contactOverlay: false,
       dbxMs: expect.any(Number),
       statementIds: [],
     })
@@ -91,7 +92,7 @@ describe('VoterReadLogService', () => {
       service.measure({
         op: 'list',
         districtId: DISTRICT_ID,
-        dataset: 'voters',
+        dataset: { base: 'voters' },
         read: async () => {
           await Promise.resolve()
           statementIdCollector.getStore()?.push(id)

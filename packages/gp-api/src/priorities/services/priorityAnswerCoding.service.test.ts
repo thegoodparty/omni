@@ -31,10 +31,7 @@ describe('buildCodingPrompt', () => {
     ])
   })
 
-  // A note is the canvasser describing the resident, and the classifier has
-  // to code the resident, the rule constituentFeedbackExtraction keeps too.
-  it('tells the model to code the resident, never the note-taker', () => {
-    expect(CODING_SYSTEM_PROMPT).toContain('Code what the RESIDENT said')
+  it('lists every answer code in the coding prompt', () => {
     for (const code of Object.values(PriorityAnswerCode)) {
       expect(CODING_SYSTEM_PROMPT).toContain(`"${code}"`)
     }

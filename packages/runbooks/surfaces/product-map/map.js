@@ -2,15 +2,14 @@
 // that fire on each step. Inlined only into the product map build, which renders the
 // explorer template with this in place of the events table, so the map page carries
 // the explorer's search, filters and cards and its own tree. It reads the page's
-// `DATA.events` (the explorer snapshot), `DATA.map.anchor_state` from build.py, and the
-// shared `EventCard`, `USAGE` from the page.
+// `DATA.events` (the explorer snapshot) and the shared `EventCard`, `USAGE` from the page.
 var ProductMap = (function () {
   'use strict'
   // One row per event, from the same snapshot the cards render, so a step's status and
   // volume can never disagree with the card that opens under it. Positional because the
   // renderers below were written against the seeded rows:
   // [status, count_30d, count_total, series, url, description, fires_on, pr,
-  //  instrumented_date, last_seen, anchor_state, (unused), display_name if it differs]
+  //  instrumented_date, last_seen, (unused), (unused), display_name if it differs]
   const EV = {}
   ;(DATA.events || []).forEach((e) => {
     const p = e.provenance || {}
@@ -25,7 +24,7 @@ var ProductMap = (function () {
       (p.instrumented_pr || '').replace(/\/+$/, '').split('/').pop(),
       p.instrumented_date || '',
       e.last_seen,
-      (DATA.map.anchor_state || {})[e.event_type] || 'none',
+      0,
       0,
       e.display_name !== e.event_type ? e.display_name : '',
     ]
@@ -97,14 +96,9 @@ var ProductMap = (function () {
         step: {
           id: 'manual-office-entry',
           t: 'Tell us about your office',
-          state: 'anchorgap',
+          state: 'ok',
           rec: ['2026-09-04', 1, 1],
           evs: ['Onboarding V2 - Manual Office Viewed'],
-          note: [
-            'warn',
-            'No anchor',
-            'Active in the registry, absent from <b>event_anchors.json</b>. The step is instrumented; the anchor pipeline does not know where it fires.',
-          ],
         },
       },
       right: {
@@ -153,15 +147,10 @@ var ProductMap = (function () {
       {
         id: 'signup-goal',
         t: 'What do you most want help with?',
-        state: 'anchorgap',
+        state: 'ok',
         evs: [
           'Onboarding V2 - Signup Goal Viewed',
           'Onboarding V2 - Signup Goal Completed',
-        ],
-        note: [
-          'warn',
-          'No anchor',
-          'Both events are active and both were instrumented this month. Neither is in <b>event_anchors.json</b>, so this step reads as a hole in any anchor-derived map.',
         ],
       },
       {
@@ -262,7 +251,7 @@ var ProductMap = (function () {
     intro: [
       'drift',
       'A page is not a sequence',
-      'Seventeen events are anchored to the single route <b>/dashboard</b>, from six different naming families. There is no step 3 here, so the nodes below are <b>zones</b> — the banner, the modal, the panel a person actually sees — grouped from each event’s own <code>fires_on</code> sentence. Nothing in the code declares these zones, which is the honest weakness of this view: for a page the grouping is inferred, not read.',
+      'Seventeen events are recorded at the single route <b>/dashboard</b>, from six different naming families. There is no step 3 here, so the nodes below are <b>zones</b> — the banner, the modal, the panel a person actually sees — grouped from each event’s own <code>fires_on</code> sentence. Nothing in the code declares these zones, which is the honest weakness of this view: for a page the grouping is inferred, not read.',
     ],
     zones: [
       {
@@ -327,8 +316,8 @@ var ProductMap = (function () {
       },
     ],
     unplaced: {
-      title: 'Five events anchored here that say they fire somewhere else',
-      body: 'Each of these is anchored to <b>/dashboard</b>, and each one’s own <code>fires_on</code> sentence puts it in Voter Data at <b>/dashboard/contacts</b>. The two List Wizard events are drawn on Create a list. The anchor and the anchor’s own prose disagree, which is a cheap check nothing currently runs.',
+      title: 'Five events recorded here that say they fire somewhere else',
+      body: 'Each of these is recorded at <b>/dashboard</b>, and each one’s own <code>fires_on</code> sentence puts it in Voter Data at <b>/dashboard/contacts</b>. The two List Wizard events are drawn on Create a list. The recorded route and the event’s own description disagree.',
       evs: [
         'Contacts - List Wizard Method Viewed',
         'Contacts - List Wizard Conditions Viewed',
@@ -468,7 +457,7 @@ var ProductMap = (function () {
         evs: [],
         empty: {
           src: 'packages/gp-webapp/app/polls/onboarding/components/steps/PickSendDateStep.tsx',
-          why: 'Step 5 of 7 in a live flow. No <code>trackEvent</code> call in the component, nothing in the EVENTS registry matching a send date, and no event anchored to this step. Every step around it fires a Viewed event, so the drop-off between Strategy and Add Image cannot be attributed.',
+          why: 'Step 5 of 7 in a live flow. No <code>trackEvent</code> call in the component, nothing in the EVENTS registry matching a send date, and no event placed on this step. Every step around it fires a Viewed event, so the drop-off between Strategy and Add Image cannot be attributed.',
         },
       },
       {
@@ -555,7 +544,7 @@ var ProductMap = (function () {
       {
         id: 'plan-download',
         t: 'Downloading the plan',
-        state: 'anchorgap',
+        state: 'ok',
         evs: ['Dashboard - Campaign Plan: Plan Downloaded'],
         note: [
           'warn',
@@ -1586,26 +1575,6 @@ var ProductMap = (function () {
     '?view=All&eventsTab=Events&tab=DETAILS&propertyValidityFilter=All%2520Properties'
   const prUrl = (pr) => `https://github.com/thegoodparty/omni/pull/${pr}`
 
-  // The explorer blanks every 'n/a (...)' route, which hides three different
-  // situations behind one empty string. Each wants a different next action.
-  const ANCHOR = {
-    ok: null,
-    none: [
-      'warn',
-      'no anchor',
-      'No anchor record exists. The route this fires on is unrecorded.',
-    ],
-    nosite: [
-      'warn',
-      'call site unknown',
-      'Anchored, but no call site was found — usually dynamic dispatch.',
-    ],
-    noroute: [
-      'mute',
-      'no route',
-      'Anchored as deliberately routeless. Nothing to place on a page.',
-    ],
-  }
   // Compare the first path segment, not the whole route: /onboarding and
   // /onboarding/[slug]/[step] are the same surface; /polls/onboarding is not.
   const family = (r) => (r || '').split('/').filter(Boolean)[0] || ''
@@ -1648,9 +1617,7 @@ var ProductMap = (function () {
       `Where it sits: ${ctx}`,
       `Status: ${st}, ${num(c30)} events in the last 30 days.`,
       fires ? `Fires on: ${fires}` : '',
-      url
-        ? `Route: ${url}`
-        : `Route: not anchored — no record of where this fires.`,
+      url ? `Route: ${url}` : '',
       desc ? `Answers: ${desc}` : '',
       pr
         ? `Instrumented in https://github.com/thegoodparty/omni/pull/${pr}${idate ? ` on ${idate}` : ''}`
@@ -1665,7 +1632,7 @@ var ProductMap = (function () {
 
   // The event card is the shared one (surfaces/shared/card.js), rendered into this slot
   // the first time the row opens. What the map adds underneath is what only the map
-  // knows: how the event is anchored to this step, and a prepared prompt.
+  // knows: a prepared prompt.
   function detail(name, e, ctx) {
     return `<div class="cardslot" data-card="${esc(name)}" data-ctx="${esc(ctx)}"></div>`
   }
@@ -1677,11 +1644,6 @@ var ProductMap = (function () {
       e = EV[name]
     slot.appendChild(EventCard.render(name))
     const extras = []
-    const A = e && ANCHOR[e[10]]
-    if (A)
-      extras.push(
-        `<div class="mnote ${A[0] === 'mute' ? 'drift' : 'warn'}"><span class="mk">${esc(A[1])}</span><span>${esc(A[2])}</span></div>`,
-      )
     if (e)
       extras.push(
         `<div class="acts"><button class="act" data-copy="${esc(claudePrompt(name, e, ctx))}">Copy a prompt for Claude ${ICON_COPY}</button></div>`,
@@ -1744,11 +1706,9 @@ var ProductMap = (function () {
     const st = e[0],
       tags = []
     if (propVal) tags.push(['ok', (propKey || 'step') + ' = ' + propVal])
-    if (forceUnclean) tags.push(['warn', 'anchor disagrees'])
+    if (forceUnclean) tags.push(['warn', 'route disagrees'])
     if (opts && opts.legacy && name.startsWith(opts.legacy))
       tags.push(['drift', 'legacy'])
-    const A = ANCHOR[e[10]]
-    if (A) tags.push([A[0], A[1]])
     const card = (DATA.event_cards || {})[name]
     if (card && (card.okr_metrics || []).some((m) => !m.historical))
       tags.push(['okr', 'OKR'])
@@ -1756,7 +1716,6 @@ var ProductMap = (function () {
     const clean =
       !forceUnclean &&
       st === 'active' &&
-      e[10] === 'ok' &&
       !(opts && opts.legacy && name.startsWith(opts.legacy))
     // The label is what a person reads in Amplitude; the type is what every chart
     // filters on. They match for 589 of 593 events, so the type is only spelled
@@ -1850,7 +1809,7 @@ var ProductMap = (function () {
 
   function relabelHTML(r) {
     const p =
-      'Nine analytics events display in Amplitude as "Serve Onboarding - ..." but every one is anchored to /polls/onboarding, which is the poll onboarding flow, not Serve onboarding. Serve onboarding is a separate flow at /serve/onboarding with its own events.\n\n' +
+      'Nine analytics events display in Amplitude as "Serve Onboarding - ..." but every one is recorded at /polls/onboarding, which is the poll onboarding flow, not Serve onboarding. Serve onboarding is a separate flow at /serve/onboarding with its own events.\n\n' +
       r.pairs.map(([a, b]) => `${a}  ->  ${b}`).join('\n') +
       '\n\nThese are display-name changes, not renames: the event type stays as it is. All nine are ingested and active, so Amplitude should set displayName only and leave the type alone — confirm that, check whether anything downstream reads the display name rather than the type, and tell me whether to go ahead.'
     return `<div class="rename"><h4>${esc(r.title)}</h4><p>${r.body}</p>
@@ -1908,9 +1867,6 @@ var ProductMap = (function () {
       ...nodes.flatMap((s) => (s.evs || []).map((n) => (EV[n] ? EV[n][1] : 0))),
     )
     const all = [...new Set(nodes.flatMap(stepNames))]
-    const gaps = all.filter(
-      (n) => EV[n] && (EV[n][10] === 'none' || EV[n][10] === 'nosite'),
-    ).length
     const overlap = nodes.filter((s) => s.state === 'overlap').length
     const bare = nodes.filter((s) => s.state === 'none').length
     const unit = f.kind === 'page' ? 'zone' : 'step'
@@ -1919,12 +1875,11 @@ var ProductMap = (function () {
       stats.push(
         `<span class="stat alert">${bare} ${unit}${bare === 1 ? '' : 's'} with none</span>`,
       )
-    if (gaps) stats.push(`<span class="stat warn">${gaps} unplaceable</span>`)
     if (overlap)
       stats.push(`<span class="stat drift">${overlap} overlapping</span>`)
     if (f.unplaced)
       stats.push(
-        `<span class="stat warn">${f.unplaced.evs.length} misanchored</span>`,
+        `<span class="stat warn">${f.unplaced.evs.length} misplaced</span>`,
       )
     if (f.relabel)
       stats.push(
@@ -1966,9 +1921,9 @@ var ProductMap = (function () {
     }
     if (f.relabel) body += relabelHTML(f.relabel)
     body +=
-      '<div class="allclear">Everything else on this surface is active and anchored.</div>'
+      '<div class="allclear">Everything else on this surface is active.</div>'
 
-    const clean = !gaps && !overlap && !bare && !f.relabel && !f.unplaced
+    const clean = !overlap && !bare && !f.relabel && !f.unplaced
     return {
       clean,
       html: `<details class="flow" data-clean="${clean ? 1 : 0}" data-key="${esc('flow:' + f.name)}"${openAttr}><summary class="fsum">${ICON_CARET}
@@ -2055,29 +2010,19 @@ var ProductMap = (function () {
       </dl>
     </section>
     <section>
-      <h4>Do we know where it happens?</h4>
-      <p class="gnote">Separately from recording the action, we keep a note of which web page it happens on. That note is called an <b>anchor</b>.</p>
-      <dl>
-        <dt>No anchor</dt><dd>The event records fine, but we have no note of which page it happens on. A gap in our records, not a broken feature.</dd>
-        <dt>Call site unknown</dt><dd>We have a note, but could not find the line of code that sends it.</dd>
-        <dt>No route</dt><dd>It does not belong to any one page, for example something recorded by our servers.</dd>
-        <dt>Anchor disagrees</dt><dd>Our note says one page, but the event's own description says another.</dd>
-      </dl>
-    </section>
-    <section>
       <h4>The counts on each flow</h4>
       <dl>
         <dt>N events</dt><dd>How many different actions we record anywhere in this flow.</dd>
         <dt>Steps with none</dt><dd>Screens where we record nothing, so we cannot tell how many people saw them or left there.</dd>
-        <dt>Unplaceable</dt><dd>Events in this flow we cannot tie to a page, because of the anchor gaps above.</dd>
         <dt>Overlapping</dt><dd>Steps where an old and a new version of the same events both record, which can double count.</dd>
-        <dt>Misanchored</dt><dd>Events whose page note points somewhere other than where they really happen.</dd>
+        <dt>Misplaced</dt><dd>Events whose recorded page is somewhere other than where they really happen.</dd>
         <dt>Relabel</dt><dd>Suggested name changes for how an event is displayed. The underlying name stays, so reports keep working.</dd>
       </dl>
     </section>
     <section>
       <h4>Other labels</h4>
       <dl>
+        <dt>Route disagrees</dt><dd>The page we have recorded for it and its own description name different places.</dd>
         <dt>step = audience</dt><dd>One event covers several steps, and a detail sent with it says which step. Its count is for all steps together.</dd>
         <dt>Declared in productMap</dt><dd>This area is on the list our in-product assistants use to tell people where things are, and a check keeps that list up to date.</dd>
         <dt>Not in productMap</dt><dd>The assistants cannot point people here, and nothing checks this area when it changes. Onboarding is the main example.</dd>
@@ -2099,8 +2044,7 @@ var ProductMap = (function () {
       pill('data-show', 'healthy', 'Healthy only', SHOW === 'healthy') +
       `</div>` +
       `<div class="maplegend">
-      <span><i class="sw ok"></i> Instrumented and anchored</span>
-      <span><i class="sw warn"></i> Fires, but no anchor — route unknown</span>
+      <span><i class="sw ok"></i> Instrumented</span>
       <span><i class="sw drift"></i> Two event generations live at once</span>
       <span><i class="sw alert"></i> Step with no event at all</span>
     </div>` +
@@ -2136,11 +2080,10 @@ var ProductMap = (function () {
     <li><b>Steps are drawn by hand.</b> Event numbers refresh with the explorer twice a week; the steps themselves are read from each flow's code once and do not yet notice when a flow changes.</li>
   </ul>
 </div>
-<p class="mapfoot">Coverage here is a best guess. An event missing from a step can mean uninstrumented, instrumented
-  but unanchored, or a step that does not warrant one. This view separates the first two and cannot
-  yet judge the third. Steps come from each flow's own config in <code>gp-webapp</code>; event
-  status, volume, weekly series and provenance from the explorer snapshot; routes from
-  <code>event_anchors.json</code>.</p>`
+<p class="mapfoot">Coverage here is a best guess. An event missing from a step can mean the step is
+  uninstrumented or does not warrant one, and this view cannot yet tell which. Steps come from each
+  flow's own config in <code>gp-webapp</code>; event status, volume, weekly series, provenance and
+  routes from the explorer snapshot.</p>`
 
   document.addEventListener('click', (ev) => {
     const sum = ev.target.closest(

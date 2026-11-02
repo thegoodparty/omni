@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render } from 'helpers/test-utils/render'
 import { act, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -27,7 +27,7 @@ type SurfaceProps = React.ComponentProps<
 const renderHome = () =>
   render(
     <CampaignManagerChatProvider>
-      <CampaignManagerHome tcrCompliance={null} />
+      <CampaignManagerHome />
     </CampaignManagerChatProvider>,
   )
 
@@ -65,6 +65,16 @@ vi.mock('next/navigation', () => ({
   usePathname: () => '/dashboard',
   useSearchParams: () => new URLSearchParams(window.location.search),
 }))
+
+// The free robocall offer, as gp-api answers it. Not offered by default.
+let mockFreeOffer: { offer: { eligible: true } | null } = { offer: null }
+vi.mock('app/dashboard/shared/robocallFreeOffer/useRobocallFreeOffer', () => ({
+  useRobocallFreeOffer: () => mockFreeOffer,
+}))
+
+afterEach(() => {
+  mockFreeOffer = { offer: null }
+})
 
 const surfacePropsMock = vi.fn<(props: SurfaceProps) => void>()
 
@@ -133,32 +143,9 @@ vi.mock(
   }),
 )
 
-// The Pro banner + progress section are the legacy dashboard widgets (their own
-// campaign/voter-contact providers); this smoke test only covers the home's
-// composition, so stub them out.
-vi.mock('../components/campaignManager/ProUpgradeBanner', () => ({
-  default: () => null,
-}))
-// Echo the prop so the composition test can assert the home passes the
-// server-fetched record through (the banner's own gating has its own tests).
-vi.mock('../components/campaignManager/TextingSetupBanner', () => ({
-  default: ({
-    tcrCompliance,
-  }: {
-    tcrCompliance: { status: string } | null
-  }) => (
-    <div
-      data-testid="texting-setup-banner"
-      data-tcr-status={tcrCompliance?.status ?? 'none'}
-    />
-  ),
-}))
-// Rendered rather than nulled out: the composition test below is the guard
-// against this card going missing again, and its own Pro gating / status
-// branching is covered in ProUpgrade3ComplianceCard.test.tsx.
-vi.mock('../components/campaignManager/ProUpgrade3ComplianceCard', () => ({
-  default: () => <div data-testid="pro-upgrade-3-compliance-card" />,
-}))
+// The progress section is a legacy dashboard widget (its own campaign/
+// voter-contact providers); this smoke test only covers the home's
+// composition, so stub it out.
 vi.mock('../components/campaignManager/ProgressSection', () => ({
   default: () => null,
 }))
@@ -173,6 +160,17 @@ vi.mock('../chief-of-staff/data/use-chat-history', async (importOriginal) => ({
 }))
 
 // An incomplete story, so the manager still offers to personalize.
+// The election-result question only asks once an election has passed.
+vi.mock('app/dashboard/campaign-manager/useElectionResultChat', () => ({
+  useElectionResultChat: () => ({
+    asking: false,
+    pending: false,
+    opener: [],
+    openerKey: 'election-result-ask',
+    suggestions: [],
+    reset: () => undefined,
+  }),
+}))
 vi.mock('app/dashboard/campaign-story/useCampaignStoryComplete', () => ({
   useCampaignStoryComplete: vi.fn(() => ({
     isComplete: false,
@@ -493,32 +491,11 @@ describe('CampaignManagerHome story auto-launch', () => {
     // A later re-render (e.g. a sibling state update) must not refire it.
     rerender(
       <CampaignManagerChatProvider>
-        <CampaignManagerHome tcrCompliance={null} />
+        <CampaignManagerHome />
       </CampaignManagerChatProvider>,
     )
     expect(createMock).toHaveBeenCalledTimes(1)
     expect(streamMessageMock).toHaveBeenCalledTimes(1)
-  })
-
-  it('renders the texting-setup banner with the server-fetched record (ENG-10858)', () => {
-    renderHome()
-
-    // The story-cohort home must include the banner (the legacy CampaignManager
-    // home renders it too); tcrCompliance={null} flows through untouched.
-    expect(screen.getByTestId('texting-setup-banner')).toHaveAttribute(
-      'data-tcr-status',
-      'none',
-    )
-  })
-
-  it('renders the texting compliance card, so a pending PIN has a home', () => {
-    renderHome()
-
-    // PR #1273: without the card, a candidate awaiting their PIN had no
-    // dashboard surface at all, since the banner hides once a record exists.
-    expect(
-      screen.getByTestId('pro-upgrade-3-compliance-card'),
-    ).toBeInTheDocument()
   })
 
   it('does not auto-launch the story flow without the personalize deep link', () => {
@@ -757,5 +734,44 @@ describe('CampaignManagerHome skipping a task', () => {
     expect(
       screen.queryByRole('menuitem', { name: 'Show in 3 days' }),
     ).not.toBeInTheDocument()
+  })
+})
+
+describe('CampaignManagerHome free robocall offer', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-10-08T12:00:00'))
+    return () => vi.useRealTimers()
+  })
+
+  const offerTask: CampaignTrackerTask = {
+    ...doorsTask,
+    id: 'offer',
+    title:
+      'Send a free promotional robocall to landline voters in selected precincts',
+    flowType: 'robocall',
+    date: '2026-10-08T00:00:00.000Z',
+    link: '/dashboard/outreach?compose=robocall&source=campaign_tracker&recommended=freeOfferElectionEveRobocall',
+  }
+
+  it('leads with the offer as the one card, ahead of the plan', async () => {
+    mockFreeOffer = { offer: { eligible: true } }
+    mockTasks = [doorsTask, offerTask]
+    renderHome()
+
+    expect(
+      await screen.findByRole('heading', { level: 3, name: offerTask.title }),
+    ).toBeInTheDocument()
+    expect(screen.queryByTestId('robocall-free-offer-card')).toBeNull()
+  })
+
+  it('shows no offer card once the offer has ended', async () => {
+    mockTasks = [doorsTask]
+    renderHome()
+
+    expect(
+      await screen.findByRole('heading', { level: 3, name: 'Knock on Doors' }),
+    ).toBeInTheDocument()
+    expect(screen.queryByTestId('robocall-free-offer-card')).toBeNull()
   })
 })

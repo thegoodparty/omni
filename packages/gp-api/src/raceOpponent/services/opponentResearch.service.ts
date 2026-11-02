@@ -23,8 +23,8 @@ import {
 import { CampaignWith } from '@/campaigns/campaigns.types'
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
 import { AgentJobContracts } from '@/generated/agent-job-contracts'
-import { ElectionApiService } from '@/campaignStrategy/services/electionApi.service'
-import { RaceContextFromApi } from '@/campaignStrategy/types/electionApi.types'
+import { RaceContextService } from '@/campaignStrategy/services/raceContext.service'
+import { ElectionRaceContext } from '@/campaignStrategy/types/raceContext.types'
 import { getUserFullName } from '@/users/util/users.util'
 import { serializeWebsiteIssues } from '@/websites/util/serializeWebsiteIssues.util'
 import { RaceOpponentService } from './raceOpponent.service'
@@ -114,7 +114,7 @@ export class OpponentResearchService extends createPrismaBase(
     private readonly raceOpponent: RaceOpponentService,
     private readonly selfResearchGate: SelfResearchGateService,
     private readonly experimentRuns: ExperimentRunsService,
-    private readonly electionApi: ElectionApiService,
+    private readonly raceContextService: RaceContextService,
   ) {
     super()
   }
@@ -498,7 +498,7 @@ export class OpponentResearchService extends createPrismaBase(
   }
 
   private matchRosterCandidate(
-    raceContext: RaceContextFromApi | null,
+    raceContext: ElectionRaceContext | null,
     opponentName: string,
   ) {
     if (!raceContext) return null
@@ -512,12 +512,12 @@ export class OpponentResearchService extends createPrismaBase(
 
   private async tryRaceContext(
     campaign: CampaignWith<'user'>,
-  ): Promise<RaceContextFromApi | null> {
+  ): Promise<ElectionRaceContext | null> {
     const details = CampaignDetailsSchema.safeParse(campaign.details)
     const raceId = details.success ? (details.data.raceId ?? '').trim() : ''
     if (raceId.length === 0) return null
     try {
-      return await this.electionApi.getRaceContext(raceId)
+      return await this.raceContextService.getRaceContext(raceId)
     } catch {
       this.logger.warn(
         { campaignId: campaign.id, raceId },

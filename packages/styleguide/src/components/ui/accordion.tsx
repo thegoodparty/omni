@@ -12,6 +12,13 @@ const AccordionContext = React.createContext<{ size: AccordionSize }>({
   size: 'default',
 })
 
+/**
+ * Never hide instructions a user needs inside an item; put them on a prep
+ * screen. Use size="sm" in sidebars and compact layouts.
+ *
+ * @summary Use for a stack of sections the user expands one or more of, like a
+ * list of opponents. For a single show-more toggle, use Collapsible.
+ */
 function Accordion({
   size = 'default',
   ...props

@@ -1,3 +1,9 @@
+// The two answers to "Voted in election" on a saved list (Win only).
+enum VotedStatus {
+  already_voted
+  unknown
+}
+
 model VoterFileFilter {
   id                         Int                                @id @default(autoincrement())
   createdAt                  DateTime                           @default(now()) @map("created_at")
@@ -63,6 +69,10 @@ model VoterFileFilter {
   /// Encoded `county|precinct` pairs; an empty precinct side is the "no
   /// precinct on file" bucket. Per-district vocabulary, so there is no enum.
   precincts                  String[]                           @default([]) @map("precincts")
+  /// Win only. `voterFile` (people the voter file holds) and/or `imported`
+  /// (people only an import added, new contacts). Both, or neither, is no
+  /// constraint.
+  source                     String[]                           @default([]) @map("source")
   incomeUnknown              Boolean?                           @default(false) @map("income_unknown")
   ethnicityAsian             Boolean?                           @default(false) @map("ethnicity_asian")
   ethnicityEuropean          Boolean?                           @default(false) @map("ethnicity_european")
@@ -128,6 +138,12 @@ model VoterFileFilter {
   organizationSlug           String                             @map("organization_slug")
   organization               Organization                       @relation(fields: [organizationSlug], references: [slug], onDelete: Cascade)
   supportStatus              SupportStatusRollup[]              @default([]) @map("support_status")
+  /// Win only. "Voted in election": already_voted (Yes) selects people L2
+  /// reports as voting early or absentee, or whose latest will-vote answer
+  /// this election is already_voted; unknown (No/Unknown) selects everyone
+  /// else. Both, or neither, is no constraint. Derived on read, so a saved
+  /// list sheds people as they vote.
+  votedStatus                VotedStatus[]                      @default([]) @map("voted_status")
   firstUsedForOutreachAt     DateTime?                          @map("first_used_for_outreach_at")
   activityConditions         VoterFileFilterActivityCondition[]
   /// [GeoJsonShape]
@@ -172,7 +188,7 @@ model VoterFileFilter {
   sampleSize                 Int?                               @map("sample_size")
   sampledAt                  DateTime?                          @map("sampled_at")
   sampleMembers              VoterFileFilterSampleMember[]
-  civicPanelBuildStep        CivicPanelBuildStep?
+  managedPanelWaves          ManagedPanelWave[]
   /// Registry key of the recommendation this list was created from; null
   /// means user-built. Set once at create time, never re-derived.
   recommendedVariant         String?                            @map("recommended_variant")
@@ -181,6 +197,11 @@ model VoterFileFilter {
   /// Whether the candidate edited the recommendation before submitting.
   /// Null (not false) when recommendedVariant is null.
   recommendedModified        Boolean?                           @map("recommended_modified")
+  /// Serve. Set on a list our code saved as a civic panel invite's
+  /// audience: a managed panel wave's draw, or the panel's first text. The
+  /// outreach that used it keeps it, but the lists index leaves it out, since
+  /// the office's one panel list is the built-in Civic panel row.
+  civicPanelInvite           Boolean                            @default(false) @map("civic_panel_invite")
 
   @@index([organizationSlug])
   @@map("voter_file_filter")

@@ -91,11 +91,9 @@ beforeEach(async () => {
   vi.spyOn(stub(ContactsService), 'findContactsForFilter').mockImplementation(
     findContactsForFilter,
   )
-  vi.spyOn(stub(ContactsService), 'resolvePeopleDataset').mockResolvedValue(
-    'constituents' as Awaited<
-      ReturnType<ContactsService['resolvePeopleDataset']>
-    >,
-  )
+  vi.spyOn(stub(ContactsService), 'resolvePeopleDataset').mockResolvedValue({
+    base: 'constituents',
+  } as Awaited<ReturnType<ContactsService['resolvePeopleDataset']>>)
   vi.spyOn(
     stub(ContactInteractionTextService),
     'findOptedOutPersonIds',
@@ -278,7 +276,7 @@ describe('POST /v1/outreach/serve/poll', () => {
   it('returns 400 when the composed text is over the cap', async () => {
     await service.prisma.user.update({
       where: { id: service.user.id },
-      data: { firstName: 'A'.repeat(600), lastName: 'B'.repeat(100) },
+      data: { firstName: 'A'.repeat(1900), lastName: 'B'.repeat(100) },
     })
     const res = await postCreate(createBody({ question: 'Q'.repeat(480) }))
 

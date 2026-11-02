@@ -58,6 +58,12 @@ it is, what to do next, and where it has got to.
   router cache, as it was first loaded, so a priority added since would be
   missing and the row in its place would open an older one. A change made on
   the page before the read lands wins over it.
+- **Below `sm` the step chip sits under the title.** Beside the title it left
+  it a few letters wide on a phone, so there it drops under it and the title
+  and next action get two lines each. From `sm` up the row is one line, the
+  chip on the right.
+- **Rows carry no lane badge.** Where a priority came from is a filter chip
+  above the list, not a label on each row.
 - **Archive is per row and takes one click.** gp-api soft-archives, so the
   record survives; the row leaves the list.
 
@@ -66,13 +72,19 @@ it is, what to do next, and where it has got to.
 Everything fires under `Priorities -`. The browser fires what only it sees:
 `List Viewed` (with per-lane counts), `Priority Viewed` (with the step it
 opened on, whether the thread is new, its `entry` and the read it opened
-with) and `Get Answers Clicked` (`source` strip, rail or results_page, only
-when the turn is actually queued). What the official types or picks in a
+with: `readStatus` waiting or good, `groupsHeard` of `groupsTotal`),
+`Get Answers Clicked` (`source` strip, rail or results_page, only when the
+turn is actually queued, with `readStatus` and `groupsShort`) and
+`Outreach Proposed` (each proposal card the agent draws live: `round` one or
+follow_up, `sampleSize`, `targetGroup` main, contrast, unreached_areas or
+everyone, `channel` text, door or call; never a report back or a social
+post). What the official types or picks in a
 clarify card is `AI Chat - Message Sent` (`shared/agent-chat/chatAnalytics.ts`);
 the hidden kickoff, sent markers and Get answers turn never fire it.
 `Results Viewed` fires on the results page with `heldBack` and
 `readStatus` (the read's status, snake case, `readStatusProperty.ts`),
-`answersFloor` and `groupsHeard` of `groupsTotal`. A
+`answersFloor` and `groupsHeard` of `groupsTotal`, plus `themes` (how many)
+when it is not held back. A
 priority card's outreach carries `launchSource` on the `Outreach -` events:
 `expand_panel` when the card answers a Get answers turn (read from the user
 turn before it, so it survives a reload), `priorities` otherwise. Creates,
@@ -86,8 +98,8 @@ tool calls and real sends move a step or a check. Do not fire those here.
 `PrioritySource.win_import` is a position the official carried over from when
 they ran. The lane reads **From your platform**, not "From your campaign": a
 sitting official has an office and a term, and no campaign
-(`docs/product-vocabulary.md`). The chips and the row badges both read from
-`SOURCE_META`, so a lane cannot be named two ways.
+(`docs/product-vocabulary.md`). The filter chips read their names from
+`SOURCE_META`.
 
 ## Chrome comes from Ordinances
 

@@ -5,6 +5,9 @@ import { ContactInteractionTextService } from '@/contactInteraction/services/con
 import { VoterQueryService } from '@/peopleDb/services/voterQuery.service'
 import { QueueProducerService } from '@/queue/producer/queueProducer.service'
 import { QueueType } from '@/queue/queue.types'
+import { appEnvOverrides } from '@/shared/test-utils/appEnvOverrides'
+import { BadGatewayException } from '@nestjs/common'
+import { AxiosError, AxiosHeaders } from 'axios'
 import { subMinutes } from 'date-fns'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
@@ -15,6 +18,7 @@ import {
 } from '../../../generated/prisma'
 import { calcTextAmountInCents } from '../../../shared/util/textPricing.util'
 import { P2pPhoneListUploadService } from './p2pPhoneListUpload.service'
+import { PeerlyHttpService } from './peerlyHttp.service'
 import { PeerlyPhoneListService } from './peerlyPhoneList.service'
 import { PeerlyPhoneListCaptureService } from './peerlyPhoneListCapture.service'
 
@@ -700,16 +704,17 @@ describe('POST /v1/p2p/phone-list (ENG-10800 opt-out scrub)', () => {
   it(
     'skips the scrub and still sends when the opt-out set exceeds the ' +
       'people-api id-filter cap',
-    { timeout: 30_000 },
     async () => {
+      appEnvOverrides.MAX_RESOLVED_ID_SET_SIZE = 2
       await seedWinCampaign()
-      // A single INSERT ... SELECT is far cheaper than materializing 100k+
-      // rows client-side; only person_id needs to vary per row.
-      await service.prisma.$executeRaw`
-        INSERT INTO contact_interaction_text (id, organization_slug, person_id, occurred_at, opted_out_at)
-        SELECT gen_random_uuid()::text, ${WIN_SLUG}, 'cap-person-' || gen_series, now(), now()
-        FROM generate_series(1, 100001) AS gen_series
-      `
+      await service.prisma.contactInteractionText.createMany({
+        data: Array.from({ length: 3 }, (_, i) => ({
+          organizationSlug: WIN_SLUG,
+          personId: `cap-person-${i}`,
+          occurredAt: new Date(),
+          optedOutAt: new Date(),
+        })),
+      })
 
       const post = stubPeopleApi([personPayload()])
       stubPeerlyUpload()
@@ -735,8 +740,8 @@ describe('POST /v1/p2p/phone-list (ENG-10800 opt-out scrub)', () => {
   it(
     'drops the opt-out merge (not the send) when it would combine with an ' +
       'existing notIn resolution past the people-api id-filter cap',
-    { timeout: 45_000 },
     async () => {
+      appEnvOverrides.MAX_RESOLVED_ID_SET_SIZE = 5
       await seedWinCampaign()
       // supportStatus: ['unknown'] resolves to a notIn of every known
       // (non-unknown) support answer — seed enough door-knock rows that this
@@ -749,12 +754,12 @@ describe('POST /v1/p2p/phone-list (ENG-10800 opt-out scrub)', () => {
       await service.prisma.$executeRaw`
         INSERT INTO contact_interaction_door_knock (id, organization_slug, person_id, occurred_at, outcome, support_answer)
         SELECT gen_random_uuid()::text, ${WIN_SLUG}, '10000000-0000-0000-0000-' || lpad(gen_series::text, 12, '0'), now(), 'answered', 'supporter'
-        FROM generate_series(1, 60000) AS gen_series
+        FROM generate_series(1, 3) AS gen_series
       `
       await service.prisma.$executeRaw`
         INSERT INTO contact_interaction_text (id, organization_slug, person_id, occurred_at, opted_out_at)
         SELECT gen_random_uuid()::text, ${WIN_SLUG}, '20000000-0000-0000-0000-' || lpad(gen_series::text, 12, '0'), now(), now()
-        FROM generate_series(1, 50000) AS gen_series
+        FROM generate_series(1, 3) AS gen_series
       `
 
       const post = stubPeopleApi([personPayload()])
@@ -770,10 +775,10 @@ describe('POST /v1/p2p/phone-list (ENG-10800 opt-out scrub)', () => {
       const sentNotIn = (
         post.mock.calls[0]?.[0].filters.filterOperators.id?.values ?? []
       ).map(String)
-      // The support-status notIn resolution rode through unchanged (60k);
+      // The support-status notIn resolution rode through unchanged (3);
       // the opt-out ids did NOT get unioned in — proof the merge was
       // dropped rather than sent past the cap or blocking the send.
-      expect(sentNotIn).toHaveLength(60_000)
+      expect(sentNotIn).toHaveLength(3)
       expect(sentNotIn.some((id) => id.startsWith('20000000-'))).toBe(false)
     },
   )
@@ -1108,6 +1113,10 @@ describe('POST /v1/p2p/phone-list (build-status row lifecycle)', () => {
 describe('GET /v1/p2p/phone-list/build/:buildId/status (additive build-status route)', () => {
   it('returns 202 for a queued build with no token yet', async () => {
     const campaign = await seedWinCampaign()
+    const checkStatus = vi.spyOn(
+      service.app.get(PeerlyPhoneListService),
+      'checkPhoneListStatus',
+    )
     const build = await service.prisma.peerlyPhoneList.create({
       data: { organizationSlug: WIN_SLUG, campaignId: campaign.id },
     })
@@ -1117,6 +1126,52 @@ describe('GET /v1/p2p/phone-list/build/:buildId/status (additive build-status ro
       { headers: { [ORG_SLUG_HEADER]: WIN_SLUG } },
     )
 
+    expect(result.status).toBe(202)
+    expect(result.data).toEqual({
+      message: 'Phone list build is still in progress. Please try again.',
+    })
+    expect(checkStatus).not.toHaveBeenCalled()
+  })
+
+  it('returns 202, not 502, when Peerly answers the status check with a gateway error', async () => {
+    const campaign = await seedWinCampaign()
+    const build = await service.prisma.peerlyPhoneList.create({
+      data: {
+        organizationSlug: WIN_SLUG,
+        campaignId: campaign.id,
+        token: 'gateway-error-token',
+        buildStatus: 'processing',
+      },
+    })
+    // Earlier tests leave checkPhoneListStatus stubbed; this one needs the
+    // real method so the gateway error reaches its catch.
+    vi.spyOn(
+      service.app.get(PeerlyPhoneListService),
+      'checkPhoneListStatus',
+    ).mockRestore()
+    const httpGet = vi.spyOn(service.app.get(PeerlyHttpService), 'get')
+    httpGet.mockRejectedValue(
+      new AxiosError(
+        'Request failed with status code 502',
+        AxiosError.ERR_BAD_RESPONSE,
+        undefined,
+        undefined,
+        {
+          data: { error: 'Bad gateway' },
+          status: 502,
+          statusText: 'Bad Gateway',
+          headers: {},
+          config: { headers: new AxiosHeaders() },
+        },
+      ),
+    )
+
+    const result = await service.client.get(
+      `/v1/p2p/phone-list/build/${build.id}/status`,
+      { headers: { [ORG_SLUG_HEADER]: WIN_SLUG } },
+    )
+
+    httpGet.mockRestore()
     expect(result.status).toBe(202)
   })
 
@@ -1262,6 +1317,10 @@ describe('GET /v1/p2p/phone-list/build/:buildId/status (additive build-status ro
 
   it('404s a build the campaign does not own', async () => {
     await seedWinCampaign()
+    const checkStatus = vi.spyOn(
+      service.app.get(PeerlyPhoneListService),
+      'checkPhoneListStatus',
+    )
     await service.prisma.organization.create({
       data: { slug: 'other-org-build-status', ownerId: service.user.id },
     })
@@ -1285,6 +1344,7 @@ describe('GET /v1/p2p/phone-list/build/:buildId/status (additive build-status ro
     )
 
     expect(result.status).toBe(404)
+    expect(checkStatus).not.toHaveBeenCalled()
   })
 
   it('still 404s the old token route for the same row at its pre-token (queued) state, unaffected by the new route', async () => {
@@ -1431,6 +1491,34 @@ describe('P2P phone-list async build (Voter Outreach 2.0 S3b, managed flag gated
           where: { peerlyPhoneListId: build.id },
         }),
       ).toBe(1)
+    })
+
+    it('checks in while it resolves, so a long build is never reaped', async () => {
+      const campaign = await seedWinCampaign()
+      const people = Array.from({ length: 10_000 }, (_, i) =>
+        personPayload({
+          id: `00000000-0000-0000-0000-${String(i).padStart(12, '0')}`,
+          cellPhone: `555${String(i).padStart(7, '0')}`,
+        }),
+      )
+      stubPeopleApiPaginated(
+        Array.from({ length: 10 }, (_, page) =>
+          people.slice(page * 1000, (page + 1) * 1000),
+        ),
+      )
+      stubPeerlyUpload()
+      const touch = vi.spyOn(
+        service.app.get(PeerlyPhoneListCaptureService),
+        'touchBuilding',
+      )
+      const build = await createQueuedRow(campaign.id)
+
+      await service.app
+        .get(P2pPhoneListUploadService)
+        .handleQueuedBuild(build.id)
+
+      expect(touch).toHaveBeenCalledTimes(1)
+      expect(touch).toHaveBeenCalledWith(build.id)
     })
 
     it('Win SMS hold: caps the uploaded list at the PAID count when the resolved audience grew past the hold', async () => {
@@ -1724,6 +1812,65 @@ describe('P2P phone-list async build (Voter Outreach 2.0 S3b, managed flag gated
       // is what retries it.
       expect(row).toMatchObject({ buildStatus: 'building', buildAttempts: 1 })
     })
+
+    it('a Peerly upload failure wrapped as a 502 re-enqueues the build at once instead of waiting for the reaper', async () => {
+      const campaign = await seedWinCampaign()
+      stubPeopleApi([personPayload()])
+      vi.spyOn(
+        service.app.get(PeerlyPhoneListService),
+        'uploadPhoneList',
+      ).mockRejectedValue(
+        new BadGatewayException(
+          'Peerly API error: Failed to upload the file: Request failed with status code 400',
+        ),
+      )
+      const enqueue = vi
+        .spyOn(service.app.get(QueueProducerService), 'sendMessage')
+        .mockResolvedValue(undefined)
+      const build = await createQueuedRow(campaign.id)
+
+      const acked = await service.app
+        .get(P2pPhoneListUploadService)
+        .handleQueuedBuild(build.id)
+
+      expect(acked).toBe(true)
+      expect(
+        await service.prisma.peerlyPhoneList.findUnique({
+          where: { id: build.id },
+        }),
+      ).toMatchObject({ buildStatus: 'queued', buildAttempts: 1 })
+      expect(enqueue).toHaveBeenCalledTimes(1)
+    })
+
+    it('a Peerly upload failure on the last attempt parks the build failed', async () => {
+      const campaign = await seedWinCampaign()
+      stubPeopleApi([personPayload()])
+      vi.spyOn(
+        service.app.get(PeerlyPhoneListService),
+        'uploadPhoneList',
+      ).mockRejectedValue(new BadGatewayException('Peerly API error'))
+      const build = await service.prisma.peerlyPhoneList.create({
+        data: {
+          organizationSlug: WIN_SLUG,
+          campaignId: campaign.id,
+          buildAttempts: 2,
+          requestSnapshot: { name: 'Last attempt' },
+        },
+      })
+
+      await service.app
+        .get(P2pPhoneListUploadService)
+        .handleQueuedBuild(build.id)
+
+      expect(
+        await service.prisma.peerlyPhoneList.findUnique({
+          where: { id: build.id },
+        }),
+      ).toMatchObject({
+        buildStatus: 'failed',
+        buildError: 'Phone list build exceeded its retry limit',
+      })
+    })
   })
 
   describe('stale-building reclaim', () => {
@@ -1768,6 +1915,35 @@ describe('P2P phone-list async build (Voter Outreach 2.0 S3b, managed flag gated
           requestSnapshot: { name: 'Healthy in-flight build' },
         },
       })
+      const enqueue = vi
+        .spyOn(service.app.get(QueueProducerService), 'sendMessage')
+        .mockResolvedValue(undefined)
+
+      await service.app.get(P2pPhoneListUploadService).sweepStaleBuilding()
+
+      expect(
+        await service.prisma.peerlyPhoneList.findUnique({
+          where: { id: build.id },
+        }),
+      ).toMatchObject({ buildStatus: 'building' })
+      expect(enqueue).not.toHaveBeenCalled()
+    })
+
+    it('does not reap a long build that has checked in', async () => {
+      const campaign = await seedWinCampaign()
+      const build = await service.prisma.peerlyPhoneList.create({
+        data: {
+          organizationSlug: WIN_SLUG,
+          campaignId: campaign.id,
+          buildStatus: 'building',
+          buildAttempts: 1,
+          requestSnapshot: { name: 'Long healthy build' },
+        },
+      })
+      await ageBuildRow(build.id, 30)
+      await service.app
+        .get(PeerlyPhoneListCaptureService)
+        .touchBuilding(build.id)
       const enqueue = vi
         .spyOn(service.app.get(QueueProducerService), 'sendMessage')
         .mockResolvedValue(undefined)

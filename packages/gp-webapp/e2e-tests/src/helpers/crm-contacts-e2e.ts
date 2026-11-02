@@ -226,7 +226,24 @@ export const openPersonViaTypeahead = async (
     .filter(Boolean)
     .map((part) => part!.trim())
     .join(' ')
-  await input.fill(searchName)
+  // The dashboard shell can re-mount the typeahead right after it first
+  // paints (the whole data wave -- elected-office, eligibility, users/me,
+  // contacts -- fires a second time ~300ms later), and the remount resets the
+  // controlled input to "" before its debounced search ever runs. A fill that
+  // lands in that window is lost, so retry the fill until the search request
+  // actually leaves the browser.
+  await expect(async () => {
+    const searched = page.waitForRequest(
+      (request) =>
+        request.method() === 'GET' &&
+        request.url().includes('/contacts?') &&
+        request.url().includes('search='),
+      { timeout: 5_000 },
+    )
+    await input.fill('')
+    await input.fill(searchName)
+    await searched
+  }).toPass({ timeout: 30_000 })
   const option = page.locator(
     `[data-slot="command-item"][data-value="${person.id}"]`,
   )

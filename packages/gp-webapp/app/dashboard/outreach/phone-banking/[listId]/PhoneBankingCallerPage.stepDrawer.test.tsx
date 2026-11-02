@@ -487,7 +487,7 @@ describe('<PhoneBankingCallerPage>', () => {
       within(topDialog()).getByText('Did they engage?'),
     ).toBeInTheDocument()
     expect(
-      within(topDialog()).queryByText('Do they support you?'),
+      within(topDialog()).queryByText('Will they vote this election?'),
     ).not.toBeInTheDocument()
     expect(
       within(topDialog()).queryByRole('button', { name: 'Save' }),
@@ -497,15 +497,15 @@ describe('<PhoneBankingCallerPage>', () => {
       within(topDialog()).getByRole('radio', { name: 'Engaged' }),
     )
     expect(
-      within(topDialog()).getByText('Do they support you?'),
+      within(topDialog()).getByText('Will they vote this election?'),
     ).toBeInTheDocument()
     expect(
-      within(topDialog()).queryByText('Will they vote this election?'),
+      within(topDialog()).queryByText('Do they support you?'),
     ).not.toBeInTheDocument()
 
     await user.click(within(topDialog()).getByRole('radio', { name: 'Yes' }))
     expect(
-      within(topDialog()).getByText('Will they vote this election?'),
+      within(topDialog()).getByText('Do they support you?'),
     ).toBeInTheDocument()
     expect(
       within(topDialog()).queryByRole('button', { name: 'Save' }),

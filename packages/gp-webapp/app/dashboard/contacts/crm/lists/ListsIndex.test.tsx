@@ -138,6 +138,50 @@ describe('ListsIndex — the "All voters" universe row', () => {
   })
 })
 
+describe('ListsIndex — new contacts on the universe row', () => {
+  const mockStatsWithNewContacts = () =>
+    api.mock('GET /v1/contacts/stats', {
+      status: 200,
+      data: {
+        districtId: 'district-1',
+        computedAt: '2026-07-17T00:00:00.000Z',
+        totalConstituents: 12694,
+        totalConstituentsWithCellPhone: 9000,
+        districtPopulation: null,
+        newContactsCount: 214,
+        buckets: {
+          age: [],
+          homeowner: [],
+          education: [],
+          presenceOfChildren: [],
+          estimatedIncomeRange: [],
+        },
+      },
+    })
+
+  it('names voters and new contacts apart on Win', async () => {
+    mockStatsWithNewContacts()
+    setContext({ customSegments: [] })
+
+    render(<ListsIndex />)
+
+    expect(
+      await screen.findByText('12,480 voters, 214 new contacts added'),
+    ).toBeInTheDocument()
+    expect(screen.getByText('All voters and contacts')).toBeInTheDocument()
+  })
+
+  it('keeps the total and title on Serve', async () => {
+    mockStatsWithNewContacts()
+    setContext({ isWinContext: false })
+
+    render(<ListsIndex />)
+
+    expect(await screen.findByText('12,694')).toBeInTheDocument()
+    expect(screen.getByText('All constituents')).toBeInTheDocument()
+  })
+})
+
 // ENG-10778: the universe row's Details CTA.
 describe('ListsIndex — universe row Details', () => {
   it('selects the universe sentinel (shallow sheet navigation) when Details is clicked', async () => {
@@ -456,5 +500,46 @@ describe('ListsIndex — pro gating on saved-list rows', () => {
       screen.getByText('Upgrade to Pro to see outreach history'),
     ).toBeInTheDocument()
     expect(screen.queryByText('Unavailable')).not.toBeInTheDocument()
+  })
+})
+
+// The panel's one list is the built-in Civic panel row. The audiences our
+// code saved for its invites stay with the outreach that used them, out of
+// the index, while a list the official saved shows as ever.
+describe('ListsIndex — civic panel invite audiences', () => {
+  it('leaves out the lists saved for a civic panel invite', () => {
+    setContext({
+      isWinContext: false,
+      customSegments: [
+        { id: 1, name: 'Civic panel invite', civicPanelInvite: true },
+        { id: 2, name: 'Civic panel calls, batch 2', civicPanelInvite: true },
+        { id: 3, name: 'Seniors downtown', civicPanelInvite: false },
+        { id: 4, name: 'Your civic panel', civicPanelMember: true },
+      ],
+    })
+
+    render(<ListsIndex />)
+
+    expect(screen.getByText('Seniors downtown')).toBeInTheDocument()
+    expect(screen.queryByText('Your civic panel')).not.toBeInTheDocument()
+    expect(screen.queryByText('Civic panel invite')).not.toBeInTheDocument()
+    expect(
+      screen.queryByText('Civic panel calls, batch 2'),
+    ).not.toBeInTheDocument()
+  })
+
+  it('reads as empty when every saved list is an invite audience', () => {
+    setContext({
+      isWinContext: false,
+      customSegments: [
+        { id: 1, name: 'Civic panel invite', civicPanelInvite: true },
+      ],
+    })
+
+    render(<ListsIndex />)
+
+    expect(
+      screen.getByText(/haven.t created any lists yet/i),
+    ).toBeInTheDocument()
   })
 })

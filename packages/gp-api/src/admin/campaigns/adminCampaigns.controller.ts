@@ -53,7 +53,7 @@ export class AdminCampaignsController {
       },
       SlackChannel.botDeletions,
     )
-    return this.campaigns.delete({ where: { id } })
+    await this.adminCampaigns.delete(id)
   }
 
   @Get('pro-no-voter-file')

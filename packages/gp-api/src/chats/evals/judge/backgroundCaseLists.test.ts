@@ -38,8 +38,8 @@ const AUTHORED = [
   'trending_issues',
 ] as const
 
-// One baseline plus seven variations. Well under gates.minCases, which is
-// deliberate and recorded in every list's `note`.
+// One baseline plus seven variations. CI walks only config.background.maxCases
+// of them, under gates.minCases, which every list's `note` records.
 const CASES_PER_LIST = 8
 
 // How many of the cases in a core-check list's CI window (its first

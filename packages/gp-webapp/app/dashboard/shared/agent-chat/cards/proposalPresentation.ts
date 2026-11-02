@@ -6,8 +6,6 @@ import {
   type OutreachProposal,
   type ProposalChannel,
   type SupportStatusRollup,
-  type GeoJsonPolygon,
-  type WalkableAreaBox,
 } from '@goodparty_org/contracts'
 import type { OutreachType } from 'gpApi/types/outreach.types'
 import { segmentToVoterFileFilters } from 'app/dashboard/contacts/crm/shared/voterFileFilterTransform.util'
@@ -102,6 +100,7 @@ export const proposedAudienceOf = (
     | 'widensOutreachIds'
     | 'reportBackForOutreachId'
     | 'areaTarget'
+    | 'purpose'
   >,
   // The priority the card was offered on, which an unreached area belongs to.
   priorityId?: string,
@@ -128,23 +127,6 @@ export const proposedAudienceOf = (
       priorityId !== undefined && { unreachedAreaOfPriorityId: priorityId }),
   }
 }
-
-/**
- * A door card's walkable area as the polygon its list is kept to, so the
- * list holds the doors gp-api picked and the walk opens on the same box.
- */
-export const walkableAreaPolygon = (box: WalkableAreaBox): GeoJsonPolygon => ({
-  type: 'Polygon',
-  coordinates: [
-    [
-      [box.west, box.south],
-      [box.east, box.south],
-      [box.east, box.north],
-      [box.west, box.north],
-      [box.west, box.south],
-    ],
-  ],
-})
 
 export const outreachDetailHref = (
   outreachId: number,
@@ -180,9 +162,9 @@ const widens = (proposal: { widensOutreachIds?: number[] }): boolean =>
   (proposal.widensOutreachIds?.length ?? 0) > 0
 
 /**
- * "Text 4,000 of 58,520, picked at random", or null for the whole list. A
- * widen is never called random: once everyone not yet asked fits in it, the
- * list holds all of them, so it says who it reaches instead.
+ * "Text 4,000 of 58,520", or null for the whole list. A widen says who it
+ * reaches instead: once everyone not yet asked fits in it, the list holds all
+ * of them.
  */
 export const proposalSampleLine = (proposal: {
   channel: ProposalChannel
@@ -204,7 +186,7 @@ export const proposalSampleLine = (proposal: {
       : `${verb} everyone of the ${of} not asked yet`
   }
   return isSampled(proposal)
-    ? `${verb} ${proposal.sampleSize.toLocaleString()} of ${of}, picked at random`
+    ? `${verb} ${proposal.sampleSize.toLocaleString()} of ${of}`
     : null
 }
 

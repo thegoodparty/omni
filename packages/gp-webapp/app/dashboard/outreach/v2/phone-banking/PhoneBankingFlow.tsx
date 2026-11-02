@@ -79,7 +79,6 @@ import { ScriptStep } from './ScriptStep'
 import { SheetCountStep } from './SheetCountStep'
 import { DownloadStep } from './DownloadStep'
 import { CommunityInputQuestionStep } from '../CommunityInputQuestionStep'
-import { useServeCitizenPanelsFlag } from 'app/shared/experiments/serveCitizenPanelsFlag'
 import { outreachLandingStep } from '../landingStep'
 
 type StepId =
@@ -101,12 +100,17 @@ type StepId =
 // contract requires a question whenever the purpose is community_input, so a
 // flow that skipped this step would 400 on save with nothing on screen
 // explaining why.
-const stepOrderFor = (purpose: PhoneBankingFlowPurpose | null): StepId[] =>
-  isEventInvite(purpose)
-    ? ['purpose', 'details', 'who', 'script', 'sheets', 'download']
-    : purpose === COMMUNITY_INPUT_PURPOSE
-      ? ['purpose', 'question', 'who', 'script', 'sheets', 'download']
-      : ['purpose', 'who', 'script', 'sheets', 'download']
+const stepOrderFor = (
+  purpose: PhoneBankingFlowPurpose | null,
+  civicPanelInvite: boolean,
+): StepId[] =>
+  civicPanelInvite
+    ? ['script', 'download']
+    : isEventInvite(purpose)
+      ? ['purpose', 'details', 'who', 'script', 'sheets', 'download']
+      : purpose === COMMUNITY_INPUT_PURPOSE
+        ? ['purpose', 'question', 'who', 'script', 'sheets', 'download']
+        : ['purpose', 'who', 'script', 'sheets', 'download']
 
 const STEP_TITLES: Record<StepId, string> = {
   purpose: 'What do you want to do?',
@@ -128,6 +132,20 @@ const QUESTION_STEP_BODY = {
   win: 'Your callers will ask this on every call.',
   serve: 'We will read this back to you with what people said.',
 }
+
+// A civic panel invite arrives with its script written, so the step asks for
+// a review rather than a draft. An elected official makes the calls
+// themselves, so Serve's body names no volunteers.
+const CIVIC_PANEL_SCRIPT_INTRO = {
+  title: 'Does this call script sound right?',
+  body: {
+    win: 'Your volunteers will read this on each call. Edit anything you like.',
+    serve: "You'll read this on each call. Edit anything you like.",
+  },
+}
+
+const CIVIC_PANEL_LIST_MISSING =
+  "We couldn't find this call list. Close this and try again."
 
 const GENERIC_CREATE_ERROR_MESSAGE =
   "We couldn't create your call sheets. Try again."
@@ -348,6 +366,10 @@ interface PhoneBankingFlowProps {
   // What an agent's proposal knows about the event it invites people to; the
   // details step opens on it.
   initialEvent?: ProposalEvent
+  // A civic panel short group's call list (useReachList): the goal, the list
+  // and this script are known, so the flow is the script and its create,
+  // with the sheet count sized to the list.
+  civicPanelInvite?: { script: string }
 }
 
 // Flow state is flat client state owned here (phase 1 TDD, same convention
@@ -370,6 +392,7 @@ export const PhoneBankingFlow = ({
   source,
   launchSource,
   initialEvent,
+  civicPanelInvite,
 }: PhoneBankingFlowProps) => {
   const router = useRouter()
   // Milestone 2's in-flow gate. Phone banking saves no draft — the list is
@@ -390,10 +413,9 @@ export const PhoneBankingFlow = ({
   const [explainerOpen, setExplainerOpen] = useState(false)
   const [stepId, setStepId] = useState<StepId>('purpose')
   const [purpose, setPurpose] = useState<PhoneBankingFlowPurpose | null>(null)
-  // The civic panel invite is offered behind the panel's flag, as on texts.
-  const { enabled: citizenPanelsEnabled } = useServeCitizenPanelsFlag(false)
+  // The civic panel invite only goes out in the managed panel's texts.
   const offeredPurposes = surface.purposes.filter(
-    ({ id }) => citizenPanelsEnabled || id !== BUILD_CITIZENS_PANEL_PURPOSE,
+    ({ id }) => id !== BUILD_CITIZENS_PANEL_PURPOSE,
   )
   // What this effort is asking, collected on the step that follows a
   // community_input purpose. Required there by contract, so the step's
@@ -426,6 +448,7 @@ export const PhoneBankingFlow = ({
   const [saved, setSaved] = useState(false)
   const [createResponse, setCreateResponse] =
     useState<PhoneBankingCreateResponse | null>(null)
+  const [civicPanelListMissing, setCivicPanelListMissing] = useState(false)
 
   // Guards against an out-of-order draft response (or one from a closed
   // flow) clobbering a newer draft — same convention as SocialFlow.
@@ -581,6 +604,7 @@ export const PhoneBankingFlow = ({
     setNameEdited(Boolean(initialName))
     setSaved(false)
     setCreateResponse(null)
+    setCivicPanelListMissing(false)
     setGateOpen(false)
     setGateOrigin(null)
     setGateCta(undefined)
@@ -590,6 +614,13 @@ export const PhoneBankingFlow = ({
     resetAudience()
     resetEventDetails()
     draftedEventRef.current = null
+    if (civicPanelInvite) {
+      setStepId('script')
+      setPurpose(BUILD_CITIZENS_PANEL_PURPOSE)
+      setScript(civicPanelInvite.script)
+      setOwnWords(true)
+      return
+    }
     // An event invite drafts once its details are in, off the details step.
     const carriedEvent =
       carriedPurpose !== null && isEventInvite(carriedPurpose)
@@ -622,6 +653,7 @@ export const PhoneBankingFlow = ({
     initialScript,
     initialPurpose,
     initialName,
+    civicPanelInvite,
   ])
 
   // Applies the handed-over preselected list to the who step's picker once
@@ -648,6 +680,7 @@ export const PhoneBankingFlow = ({
     preselectSpentRef.current = true
     if (audienceLists.some((list) => list.id === preselectedListId)) {
       selectAudienceList(preselectedListId)
+      if (civicPanelInvite) return
       // A caller that handed over the script, or a purpose to draft one for
       // (a civic panel plan's call step), as well as the list lands on the
       // script, but only once the list really resolved: a script with no
@@ -662,6 +695,9 @@ export const PhoneBankingFlow = ({
         messageSettled: Boolean(initialScript),
       })
       if (landing === 'message') setStepId('script')
+    } else if (civicPanelInvite) {
+      // The flow opened on the script, with no list to create it on.
+      setCivicPanelListMissing(true)
     }
   }, [
     open,
@@ -671,6 +707,7 @@ export const PhoneBankingFlow = ({
     selectAudienceList,
     initialScript,
     initialPurpose,
+    civicPanelInvite,
   ])
 
   // Sizes the default sheet count to the audience once it resolves, instead
@@ -698,7 +735,7 @@ export const PhoneBankingFlow = ({
     setSheetCount(count)
   }
 
-  const stepOrder = stepOrderFor(purpose)
+  const stepOrder = stepOrderFor(purpose, civicPanelInvite !== undefined)
   const stepIndex = stepOrder.indexOf(stepId)
 
   const audienceLabel = audience.selectedList?.name ?? ''
@@ -953,6 +990,17 @@ export const PhoneBankingFlow = ({
     setGateOpen(true)
   }
 
+  // Nothing is written until the official can have the list: a gated press
+  // shows the ready screen as a preview, and the gate opens from there
+  // (design: the download step's download and Continue both open it).
+  const createOrPreview = () => {
+    if (gate.requirement !== null) {
+      setStepId('download')
+      return
+    }
+    createMutation.mutate()
+  }
+
   const baseCta: FlowShellCta | null = gateOpen
     ? // The gate screens carry their own buttons.
       null
@@ -994,42 +1042,45 @@ export const PhoneBankingFlow = ({
           }
         : stepId === 'who'
           ? audienceCta
-          : stepId === 'script'
+          : stepId === 'script' && civicPanelInvite
             ? {
-                label: 'Continue',
-                onClick: () => setStepId('sheets'),
+                label: 'Create call list',
+                onClick: createOrPreview,
                 disabled:
                   script.trim().length === 0 ||
                   draftMutation.isPending ||
-                  name.trim().length === 0,
+                  name.trim().length === 0 ||
+                  audience.selectedListId === null ||
+                  audience.reachableCount === null ||
+                  createMutation.isPending,
+                loading: audience.reachableLoading || createMutation.isPending,
               }
-            : stepId === 'sheets'
+            : stepId === 'script'
               ? {
                   label: 'Continue',
-                  onClick: () => {
-                    // Nothing is written until the candidate can have the list:
-                    // a gated Continue shows the ready screen as a preview, and
-                    // the gate opens from there (design: the download step's
-                    // download and Continue both open it).
-                    if (gate.requirement !== null) {
-                      setStepId('download')
-                      return
-                    }
-                    createMutation.mutate()
-                  },
-                  disabled: createMutation.isPending,
-                  loading: createMutation.isPending,
+                  onClick: () => setStepId('sheets'),
+                  disabled:
+                    script.trim().length === 0 ||
+                    draftMutation.isPending ||
+                    name.trim().length === 0,
                 }
-              : stepId === 'download'
+              : stepId === 'sheets'
                 ? {
                     label: 'Continue',
-                    onClick: () => {
-                      setGateOrigin('create')
-                      setGateCta('Continue')
-                      setGateOpen(true)
-                    },
+                    onClick: createOrPreview,
+                    disabled: createMutation.isPending,
+                    loading: createMutation.isPending,
                   }
-                : null
+                : stepId === 'download'
+                  ? {
+                      label: 'Continue',
+                      onClick: () => {
+                        setGateOrigin('create')
+                        setGateCta('Continue')
+                        setGateOpen(true)
+                      },
+                    }
+                  : null
 
   const cta: FlowShellCta | null =
     stepId === 'details' && !gateOpen && !saved
@@ -1044,7 +1095,11 @@ export const PhoneBankingFlow = ({
     <OutreachFlowShell
       open={open}
       onClose={onClose}
-      title={STEP_TITLES[stepId]}
+      title={
+        civicPanelInvite && stepId === 'script'
+          ? CIVIC_PANEL_SCRIPT_INTRO.title
+          : STEP_TITLES[stepId]
+      }
       headerBadge={
         <ChannelBadge
           type={OUTREACH_TYPES.nativePhoneBanking}
@@ -1154,6 +1209,7 @@ export const PhoneBankingFlow = ({
             universeName={audience.universeName}
             universeListId={audience.universeListId}
             universeCount={audience.universeCount}
+            universeNewContactsCount={audience.universeNewContactsCount}
             universeLoading={audience.universeLoading}
             onSelectUniverse={audience.selectUniverse}
             universePending={audience.universePending}
@@ -1184,6 +1240,7 @@ export const PhoneBankingFlow = ({
               audience.markPreselectedRecommendationApplied
             }
             reachableCount={audience.reachableCount}
+            reachableNewContactsCount={audience.reachableNewContactsCount}
             reachableLoading={audience.reachableLoading}
             selectedListTotal={audience.selectedListTotal}
             pricePerContact={PRICE_PER_CONTACT}
@@ -1197,6 +1254,7 @@ export const PhoneBankingFlow = ({
             builderName={audience.builderName}
             onBuilderNameChange={audience.setBuilderName}
             isElectedOfficial={audience.isElectedOfficial}
+            civicPanel={audience.civicPanel}
             builderCount={audience.builderCount}
             builderCounting={audience.builderCounting}
             builderCapError={audience.builderCapError}
@@ -1209,41 +1267,58 @@ export const PhoneBankingFlow = ({
           )}
         </>
       ) : stepId === 'script' ? (
-        <ScriptStep
-          isServe={surface.isServe}
-          name={name}
-          onNameChange={(value) => {
-            setName(value)
-            setNameEdited(true)
-          }}
-          audienceLabel={audienceLabel}
-          tone={tone}
-          onToneChange={handleToneChange}
-          script={script}
-          onScriptChange={handleScriptChange}
-          instructions={instructions}
-          onInstructionsChange={setInstructions}
-          onRegenerate={() =>
-            requestDraft(purpose, tone, undefined, script.trim() || undefined)
-          }
-          onImprove={() => requestDraft(purpose, tone, script.trim())}
-          canImprove={script.trim().length > 0 && !draftMutation.isPending}
-          isDrafting={draftMutation.isPending}
-          isDraftError={draftMutation.isError}
-          onRetry={() =>
-            lastDraftWasImproveRef.current
-              ? requestDraft(purpose, tone, script.trim())
-              : requestDraft(
-                  purpose,
-                  tone,
-                  undefined,
-                  script.trim() || undefined,
-                )
-          }
-          isCustomPurpose={purpose === 'custom'}
-        />
+        <>
+          <ScriptStep
+            {...(civicPanelInvite && {
+              intro: {
+                title: CIVIC_PANEL_SCRIPT_INTRO.title,
+                body: surface.isServe
+                  ? CIVIC_PANEL_SCRIPT_INTRO.body.serve
+                  : CIVIC_PANEL_SCRIPT_INTRO.body.win,
+              },
+            })}
+            isServe={surface.isServe}
+            name={name}
+            onNameChange={(value) => {
+              setName(value)
+              setNameEdited(true)
+            }}
+            audienceLabel={audienceLabel}
+            tone={tone}
+            onToneChange={handleToneChange}
+            script={script}
+            onScriptChange={handleScriptChange}
+            instructions={instructions}
+            onInstructionsChange={setInstructions}
+            onRegenerate={() =>
+              requestDraft(purpose, tone, undefined, script.trim() || undefined)
+            }
+            onImprove={() => requestDraft(purpose, tone, script.trim())}
+            canImprove={script.trim().length > 0 && !draftMutation.isPending}
+            isDrafting={draftMutation.isPending}
+            isDraftError={draftMutation.isError}
+            onRetry={() =>
+              lastDraftWasImproveRef.current
+                ? requestDraft(purpose, tone, script.trim())
+                : requestDraft(
+                    purpose,
+                    tone,
+                    undefined,
+                    script.trim() || undefined,
+                  )
+            }
+            isCustomPurpose={purpose === 'custom'}
+          />
+          {civicPanelInvite &&
+            (createErrorMessage || civicPanelListMissing) && (
+              <p role="alert" className="mt-4 text-sm text-destructive">
+                {createErrorMessage ?? CIVIC_PANEL_LIST_MISSING}
+              </p>
+            )}
+        </>
       ) : stepId === 'sheets' ? (
         <SheetCountStep
+          isServe={surface.isServe}
           sheetCount={sheetCount}
           onSheetCountChange={handleSheetCountChange}
           createErrorMessage={createErrorMessage}

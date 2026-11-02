@@ -384,15 +384,15 @@ describe('createIdFilterSchema', () => {
     expect(() => schema.parse({ in: ['not-a-uuid'] })).toThrow()
   })
 
-  it('rejects an id array of 100,001 entries', () => {
-    const tooMany = Array.from({ length: 100_001 }, (_, i) =>
+  it('rejects an id array of 200,001 entries', () => {
+    const tooMany = Array.from({ length: 200_001 }, (_, i) =>
       i === 0 ? UUID_1 : UUID_2,
     )
     expect(() => schema.parse({ in: tooMany })).toThrow()
   })
 
-  it('accepts an id array at the 100,000 cap', () => {
-    const atCap = Array.from({ length: 100_000 }, () => UUID_1)
+  it('accepts an id array at the 200,000 cap', () => {
+    const atCap = Array.from({ length: 200_000 }, () => UUID_1)
     expect(() => schema.parse({ in: atCap })).not.toThrow()
   })
 })

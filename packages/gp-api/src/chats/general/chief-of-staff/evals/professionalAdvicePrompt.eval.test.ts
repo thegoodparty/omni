@@ -23,7 +23,7 @@
 import { overrideEnvForEvals } from '../../../evals/envOverride'
 
 // Must run BEFORE LlmService import: .env.test stubs would otherwise win.
-overrideEnvForEvals()
+if (process.env.RUN_LLM_EVALS === '1') overrideEnvForEvals()
 
 import { appendFileSync } from 'node:fs'
 import { z } from 'zod'
@@ -68,7 +68,7 @@ const CTX: Ctx = {
   anchor: null,
   districtFilters: null,
   constituentToolEnabled: false,
-  peopleDataset: 'voters',
+  peopleDataset: { base: 'voters' },
 }
 
 // Stands in for native web search. One topic-neutral fact and no instruction,

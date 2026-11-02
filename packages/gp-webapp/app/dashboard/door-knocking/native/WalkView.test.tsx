@@ -1133,8 +1133,8 @@ describe('WalkView', () => {
 
     answerQuestion('Did they answer?', 'Answered')
     answerQuestion('Did they engage?', 'Engaged')
-    answerQuestion('Do they support you?', 'Yes')
     answerQuestion('Will they vote this election?', 'Unsure')
+    answerQuestion('Do they support you?', 'Yes')
     saveKnock()
 
     await waitFor(() => expect(posted).toHaveLength(1))
@@ -1338,8 +1338,8 @@ describe('WalkView', () => {
     // inside it must not leak onto an outcome the contract rejects them for.
     answerQuestion('Did they answer?', 'Answered')
     answerQuestion('Did they engage?', 'Engaged')
-    answerQuestion('Do they support you?', 'Yes')
     answerQuestion('Will they vote this election?', 'Yes')
+    answerQuestion('Do they support you?', 'Yes')
     knockNotHome()
 
     await waitFor(() => expect(posted).toHaveLength(1))
@@ -2016,8 +2016,8 @@ describe('WalkView auto-advance', () => {
 
     answerQuestion('Did they answer?', 'Answered')
     answerQuestion('Did they engage?', 'Engaged')
-    answerQuestion('Do they support you?', 'Yes')
     answerQuestion('Will they vote this election?', 'Yes')
+    answerQuestion('Do they support you?', 'Yes')
     saveKnock()
 
     await waitFor(() => expect(posted).toHaveLength(2))
@@ -2066,8 +2066,8 @@ describe('WalkView auto-advance', () => {
     await openHouseholdMember('105 Elm St', 'Dorian Fen')
     answerQuestion('Did they answer?', 'Answered')
     answerQuestion('Did they engage?', 'Engaged')
-    answerQuestion('Do they support you?', 'Yes')
     answerQuestion('Will they vote this election?', 'Unsure')
+    answerQuestion('Do they support you?', 'Yes')
     fireEvent.change(noteField(), { target: { value: 'Wants a crosswalk.' } })
 
     await switchTo('Winnie Fen')

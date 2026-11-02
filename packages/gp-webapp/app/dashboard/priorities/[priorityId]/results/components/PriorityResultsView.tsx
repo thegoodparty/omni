@@ -1,13 +1,26 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import {
-  MIN_RESPONDENTS_FOR_REPRESENTATION,
-  type PriorityResults,
+import type {
+  PriorityResults,
+  PriorityTheme,
+  ThemeVoices,
 } from '@goodparty_org/contracts'
-import { Button, cn, Progress } from '@styleguide'
-import { ArrowLeftIcon } from '@styleguide/components/ui/icons'
+import {
+  Badge,
+  Button,
+  cn,
+  Progress,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@styleguide'
+import {
+  ArrowLeftIcon,
+  ChevronRightIcon,
+  InfoIcon,
+} from '@styleguide/components/ui/icons'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { RESULTS_COPY } from '../resultsCopy'
 import {
@@ -17,9 +30,16 @@ import {
   getAnswersHref,
   readPercent,
 } from '../../readStatusCopy'
+import { AnswerSeatsArc, AnswerSeatsLegend } from '../../components/AnswerSeats'
 import { READ_STATUS_PROPERTY } from '../../readStatusProperty'
-import { RepresentationBars } from './RepresentationBars'
+import { CivicPanelBloom } from 'app/dashboard/contacts/citizens-panel/components/CivicPanelBloom'
+import { useServePlace } from 'app/dashboard/contacts/citizens-panel/managedPanelCopy'
+import { PollThemeDetail } from 'app/dashboard/outreach/v2/poll/results/PollThemeDetail'
 import { RespondentHeatGrid } from './RespondentHeatGrid'
+import {
+  PriorityCommentsDownload,
+  PriorityThemeComments,
+} from './PriorityThemeComments'
 
 const Section = ({
   title,
@@ -69,6 +89,10 @@ export const PriorityResultsView = ({
   results: PriorityResults
 }) => {
   const { respondents, readStatus } = results
+  const [openTheme, setOpenTheme] = useState<PriorityTheme | null>(null)
+  useEffect(() => {
+    window.scrollTo(0, 0)
+  }, [openTheme])
   useEffect(() => {
     trackEvent(EVENTS.Priorities.ResultsViewed, {
       priorityId,
@@ -80,10 +104,34 @@ export const PriorityResultsView = ({
       groupsTotal: readStatus.groupsTotal,
       respondentCount: respondents.total,
       joinedCivicPanel: respondents.joinedCivicPanel,
-      representationShown: results.representation !== null,
+      representationShown: results.groups.length > 0,
+      ...(readStatus.good ? { themes: results.themes.length } : {}),
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [priorityId])
+  if (openTheme && readStatus.good) {
+    return (
+      <div className="mx-auto flex w-full max-w-3xl flex-col gap-5 p-4 lg:p-6">
+        <PollThemeDetail
+          title={openTheme.title}
+          summary={openTheme.summary}
+          count={RESULTS_COPY.people(openTheme.people)}
+          onBack={() => setOpenTheme(null)}
+          action={
+            <PriorityCommentsDownload
+              priorityId={priorityId}
+              themeId={openTheme.id}
+            />
+          }
+        >
+          <PriorityThemeComments
+            priorityId={priorityId}
+            themeId={openTheme.id}
+          />
+        </PollThemeDetail>
+      </div>
+    )
+  }
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-5 p-4 lg:p-6">
       <div className="flex flex-col gap-1">
@@ -113,7 +161,11 @@ export const PriorityResultsView = ({
       </div>
 
       {readStatus.good ? (
-        <HeardSections results={results} />
+        <HeardSections
+          priorityId={priorityId}
+          results={results}
+          onOpenTheme={setOpenTheme}
+        />
       ) : (
         <section
           data-testid="results-held-back"
@@ -127,35 +179,39 @@ export const PriorityResultsView = ({
             {READ_STATUS_COPY.label(readStatus)}
           </h2>
           {readStatus.groupsTotal > 0 ? (
-            <>
-              <p className="text-sm text-foreground">
-                {READ_STATUS_COPY.progress(readStatus)}
+            <div className="flex flex-col gap-2 lg:items-center">
+              {/* Seats on a computer, the bar below lg, by CSS alone so the
+                  card never jumps. */}
+              <AnswerSeatsArc
+                readStatus={readStatus}
+                className="hidden max-w-80 lg:block"
+              />
+              <AnswerSeatsLegend
+                readStatus={readStatus}
+                className="hidden justify-center lg:flex"
+              />
+              <p className="text-sm font-semibold text-foreground">
+                {READ_STATUS_COPY.progress(readStatus)}.
               </p>
               <Progress
                 value={readPercent(readStatus)}
                 aria-label={READ_STATUS_COPY.progress(readStatus)}
-                className={cn('h-2', READ_PROGRESS_TONE[readStatus.status])}
+                className={cn(
+                  'h-2 lg:hidden',
+                  READ_PROGRESS_TONE[readStatus.status],
+                )}
               />
-            </>
+            </div>
           ) : null}
           <p className="text-sm text-muted-foreground">
-            {readStatus.status === 'gettingClose'
-              ? READ_STATUS_COPY.unsureGroups
-              : READ_STATUS_COPY.missingGroups}
+            {READ_STATUS_COPY.heldBack(readStatus)}
           </p>
-          {readStatus.underrepresented.length > 0 ? (
-            <div data-testid="results-hear-from-more">
-              <h3 className="text-sm font-semibold text-foreground">
-                {READ_STATUS_COPY.hearFromMoreHeading}
-              </h3>
-              <ul className="mt-1 list-disc pl-5 text-sm text-foreground">
-                {readStatus.underrepresented.map((group) => (
-                  <li key={group}>
-                    {READ_STATUS_COPY.groupName(group, readStatus)}
-                  </li>
-                ))}
-              </ul>
-            </div>
+          {readStatus.checkOut && READ_STATUS_COPY.namesGroups(readStatus) ? (
+            <p className="text-sm text-foreground">
+              {readStatus.status === 'gettingClose'
+                ? READ_STATUS_COPY.statusLine(readStatus)
+                : READ_STATUS_COPY.stillNeed(readStatus)}
+            </p>
           ) : null}
           {READ_STATUS_COPY.canGetAnswers(readStatus) ? (
             <Button asChild size="small" className="self-start rounded-full">
@@ -170,9 +226,45 @@ export const PriorityResultsView = ({
   )
 }
 
+const SIGNAL_TONE: Record<ThemeVoices, string> = {
+  strong: 'bg-success-background text-success-dark',
+  fair: 'bg-warning-background text-warning-dark',
+  thin: 'bg-error-background text-error-dark',
+}
+
+// openOnClick so the meaning is one tap away on a phone, not hover only.
+const ThemeSignal = ({ voices }: { voices: ThemeVoices }) => {
+  const place = useServePlace()
+  const label = RESULTS_COPY.signal[voices]
+  return (
+    <div className="mt-1 flex items-center gap-1">
+      <Badge className={SIGNAL_TONE[voices]}>{label}</Badge>
+      <Tooltip openOnClick>
+        <TooltipTrigger
+          aria-label={RESULTS_COPY.signalInfo(label)}
+          className="relative z-10 inline-flex size-6 items-center justify-center rounded-full text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary-focus"
+        >
+          <InfoIcon className="size-4" aria-hidden />
+        </TooltipTrigger>
+        <TooltipContent className="max-w-xs">
+          {RESULTS_COPY.signalMeaning(place)[voices]}
+        </TooltipContent>
+      </Tooltip>
+    </div>
+  )
+}
+
 // Themes, the map and the census comparison: only once the answers are
 // enough to say what the community thinks.
-const HeardSections = ({ results }: { results: PriorityResults }) => (
+const HeardSections = ({
+  priorityId,
+  results,
+  onOpenTheme,
+}: {
+  priorityId: string
+  results: PriorityResults
+  onOpenTheme: (theme: PriorityTheme) => void
+}) => (
   <>
     <Section
       title={RESULTS_COPY.themesTitle}
@@ -180,33 +272,62 @@ const HeardSections = ({ results }: { results: PriorityResults }) => (
         results.themes.length > 0 ? RESULTS_COPY.themesCaption : undefined
       }
     >
-      {results.summarizing && (
+      {results.summarizing && results.themes.length > 0 && (
         <p className="text-xs text-muted-foreground">
           {RESULTS_COPY.themesUpdating}
         </p>
       )}
       {results.themes.length === 0 ? (
         <p className="text-sm text-muted-foreground">
-          {RESULTS_COPY.themesEmpty}
+          {results.summarizing
+            ? RESULTS_COPY.themesProcessing
+            : RESULTS_COPY.themesEmpty}
         </p>
       ) : (
-        <div className="flex flex-col gap-3">
-          {results.themes.map((theme) => (
-            <div
+        <ol className="flex flex-col gap-3">
+          {results.themes.map((theme, index) => (
+            <li
               key={theme.id}
-              className="flex flex-col gap-1 rounded-lg border border-border p-4"
+              className="relative flex gap-3 rounded-lg border border-border p-4 transition-colors has-[>button:hover]:border-foreground/20 has-[>button:hover]:bg-muted/50"
             >
-              <div className="flex items-baseline justify-between gap-3">
-                <h3 className="text-sm font-semibold text-foreground">
-                  {theme.title}
-                </h3>
-                <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-                  {RESULTS_COPY.people(theme.people)}
-                </span>
+              {/* The whole card opens the theme. The button stretches over
+                  it rather than wrapping it, so the signal's info button
+                  stays a sibling on top, not a button inside a button. */}
+              <button
+                type="button"
+                aria-label={RESULTS_COPY.viewResponses(theme.title)}
+                onClick={() => onOpenTheme(theme)}
+                className="absolute inset-0 cursor-pointer rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-primary-focus"
+              />
+              <div
+                className="flex size-10 shrink-0 items-center justify-center rounded-full bg-info-background text-sm font-semibold text-foreground"
+                aria-label={RESULTS_COPY.themeRank(index + 1)}
+              >
+                #{index + 1}
               </div>
-              <p className="text-sm text-muted-foreground">{theme.summary}</p>
-            </div>
+              <div className="flex min-w-0 flex-1 flex-col gap-1">
+                <div className="flex items-baseline justify-between gap-3">
+                  <h3 className="text-sm font-semibold text-foreground">
+                    {theme.title}
+                  </h3>
+                  <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                    {RESULTS_COPY.people(theme.people)}
+                  </span>
+                </div>
+                <p className="text-sm text-muted-foreground">{theme.summary}</p>
+                {theme.voices && <ThemeSignal voices={theme.voices} />}
+              </div>
+              <ChevronRightIcon
+                className="size-5 shrink-0 self-center text-muted-foreground"
+                aria-hidden
+              />
+            </li>
           ))}
+        </ol>
+      )}
+      {results.themes.length > 0 && (
+        <div>
+          <PriorityCommentsDownload priorityId={priorityId} />
         </div>
       )}
     </Section>
@@ -222,17 +343,22 @@ const HeardSections = ({ results }: { results: PriorityResults }) => (
       )}
     </Section>
 
-    <Section
-      title={RESULTS_COPY.representationTitle}
-      caption={
-        results.representation ? RESULTS_COPY.representationCaption : undefined
-      }
-    >
-      {results.representation ? (
-        <RepresentationBars representation={results.representation} />
+    <Section title={RESULTS_COPY.representationTitle}>
+      {results.groups.length > 0 ? (
+        <CivicPanelBloom
+          groups={results.groups.map(
+            ({ group, districtShare, answerShare }) => ({
+              group,
+              districtShare,
+              memberShare: answerShare,
+            }),
+          )}
+          showNext={false}
+          summary={RESULTS_COPY.groupsSummary}
+        />
       ) : (
         <p className="text-sm text-muted-foreground">
-          {RESULTS_COPY.representationEmpty(MIN_RESPONDENTS_FOR_REPRESENTATION)}
+          {RESULTS_COPY.representationUnavailable}
         </p>
       )}
     </Section>

@@ -98,6 +98,14 @@ Initial Issues Generated check count only rows with a `lastRefreshedRunId`.
 The first agent run is still the first generation, which keeps the
 once-per-org email on agent output and keeps task cards off the first list.
 
+## Onboarding gate
+
+The crons (`dispatchSlice`) select only offices with `onboardingCompletedAt`
+set, so an office nobody finished setting up costs no agent runs. The
+signup hook (`onElectedOfficeCreated`) also waits for it: `ElectedOfficeService`
+calls it on an onboarded create or at the pledge. Every other dispatch path
+(`POST /onboarding`, landing, staff and admin) ignores it.
+
 ## Activity gate
 
 `dispatchTypeForOrg` (shared by the cron and `dispatchIfNeeded`) checks

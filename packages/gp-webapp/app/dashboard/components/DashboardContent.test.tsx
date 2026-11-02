@@ -26,7 +26,6 @@ vi.mock('@shared/experiments/nextTaskExperienceFlag', () => ({
 
 const props = {
   pathname: '/dashboard',
-  tcrCompliance: null,
   sunsetEligible: false,
 }
 

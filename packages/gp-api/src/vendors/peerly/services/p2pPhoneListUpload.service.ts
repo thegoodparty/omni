@@ -10,9 +10,14 @@ import { Cron } from '@nestjs/schedule'
 import { subMinutes } from 'date-fns'
 import { PinoLogger } from 'nestjs-pino'
 import { z } from 'zod'
-import { Campaign, Organization, User } from '../../../generated/prisma'
+import {
+  Campaign,
+  Organization,
+  PhoneListBuildStatus,
+  User,
+} from '../../../generated/prisma'
 import { CampaignTcrComplianceService } from '../../../campaigns/tcrCompliance/services/campaignTcrCompliance.service'
-import { MAX_RESOLVED_ID_SET_SIZE } from '@/contactInteraction/services/activityConditionResolution.service'
+import { MAX_RESOLVED_ID_SET_SIZE } from '@/contactInteraction/resolvedIdSetCap.const'
 import { ContactInteractionTextService } from '@/contactInteraction/services/contactInteractionText.service'
 import {
   ContactsFilterResolutionInput,
@@ -36,6 +41,7 @@ import { OutreachP2pSmsCaptureService } from '@/outreach/services/outreachP2pSms
 import { PeerlyPhoneListCaptureService } from './peerlyPhoneListCapture.service'
 import { PeerlyPhoneListService } from './peerlyPhoneList.service'
 import { PhoneListState } from '../peerly.types'
+import { peerlyScrubCounts } from '../utils/peerlyScrubCounts.util'
 import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
 import { WIN_SMS_HOLD_BILLING_FLAG } from '@/shared/util/winSmsHold.util'
 import { FeaturesService } from '@/features/services/features.service'
@@ -44,7 +50,7 @@ import { FeaturesService } from '@/features/services/features.service'
 // export — each contacts-pipeline consumer keeps its own copy (see that
 // file's SEGMENT_PAGE_SIZE for the sibling constant).
 const SEGMENT_PAGE_SIZE = 1000
-const MAX_PHONE_LIST_RECIPIENTS = 100_000
+const MAX_PHONE_LIST_RECIPIENTS = 200_000
 
 const CSV_HEADER_ROW = 'first_name,last_name,lead_phone,state,city,zip'
 
@@ -61,13 +67,17 @@ type P2pPhoneListFilterInput = Omit<
 
 // A `building` row whose updatedAt is older than this is assumed abandoned
 // (the handler crashed, was OOM-killed, or lost its SQS message before
-// finishing) and is reclaimed by the sweep below. Comfortably exceeds a
-// healthy-but-slow run: filter resolution over a 100k-recipient audience
-// plus a ~100MB Peerly upload, against a 60s Peerly upload timeout
-// (peerlyBaseConfig's PEERLY_UPLOAD_TIMEOUT_MS) — this has no request
-// deadline (see buildPhoneList's isInteractive branch), so it can
-// legitimately run for several minutes.
+// finishing) and is reclaimed by the sweep below. A healthy run is never
+// this stale however large its audience: buildPhoneList bumps updatedAt
+// every BUILD_HEARTBEAT_RECIPIENTS while it resolves (a 200k-recipient
+// resolution can run ~17 minutes at the slow end of prod's page times),
+// and what follows resolution is bounded on its own — a 60s Peerly upload
+// timeout (peerlyBaseConfig's PEERLY_UPLOAD_TIMEOUT_MS) and recordUpload's
+// transaction timeout.
 const P2P_PHONE_LIST_BUILD_STALE_MINUTES = 20
+// ~10 pages, ~15-25s of resolution: far inside the stale window above, and
+// rare enough that the extra writes don't matter.
+const BUILD_HEARTBEAT_RECIPIENTS = 10_000
 // How many times the reaper will re-queue a stuck build before giving up and
 // marking it permanently failed. Bounds a build that fails the same way on
 // every retry (e.g. a persistently broken filter) rather than re-queuing it
@@ -340,8 +350,17 @@ export class P2pPhoneListUploadService {
       return true
     } catch (error) {
       if (error instanceof HttpException) {
-        // runBuild already called markBuildFailed before throwing — a
-        // permanent, client-input-shaped failure. Ack; retrying can't help.
+        // Every permanent rejection has already moved the row off `building`
+        // (markBuildFailed). A Peerly upload failure the vendor layer wrapped
+        // as a 502 hasn't: the row is still `building`, so hand it back for
+        // an immediate retry instead of leaving it for the 20-minute reaper.
+        const row = await this.peerlyPhoneListCapture.findFirst({
+          where: { id: buildId },
+          select: { buildStatus: true },
+        })
+        if (row?.buildStatus === PhoneListBuildStatus.building) {
+          await this.reclaimStaleBuild(buildId, new Date())
+        }
         return true
       }
       // Transient (people-db, S3, a Peerly 5xx/network, or anything
@@ -521,6 +540,10 @@ export class P2pPhoneListUploadService {
       leadsSupplied: details.leads_supplied,
     })
     if (!stable) return
+    this.logger.info(
+      { buildId, listId, ...peerlyScrubCounts(details) },
+      'Peerly phone list ready',
+    )
 
     // Single-owner CAS (peerlyListId IS NULL): a no-op if a browser poll or
     // another replica stamped it first.
@@ -646,6 +669,7 @@ export class P2pPhoneListUploadService {
     }
     try {
       phoneList = await this.buildPhoneList(
+        buildId,
         resolvedFilterInput,
         organization,
         excludePersonIds,
@@ -780,6 +804,7 @@ export class P2pPhoneListUploadService {
   }
 
   private async buildPhoneList(
+    buildId: string,
     filterInput: ContactsFilterResolutionInput,
     organization: Organization,
     excludePersonIds: Set<string>,
@@ -805,8 +830,10 @@ export class P2pPhoneListUploadService {
       maxRecipients: MAX_PHONE_LIST_RECIPIENTS,
       isEligible: hasGeoTargetableAddress,
       limitExceededMessage:
-        `This filter matches over the ${MAX_PHONE_LIST_RECIPIENTS} ` +
-        `phone-list limit — narrow the filter and try again.`,
+        `This list reaches over ` +
+        `${MAX_PHONE_LIST_RECIPIENTS.toLocaleString('en-US')} people, which ` +
+        `is more than one text campaign can send to. Narrow your filters ` +
+        `and try again.`,
       // Only the interactive (synchronous) path has an official sat in
       // front of it waiting for a token, so only it gets a clock. The
       // queued build has no deadline — it genuinely completes however long
@@ -847,6 +874,9 @@ export class P2pPhoneListUploadService {
       if (sendCap !== null && recipients.length >= sendCap) break
       const person = next.value
       recipients.push({ personId: person.id, phone: person.cellPhone })
+      if (recipients.length % BUILD_HEARTBEAT_RECIPIENTS === 0) {
+        await this.peerlyPhoneListCapture.touchBuilding(buildId)
+      }
       rows.push(
         [
           person.firstName,

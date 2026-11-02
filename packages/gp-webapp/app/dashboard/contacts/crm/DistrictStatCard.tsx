@@ -1,10 +1,18 @@
 'use client'
 
 import { useQuery } from '@tanstack/react-query'
-import { Card } from '@styleguide'
+import {
+  Card,
+  IconButton,
+  InfoIcon,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@styleguide'
 import { cn } from '@styleguide/lib/utils'
 import { numberFormatter } from 'helpers/numberHelper'
 import { districtStatsQueryOptions } from 'app/dashboard/polls/shared/queries'
+import { WIN_NEW_CONTACTS_LABELS } from 'app/dashboard/shared/contactsLabels'
 
 interface StatRow {
   label: string
@@ -25,6 +33,9 @@ interface DistrictStatCardProps {
   // These values arrive synchronously from the campaign context, so they
   // carry no loading/error state of their own.
   additionalRows?: StatRow[]
+  // Win: `label`'s row counts voters only, and the new contacts an import
+  // added get a row of their own under it. Serve's row stays the total.
+  showNewContacts?: boolean
   className?: string
 }
 
@@ -41,6 +52,7 @@ export default function DistrictStatCard({
   label,
   populationLabel,
   additionalRows,
+  showNewContacts = false,
   className,
 }: DistrictStatCardProps) {
   const query = useQuery(districtStatsQueryOptions)
@@ -50,6 +62,10 @@ export default function DistrictStatCard({
   // the row below. Written once so the two can't drift into a `border-t`
   // with nothing above it.
   const showPopulationRow = Boolean(populationLabel) && population !== null
+  const newContactsCount =
+    showNewContacts && query.status === 'success'
+      ? (query.data.newContactsCount ?? 0)
+      : 0
 
   return (
     <Card className={cn('w-full gap-0 rounded-lg py-0', className)}>
@@ -84,10 +100,36 @@ export default function DistrictStatCard({
           )
         ) : (
           <span className="text-lg font-semibold">
-            {numberFormatter(query.data.totalConstituents)}
+            {numberFormatter(query.data.totalConstituents - newContactsCount)}
           </span>
         )}
       </div>
+      {newContactsCount > 0 && (
+        <div className="flex items-center justify-between gap-4 border-t border-border px-4 py-3">
+          <span className="flex items-center gap-1 text-sm font-normal">
+            {WIN_NEW_CONTACTS_LABELS.statLabel}
+            <Tooltip openOnClick>
+              <TooltipTrigger asChild>
+                <IconButton
+                  type="button"
+                  variant="ghost"
+                  size="small"
+                  className="size-6 text-muted-foreground"
+                  aria-label={WIN_NEW_CONTACTS_LABELS.statInfoButton}
+                >
+                  <InfoIcon className="size-4" aria-hidden />
+                </IconButton>
+              </TooltipTrigger>
+              <TooltipContent>
+                {WIN_NEW_CONTACTS_LABELS.statInfo}
+              </TooltipContent>
+            </Tooltip>
+          </span>
+          <span className="text-lg font-semibold">
+            {numberFormatter(newContactsCount)}
+          </span>
+        </div>
+      )}
       {additionalRows?.map((row) => (
         <div
           key={row.label}

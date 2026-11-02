@@ -17,8 +17,12 @@ interface ActivityConditionFields {
   actions?: string[]
 }
 
-type DedupeFilter = Omit<Partial<VoterFileFilter>, 'supportStatus'> & {
+type DedupeFilter = Omit<
+  Partial<VoterFileFilter>,
+  'supportStatus' | 'votedStatus'
+> & {
   supportStatus?: string[]
+  votedStatus?: string[]
   activityConditions?: ActivityConditionFields[]
 }
 
@@ -33,6 +37,7 @@ const sortedJoin = (values: readonly (string | number)[]): string =>
 
 const canonicalizeFilterValue = (value: FilterValue): string => {
   if (typeof value === 'boolean') return String(value)
+  if (Array.isArray(value)) return sortedJoin(value)
   const or = value._or
     ?.map((range) => `${range.gte ?? ''}-${range.lte ?? ''}`)
     .sort()
@@ -78,6 +83,14 @@ const contactsMadeSignature = (filter: DedupeFilter): string =>
 const supportStatusSignature = (filter: DedupeFilter): string =>
   sortedJoin(filter.supportStatus ?? [])
 
+// Excluded from the payload the same way; resolved by VotedStatusService.
+// Both pills and neither are the same list (no constraint), so they share a
+// signature: only a single selection constrains anything.
+const votedStatusSignature = (filter: DedupeFilter): string => {
+  const selected = new Set(filter.votedStatus ?? [])
+  return selected.size === 1 ? ([...selected][0] ?? '') : ''
+}
+
 // Resolved by the activity-condition resolution engine, never entering the
 // payload — compare the raw conditions instead. A condition's own
 // `actions` is an unordered OR-within-condition set, and the list of
@@ -96,7 +109,11 @@ const activityConditionsSignature = (filter: DedupeFilter): string =>
 // accept (see the DedupeFilter comment above); it also excludes both keys
 // outright, so dropping them here changes nothing about the payload it
 // produces.
-const OFF_PAYLOAD_KEYS = new Set(['supportStatus', 'activityConditions'])
+const OFF_PAYLOAD_KEYS = new Set([
+  'supportStatus',
+  'votedStatus',
+  'activityConditions',
+])
 
 const toConvertibleFilter = (filter: DedupeFilter): Partial<VoterFileFilter> =>
   Object.fromEntries(
@@ -114,6 +131,7 @@ const filtersAreEquivalent = (
       convertVoterFileFilterToFilters(toConvertibleFilter(saved)),
     ) &&
   supportStatusSignature(candidate) === supportStatusSignature(saved) &&
+  votedStatusSignature(candidate) === votedStatusSignature(saved) &&
   contactsMadeSignature(candidate) === contactsMadeSignature(saved) &&
   activityConditionsSignature(candidate) === activityConditionsSignature(saved)
 

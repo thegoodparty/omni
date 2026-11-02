@@ -140,7 +140,9 @@ export const buildSaveExistingLawTool = (
   description:
     'Persist the current-law findings to the ordinance record so later ' +
     'steps and the draft can read them. Call once the current-law picture ' +
-    'is settled, before offer_next_step.',
+    'is settled, before offer_next_step, and only when chapter text was ' +
+    'read with fetch_url or pasted by the user; when no text could be ' +
+    'read, leave a save_note instead.',
   inputSchema: saveExistingLawInput,
   execute: (input) =>
     deps.service.saveExistingLaw(deps.ordinanceId, deps.electedOfficeId, {

@@ -61,13 +61,29 @@ names no issue, and an empty list is the right reading.
 confidence: 0 to 1, your own read on whether someone who heard the same
 conversation would agree with the issues above.`
 
+// The voice is the one difference between a canvasser's note and a
+// resident's own text reply. Every rule about the three fields holds for
+// both, so the reply reuses this prompt and only changes who is speaking.
+const OWN_REPLY_VOICE = `This time the words are not a canvasser's note.
+They are the person's OWN text reply to a question they were asked, so read
+"I" and "we" as the person, and apply every rule above to what they wrote.`
+
+export type ExtractionVoice = 'canvasser_note' | 'own_reply'
+
 const buildUserPrompt = (input: {
   transcript: string
   effortQuestion: string | null
-}): string =>
-  input.effortQuestion
+  voice: ExtractionVoice
+}): string => {
+  if (input.voice === 'own_reply') {
+    return input.effortQuestion
+      ? `They were asked: ${input.effortQuestion}\n\nTheir reply:\n${input.transcript}`
+      : `Their reply:\n${input.transcript}`
+  }
+  return input.effortQuestion
     ? `The canvasser was asking each person: ${input.effortQuestion}\n\nTheir note:\n${input.transcript}`
     : `The canvasser's note:\n${input.transcript}`
+}
 
 @Injectable()
 export class ConstituentFeedbackExtractionService {
@@ -85,14 +101,22 @@ export class ConstituentFeedbackExtractionService {
     transcript: string
     effortQuestion: string | null
     userId: number
+    voice?: ExtractionVoice
   }): Promise<{ extraction: RawExtraction; model: string } | null> {
+    const voice = input.voice ?? 'canvasser_note'
     try {
       const { object, model } = await this.llm.jsonCompletion({
         schema: RawExtractionSchema,
         userId: String(input.userId),
         messages: [
-          { role: 'system', content: SYSTEM_PROMPT },
-          { role: 'user', content: buildUserPrompt(input) },
+          {
+            role: 'system',
+            content:
+              voice === 'own_reply'
+                ? `${SYSTEM_PROMPT}\n\n${OWN_REPLY_VOICE}`
+                : SYSTEM_PROMPT,
+          },
+          { role: 'user', content: buildUserPrompt({ ...input, voice }) },
         ],
       })
       return { extraction: object, model }

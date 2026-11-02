@@ -1,10 +1,16 @@
 import { describe, expect, it } from 'vitest'
-import { emptyPriorityStatus } from '@goodparty_org/contracts'
+import {
+  emptyPriorityStatus,
+  type PriorityStatus,
+  type PriorityStepId,
+  type PriorityStepState,
+} from '@goodparty_org/contracts'
 import {
   applyStatusUpdate,
   describeStepChange,
   parseStatusToolResult,
   parseStatusUpdate,
+  statusChanges,
 } from './statusUpdates'
 
 describe('parseStatusUpdate', () => {
@@ -143,43 +149,6 @@ describe('applyStatusUpdate', () => {
     ).toBeUndefined()
   })
 
-  it('reports a settled step going back as backwards', () => {
-    const base = emptyPriorityStatus()
-    const settled = {
-      ...base,
-      steps: base.steps.map((s) =>
-        s.id === 'options' ? { ...s, state: 'settled' as const } : s,
-      ),
-    }
-    const { changes } = applyStatusUpdate(settled, {
-      steps: [{ id: 'options', state: 'active' }],
-    })
-    expect(changes).toEqual([
-      { id: 'options', from: 'settled', to: 'active', backwards: true },
-    ])
-  })
-
-  it('reports forward movement as not backwards', () => {
-    const { changes } = applyStatusUpdate(emptyPriorityStatus(), {
-      steps: [{ id: 'define', state: 'settled' }],
-    })
-    expect(changes[0]?.backwards).toBe(false)
-  })
-
-  it('records no change when only the summary moved', () => {
-    const base = emptyPriorityStatus()
-    const active = {
-      ...base,
-      steps: base.steps.map((s) =>
-        s.id === 'plan' ? { ...s, state: 'active' as const } : s,
-      ),
-    }
-    const { changes } = applyStatusUpdate(active, {
-      steps: [{ id: 'plan', state: 'active', summary: 'Three meetings' }],
-    })
-    expect(changes).toEqual([])
-  })
-
   // The server's applyUpdate enforces one active step. The client mirror has
   // to agree, or the live rail and the replayed markers drift from it.
   it('demotes the previously active step when another opens', () => {
@@ -192,7 +161,7 @@ describe('applyStatusUpdate', () => {
           : s,
       ),
     }
-    const { status, changes } = applyStatusUpdate(defining, {
+    const { status } = applyStatusUpdate(defining, {
       steps: [{ id: 'evidence', state: 'active' }],
     })
     expect(status.steps.filter((s) => s.state === 'active')).toHaveLength(1)
@@ -200,14 +169,15 @@ describe('applyStatusUpdate', () => {
       state: 'open',
       summary: 'The bridge',
     })
-    expect(changes).toEqual([
-      { id: 'evidence', from: 'open', to: 'active', backwards: false },
+    expect(statusChanges(defining, status)).toEqual([
       { id: 'define', from: 'active', to: 'open', backwards: false },
+      { id: 'evidence', from: 'open', to: 'active', backwards: false },
     ])
   })
 
   it('keeps the last active step when one call opens two', () => {
-    const { status, changes } = applyStatusUpdate(emptyPriorityStatus(), {
+    const before = emptyPriorityStatus()
+    const { status } = applyStatusUpdate(before, {
       steps: [
         { id: 'define', state: 'active' },
         { id: 'evidence', state: 'active' },
@@ -218,7 +188,7 @@ describe('applyStatusUpdate', () => {
     ).toEqual(['evidence'])
     // define went open -> active -> open inside one call: no net move, so no
     // marker for it.
-    expect(changes).toEqual([
+    expect(statusChanges(before, status)).toEqual([
       { id: 'evidence', from: 'open', to: 'active', backwards: false },
     ])
   })
@@ -235,6 +205,62 @@ describe('applyStatusUpdate', () => {
       steps: [{ id: 'evidence', state: 'settled' }],
     })
     expect(status.steps.find((s) => s.id === 'define')?.state).toBe('active')
+  })
+})
+
+const withStates = (
+  states: Partial<Record<PriorityStepId, PriorityStepState>>,
+): PriorityStatus => ({
+  ...emptyPriorityStatus(),
+  steps: emptyPriorityStatus().steps.map((s) => ({
+    ...s,
+    state: states[s.id] ?? s.state,
+  })),
+})
+
+describe('statusChanges', () => {
+  it('reports a settled step going back as backwards', () => {
+    expect(
+      statusChanges(
+        withStates({ options: 'settled' }),
+        withStates({ options: 'active' }),
+      ),
+    ).toEqual([
+      { id: 'options', from: 'settled', to: 'active', backwards: true },
+    ])
+  })
+
+  it('reports forward movement as not backwards', () => {
+    expect(
+      statusChanges(emptyPriorityStatus(), withStates({ define: 'settled' })),
+    ).toEqual([{ id: 'define', from: 'open', to: 'settled', backwards: false }])
+  })
+
+  it('records no change when only the summary moved', () => {
+    const before = withStates({ plan: 'active' })
+    const { status } = applyStatusUpdate(before, {
+      steps: [{ id: 'plan', state: 'active', summary: 'Three meetings' }],
+    })
+    expect(statusChanges(before, status)).toEqual([])
+  })
+
+  it('names only the moves the stored status shows when the call asked for more', () => {
+    const before = withStates({ define: 'settled', evidence: 'active' })
+    // Asked: evidence settled, options settled, method active. Stored:
+    // evidence settled and options active, nothing else.
+    const stored = withStates({
+      define: 'settled',
+      evidence: 'settled',
+      options: 'active',
+    })
+    const result = parseStatusToolResult({
+      status: stored,
+      currentStep: 'options',
+      nextAction: 'Draft two options',
+    })
+    expect(
+      statusChanges(before, result?.status ?? before).map(describeStepChange),
+    ).toEqual(['Done with what we know', 'Working on your options'])
   })
 })
 
@@ -282,6 +308,17 @@ describe('parseStatusToolResult', () => {
     })
     expect(result?.nextAction).toBe('Pick two blocks to walk')
     expect(result?.status.steps).toHaveLength(7)
+  })
+
+  // The plan turn on dev: the agent asked to close three steps and reopen a
+  // fourth, and the server refused all of it. A refusal is nothing stored,
+  // so nothing moves and no marker is drawn.
+  it('reads a refusal as nothing stored', () => {
+    expect(
+      parseStatusToolResult({
+        error: 'Nothing was recorded. These did not move: The path, The plan.',
+      }),
+    ).toBeNull()
   })
 
   it('returns null for something that is not a status', () => {

@@ -40,11 +40,11 @@ test.describe('Pro upgrade — not-yet-filed dead-end', () => {
     await NavigationHelper.dismissOverlays(page)
     await waitForDashboardReady(page)
 
-    // Dashboard banner entry → wizard index, which redirects to the value-prop
-    // step only after its canonical-state queries resolve. Wait for the
-    // redirect to settle before asserting, so a cold preview's slow fetch
-    // doesn't outrun the heading assertion.
-    await page.getByRole('button', { name: 'Get Pro' }).click()
+    // Wizard index (the dashboard has no Pro entry with the flag off), which
+    // redirects to the value-prop step only after its canonical-state queries
+    // resolve. Wait for the redirect to settle before asserting, so a cold
+    // preview's slow fetch doesn't outrun the heading assertion.
+    await page.goto('/dashboard/pro-upgrade')
     await page.waitForURL(/\/dashboard\/pro-upgrade\/value-prop$/)
     await expect(
       page.getByRole('heading', { name: /76% of candidates who use Pro win/i }),
