@@ -87,10 +87,11 @@ Terraform apply can't read the ciphertexts.
 
 ### Ordering in the release train
 
-Sync must run **before** the service deploys in each stage. gp-api and
-election-api enumerate the live secret's keys at deploy time, so a brand-new key
-written after the Pulumi step lands in the blob but isn't in the task definition
-until the *next* train — a confusing half-deployed state.
+Sync must run **before** the service deploys in each stage. gp-api's deploy
+checks the live secret against the keys declared in
+`packages/gp-api/deploy/gp-api-secret-keys.ts` and stops on a declared key the
+secret lacks, so a brand-new key written after the Pulumi step would fail that
+stage's deploy.
 
 ```
 dev stage:  sync-secrets(dev)  → service deploys → E2E

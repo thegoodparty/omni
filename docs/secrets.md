@@ -67,10 +67,12 @@ image, not in a `.env`, not in Pulumi or Terraform state.
 The two stacks differ in how a key gets into that block, which decides whether
 adding one needs a code change:
 
-- **gp-api needs no code change.** The Pulumi program reads the
-  live secret and enumerates its keys, wiring every one it finds
-  (`Object.keys(secret)` in `packages/*/deploy/index.ts`). A key that exists in
-  the blob is in the task definition on the next deploy. The ECS agent reads
+- **gp-api needs a one-line change.** The Pulumi program never reads the
+  secret's value. It wires the keys listed per environment in
+  `packages/gp-api/deploy/gp-api-secret-keys.ts`, so a pull request's
+  `pulumi preview` needs no `GetSecretValue`. Every dev and prod deploy checks
+  the live secret against that list (`infra-cli.ts`) and stops on a declared
+  key the secret lacks. The ECS agent reads
   those values through the execution role, which may read only the secrets the
   task definition names (`executionRoleSecretArns` in
   `packages/gp-api/deploy/components/service.ts`, derived from the
@@ -112,8 +114,10 @@ Do everything except the value write, in one PR.
    (`BRAINTRUST_API_KEY`, not `BT_KEY`). The same name is used in every
    environment; the environment is the secret, not the key.
 3. **Wire it in code.**
-   - gp-api: nothing to wire. Read it via `process.env.YOUR_KEY`
-     and add it to whatever env validation the service does at boot.
+   - gp-api: add the key to `packages/gp-api/deploy/gp-api-secret-keys.ts`
+     (the shared list, or `dev` or `prod` only), read it via
+     `process.env.YOUR_KEY`, and add it to whatever env validation the service
+     does at boot.
    - gp-ai: add the `valueFrom` entry to the module's `secrets` array and extend
      the task role's `secretsmanager:GetSecretValue` statement. Both live in
      `packages/gp-ai/infrastructure/modules/<service>/main.tf`.
@@ -122,7 +126,9 @@ Do everything except the value write, in one PR.
    reference — `modules/broker/main.tf` creates the container, manages no
    secret version, and names every key an operator must populate). Otherwise say
    it in the PR body.
-5. **Handle the missing-value case gracefully.** Your PR merges and deploys before
+5. **Handle the missing-value case gracefully.** gp-api is the exception: its
+   deploy stops on a declared key the secret lacks, so the value has to be
+   written before the PR merges. Elsewhere, your PR merges and deploys before
    the value exists, so the code must not crash-loop on a missing key — the ECS
    circuit breaker will roll the service back and the deploy looks like an
    unrelated failure. Fail the specific feature, not boot, unless the secret is
