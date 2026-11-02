@@ -155,7 +155,6 @@ export class OrdinanceFlowController {
     return new StreamableFile(buffer, {
       type: contentType,
       disposition: `attachment; filename="${filename}"`,
-      length: buffer.length,
     })
   }
 

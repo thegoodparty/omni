@@ -2,6 +2,11 @@
 
 import { clientRequest } from 'gpApi/typed-request'
 import { getCookie } from 'helpers/cookieHelper'
+import { reportErrorToSentry } from '@shared/sentry'
+import {
+  OrdinanceExportError,
+  type OrdinanceExportErrorKind,
+} from './exportError'
 import {
   ORG_SLUG_COOKIE,
   ORG_SLUG_HEADER,
@@ -18,23 +23,128 @@ import type {
 
 export type { OrdinanceExportFormat }
 
+const EXPORT_CONTENT_TYPES: Record<OrdinanceExportFormat, string> = {
+  pdf: 'application/pdf',
+  docx: 'wordprocessingml.document',
+}
+
+const readServerMessage = async (
+  res: Response,
+): Promise<string | undefined> => {
+  try {
+    const body: unknown = await res.json()
+    if (body && typeof body === 'object' && 'message' in body) {
+      const { message } = body
+      if (typeof message === 'string') return message
+      if (Array.isArray(message)) return message.join(', ')
+    }
+  } catch {
+    // Body was not JSON (e.g. an HTML error page from the edge).
+  }
+  return undefined
+}
+
+const exportFailure = (
+  message: string,
+  kind: OrdinanceExportErrorKind,
+  details: ConstructorParameters<typeof OrdinanceExportError>[2],
+): OrdinanceExportError => {
+  const error = new OrdinanceExportError(message, kind, details)
+  reportErrorToSentry(error, { kind, ...details })
+  return error
+}
+
+const httpFailureMessage = (
+  status: number,
+  serverMessage?: string,
+): { message: string; kind: OrdinanceExportErrorKind } => {
+  if (status === 401)
+    return {
+      kind: 'unauthorized',
+      message:
+        'Your session has expired. Sign in again and retry the download.',
+    }
+  if (status === 403)
+    return {
+      kind: 'forbidden',
+      message: 'You do not have permission to download this draft.',
+    }
+  if (status === 404)
+    return {
+      kind: 'not-found',
+      message: 'This draft could not be found. Refresh the page and try again.',
+    }
+  if (status >= 500)
+    return {
+      kind: 'server',
+      message: `The server could not build the file (error ${status}). Please try again in a moment.`,
+    }
+  return {
+    kind: 'http',
+    message: `The download failed (error ${status}${
+      serverMessage ? `: ${serverMessage}` : ''
+    }).`,
+  }
+}
+
 // Download the exported draft (PDF/Word). The endpoint streams a binary file, so
 // this bypasses the JSON typed client: fetch through the /api proxy with the org
-// header the elected-office guard needs, then save the returned blob.
+// header the elected-office guard needs, then save the returned blob. Failures
+// throw an OrdinanceExportError with a user-facing message and are reported to
+// Sentry with the status, format and slug.
 export async function downloadOrdinanceExport(
   slug: string,
   format: OrdinanceExportFormat,
 ): Promise<void> {
   const orgSlug = getCookie(ORG_SLUG_COOKIE)
-  const res = await fetch(
-    `/api/v1/ordinances/${slug}/export?format=${format}`,
-    {
+  let res: Response
+  try {
+    res = await fetch(`/api/v1/ordinances/${slug}/export?format=${format}`, {
       credentials: 'include',
       headers: orgSlug ? { [ORG_SLUG_HEADER]: orgSlug } : {},
-    },
-  )
-  if (!res.ok) throw new Error(`Export failed (${res.status})`)
-  const blob = await res.blob()
+    })
+  } catch (cause) {
+    throw exportFailure(
+      'Could not reach the server. Check your connection and try again.',
+      'network',
+      { slug, format, cause },
+    )
+  }
+  if (!res.ok) {
+    const serverMessage = await readServerMessage(res)
+    const { message, kind } = httpFailureMessage(res.status, serverMessage)
+    throw exportFailure(message, kind, {
+      slug,
+      format,
+      status: res.status,
+      serverMessage,
+    })
+  }
+  const contentType = res.headers.get('content-type')
+  if (!contentType?.includes(EXPORT_CONTENT_TYPES[format])) {
+    throw exportFailure(
+      'The server returned something other than the requested file. Please try again.',
+      'wrong-type',
+      { slug, format, status: res.status, contentType },
+    )
+  }
+  let blob: Blob
+  try {
+    blob = await res.blob()
+  } catch (cause) {
+    throw exportFailure(
+      'The download was interrupted before the file finished. Please try again.',
+      'network',
+      { slug, format, status: res.status, contentType, cause },
+    )
+  }
+  if (blob.size === 0) {
+    throw exportFailure(
+      'The server returned an empty file. Please try again.',
+      'empty',
+      { slug, format, status: res.status, contentType },
+    )
+  }
   const url = URL.createObjectURL(blob)
   const anchor = document.createElement('a')
   anchor.href = url
