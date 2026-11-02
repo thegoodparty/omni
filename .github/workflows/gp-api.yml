@@ -188,9 +188,9 @@ jobs:
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: ${{ env.WORKSPACE }}/.vitest-fs-module-cache
-          key: gp-api-vitest-modules-v1-${{ runner.os }}-${{ hashFiles('.nvmrc', 'package-lock.json', 'patches/**', 'packages/gp-api/vitest.config.ts') }}-shard-${{ matrix.shard }}-${{ github.sha }}
+          key: gp-api-vitest-modules-v1-${{ runner.os }}-bench-control-${{ hashFiles('.nvmrc', 'package-lock.json', 'patches/**', 'packages/gp-api/vitest.config.ts') }}-shard-${{ matrix.shard }}-${{ github.sha }}
           restore-keys: |
-            gp-api-vitest-modules-v1-${{ runner.os }}-${{ hashFiles('.nvmrc', 'package-lock.json', 'patches/**', 'packages/gp-api/vitest.config.ts') }}-shard-${{ matrix.shard }}-
+            gp-api-vitest-modules-v1-${{ runner.os }}-bench-control-${{ hashFiles('.nvmrc', 'package-lock.json', 'patches/**', 'packages/gp-api/vitest.config.ts') }}-shard-${{ matrix.shard }}-
 
       # Vitest's dependency fingerprint is the lockfile plus the mtime of
       # patches/, and it drops the whole cache when that changes. Every
@@ -207,7 +207,7 @@ jobs:
       # save: they can restore main's entries, and their own would only be
       # read by later pushes to the same PR.
       - name: Save vitest module cache
-        if: github.event_name == 'push' && github.ref_name == 'main'
+        if: (github.event_name == 'push' && github.ref_name == 'main') || startsWith(github.head_ref, 'exp/node24-bench-')
         uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: ${{ env.WORKSPACE }}/.vitest-fs-module-cache
@@ -237,7 +237,7 @@ jobs:
   # preview stack of code that fails validate is acceptable; the PR can't merge.
   preview:
     name: Deploy PR preview
-    if: github.event_name == 'pull_request'
+    if: false
     runs-on: ubuntu-latest
     # Keyed on the full preview stack name so deploy, teardown
     # (gp-api-teardown-preview.yml), and the cron cleanup destroy
