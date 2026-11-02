@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
 import { useAppEnvOverrides } from '@/shared/test-utils/appEnvOverrides'
 import { PeerlyBaseConfig } from '@/vendors/peerly/config/peerlyBaseConfig'
+import { SmsApprovalQueueResponseSchema } from '@goodparty_org/contracts'
 import { OutreachStatus, OutreachType, UserRole } from '../../generated/prisma'
 
 useAppEnvOverrides({ IS_NON_PROD_DEPLOY: true, VENDOR_MODE: 'mock' })
@@ -63,6 +64,15 @@ describe('GET /v1/outreach/admin/sms/queue in vendor-mock mode', () => {
     expect(res.status).toBe(HttpStatus.OK)
     expect(res.data.items).toHaveLength(1)
     expect(res.data.items[0].id).toBe(row.id)
-    expect(res.data.items[0].job).toMatchObject({ status: 'pending' })
+    expect(res.data.items[0].job).toEqual({
+      status: 'pending',
+      deliverabilityCheckError: null,
+      hasCanvassersScheduled: false,
+      peerlyApproved: null,
+      leadsRemaining: 0,
+    })
+    expect(SmsApprovalQueueResponseSchema.safeParse(res.data).success).toBe(
+      true,
+    )
   })
 })

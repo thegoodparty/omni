@@ -31,6 +31,13 @@ const MOCK_BALANCE_ID = 'mock-balance'
 const jsonObj = (v: Prisma.JsonValue): Prisma.JsonObject =>
   typeof v === 'object' && v !== null && !Array.isArray(v) ? v : {}
 
+// Jobs recorded before the mock set has_canvassers_scheduled still need it
+// on read: Peerly always returns it and the SMS console maps it as required.
+const jobState = (v: Prisma.JsonValue): Prisma.JsonObject => ({
+  has_canvassers_scheduled: false,
+  ...jsonObj(v),
+})
+
 @Controller('vendor-mocks/peerly')
 @PublicAccess()
 export class PeerlyP2pMockController {
@@ -77,6 +84,7 @@ export class PeerlyP2pMockController {
       templates: Array.isArray(body['templates']) ? body['templates'] : [],
       deleted: false,
       can_use_mms: true,
+      has_canvassers_scheduled: false,
     }
     await this.vendorMockRecord.upsert(
       VendorMockVendor.peerly,
@@ -102,7 +110,7 @@ export class PeerlyP2pMockController {
       where: { vendor: VendorMockVendor.peerly, kind: 'p2p_job' },
     })
     // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
-    return records.map((r) => jsonObj(r.state as Prisma.JsonValue))
+    return records.map((r) => jobState(r.state as Prisma.JsonValue))
   }
 
   @Get('1to1/jobs/:id')
@@ -110,7 +118,7 @@ export class PeerlyP2pMockController {
     this.assertMockMode()
     const record = await this.findJobRecord(id)
     // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
-    return jsonObj(record.state as Prisma.JsonValue)
+    return jobState(record.state as Prisma.JsonValue)
   }
 
   @Put('1to1/jobs/:id')

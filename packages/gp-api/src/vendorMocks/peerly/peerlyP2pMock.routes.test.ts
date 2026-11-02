@@ -84,6 +84,26 @@ describe('P2P job CRUD', () => {
     expect(res.data.length).toBeGreaterThan(0)
   })
 
+  it('reads has_canvassers_scheduled false on a job recorded without it', async () => {
+    await service.prisma.vendorMockRecord.create({
+      data: {
+        vendor: VendorMockVendor.peerly,
+        kind: 'p2p_job',
+        externalId: 'legacy-job',
+        state: { id: 'legacy-job', status: 'pending' },
+      },
+    })
+    const get = await service.client.get(`${BASE}/1to1/jobs/legacy-job`)
+    expect(get.data.has_canvassers_scheduled).toBe(false)
+    const list = await service.client.get(`${BASE}/1to1/jobs`)
+    expect(list.data).toEqual([
+      expect.objectContaining({
+        id: 'legacy-job',
+        has_canvassers_scheduled: false,
+      }),
+    ])
+  })
+
   it('updates the job state', async () => {
     const create = await service.client.post(`${BASE}/1to1/jobs`, {})
     const id = create.data.id as string
