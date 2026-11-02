@@ -127,6 +127,48 @@ describe('LlmService.streamChatCompletion', () => {
       inputTokens: 5,
       outputTokens: 3,
       totalTokens: 8,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+    })
+  })
+
+  // Anthropic caches nothing unless the request asks, and without it every
+  // tool step resends the whole prompt at the full input price.
+  it('asks Anthropic to cache the prompt and reports the cache split', async () => {
+    const { service, streamTextFn } = buildStreamService()
+    streamTextFn.mockReturnValueOnce({
+      ...(fakeStreamResult() as object),
+      totalUsage: Promise.resolve({
+        inputTokens: 10_000,
+        outputTokens: 50,
+        totalTokens: 10_050,
+        inputTokenDetails: {
+          noCacheTokens: 500,
+          cacheReadTokens: 8_000,
+          cacheWriteTokens: 1_500,
+        },
+      }),
+    })
+
+    const result = await service.streamChatCompletion({
+      messages: [USER_MSG],
+      models: ['claude-sonnet-4-6'],
+      retries: 0,
+    })
+
+    expect(streamTextFn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerOptions: {
+          anthropic: { cacheControl: { type: 'ephemeral' } },
+        },
+      }),
+    )
+    expect(await result.usage).toEqual({
+      inputTokens: 10_000,
+      outputTokens: 50,
+      totalTokens: 10_050,
+      cacheReadTokens: 8_000,
+      cacheWriteTokens: 1_500,
     })
   })
 

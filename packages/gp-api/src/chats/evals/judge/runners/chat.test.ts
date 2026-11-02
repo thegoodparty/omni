@@ -583,13 +583,30 @@ describe('turnTokens', () => {
     })
   })
 
-  // Zero because prompt caching is not enabled. Carried rather than omitted
-  // so the day it is switched on, pricing fails loudly instead of costing a
-  // cache read at the full input rate.
   it('always carries the cache fields', () => {
     const tokens = turnTokens({ input: 1, output: 1 }, 1, ONE_TURN)
     expect(tokens.cacheRead).toBe(0)
     expect(tokens.cacheWrite).toBe(0)
+  })
+
+  it('records measured cache counts when every turn reported', () => {
+    expect(
+      turnTokens(
+        { input: 50, output: 30, cacheRead: 9_000, cacheWrite: 1_200 },
+        1,
+        ONE_TURN,
+      ),
+    ).toEqual({ input: 50, output: 30, cacheRead: 9_000, cacheWrite: 1_200 })
+  })
+
+  it('drops cache counts with the rest when a turn went unreported', () => {
+    expect(
+      turnTokens(
+        { input: 50, output: 30, cacheRead: 9_000, cacheWrite: 1_200 },
+        1,
+        THREE_TURNS,
+      ),
+    ).toEqual({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0 })
   })
 })
 

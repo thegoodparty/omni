@@ -1746,12 +1746,15 @@ change re-prices all of history for free, the same way a rubric change
 re-grades stored records without re-running an agent.
 
 Tokens are split by how they are billed, including `cacheRead` and
-`cacheWrite`. Both are zero in every record today because prompt caching is
-not enabled, which is exactly why the fields exist now. `priceUsd` throws
-rather than pricing a cache read at the full input rate, because doing so
-overstates it by roughly ten times and would silently invalidate every
-stored comparison. Switching caching on therefore fails loudly and needs
-rates added to `pricing.ts`.
+`cacheWrite`. `priceUsd` throws rather than pricing a cache read at the full
+input rate, because doing so overstates it by roughly ten times; a model
+needs its cache rates in `pricing.ts` before a cached run can be priced.
+
+Interactive chats cache their prompts (`llm.service.ts`
+`streamChatCompletion`). An in-process chat run reads the split from the AI
+SDK's usage and records `input` as uncached input only. An HTTP chat run
+reads `chat_message.input_tokens`, which folds cache tokens into input, so
+it records zero cache tokens and its cost is an upper bound.
 
 A background record's counts come from the `type: result` line of the run's
 `conversation.jsonl`, under `usage`: `input_tokens`, `output_tokens`,

@@ -81,9 +81,8 @@ const record = (
   ],
   telemetry: {
     latencyMs: 12_000,
-    // The real measured shape of a Chief of Staff turn. Cache counts are
-    // zero because prompt caching is not enabled, not because they are
-    // unmodelled — a consumer that ignores them breaks the day it is.
+    // The real measured shape of a Chief of Staff turn, captured before the
+    // chats cached their prompts, so its cache counts are zero.
     tokens: {
       input: 31_213,
       output: 227,
