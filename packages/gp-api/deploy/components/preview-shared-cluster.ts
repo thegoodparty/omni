@@ -1,11 +1,9 @@
 import * as aws from '@pulumi/aws'
-import * as pulumi from '@pulumi/pulumi'
 
 interface PreviewSharedClusterConfig {
   vpcId: string
   privateSubnetIds: string[]
   appSecurityGroupIds: string[]
-  dbPassword: string
 }
 
 // Persistent shared Aurora cluster for all gp-api PR previews. Owned by the
@@ -16,7 +14,6 @@ export const createPreviewSharedCluster = ({
   vpcId,
   privateSubnetIds,
   appSecurityGroupIds,
-  dbPassword,
 }: PreviewSharedClusterConfig) => {
   const securityGroup = new aws.ec2.SecurityGroup(
     'previewSharedRdsSecurityGroup',
@@ -75,33 +72,26 @@ export const createPreviewSharedCluster = ({
     },
   })
 
-  const cluster = new aws.rds.Cluster(
-    'previewSharedCluster',
-    {
-      clusterIdentifier: 'gp-api-preview-shared-db',
-      engine: aws.rds.EngineType.AuroraPostgresql,
-      engineMode: aws.rds.EngineMode.Provisioned,
-      engineVersion: '16.8',
-      // No databaseName: the preview entrypoint creates per-PR databases
-      // (gpdb_pr_<n>) against the default postgres maintenance DB, so no
-      // single initial database is provisioned here.
-      masterUsername: 'gpuser',
-      masterPassword: pulumi.secret(dbPassword),
-      dbSubnetGroupName: subnetGroup.name,
-      vpcSecurityGroupIds: [securityGroup.id],
-      storageEncrypted: true,
-      serverlessv2ScalingConfiguration: {
-        minCapacity: 0.5,
-        maxCapacity: 64,
-      },
-      backupRetentionPeriod: 1,
-      deletionProtection: true,
-      skipFinalSnapshot: true,
+  const cluster = new aws.rds.Cluster('previewSharedCluster', {
+    clusterIdentifier: 'gp-api-preview-shared-db',
+    engine: aws.rds.EngineType.AuroraPostgresql,
+    engineMode: aws.rds.EngineMode.Provisioned,
+    engineVersion: '16.8',
+    // No databaseName: the preview entrypoint creates per-PR databases
+    // (gpdb_pr_<n>) against the default postgres maintenance DB, so no
+    // single initial database is provisioned here.
+    masterUsername: 'gpuser',
+    dbSubnetGroupName: subnetGroup.name,
+    vpcSecurityGroupIds: [securityGroup.id],
+    storageEncrypted: true,
+    serverlessv2ScalingConfiguration: {
+      minCapacity: 0.5,
+      maxCapacity: 64,
     },
-    // Write-once: a rotated DB_PASSWORD must not ModifyDBCluster the live
-    // shared cluster, which would break every connected preview.
-    { ignoreChanges: ['masterPassword'] },
-  )
+    backupRetentionPeriod: 1,
+    deletionProtection: true,
+    skipFinalSnapshot: true,
+  })
 
   new aws.rds.ClusterInstance('previewSharedInstance', {
     clusterIdentifier: cluster.id,

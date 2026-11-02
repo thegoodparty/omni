@@ -2,7 +2,9 @@ import { execSync, ExecSyncOptions } from 'node:child_process'
 import yargs from 'yargs'
 import { hideBin } from 'yargs/helpers'
 import { SSM } from '@aws-sdk/client-ssm'
+import { SecretsManager } from '@aws-sdk/client-secrets-manager'
 import { userInfo } from 'node:os'
+import { GP_API_SECRET_KEYS } from './gp-api-secret-keys'
 
 const ECR_REGISTRY = '333022194791.dkr.ecr.us-west-2.amazonaws.com'
 
@@ -30,6 +32,44 @@ const getSSMParameter = async (name: string) => {
     process.exit(1)
   }
   return Parameter.Value
+}
+
+// Deploy only, and only dev and prod: the one place the secret's value is
+// read, so `diff` and PR previews, which run Pulumi code from the pull
+// request, never need `secretsmanager:GetSecretValue` on it. A declared key
+// the secret lacks would fail every task start, so it stops the deploy here
+// instead.
+const checkSecretKeys = async (env: 'dev' | 'prod') => {
+  const secretId = env === 'prod' ? 'GP_API_PROD' : 'GP_API_DEV'
+  const { SecretString } = await new SecretsManager({
+    region: AWS_REGION,
+  }).getSecretValue({ SecretId: secretId })
+
+  // JSON.parse returns any — AWS secret is always a string-keyed object
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+  const actual = Object.keys(
+    JSON.parse(SecretString || '{}') as Record<string, string>,
+  )
+  const declared = GP_API_SECRET_KEYS[env]
+  const missing = declared.filter((key) => !actual.includes(key))
+  const extra = actual.filter((key) => !declared.includes(key))
+
+  if (extra.length > 0) {
+    console.warn(
+      `Warning: ${secretId} holds keys not declared in ` +
+        `deploy/gp-api-secret-keys.ts, so tasks do not get them: ` +
+        extra.join(', '),
+    )
+  }
+
+  if (missing.length > 0) {
+    console.error(
+      `Error: ${secretId} is missing keys declared in ` +
+        `deploy/gp-api-secret-keys.ts: ${missing.join(', ')}. Add them to ` +
+        `the secret, or remove them from the list.`,
+    )
+    process.exit(1)
+  }
 }
 
 type RunOptions = ExecSyncOptions & {
@@ -234,6 +274,9 @@ yargs(hideBin(process.argv))
       }),
     async (argv) => {
       await setupStack(argv.environment)
+      if (argv.environment !== 'preview') {
+        await checkSecretKeys(argv.environment)
+      }
       if (process.env.CI) {
         // A preview stack is throwaway, so the plan-then-apply pass `up`
         // runs by default only cost it ~15s of a second program run. dev and

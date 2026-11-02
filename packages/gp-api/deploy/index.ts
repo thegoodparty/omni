@@ -25,6 +25,7 @@ import { createRobocallAudioBucket } from './components/robocall-audio-bucket'
 import { createService } from './components/service'
 import { createSitemapsBucket } from './components/sitemaps-bucket'
 import { createVpc } from './components/vpc'
+import { GP_API_SECRET_KEYS } from './gp-api-secret-keys'
 
 export = async () => {
   const config = new pulumi.Config()
@@ -82,23 +83,9 @@ export = async () => {
     prod: 'GP_API_PROD',
   })
 
-  const secretVersion = await aws.secretsmanager.getSecretVersion({
-    secretId: secretName,
-  })
-
   const secretInfo = await aws.secretsmanager.getSecret({
     name: secretName,
   })
-
-  // JSON.parse returns any — AWS secret is always a string-keyed object, validated by key checks below
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
-  const secret: Record<string, string> = JSON.parse(
-    secretVersion.secretString || '{}',
-  ) as Record<string, string>
-
-  if (!secret.DB_PASSWORD) {
-    throw new Error('DB_PASSWORD must be set in the secret.')
-  }
 
   // The task role and task definition below name these queues by string
   // rather than through the resources' outputs. An SQS create waits ~25s for
@@ -356,45 +343,59 @@ export = async () => {
         },
       })
 
+  // The master password is not managed here, so no preview reads it and no
+  // state holds it. The cluster keeps the one it has, and tasks read
+  // DB_PASSWORD from the secret.
   const rdsCluster = skipPerPrRds
     ? undefined
-    : new aws.rds.Cluster('rdsCluster', {
-        clusterIdentifier: select({
-          preview: `gp-api-${stage}`,
-          dev: 'gp-api-db',
-          prod: 'gp-api-db-prod',
-        }),
-        engine: aws.rds.EngineType.AuroraPostgresql,
-        engineMode: aws.rds.EngineMode.Provisioned,
-        engineVersion: '16.8',
-        databaseName: 'gpdb',
-        masterUsername: 'gpuser',
-        masterPassword: pulumi.secret(secret.DB_PASSWORD),
-        dbSubnetGroupName: subnetGroup!.name,
-        vpcSecurityGroupIds: [rdsSecurityGroup!.id],
-        storageEncrypted: true,
-        serverlessv2ScalingConfiguration: {
-          minCapacity: environment === 'prod' ? 1 : 0.5,
-          maxCapacity: 64,
+    : new aws.rds.Cluster(
+        'rdsCluster',
+        {
+          clusterIdentifier: select({
+            preview: `gp-api-${stage}`,
+            dev: 'gp-api-db',
+            prod: 'gp-api-db-prod',
+          }),
+          engine: aws.rds.EngineType.AuroraPostgresql,
+          engineMode: aws.rds.EngineMode.Provisioned,
+          engineVersion: '16.11',
+          databaseName: 'gpdb',
+          masterUsername: 'gpuser',
+          dbSubnetGroupName: subnetGroup!.name,
+          vpcSecurityGroupIds: [rdsSecurityGroup!.id],
+          storageEncrypted: true,
+          serverlessv2ScalingConfiguration: {
+            minCapacity: environment === 'prod' ? 1 : 0.5,
+            maxCapacity: 64,
+          },
+          backupRetentionPeriod: select({
+            preview: 1,
+            dev: 7,
+            prod: 14,
+          }),
+          deletionProtection: true,
+          skipFinalSnapshot: false,
+          finalSnapshotIdentifier: `gp-api-db-${stage}-final-snapshot`,
         },
-        backupRetentionPeriod: select({
-          preview: 1,
-          dev: 7,
-          prod: 14,
-        }),
-        deletionProtection: true,
-        skipFinalSnapshot: false,
-        finalSnapshotIdentifier: `gp-api-db-${stage}-final-snapshot`,
-      })
+        // AWS applies minor engine upgrades on its own; Pulumi must not try
+        // to roll them back. The provider sends the configured version on
+        // any update once it has read a newer one, and AWS refuses the
+        // downgrade.
+        { ignoreChanges: ['engineVersion'] },
+      )
 
   const rdsInstance = skipPerPrRds
     ? undefined
-    : new aws.rds.ClusterInstance('rdsInstance', {
-        clusterIdentifier: rdsCluster!.id,
-        instanceClass: 'db.serverless',
-        engine: aws.rds.EngineType.AuroraPostgresql,
-        engineVersion: rdsCluster!.engineVersion,
-      })
+    : new aws.rds.ClusterInstance(
+        'rdsInstance',
+        {
+          clusterIdentifier: rdsCluster!.id,
+          instanceClass: 'db.serverless',
+          engine: aws.rds.EngineType.AuroraPostgresql,
+          engineVersion: rdsCluster!.engineVersion,
+        },
+        { ignoreChanges: ['engineVersion'] },
+      )
 
   const databricksFederation =
     databricksFederationName &&
@@ -431,7 +432,6 @@ export = async () => {
       vpcId,
       privateSubnetIds: vpcSubnetIds.private,
       appSecurityGroupIds: vpcSecurityGroupIds,
-      dbPassword: secret.DB_PASSWORD,
     })
   }
 
@@ -598,10 +598,11 @@ export = async () => {
     string,
     pulumi.Output<string>
   > = Object.fromEntries(
-    Object.keys(secret).map((key) => [
-      key,
-      pulumi.interpolate`${secretInfo.arn}:${key}::`,
-    ]),
+    select({
+      preview: GP_API_SECRET_KEYS.dev,
+      dev: GP_API_SECRET_KEYS.dev,
+      prod: GP_API_SECRET_KEYS.prod,
+    }).map((key) => [key, pulumi.interpolate`${secretInfo.arn}:${key}::`]),
   )
 
   const service = createService({
