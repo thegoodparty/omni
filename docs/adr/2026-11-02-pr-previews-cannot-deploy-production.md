@@ -3,7 +3,7 @@ title: PR previews deploy with a Vercel token that cannot deploy production
 status: active
 decided_by: [swain]
 date: 2026-11-02
-code: ['#PRNUM']
+code: ['#3511']
 scope:
   - .github/actions/vercel-deploy/**
   - .github/workflows/gp-webapp.yml
