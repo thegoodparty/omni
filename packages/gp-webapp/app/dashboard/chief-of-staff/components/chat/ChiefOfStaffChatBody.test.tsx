@@ -278,6 +278,35 @@ describe('<ChiefOfStaffChatBody>', () => {
     ).toBeInTheDocument()
   })
 
+  it('finishes the first-chat intro and shows the starters when the intro text changes mid-typing', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: false })
+    listConversationsMock.mockResolvedValue([])
+    const suggestions = [{ label: 'Tell my story', onSelect: vi.fn() }]
+    const { rerender } = render(
+      <ChiefOfStaffChatBody
+        active
+        defaultIntro={['Hello there.', 'What first?']}
+        suggestions={suggestions}
+      />,
+    )
+    await act(() => vi.advanceTimersByTimeAsync(56))
+
+    // A name loading in changes the intro's length, which re-runs its effect.
+    rerender(
+      <ChiefOfStaffChatBody
+        active
+        defaultIntro={['Hello there, Renee.', 'What first?']}
+        suggestions={suggestions}
+      />,
+    )
+    await act(() => vi.advanceTimersByTimeAsync(5000))
+
+    expect(screen.getByText('What first?')).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: 'Tell my story' }),
+    ).toBeInTheDocument()
+  })
+
   it('does not play the intro once the user has prior conversations', async () => {
     listConversationsMock.mockResolvedValue([
       {

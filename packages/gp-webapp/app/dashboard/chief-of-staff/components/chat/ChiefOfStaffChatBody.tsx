@@ -700,15 +700,10 @@ function ChiefOfStaffChatThread({
   useEffect(() => {
     const isOpener = opener !== undefined
     if (!isOpener && !isFirstChat) return
-    if (!isOpener) {
-      let seen = false
-      try {
-        seen = window.localStorage.getItem(introSeenKey(scope)) === '1'
-      } catch {
-        seen = false
-      }
-      if (seen) return
-    }
+    // The mount snapshot, not a live read: the first tick below writes the
+    // flag, so a re-run (the intro's text changing as a name loads) would
+    // otherwise read its own write and leave the intro half typed.
+    if (!isOpener && introSeenAtMount) return
 
     const step = Math.max(2, Math.ceil(introTotal / 120))
     const id = setInterval(() => {
@@ -726,7 +721,7 @@ function ChiefOfStaffChatThread({
       })
     }, 28)
     return () => clearInterval(id)
-  }, [opener, isFirstChat, introTotal, scope])
+  }, [opener, isFirstChat, introTotal, scope, introSeenAtMount])
 
   const introParts = useMemo(() => {
     let remaining = introProgress
