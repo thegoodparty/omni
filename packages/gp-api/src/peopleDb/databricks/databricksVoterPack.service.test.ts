@@ -270,8 +270,13 @@ describe('DatabricksVoterPackService', () => {
       })
       // The second chunk is the one lost, so the retry has to survive the
       // read-ahead: it is in flight while the first chunk is still parsing.
+      // Keyed on this test's own links rather than the call count: files in a
+      // shared-modules worker share the global fetch, so a straggler from
+      // another file can land in between and shift the count.
+      const callsFor = (url: string) =>
+        fetchMock.mock.calls.filter(([called]) => called === url).length
       const fetchMock = vi.fn((url: string) =>
-        url === 'c1' && fetchMock.mock.calls.length === 2
+        url === 'c1' && callsFor('c1') === 1
           ? Promise.reject(socketClosed())
           : Promise.resolve({
               ok: true,
@@ -290,7 +295,8 @@ describe('DatabricksVoterPackService', () => {
 
       const pack = await buildThrough()
 
-      expect(fetchMock).toHaveBeenCalledTimes(3)
+      expect(callsFor('c0')).toBe(1)
+      expect(callsFor('c1')).toBe(2)
       expect(manifestOf(pack).counts.people).toBe(2)
     })
 
