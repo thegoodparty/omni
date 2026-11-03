@@ -8,7 +8,12 @@ import {
 } from '@/generated/prisma'
 import { useTestService } from '@/test-service'
 import { SlackService } from '@/vendors/slack/services/slack.service'
+import { recordManagedPanelHandoffAlarm } from '../observability/managedPanelHandoff.metrics'
 import { OutreachTextHandoffService } from '../services/outreachTextHandoff.service'
+
+vi.mock('../observability/managedPanelHandoff.metrics', () => ({
+  recordManagedPanelHandoffAlarm: vi.fn(),
+}))
 
 const service = useTestService()
 
@@ -151,6 +156,21 @@ describe('OutreachTextHandoffService.markOverdue', () => {
     expect((await reload(row.id)).status).toBe(
       OutreachHandoffStatus.needs_human,
     )
+  })
+})
+
+describe('needs_human alarm count', () => {
+  it('counts a handed-back row only until its send time passes', async () => {
+    const counter = vi.mocked(recordManagedPanelHandoffAlarm)
+    counter.mockClear()
+    await handoff()
+
+    await handoffs().markOverdue(minutesBefore(30))
+    expect(counter).toHaveBeenCalledWith('needs_human', 1)
+
+    counter.mockClear()
+    await handoffs().markOverdue(new Date(SEND_AT.getTime() + 60_000))
+    expect(counter).toHaveBeenCalledWith('needs_human', 0)
   })
 })
 

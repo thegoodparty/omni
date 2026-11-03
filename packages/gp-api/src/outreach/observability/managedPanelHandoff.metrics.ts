@@ -25,7 +25,7 @@ const alarmCounter = metrics
   })
 
 /**
- * - needs_human:     rows sitting in `needs_human`
+ * - needs_human:     rows in `needs_human` whose send time is still ahead
  * - queued_past_due: `queued` rows whose send time has already passed
  */
 export type ManagedPanelHandoffAlarm = 'needs_human' | 'queued_past_due'

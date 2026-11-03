@@ -270,7 +270,12 @@ export class OutreachTextHandoffService extends createPrismaBase(
     recordManagedPanelHandoffAlarm(
       'needs_human',
       await this.model.count({
-        where: { status: OutreachHandoffStatus.needs_human },
+        // A person can still act on a row until its send time; after that it
+        // is history, and nothing in gp-api moves it out of needs_human.
+        where: {
+          status: OutreachHandoffStatus.needs_human,
+          sendAt: { gt: now },
+        },
       }),
     )
     recordManagedPanelHandoffAlarm(
