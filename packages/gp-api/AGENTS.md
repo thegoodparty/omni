@@ -93,7 +93,7 @@ starting env. A file that left fake timers on used to hang the next file's
 mutated singleton) still reaches the next file in its worker, so clean it up in
 `afterEach`/`afterAll`.
 
-Vitest's `experimental.fsModuleCache` keeps each module's swc output in
+Vitest's `fsModuleCache` keeps each module's swc output in
 `.vitest-fs-module-cache/` (gitignored) and reuses it on later runs, which
 roughly halves a single-file run once warm. The first run after a lockfile,
 Node or `vitest.config.ts` change is cold. Vitest's own key misses tsconfig and

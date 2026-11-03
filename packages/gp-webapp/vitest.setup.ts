@@ -1,21 +1,8 @@
-import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
-import type { TestingLibraryMatchers } from '@testing-library/jest-dom/matchers'
+import '@testing-library/jest-dom/vitest'
 import { cleanup, configure } from '@testing-library/react'
 import { testQueryClient } from 'helpers/test-utils/render'
 import { router } from 'helpers/test-utils/router-mocking'
-import { afterEach, beforeEach, expect, vi } from 'vitest'
-
-// '@testing-library/jest-dom/vitest' would register these on whichever vitest
-// it resolves from its own folder, which is the repo root's older vitest, not
-// this package's.
-expect.extend(jestDomMatchers)
-
-declare module 'vitest' {
-  interface Matchers<
-    R extends void | Promise<void> = void | Promise<void>,
-    T = unknown,
-  > extends TestingLibraryMatchers<T, R> {}
-}
+import { afterEach, beforeEach, vi } from 'vitest'
 
 // waitFor/findBy default to a 1s deadline, which is a bet on machine speed
 // rather than anything the assertions mean. Suites that poll for a debounced
