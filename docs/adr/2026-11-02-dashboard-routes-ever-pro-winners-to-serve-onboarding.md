@@ -1,6 +1,6 @@
 ---
 title: The dashboard routes winners whose campaign was ever Pro to Serve onboarding
-status: active
+status: superseded
 decided_by: [bryclevgp]
 date: 2026-11-02
 code: ['#3518']
@@ -12,7 +12,7 @@ scope:
   - packages/contracts/src/campaigns/ElectedOffice.schema.ts
 supersedes:
   ['2026-11-02-dashboard-routes-only-pro-winners-to-serve-onboarding.md']
-superseded_by:
+superseded_by: 2026-11-02-win-to-serve-handoff-uses-ever-pro.md
 ---
 
 # The dashboard routes winners whose campaign was ever Pro to Serve onboarding

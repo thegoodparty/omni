@@ -11,9 +11,9 @@ sends them back until the browser closes. Test mode's Apply clears it.
 
 Every screen here has the same header bar, `components/ElectionResultHeader.tsx`:
 the `GoodPartyOrgLogoWordmark` over a rule, no menu or navigation. The ask
-screen and the congratulations without Pro add a ghost `IconButton` X
+screen and the never-Pro congratulations add a ghost `IconButton` X
 (`aria-label="Close"`) on its right, which goes to Home, where the card and
-the chat keep asking; it saves and snoozes nothing. The Pro win's two steps
+the chat keep asking; it saves and snoozes nothing. The ever-Pro win's two steps
 and `loss/` show the logo alone.
 
 ## Two places ask, the first answer wins
@@ -46,28 +46,36 @@ ask while it holds; answering either saves `wonGeneral`, which closes both.
   in `dismissal.ts`): localStorage, keyed to the campaign, the meet card's
   pattern. Test mode's Apply clears it with the impersonation dismissal.
 
-| Answer | Pro                                                                                               | Without Pro                                                           |
+| Answer | Ever Pro                                                                                          | Never Pro                                                             |
 | ------ | ------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
 | Won    | Congratulations (A2); its button creates the office unfinished, then Serve onboarding             | `wonGeneral: true`, then congratulations with the community card (N1) |
 | Lost   | `wonGeneral: false`, then `loss/`: thank you, the community card, and the subscription alert (A4) | Same, without the alert (N2)                                          |
 
-The Pro win creates the office before saving `wonGeneral`, pinned to the
+"Ever Pro" is `campaignWasEverPro` from `@goodparty_org/contracts`, the rule
+gp-api's `GET /v1/elected-office/mine` uses for the dashboard redirect:
+Pro now, or a cancelled campaign that left `isProUpdatedAt`,
+`subscriptionId` or `subscriptionCanceledAt` behind. A winner who cancelled
+Pro gets Get ready to serve, and `ActiveProSubscriptionAlert` still reads
+Pro now, since it is about a subscription left to cancel.
+
+The ever-Pro win creates the office before saving `wonGeneral`, pinned to the
 `campaign-<id>` org header so gp-api links `campaignId` and copies the
 campaign's position. It sends the campaign's party (mapped to Serve's values)
 and `onboardingStep: 'confirm'`, and no term dates or `onboardingCompletedAt`:
 Serve onboarding asks for the term and its pledge finishes the office. A
 winner who already holds another office still gets a new one for this seat;
 asking again returns the office linked to this campaign. See
-`app/serve/onboarding/AGENTS.md` ("Pro winners") for how the dashboard brings
-an unfinished Pro winner back; a non-Pro winner is never sent there.
+`app/serve/onboarding/AGENTS.md` ("Ever-Pro winners") for how the dashboard
+brings an unfinished ever-Pro winner back; a never-Pro winner is never sent
+there.
 
 Saving `wonGeneral` also reaches gp-api's `WinOfficeService`
-(`gp-api/src/electedOffice/AGENTS.md`): a win without Pro gets the same
+(`gp-api/src/electedOffice/AGENTS.md`): a never-Pro win gets the same
 office, created dormant on the server, and a later loss deletes it while it
 is unfinished. Dormant means no Serve jobs and no redirect; staff let people
 in a few at a time.
 
-Copy lives in `electionResultCopy.ts`. The Pro win (`PrepareToServe.tsx`)
+Copy lives in `electionResultCopy.ts`. The ever-Pro win (`PrepareToServe.tsx`)
 is two steps. First a full-screen celebration: "Congratulations, you won!",
 the office name, confetti, a progress bar and Continue; it moves on by itself
 after 3 seconds (reduced motion stills the bar and hides the confetti, but
@@ -90,7 +98,7 @@ the square one below, as two native `<video>`s toggled by responsive classes,
 each with controls, no autoplay, `preload="metadata"` and a textless poster
 of the podium (a crop of the 0:02 frame). A visually hidden paragraph carries
 the video's own lines as its description; those lines name the civic panel,
-the page's copy does not. The winner without Pro (`CongratulationsStep.tsx`)
+the page's copy does not. The never-Pro winner (`CongratulationsStep.tsx`)
 gets no video. Confetti is the Pro upgrade's `ConfettiField`, hidden under
 reduced motion. Its one-shot burst waits for the frame that paints the
 message and for the page to be showing, so it falls over the words rather
