@@ -11,7 +11,11 @@ import {
   ROBOCALL_RUN_HOURS,
   ROBOCALL_SETTLE_MARGIN_HOURS,
 } from '@/shared/util/robocallHold.util'
-import { Campaign, RobocallSettleState } from '../../generated/prisma'
+import {
+  Campaign,
+  OutreachStatus,
+  RobocallSettleState,
+} from '../../generated/prisma'
 import { disableVendorCrons } from '@/shared/test-utils/appEnvOverrides'
 
 const service = useTestService()
@@ -103,6 +107,9 @@ const createDraft = async ({
   return spine.id
 }
 
+const readSpine = (outreachId: number) =>
+  service.prisma.outreach.findUniqueOrThrow({ where: { id: outreachId } })
+
 const readSatellite = (outreachId: number) =>
   service.prisma.outreachRobocall.findUniqueOrThrow({ where: { outreachId } })
 
@@ -130,6 +137,32 @@ describe('OutreachRobocallCompletionService.settle', () => {
     expect(satellite.captureBefore).not.toBeNull()
     expect(satellite.capturedAmountInCents).toBeNull()
     expect(satellite.chargeIntentId).toBeNull()
+  })
+
+  it('completes the spine at settlement, without any funds capture', async () => {
+    const outreachId = await createDraft({
+      authorizationIntentId: null,
+      promoCoversTotal: true,
+    })
+
+    await completion.settle(outreachId, 'vb_1', 100)
+
+    expect((await readSpine(outreachId)).status).toBe(OutreachStatus.completed)
+    const satellite = await readSatellite(outreachId)
+    expect(satellite.settleState).toBe(RobocallSettleState.settling)
+    expect(satellite.capturedAmountInCents).toBeNull()
+  })
+
+  it('never flips a canceled spine to completed at settlement', async () => {
+    const outreachId = await createDraft()
+    await service.prisma.outreach.update({
+      where: { id: outreachId },
+      data: { status: OutreachStatus.canceled },
+    })
+
+    await completion.settle(outreachId, 'vb_1', 100)
+
+    expect((await readSpine(outreachId)).status).toBe(OutreachStatus.canceled)
   })
 
   it('settles anyway when the CallHub stop fails transiently (a 502)', async () => {

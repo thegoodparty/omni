@@ -20,7 +20,12 @@ import {
   saveEmailDraft,
   useEmailSender,
 } from './emailApi'
-import { checkSchedule, toDraftSave } from './emailFlow.util'
+import {
+  checkSchedule,
+  toDateInput,
+  toDraftSave,
+  toTimeInput,
+} from './emailFlow.util'
 import {
   composeIssues,
   hasIssues,
@@ -82,9 +87,8 @@ export const EmailFlow = ({
     reachabilityKey: 'email',
     countOverlay: EMAIL_COUNT_OVERLAY,
   })
-  const [sendNow, setSendNow] = useState(true)
-  const [day, setDay] = useState('')
-  const [time, setTime] = useState('10:00')
+  const [day, setDay] = useState(() => toDateInput(new Date()))
+  const [time, setTime] = useState(() => toTimeInput(new Date()))
   const [scheduleError, setScheduleError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -137,9 +141,9 @@ export const EmailFlow = ({
     }
   }
 
-  const schedule = checkSchedule(sendNow, day, time)
+  const schedule = checkSchedule(day, time)
   const sendLabel =
-    sendNow || !schedule.ok || !schedule.iso
+    !schedule.ok || !schedule.iso
       ? 'As soon as it is paid'
       : new Date(schedule.iso).toLocaleString('en-US', {
           weekday: 'short',
@@ -167,7 +171,7 @@ export const EmailFlow = ({
       return
     }
     if (step === 'schedule') {
-      const check = checkSchedule(sendNow, day, time)
+      const check = checkSchedule(day, time)
       if (!check.ok) {
         setScheduleError(check.message)
         return
@@ -283,11 +287,9 @@ export const EmailFlow = ({
         {step === 'schedule' && (
           <EmailScheduleStep
             surface={surface}
-            sendNow={sendNow}
             day={day}
             time={time}
             error={scheduleError}
-            onSendNowChange={setSendNow}
             onDayChange={setDay}
             onTimeChange={setTime}
           />

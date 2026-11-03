@@ -198,16 +198,19 @@ test.describe('Email send — mock pipeline', () => {
     })
     await composeEmail(page)
 
-    // ── Schedule: send as soon as it is paid (the default) ──────────────
+    // ── Schedule: today and now (the default) send once it is paid ──────
     await expect(stepHeading(page, 'When should it go out?')).toBeVisible({
       timeout: 30_000,
     })
+    await expect(page.getByLabel('Day')).not.toHaveValue('')
+    await expect(page.getByLabel('Time')).not.toHaveValue('')
     await page.getByRole('button', { name: 'Next' }).click()
 
     // ── Review ───────────────────────────────────────────────────────────
     await expect(stepHeading(page, 'Ready to send?')).toBeVisible({
       timeout: 30_000,
     })
+    await expect(page.getByText('As soon as it is paid')).toBeVisible()
     await expect(page.getByTestId('email-price')).toContainText('$0.50')
     await page.getByRole('button', { name: 'Continue to payment' }).click()
 
