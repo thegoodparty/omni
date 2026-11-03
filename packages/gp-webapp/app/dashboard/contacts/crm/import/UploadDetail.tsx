@@ -225,18 +225,25 @@ export const UploadDetail = ({
                       index > 0 && 'border-t border-border',
                     )
                     return opens ? (
-                      <button
+                      <div
                         key={count.label}
-                        type="button"
+                        role="button"
+                        tabIndex={0}
                         aria-haspopup="dialog"
                         onClick={() => setOpenRows(opens)}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter' || event.key === ' ') {
+                            event.preventDefault()
+                            setOpenRows(opens)
+                          }
+                        }}
                         className={cn(
                           className,
-                          'cursor-pointer text-left transition-colors hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-primary-focus focus-visible:outline-none focus-visible:ring-inset',
+                          'cursor-pointer transition-colors hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-primary-focus focus-visible:outline-none focus-visible:ring-inset',
                         )}
                       >
                         {content}
-                      </button>
+                      </div>
                     ) : (
                       <div key={count.label} className={className}>
                         {content}
