@@ -141,7 +141,7 @@ const WIN_AREAS: ProductArea[] = [
       'A list shown on a map here has Draw shapes / Edit shapes beside Open list, which narrows that list to the shapes without leaving the conversation',
       'Asking how an earlier send did gets its numbers in the reply, and can leave cards for those sends that open each one in Voter Outreach',
       'Where What we heard is on, asking what voters said at the doors or on calls gets the notes from the campaign’s recent door knocking and phone banking in the reply, with the themes found in them',
-      'Once election day has passed and the candidate has not said how it went, this chat opens on Home with How did it go? and three answers: I won opens the election result page on its congratulations, I didn’t win saves the result and replies with a thank you and a Join the GoodParty.org community card, and Results aren’t final yet asks again in 3 days',
+      'Once election day has passed and the candidate has not said how it went, this chat opens on Home with How did it go? and three answers: I won opens the election result page on its congratulations, I didn’t win saves the result and replies with a thank you, a request for their feedback and a Take the 5-minute survey card that opens the feedback survey for candidates who did not win in a new tab, and Results aren’t final yet asks again in 3 days',
       'Until they answer, the first card on Home asks Did you win your race for <their office>? with I won, I didn’t win, and Results aren’t final yet, in front of their tasks, and it stays there after the chat is closed',
     ],
   },

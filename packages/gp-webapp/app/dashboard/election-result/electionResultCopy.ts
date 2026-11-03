@@ -5,8 +5,6 @@
 
 import { format, isValid, parseISO } from 'date-fns'
 
-export const COMMUNITY_URL = 'https://community.goodparty.org'
-
 const DEFAULT_PLACE = 'your district'
 
 // "About 32,000 people", never a false-precision count.
@@ -74,18 +72,11 @@ export const CHAT_ASK_COPY = {
   won: 'I won',
   lost: "I didn't win",
   notFinal: ASK_COPY.notFinal,
-  lostReply: (
-    firstName: string | null | undefined,
-    place: string | null,
-  ): string[] => [
+  lostReply: (firstName: string | null | undefined): string[] => [
     `We appreciate you for running${firstName ? `, ${firstName}` : ''}. Putting your name on the ballot takes courage. Great work.`,
-    `If you want to run again, or help the officials serving ${place ?? DEFAULT_PLACE}, the GoodParty.org community is a good place to start.`,
+    "Tell us what worked, what didn't, and how we can support you better next cycle.",
   ],
   notFinalReply: ["Got it. I'll ask again in 3 days."],
-  community: {
-    label: 'Join the GoodParty.org community',
-    description: "Independents who've run, are running, or serve.",
-  },
   saveFailed: "We couldn't save your result. Try again.",
 }
 
