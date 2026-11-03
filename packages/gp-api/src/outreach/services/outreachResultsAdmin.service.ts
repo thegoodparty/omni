@@ -547,7 +547,7 @@ export class OutreachResultsAdminService extends createPrismaBase(
       await this.client.outreachTextHandoff.updateMany({
         where: {
           outreachId,
-          status: { not: OutreachHandoffStatus.replies_submitted },
+          status: OutreachHandoffStatus.scheduled,
         },
         data: {
           status: OutreachHandoffStatus.replies_submitted,

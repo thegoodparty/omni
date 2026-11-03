@@ -226,9 +226,11 @@ already handed off keeps its choice: it is an agent wave if the row exists,
 whatever the flag says now.
 
 **Results upload.** A committed (not dry-run) staff results upload for a
-send with `managedPanelWaveId` sets its `OutreachTextHandoff` row, if any, to
-`replies_submitted`. It does not step the panel: the daily job closes the
-wave on its next run, because no request may reach `claimFree`.
+send with `managedPanelWaveId` sets its `OutreachTextHandoff` row to
+`replies_submitted`, only from `scheduled` (as `submitReplies` does), so an
+early upload cannot block the agent's `scheduled` report. It does not step
+the panel, because no request may reach `claimFree`: the daily job closes
+the wave once its reply window has passed.
 
 **Reaching the rest.** On the exhausted card's message, or when the
 official asks, the Chief of Staff calls `read_reach_the_rest`

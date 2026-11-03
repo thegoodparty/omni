@@ -926,6 +926,28 @@ describe('a managed wave results upload', () => {
     expect((await waves(id)).map((wave) => wave.closedAt)).toEqual([null])
   })
 
+  it('leaves a hand-off the agent has not scheduled yet', async () => {
+    const { outreachId } = await sentWave()
+    await service.prisma.outreachTextHandoff.create({
+      data: {
+        outreachId,
+        handler: 'agent',
+        mode: 'auto',
+        sendAt: WEDNESDAY,
+        timeZone: 'America/New_York',
+      },
+    })
+
+    const result = await upload(outreachId, false)
+
+    expect(result.status).toBe(201)
+    const row = await service.prisma.outreachTextHandoff.findUniqueOrThrow({
+      where: { outreachId },
+    })
+    expect(row.status).toBe('queued')
+    expect(row.repliesSubmittedAt).toBeNull()
+  })
+
   it('leaves the hand-off alone on a dry run', async () => {
     const { outreachId } = await sentWave()
     await handoff(outreachId)
