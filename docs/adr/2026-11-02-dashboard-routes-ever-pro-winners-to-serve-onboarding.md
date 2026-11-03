@@ -1,28 +1,23 @@
 ---
 title: The dashboard routes winners whose campaign was ever Pro to Serve onboarding
-status: active
-decided_by: [bryclevgp, jacknagel-hs]
+status: superseded
+decided_by: [bryclevgp]
 date: 2026-11-02
-code: ['#3518', '#3527']
+code: ['#3518']
 scope:
   - packages/gp-webapp/app/dashboard/election-result/**
   - packages/gp-webapp/app/dashboard/shared/DashboardLayout.tsx
   - packages/gp-webapp/app/serve/onboarding/**
   - packages/gp-api/src/electedOffice/electedOffice.controller.ts
   - packages/contracts/src/campaigns/ElectedOffice.schema.ts
-  - packages/contracts/src/campaigns/CampaignEverPro.ts
-  - packages/contracts/src/index.ts
-  - packages/gp-api/src/chats/general/product-knowledge/productMap.ts
 supersedes:
   ['2026-11-02-dashboard-routes-only-pro-winners-to-serve-onboarding.md']
-superseded_by:
+superseded_by: 2026-11-02-win-to-serve-handoff-uses-ever-pro.md
 ---
 
 # The dashboard routes winners whose campaign was ever Pro to Serve onboarding
 
 ## Decision
-
-Decided by Bryan with Jack, Jesse, Jared and Chadwyck.
 
 A winner's office starts unfinished, checkpointed on Serve onboarding's
 `confirm` step, and the pledge stamps `onboardingCompletedAt`.
@@ -32,10 +27,7 @@ whose linked campaign was ever Pro. gp-api decides it in
 `GET /v1/elected-office/mine` as `campaignWasEverPro`, validated by
 `MyElectedOfficeSchema`: `isPro` is true, or `details.isProUpdatedAt`,
 `details.subscriptionId` or `details.subscriptionCanceledAt` is set (JSON null
-does not count). Sign-in routing is still unchanged. The election result
-page applies the same rule, so a winner who cancelled Pro gets Get ready to
-serve rather than the never-Pro congratulations. Both read one definition,
-`campaignWasEverPro` in `@goodparty_org/contracts`.
+does not count). Sign-in routing is still unchanged.
 
 ## Context
 
