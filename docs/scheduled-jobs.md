@@ -99,6 +99,14 @@ Reference implementations, all clean examples of the shape below:
   `#bot-10dlc-compliance` only when one fails. One billed Geoapify routing
   call a day, the rest are free reads. Never logs or posts a response body.
   Needs `DRIFT_PROBE_PEERLY_IDENTITY_ID` for the Peerly use-case probe
+- `outreach/services/outreachTextHandoff.service.ts`
+  (`outreachHandoffOverdueSweep`, `8,23,38,53 * * * *` ET): every 15 minutes,
+  deploy allowlist `dev`/`prod`. Hands an unclaimed `queued` agent row back to a
+  person (`needs_human: overdue`) once its send time is under an hour away, and
+  posts it to `#bot-tevyn-api`. No `CronLockService`: the
+  `updateMany where status = queued` elects one winner per row, so overlapping
+  runs and replicas post once. Records the `needs_human` and queued-past-due
+  counts for the `serve-managed-panel-handoff-*` Grafana alarms
 
 A few older jobs predate this service and dedupe another way; treat those as
 history, not as a template.

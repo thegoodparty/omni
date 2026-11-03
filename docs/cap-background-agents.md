@@ -243,10 +243,8 @@ dormant and dispatches nothing.
 ### Admin / bulk-dispatch surface
 
 - `POST /v1/meetings/briefings/dispatch` (`UserOrM2MGuard`) — M2M callers dispatch
-  for any office; `useImminenceGate: true` matches the cron exactly. The
-  `bulk-briefing-cohort` skill drives this (~$6 per briefing).
-- `POST /v1/community-issues/dispatch` (`AdminOrM2MGuard`) → `dispatchForCohort`. The
-  `bulk-community-issues-cohort` skill's endpoint.
+  for any office; `useImminenceGate: true` matches the cron exactly.
+- `POST /v1/community-issues/dispatch` (`AdminOrM2MGuard`) → `dispatchForCohort`.
 - `admin/agent-runs` (`src/admin/agentRuns`, `M2MOnly`) — list, detail (incl. S3
   artifact + `conversation.log`), and retry (`compliance_setup` only).
 - `admin/briefings` + the review-verdict controller

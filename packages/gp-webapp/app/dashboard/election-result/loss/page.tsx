@@ -2,16 +2,14 @@
 import { useRouter } from 'next/navigation'
 import { Button } from '@styleguide'
 import { useUser } from '@shared/hooks/useUser'
-import { useServePlace } from 'app/dashboard/contacts/citizens-panel/managedPanelCopy'
 import { ActiveProSubscriptionAlert } from '../components/ActiveProSubscriptionAlert'
-import { CommunityCard } from '../components/CommunityCard'
 import { ElectionResultHeader } from '../components/ElectionResultHeader'
+import { SurveyCard } from '../components/SurveyCard'
 import { BACK_TO_DASHBOARD, LOST_COPY } from '../electionResultCopy'
 
 export default function LossPage(): React.JSX.Element {
   const router = useRouter()
   const [user] = useUser()
-  const place = useServePlace()
 
   return (
     <div className="flex flex-col">
@@ -28,9 +26,7 @@ export default function LossPage(): React.JSX.Element {
                 {LOST_COPY.description}
               </p>
             </div>
-            <CommunityCard
-              description={LOST_COPY.communityDescription(place)}
-            />
+            <SurveyCard {...LOST_COPY.survey} />
             <Button
               type="button"
               variant="ghost"

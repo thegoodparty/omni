@@ -70,3 +70,12 @@ export const AgentHandoffReportSchema = z.discriminatedUnion('status', [
   }),
 ])
 export type AgentHandoffReport = z.infer<typeof AgentHandoffReportSchema>
+
+export const AgentHandoffReportResponseSchema = z.object({
+  outreachId: z.number().int(),
+  status: z.enum(['built', 'scheduled', 'needs_human']),
+  repliesDueAt: z.string().datetime().nullable(),
+})
+export type AgentHandoffReportResponse = z.infer<
+  typeof AgentHandoffReportResponseSchema
+>

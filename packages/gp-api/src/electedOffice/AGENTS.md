@@ -44,10 +44,11 @@ result was cleared) it is ignored and the campaign has no win.
 The in-app paths call `reconcile` right after the write; the daily sweep
 (`winOfficeSweep`, 200 creates and 200 removals a run, newest campaigns
 first) catches everything else and is the backfill. Test-mode orgs and demo
-campaigns are skipped, and so are Pro wins whose election is over a year
-old: a Pro winner's unfinished office redirects them to Serve onboarding on
-every dashboard visit, and the backfill must not start that for long-past
-winners.
+campaigns are skipped, and so are ever-Pro wins (`campaignWasEverPro` in
+`@goodparty_org/contracts`, mirrored in the sweep's SQL) whose election is
+over a year old: an ever-Pro winner's unfinished office redirects them to
+Serve onboarding on every dashboard visit, and the backfill must not start
+that for long-past winners.
 `win_source` is set only on a fresh create, so a lead's office that a win
 links keeps it null and is never deleted for a loss.
 

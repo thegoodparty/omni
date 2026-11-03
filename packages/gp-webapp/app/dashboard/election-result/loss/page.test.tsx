@@ -22,10 +22,6 @@ vi.mock('@shared/hooks/useUser', () => ({
   useUser: () => [{ firstName: 'Sarah' }],
 }))
 
-vi.mock('app/dashboard/contacts/citizens-panel/managedPanelCopy', () => ({
-  useServePlace: () => 'Maplewood',
-}))
-
 vi.mock('gpApi/clientFetch', () => ({
   clientFetch: vi.fn(),
 }))
@@ -87,19 +83,34 @@ describe('LossPage', () => {
     expect(within(header).queryByRole('button')).toBeNull()
   })
 
-  it('points to the community and back to the dashboard', () => {
+  it('asks for survey feedback and goes back to the dashboard', () => {
     mockCampaign.current = { id: 1, isPro: false, details: {} }
 
     render(<LossPage />)
 
     expect(
       screen.getByText(
-        'Learn how to run again, or how to support the officials serving Maplewood.',
+        'Putting your name on the ballot takes courage, and you did it. Great work.',
       ),
     ).toBeInTheDocument()
     expect(
-      screen.getByRole('link', { name: /Join the community/ }),
-    ).toHaveAttribute('href', 'https://community.goodparty.org')
+      screen.getByRole('heading', { name: 'We need your feedback' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        'We’re asking everyone who ran with GoodParty.org this year what worked, what didn’t, and how we can support you better next cycle.',
+      ),
+    ).toBeInTheDocument()
+    const survey = screen.getByRole('link', {
+      name: /Take the 5-minute survey/,
+    })
+    expect(survey).toHaveAttribute(
+      'href',
+      'https://survey.hsforms.com/22zYI2zHtQ6erJaSewyxf-Acuqn1',
+    )
+    expect(survey).toHaveAttribute('target', '_blank')
+    expect(survey).toHaveAttribute('rel', 'noopener noreferrer')
+    expect(screen.queryByRole('link', { name: /community/ })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Back to dashboard' }))
     expect(router.replace).toHaveBeenCalledWith('/dashboard')
   })

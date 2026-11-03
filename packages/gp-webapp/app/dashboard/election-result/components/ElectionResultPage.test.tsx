@@ -9,7 +9,12 @@ import { updateCampaign } from 'app/onboarding/shared/ajaxActions'
 type MockCampaign = {
   id: number
   isPro?: boolean
-  details: { electionDate: string; subscriptionId?: string; party?: string }
+  details: {
+    electionDate: string
+    subscriptionId?: string
+    party?: string
+    isProUpdatedAt?: number
+  }
 }
 
 const {
@@ -29,7 +34,12 @@ const {
     current: { id: 1, details: { electionDate: '2025-05-20' } } as {
       id: number
       isPro?: boolean
-      details: { electionDate: string; subscriptionId?: string; party?: string }
+      details: {
+        electionDate: string
+        subscriptionId?: string
+        party?: string
+        isProUpdatedAt?: number
+      }
     },
   },
 }))
@@ -302,7 +312,7 @@ describe('ElectionResultPage', () => {
     expect(electedOfficeCreated).toBe(false)
   })
 
-  it('saves only the result for a winner without Pro', async () => {
+  it('saves only the result for a winner whose campaign was never Pro', async () => {
     mockUpdateCampaign.mockResolvedValue({ id: 1 } as never)
     let electedOfficeCreated = false
     api.mock('POST /v1/elected-office', () => {
@@ -321,8 +331,27 @@ describe('ElectionResultPage', () => {
     ])
     expect(electedOfficeCreated).toBe(false)
     expect(
-      screen.getByRole('link', { name: /Join the community/ }),
-    ).toHaveAttribute('href', 'https://community.goodparty.org')
+      screen.getByText(
+        'All your work paid off. Thank you for using GoodParty.org for your campaign.',
+      ),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('heading', { name: 'One ask before you take office' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        'We need your feedback on your campaign experience: What worked, what didn’t, and how you ran your race.',
+      ),
+    ).toBeInTheDocument()
+    const survey = screen.getByRole('link', {
+      name: /Take the 5-minute survey/,
+    })
+    expect(survey).toHaveAttribute(
+      'href',
+      'https://survey.hsforms.com/2J3kJCYcaQK-KlQw4qyl7Zgcuqn1',
+    )
+    expect(survey).toHaveAttribute('target', '_blank')
+    expect(survey).toHaveAttribute('rel', 'noopener noreferrer')
     expect(
       screen.queryByRole('button', { name: 'Start preparing to serve' }),
     ).toBeNull()
@@ -402,7 +431,7 @@ describe('ElectionResultPage', () => {
       screen.getByRole('button', { name: 'Start preparing to serve' }),
     ).toBeInTheDocument()
     expect(
-      screen.queryByRole('link', { name: /Join the community/ }),
+      screen.queryByRole('link', { name: /Take the 5-minute survey/ }),
     ).toBeNull()
     expect(mockUpdateCampaign).not.toHaveBeenCalled()
 
@@ -491,6 +520,52 @@ describe('ElectionResultPage', () => {
       { key: 'details.wonGeneral', value: true },
     ])
     expect(mockSetSelectedSlug).toHaveBeenCalledWith('eo-1')
+  })
+
+  it('hands a winner who cancelled Pro off to Serve onboarding like a Pro winner', async () => {
+    mockCampaign.current = {
+      id: 1,
+      isPro: false,
+      details: {
+        electionDate: '2025-05-20',
+        isProUpdatedAt: 1_700_000_000_000,
+      },
+    }
+    mockUpdateCampaign.mockResolvedValue({ id: 1 } as never)
+    let electedOfficeCreated = false
+    api.mock('POST /v1/elected-office', () => {
+      electedOfficeCreated = true
+      return { status: 200, data: eoFixture }
+    })
+    api.mock('GET /v1/organizations', {
+      status: 200,
+      data: { organizations: [electedOfficeOrg] },
+    })
+
+    render(<ElectionResultPage />)
+    answerWon()
+    fireEvent.click(await screen.findByRole('button', { name: 'Continue' }))
+
+    expect(
+      await screen.findByRole('heading', {
+        name: 'Get ready to serve your district',
+      }),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('link', { name: /Take the 5-minute survey/ }),
+    ).toBeNull()
+    expect(mockUpdateCampaign).not.toHaveBeenCalled()
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Start preparing to serve' }),
+    )
+    await waitFor(() => {
+      expect(router.replace).toHaveBeenCalledWith('/serve/onboarding')
+    })
+    expect(electedOfficeCreated).toBe(true)
+    expect(mockUpdateCampaign).toHaveBeenCalledWith([
+      { key: 'details.wonGeneral', value: true },
+    ])
   })
 
   it('does not mark the campaign won when office creation fails', async () => {
