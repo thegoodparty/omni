@@ -137,17 +137,28 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
       select: { id: true },
     })
     for (const { id } of building) {
-      try {
-        const step = await this.advance(id, now)
-        this.logger.info({ enrollmentId: id, step }, 'Managed panel advanced')
-      } catch (err) {
-        this.logger.error(
-          { err, enrollmentId: id },
-          'Managed panel wave step failed; retried on the next run',
-        )
-      }
+      await this.runPanel(id, now)
     }
     await this.sendReadyEmails()
+  }
+
+  // One panel's step, for the daily run and for a wave's replies landing. It
+  // holds no daily lock: a run racing the other is safe because every write
+  // is a compare-and-set (`closedAt: null`, `sentAt: null`), the draw is
+  // serialized per enrollment under an advisory lock and re-checked, the
+  // wave is unique per (enrollment, wave), and the send is unique per wave.
+  async runPanel(enrollmentId: string, now: Date): Promise<WaveStep | null> {
+    try {
+      const step = await this.advance(enrollmentId, now)
+      this.logger.info({ enrollmentId, step }, 'Managed panel advanced')
+      return step
+    } catch (err) {
+      this.logger.error(
+        { err, enrollmentId },
+        'Managed panel wave step failed; retried on the next run',
+      )
+      return null
+    }
   }
 
   async advance(enrollmentId: string, now: Date): Promise<WaveStep> {

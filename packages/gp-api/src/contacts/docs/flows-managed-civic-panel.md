@@ -211,6 +211,18 @@ only gets its wave marked. Paused, stopped, ready and exhausted panels are
 not touched. Decision:
 `docs/adr/2026-10-22-managed-panel-wave-job-derives-each-step.md`.
 
+**The step also runs on ingest.** A committed (not dry-run) staff results
+upload for a send with `managedPanelWaveId` sets its `OutreachTextHandoff`
+row, if any, to `replies_submitted` and runs that panel's step at once
+(`ManagedPanelWaveJobService.runPanel(enrollmentId, now)`), in the
+background; a failed step is logged and never fails the upload. Only the
+cron takes the daily lock. A step racing the cron is safe without it: every
+write is a compare-and-set (`closedAt: null`, `sentAt: null`), the draw
+re-checks under a per-enrollment advisory lock, and `@@unique([enrollmentId,
+wave])` and `managedPanelWaveId` allow one wave and one send. A claim the
+racing run resumes re-enqueues under the same dedupe id, which the queue
+drops.
+
 **Reaching the rest.** On the exhausted card's message, or when the
 official asks, the Chief of Staff calls `read_reach_the_rest`
 (`managedCivicPanel.tools.ts`, only while the enrollment is `exhausted`):

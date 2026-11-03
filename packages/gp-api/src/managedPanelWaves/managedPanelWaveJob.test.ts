@@ -1,5 +1,13 @@
 import { randomUUID } from 'node:crypto'
-import { beforeEach, describe, expect, it, type Mock, vi } from 'vitest'
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  type Mock,
+  vi,
+} from 'vitest'
 import { CIVIC_PANEL_JOIN_LINE } from '@goodparty_org/contracts'
 import { ContactStatusService } from '@/contactInteraction/services/contactStatus.service'
 import type { PersonOutput } from '@/contacts/schemas/person.schema'
@@ -13,6 +21,7 @@ import {
   OutreachStatus,
   OutreachType,
   Prisma,
+  UserRole,
 } from '@/generated/prisma'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
 import { OutreachServeSmsCreateService } from '@/outreach/services/outreachServeSmsCreate.service'
@@ -637,6 +646,160 @@ describe('the managed panel wave job analytics', () => {
           changedBy: 'system',
         }),
       ]),
+    )
+  })
+})
+
+describe('stepping a panel when its wave results are uploaded', () => {
+  const BASE = '/v1/outreach/admin/results/sms'
+  // Past wave 1's window, which ends 2026-10-31.
+  const AFTER_WINDOW = new Date('2026-11-04T15:00:00Z')
+  const PERSON = { personId: randomUUID(), phone: '+13035550177' }
+  const REPLIES_CSV = [
+    'Contact Phone Number,Message Text,Sent At,Send Direction',
+    `${PERSON.phone},JOIN,2026-10-27T15:04:05.000Z,INBOUND`,
+  ].join('\n')
+
+  beforeEach(async () => {
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { roles: [UserRole.admin] },
+    })
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(AFTER_WINDOW)
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.mocked(job().runPanel).mockRestore?.()
+  })
+
+  const sentWave = async () => {
+    const { slug, id } = await enroll({ goalMembers: 10 })
+    await job().advance(id, WEDNESDAY)
+    const first = await waveAt(id, 1)
+    const outreachId = first.outreach?.id ?? -1
+    await service.prisma.outreach.update({
+      where: { id: outreachId },
+      data: { status: OutreachStatus.in_progress },
+    })
+    await service.prisma.outreachTextRecipient.create({
+      data: { outreachId, organizationSlug: slug, ...PERSON },
+    })
+    await service.prisma.contactInteractionText.create({
+      data: {
+        outreachId,
+        organizationSlug: slug,
+        personId: PERSON.personId,
+        occurredAt: new Date(),
+      },
+    })
+    return { slug, id, outreachId }
+  }
+
+  const upload = (outreachId: number, dryRun: boolean) =>
+    service.client.post(`${BASE}/${outreachId}`, {
+      fileName: 'results.csv',
+      csv: REPLIES_CSV,
+      dryRun,
+      sourceLabel: 'gp-admin upload by staffer@goodparty.org',
+    })
+
+  it('closes the wave and hands off the next one on a committed upload', async () => {
+    const { id, outreachId } = await sentWave()
+    await service.prisma.outreachTextHandoff.create({
+      data: {
+        outreachId,
+        handler: 'agent',
+        mode: 'auto',
+        sendAt: WEDNESDAY,
+        timeZone: 'America/New_York',
+        status: 'scheduled',
+      },
+    })
+
+    const result = await upload(outreachId, false)
+
+    expect(result.status).toBe(201)
+    await vi.waitFor(async () =>
+      expect((await waves(id)).map((wave) => wave.outreach?.fundedBy)).toEqual([
+        OutreachFunding.goodparty_pilot,
+        OutreachFunding.goodparty_pilot,
+      ]),
+    )
+    expect((await waveAt(id, 1)).closedAt).toEqual(AFTER_WINDOW)
+    const handoff = await service.prisma.outreachTextHandoff.findUniqueOrThrow({
+      where: { outreachId },
+    })
+    expect(handoff.status).toBe('replies_submitted')
+    expect(handoff.repliesSubmittedAt).toEqual(AFTER_WINDOW)
+  })
+
+  it('does nothing on a dry run', async () => {
+    const { id, outreachId } = await sentWave()
+    const runPanel = vi.spyOn(job(), 'runPanel')
+
+    const result = await upload(outreachId, true)
+
+    expect(result.status).toBe(201)
+    expect(runPanel).not.toHaveBeenCalled()
+    expect((await waves(id)).map((wave) => wave.closedAt)).toEqual([null])
+  })
+
+  it('does nothing for a send that is not a managed wave', async () => {
+    const { slug } = await sentWave()
+    const plain = await service.prisma.outreach.create({
+      data: {
+        organizationSlug: slug,
+        outreachType: OutreachType.text,
+        status: OutreachStatus.in_progress,
+        name: 'Newsletter',
+        message: 'Hello. Reply STOP to opt out.',
+        scheduledLocalDate: WEDNESDAY_SEND_DATE,
+      },
+    })
+    await service.prisma.outreachTextRecipient.create({
+      data: { outreachId: plain.id, organizationSlug: slug, ...PERSON },
+    })
+    const runPanel = vi.spyOn(job(), 'runPanel')
+
+    const result = await upload(plain.id, false)
+
+    expect(result.status).toBe(201)
+    expect(runPanel).not.toHaveBeenCalled()
+  })
+
+  it('still answers the upload when the step fails', async () => {
+    const { outreachId } = await sentWave()
+    const runPanel = vi
+      .spyOn(job(), 'runPanel')
+      .mockRejectedValue(new Error('step blew up'))
+
+    const result = await upload(outreachId, false)
+
+    expect(result.status).toBe(201)
+    expect(result.data.committed).toBe(true)
+    await vi.waitFor(() => expect(runPanel).toHaveBeenCalled())
+  })
+
+  it('draws exactly one next wave when an ingest step and the cron step race', async () => {
+    const { id } = await sentWave()
+
+    await Promise.all([
+      job().runPanel(id, AFTER_WINDOW),
+      job().runPanel(id, AFTER_WINDOW),
+      job().runWaves(AFTER_WINDOW),
+    ])
+
+    expect((await waves(id)).map((wave) => wave.wave)).toEqual([1, 2])
+    // A claim resumed by the racing run re-enqueues under the same dedupe id,
+    // which the queue drops.
+    expect(
+      new Set(textSends().map(([, , options]) => options?.deduplicationId)),
+    ).toHaveProperty('size', 2)
+    const drawn = await waves(id)
+    expect((await enrollment(id)).freeTextsUsed).toBe(
+      drawn.reduce((sum, wave) => sum + (wave.outreach?.textCount ?? 0), 0),
     )
   })
 })
