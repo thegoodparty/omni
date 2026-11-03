@@ -35,16 +35,17 @@ for (const line of readFileSync(
   )
 }
 
-// The first name, its nicknames, the names it is a nickname of, and their
-// other nicknames, so "bob" reaches "robert" and "rob".
-export const firstNameAliases = (firstKey: string): string[] => {
-  const aliases = new Set([firstKey, ...(nicknamesOf.get(firstKey) ?? [])])
-  for (const canonical of canonicalsOf.get(firstKey) ?? []) {
-    aliases.add(canonical)
-    for (const sibling of nicknamesOf.get(canonical) ?? []) aliases.add(sibling)
-  }
-  return [...aliases].sort()
-}
+// The first name, its nicknames and the names it is a nickname of. Never a
+// nickname's other full names' nicknames: that walk links "bob" to "bill"
+// and "ron" to "erin".
+export const firstNameAliases = (firstKey: string): string[] =>
+  [
+    ...new Set([
+      firstKey,
+      ...(nicknamesOf.get(firstKey) ?? []),
+      ...(canonicalsOf.get(firstKey) ?? []),
+    ]),
+  ].sort()
 
 export const FIRST_NAME_MATCH_POINTS: Record<FirstNameMatch, number> = {
   exact: 30,

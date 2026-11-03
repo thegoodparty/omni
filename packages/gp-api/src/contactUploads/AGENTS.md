@@ -87,8 +87,9 @@ manual rows, else the upload's `createdAt`): the upload that brought them in.
    (`levenshtein` at most 1 under 5 letters, else 2); anyone else is not
    offered. Aliases come from `data/nicknames.csv` (vendored from
    github.com/carltonnorthern/nicknames, Apache 2.0, license beside it):
-   `firstNameAliases` sends each row's name, its nicknames, the names it is
-   a nickname of and their other nicknames with the row. Databricks
+   `firstNameAliases` sends each row's name, its nicknames and the names it
+   is a nickname of with the row. Never their other nicknames: that walk
+   links Bob to Bill and Ron to Erin. Databricks
    built-ins only, no UDF or table
    (`docs/adr/2026-11-03-contact-upload-first-names-match-by-builtins-and-nicknames.md`).
    `decideFromCandidates` (`util/contactUploadMatching.util.ts`) scores

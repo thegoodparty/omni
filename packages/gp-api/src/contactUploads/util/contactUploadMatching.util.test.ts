@@ -31,10 +31,19 @@ describe('nameKey', () => {
 })
 
 describe('firstNameAliases', () => {
-  it('reaches the full name from a nickname, and its other nicknames', () => {
+  it('reaches the full name from a nickname', () => {
     expect(firstNameAliases('bob')).toEqual(
-      expect.arrayContaining(['bob', 'robert', 'rob', 'bobby']),
+      expect.arrayContaining(['bob', 'robert']),
     )
+  })
+
+  it.each([
+    ['bob', 'bill'],
+    ['ron', 'erin'],
+    ['pat', 'peter'],
+    ['tony', 'shelly'],
+  ])('does not link %s to %s through a shared full name', (a, b) => {
+    expect(firstNameAliases(a)).not.toContain(b)
   })
 
   it('reaches the nicknames from the full name', () => {
