@@ -117,10 +117,10 @@ jobs:
       - name: Check env contract
         run: npm run check:env-contract -w ${{ env.WORKSPACE }}
 
-  # The vitest suite (~400 jsdom files) was the long pole of the single
-  # Validate job (~11 of its ~14 minutes), and it gates both PR merge and the
-  # release train's await-checks. Fan it out the same way gp-api does. No
-  # `next typegen` here: it only feeds tsc, which runs in Checks.
+  # The vitest suite gates both PR merge and the release train's
+  # await-checks, so it runs apart from Checks. Two shards keep each one near
+  # two minutes of vitest time. No `next typegen` here: it only feeds tsc,
+  # which runs in Checks.
   test:
     name: Test (shard ${{ matrix.shard }})
     needs: changes
@@ -132,7 +132,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: [1, 2]
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
@@ -144,7 +144,7 @@ jobs:
           build-contracts: 'true'
 
       - name: Test
-        run: npm run test -w ${{ env.WORKSPACE }} -- --shard=${{ matrix.shard }}/4
+        run: npm run test -w ${{ env.WORKSPACE }} -- --shard=${{ matrix.shard }}/${{ strategy.job-total }}
 
   # Empty aggregation gate, mirroring gp-api's. The main branch ruleset
   # requires a status check named exactly "Validate"; this job preserves that
