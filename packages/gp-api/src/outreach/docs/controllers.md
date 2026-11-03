@@ -31,3 +31,25 @@ a CAS failure Slack meant for send attempts. Same reasoning keeps
 `GET /outreach/serve/:id` off that interceptor. Same reasoning puts the
 draft routes on their own controller: a draft is not a send attempt, so a
 failed create or delete must not page CAS.
+
+**`outreachAgentHandoff.controller.ts`** — `@Controller('outreach/agent/handoffs')`,
+`@UseGuards(HandoffAgentGuard)`, `ZodResponseInterceptor`. Not campaign-scoped
+and not an `@McpTool`: the caller is the Delegate swarm's AWS OIDC token (or a
+full M2M token), never a user, so a session gets 403. The path is the tier
+boundary (`isHandoffRoute`); do not move it out from under
+`outreach/agent/handoffs`. Both routes delegate to `OutreachTextHandoffService`.
+
+- `GET /v1/outreach/agent/handoffs` -> `AgentHandoffListResponse`: the swarm's
+  due work (`listDue`), oldest `sendAt` first. `schedule` is `queued`,
+  `handler=agent`, `sendAt` more than 2 hours away and the panel still
+  `building`. `confirm_scheduled` is `built` in `shadow` mode. `export_replies`
+  is `scheduled` with `repliesDueAt <= now` and no `repliesSubmittedAt`. A row
+  with a live claim (under 20 minutes old) or `needsHumanAt` is left out.
+- `POST /v1/outreach/agent/handoffs/:outreachId/claim` ->
+  `AgentHandoffClaimResponse`. One `updateMany` filtered on the same due
+  predicate plus "unclaimed or claim older than 20 minutes" sets `claimedAt`
+  and a new random `claimToken`, so two concurrent claims cannot both win: the
+  loser gets 409 (404 when the outreach has no hand-off). The response reads
+  the persisted row. `recipientsCsvUrl` is a 15 minute presigned GET for
+  `${resolveSendKeyPrefix()}/${outreachId}-1.csv`; the CSV holds constituent
+  names and phones, so the URL is never logged or posted.
