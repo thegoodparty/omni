@@ -557,13 +557,17 @@ jobs:
   # always(): run even when a shard failed (so the report + comment still post),
   # but the gate keeps it aligned with the shards (PRs and main pushes only). On
   # PRs it upserts a results comment and publishes the HTML report to S3.
+  # A missing deploy URL must not skip this job: the ruleset treats a skipped
+  # required check as passing, so a failed deploy would merge untested. It only
+  # skips when the run was cancelled before the deploy produced a URL, which is
+  # a superseded push that the newer run covers.
   e2e:
     name: E2E
     needs: [deploy, e2e-wait, e2e-shard]
     if: >-
       always()
-      && needs.deploy.outputs.url != ''
       && github.event_name == 'pull_request'
+      && (needs.deploy.outputs.url != '' || !cancelled())
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -581,6 +585,14 @@ jobs:
         with:
           persist-credentials: false
           sparse-checkout: ${{ env.WORKSPACE }}/e2e-tests
+
+      # After checkout, not before it: the always() report steps below cd into
+      # e2e-tests and would add their own errors if it were missing.
+      - name: Fail if the deploy produced no preview URL
+        if: needs.deploy.outputs.url == ''
+        run: |
+          echo "::error::gp-webapp Deploy (result: ${{ needs.deploy.result }}) produced no preview URL, so E2E could not run"
+          exit 1
 
       - uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5
         with:
