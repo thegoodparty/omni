@@ -257,17 +257,18 @@ announced. Every closed reason is `SMS_CUTOFF_COPY.closedReason` ("The
   mode, a resumed draft or the gate, and `useDraftGate` never opens the gate
   for `closed`. `OutreachGate` has a `closed` screen (surface
   `outreach_gate`) for an upgrade whose Continue finds the window closed.
-- **The text tile is a dead end with a reason.** On both sides of the flag,
+- **The text tile opens the notice.** On both sides of the flag,
   `ChannelTileGrid` renders the closed text tile greyed ("Not available for
-  this race") with the closed reason in a styleguide `Tooltip` (hover, and
-  tap through `openOnClick`); a click opens nothing and fires nothing. While
+  this race") with the closed reason in a styleguide `Tooltip` on hover. A
+  click opens `SmsCutoffNoticeDialog` (surface `text_tile`) and never fires
+  `ClickCreate`. Keep it a door, not a tooltip-only dead end: the hub is
+  where candidates past their cutoff look for texting, and while the tile
+  was inert the notice (and its Viewed event) reached nobody. While
   `closing` its corner tag is `SMS_CUTOFF_COPY.countdownTag` ("Verify by
   {cutoff}"), which outranks the Pro tag when both apply.
-- **Deep links are the fallback.** `OutreachComposeDeepLink` opens
-  `SmsCutoffNoticeDialog` (surface `compose_deep_link`) for `?compose=text`,
-  which covers every link that opens a new text, and never fires
-  `ClickCreate` for it. With the tile and the drawer CTA both inert, a deep
-  link or a resumed draft is the only way to reach the notice.
+- **Deep links.** `OutreachComposeDeepLink` opens `SmsCutoffNoticeDialog`
+  (surface `compose_deep_link`) for `?compose=text`, which covers every link
+  that opens a new text, and never fires `ClickCreate` for it.
 - **History.** A texting draft reads "Texting closed" (ahead of the tier)
   with the closed reason on hover (`HistoryStatusText`'s
   `textingClosedReason`), and its drawer footer is a disabled "Texting
