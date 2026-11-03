@@ -1,6 +1,6 @@
 ---
 name: create-representative-test-cohort
-description: Use when you need a cohort of test users in dev that mirrors the current PRODUCTION user population's distribution across district size (total registered voters), for either the Win (candidate) or Serve (elected-official) product. Creates real dev users bound to real ICP offices (so downstream ICP-gated agent dispatch fires), and emits an org-slug manifest to hand off to a dispatch skill (e.g. bulk-community-issues-cohort). Analysis is Databricks-only; creation is headless (no Playwright). Does NOT dispatch — it stops at the manifest.
+description: Use when you need a cohort of test users in dev that mirrors the current PRODUCTION user population's distribution across district size (total registered voters), for either the Win (candidate) or Serve (elected-official) product. Creates real dev users bound to real ICP offices (so downstream ICP-gated agent dispatch fires), and emits an org-slug manifest. Analysis is Databricks-only; creation is headless (no Playwright). Does NOT dispatch — it stops at the manifest.
 ---
 
 # Runbook: create a representative test-user cohort in dev
@@ -8,7 +8,7 @@ description: Use when you need a cohort of test users in dev that mirrors the cu
 You are creating N dev test users whose distribution across district size mirrors
 the current prod user population, each **bound to a real ICP office** so that
 downstream ICP-gated dispatch (community issues, briefings) actually fires. This
-skill **stops at a manifest of created org slugs** — dispatch is a separate skill.
+skill **stops at a manifest of created org slugs**.
 
 The whole thing is two data sources, no AWS:
 
@@ -145,9 +145,7 @@ Each org slug is `eo-<electedOfficeId>`.
 
 ## Step 4: hand off
 
-Output the manifest path + the JSON slug array. Stop here. To run agents over the
-cohort, pass the slugs to a dispatch skill (`bulk-community-issues-cohort` with
-`--env dev`).
+Output the manifest path + the JSON slug array. Stop here.
 
 ## Testing the skill (job-free)
 

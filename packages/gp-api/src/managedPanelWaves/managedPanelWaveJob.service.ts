@@ -24,8 +24,10 @@ import { ManagedPanelWaveDrawService } from '@/contacts/services/managedPanelWav
 import { CronLockService } from '@/cron/services/cronLock.service'
 import { FeaturesService } from '@/features/services/features.service'
 import { ManagedWaveFundingService } from '@/managedWaveFunding/managedWaveFunding.service'
+import { OrganizationsService } from '@/organizations/services/organizations.service'
 import {
   assertServeSmsSendDateAllowed,
+  nextAgentSendSlot,
   nextManagedSendDate,
   OutreachServeSmsCreateService,
 } from '@/outreach/services/outreachServeSmsCreate.service'
@@ -33,6 +35,8 @@ import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { isUniqueConstraintError } from '@/prisma/util/prismaErrors.util'
 import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
 import { SERVE_CITIZEN_PANELS_FLAG } from '@/shared/util/serveCitizenPanelsFlag.util'
+import { SERVE_PANEL_WAVE_AGENT_FLAG } from '@/shared/util/servePanelWaveAgentFlag.util'
+import { resolveSendWindowTimeZone } from '@/shared/util/sendWindowTimeZone.util'
 import { SlackService } from '@/vendors/slack/services/slack.service'
 import { EmailService } from '@/email/email.service'
 import { APP_ROOT } from '@/shared/util/appEnvironment.util'
@@ -76,7 +80,28 @@ type Enrollment = {
   organizationSlug: string
   inviteMessage: string
   goalMembers: number
+  approvedByUserId: number | null
 }
+
+// How an agent-handled wave goes out: the next 11am local slot, weekends
+// allowed. Resolved once per send step from the approving official's flag.
+type AgentPlan = {
+  mode: 'shadow' | 'auto'
+  timeZone: string
+  sendAt: Date
+  scheduledLocalDate: string
+}
+
+const isAwaitingAgent = (
+  outreach: {
+    status: OutreachStatus | null
+    textHandoff: { id: string } | null
+  } | null,
+): boolean =>
+  outreach !== null &&
+  (outreach.textHandoff !== null ||
+    outreach.status === OutreachStatus.pending ||
+    outreach.status === OutreachStatus.in_progress)
 
 // Advances every building managed civic panel by one step a day: closes a
 // wave whose reply window has passed, then draws, creates, claims free and
@@ -93,6 +118,7 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
     private readonly draws: ManagedPanelWaveDrawService,
     private readonly funding: ManagedWaveFundingService,
     private readonly serveSms: OutreachServeSmsCreateService,
+    private readonly organizations: OrganizationsService,
     private readonly contactStatus: ContactStatusService,
     private readonly slack: SlackService,
     private readonly email: EmailService,
@@ -183,11 +209,21 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
         sentAt: true,
         replyWindowEndsAt: true,
         voterFileFilterId: true,
+        outreach: {
+          select: { status: true, textHandoff: { select: { id: true } } },
+        },
       },
     })
     if (open && open.sentAt === null) return this.send(enrollment, open.id, now)
     if (open) {
       if (open.replyWindowEndsAt !== null && open.replyWindowEndsAt > now) {
+        return 'waiting'
+      }
+      // An agent wave has no window until the agent reports its real send. A
+      // manual wave always gets one when it is marked sent, so a null window
+      // is the agent's: its hand-off row exists, or delivery has not made it
+      // yet.
+      if (open.replyWindowEndsAt === null && isAwaitingAgent(open.outreach)) {
         return 'waiting'
       }
       await this.close(enrollment.organizationSlug, open, now)
@@ -226,12 +262,13 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
     waveId: string,
     now: Date,
   ): Promise<WaveStep> {
+    const agent = await this.agentPlan(enrollment, now)
     const existing = await this.client.outreach.findUnique({
       where: { managedPanelWaveId: waveId },
       select: SEND_SELECT,
     })
     const outreach =
-      existing ?? (await this.createSend(enrollment, waveId, now))
+      existing ?? (await this.createSend(enrollment, waveId, now, agent))
     if (!outreach) {
       return this.finish(enrollment.id, ManagedCivicPanelStatus.exhausted, now)
     }
@@ -239,11 +276,34 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
       outreach.fundedBy === OutreachFunding.goodparty_pilot &&
       outreach.status !== OutreachStatus.pending_payment &&
       outreach.status !== OutreachStatus.pending
+    // Frozen per wave: a hand-off row already made for this send wins over
+    // the flag now, and every enqueue of the send repeats it, so the Slack
+    // post never loses its "agent is handling this" note while the row exists.
+    const row = await this.client.outreachTextHandoff.findFirst({
+      where: { outreach: { managedPanelWaveId: waveId } },
+      select: { mode: true, sendAt: true, timeZone: true },
+    })
+    const agentHandled = row !== null || (!handedOff && agent !== null)
     if (!handedOff) {
       if (outreach.status === OutreachStatus.pending_payment) {
-        await this.refreshDraft(enrollment, waveId, now)
+        await this.refreshDraft(enrollment, waveId, now, agent)
       }
-      const claim = await this.funding.claimFree(waveId)
+      const claim = await this.funding.claimFree(
+        waveId,
+        row
+          ? {
+              mode: row.mode === 'auto' ? 'auto' : 'shadow',
+              sendAt: row.sendAt,
+              timeZone: row.timeZone,
+            }
+          : agent
+            ? {
+                mode: agent.mode,
+                sendAt: agent.sendAt,
+                timeZone: agent.timeZone,
+              }
+            : undefined,
+      )
       if (!claim.claimed) {
         return claim.reason === 'over_cap' ? 'paused_at_cap' : 'refused'
       }
@@ -252,15 +312,26 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
       where: { managedPanelWaveId: waveId },
       select: { scheduledLocalDate: true },
     })
-    const sendDate = sent.scheduledLocalDate ?? nextManagedSendDate(now)
+    const sendDate =
+      sent.scheduledLocalDate ??
+      agent?.scheduledLocalDate ??
+      nextManagedSendDate(now)
     const { count } = await this.client.managedPanelWave.updateMany({
       where: { id: waveId, sentAt: null },
       data: {
         sentAt: now,
-        replyWindowEndsAt: addDays(parseISO(sendDate), MANAGED_WAVE_REPLY_DAYS),
+        ...(agentHandled
+          ? {}
+          : {
+              replyWindowEndsAt: addDays(
+                parseISO(sendDate),
+                MANAGED_WAVE_REPLY_DAYS,
+              ),
+            }),
       },
     })
-    if (count > 0) {
+    // An agent wave's Sent fires from its report, once the real send is known.
+    if (count > 0 && !agentHandled) {
       const wave = await this.client.managedPanelWave.findUniqueOrThrow({
         where: { id: waveId },
         select: {
@@ -277,11 +348,31 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
             texts: wave.outreach?.textCount ?? 0,
             sendDate,
             steeredToward: wave.steeredToward,
+            handoff: 'manual',
           },
         ],
       ])
     }
     return 'sent'
+  }
+
+  // Null unless the approving official's `serve-panel-wave-agent` flag
+  // assigns shadow or auto; any other variant, or none, is off.
+  private async agentPlan(
+    enrollment: Enrollment,
+    now: Date,
+  ): Promise<AgentPlan | null> {
+    if (enrollment.approvedByUserId === null) return null
+    const variant = await this.features.getFeatureVariant({
+      user: enrollment.approvedByUserId,
+      feature: SERVE_PANEL_WAVE_AGENT_FLAG,
+    })
+    if (variant !== 'shadow' && variant !== 'auto') return null
+    const district = await this.organizations.getDistrictForOrgSlug(
+      enrollment.organizationSlug,
+    )
+    const timeZone = resolveSendWindowTimeZone(district?.state)
+    return { mode: variant, timeZone, ...nextAgentSendSlot(now, timeZone) }
   }
 
   // The wave's send as an unpaid Serve text draft of the approved invite,
@@ -291,10 +382,12 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
     enrollment: Enrollment,
     waveId: string,
     now: Date,
+    agent: AgentPlan | null,
   ): Promise<WaveSend | null> {
     assertManagedPanelInvite(enrollment.inviteMessage)
-    const scheduledLocalDate = nextManagedSendDate(now)
-    assertServeSmsSendDateAllowed(scheduledLocalDate, now)
+    const scheduledLocalDate =
+      agent?.scheduledLocalDate ?? nextManagedSendDate(now)
+    if (!agent) assertServeSmsSendDateAllowed(scheduledLocalDate, now)
     const wave = await this.client.managedPanelWave.findUniqueOrThrow({
       where: { id: waveId },
       select: {
@@ -353,16 +446,22 @@ export class ManagedPanelWaveJobService extends createPrismaBase(
     enrollment: Enrollment,
     waveId: string,
     now: Date,
+    agent: AgentPlan | null,
   ): Promise<void> {
     assertManagedPanelInvite(enrollment.inviteMessage)
-    const scheduledLocalDate = nextManagedSendDate(now)
+    const scheduledLocalDate =
+      agent?.scheduledLocalDate ?? nextManagedSendDate(now)
     await this.client.outreach.updateMany({
       where: {
         managedPanelWaveId: waveId,
         status: OutreachStatus.pending_payment,
         fundedBy: null,
         OR: [
-          { scheduledLocalDate: { lt: scheduledLocalDate } },
+          {
+            scheduledLocalDate: agent
+              ? { not: scheduledLocalDate }
+              : { lt: scheduledLocalDate },
+          },
           { scheduledLocalDate: null },
           { message: { not: enrollment.inviteMessage } },
         ],

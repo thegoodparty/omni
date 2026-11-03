@@ -33,6 +33,7 @@ import {
   formatSmsCutoffDate,
 } from 'app/dashboard/campaign-verification/verificationCopy'
 import { useSmsCompliance } from 'app/dashboard/shared/smsCutoff/useSmsCompliance'
+import { SmsCutoffNoticeDialog } from 'app/dashboard/shared/smsCutoff/SmsCutoffNoticeDialog'
 import { FREE_OFFER_BADGE } from 'app/dashboard/shared/robocallFreeOffer/freeOfferCopy'
 import { useRobocallFreeOffer } from 'app/dashboard/shared/robocallFreeOffer/useRobocallFreeOffer'
 import { MailIcon } from '@styleguide/components/ui/icons'
@@ -103,10 +104,11 @@ export const ChannelTileGrid = ({
   const [showProUpgradeModal, setShowProUpgradeModal] = useState(false)
   const { runTextGate, gateModals } = useTextOutreachGate(tcrCompliance)
   // gp-api's texting window, read off the campaign on both sides of the
-  // flag: once it is closed the text tile only explains why, in a tooltip,
-  // and opens neither the flow, the Pro wizard nor the compliance modal.
+  // flag: once it is closed the text tile opens the cutoff notice, never the
+  // flow, the Pro wizard or the compliance modal.
   const { smsCompliance, smsCutoffDate } = useSmsCompliance()
   const smsClosed = smsCompliance === 'closed'
+  const [showSmsCutoffNotice, setShowSmsCutoffNotice] = useState(false)
   const { offer: freeOffer } = useRobocallFreeOffer()
   // Milestone 2 moves the Pro/compliance gate INSIDE the text, robocall and
   // phone-banking flows: the tile stops refusing the click and opens the
@@ -156,9 +158,12 @@ export const ChannelTileGrid = ({
   }
 
   const handleTileClick = (type: OutreachType, requiresPro?: boolean) => {
-    // Not a create: the tooltip is the whole answer, and the carried
+    // Not a create: the notice fires its own events, and the carried
     // audience is left for the channel the candidate picks instead.
-    if (type === OUTREACH_TYPES.text && smsClosed) return
+    if (type === OUTREACH_TYPES.text && smsClosed) {
+      setShowSmsCutoffNotice(true)
+      return
+    }
     trackEvent(EVENTS.Outreach.ClickCreate, { type })
 
     if (type === OUTREACH_TYPES.socialMedia) {
@@ -340,16 +345,14 @@ export const ChannelTileGrid = ({
               tag={tag}
               tagTone={hasFreeOffer && !smsCountdown ? 'info' : 'muted'}
               subCopy={textClosed ? SMS_TILE_CLOSED_COPY : undefined}
-              aria-disabled={textClosed || undefined}
               className={cn(
-                textClosed &&
-                  'cursor-default bg-muted opacity-70 hover:border-border',
+                textClosed && 'bg-muted opacity-70 hover:border-border',
               )}
               onClick={() => handleTileClick(type, option?.requiresPro)}
             />
           )
           return textClosed ? (
-            <Tooltip key={type} openOnClick>
+            <Tooltip key={type}>
               <TooltipTrigger asChild>{card}</TooltipTrigger>
               <TooltipContent>
                 {SMS_CUTOFF_COPY.closedReason(
@@ -381,6 +384,13 @@ export const ChannelTileGrid = ({
         }}
       />
       {gateModals}
+      {showSmsCutoffNotice && (
+        <SmsCutoffNoticeDialog
+          open
+          onOpenChange={setShowSmsCutoffNotice}
+          surface="text_tile"
+        />
+      )}
     </section>
   )
 }

@@ -11,6 +11,7 @@ import { clientRequest } from 'gpApi/typed-request'
 import { ORG_SLUG_HEADER } from '@shared/organizations/constants'
 import type { ElectedOffice } from 'gpApi/api-endpoints'
 import { useQueryClient } from '@tanstack/react-query'
+import { campaignWasEverPro } from '@goodparty_org/contracts'
 import {
   ORGANIZATIONS_QUERY_KEY,
   useSetOrganizationSlug,
@@ -85,6 +86,7 @@ export default function ElectionResultPage({
   const isImpersonating = useIsImpersonating()
   const [selectedOption, setSelectedOption] = useState<string | null>(null)
   const [view, setView] = useState<'ask' | 'won'>('ask')
+  const wasEverPro = campaign ? campaignWasEverPro(campaign) : false
 
   function handleDismiss() {
     dismissElectionResult()
@@ -120,7 +122,7 @@ export default function ElectionResultPage({
     }
   }
 
-  // A Pro winner moves into Serve onboarding. The office is created first and
+  // A winner whose campaign was ever Pro moves into Serve onboarding. The office is created first and
   // left unfinished (no onboardingCompletedAt): onboarding's pledge finishes
   // it, and until then the dashboard sends them back to onboarding. It is
   // created before the campaign is flagged won, so a failed create never
@@ -176,7 +178,7 @@ export default function ElectionResultPage({
     router.replace(SERVE_ONBOARDING_PATH)
   }
 
-  // A Pro winner's result is saved by the congratulations screen's button,
+  // An ever-Pro winner's result is saved by the congratulations screen's button,
   // together with the office.
   const handleStartServing = async (): Promise<void> => {
     setRequestState({ submitting: true, error: false })
@@ -196,13 +198,13 @@ export default function ElectionResultPage({
       router.replace('/dashboard')
       return
     }
-    if (selection === RESULT_WON && campaign?.isPro) {
+    if (selection === RESULT_WON && wasEverPro) {
       setView('won')
       return
     }
     setRequestState({ submitting: true, error: false })
     try {
-      // Without Pro a win saves the result only: no office, no Serve.
+      // A never-Pro win saves the result only: no office, no Serve.
       await saveResult(selection === RESULT_WON)
       trackEvent(EVENTS.Candidacy.DidYouWinModalCompleted, {
         status: selection,
@@ -246,7 +248,7 @@ export default function ElectionResultPage({
   const isLoading =
     !campaign || (startWithWin && view === 'ask' && !requestState.error)
 
-  if (view === 'won' && campaign?.isPro) {
+  if (view === 'won' && wasEverPro) {
     return (
       <PrepareToServe
         submitting={requestState.submitting}

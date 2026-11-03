@@ -1716,6 +1716,43 @@ describe('QueueConsumerService - message type routing', () => {
     })
   })
 
+  it('passes an agent hand-off on the message to the delivery layer', async () => {
+    mockOutreachService.model.findUnique.mockResolvedValue({
+      message: 'Trash pickup moves to Thursday.',
+      scheduledLocalDate: '2026-10-10',
+      voterFileFilterId: 77,
+    })
+    mockOutreachTextDelivery.requestSend.mockResolvedValue({
+      audienceResolved: true,
+      recipientCount: 40,
+      excludedOptedOutCount: 0,
+      excludedDuplicateCount: 0,
+      sendKey: '1-1.csv',
+    })
+
+    await service.processMessage(
+      outreachTextSendMessage({
+        outreachId: 1,
+        sendSeq: 1,
+        agentHandoff: {
+          mode: 'shadow',
+          sendAt: '2026-10-10T18:00:00.000Z',
+          timeZone: 'US/Pacific',
+        },
+      }),
+    )
+
+    expect(mockOutreachTextDelivery.requestSend).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentHandoff: {
+          mode: 'shadow',
+          sendAt: new Date('2026-10-10T18:00:00.000Z'),
+          timeZone: 'US/Pacific',
+        },
+      }),
+    )
+  })
+
   it('acks an unfunded outreachTextSend without building an audience', async () => {
     mockOutreachService.model.findUnique.mockResolvedValue({
       message: 'Trash pickup moves to Thursday.',
