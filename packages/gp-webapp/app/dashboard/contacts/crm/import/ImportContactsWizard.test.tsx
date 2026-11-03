@@ -88,10 +88,9 @@ describe('<ImportContactsWizard>', () => {
     await chooseFile(user, NEWSLETTER)
 
     expect(
-      await screen.findByText(
-        '2 people found. Columns in your file: First name, Last name, Email, Mobile, Heard about me.',
-      ),
+      await screen.findByText('All 2 people can be imported. 5 columns.'),
     ).toBeInTheDocument()
+    expect(screen.getByText('newsletter.csv')).toBeInTheDocument()
     expect(trackEvent).toHaveBeenCalledWith(EVENTS.Contacts.ImportStarted, {
       sourceType: 'csv',
       rowCount: 2,
@@ -101,18 +100,22 @@ describe('<ImportContactsWizard>', () => {
     await user.click(screen.getByRole('button', { name: 'Continue' }))
 
     expect(
-      screen.getByRole('heading', { name: 'Which column has each detail?' }),
+      screen.getByRole('heading', {
+        name: 'Is each column matched correctly?',
+      }),
     ).toBeInTheDocument()
     expect(
       screen.getByRole('combobox', { name: 'First name' }),
     ).toHaveTextContent('First name')
+    expect(screen.getByRole('combobox', { name: 'Mobile' })).toHaveTextContent(
+      'Cell phone',
+    )
     expect(
-      screen.getByRole('combobox', { name: 'Cell phone' }),
-    ).toHaveTextContent('Mobile')
-    expect(
-      screen.getByRole('combobox', { name: 'Landline' }),
+      screen.getByRole('combobox', { name: 'Heard about me' }),
     ).toHaveTextContent('Do not import')
-    expect(screen.getByText('(616) 555-0142')).toBeInTheDocument()
+    expect(
+      screen.getByText('maria@example.com · dana@example.com'),
+    ).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled()
   })
 
@@ -121,13 +124,88 @@ describe('<ImportContactsWizard>', () => {
     renderWizard()
 
     await chooseFile(user, csv('Name,Email\nMaria Lopez,maria@example.com\n'))
-    await screen.findByText(/1 person found/)
+    await screen.findByText('We checked your file')
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    expect(screen.getByRole('combobox', { name: 'Name' })).toHaveTextContent(
+      'Do not import',
+    )
+    expect(
+      screen.getByText('Choose a column for first name and last name.'),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+  })
+
+  it('moves a field to the column that picks it', async () => {
+    const user = userEvent.setup()
+    renderWizard()
+
+    await chooseFile(user, NEWSLETTER)
+    await screen.findByText('We checked your file')
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    await user.click(screen.getByRole('combobox', { name: 'Heard about me' }))
+    await user.click(screen.getByRole('option', { name: 'Email' }))
+
+    expect(
+      screen.getByRole('combobox', { name: 'Heard about me' }),
+    ).toHaveTextContent('Email')
+    expect(screen.getByRole('combobox', { name: 'Email' })).toHaveTextContent(
+      'Do not import',
+    )
+  })
+
+  it('shows ten columns, then the rest on Show more', async () => {
+    const user = userEvent.setup()
+    renderWizard()
+    const headers = Array.from({ length: 12 }, (_, i) => `Column ${i + 1}`)
+
+    await chooseFile(
+      user,
+      csv(`${headers.join(',')}\n${headers.map(() => 'x').join(',')}\n`),
+    )
+    await screen.findByText('We checked your file')
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    expect(screen.getAllByRole('combobox')).toHaveLength(10)
+    await user.click(
+      screen.getByRole('button', { name: 'Show 2 more columns' }),
+    )
+    expect(screen.getAllByRole('combobox')).toHaveLength(12)
+  })
+
+  it('says on the file step which rows will be skipped', async () => {
+    const user = userEvent.setup()
+    renderWizard()
+
+    await chooseFile(
+      user,
+      csv(
+        'First name,Last name,Email\nMaria,Lopez,maria@example.com\nDana,Whitfield,nope\nRay,,ray@example.com\n',
+      ),
+    )
+
+    expect(
+      await screen.findByText('1 person is missing a first or last name.'),
+    ).toBeInTheDocument()
+  })
+
+  it('marks first and last name as required', async () => {
+    const user = userEvent.setup()
+    renderWizard()
+
+    await chooseFile(user, NEWSLETTER)
+    await screen.findByText('We checked your file')
     await user.click(screen.getByRole('button', { name: 'Continue' }))
 
     expect(
       screen.getByRole('combobox', { name: 'First name' }),
-    ).toHaveTextContent('Do not import')
-    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+    ).toHaveTextContent('First name *')
+    await user.click(screen.getByRole('combobox', { name: 'Mobile' }))
+    expect(
+      screen.getByRole('option', { name: 'Last name *' }),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'Email' })).toBeInTheDocument()
   })
 
   it("reuses the latest upload's columns when the file has them", async () => {
@@ -147,12 +225,12 @@ describe('<ImportContactsWizard>', () => {
         'Given,Family,Phone,Mobile\nMaria,Lopez,(616) 555-0100,(616) 555-0142\n',
       ),
     )
-    await screen.findByText(/1 person found/)
+    await screen.findByText('We checked your file')
     await user.click(screen.getByRole('button', { name: 'Continue' }))
 
-    expect(
-      screen.getByRole('combobox', { name: 'Cell phone' }),
-    ).toHaveTextContent('Phone')
+    expect(screen.getByRole('combobox', { name: 'Phone' })).toHaveTextContent(
+      'Cell phone',
+    )
   })
 
   it('turns away a file that is not a CSV or is over 25 MB', async () => {
@@ -218,7 +296,7 @@ describe('<ImportContactsWizard>', () => {
     renderWizard()
 
     await chooseFile(user, NEWSLETTER)
-    await screen.findByText(/2 people found/)
+    await screen.findByText('We checked your file')
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await user.click(screen.getByRole('button', { name: 'Continue' }))
 
@@ -228,7 +306,7 @@ describe('<ImportContactsWizard>', () => {
     expect(importButton).toBeDisabled()
 
     await user.type(
-      screen.getByLabelText('Upload name'),
+      screen.getByLabelText('Import name'),
       'Newsletter, Oct 2026',
     )
     expect(importButton).toBeDisabled()
@@ -279,10 +357,10 @@ describe('<ImportContactsWizard>', () => {
 
   const importNewsletter = async (user: ReturnType<typeof userEvent.setup>) => {
     await chooseFile(user, NEWSLETTER)
-    await screen.findByText(/2 people found/)
+    await screen.findByText('We checked your file')
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await user.click(screen.getByRole('button', { name: 'Continue' }))
-    await user.type(screen.getByLabelText('Upload name'), 'Newsletter')
+    await user.type(screen.getByLabelText('Import name'), 'Newsletter')
     await user.click(
       screen.getByLabelText(
         'These people agreed to hear from me, including by email. I am responsible for that.',
@@ -334,7 +412,7 @@ describe('<ImportContactsWizard>', () => {
     await waitFor(() => expect(router.push).toHaveBeenCalled())
   })
 
-  it('stays open on the uploading screen until Upload history is the route', async () => {
+  it('stays open on the uploading screen until Imports is the route', async () => {
     mockSuccessfulUpload()
     const user = userEvent.setup()
     const onOpenChange = vi.fn()
@@ -363,7 +441,7 @@ describe('<ImportContactsWizard>', () => {
     await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false))
   })
 
-  it('closes once the upload is sent when opened from Upload history', async () => {
+  it('closes once the upload is sent when opened from Imports', async () => {
     vi.mocked(usePathname).mockReturnValue('/dashboard/contacts/uploads')
     mockSuccessfulUpload()
     const user = userEvent.setup()
@@ -401,10 +479,10 @@ describe('<ImportContactsWizard>', () => {
     renderWizard()
 
     await chooseFile(user, NEWSLETTER)
-    await screen.findByText(/2 people found/)
+    await screen.findByText('We checked your file')
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await user.click(screen.getByRole('button', { name: 'Continue' }))
-    await user.type(screen.getByLabelText('Upload name'), 'Newsletter')
+    await user.type(screen.getByLabelText('Import name'), 'Newsletter')
     await user.click(
       screen.getByLabelText(
         'These people agreed to hear from me, including by email. I am responsible for that.',
@@ -426,9 +504,11 @@ describe('<ImportContactsWizard>', () => {
     const onOpenChange = renderWizard(vi.fn(), true)
 
     await chooseFile(user, NEWSLETTER)
-    await screen.findByText(/2 people found/)
+    await screen.findByText('We checked your file')
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await user.keyboard('{Escape}')
+    expect(onOpenChange).not.toHaveBeenCalled()
+    await user.click(await screen.findByRole('button', { name: 'Discard' }))
 
     expect(onOpenChange).toHaveBeenCalledWith(false)
     expect(trackEvent).toHaveBeenCalledWith(EVENTS.Contacts.ImportAbandoned, {

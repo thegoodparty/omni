@@ -11,6 +11,29 @@ import { api } from 'helpers/test-utils/api-mocking'
 import { router } from 'helpers/test-utils/router-mocking'
 import { UploadDetail } from './UploadDetail'
 
+vi.mock('app/dashboard/shared/DashboardLayout', () => ({
+  __esModule: true,
+  default: ({
+    children,
+    navHeader,
+  }: {
+    children: React.ReactNode
+    navHeader?: { label: string }
+  }) => (
+    <div>
+      <div data-testid="nav-header">{navHeader?.label}</div>
+      {children}
+    </div>
+  ),
+}))
+vi.mock(
+  'app/dashboard/issue-capture/[outreachId]/components/PersonInfoSheet',
+  () => ({
+    __esModule: true,
+    default: ({ personId }: { personId: string | null }) =>
+      personId ? <div data-testid="person-sheet">{personId}</div> : null,
+  }),
+)
 vi.mock('@shared/organization-picker', () => ({
   useOrganization: () => ({ slug: 'eo-test' }),
 }))
@@ -152,19 +175,19 @@ describe('<UploadDetail>', () => {
     ).toBeInTheDocument()
     expect(
       screen.getByText(
-        'newsletter-subscribers.csv · Uploaded Oct 20, 2026 by Sarah Chen · 240 rows',
+        'newsletter-subscribers.csv · Imported Oct 20, 2026 by Sarah Chen · 240 rows',
       ),
     ).toBeInTheDocument()
     expect(screen.getByText('168')).toBeInTheDocument()
-    expect(screen.getByText('already in your constituents')).toBeInTheDocument()
+    expect(screen.getByText('Already in your constituents')).toBeInTheDocument()
     expect(screen.getByText('52')).toBeInTheDocument()
-    expect(screen.getByText('new people added')).toBeInTheDocument()
-    expect(screen.getByText('missing a first or last name')).toBeInTheDocument()
+    expect(screen.getByText('New people added')).toBeInTheDocument()
+    expect(screen.getByText('Missing a first or last name')).toBeInTheDocument()
     expect(
-      screen.getByText('updated people you imported before'),
+      screen.getByText('Updated people you imported before'),
     ).toBeInTheDocument()
     expect(
-      screen.queryByText('unchanged from your last upload'),
+      screen.queryByText('Unchanged from your last import'),
     ).not.toBeInTheDocument()
   })
 
@@ -273,7 +296,7 @@ describe('<UploadDetail>', () => {
     expect(router.push).toHaveBeenCalledWith('/dashboard/contacts/uploads')
   })
 
-  it('lists processed rows with what happened and a link to each person', async () => {
+  it('lists processed rows, and a row opens its person over the page', async () => {
     api.mock('GET /v1/contact-uploads/:id', {
       status: 200,
       data: makeUpload({ status: 'complete', needsInputCount: 0 }),
@@ -299,21 +322,25 @@ describe('<UploadDetail>', () => {
 
     render(<UploadDetail uploadId="upload-1" isWin={false} />)
 
+    const user = userEvent.setup()
+    const table = await screen.findByRole('table')
+    const rows = within(table)
+    await user.click(await rows.findByRole('button', { name: /Maria Lopez/ }))
+    expect(screen.getByTestId('person-sheet')).toHaveTextContent('LALMI123')
+    expect(router.push).not.toHaveBeenCalled()
     expect(
-      await screen.findByRole('link', { name: 'Maria Lopez' }),
-    ).toHaveAttribute('href', '/dashboard/contacts/LALMI123')
-    expect(
-      screen.getByText(
+      rows.getByText(
         'Already in your constituents. Updated email and landline.',
       ),
     ).toBeInTheDocument()
-    expect(screen.getByText('New person. Added.')).toBeInTheDocument()
+    expect(rows.getByText('New person. Added.')).toBeInTheDocument()
     expect(
       screen.queryByRole('heading', { name: /need your input/ }),
     ).not.toBeInTheDocument()
+    // Change match lives in the person's record, not in the table.
     expect(
-      screen.getAllByRole('button', { name: 'Change match' }),
-    ).toHaveLength(2)
+      screen.queryByRole('button', { name: 'Change match' }),
+    ).not.toBeInTheDocument()
   })
 
   it('reads Win nouns for a campaign: the voter file, not constituents', async () => {
@@ -334,14 +361,16 @@ describe('<UploadDetail>', () => {
     render(<UploadDetail uploadId="upload-1" isWin />)
 
     expect(
-      await screen.findByText('Already in your voter file. Updated email.'),
+      (
+        await screen.findAllByText('Already in your voter file. Updated email.')
+      )[0],
     ).toBeInTheDocument()
-    expect(screen.getByText('already in your voter file')).toBeInTheDocument()
+    expect(screen.getByText('Already in your voter file')).toBeInTheDocument()
     expect(
-      screen.getByText('added, not in your voter file'),
+      screen.getByText('Added, not in your voter file'),
     ).toBeInTheDocument()
     expect(
-      screen.getByRole('link', { name: 'Back to Upload history' }),
+      screen.getByRole('link', { name: 'Back to Imports' }),
     ).toHaveAttribute('href', '/dashboard/contacts/uploads')
     expect(screen.queryByText(/constituent/i)).not.toBeInTheDocument()
   })
@@ -367,7 +396,7 @@ describe('<UploadDetail>', () => {
     render(<UploadDetail uploadId="upload-1" isWin={false} />)
 
     expect(
-      await screen.findByText("This upload didn't finish. Try again."),
+      await screen.findByText("This import didn't finish. Try again."),
     ).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Try again' }))
 
@@ -398,7 +427,7 @@ describe('<UploadDetail>', () => {
     expect(screen.getByText('Processing')).toBeInTheDocument()
     expect(
       screen.getByText(
-        'newsletter-subscribers.csv · Uploaded Oct 20, 2026 by Sarah Chen',
+        'newsletter-subscribers.csv · Imported Oct 20, 2026 by Sarah Chen',
       ),
     ).toBeInTheDocument()
     expect(screen.queryByText('Processed rows')).not.toBeInTheDocument()
@@ -424,7 +453,7 @@ describe('<UploadDetail>', () => {
       ),
     ).toBeInTheDocument()
     expect(
-      screen.queryByText('already in your constituents'),
+      screen.queryByText('Already in your constituents'),
     ).not.toBeInTheDocument()
     expect(screen.queryByText('Processed rows')).not.toBeInTheDocument()
     expect(

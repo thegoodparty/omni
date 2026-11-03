@@ -47,7 +47,8 @@ type ImportActivityKind = 'matched' | 'new' | 'resolved' | 'resolvedNew'
 // vocabulary check reads all of it. WIN_IMPORT_CONTACTS_COPY swaps the nouns.
 export const SERVE_IMPORT_CONTACTS_COPY = {
   importContacts: 'Import contacts',
-  uploadHistory: 'Upload history',
+  imports: 'Imports',
+  back: 'Back',
   wizard: {
     title: 'Import contacts',
     fileTitle: 'Which file has your people?',
@@ -56,8 +57,16 @@ export const SERVE_IMPORT_CONTACTS_COPY = {
     dropHere: 'Drop a CSV here',
     chooseFile: 'Choose a file',
     chooseAnotherFile: 'Choose another file',
-    fileFound: (count: number, headers: string[]) =>
-      `${people(count)} found. Columns in your file: ${headers.join(', ')}.`,
+    summaryTitle: 'We checked your file',
+    peopleFound: (count: number) => `${people(count)} found`,
+    peopleReady: (importable: number, total: number) =>
+      importable === total
+        ? `All ${people(total)} can be imported`
+        : `${importable.toLocaleString()} of ${people(total)} can be imported`,
+    fileSummary: (peopleLine: string, columns: number) =>
+      `${peopleLine}. ${columns.toLocaleString()} ${columns === 1 ? 'column' : 'columns'}.`,
+    peopleSkipped: (count: number) =>
+      `${people(count)} ${count === 1 ? 'is' : 'are'} missing a first or last name.`,
     notCsv: 'This file is not a CSV. Save it as a CSV and try again.',
     tooBig:
       'This file is over 25 MB. Split it into smaller files and try again.',
@@ -65,18 +74,20 @@ export const SERVE_IMPORT_CONTACTS_COPY = {
     tooManyRows:
       'This file has more than 100,000 people. Split it into smaller files and try again.',
     unreadable: "We couldn't read this file. Save it as a CSV and try again.",
-    columnsTitle: 'Which column has each detail?',
+    columnsTitle: 'Is each column matched correctly?',
     columnsCaption:
-      'First and last name are required. Leave out anything else.',
-    whatWeKeep: 'What we keep',
+      "Check the examples and change any that don't fit. First and last name are required.",
     columnInFile: 'Column in your file',
-    example: 'Example',
+    importAs: 'Import as',
     doNotImport: 'Do not import',
-    nameTitle: 'What should we call this upload?',
-    nameCaption: (count: number) =>
-      `${people(count)} are in this file. Give it a name so you can find it later.`,
-    nameLabel: 'Upload name',
-    namePlaceholder: 'Name this upload',
+    showMoreColumns: (count: number) =>
+      `Show ${count.toLocaleString()} more ${count === 1 ? 'column' : 'columns'}`,
+    missingRequired: (labels: string[]) =>
+      `Choose a column for ${labels.join(' and ').toLowerCase()}.`,
+    nameTitle: 'What do you want to call this import?',
+    nameCaption: 'Give it a name so you can find it later.',
+    nameLabel: 'Import name',
+    namePlaceholder: 'e.g. Town hall sign-in',
     consent:
       'These people agreed to hear from me, including by email. I am responsible for that.',
     continue: 'Continue',
@@ -103,20 +114,23 @@ export const SERVE_IMPORT_CONTACTS_COPY = {
     failed: 'Failed',
   } satisfies Record<ContactUploadStatus, string>,
   history: {
-    title: 'Upload history',
+    title: 'Imports',
+    listTitle: 'Your imports',
     caption: 'Files you have imported into your constituents',
     backToContacts: 'Back to Constituents',
-    uploadColumn: 'Upload',
-    uploadedColumn: 'Uploaded',
+    dateColumn: 'Date',
+    nameColumn: 'Name',
+    fileColumn: 'File',
+    importedByColumn: 'Imported by',
     statusColumn: 'Status',
     fileAndUploader: (fileName: string, uploader: string | null) =>
       uploader ? `${fileName}, ${uploader}` : fileName,
-    emptyTitle: 'No uploads yet',
+    emptyTitle: 'No imports yet',
     emptyMessage: 'Import a file to add people to your constituents.',
-    loadFailed: "We couldn't load your uploads. Refresh the page to try again.",
+    loadFailed: "We couldn't load your imports. Refresh the page to try again.",
   },
   detail: {
-    backToHistory: 'Back to Upload history',
+    backToHistory: 'Back to Imports',
     meta: (
       fileName: string,
       date: string,
@@ -125,21 +139,21 @@ export const SERVE_IMPORT_CONTACTS_COPY = {
     ) =>
       [
         fileName,
-        uploader ? `Uploaded ${date} by ${uploader}` : `Uploaded ${date}`,
+        uploader ? `Imported ${date} by ${uploader}` : `Imported ${date}`,
         ...(rowCount === null ? [] : [rows(rowCount)]),
       ].join(' · '),
-    matched: 'already in your constituents',
-    added: 'new people added',
-    needsInput: 'need your input',
-    skipped: 'skipped',
-    invalid: 'missing a first or last name',
-    updated: 'updated people you imported before',
-    unchanged: 'unchanged from your last upload',
+    matched: 'Already in your constituents',
+    added: 'New people added',
+    needsInput: 'Need your input',
+    skipped: 'Skipped',
+    invalid: 'Missing a first or last name',
+    updated: 'Updated people you imported before',
+    unchanged: 'Unchanged from your last import',
     processing: "We're matching your people. This page updates when it's done.",
-    failed: "This upload didn't finish. Try again.",
+    failed: "This import didn't finish. Try again.",
     tryAgain: 'Try again',
-    retryFailed: "We couldn't restart this upload. Try again.",
-    loadFailed: "We couldn't load this upload. Refresh the page to try again.",
+    retryFailed: "We couldn't restart this import. Try again.",
+    loadFailed: "We couldn't load this import. Refresh the page to try again.",
   },
   review: {
     title: (count: number) =>
@@ -164,7 +178,6 @@ export const SERVE_IMPORT_CONTACTS_COPY = {
     nameColumn: 'Name',
     emailColumn: 'Email',
     whatWeDidColumn: 'What we did',
-    changeMatch: 'Change match',
     showMore: 'Show more rows',
     empty: 'No rows match your search. Try another name or email.',
     noRows: 'No rows were added from this file yet.',
@@ -239,6 +252,10 @@ export const SERVE_IMPORT_CONTACTS_COPY = {
 // where Serve says constituents, the campaign where Serve says the office.
 export const WIN_IMPORT_CONTACTS_COPY: typeof SERVE_IMPORT_CONTACTS_COPY = {
   ...SERVE_IMPORT_CONTACTS_COPY,
+  wizard: {
+    ...SERVE_IMPORT_CONTACTS_COPY.wizard,
+    namePlaceholder: 'e.g. Volunteer sign-up',
+  },
   history: {
     ...SERVE_IMPORT_CONTACTS_COPY.history,
     caption: 'Files you have imported for your campaign',
@@ -247,8 +264,8 @@ export const WIN_IMPORT_CONTACTS_COPY: typeof SERVE_IMPORT_CONTACTS_COPY = {
   },
   detail: {
     ...SERVE_IMPORT_CONTACTS_COPY.detail,
-    matched: 'already in your voter file',
-    added: 'added, not in your voter file',
+    matched: 'Already in your voter file',
+    added: 'Added, not in your voter file',
   },
   processed: {
     ...SERVE_IMPORT_CONTACTS_COPY.processed,

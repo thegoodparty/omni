@@ -7,6 +7,21 @@ import { api } from 'helpers/test-utils/api-mocking'
 import { router } from 'helpers/test-utils/router-mocking'
 import { UploadHistory } from './UploadHistory'
 
+vi.mock('app/dashboard/shared/DashboardLayout', () => ({
+  __esModule: true,
+  default: ({
+    children,
+    navHeader,
+  }: {
+    children: React.ReactNode
+    navHeader?: { label: string }
+  }) => (
+    <div>
+      <div data-testid="nav-header">{navHeader?.label}</div>
+      {children}
+    </div>
+  ),
+}))
 vi.mock('@shared/organization-picker', () => ({
   useOrganization: () => ({ slug: 'eo-test' }),
 }))
@@ -75,17 +90,19 @@ describe('<UploadHistory>', () => {
 
     render(<UploadHistory isWin={false} />)
 
-    const rows = await screen.findAllByRole('button', { name: /\.csv/ })
+    const table = await screen.findByRole('table')
+    const rows = within(table).getAllByRole('button', { name: /\.csv/ })
     expect(
-      rows.map((row) => within(row).getAllByText(/./)[0]?.textContent),
+      rows.map((row) => within(row).getAllByRole('cell')[1]?.textContent),
     ).toEqual([
       'Newsletter, Oct 2026',
       'Town hall sign-in, Sep 2026',
       'Ward picnic',
     ])
     expect(
-      within(rows[0]!).getByText('newsletter-subscribers.csv, Sarah Chen'),
+      within(rows[0]!).getByText('newsletter-subscribers.csv'),
     ).toBeInTheDocument()
+    expect(within(rows[0]!).getByText('Sarah Chen')).toBeInTheDocument()
     expect(within(rows[0]!).getByText('Needs input')).toBeInTheDocument()
     expect(within(rows[1]!).getByText('Sep 14, 2026')).toBeInTheDocument()
     expect(within(rows[1]!).getByText('Complete')).toBeInTheDocument()
@@ -103,9 +120,30 @@ describe('<UploadHistory>', () => {
     const user = userEvent.setup()
 
     render(<UploadHistory isWin={false} />)
+    const table = await screen.findByRole('table')
     await user.click(
-      await screen.findByRole('button', { name: /Town hall sign-in/ }),
+      within(table).getByRole('button', { name: /Town hall sign-in/ }),
     )
+
+    expect(router.push).toHaveBeenCalledWith(
+      '/dashboard/contacts/uploads/upload-1',
+    )
+  })
+
+  it('lists the same uploads as cards for a phone', async () => {
+    api.mock('GET /v1/contact-uploads', {
+      status: 200,
+      data: { uploads: [makeUpload()] },
+    })
+    const user = userEvent.setup()
+
+    render(<UploadHistory isWin={false} />)
+    const table = await screen.findByRole('table')
+    const card = screen
+      .getAllByRole('button', { name: /Town hall sign-in/ })
+      .find((element) => !table.contains(element))
+    expect(card).toBeDefined()
+    await user.click(card!)
 
     expect(router.push).toHaveBeenCalledWith(
       '/dashboard/contacts/uploads/upload-1',
@@ -120,7 +158,7 @@ describe('<UploadHistory>', () => {
 
     render(<UploadHistory isWin={false} />)
 
-    expect(await screen.findByText('No uploads yet')).toBeInTheDocument()
+    expect(await screen.findByText('No imports yet')).toBeInTheDocument()
     expect(
       screen.getByText('Import a file to add people to your constituents.'),
     ).toBeInTheDocument()
@@ -156,7 +194,7 @@ describe('<UploadHistory>', () => {
 
     expect(
       await screen.findByText(
-        "We couldn't load your uploads. Refresh the page to try again.",
+        "We couldn't load your imports. Refresh the page to try again.",
       ),
     ).toBeInTheDocument()
   })
@@ -174,9 +212,11 @@ describe('<UploadHistory>', () => {
 
     render(<UploadHistory isWin={false} />)
 
-    expect(await screen.findByText('Processing')).toBeInTheDocument()
     expect(
-      await screen.findByText('Complete', undefined, { timeout: 6000 }),
+      within(await screen.findByRole('table')).getByText('Processing'),
+    ).toBeInTheDocument()
+    expect(
+      (await screen.findAllByText('Complete', undefined, { timeout: 6000 }))[0],
     ).toBeInTheDocument()
   })
 
@@ -203,11 +243,13 @@ describe('<UploadHistory>', () => {
 
     render(<UploadHistory isWin={false} />)
 
-    expect(await screen.findByText('Processing')).toBeInTheDocument()
+    expect(
+      within(await screen.findByRole('table')).getByText('Processing'),
+    ).toBeInTheDocument()
     for (const key of orgKeys) {
       expect(testQueryClient.getQueryState(key)?.isInvalidated).toBe(false)
     }
-    await screen.findByText('Complete', undefined, { timeout: 6000 })
+    await screen.findAllByText('Complete', undefined, { timeout: 6000 })
     for (const key of orgKeys) {
       expect(testQueryClient.getQueryState(key)?.isInvalidated).toBe(true)
     }

@@ -45,7 +45,10 @@ import { ConstituentFeedbackSection } from './ConstituentFeedbackSection'
 import { PriorityAnswersSection } from './PriorityAnswersSection'
 import { useIssueCaptureFlag } from 'app/shared/experiments/issueCaptureFlag'
 import { useServeImportContactsFlag } from 'app/shared/experiments/serveImportContactsFlag'
-import { ImportedContactInformation } from './ImportedContactInformation'
+import {
+  ImportedContactInformation,
+  type UploadRowContext,
+} from './ImportedContactInformation'
 import FollowUpRow from './FollowUpRow'
 import CivicPanelRow from './CivicPanelRow'
 import NotesSection from './NotesSection'
@@ -396,6 +399,7 @@ export const PersonRecord: React.FC<{
   topIssues?: ReactNode
   activityFeed?: ReactNode
   showMap?: boolean
+  uploadRow?: UploadRowContext
 }> = ({
   person,
   isServe,
@@ -404,6 +408,7 @@ export const PersonRecord: React.FC<{
   topIssues,
   activityFeed,
   showMap = true,
+  uploadRow,
 }) => {
   const { enabled: issueCaptureEnabled } = useIssueCaptureFlag(false)
   const { enabled: importContactsEnabled } = useServeImportContactsFlag(false)
@@ -493,6 +498,7 @@ export const PersonRecord: React.FC<{
             person={person}
             showMap={showMap}
             isWin={!isServe}
+            uploadRow={uploadRow}
           />
         ) : (
           <InfoSection

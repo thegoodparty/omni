@@ -9,12 +9,6 @@ import {
   AlertDescription,
   Button,
   CircleAlertIcon,
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
   Input,
   Label,
   RadioGroup,
@@ -22,6 +16,12 @@ import {
   SearchIcon,
   Spinner,
 } from '@styleguide'
+import {
+  PanelDrawer,
+  PanelDrawerBody,
+  PanelDrawerFooter,
+  PanelDrawerHeader,
+} from 'app/dashboard/door-knocking/native/PanelDrawer'
 import { useOrganization } from '@shared/organization-picker'
 import { useContactTypeaheadSearch } from '../useContactTypeaheadSearch'
 import {
@@ -51,6 +51,7 @@ interface ChangeMatchDialogProps {
   currentPersonId: string | null
   currentPersonName: string
   candidates?: ContactUploadCandidate[]
+  onChanged?: () => void
   isWin: boolean
 }
 
@@ -65,6 +66,7 @@ export const ChangeMatchDialog = ({
   currentPersonId,
   currentPersonName,
   candidates = [],
+  onChanged,
   isWin,
 }: ChangeMatchDialogProps) => {
   const COPY = getImportContactsCopy(isWin)
@@ -103,6 +105,7 @@ export const ChangeMatchDialog = ({
         invalidateImportedPeople(queryClient, orgSlug),
       ])
       onOpenChange(false)
+      onChanged?.()
     },
   })
 
@@ -130,44 +133,57 @@ export const ChangeMatchDialog = ({
     change.mutate({ row: selectedRow, match })
   }
 
+  const cancel = () => onOpenChange(false)
+
+  if (!open) return null
+
+  // A step over the person's record at the record's own size, the way phone
+  // banking and door knocking open a step over their panel: a right sheet on
+  // a desktop, from below on a phone, the buttons stacked with the action on
+  // top.
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="z-[2000] max-h-[90dvh] overflow-y-auto">
-        {sources.isPending && currentPersonId ? (
-          <>
-            <DialogTitle className="sr-only">
-              {COPY.changeMatch.title}
-            </DialogTitle>
+    <PanelDrawer
+      sheetClassName="z-[1302] sm:w-[90vw] sm:max-w-xl"
+      drawerClassName="h-[92dvh] data-[vaul-drawer-direction=bottom]:max-h-[92dvh]"
+      hasDescription={
+        !(sources.isPending && currentPersonId) &&
+        (showWarning || description !== undefined)
+      }
+      onDismiss={cancel}
+      busy={change.isPending}
+    >
+      {sources.isPending && currentPersonId ? (
+        <>
+          <PanelDrawerHeader title={COPY.changeMatch.title} />
+          <PanelDrawerBody>
             <div className="flex justify-center py-8">
               <Spinner />
             </div>
-          </>
-        ) : showWarning ? (
-          <>
-            <DialogHeader>
-              <DialogTitle>{COPY.changeMatch.warnTitle}</DialogTitle>
-              <DialogDescription>
-                {COPY.changeMatch.warnMessage(currentPersonName)}
-              </DialogDescription>
-            </DialogHeader>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => onOpenChange(false)}>
-                {COPY.changeMatch.cancel}
-              </Button>
-              <Button onClick={() => setWarningAccepted(true)}>
-                {COPY.changeMatch.continue}
-              </Button>
-            </DialogFooter>
-          </>
-        ) : (
-          <>
-            <DialogHeader>
-              <DialogTitle>{COPY.changeMatch.title}</DialogTitle>
-              {description && (
-                <DialogDescription>{description}</DialogDescription>
-              )}
-            </DialogHeader>
-
+          </PanelDrawerBody>
+        </>
+      ) : showWarning ? (
+        <>
+          <PanelDrawerHeader
+            title={COPY.changeMatch.warnTitle}
+            description={COPY.changeMatch.warnMessage(currentPersonName)}
+          />
+          <PanelDrawerBody>{null}</PanelDrawerBody>
+          <PanelDrawerFooter>
+            <Button className="w-full" onClick={() => setWarningAccepted(true)}>
+              {COPY.changeMatch.continue}
+            </Button>
+            <Button className="w-full" variant="outline" onClick={cancel}>
+              {COPY.changeMatch.cancel}
+            </Button>
+          </PanelDrawerFooter>
+        </>
+      ) : (
+        <>
+          <PanelDrawerHeader
+            title={COPY.changeMatch.title}
+            description={description}
+          />
+          <PanelDrawerBody>
             {rows.length > 1 && (
               <div className="flex flex-col gap-3">
                 <Label>{COPY.changeMatch.whichUpload}</Label>
@@ -183,7 +199,6 @@ export const ChangeMatchDialog = ({
                 </RadioGroup>
               </div>
             )}
-
             <RadioGroup value={choice} onValueChange={setChoice}>
               {otherCandidates.map((candidate) => (
                 <RadioGroupItemLabel
@@ -259,22 +274,22 @@ export const ChangeMatchDialog = ({
                 <AlertDescription>{COPY.changeMatch.failed}</AlertDescription>
               </Alert>
             )}
-
-            <DialogFooter>
-              <Button variant="outline" onClick={() => onOpenChange(false)}>
-                {COPY.changeMatch.cancel}
-              </Button>
-              <Button
-                onClick={submit}
-                disabled={!selectedRow || !match}
-                loading={change.isPending}
-              >
-                {COPY.changeMatch.submit}
-              </Button>
-            </DialogFooter>
-          </>
-        )}
-      </DialogContent>
-    </Dialog>
+          </PanelDrawerBody>
+          <PanelDrawerFooter>
+            <Button
+              className="w-full"
+              onClick={submit}
+              disabled={!selectedRow || !match}
+              loading={change.isPending}
+            >
+              {COPY.changeMatch.submit}
+            </Button>
+            <Button className="w-full" variant="outline" onClick={cancel}>
+              {COPY.changeMatch.cancel}
+            </Button>
+          </PanelDrawerFooter>
+        </>
+      )}
+    </PanelDrawer>
   )
 }
