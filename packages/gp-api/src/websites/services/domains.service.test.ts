@@ -2144,6 +2144,22 @@ describe('DomainsService', () => {
   })
 
   describe('setupDomainEmailForwarding', () => {
+    beforeEach(() => {
+      appEnvOverrides.VENDOR_MODE = 'live'
+    })
+
+    it('never calls Forward Email in mock vendor mode', async () => {
+      appEnvOverrides.VENDOR_MODE = 'mock'
+
+      const result = await service.setupDomainEmailForwarding(mockDomain)
+
+      expect(result).toBeNull()
+      expect(mockForwardEmail.getDomain).not.toHaveBeenCalled()
+      expect(mockForwardEmail.addDomain).not.toHaveBeenCalled()
+      expect(mockForwardEmail.createCatchAllAlias).not.toHaveBeenCalled()
+      expect(mockPrisma.website.update).not.toHaveBeenCalled()
+    })
+
     it('always forwards to the candidate-domains@goodparty.org alias', async () => {
       mockPrisma.website.findUnique.mockResolvedValue({
         content: { contact: { phone: '555' } },
