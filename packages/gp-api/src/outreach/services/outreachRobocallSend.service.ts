@@ -735,8 +735,9 @@ export class OutreachRobocallSendService extends createPrismaBase(
 
     // A 200 is not proof of a START: CallHub can echo PAUSE / null / {} (all of
     // which parse through the nullish response schema). Only an explicit STARTED
-    // (1) or STARTING (8, what CallHub actually returns) status commits dialed. Anything else re-reads the real status and resolves
-    // exactly as the lost-response path does, rather than trusting the 2xx.
+    // (1) or STARTING (8, what CallHub actually returns) status commits
+    // dialed. Anything else re-reads the real status and resolves exactly as
+    // the lost-response path does, rather than trusting the 2xx.
     if (
       launchStatus !== CALLHUB_VB_STATUS.START &&
       launchStatus !== CALLHUB_VB_STATUS.STARTING

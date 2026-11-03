@@ -148,14 +148,14 @@ PHONES — behind two absolute invariants:
 - **Never dial twice.** A single-owner dial claim CAS (`authorized` AND
   `callhubCampaignPkStr IS NOT NULL → dialing`) elects one dialer; count 0 (a row
   already `dialing`/`dialed`, or not yet staged) returns. A launch commits `dialed`
-  ONLY when its response reads back status `START` — a 200 that echoes PAUSE / null
+  ONLY when its response reads back status `START` or `STARTING` (8, undocumented; CallHub returns it for every accepted START) — a 200 that echoes PAUSE / null
   / `{}` (all valid under the nullish response schema) is NOT trusted, and routes
   through the same reconcile path below rather than blindly stamping `dialed` on a
   still-PAUSED campaign. On a verified START the commit CAS (`dialing → dialed`,
   stamping `dialedAt`) records it. **A lost launch response is never blind-retried**
   — a re-sent START could re-dial the whole audience if the first PUT reached
   CallHub. A lost response OR a non-STARTED 200 reconciles against a fresh
-  `CallhubCampaignReportService.getCampaignStatus(pkStr)` read: **STARTED** → the
+  `CallhubCampaignReportService.getCampaignStatus(pkStr)` read: **STARTED / STARTING** → the
   dial happened → commit `dialed` (idempotent); **PAUSED** → it did not → revert
   `dialing → authorized`, safe to relaunch next sweep; **read-fail or any other
   status** → LEAVE the row in `dialing` (never relaunch without a PAUSED read,
@@ -204,7 +204,7 @@ is a belt-and-suspenders backstop against a crafted write) reverts the claim to
 `authorized` + staged arrived drafts (per-record `try`/`catch`) AND recovers rows
 stranded in `dialing` past `ROBOCALL_DIALING_STALE_MINUTES` — a stale-guarded
 reclaim CAS elects one recoverer, which reconciles via the same status read
-(STARTED → `dialed`, PAUSED → `authorized`, else left `dialing`). It READS the
+(STARTED / STARTING → `dialed`, PAUSED → `authorized`, else left `dialing`). It READS the
 hold only — no capture/void, no CallHub completion poll.
 
 **Serial queue (serial-send phases 2+3, on the merged dial-completion
