@@ -370,7 +370,7 @@ describe('<UploadDetail>', () => {
       screen.getByText('Added, not in your voter file'),
     ).toBeInTheDocument()
     expect(
-      screen.getByRole('link', { name: 'Back to Upload history' }),
+      screen.getByRole('link', { name: 'Back to Imports' }),
     ).toHaveAttribute('href', '/dashboard/contacts/uploads')
     expect(screen.queryByText(/constituent/i)).not.toBeInTheDocument()
   })

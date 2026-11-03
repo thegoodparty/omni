@@ -412,7 +412,7 @@ describe('<ImportContactsWizard>', () => {
     await waitFor(() => expect(router.push).toHaveBeenCalled())
   })
 
-  it('stays open on the uploading screen until Upload history is the route', async () => {
+  it('stays open on the uploading screen until Imports is the route', async () => {
     mockSuccessfulUpload()
     const user = userEvent.setup()
     const onOpenChange = vi.fn()
@@ -441,7 +441,7 @@ describe('<ImportContactsWizard>', () => {
     await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false))
   })
 
-  it('closes once the upload is sent when opened from Upload history', async () => {
+  it('closes once the upload is sent when opened from Imports', async () => {
     vi.mocked(usePathname).mockReturnValue('/dashboard/contacts/uploads')
     mockSuccessfulUpload()
     const user = userEvent.setup()

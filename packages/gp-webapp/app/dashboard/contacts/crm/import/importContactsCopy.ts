@@ -114,7 +114,7 @@ export const SERVE_IMPORT_CONTACTS_COPY = {
     failed: 'Failed',
   } satisfies Record<ContactUploadStatus, string>,
   history: {
-    title: 'Upload history',
+    title: 'Imports',
     listTitle: 'Your imports',
     caption: 'Files you have imported into your constituents',
     backToContacts: 'Back to Constituents',
@@ -130,7 +130,7 @@ export const SERVE_IMPORT_CONTACTS_COPY = {
     loadFailed: "We couldn't load your imports. Refresh the page to try again.",
   },
   detail: {
-    backToHistory: 'Back to Upload history',
+    backToHistory: 'Back to Imports',
     meta: (
       fileName: string,
       date: string,

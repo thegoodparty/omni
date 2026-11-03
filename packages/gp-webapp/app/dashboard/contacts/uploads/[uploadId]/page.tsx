@@ -4,7 +4,7 @@ import { UPLOAD_HISTORY_PATH } from '../../crm/import/importContactsCopy'
 import { importContactsAccess } from '../importContactsAccess'
 
 const meta = pageMetaData({
-  title: 'Upload | GoodParty.org',
+  title: 'Import | GoodParty.org',
   description: 'What happened to each row of an imported file',
   slug: UPLOAD_HISTORY_PATH,
 })

@@ -20,7 +20,7 @@ NULL in every voter-only column. Contracts: `contracts/src/contactUploads/`.
 | ----------------------------------------------- | ------------------------------------------------------------------------------------------------ |
 | `POST /v1/contact-uploads/presign`              | Name, file name, consent, mapping, `byteSize` (max 25 MB); creates the upload, returns a PUT URL |
 | `POST /v1/contact-uploads/:id/uploaded`         | The PUT landed: HEAD the object, `processing`, queue the job                                     |
-| `GET /v1/contact-uploads`                       | Upload history, newest first, without `awaiting_file` uploads                                    |
+| `GET /v1/contact-uploads`                       | The Imports list, newest first, without `awaiting_file` uploads                                  |
 | `GET /v1/contact-uploads/:id`                   | One upload with counts                                                                           |
 | `GET /v1/contact-uploads/:id/rows`              | Rows by outcome, keyset-paged on `rowIndex`, `ILIKE` search                                      |
 | `PUT /v1/contact-uploads/:id/rows/:rowId/match` | `{ personId }`, `{ newPerson }` or `{ skip }`; returns the upload                                |

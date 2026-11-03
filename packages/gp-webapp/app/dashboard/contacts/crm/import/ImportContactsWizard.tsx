@@ -109,7 +109,7 @@ export default function ImportContactsWizard({
   const resetUpload = upload.reset
   const isSending = upload.isPending || upload.isSuccess
 
-  // Stays open on the sending screen until Upload history is the route, so
+  // Stays open on the sending screen until Imports is the route, so
   // the page it was opened from never shows in between.
   useEffect(() => {
     if (upload.isSuccess && pathname === UPLOAD_HISTORY_PATH) {
@@ -354,7 +354,7 @@ export default function ImportContactsWizard({
                 <div className="flex flex-col gap-1" aria-live="polite">
                   <div className="flex items-center gap-2">
                     <CircleCheckIcon
-                      className="size-5 text-success"
+                      className="size-5 text-primary"
                       aria-hidden
                     />
                     <h2 className="text-base font-semibold text-foreground">

@@ -61,9 +61,14 @@ export const ProcessedRows = ({
 
   // The search sits in the page's top bar, far above the rows on a phone, so
   // a search brings the results into view; scroll-mt clears the sticky bar.
+  // Only when they are out of view, so editing a search never pulls the page
+  // away from rows the user is already looking at.
   useEffect(() => {
-    if (!debouncedSearch) return
-    sectionRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
+    const section = sectionRef.current
+    if (!debouncedSearch || !section) return
+    const { top, bottom } = section.getBoundingClientRect()
+    if (top < window.innerHeight && bottom > 0) return
+    section.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
   }, [debouncedSearch])
 
   const rowsQuery = useInfiniteQuery({
