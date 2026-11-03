@@ -69,6 +69,8 @@ and the activation check. It ends by asserting stage `tcr_approved` and a
 - The purchase call blocks until the Vercel mock completes the order (30s after
   the buy), so a short loop calls `VendorMockRecordService.completeVercelOrders`
   until the purchase settles.
+- The purchase skips Forward Email email forwarding, which has no vendor mock
+  (see `src/websites/AGENTS.md`).
 - It 400s unless `VENDOR_MODE=mock`: live mode would buy a real domain and file a
   real Campaign Verify request. The route also 404s off a non-prod deploy and
   only runs for the signed-in test user's own id.
