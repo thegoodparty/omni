@@ -8,6 +8,7 @@ import { useTestService } from '@/test-service'
 import { OutreachRobocallCaptureService } from '@/outreach/services/outreachRobocallCapture.service'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
+import { OutreachNotificationService } from '@/outreach/services/outreachNotification.service'
 import {
   Campaign,
   OutreachStatus,
@@ -23,6 +24,7 @@ let retrieveSpy: ReturnType<typeof vi.spyOn>
 let captureSpy: ReturnType<typeof vi.spyOn>
 let voidSpy: ReturnType<typeof vi.spyOn>
 let trackSpy: ReturnType<typeof vi.spyOn>
+let notifyCompletedSpy: ReturnType<typeof vi.spyOn>
 
 let campaign: Campaign
 let orgSlug: string
@@ -55,6 +57,12 @@ beforeEach(async () => {
     .mockResolvedValue(undefined)
   trackSpy = vi
     .spyOn(service.app.get(AnalyticsService), 'track')
+    .mockResolvedValue(undefined as never)
+  notifyCompletedSpy = vi
+    .spyOn(
+      service.app.get(OutreachNotificationService),
+      'notifyRobocallCompleted',
+    )
     .mockResolvedValue(undefined as never)
 
   const campaignId = 998
@@ -197,6 +205,31 @@ describe('OutreachRobocallCaptureService.captureDraft', () => {
     )
     // The history UI now shows "Completed" instead of staying "Sending".
     expect((await readSpine(outreachId)).status).toBe(OutreachStatus.completed)
+  })
+
+  it('fires the completed notice once when settle already completed the spine', async () => {
+    const outreachId = await createDraft({ completedCallCount: 100 })
+    // The completion sweep completes the spine at settlement, before capture.
+    await setSpineStatus(outreachId, OutreachStatus.completed)
+
+    await capture.captureDraft(outreachId)
+
+    expect((await readSpine(outreachId)).status).toBe(OutreachStatus.completed)
+    expect(notifyCompletedSpy).toHaveBeenCalledTimes(1)
+    expect(notifyCompletedSpy.mock.calls[0]?.[1]).toBe(outreachId)
+
+    // A repeat capture finds no settling row and must not re-notify.
+    await capture.captureDraft(outreachId)
+    expect(notifyCompletedSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('fires no completed notice for a canceled spine', async () => {
+    const outreachId = await createDraft({ completedCallCount: 100 })
+    await setSpineStatus(outreachId, OutreachStatus.canceled)
+
+    await capture.captureDraft(outreachId)
+
+    expect(notifyCompletedSpy).not.toHaveBeenCalled()
   })
 
   it('never flips a canceled spine to completed on capture (guarded, idempotent)', async () => {
