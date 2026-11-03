@@ -211,6 +211,20 @@ only gets its wave marked. Paused, stopped, ready and exhausted panels are
 not touched. Decision:
 `docs/adr/2026-10-22-managed-panel-wave-job-derives-each-step.md`.
 
+**Agent-handled waves.** When the approver's `serve-panel-wave-agent` flag
+is `shadow` or `auto` (no variant or any other value is off), the send step
+changes: the send date is the next 11am slot in the office state's zone
+(`resolveSendWindowTimeZone`, `nextAgentSendSlot`), weekends allowed, with
+no `assertServeSmsSendDateAllowed`. `claimFree` carries
+`{ mode, sendAt, timeZone }` on the `outreachTextSend` message, and the
+sender records the `OutreachTextHandoff` row from it. The wave is marked
+sent with `replyWindowEndsAt` left null: the agent's report sets it from the
+real send. A sent wave with a null window waits while its hand-off row
+exists or its send has not left `pending` / `in_progress`; a manual wave
+always has a window, so a null one with neither closes as before. A wave
+already handed off keeps its choice: it is an agent wave if the row exists,
+whatever the flag says now.
+
 **Reaching the rest.** On the exhausted card's message, or when the
 official asks, the Chief of Staff calls `read_reach_the_rest`
 (`managedCivicPanel.tools.ts`, only while the enrollment is `exhausted`):

@@ -118,6 +118,27 @@ export class FeaturesService {
   }
 
   /**
+   * The variant value the user is assigned for a flag, or null when the flag
+   * is not assigned to them. Fails closed like isFeatureEnabled, and returns
+   * null on a local placeholder key rather than a default-on value.
+   */
+  async getFeatureVariant(params: {
+    user: number | User
+    feature: string
+  }): Promise<string | null> {
+    if (!amplitudeKey.configured) return null
+    const user =
+      typeof params.user === 'number'
+        ? await this.usersService.findUniqueOrThrow({
+            where: { id: params.user },
+          })
+        : params.user
+    const variants = await this.fetchVariants(user)
+    const value = variants[params.feature]?.value
+    return typeof value === 'string' ? value : null
+  }
+
+  /**
    * Resolves every flag for the user in a single evaluation, so gp-webapp can
    * seed its client SDK and render gated surfaces without the browser ever
    * reaching Amplitude (which ad blockers and some networks block). User

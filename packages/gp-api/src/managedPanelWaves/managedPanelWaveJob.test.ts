@@ -15,6 +15,10 @@ import {
   Prisma,
 } from '@/generated/prisma'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
+import {
+  OutreachHandoffHandler,
+  OutreachHandoffStatus,
+} from '@/generated/prisma'
 import { OutreachServeSmsCreateService } from '@/outreach/services/outreachServeSmsCreate.service'
 import { StatsService } from '@/peopleDb/services/stats.service'
 import { VoterQueryService } from '@/peopleDb/services/voterQuery.service'
@@ -40,6 +44,7 @@ const GOAL = 3
 const WAVE_SIZE = 100
 
 let isFeatureEnabled: Mock<FeaturesService['isFeatureEnabled']>
+let agentVariant: string | null
 let sendMessage: Mock<QueueProducerService['sendMessage']>
 let samplePeople: ReturnType<typeof stubDraws>
 
@@ -98,6 +103,20 @@ beforeEach(() => {
     service.app.get(FeaturesService),
     'isFeatureEnabled',
   ).mockImplementation(isFeatureEnabled)
+  agentVariant = null
+  vi.spyOn(
+    service.app.get(FeaturesService),
+    'getFeatureVariant',
+  ).mockImplementation(async () => agentVariant)
+  vi.spyOn(
+    service.app.get(OrganizationsService),
+    'getDistrictForOrgSlug',
+  ).mockResolvedValue({
+    id: 'district',
+    state: 'CA',
+    l2Type: 'City',
+    l2Name: 'Anywhere',
+  })
   sendMessage = vi
     .fn<QueueProducerService['sendMessage']>()
     .mockResolvedValue(undefined)
@@ -536,6 +555,149 @@ describe('the managed panel wave job', () => {
       expect(textSends().map(([message]) => message.data)).not.toContainEqual(
         expect.objectContaining({ outreachId: own.id }),
       )
+    })
+  })
+
+  describe('agent-handled waves', () => {
+    // Saturday 2026-10-24, 8am Pacific: 11am Pacific is three hours away.
+    const SATURDAY = new Date('2026-10-24T15:00:00Z')
+    // Saturday 11:30am Pacific: today's slot is gone, so Sunday's is next.
+    const SATURDAY_NOON = new Date('2026-10-24T18:30:00Z')
+
+    const handoffOf = (outreachId: number) =>
+      service.prisma.outreachTextHandoff.create({
+        data: {
+          outreachId,
+          handler: OutreachHandoffHandler.agent,
+          status: OutreachHandoffStatus.queued,
+          mode: 'shadow',
+          sendAt: SATURDAY,
+          timeZone: 'US/Pacific',
+        },
+      })
+
+    it.each(['off', 'control', null])(
+      'sends the manual way when the flag is %s',
+      async (variant) => {
+        agentVariant = variant
+        const { id } = await enroll()
+
+        await job().advance(id, WEDNESDAY)
+
+        const wave = await waveAt(id, 1)
+        expect(wave.outreach?.scheduledLocalDate).toBe(WEDNESDAY_SEND_DATE)
+        expect(wave.replyWindowEndsAt).toEqual(new Date(2026, 9, 31))
+        expect(textSends()[0]?.[0].data).not.toHaveProperty('agentHandoff')
+      },
+    )
+
+    it.each(['shadow', 'auto'] as const)(
+      'hands a %s wave the 11am Pacific slot on a Saturday with no window',
+      async (mode) => {
+        agentVariant = mode
+        const { id } = await enroll()
+
+        expect(await job().advance(id, SATURDAY)).toBe('sent')
+
+        const wave = await waveAt(id, 1)
+        expect(wave.outreach).toMatchObject({
+          scheduledLocalDate: '2026-10-24',
+          fundedBy: OutreachFunding.goodparty_pilot,
+        })
+        expect(wave.sentAt).toEqual(SATURDAY)
+        expect(wave.replyWindowEndsAt).toBeNull()
+        expect(textSends()[0]?.[0].data).toMatchObject({
+          outreachId: wave.outreach?.id,
+          agentHandoff: {
+            mode,
+            sendAt: '2026-10-24T18:00:00.000Z',
+            timeZone: 'US/Pacific',
+          },
+        })
+      },
+    )
+
+    it('rolls to Sunday once the day slot is under two hours away', async () => {
+      agentVariant = 'auto'
+      const { id } = await enroll()
+
+      await job().advance(id, SATURDAY_NOON)
+
+      expect((await waveAt(id, 1)).outreach?.scheduledLocalDate).toBe(
+        '2026-10-25',
+      )
+      expect(textSends()[0]?.[0].data).toMatchObject({
+        agentHandoff: { sendAt: '2026-10-25T18:00:00.000Z' },
+      })
+    })
+
+    it('moves a stale draft to the agent slot before claiming it', async () => {
+      agentVariant = 'shadow'
+      const { slug, id } = await enroll()
+      await waveWithDraft(id, slug, { scheduledLocalDate: '2026-10-01' })
+
+      await job().advance(id, SATURDAY)
+
+      expect((await waveAt(id, 1)).outreach?.scheduledLocalDate).toBe(
+        '2026-10-24',
+      )
+    })
+
+    it('keeps a handed-off wave an agent wave when the flag is later off', async () => {
+      const { slug, id } = await enroll({ freeTextsUsed: 40 })
+      const wave = await waveWithDraft(id, slug, {
+        status: OutreachStatus.in_progress,
+        fundedBy: OutreachFunding.goodparty_pilot,
+        billableTextCount: 40,
+      })
+      await handoffOf((await waveAt(id, 1)).outreach?.id ?? -1)
+      agentVariant = null
+
+      await job().advance(id, SATURDAY)
+
+      expect(textSends()).toHaveLength(0)
+      expect(
+        (
+          await service.prisma.managedPanelWave.findUniqueOrThrow({
+            where: { id: wave.id },
+          })
+        ).replyWindowEndsAt,
+      ).toBeNull()
+    })
+
+    it('does not close an agent wave with no window, whether or not delivery has made its hand-off', async () => {
+      agentVariant = 'shadow'
+      const { id } = await enroll({ goalMembers: 10 })
+      await job().advance(id, SATURDAY)
+      const later = new Date('2026-11-20T15:00:00Z')
+
+      expect(await job().advance(id, later)).toBe('waiting')
+      await handoffOf((await waveAt(id, 1)).outreach?.id ?? -1)
+      await service.prisma.outreach.updateMany({
+        where: { managedPanelWave: { enrollmentId: id } },
+        data: { status: OutreachStatus.completed },
+      })
+      expect(await job().advance(id, later)).toBe('waiting')
+
+      expect((await waveAt(id, 1)).closedAt).toBeNull()
+      expect(await waves(id)).toHaveLength(1)
+    })
+
+    it('still closes a manual wave that has a null window', async () => {
+      const { slug, id } = await enroll({ goalMembers: 10 })
+      const wave = await waveWithDraft(id, slug, {
+        status: OutreachStatus.completed,
+        fundedBy: OutreachFunding.goodparty_pilot,
+        billableTextCount: 40,
+      })
+      await service.prisma.managedPanelWave.update({
+        where: { id: wave.id },
+        data: { sentAt: WEDNESDAY },
+      })
+
+      await job().advance(id, new Date('2026-10-23T12:19:00Z'))
+
+      expect((await waveAt(id, 1)).closedAt).not.toBeNull()
     })
   })
 })
