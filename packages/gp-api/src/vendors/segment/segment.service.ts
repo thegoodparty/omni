@@ -32,7 +32,13 @@ export class SegmentService {
         'SEGMENT_WRITE_KEY is not defined. Please add it to your .env',
       )
     }
-    this.analytics = new Analytics({ writeKey: SEGMENT_WRITE_KEY })
+    // Off under test: a batch flushes on a 10s timer and retries 3 times,
+    // landing on whatever global fetch stub a later file in the worker has
+    // installed.
+    this.analytics = new Analytics({
+      writeKey: SEGMENT_WRITE_KEY,
+      disable: process.env.NODE_ENV === 'test',
+    })
   }
 
   async trackEvent(

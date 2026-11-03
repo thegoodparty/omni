@@ -10,6 +10,7 @@ import {
   ArrowLeftIcon,
   Button,
   Card,
+  ChevronRightIcon,
   CircleAlertIcon,
   Input,
   SearchIcon,
@@ -19,6 +20,7 @@ import {
 import DashboardLayout from 'app/dashboard/shared/DashboardLayout'
 import { NeedsInputReview } from './NeedsInputReview'
 import { ProcessedRows } from './ProcessedRows'
+import { SkippedRows } from './SkippedRows'
 import { UploadStatusText } from './UploadStatusText'
 import { clientRequest } from 'gpApi/typed-request'
 import { useOrganization } from '@shared/organization-picker'
@@ -42,6 +44,7 @@ export const UploadDetail = ({
   const queryClient = useQueryClient()
   const orgSlug = useOrganization()?.slug
   const [search, setSearch] = useState('')
+  const [openRows, setOpenRows] = useState<'skipped' | 'invalid' | null>(null)
 
   const retry = useMutation({
     mutationFn: async () =>
@@ -54,13 +57,25 @@ export const UploadDetail = ({
       queryClient.invalidateQueries({ queryKey: contactUploadsKey(orgSlug) }),
   })
 
-  const counts = upload
+  const counts: Array<{
+    label: string
+    value: number
+    opens?: 'skipped' | 'invalid'
+  }> = upload
     ? [
         { label: COPY.detail.matched, value: upload.matchedCount },
         { label: COPY.detail.added, value: upload.newCount },
         { label: COPY.detail.needsInput, value: upload.needsInputCount },
-        { label: COPY.detail.skipped, value: upload.skippedCount },
-        { label: COPY.detail.invalid, value: upload.invalidCount },
+        {
+          label: COPY.detail.skipped,
+          value: upload.skippedCount,
+          opens: 'skipped',
+        },
+        {
+          label: COPY.detail.invalid,
+          value: upload.invalidCount,
+          opens: 'invalid',
+        },
         ...(upload.updatedCount > 0
           ? [{ label: COPY.detail.updated, value: upload.updatedCount }]
           : []),
@@ -186,20 +201,55 @@ export const UploadDetail = ({
                       'border-t border-border md:border-t-0 md:border-l',
                   )}
                 >
-                  {column.map((count, index) => (
-                    <div
-                      key={count.label}
-                      className={cn(
-                        'flex items-center justify-between gap-4 px-4 py-2',
-                        index > 0 && 'border-t border-border',
-                      )}
-                    >
-                      <span className="text-sm font-normal">{count.label}</span>
-                      <span className="text-lg font-semibold">
-                        {count.value.toLocaleString()}
-                      </span>
-                    </div>
-                  ))}
+                  {column.map((count, index) => {
+                    const opens = count.value > 0 ? count.opens : undefined
+                    const content = (
+                      <>
+                        <span className="text-sm font-normal">
+                          {count.label}
+                        </span>
+                        <span className="flex items-center gap-2 text-lg font-semibold">
+                          {count.value.toLocaleString()}
+                          {opens && (
+                            <ChevronRightIcon
+                              size={16}
+                              className="text-muted-foreground"
+                              aria-hidden
+                            />
+                          )}
+                        </span>
+                      </>
+                    )
+                    const className = cn(
+                      'flex w-full items-center justify-between gap-4 px-4 py-2',
+                      index > 0 && 'border-t border-border',
+                    )
+                    return opens ? (
+                      <div
+                        key={count.label}
+                        role="button"
+                        tabIndex={0}
+                        aria-haspopup="dialog"
+                        onClick={() => setOpenRows(opens)}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter' || event.key === ' ') {
+                            event.preventDefault()
+                            setOpenRows(opens)
+                          }
+                        }}
+                        className={cn(
+                          className,
+                          'cursor-pointer transition-colors hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-primary-focus focus-visible:outline-none focus-visible:ring-inset',
+                        )}
+                      >
+                        {content}
+                      </div>
+                    ) : (
+                      <div key={count.label} className={className}>
+                        {content}
+                      </div>
+                    )
+                  })}
                 </div>
               ))}
             </Card>
@@ -209,6 +259,15 @@ export const UploadDetail = ({
             )}
 
             <ProcessedRows upload={upload} isWin={isWin} search={search} />
+
+            {openRows && (
+              <SkippedRows
+                upload={upload}
+                outcome={openRows}
+                isWin={isWin}
+                onClose={() => setOpenRows(null)}
+              />
+            )}
           </>
         )}
       </div>
