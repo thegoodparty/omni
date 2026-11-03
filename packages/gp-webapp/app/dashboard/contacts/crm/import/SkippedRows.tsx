@@ -41,8 +41,17 @@ const PAGE_SIZE = 100
 // file's row 1.
 const fileRowNumber = (row: ContactUploadRow): number => row.rowIndex + 2
 
-const csvCell = (value: string): string =>
-  /[",\r\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value
+// As gp-api's csvEscape: a cell starting like a formula is forced to text so
+// a spreadsheet won't run it, unless it is only digits and phone punctuation.
+const INERT_NUMERIC = /^[+-][\d\s()./-]+$/
+
+const csvCell = (value: string): string => {
+  const safe =
+    /^[=+\-@\t\r]/.test(value) && !INERT_NUMERIC.test(value)
+      ? `'${value}`
+      : value
+  return /[",\r\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe
+}
 
 // The rows an import left out: the ones the user chose to skip, or the ones
 // missing a first or last name. They can be downloaded to fix and import

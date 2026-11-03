@@ -433,7 +433,7 @@ describe('<UploadDetail>', () => {
                     rowIndex: 9,
                     firstName: null,
                     lastName: 'Okafor',
-                    email: null,
+                    email: '=HYPERLINK("http://x.test")',
                     addressLine: null,
                     outcome: 'invalid',
                   }),
@@ -499,7 +499,7 @@ describe('<UploadDetail>', () => {
         'Row,First name,Last name,Email,Phone,Street',
         '5,Maria,,maria@example.com,(555) 010-0001,"14 Oak St, Apt 2"',
         '9,,,,,',
-        '11,,Okafor,,,',
+        '11,,Okafor,"\'=HYPERLINK(""http://x.test"")",,',
         '',
       ].join('\r\n'),
     )

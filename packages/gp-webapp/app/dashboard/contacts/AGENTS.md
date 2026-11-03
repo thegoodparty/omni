@@ -210,7 +210,8 @@ untouched: an upload never becomes a list card.
   its row in the file (`rowIndex + 2`: the header is row 1) and the values
   we read. Download these rows pages through every row and builds the CSV
   in the browser, headed by the upload's own column names (plus Row), so
-  importing the fixed file can prefill the same mapping.
+  importing the fixed file can prefill the same mapping. A cell that starts
+  like a formula is forced to text, as gp-api's `csvEscape` does.
 - **Person panel**: with the flag on, on Serve or a Pro Win campaign,
   `PersonRecord` renders `person/ImportedContactInformation` in place of
   today's Contact Information card (Win keeps its status row and Voter
