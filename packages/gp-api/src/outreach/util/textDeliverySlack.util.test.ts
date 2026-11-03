@@ -88,6 +88,20 @@ describe('textDeliverySlack.util', () => {
       expect(payload.file).toBeInstanceOf(Buffer)
     })
 
+    it('tells fulfilment the agent is handling the wave only when it is', async () => {
+      await sendTextDeliverySlackMessage(
+        fakeClient,
+        baseArgs({ agentHandled: true }),
+      )
+      expect(blocks()[1].text.text).toBe(
+        '*Delegate is handling this wave.* Do not schedule it by hand unless it posts that it needs help.',
+      )
+
+      filesUploadV2.mockClear()
+      await sendTextDeliverySlackMessage(fakeClient, baseArgs())
+      expect(blocksText()).not.toContain('Delegate is handling')
+    })
+
     it('ends with a button linking at the per-send admin upload page', async () => {
       await sendTextDeliverySlackMessage(fakeClient, baseArgs())
 
