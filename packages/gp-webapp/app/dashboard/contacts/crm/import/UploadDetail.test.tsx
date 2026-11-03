@@ -9,6 +9,7 @@ import type {
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { router } from 'helpers/test-utils/router-mocking'
+import { makePerson } from '../shared/test-fixtures'
 import { UploadDetail } from './UploadDetail'
 
 vi.mock('app/dashboard/shared/DashboardLayout', () => ({
@@ -36,6 +37,9 @@ vi.mock(
 )
 vi.mock('@shared/organization-picker', () => ({
   useOrganization: () => ({ slug: 'eo-test' }),
+}))
+vi.mock('app/dashboard/shared/useWinVoterContext', () => ({
+  useWinVoterContext: () => ({ isWin: false, isReady: true }),
 }))
 
 const PERSON_KEY = ['person', 'eo-test', 'person-1']
@@ -245,6 +249,82 @@ describe('<UploadDetail>', () => {
         body: { personId: '0190f4a5-0000-7000-8000-000000000001' },
       },
       { rowId: 'row-2', body: { newPerson: true } },
+    ])
+  })
+
+  it('saves someone the user searched for when no offered person is right', async () => {
+    api.mock('GET /v1/contact-uploads/:id', {
+      status: 200,
+      data: makeUpload(),
+    })
+    mockRows()
+    const searches: string[] = []
+    api.mock('GET /v1/contacts', ({ query }) => {
+      searches.push(query.search ?? '')
+      return {
+        status: 200,
+        data: {
+          pagination: {
+            totalResults: 1,
+            currentPage: 1,
+            pageSize: 8,
+            totalPages: 1,
+            hasNextPage: false,
+            hasPreviousPage: false,
+          },
+          people: [
+            makePerson({
+              id: '0190f4a5-0000-7000-8000-000000000042',
+              firstName: 'Jimmy',
+              lastName: 'Okafor-Reed',
+              age: 63,
+              address: {
+                ...makePerson().address,
+                line1: '220 Maple Ave',
+                city: 'Maplewood',
+              },
+            }),
+          ],
+        },
+      }
+    })
+    const saved: Array<{ rowId: string; body: SetContactUploadRowMatch }> = []
+    api.mock(
+      'PUT /v1/contact-uploads/:id/rows/:rowId/match',
+      ({ params, body }) => {
+        saved.push({ rowId: params.rowId, body })
+        return { status: 200, data: makeUpload() }
+      },
+    )
+    const user = userEvent.setup()
+
+    render(<UploadDetail uploadId="upload-1" isWin={false} />)
+
+    const okafor = await screen.findByRole('radiogroup', { name: 'J. Okafor' })
+    await user.click(within(okafor).getByLabelText('Someone else'))
+    const save = screen.getByRole('button', { name: 'Save my answers' })
+    expect(save).toBeDisabled()
+
+    await user.type(
+      screen.getByRole('textbox', { name: 'Search your constituents' }),
+      'Okafor',
+    )
+    await user.click(
+      await screen.findByLabelText(
+        'Jimmy Okafor-Reed, 220 Maple Ave, 63 years old',
+      ),
+    )
+    expect(searches).toContain('Okafor')
+    expect(save).toBeEnabled()
+
+    await user.click(save)
+
+    await waitFor(() => expect(saved).toHaveLength(1))
+    expect(saved).toEqual([
+      {
+        rowId: 'row-2',
+        body: { personId: '0190f4a5-0000-7000-8000-000000000042' },
+      },
     ])
   })
 

@@ -196,7 +196,10 @@ untouched: an upload never becomes a list card.
   generic line, with Try again unless `failureKind` is `file` (a missing
   column, too many rows, an unreadable file or one that never arrived fails
   the same way again). Otherwise the counts, `NeedsInputReview`
-  (answers saved together; Decide later changes nothing), and `ProcessedRows`
+  (answers saved together; Decide later changes nothing; each row offers its
+  candidates, Someone else, New person and Skip, and Someone else searches
+  `GET /v1/contacts` the way Change match does, since candidates are
+  exact-name matches only), and `ProcessedRows`
   (paged with Show more; the search sits in the page's top bar; cards below
   `lg`; pills filter to All, In or Not in your voter file, sent as
   `inVoterFile`, so someone an import added as new can be found and given
