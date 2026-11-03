@@ -69,6 +69,7 @@ export type UploadRowContext = {
   row: ChangeMatchRow
   description: string
   candidates: ContactUploadCandidate[]
+  onChanged?: () => void
 }
 
 // Contact Information with Import contacts on: today's card plus Email, a
@@ -192,6 +193,7 @@ export const ImportedContactInformation = ({
             currentPersonId={person.id}
             currentPersonName={name}
             candidates={uploadRow?.candidates}
+            onChanged={uploadRow?.onChanged}
             isWin={isWin}
           />
         </>

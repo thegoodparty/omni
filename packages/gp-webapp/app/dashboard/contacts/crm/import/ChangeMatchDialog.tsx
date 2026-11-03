@@ -51,6 +51,7 @@ interface ChangeMatchDialogProps {
   currentPersonId: string | null
   currentPersonName: string
   candidates?: ContactUploadCandidate[]
+  onChanged?: () => void
   isWin: boolean
 }
 
@@ -65,6 +66,7 @@ export const ChangeMatchDialog = ({
   currentPersonId,
   currentPersonName,
   candidates = [],
+  onChanged,
   isWin,
 }: ChangeMatchDialogProps) => {
   const COPY = getImportContactsCopy(isWin)
@@ -103,6 +105,7 @@ export const ChangeMatchDialog = ({
         invalidateImportedPeople(queryClient, orgSlug),
       ])
       onOpenChange(false)
+      onChanged?.()
     },
   })
 

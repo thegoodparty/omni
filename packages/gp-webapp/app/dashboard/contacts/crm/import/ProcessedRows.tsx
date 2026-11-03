@@ -265,6 +265,9 @@ export const ProcessedRows = ({
                 },
                 description: `${candidateLabel(openRow)}. ${COPY.changeMatch.fromUpload(upload.name)}`,
                 candidates: openRow.candidates,
+                // The row now points at someone else, so the record shown
+                // is no longer this row's person.
+                onChanged: () => setOpenRow(null),
               }
             : undefined
         }

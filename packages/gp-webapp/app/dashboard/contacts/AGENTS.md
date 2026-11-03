@@ -201,7 +201,8 @@ untouched: an upload never becomes a list card.
   `lg`). A whole row opens the person in `PersonInfoSheet` over the page (a
   bottom drawer on a phone), so the upload stays put; it passes the row as
   `uploadRow`, so the record's Change match acts on that row without asking
-  which upload. A choice reads
+  which upload, and a saved change closes the sheet (the record shown is no
+  longer the row's person). A choice reads
   name, address, then age (`candidateLabel`), so two people at one address
   still differ.
 - **Person panel**: with the flag on, on Serve or a Pro Win campaign,
