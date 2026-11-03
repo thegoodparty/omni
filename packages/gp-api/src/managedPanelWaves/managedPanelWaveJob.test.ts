@@ -1,5 +1,13 @@
 import { randomUUID } from 'node:crypto'
-import { beforeEach, describe, expect, it, type Mock, vi } from 'vitest'
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  type Mock,
+  vi,
+} from 'vitest'
 import { CIVIC_PANEL_JOIN_LINE } from '@goodparty_org/contracts'
 import { ContactStatusService } from '@/contactInteraction/services/contactStatus.service'
 import type { PersonOutput } from '@/contacts/schemas/person.schema'
@@ -13,6 +21,7 @@ import {
   OutreachStatus,
   OutreachType,
   Prisma,
+  UserRole,
 } from '@/generated/prisma'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
 import {
@@ -833,5 +842,123 @@ describe('the managed panel wave job analytics', () => {
         }),
       ]),
     )
+  })
+})
+
+describe('a managed wave results upload', () => {
+  const BASE = '/v1/outreach/admin/results/sms'
+  // Past wave 1's window, which ends 2026-10-31.
+  const AFTER_WINDOW = new Date('2026-11-04T15:00:00Z')
+  const PERSON = { personId: randomUUID(), phone: '+13035550177' }
+  const REPLIES_CSV = [
+    'Contact Phone Number,Message Text,Sent At,Send Direction',
+    `${PERSON.phone},JOIN,2026-10-27T15:04:05.000Z,INBOUND`,
+  ].join('\n')
+
+  beforeEach(async () => {
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { roles: [UserRole.admin] },
+    })
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(AFTER_WINDOW)
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  const sentWave = async () => {
+    const { slug, id } = await enroll({ goalMembers: 10 })
+    await job().advance(id, WEDNESDAY)
+    const first = await waveAt(id, 1)
+    const outreachId = first.outreach?.id ?? -1
+    await service.prisma.outreach.update({
+      where: { id: outreachId },
+      data: { status: OutreachStatus.in_progress },
+    })
+    await service.prisma.outreachTextRecipient.create({
+      data: { outreachId, organizationSlug: slug, ...PERSON },
+    })
+    await service.prisma.contactInteractionText.create({
+      data: {
+        outreachId,
+        organizationSlug: slug,
+        personId: PERSON.personId,
+        occurredAt: new Date(),
+      },
+    })
+    return { slug, id, outreachId }
+  }
+
+  const upload = (outreachId: number, dryRun: boolean) =>
+    service.client.post(`${BASE}/${outreachId}`, {
+      fileName: 'results.csv',
+      csv: REPLIES_CSV,
+      dryRun,
+      sourceLabel: 'gp-admin upload by staffer@goodparty.org',
+    })
+
+  const handoff = (outreachId: number) =>
+    service.prisma.outreachTextHandoff.create({
+      data: {
+        outreachId,
+        handler: 'agent',
+        mode: 'auto',
+        sendAt: WEDNESDAY,
+        timeZone: 'America/New_York',
+        status: 'scheduled',
+      },
+    })
+
+  it('marks the hand-off replies_submitted and leaves the wave to the job', async () => {
+    const { id, outreachId } = await sentWave()
+    await handoff(outreachId)
+
+    const result = await upload(outreachId, false)
+
+    expect(result.status).toBe(201)
+    const row = await service.prisma.outreachTextHandoff.findUniqueOrThrow({
+      where: { outreachId },
+    })
+    expect(row.status).toBe('replies_submitted')
+    expect(row.repliesSubmittedAt).toEqual(AFTER_WINDOW)
+    expect((await waves(id)).map((wave) => wave.closedAt)).toEqual([null])
+  })
+
+  it('leaves a hand-off the agent has not scheduled yet', async () => {
+    const { outreachId } = await sentWave()
+    await service.prisma.outreachTextHandoff.create({
+      data: {
+        outreachId,
+        handler: 'agent',
+        mode: 'auto',
+        sendAt: WEDNESDAY,
+        timeZone: 'America/New_York',
+      },
+    })
+
+    const result = await upload(outreachId, false)
+
+    expect(result.status).toBe(201)
+    const row = await service.prisma.outreachTextHandoff.findUniqueOrThrow({
+      where: { outreachId },
+    })
+    expect(row.status).toBe('queued')
+    expect(row.repliesSubmittedAt).toBeNull()
+  })
+
+  it('leaves the hand-off alone on a dry run', async () => {
+    const { outreachId } = await sentWave()
+    await handoff(outreachId)
+
+    const result = await upload(outreachId, true)
+
+    expect(result.status).toBe(201)
+    const row = await service.prisma.outreachTextHandoff.findUniqueOrThrow({
+      where: { outreachId },
+    })
+    expect(row.status).toBe('scheduled')
+    expect(row.repliesSubmittedAt).toBeNull()
   })
 })
