@@ -3,7 +3,7 @@ title: The dashboard routes winners whose campaign was ever Pro to Serve onboard
 status: active
 decided_by: [bryclevgp, jacknagel-hs]
 date: 2026-11-02
-code: ['#3518']
+code: ['#3518', '#3527']
 scope:
   - packages/gp-webapp/app/dashboard/election-result/**
   - packages/gp-webapp/app/dashboard/shared/DashboardLayout.tsx
