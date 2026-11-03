@@ -119,11 +119,14 @@ exercises the exact full-stack version proposed in the PR.
   durations, which the `E2E` job records to the Actions cache
   (`e2e-durations-v1-*`; a PR reads its own latest, else main's). The `E2E`
   summary job merges the per-shard blob reports into one HTML report +
-  `results.json`, publishes to S3, comments on the PR, and is the single required
-  status check (red iff any shard failed). `E2E` keeps that exact name because the
-  `main` ruleset gates on it. This is the pre-merge E2E against the PR's own
-  full-stack preview; after merge the release train runs a second E2E against dev
-  before promoting the commit to prod (see below).
+  `results.json`, publishes to S3, comments on the PR, and is the single
+  required status check (red iff any shard failed or the webapp deploy produced
+  no preview URL). It never skips for a failed deploy, because the ruleset
+  treats a skipped required check as passing; it skips only when a newer push
+  cancelled the run first. `E2E` keeps that exact name because the `main`
+  ruleset gates on it. This is the pre-merge E2E against the PR's own full-stack
+  preview; after merge the release train runs a second E2E against dev before
+  promoting the commit to prod (see below).
 
 ## Backends (Docker + ECR + Pulumi -> ECS Fargate)
 
