@@ -7,10 +7,7 @@ sends, closes and finishes each building panel's waves. What each step does:
 
 - **The only caller of `claimFree`.** No controller, no chat tool, no
   test-fixtures run-job, and nothing that serves a request imports this
-  module. `managedWaveFunding.imports.test.ts` lists these two files. The one
-  request-side reach is the results upload calling `runPanel` through
-  `ModuleRef` (not a module import), so a committed upload steps its panel;
-  the daily lock stays on `runDaily` only.
+  module. `managedWaveFunding.imports.test.ts` lists these two files.
 - **Never set `fundedBy` or move a send past `pending_payment` here.** The
   job makes the unpaid draft; `claimFree` alone makes it free.
 - **Every step re-reads the rows.** No step trusts what an earlier run meant

@@ -29,7 +29,6 @@ import {
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { FeedbackSynthesisService } from '@/constituentFeedback/services/feedbackSynthesis.service'
 import { PriorityAnswerCodingService } from '@/priorities/services/priorityAnswerCoding.service'
-import { ManagedPanelWaveJobService } from '@/managedPanelWaves/managedPanelWaveJob.service'
 import { OutreachTextIngestService } from './outreachTextIngest.service'
 
 /**
@@ -542,7 +541,20 @@ export class OutreachResultsAdminService extends createPrismaBase(
       }
     }
 
-    if (result.committed) this.stepManagedPanel(outreachId, send)
+    // Only the stamp: the daily job closes the wave, because no request may
+    // reach `claimFree` (adr/2026-10-22-managed-panel-free-sends-and-guards).
+    if (result.committed && send.managedPanelWave !== null) {
+      await this.client.outreachTextHandoff.updateMany({
+        where: {
+          outreachId,
+          status: { not: OutreachHandoffStatus.replies_submitted },
+        },
+        data: {
+          status: OutreachHandoffStatus.replies_submitted,
+          repliesSubmittedAt: new Date(),
+        },
+      })
+    }
 
     // A row the parse threw out (a blank phone cell, an unreadable
     // timestamp) never reached the ingest, so the ingest cannot count it.
@@ -564,38 +576,6 @@ export class OutreachResultsAdminService extends createPrismaBase(
       optOuts: result.optOuts,
       committed: result.committed,
     }
-  }
-
-  // A committed upload for a managed civic panel wave is the end of its
-  // reply wait: the hand-off row says so and the panel's step runs now
-  // instead of at the next 8:19am run. In the background, and nothing here
-  // may fail an upload that has already committed.
-  private stepManagedPanel(outreachId: number, send: SendRow): void {
-    if (send.managedPanelWave === null) return
-    const enrollmentId = send.managedPanelWave.enrollmentId
-    void (async () => {
-      try {
-        const now = new Date()
-        await this.client.outreachTextHandoff.updateMany({
-          where: {
-            outreachId,
-            status: { not: OutreachHandoffStatus.replies_submitted },
-          },
-          data: {
-            status: OutreachHandoffStatus.replies_submitted,
-            repliesSubmittedAt: now,
-          },
-        })
-        await this.moduleRef
-          .get(ManagedPanelWaveJobService, { strict: false })
-          .runPanel(enrollmentId, now)
-      } catch (err) {
-        this.logger.error(
-          { err, outreachId, enrollmentId },
-          'Could not step the managed panel after its wave results',
-        )
-      }
-    })()
   }
 
   /**

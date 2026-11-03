@@ -845,7 +845,7 @@ describe('the managed panel wave job analytics', () => {
   })
 })
 
-describe('stepping a panel when its wave results are uploaded', () => {
+describe('a managed wave results upload', () => {
   const BASE = '/v1/outreach/admin/results/sms'
   // Past wave 1's window, which ends 2026-10-31.
   const AFTER_WINDOW = new Date('2026-11-04T15:00:00Z')
@@ -866,7 +866,6 @@ describe('stepping a panel when its wave results are uploaded', () => {
 
   afterEach(() => {
     vi.useRealTimers()
-    vi.mocked(job().runPanel).mockRestore?.()
   })
 
   const sentWave = async () => {
@@ -900,9 +899,8 @@ describe('stepping a panel when its wave results are uploaded', () => {
       sourceLabel: 'gp-admin upload by staffer@goodparty.org',
     })
 
-  it('closes the wave and hands off the next one on a committed upload', async () => {
-    const { id, outreachId } = await sentWave()
-    await service.prisma.outreachTextHandoff.create({
+  const handoff = (outreachId: number) =>
+    service.prisma.outreachTextHandoff.create({
       data: {
         outreachId,
         handler: 'agent',
@@ -913,88 +911,32 @@ describe('stepping a panel when its wave results are uploaded', () => {
       },
     })
 
+  it('marks the hand-off replies_submitted and leaves the wave to the job', async () => {
+    const { id, outreachId } = await sentWave()
+    await handoff(outreachId)
+
     const result = await upload(outreachId, false)
 
     expect(result.status).toBe(201)
-    await vi.waitFor(async () =>
-      expect((await waves(id)).map((wave) => wave.outreach?.fundedBy)).toEqual([
-        OutreachFunding.goodparty_pilot,
-        OutreachFunding.goodparty_pilot,
-      ]),
-    )
-    expect((await waveAt(id, 1)).closedAt).toEqual(AFTER_WINDOW)
-    const handoff = await service.prisma.outreachTextHandoff.findUniqueOrThrow({
+    const row = await service.prisma.outreachTextHandoff.findUniqueOrThrow({
       where: { outreachId },
     })
-    expect(handoff.status).toBe('replies_submitted')
-    expect(handoff.repliesSubmittedAt).toEqual(AFTER_WINDOW)
+    expect(row.status).toBe('replies_submitted')
+    expect(row.repliesSubmittedAt).toEqual(AFTER_WINDOW)
+    expect((await waves(id)).map((wave) => wave.closedAt)).toEqual([null])
   })
 
-  it('does nothing on a dry run', async () => {
-    const { id, outreachId } = await sentWave()
-    const runPanel = vi.spyOn(job(), 'runPanel')
+  it('leaves the hand-off alone on a dry run', async () => {
+    const { outreachId } = await sentWave()
+    await handoff(outreachId)
 
     const result = await upload(outreachId, true)
 
     expect(result.status).toBe(201)
-    expect(runPanel).not.toHaveBeenCalled()
-    expect((await waves(id)).map((wave) => wave.closedAt)).toEqual([null])
-  })
-
-  it('does nothing for a send that is not a managed wave', async () => {
-    const { slug } = await sentWave()
-    const plain = await service.prisma.outreach.create({
-      data: {
-        organizationSlug: slug,
-        outreachType: OutreachType.text,
-        status: OutreachStatus.in_progress,
-        name: 'Newsletter',
-        message: 'Hello. Reply STOP to opt out.',
-        scheduledLocalDate: WEDNESDAY_SEND_DATE,
-      },
+    const row = await service.prisma.outreachTextHandoff.findUniqueOrThrow({
+      where: { outreachId },
     })
-    await service.prisma.outreachTextRecipient.create({
-      data: { outreachId: plain.id, organizationSlug: slug, ...PERSON },
-    })
-    const runPanel = vi.spyOn(job(), 'runPanel')
-
-    const result = await upload(plain.id, false)
-
-    expect(result.status).toBe(201)
-    expect(runPanel).not.toHaveBeenCalled()
-  })
-
-  it('still answers the upload when the step fails', async () => {
-    const { outreachId } = await sentWave()
-    const runPanel = vi
-      .spyOn(job(), 'runPanel')
-      .mockRejectedValue(new Error('step blew up'))
-
-    const result = await upload(outreachId, false)
-
-    expect(result.status).toBe(201)
-    expect(result.data.committed).toBe(true)
-    await vi.waitFor(() => expect(runPanel).toHaveBeenCalled())
-  })
-
-  it('draws exactly one next wave when an ingest step and the cron step race', async () => {
-    const { id } = await sentWave()
-
-    await Promise.all([
-      job().runPanel(id, AFTER_WINDOW),
-      job().runPanel(id, AFTER_WINDOW),
-      job().runWaves(AFTER_WINDOW),
-    ])
-
-    expect((await waves(id)).map((wave) => wave.wave)).toEqual([1, 2])
-    // A claim resumed by the racing run re-enqueues under the same dedupe id,
-    // which the queue drops.
-    expect(
-      new Set(textSends().map(([, , options]) => options?.deduplicationId)),
-    ).toHaveProperty('size', 2)
-    const drawn = await waves(id)
-    expect((await enrollment(id)).freeTextsUsed).toBe(
-      drawn.reduce((sum, wave) => sum + (wave.outreach?.textCount ?? 0), 0),
-    )
+    expect(row.status).toBe('scheduled')
+    expect(row.repliesSubmittedAt).toBeNull()
   })
 })
