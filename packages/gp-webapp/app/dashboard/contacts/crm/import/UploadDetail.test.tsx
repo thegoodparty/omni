@@ -170,26 +170,24 @@ describe('<UploadDetail>', () => {
 
     render(<UploadDetail uploadId="upload-1" isWin={false} />)
 
-    await waitFor(() =>
-      expect(screen.getByTestId('nav-header')).toHaveTextContent(
-        'Newsletter, Oct 2026',
-      ),
-    )
+    expect(
+      await screen.findByRole('heading', { name: 'Newsletter, Oct 2026' }),
+    ).toBeInTheDocument()
     expect(
       screen.getByText(
         'newsletter-subscribers.csv · Imported Oct 20, 2026 by Sarah Chen · 240 rows',
       ),
     ).toBeInTheDocument()
     expect(screen.getByText('168')).toBeInTheDocument()
-    expect(screen.getByText('already in your constituents')).toBeInTheDocument()
+    expect(screen.getByText('Already in your constituents')).toBeInTheDocument()
     expect(screen.getByText('52')).toBeInTheDocument()
-    expect(screen.getByText('new people added')).toBeInTheDocument()
-    expect(screen.getByText('missing a first or last name')).toBeInTheDocument()
+    expect(screen.getByText('New people added')).toBeInTheDocument()
+    expect(screen.getByText('Missing a first or last name')).toBeInTheDocument()
     expect(
-      screen.getByText('updated people you imported before'),
+      screen.getByText('Updated people you imported before'),
     ).toBeInTheDocument()
     expect(
-      screen.queryByText('unchanged from your last import'),
+      screen.queryByText('Unchanged from your last import'),
     ).not.toBeInTheDocument()
   })
 
@@ -367,9 +365,9 @@ describe('<UploadDetail>', () => {
         await screen.findAllByText('Already in your voter file. Updated email.')
       )[0],
     ).toBeInTheDocument()
-    expect(screen.getByText('already in your voter file')).toBeInTheDocument()
+    expect(screen.getByText('Already in your voter file')).toBeInTheDocument()
     expect(
-      screen.getByText('added, not in your voter file'),
+      screen.getByText('Added, not in your voter file'),
     ).toBeInTheDocument()
     expect(
       screen.getByRole('link', { name: 'Back to Upload history' }),
@@ -455,7 +453,7 @@ describe('<UploadDetail>', () => {
       ),
     ).toBeInTheDocument()
     expect(
-      screen.queryByText('already in your constituents'),
+      screen.queryByText('Already in your constituents'),
     ).not.toBeInTheDocument()
     expect(screen.queryByText('Processed rows')).not.toBeInTheDocument()
     expect(

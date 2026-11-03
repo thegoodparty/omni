@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useInfiniteQuery } from '@tanstack/react-query'
 import type { ContactUpload, ContactUploadRow } from '@goodparty_org/contracts'
 import {
@@ -48,6 +48,7 @@ export const ProcessedRows = ({
       : ''
   const orgSlug = useOrganization()?.slug
   const [debouncedSearch, setDebouncedSearch] = useState('')
+  const sectionRef = useRef<HTMLElement>(null)
   const [openRow, setOpenRow] = useState<ContactUploadRow | null>(null)
 
   useEffect(() => {
@@ -57,6 +58,13 @@ export const ProcessedRows = ({
     )
     return () => clearTimeout(timeout)
   }, [search])
+
+  // The search sits in the page's top bar, far above the rows on a phone, so
+  // a search brings the results into view; scroll-mt clears the sticky bar.
+  useEffect(() => {
+    if (!debouncedSearch) return
+    sectionRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
+  }, [debouncedSearch])
 
   const rowsQuery = useInfiniteQuery({
     queryKey: [
@@ -81,14 +89,17 @@ export const ProcessedRows = ({
   const rows = rowsQuery.data?.pages.flatMap((page) => page.rows) ?? []
 
   return (
-    <section className="flex flex-col gap-4">
+    <section
+      ref={sectionRef}
+      className="flex scroll-mt-40 flex-col gap-4 md:scroll-mt-24"
+    >
       <h2 className="text-lg font-semibold text-foreground">
         {COPY.processed.title}
       </h2>
 
       {/* Desktop table; a phone gets the phone banking list's rows below. */}
       <Card className="hidden overflow-hidden p-0 lg:block">
-        <Table className="w-full [&_th]:text-muted-foreground [&_th:first-child]:!pl-4 [&_td:first-child]:!pl-4 [&_th:last-child]:!pr-4 [&_td:last-child]:!pr-4">
+        <Table className="w-full [&_th]:text-muted-foreground [&_td]:h-11 [&_th:first-child]:!pl-4 [&_td:first-child]:!pl-4 [&_th:last-child]:!pr-4 [&_td:last-child]:!pr-4">
           <TableHeader>
             <TableRow>
               <TableHead>{COPY.processed.nameColumn}</TableHead>

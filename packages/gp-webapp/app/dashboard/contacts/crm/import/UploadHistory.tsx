@@ -61,7 +61,7 @@ export const UploadHistory = ({ isWin }: { isWin: boolean }) => {
       {/* Voter Data's full-bleed white top bar (the negative margins cancel
           the layout wrapper's padding): the way back on the left, the page's
           one action on the right. */}
-      <div className="-mx-2 -mt-2 flex shrink-0 items-center justify-between gap-4 border-b border-border bg-background px-4 py-3 md:-mx-4 md:-mt-4 md:px-6">
+      <div className="sticky top-0 z-10 -mx-2 -mt-2 flex shrink-0 items-center justify-between gap-4 border-b border-border bg-background px-4 py-3 md:-mx-4 md:-mt-4 md:px-6">
         <Button asChild variant="ghost">
           <Link
             href="/dashboard/contacts"
@@ -74,7 +74,13 @@ export const UploadHistory = ({ isWin }: { isWin: boolean }) => {
         {importButton}
       </div>
       <div className="mx-auto mt-8 flex w-full max-w-[720px] flex-col gap-6 px-2 pb-32 md:px-0">
-        <p className="text-sm text-muted-foreground">{COPY.history.caption}</p>
+        {/* Voter Data's section heading: a title, then one muted line. */}
+        <div className="flex flex-col gap-1">
+          <h2 className="text-lg font-semibold">{COPY.history.listTitle}</h2>
+          <p className="text-sm text-muted-foreground">
+            {COPY.history.caption}
+          </p>
+        </div>
         {uploadsQuery.isError ? (
           <Alert variant="destructive" icon={<CircleAlertIcon />}>
             <AlertDescription>{COPY.history.loadFailed}</AlertDescription>
