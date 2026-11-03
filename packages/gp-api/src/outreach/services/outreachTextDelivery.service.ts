@@ -16,7 +16,13 @@ import {
 } from '@/contacts/services/contacts.service'
 import type { PersonOutput } from '@/contacts/schemas/person.schema'
 import { resolveFilterAudience } from '@/contacts/utils/audienceResolution.util'
-import { Organization, OutreachStatus, User } from '@/generated/prisma'
+import {
+  Organization,
+  OutreachHandoffHandler,
+  OutreachHandoffStatus,
+  OutreachStatus,
+  User,
+} from '@/generated/prisma'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { csvEscape } from '@/shared/util/csv.util'
 import { normalizePhoneNumber } from '@/shared/util/strings.util'
@@ -75,6 +81,16 @@ export interface RequestSendInput {
    * count, which is not capped rather than capped to zero.
    */
   paidRecipientCap?: number
+  /**
+   * Set by a caller whose send a swarm agent will schedule in the vendor
+   * console. Delivery records the hand-off row the agent polls and says so in
+   * the Slack post; it never learns why the caller chose the agent.
+   */
+  agentHandoff?: {
+    mode: 'shadow' | 'auto'
+    sendAt: Date
+    timeZone: string
+  }
 }
 
 export interface RequestSendResult {
@@ -457,6 +473,7 @@ export class OutreachTextDeliveryService extends createPrismaBase(
       scheduledLocalDate,
       sendSeq,
       paidRecipientCap,
+      agentHandoff,
     } = input
     const { organization, official, sendKey } = context
     const organizationSlug = organization.slug
@@ -534,17 +551,39 @@ export class OutreachTextDeliveryService extends createPrismaBase(
     const captured = await this.parseRecipients(csv, outreachId)
 
     const occurredAt = new Date()
-    await this.model.createMany({
-      data: captured.map((recipient) => ({
-        outreachId,
-        organizationSlug,
-        personId: recipient.personId,
-        phone: recipient.phone,
-      })),
-      // (outreachId, personId) is unique, so a redelivered message is a
-      // no-op here rather than a duplicate.
-      skipDuplicates: true,
-    })
+    // The hand-off row rides the recipient map's transaction: a row the agent
+    // can claim must never exist without the map its replies resolve through.
+    // `outreachId` is unique, so a redelivery is a no-op here too.
+    await this.client.$transaction([
+      ...(agentHandoff
+        ? [
+            this.client.outreachTextHandoff.createMany({
+              data: [
+                {
+                  outreachId,
+                  handler: OutreachHandoffHandler.agent,
+                  status: OutreachHandoffStatus.queued,
+                  mode: agentHandoff.mode,
+                  sendAt: agentHandoff.sendAt,
+                  timeZone: agentHandoff.timeZone,
+                },
+              ],
+              skipDuplicates: true,
+            }),
+          ]
+        : []),
+      this.client.outreachTextRecipient.createMany({
+        data: captured.map((recipient) => ({
+          outreachId,
+          organizationSlug,
+          personId: recipient.personId,
+          phone: recipient.phone,
+        })),
+        // (outreachId, personId) is unique, so a redelivered message is a
+        // no-op here rather than a duplicate.
+        skipDuplicates: true,
+      }),
+    ])
     await this.contactInteractionTextService.createManyIdempotent(
       captured.map((recipient) => ({
         organizationSlug,
@@ -570,6 +609,7 @@ export class OutreachTextDeliveryService extends createPrismaBase(
         email: official.email,
         phone: official.phone ?? undefined,
       },
+      agentHandled: agentHandoff !== undefined,
     })
 
     return {
