@@ -9,7 +9,6 @@ import { useUser } from '@shared/hooks/useUser'
 import { usePositionName } from '@shared/hooks/usePositionName'
 import { useIsImpersonating } from '@shared/hooks/useIsImpersonating'
 import { CAMPAIGN_QUERY_KEY } from '@shared/hooks/CampaignProvider'
-import { useServePlace } from 'app/dashboard/contacts/citizens-panel/managedPanelCopy'
 import {
   isElectionResultDismissed,
   isElectionResultSnoozed,
@@ -21,8 +20,9 @@ import {
 } from 'app/dashboard/election-result/electionResultQuestion'
 import {
   CHAT_ASK_COPY,
-  COMMUNITY_URL,
   electionDayLabel,
+  LOST_COPY,
+  SURVEY_BUTTON,
 } from 'app/dashboard/election-result/electionResultCopy'
 import type { ChatSuggestion } from '../chief-of-staff/components/chat/ChiefOfStaffChatBody'
 
@@ -48,7 +48,7 @@ export interface ElectionResultChat {
  * The campaign manager's "How did it go?" (C1): asked from the day after
  * election day, alongside the election result page, until either is answered.
  * "I won" opens that page on its congratulations; "I didn't win" saves the
- * result and thanks them here (C4); "Results aren't final yet" hides the
+ * result and thanks them here with the loss survey (C4); "Results aren't final yet" hides the
  * question on both for 3 days.
  */
 export const useElectionResultChat = (): ElectionResultChat => {
@@ -58,7 +58,6 @@ export const useElectionResultChat = (): ElectionResultChat => {
   const [campaign] = useCampaign()
   const [user] = useUser()
   const positionName = usePositionName()
-  const place = useServePlace()
   const isImpersonating = useIsImpersonating()
 
   // Storage is unreadable during render on the server, so the question waits
@@ -111,23 +110,23 @@ export const useElectionResultChat = (): ElectionResultChat => {
 
   const opener = useMemo(() => {
     if (answer === 'lost') {
-      return CHAT_ASK_COPY.lostReply(user?.firstName, place)
+      return CHAT_ASK_COPY.lostReply(user?.firstName)
     }
     if (answer === 'not-final') return CHAT_ASK_COPY.notFinalReply
     return CHAT_ASK_COPY.opener(
       electionDayLabel(electionDateOf(campaign)),
       positionName || null,
     )
-  }, [answer, user?.firstName, place, campaign, positionName])
+  }, [answer, user?.firstName, campaign, positionName])
 
   const suggestions = useMemo<ChatSuggestion[]>(() => {
     if (answer === 'lost') {
       return [
         {
-          label: CHAT_ASK_COPY.community.label,
-          description: CHAT_ASK_COPY.community.description,
+          label: SURVEY_BUTTON,
+          description: LOST_COPY.survey.title,
           onSelect: () => {
-            window.open(COMMUNITY_URL, '_blank', 'noopener,noreferrer')
+            window.open(LOST_COPY.survey.url, '_blank', 'noopener,noreferrer')
           },
         },
       ]

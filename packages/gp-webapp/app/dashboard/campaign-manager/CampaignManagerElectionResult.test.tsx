@@ -123,7 +123,7 @@ describe('the campaign manager asks how the election went', () => {
     )
   })
 
-  it('saves a loss and thanks them in the chat with the community', async () => {
+  it('saves a loss and thanks them in the chat with the loss survey', async () => {
     vi.mocked(updateCampaign).mockResolvedValue({ id: 9 } as never)
     setup()
     await waitFor(() => expect(surface().open).toBe(true))
@@ -136,12 +136,22 @@ describe('the campaign manager asks how the election went', () => {
     await waitFor(() =>
       expect(surface().openerKey).toBe('election-result-lost'),
     )
-    expect(surface().opener?.[0]).toBe(
+    expect(surface().opener).toEqual([
       'We appreciate you for running, Sarah. Putting your name on the ballot takes courage. Great work.',
-    )
-    expect(surface().suggestions?.map((s) => s.label)).toEqual([
-      'Join the GoodParty.org community',
+      "Tell us what worked, what didn't, and how we can support you better next cycle.",
     ])
+    expect(surface().suggestions?.map((s) => s.label)).toEqual([
+      'Take the 5-minute survey',
+    ])
+
+    const open = vi.spyOn(window, 'open').mockImplementation(() => null)
+    act(() => chip('Take the 5-minute survey').onSelect?.())
+    expect(open).toHaveBeenCalledWith(
+      'https://survey.hsforms.com/22zYI2zHtQ6erJaSewyxf-Acuqn1',
+      '_blank',
+      'noopener,noreferrer',
+    )
+    open.mockRestore()
   })
 
   it('hides the question for 3 days when results are not final', async () => {

@@ -29,7 +29,8 @@ ask while it holds; answering either saves `wonGeneral`, which closes both.
   is the question and whose starter chips are the answers. "I won" opens
   `/dashboard/election-result?result=won`, which skips the question
   (`startWithWin`). "I didn't win" saves the loss and swaps the opener for
-  the thank you (C4) with the community as its one card. The candidate's
+  the thank you (C4), which asks for their feedback, with the loss survey
+  (`LOST_COPY.survey.url`, in a new tab) as its one card. The candidate's
   answer is not echoed as a bubble: the opener is display-only.
 - Home also leads its card deck with `campaign-manager/ElectionResultHomeCard.tsx`
   while the question is open, so it survives closing the chat: the question,
@@ -53,8 +54,8 @@ ask while it holds; answering either saves `wonGeneral`, which closes both.
 
 The survey card (`components/SurveyCard.tsx`) links to a HubSpot feedback
 survey in a new tab: one for losers (`LOST_COPY.survey`), another for
-never-Pro winners (`WON_COPY.withoutPro.survey`). The chat's thank you (C4)
-still points to the community.
+never-Pro winners (`WON_COPY.withoutPro.survey`). Every result endpoint
+leads to one of the two, the chat's thank you (C4) included.
 
 "Ever Pro" is `campaignWasEverPro` from `@goodparty_org/contracts`, the rule
 gp-api's `GET /v1/elected-office/mine` uses for the dashboard redirect:
