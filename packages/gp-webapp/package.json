@@ -208,6 +208,7 @@
     "postcss": "^8.5.11",
     "prettier": "^3.8.3",
     "tsx": "^4.22.3",
+    "vite": "^8.1.0",
     "vite-tsconfig-paths": "^6.0.5",
     "vitest": "^5.1.0",
     "xml2js": "^0.6.2"
