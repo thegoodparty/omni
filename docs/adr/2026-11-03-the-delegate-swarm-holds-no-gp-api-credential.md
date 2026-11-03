@@ -3,7 +3,7 @@ title: The Delegate swarm holds no gp-api credential; it reads #tevyn-api and wr
 status: active
 decided_by: [tomer-tgp]
 date: 2026-11-03
-code: ['#TBD']
+code: ['#3552']
 scope:
   - packages/gp-api/src/authentication/**
   - packages/gp-api/src/outreach/**
