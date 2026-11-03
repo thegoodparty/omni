@@ -3,8 +3,13 @@ import { TcrComplianceStatus } from '@/generated/prisma'
 import { useTestService } from '@/test-service'
 import { PeerlyBaseConfig } from '@/vendors/peerly/config/peerlyBaseConfig'
 import { VendorMockRecordService } from '@/vendorMocks/vendorMockRecord.service'
+import { ForwardEmailService } from '@/vendors/forwardEmail/services/forwardEmail.service'
 import { TestFixtureStateResponseSchema } from '@goodparty_org/contracts'
-import { BadRequestException, HttpStatus } from '@nestjs/common'
+import {
+  BadGatewayException,
+  BadRequestException,
+  HttpStatus,
+} from '@nestjs/common'
 import type { AddressInfo } from 'node:net'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { TestFixturesService } from './services/testFixtures.service'
@@ -95,6 +100,15 @@ describe('pro-win-10dlc-mock fixture state', () => {
       service.app.get(AreaCodeFromZipService),
       'getAreaCodeFromZip',
     ).mockResolvedValue(['512'])
+    // ForwardEmail has no vendor mock, so the purchase's email forwarding
+    // step would call api.forwardemail.net with .env.test's placeholder token.
+    // Those 401s take up to 10s each and pushed this test past its bound.
+    // Refuse the same way, without the network.
+    const forwardEmail = service.app.get(ForwardEmailService)
+    vi.spyOn(forwardEmail, 'getDomain').mockResolvedValue(null)
+    vi.spyOn(forwardEmail, 'addDomain').mockRejectedValue(
+      new BadGatewayException('Failed to communicate with Forward Email API'),
+    )
     vi.spyOn(
       PeerlyBaseConfig.prototype,
       'accountNumber',

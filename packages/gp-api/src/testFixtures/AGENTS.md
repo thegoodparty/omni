@@ -64,11 +64,16 @@ purchase, publish, `verifyLive`, the CV pre-submission override
 (`overrideCvValidation`, the same call as the `cv-validation/override` route),
 `submitToPeerlyForAgent`, `peerly.cv.approve`, the PIN (`123456`), `peerly.usecase.activate`
 and the activation check. It ends by asserting stage `tcr_approved` and a
-`peerlyIdentityId`, and takes about 4 seconds. `POST /users` also accepts the state.
+`peerlyIdentityId`, and takes about 4 seconds, 3 of them one registrar order
+poll interval. `POST /users` also accepts the state.
 
 - The purchase call blocks until the Vercel mock completes the order (30s after
   the buy), so a short loop calls `VendorMockRecordService.completeVercelOrders`
   until the purchase settles.
+- The purchase's email forwarding step calls the real ForwardEmail API, which
+  has no vendor mock. The step is best-effort, so a refusal there doesn't stop
+  the fixture. The route test stubs `ForwardEmailService`: with `.env.test`'s
+  placeholder token, each 401 took up to 10s and broke the test's 10s bound.
 - It 400s unless `VENDOR_MODE=mock`: live mode would buy a real domain and file a
   real Campaign Verify request. The route also 404s off a non-prod deploy and
   only runs for the signed-in test user's own id.
